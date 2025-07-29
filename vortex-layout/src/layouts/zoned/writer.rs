@@ -16,7 +16,7 @@ use crate::layouts::zoned::zone_map::StatsAccumulator;
 use crate::segments::SegmentSink;
 use crate::sequence::{SequenceId, SequencePointer};
 use crate::{
-    ArrayStreamSequentialExt, IntoLayout, LayoutRef, LayoutStrategy, SendableSequentialStream,
+    ArrayStreamSequentialExt, IntoLayout, LayoutRef, LayoutStrategy, SequentialArrayStream,
     SequentialStreamAdapter, SequentialStreamExt, TaskExecutor, TaskExecutorExt,
 };
 
@@ -75,7 +75,7 @@ impl LayoutStrategy for ZonedStrategy {
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
-        stream: SendableSequentialStream,
+        stream: SequentialArrayStream,
     ) -> VortexResult<LayoutRef> {
         let executor = self.executor.clone();
         let stats = self.options.stats.clone();

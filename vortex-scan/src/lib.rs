@@ -1,18 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
-use std::sync::Arc;
-
+use futures::StreamExt;
+use futures::executor::block_on;
 use futures::future::BoxFuture;
 use itertools::Itertools;
 pub use multi_scan::*;
 pub use selection::*;
 pub use split_by::*;
+use std::ops::Range;
+use std::sync::Arc;
 use tasks::{TaskContext, split_exec};
 use vortex_array::ArrayRef;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::stats::StatsSet;
+use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
 use vortex_error::{VortexResult, vortex_bail};

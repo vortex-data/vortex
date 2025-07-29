@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use futures_util::stream::Map;
+use futures_util::{StreamExt, TryStreamExt};
 use std::future::Future;
-
-use futures_util::TryStreamExt;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::arrays::ChunkedArray;
-use crate::stream::{ArrayStream, SendableArrayStream};
+use crate::stream::{ArrayStream, ArrayStreamAdapter, SendableArrayStream};
 
 pub trait ArrayStreamExt: ArrayStream {
     /// Box the [`ArrayStream`] so that it can be sent between threads.

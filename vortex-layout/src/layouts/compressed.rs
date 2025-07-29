@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use crate::segments::SegmentSink;
 use crate::{
-    LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
+    LayoutRef, LayoutStrategy, SequentialArrayStream, SequentialStreamAdapter,
     SequentialStreamExt as _, TaskExecutor, TaskExecutorExt as _,
 };
 use async_trait::async_trait;
@@ -42,7 +42,7 @@ impl LayoutStrategy for BtrBlocksCompressedStrategy {
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
-        stream: SendableSequentialStream,
+        stream: SequentialArrayStream,
     ) -> VortexResult<LayoutRef> {
         let executor = self.executor.clone();
 

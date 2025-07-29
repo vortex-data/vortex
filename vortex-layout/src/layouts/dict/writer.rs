@@ -22,7 +22,7 @@ use crate::layouts::chunked::ChunkedLayout;
 use crate::segments::SegmentSink;
 use crate::sequence::{SequenceId, SequencePointer};
 use crate::{
-    IntoLayout, LayoutRef, LayoutStrategy, OwnedLayoutChildren, SendableSequentialStream,
+    IntoLayout, LayoutRef, LayoutStrategy, OwnedLayoutChildren, SequentialArrayStream,
     SequentialStreamAdapter, SequentialStreamExt, TaskExecutor, TaskExecutorExt as _,
 };
 
@@ -82,7 +82,7 @@ impl LayoutStrategy for DictStrategy {
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
-        stream: SendableSequentialStream,
+        stream: SequentialArrayStream,
     ) -> VortexResult<LayoutRef> {
         if !dict_layout_supported(stream.dtype()) {
             return self.fallback.write_stream(ctx, segment_sink, stream).await;
@@ -189,7 +189,7 @@ enum DictionaryChunk {
 type DictionaryStream = BoxStream<'static, VortexResult<DictionaryChunk>>;
 
 fn dict_encode_stream(
-    input: SendableSequentialStream,
+    input: SequentialArrayStream,
     constraints: DictConstraints,
 ) -> DictionaryStream {
     Box::pin(try_stream! {

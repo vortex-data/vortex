@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::StreamExt;
-use futures::stream::once;
 use vortex_array::ArrayContext;
+use vortex_array::stream::ArrayStream;
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::children::OwnedLayoutChildren;
@@ -14,8 +14,7 @@ use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::flat::writer::FlatLayoutStrategy;
 use crate::segments::SegmentSink;
 use crate::{
-    IntoLayout, LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
-    SequentialStreamExt as _,
+    ArrayStreamSequentialExt, IntoLayout, LayoutRef, LayoutStrategy, SequentialArrayStream,
 };
 
 pub struct ChunkedLayoutStrategy {
@@ -37,7 +36,7 @@ impl LayoutStrategy for ChunkedLayoutStrategy {
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
-        mut stream: SendableSequentialStream,
+        mut stream: SequentialArrayStream,
     ) -> VortexResult<LayoutRef> {
         let chunk_strategy = self.chunk_strategy.clone();
         let ctx = ctx.clone();
@@ -46,17 +45,16 @@ impl LayoutStrategy for ChunkedLayoutStrategy {
 
         let dtype = stream.dtype().clone();
         while let Some(chunk) = stream.next().await {
-            let (sequence_id, chunk) = chunk?;
+            let chunk = chunk?;
             row_count += chunk.len() as u64;
+
             let layout = chunk_strategy
                 .write_stream(
                     &ctx,
                     segment_sink,
-                    SequentialStreamAdapter::new(
-                        dtype.clone(),
-                        once(async { Ok((sequence_id, chunk)) }),
-                    )
-                    .sendable(),
+                    chunk
+                        .to_array_stream()
+                        .sequenced(stream.sequence_id().descend()),
                 )
                 .await?;
             child_layouts.push(layout);

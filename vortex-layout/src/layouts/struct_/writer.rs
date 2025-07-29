@@ -11,6 +11,7 @@ use futures::future::try_join_all;
 use futures::{Stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use parking_lot::Mutex;
+use vortex_array::stream::ArrayStream;
 use vortex_array::{Array, ArrayContext, ToCanonical};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 use vortex_utils::aliases::DefaultHashBuilder;
@@ -18,10 +19,7 @@ use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSink;
-use crate::{
-    IntoLayout as _, LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
-    SequentialStreamExt,
-};
+use crate::{IntoLayout as _, LayoutRef, LayoutStrategy, SequentialArrayStream};
 
 pub struct StructStrategy {
     child: Arc<dyn LayoutStrategy>,
@@ -40,7 +38,7 @@ impl LayoutStrategy for StructStrategy {
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
-        stream: SendableSequentialStream,
+        stream: SequentialArrayStream,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         let Some(struct_dtype) = stream.dtype().as_struct().cloned() else {
@@ -54,27 +52,23 @@ impl LayoutStrategy for StructStrategy {
         }
 
         let stream = stream.map(|chunk| {
-            let (sequence_id, chunk) = chunk?;
-            if !chunk.all_valid()? {
+            if !chunk?.all_valid()? {
                 vortex_bail!("Cannot push struct chunks with top level invalid values");
             };
-            Ok((sequence_id, chunk))
+            Ok(chunk)
         });
 
         // There are now fields so this is the layout leaf
         if struct_dtype.nfields() == 0 {
             let row_count = stream
-                .try_fold(
-                    0u64,
-                    |acc, (_, arr)| async move { Ok(acc + arr.len() as u64) },
-                )
+                .try_fold(0u64, |acc, arr| async move { Ok(acc + arr.len() as u64) })
                 .await?;
             return Ok(StructLayout::new(row_count, dtype, vec![]).into_layout());
         }
 
         // stream<struct_chunk> -> stream<vec<column_chunk>>
         let columns_vec_stream = stream.map(|chunk| {
-            let (sequence_id, chunk) = chunk?;
+            let chunk = chunk?;
             let mut sequence_pointer = sequence_id.descend();
             let struct_chunk = chunk.to_struct()?;
             let columns: Vec<_> = (0..struct_chunk.struct_fields().nfields())

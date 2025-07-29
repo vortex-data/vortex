@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::stats::{Precision, Stat, StatsProvider};
+use vortex_array::stream::ArrayStream;
 use vortex_array::{Array, ArrayContext};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
@@ -13,7 +14,7 @@ use vortex_scalar::{BinaryScalar, Utf8Scalar};
 use crate::layouts::flat::FlatLayout;
 use crate::layouts::zoned::{lower_bound, upper_bound};
 use crate::segments::SegmentSink;
-use crate::{IntoLayout, LayoutRef, LayoutStrategy, SendableSequentialStream};
+use crate::{IntoLayout, LayoutRef, LayoutStrategy, SequentialArrayStream};
 
 #[derive(Clone)]
 pub struct FlatLayoutStrategy {
@@ -38,7 +39,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
-        mut stream: SendableSequentialStream,
+        mut stream: SequentialArrayStream,
     ) -> VortexResult<LayoutRef> {
         let ctx = ctx.clone();
         let options = self.clone();
@@ -46,7 +47,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
         let Some(chunk) = stream.next().await else {
             vortex_bail!("flat layout needs a single chunk");
         };
-        let (sequence_id, chunk) = chunk?;
+        let chunk = chunk?;
 
         let row_count = chunk.len() as u64;
 
@@ -120,7 +121,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
                 include_padding: options.include_padding,
             },
         )?;
-        let segment_id = segment_sink.write(sequence_id, buffers).await?;
+        let segment_id = segment_sink.write(stream.sequence_id(), buffers).await?;
 
         let None = stream.next().await else {
             vortex_bail!("flat layout received stream with more than a single chunk");
@@ -154,10 +155,10 @@ mod tests {
     use crate::segments::{SegmentSource, TestSegments};
     use crate::sequence::SequenceId;
     use crate::{
-        LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter, SequentialStreamExt as _,
+        LayoutStrategy, SequentialArrayStream, SequentialStreamAdapter, SequentialStreamExt as _,
     };
 
-    fn stream_only(array: ArrayRef) -> SendableSequentialStream {
+    fn stream_only(array: ArrayRef) -> SequentialArrayStream {
         SequentialStreamAdapter::new(
             array.dtype().clone(),
             stream::once(async move { Ok((SequenceId::root().downgrade(), array)) }),

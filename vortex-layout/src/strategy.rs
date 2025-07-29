@@ -7,11 +7,10 @@
 //! all while remaining independent of the read code.
 
 use async_trait::async_trait;
-use futures::{Stream, TryStreamExt};
-use pin_project_lite::pin_project;
+use futures::{Stream, StreamExt};
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use vortex_array::stream::ArrayStream;
+use vortex_array::stream::{ArrayStream, ArrayStreamExt, SendableArrayStream};
 use vortex_array::{ArrayContext, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -20,34 +19,6 @@ use crate::LayoutRef;
 use crate::segments::SegmentSink;
 use crate::sequence::{SequenceId, SequencePointer};
 
-pub trait ArrayStreamSequentialExt: ArrayStream {
-    /// Convert an [`ArrayStream`] into a [`SequentialStream`].
-    fn sequenced(self, mut sequence_ptr: SequencePointer) -> SendableSequentialStream
-    where
-        Self: Sized + Send + 'static,
-    {
-        SequentialStreamAdapter::new(
-            self.dtype().clone(),
-            self.map_ok(move |chunk| (sequence_ptr.advance(), chunk)),
-        )
-        .sendable()
-    }
-}
-
-impl<S: ArrayStream> ArrayStreamSequentialExt for S {}
-
-pub trait SequentialStream: Stream<Item = VortexResult<(SequenceId, ArrayRef)>> {
-    fn dtype(&self) -> &DType;
-}
-
-pub type SendableSequentialStream = Pin<Box<dyn SequentialStream + Send>>;
-
-impl SequentialStream for SendableSequentialStream {
-    fn dtype(&self) -> &DType {
-        (**self).dtype()
-    }
-}
-
 #[async_trait(?Send)]
 pub trait LayoutStrategy: 'static + Send + Sync {
     /// Write a stream of arrays to the layout.
@@ -55,68 +26,77 @@ pub trait LayoutStrategy: 'static + Send + Sync {
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
-        stream: SendableSequentialStream,
+        stream: SequentialArrayStream,
     ) -> VortexResult<LayoutRef>;
 }
 
-pub trait SequentialStreamExt: SequentialStream {
-    // not named boxed to prevent clashing with StreamExt
-    fn sendable(self) -> SendableSequentialStream
-    where
-        Self: Sized + Send + 'static,
-    {
-        Box::pin(self)
+/// A wrapper around an [`ArrayStream`] that emits arrays tagged with a sequence ID.
+pub struct SequentialArrayStream {
+    inner: SendableArrayStream,
+    pointer: SequencePointer,
+}
+
+impl SequentialArrayStream {
+    pub fn new(inner: SendableArrayStream, pointer: SequencePointer) -> Self {
+        Self { inner, pointer }
+    }
+
+    pub fn sequence_id(&mut self) -> SequenceId {
+        self.pointer.advance()
+    }
+
+    /// Returns a new stream and a [`SequencePointer`], where the sequence pointer is guaranteed
+    /// to be ordered after all elements of the returned stream.
+    pub fn split_off(mut self) -> (Self, SequencePointer) {
+        // We take our current sequence ID and descend.
+        let mut ptr = self.sequence_id().descend();
+        // We advance twice to get two sibling pointers.
+        let first = ptr.advance();
+        let second = ptr.advance();
+
+        // Now we re-wrap our stream with the descendents of the first pointer, ensuring all
+        // elements of `second` are after all elements of `first`.
+        self.pointer = first.descend();
+
+        (self, second.descend())
+    }
+
+    /// Map the stream including a [`SequenceId`] with each element.
+    pub fn map(mut self) -> impl Stream<Item = VortexResult<(SequenceId, ArrayRef)>> {
+        self.inner.map(move |array| {
+            let sequence_id = self.sequence_id();
+            Ok((sequence_id, array))
+        })
     }
 }
 
-impl<S: SequentialStream> SequentialStreamExt for S {}
-
-pin_project! {
-    pub struct SequentialStreamAdapter<S> {
-        dtype: DType,
-        #[pin]
-        inner: S,
-    }
-}
-
-impl<S> SequentialStreamAdapter<S> {
-    pub fn new(dtype: DType, inner: S) -> Self {
-        Self { dtype, inner }
-    }
-}
-
-impl<S> SequentialStream for SequentialStreamAdapter<S>
-where
-    S: Stream<Item = VortexResult<(SequenceId, ArrayRef)>>,
-{
+impl ArrayStream for SequentialArrayStream {
     fn dtype(&self) -> &DType {
-        &self.dtype
+        self.inner.dtype()
     }
 }
 
-impl<S> Stream for SequentialStreamAdapter<S>
-where
-    S: Stream<Item = VortexResult<(SequenceId, ArrayRef)>>,
-{
-    type Item = VortexResult<(SequenceId, ArrayRef)>;
+impl Stream for SequentialArrayStream {
+    type Item = VortexResult<ArrayRef>;
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = self.project();
-        let array = futures::ready!(this.inner.poll_next(cx));
-        if let Some(Ok((_, array))) = array.as_ref() {
-            assert_eq!(
-                array.dtype(),
-                this.dtype,
-                "Sequential stream of {} got chunk of {}.",
-                array.dtype(),
-                this.dtype
-            );
-        }
-
-        Poll::Ready(array)
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.inner.poll_next_unpin(cx)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.inner.size_hint()
     }
 }
+
+/// Extension trait for [`ArrayStream`] to convert it into a sequential stream.
+pub trait ArrayStreamSequentialExt: ArrayStream {
+    /// Convert an [`ArrayStream`] into a [`SequentialStream`].
+    fn sequenced(self, sequence_ptr: SequencePointer) -> SequentialArrayStream
+    where
+        Self: Sized + Send + 'static,
+    {
+        SequentialArrayStream::new(ArrayStreamExt::boxed(self), sequence_ptr)
+    }
+}
+
+impl<S: ArrayStream> ArrayStreamSequentialExt for S {}

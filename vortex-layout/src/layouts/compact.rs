@@ -17,7 +17,7 @@ use vortex_zstd::ZstdArray;
 use crate::executor::{TaskExecutor, TaskExecutorExt as _};
 use crate::segments::SegmentSink;
 use crate::{
-    LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
+    LayoutRef, LayoutStrategy, SequentialArrayStream, SequentialStreamAdapter,
     SequentialStreamExt as _,
 };
 
@@ -189,7 +189,7 @@ impl LayoutStrategy for CompactCompressedStrategy {
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
-        stream: SendableSequentialStream,
+        stream: SequentialArrayStream,
     ) -> VortexResult<LayoutRef> {
         let executor = self.executor.clone();
 
