@@ -37,4 +37,3 @@ impl MaskKernel for DateTimePartsVTable {
 }
 
 register_kernel!(MaskKernelAdapter(DateTimePartsVTable).lift());
-
