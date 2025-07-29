@@ -141,7 +141,7 @@ mod consistency_tests {
     ).unwrap())]
     // Large arrays (> 1024 elements for fastlanes chunking)
     #[case::for_large(FoRArray::try_new(
-        PrimitiveArray::from_iter((0..1500).map(|i| 5000 + i as i32)).into_array(),
+        PrimitiveArray::from_iter((0..1500).map(|i| 5000 + i)).into_array(),
         Scalar::from(5000i32)
     ).unwrap())]
     #[case::for_very_large(FoRArray::try_new(
@@ -149,7 +149,7 @@ mod consistency_tests {
         Scalar::from(10000i64)
     ).unwrap())]
     #[case::for_large_nullable(FoRArray::try_new(
-        PrimitiveArray::from_option_iter((0..2048).map(|i| if i % 15 == 0 { None } else { Some(1000 + i as i32) })).into_array(),
+        PrimitiveArray::from_option_iter((0..2048).map(|i| (i % 15 == 0).then_some(1000 + i))).into_array(),
         Scalar::from(1000i32)
     ).unwrap())]
     // Arrays with large deltas from reference

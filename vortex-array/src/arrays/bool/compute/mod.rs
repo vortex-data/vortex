@@ -32,9 +32,7 @@ mod tests {
     // Large arrays
     #[case::large_alternating(BoolArray::from_iter((0..2000).map(|i| i % 2 == 0)))]
     #[case::large_sparse_true(BoolArray::from_iter((0..2000).map(|i| i % 100 == 0)))]
-    #[case::large_nullable(BoolArray::from_iter((0..2000).map(|i| 
-        if i % 10 == 0 { None } else { Some(i % 3 == 0) }
-    )))]
+    #[case::large_nullable(BoolArray::from_iter((0..2000).map(|i| (i % 10 == 0).then_some(i % 3 == 0))))]
     // Patterns
     #[case::runs_pattern(BoolArray::from_iter(
         [true, true, true, false, false, false, true, true, true, false, false, false]

@@ -186,7 +186,7 @@ mod consistency_tests {
     use std::sync::Arc;
 
     use rstest::rstest;
-    use vortex_dtype::{DType, ExtDType, ExtID, Nullability, PType};
+    use vortex_dtype::{ExtDType, ExtID};
 
     use crate::IntoArray;
     use crate::arrays::{ExtensionArray, PrimitiveArray};
