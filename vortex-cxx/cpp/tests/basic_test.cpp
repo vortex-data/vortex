@@ -3,6 +3,8 @@
 
 #include <gtest/gtest.h>
 #include <filesystem>
+#include <thread>
+#include <iostream>
 
 #include "vortex/file.hpp"
 #include "vortex/scan.hpp"
@@ -50,24 +52,36 @@ protected:
     nanoarrow::UniqueArrayView CreateArrayView(const nanoarrow::UniqueArray &array,
                                                const nanoarrow::UniqueSchema &schema) {
         nanoarrow::UniqueArrayView array_view;
-        ArrowErrorCode init_result = ArrowArrayViewInitFromSchema(array_view.get(), schema.get(), nullptr);
-        EXPECT_EQ(init_result, NANOARROW_OK);
+        ArrowError error;
+        ArrowErrorCode init_result = ArrowArrayViewInitFromSchema(array_view.get(), schema.get(), &error);
+        if (init_result != NANOARROW_OK) {
+            std::cerr << "Error: " << error.message << std::endl;
+            std::abort();
+        }
         ArrowErrorCode set_result = ArrowArrayViewSetArray(array_view.get(), array.get(), nullptr);
-        EXPECT_EQ(set_result, NANOARROW_OK);
+        if (set_result != NANOARROW_OK) {
+            std::cerr << "Error: " << error.message << std::endl;
+            std::abort();
+        }
         return array_view;
     }
 
-    // Helper function to create array stream and get schema
     std::pair<nanoarrow::UniqueArrayStream, nanoarrow::UniqueSchema>
     CreateArrayStreamWithSchema(ArrowArrayStream &stream) {
         nanoarrow::UniqueArrayStream array_stream;
         ArrowArrayStreamMove(&stream, array_stream.get());
 
-        nanoarrow::UniqueSchema schema;
-        int get_schema_result = array_stream->get_schema(array_stream.get(), schema.get());
-        EXPECT_EQ(get_schema_result, 0);
+        return {std::move(array_stream), GetSchemaFromArrayStream(array_stream.get())};
+    }
 
-        return {std::move(array_stream), std::move(schema)};
+    nanoarrow::UniqueSchema GetSchemaFromArrayStream(ArrowArrayStream *array_stream) {
+        nanoarrow::UniqueSchema schema;
+        int get_schema_result = array_stream->get_schema(array_stream, schema.get());
+        if (get_schema_result != NANOARROW_OK) {
+            std::cerr << "Error: " << array_stream->get_last_error(array_stream) << std::endl;
+            std::abort();
+        }
+        return schema;
     }
 
     // Helper function to validate basic array properties
@@ -220,4 +234,107 @@ TEST_F(VortexTest, WriteArrayStream) {
     ASSERT_EQ(get_next_result, 0);
 
     ValidateStructArray(array, schema);
+}
+
+TEST_F(VortexTest, ConcurrentMultiStreamRead) {
+    std::string test_data_path_1m = GetTestDataPath("test_data_1m.vortex");
+    vortex::ffi::testing::generate_test_vortex_file_1m(test_data_path_1m.c_str());
+
+    auto file = vortex::VortexFile::Open(test_data_path_1m);
+    auto stream_driver = file.CreateScanBuilder().IntoStreamDriver();
+
+    // Structure to hold batch data with first ID and nanoarrow array
+    struct BatchData {
+        int64_t first_id;
+        nanoarrow::UniqueArray array;
+
+        BatchData(int64_t first_id, nanoarrow::UniqueArray array)
+            : first_id(first_id), array(std::move(array)) {
+        }
+    };
+
+    std::vector<BatchData> thread1_batches;
+    std::vector<BatchData> thread2_batches;
+    auto stream_for_schema = stream_driver.CreateArrayStream();
+    auto schema = GetSchemaFromArrayStream(&stream_for_schema);
+
+    // Helper function to read from a stream and collect batches
+    auto read_stream = [&](std::vector<BatchData> &batches) {
+        // Each thread creates its own stream
+        auto stream = stream_driver.CreateArrayStream();
+        auto [array_stream, _] = CreateArrayStreamWithSchema(stream);
+
+        std::vector<BatchData> local_batches;
+
+        while (true) {
+            nanoarrow::UniqueArray array;
+            int get_next_result = array_stream->get_next(array_stream.get(), array.get());
+
+            if (get_next_result != 0) {
+                std::cerr << "Error: " << array_stream->get_last_error(array_stream.get()) << std::endl;
+                std::abort();
+            }
+
+            if (array->length == 0) {
+                break; // Empty array indicates end
+            }
+
+            auto array_view = CreateArrayView(array, schema);
+
+            int64_t first_id = ArrowArrayViewGetIntUnsafe(array_view->children[0], 0);
+
+            local_batches.emplace_back(first_id, std::move(array));
+        }
+        batches = std::move(local_batches);
+    };
+
+    // Launch two threads
+    std::thread thread1(read_stream, std::ref(thread1_batches));
+    std::thread thread2(read_stream, std::ref(thread2_batches));
+
+    // Wait for both threads to complete
+    thread1.join();
+    thread2.join();
+
+    // Combine all batches from both threads
+    std::vector<BatchData> all_batches;
+    all_batches.insert(all_batches.end(), std::make_move_iterator(thread1_batches.begin()),
+                       std::make_move_iterator(thread1_batches.end()));
+    all_batches.insert(all_batches.end(), std::make_move_iterator(thread2_batches.begin()),
+                       std::make_move_iterator(thread2_batches.end()));
+
+    // Sort batches by first ID to ensure proper validation order
+    std::sort(all_batches.begin(), all_batches.end(),
+              [](const BatchData &a, const BatchData &b) { return a.first_id < b.first_id; });
+
+    // Validate all data is sequential and correct
+    constexpr size_t EXPECTED_ROWS = static_cast<size_t>(1024) * 1024;
+    size_t total_rows_read = 0;
+    int64_t expected_next_id = 0;
+
+    for (const auto &batch : all_batches) {
+        // Create array view for this batch
+        auto array_view = CreateArrayView(batch.array, schema);
+
+        for (int64_t i = 0; i < batch.array->length; ++i) {
+            int64_t id = ArrowArrayViewGetIntUnsafe(array_view->children[0], i);
+            int32_t value = static_cast<int32_t>(ArrowArrayViewGetIntUnsafe(array_view->children[1], i));
+
+            ASSERT_EQ(id, expected_next_id) << "ID mismatch at position " << total_rows_read + i
+                                            << ": expected " << expected_next_id << ", got " << id;
+
+            ASSERT_EQ(value, static_cast<int32_t>(static_cast<size_t>(expected_next_id) * 2))
+                << "Value mismatch at position " << total_rows_read + i << ": expected "
+                << (expected_next_id * 2) << ", got " << value;
+
+            expected_next_id++;
+        }
+        total_rows_read += batch.array->length;
+    }
+
+    // Verify we read all expected data
+    ASSERT_EQ(total_rows_read, EXPECTED_ROWS)
+        << "Expected to read " << EXPECTED_ROWS << " rows, but read " << total_rows_read << " rows";
+
+    ASSERT_GT(all_batches.size(), 1) << "Expected multiple batches, but got " << all_batches.size();
 }

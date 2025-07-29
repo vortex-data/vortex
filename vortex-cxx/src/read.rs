@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use arrow_array::RecordBatchReader;
 use arrow_array::ffi::FFI_ArrowSchema;
 use arrow_array::ffi_stream::FFI_ArrowArrayStream;
 use arrow_schema::{Schema, SchemaRef};
@@ -38,6 +39,14 @@ mod ffi {
             builder: Box<VortexScanBuilder>,
             out_stream: *mut u8,
         ) -> Result<()>;
+        type ThreadsafeCloneableReader;
+        fn scan_builder_into_threadsafe_cloneable_reader(
+            builder: Box<VortexScanBuilder>,
+        ) -> Result<Box<ThreadsafeCloneableReader>>;
+        unsafe fn threadsafe_cloneable_reader_clone_a_stream(
+            reader: &ThreadsafeCloneableReader,
+            out_stream: *mut u8,
+        );
     }
 }
 
@@ -106,7 +115,7 @@ unsafe fn scan_builder_with_output_schema(
 
 /// # Safety
 ///
-/// out_stream should be properly aligned according to C ABI and valid for write.
+/// out_stream should be properly aligned according to the Arrow C stream interface and valid for write.
 unsafe fn scan_builder_into_stream(
     builder: Box<VortexScanBuilder>,
     out_stream: *mut u8,
@@ -118,7 +127,49 @@ unsafe fn scan_builder_into_stream(
     let stream = FFI_ArrowArrayStream::new(Box::new(reader));
     let out_stream = out_stream as *mut FFI_ArrowArrayStream;
     // # Safety
-    // Arrow C ABI
+    // Arrow C stream interface
     unsafe { std::ptr::write(out_stream, stream) };
     Ok(())
 }
+
+trait ThreadsafeCloneableReaderTrait: RecordBatchReader + Send + 'static {
+    fn clone_boxed(&self) -> Box<dyn ThreadsafeCloneableReaderTrait>;
+}
+
+impl<T> ThreadsafeCloneableReaderTrait for T
+where
+    T: RecordBatchReader + Send + Clone + 'static,
+{
+    fn clone_boxed(&self) -> Box<dyn ThreadsafeCloneableReaderTrait> {
+        Box::new(self.clone())
+    }
+}
+
+struct ThreadsafeCloneableReader {
+    inner: Box<dyn ThreadsafeCloneableReaderTrait>,
+}
+
+fn scan_builder_into_threadsafe_cloneable_reader(
+    builder: Box<VortexScanBuilder>,
+) -> Result<Box<ThreadsafeCloneableReader>, Box<dyn std::error::Error + Send + Sync>> {
+    let schema = builder
+        .output_schema
+        .unwrap_or_else(|| Arc::new(builder.inner.dtype().unwrap().to_arrow_schema().unwrap()));
+    let reader = builder.inner.into_record_batch_reader(schema)?;
+    Ok(Box::new(ThreadsafeCloneableReader {
+        inner: Box::new(reader),
+    }))
+}
+
+fn threadsafe_cloneable_reader_clone_a_stream(
+    reader: &ThreadsafeCloneableReader,
+    out_stream: *mut u8,
+) {
+    let cloned_reader = reader.inner.clone_boxed();
+    let stream = FFI_ArrowArrayStream::new(cloned_reader);
+    let out_stream = out_stream as *mut FFI_ArrowArrayStream;
+    // # Safety
+    // Arrow C stream interface
+    unsafe { std::ptr::write(out_stream, stream) };
+}
+

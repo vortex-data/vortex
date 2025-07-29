@@ -66,4 +66,42 @@ ArrowArrayStream ScanBuilder::IntoStream() {
         throw VortexException(e.what());
     }
 }
+
+StreamDriver ScanBuilder::IntoStreamDriver() {
+    try {
+        rust::Box<ffi::ThreadsafeCloneableReader> reader =
+            ffi::scan_builder_into_threadsafe_cloneable_reader(std::move(impl_->rust_impl));
+        return StreamDriver(std::make_unique<StreamDriver::Impl>(std::move(reader)));
+    } catch (const rust::cxxbridge1::Error &e) {
+        throw VortexException(e.what());
+    }
+}
+
+StreamDriver::StreamDriver(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {
+}
+
+StreamDriver::StreamDriver(StreamDriver &&other) noexcept : impl_(std::move(other.impl_)) {
+}
+
+StreamDriver &StreamDriver::operator=(StreamDriver &&other) noexcept {
+    if (this != &other) {
+        impl_ = std::move(other.impl_);
+    }
+    return *this;
+}
+
+StreamDriver::~StreamDriver() = default;
+
+struct StreamDriver::Impl {
+    rust::Box<ffi::ThreadsafeCloneableReader> rust_impl;
+
+    explicit Impl(rust::Box<ffi::ThreadsafeCloneableReader> impl) : rust_impl(std::move(impl)) {
+    }
+};
+
+ArrowArrayStream StreamDriver::CreateArrayStream() const {
+    ArrowArrayStream stream;
+    ffi::threadsafe_cloneable_reader_clone_a_stream(*impl_->rust_impl, reinterpret_cast<uint8_t *>(&stream));
+    return stream;
+}
 } // namespace vortex
