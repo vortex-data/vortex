@@ -18,10 +18,10 @@ use crate::{Array, ArrayRef};
 ///
 /// Returns a new array where `result[i] = if_true[i]` when `mask[i]` is true,
 /// otherwise `result[i] = if_false[i]`.
-pub fn zip(mask: &Mask, if_true: &dyn Array, if_false: &dyn Array) -> VortexResult<ArrayRef> {
+pub fn zip(if_true: &dyn Array, if_false: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
     ZIP_FN
         .invoke(&InvocationArgs {
-            inputs: &[mask.into(), if_true.into(), if_false.into()],
+            inputs: &[if_true.into(), if_false.into(), mask.into()],
             options: &(),
         })?
         .unwrap_array()
@@ -44,9 +44,9 @@ impl ComputeFnVTable for Zip {
         kernels: &[ArcRef<dyn Kernel>],
     ) -> VortexResult<Output> {
         let ZipArgs {
-            mask,
             if_true,
             if_false,
+            mask,
         } = ZipArgs::try_from(args)?;
 
         if mask.all_true() {
@@ -55,11 +55,6 @@ impl ComputeFnVTable for Zip {
 
         if mask.all_false() {
             return Ok(cast(if_false, &zip_return_dtype(if_true, if_false))?.into());
-        }
-
-        if if_true.is_canonical() && if_false.is_canonical() {
-            // skip kernel lookup if both arrays are canonical
-            return Ok(zip_impl(mask, if_true, if_false)?.into());
         }
 
         // check if if_true supports zip directly
@@ -77,9 +72,9 @@ impl ComputeFnVTable for Zip {
         //           kernel.invoke(Args(if_false, if_true, mask, invert_mask = true))
 
         Ok(zip_impl(
-            mask,
             if_true.to_canonical()?.as_ref(),
             if_false.to_canonical()?.as_ref(),
+            mask,
         )?
         .into())
     }
@@ -107,9 +102,9 @@ impl ComputeFnVTable for Zip {
 }
 
 struct ZipArgs<'a> {
-    mask: &'a Mask,
     if_true: &'a dyn Array,
     if_false: &'a dyn Array,
+    mask: &'a Mask,
 }
 
 impl<'a> TryFrom<&InvocationArgs<'a>> for ZipArgs<'a> {
@@ -119,21 +114,22 @@ impl<'a> TryFrom<&InvocationArgs<'a>> for ZipArgs<'a> {
         if value.inputs.len() != 3 {
             vortex_bail!("Expected 3 inputs for zip, found {}", value.inputs.len());
         }
-        let mask = value.inputs[0]
-            .mask()
-            .ok_or_else(|| vortex_err!("Expected input 0 to be a mask"))?;
+        let if_true = value.inputs[0]
+            .array()
+            .ok_or_else(|| vortex_err!("Expected input 0 to be an array"))?;
 
-        let if_true = value.inputs[1]
+        let if_false = value.inputs[1]
             .array()
             .ok_or_else(|| vortex_err!("Expected input 1 to be an array"))?;
 
-        let if_false = value.inputs[2]
-            .array()
-            .ok_or_else(|| vortex_err!("Expected input 2 to be an array"))?;
+        let mask = value.inputs[2]
+            .mask()
+            .ok_or_else(|| vortex_err!("Expected input 2 to be a mask"))?;
+
         Ok(Self {
-            mask,
             if_true,
             if_false,
+            mask,
         })
     }
 }
@@ -141,9 +137,9 @@ impl<'a> TryFrom<&InvocationArgs<'a>> for ZipArgs<'a> {
 pub trait ZipKernel: VTable {
     fn zip(
         &self,
-        mask: &Mask,
         if_true: &Self::Array,
         if_false: &dyn Array,
+        mask: &Mask,
     ) -> VortexResult<Option<ArrayRef>>;
 }
 
@@ -162,14 +158,14 @@ impl<V: VTable + ZipKernel> ZipKernelAdapter<V> {
 impl<V: VTable + ZipKernel> Kernel for ZipKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let ZipArgs {
-            mask,
             if_true,
             if_false,
+            mask,
         } = ZipArgs::try_from(args)?;
         let Some(if_true) = if_true.as_opt::<V>() else {
             return Ok(None);
         };
-        Ok(V::zip(&self.0, mask, if_true, if_false)?.map(Into::into))
+        Ok(V::zip(&self.0, if_true, if_false, mask)?.map(Into::into))
     }
 }
 
@@ -179,16 +175,16 @@ pub(crate) fn zip_return_dtype(if_true: &dyn Array, if_false: &dyn Array) -> DTy
         .union_nullability(if_false.dtype().nullability())
 }
 
-fn zip_impl(mask: &Mask, if_true: &dyn Array, if_false: &dyn Array) -> VortexResult<ArrayRef> {
+fn zip_impl(if_true: &dyn Array, if_false: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
     // if_true.len() == if_false.len() from ComputeFn::invoke
     let builder = builder_with_capacity(&zip_return_dtype(if_true, if_false), if_true.len());
-    zip_impl_with_builder(mask, if_true, if_false, builder)
+    zip_impl_with_builder(if_true, if_false, mask, builder)
 }
 
 pub(crate) fn zip_impl_with_builder(
-    mask: &Mask,
     if_true: &dyn Array,
     if_false: &dyn Array,
+    mask: &Mask,
     mut builder: Box<dyn ArrayBuilder>,
 ) -> VortexResult<ArrayRef> {
     match mask.slices() {
@@ -221,7 +217,7 @@ mod tests {
         let if_true = PrimitiveArray::from_iter([10, 20, 30, 40, 50]).into_array();
         let if_false = PrimitiveArray::from_iter([1, 2, 3, 4, 5]).into_array();
 
-        let result = zip(&mask, &if_true, &if_false).unwrap();
+        let result = zip(&if_true, &if_false, &mask).unwrap();
         let expected = PrimitiveArray::from_iter([10, 2, 3, 40, 5]);
 
         assert_eq!(
@@ -237,7 +233,7 @@ mod tests {
         let if_false =
             PrimitiveArray::from_option_iter([Some(1), Some(2), Some(3), None]).into_array();
 
-        let result = zip(&mask, &if_true, &if_false).unwrap();
+        let result = zip(&if_true, &if_false, &mask).unwrap();
 
         assert_eq!(
             result.to_primitive().unwrap().as_slice::<i32>(),
@@ -255,6 +251,6 @@ mod tests {
         let if_true = PrimitiveArray::from_iter([10, 20, 30]).into_array();
         let if_false = PrimitiveArray::from_iter([1, 2, 3, 4]).into_array();
 
-        zip(&mask, &if_true, &if_false).unwrap();
+        zip(&if_true, &if_false, &mask).unwrap();
     }
 }
