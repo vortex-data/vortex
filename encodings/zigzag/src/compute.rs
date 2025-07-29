@@ -210,7 +210,7 @@ mod tests {
     #[case(buffer![42i32].into_array())]
     fn test_take_zigzag_conformance(#[case] array: ArrayRef) {
         use vortex_array::compute::conformance::take::test_take_conformance;
-        
+
         let zigzag = ZigZagEncoding
             .encode(&array.to_canonical().unwrap(), None)
             .unwrap()
