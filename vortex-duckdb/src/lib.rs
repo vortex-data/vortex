@@ -43,9 +43,17 @@ pub fn register_table_functions(conn: &Connection) -> VortexResult<()> {
     conn.register_copy_function::<VortexCopyFunction>(c"vortex", c"vortex")
 }
 
+/// Global symbol visibility in the Vortex extension:
+/// - Rust functions use C ABI with "_rust" suffix (e.g., vortex_init_rust)
+/// - C++ wrapper functions have the expected name without suffix (e.g., vortex_init)
+/// - C++ wrappers are annotated with DUCKDB_EXTENSION_API to ensure global visibility
+/// - C++ wrappers call the corresponding Rust functions
+///
+/// This ensures DuckDB can find the symbols when loading the extension.
+///
 /// The DuckDB extension ABI initialization function.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vortex_init(db: cpp::duckdb_database) {
+pub unsafe extern "C" fn vortex_init_rust(db: cpp::duckdb_database) {
     let conn = unsafe { Database::borrow(db) }
         .connect()
         .vortex_expect("Failed to connect to DuckDB database");
@@ -55,13 +63,13 @@ pub unsafe extern "C" fn vortex_init(db: cpp::duckdb_database) {
 /// The DuckDB extension ABI version function.
 /// This function returns the version of the DuckDB library the extension is built against.
 #[unsafe(no_mangle)]
-pub extern "C" fn vortex_version() -> *const c_char {
+pub extern "C" fn vortex_version_rust() -> *const c_char {
     unsafe { cpp::duckdb_library_version() }
 }
 
 /// An additional function we export to expose the version of the extension itself to C++ code.
 #[unsafe(no_mangle)]
-pub extern "C" fn vortex_extension_version() -> *const c_char {
+pub extern "C" fn vortex_extension_version_rust() -> *const c_char {
     // We do some fiddly macros here to get ourselves a _static_ C-style string.
     // Otherwise, we'd be leaking memory.
     unsafe {
