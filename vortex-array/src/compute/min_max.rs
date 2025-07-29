@@ -9,6 +9,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
 use crate::Array;
+use crate::arrays::ConstantVTable;
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, UnaryArgs};
 use crate::stats::{Precision, Stat, StatsProviderExt};
 use crate::vtable::VTable;
@@ -126,6 +127,15 @@ fn min_max_impl(
 ) -> VortexResult<Option<MinMaxResult>> {
     if array.is_empty() || array.valid_count()? == 0 {
         return Ok(None);
+    }
+
+    if let Some(array) = array.as_opt::<ConstantVTable>() {
+        if !array.scalar().is_null() {
+            return Ok(Some(MinMaxResult {
+                min: array.scalar().clone(),
+                max: array.scalar().clone(),
+            }));
+        }
     }
 
     let min = array

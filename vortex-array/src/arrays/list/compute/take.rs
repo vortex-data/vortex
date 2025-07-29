@@ -12,7 +12,7 @@ use crate::builders::{ArrayBuilder, PrimitiveBuilder};
 use crate::compute::{TakeKernel, TakeKernelAdapter, take};
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
+use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 
 impl TakeKernel for ListVTable {
     fn take(&self, array: &ListArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
@@ -21,14 +21,13 @@ impl TakeKernel for ListVTable {
 
         match_each_integer_ptype!(offsets.dtype().as_ptype(), |O| {
             match_each_integer_ptype!(indices.ptype(), |I| {
-                Ok(_take::<I, O>(
+                _take::<I, O>(
                     array,
                     offsets.as_slice::<O>(),
                     &indices,
                     array.validity_mask()?,
                     indices.validity_mask()?,
-                )?
-                .into_array())
+                )
             })
         })
     }

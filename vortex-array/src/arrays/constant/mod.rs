@@ -7,7 +7,7 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::stats::{ArrayStats, StatsSet, StatsSetRef};
+use crate::stats::{ArrayStats, StatsSetRef};
 use crate::vtable::{
     ArrayVTable, NotSupported, OperationsVTable, VTable, ValidityVTable, VisitorVTable,
 };
@@ -61,11 +61,10 @@ impl ConstantArray {
         S: Into<Scalar>,
     {
         let scalar = scalar.into();
-        let stats = StatsSet::constant(scalar.clone(), len);
         Self {
             scalar,
             len,
-            stats_set: ArrayStats::from(stats),
+            stats_set: Default::default(),
         }
     }
 
