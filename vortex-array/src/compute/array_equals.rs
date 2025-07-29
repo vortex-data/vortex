@@ -28,7 +28,10 @@ pub fn array_equals_opts(
     Ok(ARRAY_EQUALS_FN
         .invoke(&InvocationArgs {
             inputs: &[left.into(), right.into()],
-            options: &ArrayEqualsOptions { ignore_nullability },
+            options: &ArrayEqualsOptions {
+                ignore_nullability,
+                batch_size: None,
+            },
         })?
         .unwrap_scalar()?
         .as_bool()
@@ -39,6 +42,7 @@ pub fn array_equals_opts(
 #[derive(Clone, Copy)]
 struct ArrayEqualsOptions {
     ignore_nullability: bool,
+    batch_size: Option<usize>,
 }
 
 impl Options for ArrayEqualsOptions {
@@ -66,6 +70,7 @@ impl ComputeFnVTable for ArrayEquals {
             left,
             right,
             ignore_nullability,
+            batch_size,
         } = ArrayEqualsArgs::try_from(args)?;
 
         if ignore_nullability && !left.dtype().eq_ignore_nullability(right.dtype()) {
@@ -90,33 +95,17 @@ impl ComputeFnVTable for ArrayEquals {
             return Ok(Scalar::from(true).into());
         }
 
-        for stat in [
-            Stat::IsConstant,
-            Stat::IsSorted,
-            Stat::IsStrictSorted,
-            Stat::Max, // todo: can we do that with e.g. float errors?
-            Stat::Min,
-            Stat::Sum,
-            Stat::NullCount,
-            Stat::NaNCount,
-            // No Stat::UncompressedSizeInBytes because arrays may physically differ and has a different metric
-        ] {
-            let Some(Precision::Exact(left_v)) = left.statistics().get(stat) else {
-                continue;
-            };
-
-            let Some(Precision::Exact(right_v)) = right.statistics().get(stat) else {
-                continue;
-            };
-
-            if !left_v.eq(&right_v) {
-                return Ok(Scalar::from(false).into());
-            }
+        // Check statistics for early exit
+        if !check_stats_equality(left, right) {
+            return Ok(Scalar::from(false).into());
         }
 
         let args = InvocationArgs {
             inputs: &[left.into(), right.into()],
-            options: &ArrayEqualsOptions { ignore_nullability },
+            options: &ArrayEqualsOptions {
+                ignore_nullability,
+                batch_size,
+            },
         };
 
         for kernel in kernels {
@@ -132,75 +121,31 @@ impl ComputeFnVTable for ArrayEquals {
         // Try swapping arguments
         let swapped_args = InvocationArgs {
             inputs: &[right.into(), left.into()],
-            options: &ArrayEqualsOptions { ignore_nullability },
+            options: &ArrayEqualsOptions {
+                ignore_nullability,
+                batch_size,
+            },
         };
         if let Some(output) = right.invoke(&ARRAY_EQUALS_FN, &swapped_args)? {
             return Ok(output);
         }
 
         // Try canonical arrays if not already canonical
-        let canonical_equals = if !left.is_canonical() || !right.is_canonical() {
+        if !left.is_canonical() || !right.is_canonical() {
             let left_canonical = left.to_canonical()?;
             let right_canonical = right.to_canonical()?;
 
-            array_equals_opts(
+            return Ok(Scalar::from(array_equals_opts(
                 left_canonical.as_ref(),
                 right_canonical.as_ref(),
                 ignore_nullability,
-            )?
-        } else {
-            // Fallback to chunked comparison
-            const BATCH_SIZE: usize = 65536; // 64K elements per batch
+            )?)
+            .into());
+        }
 
-            let mut offset = 0;
-            while offset < left.len() {
-                let end = (offset + BATCH_SIZE).min(left.len());
-
-                let left_slice = left.slice(offset, end)?;
-                let right_slice = right.slice(offset, end)?;
-
-                let compare_result = compare(&left_slice, &right_slice, Operator::Eq)?;
-
-                // For array equality, we need to check if all values are equal
-                // This includes treating NULL == NULL as true
-                let all_equal = if let Some(constant_scalar) = compare_result.as_constant() {
-                    // If constant is true, all are equal
-                    constant_scalar.is_valid() && constant_scalar.as_bool().value() == Some(true)
-                } else {
-                    // Not constant - need to check each value
-                    let mut found_inequality = false;
-                    for i in 0..compare_result.len() {
-                        let cmp_scalar = compare_result.scalar_at(i)?;
-                        if cmp_scalar.is_valid() && cmp_scalar.as_bool().value() == Some(false) {
-                            // Found a definite inequality
-                            found_inequality = true;
-                            break;
-                        }
-                        // For null comparison results, we need to check the original values
-                        if cmp_scalar.is_null() {
-                            let left_val = left_slice.scalar_at(i)?;
-                            let right_val = right_slice.scalar_at(i)?;
-                            // If both are null, they're equal; if only one is null, they're not
-                            if left_val.is_null() != right_val.is_null() {
-                                found_inequality = true;
-                                break;
-                            }
-                        }
-                    }
-                    !found_inequality
-                };
-
-                if !all_equal {
-                    return Ok(Scalar::from(false).into());
-                }
-
-                offset = end;
-            }
-
-            true
-        };
-
-        Ok(Scalar::from(canonical_equals).into())
+        // Fallback to chunked comparison
+        let all_equal = compare_chunked(left, right, batch_size)?;
+        Ok(Scalar::from(all_equal).into())
     }
 
     fn return_dtype(&self, _args: &InvocationArgs) -> VortexResult<DType> {
@@ -230,6 +175,7 @@ struct ArrayEqualsArgs<'a> {
     left: &'a dyn Array,
     right: &'a dyn Array,
     ignore_nullability: bool,
+    batch_size: Option<usize>,
 }
 
 impl<'a> TryFrom<&InvocationArgs<'a>> for ArrayEqualsArgs<'a> {
@@ -260,6 +206,7 @@ impl<'a> TryFrom<&InvocationArgs<'a>> for ArrayEqualsArgs<'a> {
             left,
             right,
             ignore_nullability: options.ignore_nullability,
+            batch_size: options.batch_size,
         })
     }
 }
@@ -282,6 +229,7 @@ impl<V: VTable + ArrayEqualsKernel> Kernel for ArrayEqualsKernelAdapter<V> {
             left,
             right,
             ignore_nullability,
+            batch_size: _, // Not used in kernel adapters
         } = ArrayEqualsArgs::try_from(args)?;
 
         let Some(left) = left.as_opt::<V>() else {
@@ -293,10 +241,149 @@ impl<V: VTable + ArrayEqualsKernel> Kernel for ArrayEqualsKernelAdapter<V> {
     }
 }
 
+/// Compare arrays in chunks to avoid loading entire arrays into memory
+fn compare_chunked(
+    left: &dyn Array,
+    right: &dyn Array,
+    batch_size: Option<usize>,
+) -> VortexResult<bool> {
+    const DEFAULT_BATCH_SIZE: usize = 65536; // 64K elements per batch
+    let batch_size = batch_size.unwrap_or(DEFAULT_BATCH_SIZE);
+
+    let mut offset = 0;
+    while offset < left.len() {
+        let end = (offset + batch_size).min(left.len());
+
+        let left_slice = left.slice(offset, end)?;
+        let right_slice = right.slice(offset, end)?;
+
+        if !compare_batch(&left_slice, &right_slice)? {
+            return Ok(false);
+        }
+
+        offset = end;
+    }
+
+    Ok(true)
+}
+
+/// Compare a single batch of arrays
+fn compare_batch(left: &dyn Array, right: &dyn Array) -> VortexResult<bool> {
+    let compare_result = compare(left, right, Operator::Eq)?;
+
+    // Check if the comparison result indicates all equal
+    if let Some(all_equal) = check_constant_result(&compare_result)? {
+        return Ok(all_equal);
+    }
+
+    // Not constant - need to check each value
+    check_non_constant_result(&compare_result, left, right)
+}
+
+/// Check if a constant comparison result indicates equality
+fn check_constant_result(compare_result: &dyn Array) -> VortexResult<Option<bool>> {
+    if let Some(constant_scalar) = compare_result.as_constant() {
+        // If constant is true, all are equal
+        Ok(Some(
+            constant_scalar.is_valid() && constant_scalar.as_bool().value() == Some(true),
+        ))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Check non-constant comparison results, handling null comparisons
+fn check_non_constant_result(
+    compare_result: &dyn Array,
+    left: &dyn Array,
+    right: &dyn Array,
+) -> VortexResult<bool> {
+    // First, check statistics for quick rejection
+    if let Some(all_true) = check_comparison_stats(compare_result) {
+        return Ok(all_true);
+    }
+
+    // Fallback to element-wise check
+    for i in 0..compare_result.len() {
+        let cmp_scalar = compare_result.scalar_at(i)?;
+
+        // Check for definite inequality
+        if cmp_scalar.is_valid() && cmp_scalar.as_bool().value() == Some(false) {
+            return Ok(false);
+        }
+
+        // Handle null comparison results
+        if cmp_scalar.is_null() && !check_null_equality(left, right, i)? {
+            return Ok(false);
+        }
+    }
+
+    Ok(true)
+}
+
+/// Check comparison statistics for quick determination
+fn check_comparison_stats(compare_result: &dyn Array) -> Option<bool> {
+    // If min is false, we have at least one false
+    if let Some(Precision::Exact(min)) = compare_result.statistics().get(Stat::Min) {
+        if min.as_bool().ok()? == Some(false) {
+            return Some(false);
+        }
+    }
+
+    // If both min and max are true, all are true
+    if let Some(Precision::Exact(min)) = compare_result.statistics().get(Stat::Min) {
+        if let Some(Precision::Exact(max)) = compare_result.statistics().get(Stat::Max) {
+            if min.as_bool().ok()? == Some(true) && max.as_bool().ok()? == Some(true) {
+                return Some(true);
+            }
+        }
+    }
+
+    None
+}
+
+/// Check if two potentially null values at a given index are equal
+fn check_null_equality(left: &dyn Array, right: &dyn Array, index: usize) -> VortexResult<bool> {
+    let left_val = left.scalar_at(index)?;
+    let right_val = right.scalar_at(index)?;
+
+    // Both null or both non-null means they could be equal
+    // (if both non-null, the comparison would have returned true/false, not null)
+    Ok(left_val.is_null() == right_val.is_null())
+}
+
+/// Check statistics equality for early exit
+fn check_stats_equality(left: &dyn Array, right: &dyn Array) -> bool {
+    let stats_to_check = [
+        Stat::IsConstant,
+        Stat::IsSorted,
+        Stat::IsStrictSorted,
+        Stat::Max,
+        Stat::Min,
+        Stat::Sum,
+        Stat::NullCount,
+        Stat::NaNCount,
+    ];
+
+    for stat in stats_to_check {
+        match (left.statistics().get(stat), right.statistics().get(stat)) {
+            (Some(Precision::Exact(left_v)), Some(Precision::Exact(right_v))) => {
+                if !left_v.eq(&right_v) {
+                    return false;
+                }
+            }
+            _ => continue,
+        }
+    }
+
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::arrays::{BoolArray, ConstantArray, PrimitiveArray, VarBinArray};
+    use crate::IntoArray;
+    use crate::arrays::{BoolArray, ChunkedArray, ConstantArray, PrimitiveArray, VarBinArray};
     use crate::validity::Validity;
     use vortex_dtype::{DType, Nullability};
 
@@ -425,5 +512,62 @@ mod tests {
 
         assert!(array_equals(varbin1.as_ref(), varbin2.as_ref()).unwrap());
         assert!(!array_equals(varbin1.as_ref(), varbin3.as_ref()).unwrap());
+    }
+
+    #[test]
+    fn test_float_precision() {
+        // Test if statistics-based comparison can handle float precision issues
+        let arr1 = PrimitiveArray::from_iter(vec![1.0f64, 2.0, 3.0, 4.0, 5.0]);
+        let arr2 = PrimitiveArray::from_iter(vec![1.0f64, 2.0, 3.0, 4.0, 5.0]);
+
+        // Arrays with exact same values should be equal
+        assert!(array_equals(arr1.as_ref(), arr2.as_ref()).unwrap());
+
+        // Arrays with slightly different values should not be equal
+        let arr3 = PrimitiveArray::from_iter(vec![1.0f64, 2.0, 3.0, 4.0, 5.0000000001]);
+        assert!(!array_equals(arr1.as_ref(), arr3.as_ref()).unwrap());
+    }
+
+    #[test]
+    fn test_batch_size_functionality() {
+        // Test arrays larger than default batch size with different batch sizes
+        let data1: Vec<i32> = (0..150_000).collect();
+        let data2: Vec<i32> = (0..150_000).collect();
+
+        let arr1 = PrimitiveArray::from_iter(data1);
+        let arr2 = PrimitiveArray::from_iter(data2);
+
+        // Test with different batch sizes (though we can't pass batch_size directly in public API)
+        assert!(array_equals(arr1.as_ref(), arr2.as_ref()).unwrap());
+    }
+
+    #[test]
+    fn test_primitive_vs_dict_array() {
+        // Test comparing primitive array with dictionary-encoded array containing same values
+
+        let primitive_arr = PrimitiveArray::from_iter(vec![1i32, 2, 1, 3, 2, 1]);
+
+        // Create a chunked array as a proxy for non-canonical encoding
+        let chunk1 = PrimitiveArray::from_iter(vec![1i32, 2, 1]);
+        let chunk2 = PrimitiveArray::from_iter(vec![3i32, 2, 1]);
+        let chunked_arr = ChunkedArray::try_new(
+            vec![chunk1.into_array(), chunk2.into_array()],
+            primitive_arr.dtype().clone(),
+        )
+        .unwrap();
+
+        // Should be equal as they contain the same logical values
+        assert!(array_equals(primitive_arr.as_ref(), chunked_arr.as_ref()).unwrap());
+
+        // Test with different values
+        let chunk1_copy = PrimitiveArray::from_iter(vec![1i32, 2, 1]);
+        let different_chunk2 = PrimitiveArray::from_iter(vec![3i32, 2, 4]);
+        let different_chunked = ChunkedArray::try_new(
+            vec![chunk1_copy.into_array(), different_chunk2.into_array()],
+            primitive_arr.dtype().clone(),
+        )
+        .unwrap();
+
+        assert!(!array_equals(primitive_arr.as_ref(), different_chunked.as_ref()).unwrap());
     }
 }
