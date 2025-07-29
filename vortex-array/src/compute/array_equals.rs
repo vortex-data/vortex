@@ -668,6 +668,17 @@ mod tests {
     }
 
     #[test]
+    fn test_adversarial_negative_zero() {
+        // BUG TEST: -0.0 vs +0.0 should be equal but might not be
+        let neg_zero_array = PrimitiveArray::from_iter(vec![-0.0f64, -0.0f64]);
+        let pos_zero_array = PrimitiveArray::from_iter(vec![0.0f64, 0.0f64]);
+        
+        // These should be equal since -0.0 == 0.0 in IEEE 754
+        assert!(array_equals(neg_zero_array.as_ref(), pos_zero_array.as_ref()).unwrap(),
+                "Arrays with -0.0 and +0.0 should be equal");
+    }
+
+    #[test]
     fn test_mixed_constant_non_constant() {
         // Test comparing constant arrays with non-constant arrays
         let constant_42 = ConstantArray::new(Scalar::from(42i32), 4);
