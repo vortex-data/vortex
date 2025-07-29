@@ -2,8 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::compute::{TakeKernel, TakeKernelAdapter, fill_null, take};
+use vortex_array::stats::{Stat, StatsProvider};
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
-use vortex_error::{VortexExpect, VortexResult, vortex_panic};
+use vortex_error::{VortexResult, vortex_panic};
 use vortex_scalar::Scalar;
 
 use crate::{DateTimePartsArray, DateTimePartsVTable};
@@ -26,50 +27,53 @@ impl TakeKernel for DateTimePartsVTable {
             array.dtype().clone()
         };
 
+        if !taken_seconds.dtype().is_nullable() && !taken_subseconds.dtype().is_nullable() {
+            return Ok(DateTimePartsArray::try_new(
+                dtype,
+                taken_days,
+                taken_seconds,
+                taken_subseconds,
+            )?
+            .into_array());
+        }
+
         // DateTimePartsArray requires seconds and subseconds to be non-nullable.
         // If they became nullable due to nullable indices, we need to fill nulls.
-        let (taken_seconds, taken_subseconds) = if taken_seconds.dtype().is_nullable() {
-            if !taken_days.dtype().is_nullable() {
-                vortex_panic!("Mismatched types: days is not nullable, seconds is nullable");
-            }
-            if !taken_subseconds.dtype().is_nullable() {
-                vortex_panic!("Mismatched types: seconds is nullable, subseconds is not");
-            }
-            if !indices.dtype().is_nullable() {
-                vortex_panic!("Mismatched types: indices are not nullable, seconds is nullable");
-            }
+        // But first, we need to check that the types are consistent.
+        if !taken_days.dtype().is_nullable() {
+            vortex_panic!("Mismatched types: days is not nullable, seconds is nullable");
+        }
+        if !taken_seconds.dtype().is_nullable() {
+            vortex_panic!("Mismatched types: seconds is not nullable, days is nullable");
+        }
+        if !taken_subseconds.dtype().is_nullable() {
+            vortex_panic!(
+                "Mismatched types: subseconds is not nullable, days & seconds are nullable"
+            );
+        }
+        if !indices.dtype().is_nullable() {
+            vortex_panic!(
+                "Mismatched types: indices are not nullable, days & seconds are nullable"
+            );
+        }
 
-            // get the first non-null index, and use that to fill both seconds and subseconds
-            let fill_index: Option<usize> = (0..indices.len()).find(|&i| {
-                indices
-                    .is_valid(i)
-                    .vortex_expect("unable to determine if index is valid")
-            });
+        let seconds_fill = array
+            .seconds()
+            .statistics()
+            .get(Stat::Min)
+            .map(|s| s.into_scalar(taken_seconds.dtype().clone()).into_inner())
+            .unwrap_or_else(|| Scalar::primitive(0i64, taken_seconds.dtype().nullability()))
+            .cast(taken_seconds.dtype())?;
+        let taken_seconds = fill_null(taken_seconds.as_ref(), &seconds_fill)?;
 
-            let seconds_fill = fill_index
-                .map(|i| taken_seconds.scalar_at(i))
-                .transpose()?
-                .unwrap_or_else(|| {
-                    Scalar::from(0i64)
-                        .cast(taken_seconds.dtype())
-                        .vortex_expect("unable to cast 0i64 to seconds dtype")
-                });
-
-            let subseconds_fill = fill_index
-                .map(|i| taken_subseconds.scalar_at(i))
-                .transpose()?
-                .unwrap_or_else(|| {
-                    Scalar::from(0i64)
-                        .cast(taken_subseconds.dtype())
-                        .vortex_expect("unable to cast 0i64 to subseconds dtype")
-                });
-
-            let taken_seconds = fill_null(taken_seconds.as_ref(), &seconds_fill)?;
-            let taken_subseconds = fill_null(taken_subseconds.as_ref(), &subseconds_fill)?;
-            (taken_seconds, taken_subseconds)
-        } else {
-            (taken_seconds, taken_subseconds)
-        };
+        let subseconds_fill = array
+            .subseconds()
+            .statistics()
+            .get(Stat::Min)
+            .map(|s| s.into_scalar(taken_subseconds.dtype().clone()).into_inner())
+            .unwrap_or_else(|| Scalar::primitive(0i64, taken_subseconds.dtype().nullability()))
+            .cast(taken_subseconds.dtype())?;
+        let taken_subseconds = fill_null(taken_subseconds.as_ref(), &subseconds_fill)?;
 
         Ok(
             DateTimePartsArray::try_new(dtype, taken_days, taken_seconds, taken_subseconds)?
