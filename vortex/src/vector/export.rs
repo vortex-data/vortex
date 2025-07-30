@@ -14,6 +14,7 @@ use vortex_buffer::BufferMut;
 use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
+use vortex_mask::Mask::Values;
 
 /// A trait for exporting arrays into canonical primitive form.
 struct PrimitiveExport<T: NativePType> {
@@ -33,9 +34,10 @@ pub fn export_primitive<P: Deref<Target = dyn Array> + SupportsPipeline>(
 
 impl<T: NativePType> PrimitiveExport<T> {
     pub fn new(pipeline: Box<dyn Pipeline>, len: usize) -> Self {
+        // We round up to the next multiple of N to ensure that we can export the entire array
+        // directly in chunks of N elements, we slice back down to the actual length later.
         let capacity = len.next_multiple_of(N);
-        // TODO(ngates): round up len to next multiple of `N`, so we have enough allocated
-        //  capacity for a full vector.
+
         let mut values = BufferMut::with_capacity(capacity);
         unsafe { values.set_len(capacity) };
 
@@ -63,10 +65,11 @@ impl<T: NativePType> PrimitiveExport<T> {
         unsafe { self.values.set_len(self.len) };
         unsafe { self.validity.set_len(self.len) };
 
-        Ok(PrimitiveArray::new(
-            self.values.freeze(),
-            Validity::AllValid,
-        ))
+        // FIXME(ngates): we should better support BitVec, or a vortex-buffer equivalent.
+        //  For now, we just ignore it.
+        let validity = Validity::AllValid;
+
+        Ok(PrimitiveArray::new(self.values.freeze(), validity))
     }
 }
 
