@@ -23,7 +23,6 @@ impl ExprRegistryExt for ExprRegistry {
             ExprEncodingRef::new_ref(BetweenExprEncoding.as_ref()),
             ExprEncodingRef::new_ref(BinaryExprEncoding.as_ref()),
             ExprEncodingRef::new_ref(GetItemExprEncoding.as_ref()),
-            // ExprEncodingRef::new_ref(IdentityExprEncoding.as_ref()),
             ExprEncodingRef::new_ref(LikeExprEncoding.as_ref()),
             ExprEncodingRef::new_ref(LiteralExprEncoding.as_ref()),
             ExprEncodingRef::new_ref(ListContainsExprEncoding.as_ref()),
