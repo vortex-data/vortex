@@ -5,13 +5,13 @@ concurrency:
 
 on:
   release:
-    types: [ published ]
+    types: [published]
 
 jobs:
   publish-rust:
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    needs: [ prepare-python, prepare-java ]
+    needs: [prepare-python, prepare-java]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -74,7 +74,7 @@ jobs:
         # Latest macOS doesn't allow maturin to install stuff into the global Python interpreter
         if: "${{ matrix.target.runs-on == 'macos-latest' }}"
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Build wheel
         uses: PyO3/maturin-action@v1
@@ -100,7 +100,7 @@ jobs:
           path: dist/
 
   publish-python:
-    needs: [ prepare-python ]
+    needs: [prepare-python]
     runs-on: ubuntu-latest
     timeout-minutes: 120
     permissions:
@@ -141,8 +141,8 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-java@v4
         with:
-          distribution: 'corretto'
-          java-version: '17'
+          distribution: "corretto"
+          java-version: "17"
       - uses: ./.github/actions/setup-rust
         with:
           targets: ${{ matrix.target.target }}
@@ -155,7 +155,7 @@ jobs:
           if-no-files-found: error
 
   publish-java:
-    needs: [ prepare-java ]
+    needs: [prepare-java]
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
@@ -168,8 +168,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
-          distribution: 'corretto'
-          java-version: '17'
+          distribution: "corretto"
+          java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
       - uses: actions/download-artifact@v4
         with:

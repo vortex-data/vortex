@@ -2,7 +2,7 @@ name: Nightly Benchmarks
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # daily
+    - cron: "0 0 * * *"  # daily
   workflow_dispatch:
 
 permissions:
@@ -16,7 +16,7 @@ jobs:
     uses: ./.github/workflows/sql-benchmarks.yml
     secrets: inherit
     with:
-      mode: 'develop'
+      mode: "develop"
       machine_type: ${{ matrix.machine_type.instance_name }}
       # datafusion:vortex uses a lot of memory
       benchmark_matrix: |
