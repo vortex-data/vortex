@@ -50,4 +50,7 @@ pub trait Pipeline {
 pub trait SupportsPipeline {
     /// Returns a pipeline that can be used to export canonical data from this array.
     fn pipeline(&self) -> Box<dyn Pipeline>;
+
+    // TODO(ngates): there will be another function, similar to find_kernel, that takes a compute
+    //  function and returns a pipeline?
 }

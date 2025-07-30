@@ -13,6 +13,8 @@
 //!
 //! How I plan to achieve this:
 //! - Lean heavily on SIMD compute and CPU cache locality.
+//! - Move performance decisions into the array logic. For example, currently the caller has to
+//!   decide which order to run compute vs filter.
 //!
 //! Therefore, some meta-goals that fall out of this:
 //! - Thread-locality and core affinity is important. Keep data within the L1 cache as much as
