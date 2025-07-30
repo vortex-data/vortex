@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::vector::vector::Vector;
+use crate::vector::Vector;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -36,6 +36,10 @@ use vortex_mask::Mask;
 /// indicates that the data isn't ready yet (ideally it has populated some sort of context in
 /// the meantime that allows the caller to make progress, for example, downloading segments). But
 /// these feels like future work where we potentially merge arrays and layouts.
+///
+// TODO(ngates): we should explore a version of pipelines that are not object-safe traits. This
+//  would allow for compile-time optimizations and inlining for the cases where we wish to
+//  "semi-fuse" kernels.
 pub trait Pipeline {
     /// Exports the next vector from the pipeline, given a length [`N`] mask and an output vector.
     ///

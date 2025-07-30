@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::vector::vector::{N, Selection, VType, Vector, VectorMask};
+use crate::vector::{N, Selection, VType, Vector, VectorMask};
 use vortex_dtype::NativePType;
 
 impl<'v> Vector<'v> {
