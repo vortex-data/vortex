@@ -15,8 +15,8 @@ log = logging.getLogger("vortex.docs.conf")
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = "Vortex"
-copyright = "2024, Spiral"
-author = "Spiral"
+copyright = "The Vortex contributors"
+author = "Vortex contributors"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration

@@ -45,7 +45,9 @@ register_kernel!(FilterKernelAdapter(DictVTable).lift());
 mod test {
     use vortex_array::accessor::ArrayAccessor;
     use vortex_array::arrays::{ConstantArray, PrimitiveArray, VarBinArray, VarBinViewArray};
-    use vortex_array::compute::conformance::mask::test_mask;
+    use vortex_array::compute::conformance::filter::test_filter_conformance;
+    use vortex_array::compute::conformance::mask::test_mask_conformance;
+    use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_array::compute::{Operator, compare, take};
     use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
     use vortex_dtype::PType::I32;
@@ -169,13 +171,13 @@ mod test {
     #[test]
     fn test_mask_dict_array() {
         let array = dict_encode(&PrimitiveArray::from_iter([2, 0, 2, 0, 10]).into_array()).unwrap();
-        test_mask(array.as_ref());
+        test_mask_conformance(array.as_ref());
 
         let array = dict_encode(
             PrimitiveArray::from_option_iter([Some(2), None, Some(2), Some(0), Some(10)]).as_ref(),
         )
         .unwrap();
-        test_mask(array.as_ref());
+        test_mask_conformance(array.as_ref());
 
         let array = dict_encode(
             &VarBinArray::from_iter(
@@ -191,7 +193,35 @@ mod test {
             .into_array(),
         )
         .unwrap();
-        test_mask(array.as_ref());
+        test_mask_conformance(array.as_ref());
+    }
+
+    #[test]
+    fn test_filter_dict_array() {
+        let array = dict_encode(&PrimitiveArray::from_iter([2, 0, 2, 0, 10]).into_array()).unwrap();
+        test_filter_conformance(array.as_ref());
+
+        let array = dict_encode(
+            PrimitiveArray::from_option_iter([Some(2), None, Some(2), Some(0), Some(10)]).as_ref(),
+        )
+        .unwrap();
+        test_filter_conformance(array.as_ref());
+
+        let array = dict_encode(
+            &VarBinArray::from_iter(
+                [
+                    Some("hello"),
+                    None,
+                    Some("hello"),
+                    Some("good"),
+                    Some("good"),
+                ],
+                DType::Utf8(Nullability::Nullable),
+            )
+            .into_array(),
+        )
+        .unwrap();
+        test_filter_conformance(array.as_ref());
     }
 
     #[test]
@@ -207,5 +237,33 @@ mod test {
             .dtype(),
             &DType::Primitive(I32, Nullability::Nullable)
         );
+    }
+
+    #[test]
+    fn test_take_dict_conformance() {
+        let array = dict_encode(&PrimitiveArray::from_iter([2, 0, 2, 0, 10]).into_array()).unwrap();
+        test_take_conformance(array.as_ref());
+
+        let array = dict_encode(
+            PrimitiveArray::from_option_iter([Some(2), None, Some(2), Some(0), Some(10)]).as_ref(),
+        )
+        .unwrap();
+        test_take_conformance(array.as_ref());
+
+        let array = dict_encode(
+            &VarBinArray::from_iter(
+                [
+                    Some("hello"),
+                    None,
+                    Some("hello"),
+                    Some("good"),
+                    Some("good"),
+                ],
+                DType::Utf8(Nullability::Nullable),
+            )
+            .into_array(),
+        )
+        .unwrap();
+        test_take_conformance(array.as_ref());
     }
 }

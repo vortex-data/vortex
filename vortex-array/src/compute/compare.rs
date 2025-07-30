@@ -19,6 +19,14 @@ use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef, Canonical, IntoArray};
 
+static COMPARE_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("compare".into(), ArcRef::new_ref(&Compare));
+    for kernel in inventory::iter::<CompareKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
+
 /// Compares two arrays and returns a new boolean array with the result of the comparison.
 /// Or, returns None if comparison is not supported for these arrays.
 pub fn compare(left: &dyn Array, right: &dyn Array, operator: Operator) -> VortexResult<ArrayRef> {
@@ -32,11 +40,17 @@ pub fn compare(left: &dyn Array, right: &dyn Array, operator: Operator) -> Vorte
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Hash)]
 pub enum Operator {
+    /// Equality (`=`)
     Eq,
+    /// Inequality (`!=`)
     NotEq,
+    /// Greater than (`>`)
     Gt,
+    /// Greater than or equal (`>=`)
     Gte,
+    /// Less than (`<`)
     Lt,
+    /// Less than or equal (`<=`)
     Lte,
 }
 
@@ -109,14 +123,6 @@ impl<V: VTable + CompareKernel> Kernel for CompareKernelAdapter<V> {
         Ok(V::compare(&self.0, array, inputs.rhs, inputs.operator)?.map(|array| array.into()))
     }
 }
-
-pub static COMPARE_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("compare".into(), ArcRef::new_ref(&Compare));
-    for kernel in inventory::iter::<CompareKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
 
 struct Compare;
 

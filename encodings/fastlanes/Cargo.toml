@@ -35,6 +35,7 @@ vortex-scalar = { workspace = true }
 [dev-dependencies]
 divan = { workspace = true }
 rand = { workspace = true }
+rstest = { workspace = true }
 vortex-alp = { path = "../alp" }
 vortex-array = { workspace = true, features = ["test-harness"] }
 vortex-fastlanes = { path = ".", features = ["test-harness"] }

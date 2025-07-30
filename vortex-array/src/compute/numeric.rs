@@ -15,6 +15,14 @@ use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef, IntoArray};
 
+static NUMERIC_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("numeric".into(), ArcRef::new_ref(&Numeric));
+    for kernel in inventory::iter::<NumericKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
+
 /// Point-wise add two numeric arrays.
 ///
 /// Errs at runtime if the sum would overflow or underflow.
@@ -115,14 +123,6 @@ impl<V: VTable + NumericKernel> Kernel for NumericKernelAdapter<V> {
         Ok(V::numeric(&self.0, lhs, inputs.rhs, inputs.operator)?.map(|array| array.into()))
     }
 }
-
-pub static NUMERIC_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("numeric".into(), ArcRef::new_ref(&Numeric));
-    for kernel in inventory::iter::<NumericKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
 
 struct Numeric;
 

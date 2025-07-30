@@ -11,6 +11,14 @@ use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output}
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef};
 
+static CAST_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("cast".into(), ArcRef::new_ref(&Cast));
+    for kernel in inventory::iter::<CastKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
+
 /// Attempt to cast an array to a desired DType.
 ///
 /// Some array support the ability to narrow or upcast.
@@ -22,14 +30,6 @@ pub fn cast(array: &dyn Array, dtype: &DType) -> VortexResult<ArrayRef> {
         })?
         .unwrap_array()
 }
-
-pub static CAST_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("cast".into(), ArcRef::new_ref(&Cast));
-    for kernel in inventory::iter::<CastKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
 
 struct Cast;
 

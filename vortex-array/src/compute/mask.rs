@@ -16,6 +16,14 @@ use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output,
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef, IntoArray};
 
+static MASK_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("mask".into(), ArcRef::new_ref(&MaskFn));
+    for kernel in inventory::iter::<MaskKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
+
 /// Replace values with null where the mask is true.
 ///
 /// The returned array is nullable but otherwise has the same dtype and length as `array`.
@@ -80,14 +88,6 @@ impl<V: VTable + MaskKernel> Kernel for MaskKernelAdapter<V> {
         Ok(Some(V::mask(&self.0, array, inputs.mask)?.into()))
     }
 }
-
-pub static MASK_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("mask".into(), ArcRef::new_ref(&MaskFn));
-    for kernel in inventory::iter::<MaskKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
 
 struct MaskFn;
 
