@@ -19,11 +19,8 @@ mod convert;
 pub mod duckdb;
 pub mod exporter;
 mod scan;
+mod utils;
 
-#[allow(dead_code)]
-#[allow(non_camel_case_types)]
-#[allow(non_upper_case_globals)]
-#[allow(non_snake_case)]
 #[allow(clippy::suspicious_doc_comments)]
 #[allow(clippy::enum_variant_names)]
 #[rustfmt::skip]
