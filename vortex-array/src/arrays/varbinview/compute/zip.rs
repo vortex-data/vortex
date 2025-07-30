@@ -39,13 +39,11 @@ mod tests {
     use vortex_dtype::{DType, Nullability};
     use vortex_mask::Mask;
 
-    use crate::{
-        IntoArray,
-        arrays::VarBinViewVTable,
-        arrow::IntoArrowArray,
-        builders::{ArrayBuilder as _, VarBinViewBuilder},
-        compute::zip,
-    };
+    use crate::IntoArray;
+    use crate::arrays::VarBinViewVTable;
+    use crate::arrow::IntoArrowArray;
+    use crate::builders::{ArrayBuilder as _, VarBinViewBuilder};
+    use crate::compute::zip;
 
     #[test]
     fn test_varbinview_zip() {
