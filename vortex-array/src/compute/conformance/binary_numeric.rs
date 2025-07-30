@@ -116,7 +116,7 @@ where
         };
 
         let actual_values = to_vec_of_scalar(&result);
-        
+
         // Check each element for overflow/underflow
         let expected_results: Vec<Option<Scalar>> = original_values
             .iter()
@@ -131,7 +131,8 @@ where
         for (idx, (actual, expected)) in actual_values.iter().zip(&expected_results).enumerate() {
             if let Some(expected_value) = expected {
                 assert_eq!(
-                    actual, expected_value,
+                    actual,
+                    expected_value,
                     "Binary numeric operation failed for encoding {} at index {}: \
                      ({array:?})[{idx}] {operator:?} {scalar_one} \
                      expected {expected_value:?}, got {actual:?}",
@@ -147,11 +148,7 @@ where
                     .checked_binary_numeric(&scalar_one.as_primitive(), operator);
                 assert!(
                     overflow_check.is_none(),
-                    "Expected overflow at index {} for operation {} {operator:?} {} but overflow check returned {:?}",
-                    idx,
-                    original_value,
-                    scalar_one,
-                    overflow_check
+                    "Expected overflow at index {idx} for operation {original_value} {operator:?} {scalar_one} but overflow check returned {overflow_check:?}"
                 );
             }
         }
@@ -169,7 +166,7 @@ where
         };
 
         let actual_values = to_vec_of_scalar(&result);
-        
+
         // Check each element for overflow/underflow
         let expected_results: Vec<Option<Scalar>> = original_values
             .iter()
@@ -185,7 +182,8 @@ where
         for (idx, (actual, expected)) in actual_values.iter().zip(&expected_results).enumerate() {
             if let Some(expected_value) = expected {
                 assert_eq!(
-                    actual, expected_value,
+                    actual,
+                    expected_value,
                     "Binary numeric operation failed for encoding {} at index {}: \
                      {scalar_one} {operator:?} ({array:?})[{idx}] \
                      expected {expected_value:?}, got {actual:?}",
@@ -201,11 +199,7 @@ where
                     .checked_binary_numeric(&original_value.as_primitive(), operator);
                 assert!(
                     overflow_check.is_none(),
-                    "Expected overflow at index {} for operation {} {operator:?} {} but overflow check returned {:?}",
-                    idx,
-                    scalar_one,
-                    original_value,
-                    overflow_check
+                    "Expected overflow at index {idx} for operation {scalar_one} {operator:?} {original_value} but overflow check returned {overflow_check:?}"
                 );
             }
         }
@@ -401,18 +395,12 @@ where
         let actual_values = to_vec_of_scalar(&result);
 
         // Check each element for overflow/underflow
-        let mut overflow_indices = Vec::new();
         let expected_results: Vec<Option<Scalar>> = original_values
             .iter()
-            .enumerate()
-            .map(|(idx, x)| {
-                let result = x.as_primitive()
+            .map(|x| {
+                x.as_primitive()
                     .checked_binary_numeric(&scalar.as_primitive(), operator)
-                    .map(<Scalar as From<PrimitiveScalar<'_>>>::from);
-                if result.is_none() {
-                    overflow_indices.push(idx);
-                }
-                result
+                    .map(<Scalar as From<PrimitiveScalar<'_>>>::from)
             })
             .collect();
 
@@ -420,7 +408,8 @@ where
         for (idx, (actual, expected)) in actual_values.iter().zip(&expected_results).enumerate() {
             if let Some(expected_value) = expected {
                 assert_eq!(
-                    actual, expected_value,
+                    actual,
+                    expected_value,
                     "Binary numeric operation failed for encoding {} at index {} with scalar {:?}: \
                      ({array:?})[{idx}] {operator:?} {scalar} \
                      expected {expected_value:?}, got {actual:?}",
@@ -437,11 +426,7 @@ where
                     .checked_binary_numeric(&scalar.as_primitive(), operator);
                 assert!(
                     overflow_check.is_none(),
-                    "Expected overflow at index {} for operation {} {operator:?} {} but overflow check returned {:?}",
-                    idx,
-                    original_value,
-                    scalar,
-                    overflow_check
+                    "Expected overflow at index {idx} for operation {original_value} {operator:?} {scalar} but overflow check returned {overflow_check:?}"
                 );
             }
         }
