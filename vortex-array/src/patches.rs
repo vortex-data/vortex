@@ -5,6 +5,7 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::hash::Hash;
 
+use arrow_buffer::BooleanBuffer;
 use itertools::Itertools as _;
 use num_traits::{NumCast, ToPrimitive};
 use serde::{Deserialize, Serialize};
@@ -20,9 +21,7 @@ use vortex_mask::{AllOr, Mask};
 use vortex_scalar::{PValue, Scalar};
 use vortex_utils::aliases::hash_map::HashMap;
 
-use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
-use crate::compute::mask;
 use crate::compute::{cast, filter, take};
 use crate::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
 use crate::vtable::ValidityHelper;
@@ -89,8 +88,9 @@ impl Patches {
             "Patch indices and values must have the same length"
         );
         assert!(
-            indices.dtype().is_unsigned_int(),
-            "Patch indices must be unsigned integers"
+            indices.dtype().is_unsigned_int() && !indices.dtype().is_nullable(),
+            "Patch indices must be non-nullable unsigned integers, got {:?}",
+            indices.dtype()
         );
         assert!(
             indices.len() <= array_len,
@@ -272,6 +272,14 @@ impl Patches {
 
     /// Filter the patches by a mask, resulting in new patches for the filtered array.
     pub fn filter(&self, mask: &Mask) -> VortexResult<Option<Self>> {
+        if mask.len() != self.array_len {
+            vortex_bail!(
+                "Filter mask length {} does not match array length {}",
+                mask.len(),
+                self.array_len
+            );
+        }
+
         match mask.indices() {
             AllOr::All => Ok(Some(self.clone())),
             AllOr::None => Ok(None),
@@ -289,44 +297,37 @@ impl Patches {
         }
     }
 
-    /// Mask the patches, setting patch values to null where the mask is true.
+    /// Mask the patches, REMOVING the patches where the mask is true.
     /// Unlike filter, this preserves the patch indices.
-    pub fn mask(&self, filter_mask: &Mask) -> VortexResult<Self> {
-        // Get the patch indices as a primitive array
-        let patch_indices = self.indices().to_primitive()?;
-
-        // Create a mask for the patch values based on which indices are masked
-        let mut patch_mask = Vec::with_capacity(patch_indices.len());
-
-        // Check each patch index to see if it should be masked
-        for i in 0..patch_indices.len() {
-            let idx = patch_indices.scalar_at(i)?;
-            let idx_usize = usize::try_from(&idx)?;
-
-            // Subtract offset to get the actual array index
-            let actual_idx = idx_usize - self.offset;
-
-            // Check if this index is masked in the original mask
-            let is_masked = match filter_mask.boolean_buffer() {
-                AllOr::All => true,
-                AllOr::None => false,
-                AllOr::Some(buffer) => buffer.value(actual_idx),
-            };
-            patch_mask.push(is_masked);
+    /// Unlike mask on a single array, this does not set masked values to null.
+    pub fn mask(&self, mask: &Mask) -> VortexResult<Option<Self>> {
+        if mask.len() != self.array_len {
+            vortex_bail!(
+                "Filter mask length {} does not match array length {}",
+                mask.len(),
+                self.array_len
+            );
         }
 
-        // Create a mask for the patch values
-        let patch_values_mask = Mask::try_from(&BoolArray::from_iter(patch_mask))?;
+        let filter_mask = match mask.boolean_buffer() {
+            AllOr::All => return Ok(None),
+            AllOr::None => return Ok(Some(self.clone())),
+            AllOr::Some(masked) => {
+                let patch_indices = self.indices().to_primitive()?;
+                Mask::from_buffer(BooleanBuffer::collect_bool(patch_indices.len(), |i| {
+                    let idx = usize::try_from(&patch_indices.scalar_at(i).vortex_unwrap())
+                        .vortex_expect("idx should be a valid usize, got {idx}");
+                    !masked.value(idx - self.offset)
+                }))
+            }
+        };
 
-        // Apply the mask to patch values
-        let masked_values = mask(self.values(), &patch_values_mask)?;
-
-        Ok(Self::new_unchecked(
+        Ok(Some(Self::new_unchecked(
             self.array_len,
             self.offset,
-            self.indices.clone(),
-            masked_values,
-        ))
+            filter(&self.indices, &filter_mask)?,
+            filter(&self.values, &filter_mask)?,
+        )))
     }
 
     /// Slice the patches by a range of the patched array.
@@ -358,7 +359,7 @@ impl Patches {
             < Self::PREFER_MAP_WHEN_PATCHES_OVER_INDICES_LESS_THAN
     }
 
-    /// Take the indicies from the patches
+    /// Take the indices from the patches
     ///
     /// Any nulls in take_indices are added to the resulting patches.
     pub fn take_with_nulls(&self, take_indices: &dyn Array) -> VortexResult<Option<Self>> {
@@ -852,17 +853,7 @@ mod test {
 
         let mask = Mask::new_true(10);
         let masked = patches.mask(&mask).unwrap();
-
-        // All patch values should be masked (set to null)
-        let masked_values = masked.values().to_primitive().unwrap();
-        assert_eq!(masked_values.len(), 3);
-        assert!(!masked_values.is_valid(0).unwrap());
-        assert!(!masked_values.is_valid(1).unwrap());
-        assert!(!masked_values.is_valid(2).unwrap());
-
-        // Indices should remain unchanged
-        let indices = masked.indices().to_primitive().unwrap();
-        assert_eq!(indices.as_slice::<u64>(), &[2, 5, 8]);
+        assert!(masked.is_none());
     }
 
     #[test]
@@ -875,7 +866,7 @@ mod test {
         );
 
         let mask = Mask::new_false(10);
-        let masked = patches.mask(&mask).unwrap();
+        let masked = patches.mask(&mask).unwrap().unwrap();
 
         // No patch values should be masked
         let masked_values = masked.values().to_primitive().unwrap();
@@ -902,7 +893,7 @@ mod test {
         let mask = Mask::from_iter([
             false, false, true, false, false, false, false, false, true, false,
         ]);
-        let masked = patches.mask(&mask).unwrap();
+        let masked = patches.mask(&mask).unwrap().unwrap();
 
         // First and third patch values should be masked
         let masked_values = masked.values().to_primitive().unwrap();
@@ -935,13 +926,35 @@ mod test {
         let mask = Mask::from_iter([
             false, false, true, false, false, false, false, false, false, false,
         ]);
-        let masked = patches.mask(&mask).unwrap();
 
-        // First patch value should be masked
+        let masked = patches.mask(&mask).unwrap().unwrap();
+        assert_eq!(masked.array_len(), 10);
+        assert_eq!(masked.offset(), 5);
+        let indices = masked.indices().to_primitive().unwrap();
+        assert_eq!(indices.as_slice::<u64>(), &[10, 13]);
         let masked_values = masked.values().to_primitive().unwrap();
-        assert!(!masked_values.is_valid(0).unwrap()); // index 2 is masked
-        assert!(masked_values.is_valid(1).unwrap()); // index 5 is not masked
-        assert!(masked_values.is_valid(2).unwrap()); // index 8 is not masked
+        assert_eq!(masked_values.as_slice::<i32>(), &[200, 300]);
+    }
+
+    #[test]
+    fn test_mask_nullable_values() {
+        let patches = Patches::new(
+            10,
+            0,
+            buffer![2u64, 5, 8].into_array(),
+            PrimitiveArray::from_option_iter([Some(100i32), None, Some(300)]).into_array(),
+        );
+
+        // Test masking nullable values
+        let mask = Mask::from_iter([
+            false, false, true, false, false, false, false, false, false, false,
+        ]);
+        let masked = patches.mask(&mask).unwrap().unwrap();
+
+        let indices = masked.indices().to_primitive().unwrap();
+        assert_eq!(indices.as_slice::<u64>(), &[8]);
+        let masked_values = masked.values().to_primitive().unwrap();
+        assert_eq!(masked_values.as_slice::<i32>(), &[300]);
     }
 
     #[test]
@@ -1123,30 +1136,5 @@ mod test {
         assert_eq!(patches.search_index(3).unwrap(), SearchResult::NotFound(1));
         assert_eq!(patches.search_index(6).unwrap(), SearchResult::NotFound(2));
         assert_eq!(patches.search_index(9).unwrap(), SearchResult::NotFound(3));
-    }
-
-    #[test]
-    fn test_nullable_values() {
-        let patches = Patches::new(
-            10,
-            0,
-            buffer![2u64, 5, 8].into_array(),
-            PrimitiveArray::from_option_iter([Some(100i32), None, Some(300)]).into_array(),
-        );
-
-        // Test masking nullable values
-        let mask = Mask::from_iter([
-            false, false, true, false, false, false, false, false, false, false,
-        ]);
-        let masked = patches.mask(&mask).unwrap();
-
-        let masked_values = masked.values().to_primitive().unwrap();
-        assert!(!masked_values.is_valid(0).unwrap()); // index 2 is masked
-        assert!(!masked_values.is_valid(1).unwrap()); // was already null
-        assert!(masked_values.is_valid(2).unwrap()); // index 8 is not masked
-        assert_eq!(
-            i32::try_from(&masked_values.scalar_at(2).unwrap()).unwrap(),
-            300i32
-        );
     }
 }
