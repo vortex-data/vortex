@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::vector::pipeline::{Pipeline, SupportsPipeline};
-use crate::vector::vector::Vector;
+use crate::vector::vector::{Selection, Vector};
 use fastlanes::BitPacking;
 use vortex_buffer::Buffer;
 use vortex_dtype::{NativePType, match_each_unsigned_integer_ptype};
@@ -51,32 +51,37 @@ impl<T: NativePType + BitPacking> BitPackedPipeline<T> {
 
 impl<T: NativePType + BitPacking> Pipeline for BitPackedPipeline<T> {
     fn next<'v>(&mut self, mask: &Mask, out: &'v mut Vector<'v>) -> VortexResult<()> {
-        debug_assert_eq!(out.capacity(), 2048);
-        match mask {
-            Mask::AllTrue(_) => {
-                let mut view = out.as_primitive::<T>();
-                unsafe {
-                    BitPacking::unchecked_unpack(
-                        self.width,
-                        &self.packed.as_slice()[self.packed_offset..][..self.packed_stride],
-                        &mut view.as_mut()[0..1024],
-                    );
-                    BitPacking::unchecked_unpack(
-                        self.width,
-                        &self.packed.as_slice()[self.packed_offset + self.packed_stride..]
-                            [..self.packed_stride],
-                        &mut view.as_mut()[1024..2048],
-                    );
-                }
-                self.packed_offset += 2 * self.packed_stride;
-                Ok(())
-            }
-            Mask::AllFalse(_) => {
-                todo!()
-            }
-            Mask::Values(_) => {
-                todo!()
-            }
+        if mask.true_count() < 16 {
+            // TODO(ngates): I think we found it was <= 8 elements where unpack_single is faster
+            //  than unpacking the whole chunk... Given we do two chunks, that's ~16 elements?
         }
+
+        // TODO(ngates): deal with our own nulls. We basically take the validity array and
+        //  create a pipeline to export it into a BitVector, which we construct by re-wrapping
+        //  the output vector's validity.
+
+        // Otherwise, we unconditionally unpack two chunks of 1024 elements each into the
+        // output vector, and simply return the mask we were given.
+        let mut view = out.as_primitive::<T>();
+        unsafe {
+            BitPacking::unchecked_unpack(
+                self.width,
+                &self.packed.as_slice()[self.packed_offset..][..self.packed_stride],
+                &mut view.as_mut()[0..1024],
+            );
+            BitPacking::unchecked_unpack(
+                self.width,
+                &self.packed.as_slice()[self.packed_offset + self.packed_stride..]
+                    [..self.packed_stride],
+                &mut view.as_mut()[1024..2048],
+            );
+        }
+
+        self.packed_offset += 2 * self.packed_stride;
+
+        // Set the selection to the given mask, which is a bit array of length N.
+        out.set_selection(Selection::Mask(mask.clone()));
+
+        Ok(())
     }
 }

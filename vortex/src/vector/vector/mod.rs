@@ -8,6 +8,7 @@ use bitvec::slice::BitSlice;
 use vortex_array::ArrayRef;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::PType;
+use vortex_mask::Mask;
 
 pub const N: usize = 2048;
 
@@ -99,27 +100,69 @@ pub enum VType {
 
 /// Provides a fast way to select a subset of elements from a vector.
 pub enum Selection {
-    // Select no elements in the vector.
+    /// Select no elements in the vector.
     Empty,
-    // Select all elements in the vector from zero up to the given length.
+    /// Select all elements in the vector from zero up to the given length.
     Prefix { len: usize },
-    // The element in the vector to be considered the constant value.
+    /// The element in the vector to be considered the constant value.
     Constant { element: usize, len: usize },
-    // Select from the vector using a list of indices, up to a maximum of `N` indices.
+    /// Select from the vector using a list of indices, up to a maximum of `N` indices.
     Indices(Box<[usize]>),
+    /// Select from the vector using a mask, which is a bit array of length `N`.
+    Mask(Mask),
 }
 
 impl<'a> Vector<'a> {
-    pub fn capacity(&self) -> usize {
-        N
-    }
-
+    /// Return the logical length of the vector, which is the number of selected elements.
     pub fn len(&self) -> usize {
         match self.selection {
             Selection::Empty => 0,
             Selection::Prefix { len } => len,
             Selection::Constant { len, .. } => len,
             Selection::Indices(ref indices) => indices.len(),
+            Selection::Mask(ref mask) => mask.true_count(),
         }
+    }
+
+    pub fn set_selection(&mut self, selection: Selection) {
+        #[cfg(debug_assertions)]
+        {
+            match &selection {
+                Selection::Empty => {}
+                Selection::Prefix { len } => {
+                    assert!(
+                        *len <= N,
+                        "Selection prefix length must be less than or equal to N"
+                    );
+                }
+                Selection::Constant { len, element } => {
+                    assert!(
+                        *len <= N,
+                        "Selection constant length must be less than or equal to N"
+                    );
+                    assert!(
+                        *element < N,
+                        "Selection constant element must be less than N"
+                    );
+                }
+                Selection::Indices(indices) => {
+                    assert!(
+                        indices.len() <= N,
+                        "Selection indices length must be less than or equal to N"
+                    );
+                    for &index in indices.iter() {
+                        assert!(index < N, "Selection index {} must be less than N", index);
+                    }
+                }
+                Selection::Mask(mask) => {
+                    assert_eq!(
+                        mask.len(),
+                        N,
+                        "Selection mask length must be less than or equal to N"
+                    );
+                }
+            }
+        }
+        self.selection = selection;
     }
 }
