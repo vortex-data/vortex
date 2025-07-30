@@ -7,6 +7,8 @@ mod patch;
 mod serde;
 
 use arrow_buffer::BooleanBufferBuilder;
+use std::marker::PhantomData;
+use std::sync::Arc;
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{DType, DecimalDType};
 use vortex_error::{VortexResult, vortex_panic};
@@ -20,14 +22,14 @@ use crate::vtable::{
     ValidityVTableFromValidityHelper, VisitorVTable,
 };
 use crate::{
-    ArrayBufferVisitor, ArrayChildVisitor, Canonical, EncodingId, EncodingRef, vtable, vtable_raw,
+    ArrayBufferVisitor, ArrayChildVisitor, Canonical, EncodingId, EncodingRef, vtable_raw,
 };
 
-vtable_raw!(DecimalVTable, DecimalArray, DecimalEncoding, <D: NativeDecimalType);
+vtable_raw!(DecimalVTable, DecimalArray, DecimalEncoding, <D: NativeDecimalType>);
 
 impl<D: NativeDecimalType> VTable for DecimalVTable<D> {
-    type Array = DecimalArray;
-    type Encoding = DecimalEncoding;
+    type Array = DecimalArray<D>;
+    type Encoding = DecimalEncoding<D>;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
@@ -43,12 +45,13 @@ impl<D: NativeDecimalType> VTable for DecimalVTable<D> {
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(DecimalEncoding.as_ref())
+        // TODO(ngates): ideally, we have a lazy static HashMap<TypeId, EncodingRef>
+        DecimalEncoding::<D>::default().to_encoding()
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct DecimalEncoding;
+#[derive(Clone, Debug, Default)]
+pub struct DecimalEncoding<D: NativeDecimalType>(PhantomData<D>);
 
 /// Maps a decimal precision into the smallest type that can represent it.
 pub fn smallest_storage_type(decimal_dtype: &DecimalDType) -> DecimalValueType {
@@ -127,31 +130,26 @@ pub fn compatible_storage_type(value_type: DecimalValueType, dtype: DecimalDType
 /// assert_eq!(array.len(), 3);
 /// ```
 #[derive(Clone, Debug)]
-pub struct DecimalArray {
+pub struct DecimalArray<D: NativeDecimalType> {
     dtype: DType,
-    values: ByteBuffer,
-    values_type: DecimalValueType,
+    values: Buffer<D>,
     validity: Validity,
     stats_set: ArrayStats,
 }
 
-impl DecimalArray {
+impl<D: NativeDecimalType> DecimalArray<D> {
     /// Creates a new [`DecimalArray`] from a [`Buffer`] and [`Validity`], without checking
     /// any invariants.
     ///
     /// # Panics
     ///
     /// Panics if the validity length is not compatible with the buffer length.
-    pub fn new<T: NativeDecimalType>(
-        buffer: Buffer<T>,
-        decimal_dtype: DecimalDType,
-        validity: Validity,
-    ) -> Self {
+    pub fn new(values: Buffer<D>, decimal_dtype: DecimalDType, validity: Validity) -> Self {
         if let Some(len) = validity.maybe_len() {
-            if buffer.len() != len {
+            if values.len() != len {
                 vortex_panic!(
                     "Buffer and validity length mismatch: buffer={}, validity={}",
-                    buffer.len(),
+                    values.len(),
                     len,
                 );
             }
@@ -159,8 +157,7 @@ impl DecimalArray {
 
         Self {
             dtype: DType::Decimal(decimal_dtype, validity.nullability()),
-            values: buffer.into_byte_buffer(),
-            values_type: T::VALUES_TYPE,
+            values,
             validity,
             stats_set: ArrayStats::default(),
         }
