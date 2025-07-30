@@ -14,7 +14,6 @@ use vortex_buffer::BufferMut;
 use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_mask::Mask::Values;
 
 /// A trait for exporting arrays into canonical primitive form.
 struct PrimitiveExport<T: NativePType> {
