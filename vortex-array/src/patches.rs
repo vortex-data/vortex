@@ -322,6 +322,10 @@ impl Patches {
             }
         };
 
+        if filter_mask.all_false() {
+            return Ok(None);
+        }
+
         Ok(Some(Self::new_unchecked(
             self.array_len,
             self.offset,
@@ -1137,5 +1141,149 @@ mod test {
         assert_eq!(patches.search_index(3).unwrap(), SearchResult::NotFound(1));
         assert_eq!(patches.search_index(6).unwrap(), SearchResult::NotFound(2));
         assert_eq!(patches.search_index(9).unwrap(), SearchResult::NotFound(3));
+    }
+
+    #[test]
+    fn test_mask_boundary_patches() {
+        // Test masking patches at array boundaries
+        let patches = Patches::new(
+            10,
+            0,
+            buffer![0u64, 9].into_array(),
+            buffer![100i32, 200].into_array(),
+        );
+
+        let mask = Mask::from_iter([
+            true, false, false, false, false, false, false, false, false, false,
+        ]);
+        let masked = patches.mask(&mask).unwrap();
+        assert!(masked.is_some());
+        let masked = masked.unwrap();
+        let indices = masked.indices().to_primitive().unwrap();
+        assert_eq!(indices.as_slice::<u64>(), &[9]);
+        let values = masked.values().to_primitive().unwrap();
+        assert_eq!(values.as_slice::<i32>(), &[200]);
+    }
+
+    #[test]
+    fn test_mask_all_patches_removed() {
+        // Test when all patches are masked out
+        let patches = Patches::new(
+            10,
+            0,
+            buffer![2u64, 5, 8].into_array(),
+            buffer![100i32, 200, 300].into_array(),
+        );
+
+        // Mask that removes all patches
+        let mask = Mask::from_iter([
+            false, false, true, false, false, true, false, false, true, false,
+        ]);
+        let masked = patches.mask(&mask).unwrap();
+        assert!(masked.is_none());
+    }
+
+    #[test]
+    fn test_mask_no_patches_removed() {
+        // Test when no patches are masked
+        let patches = Patches::new(
+            10,
+            0,
+            buffer![2u64, 5, 8].into_array(),
+            buffer![100i32, 200, 300].into_array(),
+        );
+
+        // Mask that doesn't affect any patches
+        let mask = Mask::from_iter([
+            true, false, false, true, false, false, true, false, false, true,
+        ]);
+        let masked = patches.mask(&mask).unwrap().unwrap();
+
+        let indices = masked.indices().to_primitive().unwrap();
+        assert_eq!(indices.as_slice::<u64>(), &[2, 5, 8]);
+        let values = masked.values().to_primitive().unwrap();
+        assert_eq!(values.as_slice::<i32>(), &[100, 200, 300]);
+    }
+
+    #[test]
+    fn test_mask_single_patch() {
+        // Test with a single patch
+        let patches = Patches::new(
+            5,
+            0,
+            buffer![2u64].into_array(),
+            buffer![42i32].into_array(),
+        );
+
+        // Mask that removes the single patch
+        let mask = Mask::from_iter([false, false, true, false, false]);
+        let masked = patches.mask(&mask).unwrap();
+        assert!(masked.is_none());
+
+        // Mask that keeps the single patch
+        let mask = Mask::from_iter([true, false, false, true, false]);
+        let masked = patches.mask(&mask).unwrap().unwrap();
+        let indices = masked.indices().to_primitive().unwrap();
+        assert_eq!(indices.as_slice::<u64>(), &[2]);
+    }
+
+    #[test]
+    fn test_mask_contiguous_patches() {
+        // Test with contiguous patches
+        let patches = Patches::new(
+            10,
+            0,
+            buffer![3u64, 4, 5, 6].into_array(),
+            buffer![100i32, 200, 300, 400].into_array(),
+        );
+
+        // Mask that removes middle patches
+        let mask = Mask::from_iter([
+            false, false, false, false, true, true, false, false, false, false,
+        ]);
+        let masked = patches.mask(&mask).unwrap().unwrap();
+
+        let indices = masked.indices().to_primitive().unwrap();
+        assert_eq!(indices.as_slice::<u64>(), &[3, 6]);
+        let values = masked.values().to_primitive().unwrap();
+        assert_eq!(values.as_slice::<i32>(), &[100, 400]);
+    }
+
+    #[test]
+    fn test_mask_with_large_offset() {
+        // Test with a large offset that shifts all indices
+        let patches = Patches::new(
+            20,
+            15,
+            buffer![16u64, 17, 19].into_array(), // actual indices are 1, 2, 4
+            buffer![100i32, 200, 300].into_array(),
+        );
+
+        // Mask that removes the patch at actual index 2
+        let mask = Mask::from_iter([
+            false, false, true, false, false, false, false, false, false, false, false, false,
+            false, false, false, false, false, false, false, false,
+        ]);
+        let masked = patches.mask(&mask).unwrap().unwrap();
+
+        let indices = masked.indices().to_primitive().unwrap();
+        assert_eq!(indices.as_slice::<u64>(), &[16, 19]);
+        let values = masked.values().to_primitive().unwrap();
+        assert_eq!(values.as_slice::<i32>(), &[100, 300]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Filter mask length 5 does not match array length 10")]
+    fn test_mask_wrong_length() {
+        let patches = Patches::new(
+            10,
+            0,
+            buffer![2u64, 5, 8].into_array(),
+            buffer![100i32, 200, 300].into_array(),
+        );
+
+        // Mask with wrong length
+        let mask = Mask::from_iter([false, false, true, false, false]);
+        let _ = patches.mask(&mask).unwrap();
     }
 }
