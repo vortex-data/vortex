@@ -32,7 +32,7 @@ struct Args {
     verbose: bool,
     #[arg(long, value_delimiter = ',', value_enum, default_values_t = vec![Format::Parquet, Format::OnDiskVortex])]
     formats: Vec<Format>,
-    #[arg(short, long, value_enum, default_values_t = vec![CompressOp::Compress, CompressOp::Decompress])]
+    #[arg(long, value_enum, default_values_t = vec![CompressOp::Compress, CompressOp::Decompress])]
     ops: Vec<CompressOp>,
     #[arg(long)]
     datasets: Option<String>,
