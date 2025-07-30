@@ -62,6 +62,8 @@ impl ZigZagEncoded for u64 {
 mod tests {
     use rstest::rstest;
     use vortex_array::arrays::{BooleanBuffer, PrimitiveArray};
+    use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
+    use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_array::compute::{filter, take};
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
@@ -69,7 +71,7 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
 
-    use crate::ZigZagEncoding;
+    use crate::{ZigZagArray, ZigZagEncoding};
 
     #[test]
     pub fn nullable_scalar_at() {
@@ -216,5 +218,34 @@ mod tests {
             .unwrap()
             .unwrap();
         test_take_conformance(zigzag.as_ref());
+    }
+
+    #[rstest]
+    // Basic ZigZag arrays
+    #[case::zigzag_i8(ZigZagEncoding.encode(&buffer![-128i8, -1, 0, 1, 127].into_array().to_canonical().unwrap(), None).unwrap().unwrap())]
+    #[case::zigzag_i16(ZigZagEncoding.encode(&buffer![-1000i16, -100, 0, 100, 1000].into_array().to_canonical().unwrap(), None).unwrap().unwrap())]
+    #[case::zigzag_i32(ZigZagEncoding.encode(&buffer![-100000i32, -1000, 0, 1000, 100000].into_array().to_canonical().unwrap(), None).unwrap().unwrap())]
+    #[case::zigzag_i64(ZigZagEncoding.encode(&buffer![-1000000i64, -10000, 0, 10000, 1000000].into_array().to_canonical().unwrap(), None).unwrap().unwrap())]
+    // Nullable arrays
+    #[case::zigzag_nullable_i32(ZigZagEncoding.encode(&PrimitiveArray::from_option_iter([Some(-100i32), None, Some(0), Some(100), None]).to_canonical().unwrap(), None).unwrap().unwrap())]
+    #[case::zigzag_nullable_i64(ZigZagEncoding.encode(&PrimitiveArray::from_option_iter([Some(-1000i64), None, Some(0), Some(1000), None]).to_canonical().unwrap(), None).unwrap().unwrap())]
+    // Edge cases
+    #[case::zigzag_single(ZigZagEncoding.encode(&buffer![-42i32].into_array().to_canonical().unwrap(), None).unwrap().unwrap())]
+    #[case::zigzag_alternating(ZigZagEncoding.encode(&buffer![-1i32, 1, -2, 2, -3, 3].into_array().to_canonical().unwrap(), None).unwrap().unwrap())]
+    // Large arrays
+    #[case::zigzag_large_i32(ZigZagEncoding.encode(&PrimitiveArray::from_iter((-500..500).map(|i| i as i32)).to_canonical().unwrap(), None).unwrap().unwrap())]
+    #[case::zigzag_large_i64(ZigZagEncoding.encode(&PrimitiveArray::from_iter((-1000..1000).map(|i| i as i64 * 100)).to_canonical().unwrap(), None).unwrap().unwrap())]
+    fn test_zigzag_consistency(#[case] array: ZigZagArray) {
+        test_array_consistency(array.as_ref());
+    }
+
+    #[rstest]
+    #[case::zigzag_i8_basic(ZigZagEncoding.encode(&buffer![-10i8, -5, 0, 5, 10].into_array().to_canonical().unwrap(), None).unwrap().unwrap())]
+    #[case::zigzag_i16_basic(ZigZagEncoding.encode(&buffer![-100i16, -50, 0, 50, 100].into_array().to_canonical().unwrap(), None).unwrap().unwrap())]
+    #[case::zigzag_i32_basic(ZigZagEncoding.encode(&buffer![-1000i32, -500, 0, 500, 1000].into_array().to_canonical().unwrap(), None).unwrap().unwrap())]
+    #[case::zigzag_i64_basic(ZigZagEncoding.encode(&buffer![-10000i64, -5000, 0, 5000, 10000].into_array().to_canonical().unwrap(), None).unwrap().unwrap())]
+    #[case::zigzag_i32_large(ZigZagEncoding.encode(&PrimitiveArray::from_iter((-50..50).map(|i| i as i32 * 10)).to_canonical().unwrap(), None).unwrap().unwrap())]
+    fn test_zigzag_binary_numeric(#[case] array: ZigZagArray) {
+        test_binary_numeric_array(array.into_array());
     }
 }

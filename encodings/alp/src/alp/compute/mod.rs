@@ -11,7 +11,9 @@ mod take;
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
 
     use crate::{ALPArray, alp_encode};
@@ -33,5 +35,14 @@ mod tests {
 
     fn test_alp_consistency(#[case] array: ALPArray) {
         test_array_consistency(array.as_ref());
+    }
+
+    #[rstest]
+    #[case::f32_basic(alp_encode(&PrimitiveArray::from_iter([1.23f32, 4.56, 7.89, 10.11, 12.13]), None).unwrap())]
+    #[case::f64_basic(alp_encode(&PrimitiveArray::from_iter([100.1f64, 200.2, 300.3, 400.4, 500.5]), None).unwrap())]
+    #[case::f32_large(alp_encode(&PrimitiveArray::from_iter((0..100).map(|i| i as f32 * 1.5)), None).unwrap())]
+    #[case::f64_large(alp_encode(&PrimitiveArray::from_iter((0..100).map(|i| i as f64 * 2.5)), None).unwrap())]
+    fn test_alp_binary_numeric(#[case] array: ALPArray) {
+        test_binary_numeric_array(array.into_array());
     }
 }

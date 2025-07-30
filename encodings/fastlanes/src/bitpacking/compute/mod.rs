@@ -40,6 +40,7 @@ fn chunked_indices<F: FnMut(usize, &[usize])>(
 mod tests {
     use rstest::rstest;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
 
     use crate::bitpacking::compute::chunked_indices;
@@ -78,5 +79,16 @@ mod tests {
 
     fn test_bitpacked_consistency(#[case] array: BitPackedArray) {
         test_array_consistency(array.as_ref());
+    }
+
+    #[rstest]
+    #[case::u8_basic(bitpack_encode(&PrimitiveArray::from_iter([1u8, 2, 3, 4, 5]), 3, None).unwrap())]
+    #[case::u16_basic(bitpack_encode(&PrimitiveArray::from_iter([10u16, 20, 30, 40, 50]), 6, None).unwrap())]
+    #[case::u32_basic(bitpack_encode(&PrimitiveArray::from_iter([100u32, 200, 300, 400, 500]), 9, None).unwrap())]
+    #[case::u64_basic(bitpack_encode(&PrimitiveArray::from_iter([1000u64, 2000, 3000, 4000, 5000]), 13, None).unwrap())]
+    #[case::i32_basic(bitpack_encode(&PrimitiveArray::from_iter([10i32, 20, 30, 40, 50]), 7, None).unwrap())]
+    #[case::large_u32(bitpack_encode(&PrimitiveArray::from_iter((0..100).map(|i| i as u32)), 7, None).unwrap())]
+    fn test_bitpacked_binary_numeric(#[case] array: BitPackedArray) {
+        test_binary_numeric_array(array.into_array());
     }
 }
