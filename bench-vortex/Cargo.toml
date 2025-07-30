@@ -17,9 +17,8 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
-tikv-jemallocator = { git = "https://github.com/yuhao-su/jemallocator", rev = "5084726b0f15686d13e88bc54ce7cff4b4ed6d27", features = ["profiling"] }
-tikv-jemalloc-ctl = { git = "https://github.com/yuhao-su/jemallocator", rev = "5084726b0f15686d13e88bc54ce7cff4b4ed6d27" }
-tikv-jemalloc-sys = { git = "https://github.com/yuhao-su/jemallocator", rev = "5084726b0f15686d13e88bc54ce7cff4b4ed6d27" }
+tikv-jemallocator = { version = "0.6.0" }
+jemalloc_pprof = { version = "0.8.1", features = ["flamegraph", "symbolize"] }
 anyhow = { workspace = true }
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
@@ -83,6 +82,7 @@ vortex = { workspace = true, features = [
 vortex-datafusion = { workspace = true }
 vortex-duckdb = { workspace = true }
 xshell = { workspace = true }
+axum = "0.8.4"
 
 [features]
 tracing = ["vortex-datafusion/tracing"]

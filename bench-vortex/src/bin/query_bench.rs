@@ -1,15 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::path::PathBuf;
-
-use bench_vortex::Target;
 use bench_vortex::benchmark_driver::{DriverConfig, run_benchmark};
 use bench_vortex::clickbench::{ClickBenchBenchmark, Flavor};
 use bench_vortex::display::DisplayFormat;
 use bench_vortex::tpcds::TpcDsBenchmark;
 use bench_vortex::tpch::tpch_benchmark::TpcHBenchmark;
+use bench_vortex::{Target, vortex_panic};
 use clap::{Parser, Subcommand, value_parser};
+use futures::executor::block_on;
+use parquet::data_type::AsBytes;
+use reqwest::StatusCode;
+use std::fs::File;
+use std::io::Write;
+use std::path::PathBuf;
+use std::thread;
+use vortex::error::vortex_err;
 
 #[derive(Parser, Debug)]
 #[command(version, about = "Vortex query benchmark runner", long_about = None)]
@@ -174,19 +180,32 @@ fn validate_scale_factor(val: &str) -> Result<String, String> {
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
+    let mut prof_ctl = block_on(jemalloc_pprof::PROF_CTL.as_ref().unwrap().lock());
+    require_profiling_activated(&prof_ctl);
+
     match args.command {
         Commands::ClickBench(clickbench_args) => run_clickbench(clickbench_args),
         Commands::TpcH(tpch_args) => run_tpch(tpch_args),
         Commands::TpcDS(tpcds_args) => run_tpcds(tpcds_args),
     }?;
 
-    use std::ffi::CStr;
-    use tikv_jemalloc_ctl::prof;
-    let dump_file_name = CStr::from_bytes_with_nul(b"dump\0").unwrap();
-    let dump = prof::dump::mib().unwrap();
-    dump.write(dump_file_name).unwrap();
+    let svg = prof_ctl
+        .dump_flamegraph()
+        .map_err(|e| vortex_err!("failed to dump flamegraph: {}", e))?;
+    let mut file = File::create(format!(
+        "jemalloc_flamegraph_{}.svg",
+        *thread::current().id()
+    ))?;
+    file.write_all(svg.as_bytes())?;
 
     Ok(())
+}
+
+/// Checks whether jemalloc profiling is activated an returns an error response if not.
+fn require_profiling_activated(prof_ctl: &jemalloc_pprof::JemallocProfCtl) {
+    if !prof_ctl.activated() {
+        vortex_panic!("jemalloc profiling is not activated, cannot proceed");
+    }
 }
 
 fn run_clickbench(args: ClickBenchArgs) -> anyhow::Result<()> {
