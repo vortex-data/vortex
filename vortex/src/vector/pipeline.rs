@@ -36,10 +36,6 @@ use vortex_mask::Mask;
 /// indicates that the data isn't ready yet (ideally it has populated some sort of context in
 /// the meantime that allows the caller to make progress, for example, downloading segments). But
 /// these feels like future work where we potentially merge arrays and layouts.
-///
-// TODO(ngates): we should explore a version of pipelines that are not object-safe traits. This
-//  would allow for compile-time optimizations and inlining for the cases where we wish to
-//  "semi-fuse" kernels.
 pub trait Pipeline {
     /// Exports the next vector from the pipeline, given a length [`N`] mask and an output vector.
     ///
@@ -53,6 +49,12 @@ pub trait Pipeline {
 
 pub trait SupportsPipeline {
     /// Returns a pipeline that can be used to export canonical data from this array.
+    ///
+    /// NOTE(ngates): if we expose these functions on the array VTables, then we can get access
+    ///  to the typed pipelines without needing to box them. This would require us to special-case
+    ///  the compute functions (e.g. add a `type ComparePipeline: Pipeline` associated type to
+    ///  the array vtable), but it would mean that if both the array and the compute function are
+    ///  concrete types, then the kernel can inline them.
     fn pipeline(&self) -> Box<dyn Pipeline>;
 
     // TODO(ngates): there will be another function, similar to find_kernel, that takes a compute
