@@ -76,53 +76,62 @@ pub struct NotSupported;
 macro_rules! vtable {
     ($V:ident) => {
         $crate::aliases::paste::paste! {
-            #[derive(Debug)]
-            pub struct [<$V VTable>];
+            $crate::vtable_raw!([<$V VTable>], [<$V Array>], [<$V Encoding>]);
+        }
+    };
+}
 
-            impl AsRef<dyn $crate::Array> for [<$V Array>] {
-                fn as_ref(&self) -> &dyn $crate::Array {
-                    // We can unsafe cast ourselves to an ArrayAdapter.
-                    unsafe { &*(self as *const [<$V Array>] as *const $crate::ArrayAdapter<[<$V VTable>]>) }
-                }
+#[macro_export]
+macro_rules! vtable_raw {
+    ($V:ident, $A:ident, $E:ident$(, < $($G:ident $(: $($bound:path),+)?),+ >)?) => {
+        #[derive(Debug)]
+        pub struct $V$(< $($G $(: $($bound),+)?),+ >)?;
+
+        impl$(< $($G $(: $($bound),+)?),+ >)? AsRef<dyn $crate::Array> for $A$(< $($G),+ >)? {
+            fn as_ref(&self) -> &dyn $crate::Array {
+                // We can unsafe cast ourselves to an ArrayAdapter.
+                unsafe { &*(self as *const Self as *const $crate::ArrayAdapter<$V$(< $($G),+ >)?>) }
             }
+        }
 
-            impl std::ops::Deref for [<$V Array>] {
-                type Target = dyn $crate::Array;
+        impl$(< $($G $(: $($bound),+)?),+ >)? std::ops::Deref for $A$(< $($G),+ >)? {
+            type Target = dyn $crate::Array;
 
-                fn deref(&self) -> &Self::Target {
-                    // We can unsafe cast ourselves to an ArrayAdapter.
-                    unsafe { &*(self as *const [<$V Array>] as *const $crate::ArrayAdapter<[<$V VTable>]>) }
-                }
+            fn deref(&self) -> &Self::Target {
+                // We can unsafe cast ourselves to an ArrayAdapter.
+                unsafe { &*(self as *const Self as *const $crate::ArrayAdapter<$V$(< $($G),+ >)?>) }
             }
+        }
 
-            impl $crate::IntoArray for [<$V Array>] {
-                fn into_array(self) -> $crate::ArrayRef {
-                    // We can unsafe transmute ourselves to an ArrayAdapter.
-                    std::sync::Arc::new(unsafe { std::mem::transmute::<[<$V Array>], $crate::ArrayAdapter::<[<$V VTable>]>>(self) })
-                }
+        impl$(< $($G $(: $($bound),+)?),+ >)? $crate::IntoArray for $A$(< $($G),+ >)? {
+            fn into_array(self) -> $crate::ArrayRef {
+                // We can unsafe transmute ourselves to an ArrayAdapter.
+                std::sync::Arc::new(unsafe {
+                    std::mem::transmute::<Self, $crate::ArrayAdapter<$V$(< $($G),+ >)?>>(self)
+                })
             }
+        }
 
-            impl From<[<$V Array>]> for $crate::ArrayRef {
-                fn from(value: [<$V Array>]) -> $crate::ArrayRef {
-                    use $crate::IntoArray;
-                    value.into_array()
-                }
+        impl From<$A$(< $($G),+ >)?> for $crate::ArrayRef {
+            fn from(value: $A$(< $($G),+ >)?) -> $crate::ArrayRef {
+                use $crate::IntoArray;
+                value.into_array()
             }
+        }
 
-            impl AsRef<dyn $crate::Encoding> for [<$V Encoding>] {
-                fn as_ref(&self) -> &dyn $crate::Encoding {
-                    // We can unsafe cast ourselves to an EncodingAdapter.
-                    unsafe { &*(self as *const [<$V Encoding>] as *const $crate::EncodingAdapter<[<$V VTable>]>) }
-                }
+        impl$(< $($G $(: $($bound),+)?),+ >)? AsRef<dyn $crate::Encoding> for $E$(< $($G),+ >)? {
+            fn as_ref(&self) -> &dyn $crate::Encoding {
+                // We can unsafe cast ourselves to an EncodingAdapter.
+                unsafe { &*(self as *const Self as *const $crate::EncodingAdapter<$V$(< $($G),+ >)?>) }
             }
+        }
 
-            impl std::ops::Deref for [<$V Encoding>] {
-                type Target = dyn $crate::Encoding;
+        impl$(< $($G $(: $($bound),+)?),+ >)? std::ops::Deref for $E$(< $($G),+ >)? {
+            type Target = dyn $crate::Encoding;
 
-                fn deref(&self) -> &Self::Target {
-                    // We can unsafe cast ourselves to an EncodingAdapter.
-                    unsafe { &*(self as *const [<$V Encoding>] as *const $crate::EncodingAdapter<[<$V VTable>]>) }
-                }
+            fn deref(&self) -> &Self::Target {
+                // We can unsafe cast ourselves to an EncodingAdapter.
+                unsafe { &*(self as *const Self as *const $crate::EncodingAdapter<$V$(< $($G),+ >)?>) }
             }
         }
     };

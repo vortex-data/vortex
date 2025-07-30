@@ -19,11 +19,13 @@ use crate::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityHelper,
     ValidityVTableFromValidityHelper, VisitorVTable,
 };
-use crate::{ArrayBufferVisitor, ArrayChildVisitor, Canonical, EncodingId, EncodingRef, vtable};
+use crate::{
+    ArrayBufferVisitor, ArrayChildVisitor, Canonical, EncodingId, EncodingRef, vtable, vtable_raw,
+};
 
-vtable!(Decimal);
+vtable_raw!(DecimalVTable, DecimalArray, DecimalEncoding, <D: NativeDecimalType);
 
-impl VTable for DecimalVTable {
+impl<D: NativeDecimalType> VTable for DecimalVTable<D> {
     type Array = DecimalArray;
     type Encoding = DecimalEncoding;
 
