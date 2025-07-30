@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Deref;
+use bitvec::array::BitArray;
+use vortex_array::ArrayRef;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{NativePType, PType};
-use vortex_error::VortexExpect;
+use vortex_dtype::PType;
 use vortex_mask::Mask;
 
 /// A vector is the atomic unit of data in Vortex.
@@ -54,21 +54,21 @@ use vortex_mask::Mask;
 ///
 /// We'd then need some way to buffer the intermediate results as both expressions are driven.
 /// Maybe this works?
-pub struct Vector {
-    vtype: VType,
-    // The buffer containing the fixed-width elements of the vector.
-    elements: ByteBuffer,
+pub struct Vector<'a, E> {
+    pub vtype: VType,
+    // A mutable view over the elements of the vector.
+    pub elements: &'a mut [E],
     // The validity mask for the vector, indicating which elements are valid.
-    validity: Mask,
+    pub validity: &'a mut BitArray<u64>,
     // A selection over the elements and validity of the vector.
     // FIXME(ngates): using a selection mask means rank-based operations are expensive, vs
     //  selection indices which are always constant time.
-    selection: Selection,
+    pub selection: Selection,
+
     // Additional buffers of data used by the vector, such as string data.
-    data: Vec<ByteBuffer>,
-    // Additional vectors used by the vector, such as dictionary values. Maybe these should be
-    // arrays actually?
-    children: Vec<Vector>,
+    pub data: Vec<ByteBuffer>,
+    // Additional arrays used by the vector, such as...?
+    pub children: Vec<ArrayRef>,
 }
 
 /// Matches the variant types of our logical DTypes.
@@ -79,6 +79,8 @@ pub enum VType {
 }
 
 pub enum Selection {
+    // Select no elements in the vector.
+    Empty,
     // Select all elements in the vector, up to the given length.
     All { len: usize },
     // The element in the vector to be considered the constant value.
@@ -88,42 +90,4 @@ pub enum Selection {
     // A selection that is a list of indices, with each index indicating an element to select.
     // Enabling duplicate values, reordering, etc.
     Indices(Vec<usize>),
-}
-
-impl Vector {
-    pub fn as_primitive_mut<T: NativePType>(&mut self) -> PrimitiveVectorMut<'_, u8> {
-        assert_eq!(
-            self.vtype,
-            VType::Primitive(T::PTYPE),
-            "Vector is not primitive"
-        );
-        PrimitiveVectorMut::<T>(self)
-    }
-}
-
-/// Primitive access to a vector's elements.
-pub struct PrimitiveVector<'a, T: NativePType>(&'a Vector);
-pub struct PrimitiveVectorMut<'a, T: NativePType>(&'a mut Vector);
-
-impl<'a, T: NativePType> Deref for PrimitiveVectorMut<'a, T> {
-    type Target = PrimitiveVector<'a, T>;
-
-    fn deref(&self) -> &Self::Target {
-        unsafe { std::mem::transmute::<&PrimitiveVectorMut<'a, T>, &PrimitiveVector<'a, T>>(&self) }
-    }
-}
-
-impl<'a, T: NativePType> AsMut<[T]> for PrimitiveVectorMut<'a, T> {
-    fn as_mut(&mut self) -> &mut [T] {
-        let elements = self
-            .0
-            .elements
-            .as_mut()
-            .vortex_expect("Vector has no elements");
-        let len = elements.len() / size_of::<T>();
-
-        let ptr = elements.as_mut_ptr() as *mut T;
-        assert!(ptr.is_aligned(), "Pointer is not aligned to T's alignment");
-        unsafe { std::slice::from_raw_parts_mut(ptr, len) }
-    }
 }

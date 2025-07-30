@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::vector::vector::Vector;
+use crate::vector::view::View;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -47,7 +47,7 @@ pub trait Pipeline {
     /// canonicalizing the vector to use it, or by propagating it in some way).
     ///
     /// FIXME(ngates): what if the pipeline pipeline depends on the exported vector's encoding???
-    fn next(&mut self, mask: &Mask, out: &mut Vector) -> VortexResult<()>;
+    fn next<'v>(&mut self, mask: &Mask, out: &'v mut View<'v>) -> VortexResult<()>;
 }
 
 pub trait SupportsPipeline {

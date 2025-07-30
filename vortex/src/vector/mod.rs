@@ -60,6 +60,7 @@ mod expression;
 mod impls;
 mod pipeline;
 mod vector;
+mod view;
 
 /// What's the relationship between a Layout, a Vector, and an Array?
 ///
