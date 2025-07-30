@@ -220,7 +220,7 @@ fn setup_signal_handler() -> anyhow::Result<()> {
                         println!("Flamegraph generated successfully!");
                     }
                 }
-                _ => unreachable!(),
+                _ => {}
             }
         }
     });

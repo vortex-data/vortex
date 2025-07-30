@@ -75,15 +75,12 @@ impl FlatReader {
             .get_or_init(|| {
                 let ctx = self.layout.ctx.clone();
                 let dtype = self.layout.dtype().clone();
-                LoggingFuture::new(
-                    async move {
-                        let segment = segment_fut.await?;
-                        ArrayParts::try_from(segment)?
-                            .decode(&ctx, &dtype, row_count)
-                            .map_err(Arc::new)
-                    },
-                    format!("FlatReader Future {}", self.layout.segment_id()),
-                )
+                async move {
+                    let segment = segment_fut.await?;
+                    ArrayParts::try_from(segment)?
+                        .decode(&ctx, &dtype, row_count)
+                        .map_err(Arc::new)
+                }
                 .boxed()
                 .shared()
             })
