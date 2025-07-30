@@ -357,7 +357,7 @@ mod test {
     #[case::delta_u32(DeltaArray::try_from_vec((0u32..100).collect()).unwrap())]
     #[case::delta_u64(DeltaArray::try_from_vec((0..100).map(|i| i as u64 * 10).collect()).unwrap())]
     // Large arrays (multiple chunks)
-    #[case::delta_large_u32(DeltaArray::try_from_vec((0..2048).collect()).unwrap())]
+    #[case::delta_large_u32(DeltaArray::try_from_vec((0u32..2048).collect()).unwrap())]
     #[case::delta_large_u64(DeltaArray::try_from_vec((0u64..2048).collect()).unwrap())]
     // Single element
     #[case::delta_single(DeltaArray::try_from_vec(vec![42u32]).unwrap())]
