@@ -60,30 +60,3 @@ mod expression;
 mod impls;
 mod pipeline;
 mod vector;
-mod view;
-
-/// What's the relationship between a Layout, a Vector, and an Array?
-///
-/// Ideally, compute is performed by passing streams of vectors through an evaluation task.
-///
-/// The caller of an evaluation knows the expected length, so it will keep invoking the evaluation
-/// repeatedly until it has returned enough data. An evaluation takes a context, so we could use
-/// this to pass out required segment IDs and use this to drive async layout evaluation.
-///
-/// How static are evaluation trees? For example, chunking may result in different
-/// evaluations for each chunk (due to compression/layout differences). We don't want to eagerly
-/// construct all of these... do we? We currently do for layouts. This would be similar to passing
-/// in a row selection + field mask, and allowing the evaluation to do pruning on construction. But
-/// it doesn't allow for short-circuiting operations. So yes, maybe evaluations should be allowed
-/// to be mutable at runtime.
-///
-/// Evaluations should be `Send`, but `Sync` would add too much overhead. This means for execution,
-/// we are able to work-steal evaluations across threads, but we cannot invoke them on a
-/// work-stealing runtime, only on a single thread at a time. This is fine.
-///
-/// So it sounds like evaluations replace compute function kernels. Instead of taking kernel inputs
-/// as arrays, they are taken as evaluations.
-///
-/// What are vectors then? Do they replace arrays? Do they replace canonical arrays? Maybe they do
-/// replace arrays ultimately?
-struct Foo;

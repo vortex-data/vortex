@@ -2,4 +2,3 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod bitpacked;
-mod primitive;

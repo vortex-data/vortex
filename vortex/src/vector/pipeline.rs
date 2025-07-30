@@ -1,53 +1,50 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::vector::view::View;
+use crate::vector::vector::Vector;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-/// An pipeline provides a push-based way to emit a stream of vectors.
-///
-/// Should we rename this to `Pipeline`?
+/// A pipeline provides a push-based way to emit a stream of vectors.
 ///
 /// By passing multiple vector computations through the same pipeline, we can amortize
-/// the setup costs (such as DType validation, stats short-circuiting, etc.). It is also possible
-/// to construct and reuse cached nodes in the pipeline graph, for example, creating a `tee`
-/// node to emit the same data to multiple exporters and avoid duplicate computation.
+/// the setup costs (such as DType validation, stats short-circuiting, etc.), and to make better
+/// use of CPU caches by performing all operations while the data is hot.
 ///
-/// Passing in an `Exporter` (instead of say `&mut dyn Array`) allows us to have more explicit
-/// control over what happens if the pipeline wants to return a non-canonical encoding.
-/// into it.
+/// I haven't yet figured out the exact semantics of a pipeline. There's a few high-level options:
+/// * We pass a mask into `next` and expect a vector containing exactly the true count.
+/// * We pass a mask into `next` and expect a vector containing less than or equal to the true count.
+/// * We do not pass a mask into `next` and expect a vector containing whatever is easy for the
+///   pipeline to export.
 ///
-/// FIXME(ngates): this has a similar problem to Layouts. It would be useful if the array had full
-///  visibility into the mask it is about to be asked for, so it can optimize its export? Actually,
-///  when is this true? I guess if there is a series of low selectivity masks, then it would be
-///  useful to export these scalars into the same repartitioned vector. Also, does each invocation
-///  assume the mask has been consumed? Or can the implementation return the number of rows it has
-///  consumed from the mask? This could be useful for FastLanes where if it's given a 4k mask, it
-///  could just look at the first 1k, export that, then return the fact that it only consumed 1k.
-///  This may fuck with alignment though...?
+/// By allowing pipelines to return partial results, we enable them to throw away their leading
+/// data that may not be exactly aligned with the ideal `N` elements per vector. However, if
+/// we allow this, then it's hardly likely that join nodes in the pipeline will line up, and so we
+/// will need complex buffering logic.
+///
+/// By passing a mask into `next`, we do provide visibility into the density of the data. Some
+/// arrays may choose to decompress the full `N` elements, and then use the given mask as the
+/// vector's selection mask. If two vectors do the same, we can compare the masks and then perform
+/// an operation without needing to perform the selection. If the selection masks are not the same,
+/// we need a way to flatten a vector into a "prefix" vector, where the first `true_count` elements
+/// are dense at the start of the vector, allowing us to still use vectorized kernels. If a
+/// selection mask is _too_ sparse, e.g. a handful of elements, then we may wish to buffer adjacent
+/// masks together to form a denser vector. Ideally, the compute function that instantiate the
+/// pipeline would have full visibility into the larger mask and can make that decision.
+///
+/// There may be value in allowing pipelines to export no data. In other words, the `next` function
+/// indicates that the data isn't ready yet (ideally it has populated some sort of context in
+/// the meantime that allows the caller to make progress, for example, downloading segments). But
+/// these feels like future work where we potentially merge arrays and layouts.
 pub trait Pipeline {
-    /// The `next` function is called to export the next batch of data into the provided `Exporter`.
+    /// Exports the next vector from the pipeline, given a length [`N`] mask and an output vector.
     ///
-    /// This function should be called repeatedly until the expected number of rows has been
-    /// returned. Intermediate calls *may emit empty vectors*. This allows implementations to
-    /// delay compute until some external condition is met, such as I/O completion.
-    ///
-    /// The data exported to `out` will be less than or equal to the [`Mask::true_count`] of the
-    /// provided `mask` during each invocation. After all invocations, the total number of rows
-    /// exported must equal the total number of `true` values in the global mask.
-    ///
-    /// By allowing the implementation to export less than the mask's true count, chunked arrays
-    /// are able to align themselves with the export graph. For example, a 1k chunked array could
-    /// emit some leading rows, before emitting subsequent rows as aligned 1k chunks.
-    ///
-    /// Implementations are expected to either export data into the pre-allocated canonical vector
-    /// contained within the `Exporter`, or by calling `Exporter::export` with an arbitrarily
-    /// encoded vector. Callers may choose how to handle the latter case (for example, by
-    /// canonicalizing the vector to use it, or by propagating it in some way).
-    ///
-    /// FIXME(ngates): what if the pipeline pipeline depends on the exported vector's encoding???
-    fn next<'v>(&mut self, mask: &Mask, out: &'v mut View<'v>) -> VortexResult<()>;
+    /// Note that while the input mask is a bit array, the output vector's selection mask is in
+    /// terms of indices. This is because we can then read elements using `elems[selection[idx]]`
+    /// whereas a bit-mask would require much slower ranked selection.
+    /// Perhaps not with this? Or with a SIMD unpack?
+    ///  <https://www.microsoft.com/en-us/research/publication/selection-pushdown-in-column-stores-using-bit-manipulation-instructions/>
+    fn next<'v>(&mut self, mask: &Mask, out: &'v mut Vector<'v>) -> VortexResult<()>;
 }
 
 pub trait SupportsPipeline {

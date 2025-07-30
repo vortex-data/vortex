@@ -1,0 +1,125 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+mod primitive;
+
+use bitvec::access::BitSafeU64;
+use bitvec::slice::BitSlice;
+use vortex_array::ArrayRef;
+use vortex_buffer::ByteBuffer;
+use vortex_dtype::PType;
+
+pub const N: usize = 2048;
+
+/// A vector is the atomic unit of canonical data in Vortex.
+///
+/// Like with our canonical arrays, it is physically typed, not logically typed. So each DType
+/// has a well-defined physical representation in vector form.
+///
+/// I'm not quite sure on sizing yet. We could follow DuckDB and make vectors 2k elements. We
+/// could follow FastLanes and make them 1k elements. Or we could do something interesting where
+/// we pick the largest power of two that lets us fit ~3-4 vectors into the L1 cache. For example,
+/// strings may be 1k elements, but u8 integers may be 8k elements. Many compute functions operate
+/// over two inputs of the same type, so this could be interesting.
+///
+/// Interestingly, Vectors don't own their own data. In fact, I'm considering calling them 'views'.
+/// This also solves our problem of zero-copy export by allowing us to pass down an output buffer
+/// from an external source. This tends to work well since these external sources typically agree
+/// with us on the physical representation of data, e.g. DuckDB, Arrow, Numpy, etc.
+///
+/// ## Why is this a single type-erased struct?
+///
+/// If we used generics at this level, we would taint all functions that use this type with a
+/// generic type. To remove the generic, we'd need to introduce a trait, at which point we're
+/// forced into both dynamic dispatch, and boxed return types. We also cannot downcast a dynamic
+/// trait that holds borrowed data since `Any` requires a static lifetime.
+///
+/// ## How do we handle custom encodings, e.g. FSST, RoaringBitMap, ZStd, etc.?
+///
+/// I could imagine a VarBinView vector (i.e. it has 16-byte views in its elements buffer), but
+/// is able to delay decompression of the data buffers. These could be stored as child arrays and
+/// decompressed on-demand, since this is now an opaque operation (and then call export on the
+/// child data arrays using a slices mask? We'd be masking binary data... that sounds slow).
+/// In conclusion... I'm not really sure yet.
+///
+/// What about dictionary arrays? Are they even important at this level?
+/// I have done a "medium amount" of thinking on this, and I think we can actually get away with
+/// not supporting dictionary encoding at the vector level. Vortex arrays actually define the
+/// encoding tree, and therefore can decide how to implement a compute function. So where it's
+/// possible to return a dictionary encoded thing, e.g. to DuckDB, we would have some sort of
+/// Vortex Array -> DuckDB function that would check for top-level dictionaries and handle the
+/// conversion at that layer.
+
+/// ## Can we re-use parts of the pipeline to avoid common-subexpression elimination?
+///
+/// This gets tricky... Suppose we start with a Vortex expression. We can then pass that naively
+/// through pipeline construction. This now represents a physical execution plan. At this point,
+/// we could in theory optimize the pipeline by removing common sub-expressions, such as
+/// canonicalizing the same field multiple times to pass into two comparison operators.
+///
+/// We'd then need some way to buffer the intermediate results as both expressions are driven.
+/// Maybe this works? Not sure yet.
+pub struct Vector<'a> {
+    /// The physical type of the vector, which defines how the elements are stored.
+    vtype: VType,
+    /// A pointer to the allocated elements buffer.
+    /// Alignment is at least the size of the element type.
+    /// The capacity of the elements buffer is N * size_of::<T>() where T is the element type.
+    // TODO(ngates): it would be nice to guarantee _wider_ alignment, ideally 128 bytes, so that
+    //  we can use aligned load/store instructions for wide SIMD lanes.
+    elements: *mut u8,
+    /// The validity mask for the vector, indicating which elements in the buffer are valid.
+    validity: &'a mut VectorMask,
+    // A selection mask over the elements and validity of the vector.
+    // FIXME(ngates): using a selection mask means rank-based operations are expensive, vs
+    //  selection indices which are always constant time.
+    selection: Selection,
+
+    /// Additional buffers of data used by the vector, such as string data.
+    // TODO(ngates): ideally these buffers are compressed somehow? E.g. using FSST?
+    data: Vec<ByteBuffer>,
+    // Additional arrays used by the vector, such as...?
+    children: Vec<ArrayRef>,
+
+    /// Marker defining the lifetime of the contents of the vector.
+    _marker: std::marker::PhantomData<&'a mut ()>,
+}
+
+/// A vector mask is a bit array containing N boolean values.
+pub type VectorMask = BitSlice<BitSafeU64, bitvec::order::Msb0>;
+
+/// Defines the "vector type", a physical type describing the data that's held in the vector.
+///
+/// See the specific vector view types, e.g. [`PrimitiveVector`], for more details.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum VType {
+    Primitive(PType),
+    VarBin,
+}
+
+/// Provides a fast way to select a subset of elements from a vector.
+pub enum Selection {
+    // Select no elements in the vector.
+    Empty,
+    // Select all elements in the vector from zero up to the given length.
+    Prefix { len: usize },
+    // The element in the vector to be considered the constant value.
+    Constant { element: usize, len: usize },
+    // Select from the vector using a list of indices, up to a maximum of `N` indices.
+    Indices(Box<[usize]>),
+}
+
+impl<'a> Vector<'a> {
+    pub fn capacity(&self) -> usize {
+        N
+    }
+
+    pub fn len(&self) -> usize {
+        match self.selection {
+            Selection::Empty => 0,
+            Selection::Prefix { len } => len,
+            Selection::Constant { len, .. } => len,
+            Selection::Indices(ref indices) => indices.len(),
+        }
+    }
+}

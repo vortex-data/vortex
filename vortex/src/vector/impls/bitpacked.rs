@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::vector::pipeline::{Pipeline, SupportsPipeline};
-use crate::vector::view::View;
+use crate::vector::vector::Vector;
 use fastlanes::BitPacking;
 use vortex_buffer::Buffer;
 use vortex_dtype::{NativePType, match_each_unsigned_integer_ptype};
@@ -50,19 +50,25 @@ impl<T: NativePType + BitPacking> BitPackedPipeline<T> {
 }
 
 impl<T: NativePType + BitPacking> Pipeline for BitPackedPipeline<T> {
-    fn next<'v>(&mut self, mask: &Mask, out: &'v mut View<'v>) -> VortexResult<()> {
+    fn next<'v>(&mut self, mask: &Mask, out: &'v mut Vector<'v>) -> VortexResult<()> {
         debug_assert_eq!(out.capacity(), 2048);
         match mask {
             Mask::AllTrue(_) => {
                 let mut view = out.as_primitive::<T>();
-                // FIXME(ngates): allow larger than necessary slices, instead of exact size
                 unsafe {
                     BitPacking::unchecked_unpack(
                         self.width,
                         &self.packed.as_slice()[self.packed_offset..][..self.packed_stride],
-                        &mut view.as_mut()[0..2048],
-                    )
+                        &mut view.as_mut()[0..1024],
+                    );
+                    BitPacking::unchecked_unpack(
+                        self.width,
+                        &self.packed.as_slice()[self.packed_offset + self.packed_stride..]
+                            [..self.packed_stride],
+                        &mut view.as_mut()[1024..2048],
+                    );
                 }
+                self.packed_offset += 2 * self.packed_stride;
                 Ok(())
             }
             Mask::AllFalse(_) => {
