@@ -43,7 +43,7 @@ mod tests {
         let struct_array = StructArray::try_from_iter(iter).unwrap();
         let file = tokio::fs::File::create(&temp_file_path).await.unwrap();
         VortexWriteOptions::default()
-            .write_stream(file, struct_array.to_array_stream())
+            .write_tokio(file, struct_array.to_array_stream())
             .await
             .unwrap();
 
@@ -94,7 +94,7 @@ mod tests {
 
         let file = tokio::fs::File::create(&temp_file_path).await.unwrap();
         VortexWriteOptions::default()
-            .write_stream(file, struct_array.to_array_stream())
+            .write_tokio(file, struct_array.to_array_stream())
             .await
             .unwrap();
 

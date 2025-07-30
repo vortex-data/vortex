@@ -57,7 +57,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
 
     runtime.block_on(async move {
         let full_buff = VortexWriteOptions::default()
-            .write_stream(ByteBufferMut::empty(), array_data.to_array_stream())
+            .write_tokio(ByteBufferMut::empty(), array_data.to_array_stream())
             .await
             .vortex_unwrap();
 

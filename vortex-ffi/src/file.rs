@@ -190,17 +190,14 @@ pub unsafe extern "C-unwind" fn vx_file_write_array(
     let array = vx_array::as_ref(array);
     try_or_default(error_out, || {
         let path = unsafe { CStr::from_ptr(path).to_str()? };
+        let file = std::fs::File::create(path)
+            .map_err(|e| vortex_err!("Failed to create file: {e}"))?;
+        VortexWriteOptions::default()
+            .write(file, array.to_array_iterator())?;
 
-        RUNTIME.block_on(async {
-            VortexWriteOptions::default()
-                .write_stream(
-                    &mut tokio::fs::File::create(path).await?,
-                    array.to_array_stream(),
-                )
-                .await?;
-            Ok(())
-        })
-    });
+        Ok(())
+    })
+});
 }
 
 #[unsafe(no_mangle)]

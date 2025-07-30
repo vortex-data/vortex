@@ -83,7 +83,7 @@ pub async fn exec_convert(flags: Flags) -> VortexResult<()> {
     };
     VortexWriteOptions::default()
         .with_strategy(strategy)
-        .write_stream(
+        .write_tokio(
             File::create(output_path).await?,
             ArrayStreamAdapter::new(dtype, vortex_stream),
         )

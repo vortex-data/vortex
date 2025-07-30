@@ -41,7 +41,7 @@ fn generate_test_vortex_file(
             .vortex_expect("Failed to create test file");
 
         VortexWriteOptions::default()
-            .write_stream(&mut file, struct_array.to_array_stream())
+            .write_tokio(&mut file, struct_array.to_array_stream())
             .await
             .vortex_expect("Failed to write test data to file");
     });

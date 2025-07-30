@@ -107,7 +107,7 @@ pub fn read_url<'py>(
 pub fn write(iter: PyIntoArrayIterator, path: &str) -> PyResult<()> {
     TOKIO_RUNTIME.block_on(async move {
         VortexWriteOptions::default()
-            .write_stream(
+            .write_tokio(
                 File::create(path).await?,
                 iter.into_inner().into_array_stream(),
             )

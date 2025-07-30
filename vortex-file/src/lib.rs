@@ -97,6 +97,7 @@ mod driver;
 mod file;
 mod footer;
 mod generic;
+mod io;
 mod memory;
 mod open;
 mod pruning;

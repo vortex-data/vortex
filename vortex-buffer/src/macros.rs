@@ -5,7 +5,7 @@
 #[macro_export]
 macro_rules! buffer {
     () => (
-        $crate::Buffer:empty()
+        $crate::Buffer::empty()
     );
     ($elem:expr; $n:expr) => (
         $crate::Buffer::full($elem, $n)
@@ -19,7 +19,7 @@ macro_rules! buffer {
 #[macro_export]
 macro_rules! buffer_mut {
     () => (
-        $crate::BufferMut:empty()
+        $crate::BufferMut::empty()
     );
     ($elem:expr; $n:expr) => (
         $crate::BufferMut::full($elem, $n)

@@ -150,13 +150,13 @@ impl CopyFunction for VortexCopyFunction {
         let writer = async move {
             let file = File::create(&file_path).await?;
             let buffers = VortexWriteOptions::default()
-                .write_stream(array_stream);
+                .write_tokio(array_stream);
         }
 
         let writer = RUNTIME.spawn(async move {
             let file = File::create(file_path).await?;
             VortexWriteOptions::default()
-                .write_stream(file, array_stream)
+                .write_tokio(file, array_stream)
                 .await
         });
 

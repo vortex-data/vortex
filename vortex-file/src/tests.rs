@@ -5,7 +5,6 @@
 use std::iter;
 use std::sync::Arc;
 
-use bytes::Bytes;
 use itertools::Itertools;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{
@@ -15,7 +14,7 @@ use vortex_array::arrays::{
 use vortex_array::iter::ArrayIteratorExt;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
-use vortex_buffer::{Buffer, ByteBufferMut, buffer};
+use vortex_buffer::{Buffer, ByteBuffer, ByteBufferMut, buffer, buffer_mut};
 use vortex_dtype::PType::I32;
 use vortex_dtype::{DType, DecimalDType, Nullability, PType, StructFields};
 use vortex_error::VortexResult;
@@ -1010,8 +1009,8 @@ fn chunked_file() -> VortexResult<VortexFile> {
     ])
     .into_array();
 
-    let buffer: Bytes = VortexWriteOptions::default()
-        .write(vec![], array.to_array_iterator())?
+    let buffer: ByteBuffer = VortexWriteOptions::default()
+        .write(buffer_mut![], array.to_array_iterator())?
         .into();
     VortexOpenOptions::in_memory().open(buffer)
 }
@@ -1036,9 +1035,9 @@ fn file_excluding_dtype() -> VortexResult<()> {
     .into_array();
     let dtype = array.dtype().clone();
 
-    let buffer: Bytes = VortexWriteOptions::default()
+    let buffer: ByteBuffer = VortexWriteOptions::default()
         .exclude_dtype()
-        .write(vec![], array.to_array_iterator())?
+        .write(buffer_mut![], array.to_array_iterator())?
         .into();
 
     // Fail to open without DType.
@@ -1086,7 +1085,7 @@ fn write_nullable_top_level_struct() {
     .into_array();
 
     VortexWriteOptions::default()
-        .write(vec![], array.to_array_iterator())
+        .write(buffer_mut![], array.to_array_iterator())
         .unwrap();
 }
 
@@ -1094,8 +1093,8 @@ fn round_trip(
     array: &dyn Array,
     f: impl Fn(ScanBuilder<ArrayRef>) -> VortexResult<ScanBuilder<ArrayRef>>,
 ) -> VortexResult<ArrayRef> {
-    let buffer: Bytes = VortexWriteOptions::default()
-        .write(vec![], array.to_array_iterator())?
+    let buffer: ByteBuffer = VortexWriteOptions::default()
+        .write(buffer_mut![], array.to_array_iterator())?
         .into();
 
     let vxf = VortexOpenOptions::in_memory()

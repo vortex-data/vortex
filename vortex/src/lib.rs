@@ -118,7 +118,7 @@ mod test {
 
         // Write a Vortex file with the default compression and layout strategy.
         VortexWriteOptions::default()
-            .write_stream(
+            .write_tokio(
                 tokio::fs::File::create("example.vortex").await?,
                 array.to_array_stream(),
             )
@@ -154,7 +154,7 @@ mod test {
                 Arc::new(LocalExecutor),
                 CompactCompressor::default(),
             ))
-            .write_stream(
+            .write_tokio(
                 tokio::fs::File::create("example_compact.vortex").await?,
                 array.to_array_stream(),
             )

@@ -2,23 +2,24 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::footer::{FileStatistics, FooterFlatBufferWriter, Postscript, PostscriptSegment};
+use crate::io::{TokioWrite, Write};
 use crate::segments::writer::FileSegmentWriter;
 use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION, VortexLayoutStrategy};
 use async_stream::try_stream;
-use futures::executor::{block_on, block_on_stream};
+use futures::executor::block_on_stream;
 use futures::{Stream, StreamExt, TryStreamExt, pin_mut, poll};
 use std::future;
 use std::sync::Arc;
 use std::task::Poll;
 use tokio::runtime::Handle;
+use tokio::task::LocalSet;
+use vortex_array::ArrayContext;
 use vortex_array::iter::{ArrayIterator, ArrayIteratorExt};
 use vortex_array::stats::{PRUNING_STATS, Stat};
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt, SendableArrayStream};
-use vortex_array::{ArrayContext, ArrayRef};
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
-use vortex_io::VortexWrite;
 use vortex_layout::layouts::file_stats::accumulate_stats;
 use vortex_layout::sequence::SequenceId;
 use vortex_layout::{
@@ -74,48 +75,49 @@ impl VortexWriteOptions {
     #[cfg(feature = "object_store")]
     pub async fn write_object_store<S: ArrayStream + Unpin + Send + 'static>(
         self,
-        _object_store: &Arc<dyn object_store::ObjectStore>,
-        _path: &object_store::path::Path,
-        _stream: S,
-    ) -> VortexResult<()> {
-        todo!()
-        // use vortex_io::ObjectStoreWriter;
-        //
-        // self.write(
-        //     ObjectStoreWriter::new(object_store.clone(), path).await?,
-        //     stream,
-        // )
-        // .await?
-        // .shutdown()
-        // .await?;
-        // Ok(())
-    }
-
-    /// Write to a file using the provided `VortexWrite` implementation, spawning CPU tasks on the
-    /// given Tokio runtime handle.
-    #[cfg(feature = "tokio")]
-    pub async fn write_tokio<W: VortexWrite, S: ArrayStream + Unpin + Send + 'static>(
-        self,
-        mut write: W,
+        object_store: &dyn object_store::ObjectStore,
+        path: &object_store::path::Path,
         stream: S,
-        handle: Handle,
     ) -> VortexResult<()> {
-        // Configure a Tokio executor to spawn concurrent CPU-bound tasks.
-        let executor: Arc<dyn TaskExecutor> = Arc::new(handle);
-        let buffers = self.write_stream(ArrayStreamExt::boxed(stream), executor);
-        pin_mut!(buffers);
+        use crate::io::object_store::ObjectStoreWrite;
 
-        while let Some(bufs) = buffers.next().await {
-            for buf in bufs? {
-                write.write_all(buf).await?;
-            }
-        }
-        write.flush().await?;
+        let writer = ObjectStoreWrite::new(object_store, path).await?;
+        let mut writer = self.write_tokio(writer, stream).await?;
+        writer.shutdown().await?;
+
         Ok(())
     }
 
+    /// Write to a file using the provided [`TokioWrite`] implementation, with additional CPU tasks
+    /// being spawned onto the current Tokio runtime.
+    #[cfg(feature = "tokio")]
+    pub async fn write_tokio<W: TokioWrite, S: ArrayStream + Unpin + Send + 'static>(
+        self,
+        mut write: W,
+        stream: S,
+    ) -> VortexResult<W> {
+        // Configure a Tokio executor to spawn concurrent CPU-bound tasks.
+        let executor: Arc<dyn TaskExecutor> = Arc::new(Handle::current());
+
+        LocalSet::new()
+            .run_until(async move {
+                let buffers = self.write_internal(ArrayStreamExt::boxed(stream), executor);
+                pin_mut!(buffers);
+
+                while let Some(bufs) = buffers.next().await {
+                    for buf in bufs? {
+                        write.write(buf).await?;
+                    }
+                }
+                write.flush().await?;
+
+                Ok(write)
+            })
+            .await
+    }
+
     /// Perform a blocking single-threaded write of the provided [`ArrayIterator`].
-    pub fn write<W: VortexWrite, I: ArrayIterator + Send + 'static>(
+    pub fn write<W: Write, I: ArrayIterator + Send + 'static>(
         self,
         mut write: W,
         iter: I,
@@ -123,11 +125,10 @@ impl VortexWriteOptions {
         let mut buffers = self.write_iter(iter);
         while let Some(bufs) = buffers.next() {
             for buf in bufs? {
-                block_on(write.write_all(buf))?;
+                write.write(buf)?;
             }
         }
-        block_on(write.flush())?;
-
+        write.flush()?;
         Ok(write)
     }
 
@@ -137,7 +138,7 @@ impl VortexWriteOptions {
         self,
         iter: I,
     ) -> impl Iterator<Item = VortexResult<Vec<ByteBuffer>>> {
-        block_on_stream(StreamExt::boxed_local(self.write_stream(
+        block_on_stream(StreamExt::boxed_local(self.write_internal(
             ArrayStreamExt::boxed(iter.into_array_stream()),
             LocalExecutor::new(),
         )))
@@ -153,7 +154,7 @@ impl VortexWriteOptions {
     /// the returned stream should be polled using `spawn_blocking` or similar. For async CPU
     /// runtimes, the stream can be polled directly. For blocking callers, the stream can be
     /// iterated using `futures::executor::block_on` or similar.
-    pub fn write_stream(
+    fn write_internal(
         self,
         stream: SendableArrayStream,
         executor: Arc<dyn TaskExecutor>,
@@ -306,12 +307,4 @@ fn write_flatbuffer<F: FlatBufferRoot + WriteFlatBuffer>(
     *offset += u64::from(length);
 
     Ok(segment)
-}
-
-/// A writer that accepts chunks one at a time, immediately returning any buffers that should be
-/// written to disk.
-pub struct PushBasedWriter {}
-
-impl PushBasedWriter {
-    pub fn push(&self, chunk: ArrayRef) -> VortexResult<Vec<ByteBuffer>> {}
 }

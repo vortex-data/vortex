@@ -17,6 +17,7 @@ use datafusion::physical_plan::metrics::MetricsSet;
 use datafusion::physical_plan::{DisplayAs, DisplayFormatType};
 use futures::StreamExt;
 use object_store::ObjectStore;
+use object_store::path::Path;
 use tokio_stream::wrappers::ReceiverStream;
 use vortex::ArrayRef;
 use vortex::arrow::FromArrowArray;
