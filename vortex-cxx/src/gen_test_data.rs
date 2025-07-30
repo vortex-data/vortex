@@ -68,7 +68,7 @@ fn generate_test_vortex_file_1m(
     // Create sequential data for validation
     for i in 0..NUM_ROWS {
         id_data.push(i as i64);
-        value_data.push((i * 2) as i32); // Simple pattern for validation
+        value_data.push(i32::try_from(i * 2)); // Simple pattern for validation
     }
 
     let id_array =

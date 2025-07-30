@@ -3,6 +3,9 @@
 
 cmake_minimum_required(VERSION 3.22)
 
+# FetchContent from URL timestamp handling
+cmake_policy(SET CMP0135 NEW)
+
 project(vortex)
 
 set(CMAKE_CXX_STANDARD 17)

@@ -9,7 +9,6 @@
 #include "vortex/file.hpp"
 #include "vortex/scan.hpp"
 #include "vortex/write_options.hpp"
-#include "vortex_cxx_bridge/lib.h"
 #include "vortex_cxx_bridge/gen_test_data.h"
 
 #include <nanoarrow/nanoarrow.hpp>
@@ -55,12 +54,12 @@ protected:
         ArrowError error;
         ArrowErrorCode init_result = ArrowArrayViewInitFromSchema(array_view.get(), schema.get(), &error);
         if (init_result != NANOARROW_OK) {
-            std::cerr << "Error: " << error.message << std::endl;
+            std::cerr << "Error: " << error.message << '\n';
             std::abort();
         }
         ArrowErrorCode set_result = ArrowArrayViewSetArray(array_view.get(), array.get(), nullptr);
         if (set_result != NANOARROW_OK) {
-            std::cerr << "Error: " << error.message << std::endl;
+            std::cerr << "Error: " << error.message << '\n';
             std::abort();
         }
         return array_view;
@@ -78,7 +77,7 @@ protected:
         nanoarrow::UniqueSchema schema;
         int get_schema_result = array_stream->get_schema(array_stream, schema.get());
         if (get_schema_result != NANOARROW_OK) {
-            std::cerr << "Error: " << array_stream->get_last_error(array_stream) << std::endl;
+            std::cerr << "Error: " << array_stream->get_last_error(array_stream) << '\n';
             std::abort();
         }
         return schema;
@@ -271,7 +270,7 @@ TEST_F(VortexTest, ConcurrentMultiStreamRead) {
             int get_next_result = array_stream->get_next(array_stream.get(), array.get());
 
             if (get_next_result != 0) {
-                std::cerr << "Error: " << array_stream->get_last_error(array_stream.get()) << std::endl;
+                std::cerr << "Error: " << array_stream->get_last_error(array_stream.get()) << '\n';
                 std::abort();
             }
 
