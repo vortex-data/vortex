@@ -92,6 +92,7 @@ register_kernel!(IsConstantKernelAdapter(StructVTable).lift());
 #[cfg(test)]
 mod tests {
     use Nullability::{NonNullable, Nullable};
+    use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, FieldNames, Nullability, PType, StructFields};
     use vortex_error::VortexUnwrap;
@@ -106,7 +107,6 @@ mod tests {
     use crate::compute::{cast, filter, is_constant, take};
     use crate::validity::Validity;
     use crate::{Array, IntoArray as _};
-    use rstest::rstest;
 
     #[test]
     fn filter_empty_struct() {

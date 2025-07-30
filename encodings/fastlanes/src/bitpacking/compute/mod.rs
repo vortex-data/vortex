@@ -38,11 +38,12 @@ fn chunked_indices<F: FnMut(usize, &[usize])>(
 
 #[cfg(test)]
 mod tests {
-    use crate::bitpacking::compute::chunked_indices;
-    use crate::{BitPackedArray, bitpack_encode};
     use rstest::rstest;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
+
+    use crate::bitpacking::compute::chunked_indices;
+    use crate::{BitPackedArray, bitpack_encode};
 
     #[test]
     fn chunk_indices_repeated() {

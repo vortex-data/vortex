@@ -889,28 +889,20 @@ mod test {
             buffer![100i32, 200, 300].into_array(),
         );
 
-        // Mask that sets indices 2 and 8 to null (but not 5)
+        // Mask that removes patches at indices 2 and 8 (but not 5)
         let mask = Mask::from_iter([
             false, false, true, false, false, false, false, false, true, false,
         ]);
         let masked = patches.mask(&mask).unwrap().unwrap();
 
-        // First and third patch values should be masked
+        // Only the patch at index 5 should remain
         let masked_values = masked.values().to_primitive().unwrap();
-        assert_eq!(masked_values.len(), 3);
-        assert!(!masked_values.is_valid(0).unwrap()); // index 2 is masked
-        assert!(masked_values.is_valid(1).unwrap()); // index 5 is not masked
-        assert!(!masked_values.is_valid(2).unwrap()); // index 8 is masked
+        assert_eq!(masked_values.len(), 1);
+        assert_eq!(masked_values.as_slice::<i32>(), &[200]);
 
-        // When valid, values should be unchanged
-        assert_eq!(
-            i32::try_from(&masked_values.scalar_at(1).unwrap()).unwrap(),
-            200i32
-        );
-
-        // Indices should remain unchanged
+        // Only index 5 should remain
         let indices = masked.indices().to_primitive().unwrap();
-        assert_eq!(indices.as_slice::<u64>(), &[2, 5, 8]);
+        assert_eq!(indices.as_slice::<u64>(), &[5]);
     }
 
     #[test]
@@ -945,16 +937,25 @@ mod test {
             PrimitiveArray::from_option_iter([Some(100i32), None, Some(300)]).into_array(),
         );
 
-        // Test masking nullable values
+        // Test masking removes patch at index 2
         let mask = Mask::from_iter([
             false, false, true, false, false, false, false, false, false, false,
         ]);
         let masked = patches.mask(&mask).unwrap().unwrap();
 
+        // Patches at indices 5 and 8 should remain
         let indices = masked.indices().to_primitive().unwrap();
-        assert_eq!(indices.as_slice::<u64>(), &[8]);
+        assert_eq!(indices.as_slice::<u64>(), &[5, 8]);
+
+        // Values should be the null and 300
         let masked_values = masked.values().to_primitive().unwrap();
-        assert_eq!(masked_values.as_slice::<i32>(), &[300]);
+        assert_eq!(masked_values.len(), 2);
+        assert!(!masked_values.is_valid(0).unwrap()); // the null value at index 5
+        assert!(masked_values.is_valid(1).unwrap()); // the 300 value at index 8
+        assert_eq!(
+            i32::try_from(&masked_values.scalar_at(1).unwrap()).unwrap(),
+            300i32
+        );
     }
 
     #[test]
