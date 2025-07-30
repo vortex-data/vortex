@@ -13,8 +13,7 @@ use datafusion::datasource::physical_plan::{FileMeta, FileOpenFuture, FileOpener
 use futures::{FutureExt as _, StreamExt, TryStreamExt, stream};
 use object_store::ObjectStore;
 use object_store::path::Path;
-use tokio::runtime::Handle;
-use vortex::error::{ResultExt, VortexError, vortex_err};
+use vortex::error::VortexError;
 use vortex::expr::{ExprRef, VortexExpr};
 use vortex::layout::LayoutReader;
 use vortex::metrics::VortexMetrics;
@@ -120,38 +119,18 @@ impl FileOpener for VortexFileOpener {
                 }
             }
 
-            let num_workers = Handle::current().metrics().num_workers();
-
-            let scan_tasks = scan_builder
+            let stream = scan_builder
                 .with_metrics(metrics)
                 .with_projection(projection)
                 .with_some_filter(filter)
-                .build()
+                .map(move |chunk| {
+                    let st = chunk.to_struct()?;
+                    st.into_record_batch_with_schema(projected_arrow_schema.as_ref())
+                })
+                .into_tokio_stream()
                 .map_err(|e| {
                     DataFusionError::Execution(format!("Failed to create Vortex stream: {e}"))
-                })?;
-
-            let stream = stream::iter(scan_tasks)
-                .map(move |task| {
-                    let projected_arrow_schema = projected_arrow_schema.clone();
-                    tokio::spawn(async move {
-                        task.await
-                            .transpose()
-                            .map(move |chunk| {
-                                let st = chunk?.to_struct()?;
-                                st.into_record_batch_with_schema(projected_arrow_schema.as_ref())
-                            })
-                            .transpose()
-                    })
-                })
-                // We buffer the stream so that we can run ahead and perform I/O on future tasks
-                // while still processing CPU work of the current one.
-                .buffered(4 * num_workers)
-                .filter_map(|r| async move {
-                    r.map_err(|e| vortex_err!("Failed to join Tokio task {e}"))
-                        .unnest()
-                        .transpose()
-                })
+                })?
                 .map_ok(move |rb| {
                     // We try and slice the stream into respecting datafusion's configured batch size.
                     stream::iter(

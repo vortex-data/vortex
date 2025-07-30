@@ -1161,7 +1161,7 @@ fn scan_empty_fields() -> VortexResult<()> {
 }
 
 #[tokio::test]
-async fn test_into_cpu_stream() -> VortexResult<()> {
+async fn test_into_tokio_array_stream() -> VortexResult<()> {
     let strings = ChunkedArray::from_iter([
         VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
         VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
@@ -1180,7 +1180,7 @@ async fn test_into_cpu_stream() -> VortexResult<()> {
         .unwrap();
 
     let file = VortexOpenOptions::in_memory().open(buf)?;
-    let stream = file.scan().unwrap().into_cpu_stream()?;
+    let stream = file.scan().unwrap().into_tokio_array_stream()?;
     let array = stream.read_all().await?;
 
     assert_eq!(array.len(), 8);
