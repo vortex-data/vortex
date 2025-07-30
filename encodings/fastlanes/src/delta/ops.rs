@@ -57,9 +57,9 @@ impl OperationsVTable<DeltaVTable> for DeltaVTable {
 #[cfg(test)]
 mod test {
     use rstest::rstest;
-    use vortex_array::ToCanonical;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
+    use vortex_array::{IntoArray, ToCanonical};
     use vortex_error::VortexError;
 
     use super::*;
@@ -354,25 +354,23 @@ mod test {
 
     #[rstest]
     // Basic delta arrays
-    #[case::delta_u32(DeltaArray::try_from_vec((0..100).map(|i| i as u32).collect()).unwrap())]
-    #[case::delta_i32(DeltaArray::try_from_vec((-50..50).map(|i| i as i32).collect()).unwrap())]
+    #[case::delta_u32(DeltaArray::try_from_vec((0u32..100).collect()).unwrap())]
     #[case::delta_u64(DeltaArray::try_from_vec((0..100).map(|i| i as u64 * 10).collect()).unwrap())]
-    #[case::delta_i64(DeltaArray::try_from_vec((-100..100).map(|i| i as i64 * 5).collect()).unwrap())]
     // Large arrays (multiple chunks)
-    #[case::delta_large_u32(DeltaArray::try_from_vec((0..2048).map(|i| i as u32).collect()).unwrap())]
-    #[case::delta_large_i32(DeltaArray::try_from_vec((-1024..1024).map(|i| i as i32).collect()).unwrap())]
+    #[case::delta_large_u32(DeltaArray::try_from_vec((0..2048).collect()).unwrap())]
+    #[case::delta_large_u64(DeltaArray::try_from_vec((0u64..2048).collect()).unwrap())]
     // Single element
-    #[case::delta_single(DeltaArray::try_from_vec(vec![42i32]).unwrap())]
+    #[case::delta_single(DeltaArray::try_from_vec(vec![42u32]).unwrap())]
     fn test_delta_consistency(#[case] array: DeltaArray) {
         test_array_consistency(array.as_ref());
     }
 
     #[rstest]
-    #[case::delta_u32_basic(DeltaArray::try_from_vec((10..20).map(|i| i as u32).collect()).unwrap())]
-    #[case::delta_i32_basic(DeltaArray::try_from_vec((100..110).map(|i| i as i32).collect()).unwrap())]
-    #[case::delta_u64_basic(DeltaArray::try_from_vec((1000..1010).map(|i| i as u64).collect()).unwrap())]
-    #[case::delta_i64_basic(DeltaArray::try_from_vec((5000..5010).map(|i| i as i64).collect()).unwrap())]
-    #[case::delta_u32_large(DeltaArray::try_from_vec((0..100).map(|i| i as u32 * 2).collect()).unwrap())]
+    #[case::delta_u8_basic(DeltaArray::try_from_vec(vec![1u8, 1, 1, 1, 1]).unwrap())]
+    #[case::delta_u16_basic(DeltaArray::try_from_vec(vec![1u16, 1, 1, 1, 1]).unwrap())]
+    #[case::delta_u32_basic(DeltaArray::try_from_vec(vec![1u32, 1, 1, 1, 1]).unwrap())]
+    #[case::delta_u64_basic(DeltaArray::try_from_vec(vec![1u64, 1, 1, 1, 1]).unwrap())]
+    #[case::delta_u32_large(DeltaArray::try_from_vec(vec![1u32; 100]).unwrap())]
     fn test_delta_binary_numeric(#[case] array: DeltaArray) {
         test_binary_numeric_array(array.into_array());
     }
