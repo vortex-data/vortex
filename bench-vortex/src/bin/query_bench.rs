@@ -177,6 +177,8 @@ fn validate_scale_factor(val: &str) -> Result<String, String> {
 }
 
 fn main() -> anyhow::Result<()> {
+    setup_signal_handler()?;
+
     let args = Args::parse();
 
     let mut prof_ctl = block_on(jemalloc_pprof::PROF_CTL.as_ref().unwrap().lock());
@@ -193,6 +195,55 @@ fn main() -> anyhow::Result<()> {
         .map_err(|e| vortex_err!("failed to dump flamegraph: {}", e))?;
     let mut file = File::create(format!("jemalloc_flamegraph_{}.svg", process::id()))?;
     file.write_all(svg.as_bytes())?;
+
+    Ok(())
+}
+
+fn setup_signal_handler() -> anyhow::Result<()> {
+    use signal_hook::{consts::SIGUSR1, iterator::Signals};
+
+    let mut signals = Signals::new(&[SIGUSR1])?;
+
+    println!(
+        "kill -USR1 {} # to generate a memory profile flamegraph",
+        process::id()
+    );
+
+    std::thread::spawn(move || {
+        for sig in signals.forever() {
+            match sig {
+                SIGUSR1 => {
+                    println!("Received SIGUSR1 - generating memory profile flamegraph...");
+                    if let Err(e) = generate_flamegraph() {
+                        eprintln!("Failed to generate flamegraph: {}", e);
+                    } else {
+                        println!("Flamegraph generated successfully!");
+                    }
+                }
+                _ => unreachable!(),
+            }
+        }
+    });
+
+    Ok(())
+}
+
+fn generate_flamegraph() -> Result<(), Box<dyn std::error::Error>> {
+    let mut prof_ctl = block_on(jemalloc_pprof::PROF_CTL.as_ref().unwrap().lock());
+    require_profiling_activated(&prof_ctl);
+
+    // Generate a unique filename with timestamp
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs();
+    let filename = format!("jemalloc_profile_{}_{}.heap", process::id(), timestamp);
+
+    let svg = prof_ctl
+        .dump_flamegraph()
+        .map_err(|e| vortex_err!("failed to dump flamegraph: {}", e))?;
+    let mut file = File::create(filename)?;
+    file.write_all(svg.as_bytes())?;
+    drop(file);
 
     Ok(())
 }

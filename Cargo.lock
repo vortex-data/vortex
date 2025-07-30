@@ -607,6 +607,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "signal-hook",
  "similar",
  "sysinfo",
  "tabled",
