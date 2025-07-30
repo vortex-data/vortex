@@ -268,7 +268,7 @@ mod tests {
         let patches = Patches::new(
             arr.len(),
             0,
-            buffer![4u32].into_array(),  // This creates a non-nullable array
+            buffer![4u32].into_array(), // This creates a non-nullable array
             BoolArray::from(BooleanBuffer::new_unset(1)).into_array(),
         );
         let arr = arr.patch(&patches).unwrap();
