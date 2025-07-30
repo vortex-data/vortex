@@ -228,7 +228,7 @@ fn handle_search_mode(app: &mut AppState, event: Event) -> HandleResult {
 }
 
 // TODO: add tui_logger and have a logs tab so we can see the log output from
-//  doing Vortex things.¬
+//  doing Vortex things.
 
 pub fn exec_tui(file: impl AsRef<Path>) -> VortexResult<()> {
     let app = TOKIO_RUNTIME.block_on(create_file_app(file))?;
