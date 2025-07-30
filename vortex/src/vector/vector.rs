@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::arrays::BinaryView;
+use std::ops::Deref;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::NativePType;
+use vortex_dtype::{NativePType, PType};
 use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 
@@ -54,23 +54,28 @@ use vortex_mask::Mask;
 ///
 /// We'd then need some way to buffer the intermediate results as both expressions are driven.
 /// Maybe this works?
-///
-///
 pub struct Vector {
+    vtype: VType,
     // The buffer containing the fixed-width elements of the vector.
-    elements: Option<ByteBuffer>,
+    elements: ByteBuffer,
     // The validity mask for the vector, indicating which elements are valid.
     validity: Mask,
     // A selection over the elements and validity of the vector.
     // FIXME(ngates): using a selection mask means rank-based operations are expensive, vs
     //  selection indices which are always constant time.
     selection: Selection,
-
     // Additional buffers of data used by the vector, such as string data.
     data: Vec<ByteBuffer>,
     // Additional vectors used by the vector, such as dictionary values. Maybe these should be
     // arrays actually?
     children: Vec<Vector>,
+}
+
+/// Matches the variant types of our logical DTypes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum VType {
+    Primitive(PType),
+    VarBin,
 }
 
 pub enum Selection {
@@ -85,16 +90,33 @@ pub enum Selection {
     Indices(Vec<usize>),
 }
 
-/// Primitive access to a vector's elements.
-pub struct PrimitiveVector<'a, T: NativePType> {
-    // TOOD(ngates): why would this be mut...?
-    vector: &'a mut Vector,
+impl Vector {
+    pub fn as_primitive_mut<T: NativePType>(&mut self) -> PrimitiveVectorMut<'_, u8> {
+        assert_eq!(
+            self.vtype,
+            VType::Primitive(T::PTYPE),
+            "Vector is not primitive"
+        );
+        PrimitiveVectorMut::<T>(self)
+    }
 }
 
-impl<'a, T: NativePType> AsMut<[T]> for PrimitiveVector<'a, T> {
+/// Primitive access to a vector's elements.
+pub struct PrimitiveVector<'a, T: NativePType>(&'a Vector);
+pub struct PrimitiveVectorMut<'a, T: NativePType>(&'a mut Vector);
+
+impl<'a, T: NativePType> Deref for PrimitiveVectorMut<'a, T> {
+    type Target = PrimitiveVector<'a, T>;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { std::mem::transmute::<&PrimitiveVectorMut<'a, T>, &PrimitiveVector<'a, T>>(&self) }
+    }
+}
+
+impl<'a, T: NativePType> AsMut<[T]> for PrimitiveVectorMut<'a, T> {
     fn as_mut(&mut self) -> &mut [T] {
         let elements = self
-            .vector
+            .0
             .elements
             .as_mut()
             .vortex_expect("Vector has no elements");
@@ -104,33 +126,4 @@ impl<'a, T: NativePType> AsMut<[T]> for PrimitiveVector<'a, T> {
         assert!(ptr.is_aligned(), "Pointer is not aligned to T's alignment");
         unsafe { std::slice::from_raw_parts_mut(ptr, len) }
     }
-}
-
-/// The canonical vector for Vortex binary views.
-///
-/// Can I canonicalize an FSST array into a BinaryVector without actually decoding the underlying
-/// data buffers? That would be ideal I guess? Maybe Martin was right! We need u8 arrays
-/// as children!
-pub struct BinaryVector<'a, T: NativeBinaryType> {
-    vector: &'a mut Vector,
-}
-
-impl<T: NativeBinaryType> AsMut<[BinaryView]> for BinaryVector<'_, T> {
-    fn as_mut(&mut self) -> &mut [BinaryView] {
-        todo!("We should implement this using an ElementsVector trait or something?")
-    }
-}
-
-trait NativeBinaryType {
-    type Elements: ?Sized;
-}
-
-struct Utf8Type;
-impl NativeBinaryType for Utf8Type {
-    type Elements = str;
-}
-
-struct BinaryType;
-impl NativeBinaryType for BinaryType {
-    type Elements = [u8];
 }

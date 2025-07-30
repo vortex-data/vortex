@@ -1,22 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::vector::exporter::Exporter;
-use vortex_array::Canonical;
+use crate::vector::vector::Vector;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-/// An evaluation provides a push-based way to emit a stream of vectors.
+/// An pipeline provides a push-based way to emit a stream of vectors.
 ///
 /// Should we rename this to `Pipeline`?
 ///
-/// By passing multiple vector computations through the same evaluation pipeline, we can amortize
+/// By passing multiple vector computations through the same pipeline, we can amortize
 /// the setup costs (such as DType validation, stats short-circuiting, etc.). It is also possible
-/// to construct and reuse cached nodes in the evaluation graph, for example, creating a `tee`
+/// to construct and reuse cached nodes in the pipeline graph, for example, creating a `tee`
 /// node to emit the same data to multiple exporters and avoid duplicate computation.
 ///
 /// Passing in an `Exporter` (instead of say `&mut dyn Array`) allows us to have more explicit
-/// control over what happens if the evaluation wants to return a non-canonical encoding.
+/// control over what happens if the pipeline wants to return a non-canonical encoding.
 /// into it.
 ///
 /// FIXME(ngates): this has a similar problem to Layouts. It would be useful if the array had full
@@ -27,7 +26,7 @@ use vortex_mask::Mask;
 ///  consumed from the mask? This could be useful for FastLanes where if it's given a 4k mask, it
 ///  could just look at the first 1k, export that, then return the fact that it only consumed 1k.
 ///  This may fuck with alignment though...?
-pub trait Evaluation {
+pub trait Pipeline {
     /// The `next` function is called to export the next batch of data into the provided `Exporter`.
     ///
     /// This function should be called repeatedly until the expected number of rows has been
@@ -47,14 +46,11 @@ pub trait Evaluation {
     /// encoded vector. Callers may choose how to handle the latter case (for example, by
     /// canonicalizing the vector to use it, or by propagating it in some way).
     ///
-    /// FIXME(ngates): what if the evaluation pipeline depends on the exported vector's encoding???
-    fn next(&mut self, mask: &Mask, out: Exporter) -> VortexResult<()>;
+    /// FIXME(ngates): what if the pipeline pipeline depends on the exported vector's encoding???
+    fn next(&mut self, mask: &Mask, out: &mut Vector) -> VortexResult<()>;
 }
 
-impl dyn Evaluation + '_ {
-    /// It should be possible to collect an evaluation into a canonical Array by exporting to
-    /// consecutive positions in a pre-allocated output array.
-    pub fn collect(self) -> Canonical {
-        todo!()
-    }
+pub trait SupportsPipeline {
+    /// Returns a pipeline that can be used to export canonical data from this array.
+    fn pipeline(&self) -> Box<dyn Pipeline>;
 }
