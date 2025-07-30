@@ -91,8 +91,11 @@ impl ComputeFnVTable for Zip {
     }
 
     fn return_len(&self, args: &InvocationArgs) -> VortexResult<usize> {
-        let ZipArgs { if_true, .. } = ZipArgs::try_from(args)?;
+        let ZipArgs { if_true, mask, .. } = ZipArgs::try_from(args)?;
         // ComputeFn::invoke asserts if_true.len() == if_false.len(), because zip is elementwise
+        if if_true.len() != mask.len() {
+            vortex_bail!("input arrays must have the same length as the mask");
+        }
         Ok(if_true.len())
     }
 

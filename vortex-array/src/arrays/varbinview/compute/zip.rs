@@ -34,11 +34,15 @@ register_kernel!(ZipKernelAdapter(VarBinViewVTable).lift());
 
 #[cfg(test)]
 mod tests {
+    use arrow_array::cast::AsArray;
+    use arrow_select::zip::zip as arrow_zip;
     use vortex_dtype::{DType, Nullability};
     use vortex_mask::Mask;
 
     use crate::{
+        IntoArray,
         arrays::VarBinViewVTable,
+        arrow::IntoArrowArray,
         builders::{ArrayBuilder as _, VarBinViewBuilder},
         compute::zip,
     };
@@ -66,10 +70,24 @@ mod tests {
         };
 
         // [1,2,4,5,7,8,..]
-        let mask = Mask::from_indices(100, (0..100).filter(|i| i % 3 != 0).collect());
+        let mask = Mask::from_indices(200, (0..100).filter(|i| i % 3 != 0).collect());
 
         let zipped = zip(&if_true, &if_false, &mask).unwrap();
         let zipped = zipped.as_opt::<VarBinViewVTable>().unwrap();
         assert_eq!(zipped.nbuffers(), 2);
+
+        // assert the result is the same as arrow
+        let expected = arrow_zip(
+            mask.into_array()
+                .into_arrow_preferred()
+                .unwrap()
+                .as_boolean(),
+            &if_true.into_arrow_preferred().unwrap(),
+            &if_false.into_arrow_preferred().unwrap(),
+        )
+        .unwrap();
+
+        let actual = zipped.clone().into_array().into_arrow_preferred().unwrap();
+        assert_eq!(actual.as_ref(), expected.as_ref());
     }
 }
