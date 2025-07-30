@@ -114,7 +114,7 @@ jobs:
           labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.id }}"
           parca_agent_version: "0.39.3"
           project_uuid: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
-          extra_args: "--off-cpu-threshold=100" # This value is arbitrary and is on a scale of 0-1000.
+          extra_args: "--off-cpu-threshold=1" # Personally tuned by @brancz
 
       - name: Run ${{ matrix.name }} benchmark
         if: matrix.remote_storage == null
@@ -202,3 +202,9 @@ jobs:
         shell: bash
         run: |
           bash scripts/cat-s3.sh vortex-benchmark-results-database data.json.gz results.json
+
+      - name: Upload parca logs
+        uses: actions/upload-artifact@v4
+        with:
+          path: /home/runner/_work/_temp/parca-agent.log
+          retention-days: 1
