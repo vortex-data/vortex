@@ -17,6 +17,9 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
+tikv-jemallocator = { git = "https://github.com/yuhao-su/jemallocator", rev = "5084726b0f15686d13e88bc54ce7cff4b4ed6d27", features = ["profiling"] }
+tikv-jemalloc-ctl = { git = "https://github.com/yuhao-su/jemallocator", rev = "5084726b0f15686d13e88bc54ce7cff4b4ed6d27" }
+tikv-jemalloc-sys = { git = "https://github.com/yuhao-su/jemallocator", rev = "5084726b0f15686d13e88bc54ce7cff4b4ed6d27" }
 anyhow = { workspace = true }
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }

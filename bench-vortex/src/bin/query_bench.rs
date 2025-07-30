@@ -178,7 +178,15 @@ fn main() -> anyhow::Result<()> {
         Commands::ClickBench(clickbench_args) => run_clickbench(clickbench_args),
         Commands::TpcH(tpch_args) => run_tpch(tpch_args),
         Commands::TpcDS(tpcds_args) => run_tpcds(tpcds_args),
-    }
+    }?;
+
+    use std::ffi::CStr;
+    use tikv_jemalloc_ctl::prof;
+    let dump_file_name = CStr::from_bytes_with_nul(b"dump\0").unwrap();
+    let dump = prof::dump::mib().unwrap();
+    dump.write(dump_file_name).unwrap();
+
+    Ok(())
 }
 
 fn run_clickbench(args: ClickBenchArgs) -> anyhow::Result<()> {

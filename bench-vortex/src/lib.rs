@@ -42,9 +42,10 @@ pub use datasets::{BenchmarkDataset, file};
 pub use engines::df;
 pub use vortex::error::vortex_panic;
 
-// All benchmarks run with mimalloc for consistency.
+use tikv_jemallocator::Jemalloc;
+
 #[global_allocator]
-static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+static GLOBAL: Jemalloc = Jemalloc;
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize)]
 pub struct Target {

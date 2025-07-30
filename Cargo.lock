@@ -556,6 +556,9 @@ dependencies = [
  "tabled",
  "tar",
  "target-lexicon",
+ "tikv-jemalloc-ctl",
+ "tikv-jemalloc-sys",
+ "tikv-jemallocator",
  "tokio",
  "tokio-stream",
  "tpchgen",
@@ -5781,6 +5784,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "tikv-jemalloc-ctl"
+version = "0.5.4"
+source = "git+https://github.com/yuhao-su/jemallocator?rev=5084726b0f15686d13e88bc54ce7cff4b4ed6d27#5084726b0f15686d13e88bc54ce7cff4b4ed6d27"
+dependencies = [
+ "libc",
+ "paste",
+ "tikv-jemalloc-sys",
+]
+
+[[package]]
+name = "tikv-jemalloc-sys"
+version = "0.5.4+5.3.0-patched"
+source = "git+https://github.com/yuhao-su/jemallocator?rev=5084726b0f15686d13e88bc54ce7cff4b4ed6d27#5084726b0f15686d13e88bc54ce7cff4b4ed6d27"
+dependencies = [
+ "cc",
+ "libc",
+]
+
+[[package]]
+name = "tikv-jemallocator"
+version = "0.5.4"
+source = "git+https://github.com/yuhao-su/jemallocator?rev=5084726b0f15686d13e88bc54ce7cff4b4ed6d27#5084726b0f15686d13e88bc54ce7cff4b4ed6d27"
+dependencies = [
+ "libc",
+ "tikv-jemalloc-sys",
+]
+
+[[package]]
 name = "time"
 version = "0.3.41"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6664,6 +6695,7 @@ dependencies = [
  "moka",
  "object_store",
  "rustc-hash",
+ "tokio",
  "tracing",
  "uuid",
  "vortex-alp",

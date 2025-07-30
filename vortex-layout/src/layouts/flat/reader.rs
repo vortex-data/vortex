@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::collections::BTreeSet;
-use std::ops::{BitAnd, Range};
-use std::sync::{Arc, OnceLock};
-
 use async_trait::async_trait;
 use futures::FutureExt;
+use pin_project_lite::pin_project;
+use std::collections::BTreeSet;
+use std::ops::{BitAnd, Range};
+use std::pin::Pin;
+use std::sync::{Arc, OnceLock};
+use std::task::{Context, Poll};
 use vortex_array::compute::filter;
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
@@ -73,16 +75,52 @@ impl FlatReader {
             .get_or_init(|| {
                 let ctx = self.layout.ctx.clone();
                 let dtype = self.layout.dtype().clone();
-                async move {
-                    let segment = segment_fut.await?;
-                    ArrayParts::try_from(segment)?
-                        .decode(&ctx, &dtype, row_count)
-                        .map_err(Arc::new)
-                }
+                LoggingFuture::new(
+                    async move {
+                        let segment = segment_fut.await?;
+                        ArrayParts::try_from(segment)?
+                            .decode(&ctx, &dtype, row_count)
+                            .map_err(Arc::new)
+                    },
+                    format!("FlatReader Future {}", self.layout.segment_id()),
+                )
                 .boxed()
                 .shared()
             })
             .clone())
+    }
+}
+
+pin_project! {
+    struct LoggingFuture<F> {
+        #[pin]
+        inner: F,
+        name: String,
+    }
+
+    impl<F> PinnedDrop for LoggingFuture<F> {
+        fn drop(this: Pin<&mut Self>) {
+            log::info!("Dropping LoggingFuture {}", this.name);
+        }
+    }
+}
+
+impl<F> LoggingFuture<F> {
+    pub fn new(inner: F, name: impl Into<String>) -> Self {
+        let name = name.into();
+        log::info!("Creating LoggingFuture {}", &name);
+        Self { inner, name }
+    }
+}
+
+impl<F> Future for LoggingFuture<F>
+where
+    F: Future,
+{
+    type Output = F::Output;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        self.project().inner.poll(cx)
     }
 }
 

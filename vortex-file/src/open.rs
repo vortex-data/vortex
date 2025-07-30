@@ -18,9 +18,7 @@ use vortex_metrics::VortexMetrics;
 
 use crate::driver::{CoalescedDriver, DirectDriver, FileDriver};
 use crate::footer::{FileStatistics, Footer, Postscript, PostscriptSegment};
-use crate::segments::{
-    InitialReadSegmentCache, MokaSegmentCache, SegmentCache, SegmentCacheMetrics,
-};
+use crate::segments::{InitialReadSegmentCache, SegmentCache, SegmentCacheMetrics};
 use crate::{DEFAULT_REGISTRY, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION, VortexFile};
 
 /// Open options for a Vortex file reader.
@@ -110,9 +108,9 @@ impl VortexOpenOptions {
         if hint.coalescing_window() > 0 {
             self.driver = Box::new(CoalescedDriver::new(hint));
             // Start with an initial in-memory cache of 256MB.
-            // TODO(ngates): would it be better to default to a home directory disk cache?
-            // TODO(ngates): we may actually just not want this at all...
-            self.segment_cache = Some(Arc::new(MokaSegmentCache::new(256 << 20)))
+            // TODO(ngates): we should only do this if it's shared at the session level.
+            //  Some(Arc::new(MokaSegmentCache::new(256 << 20)))
+            self.segment_cache = None;
         } else {
             self.driver = Box::new(DirectDriver);
             self.segment_cache = None;
