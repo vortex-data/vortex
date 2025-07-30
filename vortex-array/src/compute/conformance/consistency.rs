@@ -81,6 +81,9 @@ pub fn test_double_mask_consistency(array: &dyn Array) {
     for i in 0..double_masked.len() {
         assert_eq!(
             double_masked.scalar_at(i).vortex_unwrap(),
+            directly_masked.scalar_at(i).vortex_unwrap(),
+            "i = {i}, double_masked.scalar_at({i}) = {:?}, directly_masked.scalar_at({i}) = {:?}",
+            double_masked.scalar_at(i).vortex_unwrap(),
             directly_masked.scalar_at(i).vortex_unwrap()
         );
     }
