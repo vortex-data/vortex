@@ -7,3 +7,31 @@ mod filter;
 mod mask;
 mod nan_count;
 mod take;
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::compute::conformance::consistency::test_array_consistency;
+
+    use crate::{ALPArray, alp_encode};
+
+    #[rstest]
+    // Basic float arrays
+    #[case::f32_array(alp_encode(&PrimitiveArray::from_iter([1.23f32, 4.56, 7.89, 10.11, 12.13]), None).unwrap())]
+    #[case::f64_array(alp_encode(&PrimitiveArray::from_iter([100.1f64, 200.2, 300.3, 400.4, 500.5]), None).unwrap())]
+    // Nullable arrays
+    #[case::nullable_f32(alp_encode(&PrimitiveArray::from_option_iter([Some(1.1f32), None, Some(2.2), Some(3.3), None]), None).unwrap())]
+    #[case::nullable_f64(alp_encode(&PrimitiveArray::from_option_iter([Some(1.1f64), None, Some(2.2), Some(3.3), None]), None).unwrap())]
+    // Edge cases
+    #[case::single_element(alp_encode(&PrimitiveArray::from_iter([42.42f64]), None).unwrap())]
+    // Large arrays
+    #[case::large_f32(alp_encode(&PrimitiveArray::from_iter((0..1000).map(|i| i as f32 * 0.1)), None).unwrap())]
+    // Arrays with patterns
+    #[case::repeating_pattern(alp_encode(&PrimitiveArray::from_iter([1.1f32, 2.2, 3.3, 1.1, 2.2, 3.3, 1.1, 2.2, 3.3]), None).unwrap())]
+    #[case::close_values(alp_encode(&PrimitiveArray::from_iter([100.001f64, 100.002, 100.003, 100.004, 100.005]), None).unwrap())]
+
+    fn test_alp_consistency(#[case] array: ALPArray) {
+        test_array_consistency(array.as_ref());
+    }
+}
