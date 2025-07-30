@@ -28,12 +28,15 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(Corrosion)
 
 set(RUST_SOURCE_FILE lib.rs read.rs write.rs)
+
+# gen_test_data has been moved to C++ side and the following is deprecated.
+# if(VORTEX_ENABLE_TESTING)
+#     set(CORROSION_FEATURES gen_test_data)
+#     # Workaround to conditionally generate bindings of the test function *and* compile the test function: https://github.com/dtolnay/cxx/issues/1325
+#     set(RUST_SOURCE_FILE ${RUST_SOURCE_FILE} gen_test_data.rs)
+# endif()
+
 # Import Rust crate using Corrosion
-if(VORTEX_ENABLE_TESTING)
-    set(CORROSION_FEATURES gen_test_data)
-    # Workaround to conditionally generate bindings of the test function *and* compile the test function: https://github.com/dtolnay/cxx/issues/1325
-    set(RUST_SOURCE_FILE ${RUST_SOURCE_FILE} gen_test_data.rs)
-endif()
 corrosion_import_crate(
     MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml
     FEATURES ${CORROSION_FEATURES}
@@ -88,8 +91,9 @@ if (VORTEX_ENABLE_TESTING)
     FetchContent_MakeAvailable(googletest)
 
     enable_testing()
-    add_executable(vortex_cxx_test cpp/tests/basic_test.cpp)
+    add_executable(vortex_cxx_test cpp/tests/basic_test.cpp cpp/tests/test_data_generator.cpp)
     target_include_directories(vortex_cxx_test PUBLIC ${CPP_INCLUDE_DIRS})
+    target_include_directories(vortex_cxx_test PRIVATE cpp/tests)
     target_link_libraries(vortex_cxx_test PRIVATE gtest_main vortex nanoarrow_static)
     # unit tests link to the bridge for the gen_test_data function only
     target_include_directories(vortex_cxx_test PRIVATE 
