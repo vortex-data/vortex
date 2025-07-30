@@ -314,11 +314,14 @@ impl Patches {
             AllOr::None => return Ok(Some(self.clone())),
             AllOr::Some(masked) => {
                 let patch_indices = self.indices().to_primitive()?;
-                Mask::from_buffer(BooleanBuffer::collect_bool(patch_indices.len(), |i| {
-                    let idx = usize::try_from(&patch_indices.scalar_at(i).vortex_unwrap())
-                        .vortex_expect("idx should be a valid usize, got {idx}");
-                    !masked.value(idx - self.offset)
-                }))
+                match_each_unsigned_integer_ptype!(patch_indices.ptype(), |P| {
+                    let patch_indices = patch_indices.as_slice::<P>();
+                    Mask::from_buffer(BooleanBuffer::collect_bool(patch_indices.len(), |i| {
+                        #[allow(clippy::cast_possible_truncation)]
+                        let idx = (patch_indices[i] as usize) - self.offset;
+                        !masked.value(idx)
+                    }))
+                })
             }
         };
 
