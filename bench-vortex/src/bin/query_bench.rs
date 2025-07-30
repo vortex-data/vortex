@@ -10,11 +10,10 @@ use bench_vortex::{Target, vortex_panic};
 use clap::{Parser, Subcommand, value_parser};
 use futures::executor::block_on;
 use parquet::data_type::AsBytes;
-use reqwest::StatusCode;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
-use std::thread;
+use std::{process, thread};
 use vortex::error::vortex_err;
 
 #[derive(Parser, Debug)]
@@ -192,10 +191,7 @@ fn main() -> anyhow::Result<()> {
     let svg = prof_ctl
         .dump_flamegraph()
         .map_err(|e| vortex_err!("failed to dump flamegraph: {}", e))?;
-    let mut file = File::create(format!(
-        "jemalloc_flamegraph_{}.svg",
-        *thread::current().id()
-    ))?;
+    let mut file = File::create(format!("jemalloc_flamegraph_{}.svg", process::id()))?;
     file.write_all(svg.as_bytes())?;
 
     Ok(())
