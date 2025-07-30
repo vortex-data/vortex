@@ -67,7 +67,63 @@ pub fn compatible_storage_type(value_type: DecimalValueType, dtype: DecimalDType
     value_type >= smallest_storage_type(&dtype)
 }
 
-/// Array for decimal-typed real numbers
+/// A decimal array that stores fixed-precision decimal numbers with configurable scale.
+///
+/// This mirrors the Apache Arrow Decimal encoding and provides exact arithmetic for
+/// financial and scientific computations where floating-point precision loss is unacceptable.
+///
+/// ## Storage Format
+///
+/// Decimals are stored as scaled integers in a supported scalar value type.
+///
+/// The precisions supported for each scalar type are:
+/// - **i8**: precision 1-2 digits
+/// - **i16**: precision 3-4 digits  
+/// - **i32**: precision 5-9 digits
+/// - **i64**: precision 10-18 digits
+/// - **i128**: precision 19-38 digits
+/// - **i256**: precision 39-76 digits
+///
+/// These are just the maximal ranges for each scalar type, but it is perfectly legal to store
+/// values with precision that does not match this exactly. For example, a valid DecimalArray with
+/// precision=39 may store its values in an `i8` if all of the actual values fit into it.
+///
+/// Similarly, a `DecimalArray` can be built that stores a set of precision=2 values in a
+/// `Buffer<i256>`.
+///
+/// ## Precision and Scale
+///
+/// - **Precision**: Total number of significant digits (1-76, u8 range)
+/// - **Scale**: Number of digits after the decimal point (-128 to 127, i8 range)
+/// - **Value**: `stored_integer / 10^scale`
+///
+/// For example, with precision=5 and scale=2:
+/// - Stored value 12345 represents 123.45
+/// - Range: -999.99 to 999.99
+///
+/// ## Valid Scalar Types
+///
+/// The underlying storage uses these native types based on precision:
+/// - `DecimalValueType::I8`, `I16`, `I32`, `I64`, `I128`, `I256`
+/// - Type selection is automatic based on the required precision
+///
+/// # Examples
+///
+/// ```
+/// use vortex_array::arrays::DecimalArray;
+/// use vortex_dtype::DecimalDType;
+/// use vortex_buffer::{buffer, Buffer};
+/// use vortex_array::validity::Validity;
+///
+/// // Create a decimal array with precision=5, scale=2 (e.g., 123.45)
+/// let decimal_dtype = DecimalDType::new(5, 2);
+/// let values = buffer![12345i32, 67890i32, -12300i32]; // 123.45, 678.90, -123.00
+/// let array = DecimalArray::new(values, decimal_dtype, Validity::NonNullable);
+///
+/// assert_eq!(array.precision(), 5);
+/// assert_eq!(array.scale(), 2);
+/// assert_eq!(array.len(), 3);
+/// ```
 #[derive(Clone, Debug)]
 pub struct DecimalArray {
     dtype: DType,

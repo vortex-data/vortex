@@ -20,6 +20,6 @@ impl OperationsVTable<VarBinVTable> for VarBinVTable {
     }
 
     fn scalar_at(array: &VarBinArray, index: usize) -> VortexResult<Scalar> {
-        Ok(varbin_scalar(array.bytes_at(index)?, array.dtype()))
+        Ok(varbin_scalar(array.bytes_at(index), array.dtype()))
     }
 }

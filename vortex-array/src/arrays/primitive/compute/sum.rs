@@ -23,7 +23,7 @@ impl SumKernel for PrimitiveVTable {
                     array.ptype(),
                     unsigned: |T| { sum_integer::<_, u64>(array.as_slice::<T>()).into() },
                     signed: |T| { sum_integer::<_, i64>(array.as_slice::<T>()).into() },
-                    floating: |T| { sum_float(array.as_slice::<T>()).into() }
+                    floating: |T| { Some(sum_float(array.as_slice::<T>())).into() }
                 )
             }
             AllOr::None => {
@@ -39,15 +39,13 @@ impl SumKernel for PrimitiveVTable {
                 match_each_native_ptype!(
                     array.ptype(),
                     unsigned: |T| {
-                        sum_integer_with_validity::<_, u64>(array.as_slice::<T>(), validity_mask)
-                            .into()
+                        sum_integer_with_validity::<_, u64>(array.as_slice::<T>(), validity_mask).into()
                     },
                     signed: |T| {
-                        sum_integer_with_validity::<_, i64>(array.as_slice::<T>(), validity_mask)
-                            .into()
+                        sum_integer_with_validity::<_, i64>(array.as_slice::<T>(), validity_mask).into()
                     },
                     floating: |T| {
-                        sum_float_with_validity(array.as_slice::<T>(), validity_mask).into()
+                        Some(sum_float_with_validity(array.as_slice::<T>(), validity_mask)).into()
                     }
                 )
             }

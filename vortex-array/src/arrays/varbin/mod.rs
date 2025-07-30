@@ -108,8 +108,8 @@ impl VarBinArray {
     /// Access value bytes child array limited to values that are logically present in
     /// the array unlike [bytes][Self::bytes].
     pub fn sliced_bytes(&self) -> ByteBuffer {
-        let first_offset: usize = self.offset_at(0).vortex_expect("1st offset");
-        let last_offset = self.offset_at(self.len()).vortex_expect("Last offset");
+        let first_offset: usize = self.offset_at(0);
+        let last_offset = self.offset_at(self.len());
 
         self.bytes().slice(first_offset..last_offset)
     }
@@ -163,29 +163,32 @@ impl VarBinArray {
     /// Get value offset at a given index
     ///
     /// Note: There's 1 more offsets than the elements in the array, thus last offset is at array length index
-    pub fn offset_at(&self, index: usize) -> VortexResult<usize> {
-        if index > self.len() + 1 {
-            vortex_bail!(OutOfBounds: index, 0, self.len() + 1)
-        }
+    ///
+    /// Panics if index is out of bounds
+    pub fn offset_at(&self, index: usize) -> usize {
+        assert!(
+            index <= self.len(),
+            "Index {index} out of bounds 0..={}",
+            self.len()
+        );
 
         // TODO(ngates): PrimitiveArrayTrait should have get_scalar(idx) -> Option<T> method
-        Ok(self
-            .offsets()
+        self.offsets()
             .scalar_at(index)
             .unwrap_or_else(|err| vortex_panic!(err, "Failed to get offset at index: {}", index))
             .as_ref()
             .try_into()
-            .vortex_expect("Failed to convert offset to usize"))
+            .vortex_expect("Failed to convert offset to usize")
     }
 
     /// Access value bytes at a given index
     ///
-    /// Will return buffer referncing underlying data without performing a copy
-    pub fn bytes_at(&self, index: usize) -> VortexResult<ByteBuffer> {
-        let start = self.offset_at(index)?;
-        let end = self.offset_at(index + 1)?;
+    /// Will return buffer referencing underlying data without performing a copy
+    pub fn bytes_at(&self, index: usize) -> ByteBuffer {
+        let start = self.offset_at(index);
+        let end = self.offset_at(index + 1);
 
-        Ok(self.bytes().slice(start..end))
+        self.bytes().slice(start..end)
     }
 
     /// Consumes self, returning a tuple containing the `DType`, the `bytes` array,

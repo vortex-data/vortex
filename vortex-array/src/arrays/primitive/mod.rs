@@ -3,7 +3,6 @@
 
 use std::fmt::Debug;
 use std::iter;
-use std::marker::PhantomData;
 
 mod accessor;
 
@@ -15,7 +14,7 @@ use vortex_error::{VortexResult, vortex_panic};
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable, vtable_raw};
+use crate::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable};
 
 mod compute;
 mod native_value;
@@ -32,11 +31,11 @@ use crate::vtable::{
     ValidityVTableFromValidityHelper,
 };
 
-vtable_raw!(PrimitiveVTable, PrimitiveArray, PrimitiveEncoding, <T: NativePType>);
+vtable!(Primitive);
 
-impl<T: NativePType> VTable for PrimitiveVTable<T> {
-    type Array = PrimitiveArray<T>;
-    type Encoding = PrimitiveEncoding<T>;
+impl VTable for PrimitiveVTable {
+    type Array = PrimitiveArray;
+    type Encoding = PrimitiveEncoding;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
@@ -52,29 +51,54 @@ impl<T: NativePType> VTable for PrimitiveVTable<T> {
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(PrimitiveEncoding::<T>.as_ref())
+        EncodingRef::new_ref(PrimitiveEncoding.as_ref())
     }
 }
 
+/// A primitive array that stores [native types][vortex_dtype::NativePType] in a contiguous buffer
+/// of memory, along with an optional validity child.
+///
+/// This mirrors the Apache Arrow Primitive layout and can be converted into and out of one
+/// without allocations or copies.
+///
+/// The underlying buffer must be natively aligned to the primitive type they are representing.
+///
+/// Values are stored in their native representation with proper alignment.
+/// Null values still occupy space in the buffer but are marked invalid in the validity mask.
+///
+/// # Examples
+///
+/// ```
+/// use vortex_array::arrays::PrimitiveArray;
+/// use vortex_array::compute::sum;
+/// ///
+/// // Create from iterator using FromIterator impl
+/// let array: PrimitiveArray = [1i32, 2, 3, 4, 5].into_iter().collect();
+///
+/// // Slice the array
+/// let sliced = array.slice(1, 3).unwrap();
+///
+/// // Access individual values
+/// let value = sliced.scalar_at(0).unwrap();
+/// assert_eq!(value, 2i32.into());
+///
+/// // Convert into a type-erased array that can be passed to compute functions.
+/// let summed = sum(sliced.as_ref()).unwrap().as_primitive().typed_value::<i64>().unwrap();
+/// assert_eq!(summed, 5i64);
+/// ```
 #[derive(Clone, Debug)]
-pub struct PrimitiveArray<T> {
+pub struct PrimitiveArray {
     dtype: DType,
-    buffer: Buffer<T>,
+    buffer: ByteBuffer,
     validity: Validity,
     stats_set: ArrayStats,
 }
 
 #[derive(Clone, Debug)]
-pub struct PrimitiveEncoding<T: Clone>(PhantomData<T>);
+pub struct PrimitiveEncoding;
 
-impl<T: Clone> PrimitiveEncoding<T> {
-    pub const fn new() -> Self {
-        Self(PhantomData)
-    }
-}
-
-impl<T: NativePType> PrimitiveArray<T> {
-    pub fn new(buffer: impl Into<Buffer<T>>, validity: Validity) -> Self {
+impl PrimitiveArray {
+    pub fn new<T: NativePType>(buffer: impl Into<Buffer<T>>, validity: Validity) -> Self {
         let buffer = buffer.into();
         if let Some(len) = validity.maybe_len() {
             if buffer.len() != len {
@@ -87,25 +111,25 @@ impl<T: NativePType> PrimitiveArray<T> {
         }
         Self {
             dtype: DType::Primitive(T::PTYPE, validity.nullability()),
-            buffer,
+            buffer: buffer.into_byte_buffer(),
             validity,
             stats_set: Default::default(),
         }
     }
 
-    pub fn empty(nullability: Nullability) -> Self {
+    pub fn empty<T: NativePType>(nullability: Nullability) -> Self {
         Self::new(Buffer::<T>::empty(), nullability.into())
     }
 
     pub fn from_byte_buffer(buffer: ByteBuffer, ptype: PType, validity: Validity) -> Self {
         match_each_native_ptype!(ptype, |T| {
-            Self::new(Buffer::from_byte_buffer(buffer), validity)
+            Self::new::<T>(Buffer::from_byte_buffer(buffer), validity)
         })
     }
 
     /// Create a PrimitiveArray from an iterator of `T`.
     /// NOTE: we cannot impl FromIterator trait since it conflicts with `FromIterator<T>`.
-    pub fn from_option_iter<I: IntoIterator<Item = Option<T>>>(iter: I) -> Self {
+    pub fn from_option_iter<T: NativePType, I: IntoIterator<Item = Option<T>>>(iter: I) -> Self {
         let iter = iter.into_iter();
         let mut values = BufferMut::with_capacity(iter.size_hint().0);
         let mut validity = BooleanBufferBuilder::new(values.capacity());
@@ -156,33 +180,54 @@ impl<T: NativePType> PrimitiveArray<T> {
         self.dtype().as_ptype()
     }
 
-    pub fn byte_buffer(&self) -> ByteBuffer {
-        self.buffer.clone().into_byte_buffer()
+    pub fn byte_buffer(&self) -> &ByteBuffer {
+        &self.buffer
     }
 
     pub fn into_byte_buffer(self) -> ByteBuffer {
-        self.buffer.clone().into_byte_buffer()
-    }
-
-    pub fn buffer(&self) -> Buffer<T> {
-        self.buffer.clone()
-    }
-
-    pub fn into_buffer(self) -> Buffer<T> {
         self.buffer
+    }
+
+    pub fn buffer<T: NativePType>(&self) -> Buffer<T> {
+        if T::PTYPE != self.ptype() {
+            vortex_panic!(
+                "Attempted to get buffer of type {} from array of type {}",
+                T::PTYPE,
+                self.ptype()
+            )
+        }
+        Buffer::from_byte_buffer(self.byte_buffer().clone())
+    }
+
+    pub fn into_buffer<T: NativePType>(self) -> Buffer<T> {
+        if T::PTYPE != self.ptype() {
+            vortex_panic!(
+                "Attempted to get buffer of type {} from array of type {}",
+                T::PTYPE,
+                self.ptype()
+            )
+        }
+        Buffer::from_byte_buffer(self.buffer)
     }
 
     /// Extract a mutable buffer from the PrimitiveArray. Attempts to do this with zero-copy
     /// if the buffer is uniquely owned, otherwise will make a copy.
-    pub fn into_buffer_mut(self) -> BufferMut<T> {
-        self.buffer
+    pub fn into_buffer_mut<T: NativePType>(self) -> BufferMut<T> {
+        if T::PTYPE != self.ptype() {
+            vortex_panic!(
+                "Attempted to get buffer_mut of type {} from array of type {}",
+                T::PTYPE,
+                self.ptype()
+            )
+        }
+        self.into_buffer()
             .try_into_mut()
             .unwrap_or_else(|buffer| BufferMut::<T>::copy_from(&buffer))
     }
 
     /// Try to extract a mutable buffer from the PrimitiveArray with zero copy.
     #[allow(clippy::panic_in_result_fn)]
-    pub fn try_into_buffer_mut(self) -> Result<BufferMut<T>, PrimitiveArray<T>> {
+    pub fn try_into_buffer_mut<T: NativePType>(self) -> Result<BufferMut<T>, PrimitiveArray> {
         if T::PTYPE != self.ptype() {
             vortex_panic!(
                 "Attempted to get buffer_mut of type {} from array of type {}",
@@ -202,15 +247,16 @@ impl<T: NativePType> PrimitiveArray<T> {
     ///
     /// TODO(ngates): we could be smarter here if validity is sparse and only run the function
     ///   over the valid elements.
-    pub fn map_each<R, F>(self, f: F) -> PrimitiveArray<T>
+    pub fn map_each<T, R, F>(self, f: F) -> PrimitiveArray
     where
+        T: NativePType,
         R: NativePType,
         F: FnMut(T) -> R,
     {
         let validity = self.validity().clone();
         let buffer = match self.try_into_buffer_mut() {
             Ok(buffer_mut) => buffer_mut.map_each(f),
-            Err(parray) => BufferMut::<R>::from_iter(parray.buffer().iter().copied().map(f)),
+            Err(parray) => BufferMut::<R>::from_iter(parray.buffer::<T>().iter().copied().map(f)),
         };
         PrimitiveArray::new(buffer.freeze(), validity)
     }
@@ -219,14 +265,15 @@ impl<T: NativePType> PrimitiveArray<T> {
     ///
     /// This doesn't ignore validity and maps over all maybe-null elements, with a bool true if
     /// valid and false otherwise.
-    pub fn map_each_with_validity<R, F>(self, f: F) -> VortexResult<PrimitiveArray<T>>
+    pub fn map_each_with_validity<T, R, F>(self, f: F) -> VortexResult<PrimitiveArray>
     where
+        T: NativePType,
         R: NativePType,
         F: FnMut((T, bool)) -> R,
     {
         let validity = self.validity();
 
-        let buf_iter = self.buffer().into_iter();
+        let buf_iter = self.buffer::<T>().into_iter();
 
         let buffer = match &validity {
             Validity::NonNullable | Validity::AllValid => {
@@ -246,7 +293,7 @@ impl<T: NativePType> PrimitiveArray<T> {
     /// Return a slice of the array's buffer.
     ///
     /// NOTE: these values may be nonsense if the validity buffer indicates that the value is null.
-    pub fn as_slice(&self) -> &[T] {
+    pub fn as_slice<T: NativePType>(&self) -> &[T] {
         if T::PTYPE != self.ptype() {
             vortex_panic!(
                 "Attempted to get slice of type {} from array of type {}",
@@ -334,7 +381,8 @@ mod tests {
     use vortex_scalar::PValue;
 
     use crate::arrays::{BoolArray, PrimitiveArray};
-    use crate::compute::conformance::mask::test_mask;
+    use crate::compute::conformance::filter::test_filter_conformance;
+    use crate::compute::conformance::mask::test_mask_conformance;
     use crate::compute::conformance::search_sorted::rstest_reuse::apply;
     use crate::compute::conformance::search_sorted::{search_sorted_conformance, *};
     use crate::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
@@ -342,7 +390,7 @@ mod tests {
     use crate::{ArrayRef, IntoArray};
 
     #[apply(search_sorted_conformance)]
-    fn search_sorted_primitive(
+    fn test_search_sorted_primitive(
         #[case] array: ArrayRef,
         #[case] value: i32,
         #[case] side: SearchSortedSide,
@@ -356,14 +404,49 @@ mod tests {
 
     #[test]
     fn test_mask_primitive_array() {
-        test_mask(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::NonNullable).as_ref());
-        test_mask(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllValid).as_ref());
-        test_mask(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllInvalid).as_ref());
-        test_mask(
+        test_mask_conformance(
+            PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::NonNullable).as_ref(),
+        );
+        test_mask_conformance(
+            PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllValid).as_ref(),
+        );
+        test_mask_conformance(
+            PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllInvalid).as_ref(),
+        );
+        test_mask_conformance(
             PrimitiveArray::new(
                 buffer![0, 1, 2, 3, 4],
                 Validity::Array(
                     BoolArray::from_iter([true, false, true, false, true]).into_array(),
+                ),
+            )
+            .as_ref(),
+        );
+    }
+
+    #[test]
+    fn test_filter_primitive_array() {
+        // Test various sizes
+        test_filter_conformance(
+            PrimitiveArray::new(buffer![42i32], Validity::NonNullable).as_ref(),
+        );
+        test_filter_conformance(PrimitiveArray::new(buffer![0, 1], Validity::NonNullable).as_ref());
+        test_filter_conformance(
+            PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::NonNullable).as_ref(),
+        );
+        test_filter_conformance(
+            PrimitiveArray::new(buffer![0, 1, 2, 3, 4, 5, 6, 7], Validity::NonNullable).as_ref(),
+        );
+
+        // Test with validity
+        test_filter_conformance(
+            PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllValid).as_ref(),
+        );
+        test_filter_conformance(
+            PrimitiveArray::new(
+                buffer![0, 1, 2, 3, 4, 5],
+                Validity::Array(
+                    BoolArray::from_iter([true, false, true, false, true, true]).into_array(),
                 ),
             )
             .as_ref(),

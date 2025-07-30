@@ -67,12 +67,14 @@ fn take_bool<I: AsPrimitive<usize>>(bools: &BooleanBuffer, indices: &[I]) -> Boo
 
 #[cfg(test)]
 mod test {
+    use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 
     use crate::arrays::BoolArray;
     use crate::arrays::primitive::PrimitiveArray;
+    use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
     use crate::validity::Validity;
     use crate::{Array, ToCanonical};
@@ -167,5 +169,14 @@ mod test {
         assert_eq!(actual.scalar_at(0).unwrap(), Scalar::null_typed::<bool>());
         assert_eq!(actual.scalar_at(1).unwrap(), Scalar::null_typed::<bool>());
         assert_eq!(actual.scalar_at(2).unwrap(), Scalar::null_typed::<bool>());
+    }
+
+    #[rstest]
+    #[case(BoolArray::from_iter([true, false, true, true, false]))]
+    #[case(BoolArray::from_iter([Some(true), None, Some(false), Some(true), None]))]
+    #[case(BoolArray::from_iter([true, false]))]
+    #[case(BoolArray::from_iter([true]))]
+    fn test_take_bool_conformance(#[case] array: BoolArray) {
+        test_take_conformance(array.as_ref());
     }
 }

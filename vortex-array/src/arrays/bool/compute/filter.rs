@@ -82,6 +82,7 @@ mod test {
     use crate::arrays::BoolArray;
     use crate::arrays::bool::compute::filter::{filter_indices, filter_slices};
     use crate::canonical::ToCanonical;
+    use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::filter;
 
     #[test]
@@ -116,5 +117,18 @@ mod test {
         assert_eq!(2, filtered.len());
 
         assert_eq!(vec![true, false], filtered.iter().collect_vec())
+    }
+
+    use rstest::rstest;
+
+    #[rstest]
+    #[case(BoolArray::from_iter([true, false, true, true, false]))]
+    #[case(BoolArray::from_iter([Some(true), None, Some(false), Some(true), None]))]
+    #[case(BoolArray::from_iter([true]))]
+    #[case(BoolArray::from_iter([false, false]))]
+    #[case(BoolArray::from_iter((0..100).map(|i| i % 2 == 0)))]
+    #[case(BoolArray::from_iter((0..1024).map(|i| i % 3 != 0)))]
+    fn test_filter_bool_conformance(#[case] array: BoolArray) {
+        test_filter_conformance(array.as_ref());
     }
 }
