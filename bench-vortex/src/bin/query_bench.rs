@@ -13,7 +13,7 @@ use parquet::data_type::AsBytes;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
-use std::{process, thread};
+use std::process;
 use vortex::error::vortex_err;
 
 #[derive(Parser, Debug)]

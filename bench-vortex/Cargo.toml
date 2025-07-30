@@ -17,7 +17,7 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
-tikv-jemallocator = { version = "0.6.0" }
+tikv-jemallocator = { version = "0.6.0", features = ["profiling", "unprefixed_malloc_on_supported_platforms"] }
 jemalloc_pprof = { version = "0.8.1", features = ["flamegraph", "symbolize"] }
 anyhow = { workspace = true }
 arrow-array = { workspace = true }
