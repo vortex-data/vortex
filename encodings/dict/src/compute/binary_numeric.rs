@@ -45,8 +45,8 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
 
-    use crate::builders::dict_encode;
     use crate::DictArray;
+    use crate::builders::dict_encode;
 
     fn sliced_dict_array() -> ArrayRef {
         let reference = PrimitiveArray::from_option_iter([
