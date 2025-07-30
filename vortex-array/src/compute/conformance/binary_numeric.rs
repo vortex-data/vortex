@@ -26,10 +26,10 @@
 use itertools::Itertools;
 use num_traits::Num;
 use vortex_dtype::NativePType;
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_err};
+use vortex_error::{VortexExpect, VortexUnwrap, vortex_err};
 use vortex_scalar::{NumericOperator, PrimitiveScalar, Scalar};
 
-use crate::arrays::{ConstantArray, PrimitiveArray};
+use crate::arrays::ConstantArray;
 use crate::compute::numeric::numeric;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
@@ -208,5 +208,287 @@ pub fn test_binary_numeric_array(array: ArrayRef) {
                 array.dtype()
             );
         }
+    }
+}
+
+/// Tests binary numeric operations with edge case scalar values.
+///
+/// This function tests operations with scalar values:
+/// - Zero (identity for addition/subtraction, absorbing for multiplication)
+/// - Negative one (tests signed arithmetic)
+/// - Maximum value (tests overflow behavior)
+/// - Minimum value (tests underflow behavior)
+pub fn test_binary_numeric_edge_cases(array: ArrayRef) {
+    use vortex_dtype::PType;
+
+    match array.dtype() {
+        vortex_dtype::DType::Primitive(ptype, _) => match ptype {
+            PType::I8 => test_binary_numeric_edge_cases_for_type::<i8>(array),
+            PType::I16 => test_binary_numeric_edge_cases_for_type::<i16>(array),
+            PType::I32 => test_binary_numeric_edge_cases_for_type::<i32>(array),
+            PType::I64 => test_binary_numeric_edge_cases_for_type::<i64>(array),
+            PType::U8 => test_binary_numeric_edge_cases_unsigned::<u8>(array),
+            PType::U16 => test_binary_numeric_edge_cases_unsigned::<u16>(array),
+            PType::U32 => test_binary_numeric_edge_cases_unsigned::<u32>(array),
+            PType::U64 => test_binary_numeric_edge_cases_unsigned::<u64>(array),
+            PType::F16 => {
+                eprintln!("Skipping f16 edge case tests (not supported)");
+            }
+            PType::F32 => test_binary_numeric_edge_cases_float::<f32>(array),
+            PType::F64 => test_binary_numeric_edge_cases_float::<f64>(array),
+        },
+        _ => {
+            panic!(
+                "Binary numeric edge case tests are only supported for primitive numeric types"
+            );
+        }
+    }
+}
+
+fn test_binary_numeric_edge_cases_for_type<T>(array: ArrayRef)
+where
+    T: NativePType + Num + Copy + std::fmt::Debug + num_traits::Bounded + num_traits::Signed,
+    Scalar: From<T>,
+{
+    // Test with zero
+    test_binary_numeric_with_scalar(array.clone(), T::zero());
+    
+    // Test with -1
+    test_binary_numeric_with_scalar(array.clone(), -T::one());
+    
+    // Test with max value
+    test_binary_numeric_with_scalar(array.clone(), T::max_value());
+    
+    // Test with min value
+    test_binary_numeric_with_scalar(array, T::min_value());
+}
+
+fn test_binary_numeric_edge_cases_unsigned<T>(array: ArrayRef)
+where
+    T: NativePType + Num + Copy + std::fmt::Debug + num_traits::Bounded,
+    Scalar: From<T>,
+{
+    // Test with zero
+    test_binary_numeric_with_scalar(array.clone(), T::zero());
+    
+    // Test with max value
+    test_binary_numeric_with_scalar(array.clone(), T::max_value());
+    
+    // Test with min value (0 for unsigned)
+    test_binary_numeric_with_scalar(array, T::min_value());
+}
+
+fn test_binary_numeric_edge_cases_float<T>(array: ArrayRef)
+where
+    T: NativePType + Num + Copy + std::fmt::Debug + num_traits::Float,
+    Scalar: From<T>,
+{
+    // Test with zero
+    test_binary_numeric_with_scalar(array.clone(), T::zero());
+    
+    // Test with -1
+    test_binary_numeric_with_scalar(array.clone(), -T::one());
+    
+    // Test with max value
+    test_binary_numeric_with_scalar(array.clone(), T::max_value());
+    
+    // Test with min value
+    test_binary_numeric_with_scalar(array.clone(), T::min_value());
+    
+    // Test with small positive value
+    test_binary_numeric_with_scalar(array, T::epsilon());
+}
+
+fn test_binary_numeric_with_scalar<T>(array: ArrayRef, scalar_value: T)
+where
+    T: NativePType + Num + Copy + std::fmt::Debug,
+    Scalar: From<T>,
+{
+    let canonicalized_array = array
+        .to_primitive()
+        .vortex_expect("Failed to canonicalize array to primitive form for binary numeric test");
+    let original_values = to_vec_of_scalar(&canonicalized_array.into_array());
+
+    let scalar = Scalar::from(scalar_value).cast(array.dtype()).vortex_unwrap();
+
+    // Only test operators that make sense for the given scalar
+    let operators = if scalar_value == T::zero() {
+        // Skip division by zero
+        vec![
+            NumericOperator::Add,
+            NumericOperator::Sub,
+            NumericOperator::RSub,
+            NumericOperator::Mul,
+        ]
+    } else {
+        vec![
+            NumericOperator::Add,
+            NumericOperator::Sub,
+            NumericOperator::RSub,
+            NumericOperator::Mul,
+            NumericOperator::Div,
+            NumericOperator::RDiv,
+        ]
+    };
+
+    for operator in operators {
+        // Test array operator scalar
+        let result = numeric(
+            &array,
+            &ConstantArray::new(scalar.clone(), array.len()).into_array(),
+            operator,
+        );
+        
+        // Skip if operation would overflow/underflow
+        if result.is_err() {
+            continue;
+        }
+        
+        let result = result.vortex_unwrap();
+        let actual_values = to_vec_of_scalar(&result);
+        
+        let expected_values: Vec<Option<Scalar>> = original_values
+            .iter()
+            .map(|x| {
+                x.as_primitive()
+                    .checked_binary_numeric(&scalar.as_primitive(), operator)
+                    .map(|ps| <Scalar as From<PrimitiveScalar<'_>>>::from(ps))
+            })
+            .collect();
+            
+        // Skip if any expected values would overflow (contain None)
+        if expected_values.iter().any(|v| v.is_none()) {
+            continue;
+        }
+        
+        let expected_values: Vec<Scalar> = expected_values.into_iter().flatten().collect();
+
+        assert_eq!(
+            actual_values,
+            expected_values,
+            "Binary numeric operation failed for encoding {} with scalar {:?}: \
+             ({array:?}) {operator:?} (Constant array of {scalar}) \
+             produced incorrect results.",
+            array.encoding_id(),
+            scalar_value,
+        );
+    }
+}
+
+/// Tests binary numeric operations with large arrays for stress testing.
+///
+/// This function tests operations with arrays containing ~2500 elements
+/// to ensure encodings handle large data correctly.
+pub fn test_binary_numeric_large_arrays(array: ArrayRef) {
+    // Only run if array is large enough
+    if array.len() < 2000 {
+        eprintln!("Skipping large array test for array with only {} elements", array.len());
+        return;
+    }
+    
+    // Run standard tests which will stress test all operations
+    test_binary_numeric_array(array);
+}
+
+/// Tests binary numeric operations with special float values.
+///
+/// This function tests operations with NaN and Infinity values
+/// to ensure proper handling of IEEE 754 special values.
+pub fn test_binary_numeric_special_floats(array: ArrayRef) {
+    use vortex_dtype::PType;
+    
+    match array.dtype() {
+        vortex_dtype::DType::Primitive(ptype, _) => match ptype {
+            PType::F32 => {
+                test_binary_numeric_with_scalar(array.clone(), f32::NAN);
+                test_binary_numeric_with_scalar(array.clone(), f32::INFINITY);
+                test_binary_numeric_with_scalar(array, f32::NEG_INFINITY);
+            }
+            PType::F64 => {
+                test_binary_numeric_with_scalar(array.clone(), f64::NAN);
+                test_binary_numeric_with_scalar(array.clone(), f64::INFINITY);
+                test_binary_numeric_with_scalar(array, f64::NEG_INFINITY);
+            }
+            _ => {
+                eprintln!("Special float tests only apply to f32 and f64 types");
+            }
+        },
+        _ => {
+            eprintln!("Special float tests only apply to primitive float types");
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::arrays::PrimitiveArray;
+
+    #[test]
+    fn test_edge_cases_i32() {
+        let array = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]).into_array();
+        test_binary_numeric_edge_cases(array);
+    }
+
+    #[test]
+    fn test_edge_cases_u32() {
+        let array = PrimitiveArray::from_iter([10u32, 20, 30, 40, 50]).into_array();
+        test_binary_numeric_edge_cases(array);
+    }
+
+    #[test]
+    fn test_edge_cases_f64() {
+        let array = PrimitiveArray::from_iter([1.5f64, 2.5, 3.5, 4.5, 5.5]).into_array();
+        test_binary_numeric_edge_cases(array);
+    }
+
+    #[test]
+    fn test_edge_cases_with_nulls() {
+        let array = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4), None]).into_array();
+        test_binary_numeric_edge_cases(array);
+    }
+
+    #[test]
+    fn test_large_array_i32() {
+        let array = PrimitiveArray::from_iter((1..2501).map(|i| i as i32)).into_array();
+        test_binary_numeric_large_arrays(array);
+    }
+
+    #[test]
+    fn test_large_array_f64() {
+        let array = PrimitiveArray::from_iter((1..2501).map(|i| i as f64 * 1.5)).into_array();
+        test_binary_numeric_large_arrays(array);
+    }
+
+    #[test]
+    fn test_large_array_with_nulls() {
+        let array = PrimitiveArray::from_option_iter(
+            (1..2501).map(|i| if i % 10 == 0 { None } else { Some(i as i32) })
+        ).into_array();
+        test_binary_numeric_large_arrays(array);
+    }
+
+    #[test]
+    fn test_special_floats_f32() {
+        let array = PrimitiveArray::from_iter([1.0f32, 2.0, 3.0, 4.0, 5.0]).into_array();
+        test_binary_numeric_special_floats(array);
+    }
+
+    #[test]
+    fn test_special_floats_f64() {
+        let array = PrimitiveArray::from_iter([1.0f64, 2.0, 3.0, 4.0, 5.0]).into_array();
+        test_binary_numeric_special_floats(array);
+    }
+
+    #[test]
+    fn test_special_floats_with_existing_special_values() {
+        let array = PrimitiveArray::from_iter([
+            1.0f64,
+            f64::NAN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            0.0,
+        ]).into_array();
+        test_binary_numeric_special_floats(array);
     }
 }

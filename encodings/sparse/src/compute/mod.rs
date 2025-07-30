@@ -34,7 +34,7 @@ register_kernel!(FilterKernelAdapter(SparseVTable).lift());
 mod test {
     use rstest::{fixture, rstest};
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_conformance;
+    use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::compute::conformance::mask::test_mask_conformance;
     use vortex_array::compute::{cast, filter};
@@ -96,7 +96,7 @@ mod test {
 
     #[rstest]
     fn test_sparse_binary_numeric(array: ArrayRef) {
-        test_binary_numeric_conformance::<i32>(array)
+        test_binary_numeric_array(array)
     }
 
     #[test]
@@ -168,6 +168,7 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::cast;
+    use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
@@ -238,5 +239,46 @@ mod tests {
 
     fn test_sparse_consistency(#[case] array: SparseArray) {
         test_array_consistency(array.as_ref());
+    }
+
+    #[rstest]
+    #[case::sparse_i32_basic(SparseArray::try_new(
+        buffer![2u64, 5, 8].into_array(),
+        buffer![100i32, 200, 300].into_array(),
+        10,
+        Scalar::from(0i32)
+    ).unwrap())]
+    #[case::sparse_u32_basic(SparseArray::try_new(
+        buffer![1u64, 3, 7].into_array(),
+        buffer![1000u32, 2000, 3000].into_array(),
+        10,
+        Scalar::from(100u32)
+    ).unwrap())]
+    #[case::sparse_i64_basic(SparseArray::try_new(
+        buffer![0u64, 4, 9].into_array(),
+        buffer![5000i64, 6000, 7000].into_array(),
+        10,
+        Scalar::from(1000i64)
+    ).unwrap())]
+    #[case::sparse_f32_basic(SparseArray::try_new(
+        buffer![2u64, 6].into_array(),
+        buffer![1.5f32, 2.5].into_array(),
+        8,
+        Scalar::from(0.5f32)
+    ).unwrap())]
+    #[case::sparse_f64_basic(SparseArray::try_new(
+        buffer![1u64, 5, 9].into_array(),
+        buffer![10.1f64, 20.2, 30.3].into_array(),
+        10,
+        Scalar::from(5.0f64)
+    ).unwrap())]
+    #[case::sparse_i32_large(SparseArray::try_new(
+        buffer![10u64, 50, 90, 150, 199].into_array(),
+        buffer![111i32, 222, 333, 444, 555].into_array(),
+        200,
+        Scalar::from(0i32)
+    ).unwrap())]
+    fn test_sparse_binary_numeric(#[case] array: SparseArray) {
+        test_binary_numeric_array(array.into_array());
     }
 }

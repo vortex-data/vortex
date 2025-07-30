@@ -40,11 +40,13 @@ register_kernel!(NumericKernelAdapter(DictVTable).lift());
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_conformance;
+    use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
 
     use crate::builders::dict_encode;
+    use crate::DictArray;
 
     fn sliced_dict_array() -> ArrayRef {
         let reference = PrimitiveArray::from_option_iter([
@@ -62,6 +64,19 @@ mod tests {
     #[test]
     fn test_dict_binary_numeric() {
         let array = sliced_dict_array();
-        test_binary_numeric_conformance::<i32>(array)
+        test_binary_numeric_array(array)
+    }
+
+    #[rstest]
+    #[case::dict_i32_basic(dict_encode(&PrimitiveArray::from_iter([10i32, 20, 10, 30, 20, 10])).unwrap())]
+    #[case::dict_u32_basic(dict_encode(&PrimitiveArray::from_iter([100u32, 200, 100, 300, 200])).unwrap())]
+    #[case::dict_i64_basic(dict_encode(&PrimitiveArray::from_iter([1000i64, 2000, 1000, 3000, 2000, 1000])).unwrap())]
+    #[case::dict_u64_basic(dict_encode(&PrimitiveArray::from_iter([5000u64, 6000, 5000, 7000, 6000])).unwrap())]
+    #[case::dict_f32_basic(dict_encode(&PrimitiveArray::from_iter([1.5f32, 2.5, 1.5, 3.5, 2.5])).unwrap())]
+    #[case::dict_f64_basic(dict_encode(&PrimitiveArray::from_iter([10.1f64, 20.2, 10.1, 30.3, 20.2])).unwrap())]
+    #[case::dict_i32_sliced(dict_encode(&PrimitiveArray::from_iter([100i32, 200, 100, 300, 200, 100])).unwrap().slice(1, 5).unwrap())]
+    #[case::dict_nullable(dict_encode(&PrimitiveArray::from_option_iter([Some(42i32), None, Some(42), Some(1), None])).unwrap())]
+    fn test_dict_binary_numeric_rstest(#[case] array: ArrayRef) {
+        test_binary_numeric_array(array)
     }
 }
