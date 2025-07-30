@@ -226,7 +226,7 @@ impl BinaryView {
             // Referencing views must have their buffer_index adjusted with new offsets
             let view_ref = self.as_view();
             Self {
-                _ref: Ref::new(
+                outlined: Outlined::new(
                     self.len(),
                     *view_ref.prefix(),
                     buffer_idx,
@@ -234,6 +234,7 @@ impl BinaryView {
                 ),
             }
         }
+    }
 
     /// Returns a u32 in little-endian byte order containing the prefix bytes.
     pub fn prefix(&self) -> u32 {

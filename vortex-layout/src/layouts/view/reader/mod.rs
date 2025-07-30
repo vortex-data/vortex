@@ -350,7 +350,12 @@ impl ViewEvaluation {
         let validity = self.build_validity(mask).await?;
         println!("VALIDITY: {validity:?}");
 
-        VarBinViewArray::try_new(views_buffer, resolved_buffers, self.dtype.clone(), validity)
+        VarBinViewArray::try_new(
+            views_buffer,
+            resolved_buffers.into(),
+            self.dtype.clone(),
+            validity,
+        )
     }
 }
 
@@ -402,11 +407,12 @@ mod tests {
                     BinaryView::new_inlined(b"inlined 3"),
                 ];
 
-                let buffers = vec![
+                let buffers: Arc<[ByteBuffer]> = [
                     ByteBuffer::from(b"long string with its own buffer 0".to_vec()),
                     ByteBuffer::from(b"long string with its own buffer 1".to_vec()),
                     ByteBuffer::from(b"long string with its own buffer 2".to_vec()),
-                ];
+                ]
+                .into();
 
                 let array = VarBinViewArray::try_new(
                     views,

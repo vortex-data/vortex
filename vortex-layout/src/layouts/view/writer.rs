@@ -61,7 +61,7 @@ impl LayoutStrategy for ViewStrategy {
                 let views_segment = writer.put(view_id, vec![views]).await?;
 
                 let mut buffer_segments = Vec::new();
-                for buffer in view_array.buffers() {
+                for buffer in view_array.buffers().iter() {
                     let buf_id = ptr.advance();
                     let buf_segment = writer.put(buf_id, vec![buffer.clone()]).await?;
                     buffer_segments.push(buf_segment);
