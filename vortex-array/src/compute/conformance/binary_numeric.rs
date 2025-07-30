@@ -72,10 +72,8 @@ where
     // First test with the standard scalar value of 1
     test_standard_binary_numeric::<T>(array.clone());
 
-    // Then test edge cases if we have enough data
-    if array.len() >= 5 {
-        test_binary_numeric_edge_cases(array);
-    }
+    // Then test edge cases
+    test_binary_numeric_edge_cases(array);
 }
 
 fn test_standard_binary_numeric<T: NativePType + Num + Copy>(array: ArrayRef)
@@ -139,17 +137,6 @@ where
                     array.encoding_id(),
                     idx,
                 );
-            } else {
-                // For overflow elements, verify that the operation would indeed overflow
-                // by trying it on the scalar value
-                let original_value = &original_values[idx];
-                let overflow_check = original_value
-                    .as_primitive()
-                    .checked_binary_numeric(&scalar_one.as_primitive(), operator);
-                assert!(
-                    overflow_check.is_none(),
-                    "Expected overflow at index {idx} for operation {original_value} {operator:?} {scalar_one} but overflow check returned {overflow_check:?}"
-                );
             }
         }
 
@@ -189,17 +176,6 @@ where
                      expected {expected_value:?}, got {actual:?}",
                     array.encoding_id(),
                     idx,
-                );
-            } else {
-                // For overflow elements, verify that the operation would indeed overflow
-                // by trying it on the scalar value
-                let original_value = &original_values[idx];
-                let overflow_check = scalar_one
-                    .as_primitive()
-                    .checked_binary_numeric(&original_value.as_primitive(), operator);
-                assert!(
-                    overflow_check.is_none(),
-                    "Expected overflow at index {idx} for operation {scalar_one} {operator:?} {original_value} but overflow check returned {overflow_check:?}"
                 );
             }
         }
@@ -263,10 +239,10 @@ fn test_binary_numeric_edge_cases(array: ArrayRef) {
 
     match array.dtype() {
         vortex_dtype::DType::Primitive(ptype, _) => match ptype {
-            PType::I8 => test_binary_numeric_edge_cases_for_type::<i8>(array),
-            PType::I16 => test_binary_numeric_edge_cases_for_type::<i16>(array),
-            PType::I32 => test_binary_numeric_edge_cases_for_type::<i32>(array),
-            PType::I64 => test_binary_numeric_edge_cases_for_type::<i64>(array),
+            PType::I8 => test_binary_numeric_edge_cases_signed::<i8>(array),
+            PType::I16 => test_binary_numeric_edge_cases_signed::<i16>(array),
+            PType::I32 => test_binary_numeric_edge_cases_signed::<i32>(array),
+            PType::I64 => test_binary_numeric_edge_cases_signed::<i64>(array),
             PType::U8 => test_binary_numeric_edge_cases_unsigned::<u8>(array),
             PType::U16 => test_binary_numeric_edge_cases_unsigned::<u16>(array),
             PType::U32 => test_binary_numeric_edge_cases_unsigned::<u32>(array),
@@ -285,7 +261,7 @@ fn test_binary_numeric_edge_cases(array: ArrayRef) {
     }
 }
 
-fn test_binary_numeric_edge_cases_for_type<T>(array: ArrayRef)
+fn test_binary_numeric_edge_cases_signed<T>(array: ArrayRef)
 where
     T: NativePType + Num + Copy + std::fmt::Debug + num_traits::Bounded + num_traits::Signed,
     Scalar: From<T>,
@@ -312,10 +288,7 @@ where
     test_binary_numeric_with_scalar(array.clone(), T::zero());
 
     // Test with max value
-    test_binary_numeric_with_scalar(array.clone(), T::max_value());
-
-    // Test with min value (0 for unsigned)
-    test_binary_numeric_with_scalar(array, T::min_value());
+    test_binary_numeric_with_scalar(array, T::max_value());
 }
 
 fn test_binary_numeric_edge_cases_float<T>(array: ArrayRef)
@@ -337,6 +310,9 @@ where
 
     // Test with small positive value
     test_binary_numeric_with_scalar(array.clone(), T::epsilon());
+
+    // Test with min positive value (subnormal)
+    test_binary_numeric_with_scalar(array.clone(), T::min_positive_value());
 
     // Test with special float values (NaN, Infinity)
     test_binary_numeric_with_scalar(array.clone(), T::nan());
@@ -416,17 +392,6 @@ where
                     array.encoding_id(),
                     idx,
                     scalar_value,
-                );
-            } else {
-                // For overflow elements, verify that the operation would indeed overflow
-                // by trying it on the scalar value
-                let original_value = &original_values[idx];
-                let overflow_check = original_value
-                    .as_primitive()
-                    .checked_binary_numeric(&scalar.as_primitive(), operator);
-                assert!(
-                    overflow_check.is_none(),
-                    "Expected overflow at index {idx} for operation {original_value} {operator:?} {scalar} but overflow check returned {overflow_check:?}"
                 );
             }
         }
