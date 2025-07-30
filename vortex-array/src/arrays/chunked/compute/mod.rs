@@ -126,7 +126,7 @@ mod tests {
         DType::Primitive(PType::I32, Nullability::NonNullable),
     ).unwrap())]
     #[case::chunked_many_small_chunks(ChunkedArray::try_new(
-        (0..10).map(|i| buffer![i as i32 * 10, i as i32 * 10 + 1].into_array()).collect(),
+        (0..10).map(|i| buffer![i * 10, i * 10 + 1].into_array()).collect(),
         DType::Primitive(PType::I32, Nullability::NonNullable),
     ).unwrap())]
     #[case::chunked_nullable(ChunkedArray::try_new(
@@ -147,8 +147,8 @@ mod tests {
     ).unwrap())]
     #[case::chunked_large(ChunkedArray::try_new(
         vec![
-            PrimitiveArray::from_iter((0..500).map(|i| i as i32)).into_array(),
-            PrimitiveArray::from_iter((500..1000).map(|i| i as i32)).into_array(),
+            PrimitiveArray::from_iter(0..500).into_array(),
+            PrimitiveArray::from_iter(500..1000).into_array(),
         ],
         DType::Primitive(PType::I32, Nullability::NonNullable),
     ).unwrap())]
