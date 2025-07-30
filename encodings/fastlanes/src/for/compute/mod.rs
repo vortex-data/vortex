@@ -101,6 +101,7 @@ mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_scalar::Scalar;
 
@@ -160,5 +161,30 @@ mod tests {
 
     fn test_for_consistency(#[case] array: FoRArray) {
         test_array_consistency(array.as_ref());
+    }
+
+    #[rstest]
+    #[case::for_i32_basic(FoRArray::try_new(
+        PrimitiveArray::from_iter([100i32, 101, 102, 103, 104]).into_array(),
+        Scalar::from(100i32)
+    ).unwrap())]
+    #[case::for_u32_basic(FoRArray::try_new(
+        PrimitiveArray::from_iter([1000u32, 1001, 1002, 1003, 1004]).into_array(),
+        Scalar::from(1000u32)
+    ).unwrap())]
+    #[case::for_i64_basic(FoRArray::try_new(
+        PrimitiveArray::from_iter([5000i64, 5001, 5002, 5003, 5004]).into_array(),
+        Scalar::from(5000i64)
+    ).unwrap())]
+    #[case::for_u64_basic(FoRArray::try_new(
+        PrimitiveArray::from_iter([10000u64, 10001, 10002, 10003, 10004]).into_array(),
+        Scalar::from(10000u64)
+    ).unwrap())]
+    #[case::for_i32_large(FoRArray::try_new(
+        PrimitiveArray::from_iter((0..100).map(|i| 2000 + i)).into_array(),
+        Scalar::from(2000i32)
+    ).unwrap())]
+    fn test_for_binary_numeric(#[case] array: FoRArray) {
+        test_binary_numeric_array(array.into_array());
     }
 }

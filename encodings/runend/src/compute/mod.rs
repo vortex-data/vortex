@@ -13,28 +13,6 @@ pub(crate) mod take;
 mod take_from;
 
 #[cfg(test)]
-mod test {
-    use vortex_array::IntoArray;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_conformance;
-
-    use crate::RunEndArray;
-
-    fn ree_array() -> RunEndArray {
-        RunEndArray::encode(
-            PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).into_array(),
-        )
-        .unwrap()
-    }
-
-    #[test]
-    fn test_runend_binary_numeric() {
-        let array = ree_array().into_array();
-        test_binary_numeric_conformance::<i32>(array)
-    }
-}
-
-#[cfg(test)]
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;

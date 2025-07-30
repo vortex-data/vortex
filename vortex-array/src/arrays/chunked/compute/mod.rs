@@ -22,6 +22,7 @@ mod tests {
 
     use crate::IntoArray;
     use crate::arrays::{ChunkedArray, PrimitiveArray};
+    use crate::compute::conformance::binary_numeric::test_binary_numeric_array;
     use crate::compute::conformance::consistency::test_array_consistency;
 
     #[rstest]
@@ -78,5 +79,80 @@ mod tests {
 
     fn test_chunked_consistency(#[case] array: ChunkedArray) {
         test_array_consistency(array.as_ref());
+    }
+
+    #[rstest]
+    #[case::chunked_i32_basic(ChunkedArray::try_new(
+        vec![
+            buffer![10i32, 20, 30].into_array(),
+            buffer![40i32, 50, 60].into_array(),
+            buffer![70i32, 80, 90].into_array(),
+        ],
+        DType::Primitive(PType::I32, Nullability::NonNullable),
+    ).unwrap())]
+    #[case::chunked_u32_basic(ChunkedArray::try_new(
+        vec![
+            buffer![100u32, 200, 300].into_array(),
+            buffer![400u32, 500].into_array(),
+        ],
+        DType::Primitive(PType::U32, Nullability::NonNullable),
+    ).unwrap())]
+    #[case::chunked_i64_basic(ChunkedArray::try_new(
+        vec![
+            buffer![1000i64, 2000].into_array(),
+            buffer![3000i64, 4000, 5000].into_array(),
+            buffer![6000i64].into_array(),
+        ],
+        DType::Primitive(PType::I64, Nullability::NonNullable),
+    ).unwrap())]
+    #[case::chunked_f32_basic(ChunkedArray::try_new(
+        vec![
+            PrimitiveArray::from_iter([1.5f32, 2.5, 3.5]).into_array(),
+            PrimitiveArray::from_iter([4.5f32, 5.5]).into_array(),
+        ],
+        DType::Primitive(PType::F32, Nullability::NonNullable),
+    ).unwrap())]
+    #[case::chunked_f64_basic(ChunkedArray::try_new(
+        vec![
+            PrimitiveArray::from_iter([10.1f64, 20.2]).into_array(),
+            PrimitiveArray::from_iter([30.3f64, 40.4, 50.5]).into_array(),
+        ],
+        DType::Primitive(PType::F64, Nullability::NonNullable),
+    ).unwrap())]
+    #[case::chunked_single_chunk(ChunkedArray::try_new(
+        vec![
+            buffer![1i32, 2, 3, 4, 5].into_array(),
+        ],
+        DType::Primitive(PType::I32, Nullability::NonNullable),
+    ).unwrap())]
+    #[case::chunked_many_small_chunks(ChunkedArray::try_new(
+        (0..10).map(|i| buffer![i * 10, i * 10 + 1].into_array()).collect(),
+        DType::Primitive(PType::I32, Nullability::NonNullable),
+    ).unwrap())]
+    #[case::chunked_nullable(ChunkedArray::try_new(
+        vec![
+            PrimitiveArray::from_option_iter([Some(100i32), None, Some(300)]).into_array(),
+            PrimitiveArray::from_option_iter([Some(400i32), Some(500)]).into_array(),
+        ],
+        DType::Primitive(PType::I32, Nullability::Nullable),
+    ).unwrap())]
+    #[case::chunked_mixed_chunk_sizes(ChunkedArray::try_new(
+        vec![
+            buffer![1i64].into_array(),
+            buffer![2i64, 3, 4, 5].into_array(),
+            buffer![6i64, 7].into_array(),
+            buffer![8i64, 9, 10, 11, 12].into_array(),
+        ],
+        DType::Primitive(PType::I64, Nullability::NonNullable),
+    ).unwrap())]
+    #[case::chunked_large(ChunkedArray::try_new(
+        vec![
+            PrimitiveArray::from_iter(0..500).into_array(),
+            PrimitiveArray::from_iter(500..1000).into_array(),
+        ],
+        DType::Primitive(PType::I32, Nullability::NonNullable),
+    ).unwrap())]
+    fn test_chunked_binary_numeric(#[case] array: ChunkedArray) {
+        test_binary_numeric_array(array.into_array())
     }
 }

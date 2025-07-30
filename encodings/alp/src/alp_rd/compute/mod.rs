@@ -8,7 +8,9 @@ mod take;
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
 
     use crate::{ALPRDArray, RDEncoder};
@@ -64,5 +66,34 @@ mod tests {
 
     fn test_alp_rd_consistency(#[case] array: ALPRDArray) {
         test_array_consistency(array.as_ref());
+    }
+
+    #[rstest]
+    #[case::f32_basic({
+        let values = vec![1.0f32, 1.1, 1.2, 1.3, 1.4];
+        let arr = PrimitiveArray::from_iter(values.clone());
+        let encoder = RDEncoder::new(&values);
+        encoder.encode(&arr)
+    })]
+    #[case::f64_basic({
+        let values = vec![100.0f64, 100.01, 100.02, 100.03, 100.04];
+        let arr = PrimitiveArray::from_iter(values.clone());
+        let encoder = RDEncoder::new(&values);
+        encoder.encode(&arr)
+    })]
+    #[case::f32_large({
+        let values: Vec<f32> = (0..100).map(|i| 50.0 + i as f32 * 0.1).collect();
+        let arr = PrimitiveArray::from_iter(values.clone());
+        let encoder = RDEncoder::new(&values);
+        encoder.encode(&arr)
+    })]
+    #[case::f64_large({
+        let values: Vec<f64> = (0..100).map(|i| 1000.0 + i as f64 * 0.01).collect();
+        let arr = PrimitiveArray::from_iter(values.clone());
+        let encoder = RDEncoder::new(&values);
+        encoder.encode(&arr)
+    })]
+    fn test_alp_rd_binary_numeric(#[case] array: ALPRDArray) {
+        test_binary_numeric_array(array.into_array());
     }
 }
