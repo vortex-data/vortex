@@ -233,7 +233,7 @@ mod tests {
     #[case::zigzag_single(zigzag_encode(PrimitiveArray::from_iter([-42i32])).unwrap())]
     #[case::zigzag_alternating(zigzag_encode(PrimitiveArray::from_iter([-1i32, 1, -2, 2, -3, 3])).unwrap())]
     // Large arrays
-    #[case::zigzag_large_i32(zigzag_encode(PrimitiveArray::from_iter((-500..500).map(|i| i as i32))).unwrap())]
+    #[case::zigzag_large_i32(zigzag_encode(PrimitiveArray::from_iter(-500..500)).unwrap())]
     #[case::zigzag_large_i64(zigzag_encode(PrimitiveArray::from_iter((-1000..1000).map(|i| i as i64 * 100))).unwrap())]
     fn test_zigzag_consistency(#[case] array: ZigZagArray) {
         test_array_consistency(array.as_ref());
@@ -244,7 +244,7 @@ mod tests {
     #[case::zigzag_i16_basic(zigzag_encode(PrimitiveArray::from_iter([-100i16, -50, 0, 50, 100])).unwrap())]
     #[case::zigzag_i32_basic(zigzag_encode(PrimitiveArray::from_iter([-1000i32, -500, 0, 500, 1000])).unwrap())]
     #[case::zigzag_i64_basic(zigzag_encode(PrimitiveArray::from_iter([-10000i64, -5000, 0, 5000, 10000])).unwrap())]
-    #[case::zigzag_i32_large(zigzag_encode(PrimitiveArray::from_iter((-50..50).map(|i| i as i32 * 10))).unwrap())]
+    #[case::zigzag_i32_large(zigzag_encode(PrimitiveArray::from_iter((-50..50).map(|i| i * 10))).unwrap())]
     fn test_zigzag_binary_numeric(#[case] array: ZigZagArray) {
         test_binary_numeric_array(array.into_array());
     }

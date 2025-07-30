@@ -65,7 +65,7 @@ fn to_vec_of_scalar(array: &dyn Array) -> Vec<Scalar> {
 /// Panics if:
 /// - The array cannot be converted to primitive form
 /// - Results don't match expected values (for operations that don't overflow)
-pub fn test_binary_numeric_conformance<T: NativePType + Num + Copy>(array: ArrayRef)
+fn test_binary_numeric_conformance<T: NativePType + Num + Copy>(array: ArrayRef)
 where
     Scalar: From<T>,
 {
@@ -258,7 +258,7 @@ pub fn test_binary_numeric_array(array: ArrayRef) {
 /// - Negative one (tests signed arithmetic)
 /// - Maximum value (tests overflow behavior)
 /// - Minimum value (tests underflow behavior)
-pub fn test_binary_numeric_edge_cases(array: ArrayRef) {
+fn test_binary_numeric_edge_cases(array: ArrayRef) {
     use vortex_dtype::PType;
 
     match array.dtype() {

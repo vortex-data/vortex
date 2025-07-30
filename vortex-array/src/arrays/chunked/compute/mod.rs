@@ -22,6 +22,7 @@ mod tests {
 
     use crate::IntoArray;
     use crate::arrays::{ChunkedArray, PrimitiveArray};
+    use crate::compute::cast;
     use crate::compute::conformance::consistency::test_array_consistency;
 
     #[rstest]
@@ -78,5 +79,23 @@ mod tests {
 
     fn test_chunked_consistency(#[case] array: ChunkedArray) {
         test_array_consistency(array.as_ref());
+    }
+
+    #[rstest]
+    #[case::chunked_primitive(ChunkedArray::try_new(
+        vec![
+            buffer![1u64, 2, 3].into_array(),
+            buffer![4u64, 5, 6].into_array(),
+            buffer![7u64, 8, 9].into_array(),
+        ],
+        DType::Primitive(PType::U64, Nullability::NonNullable),
+    )
+    .unwrap())]
+    fn test_chunked_binary_numeric(#[case] array: ChunkedArray) {
+        // The tests test both X - 1 and 1 - X, so we need signed values
+
+        let signed_dtype = DType::from(PType::try_from(array.dtype()).unwrap().to_signed());
+        let array = cast(array.as_ref(), &signed_dtype).unwrap();
+        test_binary_numeric_conformance::<u64>(array)
     }
 }
