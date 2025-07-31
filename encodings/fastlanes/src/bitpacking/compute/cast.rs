@@ -3,16 +3,17 @@
 
 use vortex_array::compute::{CastKernel, CastKernelAdapter, cast};
 use vortex_array::{ArrayRef, register_kernel};
-use vortex_dtype::DType;
+use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexResult;
 
 use crate::bitpacking::{BitPackedArray, BitPackedVTable};
 
 impl CastKernel for BitPackedVTable {
     fn cast(&self, array: &BitPackedArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        // BitPacking stores packed integers. We need to unpack before casting,
-        // but we can do it lazily by creating a PrimitiveArray view.
-        // For now, decode and cast.
+        // BitPacking stores packed integers without nullability information.
+        // We always need to unpack before casting since:
+        // 1. BitPacking only supports non-nullable primitives
+        // 2. The packed format is specific to the bit width
         let decoded = array.to_canonical()?;
         cast(decoded.as_ref(), dtype).map(Some)
     }
