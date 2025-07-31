@@ -75,12 +75,14 @@ fn cast<T: NativePType>(array: &PrimitiveArray) -> VortexResult<Buffer<T>> {
 mod test {
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
+    use rstest::rstest;
     use vortex_error::VortexError;
 
     use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
     use crate::canonical::ToCanonical;
     use crate::compute::cast;
+    use crate::compute::conformance::cast::test_cast_conformance;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
 
@@ -172,5 +174,23 @@ mod test {
             s.to_string(),
             "invalid cast from nullable to non-nullable, since source array actually contains nulls"
         );
+    }
+
+    #[rstest]
+    #[case(buffer![0u8, 1, 2, 3, 255].into_array())]
+    #[case(buffer![0u16, 100, 1000, 65535].into_array())]
+    #[case(buffer![0u32, 100, 1000, 1000000].into_array())]
+    #[case(buffer![0u64, 100, 1000, 1000000000].into_array())]
+    #[case(buffer![-128i8, -1, 0, 1, 127].into_array())]
+    #[case(buffer![-1000i16, -1, 0, 1, 1000].into_array())]
+    #[case(buffer![-1000000i32, -1, 0, 1, 1000000].into_array())]
+    #[case(buffer![-1000000000i64, -1, 0, 1, 1000000000].into_array())]
+    #[case(buffer![0.0f32, 1.5, -2.5, 100.0, 1e6].into_array())]
+    #[case(buffer![0.0f64, 1.5, -2.5, 100.0, 1e12].into_array())]
+    #[case(PrimitiveArray::from_option_iter([Some(1u8), None, Some(255), Some(0), None]).into_array())]
+    #[case(PrimitiveArray::from_option_iter([Some(1i32), None, Some(-100), Some(0), None]).into_array())]
+    #[case(buffer![42u32].into_array())]
+    fn test_cast_primitive_conformance(#[case] array: crate::ArrayRef) {
+        test_cast_conformance(array.as_ref());
     }
 }
