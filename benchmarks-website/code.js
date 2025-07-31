@@ -6,6 +6,7 @@ window.initAndRender = (function () {
     expandedSections: new Set(),
     activeCategory: 'all',
     activeTag: 'all',
+    activeEngine: 'all',
     searchTerm: '',
     charts: [],
     chartInstances: new Map(),
@@ -522,7 +523,7 @@ window.initAndRender = (function () {
       
       engines.forEach(engine => {
         const btn = document.createElement('button');
-        btn.className = 'engine-filter-btn' + (engine === 'all' ? ' active' : '');
+        btn.className = 'engine-filter-btn' + (engine === state.activeEngine ? ' active' : '');
         btn.textContent = engineLabels[engine];
         btn.setAttribute('data-engine', engine);
         btn.setAttribute('data-category', name);
@@ -617,6 +618,9 @@ window.initAndRender = (function () {
     
     // Initialize UI controls
     initializeControls();
+    
+    // Apply URL parameters after controls are initialized
+    initializeFromURL();
   }
 
   // UI Control Functions
@@ -639,6 +643,7 @@ window.initAndRender = (function () {
       state.expandedSections.add(category);
       section.classList.remove('collapsed');
     });
+    updateURLParams({ expanded: 'true' });
   }
 
   function collapseAll() {
@@ -647,6 +652,7 @@ window.initAndRender = (function () {
       state.expandedSections.delete(category);
       section.classList.add('collapsed');
     });
+    updateURLParams({ expanded: 'false' });
   }
 
   function setView(view) {
@@ -668,6 +674,9 @@ window.initAndRender = (function () {
 
   function filterByTag(tag) {
     state.activeTag = tag;
+    
+    // Update URL
+    updateURLParams({ tag });
     
     // Filter both the main content and navigation items
     document.querySelectorAll('.benchmark-set').forEach(section => {
@@ -737,41 +746,51 @@ window.initAndRender = (function () {
   }
   
   function filterEngineForCategory(categoryName, engine) {
-    // Update active button state
-    const container = document.querySelector(`[data-category="${categoryName}"] .engine-filter-container`);
-    if (container) {
+    // Update global state
+    state.activeEngine = engine;
+    
+    // Update URL
+    updateURLParams({ engine });
+    
+    // Update all categories with engine filters
+    document.querySelectorAll('.engine-filter-container').forEach(container => {
       container.querySelectorAll('.engine-filter-btn').forEach(btn => {
         btn.classList.toggle('active', btn.getAttribute('data-engine') === engine);
       });
-    }
+    });
     
-    // Find all charts in this category
-    const categorySection = document.querySelector(`[data-category="${categoryName}"]`);
-    if (!categorySection) return;
-    
-    const chartContainers = categorySection.querySelectorAll('.chart-container');
-    chartContainers.forEach((container, index) => {
-      const chartKey = `${categoryName}-${index}`;
-      const chartData = state.chartInstances.get(chartKey);
+    // Apply filter to all query categories
+    document.querySelectorAll('.benchmark-set').forEach(categorySection => {
+      const category = categorySection.getAttribute('data-category');
+      const tags = state.categoryTags[category] || [];
+      const isQueryGroup = tags.some(tag => tag.includes('Queries'));
       
-      if (chartData && chartData.chart) {
-        const chart = chartData.chart;
-        
-        // Toggle dataset visibility based on engine filter
-        chart.data.datasets.forEach((dataset, datasetIndex) => {
-          const label = dataset.label.toLowerCase();
+      if (isQueryGroup) {
+        const chartContainers = categorySection.querySelectorAll('.chart-container');
+        chartContainers.forEach((container, index) => {
+          const chartKey = `${category}-${index}`;
+          const chartData = state.chartInstances.get(chartKey);
           
-          if (engine === 'all') {
-            // Show all datasets
-            chart.setDatasetVisibility(datasetIndex, true);
-          } else {
-            // Show only datasets that match the engine
-            const shouldShow = label.includes(engine);
-            chart.setDatasetVisibility(datasetIndex, shouldShow);
+          if (chartData && chartData.chart) {
+            const chart = chartData.chart;
+            
+            // Toggle dataset visibility based on engine filter
+            chart.data.datasets.forEach((dataset, datasetIndex) => {
+              const label = dataset.label.toLowerCase();
+              
+              if (engine === 'all') {
+                // Show all datasets
+                chart.setDatasetVisibility(datasetIndex, true);
+              } else {
+                // Show only datasets that match the engine
+                const shouldShow = label.includes(engine);
+                chart.setDatasetVisibility(datasetIndex, shouldShow);
+              }
+            });
+            
+            chart.update('none'); // Update without animation for better performance
           }
         });
-        
-        chart.update('none'); // Update without animation for better performance
       }
     });
   }
@@ -811,6 +830,56 @@ window.initAndRender = (function () {
     modal.classList.remove('active');
   }
 
+  // URL parameter handling
+  function getURLParams() {
+    const params = new URLSearchParams(window.location.search);
+    return {
+      tag: params.get('tag') || 'all',
+      engine: params.get('engine') || 'all',
+      expanded: params.get('expanded') || 'true'
+    };
+  }
+  
+  function updateURLParams(updates) {
+    const params = new URLSearchParams(window.location.search);
+    
+    Object.entries(updates).forEach(([key, value]) => {
+      if (value && value !== 'all' && !(key === 'expanded' && value === 'true')) {
+        params.set(key, value);
+      } else {
+        params.delete(key);
+      }
+    });
+    
+    const newURL = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
+    window.history.replaceState({}, '', newURL);
+  }
+  
+  function initializeFromURL() {
+    const urlParams = getURLParams();
+    
+    // Set initial state from URL
+    state.activeTag = urlParams.tag;
+    state.activeEngine = urlParams.engine;
+    
+    // Apply tag filter
+    const categoryFilter = document.getElementById('category-filter');
+    if (categoryFilter) {
+      categoryFilter.value = urlParams.tag;
+      filterByTag(urlParams.tag);
+    }
+    
+    // Apply engine filter
+    if (urlParams.engine !== 'all') {
+      filterEngineForCategory(null, urlParams.engine);
+    }
+    
+    // Apply expand/collapse state
+    if (urlParams.expanded === 'false') {
+      collapseAll();
+    }
+  }
+
   function initializeControls() {
     // Mobile menu toggle
     document.getElementById('menu-toggle').addEventListener('click', () => {
@@ -838,6 +907,7 @@ window.initAndRender = (function () {
     document.getElementById('clear-filter').addEventListener('click', () => {
       document.getElementById('category-filter').value = 'all';
       filterByTag('all');
+      updateURLParams({ tag: 'all' });
     });
     
     // Search filter
