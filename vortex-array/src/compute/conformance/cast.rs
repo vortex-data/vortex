@@ -406,8 +406,7 @@ fn test_cast_to_type_safe(array: &dyn Array, target_dtype: &DType) {
         if array.dtype().eq_ignore_nullability(target_dtype) {
             assert_eq!(
                 original, casted,
-                "Value at index {} changed during nullability cast",
-                i
+                "Value at index {i} changed during nullability cast"
             );
         } else {
             // For type conversions, at least verify we can retrieve the values
@@ -415,14 +414,12 @@ fn test_cast_to_type_safe(array: &dyn Array, target_dtype: &DType) {
             if original.is_null() {
                 assert!(
                     casted.is_null(),
-                    "Null value at index {} became non-null after cast",
-                    i
+                    "Null value at index {i} became non-null after cast"
                 );
             } else {
                 assert!(
                     !casted.is_null(),
-                    "Non-null value at index {} became null after cast",
-                    i
+                    "Non-null value at index {i} became null after cast"
                 );
             }
         }

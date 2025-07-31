@@ -2,8 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::compute::{CastKernel, CastKernelAdapter, cast};
-use vortex_array::{ArrayRef, register_kernel, validity};
-use vortex_dtype::{DType, Nullability};
+use vortex_array::{ArrayRef, IntoArray, register_kernel};
+use vortex_array::patches::Patches;
+use vortex_array::vtable::ValidityHelper;
+use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::bitpacking::{BitPackedArray, BitPackedVTable};
@@ -11,21 +13,32 @@ use crate::bitpacking::{BitPackedArray, BitPackedVTable};
 impl CastKernel for BitPackedVTable {
     fn cast(&self, array: &BitPackedArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if array.dtype().eq_ignore_nullability(dtype) {
-            let new_validity = array.validity().cast_nullability(dtype.nullability())?;
-            Ok(Some(
+            let new_validity = array.validity().clone().cast_nullability(dtype.nullability())?;
+            return Ok(Some(
                 unsafe {
                     BitPackedArray::new_unchecked_with_offset(
                         array.packed().clone(),
                         dtype.as_ptype(),
                         new_validity,
-                        array.patches().clone().map(|p| p.cast(dtype)).transpose()?,
+                        match array.patches() {
+                            Some(patches) => {
+                                let new_values = cast(patches.values(), dtype)?;
+                                Some(Patches::new(
+                                    patches.array_len(),
+                                    patches.offset(),
+                                    patches.indices().clone(),
+                                    new_values,
+                                ))
+                            }
+                            None => None,
+                        },
                         array.bit_width(),
                         array.len(),
                         array.offset(),
                     )?
                 }
                 .into_array(),
-            ))
+            ));
         }
 
         Ok(None)

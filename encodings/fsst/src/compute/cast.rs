@@ -30,9 +30,9 @@ impl CastKernel for FSSTVTable {
                 )?
                 .into_array(),
             ))
+        } else {
+            Ok(None)
         }
-
-        Ok(None)
     }
 }
 
