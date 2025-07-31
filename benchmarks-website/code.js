@@ -497,6 +497,32 @@ window.initAndRender = (function () {
             chart.update();
           },
         },
+        tooltip: {
+          callbacks: {
+            afterLabel: function(context) {
+              const dataIndex = context.dataIndex;
+              const commit = dataset.commits[dataIndex];
+              if (!commit) return [];
+              
+              // Return an array of lines for the tooltip
+              return [
+                '',  // Empty line for spacing
+                commit.message.split('\n')[0],  // First line of commit message
+                `${commit.author.name} - ${new Date(commit.timestamp).toLocaleDateString()}`
+              ];
+            },
+          },
+        },
+      },
+      onClick: (event, elements) => {
+        // Click on a data point to open the commit URL
+        if (elements.length > 0) {
+          const index = elements[0].index;
+          const commit = dataset.commits[index];
+          if (commit && commit.url) {
+            window.open(commit.url, '_blank');
+          }
+        }
       },
     };
 
