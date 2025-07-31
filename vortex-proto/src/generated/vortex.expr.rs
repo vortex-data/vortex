@@ -11,11 +11,31 @@ pub struct Expr {
     #[prost(bytes = "vec", optional, tag = "3")]
     pub metadata: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
 }
+impl ::prost::Name for Expr {
+    const NAME: &'static str = "Expr";
+    const PACKAGE: &'static str = "vortex.expr";
+    fn full_name() -> ::prost::alloc::string::String {
+        "vortex.expr.Expr".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "type.vortex.dev/vortex.expr.Expr".into()
+    }
+}
 /// Options for `vortex.literal`
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct LiteralOpts {
     #[prost(message, optional, tag = "1")]
     pub value: ::core::option::Option<super::scalar::Scalar>,
+}
+impl ::prost::Name for LiteralOpts {
+    const NAME: &'static str = "LiteralOpts";
+    const PACKAGE: &'static str = "vortex.expr";
+    fn full_name() -> ::prost::alloc::string::String {
+        "vortex.expr.LiteralOpts".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "type.vortex.dev/vortex.expr.LiteralOpts".into()
+    }
 }
 /// Options for `vortex.pack`
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -25,11 +45,31 @@ pub struct PackOpts {
     #[prost(bool, tag = "2")]
     pub nullable: bool,
 }
+impl ::prost::Name for PackOpts {
+    const NAME: &'static str = "PackOpts";
+    const PACKAGE: &'static str = "vortex.expr";
+    fn full_name() -> ::prost::alloc::string::String {
+        "vortex.expr.PackOpts".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "type.vortex.dev/vortex.expr.PackOpts".into()
+    }
+}
 /// Options for `vortex.getitem`
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct GetItemOpts {
     #[prost(string, tag = "1")]
     pub path: ::prost::alloc::string::String,
+}
+impl ::prost::Name for GetItemOpts {
+    const NAME: &'static str = "GetItemOpts";
+    const PACKAGE: &'static str = "vortex.expr";
+    fn full_name() -> ::prost::alloc::string::String {
+        "vortex.expr.GetItemOpts".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "type.vortex.dev/vortex.expr.GetItemOpts".into()
+    }
 }
 /// Options for `vortex.binary`
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
@@ -97,12 +137,32 @@ pub mod binary_opts {
         }
     }
 }
+impl ::prost::Name for BinaryOpts {
+    const NAME: &'static str = "BinaryOpts";
+    const PACKAGE: &'static str = "vortex.expr";
+    fn full_name() -> ::prost::alloc::string::String {
+        "vortex.expr.BinaryOpts".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "type.vortex.dev/vortex.expr.BinaryOpts".into()
+    }
+}
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct BetweenOpts {
     #[prost(bool, tag = "1")]
     pub lower_strict: bool,
     #[prost(bool, tag = "2")]
     pub upper_strict: bool,
+}
+impl ::prost::Name for BetweenOpts {
+    const NAME: &'static str = "BetweenOpts";
+    const PACKAGE: &'static str = "vortex.expr";
+    fn full_name() -> ::prost::alloc::string::String {
+        "vortex.expr.BetweenOpts".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "type.vortex.dev/vortex.expr.BetweenOpts".into()
+    }
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct LikeOpts {
@@ -111,8 +171,28 @@ pub struct LikeOpts {
     #[prost(bool, tag = "2")]
     pub case_insensitive: bool,
 }
+impl ::prost::Name for LikeOpts {
+    const NAME: &'static str = "LikeOpts";
+    const PACKAGE: &'static str = "vortex.expr";
+    fn full_name() -> ::prost::alloc::string::String {
+        "vortex.expr.LikeOpts".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "type.vortex.dev/vortex.expr.LikeOpts".into()
+    }
+}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CastOpts {
     #[prost(message, optional, tag = "1")]
     pub target: ::core::option::Option<super::dtype::DType>,
+}
+impl ::prost::Name for CastOpts {
+    const NAME: &'static str = "CastOpts";
+    const PACKAGE: &'static str = "vortex.expr";
+    fn full_name() -> ::prost::alloc::string::String {
+        "vortex.expr.CastOpts".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "type.vortex.dev/vortex.expr.CastOpts".into()
+    }
 }

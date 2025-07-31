@@ -22,6 +22,8 @@ pub fn generate_proto() -> anyhow::Result<()> {
 
     prost_build::Config::new()
         .out_dir(out_dir)
+        .enable_type_names()
+        .type_name_domain(["."], "type.vortex.dev")
         .compile_protos(&proto_files, &[vortex_proto.join("proto")])?;
 
     Ok(())

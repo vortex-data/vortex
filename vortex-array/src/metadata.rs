@@ -4,6 +4,8 @@
 use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
 
+use prost::{Message, Name};
+use prost_types::Any;
 use vortex_error::{VortexResult, vortex_bail};
 
 /// Trait for serializing Vortex metadata to a vector of unaligned bytes.
@@ -87,21 +89,23 @@ impl<M: Debug> Debug for ProstMetadata<M> {
 
 impl<M> SerializeMetadata for ProstMetadata<M>
 where
-    M: prost::Message,
+    M: Message + Name,
 {
     fn serialize(self) -> Vec<u8> {
-        self.0.encode_to_vec()
+        Any::from_msg(&self.0)
+            .expect("Always valid protobuf message")
+            .encode_to_vec()
     }
 }
 
 impl<M> DeserializeMetadata for ProstMetadata<M>
 where
-    M: Debug,
-    M: prost::Message + Default,
+    M: Message + Name + Default + Debug,
 {
     type Output = M;
 
     fn deserialize(metadata: &[u8]) -> VortexResult<Self::Output> {
-        Ok(M::decode(metadata)?)
+        let any_message = Any::decode(metadata)?;
+        Ok(any_message.to_msg::<M>()?)
     }
 }

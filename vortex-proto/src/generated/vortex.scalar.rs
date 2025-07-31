@@ -6,6 +6,16 @@ pub struct Scalar {
     #[prost(message, optional, tag = "2")]
     pub value: ::core::option::Option<ScalarValue>,
 }
+impl ::prost::Name for Scalar {
+    const NAME: &'static str = "Scalar";
+    const PACKAGE: &'static str = "vortex.scalar";
+    fn full_name() -> ::prost::alloc::string::String {
+        "vortex.scalar.Scalar".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "type.vortex.dev/vortex.scalar.Scalar".into()
+    }
+}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ScalarValue {
     #[prost(oneof = "scalar_value::Kind", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9")]
@@ -35,8 +45,28 @@ pub mod scalar_value {
         ListValue(super::ListValue),
     }
 }
+impl ::prost::Name for ScalarValue {
+    const NAME: &'static str = "ScalarValue";
+    const PACKAGE: &'static str = "vortex.scalar";
+    fn full_name() -> ::prost::alloc::string::String {
+        "vortex.scalar.ScalarValue".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "type.vortex.dev/vortex.scalar.ScalarValue".into()
+    }
+}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListValue {
     #[prost(message, repeated, tag = "1")]
     pub values: ::prost::alloc::vec::Vec<ScalarValue>,
+}
+impl ::prost::Name for ListValue {
+    const NAME: &'static str = "ListValue";
+    const PACKAGE: &'static str = "vortex.scalar";
+    fn full_name() -> ::prost::alloc::string::String {
+        "vortex.scalar.ListValue".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "type.vortex.dev/vortex.scalar.ListValue".into()
+    }
 }
