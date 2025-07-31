@@ -202,9 +202,3 @@ jobs:
         shell: bash
         run: |
           bash scripts/cat-s3.sh vortex-benchmark-results-database data.json.gz results.json
-
-      - name: Upload parca logs
-        uses: actions/upload-artifact@v4
-        with:
-          path: /home/runner/_work/_temp/parca-agent.log
-          retention-days: 1
