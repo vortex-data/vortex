@@ -749,131 +749,128 @@ window.initAndRender = (function () {
       const currentIsMobile = utils.isMobile();
       const wasDesktop = state.lastWindowWidth > CONFIG.MOBILE_BREAKPOINT;
       const isDesktop = window.innerWidth > CONFIG.MOBILE_BREAKPOINT;
+      const crossedThreshold = (wasDesktop && !isDesktop) || (!wasDesktop && isDesktop);
       
       // Use requestAnimationFrame to batch all updates
       requestAnimationFrame(() => {
-        // First, resize all charts regardless of threshold crossing
-        const chartUpdates = [];
-        state.chartInstances.forEach((chartData) => {
-          if (chartData?.chart) {
-            chartUpdates.push(() => {
-              // Force Chart.js to recalculate sizes
-              chartData.chart.resize();
-            });
-          }
-        });
-        
-        // Execute all resize operations
-        chartUpdates.forEach(update => update());
-        
-        // Only update options if we crossed the mobile/desktop threshold
-        if ((wasDesktop && !isDesktop) || (!wasDesktop && isDesktop)) {
-        // Store current zoom states before updating
-        const zoomStates = new Map();
-        state.chartInstances.forEach((chartData, key) => {
-          if (chartData?.chart) {
-            zoomStates.set(key, {
-              min: chartData.chart.options.scales.x.min,
-              max: chartData.chart.options.scales.x.max
-            });
-          }
-        });
-
-        state.chartInstances.forEach((chartData, key) => {
-          if (chartData?.chart) {
-            const chart = chartData.chart;
-            const [categoryName, indexStr] = key.split('-');
-            const index = parseInt(indexStr);
-            
-            // Get the container and benchmark name
-            const container = chart.canvas.closest('.chart-container');
-            const benchName = container.getAttribute('data-chart');
-            
-            // Extract dataset info from current chart
-            const datasetInfo = {
-              commits: chart.data.labels.map(label => ({ id: label })),
-              unit: chart.options.scales.y.title.text || ''
-            };
-
-            // Update chart options for new screen size
-            const newOptions = chartManager.createChartOptions(
-              categoryName,
-              benchName,
-              datasetInfo,
-              datasetInfo.commits,
-              currentIsMobile,
-              index
-            );
-
-            // Update interactive settings
-            chart.options.plugins.zoom = newOptions.plugins.zoom;
-            chart.options.animation.duration = currentIsMobile ? 0 : CONFIG.ANIMATION_DURATION;
-            chart.options.elements.point.radius = currentIsMobile ? 0 : 3;
-            chart.options.pointStyle = currentIsMobile ? false : "crossRot";
-
-            // Adjust zoom state for new mode
-            const totalCommits = chart.data.labels.length;
-            const previousState = zoomStates.get(key);
-            
-            if (currentIsMobile) {
-              // Going to mobile: show all data
-              chart.options.scales.x.min = 0;
-              chart.options.scales.x.max = Math.min(CONFIG.MOBILE_MAX_DATA_POINTS - 1, totalCommits - 1);
-            } else {
-              // Going to desktop: restore zoom or use default
-              if (previousState && previousState.min === 0 && previousState.max === totalCommits - 1) {
-                // Was showing all data, use default desktop view
-                chart.options.scales.x.min = Math.max(0, totalCommits - CONFIG.DEFAULT_VISIBLE_COMMITS);
-                chart.options.scales.x.max = totalCommits - 1;
-              } else {
-                // Preserve zoom state if it was customized
-                chart.options.scales.x.min = previousState?.min || Math.max(0, totalCommits - CONFIG.DEFAULT_VISIBLE_COMMITS);
-                chart.options.scales.x.max = previousState?.max || totalCommits - 1;
-              }
+        if (crossedThreshold) {
+          // Store current zoom states before updating
+          const zoomStates = new Map();
+          state.chartInstances.forEach((chartData, key) => {
+            if (chartData?.chart) {
+              zoomStates.set(key, {
+                min: chartData.chart.options.scales.x.min,
+                max: chartData.chart.options.scales.x.max
+              });
             }
-
-            // Update zoom limits
-            chart.options.plugins.zoom.limits.x.max = totalCommits - 1;
-            chart.options.plugins.zoom.limits.x.minRange = Math.min(CONFIG.MIN_VISIBLE_COMMITS, totalCommits);
-
-            // Update the chart without animation
-            chart.update('none');
-          }
-        });
-        
-        // Recreate debounced sync zoom with new delay
-        debouncedSyncZoom = utils.debounce((categoryName) => {
-          const update = state.pendingZoomUpdates.get(categoryName);
-          if (!update) return;
-
-          const { min, max, sourceIndex } = update;
-
-          const categorySection = document.querySelector(
-            `[data-category="${categoryName}"]`
-          );
-          if (!categorySection) return;
-
-          const chartContainers = categorySection.querySelectorAll(".chart-container");
-
-          requestAnimationFrame(() => {
-            chartContainers.forEach((container, index) => {
-              if (index === sourceIndex) return;
-
-              const chartKey = `${categoryName}-${index}`;
-              const chartData = state.chartInstances.get(chartKey);
-
-              if (chartData?.chart) {
-                const chart = chartData.chart;
-                chart.options.scales.x.min = min;
-                chart.options.scales.x.max = max;
-                chart.update("none");
-              }
-            });
           });
 
-          state.pendingZoomUpdates.delete(categoryName);
-        }, utils.getDebounceDelay());
-      }
+          // Update all charts with new options in one pass
+          state.chartInstances.forEach((chartData, key) => {
+            if (chartData?.chart) {
+              const chart = chartData.chart;
+              const [categoryName, indexStr] = key.split('-');
+              const index = parseInt(indexStr);
+              
+              // Get the container and benchmark name
+              const container = chart.canvas.closest('.chart-container');
+              const benchName = container.getAttribute('data-chart');
+              
+              // Extract dataset info from current chart
+              const datasetInfo = {
+                commits: chart.data.labels.map(label => ({ id: label })),
+                unit: chart.options.scales.y.title.text || ''
+              };
+
+              // Update chart options for new screen size
+              const newOptions = chartManager.createChartOptions(
+                categoryName,
+                benchName,
+                datasetInfo,
+                datasetInfo.commits,
+                currentIsMobile,
+                index
+              );
+
+              // Update all options at once
+              chart.options.plugins.zoom = newOptions.plugins.zoom;
+              chart.options.animation.duration = currentIsMobile ? 0 : CONFIG.ANIMATION_DURATION;
+              chart.options.elements.point.radius = currentIsMobile ? 0 : 3;
+              chart.options.pointStyle = currentIsMobile ? false : "crossRot";
+
+              // Adjust zoom state for new mode
+              const totalCommits = chart.data.labels.length;
+              const previousState = zoomStates.get(key);
+              
+              if (currentIsMobile) {
+                // Going to mobile: show all data
+                chart.options.scales.x.min = 0;
+                chart.options.scales.x.max = Math.min(CONFIG.MOBILE_MAX_DATA_POINTS - 1, totalCommits - 1);
+              } else {
+                // Going to desktop: restore zoom or use default
+                if (previousState && previousState.min === 0 && previousState.max === totalCommits - 1) {
+                  // Was showing all data, use default desktop view
+                  chart.options.scales.x.min = Math.max(0, totalCommits - CONFIG.DEFAULT_VISIBLE_COMMITS);
+                  chart.options.scales.x.max = totalCommits - 1;
+                } else {
+                  // Preserve zoom state if it was customized
+                  chart.options.scales.x.min = previousState?.min || Math.max(0, totalCommits - CONFIG.DEFAULT_VISIBLE_COMMITS);
+                  chart.options.scales.x.max = previousState?.max || totalCommits - 1;
+                }
+              }
+
+              // Update zoom limits
+              chart.options.plugins.zoom.limits.x.max = totalCommits - 1;
+              chart.options.plugins.zoom.limits.x.minRange = Math.min(CONFIG.MIN_VISIBLE_COMMITS, totalCommits);
+              
+              // Update the chart without animation
+              chart.update('none');
+            }
+          });
+        } else {
+          // Just resize all charts without options changes
+          state.chartInstances.forEach((chartData) => {
+            if (chartData?.chart) {
+              chartData.chart.resize();
+              chartData.chart.update('none');
+            }
+          });
+        }
+        
+        // Recreate debounced sync zoom with new delay if we crossed threshold
+        if (crossedThreshold) {
+          debouncedSyncZoom = utils.debounce((categoryName) => {
+            const update = state.pendingZoomUpdates.get(categoryName);
+            if (!update) return;
+
+            const { min, max, sourceIndex } = update;
+
+            const categorySection = document.querySelector(
+              `[data-category="${categoryName}"]`
+            );
+            if (!categorySection) return;
+
+            const chartContainers = categorySection.querySelectorAll(".chart-container");
+
+            requestAnimationFrame(() => {
+              chartContainers.forEach((container, index) => {
+                if (index === sourceIndex) return;
+
+                const chartKey = `${categoryName}-${index}`;
+                const chartData = state.chartInstances.get(chartKey);
+
+                if (chartData?.chart) {
+                  const chart = chartData.chart;
+                  chart.options.scales.x.min = min;
+                  chart.options.scales.x.max = max;
+                  chart.update("none");
+                }
+              });
+            });
+
+            state.pendingZoomUpdates.delete(categoryName);
+          }, utils.getDebounceDelay());
+        }
       
         // Update last window width
         state.lastWindowWidth = window.innerWidth;
