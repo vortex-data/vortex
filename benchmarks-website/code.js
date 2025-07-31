@@ -20,7 +20,7 @@ const CONFIG = {
   BACK_TO_TOP_THRESHOLD: 200,
   SCROLL_ACTIVE_THRESHOLD: 100,
   URL_INIT_DELAY: 100,
-  RESIZE_DEBOUNCE: 250,
+  RESIZE_DEBOUNCE: 500,
 };
 
 // Brand colors
@@ -139,6 +139,7 @@ window.initAndRender = (function () {
     chartInstances: new Map(),
     pendingZoomUpdates: new Map(),
     lastWindowWidth: window.innerWidth,
+    isResizing: false,
   };
 
   // DOM element cache
@@ -741,22 +742,32 @@ window.initAndRender = (function () {
     },
 
     updateChartsForResize() {
+      // Prevent multiple simultaneous resize operations
+      if (state.isResizing) return;
+      state.isResizing = true;
+      
       const currentIsMobile = utils.isMobile();
       const wasDesktop = state.lastWindowWidth > CONFIG.MOBILE_BREAKPOINT;
       const isDesktop = window.innerWidth > CONFIG.MOBILE_BREAKPOINT;
       
-      // First, resize all charts regardless of threshold crossing
-      state.chartInstances.forEach((chartData) => {
-        if (chartData?.chart) {
-          // Force Chart.js to recalculate sizes
-          chartData.chart.resize();
-          // Update chart with resize mode to ensure proper rendering
-          chartData.chart.update('resize');
-        }
-      });
-      
-      // Only update options if we crossed the mobile/desktop threshold
-      if ((wasDesktop && !isDesktop) || (!wasDesktop && isDesktop)) {
+      // Use requestAnimationFrame to batch all updates
+      requestAnimationFrame(() => {
+        // First, resize all charts regardless of threshold crossing
+        const chartUpdates = [];
+        state.chartInstances.forEach((chartData) => {
+          if (chartData?.chart) {
+            chartUpdates.push(() => {
+              // Force Chart.js to recalculate sizes
+              chartData.chart.resize();
+            });
+          }
+        });
+        
+        // Execute all resize operations
+        chartUpdates.forEach(update => update());
+        
+        // Only update options if we crossed the mobile/desktop threshold
+        if ((wasDesktop && !isDesktop) || (!wasDesktop && isDesktop)) {
         // Store current zoom states before updating
         const zoomStates = new Map();
         state.chartInstances.forEach((chartData, key) => {
@@ -825,7 +836,7 @@ window.initAndRender = (function () {
             chart.options.plugins.zoom.limits.x.max = totalCommits - 1;
             chart.options.plugins.zoom.limits.x.minRange = Math.min(CONFIG.MIN_VISIBLE_COMMITS, totalCommits);
 
-            // Update the chart
+            // Update the chart without animation
             chart.update('none');
           }
         });
@@ -864,8 +875,14 @@ window.initAndRender = (function () {
         }, utils.getDebounceDelay());
       }
       
-      // Update last window width
-      state.lastWindowWidth = window.innerWidth;
+        // Update last window width
+        state.lastWindowWidth = window.innerWidth;
+        
+        // Reset the resizing flag after a short delay
+        setTimeout(() => {
+          state.isResizing = false;
+        }, 100);
+      });
     },
   };
 
