@@ -554,7 +554,16 @@ window.initAndRender = (function () {
     tocLink.innerHTML = name;
     tocLink.onclick = (e) => {
       e.preventDefault();
-      document.getElementById(h1id).scrollIntoView({ behavior: 'smooth' });
+      const targetElement = document.getElementById(h1id);
+      const headerHeight = document.querySelector('.sticky-header').offsetHeight;
+      const elementPosition = targetElement.getBoundingClientRect().top + window.pageYOffset;
+      const offsetPosition = elementPosition - headerHeight - 20; // 20px extra padding
+      
+      window.scrollTo({
+        top: offsetPosition,
+        behavior: 'smooth'
+      });
+      
       updateActiveNavItem(h1id);
     };
     tocLi.appendChild(tocLink);
@@ -908,9 +917,17 @@ window.initAndRender = (function () {
       state.expandedSections.add(groupName);
       targetSection.classList.remove('collapsed');
       
-      // Scroll to the section
+      // Scroll to the section with offset for sticky header
       const targetId = targetSection.querySelector('.benchmark-title').id;
-      document.getElementById(targetId).scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const targetElement = document.getElementById(targetId);
+      const headerHeight = document.querySelector('.sticky-header').offsetHeight;
+      const elementPosition = targetElement.getBoundingClientRect().top + window.pageYOffset;
+      const offsetPosition = elementPosition - headerHeight - 20; // 20px extra padding
+      
+      window.scrollTo({
+        top: offsetPosition,
+        behavior: 'smooth'
+      });
       
       // Update active nav item
       updateActiveNavItem(targetId);

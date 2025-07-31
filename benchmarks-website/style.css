@@ -205,6 +205,9 @@ body {
 }
 
 .repo-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   color: var(--text-color);
   text-decoration: none;
   font-weight: 600;
@@ -213,6 +216,10 @@ body {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   transition: all 0.2s;
+}
+
+.github-logo {
+  flex-shrink: 0;
 }
 
 .repo-link:hover {
@@ -274,21 +281,21 @@ body {
 .clear-filter-btn {
   font-family: "Geist", sans-serif;
   width: calc(100% - 40px);
-  margin: 0 20px 16px 20px;
+  margin: 16px 20px;
   padding: 10px 16px;
-  background-color: var(--accent-color);
-  color: var(--spiral-black);
-  border: 1px solid var(--accent-color);
+  background-color: var(--primary-color);
+  color: white;
+  border: 1px solid var(--primary-color);
   border-radius: var(--radius-md);
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .clear-filter-btn:hover {
-  background-color: #C0D848;
-  border-color: #C0D848;
+  background-color: var(--primary-hover);
+  border-color: var(--primary-hover);
 }
 
 .toc-list {
