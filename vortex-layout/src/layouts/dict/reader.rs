@@ -7,13 +7,13 @@ use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
 use dashmap::DashMap;
-use futures::{FutureExt, TryStreamExt, join};
+use futures::{FutureExt, join};
 use vortex_array::compute::{MinMaxResult, cast, filter, min_max};
 use vortex_array::stats::Precision;
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dict::DictArray;
 use vortex_dtype::{DType, FieldMask, Nullability};
-use vortex_error::{VortexError, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::{ExprRef, Scope, root};
 use vortex_mask::Mask;
 
@@ -94,6 +94,7 @@ impl DictReader {
             .or_insert_with(|| {
                 self.values_array()
                     .map(move |array| {
+                        // TODO(ngates): recursive canonicalize?
                         Ok(expr
                             .evaluate(&Scope::new(array?))?
                             .to_canonical()?

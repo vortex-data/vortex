@@ -4,9 +4,13 @@
 use std::fmt::Debug;
 
 use arrow_buffer::BooleanBuffer;
+use itertools::Itertools;
+use vortex_array::arrays::StructArray;
 use vortex_array::compute::{cast, take};
 use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::vtable::{ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityVTable};
+use vortex_array::vtable::{
+    ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityHelper, ValidityVTable,
+};
 use vortex_array::{
     Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable,
 };
@@ -113,6 +117,23 @@ impl CanonicalVTable<DictVTable> for DictVTable {
                 let canonical_values: ArrayRef = array.values().to_canonical()?.into_array();
                 take(&canonical_values, array.codes())?.to_canonical()
             }
+            DType::Struct(..) => {
+                // For structs, we can wrap each field up as a dictionary using the same codes.
+                let values = array.values().to_struct()?;
+                Ok(Canonical::Struct(StructArray::try_new(
+                    values.names().clone(),
+                    values
+                        .fields()
+                        .iter()
+                        .map(|field| {
+                            DictArray::try_new(array.codes().clone(), field.clone())
+                                .map(IntoArray::into_array)
+                        })
+                        .try_collect()?,
+                    array.len(),
+                    values.validity().take(array.codes())?,
+                )?))
+            }
             _ => take(array.values(), array.codes())?.to_canonical(),
         }
     }
@@ -143,29 +164,49 @@ impl ValidityVTable<DictVTable> for DictVTable {
     }
 
     fn validity_mask(array: &DictArray) -> VortexResult<Mask> {
+        // All-valid / all-invalid checks are fast paths before we compute the validity mask.
+        if array.codes.all_invalid()? || array.values.all_invalid()? {
+            return Ok(Mask::AllFalse(array.len()));
+        }
+        if array.codes.all_valid()? && array.values.all_valid()? {
+            return Ok(Mask::AllTrue(array.len()));
+        }
+
         let codes_validity = array.codes().validity_mask()?;
-        match codes_validity.boolean_buffer() {
-            AllOr::All => {
-                let primitive_codes = array.codes().to_primitive()?;
-                let values_mask = array.values().validity_mask()?;
+        if matches!(codes_validity, Mask::AllFalse(_)) {
+            return Ok(Mask::AllFalse(array.len()));
+        }
+
+        let values_validity = array.values().validity_mask()?;
+        if matches!(values_validity, Mask::AllFalse(_)) {
+            return Ok(Mask::AllFalse(array.len()));
+        }
+
+        let primitive_codes = array.codes().to_primitive()?;
+        match (
+            codes_validity.boolean_buffer(),
+            values_validity.boolean_buffer(),
+        ) {
+            (AllOr::Some(_codes_buffer), AllOr::All) => Ok(codes_validity),
+            (AllOr::All, AllOr::Some(values_buffer)) => {
                 let is_valid_buffer = match_each_integer_ptype!(primitive_codes.ptype(), |P| {
                     let codes_slice = primitive_codes.as_slice::<P>();
                     BooleanBuffer::collect_bool(array.len(), |idx| {
                         #[allow(clippy::cast_possible_truncation)]
-                        values_mask.value(codes_slice[idx] as usize)
+                        values_buffer.value(codes_slice[idx] as usize)
                     })
                 });
                 Ok(Mask::from_buffer(is_valid_buffer))
             }
-            AllOr::None => Ok(Mask::AllFalse(array.len())),
-            AllOr::Some(validity_buff) => {
-                let primitive_codes = array.codes().to_primitive()?;
-                let values_mask = array.values().validity_mask()?;
+            _ => {
+                let codes_mask = codes_validity.to_boolean_buffer();
+                let values_mask = values_validity.to_boolean_buffer();
+
                 let is_valid_buffer = match_each_integer_ptype!(primitive_codes.ptype(), |P| {
                     let codes_slice = primitive_codes.as_slice::<P>();
                     #[allow(clippy::cast_possible_truncation)]
                     BooleanBuffer::collect_bool(array.len(), |idx| {
-                        validity_buff.value(idx) && values_mask.value(codes_slice[idx] as usize)
+                        codes_mask.value(idx) && values_mask.value(codes_slice[idx] as usize)
                     })
                 });
                 Ok(Mask::from_buffer(is_valid_buffer))
