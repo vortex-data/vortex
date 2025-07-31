@@ -13,8 +13,7 @@ use itertools::Itertools;
 use parking_lot::Mutex;
 use vortex_array::{Array, ArrayContext, ToCanonical};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
-use vortex_utils::aliases::DefaultHashBuilder;
-use vortex_utils::aliases::hash_set::HashSet;
+use vortex_utils::set::UniqueCount;
 
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SequenceWriter;
@@ -46,9 +45,8 @@ impl LayoutStrategy for StructStrategy {
             // nothing we can do if dtype is not struct
             return self.child.write_stream(ctx, sequence_writer, stream);
         };
-        if HashSet::<_, DefaultHashBuilder>::from_iter(struct_dtype.names().iter()).len()
-            != struct_dtype.names().len()
-        {
+
+        if struct_dtype.names().iter().unique_count() != struct_dtype.names().len() {
             return Box::pin(async { vortex_bail!("StructLayout must have unique field names") });
         }
 

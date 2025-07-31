@@ -1,10 +1,6 @@
 //  SPDX-License-Identifier: Apache-2.0
 //  SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-// TODO(aduffy): implement the writer
-
-use std::sync::Arc;
-
 use arcref::ArcRef;
 use futures::StreamExt;
 use futures::stream::once;

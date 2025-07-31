@@ -4,6 +4,7 @@
 use std::ops::BitAnd;
 
 use async_trait::async_trait;
+use log::Level;
 use vortex_array::IntoArray;
 use vortex_array::compute::filter;
 use vortex_error::VortexResult;
@@ -29,6 +30,14 @@ impl MaskEvaluation for ViewEvaluation {
             let array_mask = Mask::try_from(array.as_ref())?;
             mask.bitand(&array_mask)
         };
+
+        if log::log_enabled!(Level::Trace) {
+            log::trace!(
+                "mask evaluation: {} @ mask(true_count={})",
+                self.name,
+                mask.true_count()
+            );
+        }
 
         Ok(array_mask)
     }
