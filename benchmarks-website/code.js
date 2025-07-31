@@ -509,8 +509,8 @@ window.initAndRender = (function () {
             text: benchName,
             padding: { bottom: 50 },
           },
-          // By default, show the last 50 commits
-          min: Math.max(0, dataset.commits.length - 50),
+          // By default, show the last 50 commits (or all if on mobile with limited data)
+          min: isMobile ? 0 : Math.max(0, dataset.commits.length - 50),
         },
         y: y_axis_scale,
       },
@@ -548,8 +548,8 @@ window.initAndRender = (function () {
           limits: {
             x: {
               min: 0,
-              max: dataset.commits.length - 1,
-              minRange: 10  // Minimum 10 commits visible
+              max: limitedCommits.length - 1,  // Use limited commits length
+              minRange: Math.min(10, limitedCommits.length)  // Minimum 10 commits visible (or less if fewer commits)
             }
           }
         },
@@ -1145,16 +1145,17 @@ window.initAndRender = (function () {
     const categorySection = document.querySelector(`[data-category="${categoryName}"]`);
     if (!categorySection) return;
     
+    const isCurrentlyMobile = window.innerWidth <= 768;
     const chartContainers = categorySection.querySelectorAll('.chart-container');
     chartContainers.forEach((container, index) => {
       const chartKey = `${categoryName}-${index}`;
       const chartData = state.chartInstances.get(chartKey);
       
       if (chartData && chartData.chart) {
-        // Reset zoom to show last 50 commits
+        // Reset zoom to show last 50 commits (or all on mobile)
         const chart = chartData.chart;
         const totalCommits = chart.data.labels.length;
-        const minIndex = Math.max(0, totalCommits - 50);
+        const minIndex = isCurrentlyMobile ? 0 : Math.max(0, totalCommits - 50);
         
         chart.options.scales.x.min = minIndex;
         chart.options.scales.x.max = totalCommits - 1;
