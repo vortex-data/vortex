@@ -2,10 +2,10 @@ name: Benchmarks
 
 on:
   push:
-    branches: [ develop ]
+    branches: [develop]
 
 permissions:
-  id-token: write  # enables AWS-GitHub OIDC
+  id-token: write # enables AWS-GitHub OIDC
   actions: read
   contents: write
   deployments: write
@@ -62,7 +62,7 @@ jobs:
       - name: Build binary
         shell: bash
         env:
-          RUSTFLAGS: '-C target-cpu=native -C force-frame-pointers=yes'
+          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
         run: |
           cargo build --bin ${{ matrix.benchmark.id }} --package bench-vortex --profile release_debug
 
@@ -70,8 +70,10 @@ jobs:
         uses: polarsignals/gh-actions-ps-profiling@v0.4.0
         with:
           polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
-          labels: 'branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.benchmark.id }}'
-          profiling_frequency: 200
+          labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.benchmark.id }}"
+          parca_agent_version: "0.39.3"
+          project_uuid: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
+          extra_args: "--off-cpu-threshold=1" # Personally tuned by @brancz
 
       - name: Run ${{ matrix.benchmark.name }} benchmark
         shell: bash
@@ -94,4 +96,4 @@ jobs:
     uses: ./.github/workflows/sql-benchmarks.yml
     secrets: inherit
     with:
-      mode: 'develop'
+      mode: "develop"
