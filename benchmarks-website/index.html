@@ -195,22 +195,72 @@
   </head>
 
   <body>
-    <div class="header-item">
-      <strong class="header-label">Repository:</strong>
-      <a
-        id="repository-link"
-        rel="noopener"
-        href="https://github.com/vortex-data/vortex"
-        >https://github.com/vortex-data/vortex</a
-      >
+    <!-- Sticky Header -->
+    <header class="sticky-header">
+      <div class="header-content">
+        <div class="header-left">
+          <button id="menu-toggle" class="menu-toggle" aria-label="Toggle menu">☰</button>
+          <h1 class="site-title">Vortex Benchmarks</h1>
+        </div>
+        <div class="header-center">
+          <div class="filter-controls">
+            <button id="expand-all" class="control-btn">Expand All</button>
+            <button id="collapse-all" class="control-btn">Collapse All</button>
+            <select id="category-filter" class="category-filter">
+              <option value="all">All Categories</option>
+            </select>
+            <input type="text" id="search-filter" class="search-filter" placeholder="Search benchmarks...">
+          </div>
+        </div>
+        <div class="header-right">
+          <div class="view-controls">
+            <button id="grid-view" class="view-btn active" aria-label="Grid view">⊞</button>
+            <button id="list-view" class="view-btn" aria-label="List view">☰</button>
+          </div>
+          <a href="https://github.com/vortex-data/vortex" class="repo-link" rel="noopener">GitHub</a>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <div class="main-container">
+      <!-- Sidebar Navigation -->
+      <aside id="sidebar" class="sidebar">
+        <nav class="sidebar-nav">
+          <div class="sidebar-header">
+            <h2>Navigation</h2>
+            <button id="sidebar-close" class="sidebar-close" aria-label="Close sidebar">×</button>
+          </div>
+          <ul id="toc" class="toc-list"></ul>
+          <div class="sidebar-footer">
+            <a href="https://vortex-benchmark-results-database.s3.amazonaws.com/data.json.gz" 
+               class="download-btn">
+              📥 Download Data (JSON.gz)
+            </a>
+          </div>
+        </nav>
+      </aside>
+
+      <!-- Main Content -->
+      <main id="main" class="main-content">
+        <div class="loading-indicator" id="loading">
+          <div class="spinner"></div>
+          <p>Loading benchmarks...</p>
+        </div>
+      </main>
     </div>
-    <div id="main">
-      <ul id="toc"></ul>
-      <a
-        href="https://vortex-benchmark-results-database.s3.amazonaws.com/data.json.gz"
-        class="button"
-        >Download data as Gzipped JSON</a
-      >
+
+    <!-- Back to Top Button -->
+    <button id="back-to-top" class="back-to-top" aria-label="Back to top">↑</button>
+
+    <!-- Fullscreen Chart Modal -->
+    <div id="chart-modal" class="chart-modal">
+      <div class="modal-content">
+        <button class="modal-close" id="modal-close">×</button>
+        <div class="modal-chart-container">
+          <canvas id="modal-chart"></canvas>
+        </div>
+      </div>
     </div>
   </body>
 </html>

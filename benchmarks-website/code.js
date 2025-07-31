@@ -1,5 +1,23 @@
 "use strict";
 window.initAndRender = (function () {
+  // State management
+  const state = {
+    currentView: 'grid',
+    expandedSections: new Set(),
+    activeCategory: 'all',
+    searchTerm: '',
+    charts: [],
+    chartInstances: new Map(),
+    benchmarkDescriptions: {
+      'Random Access': 'Measures random access performance across different data structures',
+      'Compression': 'Compression and decompression time benchmarks for various encodings',
+      'Compression Size': 'Size comparison of compressed data using different algorithms',
+      'TPC-H (NVME)': 'TPC-H benchmark queries on local NVME storage',
+      'TPC-H (S3)': 'TPC-H benchmark queries on S3 storage',
+      'Clickbench': 'ClickHouse benchmark queries for analytical workloads'
+    }
+  };
+
   function stringToColor(str) {
     // Random colours are generally pretty disgusting...
     const MAP = {
@@ -248,223 +266,277 @@ window.initAndRender = (function () {
     }));
   }
 
-  function renderAllCharts(dataSets, keptGroups) {
-    let charts = [];
+  function createChartContainer(name, benchName, index) {
+    const container = document.createElement('div');
+    container.className = 'chart-container fade-in';
+    container.setAttribute('data-benchmark', name);
+    container.setAttribute('data-chart', benchName);
+    
+    const header = document.createElement('div');
+    header.className = 'chart-header';
+    
+    const title = document.createElement('h3');
+    title.className = 'chart-title';
+    title.textContent = benchName;
+    
+    const actions = document.createElement('div');
+    actions.className = 'chart-actions';
+    
+    const fullscreenBtn = document.createElement('button');
+    fullscreenBtn.className = 'chart-action-btn';
+    fullscreenBtn.textContent = 'Fullscreen';
+    fullscreenBtn.onclick = () => openChartModal(name, benchName, index);
+    
+    actions.appendChild(fullscreenBtn);
+    header.appendChild(title);
+    header.appendChild(actions);
+    container.appendChild(header);
+    
+    const canvas = document.createElement('canvas');
+    canvas.id = `chart-${name}-${index}`;
+    container.appendChild(canvas);
+    
+    return { container, canvas };
+  }
 
-    function renderChart(
-      parent,
-      name,
-      dataset,
-      hiddenDatasets,
-      removedDatasets,
-      renamedDatasets
+  function renderChart(
+    parent,
+    name,
+    benchName,
+    dataset,
+    hiddenDatasets,
+    removedDatasets,
+    renamedDatasets,
+    index
+  ) {
+    const { container, canvas } = createChartContainer(name, benchName, index);
+    parent.appendChild(container);
+
+    const data = {
+      labels: dataset.commits.map((commit) => commit.id.slice(0, 7)),
+      datasets: Array.from(dataset.series)
+        .filter(([name, benches]) => {
+          return removedDatasets === undefined || !removedDatasets.has(name);
+        })
+        .map(([name, benches]) => {
+          const renamedName =
+            renamedDatasets === undefined
+              ? name
+              : renamedDatasets[name] || name;
+          const color = stringToColor(renamedName);
+          return {
+            label: renamedName,
+            data: benches.map((b) => (b ? b.value : null)),
+            borderColor: color,
+            backgroundColor: color + "60", // Add alpha for #rrggbbaa
+            hidden: hiddenDatasets !== undefined && hiddenDatasets.has(name),
+          };
+        }),
+    };
+    
+    const y_axis_scale = {
+      title: {
+        display: true,
+        text: dataset.commits.length > 0 ? dataset.unit : "",
+      },
+      suggestedMin: 0,
+    };
+
+    if (
+      benchName.includes("COMPRESS") &&
+      benchName.includes("THROUGHPUT") &&
+      dataset.unit === "MiB/s"
     ) {
-      const canvasContainer = document.createElement("div");
-      parent.appendChild(canvasContainer);
+      y_axis_scale.suggestedMax = 1024;
+      y_axis_scale.max = 1024;
+    }
 
-      const canvas = document.createElement("canvas");
-      canvas.className = "benchmark-chart";
-      canvasContainer.appendChild(canvas);
+    if (
+      benchName.includes("DECOMPRESS") &&
+      benchName.includes("THROUGHPUT") &&
+      dataset.unit === "MiB/s"
+    ) {
+      y_axis_scale.suggestedMax = 8192;
+      y_axis_scale.max = 8192;
+    }
 
-      const data = {
-        labels: dataset.commits.map((commit) => commit.id.slice(0, 7)),
-        datasets: Array.from(dataset.series)
-          .filter(([name, benches]) => {
-            return removedDatasets === undefined || !removedDatasets.has(name);
-          })
-          .map(([name, benches]) => {
-            const renamedName =
-              renamedDatasets === undefined
-                ? name
-                : renamedDatasets[name] || name;
-            const color = stringToColor(renamedName);
-            return {
-              label: renamedName,
-              data: benches.map((b) => (b ? b.value : null)),
-              borderColor: color,
-              backgroundColor: color + "60", // Add alpha for #rrggbbaa
-              hidden: hiddenDatasets !== undefined && hiddenDatasets.has(name),
-            };
-          }),
-      };
-      const y_axis_scale = {
-        title: {
-          display: true,
-          text: dataset.commits.length > 0 ? dataset.unit : "",
+    const options = {
+      responsive: true,
+      maintainAspectRatio: false,
+      spanGaps: true,
+      pointStyle: "crossRot",
+      elements: {
+        line: {
+          borderWidth: 1,
         },
-        suggestedMin: 0,
-      };
-
-      if (
-        name.includes("COMPRESS") &&
-        name.includes("THROUGHPUT") &&
-        dataset.unit === "MiB/s"
-      ) {
-        y_axis_scale.suggestedMax = 1024;
-        y_axis_scale.max = 1024;
-      }
-
-      if (
-        name.includes("DECOMPRESS") &&
-        name.includes("THROUGHPUT") &&
-        dataset.unit === "MiB/s"
-      ) {
-        y_axis_scale.suggestedMax = 8192;
-        y_axis_scale.max = 8192;
-      }
-
-      const options = {
-        responsive: true,
-        maintainAspectRatio: false,
-        spanGaps: true,
-        pointStyle: "crossRot",
-        elements: {
-          line: {
-            borderWidth: 1,
-          },
-        },
-        scales: {
-          x: {
-            title: {
-              display: true,
-              text: name,
-              padding: { bottom: 50 },
-            },
-            // By default, show the last 50 commits
-            min: Math.max(0, dataset.commits.length - 50),
-          },
-          y: y_axis_scale,
-        },
-        plugins: {
-          zoom: {
-            zoom: {
-              wheel: { enabled: true },
-              mode: "x",
-              drag: { enabled: true },
-            },
-          },
-          legend: {
+      },
+      scales: {
+        x: {
+          title: {
             display: true,
-            onClick: function (e, legendItem) {
-              const index = legendItem.datasetIndex;
-
-              const wasVisible = this.chart.isDatasetVisible(index);
-              const datasetLabel = this.chart.data.datasets[index].label;
-
-              charts.forEach(function (chart) {
-                chart.data.datasets.forEach(function (ds, idx) {
-                  if (ds.label === datasetLabel) {
-                    chart.getDatasetMeta(idx).hidden = wasVisible;
-                  }
-                });
-
-                chart.update();
-              });
-            },
+            text: benchName,
+            padding: { bottom: 50 },
           },
-          tooltip: {
-            callbacks: {
-              footer: (items) => {
-                const { dataIndex } = items[0];
-                const commit = dataset.commits[dataIndex];
-                return (
-                  commit.message.split("\n")[0] +
-                  "\n" +
-                  commit.author.name +
-                  " <" +
-                  commit.author.email +
-                  ">"
-                );
-              },
-            },
+          // By default, show the last 50 commits
+          min: Math.max(0, dataset.commits.length - 50),
+        },
+        y: y_axis_scale,
+      },
+      plugins: {
+        zoom: {
+          zoom: {
+            wheel: { enabled: true },
+            mode: "x",
+            drag: { enabled: true },
           },
         },
-        onClick: (_mouseEvent, activeElems) => {
-          if (activeElems.length === 0) {
-            return;
+        legend: {
+          display: true,
+          onClick: function (e, legendItem) {
+            const index = legendItem.datasetIndex;
+            const chart = this.chart;
+            const dataset = chart.data.datasets[index];
+            dataset.hidden = !dataset.hidden;
+            chart.update();
+          },
+        },
+      },
+    };
+
+    const chart = new Chart(canvas, {
+      type: "line",
+      data: data,
+      options: options,
+    });
+
+    const chartKey = `${name}-${index}`;
+    state.chartInstances.set(chartKey, { chart, data, options });
+    
+    return chart;
+  }
+
+  function renderBenchSet(name, benchSet, main, toc, groupFilterSettings) {
+    const { keptCharts, hiddenDatasets, removedDatasets, renamedDatasets } =
+      groupFilterSettings === undefined
+        ? {
+            keptCharts: undefined,
+            hiddenDatasets: undefined,
+            removedDatasets: undefined,
+            renamedDatasets: undefined,
           }
-          // XXX: Undocumented. How can we know the index?
-          const index = activeElems[0].index;
-          const url = dataset.commits[index].url;
-          window.open(url, "_blank");
-        },
-      };
+        : groupFilterSettings;
+    
+    // Create collapsible section
+    const setElem = document.createElement("div");
+    setElem.className = "benchmark-set";
+    setElem.setAttribute('data-category', name);
+    main.appendChild(setElem);
 
-      return new Chart(canvas, {
-        type: "line",
-        data,
-        options,
-      });
+    const h1id = name.replace(/\s+/g, "_");
+    
+    // Create header with collapse functionality
+    const headerElem = document.createElement('div');
+    headerElem.className = 'benchmark-header';
+    headerElem.onclick = () => toggleSection(name);
+    
+    const titleWrapper = document.createElement('div');
+    const nameElem = document.createElement("h1");
+    nameElem.id = h1id;
+    nameElem.className = "benchmark-title";
+    nameElem.innerHTML = `<span class="collapse-icon">▼</span> ${name}`;
+    titleWrapper.appendChild(nameElem);
+    
+    const metaElem = document.createElement('div');
+    metaElem.className = 'benchmark-meta';
+    const chartCount = keptCharts ? keptCharts.length : (benchSet ? benchSet.size : 0);
+    metaElem.textContent = `${chartCount} charts`;
+    
+    headerElem.appendChild(titleWrapper);
+    headerElem.appendChild(metaElem);
+    setElem.appendChild(headerElem);
+    
+    // Add description if available
+    const baseCategory = name.split(' (')[0];
+    if (state.benchmarkDescriptions[baseCategory]) {
+      const descElem = document.createElement('div');
+      descElem.className = 'benchmark-description';
+      descElem.textContent = state.benchmarkDescriptions[baseCategory];
+      setElem.appendChild(descElem);
     }
 
-    function renderBenchSet(name, benchSet, main, toc, groupFilterSettings) {
-      const { keptCharts, hiddenDatasets, removedDatasets, renamedDatasets } =
-        groupFilterSettings === undefined
-          ? {
-              keptCharts: undefined,
-              hiddenDatasets: undefined,
-              removedDatasets: undefined,
-              renamedDatasets: undefined,
-            }
-          : groupFilterSettings;
-      const setElem = document.createElement("div");
-      setElem.className = "benchmark-set";
-      main.appendChild(setElem);
+    // Create TOC entry
+    const tocLi = document.createElement("li");
+    const tocLink = document.createElement("a");
+    tocLink.href = "#" + h1id;
+    tocLink.innerHTML = name;
+    tocLink.onclick = (e) => {
+      e.preventDefault();
+      document.getElementById(h1id).scrollIntoView({ behavior: 'smooth' });
+      updateActiveNavItem(h1id);
+    };
+    tocLi.appendChild(tocLink);
+    toc.appendChild(tocLi);
 
-      const h1id = name.replace(" ", "_");
-      const nameElem = document.createElement("h1");
-      nameElem.id = h1id;
-      nameElem.className = "benchmark-title";
-      nameElem.textContent = name;
-      setElem.appendChild(nameElem);
+    // Add category to filter dropdown
+    const categoryFilter = document.getElementById('category-filter');
+    const option = document.createElement('option');
+    option.value = name;
+    option.textContent = name;
+    categoryFilter.appendChild(option);
 
-      const tocLi = document.createElement("li");
-      const tocLink = document.createElement("a");
-      tocLink.href = "#" + h1id;
-      tocLink.innerHTML = name;
-      tocLi.appendChild(tocLink);
-      toc.appendChild(tocLi);
+    const graphsElem = document.createElement("div");
+    graphsElem.className = "benchmark-graphs";
+    setElem.appendChild(graphsElem);
 
-      const graphsElem = document.createElement("div");
-      graphsElem.className = "benchmark-graphs";
-      setElem.appendChild(graphsElem);
-
-      if (keptCharts === undefined) {
-        if (benchSet !== undefined) {
-          for (const [benchName, benches] of benchSet.entries()) {
-            charts.push(
-              renderChart(
-                graphsElem,
-                benchName,
-                benches,
-                hiddenDatasets,
-                removedDatasets,
-                renamedDatasets
-              )
-            );
-          }
+    let chartIndex = 0;
+    if (keptCharts === undefined) {
+      if (benchSet !== undefined) {
+        for (const [benchName, benches] of benchSet.entries()) {
+          state.charts.push(
+            renderChart(
+              graphsElem,
+              name,
+              benchName,
+              benches,
+              hiddenDatasets,
+              removedDatasets,
+              renamedDatasets,
+              chartIndex++
+            )
+          );
         }
-      } else {
-        for (const benchName of keptCharts) {
-          const benches = benchSet.get(benchName);
-          if (benches) {
-            charts.push(
-              renderChart(
-                graphsElem,
-                benchName,
-                benches,
-                hiddenDatasets,
-                removedDatasets,
-                renamedDatasets
-              )
-            );
-          }
+      }
+    } else {
+      for (const benchName of keptCharts) {
+        const benches = benchSet.get(benchName);
+        if (benches) {
+          state.charts.push(
+            renderChart(
+              graphsElem,
+              name,
+              benchName,
+              benches,
+              hiddenDatasets,
+              removedDatasets,
+              renamedDatasets,
+              chartIndex++
+            )
+          );
         }
       }
     }
+    
+    // Expand by default
+    state.expandedSections.add(name);
+  }
 
+  function renderAllCharts(dataSets, keptGroups) {
     const main = document.getElementById("main");
     const toc = document.getElementById("toc");
+    
+    // Clear loading indicator
+    main.innerHTML = '';
+    
     if (keptGroups === undefined) {
       for (const { name, dataSet } of dataSets) {
         renderBenchSet(name, dataSet, main, toc, undefined);
@@ -478,6 +550,200 @@ window.initAndRender = (function () {
         renderBenchSet(name, dataSet, main, toc, groupFilterSettings);
       }
     }
+    
+    // Initialize UI controls
+    initializeControls();
+  }
+
+  // UI Control Functions
+  function toggleSection(name) {
+    const section = document.querySelector(`[data-category="${name}"]`);
+    if (!section) return;
+    
+    if (state.expandedSections.has(name)) {
+      state.expandedSections.delete(name);
+      section.classList.add('collapsed');
+    } else {
+      state.expandedSections.add(name);
+      section.classList.remove('collapsed');
+    }
+  }
+
+  function expandAll() {
+    document.querySelectorAll('.benchmark-set').forEach(section => {
+      const category = section.getAttribute('data-category');
+      state.expandedSections.add(category);
+      section.classList.remove('collapsed');
+    });
+  }
+
+  function collapseAll() {
+    document.querySelectorAll('.benchmark-set').forEach(section => {
+      const category = section.getAttribute('data-category');
+      state.expandedSections.delete(category);
+      section.classList.add('collapsed');
+    });
+  }
+
+  function setView(view) {
+    state.currentView = view;
+    document.querySelectorAll('.benchmark-graphs').forEach(graphs => {
+      if (view === 'list') {
+        graphs.classList.add('list-view');
+      } else {
+        graphs.classList.remove('list-view');
+      }
+    });
+    
+    // Update active button
+    document.querySelectorAll('.view-btn').forEach(btn => {
+      btn.classList.remove('active');
+    });
+    document.getElementById(`${view}-view`).classList.add('active');
+  }
+
+  function filterByCategory(category) {
+    state.activeCategory = category;
+    document.querySelectorAll('.benchmark-set').forEach(section => {
+      const sectionCategory = section.getAttribute('data-category');
+      if (category === 'all' || sectionCategory === category) {
+        section.style.display = 'block';
+      } else {
+        section.style.display = 'none';
+      }
+    });
+  }
+
+  function filterBySearch(term) {
+    state.searchTerm = term.toLowerCase();
+    document.querySelectorAll('.chart-container').forEach(chart => {
+      const benchmarkName = chart.getAttribute('data-benchmark').toLowerCase();
+      const chartName = chart.getAttribute('data-chart').toLowerCase();
+      if (benchmarkName.includes(state.searchTerm) || chartName.includes(state.searchTerm)) {
+        chart.style.display = 'block';
+      } else {
+        chart.style.display = 'none';
+      }
+    });
+  }
+
+  function updateActiveNavItem(id) {
+    document.querySelectorAll('.toc-list a').forEach(link => {
+      link.classList.remove('active');
+      if (link.getAttribute('href') === `#${id}`) {
+        link.classList.add('active');
+      }
+    });
+  }
+
+  function openChartModal(benchmarkName, chartName, index) {
+    const modal = document.getElementById('chart-modal');
+    const modalCanvas = document.getElementById('modal-chart');
+    
+    // Get original chart data
+    const chartKey = `${benchmarkName}-${index}`;
+    const originalChart = state.chartInstances.get(chartKey);
+    if (!originalChart) return;
+    
+    // Clone the chart configuration
+    const modalChart = new Chart(modalCanvas, {
+      type: 'line',
+      data: JSON.parse(JSON.stringify(originalChart.data)),
+      options: {
+        ...originalChart.options,
+        maintainAspectRatio: false,
+        responsive: true,
+      }
+    });
+    
+    modal.classList.add('active');
+    
+    // Store modal chart instance for cleanup
+    modal.modalChart = modalChart;
+  }
+
+  function closeChartModal() {
+    const modal = document.getElementById('chart-modal');
+    if (modal.modalChart) {
+      modal.modalChart.destroy();
+      modal.modalChart = null;
+    }
+    modal.classList.remove('active');
+  }
+
+  function initializeControls() {
+    // Mobile menu toggle
+    document.getElementById('menu-toggle').addEventListener('click', () => {
+      document.getElementById('sidebar').classList.toggle('active');
+    });
+    
+    document.getElementById('sidebar-close').addEventListener('click', () => {
+      document.getElementById('sidebar').classList.remove('active');
+    });
+    
+    // Expand/Collapse controls
+    document.getElementById('expand-all').addEventListener('click', expandAll);
+    document.getElementById('collapse-all').addEventListener('click', collapseAll);
+    
+    // View controls
+    document.getElementById('grid-view').addEventListener('click', () => setView('grid'));
+    document.getElementById('list-view').addEventListener('click', () => setView('list'));
+    
+    // Category filter
+    document.getElementById('category-filter').addEventListener('change', (e) => {
+      filterByCategory(e.target.value);
+    });
+    
+    // Search filter
+    let searchTimeout;
+    document.getElementById('search-filter').addEventListener('input', (e) => {
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(() => filterBySearch(e.target.value), 300);
+    });
+    
+    // Back to top button
+    const backToTop = document.getElementById('back-to-top');
+    window.addEventListener('scroll', () => {
+      if (window.scrollY > 200) {
+        backToTop.classList.add('visible');
+      } else {
+        backToTop.classList.remove('visible');
+      }
+      
+      // Update active nav item based on scroll position
+      const sections = document.querySelectorAll('.benchmark-set');
+      let current = '';
+      sections.forEach(section => {
+        const rect = section.getBoundingClientRect();
+        if (rect.top <= 100) {
+          current = section.querySelector('.benchmark-title').id;
+        }
+      });
+      if (current) {
+        updateActiveNavItem(current);
+      }
+    });
+    
+    backToTop.addEventListener('click', () => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+    
+    // Modal controls
+    document.getElementById('modal-close').addEventListener('click', closeChartModal);
+    document.getElementById('chart-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'chart-modal') {
+        closeChartModal();
+      }
+    });
+    
+    // Close sidebar on outside click (mobile)
+    document.addEventListener('click', (e) => {
+      const sidebar = document.getElementById('sidebar');
+      const menuToggle = document.getElementById('menu-toggle');
+      if (!sidebar.contains(e.target) && !menuToggle.contains(e.target)) {
+        sidebar.classList.remove('active');
+      }
+    });
   }
 
   function parse_jsonl(jsonl) {
@@ -504,37 +770,41 @@ window.initAndRender = (function () {
       result += decoder.decode(value, { stream: true });
     }
 
-    result += decoder.decode();
-
+    result += decoder.decode(); // Flush any remaining bytes
     return result;
   }
 
-  function initAndRender(keptGroups) {
-    let data = fetchAndDecompressGzip(
-      "https://vortex-benchmark-results-database.s3.amazonaws.com/data.json.gz"
-    )
-      .then(parse_jsonl)
-      .catch((error) => console.error("unable to load data.json.gz:", error));
+  // Main initialization function
+  return async function initAndRender(keptGroups) {
+    try {
+      const [dataResponse, commitsResponse] = await Promise.all([
+        fetchAndDecompressGzip(
+          "https://vortex-benchmark-results-database.s3.amazonaws.com/data.json.gz"
+        ),
+        fetch(
+          "https://vortex-benchmark-results-database.s3.amazonaws.com/commits.json"
+        ).then((r) => r.text()),
+      ]);
 
-    let commit_metadata = fetch(
-      "https://vortex-benchmark-results-database.s3.amazonaws.com/commits.json"
-    )
-      .then((response) => response.text())
-      .then(parse_jsonl)
-      .then((commit_metadatas) => {
-        return commit_metadatas.reduce((dict, commit_metadata) => {
-          dict[commit_metadata.id] = commit_metadata;
-          return dict;
-        }, {});
-      })
-      .catch((error) => console.error("unable to load commits.json:", error));
-    Promise.all([data, commit_metadata]).then((pair) =>
-      renderAllCharts(
-        downloadAndGroupData(pair[0], pair[1], keptGroups),
-        keptGroups
-      )
-    );
-  }
+      const data = parse_jsonl(dataResponse);
+      const commitsArray = parse_jsonl(commitsResponse);
+      
+      // Convert commits array to object keyed by commit id
+      const commits = {};
+      commitsArray.forEach(commit => {
+        commits[commit.id] = commit;
+      });
 
-  return initAndRender;
+      const grouped = downloadAndGroupData(data, commits, keptGroups);
+      renderAllCharts(grouped, keptGroups);
+    } catch (error) {
+      console.error("Failed to load benchmark data:", error);
+      document.getElementById("main").innerHTML = `
+        <div class="loading-indicator">
+          <p style="color: red;">Failed to load benchmark data. Please try refreshing the page.</p>
+          <p>${error.message}</p>
+        </div>
+      `;
+    }
+  };
 })();
