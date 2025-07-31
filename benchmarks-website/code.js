@@ -677,11 +677,14 @@ window.initAndRender = (function () {
               padding: { bottom: 50 },
             },
             min: isMobile
-              ? 0
+              ? Math.max(0, dataset.commits.length - CONFIG.MOBILE_MAX_DATA_POINTS)
               : Math.max(
                   0,
                   dataset.commits.length - CONFIG.DEFAULT_VISIBLE_COMMITS
                 ),
+            max: isMobile
+              ? dataset.commits.length - 1
+              : undefined,
           },
           y: yAxisScale,
         },
@@ -918,17 +921,14 @@ window.initAndRender = (function () {
             // Determine new x-axis bounds
             let newXMin, newXMax;
             if (currentIsMobile) {
-              newXMin = 0;
-              newXMax = Math.min(
-                CONFIG.MOBILE_MAX_DATA_POINTS - 1,
-                totalCommits - 1
-              );
+              // Show the most recent data points on mobile
+              newXMax = totalCommits - 1;
+              newXMin = Math.max(0, totalCommits - CONFIG.MOBILE_MAX_DATA_POINTS);
             } else {
               // Going to desktop - restore previous or use defaults
               const wasShowingAllMobileData =
-                currentXMin === 0 &&
-                currentXMax ===
-                  Math.min(CONFIG.MOBILE_MAX_DATA_POINTS - 1, totalCommits - 1);
+                currentXMin === Math.max(0, totalCommits - CONFIG.MOBILE_MAX_DATA_POINTS) &&
+                currentXMax === totalCommits - 1;
               if (wasShowingAllMobileData) {
                 newXMin = Math.max(
                   0,
