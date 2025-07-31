@@ -133,6 +133,7 @@ fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
 mod test {
     use rand::distr::Uniform;
     use rand::{Rng, rng};
+    use rstest::rstest;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::take;
     use vortex_array::validity::Validity;
@@ -248,5 +249,20 @@ mod test {
         .unwrap();
         assert_eq!(taken_primitive.as_slice::<i32>(), &[1i32, 2, 1, 4]);
         assert_eq!(taken_primitive.invalid_count().unwrap(), 1);
+    }
+
+    #[rstest]
+    #[case(BitPackedArray::encode(PrimitiveArray::from_iter((0..100).map(|i| (i % 63) as u8)).as_ref(), 6).unwrap())]
+    #[case(BitPackedArray::encode(PrimitiveArray::from_iter((0..256).map(|i| i as u32)).as_ref(), 8).unwrap())]
+    #[case(BitPackedArray::encode(PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6, 7, 8]).as_ref(), 3).unwrap())]
+    #[case(BitPackedArray::encode(
+        PrimitiveArray::from_option_iter([Some(10u16), None, Some(20), Some(30), None]).as_ref(),
+        5
+    ).unwrap())]
+    #[case(BitPackedArray::encode(PrimitiveArray::from_iter([42u32]).as_ref(), 6).unwrap())]
+    #[case(BitPackedArray::encode(PrimitiveArray::from_iter((0..1024).map(|i| i as u32)).as_ref(), 8).unwrap())]
+    fn test_take_bitpacked_conformance(#[case] bitpacked: BitPackedArray) {
+        use vortex_array::compute::conformance::take::test_take_conformance;
+        test_take_conformance(bitpacked.as_ref());
     }
 }

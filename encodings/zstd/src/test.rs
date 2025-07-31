@@ -118,10 +118,9 @@ fn test_zstd_with_dict() {
 
 #[test]
 fn test_validity_vtable() {
-    let data: Vec<i32> = (0..5).collect();
     let mask_bools = vec![false, true, true, false, true];
     let array = PrimitiveArray::new(
-        data.iter().cloned().collect::<Buffer<_>>(),
+        (0..5).collect::<Buffer<_>>(),
         Validity::Array(BoolArray::from_iter(mask_bools.clone()).to_array()),
     );
     let compressed = ZstdArray::from_primitive(&array, 3, 0).unwrap();

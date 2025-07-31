@@ -48,7 +48,57 @@ impl VTable for ListVTable {
     }
 }
 
-/// The canonical array for List type data. This is modeled similarly to a ListArray.
+/// A list array that stores variable-length lists of elements, similar to `Vec<Vec<T>>`.
+///
+/// This mirrors the Apache Arrow List array encoding and provides efficient storage
+/// for nested data where each row contains a list of elements of the same type.
+///
+/// ## Data Layout
+///
+/// The list array uses an offset-based encoding:
+/// - **Elements array**: A flat array containing all list elements concatenated together
+/// - **Offsets array**: Integer array where `offsets[i]` is an (inclusive) start index into
+///   the **elements** and `offsets[i+1]` is the (exclusive) stop index for the `i`th list.
+/// - **Validity**: Optional mask indicating which lists are null
+///
+/// This allows for excellent cascading compression of the elements and offsets, as similar values
+/// are clustered together and the offsets have a predictable pattern and small deltas between
+/// consecutive elements.
+///
+/// ## Offset Semantics
+///
+/// - Offsets must be non-nullable integers (i32, i64, etc.)
+/// - Offsets array has length `n+1` where `n` is the number of lists
+/// - List `i` contains elements from `elements[offsets[i]..offsets[i+1]]`  
+/// - Offsets must be monotonically increasing
+///
+/// # Examples
+///
+/// ```
+/// use vortex_array::arrays::{ListArray, PrimitiveArray};
+/// use vortex_array::validity::Validity;
+/// use vortex_array::IntoArray;
+/// use std::sync::Arc;
+///
+/// // Create a list array representing [[1, 2], [3, 4, 5], []]
+/// let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
+/// let offsets = PrimitiveArray::from_iter([0u32, 2, 5, 5]); // 3 lists
+///
+/// let list_array = ListArray::try_new(
+///     elements.into_array(),
+///     offsets.into_array(),
+///     Validity::NonNullable,
+/// ).unwrap();
+///
+/// assert_eq!(list_array.len(), 3);
+///
+/// // Access individual lists
+/// let first_list = list_array.elements_at(0).unwrap();
+/// assert_eq!(first_list.len(), 2); // [1, 2]
+///
+/// let third_list = list_array.elements_at(2).unwrap();
+/// assert!(third_list.is_empty()); // []
+/// ```
 #[derive(Clone, Debug)]
 pub struct ListArray {
     dtype: DType,

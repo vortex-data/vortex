@@ -76,9 +76,11 @@ pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
 
 #[cfg(test)]
 mod test {
+    use rstest::rstest;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_array::compute::take;
-    use vortex_array::{Array, IntoArray, ToCanonical};
+    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::{Scalar, ScalarValue};
 
@@ -158,5 +160,53 @@ mod test {
             taken.scalar_at(1).unwrap(),
             Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable))
         );
+    }
+
+    #[rstest]
+    #[case(ree_array())]
+    #[case(RunEndArray::encode(
+        PrimitiveArray::from_iter([1u8, 1, 2, 2, 2, 3, 3, 3, 3, 4]).into_array(),
+    ).unwrap())]
+    #[case(RunEndArray::encode(
+        PrimitiveArray::from_option_iter([
+            Some(10),
+            Some(10),
+            None,
+            None,
+            Some(20),
+            Some(20),
+            Some(20),
+        ])
+        .into_array(),
+    ).unwrap())]
+    #[case(RunEndArray::encode(PrimitiveArray::from_iter([42i32, 42, 42, 42, 42]).into_array())
+        .unwrap())]
+    #[case(RunEndArray::encode(
+        PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10]).into_array(),
+    ).unwrap())]
+    #[case({
+        let mut values = Vec::new();
+        for i in 0..20 {
+            for _ in 0..=i {
+                values.push(i);
+            }
+        }
+        RunEndArray::encode(PrimitiveArray::from_iter(values).into_array()).unwrap()
+    })]
+    fn test_take_runend_conformance(#[case] array: RunEndArray) {
+        test_take_conformance(array.as_ref());
+    }
+
+    #[rstest]
+    #[case(ree_array().slice(3, 6).unwrap())]
+    #[case({
+        let array = RunEndArray::encode(
+            PrimitiveArray::from_iter([1i32, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3]).into_array(),
+        )
+        .unwrap();
+        array.slice(2, 8).unwrap()
+    })]
+    fn test_take_sliced_runend_conformance(#[case] sliced: ArrayRef) {
+        test_take_conformance(sliced.as_ref());
     }
 }

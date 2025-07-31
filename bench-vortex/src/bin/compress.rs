@@ -5,7 +5,7 @@ use std::fs::File;
 use std::io::{Write, stdout};
 use std::path::PathBuf;
 
-use bench_vortex::compress::bench::{CompressMeasurements, benchmark_compress};
+use bench_vortex::compress::bench::{CompressMeasurements, CompressOp, benchmark_compress};
 use bench_vortex::datasets::Dataset;
 use bench_vortex::datasets::struct_list_of_ints::StructListOfInts;
 use bench_vortex::datasets::taxi_data::TaxiData;
@@ -32,6 +32,8 @@ struct Args {
     verbose: bool,
     #[arg(long, value_delimiter = ',', value_enum, default_values_t = vec![Format::Parquet, Format::OnDiskVortex])]
     formats: Vec<Format>,
+    #[arg(long, value_enum, default_values_t = vec![CompressOp::Compress, CompressOp::Decompress])]
+    ops: Vec<CompressOp>,
     #[arg(long)]
     datasets: Option<String>,
     #[arg(short, long, default_value_t, value_enum)]
@@ -53,6 +55,7 @@ fn main() -> anyhow::Result<()> {
         args.iterations,
         args.datasets.map(|d| Regex::new(&d)).transpose()?,
         args.formats,
+        args.ops,
         args.display_format,
         &args.output_path,
     )
@@ -63,6 +66,7 @@ fn compress(
     iterations: usize,
     datasets_filter: Option<Regex>,
     formats: Vec<Format>,
+    ops: Vec<CompressOp>,
     display_format: DisplayFormat,
     output_path: &Option<PathBuf>,
 ) -> anyhow::Result<()> {
@@ -105,12 +109,19 @@ fn compress(
     })
     .collect();
 
-    let progress = ProgressBar::new((datasets.len() * formats.len() * 2) as u64);
+    let progress = ProgressBar::new((datasets.len() * formats.len() * ops.len()) as u64);
 
     let measurements = datasets
         .into_iter()
         .map(|dataset_handle| {
-            benchmark_compress(&runtime, &progress, &formats, iterations, dataset_handle)
+            benchmark_compress(
+                &runtime,
+                &progress,
+                &formats,
+                &ops,
+                iterations,
+                dataset_handle,
+            )
         })
         .collect::<CompressMeasurements>();
 

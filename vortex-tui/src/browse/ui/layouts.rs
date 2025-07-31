@@ -162,14 +162,17 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
             .style(Style::new().bold())
             .height(1);
 
-        let rows = array.statistics().into_iter().map(|(stat, value)| {
-            let value = value.into_scalar(
-                stat.dtype(array.dtype())
-                    .vortex_expect("stat invalid for dtype"),
-            );
-            let stat = Cell::from(Text::from(format!("{stat}")));
-            let value = Cell::from(Text::from(format!("{value}")));
-            Row::new(vec![stat, value])
+        let rows = array.statistics().with_iter(|iter| {
+            iter.map(|(stat, value)| {
+                let value = value.clone().into_scalar(
+                    stat.dtype(array.dtype())
+                        .vortex_expect("stat invalid for dtype"),
+                );
+                let stat = Cell::from(Text::from(format!("{stat}")));
+                let value = Cell::from(Text::from(format!("{value}")));
+                Row::new(vec![stat, value])
+            })
+            .collect::<Vec<_>>()
         });
 
         let layout = Layout::default()

@@ -64,6 +64,9 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::arrays::null::NullArray;
+    use crate::compute::conformance::filter::test_filter_conformance;
+    use crate::compute::conformance::mask::test_mask_conformance;
+    use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
     use crate::{IntoArray, ToCanonical};
 
@@ -95,5 +98,44 @@ mod test {
         let scalar = nulls.scalar_at(0).unwrap();
         assert!(scalar.is_null());
         assert_eq!(scalar.dtype().clone(), DType::Null);
+    }
+
+    #[test]
+    fn test_filter_null_array() {
+        test_filter_conformance(NullArray::new(5).as_ref());
+        test_filter_conformance(NullArray::new(1).as_ref());
+        test_filter_conformance(NullArray::new(10).as_ref());
+    }
+
+    #[test]
+    fn test_mask_null_array() {
+        test_mask_conformance(NullArray::new(5).as_ref());
+    }
+
+    #[test]
+    fn test_take_null_array_conformance() {
+        test_take_conformance(NullArray::new(5).as_ref());
+        test_take_conformance(NullArray::new(1).as_ref());
+        test_take_conformance(NullArray::new(10).as_ref());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use crate::arrays::NullArray;
+    use crate::compute::conformance::consistency::test_array_consistency;
+
+    #[rstest]
+    // From test_all_consistency
+    #[case::null_array_small(NullArray::new(5))]
+    #[case::null_array_medium(NullArray::new(100))]
+    // Additional test cases
+    #[case::null_array_single(NullArray::new(1))]
+    #[case::null_array_large(NullArray::new(1000))]
+    #[case::null_array_empty(NullArray::new(0))]
+    fn test_null_consistency(#[case] array: NullArray) {
+        test_array_consistency(array.as_ref());
     }
 }

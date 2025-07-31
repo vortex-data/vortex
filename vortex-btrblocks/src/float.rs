@@ -328,7 +328,7 @@ impl Scheme for DictScheme {
             &codes_stats,
             is_sample,
             allowed_cascading - 1,
-            &[integer::DictScheme.code()],
+            &[integer::DictScheme.code(), integer::SequenceScheme.code()],
         )?;
         let compressed_codes = codes_scheme.compress(
             &codes_stats,

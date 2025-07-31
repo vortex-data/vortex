@@ -110,10 +110,12 @@ fn take_nullable<I: NativePType, O: NativePType + PrimInt>(
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_dtype::{DType, Nullability};
 
     use crate::Array;
     use crate::arrays::{PrimitiveArray, VarBinArray};
+    use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
 
     #[test]
@@ -133,5 +135,23 @@ mod tests {
             take(arr.as_ref(), idx2.as_ref()).unwrap().dtype(),
             &DType::Utf8(Nullability::Nullable)
         );
+    }
+
+    #[rstest]
+    #[case(VarBinArray::from_iter(
+        ["hello", "world", "test", "data", "array"].map(Some),
+        DType::Utf8(Nullability::NonNullable),
+    ))]
+    #[case(VarBinArray::from_iter(
+        [Some("hello"), None, Some("test"), Some("data"), None],
+        DType::Utf8(Nullability::Nullable),
+    ))]
+    #[case(VarBinArray::from_iter(
+        [b"hello".as_slice(), b"world", b"test", b"data", b"array"].map(Some),
+        DType::Binary(Nullability::NonNullable),
+    ))]
+    #[case(VarBinArray::from_iter(["single"].map(Some), DType::Utf8(Nullability::NonNullable)))]
+    fn test_take_varbin_conformance(#[case] array: VarBinArray) {
+        test_take_conformance(array.as_ref());
     }
 }

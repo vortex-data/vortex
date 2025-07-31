@@ -6,22 +6,25 @@ use std::sync::Arc;
 use itertools::Itertools;
 use num_traits::NumCast;
 use vortex_array::arrays::{
-    BinaryView, BoolArray, BooleanBuffer, ConstantArray, NullArray, PrimitiveArray, StructArray,
-    VarBinViewArray, smallest_storage_type,
+    BinaryView, BoolArray, BooleanBuffer, ConstantArray, ListArray, NullArray, OffsetPType,
+    PrimitiveArray, StructArray, VarBinViewArray, smallest_storage_type,
 };
-use vortex_array::builders::{ArrayBuilder as _, DecimalBuilder};
+use vortex_array::builders::{
+    ArrayBuilder as _, ArrayBuilderExt, DecimalBuilder, ListBuilder, builder_with_capacity,
+};
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::CanonicalVTable;
-use vortex_array::{Array, Canonical, ToCanonical as _};
-use vortex_buffer::{Buffer, BufferString, ByteBuffer, buffer, buffer_mut};
+use vortex_array::{Array, ArrayRef, Canonical, IntoArray as _, ToCanonical as _};
+use vortex_buffer::{Buffer, BufferMut, BufferString, ByteBuffer, buffer, buffer_mut};
 use vortex_dtype::{
     DType, DecimalDType, NativePType, Nullability, StructFields, match_each_integer_ptype,
     match_each_native_ptype,
 };
 use vortex_error::{VortexError, VortexExpect as _, VortexResult, vortex_err};
 use vortex_scalar::{
-    DecimalScalar, NativeDecimalType, Scalar, StructScalar, match_each_decimal_value_type,
+    DecimalScalar, ListScalar, NativeDecimalType, Scalar, StructScalar,
+    match_each_decimal_value_type,
 };
 
 use crate::{SparseArray, SparseVTable};
@@ -76,10 +79,189 @@ impl CanonicalVTable<SparseVTable> for SparseVTable {
                 let fill_value = array.fill_scalar().as_binary().value();
                 canonicalize_varbin(array, dtype.clone(), fill_value)
             }
-            DType::List(_dtype, _nullability) => todo!(),
+            DType::List(values_dtype, nullability) => {
+                let resolved_patches = array.resolved_patches()?;
+                canonicalize_sparse_lists(
+                    array,
+                    resolved_patches,
+                    values_dtype.clone(),
+                    *nullability,
+                )
+            }
             DType::Extension(_ext_dtype) => todo!(),
         }
     }
+}
+
+/// The elements of this [ListScalar] as an array or `None` if scalar is null.
+fn list_scalar_to_elements_array(scalar: ListScalar) -> VortexResult<Option<ArrayRef>> {
+    let Some(elements) = scalar.elements() else {
+        return Ok(None);
+    };
+
+    let mut builder = builder_with_capacity(scalar.element_dtype(), scalar.len());
+    for s in elements {
+        builder.append_scalar(&s)?;
+    }
+    Ok(Some(builder.finish()))
+}
+
+/// Create a list-typed array containing one element, scalar, or `None` if scalar is null.
+fn list_scalar_to_singleton_list_array(scalar: ListScalar) -> VortexResult<Option<ArrayRef>> {
+    let nullability = scalar.dtype().nullability();
+    let Some(elements) = list_scalar_to_elements_array(scalar)? else {
+        return Ok(None);
+    };
+
+    let validity = match nullability {
+        Nullability::NonNullable => Validity::NonNullable,
+        Nullability::Nullable => Validity::AllValid,
+    };
+
+    let n = elements.len();
+    ListArray::try_new(elements, buffer![0_u64, n as u64].into_array(), validity)
+        .map(|x| Some(x.into_array()))
+}
+
+#[allow(clippy::cognitive_complexity)]
+fn canonicalize_sparse_lists(
+    array: &SparseArray,
+    resolved_patches: Patches,
+    values_dtype: Arc<DType>,
+    nullability: Nullability,
+) -> VortexResult<Canonical> {
+    macro_rules! match_smallest_offset_type {
+        ($n_elements:expr, | $offset_type:ident | $body:block) => {{
+            let n_elements = $n_elements;
+            if n_elements <= u8::MAX as usize {
+                type $offset_type = u8;
+                $body
+            } else if n_elements <= u16::MAX as usize {
+                type $offset_type = u16;
+                $body
+            } else if n_elements <= u32::MAX as usize {
+                type $offset_type = u32;
+                $body
+            } else {
+                assert!(u64::try_from(n_elements).is_ok());
+                type $offset_type = u64;
+                $body
+            }
+        }};
+    }
+
+    let indices = resolved_patches.indices().to_primitive()?;
+    let values = resolved_patches.values().to_list()?;
+    let fill_value = array.fill_scalar().as_list();
+
+    let n_filled = array.len() - resolved_patches.num_patches();
+    let total_canonical_values = values.elements().len() + fill_value.len() * n_filled;
+
+    let validity = array
+        .validity_mask()
+        .map(|x| Validity::from_mask(x, nullability))?;
+
+    match_each_integer_ptype!(indices.ptype(), |I| {
+        match_smallest_offset_type!(total_canonical_values, |O| {
+            canonicalize_sparse_lists_inner::<I, O>(
+                indices.as_slice(),
+                values,
+                fill_value,
+                values_dtype,
+                array.len(),
+                total_canonical_values,
+                validity,
+            )
+        })
+    })
+}
+
+fn canonicalize_sparse_lists_inner<I: NativePType, SmallestViableOffsetType: OffsetPType>(
+    indices: &[I],
+    values: ListArray,
+    fill_value: ListScalar,
+    values_dtype: Arc<DType>,
+    len: usize,
+    total_canonical_values: usize,
+    validity: Validity,
+) -> VortexResult<Canonical> {
+    let Some(fill_value_array) = list_scalar_to_singleton_list_array(fill_value)? else {
+        let sparse_list_elements = values.elements().clone();
+        let sparse_list_offsets = values.offsets().to_primitive()?;
+        match_each_integer_ptype!(sparse_list_offsets.ptype(), |SparseValuesOffsetType| {
+            let sparse_list_offsets = sparse_list_offsets.as_slice::<SparseValuesOffsetType>();
+            // If the values are a small slice of a large array, their offsets may not fit in
+            // SmallestViableOffsetType. We avoid a copy by reusing values.elements(), but we
+            // therefore must use the offset type of values.offsets().
+            return canonicalize_sparse_lists_inner_with_null_fill_value(
+                indices,
+                sparse_list_elements,
+                sparse_list_offsets,
+                len,
+                validity,
+            );
+        });
+    };
+
+    let mut builder = ListBuilder::<SmallestViableOffsetType>::with_values_and_index_capacity(
+        values_dtype,
+        validity.nullability(),
+        total_canonical_values,
+        len + 1,
+    );
+    let mut next_index = 0_usize;
+    let enumerated_indices_usize = indices
+        .iter()
+        .map(|x| (*x).to_usize().vortex_expect("index must fit in usize"))
+        .enumerate();
+    for (patch_values_index, next_patched_index) in enumerated_indices_usize {
+        for _ in next_index..next_patched_index {
+            builder.extend_from_array(&fill_value_array)?;
+        }
+        builder.extend_from_array(&values.slice(patch_values_index, patch_values_index + 1)?)?;
+        next_index = next_patched_index + 1;
+    }
+
+    for _ in next_index..len {
+        builder.extend_from_array(&fill_value_array)?;
+    }
+
+    builder.finish().to_canonical()
+}
+
+fn canonicalize_sparse_lists_inner_with_null_fill_value<I: NativePType, O: OffsetPType>(
+    indices: &[I],
+    elements: ArrayRef,
+    offsets: &[O],
+    len: usize,
+    validity: Validity,
+) -> VortexResult<Canonical> {
+    assert!(indices.len() < len + 1);
+    let mut dense_offsets = BufferMut::with_capacity(len + 1);
+
+    // We cannot use zero because elements may have leading junk values (e.g. the result of a slice).
+    dense_offsets.push(offsets[0]);
+    let mut dense_last_set_index = 0_usize;
+    for (sparse_start_index, dense_start_index) in indices.iter().enumerate() {
+        let sparse_end_index = sparse_start_index + 1;
+        let dense_start_index = (*dense_start_index)
+            .to_usize()
+            .vortex_expect("index must fit in usize");
+        let dense_end_index = dense_start_index + 1;
+
+        for _ in (dense_last_set_index + 1)..dense_end_index {
+            // For each null list, copy-forward the old index. These empty lists are masked by the validity.
+            dense_offsets.push(dense_offsets[dense_last_set_index]);
+        }
+        dense_offsets.push(offsets[sparse_end_index]);
+        dense_last_set_index = dense_end_index;
+    }
+    for _ in (dense_last_set_index + 1)..len {
+        // For each null list, copy-forward the old index. These empty lists are masked by the validity.
+        dense_offsets.push(dense_offsets[dense_last_set_index]);
+    }
+    let array = ListArray::try_new(elements, dense_offsets.into_array(), validity)?;
+    Ok(Canonical::List(array))
 }
 
 fn canonicalize_sparse_bools(patches: &Patches, fill_value: &Scalar) -> VortexResult<Canonical> {
@@ -270,20 +452,21 @@ fn canonicalize_varbin_inner<I: NativePType>(
 mod test {
     use rstest::rstest;
     use vortex_array::arrays::{
-        BoolArray, BooleanBufferBuilder, DecimalArray, PrimitiveArray, StructArray, VarBinArray,
-        VarBinViewArray,
+        BoolArray, BooleanBufferBuilder, DecimalArray, ListArray, PrimitiveArray, StructArray,
+        VarBinArray, VarBinViewArray,
     };
     use vortex_array::arrow::IntoArrowArray as _;
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ValidityHelper;
     use vortex_array::{IntoArray, ToCanonical};
-    use vortex_buffer::{ByteBuffer, buffer};
-    use vortex_dtype::Nullability::Nullable;
+    use vortex_buffer::{ByteBuffer, buffer, buffer_mut};
+    use vortex_dtype::Nullability::{NonNullable, Nullable};
     use vortex_dtype::{DType, DecimalDType, FieldNames, PType, StructFields};
     use vortex_mask::Mask;
     use vortex_scalar::{DecimalValue, Scalar};
 
     use crate::SparseArray;
+    use crate::canonical::{list_scalar_to_elements_array, list_scalar_to_singleton_list_array};
 
     #[rstest]
     #[case(Some(true))]
@@ -795,6 +978,129 @@ mod test {
     }
 
     #[test]
+    fn test_list_scalar_to_elements_array() {
+        let scalar = Scalar::from(Some(vec![1, 2, 3]));
+        let array = list_scalar_to_elements_array(scalar.as_list()).unwrap();
+        assert_eq!(
+            array.unwrap().display_values().to_string(),
+            "[1i32, 2i32, 3i32]"
+        );
+
+        let scalar = Scalar::null_typed::<Vec<i32>>();
+        let array = list_scalar_to_elements_array(scalar.as_list()).unwrap();
+        assert!(array.is_none());
+    }
+
+    #[test]
+    fn test_list_scalar_to_singleton_list_array() {
+        let scalar = Scalar::from(Some(vec![1, 2, 3]));
+        let array = list_scalar_to_singleton_list_array(scalar.as_list()).unwrap();
+        assert!(array.is_some());
+        let array = array.unwrap();
+        assert_eq!(array.scalar_at(0).unwrap(), scalar);
+        assert_eq!(array.len(), 1);
+
+        let scalar = Scalar::null_typed::<Vec<i32>>();
+        let array = list_scalar_to_singleton_list_array(scalar.as_list()).unwrap();
+        assert!(array.is_none());
+    }
+
+    #[test]
+    fn test_sparse_list_null_fill() {
+        let elements = buffer![1i32, 2, 1, 2].into_array();
+        let offsets = buffer![0u32, 1, 2, 3, 4].into_array();
+        let lists = ListArray::try_new(elements, offsets, Validity::AllValid)
+            .unwrap()
+            .into_array();
+
+        let indices = buffer![0u8, 3u8, 4u8, 5u8].into_array();
+        let fill_value = Scalar::null(lists.dtype().clone());
+        let sparse = SparseArray::try_new(indices, lists, 6, fill_value)
+            .unwrap()
+            .into_array();
+
+        let actual = sparse.to_canonical().unwrap().into_array();
+        let expected = ListArray::try_new(
+            buffer![1i32, 2, 1, 2].into_array(),
+            buffer![0u32, 1, 1, 1, 2, 3, 4].into_array(),
+            Validity::Array(
+                BoolArray::from_iter([true, false, false, true, true, true]).into_array(),
+            ),
+        )
+        .unwrap()
+        .into_array();
+
+        let actual = actual.into_arrow_preferred().unwrap();
+        let expected = expected.into_arrow_preferred().unwrap();
+
+        assert_eq!(actual.data_type(), expected.data_type());
+        assert_eq!(&actual, &expected);
+    }
+
+    #[test]
+    fn test_sparse_list_null_fill_sliced_sparse_values() {
+        let elements = buffer![1i32, 2, 1, 2, 1, 2, 1, 2].into_array();
+        let offsets = buffer![0u32, 1, 2, 3, 4, 5, 6, 7, 8].into_array();
+        let lists = ListArray::try_new(elements, offsets, Validity::AllValid)
+            .unwrap()
+            .into_array();
+        let lists = lists.slice(2, 6).unwrap();
+
+        let indices = buffer![0u8, 3u8, 4u8, 5u8].into_array();
+        let fill_value = Scalar::null(lists.dtype().clone());
+        let sparse = SparseArray::try_new(indices, lists, 6, fill_value)
+            .unwrap()
+            .into_array();
+
+        let actual = sparse.to_canonical().unwrap().into_array();
+        let expected = ListArray::try_new(
+            buffer![1i32, 2, 1, 2].into_array(),
+            buffer![0u32, 1, 1, 1, 2, 3, 4].into_array(),
+            Validity::Array(
+                BoolArray::from_iter([true, false, false, true, true, true]).into_array(),
+            ),
+        )
+        .unwrap()
+        .into_array();
+
+        let actual = actual.into_arrow_preferred().unwrap();
+        let expected = expected.into_arrow_preferred().unwrap();
+
+        assert_eq!(actual.data_type(), expected.data_type());
+        assert_eq!(&actual, &expected);
+    }
+
+    #[test]
+    fn test_sparse_list_non_null_fill() {
+        let elements = buffer![1i32, 2, 1, 2].into_array();
+        let offsets = buffer![0u32, 1, 2, 3, 4].into_array();
+        let lists = ListArray::try_new(elements, offsets, Validity::AllValid)
+            .unwrap()
+            .into_array();
+
+        let indices = buffer![0u8, 3u8, 4u8, 5u8].into_array();
+        let fill_value = Scalar::from(Some(vec![5i32, 6, 7, 8]));
+        let sparse = SparseArray::try_new(indices, lists, 6, fill_value)
+            .unwrap()
+            .into_array();
+
+        let actual = sparse.to_canonical().unwrap().into_array();
+        let expected = ListArray::try_new(
+            buffer![1i32, 5, 6, 7, 8, 5, 6, 7, 8, 2, 1, 2].into_array(),
+            buffer![0u32, 1, 5, 9, 10, 11, 12].into_array(),
+            Validity::AllValid,
+        )
+        .unwrap()
+        .into_array();
+
+        let actual = actual.into_arrow_preferred().unwrap();
+        let expected = expected.into_arrow_preferred().unwrap();
+
+        assert_eq!(actual.data_type(), expected.data_type());
+        assert_eq!(&actual, &expected);
+    }
+
+    #[test]
     fn test_sparse_binary_varbin_null_fill() {
         let strings = <VarBinArray as FromIterator<_>>::from_iter([
             Some(b"hello" as &[u8]),
@@ -831,6 +1137,42 @@ mod test {
             None,
         ])
         .into_array();
+        let actual = actual.into_arrow_preferred().unwrap();
+        let expected = expected.into_arrow_preferred().unwrap();
+
+        assert_eq!(actual.data_type(), expected.data_type());
+        assert_eq!(&actual, &expected);
+    }
+
+    #[test]
+    fn test_sparse_list_grows_offset_type() {
+        let elements = buffer![1i32, 2, 1, 2].into_array();
+        let offsets = buffer![0u8, 1, 2, 3, 4].into_array();
+        let lists = ListArray::try_new(elements, offsets, Validity::AllValid)
+            .unwrap()
+            .into_array();
+
+        let indices = buffer![0u8, 1u8, 2u8, 3u8].into_array();
+        let fill_value = Scalar::from(Some(vec![42i32; 252])); // 252 + 4 elements = 256 > u8::MAX
+        let sparse = SparseArray::try_new(indices, lists, 5, fill_value)
+            .unwrap()
+            .into_array();
+
+        let actual = sparse.to_canonical().unwrap().into_array();
+        let mut expected_elements = buffer_mut![1, 2, 1, 2];
+        expected_elements.extend(buffer![42i32; 252]);
+        let expected = ListArray::try_new(
+            expected_elements.freeze().into_array(),
+            buffer![0u16, 1, 2, 3, 4, 256].into_array(),
+            Validity::AllValid,
+        )
+        .unwrap()
+        .into_array();
+
+        assert_eq!(
+            actual.to_list().unwrap().offsets().dtype(),
+            &DType::Primitive(PType::U16, NonNullable)
+        );
 
         let actual = actual.into_arrow_preferred().unwrap();
         let expected = expected.into_arrow_preferred().unwrap();

@@ -269,11 +269,6 @@ impl CoalescedDriver {
         // Ensure the coalesced requests are sorted
         coalesced.requests.sort_by_key(|r| r.id());
 
-        // Maintain the prefetch buffer count.
-        for request in coalesced.requests.iter() {
-            self.mark_as_prefetched(request.id());
-        }
-
         trace_log!(
             "Coalesced request of {} segments: {coalesced:?}",
             coalesced.requests.len()
@@ -352,6 +347,12 @@ impl Stream for CoalescedDriver {
                         "Prefetching {} segments: {coalesced:?}",
                         coalesced.requests.len()
                     );
+
+                    // Maintain the prefetch buffer count.
+                    for request in coalesced.requests.iter() {
+                        this.mark_as_prefetched(request.id());
+                    }
+
                     return Poll::Ready(Some(coalesced));
                 }
             }
