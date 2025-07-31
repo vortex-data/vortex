@@ -87,7 +87,7 @@
           },
         ],
         [
-          "TPC-H (NVME) (SF=1)",
+          "TPC-H (NVMe) (SF=1)",
           {
             keptCharts: undefined,
             hiddenDatasets: undefined,
@@ -120,7 +120,7 @@
           },
         ],
         [
-          "TPC-H (NVME) (SF=10)",
+          "TPC-H (NVMe) (SF=10)",
           {
             renamedDatasets: {
               "DataFusion:vortex-file-compressed": "datafusion:vortex",
@@ -148,7 +148,7 @@
           },
         ],
         [
-          "TPC-H (NVME) (SF=100)",
+          "TPC-H (NVMe) (SF=100)",
           {
             renamedDatasets: {
               "DataFusion:vortex-file-compressed": "datafusion:vortex",
@@ -176,7 +176,7 @@
           },
         ],
         [
-          "TPC-H (NVME) (SF=1000)",
+          "TPC-H (NVMe) (SF=1000)",
           {
             renamedDatasets: {
               "DataFusion:vortex-file-compressed": "datafusion:vortex",
@@ -223,7 +223,14 @@
             <button id="expand-all" class="control-btn">Expand All</button>
             <button id="collapse-all" class="control-btn">Collapse All</button>
             <select id="category-filter" class="category-filter">
-              <option value="all">All Categories</option>
+              <option value="all">All Benchmarks</option>
+              <option value="Read/Write">Read/Write</option>
+              <option value="Queries (NVMe)">Queries (NVMe)</option>
+              <option value="Queries (S3)">Queries (S3)</option>
+              <option value="TPC-H (SF=1)">TPC-H (SF=1)</option>
+              <option value="TPC-H (SF=10)">TPC-H (SF=10)</option>
+              <option value="TPC-H (SF=100)">TPC-H (SF=100)</option>
+              <option value="TPC-H (SF=1000)">TPC-H (SF=1000)</option>
             </select>
             <input type="text" id="search-filter" class="search-filter" placeholder="Search benchmarks...">
           </div>
@@ -247,6 +254,9 @@
             <h2>Navigation</h2>
             <button id="sidebar-close" class="sidebar-close" aria-label="Close sidebar">×</button>
           </div>
+          <button id="clear-filter" class="clear-filter-btn" style="display: none;">
+            Clear Filter
+          </button>
           <ul id="toc" class="toc-list"></ul>
           <div class="sidebar-footer">
             <a href="https://vortex-benchmark-results-database.s3.amazonaws.com/data.json.gz" 

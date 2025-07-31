@@ -271,6 +271,26 @@ body {
   line-height: 1;
 }
 
+.clear-filter-btn {
+  font-family: "Geist", sans-serif;
+  width: calc(100% - 40px);
+  margin: 0 20px 16px 20px;
+  padding: 10px 16px;
+  background-color: var(--accent-color);
+  color: var(--spiral-black);
+  border: 1px solid var(--accent-color);
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.clear-filter-btn:hover {
+  background-color: #C0D848;
+  border-color: #C0D848;
+}
+
 .toc-list {
   list-style: none;
   padding: 0;

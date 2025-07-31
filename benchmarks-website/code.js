@@ -5,6 +5,7 @@ window.initAndRender = (function () {
     currentView: 'grid',
     expandedSections: new Set(),
     activeCategory: 'all',
+    activeTag: 'all',
     searchTerm: '',
     charts: [],
     chartInstances: new Map(),
@@ -12,9 +13,23 @@ window.initAndRender = (function () {
       'Random Access': 'Measures random access performance across different data structures',
       'Compression': 'Compression and decompression time benchmarks for various encodings',
       'Compression Size': 'Size comparison of compressed data using different algorithms',
-      'TPC-H (NVME)': 'TPC-H benchmark queries on local NVME storage',
+      'TPC-H (NVMe)': 'TPC-H benchmark queries on local NVMe storage',
       'TPC-H (S3)': 'TPC-H benchmark queries on S3 storage',
       'Clickbench': 'ClickHouse benchmark queries for analytical workloads'
+    },
+    categoryTags: {
+      'Random Access': ['Read/Write'],
+      'Compression': ['Read/Write'],
+      'Compression Size': ['Read/Write'],
+      'Clickbench': ['Queries (NVMe)'],
+      'TPC-H (NVMe) (SF=1)': ['Queries (NVMe)', 'TPC-H (SF=1)'],
+      'TPC-H (S3) (SF=1)': ['Queries (S3)', 'TPC-H (SF=1)'],
+      'TPC-H (NVMe) (SF=10)': ['Queries (NVMe)', 'TPC-H (SF=10)'],
+      'TPC-H (S3) (SF=10)': ['Queries (S3)', 'TPC-H (SF=10)'],
+      'TPC-H (NVMe) (SF=100)': ['Queries (NVMe)', 'TPC-H (SF=100)'],
+      'TPC-H (S3) (SF=100)': ['Queries (S3)', 'TPC-H (SF=100)'],
+      'TPC-H (NVMe) (SF=1000)': ['Queries (NVMe)', 'TPC-H (SF=1000)'],
+      'TPC-H (S3) (SF=1000)': ['Queries (S3)', 'TPC-H (SF=1000)']
     }
   };
 
@@ -79,13 +94,13 @@ window.initAndRender = (function () {
       Compression: new Map(),
       "Compression Size": new Map(),
       Clickbench: new Map(),
-      "TPC-H (NVME) (SF=1)": new Map(),
+      "TPC-H (NVMe) (SF=1)": new Map(),
       "TPC-H (S3) (SF=1)": new Map(),
-      "TPC-H (NVME) (SF=10)": new Map(),
+      "TPC-H (NVMe) (SF=10)": new Map(),
       "TPC-H (S3) (SF=10)": new Map(),
-      "TPC-H (NVME) (SF=100)": new Map(),
+      "TPC-H (NVMe) (SF=100)": new Map(),
       "TPC-H (S3) (SF=100)": new Map(),
-      "TPC-H (NVME) (SF=1000)": new Map(),
+      "TPC-H (NVMe) (SF=1000)": new Map(),
       "TPC-H (S3) (SF=1000)": new Map(),
     };
 
@@ -119,13 +134,13 @@ window.initAndRender = (function () {
           let scale_factor = dataset.tpch.scale_factor;
           let nvme = storage === undefined || storage === "nvme";
           if (Number(scale_factor) === 1) {
-            group_id = nvme ? "TPC-H (NVME) (SF=1)" : "TPC-H (S3) (SF=1)";
+            group_id = nvme ? "TPC-H (NVMe) (SF=1)" : "TPC-H (S3) (SF=1)";
           } else if (Number(scale_factor) === 10) {
-            group_id = nvme ? "TPC-H (NVME) (SF=10)" : "TPC-H (S3) (SF=10)";
+            group_id = nvme ? "TPC-H (NVMe) (SF=10)" : "TPC-H (S3) (SF=10)";
           } else if (Number(scale_factor) === 100) {
-            group_id = nvme ? "TPC-H (NVME) (SF=100)" : "TPC-H (S3) (SF=100)";
+            group_id = nvme ? "TPC-H (NVMe) (SF=100)" : "TPC-H (S3) (SF=100)";
           } else if (Number(scale_factor) === 1000) {
-            group_id = nvme ? "TPC-H (NVME) (SF=1000)" : "TPC-H (S3) (SF=1000)";
+            group_id = nvme ? "TPC-H (NVMe) (SF=1000)" : "TPC-H (S3) (SF=1000)";
           } else {
             console.warn("no scale factor found in benchmark");
           }
@@ -153,7 +168,7 @@ window.initAndRender = (function () {
         group_id = "Compression Size";
       } else if (name.startsWith("tpch_q")) {
         if (storage === undefined || storage === "nvme") {
-          group_id = "TPC-H (NVME) (SF=1)";
+          group_id = "TPC-H (NVMe) (SF=1)";
         } else {
           group_id = "TPC-H (S3) (SF=1)";
         }
@@ -497,12 +512,7 @@ window.initAndRender = (function () {
     tocLi.appendChild(tocLink);
     toc.appendChild(tocLi);
 
-    // Add category to filter dropdown
-    const categoryFilter = document.getElementById('category-filter');
-    const option = document.createElement('option');
-    option.value = name;
-    option.textContent = name;
-    categoryFilter.appendChild(option);
+    // Don't add categories to dropdown anymore - we use tags instead
 
     const graphsElem = document.createElement("div");
     graphsElem.className = "benchmark-graphs";
@@ -622,16 +632,52 @@ window.initAndRender = (function () {
     document.getElementById(`${view}-view`).classList.add('active');
   }
 
-  function filterByCategory(category) {
-    state.activeCategory = category;
+  function filterByTag(tag) {
+    state.activeTag = tag;
+    
+    // Filter both the main content and navigation items
     document.querySelectorAll('.benchmark-set').forEach(section => {
       const sectionCategory = section.getAttribute('data-category');
-      if (category === 'all' || sectionCategory === category) {
+      const tags = state.categoryTags[sectionCategory] || [];
+      
+      if (tag === 'all' || tags.includes(tag)) {
         section.style.display = 'block';
       } else {
         section.style.display = 'none';
       }
     });
+    
+    // Filter navigation items
+    document.querySelectorAll('.toc-list li').forEach(navItem => {
+      const link = navItem.querySelector('a');
+      if (link) {
+        const href = link.getAttribute('href');
+        const targetId = href.substring(1); // Remove #
+        const targetSection = document.getElementById(targetId);
+        
+        if (targetSection && targetSection.closest('.benchmark-set')) {
+          const sectionCategory = targetSection.closest('.benchmark-set').getAttribute('data-category');
+          const tags = state.categoryTags[sectionCategory] || [];
+          
+          if (tag === 'all' || tags.includes(tag)) {
+            navItem.style.display = 'block';
+          } else {
+            navItem.style.display = 'none';
+          }
+        }
+      }
+    });
+    
+    // Show/hide and update clear filter button
+    const clearFilterBtn = document.getElementById('clear-filter');
+    if (clearFilterBtn) {
+      if (tag === 'all') {
+        clearFilterBtn.style.display = 'none';
+      } else {
+        clearFilterBtn.style.display = 'block';
+        clearFilterBtn.textContent = `Clear Filter: ${tag}`;
+      }
+    }
   }
 
   function filterBySearch(term) {
@@ -709,9 +755,15 @@ window.initAndRender = (function () {
     document.getElementById('grid-view').addEventListener('click', () => setView('grid'));
     document.getElementById('list-view').addEventListener('click', () => setView('list'));
     
-    // Category filter
+    // Tag filter
     document.getElementById('category-filter').addEventListener('change', (e) => {
-      filterByCategory(e.target.value);
+      filterByTag(e.target.value);
+    });
+    
+    // Clear filter button
+    document.getElementById('clear-filter').addEventListener('click', () => {
+      document.getElementById('category-filter').value = 'all';
+      filterByTag('all');
     });
     
     // Search filter
