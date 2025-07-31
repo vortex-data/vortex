@@ -20,7 +20,6 @@ arrow-buffer = { workspace = true }
 arrow-schema = { workspace = true }
 async-stream = { workspace = true }
 async-trait = { workspace = true }
-bit-vec = { workspace = true }
 dashmap = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await", "executor"] }
@@ -34,7 +33,6 @@ pco = { workspace = true }
 pin-project-lite = { workspace = true }
 prost = { workspace = true }
 roaring = { workspace = true, optional = true }
-sketches-ddsketch = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
 tracing = { workspace = true, optional = true }
 vortex-array = { workspace = true }

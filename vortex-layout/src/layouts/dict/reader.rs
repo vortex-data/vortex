@@ -8,11 +8,11 @@ use std::sync::{Arc, OnceLock};
 use async_trait::async_trait;
 use dashmap::DashMap;
 use futures::{FutureExt, join};
-use vortex_array::compute::{MinMaxResult, cast, filter, min_max};
+use vortex_array::compute::{MinMaxResult, filter, min_max};
 use vortex_array::stats::Precision;
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dict::DictArray;
-use vortex_dtype::{DType, FieldMask, Nullability};
+use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::{ExprRef, Scope, root};
 use vortex_mask::Mask;
@@ -165,17 +165,16 @@ impl LayoutReader for DictReader {
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
-        log::debug!(
-            "DictReader::projection_evaluation: row_range={row_range:?}, expr={expr}"
-        );
+        log::debug!("DictReader::projection_evaluation: row_range={row_range:?}, expr={expr}");
 
         // Grab the cached values evaluation for the expression.
-        let values_eval = self.values_eval(expr.clone());
+        let values_eval = self.values_array();
         let codes_eval = self.codes.projection_evaluation(row_range, &root())?;
 
         Ok(Box::new(DictArrayEvaluation {
             values_eval,
             codes_eval,
+            expr: expr.clone(),
         }))
     }
 }
@@ -227,30 +226,17 @@ impl MaskEvaluation for DictMaskEvaluation {
 struct DictArrayEvaluation {
     values_eval: SharedArrayFuture,
     codes_eval: Box<dyn ArrayEvaluation>,
+    expr: ExprRef,
 }
 
 #[async_trait]
 impl ArrayEvaluation for DictArrayEvaluation {
     async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
         let (values, codes) = join!(self.values_eval.clone(), self.codes_eval.invoke(mask));
-        let (mut values, mut codes) = (values?, codes?);
+        let (values, codes) = (values?, codes?);
 
-        // Since we've run an expression over the values, we need to make sure the result
-        // nullability matches the codes.
-        if codes.dtype().is_nullable() && !values.dtype().is_nullable() {
-            values = cast(
-                values.as_ref(),
-                &values.dtype().with_nullability(Nullability::Nullable),
-            )?;
-        } else if !codes.dtype().is_nullable() && values.dtype().is_nullable() {
-            // If codes is not nullable, but the values are, we cast the codes.
-            codes = cast(
-                codes.as_ref(),
-                &codes.dtype().with_nullability(Nullability::NonNullable),
-            )?;
-        }
-
-        Ok(DictArray::try_new(codes, values)?.into_array())
+        let array = DictArray::try_new(codes, values)?;
+        self.expr.evaluate(&Scope::new(array.into_array()))
     }
 }
 

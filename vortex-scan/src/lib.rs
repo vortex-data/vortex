@@ -4,6 +4,9 @@
 use std::ops::Range;
 use std::sync::Arc;
 
+use crate::filter::FilterExpr;
+use crate::work_queue::{TaskFactory, WorkStealingQueue};
+use crate::work_stealing_iter::{ArrayTask, WorkStealingArrayIterator};
 use futures::future::BoxFuture;
 use itertools::Itertools;
 pub use multi_scan::*;
@@ -15,20 +18,17 @@ use vortex_array::iter::ArrayIterator;
 use vortex_array::stats::StatsSet;
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExprRef, root};
-use vortex_layout::layouts::filter::FilterLayoutReader;
 use vortex_layout::layouts::row_idx::RowIdxLayoutReader;
 use vortex_layout::{LayoutReader, LayoutReaderRef};
 pub use vortex_layout::{TaskExecutor, TaskExecutorExt};
 use vortex_metrics::VortexMetrics;
 
-use crate::work_queue::{TaskFactory, WorkStealingQueue};
-use crate::work_stealing_iter::{ArrayTask, WorkStealingArrayIterator};
-
 mod arrow;
+mod filter;
 mod multi_scan;
 #[cfg(feature = "tokio")]
 mod multi_thread;
@@ -171,10 +171,6 @@ impl<A: 'static + Send> ScanBuilder<A> {
         // better over individual conjunctions.
         layout_reader = Arc::new(RowIdxLayoutReader::new(self.row_offset, layout_reader));
 
-        if self.filter.is_some() {
-            layout_reader = Arc::new(FilterLayoutReader::new(layout_reader));
-        }
-
         // Normalize and simplify the expressions.
         let projection = simplify_typed(self.projection.clone(), layout_reader.dtype())?;
         let filter = self
@@ -189,23 +185,23 @@ impl<A: 'static + Send> ScanBuilder<A> {
         let field_mask: Vec<_> = [filter_mask, projection_mask].concat();
         let splits = self.split_by.splits(layout_reader.as_ref(), &field_mask)?;
 
+        let ctx = Arc::new(TaskContext {
+            row_range: self.row_range,
+            selection: self.selection,
+            filter: filter.map(|f| Arc::new(FilterExpr::new(f))),
+            reader: layout_reader,
+            projection,
+            mapper: self.map_fn,
+        });
+
         // Create a task that executes the full scan pipeline for each split.
         let split_tasks = splits
             .into_iter()
             .filter_map(|split_range| {
-                let ctx = Arc::new(TaskContext {
-                    row_range: self.row_range.clone(),
-                    selection: self.selection.clone(),
-                    filter: self.filter.clone(),
-                    reader: layout_reader.clone(),
-                    projection: projection.clone(),
-                    mapper: self.map_fn.clone(),
-                });
-
                 if self.limit.is_some_and(|l| l == 0) {
                     None
                 } else {
-                    Some(split_exec(ctx, split_range, self.limit.as_mut()))
+                    Some(split_exec(ctx.clone(), split_range, self.limit.as_mut()))
                 }
             })
             .try_collect()?;
