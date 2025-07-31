@@ -19,26 +19,46 @@ window.initAndRender = (function () {
   };
 
   function stringToColor(str) {
-    // Random colours are generally pretty disgusting...
+    // Spiral brand colors
+    const SPIRAL_COLORS = {
+      primary: "#5971FD",    // Spiral Blue
+      accent: "#CEE562",     // Spiral Green  
+      pink: "#EEB3E1",       // Spiral Pink
+      black: "#101010",      // Spiral Black
+      gray: "#666666",       // Secondary gray
+    };
+    
+    // Specific mappings using brand colors
     const MAP = {
-      "datafusion:arrow": "#7a27b1",
-      "datafusion:parquet": "#ef7f1d",
-      "datafusion:vortex": "#19a508",
+      "datafusion:arrow": SPIRAL_COLORS.gray,
+      "datafusion:parquet": "#FF8C42",  // Orange complement
+      "datafusion:vortex": SPIRAL_COLORS.primary,
 
-      "duckdb:parquet": "#985113",
-      "duckdb:vortex": "#0e5e04",
-      "duckdb:duckdb": "#87752e",
+      "duckdb:parquet": "#B8336A",  // Pink variant
+      "duckdb:vortex": SPIRAL_COLORS.accent,
+      "duckdb:duckdb": "#726DA8",   // Purple complement
     };
 
     if (MAP[str]) {
       return MAP[str];
     }
 
+    // Fallback palette for unmapped series
+    const fallbackPalette = [
+      SPIRAL_COLORS.primary,
+      SPIRAL_COLORS.accent,
+      SPIRAL_COLORS.pink,
+      "#FF8C42",  // Orange
+      "#B8336A",  // Deep pink
+      "#726DA8",  // Purple
+      "#2D936C",  // Teal
+      "#E9B44C",  // Gold
+    ];
+    
+    // Use hash to consistently pick from palette
     let hash = new Hashes.MD5().hex(str);
-
-    // Return a CSS color string
-    const hexColor = hash.slice(0, 2) + hash.slice(14, 16) + hash.slice(30, 32);
-    return `#${hexColor}`;
+    const index = parseInt(hash.slice(0, 2), 16) % fallbackPalette.length;
+    return fallbackPalette[index];
   }
 
   function downloadAndGroupData(data, commit_metadata, seriesRenameFn) {

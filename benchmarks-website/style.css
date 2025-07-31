@@ -1,18 +1,38 @@
 /* CSS Variables for consistent theming */
 :root {
-  --primary-color: #3273dc;
-  --primary-hover: #2366d1;
+  /* Spiral Brand Colors */
+  --spiral-black: #101010;
+  --spiral-gray: #ECECEC;
+  --spiral-green: #CEE562;
+  --spiral-blue: #5971FD;
+  --spiral-pink: #EEB3E1;
+  
+  /* Theme Colors */
+  --primary-color: var(--spiral-blue);
+  --primary-hover: #4A5FE5;
+  --accent-color: var(--spiral-green);
   --bg-color: #ffffff;
-  --text-color: #4a4a4a;
-  --border-color: #e0e0e0;
-  --header-height: 60px;
+  --bg-secondary: #FAFAFA;
+  --text-color: var(--spiral-black);
+  --text-secondary: #666666;
+  --border-color: var(--spiral-gray);
+  
+  /* Layout */
+  --header-height: 96px;
   --sidebar-width: 280px;
-  --chart-spacing: 24px;
+  --chart-spacing: 32px;
   --mobile-breakpoint: 768px;
   --tablet-breakpoint: 1024px;
-  --shadow-sm: 0 2px 4px rgba(0,0,0,0.1);
-  --shadow-md: 0 4px 6px rgba(0,0,0,0.1);
-  --shadow-lg: 0 10px 15px rgba(0,0,0,0.1);
+  
+  /* Shadows - softer for modern look */
+  --shadow-sm: 0 1px 3px rgba(16,16,16,0.08);
+  --shadow-md: 0 4px 8px rgba(16,16,16,0.08);
+  --shadow-lg: 0 12px 24px rgba(16,16,16,0.12);
+  
+  /* Border Radius */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
 }
 
 /* Reset and base styles */
@@ -21,11 +41,13 @@
 }
 
 html {
-  font-family: BlinkMacSystemFont, -apple-system, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "SF Pro Display", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   background-color: var(--bg-color);
   font-size: 16px;
   scroll-behavior: smooth;
+  color: var(--text-color);
 }
 
 body {
@@ -35,6 +57,8 @@ body {
   font-size: 1em;
   font-weight: 400;
   padding-top: var(--header-height);
+  line-height: 1.6;
+  letter-spacing: -0.01em;
 }
 
 /* Sticky Header */
@@ -44,7 +68,9 @@ body {
   left: 0;
   right: 0;
   height: var(--header-height);
-  background: var(--bg-color);
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border-color);
   box-shadow: var(--shadow-sm);
   z-index: 1000;
@@ -55,7 +81,7 @@ body {
   align-items: center;
   justify-content: space-between;
   height: 100%;
-  padding: 0 20px;
+  padding: 0 24px;
   max-width: 1600px;
   margin: 0 auto;
 }
@@ -63,29 +89,48 @@ body {
 .header-left {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 20px;
 }
 
 .menu-toggle {
   display: none;
   background: none;
   border: none;
-  font-size: 24px;
+  font-size: 20px;
   cursor: pointer;
   padding: 8px;
-  border-radius: 4px;
-  transition: background-color 0.2s;
+  border-radius: var(--radius-sm);
+  transition: all 0.2s;
+  color: var(--text-color);
 }
 
 .menu-toggle:hover {
-  background-color: rgba(0,0,0,0.05);
+  background-color: var(--bg-secondary);
+}
+
+.logo-link {
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+  transition: opacity 0.2s;
+}
+
+.logo-link:hover {
+  opacity: 0.8;
+}
+
+.site-logo {
+  height: 56px;
+  width: auto;
+  display: block;
 }
 
 .site-title {
   font-size: 1.5rem;
   font-weight: 600;
   margin: 0;
-  color: var(--primary-color);
+  color: var(--text-color);
+  display: none;
 }
 
 .header-center {
@@ -98,22 +143,26 @@ body {
 .filter-controls {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
 }
 
 .control-btn, .view-btn {
-  padding: 6px 12px;
+  padding: 8px 20px;
   border: 1px solid var(--border-color);
   background: var(--bg-color);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   font-size: 14px;
+  font-weight: 500;
   transition: all 0.2s;
+  white-space: nowrap;
 }
 
 .control-btn:hover, .view-btn:hover {
-  background-color: #f5f5f5;
+  background-color: var(--bg-secondary);
   border-color: var(--primary-color);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
 }
 
 .view-btn.active {
@@ -123,11 +172,18 @@ body {
 }
 
 .category-filter, .search-filter {
-  padding: 6px 12px;
+  padding: 8px 12px;
   border: 1px solid var(--border-color);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   font-size: 14px;
+  font-weight: 500;
   background: var(--bg-color);
+  transition: border-color 0.2s;
+}
+
+.category-filter:focus, .search-filter:focus {
+  outline: none;
+  border-color: var(--primary-color);
 }
 
 .search-filter {
@@ -146,16 +202,20 @@ body {
 }
 
 .repo-link {
-  color: var(--primary-color);
+  color: var(--text-color);
   text-decoration: none;
-  font-weight: 500;
-  padding: 6px 12px;
-  border-radius: 4px;
-  transition: background-color 0.2s;
+  font-weight: 600;
+  font-size: 14px;
+  padding: 8px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  transition: all 0.2s;
 }
 
 .repo-link:hover {
-  background-color: rgba(50, 115, 220, 0.1);
+  background-color: var(--bg-secondary);
+  border-color: var(--primary-color);
+  color: var(--primary-color);
 }
 
 /* Main Container */
@@ -167,7 +227,7 @@ body {
 /* Sidebar Navigation */
 .sidebar {
   width: var(--sidebar-width);
-  background: #f8f9fa;
+  background: var(--bg-secondary);
   border-right: 1px solid var(--border-color);
   position: sticky;
   top: var(--header-height);
@@ -228,15 +288,15 @@ body {
 }
 
 .toc-list a:hover {
-  background-color: rgba(50, 115, 220, 0.1);
+  background-color: rgba(89, 113, 253, 0.08);
   color: var(--primary-color);
   padding-left: 24px;
 }
 
 .toc-list a.active {
-  background-color: rgba(50, 115, 220, 0.15);
+  background-color: rgba(89, 113, 253, 0.12);
   color: var(--primary-color);
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .toc-list a.active::before {
@@ -257,18 +317,21 @@ body {
 .download-btn {
   display: block;
   width: 100%;
-  padding: 10px 16px;
+  padding: 12px 16px;
   background-color: var(--primary-color);
   color: white;
   text-align: center;
   text-decoration: none;
-  border-radius: 4px;
-  font-weight: 500;
-  transition: background-color 0.2s;
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  transition: all 0.2s;
+  box-shadow: 0 2px 4px rgba(89, 113, 253, 0.2);
 }
 
 .download-btn:hover {
   background-color: var(--primary-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(89, 113, 253, 0.3);
 }
 
 /* Main Content */
@@ -287,13 +350,20 @@ body {
   align-items: center;
   justify-content: center;
   min-height: 400px;
+  gap: 16px;
+}
+
+.loading-indicator p {
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
 }
 
 .spinner {
   width: 48px;
   height: 48px;
-  border: 4px solid #f3f3f3;
-  border-top: 4px solid var(--primary-color);
+  border: 3px solid var(--border-color);
+  border-top: 3px solid var(--primary-color);
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
@@ -307,8 +377,8 @@ body {
 .benchmark-set {
   margin-bottom: 48px;
   background: var(--bg-color);
-  border-radius: 8px;
-  box-shadow: var(--shadow-sm);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
   overflow: hidden;
   transition: all 0.3s ease;
 }
@@ -321,25 +391,27 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 24px;
-  background: #f8f9fa;
+  padding: 24px 32px;
+  background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
   cursor: pointer;
   user-select: none;
+  transition: background-color 0.2s;
 }
 
 .benchmark-header:hover {
-  background: #f0f1f3;
+  background: #F5F5F5;
 }
 
 .benchmark-title {
-  font-size: 1.8rem;
-  font-weight: 600;
+  font-size: 1.5rem;
+  font-weight: 700;
   margin: 0;
   color: var(--text-color);
   display: flex;
   align-items: center;
   gap: 12px;
+  letter-spacing: -0.02em;
 }
 
 .collapse-icon {
@@ -354,16 +426,20 @@ body {
 .benchmark-meta {
   display: flex;
   gap: 16px;
-  font-size: 14px;
-  color: #666;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
 }
 
 .benchmark-description {
-  padding: 16px 24px;
-  background: #fafbfc;
+  padding: 16px 32px;
+  background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
   font-size: 14px;
-  color: #666;
+  color: var(--text-secondary);
+  line-height: 1.6;
 }
 
 /* Chart Grid */
@@ -383,8 +459,8 @@ body {
 .chart-container {
   background: var(--bg-color);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 16px;
+  border-radius: var(--radius-md);
+  padding: 20px;
   position: relative;
   transition: all 0.3s ease;
 }
@@ -392,6 +468,7 @@ body {
 .chart-container:hover {
   box-shadow: var(--shadow-md);
   transform: translateY(-2px);
+  border-color: var(--primary-color);
 }
 
 .chart-header {
@@ -402,9 +479,10 @@ body {
 }
 
 .chart-title {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--text-color);
+  letter-spacing: -0.01em;
 }
 
 .chart-actions {
@@ -413,12 +491,13 @@ body {
 }
 
 .chart-action-btn {
-  background: none;
+  background: var(--bg-color);
   border: 1px solid var(--border-color);
-  padding: 4px 8px;
-  border-radius: 4px;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   font-size: 12px;
+  font-weight: 500;
   transition: all 0.2s;
 }
 
@@ -440,7 +519,7 @@ body {
   border-radius: 50%;
   font-size: 20px;
   cursor: pointer;
-  box-shadow: var(--shadow-md);
+  box-shadow: 0 4px 12px rgba(89, 113, 253, 0.3);
   opacity: 0;
   visibility: hidden;
   transition: all 0.3s ease;
@@ -455,7 +534,7 @@ body {
 .back-to-top:hover {
   background-color: var(--primary-hover);
   transform: translateY(-4px);
-  box-shadow: var(--shadow-lg);
+  box-shadow: 0 8px 20px rgba(89, 113, 253, 0.4);
 }
 
 /* Chart Modal */
@@ -479,11 +558,12 @@ body {
 .modal-content {
   background: var(--bg-color);
   padding: 32px;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   width: 90%;
   max-width: 1200px;
   height: 80vh;
   position: relative;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
 }
 
 .modal-close {
@@ -524,6 +604,10 @@ body {
 }
 
 @media (max-width: 768px) {
+  :root {
+    --header-height: 64px;
+  }
+  
   body {
     padding-top: var(--header-height);
   }
@@ -532,6 +616,10 @@ body {
     padding: 0 12px;
   }
 
+  .site-logo {
+    height: 40px;
+  }
+  
   .site-title {
     font-size: 1.2rem;
   }
@@ -599,6 +687,15 @@ body {
     padding: 16px;
     height: 90vh;
   }
+}
+
+/* Additional brand styling */
+.header-content {
+  gap: 24px;
+}
+
+.filter-controls {
+  max-width: 600px;
 }
 
 /* Utility Classes */
