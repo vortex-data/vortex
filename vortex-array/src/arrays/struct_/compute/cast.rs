@@ -51,7 +51,7 @@ register_kernel!(CastKernelAdapter(StructVTable).lift());
 mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, FieldDType, FieldNames, Nullability, PType, StructFields};
+    use vortex_dtype::{DType, FieldNames, Nullability, PType, StructFields};
 
     use crate::arrays::{StructArray, VarBinArray};
     use crate::compute::conformance::cast::test_cast_conformance;
@@ -72,7 +72,6 @@ mod tests {
             ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
             ("b", DType::Utf8(Nullability::Nullable)),
         ]);
-        let struct_dtype = DType::Struct(fields, if nullable { Nullability::Nullable } else { Nullability::NonNullable });
         
         let a = buffer![1i32, 2, 3].into_array();
         let b = VarBinArray::from_iter(
@@ -90,19 +89,15 @@ mod tests {
             ("x", DType::Primitive(PType::F32, Nullability::NonNullable)),
             ("y", DType::Primitive(PType::F32, Nullability::NonNullable)),
         ]);
-        let inner_dtype = DType::Struct(inner_fields.clone(), Nullability::NonNullable);
+        let inner_dtype = DType::Struct(inner_fields, Nullability::NonNullable);
         
         let x = buffer![1.0f32, 2.0, 3.0].into_array();
         let y = buffer![4.0f32, 5.0, 6.0].into_array();
-        let inner_struct = StructArray::try_new(inner_names.clone(), vec![x, y], 3, crate::validity::Validity::NonNullable).unwrap().into_array();
+        let inner_struct = StructArray::try_new(inner_names, vec![x, y], 3, crate::validity::Validity::NonNullable).unwrap().into_array();
         
         // Create outer struct with inner struct as a field
         let outer_names: FieldNames = vec!["id".into(), "point".into()].into();
-        let outer_fields = StructFields::from_iter([
-            ("id", DType::Primitive(PType::I64, Nullability::NonNullable)),
-            ("point", inner_dtype),
-        ]);
-        let outer_dtype = DType::Struct(outer_fields, Nullability::NonNullable);
+        // Outer struct would have fields: id (I64) and point (inner struct)
         
         let ids = buffer![100i64, 200, 300].into_array();
         
@@ -111,10 +106,7 @@ mod tests {
 
     fn create_simple_struct() -> StructArray {
         let names: FieldNames = vec!["value".into()].into();
-        let fields = StructFields::from_iter([
-            ("value", DType::Primitive(PType::U8, Nullability::NonNullable)),
-        ]);
-        let struct_dtype = DType::Struct(fields, Nullability::NonNullable);
+        // Simple struct with a single U8 field
         
         let values = buffer![42u8].into_array();
         

@@ -139,10 +139,6 @@ mod tests {
     fn create_simple_list() -> ListArray {
         let data = buffer![1i32, 2, 3, 4, 5, 6].into_array();
         let offsets = buffer![0i64, 2, 2, 5, 6].into_array();
-        let dtype = DType::List(
-            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
-            Nullability::NonNullable,
-        );
         
         ListArray::try_new(data, offsets, Validity::NonNullable).unwrap()
     }
@@ -161,10 +157,6 @@ mod tests {
             DType::Utf8(Nullability::NonNullable),
         ).into_array();
         let offsets = buffer![0i64, 2, 4].into_array();
-        let dtype = DType::List(
-            Arc::new(DType::Utf8(Nullability::NonNullable)),
-            Nullability::NonNullable,
-        );
         
         ListArray::try_new(data, offsets, Validity::NonNullable).unwrap()
     }
@@ -173,15 +165,10 @@ mod tests {
         // Create inner lists: [[1, 2], [3], [4, 5, 6]]
         let inner_data = buffer![1i32, 2, 3, 4, 5, 6].into_array();
         let inner_offsets = buffer![0i64, 2, 3, 6].into_array();
-        let inner_dtype = DType::List(
-            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
-            Nullability::NonNullable,
-        );
-        let inner_list = ListArray::try_new(inner_data, inner_offsets, inner_dtype.clone()).unwrap().into_array();
+        let inner_list = ListArray::try_new(inner_data, inner_offsets, Validity::NonNullable).unwrap().into_array();
         
         // Create outer list: [[[1, 2], [3]], [[4, 5, 6]]]
         let outer_offsets = buffer![0i64, 2, 3].into_array();
-        let outer_dtype = DType::List(Arc::new(inner_dtype), Nullability::NonNullable);
         
         ListArray::try_new(inner_list, outer_offsets, Validity::NonNullable).unwrap()
     }
@@ -189,10 +176,6 @@ mod tests {
     fn create_empty_lists() -> ListArray {
         let data = buffer![42u8].into_array();
         let offsets = buffer![0i64, 0, 0, 1].into_array();
-        let dtype = DType::List(
-            Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
-            Nullability::NonNullable,
-        );
         
         ListArray::try_new(data, offsets, Validity::NonNullable).unwrap()
     }

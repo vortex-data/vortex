@@ -87,11 +87,11 @@ fn test_cast_from_decimal(array: &dyn Array, nullability: Nullability) {
     if let DType::Decimal(decimal_type, _) = array.dtype() {
         test_cast_nullability_changes(
             array,
-            &DType::Decimal(decimal_type.clone(), Nullability::Nullable),
+            &DType::Decimal(*decimal_type, Nullability::Nullable),
         );
         if nullability == Nullability::Nullable {
             // Try casting to non-nullable (may fail if nulls present)
-            let _ = cast(array, &DType::Decimal(decimal_type.clone(), Nullability::NonNullable));
+            let _ = cast(array, &DType::Decimal(*decimal_type, Nullability::NonNullable));
         }
     }
 }
@@ -400,7 +400,7 @@ mod tests {
     use vortex_buffer::buffer;
     use crate::arrays::{PrimitiveArray, BoolArray, NullArray, VarBinArray, StructArray, ListArray};
     use crate::IntoArray;
-    use vortex_dtype::{DType, FieldDType, FieldNames, Nullability, StructFields};
+    use vortex_dtype::{DType, FieldNames, Nullability, StructFields};
     use std::sync::Arc;
     
     #[test]
@@ -460,17 +460,6 @@ mod tests {
     #[test]
     fn test_cast_conformance_struct() {
         let names: FieldNames = vec!["a".into(), "b".into()].into();
-        let fields = StructFields::from_iter([
-            FieldDType {
-                name: "a".into(),
-                dtype: DType::Primitive(PType::I32, Nullability::NonNullable),
-            },
-            FieldDType {
-                name: "b".into(),
-                dtype: DType::Utf8(Nullability::Nullable),
-            },
-        ]);
-        let struct_dtype = DType::Struct(fields, Nullability::NonNullable);
         
         let a = buffer![1i32, 2, 3].into_array();
         let b = VarBinArray::from_iter(
@@ -486,10 +475,6 @@ mod tests {
     fn test_cast_conformance_list() {
         let data = buffer![1i32, 2, 3, 4, 5, 6].into_array();
         let offsets = buffer![0i64, 2, 2, 5, 6].into_array();
-        let dtype = DType::List(
-            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
-            Nullability::NonNullable,
-        );
         
         let array = ListArray::try_new(data, offsets, crate::validity::Validity::NonNullable).unwrap();
         test_cast_conformance(array.as_ref());
