@@ -53,9 +53,9 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, FieldNames, Nullability, PType, StructFields};
 
+    use crate::IntoArray;
     use crate::arrays::{StructArray, VarBinArray};
     use crate::compute::conformance::cast::test_cast_conformance;
-    use crate::IntoArray;
 
     #[rstest]
     #[case(create_test_struct(false))]
@@ -72,14 +72,25 @@ mod tests {
             ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
             ("b", DType::Utf8(Nullability::Nullable)),
         ]);
-        
+
         let a = buffer![1i32, 2, 3].into_array();
         let b = VarBinArray::from_iter(
             vec![Some("x"), None, Some("z")],
             DType::Utf8(Nullability::Nullable),
-        ).into_array();
-        
-        StructArray::try_new(names, vec![a, b], 3, if nullable { crate::validity::Validity::AllValid } else { crate::validity::Validity::NonNullable }).unwrap()
+        )
+        .into_array();
+
+        StructArray::try_new(
+            names,
+            vec![a, b],
+            3,
+            if nullable {
+                crate::validity::Validity::AllValid
+            } else {
+                crate::validity::Validity::NonNullable
+            },
+        )
+        .unwrap()
     }
 
     fn create_nested_struct() -> StructArray {
@@ -90,26 +101,45 @@ mod tests {
             ("y", DType::Primitive(PType::F32, Nullability::NonNullable)),
         ]);
         let inner_dtype = DType::Struct(inner_fields, Nullability::NonNullable);
-        
+
         let x = buffer![1.0f32, 2.0, 3.0].into_array();
         let y = buffer![4.0f32, 5.0, 6.0].into_array();
-        let inner_struct = StructArray::try_new(inner_names, vec![x, y], 3, crate::validity::Validity::NonNullable).unwrap().into_array();
-        
+        let inner_struct = StructArray::try_new(
+            inner_names,
+            vec![x, y],
+            3,
+            crate::validity::Validity::NonNullable,
+        )
+        .unwrap()
+        .into_array();
+
         // Create outer struct with inner struct as a field
         let outer_names: FieldNames = vec!["id".into(), "point".into()].into();
         // Outer struct would have fields: id (I64) and point (inner struct)
-        
+
         let ids = buffer![100i64, 200, 300].into_array();
-        
-        StructArray::try_new(outer_names, vec![ids, inner_struct], 3, crate::validity::Validity::NonNullable).unwrap()
+
+        StructArray::try_new(
+            outer_names,
+            vec![ids, inner_struct],
+            3,
+            crate::validity::Validity::NonNullable,
+        )
+        .unwrap()
     }
 
     fn create_simple_struct() -> StructArray {
         let names: FieldNames = vec!["value".into()].into();
         // Simple struct with a single U8 field
-        
+
         let values = buffer![42u8].into_array();
-        
-        StructArray::try_new(names, vec![values], 1, crate::validity::Validity::NonNullable).unwrap()
+
+        StructArray::try_new(
+            names,
+            vec![values],
+            1,
+            crate::validity::Validity::NonNullable,
+        )
+        .unwrap()
     }
 }

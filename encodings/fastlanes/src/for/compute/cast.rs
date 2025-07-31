@@ -14,15 +14,12 @@ impl CastKernel for FoRVTable {
         // 1. Cast the encoded array
         // 2. Cast the reference scalar
         // 3. Create a new FoR array with casted components
-        
         let casted_child = cast(array.encoded(), dtype)?;
         let casted_reference = array.reference_scalar().cast(dtype)?;
-        
-        Ok(Some(FoRArray::try_new(
-            casted_child,
-            casted_reference,
-        )?
-        .into_array()))
+
+        Ok(Some(
+            FoRArray::try_new(casted_child, casted_reference)?.into_array(),
+        ))
     }
 }
 
@@ -46,11 +43,19 @@ mod tests {
         let for_array = FoRArray::try_new(
             buffer![0i32, 10, 20, 30, 40].into_array(),
             Scalar::from(100i32),
-        ).unwrap();
-        
-        let casted = cast(for_array.as_ref(), &DType::Primitive(PType::I64, Nullability::NonNullable)).unwrap();
-        assert_eq!(casted.dtype(), &DType::Primitive(PType::I64, Nullability::NonNullable));
-        
+        )
+        .unwrap();
+
+        let casted = cast(
+            for_array.as_ref(),
+            &DType::Primitive(PType::I64, Nullability::NonNullable),
+        )
+        .unwrap();
+        assert_eq!(
+            casted.dtype(),
+            &DType::Primitive(PType::I64, Nullability::NonNullable)
+        );
+
         // Verify the values after decoding
         let decoded = casted.to_canonical().unwrap().into_primitive().unwrap();
         assert_eq!(decoded.as_slice::<i64>(), &[100i64, 110, 120, 130, 140]);
@@ -59,13 +64,17 @@ mod tests {
     #[test]
     fn test_cast_for_nullable() {
         let values = PrimitiveArray::from_option_iter([Some(0i32), None, Some(20), Some(30), None]);
-        let for_array = FoRArray::try_new(
-            values.into_array(),
-            Scalar::from(50i32),
-        ).unwrap();
-        
-        let casted = cast(for_array.as_ref(), &DType::Primitive(PType::I64, Nullability::Nullable)).unwrap();
-        assert_eq!(casted.dtype(), &DType::Primitive(PType::I64, Nullability::Nullable));
+        let for_array = FoRArray::try_new(values.into_array(), Scalar::from(50i32)).unwrap();
+
+        let casted = cast(
+            for_array.as_ref(),
+            &DType::Primitive(PType::I64, Nullability::Nullable),
+        )
+        .unwrap();
+        assert_eq!(
+            casted.dtype(),
+            &DType::Primitive(PType::I64, Nullability::Nullable)
+        );
     }
 
     #[rstest]

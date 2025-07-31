@@ -14,14 +14,18 @@ impl CastKernel for ALPVTable {
         if array.dtype().eq_ignore_nullability(dtype) {
             // For nullability-only changes, we can avoid decoding
             // Cast the encoded array (integers) to handle nullability
-            let new_encoded = cast(array.encoded(), &array.encoded().dtype().with_nullability(dtype.nullability()))?;
-            
-            Ok(Some(ALPArray::try_new(
-                new_encoded,
-                array.exponents(),
-                array.patches().cloned(),
-            )?
-            .into_array()))
+            let new_encoded = cast(
+                array.encoded(),
+                &array
+                    .encoded()
+                    .dtype()
+                    .with_nullability(dtype.nullability()),
+            )?;
+
+            Ok(Some(
+                ALPArray::try_new(new_encoded, array.exponents(), array.patches().cloned())?
+                    .into_array(),
+            ))
         } else {
             // For type changes (e.g., f32 to f64 or to integers), we need to decode
             // because ALP encoding is specific to the float width
@@ -48,11 +52,21 @@ mod tests {
     #[test]
     fn test_cast_alp_f32_to_f64() {
         let values = buffer![1.5f32, 2.5, 3.5, 4.5].into_array();
-        let alp = ALPEncoding.encode(&values.to_canonical().unwrap(), None).unwrap().unwrap();
-        
-        let casted = cast(alp.as_ref(), &DType::Primitive(PType::F64, Nullability::NonNullable)).unwrap();
-        assert_eq!(casted.dtype(), &DType::Primitive(PType::F64, Nullability::NonNullable));
-        
+        let alp = ALPEncoding
+            .encode(&values.to_canonical().unwrap(), None)
+            .unwrap()
+            .unwrap();
+
+        let casted = cast(
+            alp.as_ref(),
+            &DType::Primitive(PType::F64, Nullability::NonNullable),
+        )
+        .unwrap();
+        assert_eq!(
+            casted.dtype(),
+            &DType::Primitive(PType::F64, Nullability::NonNullable)
+        );
+
         let decoded = casted.to_canonical().unwrap().into_primitive().unwrap();
         let values = decoded.as_slice::<f64>();
         assert_eq!(values.len(), 4);
@@ -60,14 +74,24 @@ mod tests {
         assert!((values[1] - 2.5).abs() < f64::EPSILON);
     }
 
-    #[test] 
+    #[test]
     fn test_cast_alp_to_int() {
         let values = buffer![1.0f32, 2.0, 3.0, 4.0].into_array();
-        let alp = ALPEncoding.encode(&values.to_canonical().unwrap(), None).unwrap().unwrap();
-        
-        let casted = cast(alp.as_ref(), &DType::Primitive(PType::I32, Nullability::NonNullable)).unwrap();
-        assert_eq!(casted.dtype(), &DType::Primitive(PType::I32, Nullability::NonNullable));
-        
+        let alp = ALPEncoding
+            .encode(&values.to_canonical().unwrap(), None)
+            .unwrap()
+            .unwrap();
+
+        let casted = cast(
+            alp.as_ref(),
+            &DType::Primitive(PType::I32, Nullability::NonNullable),
+        )
+        .unwrap();
+        assert_eq!(
+            casted.dtype(),
+            &DType::Primitive(PType::I32, Nullability::NonNullable)
+        );
+
         let decoded = casted.to_canonical().unwrap().into_primitive().unwrap();
         assert_eq!(decoded.as_slice::<i32>(), &[1i32, 2, 3, 4]);
     }

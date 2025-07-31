@@ -11,26 +11,28 @@ use crate::{FSSTArray, FSSTVTable};
 
 impl CastKernel for FSSTVTable {
     fn cast(&self, array: &FSSTArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        // FSST is a string compression encoding. 
+        // FSST is a string compression encoding.
         // For nullability changes, we can cast the codes and symbols arrays
         if array.dtype().eq_ignore_nullability(dtype) {
             // Cast codes array to handle nullability
-            let new_codes = cast(array.codes().as_ref(), &array.codes().dtype().with_nullability(dtype.nullability()))?;
-            
-            Ok(Some(FSSTArray::try_new(
-                dtype.clone(),
-                array.symbols().clone(),
-                array.symbol_lengths().clone(),
-                new_codes.as_::<VarBinVTable>().clone(),
-                array.uncompressed_lengths().clone(),
-            )?
-            .into_array()))
-        } else {
-            // For type changes (e.g., Utf8 to Binary), we need to decode
-            // because FSST compression is specific to the string representation
-            let decoded = array.to_canonical()?.into_array();
-            cast(&decoded, dtype).map(Some)
+            let new_codes = cast(
+                array.codes().as_ref(),
+                &array.codes().dtype().with_nullability(dtype.nullability()),
+            )?;
+
+            Ok(Some(
+                FSSTArray::try_new(
+                    dtype.clone(),
+                    array.symbols().clone(),
+                    array.symbol_lengths().clone(),
+                    new_codes.as_::<VarBinVTable>().clone(),
+                    array.uncompressed_lengths().clone(),
+                )?
+                .into_array(),
+            ))
         }
+
+        Ok(None)
     }
 }
 
@@ -44,7 +46,7 @@ mod tests {
     use vortex_array::compute::conformance::cast::test_cast_conformance;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::{fsst_train_compressor, fsst_compress};
+    use crate::{fsst_compress, fsst_train_compressor};
 
     #[test]
     fn test_cast_fsst_nullability() {
@@ -52,15 +54,14 @@ mod tests {
             vec![Some("hello"), Some("world"), Some("hello world")],
             DType::Utf8(Nullability::NonNullable),
         );
-        
+
         let compressor = fsst_train_compressor(strings.as_ref()).unwrap();
         let fsst = fsst_compress(strings.as_ref(), &compressor).unwrap();
-        
+
         // Cast to nullable
         let casted = cast(fsst.as_ref(), &DType::Utf8(Nullability::Nullable)).unwrap();
         assert_eq!(casted.dtype(), &DType::Utf8(Nullability::Nullable));
     }
-
 
     #[rstest]
     #[case(VarBinArray::from_iter(

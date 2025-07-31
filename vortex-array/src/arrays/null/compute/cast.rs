@@ -40,7 +40,10 @@ mod tests {
     #[test]
     fn test_cast_null_to_other_fails() {
         let null_array = NullArray::new(5);
-        let result = cast(null_array.as_ref(), &DType::Primitive(PType::I32, Nullability::Nullable));
+        let result = cast(
+            null_array.as_ref(),
+            &DType::Primitive(PType::I32, Nullability::Nullable),
+        );
         assert!(result.is_err());
     }
 

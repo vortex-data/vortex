@@ -12,13 +12,11 @@ impl CastKernel for DictVTable {
     fn cast(&self, array: &DictArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // Cast the dictionary values to the target type
         let casted_values = cast(array.values(), dtype)?;
-        
+
         // Create a new dictionary array with the same codes but casted values
-        Ok(Some(DictArray::try_new(
-            array.codes().clone(),
-            casted_values,
-        )?
-        .into_array()))
+        Ok(Some(
+            DictArray::try_new(array.codes().clone(), casted_values)?.into_array(),
+        ))
     }
 }
 
@@ -40,21 +38,36 @@ mod tests {
     fn test_cast_dict_to_wider_type() {
         let values = buffer![1i32, 2, 3, 2, 1].into_array();
         let dict = dict_encode(&values).unwrap();
-        
-        let casted = cast(dict.as_ref(), &DType::Primitive(PType::I64, Nullability::NonNullable)).unwrap();
-        assert_eq!(casted.dtype(), &DType::Primitive(PType::I64, Nullability::NonNullable));
-        
+
+        let casted = cast(
+            dict.as_ref(),
+            &DType::Primitive(PType::I64, Nullability::NonNullable),
+        )
+        .unwrap();
+        assert_eq!(
+            casted.dtype(),
+            &DType::Primitive(PType::I64, Nullability::NonNullable)
+        );
+
         let decoded = casted.to_canonical().unwrap().into_primitive().unwrap();
         assert_eq!(decoded.as_slice::<i64>(), &[1i64, 2, 3, 2, 1]);
     }
 
     #[test]
     fn test_cast_dict_nullable() {
-        let values = PrimitiveArray::from_option_iter([Some(10i32), None, Some(20), Some(10), None]);
+        let values =
+            PrimitiveArray::from_option_iter([Some(10i32), None, Some(20), Some(10), None]);
         let dict = dict_encode(values.as_ref()).unwrap();
-        
-        let casted = cast(dict.as_ref(), &DType::Primitive(PType::I64, Nullability::Nullable)).unwrap();
-        assert_eq!(casted.dtype(), &DType::Primitive(PType::I64, Nullability::Nullable));
+
+        let casted = cast(
+            dict.as_ref(),
+            &DType::Primitive(PType::I64, Nullability::Nullable),
+        )
+        .unwrap();
+        assert_eq!(
+            casted.dtype(),
+            &DType::Primitive(PType::I64, Nullability::Nullable)
+        );
     }
 
     #[rstest]

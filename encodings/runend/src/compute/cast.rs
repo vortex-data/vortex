@@ -12,12 +12,10 @@ impl CastKernel for RunEndVTable {
     fn cast(&self, array: &RunEndArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // Cast the values array to the target type
         let casted_values = cast(array.values(), dtype)?;
-        
-        Ok(Some(RunEndArray::try_new(
-            array.ends().clone(),
-            casted_values,
-        )?
-        .into_array()))
+
+        Ok(Some(
+            RunEndArray::try_new(array.ends().clone(), casted_values)?.into_array(),
+        ))
     }
 }
 
@@ -40,11 +38,19 @@ mod tests {
         let runend = RunEndArray::try_new(
             buffer![3u64, 5, 8, 10].into_array(),
             buffer![100i32, 200, 100, 300].into_array(),
-        ).unwrap();
-        
-        let casted = cast(runend.as_ref(), &DType::Primitive(PType::I64, Nullability::NonNullable)).unwrap();
-        assert_eq!(casted.dtype(), &DType::Primitive(PType::I64, Nullability::NonNullable));
-        
+        )
+        .unwrap();
+
+        let casted = cast(
+            runend.as_ref(),
+            &DType::Primitive(PType::I64, Nullability::NonNullable),
+        )
+        .unwrap();
+        assert_eq!(
+            casted.dtype(),
+            &DType::Primitive(PType::I64, Nullability::NonNullable)
+        );
+
         // Verify by decoding to canonical form
         let decoded = casted.to_canonical().unwrap().into_primitive().unwrap();
         // RunEnd encoding should expand to [100, 100, 100, 200, 200, 100, 100, 100, 300, 300]
@@ -60,10 +66,18 @@ mod tests {
         let runend = RunEndArray::try_new(
             buffer![2u64, 4, 7].into_array(),
             PrimitiveArray::from_option_iter([Some(10i32), None, Some(20)]).into_array(),
-        ).unwrap();
-        
-        let casted = cast(runend.as_ref(), &DType::Primitive(PType::I64, Nullability::Nullable)).unwrap();
-        assert_eq!(casted.dtype(), &DType::Primitive(PType::I64, Nullability::Nullable));
+        )
+        .unwrap();
+
+        let casted = cast(
+            runend.as_ref(),
+            &DType::Primitive(PType::I64, Nullability::Nullable),
+        )
+        .unwrap();
+        assert_eq!(
+            casted.dtype(),
+            &DType::Primitive(PType::I64, Nullability::Nullable)
+        );
     }
 
     #[rstest]

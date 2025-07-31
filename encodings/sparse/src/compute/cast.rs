@@ -12,13 +12,14 @@ impl CastKernel for SparseVTable {
     fn cast(&self, array: &SparseArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // Cast both the patches values and the fill value
         let casted_fill = array.fill_scalar().cast(dtype)?;
-        let casted_patches = array.patches().clone().map_values(|values| cast(&values, dtype))?;
-        
-        Ok(Some(SparseArray::try_new_from_patches(
-            casted_patches,
-            casted_fill,
-        )?
-        .into_array()))
+        let casted_patches = array
+            .patches()
+            .clone()
+            .map_values(|values| cast(&values, dtype))?;
+
+        Ok(Some(
+            SparseArray::try_new_from_patches(casted_patches, casted_fill)?.into_array(),
+        ))
     }
 }
 
@@ -44,11 +45,19 @@ mod tests {
             buffer![100i32, 200, 300].into_array(),
             10,
             Scalar::from(0i32),
-        ).unwrap();
-        
-        let casted = cast(sparse.as_ref(), &DType::Primitive(PType::I64, Nullability::NonNullable)).unwrap();
-        assert_eq!(casted.dtype(), &DType::Primitive(PType::I64, Nullability::NonNullable));
-        
+        )
+        .unwrap();
+
+        let casted = cast(
+            sparse.as_ref(),
+            &DType::Primitive(PType::I64, Nullability::NonNullable),
+        )
+        .unwrap();
+        assert_eq!(
+            casted.dtype(),
+            &DType::Primitive(PType::I64, Nullability::NonNullable)
+        );
+
         let decoded = casted.to_canonical().unwrap().into_primitive().unwrap();
         let values = decoded.as_slice::<i64>();
         assert_eq!(values[2], 100);
@@ -64,10 +73,18 @@ mod tests {
             PrimitiveArray::from_option_iter([Some(42i32), Some(84), Some(126)]).into_array(),
             8,
             Scalar::null_typed::<i32>(),
-        ).unwrap();
-        
-        let casted = cast(sparse.as_ref(), &DType::Primitive(PType::I64, Nullability::Nullable)).unwrap();
-        assert_eq!(casted.dtype(), &DType::Primitive(PType::I64, Nullability::Nullable));
+        )
+        .unwrap();
+
+        let casted = cast(
+            sparse.as_ref(),
+            &DType::Primitive(PType::I64, Nullability::Nullable),
+        )
+        .unwrap();
+        assert_eq!(
+            casted.dtype(),
+            &DType::Primitive(PType::I64, Nullability::Nullable)
+        );
     }
 
     #[rstest]

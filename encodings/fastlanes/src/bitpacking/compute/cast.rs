@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::compute::{CastKernel, CastKernelAdapter, cast};
-use vortex_array::{ArrayRef, register_kernel};
+use vortex_array::{ArrayRef, register_kernel, validity};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexResult;
 
@@ -10,12 +10,25 @@ use crate::bitpacking::{BitPackedArray, BitPackedVTable};
 
 impl CastKernel for BitPackedVTable {
     fn cast(&self, array: &BitPackedArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        // BitPacking stores packed integers without nullability information.
-        // We always need to unpack before casting since:
-        // 1. BitPacking only supports non-nullable primitives
-        // 2. The packed format is specific to the bit width
-        let decoded = array.to_canonical()?;
-        cast(decoded.as_ref(), dtype).map(Some)
+        if array.dtype().eq_ignore_nullability(dtype) {
+            let new_validity = array.validity().cast_nullability(dtype.nullability())?;
+            Ok(Some(
+                unsafe {
+                    BitPackedArray::new_unchecked_with_offset(
+                        array.packed().clone(),
+                        dtype.as_ptype(),
+                        new_validity,
+                        array.patches().clone().map(|p| p.cast(dtype)).transpose()?,
+                        array.bit_width(),
+                        array.len(),
+                        array.offset(),
+                    )?
+                }
+                .into_array(),
+            ))
+        }
+
+        Ok(None)
     }
 }
 
@@ -35,14 +48,20 @@ mod tests {
 
     #[test]
     fn test_cast_bitpacked_u8_to_u32() {
-        let packed = BitPackedArray::encode(
-            buffer![10u8, 20, 30, 40, 50, 60].into_array().as_ref(),
-            6
-        ).unwrap();
-        
-        let casted = cast(packed.as_ref(), &DType::Primitive(PType::U32, Nullability::NonNullable)).unwrap();
-        assert_eq!(casted.dtype(), &DType::Primitive(PType::U32, Nullability::NonNullable));
-        
+        let packed =
+            BitPackedArray::encode(buffer![10u8, 20, 30, 40, 50, 60].into_array().as_ref(), 6)
+                .unwrap();
+
+        let casted = cast(
+            packed.as_ref(),
+            &DType::Primitive(PType::U32, Nullability::NonNullable),
+        )
+        .unwrap();
+        assert_eq!(
+            casted.dtype(),
+            &DType::Primitive(PType::U32, Nullability::NonNullable)
+        );
+
         let decoded = casted.to_canonical().unwrap().into_primitive().unwrap();
         assert_eq!(decoded.as_slice::<u32>(), &[10u32, 20, 30, 40, 50, 60]);
     }
@@ -51,19 +70,23 @@ mod tests {
     fn test_cast_bitpacked_nullable() {
         let values = PrimitiveArray::from_option_iter([Some(5u16), None, Some(10), Some(15), None]);
         let packed = BitPackedArray::encode(values.as_ref(), 4).unwrap();
-        
-        let casted = cast(packed.as_ref(), &DType::Primitive(PType::U32, Nullability::Nullable)).unwrap();
-        assert_eq!(casted.dtype(), &DType::Primitive(PType::U32, Nullability::Nullable));
+
+        let casted = cast(
+            packed.as_ref(),
+            &DType::Primitive(PType::U32, Nullability::Nullable),
+        )
+        .unwrap();
+        assert_eq!(
+            casted.dtype(),
+            &DType::Primitive(PType::U32, Nullability::Nullable)
+        );
     }
 
     #[rstest]
     #[case(BitPackedArray::encode(buffer![0u8, 10, 20, 30, 40, 50, 60, 63].into_array().as_ref(), 6).unwrap())]
     #[case(BitPackedArray::encode(buffer![0u16, 100, 200, 300, 400, 500].into_array().as_ref(), 9).unwrap())]
     #[case(BitPackedArray::encode(buffer![0u32, 1000, 2000, 3000, 4000].into_array().as_ref(), 12).unwrap())]
-    #[case(BitPackedArray::encode(
-        PrimitiveArray::from_option_iter([Some(1u32), None, Some(7), Some(15), None]).as_ref(), 
-        4
-    ).unwrap())]
+    #[case(BitPackedArray::encode(PrimitiveArray::from_option_iter([Some(1u32), None, Some(7), Some(15), None]).as_ref(), 4).unwrap())]
     fn test_cast_bitpacked_conformance(#[case] array: BitPackedArray) {
         test_cast_conformance(array.as_ref());
     }

@@ -73,9 +73,9 @@ fn cast<T: NativePType>(array: &PrimitiveArray) -> VortexResult<Buffer<T>> {
 
 #[cfg(test)]
 mod test {
+    use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
-    use rstest::rstest;
     use vortex_error::VortexError;
 
     use crate::IntoArray;

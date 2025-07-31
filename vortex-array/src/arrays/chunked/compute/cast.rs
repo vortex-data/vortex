@@ -30,8 +30,8 @@ mod test {
     use vortex_dtype::{DType, Nullability, PType};
 
     use crate::IntoArray;
-    use crate::arrays::chunked::ChunkedArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::chunked::ChunkedArray;
     use crate::canonical::ToCanonical;
     use crate::compute::cast;
     use crate::compute::conformance::cast::test_cast_conformance;

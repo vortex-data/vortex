@@ -39,17 +39,17 @@ register_kernel!(CastKernelAdapter(ExtensionVTable).lift());
 
 #[cfg(test)]
 mod tests {
-    use rstest::rstest;
     use std::sync::Arc;
 
+    use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_dtype::datetime::{TIMESTAMP_ID, TemporalMetadata, TimeUnit};
     use vortex_dtype::{ExtDType, Nullability, PType};
 
     use super::*;
+    use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::cast::test_cast_conformance;
-    use crate::IntoArray;
 
     #[test]
     fn cast_same_ext_dtype() {
@@ -127,19 +127,20 @@ mod tests {
             }),
             Some(TemporalMetadata::Timestamp(time_unit, Some("UTC".to_string())).into()),
         ));
-        
+
         let storage = if nullable {
             PrimitiveArray::from_option_iter([
-                Some(1_000_000i64),  // 1 second in microseconds
+                Some(1_000_000i64), // 1 second in microseconds
                 None,
                 Some(2_000_000),
                 Some(3_000_000),
                 None,
-            ]).into_array()
+            ])
+            .into_array()
         } else {
             buffer![1_000_000i64, 2_000_000, 3_000_000, 4_000_000, 5_000_000].into_array()
         };
-        
+
         ExtensionArray::new(ext_dtype, storage)
     }
 }
