@@ -6,7 +6,7 @@ use std::fmt::Display;
 use itertools::Itertools;
 use vortex_array::{ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata, ToCanonical};
 use vortex_dtype::{DType, FieldNames};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr::select_opts::Opts;
 use vortex_proto::expr::{FieldNames as ProtoFieldNames, SelectOpts};
 
@@ -79,10 +79,33 @@ impl VTable for SelectVTable {
 
     fn build(
         _encoding: &Self::Encoding,
-        _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
-        _children: Vec<ExprRef>,
+        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        mut children: Vec<ExprRef>,
     ) -> VortexResult<Self::Expr> {
-        vortex_bail!("Select does not support deserialization")
+        if children.len() != 1 {
+            vortex_bail!("Select expression must have exactly one child");
+        }
+
+        let fields = match metadata.opts.as_ref() {
+            Some(opts) => match opts {
+                Opts::Include(field_names) => SelectField::Include(FieldNames::from_iter(
+                    field_names.names.iter().map(|s| s.as_str()),
+                )),
+                Opts::Exclude(field_names) => SelectField::Exclude(FieldNames::from_iter(
+                    field_names.names.iter().map(|s| s.as_str()),
+                )),
+            },
+            None => {
+                vortex_bail!("Select expressions must be provided with fields to select or exclude")
+            }
+        };
+
+        let child = children
+            .drain(..)
+            .next()
+            .vortex_expect("number of children validated to be one");
+
+        Ok(SelectExpr { fields, child })
     }
 
     fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
