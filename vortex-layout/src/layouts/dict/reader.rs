@@ -166,9 +166,7 @@ impl LayoutReader for DictReader {
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
         log::debug!(
-            "DictReader::projection_evaluation: row_range={:?}, expr={}",
-            row_range,
-            expr
+            "DictReader::projection_evaluation: row_range={row_range:?}, expr={expr}"
         );
 
         // Grab the cached values evaluation for the expression.
