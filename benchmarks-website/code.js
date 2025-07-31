@@ -751,91 +751,80 @@ window.initAndRender = (function () {
       const isDesktop = window.innerWidth > CONFIG.MOBILE_BREAKPOINT;
       const crossedThreshold = (wasDesktop && !isDesktop) || (!wasDesktop && isDesktop);
       
-      // Use requestAnimationFrame to batch all updates
+      // Use double RAF to ensure browser has completed layout
       requestAnimationFrame(() => {
-        if (crossedThreshold) {
-          // Store current zoom states before updating
-          const zoomStates = new Map();
-          state.chartInstances.forEach((chartData, key) => {
-            if (chartData?.chart) {
-              zoomStates.set(key, {
-                min: chartData.chart.options.scales.x.min,
-                max: chartData.chart.options.scales.x.max
-              });
-            }
-          });
-
-          // Update all charts with new options in one pass
-          state.chartInstances.forEach((chartData, key) => {
-            if (chartData?.chart) {
-              const chart = chartData.chart;
-              const [categoryName, indexStr] = key.split('-');
-              const index = parseInt(indexStr);
-              
-              // Get the container and benchmark name
-              const container = chart.canvas.closest('.chart-container');
-              const benchName = container.getAttribute('data-chart');
-              
-              // Extract dataset info from current chart
-              const datasetInfo = {
-                commits: chart.data.labels.map(label => ({ id: label })),
-                unit: chart.options.scales.y.title.text || ''
-              };
-
-              // Update chart options for new screen size
-              const newOptions = chartManager.createChartOptions(
-                categoryName,
-                benchName,
-                datasetInfo,
-                datasetInfo.commits,
-                currentIsMobile,
-                index
-              );
-
-              // Update all options at once
-              chart.options.plugins.zoom = newOptions.plugins.zoom;
-              chart.options.animation.duration = currentIsMobile ? 0 : CONFIG.ANIMATION_DURATION;
-              chart.options.elements.point.radius = currentIsMobile ? 0 : 3;
-              chart.options.pointStyle = currentIsMobile ? false : "crossRot";
-
-              // Adjust zoom state for new mode
-              const totalCommits = chart.data.labels.length;
-              const previousState = zoomStates.get(key);
-              
-              if (currentIsMobile) {
-                // Going to mobile: show all data
-                chart.options.scales.x.min = 0;
-                chart.options.scales.x.max = Math.min(CONFIG.MOBILE_MAX_DATA_POINTS - 1, totalCommits - 1);
-              } else {
-                // Going to desktop: restore zoom or use default
-                if (previousState && previousState.min === 0 && previousState.max === totalCommits - 1) {
-                  // Was showing all data, use default desktop view
-                  chart.options.scales.x.min = Math.max(0, totalCommits - CONFIG.DEFAULT_VISIBLE_COMMITS);
-                  chart.options.scales.x.max = totalCommits - 1;
+        requestAnimationFrame(() => {
+          if (crossedThreshold) {
+            // When crossing threshold, update all chart options
+            state.chartInstances.forEach((chartData, key) => {
+              if (chartData?.chart) {
+                const chart = chartData.chart;
+                const [categoryName, indexStr] = key.split('-');
+                const index = parseInt(indexStr);
+                
+                // Store previous zoom state
+                const prevMin = chart.options.scales.x.min;
+                const prevMax = chart.options.scales.x.max;
+                const totalCommits = chart.data.labels.length;
+                
+                // Get chart info
+                const container = chart.canvas.closest('.chart-container');
+                const benchName = container.getAttribute('data-chart');
+                const datasetInfo = {
+                  commits: chart.data.labels.map(label => ({ id: label })),
+                  unit: chart.options.scales.y.title.text || ''
+                };
+                
+                // Create new options for the new screen size
+                const newOptions = chartManager.createChartOptions(
+                  categoryName,
+                  benchName,
+                  datasetInfo,
+                  datasetInfo.commits,
+                  currentIsMobile,
+                  index
+                );
+                
+                // Update all options directly on the chart object
+                chart.options.responsive = true;
+                chart.options.maintainAspectRatio = false;
+                chart.options.aspectRatio = currentIsMobile ? 1.5 : 2;
+                chart.options.animation.duration = 0; // No animation during resize
+                chart.options.plugins.zoom = newOptions.plugins.zoom;
+                chart.options.elements.point.radius = currentIsMobile ? 0 : 3;
+                chart.options.pointStyle = currentIsMobile ? false : "crossRot";
+                
+                // Set appropriate zoom level
+                if (currentIsMobile) {
+                  chart.options.scales.x.min = 0;
+                  chart.options.scales.x.max = Math.min(CONFIG.MOBILE_MAX_DATA_POINTS - 1, totalCommits - 1);
                 } else {
-                  // Preserve zoom state if it was customized
-                  chart.options.scales.x.min = previousState?.min || Math.max(0, totalCommits - CONFIG.DEFAULT_VISIBLE_COMMITS);
-                  chart.options.scales.x.max = previousState?.max || totalCommits - 1;
+                  // Restore previous zoom or use defaults
+                  if (prevMin === 0 && prevMax === totalCommits - 1) {
+                    chart.options.scales.x.min = Math.max(0, totalCommits - CONFIG.DEFAULT_VISIBLE_COMMITS);
+                    chart.options.scales.x.max = totalCommits - 1;
+                  } else {
+                    chart.options.scales.x.min = prevMin;
+                    chart.options.scales.x.max = prevMax;
+                  }
                 }
+                
+                // Update zoom limits
+                chart.options.plugins.zoom.limits.x.max = totalCommits - 1;
+                chart.options.plugins.zoom.limits.x.minRange = Math.min(CONFIG.MIN_VISIBLE_COMMITS, totalCommits);
+                
+                // Single update per chart
+                chart.update('none');
               }
-
-              // Update zoom limits
-              chart.options.plugins.zoom.limits.x.max = totalCommits - 1;
-              chart.options.plugins.zoom.limits.x.minRange = Math.min(CONFIG.MIN_VISIBLE_COMMITS, totalCommits);
-              
-              // Update the chart without animation
-              chart.update('none');
-            }
-          });
-        } else {
-          // Just resize all charts without options changes
-          state.chartInstances.forEach((chartData) => {
-            if (chartData?.chart) {
-              chartData.chart.resize();
-              chartData.chart.update('none');
-            }
-          });
-        }
+            });
+          } else {
+            // Just resize without changing options
+            state.chartInstances.forEach((chartData) => {
+              if (chartData?.chart) {
+                chartData.chart.update('resize');
+              }
+            });
+          }
         
         // Recreate debounced sync zoom with new delay if we crossed threshold
         if (crossedThreshold) {
@@ -872,13 +861,12 @@ window.initAndRender = (function () {
           }, utils.getDebounceDelay());
         }
       
-        // Update last window width
-        state.lastWindowWidth = window.innerWidth;
-        
-        // Reset the resizing flag after a short delay
-        setTimeout(() => {
+          // Update last window width
+          state.lastWindowWidth = window.innerWidth;
+          
+          // Reset the resizing flag
           state.isResizing = false;
-        }, 100);
+        });
       });
     },
   };
