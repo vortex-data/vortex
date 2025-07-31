@@ -3,7 +3,7 @@
 
 use vortex_array::compute::{CastKernel, CastKernelAdapter, cast};
 use vortex_array::{ArrayRef, IntoArray, register_kernel};
-use vortex_dtype::DType;
+use vortex_dtype::{DType, match_each_signed_integer_ptype};
 use vortex_error::VortexResult;
 
 use crate::{ZigZagArray, ZigZagVTable};
@@ -25,7 +25,14 @@ impl CastKernel for ZigZagVTable {
             return Ok(Some(ZigZagArray::try_new(new_encoded)?.into_array()));
         }
 
-        Ok(None)
+        if !dtype.is_signed_int() {
+            return Ok(None);
+        }
+
+        let target_encoded_dtype =
+            DType::Primitive(dtype.as_ptype().to_unsigned(), dtype.nullability());
+        let new_encoded = cast(array.encoded(), &target_encoded_dtype)?;
+        Ok(Some(ZigZagArray::try_new(new_encoded)?.into_array()))
     }
 }
 
