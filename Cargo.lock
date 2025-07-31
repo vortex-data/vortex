@@ -6598,6 +6598,7 @@ dependencies = [
 name = "vortex-expr"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "arbitrary",
  "arcref",
  "dyn-eq",

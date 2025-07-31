@@ -4,9 +4,10 @@
 use vortex_array::VTableRegistry;
 
 use crate::{
-    BetweenExprEncoding, BinaryExprEncoding, ExprEncodingRef, GetItemExprEncoding,
-    LikeExprEncoding, ListContainsExprEncoding, LiteralExprEncoding, MergeExprEncoding,
-    NotExprEncoding, PackExprEncoding, RootExprEncoding, SelectExprEncoding,
+    BetweenExprEncoding, BinaryExprEncoding, CastExprEncoding, ExprEncodingRef,
+    GetItemExprEncoding, IsNullExprEncoding, LikeExprEncoding, ListContainsExprEncoding,
+    LiteralExprEncoding, MergeExprEncoding, NotExprEncoding, PackExprEncoding, RootExprEncoding,
+    SelectExprEncoding,
 };
 
 pub type ExprRegistry = VTableRegistry<ExprEncodingRef>;
@@ -22,15 +23,17 @@ impl ExprRegistryExt for ExprRegistry {
         this.register_many([
             ExprEncodingRef::new_ref(BetweenExprEncoding.as_ref()),
             ExprEncodingRef::new_ref(BinaryExprEncoding.as_ref()),
+            ExprEncodingRef::new_ref(CastExprEncoding.as_ref()),
             ExprEncodingRef::new_ref(GetItemExprEncoding.as_ref()),
+            ExprEncodingRef::new_ref(IsNullExprEncoding.as_ref()),
             ExprEncodingRef::new_ref(LikeExprEncoding.as_ref()),
-            ExprEncodingRef::new_ref(LiteralExprEncoding.as_ref()),
             ExprEncodingRef::new_ref(ListContainsExprEncoding.as_ref()),
+            ExprEncodingRef::new_ref(LiteralExprEncoding.as_ref()),
             ExprEncodingRef::new_ref(MergeExprEncoding.as_ref()),
             ExprEncodingRef::new_ref(NotExprEncoding.as_ref()),
             ExprEncodingRef::new_ref(PackExprEncoding.as_ref()),
-            ExprEncodingRef::new_ref(SelectExprEncoding.as_ref()),
             ExprEncodingRef::new_ref(RootExprEncoding.as_ref()),
+            ExprEncodingRef::new_ref(SelectExprEncoding.as_ref()),
         ]);
         this
     }
