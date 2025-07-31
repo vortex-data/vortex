@@ -68,7 +68,7 @@ mod tests {
 
     fn create_test_struct(nullable: bool) -> StructArray {
         let names: FieldNames = vec!["a".into(), "b".into()].into();
-        let fields = StructFields::from_iter([
+        let _fields = StructFields::from_iter([
             ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
             ("b", DType::Utf8(Nullability::Nullable)),
         ]);
@@ -100,7 +100,7 @@ mod tests {
             ("x", DType::Primitive(PType::F32, Nullability::NonNullable)),
             ("y", DType::Primitive(PType::F32, Nullability::NonNullable)),
         ]);
-        let inner_dtype = DType::Struct(inner_fields, Nullability::NonNullable);
+        let _inner_dtype = DType::Struct(inner_fields, Nullability::NonNullable);
 
         let x = buffer![1.0f32, 2.0, 3.0].into_array();
         let y = buffer![4.0f32, 5.0, 6.0].into_array();

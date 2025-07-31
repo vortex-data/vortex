@@ -27,7 +27,7 @@ mod tests {
     use vortex_array::arrays::{BoolArray, PrimitiveArray};
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
-    use vortex_array::{Array, IntoArray, ToCanonical};
+    use vortex_array::{Array, IntoArray};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
