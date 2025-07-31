@@ -51,7 +51,7 @@ register_kernel!(CastKernelAdapter(StructVTable).lift());
 mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, FieldNames, Nullability, PType, StructFields};
+    use vortex_dtype::{DType, FieldNames, Nullability};
 
     use crate::IntoArray;
     use crate::arrays::{StructArray, VarBinArray};
@@ -68,10 +68,6 @@ mod tests {
 
     fn create_test_struct(nullable: bool) -> StructArray {
         let names: FieldNames = vec!["a".into(), "b".into()].into();
-        let _fields = StructFields::from_iter([
-            ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
-            ("b", DType::Utf8(Nullability::Nullable)),
-        ]);
 
         let a = buffer![1i32, 2, 3].into_array();
         let b = VarBinArray::from_iter(
@@ -96,11 +92,6 @@ mod tests {
     fn create_nested_struct() -> StructArray {
         // Create inner struct
         let inner_names: FieldNames = vec!["x".into(), "y".into()].into();
-        let inner_fields = StructFields::from_iter([
-            ("x", DType::Primitive(PType::F32, Nullability::NonNullable)),
-            ("y", DType::Primitive(PType::F32, Nullability::NonNullable)),
-        ]);
-        let _inner_dtype = DType::Struct(inner_fields, Nullability::NonNullable);
 
         let x = buffer![1.0f32, 2.0, 3.0].into_array();
         let y = buffer![4.0f32, 5.0, 6.0].into_array();
