@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::vector::Vector;
+use crate::experiment::vector::Vector;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 

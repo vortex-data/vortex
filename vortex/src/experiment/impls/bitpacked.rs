@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::vector::pipeline::{Pipeline, SupportsPipeline};
-use crate::vector::{Selection, Vector};
+use crate::experiment::pipeline::{Pipeline, SupportsPipeline};
+use crate::experiment::vector::{Selection, Vector};
 use fastlanes::BitPacking;
 use vortex_buffer::Buffer;
 use vortex_dtype::{NativePType, match_each_unsigned_integer_ptype};

@@ -3,9 +3,12 @@
 
 // https://github.com/rust-lang/cargo/pull/11645#issuecomment-1536905941
 #![doc = include_str!(concat!("../", env!("CARGO_PKG_README")))]
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(unused_variables)]
 
+mod experiment;
 pub mod session;
-mod vector;
 
 pub use vortex_array::*;
 #[cfg(feature = "files")]

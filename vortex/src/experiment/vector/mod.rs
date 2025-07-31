@@ -52,23 +52,15 @@
 //!
 //! So each array has one function to get a compute kernel, and one function to get a compute
 //! evaluation. If either fails to return, a default canonical implementation is used, as now.
-//!
-
-#![allow(dead_code)]
-#![allow(unused_variables)]
-
-mod export;
-mod expression;
-mod impls;
-mod pipeline;
-mod primitive;
 
 use bitvec::access::BitSafeU64;
-use bitvec::slice::BitSlice;
+use bitvec::prelude::*;
 use vortex_array::ArrayRef;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::PType;
 use vortex_mask::Mask;
+
+mod primitive;
 
 pub const N: usize = 2048;
 
@@ -147,7 +139,7 @@ pub struct Vector<'a> {
 }
 
 /// A vector mask is a bit array containing N boolean values.
-pub type VectorMask = BitSlice<BitSafeU64, bitvec::order::Msb0>;
+pub type VectorMask = BitSlice<BitSafeU64, Msb0>;
 
 /// Defines the "vector type", a physical type describing the data that's held in the vector.
 ///

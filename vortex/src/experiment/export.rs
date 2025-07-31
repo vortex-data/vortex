@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::vector::pipeline::{Pipeline, SupportsPipeline};
-use crate::vector::{N, Vector};
+use crate::experiment::pipeline::{Pipeline, SupportsPipeline};
+use crate::experiment::vector::{N, Vector};
 use bitvec::access::BitSafeU64;
 use bitvec::order::Msb0;
 use bitvec::vec::BitVec;
