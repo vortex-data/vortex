@@ -261,6 +261,9 @@ window.initAndRender = (function () {
 
       let prettyQ = q.replace(/_/g, " ").toUpperCase();
       prettyQ = QUERY_NAME_MAP[prettyQ] || prettyQ;
+      
+      // Fix TPCH to TPC-H in chart titles
+      prettyQ = prettyQ.replace(/^TPCH\s/, "TPC-H ");
 
       if (prettyQ.includes("PARQUET-UNC")) {
         return;
