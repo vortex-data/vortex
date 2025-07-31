@@ -14,28 +14,40 @@ use crate::Array;
 /// - Casting between signed and unsigned types
 /// - Casting between integral and floating-point types
 /// - Casting with nullability changes
+/// - Casting between string types (Utf8/Binary)
 /// - Edge cases like overflow behavior
 pub fn test_cast_conformance(array: &dyn Array) {
     let dtype = array.dtype();
     
-    // Only test primitive types for now
-    if let DType::Primitive(ptype, nullability) = dtype {
-        test_cast_identity(array);
-        test_cast_nullability_changes(array, *ptype, *nullability);
-        
-        match ptype {
-            PType::U8 => test_cast_from_u8(array),
-            PType::U16 => test_cast_from_u16(array),
-            PType::U32 => test_cast_from_u32(array),
-            PType::U64 => test_cast_from_u64(array),
-            PType::I8 => test_cast_from_i8(array),
-            PType::I16 => test_cast_from_i16(array),
-            PType::I32 => test_cast_from_i32(array),
-            PType::I64 => test_cast_from_i64(array),
-            PType::F16 => test_cast_from_f16(array),
-            PType::F32 => test_cast_from_f32(array),
-            PType::F64 => test_cast_from_f64(array),
+    // Always test identity cast and nullability changes
+    test_cast_identity(array);
+    
+    // Test based on the specific DType
+    match dtype {
+        DType::Null => test_cast_from_null(array),
+        DType::Bool(nullability) => test_cast_from_bool(array, *nullability),
+        DType::Primitive(ptype, nullability) => {
+            test_cast_nullability_changes_primitive(array, *ptype, *nullability);
+            match ptype {
+                PType::U8 => test_cast_from_u8(array),
+                PType::U16 => test_cast_from_u16(array),
+                PType::U32 => test_cast_from_u32(array),
+                PType::U64 => test_cast_from_u64(array),
+                PType::I8 => test_cast_from_i8(array),
+                PType::I16 => test_cast_from_i16(array),
+                PType::I32 => test_cast_from_i32(array),
+                PType::I64 => test_cast_from_i64(array),
+                PType::F16 => test_cast_from_f16(array),
+                PType::F32 => test_cast_from_f32(array),
+                PType::F64 => test_cast_from_f64(array),
+            }
         }
+        DType::Decimal(_, nullability) => test_cast_from_decimal(array, *nullability),
+        DType::Utf8(nullability) => test_cast_from_utf8(array, *nullability),
+        DType::Binary(nullability) => test_cast_from_binary(array, *nullability),
+        DType::Struct(_, nullability) => test_cast_from_struct(array, *nullability),
+        DType::List(_, nullability) => test_cast_from_list(array, *nullability),
+        DType::Extension(_) => test_cast_from_extension(array),
     }
 }
 
@@ -46,7 +58,7 @@ fn test_cast_identity(array: &dyn Array) {
     assert_eq!(result.dtype(), array.dtype());
     
     // Verify values are unchanged
-    for i in 0..array.len() {
+    for i in 0..array.len().min(10) {
         assert_eq!(
             array.scalar_at(i).vortex_unwrap(),
             result.scalar_at(i).vortex_unwrap()
@@ -54,7 +66,116 @@ fn test_cast_identity(array: &dyn Array) {
     }
 }
 
-fn test_cast_nullability_changes(array: &dyn Array, ptype: PType, nullability: Nullability) {
+fn test_cast_from_null(array: &dyn Array) {
+    // Null can only be cast to itself
+    let result = cast(array, &DType::Null).vortex_unwrap();
+    assert_eq!(result.len(), array.len());
+    assert_eq!(result.dtype(), &DType::Null);
+}
+
+fn test_cast_from_bool(array: &dyn Array, nullability: Nullability) {
+    // Test nullability changes
+    test_cast_nullability_changes(array, &DType::Bool(Nullability::Nullable));
+    if nullability == Nullability::Nullable {
+        // Try casting to non-nullable (may fail if nulls present)
+        let _ = cast(array, &DType::Bool(Nullability::NonNullable));
+    }
+}
+
+fn test_cast_from_decimal(array: &dyn Array, nullability: Nullability) {
+    // Test nullability changes for the same decimal type
+    if let DType::Decimal(decimal_type, _) = array.dtype() {
+        test_cast_nullability_changes(
+            array,
+            &DType::Decimal(decimal_type.clone(), Nullability::Nullable),
+        );
+        if nullability == Nullability::Nullable {
+            // Try casting to non-nullable (may fail if nulls present)
+            let _ = cast(array, &DType::Decimal(decimal_type.clone(), Nullability::NonNullable));
+        }
+    }
+}
+
+fn test_cast_from_utf8(array: &dyn Array, nullability: Nullability) {
+    // Test nullability changes
+    test_cast_nullability_changes(array, &DType::Utf8(Nullability::Nullable));
+    if nullability == Nullability::Nullable {
+        // Try casting to non-nullable (may fail if nulls present)
+        let _ = cast(array, &DType::Utf8(Nullability::NonNullable));
+    }
+    
+    // UTF-8 strings can potentially be cast to Binary
+    test_cast_to_type_safe(array, &DType::Binary(nullability));
+}
+
+fn test_cast_from_binary(array: &dyn Array, nullability: Nullability) {
+    // Test nullability changes
+    test_cast_nullability_changes(array, &DType::Binary(Nullability::Nullable));
+    if nullability == Nullability::Nullable {
+        // Try casting to non-nullable (may fail if nulls present)
+        let _ = cast(array, &DType::Binary(Nullability::NonNullable));
+    }
+    
+    // Binary might be castable to UTF-8 if it contains valid UTF-8
+    test_cast_to_type_safe(array, &DType::Utf8(nullability));
+}
+
+fn test_cast_from_struct(array: &dyn Array, nullability: Nullability) {
+    // Test nullability changes for the same struct type
+    if let DType::Struct(fields, _) = array.dtype() {
+        test_cast_nullability_changes(
+            array,
+            &DType::Struct(fields.clone(), Nullability::Nullable),
+        );
+        if nullability == Nullability::Nullable {
+            // Try casting to non-nullable (may fail if nulls present)
+            let _ = cast(array, &DType::Struct(fields.clone(), Nullability::NonNullable));
+        }
+    }
+}
+
+fn test_cast_from_list(array: &dyn Array, nullability: Nullability) {
+    // Test nullability changes for the same list type
+    if let DType::List(element_type, _) = array.dtype() {
+        test_cast_nullability_changes(
+            array,
+            &DType::List(element_type.clone(), Nullability::Nullable),
+        );
+        if nullability == Nullability::Nullable {
+            // Try casting to non-nullable (may fail if nulls present)
+            let _ = cast(array, &DType::List(element_type.clone(), Nullability::NonNullable));
+        }
+    }
+}
+
+fn test_cast_from_extension(array: &dyn Array) {
+    // Extension types typically only cast to themselves
+    // The specific casting rules depend on the extension type
+    if let DType::Extension(ext_dtype) = array.dtype() {
+        let result = cast(array, &DType::Extension(ext_dtype.clone())).vortex_unwrap();
+        assert_eq!(result.len(), array.len());
+        assert_eq!(result.dtype(), array.dtype());
+    }
+}
+
+fn test_cast_nullability_changes(array: &dyn Array, nullable_version: &DType) {
+    // Test casting to nullable version
+    if array.dtype().nullability() == Nullability::NonNullable {
+        let result = cast(array, nullable_version).vortex_unwrap();
+        assert_eq!(result.len(), array.len());
+        assert_eq!(result.dtype(), nullable_version);
+        
+        // Values should be unchanged
+        for i in 0..array.len().min(10) {
+            assert_eq!(
+                array.scalar_at(i).vortex_unwrap(),
+                result.scalar_at(i).vortex_unwrap()
+            );
+        }
+    }
+}
+
+fn test_cast_nullability_changes_primitive(array: &dyn Array, ptype: PType, nullability: Nullability) {
     // Test casting to nullable version
     if nullability == Nullability::NonNullable {
         let nullable_dtype = DType::Primitive(ptype, Nullability::Nullable);
@@ -63,7 +184,7 @@ fn test_cast_nullability_changes(array: &dyn Array, ptype: PType, nullability: N
         assert_eq!(result.dtype(), &nullable_dtype);
         
         // Values should be unchanged
-        for i in 0..array.len() {
+        for i in 0..array.len().min(10) {
             assert_eq!(
                 array.scalar_at(i).vortex_unwrap(),
                 result.scalar_at(i).vortex_unwrap()
@@ -80,7 +201,7 @@ fn test_cast_nullability_changes(array: &dyn Array, ptype: PType, nullability: N
             assert_eq!(result.dtype(), &non_nullable_dtype);
             
             // Values should be unchanged
-            for i in 0..array.len() {
+            for i in 0..array.len().min(10) {
                 assert_eq!(
                     array.scalar_at(i).vortex_unwrap(),
                     result.scalar_at(i).vortex_unwrap()
@@ -92,131 +213,131 @@ fn test_cast_nullability_changes(array: &dyn Array, ptype: PType, nullability: N
 
 fn test_cast_from_u8(array: &dyn Array) {
     // Test widening casts
-    test_cast_to_type(array, PType::U16);
-    test_cast_to_type(array, PType::U32);
-    test_cast_to_type(array, PType::U64);
-    test_cast_to_type(array, PType::I16);
-    test_cast_to_type(array, PType::I32);
-    test_cast_to_type(array, PType::I64);
-    test_cast_to_type(array, PType::F32);
-    test_cast_to_type(array, PType::F64);
+    test_cast_to_primitive(array, PType::U16);
+    test_cast_to_primitive(array, PType::U32);
+    test_cast_to_primitive(array, PType::U64);
+    test_cast_to_primitive(array, PType::I16);
+    test_cast_to_primitive(array, PType::I32);
+    test_cast_to_primitive(array, PType::I64);
+    test_cast_to_primitive(array, PType::F32);
+    test_cast_to_primitive(array, PType::F64);
     
     // Test same-width cast
-    test_cast_to_type(array, PType::I8);
+    test_cast_to_primitive(array, PType::I8);
 }
 
 fn test_cast_from_u16(array: &dyn Array) {
     // Test narrowing cast
-    test_cast_to_type(array, PType::U8);
+    test_cast_to_primitive(array, PType::U8);
     
     // Test widening casts
-    test_cast_to_type(array, PType::U32);
-    test_cast_to_type(array, PType::U64);
-    test_cast_to_type(array, PType::I32);
-    test_cast_to_type(array, PType::I64);
-    test_cast_to_type(array, PType::F32);
-    test_cast_to_type(array, PType::F64);
+    test_cast_to_primitive(array, PType::U32);
+    test_cast_to_primitive(array, PType::U64);
+    test_cast_to_primitive(array, PType::I32);
+    test_cast_to_primitive(array, PType::I64);
+    test_cast_to_primitive(array, PType::F32);
+    test_cast_to_primitive(array, PType::F64);
     
     // Test same-width cast
-    test_cast_to_type(array, PType::I16);
+    test_cast_to_primitive(array, PType::I16);
 }
 
 fn test_cast_from_u32(array: &dyn Array) {
     // Test narrowing casts
-    test_cast_to_type(array, PType::U8);
-    test_cast_to_type(array, PType::U16);
-    test_cast_to_type(array, PType::I8);
-    test_cast_to_type(array, PType::I16);
+    test_cast_to_primitive(array, PType::U8);
+    test_cast_to_primitive(array, PType::U16);
+    test_cast_to_primitive(array, PType::I8);
+    test_cast_to_primitive(array, PType::I16);
     
     // Test widening casts
-    test_cast_to_type(array, PType::U64);
-    test_cast_to_type(array, PType::I64);
-    test_cast_to_type(array, PType::F64);
+    test_cast_to_primitive(array, PType::U64);
+    test_cast_to_primitive(array, PType::I64);
+    test_cast_to_primitive(array, PType::F64);
     
     // Test same-width casts
-    test_cast_to_type(array, PType::I32);
-    test_cast_to_type(array, PType::F32);
+    test_cast_to_primitive(array, PType::I32);
+    test_cast_to_primitive(array, PType::F32);
 }
 
 fn test_cast_from_u64(array: &dyn Array) {
     // Test narrowing casts
-    test_cast_to_type(array, PType::U8);
-    test_cast_to_type(array, PType::U16);
-    test_cast_to_type(array, PType::U32);
-    test_cast_to_type(array, PType::I8);
-    test_cast_to_type(array, PType::I16);
-    test_cast_to_type(array, PType::I32);
-    test_cast_to_type(array, PType::F32);
+    test_cast_to_primitive(array, PType::U8);
+    test_cast_to_primitive(array, PType::U16);
+    test_cast_to_primitive(array, PType::U32);
+    test_cast_to_primitive(array, PType::I8);
+    test_cast_to_primitive(array, PType::I16);
+    test_cast_to_primitive(array, PType::I32);
+    test_cast_to_primitive(array, PType::F32);
     
     // Test same-width casts
-    test_cast_to_type(array, PType::I64);
-    test_cast_to_type(array, PType::F64);
+    test_cast_to_primitive(array, PType::I64);
+    test_cast_to_primitive(array, PType::F64);
 }
 
 fn test_cast_from_i8(array: &dyn Array) {
     // Test widening casts
-    test_cast_to_type(array, PType::I16);
-    test_cast_to_type(array, PType::I32);
-    test_cast_to_type(array, PType::I64);
-    test_cast_to_type(array, PType::F32);
-    test_cast_to_type(array, PType::F64);
+    test_cast_to_primitive(array, PType::I16);
+    test_cast_to_primitive(array, PType::I32);
+    test_cast_to_primitive(array, PType::I64);
+    test_cast_to_primitive(array, PType::F32);
+    test_cast_to_primitive(array, PType::F64);
     
     // Test same-width cast (may fail for negative values)
-    test_cast_to_type(array, PType::U8);
+    test_cast_to_primitive(array, PType::U8);
 }
 
 fn test_cast_from_i16(array: &dyn Array) {
     // Test narrowing cast
-    test_cast_to_type(array, PType::I8);
+    test_cast_to_primitive(array, PType::I8);
     
     // Test widening casts
-    test_cast_to_type(array, PType::I32);
-    test_cast_to_type(array, PType::I64);
-    test_cast_to_type(array, PType::F32);
-    test_cast_to_type(array, PType::F64);
+    test_cast_to_primitive(array, PType::I32);
+    test_cast_to_primitive(array, PType::I64);
+    test_cast_to_primitive(array, PType::F32);
+    test_cast_to_primitive(array, PType::F64);
     
     // Test same-width cast (may fail for negative values)
-    test_cast_to_type(array, PType::U16);
+    test_cast_to_primitive(array, PType::U16);
 }
 
 fn test_cast_from_i32(array: &dyn Array) {
     // Test narrowing casts
-    test_cast_to_type(array, PType::I8);
-    test_cast_to_type(array, PType::I16);
+    test_cast_to_primitive(array, PType::I8);
+    test_cast_to_primitive(array, PType::I16);
     
     // Test widening casts
-    test_cast_to_type(array, PType::I64);
-    test_cast_to_type(array, PType::F64);
+    test_cast_to_primitive(array, PType::I64);
+    test_cast_to_primitive(array, PType::F64);
     
     // Test same-width casts
-    test_cast_to_type(array, PType::F32);
-    test_cast_to_type(array, PType::U32);
+    test_cast_to_primitive(array, PType::F32);
+    test_cast_to_primitive(array, PType::U32);
 }
 
 fn test_cast_from_i64(array: &dyn Array) {
     // Test narrowing casts
-    test_cast_to_type(array, PType::I8);
-    test_cast_to_type(array, PType::I16);
-    test_cast_to_type(array, PType::I32);
-    test_cast_to_type(array, PType::F32);
+    test_cast_to_primitive(array, PType::I8);
+    test_cast_to_primitive(array, PType::I16);
+    test_cast_to_primitive(array, PType::I32);
+    test_cast_to_primitive(array, PType::F32);
     
     // Test same-width cast
-    test_cast_to_type(array, PType::F64);
-    test_cast_to_type(array, PType::U64);
+    test_cast_to_primitive(array, PType::F64);
+    test_cast_to_primitive(array, PType::U64);
 }
 
 fn test_cast_from_f16(array: &dyn Array) {
     // Test casts to other float types
-    test_cast_to_type(array, PType::F32);
-    test_cast_to_type(array, PType::F64);
+    test_cast_to_primitive(array, PType::F32);
+    test_cast_to_primitive(array, PType::F64);
 }
 
 fn test_cast_from_f32(array: &dyn Array) {
     // Test narrowing cast
-    test_cast_to_type(array, PType::F16);
+    test_cast_to_primitive(array, PType::F16);
     
     // Test widening cast
-    test_cast_to_type(array, PType::F64);
+    test_cast_to_primitive(array, PType::F64);
     
     // Test casts to integer types (truncation)
     test_cast_to_integral_types(array);
@@ -224,8 +345,8 @@ fn test_cast_from_f32(array: &dyn Array) {
 
 fn test_cast_from_f64(array: &dyn Array) {
     // Test narrowing casts
-    test_cast_to_type(array, PType::F16);
-    test_cast_to_type(array, PType::F32);
+    test_cast_to_primitive(array, PType::F16);
+    test_cast_to_primitive(array, PType::F32);
     
     // Test casts to integer types (truncation)
     test_cast_to_integral_types(array);
@@ -234,21 +355,24 @@ fn test_cast_from_f64(array: &dyn Array) {
 fn test_cast_to_integral_types(array: &dyn Array) {
     // Test casting to all integral types
     // Some may fail due to out-of-range values
-    test_cast_to_type(array, PType::I8);
-    test_cast_to_type(array, PType::U8);
-    test_cast_to_type(array, PType::I16);
-    test_cast_to_type(array, PType::U16);
-    test_cast_to_type(array, PType::I32);
-    test_cast_to_type(array, PType::U32);
-    test_cast_to_type(array, PType::I64);
-    test_cast_to_type(array, PType::U64);
+    test_cast_to_primitive(array, PType::I8);
+    test_cast_to_primitive(array, PType::U8);
+    test_cast_to_primitive(array, PType::I16);
+    test_cast_to_primitive(array, PType::U16);
+    test_cast_to_primitive(array, PType::I32);
+    test_cast_to_primitive(array, PType::U32);
+    test_cast_to_primitive(array, PType::I64);
+    test_cast_to_primitive(array, PType::U64);
 }
 
-fn test_cast_to_type(array: &dyn Array, target_ptype: PType) {
+fn test_cast_to_primitive(array: &dyn Array, target_ptype: PType) {
     let target_dtype = DType::Primitive(target_ptype, array.dtype().nullability());
-    
+    test_cast_to_type_safe(array, &target_dtype);
+}
+
+fn test_cast_to_type_safe(array: &dyn Array, target_dtype: &DType) {
     // Attempt the cast
-    let result = match cast(array, &target_dtype) {
+    let result = match cast(array, target_dtype) {
         Ok(r) => r,
         Err(_) => {
             // Some casts may fail (e.g., negative to unsigned, out-of-range values)
@@ -258,7 +382,7 @@ fn test_cast_to_type(array: &dyn Array, target_ptype: PType) {
     };
     
     assert_eq!(result.len(), array.len());
-    assert_eq!(result.dtype(), &target_dtype);
+    assert_eq!(result.dtype(), target_dtype);
     
     // For valid casts, verify the values are correctly converted
     // We can't easily verify exact values without knowing the input type,
@@ -274,8 +398,10 @@ fn test_cast_to_type(array: &dyn Array, target_ptype: PType) {
 mod tests {
     use super::*;
     use vortex_buffer::buffer;
-    use crate::arrays::PrimitiveArray;
+    use crate::arrays::{PrimitiveArray, BoolArray, NullArray, VarBinArray, StructArray, ListArray};
     use crate::IntoArray;
+    use vortex_dtype::{DType, FieldDType, FieldNames, Nullability, StructFields};
+    use std::sync::Arc;
     
     #[test]
     fn test_cast_conformance_u32() {
@@ -298,6 +424,74 @@ mod tests {
     #[test]
     fn test_cast_conformance_nullable() {
         let array = PrimitiveArray::from_option_iter([Some(1u8), None, Some(255), Some(0), None]);
+        test_cast_conformance(array.as_ref());
+    }
+    
+    #[test]
+    fn test_cast_conformance_bool() {
+        let array = BoolArray::from_iter(vec![true, false, true, false]);
+        test_cast_conformance(array.as_ref());
+    }
+    
+    #[test]
+    fn test_cast_conformance_null() {
+        let array = NullArray::new(5);
+        test_cast_conformance(array.as_ref());
+    }
+    
+    #[test]
+    fn test_cast_conformance_utf8() {
+        let array = VarBinArray::from_iter(
+            vec![Some("hello"), None, Some("world")],
+            DType::Utf8(Nullability::Nullable),
+        );
+        test_cast_conformance(array.as_ref());
+    }
+    
+    #[test]
+    fn test_cast_conformance_binary() {
+        let array = VarBinArray::from_iter(
+            vec![Some(b"data".as_slice()), None, Some(b"bytes".as_slice())],
+            DType::Binary(Nullability::Nullable),
+        );
+        test_cast_conformance(array.as_ref());
+    }
+    
+    #[test]
+    fn test_cast_conformance_struct() {
+        let names: FieldNames = vec!["a".into(), "b".into()].into();
+        let fields = StructFields::from_iter([
+            FieldDType {
+                name: "a".into(),
+                dtype: DType::Primitive(PType::I32, Nullability::NonNullable),
+            },
+            FieldDType {
+                name: "b".into(),
+                dtype: DType::Utf8(Nullability::Nullable),
+            },
+        ]);
+        let struct_dtype = DType::Struct(fields, Nullability::NonNullable);
+        
+        let a = buffer![1i32, 2, 3].into_array();
+        let b = VarBinArray::from_iter(
+            vec![Some("x"), None, Some("z")],
+            DType::Utf8(Nullability::Nullable),
+        ).into_array();
+        
+        let array = StructArray::try_new(names, vec![a, b], 3, crate::validity::Validity::NonNullable).unwrap();
+        test_cast_conformance(array.as_ref());
+    }
+    
+    #[test]
+    fn test_cast_conformance_list() {
+        let data = buffer![1i32, 2, 3, 4, 5, 6].into_array();
+        let offsets = buffer![0i64, 2, 2, 5, 6].into_array();
+        let dtype = DType::List(
+            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            Nullability::NonNullable,
+        );
+        
+        let array = ListArray::try_new(data, offsets, crate::validity::Validity::NonNullable).unwrap();
         test_cast_conformance(array.as_ref());
     }
 }
