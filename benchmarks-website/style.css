@@ -69,8 +69,8 @@ body {
   right: 0;
   height: var(--header-height);
   background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border-color);
   box-shadow: var(--shadow-sm);
   z-index: 1000;
@@ -429,6 +429,7 @@ body {
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
   cursor: pointer;
+  -webkit-user-select: none;
   user-select: none;
   transition: background-color 0.2s;
 }
@@ -841,6 +842,7 @@ body {
   
   .chart-container canvas {
     max-height: 300px; /* Smaller charts on mobile */
+    min-height: 200px; /* Ensure minimum height */
   }
   
   /* Disable hover effects on mobile */
@@ -915,8 +917,17 @@ code, pre, .monospace {
 }
 
 /* Chart specific improvements */
+.chart-container {
+  position: relative;
+  height: auto;
+  width: 100%;
+}
+
 .chart-container canvas {
   max-height: 400px;
+  width: 100% !important;
+  height: auto !important;
+  display: block;
 }
 
 .benchmark-graphs.list-view .chart-container canvas {
