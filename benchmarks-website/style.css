@@ -754,15 +754,37 @@ body {
   }
 
   .header-content {
-    padding: 0 12px;
+    padding: 0 8px;
+    gap: 8px;
+  }
+
+  .header-left {
+    gap: 8px;
+  }
+
+  .header-right {
+    gap: 8px;
   }
 
   .site-logo {
-    height: 40px;
+    height: 36px;
   }
   
   .site-title {
-    font-size: 1.2rem;
+    display: none;
+  }
+
+  .view-controls {
+    display: none;
+  }
+
+  .repo-link {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+
+  .repo-link span {
+    display: none;
   }
 
   .header-center {
@@ -814,6 +836,27 @@ body {
 
   .chart-container {
     padding: 12px;
+    will-change: auto; /* Prevent unnecessary GPU layers */
+  }
+  
+  .chart-container canvas {
+    max-height: 300px; /* Smaller charts on mobile */
+  }
+  
+  /* Disable hover effects on mobile */
+  .chart-container:hover {
+    transform: none;
+    box-shadow: none;
+  }
+  
+  /* Hide engine filters on mobile to save space */
+  .engine-filter-container {
+    padding: 12px 16px;
+    flex-wrap: wrap;
+  }
+  
+  .filter-separator {
+    display: none;
   }
 
   .back-to-top {

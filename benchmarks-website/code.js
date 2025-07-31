@@ -369,6 +369,27 @@ window.initAndRender = (function () {
     return { container, canvas };
   }
 
+  // Intersection Observer for lazy loading charts
+  let chartObserver;
+  if ('IntersectionObserver' in window) {
+    chartObserver = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          const container = entry.target;
+          if (!container.hasAttribute('data-chart-loaded')) {
+            container.setAttribute('data-chart-loaded', 'true');
+            const chartData = container.chartData;
+            if (chartData) {
+              createChartInstance(chartData);
+            }
+          }
+        }
+      });
+    }, {
+      rootMargin: '50px'
+    });
+  }
+
   function renderChart(
     parent,
     name,
@@ -382,8 +403,41 @@ window.initAndRender = (function () {
     const { container, canvas } = createChartContainer(name, benchName, index);
     parent.appendChild(container);
 
+    // Store chart configuration for lazy loading
+    const chartConfig = {
+      canvas,
+      name,
+      benchName,
+      dataset,
+      hiddenDatasets,
+      removedDatasets,
+      renamedDatasets,
+      index
+    };
+
+    // On mobile or when IntersectionObserver is available, use lazy loading
+    const isMobile = window.innerWidth <= 768;
+    if (isMobile && chartObserver) {
+      container.chartData = chartConfig;
+      chartObserver.observe(container);
+      return null; // Don't create chart immediately
+    }
+
+    // Otherwise create chart immediately
+    return createChartInstance(chartConfig);
+  }
+
+  function createChartInstance(config) {
+    const { canvas, name, benchName, dataset, hiddenDatasets, removedDatasets, renamedDatasets, index } = config;
+
+    // On mobile, limit data points to last 100 commits for performance
+    const isMobile = window.innerWidth <= 768;
+    const maxDataPoints = isMobile ? 100 : dataset.commits.length;
+    const startIndex = Math.max(0, dataset.commits.length - maxDataPoints);
+    
+    const limitedCommits = dataset.commits.slice(startIndex);
     const data = {
-      labels: dataset.commits.map((commit) => commit.id.slice(0, 7)),
+      labels: limitedCommits.map((commit) => commit.id.slice(0, 7)),
       datasets: Array.from(dataset.series)
         .filter(([name, benches]) => {
           return removedDatasets === undefined || !removedDatasets.has(name);
@@ -394,9 +448,10 @@ window.initAndRender = (function () {
               ? name
               : renamedDatasets[name] || name;
           const color = stringToColor(renamedName);
+          const limitedData = benches.slice(startIndex);
           return {
             label: renamedName,
-            data: benches.map((b) => (b ? b.value : null)),
+            data: limitedData.map((b) => (b ? b.value : null)),
             borderColor: color,
             backgroundColor: color + "60", // Add alpha for #rrggbbaa
             hidden: hiddenDatasets !== undefined && hiddenDatasets.has(name),
@@ -430,15 +485,23 @@ window.initAndRender = (function () {
       y_axis_scale.max = 8192;
     }
 
+    const isMobile = window.innerWidth <= 768;
     const options = {
       responsive: true,
       maintainAspectRatio: false,
       spanGaps: true,
-      pointStyle: "crossRot",
+      pointStyle: isMobile ? false : "crossRot", // Disable point rendering on mobile
       elements: {
         line: {
           borderWidth: 1,
+          tension: 0, // Disable bezier curves for performance
         },
+        point: {
+          radius: isMobile ? 0 : 3, // Hide points on mobile
+        },
+      },
+      animation: {
+        duration: isMobile ? 0 : 1000, // Disable animation on mobile
       },
       scales: {
         x: {
@@ -466,8 +529,10 @@ window.initAndRender = (function () {
               backgroundColor: 'rgba(89, 113, 253, 0.1)'  // Visual feedback
             },
             onZoom: function({ chart }) {
-              // Synchronize zoom with other charts in the same category
-              synchronizeZoomForCategory(name, chart, index);
+              // Synchronize zoom with other charts in the same category (disabled on mobile)
+              if (!isMobile) {
+                synchronizeZoomForCategory(name, chart, index);
+              }
             }
           },
           pan: {
@@ -475,8 +540,10 @@ window.initAndRender = (function () {
             mode: 'x',
             modifierKey: null,
             onPan: function({ chart }) {
-              // Also synchronize when panning (pass false for isZoom)
-              synchronizeZoomForCategory(name, chart, index, false);
+              // Also synchronize when panning (disabled on mobile)
+              if (!isMobile) {
+                synchronizeZoomForCategory(name, chart, index, false);
+              }
             }
           },
           limits: {
@@ -501,7 +568,7 @@ window.initAndRender = (function () {
           callbacks: {
             afterLabel: function(context) {
               const dataIndex = context.dataIndex;
-              const commit = dataset.commits[dataIndex];
+              const commit = limitedCommits[dataIndex];
               if (!commit) return [];
               
               // Return an array of lines for the tooltip
@@ -518,7 +585,7 @@ window.initAndRender = (function () {
         // Click on a data point to open the commit URL
         if (elements.length > 0) {
           const index = elements[0].index;
-          const commit = dataset.commits[index];
+          const commit = limitedCommits[index];
           if (commit && commit.url) {
             window.open(commit.url, '_blank');
           }
