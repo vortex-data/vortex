@@ -2,8 +2,8 @@ name: Vortex Docs
 
 on:
   push:
-    branches: [ develop ]
-  workflow_dispatch: { }
+    branches: [develop]
+  workflow_dispatch: {}
 
 permissions:
   actions: read
