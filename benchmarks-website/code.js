@@ -476,11 +476,24 @@ window.initAndRender = (function () {
     headerElem.onclick = () => toggleSection(name);
     
     const titleWrapper = document.createElement('div');
+    titleWrapper.className = 'title-wrapper';
+    
     const nameElem = document.createElement("h1");
     nameElem.id = h1id;
     nameElem.className = "benchmark-title";
     nameElem.innerHTML = `<span class="collapse-icon">▼</span> ${name}`;
+    
+    const linkBtn = document.createElement('button');
+    linkBtn.className = 'group-link-btn';
+    linkBtn.setAttribute('aria-label', 'Copy link to this section');
+    linkBtn.innerHTML = '🔗';
+    linkBtn.onclick = (e) => {
+      e.stopPropagation(); // Prevent triggering collapse/expand
+      linkToGroup(name);
+    };
+    
     titleWrapper.appendChild(nameElem);
+    titleWrapper.appendChild(linkBtn);
     
     const metaElem = document.createElement('div');
     metaElem.className = 'benchmark-meta';
@@ -836,7 +849,8 @@ window.initAndRender = (function () {
     return {
       tag: params.get('tag') || 'all',
       engine: params.get('engine') || 'all',
-      expanded: params.get('expanded') || 'true'
+      expanded: params.get('expanded') || 'true',
+      group: params.get('group') || null
     };
   }
   
@@ -855,6 +869,54 @@ window.initAndRender = (function () {
     window.history.replaceState({}, '', newURL);
   }
   
+  function linkToGroup(groupName) {
+    // Update URL with group parameter
+    updateURLParams({ group: groupName });
+    
+    // Find the target section for the copy feedback
+    const targetSection = document.querySelector(`[data-category="${groupName}"]`);
+    
+    // Copy URL to clipboard
+    navigator.clipboard.writeText(window.location.href).then(() => {
+      // Show temporary feedback
+      if (targetSection) {
+        const linkBtn = targetSection.querySelector('.group-link-btn');
+        if (linkBtn) {
+          const originalText = linkBtn.innerHTML;
+          linkBtn.innerHTML = '✓';
+          linkBtn.classList.add('copied');
+          setTimeout(() => {
+            linkBtn.innerHTML = originalText;
+            linkBtn.classList.remove('copied');
+          }, 2000);
+        }
+      }
+    });
+  }
+  
+  function focusOnGroup(groupName) {
+    // Collapse all sections first
+    document.querySelectorAll('.benchmark-set').forEach(section => {
+      const category = section.getAttribute('data-category');
+      state.expandedSections.delete(category);
+      section.classList.add('collapsed');
+    });
+    
+    // Expand only the selected group
+    const targetSection = document.querySelector(`[data-category="${groupName}"]`);
+    if (targetSection) {
+      state.expandedSections.add(groupName);
+      targetSection.classList.remove('collapsed');
+      
+      // Scroll to the section
+      const targetId = targetSection.querySelector('.benchmark-title').id;
+      document.getElementById(targetId).scrollIntoView({ behavior: 'smooth', block: 'start' });
+      
+      // Update active nav item
+      updateActiveNavItem(targetId);
+    }
+  }
+
   function initializeFromURL() {
     const urlParams = getURLParams();
     
@@ -874,8 +936,13 @@ window.initAndRender = (function () {
       filterEngineForCategory(null, urlParams.engine);
     }
     
-    // Apply expand/collapse state
-    if (urlParams.expanded === 'false') {
+    // Apply expand/collapse state or handle specific group
+    if (urlParams.group) {
+      // If a specific group is linked, collapse all and expand only that group
+      setTimeout(() => {
+        focusOnGroup(urlParams.group);
+      }, 100); // Small delay to ensure DOM is ready
+    } else if (urlParams.expanded === 'false') {
       collapseAll();
     }
   }

@@ -430,6 +430,13 @@ body {
   background: #F5F5F5;
 }
 
+.title-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1;
+}
+
 .benchmark-title {
   font-family: "Funnel Display", sans-serif;
   font-size: 1.75rem;
@@ -440,6 +447,32 @@ body {
   align-items: center;
   gap: 12px;
   letter-spacing: -0.02em;
+}
+
+.group-link-btn {
+  font-size: 18px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  opacity: 0;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  transition: all 0.2s;
+  color: var(--text-secondary);
+}
+
+.benchmark-header:hover .group-link-btn {
+  opacity: 1;
+}
+
+.group-link-btn:hover {
+  background-color: var(--bg-secondary);
+  color: var(--primary-color);
+}
+
+.group-link-btn.copied {
+  color: var(--accent-color);
+  opacity: 1;
 }
 
 .collapse-icon {
