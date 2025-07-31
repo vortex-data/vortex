@@ -557,6 +557,31 @@ body {
   border-color: var(--primary-hover);
 }
 
+.filter-separator {
+  margin: 0 12px;
+  color: var(--border-color);
+  font-weight: 300;
+}
+
+.reset-zoom-btn {
+  font-family: "Geist", sans-serif;
+  padding: 6px 14px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-color);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.reset-zoom-btn:hover {
+  background-color: var(--bg-secondary);
+  border-color: var(--primary-color);
+  color: var(--text-color);
+}
+
 /* Chart Grid */
 .benchmark-graphs {
   display: grid;

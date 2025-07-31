@@ -424,6 +424,10 @@ window.initAndRender = (function () {
             wheel: { enabled: true },
             mode: "x",
             drag: { enabled: true },
+            onZoom: function({ chart }) {
+              // Synchronize zoom with other charts in the same category
+              synchronizeZoomForCategory(name, chart, index);
+            }
           },
         },
         legend: {
@@ -949,6 +953,57 @@ window.initAndRender = (function () {
       // Update active nav item
       updateActiveNavItem(targetId);
     }
+  }
+
+  function resetZoomForCategory(categoryName) {
+    // Find all charts in this category
+    const categorySection = document.querySelector(`[data-category="${categoryName}"]`);
+    if (!categorySection) return;
+    
+    const chartContainers = categorySection.querySelectorAll('.chart-container');
+    chartContainers.forEach((container, index) => {
+      const chartKey = `${categoryName}-${index}`;
+      const chartData = state.chartInstances.get(chartKey);
+      
+      if (chartData && chartData.chart) {
+        // Reset zoom to show last 50 commits
+        const chart = chartData.chart;
+        const totalCommits = chart.data.labels.length;
+        const minIndex = Math.max(0, totalCommits - 50);
+        
+        chart.options.scales.x.min = minIndex;
+        chart.options.scales.x.max = totalCommits - 1;
+        chart.update('none');
+      }
+    });
+  }
+  
+  function synchronizeZoomForCategory(categoryName, sourceChart, sourceIndex) {
+    // Get the current zoom state from the source chart
+    const xScale = sourceChart.scales.x;
+    const min = xScale.min;
+    const max = xScale.max;
+    
+    // Find all charts in this category
+    const categorySection = document.querySelector(`[data-category="${categoryName}"]`);
+    if (!categorySection) return;
+    
+    const chartContainers = categorySection.querySelectorAll('.chart-container');
+    chartContainers.forEach((container, index) => {
+      // Skip the source chart
+      if (index === sourceIndex) return;
+      
+      const chartKey = `${categoryName}-${index}`;
+      const chartData = state.chartInstances.get(chartKey);
+      
+      if (chartData && chartData.chart) {
+        // Apply the same zoom to this chart
+        const chart = chartData.chart;
+        chart.options.scales.x.min = min;
+        chart.options.scales.x.max = max;
+        chart.update('none');
+      }
+    });
   }
 
   function initializeFromURL() {
