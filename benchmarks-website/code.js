@@ -65,23 +65,23 @@ window.initAndRender = (function () {
   }
 
   function stringToColor(str) {
-    // Spiral brand colors
-    const SPIRAL_COLORS = {
-      primary: "#5971FD",    // Spiral Blue
-      accent: "#CEE562",     // Spiral Green  
-      pink: "#EEB3E1",       // Spiral Pink
-      black: "#101010",      // Spiral Black
+    // Vortex brand colors
+    const VORTEX_COLORS = {
+      primary: "#5971FD",    // Vortex Blue
+      accent: "#CEE562",     // Vortex Green  
+      pink: "#EEB3E1",       // Vortex Pink
+      black: "#101010",      // Vortex Black
       gray: "#666666",       // Secondary gray
     };
     
     // Specific mappings using brand colors
     const MAP = {
-      "datafusion:arrow": SPIRAL_COLORS.gray,
+      "datafusion:arrow": VORTEX_COLORS.gray,
       "datafusion:parquet": "#FF8C42",  // Orange complement
-      "datafusion:vortex": SPIRAL_COLORS.primary,
+      "datafusion:vortex": VORTEX_COLORS.primary,
 
       "duckdb:parquet": "#B8336A",  // Pink variant
-      "duckdb:vortex": SPIRAL_COLORS.accent,
+      "duckdb:vortex": VORTEX_COLORS.accent,
       "duckdb:duckdb": "#726DA8",   // Purple complement
     };
 
@@ -91,9 +91,9 @@ window.initAndRender = (function () {
 
     // Fallback palette for unmapped series
     const fallbackPalette = [
-      SPIRAL_COLORS.primary,
-      SPIRAL_COLORS.accent,
-      SPIRAL_COLORS.pink,
+      VORTEX_COLORS.primary,
+      VORTEX_COLORS.accent,
+      VORTEX_COLORS.pink,
       "#FF8C42",  // Orange
       "#B8336A",  // Deep pink
       "#726DA8",  // Purple
@@ -150,7 +150,7 @@ window.initAndRender = (function () {
           message: "!! This commit is missing from commits.json !!",
           timestamp: "1970-01-01T00:00:00Z",
           tree_id: null,
-          url: "https://github.com/spiraldb/vortex/commit/" + commit_id,
+          url: "https://github.com/vortex-data/vortex/commit/" + commit_id,
         };
       }
 

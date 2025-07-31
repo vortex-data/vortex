@@ -1,21 +1,21 @@
 /* CSS Variables for consistent theming */
 :root {
-  /* Spiral Brand Colors */
-  --spiral-black: #101010;
-  --spiral-gray: #ECECEC;
-  --spiral-green: #CEE562;
-  --spiral-blue: #5971FD;
-  --spiral-pink: #EEB3E1;
+  /* Vortex Brand Colors */
+  --vortex-black: #101010;
+  --vortex-gray: #ECECEC;
+  --vortex-green: #CEE562;
+  --vortex-blue: #5971FD;
+  --vortex-pink: #EEB3E1;
   
   /* Theme Colors */
-  --primary-color: var(--spiral-blue);
+  --primary-color: var(--vortex-blue);
   --primary-hover: #4A5FE5;
-  --accent-color: var(--spiral-green);
+  --accent-color: var(--vortex-green);
   --bg-color: #ffffff;
   --bg-secondary: #FAFAFA;
-  --text-color: var(--spiral-black);
+  --text-color: var(--vortex-black);
   --text-secondary: #666666;
-  --border-color: var(--spiral-gray);
+  --border-color: var(--vortex-gray);
   
   /* Layout */
   --header-height: 96px;
