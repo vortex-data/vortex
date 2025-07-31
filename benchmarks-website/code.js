@@ -473,7 +473,18 @@ window.initAndRender = (function () {
           pan: {
             enabled: true,
             mode: 'x',
-            modifierKey: null
+            modifierKey: null,
+            onPan: function({ chart }) {
+              // Also synchronize when panning (pass false for isZoom)
+              synchronizeZoomForCategory(name, chart, index, false);
+            }
+          },
+          limits: {
+            x: {
+              min: 0,
+              max: dataset.commits.length - 1,
+              minRange: 10  // Minimum 10 commits visible
+            }
           }
         },
         legend: {
@@ -1063,11 +1074,21 @@ window.initAndRender = (function () {
   // Store pending zoom updates per category
   const pendingZoomUpdates = new Map();
   
-  function synchronizeZoomForCategory(categoryName, sourceChart, sourceIndex) {
+  function synchronizeZoomForCategory(categoryName, sourceChart, sourceIndex, isZoom = true) {
     // Get the current zoom state from the source chart
     const xScale = sourceChart.scales.x;
-    const min = xScale.min;
-    const max = xScale.max;
+    let min = xScale.min;
+    let max = xScale.max;
+    
+    // Always anchor to the most recent commit when zooming
+    if (isZoom) {
+      const totalCommits = sourceChart.data.labels.length;
+      const currentRange = max - min;
+      
+      // Always keep the most recent commit visible
+      max = totalCommits - 1;
+      min = Math.max(0, max - currentRange);
+    }
     
     // Store the update for this category
     pendingZoomUpdates.set(categoryName, { min, max, sourceIndex });
