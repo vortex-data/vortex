@@ -34,6 +34,36 @@ window.initAndRender = (function () {
     }
   };
 
+  // DOM element cache
+  const domElements = {};
+
+  // Utility function for throttling
+  function throttle(func, limit) {
+    let inThrottle;
+    return function() {
+      const args = arguments;
+      const context = this;
+      if (!inThrottle) {
+        func.apply(context, args);
+        inThrottle = true;
+        setTimeout(() => inThrottle = false, limit);
+      }
+    };
+  }
+
+  // Utility function for debouncing
+  function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+      const later = () => {
+        clearTimeout(timeout);
+        func(...args);
+      };
+      clearTimeout(timeout);
+      timeout = setTimeout(later, wait);
+    };
+  }
+
   function stringToColor(str) {
     // Spiral brand colors
     const SPIRAL_COLORS = {
@@ -217,11 +247,15 @@ window.initAndRender = (function () {
           seriesName in renameDict ? renameDict[seriesName] : seriesName;
       }
 
-      let prettyQ = q
-        .replace("_", " ")
-        .toUpperCase()
-        .replace("VORTEX:RAW SIZE", "VORTEX COMPRESSION RATIO")
-        .replace("VORTEX:PARQUET-ZSTD SIZE", "VORTEX:PARQUET-ZSTD SIZE RATIO");
+      // Optimize string transformations with lookup table
+      const QUERY_NAME_MAP = {
+        'VORTEX:RAW SIZE': 'VORTEX COMPRESSION RATIO',
+        'VORTEX:PARQUET-ZSTD SIZE': 'VORTEX:PARQUET-ZSTD SIZE RATIO'
+      };
+      
+      let prettyQ = q.replace(/_/g, " ").toUpperCase();
+      prettyQ = QUERY_NAME_MAP[prettyQ] || prettyQ;
+      
       if (prettyQ.includes("PARQUET-UNC")) {
         return;
       }
@@ -421,14 +455,26 @@ window.initAndRender = (function () {
       plugins: {
         zoom: {
           zoom: {
-            wheel: { enabled: true },
+            wheel: { 
+              enabled: true,
+              speed: 0.1,  // Slower zoom for smoother experience
+              modifierKey: null  // No modifier key required
+            },
             mode: "x",
-            drag: { enabled: true },
+            drag: { 
+              enabled: true,
+              backgroundColor: 'rgba(89, 113, 253, 0.1)'  // Visual feedback
+            },
             onZoom: function({ chart }) {
               // Synchronize zoom with other charts in the same category
               synchronizeZoomForCategory(name, chart, index);
             }
           },
+          pan: {
+            enabled: true,
+            mode: 'x',
+            modifierKey: null
+          }
         },
         legend: {
           display: true,
@@ -681,20 +727,42 @@ window.initAndRender = (function () {
   }
 
   function expandAll() {
-    document.querySelectorAll('.benchmark-set').forEach(section => {
+    const sections = document.querySelectorAll('.benchmark-set');
+    const updates = [];
+    
+    sections.forEach(section => {
       const category = section.getAttribute('data-category');
       state.expandedSections.add(category);
-      section.classList.remove('collapsed');
+      if (section.classList.contains('collapsed')) {
+        updates.push(section);
+      }
     });
+    
+    // Batch DOM updates
+    requestAnimationFrame(() => {
+      updates.forEach(section => section.classList.remove('collapsed'));
+    });
+    
     updateURLParams({ expanded: 'true' });
   }
 
   function collapseAll() {
-    document.querySelectorAll('.benchmark-set').forEach(section => {
+    const sections = document.querySelectorAll('.benchmark-set');
+    const updates = [];
+    
+    sections.forEach(section => {
       const category = section.getAttribute('data-category');
       state.expandedSections.delete(category);
-      section.classList.add('collapsed');
+      if (!section.classList.contains('collapsed')) {
+        updates.push(section);
+      }
     });
+    
+    // Batch DOM updates
+    requestAnimationFrame(() => {
+      updates.forEach(section => section.classList.add('collapsed'));
+    });
+    
     updateURLParams({ expanded: 'false' });
   }
 
@@ -817,21 +885,24 @@ window.initAndRender = (function () {
           if (chartData && chartData.chart) {
             const chart = chartData.chart;
             
-            // Toggle dataset visibility based on engine filter
+            // Batch visibility updates for better performance
+            const visibilityUpdates = [];
             chart.data.datasets.forEach((dataset, datasetIndex) => {
               const label = dataset.label.toLowerCase();
+              const shouldShow = engine === 'all' || label.includes(engine);
               
-              if (engine === 'all') {
-                // Show all datasets
-                chart.setDatasetVisibility(datasetIndex, true);
-              } else {
-                // Show only datasets that match the engine
-                const shouldShow = label.includes(engine);
-                chart.setDatasetVisibility(datasetIndex, shouldShow);
+              if (chart.isDatasetVisible(datasetIndex) !== shouldShow) {
+                visibilityUpdates.push({ index: datasetIndex, visible: shouldShow });
               }
             });
             
-            chart.update('none'); // Update without animation for better performance
+            // Only update if there are changes
+            if (visibilityUpdates.length > 0) {
+              visibilityUpdates.forEach(update => {
+                chart.setDatasetVisibility(update.index, update.visible);
+              });
+              chart.update('none'); // Update without animation for better performance
+            }
           }
         });
       }
@@ -865,12 +936,23 @@ window.initAndRender = (function () {
   }
 
   function closeChartModal() {
-    const modal = document.getElementById('chart-modal');
+    const modal = domElements.chartModal || document.getElementById('chart-modal');
     if (modal.modalChart) {
       modal.modalChart.destroy();
       modal.modalChart = null;
     }
     modal.classList.remove('active');
+  }
+  
+  // Clean up charts when they're no longer needed
+  function cleanupCharts() {
+    state.chartInstances.forEach((chartData, key) => {
+      if (chartData && chartData.chart) {
+        chartData.chart.destroy();
+      }
+    });
+    state.chartInstances.clear();
+    state.charts = [];
   }
 
   // URL parameter handling
@@ -978,33 +1060,57 @@ window.initAndRender = (function () {
     });
   }
   
+  // Store pending zoom updates per category
+  const pendingZoomUpdates = new Map();
+  
   function synchronizeZoomForCategory(categoryName, sourceChart, sourceIndex) {
     // Get the current zoom state from the source chart
     const xScale = sourceChart.scales.x;
     const min = xScale.min;
     const max = xScale.max;
     
+    // Store the update for this category
+    pendingZoomUpdates.set(categoryName, { min, max, sourceIndex });
+    
+    // Debounce the actual sync operation
+    debouncedSyncZoom(categoryName);
+  }
+  
+  // Create a debounced sync function for better performance
+  const debouncedSyncZoom = debounce((categoryName) => {
+    const update = pendingZoomUpdates.get(categoryName);
+    if (!update) return;
+    
+    const { min, max, sourceIndex } = update;
+    
     // Find all charts in this category
     const categorySection = document.querySelector(`[data-category="${categoryName}"]`);
     if (!categorySection) return;
     
     const chartContainers = categorySection.querySelectorAll('.chart-container');
-    chartContainers.forEach((container, index) => {
-      // Skip the source chart
-      if (index === sourceIndex) return;
-      
-      const chartKey = `${categoryName}-${index}`;
-      const chartData = state.chartInstances.get(chartKey);
-      
-      if (chartData && chartData.chart) {
-        // Apply the same zoom to this chart
-        const chart = chartData.chart;
-        chart.options.scales.x.min = min;
-        chart.options.scales.x.max = max;
-        chart.update('none');
-      }
+    
+    // Use requestAnimationFrame for smooth updates
+    requestAnimationFrame(() => {
+      chartContainers.forEach((container, index) => {
+        // Skip the source chart
+        if (index === sourceIndex) return;
+        
+        const chartKey = `${categoryName}-${index}`;
+        const chartData = state.chartInstances.get(chartKey);
+        
+        if (chartData && chartData.chart) {
+          // Apply the same zoom to this chart
+          const chart = chartData.chart;
+          chart.options.scales.x.min = min;
+          chart.options.scales.x.max = max;
+          chart.update('none');
+        }
+      });
     });
-  }
+    
+    // Clear the pending update
+    pendingZoomUpdates.delete(categoryName);
+  }, 50); // 50ms debounce delay
 
   function initializeFromURL() {
     const urlParams = getURLParams();
@@ -1037,50 +1143,61 @@ window.initAndRender = (function () {
   }
 
   function initializeControls() {
+    // Cache DOM elements
+    domElements.menuToggle = document.getElementById('menu-toggle');
+    domElements.sidebar = document.getElementById('sidebar');
+    domElements.sidebarClose = document.getElementById('sidebar-close');
+    domElements.expandAll = document.getElementById('expand-all');
+    domElements.collapseAll = document.getElementById('collapse-all');
+    domElements.gridView = document.getElementById('grid-view');
+    domElements.listView = document.getElementById('list-view');
+    domElements.categoryFilter = document.getElementById('category-filter');
+    domElements.clearFilter = document.getElementById('clear-filter');
+    domElements.searchFilter = document.getElementById('search-filter');
+    domElements.backToTop = document.getElementById('back-to-top');
+    domElements.modalClose = document.getElementById('modal-close');
+    domElements.chartModal = document.getElementById('chart-modal');
+    
     // Mobile menu toggle
-    document.getElementById('menu-toggle').addEventListener('click', () => {
-      document.getElementById('sidebar').classList.toggle('active');
+    domElements.menuToggle.addEventListener('click', () => {
+      domElements.sidebar.classList.toggle('active');
     });
     
-    document.getElementById('sidebar-close').addEventListener('click', () => {
-      document.getElementById('sidebar').classList.remove('active');
+    domElements.sidebarClose.addEventListener('click', () => {
+      domElements.sidebar.classList.remove('active');
     });
     
     // Expand/Collapse controls
-    document.getElementById('expand-all').addEventListener('click', expandAll);
-    document.getElementById('collapse-all').addEventListener('click', collapseAll);
+    domElements.expandAll.addEventListener('click', expandAll);
+    domElements.collapseAll.addEventListener('click', collapseAll);
     
     // View controls
-    document.getElementById('grid-view').addEventListener('click', () => setView('grid'));
-    document.getElementById('list-view').addEventListener('click', () => setView('list'));
+    domElements.gridView.addEventListener('click', () => setView('grid'));
+    domElements.listView.addEventListener('click', () => setView('list'));
     
     // Tag filter
-    document.getElementById('category-filter').addEventListener('change', (e) => {
+    domElements.categoryFilter.addEventListener('change', (e) => {
       filterByTag(e.target.value);
     });
     
     // Clear filter button
-    document.getElementById('clear-filter').addEventListener('click', () => {
-      document.getElementById('category-filter').value = 'all';
+    domElements.clearFilter.addEventListener('click', () => {
+      domElements.categoryFilter.value = 'all';
       filterByTag('all');
       updateURLParams({ tag: 'all' });
     });
     
-    // Search filter
+    // Search filter with debouncing
     let searchTimeout;
-    document.getElementById('search-filter').addEventListener('input', (e) => {
+    domElements.searchFilter.addEventListener('input', (e) => {
       clearTimeout(searchTimeout);
       searchTimeout = setTimeout(() => filterBySearch(e.target.value), 300);
     });
     
-    // Back to top button
-    const backToTop = document.getElementById('back-to-top');
-    window.addEventListener('scroll', () => {
-      if (window.scrollY > 200) {
-        backToTop.classList.add('visible');
-      } else {
-        backToTop.classList.remove('visible');
-      }
+    // Back to top button with throttled scroll
+    const handleScroll = throttle(() => {
+      const scrollY = window.scrollY;
+      domElements.backToTop.classList.toggle('visible', scrollY > 200);
       
       // Update active nav item based on scroll position
       const sections = document.querySelectorAll('.benchmark-set');
@@ -1094,15 +1211,17 @@ window.initAndRender = (function () {
       if (current) {
         updateActiveNavItem(current);
       }
-    });
+    }, 100);
     
-    backToTop.addEventListener('click', () => {
+    window.addEventListener('scroll', handleScroll);
+    
+    domElements.backToTop.addEventListener('click', () => {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     });
     
     // Modal controls
-    document.getElementById('modal-close').addEventListener('click', closeChartModal);
-    document.getElementById('chart-modal').addEventListener('click', (e) => {
+    domElements.modalClose.addEventListener('click', closeChartModal);
+    domElements.chartModal.addEventListener('click', (e) => {
       if (e.target.id === 'chart-modal') {
         closeChartModal();
       }
@@ -1110,10 +1229,8 @@ window.initAndRender = (function () {
     
     // Close sidebar on outside click (mobile)
     document.addEventListener('click', (e) => {
-      const sidebar = document.getElementById('sidebar');
-      const menuToggle = document.getElementById('menu-toggle');
-      if (!sidebar.contains(e.target) && !menuToggle.contains(e.target)) {
-        sidebar.classList.remove('active');
+      if (!domElements.sidebar.contains(e.target) && !domElements.menuToggle.contains(e.target)) {
+        domElements.sidebar.classList.remove('active');
       }
     });
   }
