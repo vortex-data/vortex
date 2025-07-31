@@ -128,6 +128,9 @@ impl LayoutReader for DictReader {
         let values_eval = self.values_array();
         let codes_eval = self.codes.projection_evaluation(row_range, &root())?;
 
+        // TODO(ngates): we can push down expressions over the values array iff codes are
+        //  known to be non-nullable. For that, we need https://github.com/vortex-data/vortex/issues/3539.
+
         Ok(Box::new(DictArrayEvaluation {
             values_eval,
             codes_eval,
@@ -147,13 +150,9 @@ impl ArrayEvaluation for DictArrayEvaluation {
     async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
         let (values, codes) = join!(self.values_eval.clone(), self.codes_eval.invoke(mask));
         let (values, codes) = (values?, codes?);
-        println!("VALUES {}", values.display_values());
-        println!("CODES {}", codes.display_values());
 
         let array = DictArray::try_new(codes, values)?;
         let result = self.expr.evaluate(&Scope::new(array.into_array()))?;
-
-        println!("RESULT {}", result.display_values());
 
         Ok(result)
     }
