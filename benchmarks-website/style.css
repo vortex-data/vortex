@@ -841,6 +841,7 @@ body {
   
   .chart-container canvas {
     max-height: 300px; /* Smaller charts on mobile */
+    min-height: 200px; /* Ensure minimum height */
   }
   
   /* Disable hover effects on mobile */
@@ -915,8 +916,17 @@ code, pre, .monospace {
 }
 
 /* Chart specific improvements */
+.chart-container {
+  position: relative;
+  height: auto;
+  width: 100%;
+}
+
 .chart-container canvas {
   max-height: 400px;
+  width: 100% !important;
+  height: auto !important;
+  display: block;
 }
 
 .benchmark-graphs.list-view .chart-container canvas {

@@ -564,6 +564,7 @@ window.initAndRender = (function () {
       return {
         responsive: true,
         maintainAspectRatio: false,
+        aspectRatio: isMobile ? 1.5 : 2,
         spanGaps: true,
         pointStyle: isMobile ? false : "crossRot",
         elements: {
@@ -744,7 +745,17 @@ window.initAndRender = (function () {
       const wasDesktop = state.lastWindowWidth > CONFIG.MOBILE_BREAKPOINT;
       const isDesktop = window.innerWidth > CONFIG.MOBILE_BREAKPOINT;
       
-      // Only update if we crossed the mobile/desktop threshold
+      // First, resize all charts regardless of threshold crossing
+      state.chartInstances.forEach((chartData) => {
+        if (chartData?.chart) {
+          // Force Chart.js to recalculate sizes
+          chartData.chart.resize();
+          // Update chart with resize mode to ensure proper rendering
+          chartData.chart.update('resize');
+        }
+      });
+      
+      // Only update options if we crossed the mobile/desktop threshold
       if ((wasDesktop && !isDesktop) || (!wasDesktop && isDesktop)) {
         // Store current zoom states before updating
         const zoomStates = new Map();
