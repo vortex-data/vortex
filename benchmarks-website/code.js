@@ -771,35 +771,42 @@ window.initAndRender = (function () {
       
       // For threshold crossing, update chart options
       requestAnimationFrame(() => {
-        // Store zoom states and scale configs before updating
-        const chartStates = new Map();
-        state.chartInstances.forEach((chartData, key) => {
-          if (chartData?.chart) {
-            chartStates.set(key, {
-              xMin: chartData.chart.options.scales.x.min,
-              xMax: chartData.chart.options.scales.x.max,
-              yScale: { ...chartData.chart.options.scales.y }
-            });
-          }
-        });
-        
-        // Update each chart
+        // Update all charts
         state.chartInstances.forEach((chartData, key) => {
           if (chartData?.chart) {
             const chart = chartData.chart;
-            const [categoryName, indexStr] = key.split('-');
-            const index = parseInt(indexStr);
-            const prevState = chartStates.get(key);
             const totalCommits = chart.data.labels.length;
             
-            // Update options for mobile/desktop
+            // Store current state - deep clone y-axis to preserve all properties
+            const currentXMin = chart.options.scales.x.min;
+            const currentXMax = chart.options.scales.x.max;
+            const currentYScale = JSON.parse(JSON.stringify(chart.options.scales.y));
+            
+            // Determine new x-axis bounds
+            let newXMin, newXMax;
+            if (currentIsMobile) {
+              newXMin = 0;
+              newXMax = Math.min(CONFIG.MOBILE_MAX_DATA_POINTS - 1, totalCommits - 1);
+            } else {
+              // Going to desktop - restore previous or use defaults
+              const wasShowingAllMobileData = currentXMin === 0 && currentXMax === Math.min(CONFIG.MOBILE_MAX_DATA_POINTS - 1, totalCommits - 1);
+              if (wasShowingAllMobileData) {
+                newXMin = Math.max(0, totalCommits - CONFIG.DEFAULT_VISIBLE_COMMITS);
+                newXMax = totalCommits - 1;
+              } else {
+                newXMin = currentXMin;
+                newXMax = currentXMax;
+              }
+            }
+            
+            // Update all options directly
             chart.options.animation.duration = 0;
-            chart.options.elements.point.radius = currentIsMobile ? 0 : 3;
-            chart.options.pointStyle = currentIsMobile ? false : "crossRot";
             chart.options.aspectRatio = currentIsMobile ? 1.5 : 2;
+            chart.options.pointStyle = currentIsMobile ? false : "crossRot";
+            chart.options.elements.point.radius = currentIsMobile ? 0 : 3;
             
             // Update zoom settings
-            if (chart.options.plugins && chart.options.plugins.zoom) {
+            if (chart.options.plugins.zoom) {
               const zoomEnabled = !currentIsMobile;
               chart.options.plugins.zoom.zoom.wheel.enabled = zoomEnabled;
               chart.options.plugins.zoom.zoom.pinch.enabled = zoomEnabled;
@@ -807,28 +814,22 @@ window.initAndRender = (function () {
               chart.options.plugins.zoom.pan.enabled = zoomEnabled;
             }
             
-            // Preserve y-axis configuration completely
-            if (prevState && prevState.yScale) {
-              chart.options.scales.y = prevState.yScale;
-            }
+            // Update x-axis only, preserve y-axis completely
+            chart.options.scales.x.min = newXMin;
+            chart.options.scales.x.max = newXMax;
             
-            // Adjust visible range for x-axis only
-            if (currentIsMobile) {
-              chart.options.scales.x.min = 0;
-              chart.options.scales.x.max = Math.min(CONFIG.MOBILE_MAX_DATA_POINTS - 1, totalCommits - 1);
-            } else {
-              // Restore previous zoom or use defaults
-              if (prevState && (prevState.xMin !== 0 || prevState.xMax !== Math.min(CONFIG.MOBILE_MAX_DATA_POINTS - 1, totalCommits - 1))) {
-                chart.options.scales.x.min = prevState.xMin;
-                chart.options.scales.x.max = prevState.xMax;
-              } else {
-                chart.options.scales.x.min = Math.max(0, totalCommits - CONFIG.DEFAULT_VISIBLE_COMMITS);
-                chart.options.scales.x.max = totalCommits - 1;
-              }
-            }
+            // Ensure y-axis is preserved with all its properties
+            Object.keys(currentYScale).forEach(key => {
+              chart.options.scales.y[key] = currentYScale[key];
+            });
             
-            // Update chart
-            chart.resize();
+            // Force preserve critical y-axis properties
+            if (currentYScale.min !== undefined) chart.options.scales.y.min = currentYScale.min;
+            if (currentYScale.max !== undefined) chart.options.scales.y.max = currentYScale.max;
+            if (currentYScale.suggestedMin !== undefined) chart.options.scales.y.suggestedMin = currentYScale.suggestedMin;
+            if (currentYScale.suggestedMax !== undefined) chart.options.scales.y.suggestedMax = currentYScale.suggestedMax;
+            
+            // Single update per chart
             chart.update('none');
           }
         });
