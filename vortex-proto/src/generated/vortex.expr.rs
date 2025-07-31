@@ -116,3 +116,23 @@ pub struct CastOpts {
     #[prost(message, optional, tag = "1")]
     pub target: ::core::option::Option<super::dtype::DType>,
 }
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct FieldNames {
+    #[prost(string, repeated, tag = "1")]
+    pub names: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct SelectOpts {
+    #[prost(oneof = "select_opts::Opts", tags = "1, 2")]
+    pub opts: ::core::option::Option<select_opts::Opts>,
+}
+/// Nested message and enum types in `SelectOpts`.
+pub mod select_opts {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum Opts {
+        #[prost(message, tag = "1")]
+        Include(super::FieldNames),
+        #[prost(message, tag = "2")]
+        Exclude(super::FieldNames),
+    }
+}
