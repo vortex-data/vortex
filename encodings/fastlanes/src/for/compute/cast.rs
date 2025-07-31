@@ -10,10 +10,23 @@ use crate::r#for::{FoRArray, FoRVTable};
 
 impl CastKernel for FoRVTable {
     fn cast(&self, array: &FoRArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        // FoR stores values as (value - reference), so we need to:
-        // 1. Cast the encoded array
-        // 2. Cast the reference scalar
-        // 3. Create a new FoR array with casted components
+        // Check if this is just a nullability change
+        if array.dtype().eq_ignore_nullability(dtype) {
+            // For nullability-only changes, we can avoid decoding
+            let casted_child = cast(array.encoded(), dtype)?;
+            let casted_reference = array.reference_scalar().cast(dtype)?;
+
+            return Ok(Some(
+                FoRArray::try_new(casted_child, casted_reference)?.into_array(),
+            ));
+        }
+
+        // FoR only supports integer types
+        if !dtype.is_int() {
+            return Ok(None);
+        }
+
+        // For type changes between integers, cast the components
         let casted_child = cast(array.encoded(), dtype)?;
         let casted_reference = array.reference_scalar().cast(dtype)?;
 
