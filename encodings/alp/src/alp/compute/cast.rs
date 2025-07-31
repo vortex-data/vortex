@@ -27,10 +27,7 @@ impl CastKernel for ALPVTable {
                     .into_array(),
             ))
         } else {
-            // For type changes (e.g., f32 to f64 or to integers), we need to decode
-            // because ALP encoding is specific to the float width
-            let decoded = array.to_canonical()?.into_array();
-            cast(&decoded, dtype).map(Some)
+            Ok(None)
         }
     }
 }

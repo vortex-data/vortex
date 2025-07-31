@@ -172,6 +172,13 @@ fn test_cast_nullability_changes(array: &dyn Array, nullable_version: &DType) {
         let result = cast(array, nullable_version).vortex_unwrap();
         assert_eq!(result.len(), array.len());
         assert_eq!(result.dtype(), nullable_version);
+        
+        // IMPORTANT: Nullability casting should preserve the encoding
+        assert_eq!(
+            result.encoding().id(),
+            array.encoding().id(),
+            "Nullability cast should preserve encoding"
+        );
 
         // Values should be unchanged
         for i in 0..array.len().min(10) {
@@ -194,6 +201,13 @@ fn test_cast_nullability_changes_primitive(
         let result = cast(array, &nullable_dtype).vortex_unwrap();
         assert_eq!(result.len(), array.len());
         assert_eq!(result.dtype(), &nullable_dtype);
+        
+        // IMPORTANT: Nullability casting should preserve the encoding
+        assert_eq!(
+            result.encoding().id(),
+            array.encoding().id(),
+            "Nullability cast should preserve encoding"
+        );
 
         // Values should be unchanged
         for i in 0..array.len().min(10) {
@@ -211,6 +225,13 @@ fn test_cast_nullability_changes_primitive(
         if let Ok(result) = cast(array, &non_nullable_dtype) {
             assert_eq!(result.len(), array.len());
             assert_eq!(result.dtype(), &non_nullable_dtype);
+            
+            // IMPORTANT: Nullability casting should preserve the encoding
+            assert_eq!(
+                result.encoding().id(),
+                array.encoding().id(),
+                "Nullability cast should preserve encoding"
+            );
 
             // Values should be unchanged
             for i in 0..array.len().min(10) {
