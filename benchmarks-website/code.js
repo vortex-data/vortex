@@ -78,6 +78,7 @@ window.initAndRender = (function () {
       "Random Access": new Map(),
       Compression: new Map(),
       "Compression Size": new Map(),
+      Clickbench: new Map(),
       "TPC-H (NVME) (SF=1)": new Map(),
       "TPC-H (S3) (SF=1)": new Map(),
       "TPC-H (NVME) (SF=10)": new Map(),
@@ -86,7 +87,6 @@ window.initAndRender = (function () {
       "TPC-H (S3) (SF=100)": new Map(),
       "TPC-H (NVME) (SF=1000)": new Map(),
       "TPC-H (S3) (SF=1000)": new Map(),
-      Clickbench: new Map(),
     };
 
     let uncategorizable_names = new Set();
