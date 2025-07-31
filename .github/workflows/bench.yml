@@ -50,6 +50,14 @@ jobs:
       - uses: runs-on/action@v2
         with:
           sccache: s3
+
+      # TODO(robert): Remove this once we update the ami
+      - name: Manually mount tracefs and debugfs
+        run: |
+          sudo mount -t debugfs none /sys/kernel/debug
+          sudo mount -t tracefs nodev /sys/kernel/tracing
+          sudo mount -t tracefs nodev /sys/kernel/debug/tracing
+
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-rust
 
@@ -59,19 +67,33 @@ jobs:
           chmod +x duckdb
           echo "$PWD" >> $GITHUB_PATH
 
-      # rustup is pre-installed on the ubuntu24-full-x64 image.
+      - name: Build binary
+        shell: bash
+        env:
+          RUSTFLAGS: '-C target-cpu=native -C force-frame-pointers=yes'
+        run: |
+          cargo build --bin ${{ matrix.benchmark.id }} --package bench-vortex --profile release_debug
+
+      - name: Setup Polar Signals
+        uses: polarsignals/gh-actions-ps-profiling@v0.4.0
+        with:
+          polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
+          labels: 'branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.benchmark.id }}'
+          profiling_frequency: 200
+
       - name: Run ${{ matrix.benchmark.name }} benchmark
         shell: bash
         env:
-          RUSTFLAGS: '-C target-cpu=native'
+          RUST_BACKTRACE: full
         run: |
-          cargo run --bin ${{ matrix.benchmark.id }} --package bench-vortex --release -- -d gh-json -o ${{ matrix.benchmark.id }}.json
+          target/release_debug/${{ matrix.benchmark.id }} -d gh-json -o ${{ matrix.benchmark.id }}.json
 
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
           aws-region: us-east-1
+
       - name: Upload Benchmark Results
         shell: bash
         run: |
