@@ -69,8 +69,8 @@ body {
   right: 0;
   height: var(--header-height);
   background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border-color);
   box-shadow: var(--shadow-sm);
   z-index: 1000;
@@ -429,6 +429,7 @@ body {
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
   cursor: pointer;
+  -webkit-user-select: none;
   user-select: none;
   transition: background-color 0.2s;
 }

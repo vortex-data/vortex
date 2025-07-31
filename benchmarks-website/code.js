@@ -702,6 +702,7 @@ window.initAndRender = (function () {
           text: dataset.commits.length > 0 ? dataset.unit : "",
         },
         suggestedMin: 0,
+        beginAtZero: true, // Force chart to start at 0
       };
 
       if (
@@ -905,6 +906,11 @@ window.initAndRender = (function () {
             // Store current state - deep clone y-axis to preserve all properties
             const currentXMin = chart.options.scales.x.min;
             const currentXMax = chart.options.scales.x.max;
+
+            // Store actual scale values before any changes
+            const actualYMin = chart.scales.y?.min;
+            const actualYMax = chart.scales.y?.max;
+
             const currentYScale = JSON.parse(
               JSON.stringify(chart.options.scales.y)
             );
@@ -968,6 +974,20 @@ window.initAndRender = (function () {
               chart.options.scales.y.suggestedMin = currentYScale.suggestedMin;
             if (currentYScale.suggestedMax !== undefined)
               chart.options.scales.y.suggestedMax = currentYScale.suggestedMax;
+
+            // If no explicit min/max in options, use the actual computed values
+            if (
+              chart.options.scales.y.min === undefined &&
+              actualYMin !== undefined
+            ) {
+              chart.options.scales.y.min = actualYMin;
+            }
+            if (
+              chart.options.scales.y.max === undefined &&
+              actualYMax !== undefined
+            ) {
+              chart.options.scales.y.max = actualYMax;
+            }
 
             // Single update per chart
             chart.update("none");
