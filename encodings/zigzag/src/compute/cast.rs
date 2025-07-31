@@ -10,28 +10,13 @@ use crate::{ZigZagArray, ZigZagVTable};
 
 impl CastKernel for ZigZagVTable {
     fn cast(&self, array: &ZigZagArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        // Check if this is just a nullability change
-        if array.dtype().eq_ignore_nullability(dtype) {
-            // For nullability-only changes, we can avoid decoding
-            // Cast the encoded array to handle nullability
-            let new_encoded = cast(
-                array.encoded(),
-                &array
-                    .encoded()
-                    .dtype()
-                    .with_nullability(dtype.nullability()),
-            )?;
-
-            return Ok(Some(ZigZagArray::try_new(new_encoded)?.into_array()));
-        }
-
         if !dtype.is_signed_int() {
             return Ok(None);
         }
 
-        let target_encoded_dtype =
+        let new_encoded_dtype =
             DType::Primitive(dtype.as_ptype().to_unsigned(), dtype.nullability());
-        let new_encoded = cast(array.encoded(), &target_encoded_dtype)?;
+        let new_encoded = cast(array.encoded(), &new_encoded_dtype)?;
         Ok(Some(ZigZagArray::try_new(new_encoded)?.into_array()))
     }
 }
