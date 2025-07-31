@@ -390,12 +390,23 @@ fn test_cast_to_type_safe(array: &dyn Array, target_dtype: &DType) {
     assert_eq!(result.dtype(), target_dtype);
     
     // For valid casts, verify the values are correctly converted
-    // We can't easily verify exact values without knowing the input type,
-    // but we can at least check that scalars can be retrieved
+    // We verify up to the first 10 values (or all if less than 10)
     for i in 0..array.len().min(10) {
-        let _original = array.scalar_at(i).vortex_unwrap();
-        let _casted = result.scalar_at(i).vortex_unwrap();
-        // The actual value verification would depend on the specific cast
+        let original = array.scalar_at(i).vortex_unwrap();
+        let casted = result.scalar_at(i).vortex_unwrap();
+        
+        // For nullability-only changes, values should be identical
+        if array.dtype().eq_ignore_nullability(target_dtype) {
+            assert_eq!(original, casted, "Value at index {} changed during nullability cast", i);
+        } else {
+            // For type conversions, at least verify we can retrieve the values
+            // and that null values remain null
+            if original.is_null() {
+                assert!(casted.is_null(), "Null value at index {} became non-null after cast", i);
+            } else {
+                assert!(!casted.is_null(), "Non-null value at index {} became null after cast", i);
+            }
+        }
     }
 }
 
@@ -405,8 +416,7 @@ mod tests {
     use vortex_buffer::buffer;
     use crate::arrays::{PrimitiveArray, BoolArray, NullArray, VarBinArray, StructArray, ListArray};
     use crate::IntoArray;
-    use vortex_dtype::{DType, FieldNames, Nullability, StructFields};
-    use std::sync::Arc;
+    use vortex_dtype::{DType, FieldNames, Nullability};
     
     #[test]
     fn test_cast_conformance_u32() {
