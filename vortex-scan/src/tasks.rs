@@ -3,19 +3,21 @@
 
 //! Split scanning task implementation.
 
-use crate::Selection;
-use crate::filter::FilterExpr;
+use std::ops::{BitAnd, Range};
+use std::sync::Arc;
+
 use bit_vec::BitVec;
 use futures::FutureExt;
 use futures::future::{BoxFuture, ok};
 use itertools::Itertools;
-use std::ops::{BitAnd, Range};
-use std::sync::Arc;
 use vortex_array::ArrayRef;
 use vortex_error::{VortexError, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_layout::LayoutReader;
 use vortex_mask::Mask;
+
+use crate::Selection;
+use crate::filter::FilterExpr;
 
 pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 
@@ -102,12 +104,17 @@ pub(super) fn split_exec<A: 'static + Send>(
 
             async move {
                 let mut mask = row_mask;
+                let mut dynamic_versions = vec![None; filter.conjuncts().len()];
 
                 // TODO(ngates): we could use FuturedUnordered to intersect the masks in parallel.
-                for conjunct in pruning_conjuncts.iter() {
+                for (idx, conjunct) in pruning_conjuncts.iter().enumerate() {
                     if mask.all_false() {
                         return Ok(mask);
                     }
+
+                    // Store the latest version of the dynamic expression prior to pruning.
+                    // We will re-run the pruning later if the version has changed in the meantime.
+                    dynamic_versions[idx] = filter.dynamic_updates(idx).map(|du| du.version());
 
                     let conjunct_mask = conjunct.invoke(mask.clone()).await?;
                     mask = mask.bitand(&conjunct_mask);
@@ -121,6 +128,15 @@ pub(super) fn split_exec<A: 'static + Send>(
                     if mask.all_false() {
                         // If the mask is all false, we can short-circuit the evaluation.
                         return Ok(mask);
+                    }
+
+                    // If the dynamic expression has changed since pruning, re-run the pruning.
+                    if let Some(dv) = filter.dynamic_updates(idx).map(|du| du.version()) {
+                        if dynamic_versions[idx].is_none_or(|v| v < dv) {
+                            // The dynamic expression has been updated, re-run the pruning.
+                            let conjunct_mask = pruning_conjuncts[idx].invoke(mask.clone()).await?;
+                            mask = mask.bitand(&conjunct_mask);
+                        }
                     }
 
                     // TODO(ngates): this is the sort of thing we want to push down into arrays so they

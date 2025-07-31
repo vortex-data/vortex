@@ -50,13 +50,6 @@ pub trait LayoutReader: 'static + Send + Sync {
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn PruningEvaluation>>;
 
-    /// Performs an exact evaluation of the expression against the layout reader.
-    fn filter_evaluation(
-        &self,
-        row_range: &Range<u64>,
-        expr: &ExprRef,
-    ) -> VortexResult<Box<dyn MaskEvaluation>>;
-
     /// Evaluates the expression against the layout.
     fn projection_evaluation(
         &self,
@@ -86,25 +79,6 @@ pub struct NoOpPruningEvaluation;
 
 #[async_trait]
 impl PruningEvaluation for NoOpPruningEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
-        Ok(mask)
-    }
-}
-
-/// Refines the given mask, returning a mask equal in length to the input mask.
-///
-/// ## Post-conditions
-///
-/// The returned mask **MUST** have been intersected with the input mask.
-#[async_trait]
-pub trait MaskEvaluation: 'static + Send + Sync {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask>;
-}
-
-pub struct NoOpMaskEvaluation;
-
-#[async_trait]
-impl MaskEvaluation for NoOpMaskEvaluation {
     async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
         Ok(mask)
     }

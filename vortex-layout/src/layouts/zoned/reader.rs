@@ -16,7 +16,6 @@ use vortex_array::ToCanonical;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask, FieldPath, FieldPathSet};
 use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
-use vortex_expr::dynamic::DynamicExprUpdates;
 use vortex_expr::pruning::checked_pruning_expr;
 use vortex_expr::{ExprRef, root};
 use vortex_mask::Mask;
@@ -24,7 +23,7 @@ use vortex_mask::Mask;
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::ZoneMap;
 use crate::segments::SegmentSource;
-use crate::{ArrayEvaluation, LayoutReader, MaskEvaluation, PruningEvaluation};
+use crate::{ArrayEvaluation, LayoutReader, PruningEvaluation};
 
 type SharedZoneMap = Shared<BoxFuture<'static, SharedVortexResult<ZoneMap>>>;
 type SharedPruningResult = Shared<BoxFuture<'static, SharedVortexResult<Arc<PruningResult>>>>;
@@ -47,8 +46,6 @@ pub struct ZonedReader {
     /// A cache of expr -> optional pruning predicate.
     /// This also uses the present_stats from the `ZonedLayout`
     pruning_predicates: Arc<DashMap<ExprRef, Option<ExprRef>>>,
-    /// A cache of expr -> dynamic update tracker
-    dynamic_updates: Arc<DashMap<ExprRef, Option<Arc<DynamicExprUpdates>>>>,
 }
 
 impl ZonedReader {
@@ -72,7 +69,6 @@ impl ZonedReader {
             pruning_result: Default::default(),
             zone_map: Default::default(),
             pruning_predicates: Default::default(),
-            dynamic_updates: Default::default(),
         })
     }
 
@@ -91,15 +87,6 @@ impl ZonedReader {
                 );
                 checked_pruning_expr(&expr, &field_path_set).map(|(expr, _)| expr)
             })
-            .value()
-            .clone()
-    }
-
-    /// Get or create the dynamic updates for a given expression.
-    fn dynamic_updates(&self, expr: &ExprRef) -> Option<Arc<DynamicExprUpdates>> {
-        self.dynamic_updates
-            .entry(expr.clone())
-            .or_insert_with(move || DynamicExprUpdates::new(expr).map(Arc::new))
             .value()
             .clone()
     }
@@ -245,29 +232,6 @@ impl LayoutReader for ZonedReader {
         }))
     }
 
-    fn filter_evaluation(
-        &self,
-        row_range: &Range<u64>,
-        expr: &ExprRef,
-    ) -> VortexResult<Box<dyn MaskEvaluation>> {
-        let data_eval = self.data_child.filter_evaluation(row_range, expr)?;
-
-        let Some(pruning_result) = self.pruning_result_future(expr.clone()) else {
-            return Ok(data_eval);
-        };
-
-        let Some(dynamic_updates) = self.dynamic_updates(expr) else {
-            return Ok(data_eval);
-        };
-
-        Ok(Box::new(ZoneMapDynamicFilterEvaluation {
-            zone_range: self.zone_range(row_range),
-            pruning_result,
-            dynamic_updates,
-            child: self.data_child.filter_evaluation(row_range, expr)?,
-        }))
-    }
-
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
@@ -338,39 +302,6 @@ impl PruningEvaluation for ZoneMapPruningEvaluation {
         );
 
         Ok(stats_mask)
-    }
-}
-
-/// Filter evaluation that re-computes the pruning mask each time the dynamic expressions
-/// are updated.
-pub struct ZoneMapDynamicFilterEvaluation {
-    // The range in the zone mask that corresponds to the row range.
-    zone_range: Range<usize>,
-    pruning_result: SharedPruningResult,
-    dynamic_updates: Arc<DynamicExprUpdates>,
-    child: Box<dyn MaskEvaluation>,
-}
-
-#[async_trait]
-impl MaskEvaluation for ZoneMapDynamicFilterEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
-        let version = self.dynamic_updates.version();
-
-        let pruning_mask = self
-            .pruning_result
-            .clone()
-            .await?
-            .mask_for_version(version)?;
-
-        // We perform a trivial pruning check in case the dynamic expressions have been updated.
-        if pruning_mask
-            .slice(self.zone_range.start, self.zone_range.len())
-            .all_true()
-        {
-            return Ok(Mask::new_false(mask.len()));
-        }
-
-        self.child.invoke(mask).await
     }
 }
 

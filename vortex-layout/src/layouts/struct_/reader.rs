@@ -17,12 +17,12 @@ use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExactExpr, ExprRef, col, root};
 use vortex_utils::aliases::hash_map::HashMap;
 
-use crate::layouts::partitioned::{PartitionedArrayEvaluation, PartitionedMaskEvaluation};
+use crate::layouts::partitioned::PartitionedArrayEvaluation;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSource;
 use crate::{
-    ArrayEvaluation, LayoutReader, LayoutReaderRef, LazyReaderChildren, MaskEvaluation,
-    NoOpPruningEvaluation, PruningEvaluation,
+    ArrayEvaluation, LayoutReader, LayoutReaderRef, LazyReaderChildren, NoOpPruningEvaluation,
+    PruningEvaluation,
 };
 
 pub struct StructReader {
@@ -207,24 +207,6 @@ impl LayoutReader for StructReader {
         }
     }
 
-    fn filter_evaluation(
-        &self,
-        row_range: &Range<u64>,
-        expr: &ExprRef,
-    ) -> VortexResult<Box<dyn MaskEvaluation>> {
-        // Partition the expression into expressions that can be evaluated over individual fields
-        match &self.partition_expr(expr.clone()) {
-            Partitioned::Single(name, partition) => {
-                self.child(name)?.filter_evaluation(row_range, partition)
-            }
-            Partitioned::Multi(partitioned) => Ok(Box::new(PartitionedMaskEvaluation::try_new(
-                partitioned.clone(),
-                |name, expr| self.child(name)?.filter_evaluation(row_range, expr),
-                |name, expr| self.child(name)?.projection_evaluation(row_range, expr),
-            )?)),
-        }
-    }
-
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
@@ -322,14 +304,19 @@ mod tests {
         );
         let result = block_on(
             reader
-                .filter_evaluation(&(0..3), &filt)
+                .projection_evaluation(&(0..3), &filt)
                 .unwrap()
                 .invoke(Mask::new_true(3)),
         )
         .unwrap();
         assert_eq!(
             vec![true, true, true],
-            result.to_boolean_buffer().iter().collect_vec()
+            result
+                .to_bool()
+                .unwrap()
+                .boolean_buffer()
+                .iter()
+                .collect_vec()
         );
     }
 

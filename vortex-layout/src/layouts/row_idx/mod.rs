@@ -5,7 +5,7 @@ mod expr;
 
 use std::collections::BTreeSet;
 use std::fmt::{Display, Formatter};
-use std::ops::{BitAnd, Range};
+use std::ops::Range;
 use std::sync::Arc;
 
 use Nullability::NonNullable;
@@ -24,11 +24,8 @@ use vortex_mask::Mask;
 use vortex_scalar::PValue;
 use vortex_sequence::SequenceArray;
 
-use crate::layouts::partitioned::{PartitionedArrayEvaluation, PartitionedMaskEvaluation};
-use crate::{
-    ArrayEvaluation, LayoutReader, MaskEvaluation, NoOpMaskEvaluation, NoOpPruningEvaluation,
-    PruningEvaluation,
-};
+use crate::layouts::partitioned::PartitionedArrayEvaluation;
+use crate::{ArrayEvaluation, LayoutReader, NoOpPruningEvaluation, PruningEvaluation};
 
 pub struct RowIdxLayoutReader {
     name: Arc<str>,
@@ -150,38 +147,6 @@ impl LayoutReader for RowIdxLayoutReader {
         }
     }
 
-    fn filter_evaluation(
-        &self,
-        row_range: &Range<u64>,
-        expr: &ExprRef,
-    ) -> VortexResult<Box<dyn MaskEvaluation>> {
-        match &self.partition_expr(expr) {
-            // Since this is run during pruning, we skip re-evaluating the row index expression
-            // during the filter evaluation.
-            Partitioning::RowIdx(_) => Ok(Box::new(NoOpMaskEvaluation)),
-            Partitioning::Child(expr) => self.child.filter_evaluation(row_range, expr),
-            Partitioning::Partitioned(p) => Ok(Box::new(PartitionedMaskEvaluation::try_new(
-                p.clone(),
-                |annotation, expr| match annotation {
-                    Partition::RowIdx => Ok(Box::new(RowIdxEvaluation::new(
-                        self.row_offset,
-                        row_range,
-                        expr,
-                    ))),
-                    Partition::Child => self.child.filter_evaluation(row_range, expr),
-                },
-                |annotation, expr| match annotation {
-                    Partition::RowIdx => Ok(Box::new(RowIdxEvaluation::new(
-                        self.row_offset,
-                        row_range,
-                        expr,
-                    ))),
-                    Partition::Child => self.child.projection_evaluation(row_range, expr),
-                },
-            )?)),
-        }
-    }
-
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
@@ -245,22 +210,6 @@ impl PruningEvaluation for RowIdxEvaluation {
                 .evaluate(&Scope::new(self.array.clone()))?
                 .as_ref(),
         )
-    }
-}
-
-#[async_trait]
-impl MaskEvaluation for RowIdxEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
-        // TODO(ngates): we could optimize this if the mask was already quite sparse.
-        let result = Mask::try_from(
-            self.expr
-                .evaluate(&Scope::new(self.array.clone()))?
-                .as_ref(),
-        )?;
-
-        // Note that mask evaluation requires an intersection with the input mask, whereas
-        // pruning evaluation does not.
-        Ok(result.bitand(&mask))
     }
 }
 

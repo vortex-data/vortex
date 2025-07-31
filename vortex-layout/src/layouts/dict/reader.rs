@@ -2,15 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::collections::BTreeSet;
-use std::ops::{BitAnd, Range};
+use std::ops::Range;
 use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
-use dashmap::DashMap;
 use futures::{FutureExt, join};
-use vortex_array::compute::{MinMaxResult, filter, min_max};
 use vortex_array::stats::Precision;
-use vortex_array::{Array, ArrayRef, IntoArray};
+use vortex_array::{ArrayRef, IntoArray};
 use vortex_dict::DictArray;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult};
@@ -21,8 +19,7 @@ use super::DictLayout;
 use crate::layouts::SharedArrayFuture;
 use crate::segments::SegmentSource;
 use crate::{
-    ArrayEvaluation, LayoutReader, LayoutReaderRef, MaskEvaluation, NoOpPruningEvaluation,
-    PruningEvaluation,
+    ArrayEvaluation, LayoutReader, LayoutReaderRef, NoOpPruningEvaluation, PruningEvaluation,
 };
 
 pub struct DictReader {
@@ -34,8 +31,6 @@ pub struct DictReader {
     values_len: usize,
     /// Cached dict values array
     values_array: OnceLock<SharedArrayFuture>,
-    /// Cache of expression evaluation results on the values array by expression
-    values_evals: DashMap<ExprRef, SharedArrayFuture>,
 
     values: LayoutReaderRef,
     codes: LayoutReaderRef,
@@ -60,7 +55,6 @@ impl DictReader {
             name,
             values_len,
             values_array: Default::default(),
-            values_evals: Default::default(),
             values,
             codes,
         })
@@ -84,25 +78,6 @@ impl DictReader {
                 }
                 .boxed()
                 .shared()
-            })
-            .clone()
-    }
-
-    fn values_eval(&self, expr: ExprRef) -> SharedArrayFuture {
-        self.values_evals
-            .entry(expr.clone())
-            .or_insert_with(|| {
-                self.values_array()
-                    .map(move |array| {
-                        // TODO(ngates): recursive canonicalize?
-                        Ok(expr
-                            .evaluate(&Scope::new(array?))?
-                            .to_canonical()?
-                            .into_array())
-                        .map_err(Arc::new)
-                    })
-                    .boxed()
-                    .shared()
             })
             .clone()
     }
@@ -142,24 +117,6 @@ impl LayoutReader for DictReader {
         Ok(Box::new(NoOpPruningEvaluation))
     }
 
-    fn filter_evaluation(
-        &self,
-        row_range: &Range<u64>,
-        expr: &ExprRef,
-    ) -> VortexResult<Box<dyn MaskEvaluation>> {
-        let values_eval = self.values_eval(expr.clone());
-
-        // We register interest on the entire codes row_range for now, there
-        // is no straightforward shift into the codes domain we can do to the expression
-        // without reading values.
-        let codes_eval = self.codes.projection_evaluation(row_range, &root())?;
-
-        Ok(Box::new(DictMaskEvaluation {
-            values_eval,
-            codes_eval,
-        }))
-    }
-
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
@@ -179,50 +136,6 @@ impl LayoutReader for DictReader {
     }
 }
 
-struct DictMaskEvaluation {
-    values_eval: SharedArrayFuture,
-    codes_eval: Box<dyn ArrayEvaluation>,
-}
-
-#[async_trait]
-impl MaskEvaluation for DictMaskEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
-        if mask.all_false() {
-            return Ok(mask);
-        }
-
-        let values_result = self.values_eval.clone().await?;
-
-        // Short-circuit when the values are all true/false.
-        if let Some(MinMaxResult { min, max }) = min_max(&values_result)? {
-            if !max.as_bool().value().unwrap_or(true) {
-                // All values are false
-                return Ok(Mask::AllFalse(mask.len()));
-            }
-            if min.as_bool().value().unwrap_or(false) {
-                // All values are true, but we still need to respect codes validity
-                let codes = self.codes_eval.invoke(Mask::new_true(mask.len())).await?;
-                return Ok(mask.bitand(&codes.validity_mask()?));
-            }
-        }
-
-        let codes = self.codes_eval.invoke(Mask::new_true(mask.len())).await?;
-        // TODO(os): remove the low density code path, does not really improve perf
-        if mask.density() < 0.1 {
-            let codes = filter(&codes, &mask)?;
-            let dict_mask = &Mask::try_from(DictArray::try_new(codes, values_result)?.as_ref())?;
-            Ok(mask.intersect_by_rank(dict_mask))
-        } else {
-            // Creating a mask from the dict array would canonicalise it,
-            // it should be fine for now as long as values is already canonical,
-            // so different row ranges do not canonicalise the same array
-            // multiple times.
-            let dict_mask = &Mask::try_from(DictArray::try_new(codes, values_result)?.as_ref())?;
-            Ok(mask.bitand(dict_mask))
-        }
-    }
-}
-
 struct DictArrayEvaluation {
     values_eval: SharedArrayFuture,
     codes_eval: Box<dyn ArrayEvaluation>,
@@ -234,9 +147,15 @@ impl ArrayEvaluation for DictArrayEvaluation {
     async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
         let (values, codes) = join!(self.values_eval.clone(), self.codes_eval.invoke(mask));
         let (values, codes) = (values?, codes?);
+        println!("VALUES {}", values.display_values());
+        println!("CODES {}", codes.display_values());
 
         let array = DictArray::try_new(codes, values)?;
-        self.expr.evaluate(&Scope::new(array.into_array()))
+        let result = self.expr.evaluate(&Scope::new(array.into_array()))?;
+
+        println!("RESULT {}", result.display_values());
+
+        Ok(result)
     }
 }
 
@@ -396,19 +315,17 @@ mod tests {
                 Nullability::Nullable,
             )),
         );
-        let mask = layout
+        let array = layout
             .new_reader("".into(), Arc::from(segments))
             .unwrap()
-            .filter_evaluation(&(0..3), &filter)
+            .projection_evaluation(&(0..3), &filter)
             .unwrap()
             .invoke(Mask::new_true(3))
             .await
             .unwrap();
+        let mask = Mask::try_from(array.as_ref()).unwrap().to_boolean_buffer();
 
-        assert_eq!(
-            mask.to_boolean_buffer().iter().collect::<Vec<_>>(),
-            expected
-        );
+        assert_eq!(mask.iter().collect::<Vec<_>>(), expected);
     }
 
     #[tokio::test]

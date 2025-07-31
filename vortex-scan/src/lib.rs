@@ -4,9 +4,6 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use crate::filter::FilterExpr;
-use crate::work_queue::{TaskFactory, WorkStealingQueue};
-use crate::work_stealing_iter::{ArrayTask, WorkStealingArrayIterator};
 use futures::future::BoxFuture;
 use itertools::Itertools;
 pub use multi_scan::*;
@@ -26,6 +23,10 @@ use vortex_layout::layouts::row_idx::RowIdxLayoutReader;
 use vortex_layout::{LayoutReader, LayoutReaderRef};
 pub use vortex_layout::{TaskExecutor, TaskExecutorExt};
 use vortex_metrics::VortexMetrics;
+
+use crate::filter::FilterExpr;
+use crate::work_queue::{TaskFactory, WorkStealingQueue};
+use crate::work_stealing_iter::{ArrayTask, WorkStealingArrayIterator};
 
 mod arrow;
 mod filter;

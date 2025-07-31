@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::iter;
+
 use bit_vec::BitVec;
 use itertools::Itertools;
 use parking_lot::RwLock;
 use sketches_ddsketch::DDSketch;
-use std::iter;
 use vortex_error::{VortexExpect, vortex_err, vortex_panic};
 use vortex_expr::ExprRef;
+use vortex_expr::dynamic::DynamicExprUpdates;
 use vortex_expr::forms::cnf::cnf;
 
 /// The selectivity histogram quantile to use for reordering conjuncts. Where 0 == no rows match.
@@ -21,6 +23,8 @@ pub struct FilterExpr {
     conjuncts: Vec<ExprRef>,
     /// A histogram of the selectivity of each conjunct.
     conjunct_selectivity: Vec<RwLock<DDSketch>>,
+    /// Dynamic expression trackers for each conjunct, incase they contain dynamic expressions.
+    dynamic_conjuncts: Vec<Option<DynamicExprUpdates>>,
     /// The preferred ordering of conjuncts.
     ordering: RwLock<Vec<usize>>,
     /// The quantile to use from the selectivity histogram of each conjunct.
@@ -31,11 +35,15 @@ impl FilterExpr {
     pub(crate) fn new(expr: ExprRef) -> Self {
         let conjuncts = cnf(expr);
         let num_conjuncts = conjuncts.len();
+
+        let dynamic_conjuncts = conjuncts.iter().map(DynamicExprUpdates::new).collect_vec();
+
         Self {
             conjuncts,
             conjunct_selectivity: iter::repeat_with(|| RwLock::new(DDSketch::default()))
                 .take(num_conjuncts)
                 .collect(),
+            dynamic_conjuncts,
             // The initial ordering is naive, we could order this by how well we expect each
             // comparison operator to perform. e.g. == might be more selective than <=? Not obvious.
             ordering: RwLock::new((0..num_conjuncts).collect()),
@@ -43,8 +51,14 @@ impl FilterExpr {
         }
     }
 
+    /// The conjuncts that make up this filter expression.
     pub fn conjuncts(&self) -> &[ExprRef] {
         &self.conjuncts
+    }
+
+    /// The dynamic updates for the given conjunct, if any.
+    pub fn dynamic_updates(&self, conjunct_idx: usize) -> Option<&DynamicExprUpdates> {
+        self.dynamic_conjuncts[conjunct_idx].as_ref()
     }
 
     /// Returns the next preferred conjunct to evaluate.
