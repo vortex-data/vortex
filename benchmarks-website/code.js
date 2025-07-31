@@ -20,6 +20,7 @@ const CONFIG = {
   BACK_TO_TOP_THRESHOLD: 200,
   SCROLL_ACTIVE_THRESHOLD: 100,
   URL_INIT_DELAY: 100,
+  RESIZE_DEBOUNCE: 250,
 };
 
 // Brand colors
@@ -137,6 +138,7 @@ window.initAndRender = (function () {
     charts: [],
     chartInstances: new Map(),
     pendingZoomUpdates: new Map(),
+    lastWindowWidth: window.innerWidth,
   };
 
   // DOM element cache
@@ -735,6 +737,124 @@ window.initAndRender = (function () {
       });
       state.chartInstances.clear();
       state.charts = [];
+    },
+
+    updateChartsForResize() {
+      const currentIsMobile = utils.isMobile();
+      const wasDesktop = state.lastWindowWidth > CONFIG.MOBILE_BREAKPOINT;
+      const isDesktop = window.innerWidth > CONFIG.MOBILE_BREAKPOINT;
+      
+      // Only update if we crossed the mobile/desktop threshold
+      if ((wasDesktop && !isDesktop) || (!wasDesktop && isDesktop)) {
+        // Store current zoom states before updating
+        const zoomStates = new Map();
+        state.chartInstances.forEach((chartData, key) => {
+          if (chartData?.chart) {
+            zoomStates.set(key, {
+              min: chartData.chart.options.scales.x.min,
+              max: chartData.chart.options.scales.x.max
+            });
+          }
+        });
+
+        state.chartInstances.forEach((chartData, key) => {
+          if (chartData?.chart) {
+            const chart = chartData.chart;
+            const [categoryName, indexStr] = key.split('-');
+            const index = parseInt(indexStr);
+            
+            // Get the container and benchmark name
+            const container = chart.canvas.closest('.chart-container');
+            const benchName = container.getAttribute('data-chart');
+            
+            // Extract dataset info from current chart
+            const datasetInfo = {
+              commits: chart.data.labels.map(label => ({ id: label })),
+              unit: chart.options.scales.y.title.text || ''
+            };
+
+            // Update chart options for new screen size
+            const newOptions = chartManager.createChartOptions(
+              categoryName,
+              benchName,
+              datasetInfo,
+              datasetInfo.commits,
+              currentIsMobile,
+              index
+            );
+
+            // Update interactive settings
+            chart.options.plugins.zoom = newOptions.plugins.zoom;
+            chart.options.animation.duration = currentIsMobile ? 0 : CONFIG.ANIMATION_DURATION;
+            chart.options.elements.point.radius = currentIsMobile ? 0 : 3;
+            chart.options.pointStyle = currentIsMobile ? false : "crossRot";
+
+            // Adjust zoom state for new mode
+            const totalCommits = chart.data.labels.length;
+            const previousState = zoomStates.get(key);
+            
+            if (currentIsMobile) {
+              // Going to mobile: show all data
+              chart.options.scales.x.min = 0;
+              chart.options.scales.x.max = Math.min(CONFIG.MOBILE_MAX_DATA_POINTS - 1, totalCommits - 1);
+            } else {
+              // Going to desktop: restore zoom or use default
+              if (previousState && previousState.min === 0 && previousState.max === totalCommits - 1) {
+                // Was showing all data, use default desktop view
+                chart.options.scales.x.min = Math.max(0, totalCommits - CONFIG.DEFAULT_VISIBLE_COMMITS);
+                chart.options.scales.x.max = totalCommits - 1;
+              } else {
+                // Preserve zoom state if it was customized
+                chart.options.scales.x.min = previousState?.min || Math.max(0, totalCommits - CONFIG.DEFAULT_VISIBLE_COMMITS);
+                chart.options.scales.x.max = previousState?.max || totalCommits - 1;
+              }
+            }
+
+            // Update zoom limits
+            chart.options.plugins.zoom.limits.x.max = totalCommits - 1;
+            chart.options.plugins.zoom.limits.x.minRange = Math.min(CONFIG.MIN_VISIBLE_COMMITS, totalCommits);
+
+            // Update the chart
+            chart.update('none');
+          }
+        });
+        
+        // Recreate debounced sync zoom with new delay
+        debouncedSyncZoom = utils.debounce((categoryName) => {
+          const update = state.pendingZoomUpdates.get(categoryName);
+          if (!update) return;
+
+          const { min, max, sourceIndex } = update;
+
+          const categorySection = document.querySelector(
+            `[data-category="${categoryName}"]`
+          );
+          if (!categorySection) return;
+
+          const chartContainers = categorySection.querySelectorAll(".chart-container");
+
+          requestAnimationFrame(() => {
+            chartContainers.forEach((container, index) => {
+              if (index === sourceIndex) return;
+
+              const chartKey = `${categoryName}-${index}`;
+              const chartData = state.chartInstances.get(chartKey);
+
+              if (chartData?.chart) {
+                const chart = chartData.chart;
+                chart.options.scales.x.min = min;
+                chart.options.scales.x.max = max;
+                chart.update("none");
+              }
+            });
+          });
+
+          state.pendingZoomUpdates.delete(categoryName);
+        }, utils.getDebounceDelay());
+      }
+      
+      // Update last window width
+      state.lastWindowWidth = window.innerWidth;
     },
   };
 
@@ -1397,6 +1517,13 @@ window.initAndRender = (function () {
           domElements.sidebar.classList.remove("active");
         }
       });
+
+      // Window resize handler
+      const debouncedResize = utils.debounce(() => {
+        chartManager.updateChartsForResize();
+      }, CONFIG.RESIZE_DEBOUNCE);
+      
+      window.addEventListener("resize", debouncedResize);
     },
   };
 
