@@ -16,6 +16,7 @@ use vortex_layout::layouts::flat::writer::DEFAULT_FLAT_STRATEGY;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::repartition::{RepartitionStrategy, RepartitionWriterOptions};
 use vortex_layout::layouts::struct_::writer::StructStrategy;
+use vortex_layout::layouts::view::writer::ViewStrategy;
 use vortex_layout::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
 use vortex_layout::{LayoutStrategy, TaskExecutor};
 
@@ -55,7 +56,10 @@ impl VortexLayoutStrategy {
         // 3. apply dict encoding or fallback
         let dict = arcref(DictStrategy::new(
             coalescing.clone(),
-            compress_then_flat.clone(),
+            arcref(ViewStrategy::new(
+                ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())),
+                compress_then_flat.clone(),
+            )),
             coalescing,
             Default::default(),
             executor.clone(),

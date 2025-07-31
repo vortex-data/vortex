@@ -8,6 +8,7 @@ use crate::layouts::chunked::ChunkedLayoutEncoding;
 use crate::layouts::dict::DictLayoutEncoding;
 use crate::layouts::flat::FlatLayoutEncoding;
 use crate::layouts::struct_::StructLayoutEncoding;
+use crate::layouts::view::ViewLayoutEncoding;
 use crate::layouts::zoned::ZonedLayoutEncoding;
 
 pub type LayoutContext = VTableContext<LayoutEncodingRef>;
@@ -26,6 +27,7 @@ impl LayoutRegistryExt for LayoutRegistry {
             LayoutEncodingRef::new_ref(StructLayoutEncoding.as_ref()),
             LayoutEncodingRef::new_ref(ZonedLayoutEncoding.as_ref()),
             LayoutEncodingRef::new_ref(DictLayoutEncoding.as_ref()),
+            LayoutEncodingRef::new_ref(ViewLayoutEncoding.as_ref()),
         ]);
         this
     }

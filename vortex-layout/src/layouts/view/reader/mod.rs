@@ -328,8 +328,6 @@ impl ViewEvaluation {
         }
 
         // Force each required buffer to be loaded before executing the filter.
-        println!("VIEW_FILTER.invoke: required buffers: {required_buffers:?}");
-
         let buffer_count = required_buffers.iter().copied().max().unwrap_or(0);
 
         // Fetch all of the buffers needed to execute the filter operation.
@@ -348,7 +346,6 @@ impl ViewEvaluation {
         let resolved_buffers = try_join_all(resolved_buffers).await?;
 
         let validity = self.build_validity(mask).await?;
-        println!("VALIDITY: {validity:?}");
 
         VarBinViewArray::try_new(
             views_buffer,
@@ -363,6 +360,7 @@ impl ViewEvaluation {
 mod tests {
     use std::sync::Arc;
 
+    use arcref::ArcRef;
     use futures::executor::block_on;
     use futures::stream::once;
     use vortex_array::arrays::{BinaryView, VarBinViewArray};
@@ -384,8 +382,8 @@ mod tests {
     fn view_layout() -> (LayoutRef, Arc<dyn SegmentSource>) {
         let ctx = ArrayContext::empty();
         let strategy = ViewStrategy {
-            validity_strategy: Arc::new(FlatLayoutStrategy::default()),
-            fallback_strategy: Arc::new(FlatLayoutStrategy::default()),
+            validity_strategy: ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())),
+            fallback_strategy: ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())),
         };
 
         let segment_source = TestSegments::default();

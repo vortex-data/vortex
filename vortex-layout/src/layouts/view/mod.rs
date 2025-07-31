@@ -1,17 +1,17 @@
 //  SPDX-License-Identifier: Apache-2.0
 //  SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod reader;
-mod writer;
+pub mod reader;
+pub mod writer;
 
 use std::sync::Arc;
 
 use arcref::ArcRef;
-pub use reader::*;
 use vortex_array::{ArrayContext, DeserializeMetadata, RawMetadata};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 
+use crate::layouts::view::reader::ViewReader;
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{
     LayoutChildType, LayoutChildren, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef,
@@ -62,8 +62,12 @@ impl VTable for ViewVTable {
         segments
     }
 
-    fn nchildren(_: &Self::Layout) -> usize {
-        0
+    fn nchildren(layout: &Self::Layout) -> usize {
+        if layout.validity_tag == ValidityTag::Array {
+            1
+        } else {
+            0
+        }
     }
 
     fn child(layout: &Self::Layout, idx: usize) -> VortexResult<LayoutRef> {

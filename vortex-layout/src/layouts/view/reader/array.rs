@@ -8,7 +8,7 @@ use vortex_expr::{Scope, is_root};
 use vortex_mask::Mask;
 
 use crate::ArrayEvaluation;
-use crate::layouts::view::ViewEvaluation;
+use crate::layouts::view::reader::ViewEvaluation;
 
 #[async_trait::async_trait]
 impl ArrayEvaluation for ViewEvaluation {

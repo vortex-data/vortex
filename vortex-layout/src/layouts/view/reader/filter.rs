@@ -11,7 +11,7 @@ use vortex_expr::Scope;
 use vortex_mask::Mask;
 
 use crate::MaskEvaluation;
-use crate::layouts::view::ViewEvaluation;
+use crate::layouts::view::reader::ViewEvaluation;
 
 #[async_trait]
 impl MaskEvaluation for ViewEvaluation {
@@ -29,14 +29,6 @@ impl MaskEvaluation for ViewEvaluation {
             let array_mask = Mask::try_from(array.as_ref())?;
             mask.bitand(&array_mask)
         };
-
-        println!(
-            "View mask evaluation {} - {} (mask = {}) => {}",
-            self.name,
-            self.expr,
-            mask.density(),
-            array_mask.density(),
-        );
 
         Ok(array_mask)
     }

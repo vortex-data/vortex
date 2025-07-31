@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use arcref::ArcRef;
 use futures::StreamExt;
 use futures::stream::once;
 use vortex_array::arrays::VarBinViewVTable;
@@ -27,8 +28,20 @@ use crate::{
 /// This will yield `ViewLayout`s, which at scan time can eliminate many buffer reads that
 /// are unnecessary, improving performance for arrays with large values.
 pub struct ViewStrategy {
-    pub(crate) validity_strategy: Arc<dyn LayoutStrategy>,
-    pub(crate) fallback_strategy: Arc<dyn LayoutStrategy>,
+    pub(crate) validity_strategy: ArcRef<dyn LayoutStrategy>,
+    pub(crate) fallback_strategy: ArcRef<dyn LayoutStrategy>,
+}
+
+impl ViewStrategy {
+    pub fn new(
+        validity_strategy: ArcRef<dyn LayoutStrategy>,
+        fallback_strategy: ArcRef<dyn LayoutStrategy>,
+    ) -> Self {
+        Self {
+            validity_strategy,
+            fallback_strategy,
+        }
+    }
 }
 
 const VALIDITY_DTYPE: DType = DType::Bool(Nullability::NonNullable);
@@ -116,6 +129,7 @@ impl LayoutStrategy for ViewStrategy {
 mod tests {
     use std::sync::Arc;
 
+    use arcref::ArcRef;
     use futures::executor::block_on;
     use futures::stream::once;
     use vortex_array::arrays::VarBinViewArray;
@@ -134,8 +148,8 @@ mod tests {
         // Write a new ViewLayout from an input stream of chunks.
         let ctx = ArrayContext::empty();
         let strategy = ViewStrategy {
-            validity_strategy: Arc::new(FlatLayoutStrategy::default()),
-            fallback_strategy: Arc::new(FlatLayoutStrategy::default()),
+            validity_strategy: ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())),
+            fallback_strategy: ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())),
         };
 
         let writer = Box::new(TestSegments::default());
