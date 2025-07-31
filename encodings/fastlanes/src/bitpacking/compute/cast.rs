@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::compute::{CastKernel, CastKernelAdapter, cast};
-use vortex_array::{ArrayRef, IntoArray, register_kernel};
 use vortex_array::patches::Patches;
 use vortex_array::vtable::ValidityHelper;
+use vortex_array::{ArrayRef, IntoArray, register_kernel};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
@@ -13,7 +13,10 @@ use crate::bitpacking::{BitPackedArray, BitPackedVTable};
 impl CastKernel for BitPackedVTable {
     fn cast(&self, array: &BitPackedArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if array.dtype().eq_ignore_nullability(dtype) {
-            let new_validity = array.validity().clone().cast_nullability(dtype.nullability())?;
+            let new_validity = array
+                .validity()
+                .clone()
+                .cast_nullability(dtype.nullability())?;
             return Ok(Some(
                 unsafe {
                     BitPackedArray::new_unchecked_with_offset(
@@ -50,10 +53,10 @@ register_kernel!(CastKernelAdapter(BitPackedVTable).lift());
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
-    use vortex_array::IntoArray;
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 

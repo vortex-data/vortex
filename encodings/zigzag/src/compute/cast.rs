@@ -34,10 +34,10 @@ register_kernel!(CastKernelAdapter(ZigZagVTable).lift());
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::Array;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
-    use vortex_array::Array;
     use vortex_dtype::{DType, Nullability, PType};
 
     use crate::{ZigZagArray, zigzag_encode};
