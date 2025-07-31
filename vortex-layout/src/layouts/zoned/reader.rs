@@ -208,7 +208,7 @@ impl LayoutReader for ZonedReader {
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
-        log::debug!("Stats pruning evaluation: {} - {}", &self.name, expr);
+        // log::debug!("Stats pruning evaluation: {} - {}", &self.name, expr);
         let data_eval = self.data_child.pruning_evaluation(row_range, expr)?;
 
         let Some(pruning_mask_future) = self.pruning_result_future(expr.clone()) else {

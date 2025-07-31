@@ -211,7 +211,7 @@ impl ArrayEvaluation for FlatEvaluation {
             "Flat array evaluation {} - {} (mask = {})",
             self.name,
             self.expr,
-            mask.density(),
+            mask,
         );
 
         // Now we await the array .

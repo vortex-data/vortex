@@ -25,6 +25,10 @@ use crate::{ArrayEvaluation, LayoutReader, LayoutReaderRef, MaskEvaluation, Prun
 /// The selectivity histogram quantile to use for reordering conjuncts. Where 0 == no rows match.
 const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;
 
+/// The density threshold below which we push masks into conjunct evaluations.
+// TODO(ngates): we should really convert this into round-trip selectivity.
+const MASK_PUSHDOWN_THRESHOLD: f64 = 0.9;
+
 /// A [`LayoutReader`] that splits boolean expressions into individual conjunctions, tracks
 /// statistics about selectivity, and uses this information to reorder the evaluation of the
 /// conjunctions in an attempt to minimize the work done.
@@ -92,8 +96,8 @@ impl LayoutReader for FilterLayoutReader {
 
     fn filter_evaluation(
         &self,
-        row_range: &Range<u64>,
-        expr: &ExprRef,
+        _row_range: &Range<u64>,
+        _expr: &ExprRef,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
         todo!()
     }
@@ -264,22 +268,33 @@ impl ArrayEvaluation for FilterEvaluation {
                 return Ok(mask.into_array());
             }
 
-            let conjunct_array = self.conjunct_evals[idx]
-                .invoke(Mask::new_true(mask.len()))
-                .await?;
-            let conjunct_mask = Mask::try_from(conjunct_array.as_ref())?;
+            // TODO(ngates): this is the sort of thing we want to push down into arrays so they
+            //  can decide their own thresholds for eagerly filtering on selectivity masks.
+            let selectivity = if mask.density() < MASK_PUSHDOWN_THRESHOLD {
+                let conjunct_array = self.conjunct_evals[idx].invoke(mask.clone()).await?;
+                let conjunct_mask = Mask::try_from(conjunct_array.as_ref())?;
 
-            // TODO(ngates): what stats do we even report? We could invoke the conjunct using an
-            //  all true mask in order to get a true selectivity estimate, because computing
-            //  selectivity based on before/after mask is completely dependent on the conjunct
-            //  ordering.
-            self.filter_expr
-                .report_selectivity(idx, conjunct_mask.true_count() as f64 / mask.len() as f64);
+                // TODO(ngates): what selectivity should we report?
+                let selectivity = conjunct_mask.true_count() as f64 / mask.len() as f64;
+                //let selectivity = conjunct_mask.true_count() as f64 / mask.true_count() as f64;
 
-            // NOTE(ngates): the MaskEvaluation documents that it **must** internally perform
-            //  this intersection, so we do not need to do it here again, e.g.
-            //    mask = mask.bitand(&conjunct_mask);
-            mask = conjunct_mask;
+                // Update the mask with a ranked intersection.
+                mask = mask.intersect_by_rank(&conjunct_mask);
+
+                selectivity
+            } else {
+                let conjunct_array = self.conjunct_evals[idx]
+                    .invoke(Mask::new_true(mask.len()))
+                    .await?;
+                let conjunct_mask = Mask::try_from(conjunct_array.as_ref())?;
+
+                // Update the mask with a regular intersection.
+                mask = mask.bitand(&conjunct_mask);
+
+                conjunct_mask.true_count() as f64 / mask.len() as f64
+            };
+
+            self.filter_expr.report_selectivity(idx, selectivity);
         }
 
         Ok(mask.into_array())
