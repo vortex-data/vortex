@@ -534,13 +534,13 @@ window.initAndRender = (function () {
         zoom: {
           zoom: {
             wheel: {
-              enabled: true,
+              enabled: !isMobile, // Disable zoom on mobile
               speed: 0.1, // Slower zoom for smoother experience
               modifierKey: null, // No modifier key required
             },
             mode: "x",
             drag: {
-              enabled: true,
+              enabled: !isMobile, // Disable drag zoom on mobile
               backgroundColor: "rgba(89, 113, 253, 0.1)", // Visual feedback
             },
             onZoom: function ({ chart }) {
@@ -549,26 +549,14 @@ window.initAndRender = (function () {
                 synchronizeZoomForCategory(name, chart, index);
               }
             },
-            onZoomComplete: function ({ chart }) {
-              // On mobile, sync only after zoom completes for better performance
-              if (isMobile) {
-                synchronizeZoomForCategory(name, chart, index);
-              }
-            },
           },
           pan: {
-            enabled: true,
+            enabled: !isMobile, // Disable pan on mobile
             mode: "x",
             modifierKey: null,
             onPan: function ({ chart }) {
               // Also synchronize when panning
               if (!isMobile) {
-                synchronizeZoomForCategory(name, chart, index, false);
-              }
-            },
-            onPanComplete: function ({ chart }) {
-              // On mobile, sync only after pan completes for better performance
-              if (isMobile) {
                 synchronizeZoomForCategory(name, chart, index, false);
               }
             },
@@ -692,11 +680,46 @@ window.initAndRender = (function () {
     setElem.appendChild(headerElem);
 
     // Add description if available
-    const baseCategory = name.split(" (")[0];
-    if (state.benchmarkDescriptions[baseCategory]) {
+    let baseCategory = name.split(" (")[0];
+    let description = "";
+
+    // For TPC-H categories, create customized descriptions with scale factor info
+    if (name.startsWith("TPC-H")) {
+      const scaleFactorMatch = name.match(/SF=(\d+)/);
+      const scaleFactor = scaleFactorMatch ? scaleFactorMatch[1] : null;
+
+      let scaleFactorInfo = "";
+      switch (scaleFactor) {
+        case "1":
+          scaleFactorInfo = "SF=1 (~1GB of data)";
+          break;
+        case "10":
+          scaleFactorInfo = "SF=10 (~10GB of data)";
+          break;
+        case "100":
+          scaleFactorInfo = "SF=100 (~100GB of data)";
+          break;
+        case "1000":
+          scaleFactorInfo = "SF=1000 (~1TB of data)";
+          break;
+        default:
+          scaleFactorInfo = "various scale factors";
+      }
+
+      if (name.includes("NVMe")) {
+        description = `TPC-H benchmark queries executed on local NVMe storage, testing analytical query performance at ${scaleFactorInfo}`;
+      } else if (name.includes("S3")) {
+        description = `TPC-H benchmark queries executed against data stored in Amazon S3, measuring cloud storage query performance and the impact of network latency on analytical workloads at ${scaleFactorInfo}`;
+      }
+    } else {
+      // Use the standard description for non-TPC-H categories
+      description = state.benchmarkDescriptions[baseCategory] || "";
+    }
+
+    if (description) {
       const descElem = document.createElement("div");
       descElem.className = "benchmark-description";
-      descElem.textContent = state.benchmarkDescriptions[baseCategory];
+      descElem.textContent = description;
       setElem.appendChild(descElem);
     }
 
@@ -1247,8 +1270,10 @@ window.initAndRender = (function () {
     let min = xScale.min;
     let max = xScale.max;
 
-    // Always anchor to the most recent commit when zooming
-    if (isZoom) {
+    const isCurrentlyMobile = window.innerWidth <= 768;
+
+    // Always anchor to the most recent commit when zooming (not on mobile)
+    if (isZoom && !isCurrentlyMobile) {
       const totalCommits = sourceChart.data.labels.length;
       const currentRange = max - min;
 
