@@ -11,12 +11,12 @@ window.initAndRender = (function () {
     charts: [],
     chartInstances: new Map(),
     benchmarkDescriptions: {
-      'Random Access': 'Measures random access performance across different data structures',
-      'Compression': 'Compression and decompression time benchmarks for various encodings',
-      'Compression Size': 'Size comparison of compressed data using different algorithms',
-      'TPC-H (NVMe)': 'TPC-H benchmark queries on local NVMe storage',
-      'TPC-H (S3)': 'TPC-H benchmark queries on S3 storage',
-      'Clickbench': 'ClickHouse benchmark queries for analytical workloads'
+      'Random Access': 'Tests random row selection performance using the take operator on compressed arrays, measuring how efficiently Vortex can extract specific rows by index from columnar data without full decompression',
+      'Compression': 'Measures encoding and decoding throughput (MB/s) for various compression algorithms including Vortex native encodings, Parquet with different compression levels (uncompressed, Snappy, Zstd), and tracks compression ratios',
+      'Compression Size': 'Compares compressed file sizes and compression ratios across different encoding strategies, helping evaluate the space efficiency trade-offs between Vortex and Parquet formats',
+      'TPC-H (NVMe)': 'Transaction Processing Performance Council decision support benchmark (TPC-H) executed on local NVMe storage, testing analytical query performance across various scale factors',
+      'TPC-H (S3)': 'TPC-H benchmark queries executed against data stored in Amazon S3, measuring cloud storage query performance and the impact of network latency on analytical workloads',
+      'Clickbench': 'ClickHouse analytical benchmark suite testing real-world query patterns on web analytics data (hits table), comparing Vortex, Parquet, and native formats across multiple query engines'
     },
     categoryTags: {
       'Random Access': ['Read/Write'],
@@ -485,7 +485,6 @@ window.initAndRender = (function () {
       y_axis_scale.max = 8192;
     }
 
-    const isMobile = window.innerWidth <= 768;
     const options = {
       responsive: true,
       maintainAspectRatio: false,
