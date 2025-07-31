@@ -10,9 +10,15 @@ use crate::{DictArray, DictVTable};
 
 impl CastKernel for DictVTable {
     fn cast(&self, array: &DictArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        // Dictionary encoding doesn't change the logical type, so we delegate to the decoded array
-        let decoded = array.to_canonical()?.into_array();
-        cast(&decoded, dtype).map(Some)
+        // Cast the dictionary values to the target type
+        let casted_values = cast(array.values(), dtype)?;
+        
+        // Create a new dictionary array with the same codes but casted values
+        Ok(Some(DictArray::try_new(
+            array.codes().clone(),
+            casted_values,
+        )?
+        .into_array()))
     }
 }
 

@@ -80,6 +80,11 @@ fn test_cast_from_bool(array: &dyn Array, nullability: Nullability) {
         // Try casting to non-nullable (may fail if nulls present)
         let _ = cast(array, &DType::Bool(Nullability::NonNullable));
     }
+    
+    // Test bool to numeric casts (true -> 1, false -> 0)
+    test_cast_to_primitive(array, PType::U8);
+    test_cast_to_primitive(array, PType::I32);
+    test_cast_to_primitive(array, PType::F32);
 }
 
 fn test_cast_from_decimal(array: &dyn Array, nullability: Nullability) {

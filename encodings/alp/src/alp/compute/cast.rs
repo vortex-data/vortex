@@ -10,9 +10,23 @@ use crate::alp::{ALPArray, ALPVTable};
 
 impl CastKernel for ALPVTable {
     fn cast(&self, array: &ALPArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        // ALP encoding is for floating point compression. Decode first, then cast.
-        let decoded = array.to_canonical()?.into_array();
-        cast(&decoded, dtype).map(Some)
+        // Check if this is just a nullability change
+        if array.dtype().eq_ignore_nullability(dtype) {
+            // For nullability-only changes, we can avoid decoding
+            // Cast the encoded array (integers) to handle nullability
+            let new_encoded = cast(array.encoded(), &array.encoded().dtype().with_nullability(dtype.nullability()))?;
+            
+            Ok(Some(ALPArray::new(
+                new_encoded,
+                array.exponents(),
+                dtype.clone(),
+            ).into_array()))
+        } else {
+            // For type changes (e.g., f32 to f64 or to integers), we need to decode
+            // because ALP encoding is specific to the float width
+            let decoded = array.to_canonical()?.into_array();
+            cast(&decoded, dtype).map(Some)
+        }
     }
 }
 
