@@ -342,21 +342,22 @@ body {
 .download-btn {
   display: block;
   width: 100%;
-  padding: 12px 16px;
-  background-color: var(--primary-color);
-  color: white;
+  padding: 10px 16px;
+  background-color: transparent;
+  color: var(--text-secondary);
   text-align: center;
   text-decoration: none;
+  border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 500;
   transition: all 0.2s;
-  box-shadow: 0 2px 4px rgba(89, 113, 253, 0.2);
 }
 
 .download-btn:hover {
-  background-color: var(--primary-hover);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(89, 113, 253, 0.3);
+  background-color: var(--bg-secondary);
+  color: var(--text-color);
+  border-color: var(--text-secondary);
 }
 
 /* Main Content */
@@ -468,6 +469,52 @@ body {
   font-size: 14px;
   color: var(--text-secondary);
   line-height: 1.6;
+}
+
+/* Engine Filter Controls */
+.engine-filter-container {
+  padding: 16px 32px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.engine-filter-label {
+  font-family: "Geist", sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.engine-filter-btn {
+  font-family: "Geist", sans-serif;
+  padding: 6px 14px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-color);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-color);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.engine-filter-btn:hover {
+  background-color: var(--bg-secondary);
+  border-color: var(--primary-color);
+}
+
+.engine-filter-btn.active {
+  background-color: var(--primary-color);
+  color: white;
+  border-color: var(--primary-color);
+}
+
+.engine-filter-btn.active:hover {
+  background-color: var(--primary-hover);
+  border-color: var(--primary-hover);
 }
 
 /* Chart Grid */

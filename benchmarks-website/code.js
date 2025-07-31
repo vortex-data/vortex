@@ -498,6 +498,40 @@ window.initAndRender = (function () {
       descElem.textContent = state.benchmarkDescriptions[baseCategory];
       setElem.appendChild(descElem);
     }
+    
+    // Add engine filters for query groups
+    const tags = state.categoryTags[name] || [];
+    const isQueryGroup = tags.some(tag => tag.includes('Queries'));
+    if (isQueryGroup) {
+      const filterContainer = document.createElement('div');
+      filterContainer.className = 'engine-filter-container';
+      
+      const filterLabel = document.createElement('span');
+      filterLabel.className = 'engine-filter-label';
+      filterLabel.textContent = 'Show: ';
+      filterContainer.appendChild(filterLabel);
+      
+      const engines = ['all', 'duckdb', 'datafusion', 'vortex', 'parquet'];
+      const engineLabels = {
+        'all': 'All',
+        'duckdb': 'DuckDB',
+        'datafusion': 'DataFusion',
+        'vortex': 'Vortex',
+        'parquet': 'Parquet'
+      };
+      
+      engines.forEach(engine => {
+        const btn = document.createElement('button');
+        btn.className = 'engine-filter-btn' + (engine === 'all' ? ' active' : '');
+        btn.textContent = engineLabels[engine];
+        btn.setAttribute('data-engine', engine);
+        btn.setAttribute('data-category', name);
+        btn.onclick = () => filterEngineForCategory(name, engine);
+        filterContainer.appendChild(btn);
+      });
+      
+      setElem.appendChild(filterContainer);
+    }
 
     // Create TOC entry
     const tocLi = document.createElement("li");
@@ -698,6 +732,46 @@ window.initAndRender = (function () {
       link.classList.remove('active');
       if (link.getAttribute('href') === `#${id}`) {
         link.classList.add('active');
+      }
+    });
+  }
+  
+  function filterEngineForCategory(categoryName, engine) {
+    // Update active button state
+    const container = document.querySelector(`[data-category="${categoryName}"] .engine-filter-container`);
+    if (container) {
+      container.querySelectorAll('.engine-filter-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-engine') === engine);
+      });
+    }
+    
+    // Find all charts in this category
+    const categorySection = document.querySelector(`[data-category="${categoryName}"]`);
+    if (!categorySection) return;
+    
+    const chartContainers = categorySection.querySelectorAll('.chart-container');
+    chartContainers.forEach((container, index) => {
+      const chartKey = `${categoryName}-${index}`;
+      const chartData = state.chartInstances.get(chartKey);
+      
+      if (chartData && chartData.chart) {
+        const chart = chartData.chart;
+        
+        // Toggle dataset visibility based on engine filter
+        chart.data.datasets.forEach((dataset, datasetIndex) => {
+          const label = dataset.label.toLowerCase();
+          
+          if (engine === 'all') {
+            // Show all datasets
+            chart.setDatasetVisibility(datasetIndex, true);
+          } else {
+            // Show only datasets that match the engine
+            const shouldShow = label.includes(engine);
+            chart.setDatasetVisibility(datasetIndex, shouldShow);
+          }
+        });
+        
+        chart.update('none'); // Update without animation for better performance
       }
     });
   }
