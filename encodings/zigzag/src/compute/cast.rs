@@ -3,7 +3,7 @@
 
 use vortex_array::compute::{CastKernel, CastKernelAdapter, cast};
 use vortex_array::{ArrayRef, IntoArray, register_kernel};
-use vortex_dtype::{DType, match_each_signed_integer_ptype};
+use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::{ZigZagArray, ZigZagVTable};
