@@ -88,10 +88,10 @@ const CATEGORY_TAGS = {
 
 // Scale factor descriptions
 const SCALE_FACTOR_DESCRIPTIONS = {
-  "1": "SF=1 (~1GB of data)",
-  "10": "SF=10 (~10GB of data)",
-  "100": "SF=100 (~100GB of data)",
-  "1000": "SF=1000 (~1TB of data)",
+  1: "SF=1 (~1GB of data)",
+  10: "SF=10 (~10GB of data)",
+  100: "SF=100 (~100GB of data)",
+  1000: "SF=1000 (~1TB of data)",
 };
 
 // Query name transformations
@@ -173,7 +173,9 @@ window.initAndRender = (function () {
     },
 
     getDebounceDelay() {
-      return utils.isMobile() ? CONFIG.MOBILE_DEBOUNCE_DELAY : CONFIG.DEBOUNCE_DELAY;
+      return utils.isMobile()
+        ? CONFIG.MOBILE_DEBOUNCE_DELAY
+        : CONFIG.DEBOUNCE_DELAY;
     },
 
     stringToColor(str) {
@@ -188,7 +190,7 @@ window.initAndRender = (function () {
 
     batchDOMUpdates(updates) {
       requestAnimationFrame(() => {
-        updates.forEach(update => update());
+        updates.forEach((update) => update());
       });
     },
   };
@@ -231,7 +233,10 @@ window.initAndRender = (function () {
       if (name.startsWith("random-access/")) return "Random Access";
       if (name.includes("compress time/")) return "Compression";
       if (name.startsWith("vortex size/")) return "Compression Size";
-      if (name.startsWith("vortex:raw size/") || name.startsWith("vortex:parquet-zstd size/")) {
+      if (
+        name.startsWith("vortex:raw size/") ||
+        name.startsWith("vortex:parquet-zstd size/")
+      ) {
         return "Compression Size";
       }
       if (name.startsWith("tpch_q")) {
@@ -246,13 +251,17 @@ window.initAndRender = (function () {
     getTpchGroupId(scaleFactor, isNvme) {
       const sf = Number(scaleFactor);
       const storage = isNvme ? "NVMe" : "S3";
-      
+
       switch (sf) {
-        case 1: return `TPC-H (${storage}) (SF=1)`;
-        case 10: return `TPC-H (${storage}) (SF=10)`;
-        case 100: return `TPC-H (${storage}) (SF=100)`;
-        case 1000: return `TPC-H (${storage}) (SF=1000)`;
-        default: 
+        case 1:
+          return `TPC-H (${storage}) (SF=1)`;
+        case 10:
+          return `TPC-H (${storage}) (SF=10)`;
+        case 100:
+          return `TPC-H (${storage}) (SF=100)`;
+        case 1000:
+          return `TPC-H (${storage}) (SF=1000)`;
+        default:
           console.warn("Unknown scale factor:", scaleFactor);
           return null;
       }
@@ -262,8 +271,13 @@ window.initAndRender = (function () {
       let normalizedName = seriesName;
       let normalizedQuery = name;
 
-      if (seriesName.endsWith(" throughput") || seriesName.endsWith("throughput")) {
-        const suffix = seriesName.endsWith(" throughput") ? " throughput" : "throughput";
+      if (
+        seriesName.endsWith(" throughput") ||
+        seriesName.endsWith("throughput")
+      ) {
+        const suffix = seriesName.endsWith(" throughput")
+          ? " throughput"
+          : "throughput";
         normalizedName = seriesName.slice(0, seriesName.length - suffix.length);
         normalizedQuery = name.replace("time", "throughput");
       }
@@ -321,13 +335,19 @@ window.initAndRender = (function () {
       this.sortGroups(groups);
 
       if (missingCommits.size > 0) {
-        console.warn("These commits were missing from commits.json so the commit message is missing and the datetime is set to 1970-01-01T00:00:00Z", missingCommits);
+        console.warn(
+          "These commits were missing from commits.json so the commit message is missing and the datetime is set to 1970-01-01T00:00:00Z",
+          missingCommits
+        );
       }
       if (uncategorizableNames.size > 0) {
-        console.warn("Could not categorize benchmarks with these names, they will not be shown:", uncategorizableNames);
+        console.warn(
+          "Could not categorize benchmarks with these names, they will not be shown:",
+          uncategorizableNames
+        );
       }
 
-      return Object.keys(groups).map(name => ({
+      return Object.keys(groups).map((name) => ({
         name,
         dataSet: groups[name],
       }));
@@ -335,19 +355,28 @@ window.initAndRender = (function () {
 
     initializeGroups() {
       const groups = {};
-      BENCHMARK_GROUPS.forEach(name => {
+      BENCHMARK_GROUPS.forEach((name) => {
         groups[name] = new Map();
       });
       return groups;
     },
 
-    processBenchmark(benchmark, commitMetadata, commits, groups, seriesRenameFn, missingCommits, uncategorizableNames) {
+    processBenchmark(
+      benchmark,
+      commitMetadata,
+      commits,
+      groups,
+      seriesRenameFn,
+      missingCommits,
+      uncategorizableNames
+    ) {
       // Ensure commit metadata
       if (!benchmark.commit) {
         benchmark.commit = commitMetadata[benchmark.commit_id];
         if (!benchmark.commit) {
           missingCommits.add(benchmark.commit_id);
-          benchmark.commit = commitMetadata[benchmark.commit_id] = this.createMissingCommit(benchmark.commit_id);
+          benchmark.commit = commitMetadata[benchmark.commit_id] =
+            this.createMissingCommit(benchmark.commit_id);
         }
       }
 
@@ -371,7 +400,11 @@ window.initAndRender = (function () {
       seriesName = normalized.seriesName;
 
       // Apply series renaming
-      seriesName = this.applySeriesRenaming(seriesName, groupId, seriesRenameFn);
+      seriesName = this.applySeriesRenaming(
+        seriesName,
+        groupId,
+        seriesRenameFn
+      );
 
       // Format query name
       const prettyQ = this.formatQueryName(query);
@@ -381,17 +414,30 @@ window.initAndRender = (function () {
       let unit = benchmark.unit;
       if (!unit && benchmark.name.startsWith("vortex size/")) {
         unit = "bytes";
-      } else if (!unit && (benchmark.name.startsWith("vortex:raw size/") || benchmark.name.startsWith("vortex:parquet-zstd size/"))) {
+      } else if (
+        !unit &&
+        (benchmark.name.startsWith("vortex:raw size/") ||
+          benchmark.name.startsWith("vortex:parquet-zstd size/"))
+      ) {
         unit = "ratio";
       }
 
       // Calculate sort position
-      const sortPosition = query.slice(0, 4) === "tpch" 
-        ? parseInt(prettyQ.split(" ")[1].substring(1), 10) 
-        : 0;
+      const sortPosition =
+        query.slice(0, 4) === "tpch"
+          ? parseInt(prettyQ.split(" ")[1].substring(1), 10)
+          : 0;
 
       // Add to group
-      this.addToGroup(group, prettyQ, seriesName, benchmark, unit, sortPosition, commits);
+      this.addToGroup(
+        group,
+        prettyQ,
+        seriesName,
+        benchmark,
+        unit,
+        sortPosition,
+        commits
+      );
     },
 
     applySeriesRenaming(seriesName, groupId, seriesRenameFn) {
@@ -405,7 +451,15 @@ window.initAndRender = (function () {
       return seriesName;
     },
 
-    addToGroup(group, queryName, seriesName, benchmark, unit, sortPosition, commits) {
+    addToGroup(
+      group,
+      queryName,
+      seriesName,
+      benchmark,
+      unit,
+      sortPosition,
+      commits
+    ) {
       let arr = group.get(queryName);
       if (!arr) {
         group.set(queryName, {
@@ -432,11 +486,15 @@ window.initAndRender = (function () {
     sortGroups(groups) {
       const sortByPositionThenName = (a, b) => {
         const positionCompare = a[1].sort_position - b[1].sort_position;
-        return positionCompare !== 0 ? positionCompare : a[0].localeCompare(b[0]);
+        return positionCompare !== 0
+          ? positionCompare
+          : a[0].localeCompare(b[0]);
       };
 
       Object.entries(groups).forEach(([name, charts]) => {
-        groups[name] = new Map([...charts.entries()].sort(sortByPositionThenName));
+        groups[name] = new Map(
+          [...charts.entries()].sort(sortByPositionThenName)
+        );
       });
     },
   };
@@ -462,7 +520,8 @@ window.initAndRender = (function () {
       const fullscreenBtn = document.createElement("button");
       fullscreenBtn.className = "chart-action-btn";
       fullscreenBtn.textContent = "Fullscreen";
-      fullscreenBtn.onclick = () => chartManager.openModal(name, benchName, index);
+      fullscreenBtn.onclick = () =>
+        chartManager.openModal(name, benchName, index);
 
       actions.appendChild(fullscreenBtn);
       header.appendChild(title);
@@ -476,8 +535,21 @@ window.initAndRender = (function () {
       return { container, canvas };
     },
 
-    renderChart(parent, name, benchName, dataset, hiddenDatasets, removedDatasets, renamedDatasets, index) {
-      const { container, canvas } = this.createChartContainer(name, benchName, index);
+    renderChart(
+      parent,
+      name,
+      benchName,
+      dataset,
+      hiddenDatasets,
+      removedDatasets,
+      renamedDatasets,
+      index
+    ) {
+      const { container, canvas } = this.createChartContainer(
+        name,
+        benchName,
+        index
+      );
       parent.appendChild(container);
 
       // Store chart configuration for lazy loading
@@ -518,7 +590,9 @@ window.initAndRender = (function () {
 
       // On mobile, limit data points
       const isMobile = utils.isMobile();
-      const maxDataPoints = isMobile ? CONFIG.MOBILE_MAX_DATA_POINTS : dataset.commits.length;
+      const maxDataPoints = isMobile
+        ? CONFIG.MOBILE_MAX_DATA_POINTS
+        : dataset.commits.length;
       const startIndex = Math.max(0, dataset.commits.length - maxDataPoints);
 
       const limitedCommits = dataset.commits.slice(startIndex);
@@ -545,7 +619,14 @@ window.initAndRender = (function () {
           }),
       };
 
-      const options = this.createChartOptions(name, benchName, dataset, limitedCommits, isMobile, index);
+      const options = this.createChartOptions(
+        name,
+        benchName,
+        dataset,
+        limitedCommits,
+        isMobile,
+        index
+      );
 
       const chart = new Chart(canvas, {
         type: "line",
@@ -559,9 +640,16 @@ window.initAndRender = (function () {
       return chart;
     },
 
-    createChartOptions(categoryName, benchName, dataset, limitedCommits, isMobile, index) {
+    createChartOptions(
+      categoryName,
+      benchName,
+      dataset,
+      limitedCommits,
+      isMobile,
+      index
+    ) {
       const yAxisScale = this.createYAxisScale(benchName, dataset);
-      
+
       return {
         responsive: true,
         maintainAspectRatio: false,
@@ -588,11 +676,21 @@ window.initAndRender = (function () {
               text: benchName,
               padding: { bottom: 50 },
             },
-            min: isMobile ? 0 : Math.max(0, dataset.commits.length - CONFIG.DEFAULT_VISIBLE_COMMITS),
+            min: isMobile
+              ? 0
+              : Math.max(
+                  0,
+                  dataset.commits.length - CONFIG.DEFAULT_VISIBLE_COMMITS
+                ),
           },
           y: yAxisScale,
         },
-        plugins: this.createPlugins(categoryName, isMobile, limitedCommits, index),
+        plugins: this.createPlugins(
+          categoryName,
+          isMobile,
+          limitedCommits,
+          index
+        ),
         onClick: this.createClickHandler(limitedCommits),
       };
     },
@@ -606,12 +704,20 @@ window.initAndRender = (function () {
         suggestedMin: 0,
       };
 
-      if (benchName.includes("COMPRESS") && benchName.includes("THROUGHPUT") && dataset.unit === "MiB/s") {
+      if (
+        benchName.includes("COMPRESS") &&
+        benchName.includes("THROUGHPUT") &&
+        dataset.unit === "MiB/s"
+      ) {
         scale.suggestedMax = CONFIG.COMPRESS_THROUGHPUT_MAX;
         scale.max = CONFIG.COMPRESS_THROUGHPUT_MAX;
       }
 
-      if (benchName.includes("DECOMPRESS") && benchName.includes("THROUGHPUT") && dataset.unit === "MiB/s") {
+      if (
+        benchName.includes("DECOMPRESS") &&
+        benchName.includes("THROUGHPUT") &&
+        dataset.unit === "MiB/s"
+      ) {
         scale.suggestedMax = CONFIG.DECOMPRESS_THROUGHPUT_MAX;
         scale.max = CONFIG.DECOMPRESS_THROUGHPUT_MAX;
       }
@@ -633,23 +739,39 @@ window.initAndRender = (function () {
               enabled: !isMobile,
               backgroundColor: "rgba(89, 113, 253, 0.1)",
             },
-            onZoom: !isMobile ? ({ chart }) => {
-              zoomSync.synchronizeZoomForCategory(categoryName, chart, index);
-            } : undefined,
+            onZoom: !isMobile
+              ? ({ chart }) => {
+                  zoomSync.synchronizeZoomForCategory(
+                    categoryName,
+                    chart,
+                    index
+                  );
+                }
+              : undefined,
           },
           pan: {
             enabled: !isMobile,
             mode: "x",
             modifierKey: null,
-            onPan: !isMobile ? ({ chart }) => {
-              zoomSync.synchronizeZoomForCategory(categoryName, chart, index, false);
-            } : undefined,
+            onPan: !isMobile
+              ? ({ chart }) => {
+                  zoomSync.synchronizeZoomForCategory(
+                    categoryName,
+                    chart,
+                    index,
+                    false
+                  );
+                }
+              : undefined,
           },
           limits: {
             x: {
               min: 0,
               max: limitedCommits.length - 1,
-              minRange: Math.min(CONFIG.MIN_VISIBLE_COMMITS, limitedCommits.length),
+              minRange: Math.min(
+                CONFIG.MIN_VISIBLE_COMMITS,
+                limitedCommits.length
+              ),
             },
           },
         },
@@ -696,7 +818,9 @@ window.initAndRender = (function () {
         return [
           "",
           commit.message.split("\n")[0],
-          `${commit.author.name} - ${new Date(commit.timestamp).toLocaleDateString()}`,
+          `${commit.author.name} - ${new Date(
+            commit.timestamp
+          ).toLocaleDateString()}`,
         ];
       };
     },
@@ -746,29 +870,30 @@ window.initAndRender = (function () {
       // Prevent multiple simultaneous resize operations
       if (state.isResizing) return;
       state.isResizing = true;
-      
+
       const currentIsMobile = utils.isMobile();
       const wasDesktop = state.lastWindowWidth > CONFIG.MOBILE_BREAKPOINT;
       const isDesktop = window.innerWidth > CONFIG.MOBILE_BREAKPOINT;
-      const crossedThreshold = (wasDesktop && !isDesktop) || (!wasDesktop && isDesktop);
-      
+      const crossedThreshold =
+        (wasDesktop && !isDesktop) || (!wasDesktop && isDesktop);
+
       // Update window width immediately
       state.lastWindowWidth = window.innerWidth;
-      
+
       if (!crossedThreshold) {
         // Simple resize - just update all charts
         requestAnimationFrame(() => {
           state.chartInstances.forEach((chartData) => {
             if (chartData?.chart) {
               chartData.chart.resize();
-              chartData.chart.update('none');
+              chartData.chart.update("none");
             }
           });
           state.isResizing = false;
         });
         return;
       }
-      
+
       // For threshold crossing, update chart options
       requestAnimationFrame(() => {
         // Update all charts
@@ -776,35 +901,46 @@ window.initAndRender = (function () {
           if (chartData?.chart) {
             const chart = chartData.chart;
             const totalCommits = chart.data.labels.length;
-            
+
             // Store current state - deep clone y-axis to preserve all properties
             const currentXMin = chart.options.scales.x.min;
             const currentXMax = chart.options.scales.x.max;
-            const currentYScale = JSON.parse(JSON.stringify(chart.options.scales.y));
-            
+            const currentYScale = JSON.parse(
+              JSON.stringify(chart.options.scales.y)
+            );
+
             // Determine new x-axis bounds
             let newXMin, newXMax;
             if (currentIsMobile) {
               newXMin = 0;
-              newXMax = Math.min(CONFIG.MOBILE_MAX_DATA_POINTS - 1, totalCommits - 1);
+              newXMax = Math.min(
+                CONFIG.MOBILE_MAX_DATA_POINTS - 1,
+                totalCommits - 1
+              );
             } else {
               // Going to desktop - restore previous or use defaults
-              const wasShowingAllMobileData = currentXMin === 0 && currentXMax === Math.min(CONFIG.MOBILE_MAX_DATA_POINTS - 1, totalCommits - 1);
+              const wasShowingAllMobileData =
+                currentXMin === 0 &&
+                currentXMax ===
+                  Math.min(CONFIG.MOBILE_MAX_DATA_POINTS - 1, totalCommits - 1);
               if (wasShowingAllMobileData) {
-                newXMin = Math.max(0, totalCommits - CONFIG.DEFAULT_VISIBLE_COMMITS);
+                newXMin = Math.max(
+                  0,
+                  totalCommits - CONFIG.DEFAULT_VISIBLE_COMMITS
+                );
                 newXMax = totalCommits - 1;
               } else {
                 newXMin = currentXMin;
                 newXMax = currentXMax;
               }
             }
-            
+
             // Update all options directly
             chart.options.animation.duration = 0;
             chart.options.aspectRatio = currentIsMobile ? 1.5 : 2;
             chart.options.pointStyle = currentIsMobile ? false : "crossRot";
             chart.options.elements.point.radius = currentIsMobile ? 0 : 3;
-            
+
             // Update zoom settings
             if (chart.options.plugins.zoom) {
               const zoomEnabled = !currentIsMobile;
@@ -813,36 +949,42 @@ window.initAndRender = (function () {
               chart.options.plugins.zoom.zoom.drag.enabled = false;
               chart.options.plugins.zoom.pan.enabled = zoomEnabled;
             }
-            
+
             // Update x-axis only, preserve y-axis completely
             chart.options.scales.x.min = newXMin;
             chart.options.scales.x.max = newXMax;
-            
+
             // Ensure y-axis is preserved with all its properties
-            Object.keys(currentYScale).forEach(key => {
+            Object.keys(currentYScale).forEach((key) => {
               chart.options.scales.y[key] = currentYScale[key];
             });
-            
+
             // Force preserve critical y-axis properties
-            if (currentYScale.min !== undefined) chart.options.scales.y.min = currentYScale.min;
-            if (currentYScale.max !== undefined) chart.options.scales.y.max = currentYScale.max;
-            if (currentYScale.suggestedMin !== undefined) chart.options.scales.y.suggestedMin = currentYScale.suggestedMin;
-            if (currentYScale.suggestedMax !== undefined) chart.options.scales.y.suggestedMax = currentYScale.suggestedMax;
-            
+            if (currentYScale.min !== undefined)
+              chart.options.scales.y.min = currentYScale.min;
+            if (currentYScale.max !== undefined)
+              chart.options.scales.y.max = currentYScale.max;
+            if (currentYScale.suggestedMin !== undefined)
+              chart.options.scales.y.suggestedMin = currentYScale.suggestedMin;
+            if (currentYScale.suggestedMax !== undefined)
+              chart.options.scales.y.suggestedMax = currentYScale.suggestedMax;
+
             // Single update per chart
-            chart.update('none');
+            chart.update("none");
           }
         });
-        
+
         // Reset animation duration after update
         setTimeout(() => {
           state.chartInstances.forEach((chartData) => {
             if (chartData?.chart) {
-              chartData.chart.options.animation.duration = currentIsMobile ? 0 : CONFIG.ANIMATION_DURATION;
+              chartData.chart.options.animation.duration = currentIsMobile
+                ? 0
+                : CONFIG.ANIMATION_DURATION;
             }
           });
         }, 100);
-        
+
         // Recreate debounced sync zoom with new delay
         if (crossedThreshold) {
           debouncedSyncZoom = utils.debounce((categoryName) => {
@@ -856,7 +998,8 @@ window.initAndRender = (function () {
             );
             if (!categorySection) return;
 
-            const chartContainers = categorySection.querySelectorAll(".chart-container");
+            const chartContainers =
+              categorySection.querySelectorAll(".chart-container");
 
             requestAnimationFrame(() => {
               chartContainers.forEach((container, index) => {
@@ -877,7 +1020,7 @@ window.initAndRender = (function () {
             state.pendingZoomUpdates.delete(categoryName);
           }, utils.getDebounceDelay());
         }
-        
+
         state.isResizing = false;
       });
     },
@@ -885,7 +1028,12 @@ window.initAndRender = (function () {
 
   // Zoom synchronization module
   const zoomSync = {
-    synchronizeZoomForCategory(categoryName, sourceChart, sourceIndex, isZoom = true) {
+    synchronizeZoomForCategory(
+      categoryName,
+      sourceChart,
+      sourceIndex,
+      isZoom = true
+    ) {
       // Get the current zoom state from the source chart
       const xScale = sourceChart.scales.x;
       let min = xScale.min;
@@ -911,12 +1059,14 @@ window.initAndRender = (function () {
     },
 
     resetZoomForCategory(categoryName) {
-      const section = document.querySelector(`[data-category="${categoryName}"]`);
+      const section = document.querySelector(
+        `[data-category="${categoryName}"]`
+      );
       if (!section) return;
 
       const isCurrentlyMobile = utils.isMobile();
       const containers = section.querySelectorAll(".chart-container");
-      
+
       containers.forEach((container, index) => {
         const chartKey = `${categoryName}-${index}`;
         const chartData = state.chartInstances.get(chartKey);
@@ -924,7 +1074,9 @@ window.initAndRender = (function () {
         if (chartData?.chart) {
           const chart = chartData.chart;
           const totalCommits = chart.data.labels.length;
-          const minIndex = isCurrentlyMobile ? 0 : Math.max(0, totalCommits - CONFIG.DEFAULT_VISIBLE_COMMITS);
+          const minIndex = isCurrentlyMobile
+            ? 0
+            : Math.max(0, totalCommits - CONFIG.DEFAULT_VISIBLE_COMMITS);
 
           chart.options.scales.x.min = minIndex;
           chart.options.scales.x.max = totalCommits - 1;
@@ -939,7 +1091,8 @@ window.initAndRender = (function () {
     getTpchDescription(categoryName) {
       const scaleFactorMatch = categoryName.match(/SF=(\d+)/);
       const scaleFactor = scaleFactorMatch ? scaleFactorMatch[1] : null;
-      const scaleFactorInfo = SCALE_FACTOR_DESCRIPTIONS[scaleFactor] || "various scale factors";
+      const scaleFactorInfo =
+        SCALE_FACTOR_DESCRIPTIONS[scaleFactor] || "various scale factors";
 
       if (categoryName.includes("NVMe")) {
         return `TPC-H benchmark queries executed on local NVMe storage, testing analytical query performance at ${scaleFactorInfo}`;
@@ -958,7 +1111,8 @@ window.initAndRender = (function () {
     },
 
     createBenchmarkSection(name, benchSet, groupFilterSettings = {}) {
-      const { keptCharts, hiddenDatasets, removedDatasets, renamedDatasets } = groupFilterSettings;
+      const { keptCharts, hiddenDatasets, removedDatasets, renamedDatasets } =
+        groupFilterSettings;
 
       const section = document.createElement("div");
       section.className = "benchmark-set";
@@ -996,7 +1150,7 @@ window.initAndRender = (function () {
 
     createSectionHeader(name, benchSet, keptCharts) {
       const h1id = name.replace(/\s+/g, "_");
-      
+
       const header = document.createElement("div");
       header.className = "benchmark-header";
       header.onclick = () => this.toggleSection(name);
@@ -1034,7 +1188,7 @@ window.initAndRender = (function () {
 
     createSectionControls(name) {
       const tags = CATEGORY_TAGS[name] || [];
-      const isQueryGroup = tags.some(tag => tag.includes("Queries"));
+      const isQueryGroup = tags.some((tag) => tag.includes("Queries"));
 
       const container = document.createElement("div");
       container.className = "engine-filter-container";
@@ -1047,7 +1201,9 @@ window.initAndRender = (function () {
 
         Object.entries(ENGINE_LABELS).forEach(([engine, label]) => {
           const btn = document.createElement("button");
-          btn.className = "engine-filter-btn" + (engine === state.activeEngine ? " active" : "");
+          btn.className =
+            "engine-filter-btn" +
+            (engine === state.activeEngine ? " active" : "");
           btn.textContent = label;
           btn.setAttribute("data-engine", engine);
           btn.setAttribute("data-category", name);
@@ -1086,9 +1242,9 @@ window.initAndRender = (function () {
 
     linkToGroup(name) {
       urlManager.updateParams({ group: name });
-      
+
       const targetSection = document.querySelector(`[data-category="${name}"]`);
-      
+
       navigator.clipboard.writeText(window.location.href).then(() => {
         if (targetSection) {
           const linkBtn = targetSection.querySelector(".group-link-btn");
@@ -1110,21 +1266,26 @@ window.initAndRender = (function () {
       urlManager.updateParams({ engine });
 
       // Update all engine filter buttons
-      document.querySelectorAll(".engine-filter-container").forEach(container => {
-        container.querySelectorAll(".engine-filter-btn").forEach(btn => {
-          btn.classList.toggle("active", btn.getAttribute("data-engine") === engine);
+      document
+        .querySelectorAll(".engine-filter-container")
+        .forEach((container) => {
+          container.querySelectorAll(".engine-filter-btn").forEach((btn) => {
+            btn.classList.toggle(
+              "active",
+              btn.getAttribute("data-engine") === engine
+            );
+          });
         });
-      });
 
       // Apply filter to charts
       this.applyEngineFilter(engine);
     },
 
     applyEngineFilter(engine) {
-      document.querySelectorAll(".benchmark-set").forEach(section => {
+      document.querySelectorAll(".benchmark-set").forEach((section) => {
         const category = section.getAttribute("data-category");
         const tags = CATEGORY_TAGS[category] || [];
-        const isQueryGroup = tags.some(tag => tag.includes("Queries"));
+        const isQueryGroup = tags.some((tag) => tag.includes("Queries"));
 
         if (isQueryGroup) {
           const containers = section.querySelectorAll(".chart-container");
@@ -1142,11 +1303,11 @@ window.initAndRender = (function () {
 
     updateChartVisibility(chart, engine) {
       const updates = [];
-      
+
       chart.data.datasets.forEach((dataset, index) => {
         const label = dataset.label.toLowerCase();
         const shouldShow = engine === "all" || label.includes(engine);
-        
+
         if (chart.isDatasetVisible(index) !== shouldShow) {
           updates.push({ index, visible: shouldShow });
         }
@@ -1162,11 +1323,11 @@ window.initAndRender = (function () {
 
     setView(view) {
       state.currentView = view;
-      document.querySelectorAll(".benchmark-graphs").forEach(graphs => {
+      document.querySelectorAll(".benchmark-graphs").forEach((graphs) => {
         graphs.classList.toggle("list-view", view === "list");
       });
 
-      document.querySelectorAll(".view-btn").forEach(btn => {
+      document.querySelectorAll(".view-btn").forEach((btn) => {
         btn.classList.remove("active");
       });
       document.getElementById(`${view}-view`).classList.add("active");
@@ -1189,14 +1350,20 @@ window.initAndRender = (function () {
       const params = new URLSearchParams(window.location.search);
 
       Object.entries(updates).forEach(([key, value]) => {
-        if (value && value !== "all" && !(key === "expanded" && value === "true")) {
+        if (
+          value &&
+          value !== "all" &&
+          !(key === "expanded" && value === "true")
+        ) {
           params.set(key, value);
         } else {
           params.delete(key);
         }
       });
 
-      const newURL = window.location.pathname + (params.toString() ? "?" + params.toString() : "");
+      const newURL =
+        window.location.pathname +
+        (params.toString() ? "?" + params.toString() : "");
       window.history.replaceState({}, "", newURL);
     },
 
@@ -1233,23 +1400,27 @@ window.initAndRender = (function () {
       urlManager.updateParams({ tag });
 
       // Filter sections
-      document.querySelectorAll(".benchmark-set").forEach(section => {
+      document.querySelectorAll(".benchmark-set").forEach((section) => {
         const category = section.getAttribute("data-category");
         const tags = CATEGORY_TAGS[category] || [];
-        section.style.display = (tag === "all" || tags.includes(tag)) ? "block" : "none";
+        section.style.display =
+          tag === "all" || tags.includes(tag) ? "block" : "none";
       });
 
       // Filter navigation
-      document.querySelectorAll(".toc-list li").forEach(navItem => {
+      document.querySelectorAll(".toc-list li").forEach((navItem) => {
         const link = navItem.querySelector("a");
         if (link) {
           const targetId = link.getAttribute("href").substring(1);
           const targetSection = document.getElementById(targetId);
-          
+
           if (targetSection?.closest(".benchmark-set")) {
-            const category = targetSection.closest(".benchmark-set").getAttribute("data-category");
+            const category = targetSection
+              .closest(".benchmark-set")
+              .getAttribute("data-category");
             const tags = CATEGORY_TAGS[category] || [];
-            navItem.style.display = (tag === "all" || tags.includes(tag)) ? "block" : "none";
+            navItem.style.display =
+              tag === "all" || tags.includes(tag) ? "block" : "none";
           }
         }
       });
@@ -1264,11 +1435,15 @@ window.initAndRender = (function () {
 
     filterBySearch(term) {
       state.searchTerm = term.toLowerCase();
-      
-      document.querySelectorAll(".chart-container").forEach(chart => {
-        const benchmarkName = chart.getAttribute("data-benchmark").toLowerCase();
+
+      document.querySelectorAll(".chart-container").forEach((chart) => {
+        const benchmarkName = chart
+          .getAttribute("data-benchmark")
+          .toLowerCase();
         const chartName = chart.getAttribute("data-chart").toLowerCase();
-        const matches = benchmarkName.includes(state.searchTerm) || chartName.includes(state.searchTerm);
+        const matches =
+          benchmarkName.includes(state.searchTerm) ||
+          chartName.includes(state.searchTerm);
         chart.style.display = matches ? "block" : "none";
       });
     },
@@ -1280,7 +1455,7 @@ window.initAndRender = (function () {
       const sections = document.querySelectorAll(".benchmark-set");
       const updates = [];
 
-      sections.forEach(section => {
+      sections.forEach((section) => {
         const category = section.getAttribute("data-category");
         state.expandedSections.add(category);
         if (section.classList.contains("collapsed")) {
@@ -1296,7 +1471,7 @@ window.initAndRender = (function () {
       const sections = document.querySelectorAll(".benchmark-set");
       const updates = [];
 
-      sections.forEach(section => {
+      sections.forEach((section) => {
         const category = section.getAttribute("data-category");
         state.expandedSections.delete(category);
         if (!section.classList.contains("collapsed")) {
@@ -1310,14 +1485,16 @@ window.initAndRender = (function () {
 
     focusOnGroup(groupName) {
       // Collapse all first
-      document.querySelectorAll(".benchmark-set").forEach(section => {
+      document.querySelectorAll(".benchmark-set").forEach((section) => {
         const category = section.getAttribute("data-category");
         state.expandedSections.delete(category);
         section.classList.add("collapsed");
       });
 
       // Expand target
-      const targetSection = document.querySelector(`[data-category="${groupName}"]`);
+      const targetSection = document.querySelector(
+        `[data-category="${groupName}"]`
+      );
       if (targetSection) {
         state.expandedSections.add(groupName);
         targetSection.classList.remove("collapsed");
@@ -1325,9 +1502,12 @@ window.initAndRender = (function () {
         // Scroll to section
         const targetId = targetSection.querySelector(".benchmark-title").id;
         const targetElement = document.getElementById(targetId);
-        const headerHeight = document.querySelector(".sticky-header").offsetHeight;
-        const elementPosition = targetElement.getBoundingClientRect().top + window.pageYOffset;
-        const offsetPosition = elementPosition - headerHeight - CONFIG.SCROLL_OFFSET_PADDING;
+        const headerHeight =
+          document.querySelector(".sticky-header").offsetHeight;
+        const elementPosition =
+          targetElement.getBoundingClientRect().top + window.pageYOffset;
+        const offsetPosition =
+          elementPosition - headerHeight - CONFIG.SCROLL_OFFSET_PADDING;
 
         window.scrollTo({
           top: offsetPosition,
@@ -1339,20 +1519,23 @@ window.initAndRender = (function () {
     },
 
     updateActiveNavItem(id) {
-      document.querySelectorAll(".toc-list a").forEach(link => {
+      document.querySelectorAll(".toc-list a").forEach((link) => {
         link.classList.toggle("active", link.getAttribute("href") === `#${id}`);
       });
     },
 
     handleScroll() {
       const scrollY = window.scrollY;
-      domElements.backToTop.classList.toggle("visible", scrollY > CONFIG.BACK_TO_TOP_THRESHOLD);
+      domElements.backToTop.classList.toggle(
+        "visible",
+        scrollY > CONFIG.BACK_TO_TOP_THRESHOLD
+      );
 
       // Update active nav item
       const sections = document.querySelectorAll(".benchmark-set");
       let current = "";
-      
-      sections.forEach(section => {
+
+      sections.forEach((section) => {
         const rect = section.getBoundingClientRect();
         if (rect.top <= CONFIG.SCROLL_ACTIVE_THRESHOLD) {
           current = section.querySelector(".benchmark-title").id;
@@ -1369,15 +1552,19 @@ window.initAndRender = (function () {
   const initializer = {
     async loadData() {
       const [dataResponse, commitsResponse] = await Promise.all([
-        this.fetchGzippedData("https://vortex-benchmark-results-database.s3.amazonaws.com/data.json.gz"),
-        fetch("https://vortex-benchmark-results-database.s3.amazonaws.com/commits.json").then(r => r.text()),
+        this.fetchGzippedData(
+          "https://vortex-benchmark-results-database.s3.amazonaws.com/data.json.gz"
+        ),
+        fetch(
+          "https://vortex-benchmark-results-database.s3.amazonaws.com/commits.json"
+        ).then((r) => r.text()),
       ]);
 
       const data = this.parseJsonl(dataResponse);
       const commitsArray = this.parseJsonl(commitsResponse);
 
       const commits = {};
-      commitsArray.forEach(commit => {
+      commitsArray.forEach((commit) => {
         commits[commit.id] = commit;
       });
 
@@ -1386,7 +1573,9 @@ window.initAndRender = (function () {
 
     async fetchGzippedData(url) {
       const response = await fetch(url);
-      const decompressedStream = response.body.pipeThrough(new DecompressionStream("gzip"));
+      const decompressedStream = response.body.pipeThrough(
+        new DecompressionStream("gzip")
+      );
       const reader = decompressedStream.getReader();
       const decoder = new TextDecoder();
       let result = "";
@@ -1404,20 +1593,34 @@ window.initAndRender = (function () {
     parseJsonl(jsonl) {
       return jsonl
         .split("\n")
-        .filter(line => line.trim().length !== 0)
-        .map(line => JSON.parse(line));
+        .filter((line) => line.trim().length !== 0)
+        .map((line) => JSON.parse(line));
     },
 
     initializeControls() {
       // Cache DOM elements
       const elementIds = [
-        "menu-toggle", "sidebar", "sidebar-close", "expand-all", "collapse-all",
-        "grid-view", "list-view", "category-filter", "clear-filter", "search-filter",
-        "back-to-top", "modal-close", "chart-modal", "main", "toc"
+        "menu-toggle",
+        "sidebar",
+        "sidebar-close",
+        "expand-all",
+        "collapse-all",
+        "grid-view",
+        "list-view",
+        "category-filter",
+        "clear-filter",
+        "search-filter",
+        "back-to-top",
+        "modal-close",
+        "chart-modal",
+        "main",
+        "toc",
       ];
 
-      elementIds.forEach(id => {
-        const camelCaseId = id.replace(/-(.)/g, (match, char) => char.toUpperCase());
+      elementIds.forEach((id) => {
+        const camelCaseId = id.replace(/-(.)/g, (match, char) =>
+          char.toUpperCase()
+        );
         domElements[camelCaseId] = document.getElementById(id);
       });
 
@@ -1457,7 +1660,8 @@ window.initAndRender = (function () {
         );
         if (!categorySection) return;
 
-        const chartContainers = categorySection.querySelectorAll(".chart-container");
+        const chartContainers =
+          categorySection.querySelectorAll(".chart-container");
 
         // Use requestAnimationFrame for smooth updates
         requestAnimationFrame(() => {
@@ -1497,15 +1701,19 @@ window.initAndRender = (function () {
       });
 
       // Expand/Collapse
-      domElements.expandAll.addEventListener("click", () => navigationManager.expandAll());
-      domElements.collapseAll.addEventListener("click", () => navigationManager.collapseAll());
+      domElements.expandAll.addEventListener("click", () =>
+        navigationManager.expandAll()
+      );
+      domElements.collapseAll.addEventListener("click", () =>
+        navigationManager.collapseAll()
+      );
 
       // View controls
       domElements.gridView.addEventListener("click", () => ui.setView("grid"));
       domElements.listView.addEventListener("click", () => ui.setView("list"));
 
       // Filters
-      domElements.categoryFilter.addEventListener("change", e => {
+      domElements.categoryFilter.addEventListener("change", (e) => {
         filterManager.filterByTag(e.target.value);
       });
 
@@ -1515,13 +1723,19 @@ window.initAndRender = (function () {
         urlManager.updateParams({ tag: "all" });
       });
 
-      const debouncedSearch = utils.debounce(term => filterManager.filterBySearch(term), CONFIG.SEARCH_DEBOUNCE);
-      domElements.searchFilter.addEventListener("input", e => {
+      const debouncedSearch = utils.debounce(
+        (term) => filterManager.filterBySearch(term),
+        CONFIG.SEARCH_DEBOUNCE
+      );
+      domElements.searchFilter.addEventListener("input", (e) => {
         debouncedSearch(e.target.value);
       });
 
       // Scroll handling
-      const throttledScroll = utils.throttle(() => navigationManager.handleScroll(), CONFIG.THROTTLE_SCROLL);
+      const throttledScroll = utils.throttle(
+        () => navigationManager.handleScroll(),
+        CONFIG.THROTTLE_SCROLL
+      );
       window.addEventListener("scroll", throttledScroll);
 
       domElements.backToTop.addEventListener("click", () => {
@@ -1529,16 +1743,21 @@ window.initAndRender = (function () {
       });
 
       // Modal
-      domElements.modalClose.addEventListener("click", () => chartManager.closeModal());
-      domElements.chartModal.addEventListener("click", e => {
+      domElements.modalClose.addEventListener("click", () =>
+        chartManager.closeModal()
+      );
+      domElements.chartModal.addEventListener("click", (e) => {
         if (e.target.id === "chart-modal") {
           chartManager.closeModal();
         }
       });
 
       // Outside click for sidebar
-      document.addEventListener("click", e => {
-        if (!domElements.sidebar.contains(e.target) && !domElements.menuToggle.contains(e.target)) {
+      document.addEventListener("click", (e) => {
+        if (
+          !domElements.sidebar.contains(e.target) &&
+          !domElements.menuToggle.contains(e.target)
+        ) {
           domElements.sidebar.classList.remove("active");
         }
       });
@@ -1547,14 +1766,24 @@ window.initAndRender = (function () {
       const debouncedResize = utils.debounce(() => {
         chartManager.updateChartsForResize();
       }, CONFIG.RESIZE_DEBOUNCE);
-      
+
       window.addEventListener("resize", debouncedResize);
     },
   };
 
   // Render benchmark set function
-  function renderBenchmarkSet(name, benchSet, main, toc, groupFilterSettings = {}) {
-    const { section, chartsContainer } = ui.createBenchmarkSection(name, benchSet, groupFilterSettings);
+  function renderBenchmarkSet(
+    name,
+    benchSet,
+    main,
+    toc,
+    groupFilterSettings = {}
+  ) {
+    const { section, chartsContainer } = ui.createBenchmarkSection(
+      name,
+      benchSet,
+      groupFilterSettings
+    );
     main.appendChild(section);
 
     // Create TOC entry
@@ -1566,9 +1795,12 @@ window.initAndRender = (function () {
     tocLink.onclick = (e) => {
       e.preventDefault();
       const targetElement = document.getElementById(h1id);
-      const headerHeight = document.querySelector(".sticky-header").offsetHeight;
-      const elementPosition = targetElement.getBoundingClientRect().top + window.pageYOffset;
-      const offsetPosition = elementPosition - headerHeight - CONFIG.SCROLL_OFFSET_PADDING;
+      const headerHeight =
+        document.querySelector(".sticky-header").offsetHeight;
+      const elementPosition =
+        targetElement.getBoundingClientRect().top + window.pageYOffset;
+      const offsetPosition =
+        elementPosition - headerHeight - CONFIG.SCROLL_OFFSET_PADDING;
 
       window.scrollTo({
         top: offsetPosition,
@@ -1582,8 +1814,9 @@ window.initAndRender = (function () {
 
     // Render charts
     let chartIndex = 0;
-    const { keptCharts, hiddenDatasets, removedDatasets, renamedDatasets } = groupFilterSettings;
-    
+    const { keptCharts, hiddenDatasets, removedDatasets, renamedDatasets } =
+      groupFilterSettings;
+
     if (keptCharts === undefined) {
       if (benchSet !== undefined) {
         for (const [benchName, benches] of benchSet.entries()) {
@@ -1626,11 +1859,15 @@ window.initAndRender = (function () {
   return async function initAndRender(keptGroups) {
     try {
       const { data, commits } = await initializer.loadData();
-      const grouped = dataProcessor.downloadAndGroupData(data, commits, keptGroups);
-      
+      const grouped = dataProcessor.downloadAndGroupData(
+        data,
+        commits,
+        keptGroups
+      );
+
       const main = domElements.main || document.getElementById("main");
       const toc = domElements.toc || document.getElementById("toc");
-      
+
       // Clear loading indicator
       main.innerHTML = "";
 
@@ -1640,7 +1877,9 @@ window.initAndRender = (function () {
           renderBenchmarkSet(name, dataSet, main, toc);
         }
       } else {
-        const dataSetsMap = new Map(grouped.map(({ name, dataSet }) => [name, dataSet]));
+        const dataSetsMap = new Map(
+          grouped.map(({ name, dataSet }) => [name, dataSet])
+        );
         for (const [name, groupFilterSettings] of keptGroups) {
           const dataSet = dataSetsMap.get(name);
           renderBenchmarkSet(name, dataSet, main, toc, groupFilterSettings);
