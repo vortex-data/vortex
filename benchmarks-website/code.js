@@ -513,36 +513,53 @@ window.initAndRender = (function () {
       setElem.appendChild(descElem);
     }
     
-    // Add engine filters for query groups
+    // Add engine filters for query groups OR zoom controls for all groups
     const tags = state.categoryTags[name] || [];
     const isQueryGroup = tags.some(tag => tag.includes('Queries'));
-    if (isQueryGroup) {
+    
+    if (isQueryGroup || true) { // Add controls to all groups
       const filterContainer = document.createElement('div');
       filterContainer.className = 'engine-filter-container';
       
-      const filterLabel = document.createElement('span');
-      filterLabel.className = 'engine-filter-label';
-      filterLabel.textContent = 'Show: ';
-      filterContainer.appendChild(filterLabel);
+      if (isQueryGroup) {
+        const filterLabel = document.createElement('span');
+        filterLabel.className = 'engine-filter-label';
+        filterLabel.textContent = 'Show: ';
+        filterContainer.appendChild(filterLabel);
+        
+        const engines = ['all', 'duckdb', 'datafusion', 'vortex', 'parquet'];
+        const engineLabels = {
+          'all': 'All',
+          'duckdb': 'DuckDB',
+          'datafusion': 'DataFusion',
+          'vortex': 'Vortex',
+          'parquet': 'Parquet'
+        };
+        
+        engines.forEach(engine => {
+          const btn = document.createElement('button');
+          btn.className = 'engine-filter-btn' + (engine === state.activeEngine ? ' active' : '');
+          btn.textContent = engineLabels[engine];
+          btn.setAttribute('data-engine', engine);
+          btn.setAttribute('data-category', name);
+          btn.onclick = () => filterEngineForCategory(name, engine);
+          filterContainer.appendChild(btn);
+        });
+        
+        // Add separator
+        const separator = document.createElement('span');
+        separator.className = 'filter-separator';
+        separator.textContent = '|';
+        filterContainer.appendChild(separator);
+      }
       
-      const engines = ['all', 'duckdb', 'datafusion', 'vortex', 'parquet'];
-      const engineLabels = {
-        'all': 'All',
-        'duckdb': 'DuckDB',
-        'datafusion': 'DataFusion',
-        'vortex': 'Vortex',
-        'parquet': 'Parquet'
-      };
-      
-      engines.forEach(engine => {
-        const btn = document.createElement('button');
-        btn.className = 'engine-filter-btn' + (engine === state.activeEngine ? ' active' : '');
-        btn.textContent = engineLabels[engine];
-        btn.setAttribute('data-engine', engine);
-        btn.setAttribute('data-category', name);
-        btn.onclick = () => filterEngineForCategory(name, engine);
-        filterContainer.appendChild(btn);
-      });
+      // Add reset zoom button for all groups
+      const resetBtn = document.createElement('button');
+      resetBtn.className = 'reset-zoom-btn';
+      resetBtn.textContent = 'Reset X-Axis';
+      resetBtn.setAttribute('data-category', name);
+      resetBtn.onclick = () => resetZoomForCategory(name);
+      filterContainer.appendChild(resetBtn);
       
       setElem.appendChild(filterContainer);
     }
