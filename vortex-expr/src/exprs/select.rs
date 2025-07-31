@@ -4,9 +4,11 @@
 use std::fmt::Display;
 
 use itertools::Itertools;
-use vortex_array::{ArrayRef, DeserializeMetadata, EmptyMetadata, IntoArray, ToCanonical};
+use vortex_array::{ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata, ToCanonical};
 use vortex_dtype::{DType, FieldNames};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_proto::expr::select_opts::Opts;
+use vortex_proto::expr::{FieldNames as ProtoFieldNames, SelectOpts};
 
 use crate::field::DisplayFieldNames;
 use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
@@ -37,7 +39,7 @@ pub struct SelectExprEncoding;
 impl VTable for SelectVTable {
     type Expr = SelectExpr;
     type Encoding = SelectExprEncoding;
-    type Metadata = EmptyMetadata;
+    type Metadata = ProstMetadata<SelectOpts>;
 
     fn id(_encoding: &Self::Encoding) -> ExprId {
         ExprId::new_ref("select")
@@ -47,9 +49,21 @@ impl VTable for SelectVTable {
         ExprEncodingRef::new_ref(SelectExprEncoding.as_ref())
     }
 
-    fn metadata(_expr: &Self::Expr) -> Option<Self::Metadata> {
-        // Select does not support serialization
-        None
+    fn metadata(expr: &Self::Expr) -> Option<Self::Metadata> {
+        let names = expr
+            .fields()
+            .fields()
+            .iter()
+            .map(|f| f.to_string())
+            .collect_vec();
+
+        let opts = if expr.fields().is_include() {
+            Opts::Include(ProtoFieldNames { names })
+        } else {
+            Opts::Exclude(ProtoFieldNames { names })
+        };
+
+        Some(ProstMetadata(SelectOpts { opts: Some(opts) }))
     }
 
     fn children(expr: &Self::Expr) -> Vec<&ExprRef> {
@@ -171,10 +185,9 @@ impl SelectField {
     }
 
     pub fn fields(&self) -> &FieldNames {
-        match self {
-            SelectField::Include(fields) => fields,
-            SelectField::Exclude(fields) => fields,
-        }
+        let (SelectField::Include(fields) | SelectField::Exclude(fields)) = self;
+
+        fields
     }
 
     pub fn as_include_names(&self, field_names: &FieldNames) -> VortexResult<FieldNames> {
