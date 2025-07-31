@@ -25,17 +25,15 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
-    use vortex_array::{IntoArray, ToCanonical};
-    use vortex_buffer::buffer;
+    use vortex_array::ToCanonical;
     use vortex_dtype::{DType, Nullability, PType};
 
-    use crate::ZigZagEncoding;
-    use vortex_array::encoding::ArrayEncoding;
+    use crate::zigzag_encode;
 
     #[test]
     fn test_cast_zigzag_i32_to_i64() {
-        let values = buffer![-100i32, -1, 0, 1, 100].into_array();
-        let zigzag = ZigZagEncoding.encode(&values, None).unwrap().unwrap();
+        let values = PrimitiveArray::from_iter([-100i32, -1, 0, 1, 100]);
+        let zigzag = zigzag_encode(values).unwrap();
         
         let casted = cast(zigzag.as_ref(), &DType::Primitive(PType::I64, Nullability::NonNullable)).unwrap();
         assert_eq!(casted.dtype(), &DType::Primitive(PType::I64, Nullability::NonNullable));
@@ -46,20 +44,19 @@ mod tests {
 
     #[test]
     fn test_cast_zigzag_nullable() {
-        let values = PrimitiveArray::from_option_iter([Some(-10i32), None, Some(0), Some(10), None]).into_array();
-        let zigzag = ZigZagEncoding.encode(&values, None).unwrap().unwrap();
+        let values = PrimitiveArray::from_option_iter([Some(-10i32), None, Some(0), Some(10), None]);
+        let zigzag = zigzag_encode(values).unwrap();
         
         let casted = cast(zigzag.as_ref(), &DType::Primitive(PType::I64, Nullability::Nullable)).unwrap();
         assert_eq!(casted.dtype(), &DType::Primitive(PType::I64, Nullability::Nullable));
     }
 
     #[rstest]
-    #[case(buffer![-100i32, -50, -1, 0, 1, 50, 100].into_array())]
-    #[case(buffer![-1000i64, -1, 0, 1, 1000].into_array())]
-    #[case(PrimitiveArray::from_option_iter([Some(-5i16), None, Some(0), Some(5), None]).into_array())]
-    #[case(buffer![i32::MIN, -1, 0, 1, i32::MAX].into_array())]
-    fn test_cast_zigzag_conformance(#[case] array: vortex_array::ArrayRef) {
-        let zigzag = ZigZagEncoding.encode(&array, None).unwrap().unwrap();
-        test_cast_conformance(zigzag.as_ref());
+    #[case(zigzag_encode(PrimitiveArray::from_iter([-100i32, -50, -1, 0, 1, 50, 100])).unwrap())]
+    #[case(zigzag_encode(PrimitiveArray::from_iter([-1000i64, -1, 0, 1, 1000])).unwrap())]
+    #[case(zigzag_encode(PrimitiveArray::from_option_iter([Some(-5i16), None, Some(0), Some(5), None])).unwrap())]
+    #[case(zigzag_encode(PrimitiveArray::from_iter([i32::MIN, -1, 0, 1, i32::MAX])).unwrap())]
+    fn test_cast_zigzag_conformance(#[case] array: crate::ZigZagArray) {
+        test_cast_conformance(array.as_ref());
     }
 }

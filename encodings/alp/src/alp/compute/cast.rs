@@ -16,11 +16,12 @@ impl CastKernel for ALPVTable {
             // Cast the encoded array (integers) to handle nullability
             let new_encoded = cast(array.encoded(), &array.encoded().dtype().with_nullability(dtype.nullability()))?;
             
-            Ok(Some(ALPArray::new(
+            Ok(Some(ALPArray::try_new(
                 new_encoded,
                 array.exponents(),
-                dtype.clone(),
-            ).into_array()))
+                array.patches().cloned(),
+            )?
+            .into_array()))
         } else {
             // For type changes (e.g., f32 to f64 or to integers), we need to decode
             // because ALP encoding is specific to the float width

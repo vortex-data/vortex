@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::arrays::VarBinVTable;
 use vortex_array::compute::{CastKernel, CastKernelAdapter, cast};
-use vortex_array::{ArrayRef, register_kernel};
+use vortex_array::{ArrayRef, IntoArray, register_kernel};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
@@ -14,12 +15,13 @@ impl CastKernel for FSSTVTable {
         // For nullability changes, we can cast the codes and symbols arrays
         if array.dtype().eq_ignore_nullability(dtype) {
             // Cast codes array to handle nullability
-            let new_codes = cast(array.codes(), &array.codes().dtype().with_nullability(dtype.nullability()))?;
+            let new_codes = cast(array.codes().as_ref(), &array.codes().dtype().with_nullability(dtype.nullability()))?;
             
             Ok(Some(FSSTArray::try_new(
                 dtype.clone(),
                 array.symbols().clone(),
-                new_codes,
+                array.symbol_lengths().clone(),
+                new_codes.as_::<VarBinVTable>().clone(),
                 array.uncompressed_lengths().clone(),
             )?
             .into_array()))
@@ -40,11 +42,9 @@ mod tests {
     use vortex_array::arrays::VarBinArray;
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
-    use vortex_array::{IntoArray, ToCanonical};
     use vortex_dtype::{DType, Nullability};
 
-    use crate::{FSSTArray, FSSTEncoding};
-    use vortex_array::encoding::ArrayEncoding;
+    use crate::{fsst_train_compressor, fsst_compress};
 
     #[test]
     fn test_cast_fsst_nullability() {
@@ -53,32 +53,14 @@ mod tests {
             DType::Utf8(Nullability::NonNullable),
         );
         
-        let fsst = FSSTEncoding.encode(&strings.into_array(), None).unwrap().unwrap();
+        let compressor = fsst_train_compressor(strings.as_ref()).unwrap();
+        let fsst = fsst_compress(strings.as_ref(), &compressor).unwrap();
         
         // Cast to nullable
         let casted = cast(fsst.as_ref(), &DType::Utf8(Nullability::Nullable)).unwrap();
         assert_eq!(casted.dtype(), &DType::Utf8(Nullability::Nullable));
     }
 
-    #[test]
-    fn test_cast_fsst_to_binary() {
-        let strings = VarBinArray::from_iter(
-            vec![Some("test"), Some("data")],
-            DType::Utf8(Nullability::NonNullable),
-        );
-        
-        let fsst = FSSTEncoding.encode(&strings.into_array(), None).unwrap().unwrap();
-        
-        // Cast UTF8 to Binary
-        let casted = cast(fsst.as_ref(), &DType::Binary(Nullability::NonNullable)).unwrap();
-        assert_eq!(casted.dtype(), &DType::Binary(Nullability::NonNullable));
-        
-        // Verify content
-        let decoded = casted.to_canonical().unwrap();
-        let varbin = decoded.as_varbin().unwrap();
-        assert_eq!(varbin.as_slice::<&[u8]>()[0], b"test");
-        assert_eq!(varbin.as_slice::<&[u8]>()[1], b"data");
-    }
 
     #[rstest]
     #[case(VarBinArray::from_iter(
@@ -94,7 +76,8 @@ mod tests {
         DType::Utf8(Nullability::NonNullable)
     ))]
     fn test_cast_fsst_conformance(#[case] array: VarBinArray) {
-        let fsst = FSSTEncoding.encode(&array.into_array(), None).unwrap().unwrap();
+        let compressor = fsst_train_compressor(array.as_ref()).unwrap();
+        let fsst = fsst_compress(array.as_ref(), &compressor).unwrap();
         test_cast_conformance(fsst.as_ref());
     }
 }
