@@ -41,7 +41,7 @@
 }
 
 html {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "SF Pro Display", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-family: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", "SF Pro Display", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background-color: var(--bg-color);
@@ -126,6 +126,7 @@ body {
 }
 
 .site-title {
+  font-family: "Funnel Display", sans-serif;
   font-size: 1.5rem;
   font-weight: 600;
   margin: 0;
@@ -147,6 +148,7 @@ body {
 }
 
 .control-btn, .view-btn {
+  font-family: "Geist", sans-serif;
   padding: 8px 20px;
   border: 1px solid var(--border-color);
   background: var(--bg-color);
@@ -172,6 +174,7 @@ body {
 }
 
 .category-filter, .search-filter {
+  font-family: "Geist", sans-serif;
   padding: 8px 12px;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
@@ -251,9 +254,11 @@ body {
 }
 
 .sidebar-header h2 {
+  font-family: "Funnel Display", sans-serif;
   margin: 0;
   font-size: 1.2rem;
   color: var(--text-color);
+  font-weight: 600;
 }
 
 .sidebar-close {
@@ -354,6 +359,7 @@ body {
 }
 
 .loading-indicator p {
+  font-family: "Geist", sans-serif;
   color: var(--text-secondary);
   font-size: 14px;
   font-weight: 500;
@@ -404,8 +410,9 @@ body {
 }
 
 .benchmark-title {
-  font-size: 1.5rem;
-  font-weight: 700;
+  font-family: "Funnel Display", sans-serif;
+  font-size: 1.75rem;
+  font-weight: 600;
   margin: 0;
   color: var(--text-color);
   display: flex;
@@ -424,12 +431,13 @@ body {
 }
 
 .benchmark-meta {
+  font-family: "Geist Mono", monospace;
   display: flex;
   gap: 16px;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--text-secondary);
-  letter-spacing: 0.01em;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
 }
 
@@ -479,8 +487,9 @@ body {
 }
 
 .chart-title {
-  font-size: 15px;
-  font-weight: 600;
+  font-family: "Funnel Display", sans-serif;
+  font-size: 16px;
+  font-weight: 500;
   color: var(--text-color);
   letter-spacing: -0.01em;
 }
@@ -696,6 +705,18 @@ body {
 
 .filter-controls {
   max-width: 600px;
+}
+
+/* Typography hierarchy */
+h1, h2, h3, h4, h5, h6 {
+  font-family: "Funnel Display", sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+code, pre, .monospace {
+  font-family: "Geist Mono", monospace;
+  font-size: 0.9em;
 }
 
 /* Utility Classes */
