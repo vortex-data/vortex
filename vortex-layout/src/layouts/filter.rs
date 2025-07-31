@@ -13,6 +13,7 @@ use itertools::Itertools;
 use parking_lot::RwLock;
 use sketches_ddsketch::DDSketch;
 use vortex_array::stats::Precision;
+use vortex_array::{ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_expr::ExprRef;
@@ -94,24 +95,7 @@ impl LayoutReader for FilterLayoutReader {
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
-        let filter_expr = self
-            .cache
-            .entry(expr.clone())
-            .or_insert_with(|| Arc::new(FilterExpr::new(expr.clone())))
-            .clone();
-
-        // Otherwise, we create a new evaluation of the filter expression for this particular
-        // row range.
-        let conjunct_evals: Vec<_> = filter_expr
-            .conjuncts
-            .iter()
-            .map(|expr| self.child.filter_evaluation(row_range, expr))
-            .try_collect()?;
-
-        Ok(Box::new(FilterEvaluation {
-            filter_expr,
-            conjunct_evals,
-        }))
+        todo!()
     }
 
     fn projection_evaluation(
@@ -119,6 +103,28 @@ impl LayoutReader for FilterLayoutReader {
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
+        let dtype = expr.return_dtype(self.child.dtype())?;
+        if matches!(dtype, DType::Bool(_)) {
+            let filter_expr = self
+                .cache
+                .entry(expr.clone())
+                .or_insert_with(|| Arc::new(FilterExpr::new(expr.clone())))
+                .clone();
+
+            // Otherwise, we create a new evaluation of the filter expression for this particular
+            // row range.
+            let conjunct_evals: Vec<_> = filter_expr
+                .conjuncts
+                .iter()
+                .map(|expr| self.child.projection_evaluation(row_range, expr))
+                .try_collect()?;
+
+            return Ok(Box::new(FilterEvaluation {
+                filter_expr,
+                conjunct_evals,
+            }));
+        }
+
         // Pass-through all projection expressions to the child layout reader.
         self.child.projection_evaluation(row_range, expr)
     }
@@ -241,12 +247,12 @@ struct FilterEvaluation {
     /// The parent filter expression.
     filter_expr: Arc<FilterExpr>,
     /// The mask evaluations for each conjunct
-    conjunct_evals: Vec<Box<dyn MaskEvaluation>>,
+    conjunct_evals: Vec<Box<dyn ArrayEvaluation>>,
 }
 
 #[async_trait]
-impl MaskEvaluation for FilterEvaluation {
-    async fn invoke(&self, mut mask: Mask) -> VortexResult<Mask> {
+impl ArrayEvaluation for FilterEvaluation {
+    async fn invoke(&self, mut mask: Mask) -> VortexResult<ArrayRef> {
         let mut remaining = BitVec::from_elem(self.conjunct_evals.len(), true);
 
         // Loop over the conjuncts in order of selectivity.
@@ -255,19 +261,20 @@ impl MaskEvaluation for FilterEvaluation {
 
             if mask.all_false() {
                 // If the mask is all false, we can short-circuit the evaluation.
-                return Ok(mask);
+                return Ok(mask.into_array());
             }
 
-            let conjunct_mask = self.conjunct_evals[idx].invoke(mask.clone()).await?;
+            let conjunct_array = self.conjunct_evals[idx]
+                .invoke(Mask::new_true(mask.len()))
+                .await?;
+            let conjunct_mask = Mask::try_from(conjunct_array.as_ref())?;
 
             // TODO(ngates): what stats do we even report? We could invoke the conjunct using an
             //  all true mask in order to get a true selectivity estimate, because computing
             //  selectivity based on before/after mask is completely dependent on the conjunct
             //  ordering.
-            self.filter_expr.report_selectivity(
-                idx,
-                conjunct_mask.true_count() as f64 / mask.true_count() as f64,
-            );
+            self.filter_expr
+                .report_selectivity(idx, conjunct_mask.true_count() as f64 / mask.len() as f64);
 
             // NOTE(ngates): the MaskEvaluation documents that it **must** internally perform
             //  this intersection, so we do not need to do it here again, e.g.
@@ -275,6 +282,6 @@ impl MaskEvaluation for FilterEvaluation {
             mask = conjunct_mask;
         }
 
-        Ok(mask)
+        Ok(mask.into_array())
     }
 }

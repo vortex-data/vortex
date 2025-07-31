@@ -3,13 +3,13 @@
 
 //! Split scanning task implementation.
 
-use std::ops::Range;
+use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::future::{BoxFuture, ok};
 use vortex_array::ArrayRef;
-use vortex_error::VortexResult;
+use vortex_error::{VortexError, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_layout::LayoutReader;
 use vortex_mask::Mask;
@@ -80,15 +80,28 @@ pub(super) fn split_exec<A: 'static + Send>(
             // of the future. Registering these row ranges eagerly is a hint to the IO system that
             // we want to start prefetching the IO for this split.
             let prune = ctx.reader.pruning_evaluation(&row_range, filter)?;
-            let eval = ctx.reader.filter_evaluation(&row_range, filter)?;
+            let eval = ctx.reader.projection_evaluation(&row_range, filter)?;
 
             async move {
                 let pruned_mask = prune.invoke(row_mask).await?;
+                if pruned_mask.all_false() {
+                    // If the pruning evaluation returns all false, we can short-circuit the
+                    // evaluation and return an empty mask.
+                    return Ok(pruned_mask);
+                }
 
                 // Step 3: apply exact filtering. The pruning step has already eliminated entire blocks
                 // where we know the filter won't match any rows, so the amount of work to do here
                 // should be a lot less.
-                eval.invoke(pruned_mask).await
+                // TODO(ngates): in many cases, we may expect the evaluated filter to come back
+                //  as a BooleanArray with a selection mask == pruning mask, and therefore we can
+                //  perform a raw intersection and apply the selection afterwards.
+
+                // If the split isn't completely removed by the pruning mask, then we push down an
+                // all true mask to make the intersection cheaper.
+                let filter = eval.invoke(Mask::new_true(pruned_mask.len())).await?;
+                let filter_mask = Mask::try_from(filter.as_ref())?;
+                Ok::<_, VortexError>(pruned_mask.bitand(&filter_mask))
             }
             .boxed()
         }
