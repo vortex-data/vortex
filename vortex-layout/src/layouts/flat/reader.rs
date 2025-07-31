@@ -208,10 +208,11 @@ impl MaskEvaluation for FlatEvaluation {
 impl ArrayEvaluation for FlatEvaluation {
     async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
         log::debug!(
-            "Flat array evaluation {} - {} (mask = {})",
+            "Flat array evaluation {} - {} (mask = {}/{})",
             self.name,
             self.expr,
-            mask,
+            mask.true_count(),
+            mask.len()
         );
 
         // Now we await the array .

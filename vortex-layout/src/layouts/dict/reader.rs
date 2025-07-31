@@ -8,11 +8,11 @@ use std::sync::{Arc, OnceLock};
 use async_trait::async_trait;
 use dashmap::DashMap;
 use futures::{FutureExt, join};
-use vortex_array::ArrayRef;
-use vortex_array::compute::{MinMaxResult, filter, min_max};
+use vortex_array::compute::{MinMaxResult, cast, filter, min_max};
 use vortex_array::stats::Precision;
+use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dict::DictArray;
-use vortex_dtype::{DType, FieldMask};
+use vortex_dtype::{DType, FieldMask, Nullability};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::{ExprRef, Scope, root};
 use vortex_mask::Mask;
@@ -158,12 +158,19 @@ impl LayoutReader for DictReader {
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
-        let values_eval = self.values_eval(root());
+        log::debug!(
+            "DictReader::projection_evaluation: row_range={:?}, expr={}",
+            row_range,
+            expr
+        );
+
+        // Grab the cached values evaluation for the expression.
+        let values_eval = self.values_eval(expr.clone());
         let codes_eval = self.codes.projection_evaluation(row_range, &root())?;
+
         Ok(Box::new(DictArrayEvaluation {
             values_eval,
             codes_eval,
-            expr: expr.clone(),
         }))
     }
 }
@@ -199,22 +206,14 @@ impl MaskEvaluation for DictMaskEvaluation {
         // TODO(os): remove the low density code path, does not really improve perf
         if mask.density() < 0.1 {
             let codes = filter(&codes, &mask)?;
-            let dict_mask = &Mask::try_from(
-                DictArray::try_new(codes, values_result)?
-                    .to_array()
-                    .as_ref(),
-            )?;
+            let dict_mask = &Mask::try_from(DictArray::try_new(codes, values_result)?.as_ref())?;
             Ok(mask.intersect_by_rank(dict_mask))
         } else {
             // Creating a mask from the dict array would canonicalise it,
             // it should be fine for now as long as values is already canonical,
             // so different row ranges do not canonicalise the same array
             // multiple times.
-            let dict_mask = &Mask::try_from(
-                DictArray::try_new(codes, values_result)?
-                    .to_array()
-                    .as_ref(),
-            )?;
+            let dict_mask = &Mask::try_from(DictArray::try_new(codes, values_result)?.as_ref())?;
             Ok(mask.bitand(dict_mask))
         }
     }
@@ -223,17 +222,30 @@ impl MaskEvaluation for DictMaskEvaluation {
 struct DictArrayEvaluation {
     values_eval: SharedArrayFuture,
     codes_eval: Box<dyn ArrayEvaluation>,
-    expr: ExprRef,
 }
 
 #[async_trait]
 impl ArrayEvaluation for DictArrayEvaluation {
     async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
-        let (values_result, codes) = join!(self.values_eval.clone(), self.codes_eval.invoke(mask));
-        let (values_result, codes) = (values_result?, codes?);
+        let (values, codes) = join!(self.values_eval.clone(), self.codes_eval.invoke(mask));
+        let (mut values, mut codes) = (values?, codes?);
 
-        let array = DictArray::try_new(codes, values_result)?.to_array();
-        self.expr.evaluate(&Scope::new(array))
+        // Since we've run an expression over the values, we need to make sure the result
+        // nullability matches the codes.
+        if codes.dtype().is_nullable() && !values.dtype().is_nullable() {
+            values = cast(
+                values.as_ref(),
+                &values.dtype().with_nullability(Nullability::Nullable),
+            )?;
+        } else if !codes.dtype().is_nullable() && values.dtype().is_nullable() {
+            // If codes is not nullable, but the values are, we cast the codes.
+            codes = cast(
+                codes.as_ref(),
+                &codes.dtype().with_nullability(Nullability::NonNullable),
+            )?;
+        }
+
+        Ok(DictArray::try_new(codes, values)?.into_array())
     }
 }
 
