@@ -47,7 +47,6 @@ html {
   background-color: var(--bg-color);
   font-size: 16px;
   scroll-behavior: smooth;
-  color: var(--text-color);
 }
 
 body {
@@ -107,7 +106,7 @@ body {
 }
 
 .menu-toggle {
-  display: none;
+  display: block;
   background: none;
   border: none;
   font-size: 20px;
@@ -116,11 +115,6 @@ body {
   border-radius: var(--radius-sm);
   transition: all 0.2s;
   color: var(--text-color);
-}
-
-/* Always show menu toggle */
-.menu-toggle {
-  display: block;
 }
 
 .menu-toggle:hover {
@@ -996,9 +990,7 @@ body {
   position: relative;
 }
 
-/* Remove these redundant media queries as they're handled above */
-
-/* Sidebar hover zone - disabled on desktop */
+/* Sidebar hover zone - disabled */
 .sidebar-hover-zone {
   display: none;
 }
@@ -1188,7 +1180,7 @@ h1, h2, h3, h4, h5, h6 {
   letter-spacing: -0.02em;
 }
 
-code, pre, .monospace {
+code, pre {
   font-family: "Geist Mono", monospace;
   font-size: 0.9em;
 }
@@ -1241,8 +1233,15 @@ code, pre, .monospace {
   }
 }
 
-/* Even larger on very wide screens */
+
+/* Wide screen optimizations - keep 2 columns but add more spacing */
 @media (min-width: 1920px) {
+  .benchmark-graphs {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 32px;
+    padding: 32px 48px;
+  }
+  
   .chart-container canvas {
     max-height: 580px;
     min-height: 400px;
@@ -1251,15 +1250,6 @@ code, pre, .monospace {
   .benchmark-graphs.list-view .chart-container canvas {
     max-height: 680px;
     min-height: 480px;
-  }
-}
-
-/* Wide screen optimizations - keep 2 columns but add more spacing */
-@media (min-width: 1920px) {
-  .benchmark-graphs {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 32px;
-    padding: 32px 48px;
   }
 }
 
@@ -1414,86 +1404,3 @@ code, pre, .monospace {
   }
 }
 
-/* Performance scores styling */
-.performance-summary {
-  margin-bottom: 24px;
-  padding: 24px 32px;
-  background: var(--bg-secondary);
-  border-radius: var(--radius-md);
-  font-size: 14px;
-  max-width: 1200px;
-  margin-left: auto;
-  margin-right: auto;
-}
-
-.performance-summary .scores-title {
-  font-weight: 600;
-  margin-bottom: 12px;
-  color: var(--text-secondary);
-  font-size: 15px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.performance-summary .scores-list {
-  column-count: 2;
-  column-gap: 30px;
-}
-
-/* Single item should use full width */
-.performance-summary .scores-list:has(.score-item:only-child) {
-  column-count: 1;
-}
-
-.performance-summary .score-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 14px 18px;
-  margin-bottom: 14px;
-  background: var(--bg-color);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-color);
-  transition: all 0.2s ease;
-  break-inside: avoid;
-}
-
-.performance-summary .score-item:hover {
-  border-color: var(--primary-color);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-}
-
-.performance-summary .score-label {
-  color: var(--text-secondary);
-  font-size: 16px;
-  font-weight: 500;
-}
-
-.performance-summary .score-value {
-  font-weight: 600;
-  font-family: "Geist Mono", monospace;
-  font-size: 17px;
-  color: var(--text-color);
-}
-
-/* Single column for performance summary on smaller screens */
-@media (max-width: 780px) {
-  .performance-summary {
-    padding: 16px;
-  }
-  
-  .performance-summary .scores-list {
-    column-count: 1;
-  }
-}
-
-/* Large screen adjustments for better readability */
-@media (min-width: 1600px) {
-  .performance-summary {
-    max-width: 1400px;
-  }
-  
-  .performance-summary .scores-title {
-    font-size: 16px;
-  }
-}
