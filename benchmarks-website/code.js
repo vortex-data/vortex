@@ -2421,6 +2421,33 @@ window.initAndRender = (function () {
             rootMargin: CONFIG.CHART_OBSERVER_MARGIN,
           }
         );
+        
+        // Initialize sticky header observer
+        const stickyObserver = new IntersectionObserver(
+          (entries) => {
+            entries.forEach((entry) => {
+              const stickyContainer = entry.target.querySelector('.sticky-header-container');
+              if (stickyContainer) {
+                if (entry.intersectionRatio < 1) {
+                  stickyContainer.classList.add('is-stuck');
+                } else {
+                  stickyContainer.classList.remove('is-stuck');
+                }
+              }
+            });
+          },
+          {
+            threshold: [1],
+            rootMargin: '-96px 0px 0px 0px' // Adjust based on header height
+          }
+        );
+        
+        // Observe all benchmark sets for sticky headers after DOM is ready
+        setTimeout(() => {
+          document.querySelectorAll('.benchmark-set').forEach(set => {
+            stickyObserver.observe(set);
+          });
+        }, 100);
       }
 
       // Initialize debounced zoom sync

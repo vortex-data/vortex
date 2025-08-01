@@ -503,8 +503,10 @@ body {
   background: var(--bg-color);
   border-radius: var(--radius-lg);
   border: 1px solid var(--border-color);
-  overflow: hidden;
+  overflow: visible; /* Changed from hidden to allow sticky headers */
   transition: all 0.3s ease;
+  position: relative;
+  z-index: 1;
 }
 
 /* Reduce margin on mobile */
@@ -519,21 +521,24 @@ body {
   display: none;
 }
 
-/* Remove sticky headers on desktop - they cause layout issues */
+/* Sticky headers for benchmark groups */
 .sticky-header-container {
-  position: relative;
-  z-index: 1;
+  position: sticky;
+  top: var(--header-height);
+  z-index: 50;
   background: var(--bg-secondary);
+  /* Add shadow when stuck */
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0);
+  transition: box-shadow 0.2s ease;
+  /* Maintain border radius at top */
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
 }
 
-/* Only make headers sticky on mobile where it's more useful */
-@media (max-width: 768px) {
-  .sticky-header-container {
-    position: sticky;
-    top: var(--header-height);
-    z-index: 50;
-  }
+/* Add shadow when the header is stuck */
+.sticky-header-container.is-stuck {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
+
 
 .benchmark-header {
   display: flex;
@@ -769,6 +774,9 @@ body {
   grid-template-columns: 1fr;
   gap: var(--chart-spacing);
   padding: var(--chart-spacing);
+  /* Maintain border radius at bottom */
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  background: var(--bg-color);
 }
 
 /* Two columns on larger screens */
