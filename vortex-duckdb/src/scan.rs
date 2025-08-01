@@ -148,6 +148,16 @@ fn extract_table_filter_expr(
     Ok(Some(filter_expr))
 }
 
+struct FooterWrapper {
+    footer: Footer,
+}
+
+impl Drop for FooterWrapper {
+    fn drop(&mut self) {
+        println!("Dropping footer");
+    }
+}
+
 impl TableFunction for VortexTableFunction {
     type BindData = VortexBindData;
     type GlobalState = VortexGlobalData;
@@ -165,7 +175,7 @@ impl TableFunction for VortexTableFunction {
     }
 
     fn bind(
-        _client_context: &ClientContext,
+        ctx: &ClientContext,
         input: &BindInput,
         result: &mut BindResult,
     ) -> VortexResult<Self::BindData> {
@@ -192,7 +202,7 @@ impl TableFunction for VortexTableFunction {
             "vx_cache_key://{}",
             first_file_path.as_os_str().to_string_lossy()
         );
-        let cache = _client_context.object_cache();
+        let cache = ctx.object_cache();
         let file_footer = cache.get::<Footer>(&first_file_key);
         let file_footer_cached = file_footer.is_some();
 
@@ -201,6 +211,7 @@ impl TableFunction for VortexTableFunction {
 
         let first_file = if let Some(file_footer) = file_footer {
             println!("cache hit ptr={:p}", file_footer);
+            println!("dtype={:?}", file_footer.dtype());
             let _ = file_footer;
             first_file
             // first_file.with_footer(file_footer.clone())
@@ -213,10 +224,13 @@ impl TableFunction for VortexTableFunction {
             .open_blocking(&first_file_path)
             .map_err(|e| vortex_err!("Failed to open Vortex file: {}", e))?;
 
-        println!("open file");
-
         if !file_footer_cached {
-            cache.put(&first_file_key, first_file.footer());
+            let x = cache.put(
+                &first_file_key,
+                // This must
+                first_file.footer().clone(),
+            );
+            unsafe { println!("{}", x.as_ref().unwrap().dtype()) }
         }
 
         let (column_names, column_types) = extract_schema_from_vortex_file(&first_file)?;
