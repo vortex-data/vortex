@@ -31,8 +31,8 @@
 //! Instead, scanning should produce tasks to be scheduled by worker threads. Similarly, I/O should
 //! be inlined into these work threads such that we end up with a thread-per-core model.
 
-mod export;
-mod expression;
-mod impls;
-mod pipeline;
-mod vector;
+pub(crate) mod export;
+pub(crate) mod expression;
+pub(crate) mod impls;
+pub(crate) mod pipeline;
+pub(crate) mod vector;

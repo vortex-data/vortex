@@ -7,8 +7,9 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 
-mod experiment;
+pub(crate) mod experiment;
 pub mod session;
+mod v2;
 
 pub use vortex_array::*;
 #[cfg(feature = "files")]
