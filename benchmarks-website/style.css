@@ -47,7 +47,6 @@ html {
   background-color: var(--bg-color);
   font-size: 16px;
   scroll-behavior: smooth;
-  color: var(--text-color);
 }
 
 body {
@@ -107,7 +106,7 @@ body {
 }
 
 .menu-toggle {
-  display: none;
+  display: block;
   background: none;
   border: none;
   font-size: 20px;
@@ -116,11 +115,6 @@ body {
   border-radius: var(--radius-sm);
   transition: all 0.2s;
   color: var(--text-color);
-}
-
-/* Always show menu toggle */
-.menu-toggle {
-  display: block;
 }
 
 .menu-toggle:hover {
@@ -996,9 +990,7 @@ body {
   position: relative;
 }
 
-/* Remove these redundant media queries as they're handled above */
-
-/* Sidebar hover zone - disabled on desktop */
+/* Sidebar hover zone - disabled */
 .sidebar-hover-zone {
   display: none;
 }
@@ -1188,7 +1180,7 @@ h1, h2, h3, h4, h5, h6 {
   letter-spacing: -0.02em;
 }
 
-code, pre, .monospace {
+code, pre {
   font-family: "Geist Mono", monospace;
   font-size: 0.9em;
 }
@@ -1241,8 +1233,15 @@ code, pre, .monospace {
   }
 }
 
-/* Even larger on very wide screens */
+
+/* Wide screen optimizations - keep 2 columns but add more spacing */
 @media (min-width: 1920px) {
+  .benchmark-graphs {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 32px;
+    padding: 32px 48px;
+  }
+  
   .chart-container canvas {
     max-height: 580px;
     min-height: 400px;
@@ -1251,15 +1250,6 @@ code, pre, .monospace {
   .benchmark-graphs.list-view .chart-container canvas {
     max-height: 680px;
     min-height: 480px;
-  }
-}
-
-/* Wide screen optimizations - keep 2 columns but add more spacing */
-@media (min-width: 1920px) {
-  .benchmark-graphs {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 32px;
-    padding: 32px 48px;
   }
 }
 
@@ -1334,7 +1324,7 @@ code, pre, .monospace {
   display: flex;
   align-items: center;
   background: var(--bg-color);
-  padding: 6px 12px;
+  padding: 10px 12px;
   margin-bottom: 8px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-color);
@@ -1352,7 +1342,7 @@ code, pre, .monospace {
   font-weight: 600;
   color: var(--primary-color);
   min-width: 30px;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .score-series {
@@ -1360,7 +1350,7 @@ code, pre, .monospace {
   font-weight: 500;
   color: var(--text-color);
   margin: 0 8px;
-  font-size: 12px;
+  font-size: 14px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1377,9 +1367,9 @@ code, pre, .monospace {
   font-weight: 600;
   color: var(--text-secondary);
   background: var(--bg-secondary);
-  padding: 2px 8px;
+  padding: 3px 10px;
   border-radius: var(--radius-sm);
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .score-runtime {
@@ -1387,9 +1377,9 @@ code, pre, .monospace {
   font-weight: 600;
   color: var(--primary-color);
   background: rgba(89, 113, 253, 0.1);
-  padding: 2px 8px;
+  padding: 3px 10px;
   border-radius: var(--radius-sm);
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .scores-explanation {
@@ -1401,7 +1391,7 @@ code, pre, .monospace {
 }
 
 .score-label {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--text-secondary);
   margin: 0 2px;
 }
@@ -1412,114 +1402,5 @@ code, pre, .monospace {
     padding: 16px;
     margin: 12px 0;
   }
-  
-  .score-item {
-    padding: 10px 12px;
-  }
-  
-  .score-series {
-    margin: 0 8px;
-    font-size: 14px;
-  }
 }
 
-/* Performance scores styling */
-.performance-summary {
-  margin-bottom: 24px;
-  padding: 24px 32px;
-  background: var(--bg-secondary);
-  border-radius: var(--radius-md);
-  font-size: 14px;
-  max-width: 1200px;
-  margin-left: auto;
-  margin-right: auto;
-}
-
-.performance-summary .scores-title {
-  font-weight: 600;
-  margin-bottom: 12px;
-  color: var(--text-secondary);
-  font-size: 15px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.performance-summary .scores-list {
-  column-count: 2;
-  column-gap: 30px;
-}
-
-/* Single item should use full width */
-.performance-summary .scores-list:has(.score-item:only-child) {
-  column-count: 1;
-}
-
-.performance-summary .score-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 16px;
-  margin-bottom: 16px;
-  background: var(--bg-color);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-color);
-  transition: all 0.2s ease;
-  break-inside: avoid;
-}
-
-.performance-summary .score-item:hover {
-  border-color: var(--primary-color);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-}
-
-.performance-summary .score-label {
-  color: var(--text-secondary);
-  font-size: 14px;
-  font-weight: 500;
-}
-
-.performance-summary .score-value {
-  font-weight: 600;
-  font-family: "Geist Mono", monospace;
-  font-size: 15px;
-  color: var(--text-color);
-}
-
-/* Single column for performance summary on smaller screens */
-@media (max-width: 780px) {
-  .performance-summary {
-    padding: 16px;
-  }
-  
-  .performance-summary .scores-list {
-    column-count: 1;
-  }
-  
-  .performance-summary .score-item {
-    padding: 10px 14px;
-    margin-bottom: 12px;
-  }
-}
-
-/* Large screen adjustments for better readability */
-@media (min-width: 1600px) {
-  .performance-summary {
-    max-width: 1400px;
-  }
-  
-  .performance-summary .scores-title {
-    font-size: 16px;
-  }
-  
-  .performance-summary .score-item {
-    padding: 14px 20px;
-  }
-  
-  .performance-summary .score-label {
-    font-size: 14px;
-  }
-  
-  .performance-summary .score-value {
-    font-size: 16px;
-  }
-}
