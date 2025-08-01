@@ -23,6 +23,16 @@ const CONFIG = {
   RESIZE_DEBOUNCE: 250,
 };
 
+// Color mappings for series
+const SERIES_COLOR_MAP = {
+  "datafusion:arrow": "#7a27b1",
+  "datafusion:parquet": "#ef7f1d",
+  "datafusion:vortex": "#19a508",
+  "duckdb:parquet": "#985113",
+  "duckdb:vortex": "#0e5e04",
+  "duckdb:duckdb": "#87752e", // Purple complement
+};
+
 // Brand colors
 const VORTEX_COLORS = {
   primary: "#5971FD", // Vortex Blue
@@ -30,16 +40,6 @@ const VORTEX_COLORS = {
   pink: "#EEB3E1", // Vortex Pink
   black: "#101010", // Vortex Black
   gray: "#666666", // Secondary gray
-};
-
-// Color mappings for series
-const SERIES_COLOR_MAP = {
-  "datafusion:arrow": VORTEX_COLORS.gray,
-  "datafusion:parquet": "#FF8C42", // Orange complement
-  "datafusion:vortex": VORTEX_COLORS.primary,
-  "duckdb:parquet": "#B8336A", // Pink variant
-  "duckdb:vortex": VORTEX_COLORS.accent,
-  "duckdb:duckdb": "#726DA8", // Purple complement
 };
 
 // Fallback color palette
