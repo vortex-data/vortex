@@ -1805,7 +1805,15 @@ window.initAndRender = (function () {
       const header = this.createSectionHeader(name, benchSet, keptCharts);
       stickyContainer.appendChild(header);
 
-      // Add scoring summary for query benchmarks
+      // Add controls
+      const controls = this.createSectionControls(name);
+      if (controls) {
+        stickyContainer.appendChild(controls);
+      }
+      
+      section.appendChild(stickyContainer);
+
+      // Add scoring summary for query benchmarks (after sticky container)
       if (scoring.isQueryBenchmark(name) && benchSet) {
         const scores = scoring.calculateClickBenchScore(benchSet);
         const scoreSummary = scoring.formatScoresSummary(scores);
@@ -1840,14 +1848,6 @@ window.initAndRender = (function () {
           section.appendChild(metricsSummary);
         }
       }
-
-      // Add controls
-      const controls = this.createSectionControls(name);
-      if (controls) {
-        stickyContainer.appendChild(controls);
-      }
-      
-      section.appendChild(stickyContainer);
 
       // Add charts container
       const chartsContainer = document.createElement("div");
