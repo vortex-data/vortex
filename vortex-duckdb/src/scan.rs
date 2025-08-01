@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use bitvec::macros::internal::funty::Fundamental;
 use std::path::PathBuf;
 use std::sync::Arc;
-
-use bitvec::macros::internal::funty::Fundamental;
+use std::sync::atomic::{AtomicU64, Ordering};
 use vortex::dtype::FieldNames;
 use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{ExprRef, and, and_collect, col, lit, root, select};
@@ -54,6 +54,7 @@ impl std::fmt::Debug for VortexBindData {
 
 pub struct VortexGlobalData {
     scan: MultiScan<(ArrayRef, Arc<ConversionCache>)>,
+    batch_id: AtomicU64,
 }
 
 pub struct VortexLocalData {
@@ -222,7 +223,8 @@ impl TableFunction for VortexTableFunction {
                     &array_result.to_struct()?,
                     &conversion_cache,
                 )?);
-                local_state.batch_id = Some(conversion_cache.instance_id());
+                // Relaxed since there is no intra-instruction ordering required.
+                local_state.batch_id = Some(_global_state.batch_id.fetch_add(1, Ordering::Relaxed));
             }
 
             let exporter = local_state
@@ -296,6 +298,7 @@ impl TableFunction for VortexTableFunction {
 
         Ok(VortexGlobalData {
             scan: MultiScan::new(closures),
+            batch_id: AtomicU64::new(0),
         })
     }
 
