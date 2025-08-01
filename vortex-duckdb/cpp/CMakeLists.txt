@@ -35,4 +35,6 @@ add_library(vortex
         table_filter.cpp
         table_function.cpp
         vector.cpp
+        object_cache.cpp
+        client_context.cpp
 )
