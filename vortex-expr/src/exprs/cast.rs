@@ -14,7 +14,7 @@ use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTa
 vtable!(Cast);
 
 #[allow(clippy::derived_hash_with_manual_eq)]
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone, Hash, Eq)]
 pub struct CastExpr {
     target: DType,
     child: ExprRef,
