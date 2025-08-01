@@ -1029,6 +1029,12 @@ code, pre, .monospace {
   font-style: italic;
 }
 
+.score-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0 4px;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .benchmark-scores-summary {

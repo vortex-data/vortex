@@ -614,8 +614,9 @@ window.initAndRender = (function () {
               data: limitedData.map((b) => (b ? b.value : null)),
               borderColor: color,
               backgroundColor: color + "60", // Add alpha for #rrggbbaa
-              hidden: (hiddenDatasets !== undefined && hiddenDatasets.has(name)) || 
-                      name.toLowerCase().startsWith("wide table cols"),
+              hidden:
+                (hiddenDatasets !== undefined && hiddenDatasets.has(name)) ||
+                name.toLowerCase().startsWith("wide table cols"),
             };
           }),
       };
@@ -810,19 +811,19 @@ window.initAndRender = (function () {
         const chart = this.chart;
         const dataset = chart.data.datasets[index];
         const datasetLabel = dataset.label;
-        
+
         // Toggle the clicked dataset
         dataset.hidden = !dataset.hidden;
-        
+
         // Find the benchmark group name from the chart canvas
         const canvas = chart.canvas;
-        const container = canvas.closest('.chart-container');
-        const benchmarkGroup = container?.getAttribute('data-benchmark');
-        
+        const container = canvas.closest(".chart-container");
+        const benchmarkGroup = container?.getAttribute("data-benchmark");
+
         if (benchmarkGroup) {
           // Synchronize across all charts in the same benchmark group
           state.chartInstances.forEach((chartData, key) => {
-            if (key.startsWith(benchmarkGroup + '-')) {
+            if (key.startsWith(benchmarkGroup + "-")) {
               const otherChart = chartData.chart;
               if (otherChart !== chart) {
                 // Find dataset with matching label
@@ -831,12 +832,12 @@ window.initAndRender = (function () {
                     ds.hidden = dataset.hidden;
                   }
                 });
-                otherChart.update('none'); // Update without animation
+                otherChart.update("none"); // Update without animation
               }
             }
           });
         }
-        
+
         chart.update();
       };
     },
@@ -1143,6 +1144,10 @@ window.initAndRender = (function () {
       return categoryName === "Random Access";
     },
 
+    isCompressionBenchmark(categoryName) {
+      return categoryName === "Compression";
+    },
+
     calculateClickBenchScore(benchSet) {
       if (!benchSet || benchSet.size === 0) {
         return null;
@@ -1150,11 +1155,11 @@ window.initAndRender = (function () {
 
       // Find the most recent commit that has data across queries
       let latestCommitWithData = -1;
-      
+
       // First, find the most recent commit index that has any data
       for (const [queryName, queryData] of benchSet.entries()) {
         if (!queryData.series || queryData.series.size === 0) continue;
-        
+
         // Search backwards for the most recent commit with data
         for (let i = queryData.commits.length - 1; i >= 0; i--) {
           let hasData = false;
@@ -1171,15 +1176,15 @@ window.initAndRender = (function () {
           }
         }
       }
-      
+
       if (latestCommitWithData === -1) return null;
-      
+
       // Get results at the latest commit with data
       const latestResults = new Map();
-      
+
       for (const [queryName, queryData] of benchSet.entries()) {
         if (!queryData.series || queryData.series.size === 0) continue;
-        
+
         // Get results for all series at the latest commit with data
         const seriesResults = new Map();
         for (const [seriesName, seriesData] of queryData.series.entries()) {
@@ -1190,7 +1195,7 @@ window.initAndRender = (function () {
             }
           }
         }
-        
+
         if (seriesResults.size > 0) {
           latestResults.set(queryName, seriesResults);
         }
@@ -1201,7 +1206,7 @@ window.initAndRender = (function () {
       // Calculate scores for each series
       const seriesScores = new Map();
       const allSeriesNames = new Set();
-      
+
       // Collect all series names
       for (const seriesResults of latestResults.values()) {
         for (const seriesName of seriesResults.keys()) {
@@ -1215,7 +1220,7 @@ window.initAndRender = (function () {
         let maxRuntime = 0;
         let totalRuntime = 0;
         let actualQueryCount = 0;
-        
+
         // First pass: find max runtime for penalty calculation and sum runtimes
         for (const [queryName, seriesResults] of latestResults.entries()) {
           if (seriesResults.has(seriesName)) {
@@ -1225,10 +1230,10 @@ window.initAndRender = (function () {
             actualQueryCount++;
           }
         }
-        
+
         // Apply penalty rules: if max runtime < 300s, use 300s, then multiply by 2
         const penalty = Math.max(300000, maxRuntime) * 2; // Convert to ms if needed
-        
+
         // Second pass: calculate ratios
         for (const [queryName, seriesResults] of latestResults.entries()) {
           // Find baseline (best result) for this query
@@ -1236,19 +1241,19 @@ window.initAndRender = (function () {
           for (const runtime of seriesResults.values()) {
             baseline = Math.min(baseline, runtime);
           }
-          
+
           if (baseline === Infinity) continue;
-          
+
           // Get this series' result or use penalty
-          const seriesRuntime = seriesResults.has(seriesName) 
-            ? seriesResults.get(seriesName) 
+          const seriesRuntime = seriesResults.has(seriesName)
+            ? seriesResults.get(seriesName)
             : penalty;
-          
+
           // Calculate ratio with 10ms constant shift
           const ratio = (10 + seriesRuntime) / (10 + baseline);
           ratios.push(ratio);
         }
-        
+
         if (ratios.length > 0) {
           // Calculate geometric mean
           const product = ratios.reduce((acc, ratio) => acc * ratio, 1);
@@ -1257,7 +1262,7 @@ window.initAndRender = (function () {
             score: geometricMean,
             queryCount: ratios.length,
             totalRuntime: totalRuntime,
-            actualQueryCount: actualQueryCount
+            actualQueryCount: actualQueryCount,
           });
         }
       }
@@ -1267,38 +1272,39 @@ window.initAndRender = (function () {
 
     formatScoresSummary(scores) {
       if (!scores || scores.size === 0) return null;
-      
+
       // Sort by score (lower is better)
-      const sortedScores = Array.from(scores.entries())
-        .sort((a, b) => a[1].score - b[1].score);
-      
+      const sortedScores = Array.from(scores.entries()).sort(
+        (a, b) => a[1].score - b[1].score
+      );
+
       const summaryDiv = document.createElement("div");
       summaryDiv.className = "benchmark-scores-summary";
-      
+
       const title = document.createElement("h3");
       title.className = "scores-title";
       title.textContent = "Performance Summary";
       summaryDiv.appendChild(title);
-      
+
       const scoresList = document.createElement("div");
       scoresList.className = "scores-list";
-      
+
       sortedScores.forEach(([seriesName, data], index) => {
         const scoreItem = document.createElement("div");
         scoreItem.className = "score-item";
-        
+
         const rank = index + 1;
         const scoreText = data.score.toFixed(2);
-        
+
         // Format runtime - assuming it's in milliseconds
         const formatRuntime = (ms) => {
           if (ms < 1000) return `${ms.toFixed(0)}ms`;
           if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
           return `${(ms / 60000).toFixed(1)}m`;
         };
-        
+
         const totalRuntimeText = formatRuntime(data.totalRuntime);
-        
+
         scoreItem.innerHTML = `
           <span class="score-rank">#${rank}</span>
           <span class="score-series">${seriesName}</span>
@@ -1307,17 +1313,18 @@ window.initAndRender = (function () {
             <span class="score-runtime">${totalRuntimeText}</span>
           </span>
         `;
-        
+
         scoresList.appendChild(scoreItem);
       });
-      
+
       summaryDiv.appendChild(scoresList);
-      
+
       const explanation = document.createElement("div");
       explanation.className = "scores-explanation";
-      explanation.textContent = "Score: geometric mean of query time ratios (lower is better) | Total: sum of all query times";
+      explanation.textContent =
+        "Score: geometric mean of query time ratios (lower is better) | Total: sum of all query times";
       summaryDiv.appendChild(explanation);
-      
+
       return summaryDiv;
     },
 
@@ -1326,11 +1333,11 @@ window.initAndRender = (function () {
 
       // For Random Access, we want the latest data point for each series
       const latestResults = new Map();
-      
+
       // Get the first (and likely only) query in the benchmark set
       for (const [queryName, queryData] of benchSet.entries()) {
         if (!queryData.series || queryData.series.size === 0) continue;
-        
+
         // Find the most recent commit with data
         let latestCommitWithData = -1;
         for (let i = queryData.commits.length - 1; i >= 0; i--) {
@@ -1347,9 +1354,9 @@ window.initAndRender = (function () {
             break;
           }
         }
-        
+
         if (latestCommitWithData === -1) continue;
-        
+
         // Get results for all series at the latest commit with data
         for (const [seriesName, seriesData] of queryData.series.entries()) {
           if (latestCommitWithData < seriesData.length) {
@@ -1359,63 +1366,64 @@ window.initAndRender = (function () {
             }
           }
         }
-        
+
         break; // Only process the first query for Random Access
       }
-      
+
       if (latestResults.size === 0) return null;
-      
+
       // Find the fastest time
       let fastestTime = Infinity;
       for (const time of latestResults.values()) {
         fastestTime = Math.min(fastestTime, time);
       }
-      
+
       // Calculate metrics for each series
       const seriesMetrics = new Map();
       for (const [seriesName, time] of latestResults.entries()) {
         seriesMetrics.set(seriesName, {
           time: time,
-          ratio: time / fastestTime
+          ratio: time / fastestTime,
         });
       }
-      
+
       return seriesMetrics;
     },
 
     formatRandomAccessSummary(metrics) {
       if (!metrics || metrics.size === 0) return null;
-      
+
       // Sort by time (lower is better)
-      const sortedMetrics = Array.from(metrics.entries())
-        .sort((a, b) => a[1].time - b[1].time);
-      
+      const sortedMetrics = Array.from(metrics.entries()).sort(
+        (a, b) => a[1].time - b[1].time
+      );
+
       const summaryDiv = document.createElement("div");
       summaryDiv.className = "benchmark-scores-summary";
-      
+
       const title = document.createElement("h3");
       title.className = "scores-title";
       title.textContent = "Random Access Performance";
       summaryDiv.appendChild(title);
-      
+
       const metricsList = document.createElement("div");
       metricsList.className = "scores-list";
-      
+
       // Format time helper
       const formatTime = (ms) => {
         if (ms < 1) return `${(ms * 1000).toFixed(0)}μs`;
         if (ms < 1000) return `${ms.toFixed(1)}ms`;
         return `${(ms / 1000).toFixed(2)}s`;
       };
-      
+
       sortedMetrics.forEach(([seriesName, data], index) => {
         const metricItem = document.createElement("div");
         metricItem.className = "score-item";
-        
+
         const rank = index + 1;
         const timeText = formatTime(data.time);
         const ratioText = data.ratio.toFixed(2);
-        
+
         metricItem.innerHTML = `
           <span class="score-rank">#${rank}</span>
           <span class="score-series">${seriesName}</span>
@@ -1424,19 +1432,214 @@ window.initAndRender = (function () {
             <span class="score-value">${ratioText}x</span>
           </span>
         `;
-        
+
         metricsList.appendChild(metricItem);
       });
-      
+
       summaryDiv.appendChild(metricsList);
-      
+
       const explanation = document.createElement("div");
       explanation.className = "scores-explanation";
-      explanation.textContent = "Latest random access time per series | Ratio to fastest";
+      explanation.textContent =
+        "Latest random access time per series | Ratio to fastest";
       summaryDiv.appendChild(explanation);
-      
+
       return summaryDiv;
-    }
+    },
+
+    calculateCompressionMetrics(benchSet) {
+      if (!benchSet || benchSet.size === 0) return null;
+
+      // For Compression, we want the geometric mean of the ratio charts
+      const compressRatios = [];
+      const decompressRatios = [];
+
+      // Find the specific ratio charts
+      const compressRatioChart = benchSet.get(
+        "VORTEX:PARQUET-ZSTD RATIO COMPRESS TIME"
+      );
+      const decompressRatioChart = benchSet.get(
+        "VORTEX:PARQUET-ZSTD RATIO DECOMPRESS TIME"
+      );
+
+      if (!compressRatioChart && !decompressRatioChart) return null;
+
+      // Find the most recent commit with data
+      let latestCommitWithData = -1;
+
+      // Check compress ratio chart
+      if (compressRatioChart && compressRatioChart.series) {
+        for (let i = compressRatioChart.commits.length - 1; i >= 0; i--) {
+          let hasData = false;
+          for (const [
+            seriesName,
+            seriesData,
+          ] of compressRatioChart.series.entries()) {
+            const result = seriesData[i];
+            if (result && result.value !== null && result.value !== undefined) {
+              hasData = true;
+              break;
+            }
+          }
+          if (hasData) {
+            latestCommitWithData = i;
+            break;
+          }
+        }
+      }
+
+      // Check decompress ratio chart if we haven't found data yet
+      if (
+        latestCommitWithData === -1 &&
+        decompressRatioChart &&
+        decompressRatioChart.series
+      ) {
+        for (let i = decompressRatioChart.commits.length - 1; i >= 0; i--) {
+          let hasData = false;
+          for (const [
+            seriesName,
+            seriesData,
+          ] of decompressRatioChart.series.entries()) {
+            const result = seriesData[i];
+            if (result && result.value !== null && result.value !== undefined) {
+              hasData = true;
+              break;
+            }
+          }
+          if (hasData) {
+            latestCommitWithData = i;
+            break;
+          }
+        }
+      }
+
+      if (latestCommitWithData === -1) return null;
+
+      // Collect compress ratios (excluding wide table cols)
+      if (compressRatioChart && compressRatioChart.series) {
+        for (const [
+          seriesName,
+          seriesData,
+        ] of compressRatioChart.series.entries()) {
+          // Skip wide table cols datasets
+          if (seriesName.toLowerCase().startsWith("wide table cols")) continue;
+
+          if (latestCommitWithData < seriesData.length) {
+            const result = seriesData[latestCommitWithData];
+            if (
+              result &&
+              result.value !== null &&
+              result.value !== undefined &&
+              result.value > 0
+            ) {
+              // Invert the ratio (1/value) so higher is better
+              compressRatios.push(1 / result.value);
+            }
+          }
+        }
+      }
+
+      // Collect decompress ratios (excluding wide table cols)
+      if (decompressRatioChart && decompressRatioChart.series) {
+        for (const [
+          seriesName,
+          seriesData,
+        ] of decompressRatioChart.series.entries()) {
+          // Skip wide table cols datasets
+          if (seriesName.toLowerCase().startsWith("wide table cols")) continue;
+
+          if (latestCommitWithData < seriesData.length) {
+            const result = seriesData[latestCommitWithData];
+            if (
+              result &&
+              result.value !== null &&
+              result.value !== undefined &&
+              result.value > 0
+            ) {
+              // Invert the ratio (1/value) so higher is better
+              decompressRatios.push(1 / result.value);
+            }
+          }
+        }
+      }
+
+      // Calculate geometric means
+      const calculateGeometricMean = (values) => {
+        if (values.length === 0) return null;
+        const product = values.reduce((acc, val) => acc * val, 1);
+        return Math.pow(product, 1 / values.length);
+      };
+
+      const metrics = {
+        compressRatio: calculateGeometricMean(compressRatios),
+        decompressRatio: calculateGeometricMean(decompressRatios),
+        compressCount: compressRatios.length,
+        decompressCount: decompressRatios.length,
+      };
+
+      return metrics;
+    },
+
+    formatCompressionSummary(metrics) {
+      if (!metrics) return null;
+
+      const summaryDiv = document.createElement("div");
+      summaryDiv.className = "benchmark-scores-summary";
+
+      const title = document.createElement("h3");
+      title.className = "scores-title";
+      title.textContent = "Compression Performance vs Parquet";
+      summaryDiv.appendChild(title);
+
+      const metricsList = document.createElement("div");
+      metricsList.className = "scores-list";
+
+      // Compress ratio
+      if (metrics.compressRatio !== null) {
+        const compressItem = document.createElement("div");
+        compressItem.className = "score-item";
+        compressItem.innerHTML = `
+          <span class="score-rank">⚡</span>
+          <span class="score-series">Compression Speed</span>
+          <span class="score-metrics">
+            <span class="score-value">${metrics.compressRatio.toFixed(
+              2
+            )}x</span>
+            <span class="score-label">(${metrics.compressCount} datasets)</span>
+          </span>
+        `;
+        metricsList.appendChild(compressItem);
+      }
+
+      // Decompress ratio
+      if (metrics.decompressRatio !== null) {
+        const decompressItem = document.createElement("div");
+        decompressItem.className = "score-item";
+        decompressItem.innerHTML = `
+          <span class="score-rank">📤</span>
+          <span class="score-series">Decompression Speed</span>
+          <span class="score-metrics">
+            <span class="score-value">${metrics.decompressRatio.toFixed(
+              2
+            )}x</span>
+            <span class="score-label">(${
+              metrics.decompressCount
+            } datasets)</span>
+          </span>
+        `;
+        metricsList.appendChild(decompressItem);
+      }
+
+      summaryDiv.appendChild(metricsList);
+
+      const explanation = document.createElement("div");
+      explanation.className = "scores-explanation";
+      explanation.textContent =
+        "Geometric mean of Vortex/Parquet ratios across default datasets - higher is better";
+      summaryDiv.appendChild(explanation);
+
+      return summaryDiv;
+    },
   };
 
   // UI module
@@ -1492,11 +1695,20 @@ window.initAndRender = (function () {
           section.appendChild(scoreSummary);
         }
       }
-      
+
       // Add summary for Random Access benchmarks
       if (scoring.isRandomAccessBenchmark(name) && benchSet) {
         const metrics = scoring.calculateRandomAccessMetrics(benchSet);
         const metricsSummary = scoring.formatRandomAccessSummary(metrics);
+        if (metricsSummary) {
+          section.appendChild(metricsSummary);
+        }
+      }
+
+      // Add summary for Compression benchmarks
+      if (scoring.isCompressionBenchmark(name) && benchSet) {
+        const metrics = scoring.calculateCompressionMetrics(benchSet);
+        const metricsSummary = scoring.formatCompressionSummary(metrics);
         if (metricsSummary) {
           section.appendChild(metricsSummary);
         }
