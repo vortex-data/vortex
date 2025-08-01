@@ -1205,16 +1205,20 @@ window.initAndRender = (function () {
         }
       }
 
-      // For each series, calculate geometric mean of ratios
+      // For each series, calculate geometric mean of ratios and total runtime
       for (const seriesName of allSeriesNames) {
         const ratios = [];
         let maxRuntime = 0;
+        let totalRuntime = 0;
+        let actualQueryCount = 0;
         
-        // First pass: find max runtime for penalty calculation
+        // First pass: find max runtime for penalty calculation and sum runtimes
         for (const [queryName, seriesResults] of latestResults.entries()) {
           if (seriesResults.has(seriesName)) {
             const runtime = seriesResults.get(seriesName);
             maxRuntime = Math.max(maxRuntime, runtime);
+            totalRuntime += runtime;
+            actualQueryCount++;
           }
         }
         
@@ -1247,7 +1251,9 @@ window.initAndRender = (function () {
           const geometricMean = Math.pow(product, 1 / ratios.length);
           seriesScores.set(seriesName, {
             score: geometricMean,
-            queryCount: ratios.length
+            queryCount: ratios.length,
+            totalRuntime: totalRuntime,
+            actualQueryCount: actualQueryCount
           });
         }
       }
@@ -1267,7 +1273,7 @@ window.initAndRender = (function () {
       
       const title = document.createElement("h3");
       title.className = "scores-title";
-      title.textContent = "Performance Scores (lower is better)";
+      title.textContent = "Performance Summary";
       summaryDiv.appendChild(title);
       
       const scoresList = document.createElement("div");
@@ -1280,10 +1286,22 @@ window.initAndRender = (function () {
         const rank = index + 1;
         const scoreText = data.score.toFixed(2);
         
+        // Format runtime - assuming it's in milliseconds
+        const formatRuntime = (ms) => {
+          if (ms < 1000) return `${ms.toFixed(0)}ms`;
+          if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+          return `${(ms / 60000).toFixed(1)}m`;
+        };
+        
+        const totalRuntimeText = formatRuntime(data.totalRuntime);
+        
         scoreItem.innerHTML = `
           <span class="score-rank">#${rank}</span>
           <span class="score-series">${seriesName}</span>
-          <span class="score-value">${scoreText}x</span>
+          <span class="score-metrics">
+            <span class="score-value">${scoreText}x</span>
+            <span class="score-runtime">${totalRuntimeText}</span>
+          </span>
         `;
         
         scoresList.appendChild(scoreItem);
@@ -1293,7 +1311,7 @@ window.initAndRender = (function () {
       
       const explanation = document.createElement("div");
       explanation.className = "scores-explanation";
-      explanation.textContent = "Scores use ClickBench methodology: geometric mean of query time ratios with 10ms shift";
+      explanation.textContent = "Score: geometric mean of query time ratios (lower is better) | Total: sum of all query times";
       summaryDiv.appendChild(explanation);
       
       return summaryDiv;
@@ -1365,8 +1383,8 @@ window.initAndRender = (function () {
       chartsContainer.className = "benchmark-graphs";
       section.appendChild(chartsContainer);
 
-      // Expand by default
-      state.expandedSections.add(name);
+      // Collapse by default
+      section.classList.add("collapsed");
 
       return { section, chartsContainer };
     },
@@ -1564,7 +1582,7 @@ window.initAndRender = (function () {
       return {
         tag: params.get("tag") || "all",
         engine: params.get("engine") || "all",
-        expanded: params.get("expanded") || "true",
+        expanded: params.get("expanded") || "false",
         group: params.get("group") || null,
       };
     },
@@ -1576,7 +1594,7 @@ window.initAndRender = (function () {
         if (
           value &&
           value !== "all" &&
-          !(key === "expanded" && value === "true")
+          !(key === "expanded" && value === "false")
         ) {
           params.set(key, value);
         } else {
@@ -1610,8 +1628,8 @@ window.initAndRender = (function () {
         setTimeout(() => {
           navigationManager.focusOnGroup(params.group);
         }, CONFIG.URL_INIT_DELAY);
-      } else if (params.expanded === "false") {
-        navigationManager.collapseAll();
+      } else if (params.expanded === "true") {
+        navigationManager.expandAll();
       }
     },
   };

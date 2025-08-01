@@ -998,11 +998,26 @@ code, pre, .monospace {
   margin: 0 16px;
 }
 
+.score-metrics {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
 .score-value {
   font-family: 'Geist Mono', monospace;
   font-weight: 600;
   color: var(--text-secondary);
   background: var(--bg-secondary);
+  padding: 4px 12px;
+  border-radius: var(--radius-sm);
+}
+
+.score-runtime {
+  font-family: 'Geist Mono', monospace;
+  font-weight: 600;
+  color: var(--primary-color);
+  background: rgba(89, 113, 253, 0.1);
   padding: 4px 12px;
   border-radius: var(--radius-sm);
 }
