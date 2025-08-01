@@ -1133,10 +1133,14 @@ window.initAndRender = (function () {
     },
   };
 
-  // Scoring module for query benchmarks
+  // Scoring module for benchmarks
   const scoring = {
     isQueryBenchmark(categoryName) {
       return categoryName === "Clickbench" || categoryName.startsWith("TPC-H");
+    },
+
+    isRandomAccessBenchmark(categoryName) {
+      return categoryName === "Random Access";
     },
 
     calculateClickBenchScore(benchSet) {
@@ -1315,6 +1319,123 @@ window.initAndRender = (function () {
       summaryDiv.appendChild(explanation);
       
       return summaryDiv;
+    },
+
+    calculateRandomAccessMetrics(benchSet) {
+      if (!benchSet || benchSet.size === 0) return null;
+
+      // For Random Access, we want the latest data point for each series
+      const latestResults = new Map();
+      
+      // Get the first (and likely only) query in the benchmark set
+      for (const [queryName, queryData] of benchSet.entries()) {
+        if (!queryData.series || queryData.series.size === 0) continue;
+        
+        // Find the most recent commit with data
+        let latestCommitWithData = -1;
+        for (let i = queryData.commits.length - 1; i >= 0; i--) {
+          let hasData = false;
+          for (const [seriesName, seriesData] of queryData.series.entries()) {
+            const result = seriesData[i];
+            if (result && result.value !== null && result.value !== undefined) {
+              hasData = true;
+              break;
+            }
+          }
+          if (hasData) {
+            latestCommitWithData = i;
+            break;
+          }
+        }
+        
+        if (latestCommitWithData === -1) continue;
+        
+        // Get results for all series at the latest commit with data
+        for (const [seriesName, seriesData] of queryData.series.entries()) {
+          if (latestCommitWithData < seriesData.length) {
+            const result = seriesData[latestCommitWithData];
+            if (result && result.value !== null && result.value !== undefined) {
+              latestResults.set(seriesName, result.value);
+            }
+          }
+        }
+        
+        break; // Only process the first query for Random Access
+      }
+      
+      if (latestResults.size === 0) return null;
+      
+      // Find the fastest time
+      let fastestTime = Infinity;
+      for (const time of latestResults.values()) {
+        fastestTime = Math.min(fastestTime, time);
+      }
+      
+      // Calculate metrics for each series
+      const seriesMetrics = new Map();
+      for (const [seriesName, time] of latestResults.entries()) {
+        seriesMetrics.set(seriesName, {
+          time: time,
+          ratio: time / fastestTime
+        });
+      }
+      
+      return seriesMetrics;
+    },
+
+    formatRandomAccessSummary(metrics) {
+      if (!metrics || metrics.size === 0) return null;
+      
+      // Sort by time (lower is better)
+      const sortedMetrics = Array.from(metrics.entries())
+        .sort((a, b) => a[1].time - b[1].time);
+      
+      const summaryDiv = document.createElement("div");
+      summaryDiv.className = "benchmark-scores-summary";
+      
+      const title = document.createElement("h3");
+      title.className = "scores-title";
+      title.textContent = "Random Access Performance";
+      summaryDiv.appendChild(title);
+      
+      const metricsList = document.createElement("div");
+      metricsList.className = "scores-list";
+      
+      // Format time helper
+      const formatTime = (ms) => {
+        if (ms < 1) return `${(ms * 1000).toFixed(0)}μs`;
+        if (ms < 1000) return `${ms.toFixed(1)}ms`;
+        return `${(ms / 1000).toFixed(2)}s`;
+      };
+      
+      sortedMetrics.forEach(([seriesName, data], index) => {
+        const metricItem = document.createElement("div");
+        metricItem.className = "score-item";
+        
+        const rank = index + 1;
+        const timeText = formatTime(data.time);
+        const ratioText = data.ratio.toFixed(2);
+        
+        metricItem.innerHTML = `
+          <span class="score-rank">#${rank}</span>
+          <span class="score-series">${seriesName}</span>
+          <span class="score-metrics">
+            <span class="score-runtime">${timeText}</span>
+            <span class="score-value">${ratioText}x</span>
+          </span>
+        `;
+        
+        metricsList.appendChild(metricItem);
+      });
+      
+      summaryDiv.appendChild(metricsList);
+      
+      const explanation = document.createElement("div");
+      explanation.className = "scores-explanation";
+      explanation.textContent = "Latest random access time per series | Ratio to fastest";
+      summaryDiv.appendChild(explanation);
+      
+      return summaryDiv;
     }
   };
 
@@ -1369,6 +1490,15 @@ window.initAndRender = (function () {
         const scoreSummary = scoring.formatScoresSummary(scores);
         if (scoreSummary) {
           section.appendChild(scoreSummary);
+        }
+      }
+      
+      // Add summary for Random Access benchmarks
+      if (scoring.isRandomAccessBenchmark(name) && benchSet) {
+        const metrics = scoring.calculateRandomAccessMetrics(benchSet);
+        const metricsSummary = scoring.formatRandomAccessSummary(metrics);
+        if (metricsSummary) {
+          section.appendChild(metricsSummary);
         }
       }
 
