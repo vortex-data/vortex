@@ -24,40 +24,40 @@ ScanBuilder &ScanBuilder::operator=(ScanBuilder &&other) noexcept {
 
 ScanBuilder::~ScanBuilder() = default;
 
-ScanBuilder &ScanBuilder::WithRowRange(uint64_t row_range_start, uint64_t row_range_end) {
+ScanBuilder &&ScanBuilder::WithRowRange(uint64_t row_range_start, uint64_t row_range_end) && {
     try {
         ffi::scan_builder_with_row_range(*impl_->rust_impl, row_range_start, row_range_end);
     } catch (const rust::cxxbridge1::Error &e) {
         throw VortexException(e.what());
     }
-    return *this;
+    return std::move(*this);
 }
 
-ScanBuilder &ScanBuilder::WithLimit(uint64_t limit) {
+ScanBuilder &&ScanBuilder::WithLimit(uint64_t limit) && {
     ffi::scan_builder_with_limit(*impl_->rust_impl, limit);
-    return *this;
+    return std::move(*this);
 }
 
-ScanBuilder &ScanBuilder::WithIncludeByIndex(const uint64_t *indices, std::size_t size) {
+ScanBuilder &&ScanBuilder::WithIncludeByIndex(const uint64_t *indices, std::size_t size) && {
     try {
         ffi::scan_builder_with_include_by_index(*impl_->rust_impl,
                                                 rust::Slice<const uint64_t>(indices, size));
     } catch (const rust::cxxbridge1::Error &e) {
         throw VortexException(e.what());
     }
-    return *this;
+    return std::move(*this);
 }
 
-ScanBuilder &ScanBuilder::WithOutputSchema(ArrowSchema &output_schema) {
+ScanBuilder &&ScanBuilder::WithOutputSchema(ArrowSchema &output_schema) && {
     try {
         ffi::scan_builder_with_output_schema(*impl_->rust_impl, reinterpret_cast<uint8_t *>(&output_schema));
     } catch (const rust::cxxbridge1::Error &e) {
         throw VortexException(e.what());
     }
-    return *this;
+    return std::move(*this);
 }
 
-ArrowArrayStream ScanBuilder::IntoStream() {
+ArrowArrayStream ScanBuilder::IntoStream() && {
     try {
         ArrowArrayStream stream;
         ffi::scan_builder_into_stream(std::move(impl_->rust_impl), reinterpret_cast<uint8_t *>(&stream));
@@ -67,7 +67,7 @@ ArrowArrayStream ScanBuilder::IntoStream() {
     }
 }
 
-StreamDriver ScanBuilder::IntoStreamDriver() {
+StreamDriver ScanBuilder::IntoStreamDriver() && {
     try {
         rust::Box<ffi::ThreadsafeCloneableReader> reader =
             ffi::scan_builder_into_threadsafe_cloneable_reader(std::move(impl_->rust_impl));

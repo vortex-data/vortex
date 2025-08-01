@@ -9,6 +9,8 @@
 #include <memory>
 
 namespace vortex {
+/// The StreamDriver internally holds a `RecordBatchIteratorAdapter` from the Rust side, which is thread-safe
+/// and cloneable. The `RecordBatchIteratorAdapter` internally holds a `WorkStealingArrayIterator`.
 class StreamDriver {
 public:
     StreamDriver(StreamDriver &&other) noexcept;
@@ -52,23 +54,25 @@ public:
     ScanBuilder &operator=(const ScanBuilder &) = delete;
 
     /// Only include rows in the range [row_range_start, row_range_end).
-    ScanBuilder &WithRowRange(uint64_t row_range_start, uint64_t row_range_end);
+    ScanBuilder &&WithRowRange(uint64_t row_range_start, uint64_t row_range_end) &&;
 
     /// Only include rows with the given indices.
-    ScanBuilder &WithIncludeByIndex(const uint64_t *indices, std::size_t size);
+    ScanBuilder &&WithIncludeByIndex(const uint64_t *indices, std::size_t size) &&;
 
     /// Set the limit on the number of rows to scan out.
-    ScanBuilder &WithLimit(uint64_t limit);
+    ScanBuilder &&WithLimit(uint64_t limit) &&;
 
     /// Set the output schema on the scan builder.
-    /// TODO: should decide to input full schema or schema after adding projection.
-    ScanBuilder &WithOutputSchema(ArrowSchema &output_schema);
+    /// TODO: should decide whether to pass in full schema or schema after adding projection.
+    ScanBuilder &&WithOutputSchema(ArrowSchema &output_schema) &&;
 
     /// Take ownership and consume the scan builder to a stream of record batches.
-    ArrowArrayStream IntoStream();
+    ArrowArrayStream IntoStream() &&;
 
     /// Take ownership and consume the scan builder to a stream driver.
-    StreamDriver IntoStreamDriver();
+    /// Under the hood, this function calls `ScanBuilder::into_record_batch_reader` and holds a
+    /// `WorkStealingArrayIterator` in StreamDriver.
+    StreamDriver IntoStreamDriver() &&;
 
 private:
     friend class VortexFile;

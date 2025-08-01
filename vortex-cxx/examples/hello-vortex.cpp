@@ -14,8 +14,7 @@ int main(int argc, char *argv[]) {
     }
     std::string vortex_file = argv[1];
     auto file = vortex::VortexFile::Open(vortex_file);
-    auto scan_builder = file.CreateScanBuilder();
-    auto stream = scan_builder.IntoStream();
+    auto stream = file.CreateScanBuilder().WithLimit(100).IntoStream();
     nanoarrow::UniqueArray array;
     int get_next_result = stream.get_next(&stream, array.get());
     assert(get_next_result == 0);

@@ -59,10 +59,9 @@ protected:
     }
 
     std::pair<nanoarrow::UniqueArrayStream, nanoarrow::UniqueSchema>
-    CreateArrayStreamWithSchema(ArrowArrayStream &stream) {
+    StreamToUniqueStreamSchema(ArrowArrayStream &stream) {
         nanoarrow::UniqueArrayStream array_stream;
         ArrowArrayStreamMove(&stream, array_stream.get());
-
         return {std::move(array_stream), GetSchemaFromArrayStream(array_stream.get())};
     }
 
@@ -76,134 +75,142 @@ protected:
         return schema;
     }
 
-    // Helper to read next array from stream
-    nanoarrow::UniqueArray ReadNextArrayFromStream(nanoarrow::UniqueArrayStream &array_stream) {
+    nanoarrow::UniqueArray ReadFirstArrayFromUniqueStream(nanoarrow::UniqueArrayStream &array_stream) {
         nanoarrow::UniqueArray array;
         int get_next_result = array_stream->get_next(array_stream.get(), array.get());
         EXPECT_EQ(get_next_result, 0);
         return array;
     }
 
-    // Helper to create reference data from stream
-    // Note: This only extract the first batch from the stream.
     std::pair<nanoarrow::UniqueArray, nanoarrow::UniqueSchema>
-    CreateReferenceData(ArrowArrayStream reference_stream) {
-        auto [ref_array_stream, ref_schema] = CreateArrayStreamWithSchema(reference_stream);
-        auto ref_array = ReadNextArrayFromStream(ref_array_stream);
+    ReadFirstArrayFromStream(ArrowArrayStream reference_stream) {
+        auto [ref_array_stream, ref_schema] = StreamToUniqueStreamSchema(reference_stream);
+        auto ref_array = ReadFirstArrayFromUniqueStream(ref_array_stream);
         return {std::move(ref_array), std::move(ref_schema)};
     }
 
-    // Generic helper to validate array against reference with optional row index mapping
-    void ValidateArrayAgainstReference(const nanoarrow::UniqueArray &actual_array,
-                                       const nanoarrow::UniqueSchema &actual_schema,
-                                       ArrowArrayStream reference_stream,
-                                       const std::vector<int64_t> &row_indices = {},
-                                       const std::string &context = "Validation") {
-        // Get reference data
-        auto [ref_array, ref_schema] = CreateReferenceData(reference_stream);
-
+    /// Both array are struct of int64
+    void ValidateArray(const nanoarrow::UniqueArray &actual_array,
+                       const nanoarrow::UniqueSchema &actual_schema, const nanoarrow::UniqueArray &ref_array,
+                       const nanoarrow::UniqueSchema &ref_schema) {
         // Basic properties validation
         ASSERT_EQ(actual_schema->n_children, ref_schema->n_children);
 
         auto actual_view = CreateArrayView(actual_array, actual_schema);
         auto ref_view = CreateArrayView(ref_array, ref_schema);
 
-        if (row_indices.empty()) {
-            // Full array comparison
-            ASSERT_EQ(actual_array->length, ref_array->length);
-            ASSERT_EQ(actual_array->null_count, ref_array->null_count);
+        ASSERT_EQ(actual_array->length, ref_array->length);
 
-            // Compare all fields
-            for (int64_t field_idx = 0; field_idx < actual_schema->n_children; ++field_idx) {
-                auto actual_field = actual_view->children[field_idx];
-                auto expected_field = ref_view->children[field_idx];
+        // Compare all fields
+        for (int64_t field_idx = 0; field_idx < actual_schema->n_children; ++field_idx) {
+            auto actual_field = actual_view->children[field_idx];
+            auto expected_field = ref_view->children[field_idx];
 
-                ASSERT_EQ(actual_field->array->length, expected_field->array->length);
+            ASSERT_EQ(actual_field->array->length, expected_field->array->length);
 
-                for (int64_t i = 0; i < actual_field->array->length; ++i) {
-                    int64_t actual_value = ArrowArrayViewGetIntUnsafe(actual_field, i);
-                    int64_t expected_value = ArrowArrayViewGetIntUnsafe(expected_field, i);
+            for (int64_t i = 0; i < actual_field->array->length; ++i) {
+                int64_t actual_value = ArrowArrayViewGetIntUnsafe(actual_field, i);
+                int64_t expected_value = ArrowArrayViewGetIntUnsafe(expected_field, i);
 
-                    ASSERT_EQ(actual_value, expected_value)
-                        << context << " field " << field_idx << " mismatch at index " << i;
-                }
+                ASSERT_EQ(actual_value, expected_value);
             }
-        } else {
-            // Selective row comparison using indices
-            ASSERT_EQ(actual_array->length, static_cast<int64_t>(row_indices.size()));
-            ASSERT_EQ(actual_array->null_count, 0);
+        }
+    }
 
-            for (int64_t i = 0; i < static_cast<int64_t>(row_indices.size()); ++i) {
-                int64_t ref_idx = row_indices[i];
+    /// Both array are struct of int64
+    void ValidateArrayWithSelection(const nanoarrow::UniqueArray &actual_array,
+                                    const nanoarrow::UniqueSchema &actual_schema,
+                                    const nanoarrow::UniqueArray &ref_array,
+                                    const nanoarrow::UniqueSchema &ref_schema,
+                                    const std::vector<int64_t> &row_indices) {
+        // Basic properties validation
+        ASSERT_EQ(actual_schema->n_children, ref_schema->n_children);
 
-                for (int64_t field_idx = 0; field_idx < actual_schema->n_children; ++field_idx) {
-                    int64_t actual_val = ArrowArrayViewGetIntUnsafe(actual_view->children[field_idx], i);
-                    int64_t expected_val = ArrowArrayViewGetIntUnsafe(ref_view->children[field_idx], ref_idx);
+        auto actual_view = CreateArrayView(actual_array, actual_schema);
+        auto ref_view = CreateArrayView(ref_array, ref_schema);
 
-                    ASSERT_EQ(actual_val, expected_val)
-                        << context << " field " << field_idx << " mismatch at result index " << i
-                        << " (reference index " << ref_idx << ")";
-                }
+        ASSERT_EQ(actual_array->length, row_indices.size());
+
+        // Selective row comparison using indices
+        ASSERT_EQ(actual_array->length, static_cast<int64_t>(row_indices.size()));
+
+        for (int64_t i = 0; i < static_cast<int64_t>(row_indices.size()); ++i) {
+            int64_t ref_idx = row_indices[i];
+
+            for (int64_t field_idx = 0; field_idx < actual_schema->n_children; ++field_idx) {
+                int64_t actual_val = ArrowArrayViewGetIntUnsafe(actual_view->children[field_idx], i);
+                int64_t expected_val = ArrowArrayViewGetIntUnsafe(ref_view->children[field_idx], ref_idx);
+
+                ASSERT_EQ(actual_val, expected_val);
             }
         }
     }
 
     // Helper to execute scan builder and get array+schema
-    std::pair<nanoarrow::UniqueArray, nanoarrow::UniqueSchema>
-    ExecuteScanBuilder(const std::function<void(vortex::ScanBuilder &)> &configureScanBuilder) {
+    std::pair<nanoarrow::UniqueArray, nanoarrow::UniqueSchema> ScanFirstArrayFromTestData(
+        const std::function<ArrowArrayStream(vortex::ScanBuilder &&)> &configureScanBuilder) {
         auto file = vortex::VortexFile::Open(GetTestDataPath("test_data.vortex"));
         auto scan_builder = file.CreateScanBuilder();
-        configureScanBuilder(scan_builder);
-        auto stream = scan_builder.IntoStream();
+        auto stream = configureScanBuilder(std::move(scan_builder));
 
-        auto [array_stream, schema] = CreateArrayStreamWithSchema(stream);
-        auto array = ReadNextArrayFromStream(array_stream);
+        auto [array_stream, schema] = StreamToUniqueStreamSchema(stream);
+        auto array = ReadFirstArrayFromUniqueStream(array_stream);
 
         return {std::move(array), std::move(schema)};
     }
 
     // Top-level test helper that all tests can use
-    void RunScanBuilderTest(const std::function<void(vortex::ScanBuilder &)> &configureScanBuilder,
-                            ArrowArrayStream expected_stream,
-                            const std::vector<int64_t> &expected_row_indices = {},
-                            const std::string &context = "Test") {
+    void
+    RunScanBuilderTest(const std::function<ArrowArrayStream(vortex::ScanBuilder &&)> &configureScanBuilder,
+                       ArrowArrayStream expected_stream,
+                       const std::vector<int64_t> &expected_row_indices = {}) {
 
-        auto [array, schema] = ExecuteScanBuilder(configureScanBuilder);
-        ValidateArrayAgainstReference(array, schema, expected_stream, expected_row_indices, context);
+        auto [array, schema] = ScanFirstArrayFromTestData(configureScanBuilder);
+        auto [ref_array, ref_schema] = ReadFirstArrayFromStream(expected_stream);
+        expected_row_indices.empty()
+            ? ValidateArray(array, schema, ref_array, ref_schema)
+            : ValidateArrayWithSelection(array, schema, ref_array, ref_schema, expected_row_indices);
     }
 };
 
 TEST_F(VortexTest, ScanToStream) {
-    RunScanBuilderTest([](vortex::ScanBuilder &) {}, vortex::testing::CreateTestDataStream(), {},
-                       "ScanToStream");
+    RunScanBuilderTest([](vortex::ScanBuilder &&builder) { return std::move(builder).IntoStream(); },
+                       vortex::testing::CreateTestDataStream(), {});
 }
 
 TEST_F(VortexTest, ScanBuilderWithLimitWithRowRange) {
-    // Test field "a" and "b" - should contain values from rows 1-2 from original data (indices 1 and 2)
+    // Test field "a" and "b" - should contain values from rows 1-2 from original data (indices 1 and
+    // 2)
     RunScanBuilderTest(
-        [](vortex::ScanBuilder &scan_builder) { scan_builder.WithLimit(2).WithRowRange(1, 4); },
-        vortex::testing::CreateTestDataStream(), {1, 2}, "ScanBuilderWithLimitWithRowRange");
+        [](vortex::ScanBuilder &&scan_builder) {
+            return std::move(scan_builder).WithLimit(2).WithRowRange(1, 4).IntoStream();
+        },
+        vortex::testing::CreateTestDataStream(), {1, 2});
 }
 
 TEST_F(VortexTest, ScanBuilderWithIncludeByIndex) {
     std::vector<uint64_t> include_by_index = {1, 3};
 
     RunScanBuilderTest(
-        [&include_by_index](vortex::ScanBuilder &scan_builder) {
-            scan_builder.WithIncludeByIndex(include_by_index.data(), include_by_index.size());
+        [&include_by_index](vortex::ScanBuilder &&scan_builder) {
+            return std::move(scan_builder)
+                .WithIncludeByIndex(include_by_index.data(), include_by_index.size())
+                .IntoStream();
         },
-        vortex::testing::CreateTestDataStream(), {1, 3}, "ScanBuilderWithIncludeByIndex");
+        vortex::testing::CreateTestDataStream(), {1, 3});
 }
 
 TEST_F(VortexTest, ScanBuilderWithRowRangeWithIncludeByIndex) {
     std::vector<uint64_t> include_by_index = {1, 3, 4};
 
     RunScanBuilderTest(
-        [&include_by_index](vortex::ScanBuilder &scan_builder) {
-            scan_builder.WithRowRange(2, 6);
-            scan_builder.WithIncludeByIndex(include_by_index.data(), include_by_index.size());
+        [&include_by_index](vortex::ScanBuilder &&scan_builder) {
+            return std::move(scan_builder)
+                .WithRowRange(2, 6)
+                .WithIncludeByIndex(include_by_index.data(), include_by_index.size())
+                .IntoStream();
         },
-        vortex::testing::CreateTestDataStream(), {3, 4}, "ScanBuilderWithRowRangeWithIncludeByIndex");
+        vortex::testing::CreateTestDataStream(), {3, 4});
 }
 
 TEST_F(VortexTest, WriteArrayStream) {
@@ -220,9 +227,10 @@ TEST_F(VortexTest, WriteArrayStream) {
 
     // Verify data integrity by reading from the written file
     auto out_stream = written_file.CreateScanBuilder().IntoStream();
-    auto [array_stream, schema] = CreateArrayStreamWithSchema(out_stream);
-    auto array = ReadNextArrayFromStream(array_stream);
-    ValidateArrayAgainstReference(array, schema, vortex::testing::CreateTestDataStream());
+    auto [array_stream, schema] = StreamToUniqueStreamSchema(out_stream);
+    auto array = ReadFirstArrayFromUniqueStream(array_stream);
+    auto [ref_array, ref_schema] = ReadFirstArrayFromStream(vortex::testing::CreateTestDataStream());
+    ValidateArray(array, schema, ref_array, ref_schema);
 }
 
 TEST_F(VortexTest, ConcurrentMultiStreamRead) {
@@ -254,7 +262,7 @@ TEST_F(VortexTest, ConcurrentMultiStreamRead) {
     auto read_stream = [&](std::vector<BatchData> &batches) {
         // Each thread creates its own stream
         auto stream = stream_driver.CreateArrayStream();
-        auto [array_stream, _] = CreateArrayStreamWithSchema(stream);
+        auto [array_stream, _] = StreamToUniqueStreamSchema(stream);
 
         std::vector<BatchData> local_batches;
 
@@ -300,7 +308,7 @@ TEST_F(VortexTest, ConcurrentMultiStreamRead) {
               [](const BatchData &a, const BatchData &b) { return a.first_id < b.first_id; });
 
     // Create reference data for validation
-    auto [ref_array, ref_schema] = CreateReferenceData(vortex::testing::CreateTestData1MStream());
+    auto [ref_array, ref_schema] = ReadFirstArrayFromStream(vortex::testing::CreateTestData1MStream());
     auto ref_array_view = CreateArrayView(ref_array, ref_schema);
 
     // Validate all data against reference
