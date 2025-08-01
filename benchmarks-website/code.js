@@ -30,7 +30,7 @@ const SERIES_COLOR_MAP = {
   "datafusion:vortex": "#19a508",
   "duckdb:parquet": "#985113",
   "duckdb:vortex": "#0e5e04",
-  "duckdb:duckdb": "#87752e", // Purple complement
+  "duckdb:duckdb": "#87752e",
 };
 
 // Brand colors
@@ -677,13 +677,13 @@ window.initAndRender = (function () {
               padding: { bottom: 50 },
             },
             min: isMobile
-              ? Math.max(0, dataset.commits.length - CONFIG.MOBILE_MAX_DATA_POINTS)
+              ? 0 // Start from the beginning of the sliced data
               : Math.max(
                   0,
                   dataset.commits.length - CONFIG.DEFAULT_VISIBLE_COMMITS
                 ),
             max: isMobile
-              ? dataset.commits.length - 1
+              ? limitedCommits.length - 1 // Use the length of the sliced data
               : undefined,
           },
           y: yAxisScale,
@@ -921,14 +921,13 @@ window.initAndRender = (function () {
             // Determine new x-axis bounds
             let newXMin, newXMax;
             if (currentIsMobile) {
-              // Show the most recent data points on mobile
+              // Show all data points on mobile (which is already limited)
               newXMax = totalCommits - 1;
-              newXMin = Math.max(0, totalCommits - CONFIG.MOBILE_MAX_DATA_POINTS);
+              newXMin = 0; // Start from beginning of limited data
             } else {
               // Going to desktop - restore previous or use defaults
               const wasShowingAllMobileData =
-                currentXMin === Math.max(0, totalCommits - CONFIG.MOBILE_MAX_DATA_POINTS) &&
-                currentXMax === totalCommits - 1;
+                currentXMin === 0 && currentXMax === totalCommits - 1;
               if (wasShowingAllMobileData) {
                 newXMin = Math.max(
                   0,
