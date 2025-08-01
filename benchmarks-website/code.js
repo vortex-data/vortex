@@ -130,7 +130,7 @@ window.initAndRender = (function () {
   // State management
   const state = {
     currentView: "grid",
-    expandedSections: new Set(BENCHMARK_GROUPS), // Start with all sections expanded
+    expandedSections: new Set(), // Start with all sections collapsed
     activeCategory: "all",
     activeTag: "all",
     activeEngines: new Set(["all"]), // Changed to Set for multiple selections

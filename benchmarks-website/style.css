@@ -93,7 +93,7 @@ body {
 }
 
 .menu-toggle {
-  display: block;
+  display: none;
   background: none;
   border: none;
   font-size: 20px;
@@ -102,6 +102,13 @@ body {
   border-radius: var(--radius-sm);
   transition: all 0.2s;
   color: var(--text-color);
+}
+
+/* Show menu toggle only on mobile */
+@media (max-width: 768px) {
+  .menu-toggle {
+    display: block;
+  }
 }
 
 .menu-toggle:hover {
@@ -131,6 +138,14 @@ body {
   font-weight: 600;
   margin: 0;
   color: var(--text-color);
+  display: none;
+}
+
+/* Show title on larger screens */
+@media (min-width: 1200px) {
+  .site-title {
+    display: block;
+  }
 }
 
 .header-center {
@@ -240,19 +255,26 @@ body {
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
   border-right: 1px solid var(--border-color);
-  position: fixed;
+  position: sticky;
   top: var(--header-height);
-  left: 0;
   height: calc(100vh - var(--header-height));
   overflow-y: auto;
   transition: transform 0.3s ease;
   z-index: 998;
-  transform: translateX(-100%); /* Hidden by default */
-  box-shadow: 2px 0 12px rgba(0, 0, 0, 0.15);
 }
 
-.sidebar.active {
-  transform: translateX(0);
+/* Only hide sidebar on mobile */
+@media (max-width: 768px) {
+  .sidebar {
+    position: fixed;
+    left: 0;
+    transform: translateX(-100%);
+    box-shadow: 2px 0 12px rgba(0, 0, 0, 0.15);
+  }
+  
+  .sidebar.active {
+    transform: translateX(0);
+  }
 }
 
 .sidebar-nav {
@@ -278,13 +300,20 @@ body {
 }
 
 .sidebar-close {
-  display: block;
+  display: none;
   background: none;
   border: none;
   font-size: 24px;
   cursor: pointer;
   padding: 4px;
   line-height: 1;
+}
+
+/* Show close button only on mobile */
+@media (max-width: 768px) {
+  .sidebar-close {
+    display: block;
+  }
 }
 
 .clear-filter-btn {
@@ -379,11 +408,18 @@ body {
 /* Main Content */
 .main-content {
   flex: 1;
-  padding: 0;
-  max-width: 100%;
-  margin: 0;
+  padding: 32px;
+  max-width: 1400px;
+  margin: 0 auto;
   width: 100%;
   position: relative;
+}
+
+/* Adjust padding on smaller screens */
+@media (max-width: 768px) {
+  .main-content {
+    padding: 16px;
+  }
 }
 
 /* Loading Indicator */
@@ -419,42 +455,66 @@ body {
 
 /* Benchmark Sections */
 .benchmark-set {
-  margin-bottom: 24px;
+  margin-bottom: 48px;
   background: var(--bg-color);
-  border-radius: 0;
-  border: none;
-  border-top: 1px solid var(--border-color);
-  border-bottom: 1px solid var(--border-color);
-  overflow: visible;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  overflow: hidden;
   transition: all 0.3s ease;
 }
 
-.benchmark-set:first-child {
-  border-top: none;
+/* Reduce margin on mobile */
+@media (max-width: 768px) {
+  .benchmark-set {
+    margin-bottom: 24px;
+    border-radius: var(--radius-md);
+  }
 }
 
 .benchmark-set.collapsed .benchmark-graphs {
   display: none;
 }
 
+/* Remove sticky headers on desktop - they cause layout issues */
 .sticky-header-container {
-  position: sticky;
-  top: var(--header-height);
-  z-index: 50;
+  position: relative;
+  z-index: 1;
   background: var(--bg-secondary);
+}
+
+/* Only make headers sticky on mobile where it's more useful */
+@media (max-width: 768px) {
+  .sticky-header-container {
+    position: sticky;
+    top: var(--header-height);
+    z-index: 50;
+  }
 }
 
 .benchmark-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 20px 10%;
+  padding: 24px 32px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
   cursor: pointer;
   -webkit-user-select: none;
   user-select: none;
   transition: background-color 0.2s;
+}
+
+/* Adjust padding on smaller screens */
+@media (max-width: 1200px) {
+  .benchmark-header {
+    padding: 20px 24px;
+  }
+}
+
+@media (max-width: 768px) {
+  .benchmark-header {
+    padding: 16px;
+  }
 }
 
 .benchmark-header:hover {
@@ -582,13 +642,20 @@ body {
 
 /* Engine Filter Controls */
 .engine-filter-container {
-  padding: 16px 10%;
+  padding: 16px 32px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
   display: flex;
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+/* Adjust padding on smaller screens */
+@media (max-width: 768px) {
+  .engine-filter-container {
+    padding: 12px 16px;
+  }
 }
 
 .engine-filter-label {
@@ -655,9 +722,16 @@ body {
 /* Chart Grid */
 .benchmark-graphs {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 24px;
-  padding: 24px 10%;
+  grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+  gap: var(--chart-spacing);
+  padding: var(--chart-spacing);
+}
+
+/* Responsive grid adjustments */
+@media (max-width: 1200px) {
+  .benchmark-graphs {
+    grid-template-columns: 1fr;
+  }
 }
 
 .benchmark-graphs.list-view {
@@ -810,35 +884,11 @@ body {
   position: relative;
 }
 
-/* Mobile Styles */
-@media (max-width: 1600px) {
-  .benchmark-graphs {
-    grid-template-columns: 1fr;
-  }
-}
+/* Remove these redundant media queries as they're handled above */
 
-@media (max-width: 1200px) {
-  .benchmark-graphs {
-    grid-template-columns: 1fr;
-    padding: 20px 5%;
-  }
-}
-
-/* Sidebar hover zone */
+/* Sidebar hover zone - disabled on desktop */
 .sidebar-hover-zone {
-  position: fixed;
-  top: var(--header-height);
-  left: 0;
-  width: 10px;
-  height: calc(100vh - var(--header-height));
-  z-index: 997;
-  background: transparent;
-  cursor: pointer;
-}
-
-.sidebar-hover-zone:hover ~ .sidebar,
-.sidebar:hover {
-  transform: translateX(0) !important;
+  display: none;
 }
 
 /* Sidebar overlay for mobile */
@@ -860,11 +910,7 @@ body {
   }
 }
 
-@media (max-width: 1024px) {
-  .site-title {
-    display: none;
-  }
-}
+/* Site title visibility handled in the .site-title section above */
 
 @media (max-width: 768px) {
   :root {
@@ -917,27 +963,7 @@ body {
     display: none;
   }
 
-  .menu-toggle {
-    display: block;
-  }
-  
-  /* Remove margin adjustment on mobile */
-
-  .sidebar {
-    box-shadow: var(--shadow-lg);
-  }
-  
-  .sidebar.active {
-    transform: translateX(0);
-  }
-  
-  .sidebar-hover-zone {
-    display: none;
-  }
-
-  .sidebar-close {
-    display: block;
-  }
+  /* Menu toggle and sidebar are handled in their respective sections above */
 
   .main-content {
     padding: 16px;
@@ -948,13 +974,10 @@ body {
   }
 
   .benchmark-header {
-    padding: 16px 5%;
+    padding: 16px;
   }
   
-  .sticky-header-container {
-    position: sticky;
-    top: var(--header-height);
-  }
+  /* Sticky header handled in the sticky-header-container section above */
 
   .benchmark-title {
     font-size: 1.4rem;
@@ -977,8 +1000,8 @@ body {
   }
   
   .chart-container canvas {
-    max-height: 350px; /* Smaller charts on mobile */
-    min-height: 250px; /* Ensure minimum height */
+    max-height: 300px; /* Smaller charts on mobile */
+    min-height: 200px; /* Ensure minimum height */
   }
   
   /* Disable hover effects on mobile */
@@ -1060,28 +1083,31 @@ code, pre, .monospace {
 }
 
 .chart-container canvas {
-  max-height: 700px;
-  min-height: 500px;
+  max-height: 400px;
   width: 100% !important;
-  height: 100% !important;
+  height: auto !important;
   display: block;
-  flex: 1;
 }
 
 .benchmark-graphs.list-view .chart-container canvas {
-  max-height: 700px;
-  min-height: 600px;
+  max-height: 500px;
 }
 
-/* Responsive text */
+/* Larger charts on wide screens */
+@media (min-width: 1600px) {
+  .chart-container canvas {
+    max-height: 500px;
+  }
+  
+  .benchmark-graphs.list-view .chart-container canvas {
+    max-height: 600px;
+  }
+}
+
+/* Wide screen optimizations */
 @media (min-width: 1920px) {
   .benchmark-graphs {
     grid-template-columns: repeat(2, 1fr);
-  }
-  
-  .chart-container canvas {
-    max-height: 700px;
-    min-height: 500px;
   }
 }
 
@@ -1105,6 +1131,12 @@ code, pre, .monospace {
   border-bottom: 1px solid var(--border-color);
   padding: 20px 32px;
   margin: 0;
+}
+
+@media (max-width: 768px) {
+  .benchmark-scores-summary {
+    padding: 16px;
+  }
 }
 
 .scores-title {
