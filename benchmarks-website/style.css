@@ -785,8 +785,8 @@ body {
 .benchmark-graphs {
   display: grid;
   grid-template-columns: 1fr;
-  gap: var(--chart-spacing);
-  padding: var(--chart-spacing);
+  gap: 20px;
+  padding: 20px;
   /* Maintain border radius at bottom */
   border-radius: 0 0 var(--radius-lg) var(--radius-lg);
   background: var(--bg-color);
@@ -796,8 +796,8 @@ body {
 @media (min-width: 1200px) {
   .benchmark-graphs {
     grid-template-columns: repeat(2, 1fr);
-    gap: 32px;
-    padding: 32px;
+    gap: 24px;
+    padding: 24px;
   }
   
   /* Single chart groups should use full width */
@@ -811,7 +811,7 @@ body {
 /* Use more space on wider screens */
 @media (min-width: 1600px) {
   .benchmark-graphs {
-    padding: 32px 40px;
+    padding: 28px 32px;
   }
   
   .benchmark-graphs.single-chart {
@@ -850,7 +850,7 @@ body {
   background: var(--bg-color);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
-  padding: 24px;
+  padding: 20px;
   position: relative;
   transition: all 0.3s ease;
   display: flex;
@@ -860,7 +860,7 @@ body {
 /* Larger padding on bigger screens */
 @media (min-width: 1600px) {
   .chart-container {
-    padding: 32px;
+    padding: 24px;
   }
 }
 
@@ -874,7 +874,7 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .chart-title {
@@ -1206,8 +1206,8 @@ code, pre, .monospace {
 /* Chart specific improvements - handled in main .chart-container section above */
 
 .chart-container canvas {
-  max-height: 500px;
-  min-height: 350px;
+  max-height: 450px;
+  min-height: 320px;
   width: 100% !important;
   height: auto !important;
   display: block;
@@ -1221,26 +1221,26 @@ code, pre, .monospace {
 /* Larger charts on wide screens */
 @media (min-width: 1600px) {
   .chart-container canvas {
-    max-height: 600px;
-    min-height: 400px;
+    max-height: 520px;
+    min-height: 360px;
   }
   
   .benchmark-graphs.list-view .chart-container canvas {
-    max-height: 700px;
-    min-height: 500px;
+    max-height: 620px;
+    min-height: 450px;
   }
 }
 
 /* Even larger on very wide screens */
 @media (min-width: 1920px) {
   .chart-container canvas {
-    max-height: 650px;
-    min-height: 450px;
+    max-height: 580px;
+    min-height: 400px;
   }
   
   .benchmark-graphs.list-view .chart-container canvas {
-    max-height: 750px;
-    min-height: 550px;
+    max-height: 680px;
+    min-height: 480px;
   }
 }
 
@@ -1248,8 +1248,8 @@ code, pre, .monospace {
 @media (min-width: 1920px) {
   .benchmark-graphs {
     grid-template-columns: repeat(2, 1fr);
-    gap: 40px;
-    padding: 40px 60px;
+    gap: 32px;
+    padding: 32px 48px;
   }
 }
 
@@ -1257,8 +1257,8 @@ code, pre, .monospace {
 @media (min-width: 2400px) {
   .benchmark-graphs {
     grid-template-columns: repeat(2, 1fr);
-    gap: 48px;
-    padding: 48px 80px;
+    gap: 36px;
+    padding: 36px 60px;
   }
 }
 
@@ -1289,7 +1289,7 @@ code, pre, .monospace {
     padding: 10px 16px;
   }
   
-  .scores-list {
+  .benchmark-scores-summary .scores-list {
     grid-template-columns: 1fr;
   }
 }
@@ -1305,14 +1305,14 @@ code, pre, .monospace {
 
 .scores-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(2, 1fr);
   gap: 8px;
 }
 
-/* For benchmarks with fewer items, keep them in a single column */
-@media (min-width: 768px) {
-  .benchmark-scores-summary:has(.scores-list > :nth-child(3)) .scores-list {
-    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+/* Single column for smaller screens */
+@media (max-width: 780px) {
+  .scores-list {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -1409,11 +1409,14 @@ code, pre, .monospace {
 
 /* Performance scores styling */
 .performance-summary {
-  margin-bottom: 20px;
-  padding: 20px 24px;
+  margin-bottom: 24px;
+  padding: 24px 32px;
   background: var(--bg-secondary);
   border-radius: var(--radius-md);
   font-size: 14px;
+  max-width: 1200px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .performance-summary .scores-title {
@@ -1427,8 +1430,8 @@ code, pre, .monospace {
 
 .performance-summary .scores-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
 }
 
 .performance-summary .score-item {
@@ -1460,8 +1463,8 @@ code, pre, .monospace {
   color: var(--text-color);
 }
 
-/* Mobile adjustments for performance summary */
-@media (max-width: 768px) {
+/* Single column for performance summary on smaller screens */
+@media (max-width: 780px) {
   .performance-summary {
     padding: 16px;
   }
@@ -1473,5 +1476,28 @@ code, pre, .monospace {
   
   .performance-summary .score-item {
     padding: 10px 14px;
+  }
+}
+
+/* Large screen adjustments for better readability */
+@media (min-width: 1600px) {
+  .performance-summary {
+    max-width: 1400px;
+  }
+  
+  .performance-summary .scores-title {
+    font-size: 16px;
+  }
+  
+  .performance-summary .score-item {
+    padding: 14px 20px;
+  }
+  
+  .performance-summary .score-label {
+    font-size: 14px;
+  }
+  
+  .performance-summary .score-value {
+    font-size: 16px;
   }
 }
