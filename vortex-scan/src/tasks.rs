@@ -21,10 +21,6 @@ use crate::filter::FilterExpr;
 
 pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 
-/// The density threshold below which we push masks into conjunct evaluations.
-// TODO(ngates): we should really convert this into round-trip selectivity.
-const MASK_PUSHDOWN_THRESHOLD: f64 = 0.9;
-
 /// Logic for executing a single split reading task.
 ///
 /// # Task execution flow
@@ -141,30 +137,15 @@ pub(super) fn split_exec<A: 'static + Send>(
                         return Ok(mask);
                     }
 
-                    // TODO(ngates): this is the sort of thing we want to push down into arrays so they
-                    //  can decide their own thresholds for eagerly filtering on selectivity masks.
-                    let selectivity = if mask.density() < MASK_PUSHDOWN_THRESHOLD {
-                        let conjunct_mask = conjuncts[idx].invoke(mask.clone()).await?;
+                    let conjunct_mask = conjuncts[idx].invoke(mask.clone()).await?;
 
-                        // TODO(ngates): what selectivity should we report?
-                        let selectivity = conjunct_mask.true_count() as f64 / mask.len() as f64;
-                        //let selectivity = conjunct_mask.true_count() as f64 / mask.true_count() as f64;
-
-                        // Update the mask with a ranked intersection.
-                        mask = mask.intersect_by_rank(&conjunct_mask);
-
-                        selectivity
-                    } else {
-                        let conjunct_mask =
-                            conjuncts[idx].invoke(Mask::new_true(mask.len())).await?;
-
-                        // Update the mask with a regular intersection.
-                        mask = mask.bitand(&conjunct_mask);
-
-                        conjunct_mask.true_count() as f64 / mask.len() as f64
-                    };
-
+                    // TODO(ngates): what selectivity should we report?
+                    let selectivity = conjunct_mask.true_count() as f64 / mask.len() as f64;
+                    //let selectivity = conjunct_mask.true_count() as f64 / mask.true_count() as f64;
                     filter.report_selectivity(idx, selectivity);
+
+                    // Filter evaluations return a mask already intersected with the input mask.
+                    mask = conjunct_mask;
                 }
 
                 Ok::<_, VortexError>(mask)
