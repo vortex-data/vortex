@@ -1304,15 +1304,19 @@ code, pre, .monospace {
 }
 
 .scores-list {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 8px;
+  column-count: 2;
+  column-gap: 20px;
+}
+
+/* Single item should use full width */
+.scores-list:has(.score-item:only-child) {
+  column-count: 1;
 }
 
 /* Single column for smaller screens */
 @media (max-width: 780px) {
   .scores-list {
-    grid-template-columns: 1fr;
+    column-count: 1;
   }
 }
 
@@ -1321,10 +1325,12 @@ code, pre, .monospace {
   align-items: center;
   background: var(--bg-color);
   padding: 6px 12px;
+  margin-bottom: 8px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-color);
   transition: all 0.2s ease;
   font-size: 13px;
+  break-inside: avoid;
 }
 
 .score-item:hover {
@@ -1429,9 +1435,13 @@ code, pre, .monospace {
 }
 
 .performance-summary .scores-list {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 20px;
+  column-count: 2;
+  column-gap: 30px;
+}
+
+/* Single item should use full width */
+.performance-summary .scores-list:has(.score-item:only-child) {
+  column-count: 1;
 }
 
 .performance-summary .score-item {
@@ -1439,10 +1449,12 @@ code, pre, .monospace {
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
+  margin-bottom: 16px;
   background: var(--bg-color);
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-color);
   transition: all 0.2s ease;
+  break-inside: avoid;
 }
 
 .performance-summary .score-item:hover {
@@ -1470,12 +1482,12 @@ code, pre, .monospace {
   }
   
   .performance-summary .scores-list {
-    grid-template-columns: 1fr;
-    gap: 12px;
+    column-count: 1;
   }
   
   .performance-summary .score-item {
     padding: 10px 14px;
+    margin-bottom: 12px;
   }
 }
 
