@@ -523,6 +523,10 @@ body {
   display: none;
 }
 
+.benchmark-set.collapsed .engine-filter-container {
+  display: none;
+}
+
 /* Headers are not sticky when collapsed */
 .sticky-header-container {
   position: relative;
@@ -603,7 +607,7 @@ body {
   background: none;
   border: none;
   cursor: pointer;
-  opacity: 0;
+  opacity: 0.5;
   padding: 4px 8px;
   border-radius: var(--radius-sm);
   transition: all 0.2s;
@@ -1276,62 +1280,79 @@ code, pre, .monospace {
 .benchmark-scores-summary {
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
-  padding: 16px 32px;
+  padding: 12px 32px;
   margin: 0;
 }
 
 @media (max-width: 768px) {
   .benchmark-scores-summary {
-    padding: 16px;
+    padding: 10px 16px;
+  }
+  
+  .scores-list {
+    grid-template-columns: 1fr;
   }
 }
 
 .scores-title {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
-  margin: 0 0 12px 0;
-  color: var(--text-color);
+  margin: 0 0 8px 0;
+  color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 
 .scores-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 8px;
+}
+
+/* For benchmarks with fewer items, keep them in a single column */
+@media (min-width: 768px) {
+  .benchmark-scores-summary:has(.scores-list > :nth-child(3)) .scores-list {
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+  }
 }
 
 .score-item {
   display: flex;
   align-items: center;
   background: var(--bg-color);
-  padding: 8px 16px;
+  padding: 6px 12px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-color);
-  transition: transform 0.2s ease;
+  transition: all 0.2s ease;
+  font-size: 13px;
 }
 
 .score-item:hover {
-  transform: translateX(4px);
   border-color: var(--primary-color);
+  background: var(--bg-secondary);
 }
 
 .score-rank {
   font-weight: 600;
   color: var(--primary-color);
-  min-width: 40px;
+  min-width: 30px;
+  font-size: 12px;
 }
 
 .score-series {
   flex: 1;
   font-weight: 500;
   color: var(--text-color);
-  margin: 0 16px;
+  margin: 0 8px;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .score-metrics {
   display: flex;
-  gap: 12px;
+  gap: 6px;
   align-items: center;
 }
 
@@ -1340,8 +1361,9 @@ code, pre, .monospace {
   font-weight: 600;
   color: var(--text-secondary);
   background: var(--bg-secondary);
-  padding: 4px 12px;
+  padding: 2px 8px;
   border-radius: var(--radius-sm);
+  font-size: 11px;
 }
 
 .score-runtime {
@@ -1349,21 +1371,23 @@ code, pre, .monospace {
   font-weight: 600;
   color: var(--primary-color);
   background: rgba(89, 113, 253, 0.1);
-  padding: 4px 12px;
+  padding: 2px 8px;
   border-radius: var(--radius-sm);
+  font-size: 11px;
 }
 
 .scores-explanation {
-  margin-top: 12px;
-  font-size: 14px;
+  margin-top: 8px;
+  font-size: 11px;
   color: var(--text-secondary);
   font-style: italic;
+  text-align: center;
 }
 
 .score-label {
-  font-size: 13px;
+  font-size: 11px;
   color: var(--text-secondary);
-  margin: 0 4px;
+  margin: 0 2px;
 }
 
 /* Responsive */
@@ -1380,5 +1404,74 @@ code, pre, .monospace {
   .score-series {
     margin: 0 8px;
     font-size: 14px;
+  }
+}
+
+/* Performance scores styling */
+.performance-summary {
+  margin-bottom: 20px;
+  padding: 20px 24px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  font-size: 14px;
+}
+
+.performance-summary .scores-title {
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: var(--text-secondary);
+  font-size: 15px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.performance-summary .scores-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 16px;
+}
+
+.performance-summary .score-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--bg-color);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  transition: all 0.2s ease;
+}
+
+.performance-summary .score-item:hover {
+  border-color: var(--primary-color);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.performance-summary .score-label {
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.performance-summary .score-value {
+  font-weight: 600;
+  font-family: "Geist Mono", monospace;
+  font-size: 15px;
+  color: var(--text-color);
+}
+
+/* Mobile adjustments for performance summary */
+@media (max-width: 768px) {
+  .performance-summary {
+    padding: 16px;
+  }
+  
+  .performance-summary .scores-list {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  
+  .performance-summary .score-item {
+    padding: 10px 14px;
   }
 }

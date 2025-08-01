@@ -2255,11 +2255,8 @@ window.initAndRender = (function () {
         `[data-category="${groupName}"]`
       );
       if (targetSection) {
-        // Ensure the section is expanded
-        if (targetSection.classList.contains("collapsed")) {
-          state.expandedSections.add(groupName);
-          targetSection.classList.remove("collapsed");
-        }
+        // Just scroll to the section without expanding it
+        // The user can click to expand if they want to see the charts
         
         // Close sidebar after navigation on mobile
         if (utils.isMobile()) {
