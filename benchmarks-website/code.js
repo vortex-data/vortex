@@ -1140,23 +1140,50 @@ window.initAndRender = (function () {
     },
 
     calculateClickBenchScore(benchSet) {
-      if (!benchSet || benchSet.size === 0) return null;
+      if (!benchSet || benchSet.size === 0) {
+        return null;
+      }
 
-      // Get the latest commit data for each query
+      // Find the most recent commit that has data across queries
+      let latestCommitWithData = -1;
+      
+      // First, find the most recent commit index that has any data
+      for (const [queryName, queryData] of benchSet.entries()) {
+        if (!queryData.series || queryData.series.size === 0) continue;
+        
+        // Search backwards for the most recent commit with data
+        for (let i = queryData.commits.length - 1; i >= 0; i--) {
+          let hasData = false;
+          for (const [seriesName, seriesData] of queryData.series.entries()) {
+            const result = seriesData[i];
+            if (result && result.value !== null && result.value !== undefined) {
+              hasData = true;
+              break;
+            }
+          }
+          if (hasData) {
+            latestCommitWithData = Math.max(latestCommitWithData, i);
+            break;
+          }
+        }
+      }
+      
+      if (latestCommitWithData === -1) return null;
+      
+      // Get results at the latest commit with data
       const latestResults = new Map();
       
       for (const [queryName, queryData] of benchSet.entries()) {
         if (!queryData.series || queryData.series.size === 0) continue;
         
-        const lastCommitIndex = queryData.commits.length - 1;
-        if (lastCommitIndex < 0) continue;
-        
-        // Get results for all series at the latest commit
+        // Get results for all series at the latest commit with data
         const seriesResults = new Map();
         for (const [seriesName, seriesData] of queryData.series.entries()) {
-          const lastResult = seriesData[lastCommitIndex];
-          if (lastResult && lastResult.value !== null && lastResult.value !== undefined) {
-            seriesResults.set(seriesName, lastResult.value);
+          if (latestCommitWithData < seriesData.length) {
+            const result = seriesData[latestCommitWithData];
+            if (result && result.value !== null && result.value !== undefined) {
+              seriesResults.set(seriesName, result.value);
+            }
           }
         }
         
@@ -2030,10 +2057,28 @@ window.initAndRender = (function () {
           );
         }
       }
-    } else {
+    } else if (keptCharts) {
       for (const benchName of keptCharts) {
         const benches = benchSet.get(benchName);
         if (benches) {
+          state.charts.push(
+            chartManager.renderChart(
+              chartsContainer,
+              name,
+              benchName,
+              benches,
+              hiddenDatasets,
+              removedDatasets,
+              renamedDatasets,
+              chartIndex++
+            )
+          );
+        }
+      }
+    } else {
+      // This is the case when keptCharts is not defined at all (not undefined, just missing)
+      if (benchSet !== undefined) {
+        for (const [benchName, benches] of benchSet.entries()) {
           state.charts.push(
             chartManager.renderChart(
               chartsContainer,
