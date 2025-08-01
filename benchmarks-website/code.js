@@ -1133,6 +1133,146 @@ window.initAndRender = (function () {
     },
   };
 
+  // Scoring module for query benchmarks
+  const scoring = {
+    isQueryBenchmark(categoryName) {
+      return categoryName === "Clickbench" || categoryName.startsWith("TPC-H");
+    },
+
+    calculateClickBenchScore(benchSet) {
+      if (!benchSet || benchSet.size === 0) return null;
+
+      // Get the latest commit data for each query
+      const latestResults = new Map();
+      
+      for (const [queryName, queryData] of benchSet.entries()) {
+        if (!queryData.series || queryData.series.size === 0) continue;
+        
+        const lastCommitIndex = queryData.commits.length - 1;
+        if (lastCommitIndex < 0) continue;
+        
+        // Get results for all series at the latest commit
+        const seriesResults = new Map();
+        for (const [seriesName, seriesData] of queryData.series.entries()) {
+          const lastResult = seriesData[lastCommitIndex];
+          if (lastResult && lastResult.value !== null && lastResult.value !== undefined) {
+            seriesResults.set(seriesName, lastResult.value);
+          }
+        }
+        
+        if (seriesResults.size > 0) {
+          latestResults.set(queryName, seriesResults);
+        }
+      }
+
+      if (latestResults.size === 0) return null;
+
+      // Calculate scores for each series
+      const seriesScores = new Map();
+      const allSeriesNames = new Set();
+      
+      // Collect all series names
+      for (const seriesResults of latestResults.values()) {
+        for (const seriesName of seriesResults.keys()) {
+          allSeriesNames.add(seriesName);
+        }
+      }
+
+      // For each series, calculate geometric mean of ratios
+      for (const seriesName of allSeriesNames) {
+        const ratios = [];
+        let maxRuntime = 0;
+        
+        // First pass: find max runtime for penalty calculation
+        for (const [queryName, seriesResults] of latestResults.entries()) {
+          if (seriesResults.has(seriesName)) {
+            const runtime = seriesResults.get(seriesName);
+            maxRuntime = Math.max(maxRuntime, runtime);
+          }
+        }
+        
+        // Apply penalty rules: if max runtime < 300s, use 300s, then multiply by 2
+        const penalty = Math.max(300000, maxRuntime) * 2; // Convert to ms if needed
+        
+        // Second pass: calculate ratios
+        for (const [queryName, seriesResults] of latestResults.entries()) {
+          // Find baseline (best result) for this query
+          let baseline = Infinity;
+          for (const runtime of seriesResults.values()) {
+            baseline = Math.min(baseline, runtime);
+          }
+          
+          if (baseline === Infinity) continue;
+          
+          // Get this series' result or use penalty
+          const seriesRuntime = seriesResults.has(seriesName) 
+            ? seriesResults.get(seriesName) 
+            : penalty;
+          
+          // Calculate ratio with 10ms constant shift
+          const ratio = (10 + seriesRuntime) / (10 + baseline);
+          ratios.push(ratio);
+        }
+        
+        if (ratios.length > 0) {
+          // Calculate geometric mean
+          const product = ratios.reduce((acc, ratio) => acc * ratio, 1);
+          const geometricMean = Math.pow(product, 1 / ratios.length);
+          seriesScores.set(seriesName, {
+            score: geometricMean,
+            queryCount: ratios.length
+          });
+        }
+      }
+
+      return seriesScores;
+    },
+
+    formatScoresSummary(scores) {
+      if (!scores || scores.size === 0) return null;
+      
+      // Sort by score (lower is better)
+      const sortedScores = Array.from(scores.entries())
+        .sort((a, b) => a[1].score - b[1].score);
+      
+      const summaryDiv = document.createElement("div");
+      summaryDiv.className = "benchmark-scores-summary";
+      
+      const title = document.createElement("h3");
+      title.className = "scores-title";
+      title.textContent = "Performance Scores (lower is better)";
+      summaryDiv.appendChild(title);
+      
+      const scoresList = document.createElement("div");
+      scoresList.className = "scores-list";
+      
+      sortedScores.forEach(([seriesName, data], index) => {
+        const scoreItem = document.createElement("div");
+        scoreItem.className = "score-item";
+        
+        const rank = index + 1;
+        const scoreText = data.score.toFixed(2);
+        
+        scoreItem.innerHTML = `
+          <span class="score-rank">#${rank}</span>
+          <span class="score-series">${seriesName}</span>
+          <span class="score-value">${scoreText}x</span>
+        `;
+        
+        scoresList.appendChild(scoreItem);
+      });
+      
+      summaryDiv.appendChild(scoresList);
+      
+      const explanation = document.createElement("div");
+      explanation.className = "scores-explanation";
+      explanation.textContent = "Scores use ClickBench methodology: geometric mean of query time ratios with 10ms shift";
+      summaryDiv.appendChild(explanation);
+      
+      return summaryDiv;
+    }
+  };
+
   // UI module
   const ui = {
     getTpchDescription(categoryName) {
@@ -1176,6 +1316,15 @@ window.initAndRender = (function () {
         descElem.className = "benchmark-description";
         descElem.textContent = description;
         section.appendChild(descElem);
+      }
+
+      // Add scoring summary for query benchmarks
+      if (scoring.isQueryBenchmark(name) && benchSet) {
+        const scores = scoring.calculateClickBenchScore(benchSet);
+        const scoreSummary = scoring.formatScoresSummary(scores);
+        if (scoreSummary) {
+          section.appendChild(scoreSummary);
+        }
       }
 
       // Add controls
