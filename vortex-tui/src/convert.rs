@@ -12,7 +12,7 @@ use vortex::arrow::FromArrowArray;
 use vortex::compressor::CompactCompressor;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
-use vortex::error::{VortexError, VortexExpect, VortexResult};
+use vortex::error::{VortexError, VortexResult};
 use vortex::file::{VortexLayoutStrategy, VortexWriteOptions};
 use vortex::iter::{ArrayIteratorAdapter, ArrayIteratorExt};
 use vortex::layout::LocalExecutor;
