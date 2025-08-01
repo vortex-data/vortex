@@ -81,15 +81,27 @@ body {
   align-items: center;
   justify-content: space-between;
   height: 100%;
-  padding: 0 24px;
-  max-width: 1600px;
-  margin: 0 auto;
+  padding: 0 32px;
+  width: 100%;
+}
+
+/* Match padding with main content */
+@media (min-width: 1600px) {
+  .header-content {
+    padding: 0 60px;
+  }
+}
+
+@media (min-width: 1920px) {
+  .header-content {
+    padding: 0 80px;
+  }
 }
 
 .header-left {
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 12px;
 }
 
 .menu-toggle {
@@ -104,8 +116,8 @@ body {
   color: var(--text-color);
 }
 
-/* Show menu toggle only on mobile */
-@media (max-width: 768px) {
+/* Show menu toggle on tablets and mobile */
+@media (max-width: 1199px) {
   .menu-toggle {
     display: block;
   }
@@ -137,12 +149,14 @@ body {
   font-size: 1.5rem;
   font-weight: 600;
   margin: 0;
+  margin-left: calc(var(--sidebar-width) - 88px); /* Align with sidebar edge minus logo width */
   color: var(--text-color);
   display: none;
+  white-space: nowrap;
 }
 
-/* Show title on larger screens */
-@media (min-width: 1200px) {
+/* Show title on desktop screens */
+@media (min-width: 1400px) {
   .site-title {
     display: block;
   }
@@ -263,8 +277,8 @@ body {
   z-index: 998;
 }
 
-/* Only hide sidebar on mobile */
-@media (max-width: 768px) {
+/* Hide sidebar on tablets and mobile */
+@media (max-width: 1199px) {
   .sidebar {
     position: fixed;
     left: 0;
@@ -309,8 +323,8 @@ body {
   line-height: 1;
 }
 
-/* Show close button only on mobile */
-@media (max-width: 768px) {
+/* Show close button on tablets and mobile */
+@media (max-width: 1199px) {
   .sidebar-close {
     display: block;
   }
@@ -961,14 +975,25 @@ body {
   z-index: 997;
 }
 
-/* Only show overlay on mobile */
-@media (min-width: 769px) {
+/* Only show overlay on tablets and mobile */
+@media (min-width: 1200px) {
   .sidebar-overlay {
     display: none !important;
   }
 }
 
 /* Site title visibility handled in the .site-title section above */
+
+/* Tablet styles */
+@media (min-width: 769px) and (max-width: 1199px) {
+  .header-center {
+    display: flex;
+  }
+  
+  .search-filter {
+    width: 150px;
+  }
+}
 
 @media (max-width: 768px) {
   :root {
@@ -1066,6 +1091,11 @@ body {
   .chart-container:hover {
     transform: none;
     box-shadow: none;
+  }
+  
+  /* Hide fullscreen button on mobile */
+  .chart-action-btn {
+    display: none;
   }
   
   /* Hide engine filters on mobile to save space */
