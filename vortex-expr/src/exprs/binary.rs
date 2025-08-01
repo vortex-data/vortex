@@ -18,7 +18,7 @@ use crate::{
 vtable!(Binary);
 
 #[allow(clippy::derived_hash_with_manual_eq)]
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone, Hash, Eq)]
 pub struct BinaryExpr {
     lhs: ExprRef,
     operator: Operator,

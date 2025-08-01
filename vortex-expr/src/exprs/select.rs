@@ -21,7 +21,7 @@ pub enum SelectField {
 
 vtable!(Select);
 
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone, Hash, Eq)]
 #[allow(clippy::derived_hash_with_manual_eq)]
 pub struct SelectExpr {
     fields: SelectField,
