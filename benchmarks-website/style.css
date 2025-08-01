@@ -1098,3 +1098,106 @@ code, pre, .monospace {
     font-size: 14px;
   }
 }
+
+/* Benchmark Scores Summary */
+.benchmark-scores-summary {
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  padding: 20px 32px;
+  margin: 0;
+}
+
+.scores-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 16px 0;
+  color: var(--text-color);
+}
+
+.scores-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.score-item {
+  display: flex;
+  align-items: center;
+  background: var(--bg-color);
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  transition: transform 0.2s ease;
+}
+
+.score-item:hover {
+  transform: translateX(4px);
+  border-color: var(--primary-color);
+}
+
+.score-rank {
+  font-weight: 600;
+  color: var(--primary-color);
+  min-width: 40px;
+}
+
+.score-series {
+  flex: 1;
+  font-weight: 500;
+  color: var(--text-color);
+  margin: 0 16px;
+}
+
+.score-metrics {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.score-value {
+  font-family: 'Geist Mono', monospace;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  padding: 4px 12px;
+  border-radius: var(--radius-sm);
+}
+
+.score-runtime {
+  font-family: 'Geist Mono', monospace;
+  font-weight: 600;
+  color: var(--primary-color);
+  background: rgba(89, 113, 253, 0.1);
+  padding: 4px 12px;
+  border-radius: var(--radius-sm);
+}
+
+.scores-explanation {
+  margin-top: 12px;
+  font-size: 14px;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.score-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0 4px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .benchmark-scores-summary {
+    padding: 16px;
+    margin: 12px 0;
+  }
+  
+  .score-item {
+    padding: 10px 12px;
+  }
+  
+  .score-series {
+    margin: 0 8px;
+    font-size: 14px;
+  }
+}

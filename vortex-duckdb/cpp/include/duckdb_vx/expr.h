@@ -92,7 +92,7 @@ typedef enum DUCKDB_VX_EXPR_TYPE {
     // compare initial boundary
     DUCKDB_VX_EXPR_TYPE_COMPARE_BOUNDARY_START = DUCKDB_VX_EXPR_TYPE_COMPARE_EQUAL,
     // inequal operator between left and right
-    CDUCKDB_VX_EXPR_TYPE_OMPARE_NOTEQUAL = 26,
+    DUCKDB_VX_EXPR_TYPE_COMPARE_NOTEQUAL = 26,
     // less than operator between left and right
     DUCKDB_VX_EXPR_TYPE_COMPARE_LESSTHAN = 27,
     // greater than operator between left and right
