@@ -116,11 +116,9 @@ body {
   color: var(--text-color);
 }
 
-/* Show menu toggle on tablets and mobile */
-@media (max-width: 1199px) {
-  .menu-toggle {
-    display: block;
-  }
+/* Always show menu toggle */
+.menu-toggle {
+  display: block;
 }
 
 .menu-toggle:hover {
@@ -149,7 +147,7 @@ body {
   font-size: 1.5rem;
   font-weight: 600;
   margin: 0;
-  margin-left: calc(var(--sidebar-width) - 88px); /* Align with sidebar edge minus logo width */
+  margin-left: calc(var(--sidebar-width) - 180px); /* Moved left by ~100px */
   color: var(--text-color);
   display: none;
   white-space: nowrap;
@@ -269,19 +267,39 @@ body {
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
   border-right: 1px solid var(--border-color);
-  position: sticky;
+  position: fixed;
   top: var(--header-height);
+  left: 0;
   height: calc(100vh - var(--header-height));
   overflow-y: auto;
   transition: transform 0.3s ease;
   z-index: 998;
+  transform: translateX(0);
 }
 
-/* Hide sidebar on tablets and mobile */
+/* Desktop: sidebar visible by default */
+@media (min-width: 1200px) {
+  .sidebar {
+    box-shadow: 2px 0 4px rgba(0, 0, 0, 0.05);
+  }
+  
+  .sidebar.collapsed {
+    transform: translateX(-100%);
+  }
+  
+  /* Add margin to main content for sidebar space on desktop */
+  .main-content {
+    margin-left: var(--sidebar-width);
+  }
+  
+  .sidebar.collapsed ~ .main-content {
+    margin-left: 0;
+  }
+}
+
+/* Hide sidebar on tablets and mobile by default */
 @media (max-width: 1199px) {
   .sidebar {
-    position: fixed;
-    left: 0;
     transform: translateX(-100%);
     box-shadow: 2px 0 12px rgba(0, 0, 0, 0.15);
   }
@@ -425,6 +443,7 @@ body {
   padding: 32px;
   width: 100%;
   position: relative;
+  transition: margin-left 0.3s ease;
 }
 
 /* Larger padding on wide screens */

@@ -2392,6 +2392,14 @@ window.initAndRender = (function () {
         domElements[camelCaseId] = document.getElementById(id);
       });
 
+      // Restore sidebar state on desktop
+      if (window.innerWidth >= 1200) {
+        const isCollapsed = localStorage.getItem("sidebarCollapsed") === "true";
+        if (isCollapsed && domElements.sidebar) {
+          domElements.sidebar.classList.add("collapsed");
+        }
+      }
+
       // Initialize chart observer for lazy loading
       if ("IntersectionObserver" in window) {
         chartObserver = new IntersectionObserver(
@@ -2461,11 +2469,28 @@ window.initAndRender = (function () {
     setupEventListeners() {
       // Sidebar toggle (for both mobile and desktop)
       domElements.menuToggle.addEventListener("click", () => {
-        domElements.sidebar.classList.toggle("active");
+        const isDesktop = window.innerWidth >= 1200;
+        if (isDesktop) {
+          // On desktop, toggle collapsed state
+          domElements.sidebar.classList.toggle("collapsed");
+          
+          // Save preference to localStorage
+          const isCollapsed = domElements.sidebar.classList.contains("collapsed");
+          localStorage.setItem("sidebarCollapsed", isCollapsed);
+        } else {
+          // On mobile/tablet, toggle active state
+          domElements.sidebar.classList.toggle("active");
+        }
       });
 
       domElements.sidebarClose.addEventListener("click", () => {
-        domElements.sidebar.classList.remove("active");
+        const isDesktop = window.innerWidth >= 1200;
+        if (isDesktop) {
+          domElements.sidebar.classList.add("collapsed");
+          localStorage.setItem("sidebarCollapsed", true);
+        } else {
+          domElements.sidebar.classList.remove("active");
+        }
       });
 
       // Sidebar overlay click (mobile)
@@ -2541,10 +2566,26 @@ window.initAndRender = (function () {
       const debouncedResize = utils.debounce(() => {
         chartManager.updateChartsForResize();
         
-        // Close sidebar when resizing to mobile
-        if (utils.isMobile() && domElements.sidebar.classList.contains("active")) {
+        const isDesktop = window.innerWidth >= 1200;
+        const wasDesktop = state.lastWindowWidth >= 1200;
+        
+        // Handle sidebar state when crossing desktop/mobile threshold
+        if (wasDesktop && !isDesktop) {
+          // Moving from desktop to mobile
+          domElements.sidebar.classList.remove("collapsed");
           domElements.sidebar.classList.remove("active");
+        } else if (!wasDesktop && isDesktop) {
+          // Moving from mobile to desktop
+          domElements.sidebar.classList.remove("active");
+          // Restore saved collapsed state
+          const isCollapsed = localStorage.getItem("sidebarCollapsed") === "true";
+          if (isCollapsed) {
+            domElements.sidebar.classList.add("collapsed");
+          }
         }
+        
+        // Update last window width
+        state.lastWindowWidth = window.innerWidth;
       }, CONFIG.RESIZE_DEBOUNCE);
 
       window.addEventListener("resize", debouncedResize);
