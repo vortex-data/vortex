@@ -1852,6 +1852,13 @@ window.initAndRender = (function () {
       // Add charts container
       const chartsContainer = document.createElement("div");
       chartsContainer.className = "benchmark-graphs";
+      
+      // Add single-chart class if there's only one chart
+      const chartCount = keptCharts ? keptCharts.length : benchSet?.size || 0;
+      if (chartCount === 1) {
+        chartsContainer.classList.add("single-chart");
+      }
+      
       section.appendChild(chartsContainer);
 
       // Collapse by default

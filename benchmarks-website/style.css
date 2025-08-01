@@ -409,10 +409,21 @@ body {
 .main-content {
   flex: 1;
   padding: 32px;
-  max-width: 1400px;
-  margin: 0 auto;
   width: 100%;
   position: relative;
+}
+
+/* Larger padding on wide screens */
+@media (min-width: 1600px) {
+  .main-content {
+    padding: 40px 60px;
+  }
+}
+
+@media (min-width: 1920px) {
+  .main-content {
+    padding: 48px 80px;
+  }
 }
 
 /* Adjust padding on smaller screens */
@@ -722,22 +733,63 @@ body {
 /* Chart Grid */
 .benchmark-graphs {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+  grid-template-columns: 1fr;
   gap: var(--chart-spacing);
   padding: var(--chart-spacing);
 }
 
-/* Responsive grid adjustments */
-@media (max-width: 1200px) {
+/* Two columns on larger screens */
+@media (min-width: 1200px) {
+  .benchmark-graphs {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 32px;
+    padding: 32px;
+  }
+  
+  /* Single chart groups should use full width */
+  .benchmark-graphs.single-chart {
+    grid-template-columns: 1fr;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+}
+
+/* Use more space on wider screens */
+@media (min-width: 1600px) {
+  .benchmark-graphs {
+    padding: 32px 40px;
+  }
+  
+  .benchmark-graphs.single-chart {
+    max-width: 1600px;
+  }
+}
+
+@media (min-width: 1920px) {
+  .benchmark-graphs.single-chart {
+    max-width: 1800px;
+  }
+}
+
+/* Single column up to 1200px for better readability */
+@media (max-width: 1199px) {
   .benchmark-graphs {
     grid-template-columns: 1fr;
+    max-width: 900px;
+    margin: 0 auto;
   }
 }
 
 .benchmark-graphs.list-view {
   grid-template-columns: 1fr;
-  max-width: 1000px;
+  max-width: 1200px;
   margin: 0 auto;
+}
+
+@media (min-width: 1600px) {
+  .benchmark-graphs.list-view {
+    max-width: 1400px;
+  }
 }
 
 .chart-container {
@@ -747,9 +799,15 @@ body {
   padding: 24px;
   position: relative;
   transition: all 0.3s ease;
-  height: 100%;
   display: flex;
   flex-direction: column;
+}
+
+/* Larger padding on bigger screens */
+@media (min-width: 1600px) {
+  .chart-container {
+    padding: 32px;
+  }
 }
 
 .chart-container:hover {
@@ -1000,8 +1058,8 @@ body {
   }
   
   .chart-container canvas {
-    max-height: 300px; /* Smaller charts on mobile */
-    min-height: 200px; /* Ensure minimum height */
+    max-height: 350px; /* Smaller charts on mobile */
+    min-height: 250px; /* Ensure minimum height */
   }
   
   /* Disable hover effects on mobile */
@@ -1075,39 +1133,62 @@ code, pre, .monospace {
   }
 }
 
-/* Chart specific improvements */
-.chart-container {
-  position: relative;
-  height: auto;
-  width: 100%;
-}
+/* Chart specific improvements - handled in main .chart-container section above */
 
 .chart-container canvas {
-  max-height: 400px;
+  max-height: 500px;
+  min-height: 350px;
   width: 100% !important;
   height: auto !important;
   display: block;
 }
 
 .benchmark-graphs.list-view .chart-container canvas {
-  max-height: 500px;
+  max-height: 600px;
+  min-height: 400px;
 }
 
 /* Larger charts on wide screens */
 @media (min-width: 1600px) {
   .chart-container canvas {
-    max-height: 500px;
+    max-height: 600px;
+    min-height: 400px;
   }
   
   .benchmark-graphs.list-view .chart-container canvas {
-    max-height: 600px;
+    max-height: 700px;
+    min-height: 500px;
   }
 }
 
-/* Wide screen optimizations */
+/* Even larger on very wide screens */
+@media (min-width: 1920px) {
+  .chart-container canvas {
+    max-height: 650px;
+    min-height: 450px;
+  }
+  
+  .benchmark-graphs.list-view .chart-container canvas {
+    max-height: 750px;
+    min-height: 550px;
+  }
+}
+
+/* Wide screen optimizations - keep 2 columns but add more spacing */
 @media (min-width: 1920px) {
   .benchmark-graphs {
     grid-template-columns: repeat(2, 1fr);
+    gap: 40px;
+    padding: 40px 60px;
+  }
+}
+
+/* Ultra-wide screens - still 2 columns but even more padding */
+@media (min-width: 2400px) {
+  .benchmark-graphs {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 48px;
+    padding: 48px 80px;
   }
 }
 
