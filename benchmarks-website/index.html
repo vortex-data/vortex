@@ -246,7 +246,11 @@
           <div class="filter-controls">
             <button id="expand-all" class="control-btn">Expand All</button>
             <button id="collapse-all" class="control-btn">Collapse All</button>
-            <select id="category-filter" class="category-filter">
+            <select
+              id="category-filter"
+              class="category-filter"
+              aria-label="Filter benchmarks by category"
+            >
               <option value="all">All Benchmarks</option>
               <option value="Read/Write">Read/Write</option>
               <option value="Queries (NVMe)">Queries (NVMe)</option>
@@ -317,11 +321,7 @@
               ×
             </button>
           </div>
-          <button
-            id="clear-filter"
-            class="clear-filter-btn"
-            style="display: none"
-          >
+          <button id="clear-filter" class="clear-filter-btn hidden">
             Clear Filter
           </button>
           <ul id="toc" class="toc-list"></ul>

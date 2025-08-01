@@ -1800,7 +1800,7 @@ window.initAndRender = (function () {
       // Create sticky header container
       const stickyContainer = document.createElement("div");
       stickyContainer.className = "sticky-header-container";
-      
+
       // Add header
       const header = this.createSectionHeader(name, benchSet, keptCharts);
       stickyContainer.appendChild(header);
@@ -1810,7 +1810,7 @@ window.initAndRender = (function () {
       if (controls) {
         stickyContainer.appendChild(controls);
       }
-      
+
       section.appendChild(stickyContainer);
 
       // Add scoring summary for query benchmarks (after sticky container)
@@ -1852,13 +1852,13 @@ window.initAndRender = (function () {
       // Add charts container
       const chartsContainer = document.createElement("div");
       chartsContainer.className = "benchmark-graphs";
-      
+
       // Add single-chart class if there's only one chart
       const chartCount = keptCharts ? keptCharts.length : benchSet?.size || 0;
       if (chartCount === 1) {
         chartsContainer.classList.add("single-chart");
       }
-      
+
       section.appendChild(chartsContainer);
 
       // Collapse by default
@@ -1874,7 +1874,7 @@ window.initAndRender = (function () {
       header.className = "benchmark-header";
       header.onclick = (e) => {
         // Don't toggle if clicking on info icon
-        if (!e.target.closest('.info-icon')) {
+        if (!e.target.closest(".info-icon")) {
           this.toggleSection(name);
         }
       };
@@ -1898,7 +1898,7 @@ window.initAndRender = (function () {
 
       titleWrapper.appendChild(title);
       titleWrapper.appendChild(linkBtn);
-      
+
       // Add info icon with tooltip
       const description = this.getDescription(name);
       if (description) {
@@ -2005,7 +2005,7 @@ window.initAndRender = (function () {
         if (state.activeEngines.has("all")) {
           state.activeEngines.clear();
         }
-        
+
         // Toggle the selected engine
         if (state.activeEngines.has(engine)) {
           state.activeEngines.delete(engine);
@@ -2019,8 +2019,8 @@ window.initAndRender = (function () {
       }
 
       // Update URL with comma-separated engines
-      const engineParam = state.activeEngines.has("all") 
-        ? "all" 
+      const engineParam = state.activeEngines.has("all")
+        ? "all"
         : Array.from(state.activeEngines).join(",");
       urlManager.updateParams({ engine: engineParam });
 
@@ -2063,10 +2063,13 @@ window.initAndRender = (function () {
 
       chart.data.datasets.forEach((dataset, index) => {
         const label = dataset.label.toLowerCase();
-        
+
         // Check if dataset should be visible based on selected engines
-        const shouldShow = state.activeEngines.has("all") || 
-          Array.from(state.activeEngines).some(engine => label.includes(engine));
+        const shouldShow =
+          state.activeEngines.has("all") ||
+          Array.from(state.activeEngines).some((engine) =>
+            label.includes(engine)
+          );
 
         if (chart.isDatasetVisible(index) !== shouldShow) {
           updates.push({ index, visible: shouldShow });
@@ -2131,12 +2134,12 @@ window.initAndRender = (function () {
       const params = this.getParams();
 
       state.activeTag = params.tag;
-      
+
       // Handle comma-separated engines
       if (params.engine && params.engine !== "all") {
         const engines = params.engine.split(",");
         state.activeEngines.clear();
-        engines.forEach(engine => state.activeEngines.add(engine.trim()));
+        engines.forEach((engine) => state.activeEngines.add(engine.trim()));
       }
 
       const categoryFilter = domElements.categoryFilter;
@@ -2257,7 +2260,7 @@ window.initAndRender = (function () {
       if (targetSection) {
         // Just scroll to the section without expanding it
         // The user can click to expand if they want to see the charts
-        
+
         // Close sidebar after navigation on mobile
         if (utils.isMobile()) {
           domElements.sidebar.classList.remove("active");
@@ -2418,30 +2421,32 @@ window.initAndRender = (function () {
             rootMargin: CONFIG.CHART_OBSERVER_MARGIN,
           }
         );
-        
+
         // Initialize sticky header observer
         const stickyObserver = new IntersectionObserver(
           (entries) => {
             entries.forEach((entry) => {
-              const stickyContainer = entry.target.querySelector('.sticky-header-container');
+              const stickyContainer = entry.target.querySelector(
+                ".sticky-header-container"
+              );
               if (stickyContainer) {
                 if (entry.intersectionRatio < 1) {
-                  stickyContainer.classList.add('is-stuck');
+                  stickyContainer.classList.add("is-stuck");
                 } else {
-                  stickyContainer.classList.remove('is-stuck');
+                  stickyContainer.classList.remove("is-stuck");
                 }
               }
             });
           },
           {
             threshold: [1],
-            rootMargin: '-72px 0px 0px 0px' // Adjust based on header height
+            rootMargin: "-72px 0px 0px 0px", // Adjust based on header height
           }
         );
-        
+
         // Observe all benchmark sets for sticky headers after DOM is ready
         setTimeout(() => {
-          document.querySelectorAll('.benchmark-set').forEach(set => {
+          document.querySelectorAll(".benchmark-set").forEach((set) => {
             stickyObserver.observe(set);
           });
         }, 100);
@@ -2497,9 +2502,10 @@ window.initAndRender = (function () {
         if (isDesktop) {
           // On desktop, toggle collapsed state
           domElements.sidebar.classList.toggle("collapsed");
-          
+
           // Save preference to localStorage
-          const isCollapsed = domElements.sidebar.classList.contains("collapsed");
+          const isCollapsed =
+            domElements.sidebar.classList.contains("collapsed");
           localStorage.setItem("sidebarCollapsed", isCollapsed);
         } else {
           // On mobile/tablet, toggle active state
@@ -2589,10 +2595,10 @@ window.initAndRender = (function () {
       // Window resize handler
       const debouncedResize = utils.debounce(() => {
         chartManager.updateChartsForResize();
-        
+
         const isDesktop = window.innerWidth >= 1200;
         const wasDesktop = state.lastWindowWidth >= 1200;
-        
+
         // Handle sidebar state when crossing desktop/mobile threshold
         if (wasDesktop && !isDesktop) {
           // Moving from desktop to mobile
@@ -2602,12 +2608,13 @@ window.initAndRender = (function () {
           // Moving from mobile to desktop
           domElements.sidebar.classList.remove("active");
           // Restore saved collapsed state
-          const isCollapsed = localStorage.getItem("sidebarCollapsed") === "true";
+          const isCollapsed =
+            localStorage.getItem("sidebarCollapsed") === "true";
           if (isCollapsed) {
             domElements.sidebar.classList.add("collapsed");
           }
         }
-        
+
         // Update last window width
         state.lastWindowWidth = window.innerWidth;
       }, CONFIG.RESIZE_DEBOUNCE);
@@ -2639,19 +2646,19 @@ window.initAndRender = (function () {
     tocLink.innerHTML = name;
     tocLink.onclick = (e) => {
       e.preventDefault();
-      
+
       // Auto-expand the section if it's collapsed
       const targetSection = document.querySelector(`[data-category="${name}"]`);
       if (targetSection && targetSection.classList.contains("collapsed")) {
         state.expandedSections.add(name);
         targetSection.classList.remove("collapsed");
       }
-      
+
       // Close sidebar after navigation on mobile
       if (utils.isMobile()) {
         domElements.sidebar.classList.remove("active");
       }
-      
+
       const targetElement = document.getElementById(h1id);
       const headerHeight =
         document.querySelector(".sticky-header").offsetHeight;
