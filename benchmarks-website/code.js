@@ -1148,6 +1148,10 @@ window.initAndRender = (function () {
       return categoryName === "Compression";
     },
 
+    isCompressionSizeBenchmark(categoryName) {
+      return categoryName === "Compression Size";
+    },
+
     calculateClickBenchScore(benchSet) {
       if (!benchSet || benchSet.size === 0) {
         return null;
@@ -1640,6 +1644,125 @@ window.initAndRender = (function () {
 
       return summaryDiv;
     },
+
+    calculateCompressionSizeMetrics(benchSet) {
+      if (!benchSet || benchSet.size === 0) return null;
+
+      // For Compression Size, we want the geometric mean of the size ratio chart
+      const sizeRatios = [];
+
+      // Find the size ratio chart
+      const sizeRatioChart = benchSet.get("VORTEX:PARQUET-ZSTD SIZE RATIO");
+
+      if (!sizeRatioChart) return null;
+
+      // Find the most recent commit with data
+      let latestCommitWithData = -1;
+
+      if (sizeRatioChart.series) {
+        for (let i = sizeRatioChart.commits.length - 1; i >= 0; i--) {
+          let hasData = false;
+          for (const [
+            seriesName,
+            seriesData,
+          ] of sizeRatioChart.series.entries()) {
+            const result = seriesData[i];
+            if (result && result.value !== null && result.value !== undefined) {
+              hasData = true;
+              break;
+            }
+          }
+          if (hasData) {
+            latestCommitWithData = i;
+            break;
+          }
+        }
+      }
+
+      if (latestCommitWithData === -1) return null;
+
+      // Collect size ratios (excluding wide table cols)
+      for (const [seriesName, seriesData] of sizeRatioChart.series.entries()) {
+        // Skip wide table cols datasets
+        if (seriesName.toLowerCase().startsWith("wide table cols")) continue;
+
+        if (latestCommitWithData < seriesData.length) {
+          const result = seriesData[latestCommitWithData];
+          if (
+            result &&
+            result.value !== null &&
+            result.value !== undefined &&
+            result.value > 0
+          ) {
+            // Keep the ratio as-is (lower is better for size)
+            sizeRatios.push(result.value);
+          }
+        }
+      }
+
+      // Calculate geometric mean of size ratios
+      const calculateGeometricMean = (values) => {
+        if (values.length === 0) return null;
+        const product = values.reduce((acc, val) => acc * val, 1);
+        return Math.pow(product, 1 / values.length);
+      };
+
+      // Calculate min and max
+      const minRatio = sizeRatios.length > 0 ? Math.min(...sizeRatios) : null;
+      const maxRatio = sizeRatios.length > 0 ? Math.max(...sizeRatios) : null;
+
+      const metrics = {
+        sizeRatio: calculateGeometricMean(sizeRatios),
+        minRatio: minRatio,
+        maxRatio: maxRatio,
+        sizeRatioCount: sizeRatios.length,
+      };
+
+      return metrics;
+    },
+
+    formatCompressionSizeSummary(metrics) {
+      if (!metrics || metrics.sizeRatio === null) return null;
+
+      const summaryDiv = document.createElement("div");
+      summaryDiv.className = "benchmark-scores-summary";
+
+      const title = document.createElement("h3");
+      title.className = "scores-title";
+      title.textContent = "Compression Size Summary";
+      summaryDiv.appendChild(title);
+
+      const metricsList = document.createElement("div");
+      metricsList.className = "scores-list";
+
+      // Size ratio
+      const ratioItem = document.createElement("div");
+      ratioItem.className = "score-item";
+      ratioItem.innerHTML = `
+        <span class="score-rank">📊</span>
+        <span class="score-series">Size Ratio (Vortex/Parquet)</span>
+        <span class="score-metrics">
+          <span class="score-label">Mean:</span>
+          <span class="score-value">${metrics.sizeRatio.toFixed(2)}x</span>
+          <span class="score-label">Min:</span>
+          <span class="score-value">${metrics.minRatio.toFixed(2)}x</span>
+          <span class="score-label">Max:</span>
+          <span class="score-value">${metrics.maxRatio.toFixed(2)}x</span>
+          <span class="score-label">(${metrics.sizeRatioCount} datasets)</span>
+        </span>
+      `;
+      metricsList.appendChild(ratioItem);
+
+      summaryDiv.appendChild(metricsList);
+
+      const explanation = document.createElement("div");
+      explanation.className = "scores-explanation";
+      explanation.textContent =
+        "Geometric mean of size ratios (excluding wide tables) - lower is better";
+      summaryDiv.appendChild(explanation);
+
+      return summaryDiv;
+    },
   };
 
   // UI module
@@ -1709,6 +1832,15 @@ window.initAndRender = (function () {
       if (scoring.isCompressionBenchmark(name) && benchSet) {
         const metrics = scoring.calculateCompressionMetrics(benchSet);
         const metricsSummary = scoring.formatCompressionSummary(metrics);
+        if (metricsSummary) {
+          section.appendChild(metricsSummary);
+        }
+      }
+
+      // Add summary for Compression Size benchmarks
+      if (scoring.isCompressionSizeBenchmark(name) && benchSet) {
+        const metrics = scoring.calculateCompressionSizeMetrics(benchSet);
+        const metricsSummary = scoring.formatCompressionSizeSummary(metrics);
         if (metricsSummary) {
           section.appendChild(metricsSummary);
         }
