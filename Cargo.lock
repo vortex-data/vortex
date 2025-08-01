@@ -6821,12 +6821,9 @@ name = "vortex-layout"
 version = "0.1.0"
 dependencies = [
  "arcref",
- "arrow-array",
  "arrow-buffer",
- "arrow-schema",
  "async-stream",
  "async-trait",
- "bit-vec",
  "dashmap",
  "flatbuffers",
  "futures",
@@ -6841,7 +6838,6 @@ dependencies = [
  "prost 0.14.1",
  "roaring",
  "rstest",
- "sketches-ddsketch",
  "tokio",
  "tracing",
  "vortex-array",
@@ -6854,7 +6850,6 @@ dependencies = [
  "vortex-flatbuffers",
  "vortex-layout",
  "vortex-mask",
- "vortex-metrics",
  "vortex-pco",
  "vortex-scalar",
  "vortex-sequence",
