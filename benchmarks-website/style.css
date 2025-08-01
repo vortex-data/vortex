@@ -1334,7 +1334,7 @@ code, pre, .monospace {
   display: flex;
   align-items: center;
   background: var(--bg-color);
-  padding: 6px 12px;
+  padding: 10px 12px;
   margin-bottom: 8px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-color);
@@ -1352,7 +1352,7 @@ code, pre, .monospace {
   font-weight: 600;
   color: var(--primary-color);
   min-width: 30px;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .score-series {
@@ -1360,7 +1360,7 @@ code, pre, .monospace {
   font-weight: 500;
   color: var(--text-color);
   margin: 0 8px;
-  font-size: 12px;
+  font-size: 14px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1377,9 +1377,9 @@ code, pre, .monospace {
   font-weight: 600;
   color: var(--text-secondary);
   background: var(--bg-secondary);
-  padding: 2px 8px;
+  padding: 3px 10px;
   border-radius: var(--radius-sm);
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .score-runtime {
@@ -1387,9 +1387,9 @@ code, pre, .monospace {
   font-weight: 600;
   color: var(--primary-color);
   background: rgba(89, 113, 253, 0.1);
-  padding: 2px 8px;
+  padding: 3px 10px;
   border-radius: var(--radius-sm);
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .scores-explanation {
@@ -1401,7 +1401,7 @@ code, pre, .monospace {
 }
 
 .score-label {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--text-secondary);
   margin: 0 2px;
 }
@@ -1411,15 +1411,6 @@ code, pre, .monospace {
   .benchmark-scores-summary {
     padding: 16px;
     margin: 12px 0;
-  }
-  
-  .score-item {
-    padding: 10px 12px;
-  }
-  
-  .score-series {
-    margin: 0 8px;
-    font-size: 14px;
   }
 }
 
@@ -1458,8 +1449,8 @@ code, pre, .monospace {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
-  margin-bottom: 16px;
+  padding: 14px 18px;
+  margin-bottom: 14px;
   background: var(--bg-color);
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-color);
@@ -1474,14 +1465,14 @@ code, pre, .monospace {
 
 .performance-summary .score-label {
   color: var(--text-secondary);
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 500;
 }
 
 .performance-summary .score-value {
   font-weight: 600;
   font-family: "Geist Mono", monospace;
-  font-size: 15px;
+  font-size: 17px;
   color: var(--text-color);
 }
 
@@ -1494,11 +1485,6 @@ code, pre, .monospace {
   .performance-summary .scores-list {
     column-count: 1;
   }
-  
-  .performance-summary .score-item {
-    padding: 10px 14px;
-    margin-bottom: 12px;
-  }
 }
 
 /* Large screen adjustments for better readability */
@@ -1508,18 +1494,6 @@ code, pre, .monospace {
   }
   
   .performance-summary .scores-title {
-    font-size: 16px;
-  }
-  
-  .performance-summary .score-item {
-    padding: 14px 20px;
-  }
-  
-  .performance-summary .score-label {
-    font-size: 14px;
-  }
-  
-  .performance-summary .score-value {
     font-size: 16px;
   }
 }
