@@ -614,7 +614,8 @@ window.initAndRender = (function () {
               data: limitedData.map((b) => (b ? b.value : null)),
               borderColor: color,
               backgroundColor: color + "60", // Add alpha for #rrggbbaa
-              hidden: hiddenDatasets !== undefined && hiddenDatasets.has(name),
+              hidden: (hiddenDatasets !== undefined && hiddenDatasets.has(name)) || 
+                      name.toLowerCase().startsWith("wide table cols"),
             };
           }),
       };
@@ -808,7 +809,34 @@ window.initAndRender = (function () {
         const index = legendItem.datasetIndex;
         const chart = this.chart;
         const dataset = chart.data.datasets[index];
+        const datasetLabel = dataset.label;
+        
+        // Toggle the clicked dataset
         dataset.hidden = !dataset.hidden;
+        
+        // Find the benchmark group name from the chart canvas
+        const canvas = chart.canvas;
+        const container = canvas.closest('.chart-container');
+        const benchmarkGroup = container?.getAttribute('data-benchmark');
+        
+        if (benchmarkGroup) {
+          // Synchronize across all charts in the same benchmark group
+          state.chartInstances.forEach((chartData, key) => {
+            if (key.startsWith(benchmarkGroup + '-')) {
+              const otherChart = chartData.chart;
+              if (otherChart !== chart) {
+                // Find dataset with matching label
+                otherChart.data.datasets.forEach((ds) => {
+                  if (ds.label === datasetLabel) {
+                    ds.hidden = dataset.hidden;
+                  }
+                });
+                otherChart.update('none'); // Update without animation
+              }
+            }
+          });
+        }
+        
         chart.update();
       };
     },
