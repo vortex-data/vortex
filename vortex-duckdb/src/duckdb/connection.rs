@@ -6,7 +6,7 @@ use std::ptr;
 
 use vortex::error::{VortexResult, vortex_err};
 
-use crate::duckdb::{Database, QueryResult};
+use crate::duckdb::{Database, ObjectCache, QueryResult};
 use crate::{cpp, duckdb_try, wrapper};
 
 wrapper!(
@@ -50,6 +50,27 @@ impl Connection {
         }
 
         Ok(unsafe { QueryResult::new(result) })
+    }
+
+    /// Get the object cache for this connection.
+    pub fn object_cache(&self) -> VortexResult<ObjectCache> {
+        unsafe {
+            let client_context = cpp::duckdb_vx_connection_get_client_context(self.as_ptr());
+            if client_context.is_null() {
+                return Err(vortex_err!(
+                    "Failed to get client context: connection={:p}",
+                    self.as_ptr()
+                ));
+            }
+            let cache = cpp::duckdb_vx_client_context_get_object_cache(client_context);
+            if cache.is_null() {
+                return Err(vortex_err!(
+                    "Failed to get object cache: client_context={:p}",
+                    client_context
+                ));
+            }
+            Ok(ObjectCache::borrow(cache))
+        }
     }
 }
 
@@ -238,5 +259,44 @@ mod tests {
 
         let result = conn.query("DELETE FROM test WHERE id > 1").unwrap();
         assert_eq!(result.row_count().unwrap(), 2);
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct TestCacheEntry {
+        data: String,
+        value: i32,
+    }
+
+    #[test]
+    fn test_object_cache_put_get() {
+        let conn = test_connection().unwrap();
+        let cache = conn.object_cache().unwrap();
+
+        // Test with a simple struct
+        let test_entry = TestCacheEntry {
+            data: "hello world".to_string(),
+            value: 42,
+        };
+
+        // Store the entry in the cache
+        cache.put("test_key", test_entry);
+
+        // Retrieve it back
+        let retrieved = cache.get::<TestCacheEntry>("test_key");
+        assert!(retrieved.is_some());
+
+        let retrieved_entry = retrieved.unwrap();
+        assert_eq!(retrieved_entry.data, "hello world");
+        assert_eq!(retrieved_entry.value, 42);
+    }
+
+    #[test]
+    fn test_object_cache_get_nonexistent() {
+        let conn = test_connection().unwrap();
+        let cache = conn.object_cache().unwrap();
+
+        // Try to get a non-existent key
+        let result = cache.get::<TestCacheEntry>("nonexistent_key");
+        assert!(result.is_none());
     }
 }

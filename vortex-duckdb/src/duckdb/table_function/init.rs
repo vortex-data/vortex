@@ -5,11 +5,11 @@ use std::ffi::c_void;
 use std::fmt::{Debug, Formatter};
 use std::ptr;
 
-use vortex::error::VortexExpect;
+use vortex::error::{VortexExpect, VortexResult};
 
 use crate::cpp;
 use crate::duckdb::data::Data;
-use crate::duckdb::{TableFilterSet, TableFunction};
+use crate::duckdb::{ObjectCache, TableFilterSet, TableFunction};
 
 /// Native callback for the global initialization of a table function.
 pub(crate) unsafe extern "C-unwind" fn init_global_callback<T: TableFunction>(
@@ -108,6 +108,23 @@ impl<'a, T: TableFunction> TableInitInput<'a, T> {
             None
         } else {
             Some(unsafe { TableFilterSet::borrow(ptr) })
+        }
+    }
+
+    /// Returns the object cache from the client context for the table function.
+    pub fn object_cache(&self) -> VortexResult<ObjectCache> {
+        use vortex::error::vortex_err;
+        unsafe {
+            if self.input.client_context.is_null() {
+                return Err(vortex_err!("Client context is null"));
+            }
+            let cache = cpp::duckdb_vx_client_context_get_object_cache(self.input.client_context);
+            if cache.is_null() {
+                return Err(vortex_err!(
+                    "Failed to get object cache from client context"
+                ));
+            }
+            Ok(ObjectCache::borrow(cache))
         }
     }
 }

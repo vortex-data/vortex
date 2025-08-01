@@ -34,6 +34,8 @@ mod scan;
 mod cpp;
 mod copy;
 #[cfg(test)]
+mod table_function_test;
+#[cfg(test)]
 mod vortex_e2e_tests;
 
 /// Initialize the Vortex extension by registering the extension functions.
