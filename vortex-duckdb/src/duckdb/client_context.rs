@@ -1,6 +1,6 @@
 use crate::duckdb::ObjectCache;
 use crate::{cpp, wrapper};
-use vortex::error::{VortexResult, vortex_err, vortex_panic};
+use vortex::error::vortex_panic;
 
 wrapper!(
     /// A DuckDB client context wrapper.

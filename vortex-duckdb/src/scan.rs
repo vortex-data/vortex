@@ -200,8 +200,10 @@ impl TableFunction for VortexTableFunction {
         let first_file = VortexOpenOptions::file();
 
         let first_file = if let Some(file_footer) = file_footer {
-            println!("Using cached footer");
-            first_file.with_footer(file_footer.clone())
+            println!("cache hit ptr={:p}", file_footer);
+            let _ = file_footer;
+            first_file
+            // first_file.with_footer(file_footer.clone())
         } else {
             first_file
         };
@@ -210,6 +212,8 @@ impl TableFunction for VortexTableFunction {
         let first_file = first_file
             .open_blocking(&first_file_path)
             .map_err(|e| vortex_err!("Failed to open Vortex file: {}", e))?;
+
+        println!("open file");
 
         if !file_footer_cached {
             cache.put(&first_file_key, first_file.footer());
