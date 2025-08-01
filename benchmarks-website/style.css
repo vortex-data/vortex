@@ -18,7 +18,7 @@
   --border-color: var(--vortex-gray);
   
   /* Layout */
-  --header-height: 96px;
+  --header-height: 72px;
   --sidebar-width: 280px;
   --chart-spacing: 24px;
   --mobile-breakpoint: 768px;
@@ -74,6 +74,8 @@ body {
   border-bottom: 1px solid var(--border-color);
   box-shadow: var(--shadow-sm);
   z-index: 1000;
+  display: flex;
+  align-items: center;
 }
 
 .header-content {
@@ -137,7 +139,7 @@ body {
 }
 
 .site-logo {
-  height: 56px;
+  height: 48px;
   width: auto;
   display: block;
 }
@@ -521,21 +523,26 @@ body {
   display: none;
 }
 
-/* Sticky headers for benchmark groups */
+/* Headers are not sticky when collapsed */
 .sticky-header-container {
-  position: sticky;
-  top: var(--header-height);
+  position: relative;
   z-index: 50;
   background: var(--bg-secondary);
-  /* Add shadow when stuck */
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0);
-  transition: box-shadow 0.2s ease;
   /* Maintain border radius at top */
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
 }
 
-/* Add shadow when the header is stuck */
-.sticky-header-container.is-stuck {
+/* Sticky headers only when benchmark group is expanded */
+.benchmark-set:not(.collapsed) .sticky-header-container {
+  position: sticky;
+  top: var(--header-height);
+  /* Add shadow when stuck */
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0);
+  transition: box-shadow 0.2s ease;
+}
+
+/* Add shadow when the header is stuck (only for expanded groups) */
+.benchmark-set:not(.collapsed) .sticky-header-container.is-stuck {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
@@ -544,7 +551,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 24px 32px;
+  padding: 16px 32px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
   cursor: pointer;
@@ -556,13 +563,13 @@ body {
 /* Adjust padding on smaller screens */
 @media (max-width: 1200px) {
   .benchmark-header {
-    padding: 20px 24px;
+    padding: 14px 24px;
   }
 }
 
 @media (max-width: 768px) {
   .benchmark-header {
-    padding: 16px;
+    padding: 12px 16px;
   }
 }
 
@@ -580,7 +587,7 @@ body {
 
 .benchmark-title {
   font-family: "Funnel Display", sans-serif;
-  font-size: 1.75rem;
+  font-size: 1.5rem;
   font-weight: 600;
   margin: 0;
   color: var(--text-color);
@@ -588,6 +595,7 @@ body {
   align-items: center;
   gap: 12px;
   letter-spacing: -0.02em;
+  line-height: 1.2;
 }
 
 .group-link-btn {
@@ -617,7 +625,7 @@ body {
 }
 
 .collapse-icon {
-  font-size: 1.2rem;
+  font-size: 1rem;
   transition: transform 0.3s ease;
   flex-shrink: 0;
 }
@@ -630,12 +638,13 @@ body {
   font-family: "Geist Mono", monospace;
   display: flex;
   gap: 16px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
   color: var(--text-secondary);
   letter-spacing: 0.02em;
   text-transform: uppercase;
   flex-shrink: 0;
+  line-height: 1;
 }
 
 /* Info icon with tooltip */
@@ -691,7 +700,7 @@ body {
 
 /* Engine Filter Controls */
 .engine-filter-container {
-  padding: 16px 32px;
+  padding: 12px 32px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
   display: flex;
@@ -1024,7 +1033,7 @@ body {
 
 @media (max-width: 768px) {
   :root {
-    --header-height: 64px;
+    --header-height: 56px;
   }
   
   body {
@@ -1049,7 +1058,7 @@ body {
   }
 
   .site-logo {
-    height: 36px;
+    height: 32px;
   }
   
   .site-title {
@@ -1090,7 +1099,7 @@ body {
   /* Sticky header handled in the sticky-header-container section above */
 
   .benchmark-title {
-    font-size: 1.4rem;
+    font-size: 1.25rem;
   }
 
   .benchmark-graphs {
@@ -1267,7 +1276,7 @@ code, pre, .monospace {
 .benchmark-scores-summary {
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
-  padding: 20px 32px;
+  padding: 16px 32px;
   margin: 0;
 }
 
@@ -1278,23 +1287,25 @@ code, pre, .monospace {
 }
 
 .scores-title {
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 600;
-  margin: 0 0 16px 0;
+  margin: 0 0 12px 0;
   color: var(--text-color);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .scores-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .score-item {
   display: flex;
   align-items: center;
   background: var(--bg-color);
-  padding: 12px 16px;
+  padding: 8px 16px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-color);
   transition: transform 0.2s ease;

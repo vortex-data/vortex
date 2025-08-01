@@ -2438,7 +2438,7 @@ window.initAndRender = (function () {
           },
           {
             threshold: [1],
-            rootMargin: '-96px 0px 0px 0px' // Adjust based on header height
+            rootMargin: '-72px 0px 0px 0px' // Adjust based on header height
           }
         );
         
