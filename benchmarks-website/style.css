@@ -1147,6 +1147,16 @@ body {
   .filter-separator {
     display: none;
   }
+  
+  /* Hide reset zoom button on mobile since X-axis scrolling is disabled */
+  .reset-zoom-btn {
+    display: none;
+  }
+  
+  /* Hide empty control containers on mobile */
+  .engine-filter-container:not(:has(.engine-filter-btn)) {
+    display: none;
+  }
 
   .back-to-top {
     bottom: 16px;
