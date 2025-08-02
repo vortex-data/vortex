@@ -526,7 +526,7 @@ body {
   display: none;
 }
 
-/* Headers are not sticky when collapsed */
+/* Header container */
 .sticky-header-container {
   position: relative;
   z-index: 50;
@@ -535,18 +535,21 @@ body {
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
 }
 
-/* Sticky headers only when benchmark group is expanded */
-.benchmark-set:not(.collapsed) .sticky-header-container {
-  position: sticky;
-  top: var(--header-height);
-  /* Add shadow when stuck */
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0);
-  transition: box-shadow 0.2s ease;
-}
+/* Sticky headers only on larger screens when benchmark group is expanded */
+@media (min-width: 1200px) {
+  .benchmark-set:not(.collapsed) .sticky-header-container {
+    position: -webkit-sticky;
+    position: sticky;
+    top: var(--header-height);
+    /* Prevent layout shift with margin trick */
+    margin-bottom: -1px;
+    padding-bottom: 1px;
+  }
 
-/* Add shadow when the header is stuck (only for expanded groups) */
-.benchmark-set:not(.collapsed) .sticky-header-container.is-stuck {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  /* Add shadow when the header is stuck (only for expanded groups) */
+  .benchmark-set:not(.collapsed) .sticky-header-container.is-stuck {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  }
 }
 
 
