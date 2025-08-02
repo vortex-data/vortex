@@ -1735,30 +1735,48 @@ window.initAndRender = (function () {
       const metricsList = document.createElement("div");
       metricsList.className = "scores-list";
 
-      // Size ratio
-      const ratioItem = document.createElement("div");
-      ratioItem.className = "score-item";
-      ratioItem.innerHTML = `
+      // Mean ratio
+      const meanItem = document.createElement("div");
+      meanItem.className = "score-item";
+      meanItem.innerHTML = `
         <span class="score-rank">📊</span>
-        <span class="score-series">Size Ratio (Vortex/Parquet)</span>
+        <span class="score-series">Mean Size Ratio</span>
         <span class="score-metrics">
-          <span class="score-label">Mean:</span>
           <span class="score-value">${metrics.sizeRatio.toFixed(2)}x</span>
-          <span class="score-label">Min:</span>
-          <span class="score-value">${metrics.minRatio.toFixed(2)}x</span>
-          <span class="score-label">Max:</span>
-          <span class="score-value">${metrics.maxRatio.toFixed(2)}x</span>
-          <span class="score-label">(${metrics.sizeRatioCount} datasets)</span>
         </span>
       `;
-      metricsList.appendChild(ratioItem);
+      metricsList.appendChild(meanItem);
+
+      // Min ratio
+      const minItem = document.createElement("div");
+      minItem.className = "score-item";
+      minItem.innerHTML = `
+        <span class="score-rank">⬇️</span>
+        <span class="score-series">Min Size Ratio</span>
+        <span class="score-metrics">
+          <span class="score-value">${metrics.minRatio.toFixed(2)}x</span>
+        </span>
+      `;
+      metricsList.appendChild(minItem);
+
+      // Max ratio
+      const maxItem = document.createElement("div");
+      maxItem.className = "score-item";
+      maxItem.innerHTML = `
+        <span class="score-rank">⬆️</span>
+        <span class="score-series">Max Size Ratio</span>
+        <span class="score-metrics">
+          <span class="score-value">${metrics.maxRatio.toFixed(2)}x</span>
+        </span>
+      `;
+      metricsList.appendChild(maxItem);
 
       summaryDiv.appendChild(metricsList);
 
       const explanation = document.createElement("div");
       explanation.className = "scores-explanation";
       explanation.textContent =
-        "Geometric mean of size ratios (excluding wide tables) - lower is better";
+        `Vortex/Parquet size ratios across ${metrics.sizeRatioCount} datasets (excluding wide tables) - lower is better`;
       summaryDiv.appendChild(explanation);
 
       return summaryDiv;

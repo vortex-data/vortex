@@ -47,6 +47,7 @@ html {
   background-color: var(--bg-color);
   font-size: 16px;
   scroll-behavior: smooth;
+  overflow-x: hidden;
 }
 
 body {
@@ -58,6 +59,8 @@ body {
   padding-top: var(--header-height);
   line-height: 1.6;
   letter-spacing: -0.01em;
+  overflow-x: hidden;
+  position: relative;
 }
 
 /* Sticky Header */
@@ -254,6 +257,8 @@ body {
 .main-container {
   display: flex;
   min-height: calc(100vh - var(--header-height));
+  overflow-x: hidden;
+  width: 100%;
 }
 
 /* Sidebar Navigation */
@@ -1290,7 +1295,10 @@ code, pre {
   }
   
   .benchmark-scores-summary .scores-list {
-    grid-template-columns: 1fr;
+    display: flex;
+    flex-direction: column;
+    column-count: 1;
+    gap: 8px;
   }
 }
 
@@ -1401,6 +1409,16 @@ code, pre {
   .benchmark-scores-summary {
     padding: 16px;
     margin: 12px 0;
+  }
+  
+  .score-item {
+    min-width: 0;
+    width: 100%;
+  }
+  
+  .score-series {
+    flex: 1;
+    min-width: 0;
   }
 }
 
