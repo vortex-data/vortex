@@ -561,6 +561,8 @@ body {
   -webkit-user-select: none;
   user-select: none;
   transition: background-color 0.2s;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
 /* Adjust padding on smaller screens */
@@ -584,8 +586,9 @@ body {
   display: flex;
   align-items: center;
   gap: 16px;
-  flex: 1;
+  flex: 1 1 100%;
   min-width: 0;
+  flex-wrap: wrap;
 }
 
 .benchmark-title {
@@ -635,6 +638,13 @@ body {
 
 .benchmark-set.collapsed .collapse-icon {
   transform: rotate(-90deg);
+}
+
+.benchmark-secondary-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
 }
 
 .benchmark-meta {
@@ -1101,6 +1111,12 @@ body {
 
   .benchmark-title {
     font-size: 1.25rem;
+    flex: 1 1 100%;
+  }
+  
+  .benchmark-secondary-info {
+    flex: 1 1 100%;
+    margin-top: 8px;
   }
 
   .benchmark-graphs {

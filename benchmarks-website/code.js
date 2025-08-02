@@ -1326,7 +1326,7 @@ window.initAndRender = (function () {
       const explanation = document.createElement("div");
       explanation.className = "scores-explanation";
       explanation.textContent =
-        "Score: geometric mean of query time ratios (lower is better) | Total: sum of all query times";
+        "Score: geometric mean of query time ratio to fastest with 10ms constant shift | Total: sum of all query times (lower is better)";
       summaryDiv.appendChild(explanation);
 
       return summaryDiv;
@@ -1445,7 +1445,7 @@ window.initAndRender = (function () {
       const explanation = document.createElement("div");
       explanation.className = "scores-explanation";
       explanation.textContent =
-        "Latest random access time per series | Ratio to fastest";
+        "Random access time | Ratio to fastest (lower is better)";
       summaryDiv.appendChild(explanation);
 
       return summaryDiv;
@@ -1592,7 +1592,7 @@ window.initAndRender = (function () {
 
       const title = document.createElement("h3");
       title.className = "scores-title";
-      title.textContent = "Compression Performance vs Parquet";
+      title.textContent = "Compression Throughput vs Parquet";
       summaryDiv.appendChild(title);
 
       const metricsList = document.createElement("div");
@@ -1609,7 +1609,6 @@ window.initAndRender = (function () {
             <span class="score-value">${metrics.compressRatio.toFixed(
               2
             )}x</span>
-            <span class="score-label">(${metrics.compressCount} datasets)</span>
           </span>
         `;
         metricsList.appendChild(compressItem);
@@ -1626,9 +1625,6 @@ window.initAndRender = (function () {
             <span class="score-value">${metrics.decompressRatio.toFixed(
               2
             )}x</span>
-            <span class="score-label">(${
-              metrics.decompressCount
-            } datasets)</span>
           </span>
         `;
         metricsList.appendChild(decompressItem);
@@ -1639,7 +1635,7 @@ window.initAndRender = (function () {
       const explanation = document.createElement("div");
       explanation.className = "scores-explanation";
       explanation.textContent =
-        "Geometric mean of Vortex/Parquet ratios across default datasets - higher is better";
+        "Inverse geometric mean of Vortex/Parquet ratios across 9 datasets (higher is better)";
       summaryDiv.appendChild(explanation);
 
       return summaryDiv;
@@ -1735,18 +1731,6 @@ window.initAndRender = (function () {
       const metricsList = document.createElement("div");
       metricsList.className = "scores-list";
 
-      // Mean ratio
-      const meanItem = document.createElement("div");
-      meanItem.className = "score-item";
-      meanItem.innerHTML = `
-        <span class="score-rank">📊</span>
-        <span class="score-series">Mean Size Ratio</span>
-        <span class="score-metrics">
-          <span class="score-value">${metrics.sizeRatio.toFixed(2)}x</span>
-        </span>
-      `;
-      metricsList.appendChild(meanItem);
-
       // Min ratio
       const minItem = document.createElement("div");
       minItem.className = "score-item";
@@ -1758,6 +1742,18 @@ window.initAndRender = (function () {
         </span>
       `;
       metricsList.appendChild(minItem);
+
+      // Mean ratio
+      const meanItem = document.createElement("div");
+      meanItem.className = "score-item";
+      meanItem.innerHTML = `
+        <span class="score-rank">📊</span>
+        <span class="score-series">Mean Size Ratio</span>
+        <span class="score-metrics">
+          <span class="score-value">${metrics.sizeRatio.toFixed(2)}x</span>
+        </span>
+      `;
+      metricsList.appendChild(meanItem);
 
       // Max ratio
       const maxItem = document.createElement("div");
@@ -1775,8 +1771,7 @@ window.initAndRender = (function () {
 
       const explanation = document.createElement("div");
       explanation.className = "scores-explanation";
-      explanation.textContent =
-        `Vortex/Parquet size ratios across ${metrics.sizeRatioCount} datasets (excluding wide tables) - lower is better`;
+      explanation.textContent = `Geometric mean of Vortex/Parquet size ratios across ${metrics.sizeRatioCount} datasets (lower is better)`;
       summaryDiv.appendChild(explanation);
 
       return summaryDiv;
@@ -1905,6 +1900,10 @@ window.initAndRender = (function () {
       title.className = "benchmark-title";
       title.innerHTML = `<span class="collapse-icon">▼</span> ${name}`;
 
+      // Create a secondary container for link, info, and charts count
+      const secondaryInfo = document.createElement("div");
+      secondaryInfo.className = "benchmark-secondary-info";
+
       const linkBtn = document.createElement("button");
       linkBtn.className = "group-link-btn";
       linkBtn.setAttribute("aria-label", "Copy link to this section");
@@ -1913,9 +1912,7 @@ window.initAndRender = (function () {
         e.stopPropagation();
         this.linkToGroup(name);
       };
-
-      titleWrapper.appendChild(title);
-      titleWrapper.appendChild(linkBtn);
+      secondaryInfo.appendChild(linkBtn);
 
       // Add info icon with tooltip
       const description = this.getDescription(name);
@@ -1924,16 +1921,19 @@ window.initAndRender = (function () {
         infoIcon.className = "info-icon";
         infoIcon.innerHTML = "ⓘ";
         infoIcon.setAttribute("data-tooltip", description);
-        titleWrapper.appendChild(infoIcon);
+        secondaryInfo.appendChild(infoIcon);
       }
 
       const meta = document.createElement("div");
       meta.className = "benchmark-meta";
       const chartCount = keptCharts ? keptCharts.length : benchSet?.size || 0;
       meta.textContent = `${chartCount} charts`;
+      secondaryInfo.appendChild(meta);
+
+      titleWrapper.appendChild(title);
+      titleWrapper.appendChild(secondaryInfo);
 
       header.appendChild(titleWrapper);
-      header.appendChild(meta);
 
       return header;
     },
