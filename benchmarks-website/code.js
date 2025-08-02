@@ -26,6 +26,7 @@ const CONFIG = {
 // Color mappings for series
 const SERIES_COLOR_MAP = {
   "datafusion:arrow": "#7a27b1",
+  "datafusion:in-memory-arrow": "#7a27b1",
   "datafusion:parquet": "#ef7f1d",
   "datafusion:vortex": "#19a508",
   "duckdb:parquet": "#985113",
