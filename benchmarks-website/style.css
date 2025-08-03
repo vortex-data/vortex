@@ -510,6 +510,17 @@ body {
   z-index: 1;
 }
 
+/* Remove top margin from first benchmark set */
+.benchmark-set:first-child {
+  margin-top: 0;
+}
+
+/* Prevent layout shift when first section expands */
+.benchmark-set:first-child:not(.collapsed) {
+  margin-top: 0;
+  padding-top: 0;
+}
+
 /* Reduce margin on mobile */
 @media (max-width: 768px) {
   .benchmark-set {
@@ -526,24 +537,30 @@ body {
   display: none;
 }
 
-/* Header container */
+/* Wrapper to maintain space when header becomes sticky */
+.sticky-header-wrapper {
+  position: relative;
+}
+
+/* Headers are not sticky when collapsed */
 .sticky-header-container {
   position: relative;
   z-index: 50;
   background: var(--bg-secondary);
   /* Maintain border radius at top */
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  margin: 0;
+  padding: 0;
 }
 
-/* Sticky headers only on larger screens when benchmark group is expanded */
-@media (min-width: 1200px) {
+/* Sticky headers only on desktop to avoid mobile layout issues */
+@media (min-width: 769px) {
   .benchmark-set:not(.collapsed) .sticky-header-container {
-    position: -webkit-sticky;
     position: sticky;
-    top: var(--header-height);
-    /* Prevent layout shift with margin trick */
-    margin-bottom: -1px;
-    padding-bottom: 1px;
+    top: calc(var(--header-height) - 1px);
+    /* Add shadow when stuck */
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0);
+    transition: box-shadow 0.2s ease;
   }
 
   /* Add shadow when the header is stuck (only for expanded groups) */
@@ -564,8 +581,6 @@ body {
   -webkit-user-select: none;
   user-select: none;
   transition: background-color 0.2s;
-  flex-wrap: wrap;
-  gap: 12px;
 }
 
 /* Adjust padding on smaller screens */
@@ -589,9 +604,8 @@ body {
   display: flex;
   align-items: center;
   gap: 16px;
-  flex: 1 1 100%;
+  flex: 1;
   min-width: 0;
-  flex-wrap: wrap;
 }
 
 .benchmark-title {
@@ -1108,12 +1122,19 @@ body {
 
   .benchmark-header {
     padding: 16px;
+    flex-wrap: wrap;
+    gap: 12px;
   }
   
   /* Sticky header handled in the sticky-header-container section above */
 
   .benchmark-title {
     font-size: 1.25rem;
+    flex: 1 1 100%;
+  }
+  
+  .title-wrapper {
+    flex-wrap: wrap;
     flex: 1 1 100%;
   }
   
@@ -1306,6 +1327,8 @@ code, pre {
   border-bottom: 1px solid var(--border-color);
   padding: 12px 32px;
   margin: 0;
+  /* Ensure no top margin when following sticky container */
+  margin-top: 0 !important;
 }
 
 @media (max-width: 768px) {

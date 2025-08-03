@@ -1811,6 +1811,10 @@ window.initAndRender = (function () {
       section.className = "benchmark-set";
       section.setAttribute("data-category", name);
 
+      // Create wrapper for sticky header to maintain space
+      const stickyWrapper = document.createElement("div");
+      stickyWrapper.className = "sticky-header-wrapper";
+
       // Create sticky header container
       const stickyContainer = document.createElement("div");
       stickyContainer.className = "sticky-header-container";
@@ -1825,7 +1829,8 @@ window.initAndRender = (function () {
         stickyContainer.appendChild(controls);
       }
 
-      section.appendChild(stickyContainer);
+      stickyWrapper.appendChild(stickyContainer);
+      section.appendChild(stickyWrapper);
 
       // Add scoring summary for query benchmarks (after sticky container)
       if (scoring.isQueryBenchmark(name) && benchSet) {
@@ -2463,10 +2468,10 @@ window.initAndRender = (function () {
           }
         );
 
-        // Observe all benchmark sets for sticky headers after DOM is ready
+        // Observe all sticky header wrappers after DOM is ready
         setTimeout(() => {
-          document.querySelectorAll(".benchmark-set").forEach((set) => {
-            stickyObserver.observe(set);
+          document.querySelectorAll(".sticky-header-wrapper").forEach((wrapper) => {
+            stickyObserver.observe(wrapper);
           });
         }, 100);
       }
