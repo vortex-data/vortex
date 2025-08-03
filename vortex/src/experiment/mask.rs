@@ -93,7 +93,7 @@ impl BitOr<&BitVector> for &BitMask {
 pub enum BitMaskView<'a> {
     All,
     None,
-    Some(&'a BitSlice<u64, Msb0>),
+    Some(&'a BitVector),
 }
 
 impl<'a> BitMaskView<'a> {
@@ -102,7 +102,7 @@ impl<'a> BitMaskView<'a> {
             BitMaskView::All => BitMask::All,
             BitMaskView::None => BitMask::None,
             BitMaskView::Some(bits) => {
-                BitMask::Some(BitVector::try_from(*bits).expect("known size"))
+                BitMask::Some(BitVector::try_from(bits.as_bitslice()).expect("known size"))
             }
         }
     }
@@ -125,7 +125,7 @@ impl<'a> From<&'a BitSlice<u64, Msb0>> for BitMaskView<'a> {
         } else if true_count == 0 {
             BitMaskView::None
         } else {
-            BitMaskView::Some(bits)
+            BitMaskView::Some(bits.try_into().expect("size"))
         }
     }
 }

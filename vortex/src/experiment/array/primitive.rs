@@ -3,7 +3,7 @@
 
 use crate::experiment::array::Array;
 use crate::experiment::encodings::BindContext;
-use crate::experiment::mask::{BitMask, BitMaskView, BitVectorMaskExt};
+use crate::experiment::mask::{BitMask, BitMaskView, BitVector, BitVectorMaskExt};
 use crate::experiment::vector::{N, Vector};
 use arrow_array::BooleanArray;
 use arrow_buffer::BooleanBuffer;
@@ -35,7 +35,7 @@ fn export_primitive_impl<T: NativePType>(
     array: &Array,
     mask: &BitSlice<u64, Msb0>,
 ) -> VortexResult<PrimitiveArray> {
-    assert!(mask.count_ones() <= array.len);
+    debug_assert!(mask.count_ones() <= array.len);
 
     // Create a pipeline for the array.
     let mut pipeline = array.encoding.bind(&BindContext {
@@ -60,30 +60,16 @@ fn export_primitive_impl<T: NativePType>(
     // Iterate the given mask in chunks of N.
     let mut offset = 0;
     for m in mask.chunks_exact(N) {
-        let true_count = m.count_ones();
-        if true_count == 0 {
-            println!("ALL FALSE");
-            // If the mask is all false, we can skip this chunk.
-            continue;
-        }
-
-        let selection = if true_count == N {
-            println!("ALL TRUE");
-            BitMaskView::All
-        } else {
-            BitMaskView::Some(m)
-        };
-
+        let m = BitVector::try_from(m).expect("Mask chunks should be valid BitVector");
         let mut view = Vector::new_primitive::<T>(&mut elements_slice[offset..][..N], None);
-        match pipeline.step(&(), selection, BitMaskView::All, &mut view) {
+        match pipeline.step(&(), BitMaskView::Some(&m), BitMaskView::All, &mut view) {
             Poll::Ready(result) => result?,
             Poll::Pending => {
                 vortex_panic!("Array pipelines cannot yield pending");
             }
         }
         view.flatten();
-
-        offset += true_count;
+        offset += view.len();
     }
 
     // Set the length of the values and validity buffers to the actual length
