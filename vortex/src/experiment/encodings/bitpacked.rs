@@ -1,18 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::experiment::encodings::{
-    BindContext, BufferId, Encoding, Evaluation, EvaluationContext,
-};
+use crate::experiment::buffers::{BufferHandle, BufferId};
+use crate::experiment::encodings::{BindContext, Encoding, Evaluation, EvaluationContext};
 use crate::experiment::mask::BitMask;
-use crate::experiment::vector::{BitVector, N, Selection, Vector};
+use crate::experiment::vector::{N, Vector};
 use fastlanes::{BitPacking, FastLanes};
 use std::task::{Poll, ready};
 use vortex_buffer::Buffer;
 use vortex_dtype::{NativePType, match_each_unsigned_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_fastlanes::unpack_iter::BitPacked;
-use vortex_mask::Mask;
 
 pub struct BitPackedEncoding {
     bit_width: usize,
@@ -35,8 +32,7 @@ impl Encoding for BitPackedEncoding {
             Ok(Box::new(BitPackedEvaluation::<T> {
                 width: self.bit_width,
                 packed_stride: self.bit_width * <T as FastLanes>::LANES,
-                buffer_id: self.buffer_id,
-                buffer: None,
+                buffer: BufferHandle::new(self.buffer_id),
                 packed_offset: 0,
             }))
         })
@@ -47,8 +43,7 @@ struct BitPackedEvaluation<T> {
     width: usize,
     packed_stride: usize,
 
-    buffer_id: BufferId,
-    buffer: Option<Buffer<T>>,
+    buffer: BufferHandle<T>,
     packed_offset: usize,
 }
 
@@ -66,11 +61,7 @@ impl<T: NativePType + BitPacking> Evaluation for BitPackedEvaluation<T> {
         defined: &BitMask,
         out: &mut Vector,
     ) -> Poll<VortexResult<()>> {
-        if self.buffer.is_none() {
-            let byte_buffer = ready!(ctx.buffer(self.buffer_id))?;
-            self.buffer = Some(Buffer::<T>::from_byte_buffer(byte_buffer));
-        };
-        let buffer = self.buffer.as_ref().vortex_expect("Infallible");
+        let buffer = ready!(self.buffer.get_or_load(ctx))?;
 
         if selected.true_count() < 16 {
             // TODO(ngates): I think we found it was <= 8 elements where unpack_single is faster

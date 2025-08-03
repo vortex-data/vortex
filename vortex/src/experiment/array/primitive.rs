@@ -93,7 +93,7 @@ mod test {
     use super::*;
     use crate::IntoArray;
     use crate::buffer::buffer;
-    use crate::experiment::encodings::BufferId;
+    use crate::experiment::buffers::BufferId;
     use crate::experiment::encodings::bitpacked::BitPackedEncoding;
     use vortex_error::VortexResult;
     use vortex_fastlanes::BitPackedArray;

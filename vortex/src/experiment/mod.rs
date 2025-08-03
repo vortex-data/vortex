@@ -32,6 +32,7 @@
 //! be inlined into these work threads such that we end up with a thread-per-core model.
 
 mod array;
+mod buffers;
 pub(crate) mod encodings;
 pub(crate) mod expression;
 pub(crate) mod mask;

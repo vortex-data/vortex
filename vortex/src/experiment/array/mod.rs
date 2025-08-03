@@ -5,7 +5,8 @@ mod bool;
 mod primitive;
 
 use crate::experiment::array::bool::export_bool;
-use crate::experiment::encodings::{BufferId, Encoding};
+use crate::experiment::buffers::BufferId;
+use crate::experiment::encodings::Encoding;
 use vortex_array::Canonical;
 use vortex_array::stats::StatsSet;
 use vortex_buffer::ByteBuffer;

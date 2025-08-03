@@ -2,20 +2,23 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub mod bitpacked;
+mod compare;
 pub mod primitive;
 pub mod validity;
 
+#[cfg(test)]
+mod tests;
+
+use crate::experiment::buffers::BufferId;
 use crate::experiment::mask::BitMask;
-use crate::experiment::vector::{BitVector, Vector};
-use std::ops::Deref;
-use std::pin::Pin;
+use crate::experiment::vector::Vector;
+use std::ops::{Deref, Range};
 use std::sync::atomic::AtomicUsize;
-use std::task::{Context, Poll};
+use std::task::Poll;
 use vortex_array::stats::StatsSet;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
-use vortex_mask::Mask;
+use vortex_error::{VortexResult, vortex_err};
 use vortex_utils::aliases::hash_map::HashMap;
 
 pub trait Encoding {
@@ -30,26 +33,6 @@ pub struct BindContext<'a> {
     pub len: usize,
     pub dtype: &'a DType,
     pub stats: Option<&'a StatsSet>,
-}
-
-static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-pub struct BufferId(usize);
-
-impl BufferId {
-    /// Creates a new `BufferId` with a unique identifier.
-    pub fn new() -> Self {
-        BufferId(NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
-    }
-}
-
-impl Deref for BufferId {
-    type Target = usize;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
 }
 
 /// An instantiated evaluation of a pipeline.
@@ -85,14 +68,38 @@ pub trait Evaluation {
 }
 
 pub trait EvaluationContext {
+    /// Get a buffer by its ID.
     fn buffer(&self, buffer_id: BufferId) -> Poll<VortexResult<ByteBuffer>>;
-}
 
-impl EvaluationContext for HashMap<BufferId, ByteBuffer> {
-    fn buffer(&self, buffer_id: BufferId) -> Poll<VortexResult<ByteBuffer>> {
-        match self.get(&buffer_id) {
-            Some(buffer) => Poll::Ready(Ok(buffer.clone())),
-            None => Poll::Pending,
+    /// Pre-fetch buffers for future use (non-blocking hint).
+    fn prefetch(&self, buffer_ids: &[BufferId]) {
+        for &buffer_id in buffer_ids {
+            let _ = self.buffer(buffer_id);
+        }
+    }
+
+    /// Request a range of data from a buffer (for partial reads).
+    fn buffer_range(
+        &self,
+        buffer_id: BufferId,
+        range: Range<usize>,
+    ) -> Poll<VortexResult<ByteBuffer>> {
+        match self.buffer(buffer_id) {
+            Poll::Ready(Ok(buffer)) => {
+                let start = range.start;
+                let end = range.end;
+                if start < end && end <= buffer.len() {
+                    Poll::Ready(Ok(buffer.slice(start..end)))
+                } else {
+                    Poll::Ready(Err(vortex_err!(
+                        "Invalid range for buffer: {}..{}",
+                        start,
+                        end
+                    )))
+                }
+            }
+            Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
+            Poll::Pending => Poll::Pending,
         }
     }
 }

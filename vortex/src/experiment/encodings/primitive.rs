@@ -1,17 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::experiment::encodings::{
-    BindContext, BufferId, Encoding, Evaluation, EvaluationContext,
-};
+use crate::experiment::buffers::{BufferHandle, BufferId};
+use crate::experiment::encodings::{BindContext, Encoding, Evaluation, EvaluationContext};
 use crate::experiment::mask::BitMask;
-use crate::experiment::vector::{BitVector, N, Vector};
+use crate::experiment::vector::{N, Vector};
 use std::task::{Poll, ready};
-use vortex_array::stats::StatsSet;
-use vortex_buffer::{Buffer, ByteBuffer};
-use vortex_dtype::{DType, NativePType, match_each_native_ptype};
+use vortex_buffer::Buffer;
+use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_mask::{AllOr, Mask};
 
 pub struct PrimitiveEncoding {
     buffer_id: BufferId,
@@ -22,19 +19,16 @@ impl Encoding for PrimitiveEncoding {
         let ptype = ctx.dtype.as_ptype();
         Ok(match_each_native_ptype!(ptype, |T| {
             Box::new(PrimitiveEvaluation::<T> {
-                buffer_id: self.buffer_id,
+                buffer: BufferHandle::new(self.buffer_id),
                 len: ctx.len,
                 offset: 0,
-                buffer: None,
             }) as Box<dyn Evaluation>
         }))
     }
 }
 
 struct PrimitiveEvaluation<T> {
-    buffer_id: BufferId,
-    // The source buffer.
-    buffer: Option<Buffer<T>>,
+    buffer: BufferHandle<T>,
     // The overall length of the data.
     len: usize,
     // The current row offset.
@@ -54,11 +48,7 @@ impl<T: NativePType> Evaluation for PrimitiveEvaluation<T> {
         defined: &BitMask,
         out: &mut Vector,
     ) -> Poll<VortexResult<()>> {
-        if self.buffer.is_none() {
-            let byte_buffer = ready!(ctx.buffer(self.buffer_id))?;
-            self.buffer = Some(Buffer::<T>::from_byte_buffer(byte_buffer));
-        };
-        let buffer = self.buffer.as_ref().vortex_expect("Infallible");
+        let buffer = ready!(self.buffer.get_or_load(ctx))?;
 
         let mut primitive = out.as_primitive::<T>();
         match selected {
