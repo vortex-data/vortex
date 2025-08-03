@@ -1803,6 +1803,26 @@ window.initAndRender = (function () {
       return BENCHMARK_DESCRIPTIONS[baseCategory] || "";
     },
 
+    benchmarkGroupHasData(benchSet) {
+      if (!benchSet || benchSet.size === 0) return false;
+
+      // Check if any query in the benchmark set has data
+      for (const [queryName, queryData] of benchSet.entries()) {
+        if (!queryData.series || queryData.series.size === 0) continue;
+
+        // Check if any series has any non-null data
+        for (const [seriesName, seriesData] of queryData.series.entries()) {
+          for (let i = 0; i < seriesData.length; i++) {
+            if (seriesData[i] && seriesData[i].value !== null && seriesData[i].value !== undefined) {
+              return true;
+            }
+          }
+        }
+      }
+
+      return false;
+    },
+
     createBenchmarkSection(name, benchSet, groupFilterSettings = {}) {
       const { keptCharts, hiddenDatasets, removedDatasets, renamedDatasets } =
         groupFilterSettings;
@@ -1810,6 +1830,12 @@ window.initAndRender = (function () {
       const section = document.createElement("div");
       section.className = "benchmark-set";
       section.setAttribute("data-category", name);
+
+      // Check if this benchmark group has any data
+      const hasData = this.benchmarkGroupHasData(benchSet);
+      if (!hasData) {
+        section.classList.add("no-data");
+      }
 
       // Create wrapper for sticky header to maintain space
       const stickyWrapper = document.createElement("div");
@@ -1891,12 +1917,19 @@ window.initAndRender = (function () {
 
       const header = document.createElement("div");
       header.className = "benchmark-header";
-      header.onclick = (e) => {
-        // Don't toggle if clicking on info icon
-        if (!e.target.closest(".info-icon")) {
-          this.toggleSection(name);
-        }
-      };
+      
+      // Check if the parent section has the no-data class
+      const section = document.querySelector(`[data-category="${name}"]`);
+      const hasNoData = section && section.classList.contains("no-data");
+      
+      if (!hasNoData) {
+        header.onclick = (e) => {
+          // Don't toggle if clicking on info icon
+          if (!e.target.closest(".info-icon")) {
+            this.toggleSection(name);
+          }
+        };
+      }
 
       const titleWrapper = document.createElement("div");
       titleWrapper.className = "title-wrapper";
@@ -1933,7 +1966,14 @@ window.initAndRender = (function () {
       const meta = document.createElement("div");
       meta.className = "benchmark-meta";
       const chartCount = keptCharts ? keptCharts.length : benchSet?.size || 0;
-      meta.textContent = `${chartCount} charts`;
+      
+      // Check if the parent section has the no-data class
+      const sectionHasNoData = section && section.classList.contains("no-data");
+      if (sectionHasNoData) {
+        meta.textContent = "No data available";
+      } else {
+        meta.textContent = `${chartCount} charts`;
+      }
       secondaryInfo.appendChild(meta);
 
       titleWrapper.appendChild(title);
@@ -1988,6 +2028,9 @@ window.initAndRender = (function () {
     toggleSection(name) {
       const section = document.querySelector(`[data-category="${name}"]`);
       if (!section) return;
+      
+      // Don't toggle if section has no data
+      if (section.classList.contains("no-data")) return;
 
       if (state.expandedSections.has(name)) {
         state.expandedSections.delete(name);
@@ -2249,6 +2292,9 @@ window.initAndRender = (function () {
       const updates = [];
 
       sections.forEach((section) => {
+        // Skip sections with no data
+        if (section.classList.contains("no-data")) return;
+        
         const category = section.getAttribute("data-category");
         state.expandedSections.add(category);
         if (section.classList.contains("collapsed")) {
@@ -2671,9 +2717,9 @@ window.initAndRender = (function () {
     tocLink.onclick = (e) => {
       e.preventDefault();
 
-      // Auto-expand the section if it's collapsed
+      // Auto-expand the section if it's collapsed (but not if it has no data)
       const targetSection = document.querySelector(`[data-category="${name}"]`);
-      if (targetSection && targetSection.classList.contains("collapsed")) {
+      if (targetSection && targetSection.classList.contains("collapsed") && !targetSection.classList.contains("no-data")) {
         state.expandedSections.add(name);
         targetSection.classList.remove("collapsed");
       }

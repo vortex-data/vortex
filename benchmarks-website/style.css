@@ -521,6 +521,23 @@ body {
   padding-top: 0;
 }
 
+/* Style for benchmark groups with no data */
+.benchmark-set.no-data {
+  opacity: 0.5;
+}
+
+.benchmark-set.no-data .benchmark-header {
+  cursor: not-allowed;
+}
+
+.benchmark-set.no-data .benchmark-title {
+  color: var(--text-secondary);
+}
+
+.benchmark-set.no-data .collapse-icon {
+  visibility: hidden;
+}
+
 /* Reduce margin on mobile */
 @media (max-width: 768px) {
   .benchmark-set {
