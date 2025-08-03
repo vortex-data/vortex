@@ -14,6 +14,12 @@ pub struct PrimitiveEncoding {
     buffer_id: BufferId,
 }
 
+impl PrimitiveEncoding {
+    pub fn new(buffer_id: BufferId) -> Self {
+        Self { buffer_id }
+    }
+}
+
 impl Encoding for PrimitiveEncoding {
     fn bind(&self, ctx: &BindContext) -> VortexResult<Box<dyn Evaluation>> {
         let ptype = ctx.dtype.as_ptype();

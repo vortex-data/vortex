@@ -16,6 +16,12 @@ pub struct CompareEncoding {
     operator: Operator,
 }
 
+impl CompareEncoding {
+    pub fn new(lhs: Box<dyn Encoding>, operator: Operator, rhs: Scalar) -> Self {
+        Self { lhs, rhs, operator }
+    }
+}
+
 impl Encoding for CompareEncoding {
     fn bind(&self, ctx: &BindContext) -> VortexResult<Box<dyn Evaluation>> {
         let lhs = self.lhs.bind(ctx)?;

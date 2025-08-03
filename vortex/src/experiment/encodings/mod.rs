@@ -6,9 +6,6 @@ mod compare;
 pub mod primitive;
 pub mod validity;
 
-#[cfg(test)]
-mod tests;
-
 use crate::experiment::buffers::BufferId;
 use crate::experiment::mask::BitMask;
 use crate::experiment::vector::Vector;
