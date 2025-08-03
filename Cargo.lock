@@ -6270,6 +6270,7 @@ dependencies = [
  "bitvec",
  "codspeed-divan-compat",
  "fastlanes",
+ "futures",
  "itertools 0.14.0",
  "mimalloc",
  "parquet",

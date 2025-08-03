@@ -52,6 +52,7 @@ arrow-buffer = { workspace = true }
 arrow-schema = { workspace = true }
 bitvec = { workspace = true }
 fastlanes = { workspace = true }
+futures = { workspace = true }
 
 [dev-dependencies]
 arrow-array = { workspace = true }

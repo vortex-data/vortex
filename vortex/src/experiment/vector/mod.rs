@@ -53,13 +53,16 @@
 //! So each array has one function to get a compute kernel, and one function to get a compute
 //! evaluation. If either fails to return, a default canonical implementation is used, as now.
 
+use crate::experiment::mask::BitMask;
 use bitvec::access::BitSafeU64;
 use bitvec::prelude::*;
 use vortex_array::ArrayRef;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::PType;
+use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 
+mod bool;
 mod primitive;
 
 pub const N: usize = 2048;
@@ -122,7 +125,7 @@ pub struct Vector<'a> {
     //  we can use aligned load/store instructions for wide SIMD lanes.
     elements: *mut u8,
     /// The validity mask for the vector, indicating which elements in the buffer are valid.
-    validity: &'a mut VectorMask,
+    validity: Option<&'a mut BitVector>,
     // A selection mask over the elements and validity of the vector.
     // FIXME(ngates): using a selection mask means rank-based operations are expensive, vs
     //  selection indices which are always constant time.
@@ -138,14 +141,15 @@ pub struct Vector<'a> {
     _marker: std::marker::PhantomData<&'a mut ()>,
 }
 
-/// A vector mask is a bit array containing N boolean values.
-pub type VectorMask = BitSlice<BitSafeU64, Msb0>;
+/// A vector-sized bit-array containing N boolean values.
+pub type BitVector = BitArray<[u64; N / 64], Msb0>;
 
 /// Defines the "vector type", a physical type describing the data that's held in the vector.
 ///
 /// See the specific vector view types, e.g. [`PrimitiveVector`], for more details.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum VType {
+    Bool,
     Primitive(PType),
     VarBin,
 }
@@ -161,7 +165,7 @@ pub enum Selection {
     /// Select from the vector using a list of indices, up to a maximum of `N` indices.
     Indices(Box<[usize]>),
     /// Select from the vector using a mask, which is a bit array of length `N`.
-    Mask(Mask),
+    Mask(BitVector),
 }
 
 impl<'a> Vector<'a> {
@@ -172,7 +176,27 @@ impl<'a> Vector<'a> {
             Selection::Prefix { len } => len,
             Selection::Constant { len, .. } => len,
             Selection::Indices(ref indices) => indices.len(),
-            Selection::Mask(ref mask) => mask.true_count(),
+            Selection::Mask(ref mask) => mask.count_ones(),
+        }
+    }
+
+    pub fn validity(&mut self) -> &mut BitVector {
+        self.validity
+            .as_mut()
+            .vortex_expect("Vector does not support validity")
+    }
+
+    pub fn set_selection_mask(&mut self, mask: BitMask) {
+        match mask {
+            BitMask::All => {
+                self.selection = Selection::Prefix { len: N };
+            }
+            BitMask::None => {
+                self.selection = Selection::Empty;
+            }
+            BitMask::Some(vector) => {
+                self.selection = Selection::Mask(vector);
+            }
         }
     }
 
@@ -216,5 +240,21 @@ impl<'a> Vector<'a> {
             }
         }
         self.selection = selection;
+    }
+
+    /// Whether the vector is in a flat representation, meaning it has no selection reordering.
+    pub fn is_flat(&self) -> bool {
+        match self.selection {
+            Selection::Empty => true,
+            Selection::Prefix { .. } => true,
+            Selection::Constant { .. } => true,
+            Selection::Indices(_) => false,
+            Selection::Mask(_) => false,
+        }
+    }
+
+    /// Flatten the vector, which means to remove any non-prefix selection.
+    pub fn flatten(&mut self) {
+        todo!()
     }
 }

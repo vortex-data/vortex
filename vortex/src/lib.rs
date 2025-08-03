@@ -9,7 +9,6 @@
 
 pub(crate) mod experiment;
 pub mod session;
-mod v2;
 
 pub use vortex_array::*;
 #[cfg(feature = "files")]

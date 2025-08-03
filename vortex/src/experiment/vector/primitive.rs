@@ -1,16 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::experiment::vector::{N, Selection, VType, Vector, VectorMask};
+use crate::experiment::vector::{BitVector, N, Selection, VType, Vector};
 use vortex_dtype::NativePType;
 
 impl<'v> Vector<'v> {
     /// Create a new `Vector` holding primitive elements.
     pub fn new_primitive<T: NativePType>(
         elements: &'v mut [T],
-        validity: &'v mut VectorMask,
-    ) -> Vector<'v> {
+        validity: Option<&'v mut BitVector>,
+    ) -> Self {
         assert_eq!(elements.len(), N);
+        assert!(validity.as_ref().map(|v| v.len() == N).unwrap_or(true));
         Vector {
             vtype: VType::Primitive(T::PTYPE),
             elements: elements.as_mut_ptr().cast(),
@@ -21,9 +22,7 @@ impl<'v> Vector<'v> {
             _marker: Default::default(),
         }
     }
-}
 
-impl<'v> Vector<'v> {
     /// Access this vector as primitive.
     pub fn as_primitive<'a, T: NativePType>(&'a mut self) -> PrimitiveVector<'a, 'v, T> {
         assert_eq!(
