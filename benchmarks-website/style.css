@@ -1350,14 +1350,50 @@ code, pre {
 
 @media (max-width: 768px) {
   .benchmark-scores-summary {
-    padding: 10px 16px;
+    padding: 8px 16px;
   }
   
   .benchmark-scores-summary .scores-list {
     display: flex;
     flex-direction: column;
     column-count: 1;
-    gap: 8px;
+    gap: 6px;
+  }
+  
+  .benchmark-scores-summary .scores-title {
+    font-size: 11px;
+    margin-bottom: 6px;
+  }
+  
+  .benchmark-scores-summary .score-item {
+    padding: 8px 10px;
+    margin-bottom: 6px;
+    font-size: 12px;
+  }
+  
+  .benchmark-scores-summary .score-rank {
+    font-size: 13px;
+    min-width: 28px;
+  }
+  
+  .benchmark-scores-summary .score-series {
+    font-size: 13px;
+    margin: 0 6px;
+  }
+  
+  .benchmark-scores-summary .score-value {
+    font-size: 12px;
+    padding: 2px 8px;
+  }
+  
+  .benchmark-scores-summary .score-runtime,
+  .benchmark-scores-summary .score-label {
+    font-size: 11px;
+  }
+  
+  .benchmark-scores-summary .scores-explanation {
+    font-size: 11px;
+    margin-top: 6px;
   }
 }
 
@@ -1463,13 +1499,8 @@ code, pre {
   margin: 0 2px;
 }
 
-/* Responsive */
+/* Responsive - consolidated with above mobile styles */
 @media (max-width: 768px) {
-  .benchmark-scores-summary {
-    padding: 16px;
-    margin: 12px 0;
-  }
-  
   .score-item {
     min-width: 0;
     width: 100%;
