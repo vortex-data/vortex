@@ -54,7 +54,12 @@
     <script src="code.js"></script>
     <script id="main-script">
       initAndRender([
-        ["Random Access", undefined],
+        ["Random Access", {
+          renamedDatasets: {
+            "vortex-tokio-local-disk": "vortex-nvme",
+            "parquet-tokio-local-disk": "parquet-nvme"
+          }
+        }],
         [
           "Compression",
           {
