@@ -59,21 +59,22 @@ fn export_primitive_impl<T: NativePType>(
 
     // Iterate the given mask in chunks of N.
     let mut offset = 0;
-    let mut elements_buffer = [T::default(); N];
     for m in mask.chunks_exact(N) {
         let true_count = m.count_ones();
         if true_count == 0 {
+            println!("ALL FALSE");
             // If the mask is all false, we can skip this chunk.
             continue;
         }
 
         let selection = if true_count == N {
+            println!("ALL TRUE");
             BitMaskView::All
         } else {
             BitMaskView::Some(m)
         };
 
-        let mut view = Vector::new_primitive::<T>(&mut elements_buffer, None);
+        let mut view = Vector::new_primitive::<T>(&mut elements_slice[offset..][..N], None);
         match pipeline.step(&(), selection, BitMaskView::All, &mut view) {
             Poll::Ready(result) => result?,
             Poll::Pending => {

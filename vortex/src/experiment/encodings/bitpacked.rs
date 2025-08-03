@@ -60,12 +60,12 @@ impl<T: NativePType + BitPacking> Evaluation for BitPackedEvaluation<T> {
     ) -> Poll<VortexResult<()>> {
         let buffer = ready!(self.buffer.get_or_load(ctx))?;
 
-        if selected.true_count() < 16 {
-            // TODO(ngates): I think we found it was <= 8 elements where unpack_single is faster
-            //  than unpacking the whole chunk... Given we do two chunks, that's ~16 elements?
-            //  We could also intersect with the defined mask to see if we can prune further, but
-            //  may not be worth doing the extra work.
-        }
+        //if selected.true_count() < 16 {
+        // TODO(ngates): I think we found it was <= 8 elements where unpack_single is faster
+        //  than unpacking the whole chunk... Given we do two chunks, that's ~16 elements?
+        //  We could also intersect with the defined mask to see if we can prune further, but
+        //  may not be worth doing the extra work.
+        //}
 
         // Otherwise, we unconditionally unpack two chunks of 1024 elements each into the
         // output vector, and simply return the mask we were given.

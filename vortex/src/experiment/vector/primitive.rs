@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::experiment::vector::{BitVector, N, Selection, VType, Vector};
+use arrow_buffer::BooleanBuffer;
 use bitvec::array::BitArray;
 use bitvec::order::Msb0;
 use bitvec::slice::BitSlice;
@@ -65,6 +66,7 @@ impl<T: NativePType> PrimitiveVector<'_, '_, T> {
                 len
             }
             Selection::Indices(indices) => {
+                println!("INDICES: {:?}", indices);
                 let mut buffer = [T::default(); N];
                 for (i, &index) in indices.iter().enumerate() {
                     if index >= N {
@@ -75,39 +77,40 @@ impl<T: NativePType> PrimitiveVector<'_, '_, T> {
                 self.as_mut().copy_from_slice(&buffer[0..indices.len()]);
                 indices.len()
             }
-            Selection::Mask(mask) => {
-                // TODO(ngates): maybe iter_ones() is faster?
-                let mut buffer = [T::default(); N];
-                let mut offset = 0;
-
-                for (i, raw_u64) in mask.as_raw_slice().iter().enumerate() {
-                    if *raw_u64 == 0 {
-                        continue;
-                    }
-                    if *raw_u64 == u64::MAX {
-                        // If the mask is all-ones, we can copy 64 values.
-                        buffer[offset..offset + 64]
-                            .copy_from_slice(&self.as_ref()[i * 64..][0..64]);
-                        offset += 64;
-                        continue;
-                    }
-                    // If the mask is not all-ones, we need to iterate the bits.
-                    for (b, bit) in BitArray::<[u64; 1], Msb0>::from([*raw_u64])
-                        .into_iter()
-                        .enumerate()
-                    {
-                        if bit {
-                            buffer[offset] = self.as_ref()[b + (i * 64)];
-                            offset += 1;
-                        }
-                    }
-                }
-
-                offset
+            Selection::Mask(mut mask) => {
+                flatten_mask(&mut mask, self.as_mut())
+                // println!("MASK: {:?}", mask);
+                // FIXME(ngates): this "naive" implementation is way slower annoyingly. Which
+                //  suggests we may not want to rely on bitvec crate for this :(
+                // let mut offset = 0;
+                // for idx in mask.iter_ones() {
+                //     self.as_mut()[offset] = self.as_ref()[idx];
+                //     offset += 1;
+                // }
+                // offset
             }
         };
         self.view.selection = Selection::Prefix { len };
     }
+}
+
+#[inline(never)]
+pub fn flatten_mask<T: NativePType>(mask: &mut BitVector, out: &mut [T]) -> usize {
+    let mut offset = 0;
+    let mut bit_idx = 0;
+    for raw in mask.as_raw_slice() {
+        let mut raw = *raw;
+
+        while raw != 0 {
+            let bit_pos = raw.trailing_zeros();
+            raw ^= 1 << bit_pos;
+
+            out[offset] = out[bit_idx + bit_pos as usize];
+            offset += 1;
+        }
+        bit_idx += 64;
+    }
+    offset
 }
 
 impl<T: NativePType> AsRef<[T]> for PrimitiveVector<'_, '_, T> {

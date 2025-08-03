@@ -61,6 +61,7 @@ impl Evaluation for ValidityEvaluation {
             BitMaskView::None => {
                 // All values are invalid, therefore we can just return a constant invalid vector
                 // without ever calling into the elements.
+                // FIXME(ngates): we must seek forwards though
                 out.validity().fill(false);
                 out.set_selection(Selection::Constant {
                     element: 0,
