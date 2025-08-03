@@ -39,8 +39,8 @@ impl Evaluation for ValidityEvaluation {
     fn step(
         &mut self,
         ctx: &dyn EvaluationContext,
-        selected: &BitMask,
-        defined: &BitMask,
+        selected: BitMaskView,
+        defined: BitMaskView,
         out: &mut Vector,
     ) -> Poll<VortexResult<()>> {
         // First, we export a validity array from the validity child.
@@ -71,8 +71,9 @@ impl Evaluation for ValidityEvaluation {
             BitMaskView::Some(validity) => {
                 // Otherwise, we set the invalid values to be undefined when calling into the
                 // child.
-                let defined = defined.bitand(validity);
-                self.elements.step(ctx, selected, &defined, out)
+                todo!()
+                //let defined = defined.bitand(validity);
+                //self.elements.step(ctx, selected, defined.borrow(), out)
             }
         }
     }

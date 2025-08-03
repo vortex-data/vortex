@@ -3,7 +3,7 @@
 
 use crate::experiment::array::Array;
 use crate::experiment::encodings::BindContext;
-use crate::experiment::mask::{BitMask, BitVectorMaskExt};
+use crate::experiment::mask::{BitMask, BitMaskView, BitVectorMaskExt};
 use crate::experiment::vector::{N, Vector};
 use arrow_array::BooleanArray;
 use arrow_buffer::BooleanBuffer;
@@ -47,7 +47,7 @@ pub(super) fn export_bool(array: &Array) -> VortexResult<BoolArray> {
 
         for (e, v) in bits_iter.zip(validity_iter) {
             let mut view = Vector::new_bool(e, Some(v));
-            match pipeline.step(&array.buffers, &BitMask::All, &BitMask::All, &mut view) {
+            match pipeline.step(&(), BitMaskView::All, BitMaskView::All, &mut view) {
                 Poll::Ready(result) => result?,
                 Poll::Pending => {
                     vortex_panic!("Array pipelines cannot yield pending");
@@ -57,7 +57,7 @@ pub(super) fn export_bool(array: &Array) -> VortexResult<BoolArray> {
     } else {
         for e in bits_iter {
             let mut view = Vector::new_bool(e, None);
-            match pipeline.step(&array.buffers, &BitMask::All, &BitMask::All, &mut view) {
+            match pipeline.step(&(), BitMaskView::All, BitMaskView::All, &mut view) {
                 Poll::Ready(result) => result?,
                 Poll::Pending => {
                     vortex_panic!("Array pipelines cannot yield pending");

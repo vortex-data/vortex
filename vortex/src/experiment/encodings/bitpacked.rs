@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::experiment::buffers::{BufferHandle, BufferId};
+use crate::experiment::buffers::{BufferHandle, BufferId, ByteBufferHandle};
 use crate::experiment::encodings::{BindContext, Encoding, Evaluation, EvaluationContext};
-use crate::experiment::mask::BitMask;
+use crate::experiment::mask::{BitMask, BitMaskView};
 use crate::experiment::vector::{N, Vector};
 use fastlanes::{BitPacking, FastLanes};
 use std::task::{Poll, ready};
@@ -13,26 +13,23 @@ use vortex_error::{VortexExpect, VortexResult};
 
 pub struct BitPackedEncoding {
     bit_width: usize,
-    buffer_id: BufferId,
+    buffer: ByteBufferHandle,
 }
 
 impl BitPackedEncoding {
-    pub fn new(bit_width: usize, buffer_id: BufferId) -> Self {
-        Self {
-            bit_width,
-            buffer_id,
-        }
+    pub fn new(bit_width: usize, buffer: ByteBufferHandle) -> Self {
+        Self { bit_width, buffer }
     }
 }
 
 impl Encoding for BitPackedEncoding {
     fn bind(&self, ctx: &BindContext) -> VortexResult<Box<dyn Evaluation>> {
-        let ptype = ctx.dtype.as_ptype();
+        let ptype = ctx.dtype.as_ptype().to_unsigned();
         match_each_unsigned_integer_ptype!(ptype, |T| {
             Ok(Box::new(BitPackedEvaluation::<T> {
                 width: self.bit_width,
                 packed_stride: self.bit_width * <T as FastLanes>::LANES,
-                buffer: BufferHandle::new(self.buffer_id),
+                buffer: BufferHandle::from_byte_buffer(self.buffer.clone()),
                 packed_offset: 0,
             }))
         })
@@ -57,8 +54,8 @@ impl<T: NativePType + BitPacking> Evaluation for BitPackedEvaluation<T> {
     fn step(
         &mut self,
         ctx: &dyn EvaluationContext,
-        selected: &BitMask,
-        defined: &BitMask,
+        selected: BitMaskView,
+        defined: BitMaskView,
         out: &mut Vector,
     ) -> Poll<VortexResult<()>> {
         let buffer = ready!(self.buffer.get_or_load(ctx))?;
@@ -87,7 +84,7 @@ impl<T: NativePType + BitPacking> Evaluation for BitPackedEvaluation<T> {
         self.packed_offset += (N / 1024) * self.packed_stride;
 
         // Set the selection to the given mask, which is a bit array of length N.
-        out.set_selection_mask(selected.clone());
+        out.set_selection_mask(selected.to_owned());
 
         Poll::Ready(Ok(()))
     }

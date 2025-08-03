@@ -7,7 +7,7 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 
-pub(crate) mod experiment;
+pub mod experiment;
 pub mod session;
 
 pub use vortex_array::*;

@@ -3,11 +3,14 @@
 
 use crate::experiment::array::Array;
 use crate::experiment::encodings::BindContext;
-use crate::experiment::mask::{BitMask, BitVectorMaskExt};
+use crate::experiment::mask::{BitMask, BitMaskView, BitVectorMaskExt};
 use crate::experiment::vector::{N, Vector};
 use arrow_array::BooleanArray;
 use arrow_buffer::BooleanBuffer;
+use bitvec::array::BitArray;
+use bitvec::bitarr;
 use bitvec::order::Msb0;
+use bitvec::slice::BitSlice;
 use bitvec::vec::BitVec;
 use std::task::Poll;
 use vortex_array::arrays::{BoolArray, PrimitiveArray};
@@ -19,12 +22,21 @@ use vortex_mask::Mask;
 use vortex_mask::Mask::Values;
 
 /// Utility for exporting an encoding into a canonical boolean array.
-pub(super) fn export_primitive(array: &Array) -> VortexResult<PrimitiveArray> {
+pub(super) fn export_primitive(
+    array: &Array,
+    mask: &BitSlice<u64, Msb0>,
+) -> VortexResult<PrimitiveArray> {
     let ptype = array.dtype.as_ptype();
-    match_each_native_ptype!(ptype, |T| { export_primitive_impl::<T>(array) })
+    match_each_native_ptype!(ptype, |T| { export_primitive_impl::<T>(array, mask) })
 }
 
-fn export_primitive_impl<T: NativePType>(array: &Array) -> VortexResult<PrimitiveArray> {
+/// Export into  a primitive array using the given selection mask.
+fn export_primitive_impl<T: NativePType>(
+    array: &Array,
+    mask: &BitSlice<u64, Msb0>,
+) -> VortexResult<PrimitiveArray> {
+    assert!(mask.count_ones() <= array.len);
+
     // Create a pipeline for the array.
     let mut pipeline = array.encoding.bind(&BindContext {
         len: array.len,
@@ -38,52 +50,52 @@ fn export_primitive_impl<T: NativePType>(array: &Array) -> VortexResult<Primitiv
     // Create the output bit vector.
     let mut elements = BufferMut::<T>::with_capacity(capacity);
     unsafe { elements.set_len(capacity) };
+    let elements_slice = elements.as_mut_slice();
 
     // Optionally create a validity vector if the array has a validity mask.
-    let mut validity = array.dtype.is_nullable().then(|| {
-        let mut v = BitVec::<u64, Msb0>::with_capacity(capacity);
-        unsafe { v.set_len(capacity) };
-        v
-    });
+    let mut validity = BitVec::<u64, Msb0>::with_capacity(capacity);
+    unsafe { validity.set_len(capacity) };
+    let validity_slice = validity.as_mut_bitslice();
 
-    let elements_iter = elements.chunks_exact_mut(N);
+    // Iterate the given mask in chunks of N.
+    let mut offset = 0;
+    let mut elements_buffer = [T::default(); N];
+    for m in mask.chunks_exact(N) {
+        let true_count = m.count_ones();
+        if true_count == 0 {
+            // If the mask is all false, we can skip this chunk.
+            continue;
+        }
 
-    // FIXME(ngates): should we set the selection mask for the final chunk?
-    if let Some(validity) = validity.as_mut() {
-        let validity_iter = unsafe { validity.iter_vector_chunks() };
+        let selection = if true_count == N {
+            BitMaskView::All
+        } else {
+            BitMaskView::Some(m)
+        };
 
-        for (e, v) in elements_iter.zip(validity_iter) {
-            let mut view = Vector::new_primitive::<T>(e, Some(v));
-            match pipeline.step(&array.buffers, &BitMask::All, &BitMask::All, &mut view) {
-                Poll::Ready(result) => result?,
-                Poll::Pending => {
-                    vortex_panic!("Array pipelines cannot yield pending");
-                }
+        let mut view = Vector::new_primitive::<T>(&mut elements_buffer, None);
+        match pipeline.step(&(), selection, BitMaskView::All, &mut view) {
+            Poll::Ready(result) => result?,
+            Poll::Pending => {
+                vortex_panic!("Array pipelines cannot yield pending");
             }
         }
-    } else {
-        for e in elements_iter {
-            let mut view = Vector::new_primitive::<T>(e, None);
-            match pipeline.step(&array.buffers, &BitMask::All, &BitMask::All, &mut view) {
-                Poll::Ready(result) => result?,
-                Poll::Pending => {
-                    vortex_panic!("Array pipelines cannot yield pending");
-                }
-            }
-        }
+        view.flatten();
+
+        offset += true_count;
     }
 
     // Set the length of the values and validity buffers to the actual length
-    unsafe { elements.set_len(array.len) };
-    if let Some(validity) = validity.as_mut() {
-        unsafe { validity.set_len(array.len) };
-    }
+    unsafe { elements.set_len(offset) };
+    unsafe { validity.set_len(offset) };
 
     Ok(PrimitiveArray::new(
         elements.freeze(),
-        validity
-            .map(|v| Validity::from(BooleanBuffer::from_iter(v.into_iter())))
-            .unwrap_or_else(|| Validity::NonNullable),
+        if array.dtype().is_nullable() {
+            Validity::from(BooleanBuffer::from_iter(validity.into_iter()))
+        } else {
+            Validity::NonNullable
+        },
     ))
 }
 
@@ -93,7 +105,7 @@ mod test {
     use super::*;
     use crate::IntoArray;
     use crate::buffer::buffer;
-    use crate::experiment::buffers::BufferId;
+    use crate::experiment::buffers::{BufferId, ByteBufferHandle};
     use crate::experiment::encodings::bitpacked::BitPackedEncoding;
     use vortex_error::VortexResult;
     use vortex_fastlanes::BitPackedArray;
@@ -101,22 +113,19 @@ mod test {
 
     #[test]
     fn test_bitpacked() -> VortexResult<()> {
-        let mut buffers = HashMap::new();
-
         let old_array = BitPackedArray::encode(&buffer![4u32; 100000].into_array(), 3)?;
-        let buffer_id = BufferId::new();
-        buffers.insert(buffer_id, old_array.packed().clone());
-        let encoding = BitPackedEncoding::new(old_array.bit_width() as usize, buffer_id);
+        let buffer = ByteBufferHandle::new(old_array.packed().clone());
+        let encoding = BitPackedEncoding::new(old_array.bit_width() as usize, buffer);
 
         let array = Array {
             len: old_array.len(),
             dtype: old_array.dtype().clone(),
             stats_set: old_array.statistics().to_owned(),
             encoding: Box::new(encoding),
-            buffers,
         };
 
-        let exported = export_primitive(&array)?;
+        let mask = BitVec::repeat(true, array.len());
+        let exported = export_primitive(&array, &mask)?;
         assert_eq!(exported.len(), 100000);
         assert_eq!(exported.as_slice::<u32>().len(), 100000);
         assert_eq!(exported.as_slice::<u32>(), &[4; 100000]);

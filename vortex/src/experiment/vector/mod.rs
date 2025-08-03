@@ -58,7 +58,7 @@ use bitvec::access::BitSafeU64;
 use bitvec::prelude::*;
 use vortex_array::ArrayRef;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::PType;
+use vortex_dtype::{PType, match_each_native_ptype};
 use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 
@@ -155,7 +155,9 @@ pub enum VType {
 }
 
 /// Provides a fast way to select a subset of elements from a vector.
+#[derive(Default)]
 pub enum Selection {
+    #[default]
     /// Select no elements in the vector.
     Empty,
     /// Select all elements in the vector from zero up to the given length.
@@ -255,6 +257,13 @@ impl<'a> Vector<'a> {
 
     /// Flatten the vector, which means to remove any non-prefix selection.
     pub fn flatten(&mut self) {
-        todo!()
+        match self.vtype {
+            VType::Primitive(ptype) => {
+                match_each_native_ptype!(ptype, |T| {
+                    self.as_primitive::<T>().flatten();
+                })
+            }
+            _ => todo!(),
+        }
     }
 }

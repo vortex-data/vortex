@@ -7,7 +7,7 @@ pub mod primitive;
 pub mod validity;
 
 use crate::experiment::buffers::BufferId;
-use crate::experiment::mask::BitMask;
+use crate::experiment::mask::{BitMask, BitMaskView};
 use crate::experiment::vector::Vector;
 use std::ops::{Deref, Range};
 use std::sync::atomic::AtomicUsize;
@@ -58,8 +58,8 @@ pub trait Evaluation {
     fn step(
         &mut self,
         ctx: &dyn EvaluationContext,
-        selected: &BitMask,
-        defined: &BitMask,
+        selected: BitMaskView,
+        defined: BitMaskView,
         out: &mut Vector,
     ) -> Poll<VortexResult<()>>;
 }
@@ -98,5 +98,13 @@ pub trait EvaluationContext {
             Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
             Poll::Pending => Poll::Pending,
         }
+    }
+}
+
+impl EvaluationContext for () {
+    fn buffer(&self, buffer_id: BufferId) -> Poll<VortexResult<ByteBuffer>> {
+        Poll::Ready(Err(vortex_err!(
+            "EvaluationContext is not implemented for ()"
+        )))
     }
 }

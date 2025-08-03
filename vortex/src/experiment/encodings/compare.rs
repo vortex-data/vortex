@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::experiment::encodings::{BindContext, Encoding, Evaluation, EvaluationContext};
-use crate::experiment::mask::BitMask;
+use crate::experiment::mask::{BitMask, BitMaskView};
 use crate::experiment::vector::{N, Vector};
 use std::task::{Poll, ready};
 use vortex_dtype::{NativePType, match_each_native_ptype};
@@ -44,7 +44,7 @@ impl Encoding for CompareEncoding {
                 .typed_value::<T>()
                 .ok_or_else(|| vortex_err!("Does not support comparison with null"))?;
 
-            Ok(Box::new(ComparePrimitive {
+            Ok(Box::new(ComparePrimitiveLiteral {
                 lhs,
                 rhs,
                 op,
@@ -54,7 +54,8 @@ impl Encoding for CompareEncoding {
     }
 }
 
-struct ComparePrimitive<T, F> {
+/// Evaluation for comparing a primitive type with a constant non-null primitive value.
+struct ComparePrimitiveLiteral<T, F> {
     lhs: Box<dyn Evaluation>,
     rhs: T,
     op: F,
@@ -63,7 +64,7 @@ struct ComparePrimitive<T, F> {
     lhs_elems: [T; N],
 }
 
-impl<T: NativePType, F> Evaluation for ComparePrimitive<T, F>
+impl<T: NativePType, F> Evaluation for ComparePrimitiveLiteral<T, F>
 where
     F: Fn(&T, &T) -> bool,
 {
@@ -74,8 +75,8 @@ where
     fn step(
         &mut self,
         ctx: &dyn EvaluationContext,
-        selected: &BitMask,
-        defined: &BitMask,
+        selected: BitMaskView,
+        defined: BitMaskView,
         out: &mut Vector,
     ) -> Poll<VortexResult<()>> {
         let mut elems = Vector::new_primitive::<T>(self.lhs_elems.as_mut(), None);
@@ -89,6 +90,7 @@ where
         for (i, item) in self.lhs_elems.iter().enumerate() {
             out_bits.set(i, (self.op)(item, &self.rhs));
         }
+        out.set_selection_mask(selected.to_owned());
 
         Poll::Ready(Ok(()))
     }

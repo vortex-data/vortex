@@ -25,6 +25,14 @@ impl BitMask {
             BitMask::Some(bits) => bits.count_ones(),
         }
     }
+
+    pub fn borrow(&self) -> BitMaskView {
+        match self {
+            BitMask::All => BitMaskView::All,
+            BitMask::None => BitMaskView::None,
+            BitMask::Some(bits) => BitMaskView::Some(bits),
+        }
+    }
 }
 
 impl BitAnd for &BitMask {
@@ -81,10 +89,60 @@ impl BitOr<&BitVector> for &BitMask {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BitMaskView<'a> {
     All,
     None,
-    Some(&'a BitVector),
+    Some(&'a BitSlice<u64, Msb0>),
+}
+
+impl<'a> BitMaskView<'a> {
+    pub fn to_owned(&self) -> BitMask {
+        match self {
+            BitMaskView::All => BitMask::All,
+            BitMaskView::None => BitMask::None,
+            BitMaskView::Some(bits) => {
+                BitMask::Some(BitVector::try_from(*bits).expect("known size"))
+            }
+        }
+    }
+
+    /// Returns the number of true bits in the mask.
+    pub fn true_count(&self) -> usize {
+        match self {
+            BitMaskView::All => N,
+            BitMaskView::None => 0,
+            BitMaskView::Some(bits) => bits.count_ones(),
+        }
+    }
+}
+
+impl<'a> From<&'a BitSlice<u64, Msb0>> for BitMaskView<'a> {
+    fn from(bits: &'a BitSlice<u64, Msb0>) -> Self {
+        let true_count = bits.count_ones();
+        if true_count == N {
+            BitMaskView::All
+        } else if true_count == 0 {
+            BitMaskView::None
+        } else {
+            BitMaskView::Some(bits)
+        }
+    }
+}
+
+impl BitAnd<&BitVector> for BitMaskView<'_> {
+    type Output = BitMask;
+
+    fn bitand(self, rhs: &BitVector) -> Self::Output {
+        match self {
+            BitMaskView::All => BitMask::Some(rhs.clone()),
+            BitMaskView::None => BitMask::None,
+            // BitMaskView::Some(a) => BitMask::Some(rhs & rhs),
+            BitMaskView::Some(a) => {
+                todo!()
+            }
+        }
+    }
 }
 
 pub trait BitVectorMaskExt {

@@ -5,13 +5,18 @@ mod bool;
 mod primitive;
 
 use crate::experiment::array::bool::export_bool;
+use crate::experiment::array::primitive::export_primitive;
 use crate::experiment::buffers::BufferId;
 use crate::experiment::encodings::Encoding;
+use bitvec::order::Msb0;
+use bitvec::slice::BitSlice;
+use bitvec::vec::BitVec;
 use vortex_array::Canonical;
 use vortex_array::stats::StatsSet;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
+use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashMap;
 
 pub struct Array {
@@ -19,11 +24,18 @@ pub struct Array {
     dtype: DType,
     stats_set: StatsSet,
     encoding: Box<dyn Encoding>,
-
-    buffers: HashMap<BufferId, ByteBuffer>,
 }
 
 impl Array {
+    pub fn new(len: usize, dtype: DType, stats_set: StatsSet, encoding: Box<dyn Encoding>) -> Self {
+        Array {
+            len,
+            dtype,
+            stats_set,
+            encoding,
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.len
     }
@@ -32,9 +44,10 @@ impl Array {
         &self.dtype
     }
 
-    pub fn to_canonical(&self) -> VortexResult<Canonical> {
+    pub fn to_canonical(&self, mask: &BitSlice<u64, Msb0>) -> VortexResult<Canonical> {
         match &self.dtype {
-            DType::Bool(n) => export_bool(self).map(Canonical::Bool),
+            DType::Bool(_) => export_bool(self).map(Canonical::Bool),
+            DType::Primitive(..) => export_primitive(self, mask).map(Canonical::Primitive),
             _ => vortex_bail!("Unsupported dtype for canonical conversion: {}", self.dtype),
         }
     }
