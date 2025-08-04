@@ -33,7 +33,7 @@ fn random_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<DType> {
         5 => DType::Binary(u.arbitrary()?),
 
         // container types
-        6 => DType::Struct(random_struct_dtype(u, depth - 1)?, u.arbitrary()?),
+        6 => DType::Struct(random_struct_fields(u, depth - 1, "")?, u.arbitrary()?),
         7 => DType::List(Arc::new(random_dtype(u, depth - 1)?), u.arbitrary()?),
         // Null,
         // Extension(ExtDType, Nullability),
@@ -86,14 +86,22 @@ impl<'a> Arbitrary<'a> for DecimalDType {
 
 impl<'a> Arbitrary<'a> for StructFields {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
-        random_struct_dtype(u, 1)
+        random_struct_fields(u, 1, "")
     }
 }
 
-fn random_struct_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<StructFields> {
+impl StructFields {
+    /// Generate a `StructFields` with a specific prefix for field names.
+    pub fn arbitrary_with_prefix(u: &mut Unstructured<'_>, prefix: &str) -> Result<Self> {
+        random_struct_fields(u, 1, prefix)
+    }
+}
+
+fn random_struct_fields(u: &mut Unstructured<'_>, depth: u8, prefix: &str) -> Result<StructFields> {
     let field_count = u.choose_index(3)?;
     let names: FieldNames = (0..field_count)
         .map(|_| FieldName::arbitrary(u))
+        .map(|t| t.map(|s| FieldName::from(format!("{prefix}{}", s))))
         .collect::<Result<FieldNames>>()?;
     let dtypes = (0..names.len())
         .map(|_| random_dtype(u, depth))
