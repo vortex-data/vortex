@@ -105,4 +105,37 @@ mod tests {
             "Got error: {result:?}"
         );
     }
+
+    #[rstest]
+    #[case(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
+        PrimitiveArray::from_iter([
+            0i64,
+            86_400_000,  // 1 day in ms
+            172_800_000, // 2 days in ms
+            259_200_000, // 3 days in ms
+            345_600_000, // 4 days in ms
+        ]).into_array(),
+        TimeUnit::Ms,
+        Some("UTC".to_string())
+    )).unwrap())]
+    #[case(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
+        PrimitiveArray::from_option_iter([
+            Some(0i64),
+            None,
+            Some(172_800_000), // 2 days in ms
+            Some(259_200_000), // 3 days in ms
+            None,
+        ]).into_array(),
+        TimeUnit::Ms,
+        Some("UTC".to_string())
+    )).unwrap())]
+    #[case(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
+        PrimitiveArray::from_iter([86_400_000_000_000i64]).into_array(), // 1 day in ns
+        TimeUnit::Ns,
+        Some("UTC".to_string())
+    )).unwrap())]
+    fn test_cast_datetime_parts_conformance(#[case] array: DateTimePartsArray) {
+        use vortex_array::compute::conformance::cast::test_cast_conformance;
+        test_cast_conformance(array.as_ref());
+    }
 }
