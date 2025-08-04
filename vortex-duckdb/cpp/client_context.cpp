@@ -20,6 +20,7 @@ extern "C" duckdb_vx_object_cache
 duckdb_vx_client_context_get_object_cache(duckdb_vx_client_context context) {
     try {
         auto client_context = reinterpret_cast<duckdb::ClientContext *>(context);
+        // This is okay because this is a ref to the object cache, this lives as long as the database.
         return reinterpret_cast<duckdb_vx_object_cache>(
             &duckdb::ObjectCache::GetObjectCache(*client_context));
     } catch (...) {
