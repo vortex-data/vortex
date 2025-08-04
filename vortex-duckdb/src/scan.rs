@@ -8,7 +8,7 @@ use bitvec::macros::internal::funty::Fundamental;
 use tokio::task::block_in_place;
 use url::Url;
 use vortex::dtype::FieldNames;
-use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{ExprRef, and, and_collect, col, lit, root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::scan::{MultiScan, MultiScanIterator};
