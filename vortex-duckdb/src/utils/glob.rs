@@ -71,11 +71,11 @@ mod s3 {
         // Check for backslash escape sequences.
         for escape_pattern in ["\\*", "\\?", "\\["] {
             if pattern_str.contains(escape_pattern) {
-                return Err(vortex_err!(
+                vortex_bail!(
                     "Escaped glob characters are not allowed in patterns. Found '{}' in: {}",
                     escape_pattern,
                     pattern_str
-                ));
+                );
             }
         }
 
