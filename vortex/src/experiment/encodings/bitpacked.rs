@@ -54,8 +54,8 @@ impl<T: NativePType + BitPacking> Evaluation for BitPackedEvaluation<T> {
     fn step(
         &mut self,
         ctx: &dyn EvaluationContext,
-        selected: BitMaskView,
-        defined: BitMaskView,
+        selected: BitMask,
+        defined: BitMask,
         out: &mut Vector,
     ) -> Poll<VortexResult<()>> {
         let buffer = ready!(self.buffer.get_or_load(ctx))?;
@@ -71,7 +71,7 @@ impl<T: NativePType + BitPacking> Evaluation for BitPackedEvaluation<T> {
             0 => todo!("Handle empty selection case"),
             true_count if true_count < 16 => {
                 let mut offset = 0;
-                selected.iter_ones(|idx| {
+                selected.borrow().iter_ones(|idx| {
                     let chunk_idx = idx / 1024;
                     let bit_idx = idx % 1024;
                     // SAFETY: we verify the bounds of the vector during construction.
@@ -108,7 +108,7 @@ impl<T: NativePType + BitPacking> Evaluation for BitPackedEvaluation<T> {
 
                 // Set the selection to the given mask, which is a bit array of length N.
                 // out.set_selection_mask(selected.to_owned());
-                out.set_selection_mask(selected.to_owned());
+                out.set_selection_mask(selected);
 
                 Poll::Ready(Ok(()))
             }

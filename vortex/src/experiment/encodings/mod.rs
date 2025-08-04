@@ -58,8 +58,8 @@ pub trait Evaluation {
     fn step(
         &mut self,
         ctx: &dyn EvaluationContext,
-        selected: BitMaskView,
-        defined: BitMaskView,
+        selected: BitMask,
+        defined: BitMask,
         out: &mut Vector,
     ) -> Poll<VortexResult<()>>;
 }
