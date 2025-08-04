@@ -14,7 +14,13 @@ impl CastKernel for RunEndVTable {
         let casted_values = cast(array.values(), dtype)?;
 
         Ok(Some(
-            RunEndArray::try_new(array.ends().clone(), casted_values)?.into_array(),
+            RunEndArray::with_offset_and_length(
+                array.ends().clone(),
+                casted_values,
+                array.offset(),
+                array.len(),
+            )?
+            .into_array(),
         ))
     }
 }
@@ -77,6 +83,40 @@ mod tests {
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::I64, Nullability::Nullable)
+        );
+    }
+
+    #[test]
+    fn test_cast_runend_with_offset() {
+        // Create a RunEndArray: [100, 100, 100, 200, 200, 300, 300, 300, 300, 300]
+        let runend = RunEndArray::try_new(
+            buffer![3u64, 5, 10].into_array(),
+            buffer![100i32, 200, 300].into_array(),
+        )
+        .unwrap();
+
+        // Slice it to get offset 3, length 5: [200, 200, 300, 300, 300]
+        let sliced = runend.slice(3, 8).unwrap();
+
+        // Verify the slice is correct before casting
+        let sliced_decoded = sliced.to_canonical().unwrap().into_primitive().unwrap();
+        assert_eq!(sliced_decoded.len(), 5);
+        assert_eq!(sliced_decoded.as_slice::<i32>(), &[200, 200, 300, 300, 300]);
+
+        // Cast the sliced array
+        let casted = cast(
+            sliced.as_ref(),
+            &DType::Primitive(PType::I64, Nullability::NonNullable),
+        )
+        .unwrap();
+
+        // Verify the cast preserved the offset
+        let casted_decoded = casted.to_canonical().unwrap().into_primitive().unwrap();
+        assert_eq!(casted_decoded.len(), 5);
+        assert_eq!(
+            casted_decoded.as_slice::<i64>(),
+            &[200i64, 200, 300, 300, 300],
+            "Cast failed to preserve offset - got wrong values after cast"
         );
     }
 
