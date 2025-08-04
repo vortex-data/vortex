@@ -22,6 +22,7 @@ use crate::duckdb::{
 };
 use crate::exporter::{ArrayExporter, ConversionCache};
 use crate::utils::object_store::s3_store;
+use vortex_file::GenericVortexFile;
 
 pub struct VortexBindData {
     first_file: VortexFile,
@@ -156,7 +157,7 @@ fn extract_table_filter_expr(
 /// Helper function to open a Vortex file from either a local or S3 URL
 async fn open_file(
     url: Url,
-    options: VortexOpenOptions<vortex_file::GenericVortexFile>,
+    options: VortexOpenOptions<GenericVortexFile>,
 ) -> VortexResult<VortexFile> {
     if url.scheme() == "s3" {
         assert!(url.scheme() == "s3");
@@ -223,10 +224,9 @@ impl TableFunction for VortexTableFunction {
                 let options = entry.apply_to_file(VortexOpenOptions::file());
                 let file = open_file(first_file_url.clone(), options).await?;
                 entry.put_if_absent(|| file.footer().clone());
-                Ok::<VortexFile, vortex::error::VortexError>(file)
+                VortexResult::Ok(file)
             })
-        })
-        .map_err(|e| vortex_err!("Failed to open Vortex file: {}", e))?;
+        })?;
 
         let (column_names, column_types) = extract_schema_from_vortex_file(&first_file)?;
 
