@@ -14,9 +14,10 @@ use vortex::scan::{MultiScan, MultiScanIterator};
 use vortex::{ArrayRef, ToCanonical};
 
 use crate::convert::{try_from_bound_expression, try_from_table_filter};
+use crate::duckdb::footer_cache::FooterCache;
 use crate::duckdb::{
-    BindInput, BindResult, Cardinality, DataChunk, Expression, LogicalType, TableFunction,
-    TableInitInput,
+    BindInput, BindResult, Cardinality, ClientContext, DataChunk, Expression, LogicalType,
+    ObjectCache, TableFunction, TableInitInput,
 };
 use crate::exporter::{ArrayExporter, ConversionCache};
 
@@ -166,7 +167,11 @@ impl TableFunction for VortexTableFunction {
         vec![LogicalType::varchar()]
     }
 
-    fn bind(input: &BindInput, result: &mut BindResult) -> VortexResult<Self::BindData> {
+    fn bind(
+        ctx: &ClientContext,
+        input: &BindInput,
+        result: &mut BindResult,
+    ) -> VortexResult<Self::BindData> {
         let file_glob_string = input
             .get_parameter(0)
             .ok_or_else(|| vortex_err!("Missing file glob parameter"))?;
@@ -180,15 +185,18 @@ impl TableFunction for VortexTableFunction {
             .collect::<Result<_, _>>()
             .map_err(|e| vortex_err!("Failed to glob files: {}", e))?;
 
-        if file_paths.is_empty() {
+        let Some(first_file_path) = file_paths.first() else {
             vortex_bail!("No files matched the glob");
-        }
+        };
 
+        let footer_cache = FooterCache::new(ctx.object_cache());
+        let entry = footer_cache.entry(&first_file_path.as_os_str().to_string_lossy());
         // The first file is skipped in `create_file_paths_queue`.
-        let first_file = VortexOpenOptions::file()
-            // FIXME(ngates): out of bounds if no files matched the glob.
-            .open_blocking(&file_paths[0])
+        let first_file = entry
+            .apply_to_file(VortexOpenOptions::file())
+            .open_blocking(first_file_path)
             .map_err(|e| vortex_err!("Failed to open Vortex file: {}", e))?;
+        entry.put_if_absent(|| first_file.footer().clone());
 
         let (column_names, column_types) = extract_schema_from_vortex_file(&first_file)?;
 
@@ -207,6 +215,7 @@ impl TableFunction for VortexTableFunction {
     }
 
     fn scan(
+        _client_context: &ClientContext,
         _bind_data: &Self::BindData,
         local_state: &mut Self::LocalState,
         _global_state: &mut Self::GlobalState,
@@ -262,6 +271,8 @@ impl TableFunction for VortexTableFunction {
                 .map_or("true".to_string(), |f| f.to_string())
         );
 
+        let object_cache = init_input.client_context()?.object_cache();
+
         let closures =
             bind_data
                 .file_paths
@@ -273,6 +284,7 @@ impl TableFunction for VortexTableFunction {
                     let filter_expr = filter_expr.clone();
                     let projection_expr = projection_expr.clone();
                     let conversion_cache = Arc::new(ConversionCache::new(idx as u64));
+                    let object_cache = unsafe { ObjectCache::borrow(object_cache.as_ptr()) };
 
                     move || {
                         let file = if idx == 0 {
@@ -280,7 +292,15 @@ impl TableFunction for VortexTableFunction {
                             // the first file was already opened during bind.
                             first_file
                         } else {
-                            VortexOpenOptions::file().open_blocking(&path)?
+                            let cache = FooterCache::new(object_cache);
+                            let entry = cache.entry(&path.as_os_str().to_string_lossy());
+                            let file = entry
+                                .apply_to_file(VortexOpenOptions::file())
+                                .open_blocking(&path)?;
+
+                            entry.put_if_absent(|| file.footer().clone());
+
+                            file
                         };
 
                         if let Some(filter) = &filter_expr {
