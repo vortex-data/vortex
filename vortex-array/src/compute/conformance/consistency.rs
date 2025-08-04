@@ -19,7 +19,7 @@
 //!   interact with null values.
 //! - **Edge Cases**: Tests empty arrays, single elements, and boundary conditions.
 
-use vortex_error::VortexUnwrap;
+use vortex_error::{VortexUnwrap, vortex_panic};
 use vortex_mask::Mask;
 
 use crate::arrays::{BoolArray, PrimitiveArray};
@@ -37,7 +37,7 @@ use crate::{Array, IntoArray};
 /// - Creates indices array containing positions where mask is true
 /// - Applies take with these indices
 /// - Verifies both results are identical
-pub fn test_filter_take_consistency(array: &dyn Array) {
+fn test_filter_take_consistency(array: &dyn Array) {
     let len = array.len();
     if len == 0 {
         return;
@@ -97,7 +97,7 @@ pub fn test_filter_take_consistency(array: &dyn Array) {
 /// # Why This Matters
 /// This test ensures that mask operations compose correctly, which is critical for
 /// complex query operations that may apply multiple filters.
-pub fn test_double_mask_consistency(array: &dyn Array) {
+fn test_double_mask_consistency(array: &dyn Array) {
     let len = array.len();
     if len == 0 {
         return;
@@ -160,7 +160,7 @@ pub fn test_double_mask_consistency(array: &dyn Array) {
 /// # Why This Matters
 /// This is an identity operation that should be optimized in implementations
 /// to avoid unnecessary copying.
-pub fn test_filter_identity(array: &dyn Array) {
+fn test_filter_identity(array: &dyn Array) {
     let len = array.len();
     if len == 0 {
         return;
@@ -203,7 +203,7 @@ pub fn test_filter_identity(array: &dyn Array) {
 /// # Why This Matters
 /// Masking always produces a nullable array, even when no values are actually masked.
 /// This test ensures the type system handles this correctly.
-pub fn test_mask_identity(array: &dyn Array) {
+fn test_mask_identity(array: &dyn Array) {
     let len = array.len();
     if len == 0 {
         return;
@@ -254,7 +254,7 @@ pub fn test_mask_identity(array: &dyn Array) {
 /// # Why This Matters
 /// When a filter mask represents a contiguous range, it should be equivalent to
 /// a slice operation. Some implementations may optimize this case.
-pub fn test_slice_filter_consistency(array: &dyn Array) {
+fn test_slice_filter_consistency(array: &dyn Array) {
     let len = array.len();
     if len < 4 {
         return; // Need at least 4 elements for meaningful test
@@ -303,7 +303,7 @@ pub fn test_slice_filter_consistency(array: &dyn Array) {
 ///
 /// # Why This Matters
 /// Sequential takes are a common pattern that can be optimized to slice operations.
-pub fn test_take_slice_consistency(array: &dyn Array) {
+fn test_take_slice_consistency(array: &dyn Array) {
     let len = array.len();
     if len < 3 {
         return; // Need at least 3 elements
@@ -338,7 +338,7 @@ pub fn test_take_slice_consistency(array: &dyn Array) {
 }
 
 /// Tests that filter preserves relative ordering
-pub fn test_filter_preserves_order(array: &dyn Array) {
+fn test_filter_preserves_order(array: &dyn Array) {
     let len = array.len();
     if len < 4 {
         return;
@@ -369,7 +369,7 @@ pub fn test_filter_preserves_order(array: &dyn Array) {
 }
 
 /// Tests that take with repeated indices works correctly
-pub fn test_take_repeated_indices(array: &dyn Array) {
+fn test_take_repeated_indices(array: &dyn Array) {
     let len = array.len();
     if len == 0 {
         return;
@@ -389,7 +389,7 @@ pub fn test_take_repeated_indices(array: &dyn Array) {
 }
 
 /// Tests mask and filter interaction with nulls
-pub fn test_mask_filter_null_consistency(array: &dyn Array) {
+fn test_mask_filter_null_consistency(array: &dyn Array) {
     let len = array.len();
     if len < 3 {
         return;
@@ -418,7 +418,7 @@ pub fn test_mask_filter_null_consistency(array: &dyn Array) {
 }
 
 /// Tests that empty operations are consistent
-pub fn test_empty_operations_consistency(array: &dyn Array) {
+fn test_empty_operations_consistency(array: &dyn Array) {
     let len = array.len();
 
     // Empty filter
@@ -442,7 +442,7 @@ pub fn test_empty_operations_consistency(array: &dyn Array) {
 }
 
 /// Tests that take preserves array properties
-pub fn test_take_preserves_properties(array: &dyn Array) {
+fn test_take_preserves_properties(array: &dyn Array) {
     let len = array.len();
     if len == 0 {
         return;
@@ -480,7 +480,7 @@ pub fn test_take_preserves_properties(array: &dyn Array) {
 /// # Why This Matters
 /// Nullable indices are a powerful feature that allows introducing nulls during
 /// a take operation, which is useful for outer joins and similar operations.
-pub fn test_nullable_indices_consistency(array: &dyn Array) {
+fn test_nullable_indices_consistency(array: &dyn Array) {
     let len = array.len();
     if len < 3 {
         return; // Need at least 3 elements to test indices 0 and 2
@@ -532,7 +532,7 @@ pub fn test_nullable_indices_consistency(array: &dyn Array) {
 }
 
 /// Tests large array consistency
-pub fn test_large_array_consistency(array: &dyn Array) {
+fn test_large_array_consistency(array: &dyn Array) {
     let len = array.len();
     if len < 1000 {
         return;
@@ -574,7 +574,7 @@ pub fn test_large_array_consistency(array: &dyn Array) {
 /// Comparison operations must maintain logical consistency across encodings.
 /// This test catches bugs where an encoding might implement one comparison
 /// correctly but fail on its logical inverse.
-pub fn test_comparison_inverse_consistency(array: &dyn Array) {
+fn test_comparison_inverse_consistency(array: &dyn Array) {
     use vortex_dtype::DType;
 
     use crate::compute::{Operator, compare, invert};
@@ -598,7 +598,7 @@ pub fn test_comparison_inverse_consistency(array: &dyn Array) {
     };
 
     // Test Eq vs NotEq
-    let const_array = crate::arrays::ConstantArray::new(test_scalar.clone(), len);
+    let const_array = crate::arrays::ConstantArray::new(test_scalar, len);
     if let (Ok(eq_result), Ok(neq_result)) = (
         compare(array, const_array.as_ref(), Operator::Eq),
         compare(array, const_array.as_ref(), Operator::NotEq),
@@ -674,7 +674,7 @@ pub fn test_comparison_inverse_consistency(array: &dyn Array) {
 /// # Why This Matters
 /// Ensures that comparison operations maintain mathematical ordering properties
 /// regardless of operand order.
-pub fn test_comparison_symmetry_consistency(array: &dyn Array) {
+fn test_comparison_symmetry_consistency(array: &dyn Array) {
     use vortex_dtype::DType;
 
     use crate::compute::{Operator, compare};
@@ -698,7 +698,7 @@ pub fn test_comparison_symmetry_consistency(array: &dyn Array) {
     };
 
     // Create a constant array with the test scalar for reverse comparison
-    let const_array = crate::arrays::ConstantArray::new(test_scalar.clone(), len);
+    let const_array = crate::arrays::ConstantArray::new(test_scalar, len);
 
     // Test Gt vs Lt symmetry
     if let (Ok(arr_gt_scalar), Ok(scalar_lt_arr)) = (
@@ -754,7 +754,7 @@ pub fn test_comparison_symmetry_consistency(array: &dyn Array) {
 /// Boolean operations must maintain logical consistency across encodings.
 /// This test catches bugs where encodings might optimize boolean operations
 /// incorrectly, breaking fundamental logical properties.
-pub fn test_boolean_demorgan_consistency(array: &dyn Array) {
+fn test_boolean_demorgan_consistency(array: &dyn Array) {
     use crate::compute::{and, invert, or};
 
     let len = array.len();
@@ -831,7 +831,7 @@ pub fn test_boolean_demorgan_consistency(array: &dyn Array) {
 /// # Why This Matters
 /// Aggregate operations on sliced arrays must produce correct results
 /// regardless of the underlying encoding's offset handling.
-pub fn test_slice_aggregate_consistency(array: &dyn Array) {
+fn test_slice_aggregate_consistency(array: &dyn Array) {
     use vortex_dtype::DType;
 
     use crate::compute::{min_max, sum};
@@ -862,42 +862,40 @@ pub fn test_slice_aggregate_consistency(array: &dyn Array) {
     }
 
     // Test sum for numeric types
-    match array.dtype() {
-        DType::Primitive(..) => {
-            if let (Ok(slice_sum), Ok(canonical_sum)) = (sum(&sliced), sum(&canonical_sliced)) {
-                // Compare sum scalars
+    if !matches!(array.dtype(), DType::Primitive(..)) {
+        return;
+    }
+
+    if let (Ok(slice_sum), Ok(canonical_sum)) = (sum(&sliced), sum(&canonical_sliced)) {
+        // Compare sum scalars
+        assert_eq!(
+            slice_sum, canonical_sum,
+            "sum on sliced array should match canonical. \
+                 Sliced: {slice_sum:?}, Canonical: {canonical_sum:?}"
+        );
+    }
+
+    // Test min_max
+    if let (Ok(slice_minmax), Ok(canonical_minmax)) = (min_max(&sliced), min_max(&canonical_sliced))
+    {
+        match (slice_minmax, canonical_minmax) {
+            (Some(s_result), Some(c_result)) => {
                 assert_eq!(
-                    slice_sum, canonical_sum,
-                    "sum on sliced array should match canonical. \
-                     Sliced: {slice_sum:?}, Canonical: {canonical_sum:?}"
+                    s_result.min, c_result.min,
+                    "min on sliced array should match canonical. \
+                         Sliced: {:?}, Canonical: {:?}",
+                    s_result.min, c_result.min
+                );
+                assert_eq!(
+                    s_result.max, c_result.max,
+                    "max on sliced array should match canonical. \
+                         Sliced: {:?}, Canonical: {:?}",
+                    s_result.max, c_result.max
                 );
             }
-
-            // Test min_max
-            if let (Ok(slice_minmax), Ok(canonical_minmax)) =
-                (min_max(&sliced), min_max(&canonical_sliced))
-            {
-                match (slice_minmax, canonical_minmax) {
-                    (Some(s_result), Some(c_result)) => {
-                        assert_eq!(
-                            s_result.min, c_result.min,
-                            "min on sliced array should match canonical. \
-                             Sliced: {:?}, Canonical: {:?}",
-                            s_result.min, c_result.min
-                        );
-                        assert_eq!(
-                            s_result.max, c_result.max,
-                            "max on sliced array should match canonical. \
-                             Sliced: {:?}, Canonical: {:?}",
-                            s_result.max, c_result.max
-                        );
-                    }
-                    (None, None) => {} // Both empty, OK
-                    _ => panic!("min_max results don't match"),
-                }
-            }
+            (None, None) => {} // Both empty, OK
+            _ => vortex_panic!("min_max results don't match"),
         }
-        _ => {} // Skip non-numeric types
     }
 }
 
@@ -916,7 +914,7 @@ pub fn test_slice_aggregate_consistency(array: &dyn Array) {
 /// This test specifically catches bugs where encodings (like RunEndArray) fail to preserve
 /// offset information during cast operations. Such bugs can lead to incorrect data being
 /// returned after casting a sliced array.
-pub fn test_cast_slice_consistency(array: &dyn Array) {
+fn test_cast_slice_consistency(array: &dyn Array) {
     use vortex_dtype::{DType, Nullability, PType};
 
     use crate::compute::cast;
