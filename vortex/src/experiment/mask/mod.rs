@@ -8,8 +8,13 @@ use bitvec::slice::BitSlice;
 use bitvec::vec::BitVec;
 use std::ops::{BitAnd, BitOr, Deref};
 
+/// The main type for masks is a [`BitArray`].
+/// We have a fixed size of `N` bits, matching the number of elements in a vector chunk.
 pub type BitVector = BitArray<[u64; N / 64], Msb0>;
 
+/// We wrap up a BitVector to quickly handle the all-true and all-false cases.
+// TODO(ngates): some bitvec APIs are actually footguns in terms of performance, so we should
+//  probably just wrap up `[u64; N / 64]` directly instead of using BitArray.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BitMask {
     All,
@@ -33,6 +38,10 @@ impl BitMask {
             BitMask::Some(bits) => BitMaskView::Some(bits),
         }
     }
+}
+
+struct IterOnes<'a> {
+    bits: &'a BitVector,
 }
 
 impl BitAnd for &BitMask {

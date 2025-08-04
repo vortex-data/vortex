@@ -653,6 +653,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "bmi-select"
+version = "0.1.0"
+source = "git+https://github.com/XiangpengHao/bmi-select#f09ed20147a5e78496ddc8256dca56ca50041ca1"
+dependencies = [
+ "seq-macro",
+]
+
+[[package]]
 name = "brotli"
 version = "8.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6268,6 +6276,7 @@ dependencies = [
  "arrow-buffer",
  "arrow-schema",
  "bitvec",
+ "bmi-select",
  "codspeed-divan-compat",
  "fastlanes",
  "futures",

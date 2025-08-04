@@ -77,8 +77,12 @@ impl<T: NativePType> PrimitiveVector<'_, '_, T> {
                 self.as_mut().copy_from_slice(&buffer[0..indices.len()]);
                 indices.len()
             }
-            Selection::Mask(mut mask) => {
-                flatten_mask(&mut mask, self.as_mut())
+            Selection::Mask(mask) => {
+                bmi_select::select_packed(
+                    self.as_ref(),
+                )
+
+                flatten_mask(mask, self.as_mut())
                 // println!("MASK: {:?}", mask);
                 // FIXME(ngates): this "naive" implementation is way slower annoyingly. Which
                 //  suggests we may not want to rely on bitvec crate for this :(
@@ -95,17 +99,18 @@ impl<T: NativePType> PrimitiveVector<'_, '_, T> {
 }
 
 #[inline(never)]
-pub fn flatten_mask<T: NativePType>(mask: &mut BitVector, out: &mut [T]) -> usize {
+pub fn flatten_mask<T: NativePType>(mask: BitVector, out: &mut [T]) -> usize {
     let mut offset = 0;
     let mut bit_idx = 0;
-    for raw in mask.as_raw_slice() {
-        let mut raw = *raw;
-
+    for mut raw in mask.into_inner() {
         while raw != 0 {
             let bit_pos = raw.trailing_zeros();
             raw ^= 1 << bit_pos;
 
-            out[offset] = out[bit_idx + bit_pos as usize];
+            // SAFETY: we verify the bounds of the vector during construction.
+            unsafe {
+                *out.get_unchecked_mut(offset) = *out.get_unchecked(bit_idx + bit_pos as usize);
+            }
             offset += 1;
         }
         bit_idx += 64;
