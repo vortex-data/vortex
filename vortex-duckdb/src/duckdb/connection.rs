@@ -4,9 +4,9 @@
 use std::ffi::CStr;
 use std::ptr;
 
-use vortex::error::{VortexResult, vortex_err};
+use vortex::error::{VortexResult, vortex_bail, vortex_err};
 
-use crate::duckdb::{Database, ObjectCache, QueryResult};
+use crate::duckdb::{ClientContext, Database, ObjectCache, QueryResult};
 use crate::{cpp, duckdb_try, wrapper};
 
 wrapper!(
@@ -53,23 +53,16 @@ impl Connection {
     }
 
     /// Get the object cache for this connection.
-    pub fn object_cache(&self) -> VortexResult<ObjectCache> {
+    pub fn client_context(&self) -> VortexResult<ClientContext> {
         unsafe {
             let client_context = cpp::duckdb_vx_connection_get_client_context(self.as_ptr());
             if client_context.is_null() {
-                return Err(vortex_err!(
+                vortex_bail!(
                     "Failed to get client context: connection={:p}",
                     self.as_ptr()
-                ));
+                )
             }
-            let cache = cpp::duckdb_vx_client_context_get_object_cache(client_context);
-            if cache.is_null() {
-                return Err(vortex_err!(
-                    "Failed to get object cache: client_context={:p}",
-                    client_context
-                ));
-            }
-            Ok(ObjectCache::borrow(cache))
+            Ok(ClientContext::borrow(client_context))
         }
     }
 }
@@ -270,7 +263,7 @@ mod tests {
     #[test]
     fn test_object_cache_put_get() {
         let conn = test_connection().unwrap();
-        let cache = conn.object_cache().unwrap();
+        let cache = conn.client_context().unwrap().object_cache();
 
         // Test with a simple struct
         let test_entry = TestCacheEntry {
@@ -293,7 +286,7 @@ mod tests {
     #[test]
     fn test_object_cache_get_nonexistent() {
         let conn = test_connection().unwrap();
-        let cache = conn.object_cache().unwrap();
+        let cache = conn.client_context().unwrap().object_cache();
 
         // Try to get a non-existent key
         let result = cache.get::<TestCacheEntry>("nonexistent_key");

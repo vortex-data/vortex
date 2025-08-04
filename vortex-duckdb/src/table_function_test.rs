@@ -128,7 +128,7 @@ mod tests {
 
         // Try to verify that we can access the cached data from outside the table function
         // This part is optional since we're not sure if the object cache access is working yet
-        let cc = conn.object_cache();
+        let cc = conn.client_context();
         if let Ok(cache) = cc {
             // Check data from bind phase
             let bind_cached_data = cache.get::<CachedData>("bind_phase_data");
