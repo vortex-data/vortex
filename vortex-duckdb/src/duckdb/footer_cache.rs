@@ -22,7 +22,7 @@ impl Entry<'_> {
         self.object_cache.put(&self.key, value());
     }
 
-    pub fn apply_to<F: FileType>(&self, file: VortexOpenOptions<F>) -> VortexOpenOptions<F> {
+    pub fn apply_to_file<F: FileType>(&self, file: VortexOpenOptions<F>) -> VortexOpenOptions<F> {
         if let Some(footer) = self.value {
             file.with_footer(footer.clone())
         } else {

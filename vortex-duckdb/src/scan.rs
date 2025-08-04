@@ -13,7 +13,7 @@ use vortex::scan::{MultiScan, MultiScanIterator};
 use vortex::{ArrayRef, ToCanonical};
 
 use crate::convert::{try_from_bound_expression, try_from_table_filter};
-use crate::duckdb::file_cache::FooterCache;
+use crate::duckdb::footer_cache::FooterCache;
 use crate::duckdb::{
     BindInput, BindResult, Cardinality, ClientContext, DataChunk, Expression, LogicalType,
     ObjectCache, TableFunction, TableInitInput,
@@ -191,7 +191,7 @@ impl TableFunction for VortexTableFunction {
         let entry = footer_cache.entry(&first_file_path.as_os_str().to_string_lossy());
         // The first file is skipped in `create_file_paths_queue`.
         let first_file = entry
-            .apply_to(VortexOpenOptions::file())
+            .apply_to_file(VortexOpenOptions::file())
             .open_blocking(first_file_path)
             .map_err(|e| vortex_err!("Failed to open Vortex file: {}", e))?;
         entry.put_if_absent(|| first_file.footer().clone());
@@ -292,7 +292,7 @@ impl TableFunction for VortexTableFunction {
                             let cache = FooterCache::new(object_cache);
                             let entry = cache.entry(&path.as_os_str().to_string_lossy());
                             let file = entry
-                                .apply_to(VortexOpenOptions::file())
+                                .apply_to_file(VortexOpenOptions::file())
                                 .open_blocking(&path)?;
 
                             entry.put_if_absent(|| file.footer().clone());
