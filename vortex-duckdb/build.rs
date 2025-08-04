@@ -150,6 +150,11 @@ fn main() {
     bindgen::Builder::default()
         .header("cpp/include/duckdb_vx.h")
         .override_abi(Abi::CUnwind, ".*")
+        // Allow for auto-generated cpp.rs code.
+        .raw_line("#![allow(dead_code)]")
+        .raw_line("#![allow(non_camel_case_types)]")
+        .raw_line("#![allow(non_upper_case_globals)]")
+        .raw_line("#![allow(non_snake_case)]")
         // Add the #[must_use] attribute to FFI functions that return results.
         .must_use_type("duckdb_state")
         .rustified_enum("duckdb_state")
