@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::experiment::encodings::{BindContext, Encoding, Evaluation, EvaluationContext};
-use crate::experiment::mask::{BitMask, BitMaskView};
-use crate::experiment::vector::{BitVector, Selection, Vector};
+use crate::experiment::mask::{BitMask, BitMaskView, BitVector};
+use crate::experiment::vector::{Selection, Vector};
 use bitvec::array::BitArray;
 use std::ops::BitAnd;
 use std::task::{Poll, ready};

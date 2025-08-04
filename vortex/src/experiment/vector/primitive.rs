@@ -78,12 +78,7 @@ impl<T: NativePType> PrimitiveVector<'_, '_, T> {
                 indices.len()
             }
             Selection::Mask(mask) => {
-                bmi_select::select_packed(
-                    self.as_ref(),
-                )
-
                 flatten_mask(mask, self.as_mut())
-                // println!("MASK: {:?}", mask);
                 // FIXME(ngates): this "naive" implementation is way slower annoyingly. Which
                 //  suggests we may not want to rely on bitvec crate for this :(
                 // let mut offset = 0;

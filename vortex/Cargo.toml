@@ -51,7 +51,6 @@ arrow-array = { workspace = true }
 arrow-buffer = { workspace = true }
 arrow-schema = { workspace = true }
 bitvec = { workspace = true }
-bmi-select = { git = "https://github.com/XiangpengHao/bmi-select" }
 fastlanes = { workspace = true }
 futures = { workspace = true }
 

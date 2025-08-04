@@ -53,7 +53,7 @@
 //! So each array has one function to get a compute kernel, and one function to get a compute
 //! evaluation. If either fails to return, a default canonical implementation is used, as now.
 
-use crate::experiment::mask::BitMask;
+use crate::experiment::mask::{BitMask, BitVector};
 use bitvec::access::BitSafeU64;
 use bitvec::prelude::*;
 use vortex_array::ArrayRef;
@@ -125,10 +125,9 @@ pub struct Vector<'a> {
     //  we can use aligned load/store instructions for wide SIMD lanes.
     elements: *mut u8,
     /// The validity mask for the vector, indicating which elements in the buffer are valid.
+    /// This value can be `None` if the expected DType is `NonNullable`.
     validity: Option<&'a mut BitVector>,
     // A selection mask over the elements and validity of the vector.
-    // FIXME(ngates): using a selection mask means rank-based operations are expensive, vs
-    //  selection indices which are always constant time.
     selection: Selection,
 
     /// Additional buffers of data used by the vector, such as string data.
@@ -140,9 +139,6 @@ pub struct Vector<'a> {
     /// Marker defining the lifetime of the contents of the vector.
     _marker: std::marker::PhantomData<&'a mut ()>,
 }
-
-/// A vector-sized bit-array containing N boolean values.
-pub type BitVector = BitArray<[u64; N / 64], Msb0>;
 
 /// Defines the "vector type", a physical type describing the data that's held in the vector.
 ///
