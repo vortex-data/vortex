@@ -34,11 +34,7 @@ impl<'a> Arbitrary<'a> for ArbitraryArray {
 }
 
 impl ArbitraryArray {
-    pub fn arbitrary_with(
-        u: &mut Unstructured,
-        len: Option<usize>,
-        dtype: &DType,
-    ) -> Result<Self> {
+    pub fn arbitrary_with(u: &mut Unstructured, len: Option<usize>, dtype: &DType) -> Result<Self> {
         random_array(u, dtype, len).map(ArbitraryArray)
     }
 }
