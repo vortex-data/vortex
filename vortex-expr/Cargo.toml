@@ -19,7 +19,6 @@ workspace = true
 [dependencies]
 arbitrary = { workspace = true, optional = true }
 arcref = { workspace = true }
-dyn-eq = { workspace = true }
 dyn-hash = { workspace = true }
 itertools = { workspace = true }
 parking_lot = { workspace = true }
@@ -36,6 +35,7 @@ vortex-scalar = { workspace = true }
 vortex-utils = { workspace = true }
 
 [dev-dependencies]
+anyhow = { workspace = true }
 rstest = { workspace = true }
 vortex-expr = { path = ".", features = ["test-harness"] }
 

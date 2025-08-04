@@ -1,7 +1,7 @@
 name: "Generate TPC-H and clickbench files to S3"
 
 on:
-  workflow_dispatch: { }
+  workflow_dispatch: {}
   schedule:
     # 5AM UTC
     - cron: "0 5 * * *"

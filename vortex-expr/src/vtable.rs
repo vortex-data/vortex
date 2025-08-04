@@ -117,3 +117,76 @@ macro_rules! vtable {
         }
     };
 }
+
+#[cfg(test)]
+mod tests {
+
+    use rstest::{fixture, rstest};
+
+    use super::*;
+    use crate::proto::{ExprSerializeProtoExt, deserialize_expr_proto};
+    use crate::*;
+
+    #[fixture]
+    #[once]
+    fn registry() -> ExprRegistry {
+        ExprRegistry::default()
+    }
+
+    #[rstest]
+    // Root and selection expressions
+    #[case(root())]
+    #[case(select(["hello", "world"], root()))]
+    #[case(select_exclude(["world", "hello"], root()))]
+    // Literal expressions
+    #[case(lit(42i32))]
+    #[case(lit(std::f64::consts::PI))]
+    #[case(lit(true))]
+    #[case(lit("hello"))]
+    // Column access expressions
+    #[case(col("column_name"))]
+    #[case(get_item("field", root()))]
+    // Binary comparison expressions
+    #[case(eq(col("a"), lit(10)))]
+    #[case(not_eq(col("a"), lit(10)))]
+    #[case(gt(col("a"), lit(10)))]
+    #[case(gt_eq(col("a"), lit(10)))]
+    #[case(lt(col("a"), lit(10)))]
+    #[case(lt_eq(col("a"), lit(10)))]
+    // Logical expressions
+    #[case(and(col("a"), col("b")))]
+    #[case(or(col("a"), col("b")))]
+    #[case(not(col("a")))]
+    // Arithmetic expressions
+    #[case(checked_add(col("a"), lit(5)))]
+    // Null check expressions
+    #[case(is_null(col("nullable_col")))]
+    // Type casting expressions
+    #[case(cast(
+        col("a"),
+        DType::Primitive(vortex_dtype::PType::I64, vortex_dtype::Nullability::NonNullable)
+    ))]
+    // Between expressions
+    #[case(between(col("a"), lit(10), lit(20), vortex_array::compute::BetweenOptions { lower_strict: vortex_array::compute::StrictComparison::NonStrict, upper_strict: vortex_array::compute::StrictComparison::NonStrict }))]
+    // List contains expressions
+    #[case(list_contains(col("list_col"), lit("item")))]
+    // Pack expressions - creating struct from fields
+    #[case(pack([("field1", col("a")), ("field2", col("b"))], vortex_dtype::Nullability::NonNullable))]
+    // Merge expressions - merging struct expressions
+    #[case(merge([col("struct1"), col("struct2")], vortex_dtype::Nullability::NonNullable))]
+    // Complex nested expressions
+    #[case(and(gt(col("a"), lit(0)), lt(col("a"), lit(100))))]
+    #[case(or(is_null(col("a")), eq(col("a"), lit(0))))]
+    #[case(not(and(eq(col("status"), lit("active")), gt(col("age"), lit(18)))))]
+    fn text_expr_serde_round_trip(
+        registry: &ExprRegistry,
+        #[case] expr: ExprRef,
+    ) -> anyhow::Result<()> {
+        let serialized_pb = expr.serialize_proto()?;
+        let deserialized_expr = deserialize_expr_proto(&serialized_pb, registry)?;
+
+        assert_eq!(&expr, &deserialized_expr);
+
+        Ok(())
+    }
+}

@@ -66,3 +66,14 @@ message LikeOpts {
 message CastOpts {
   vortex.dtype.DType target = 1;
 }
+
+message FieldNames {
+  repeated string names = 1;
+}
+
+message SelectOpts {
+  oneof opts {
+    FieldNames include = 1;
+    FieldNames exclude = 2;
+  }
+}

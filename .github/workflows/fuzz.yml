@@ -2,12 +2,12 @@ name: Fuzz
 
 on:
   schedule:
-    - cron: '0 */4 * * *'  # daily
+    - cron: "0 */4 * * *"  # daily
   workflow_dispatch:
 
 jobs:
   io_fuzz:
-    name: 'IO Fuzz'
+    name: "IO Fuzz"
     timeout-minutes: 180
     runs-on:
       - runs-on=${{ github.run_id }}
@@ -38,8 +38,8 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
-          AWS_REGION: 'us-east-1'
-          AWS_ENDPOINT_URL: 'https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com'
+          AWS_REGION: "us-east-1"
+          AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
       - name: Run fuzzing target
         id: fuzz
         run: RUST_BACKTRACE=1 cargo +nightly fuzz run file_io -j "$(nproc)" -- -max_total_time=7200
@@ -57,14 +57,14 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
-          AWS_REGION: 'us-east-1'
-          AWS_ENDPOINT_URL: 'https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com'
+          AWS_REGION: "us-east-1"
+          AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
       - name: Fail job if fuzz run found a bug
         if: steps.fuzz.outcome == 'failure'
         run: exit 1
 
   ops_fuzz:
-    name: 'Array Operations Fuzz'
+    name: "Array Operations Fuzz"
     timeout-minutes: 180
     runs-on:
       - runs-on=${{ github.run_id }}
@@ -95,8 +95,8 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
-          AWS_REGION: 'us-east-1'
-          AWS_ENDPOINT_URL: 'https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com'
+          AWS_REGION: "us-east-1"
+          AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
       - name: Run fuzzing target
         id: fuzz
         run: RUST_BACKTRACE=1 cargo +nightly fuzz run array_ops -j "$(nproc)" -- -max_total_time=7200
@@ -114,8 +114,8 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
-          AWS_REGION: 'us-east-1'
-          AWS_ENDPOINT_URL: 'https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com'
+          AWS_REGION: "us-east-1"
+          AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
       - name: Fail job if fuzz run found a bug
         if: steps.fuzz.outcome == 'failure'
         run: exit 1

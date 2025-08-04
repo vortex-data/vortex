@@ -4,8 +4,7 @@
 #pragma once
 
 #include "vortex/scan.hpp"
-#include "rust/cxx.h"
-#include "vortex_cxx_bridge/lib.h"
+#include "vortex_cxx_bridge/read.h"
 
 namespace vortex {
 

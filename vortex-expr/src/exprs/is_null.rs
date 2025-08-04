@@ -15,7 +15,7 @@ use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTa
 vtable!(IsNull);
 
 #[allow(clippy::derived_hash_with_manual_eq)]
-#[derive(Clone, Debug, Hash)]
+#[derive(Clone, Debug, Hash, Eq)]
 pub struct IsNullExpr {
     child: ExprRef,
 }

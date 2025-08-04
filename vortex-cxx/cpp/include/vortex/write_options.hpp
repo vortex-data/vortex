@@ -4,9 +4,7 @@
 #pragma once
 
 #include <nanoarrow/common/inline_types.h>
-
 #include <memory>
-#include <string>
 
 namespace vortex {
 
