@@ -95,7 +95,7 @@ impl<T: NativePType + BitPacking> Evaluation for BitPackedEvaluation<T> {
                     *view.as_mut().get_unchecked_mut(offset) = BitPacking::unchecked_unpack_single(
                         self.width,
                         &packed[(chunk_idx * self.packed_stride)..][..self.packed_stride],
-                        bit_idx as usize,
+                        bit_idx,
                     );
                 }
                 offset += 1;

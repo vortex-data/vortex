@@ -22,6 +22,13 @@ impl Encoding for ValidityEncoding {
     }
 }
 
+struct FusedValidityEvaluation<E: Evaluation> {
+    // Generic over the specific evaluation type for elements. Therefore, enables compiler
+    // inlining and optimization opportunities.
+    elements: E,
+    validity: Box<dyn Evaluation>,
+}
+
 struct ValidityEvaluation {
     elements: Box<dyn Evaluation>,
     validity: Box<dyn Evaluation>,
