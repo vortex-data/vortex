@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use num_traits::ToBytes;
 use vortex_buffer::{BufferString, ByteBuffer};
-use vortex_dtype::DType;
-use vortex_error::{VortexError, vortex_err};
+use vortex_dtype::{DType, PType, half::f16};
+use vortex_error::{VortexError, vortex_bail, vortex_err};
 use vortex_proto::scalar as pb;
 use vortex_proto::scalar::ListValue;
 use vortex_proto::scalar::scalar_value::Kind;
@@ -124,6 +124,24 @@ impl TryFrom<&pb::Scalar> for Scalar {
                 .ok_or_else(|| vortex_err!(InvalidSerde: "Scalar missing value"))?,
         )?;
 
+        let value = if matches!(dtype, DType::Primitive(PType::F16, _)) {
+            let pvalue = value
+                .as_pvalue()?
+                .ok_or_else(|| vortex_err!("Invalid F16 value: {value:?}"))?;
+            let f16_value =
+                match pvalue {
+                    PValue::U64(v) => f16::from_bits(u16::try_from(v).map_err(|_| {
+                        vortex_err!("F16 serialized as u64, value out of range: {v}")
+                    })?),
+                    PValue::F16(v) => v,
+                    _ => vortex_bail!("Invalid F16 value: {value:?}"),
+                };
+
+            ScalarValue(InnerScalarValue::Primitive(PValue::F16(f16_value)))
+        } else {
+            value
+        };
+
         Ok(Self { dtype, value })
     }
 }
@@ -162,16 +180,17 @@ impl TryFrom<&pb::ScalarValue> for ScalarValue {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::sync::Arc;
 
+    use rstest::rstest;
     use vortex_buffer::BufferString;
-    use vortex_dtype::PType::{self, I32};
     use vortex_dtype::half::f16;
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::{DType, DecimalDType, FieldDType, Nullability, PType, StructFields};
     use vortex_proto::scalar as pb;
 
-    use crate::{InnerScalarValue, PValue, Scalar, ScalarValue};
+    use super::*;
+    use crate::{InnerScalarValue, PValue, Scalar, ScalarValue, i256};
 
     fn round_trip(scalar: Scalar) {
         assert_eq!(
@@ -196,7 +215,7 @@ mod test {
     #[test]
     fn test_primitive() {
         round_trip(Scalar::new(
-            DType::Primitive(I32, Nullability::Nullable),
+            DType::Primitive(PType::I32, Nullability::Nullable),
             ScalarValue(InnerScalarValue::Primitive(42i32.into())),
         ));
     }
@@ -223,7 +242,7 @@ mod test {
     fn test_list() {
         round_trip(Scalar::new(
             DType::List(
-                Arc::new(DType::Primitive(I32, Nullability::Nullable)),
+                Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
                 Nullability::Nullable,
             ),
             ScalarValue(InnerScalarValue::List(
@@ -263,16 +282,6 @@ mod test {
             ScalarValue(InnerScalarValue::Primitive(i8::MAX.into())),
         ));
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use half::f16;
-    use rstest::rstest;
-    use vortex_dtype::{DType, DecimalDType, FieldDType, Nullability, PType, StructFields, half};
-
-    use super::*;
-    use crate::{Scalar, i256};
 
     #[rstest]
     #[case(Scalar::binary(ByteBuffer::copy_from(b"hello"), Nullability::NonNullable))]
