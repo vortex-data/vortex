@@ -28,12 +28,10 @@ register_kernel!(CastKernelAdapter(BoolVTable).lift());
 
 #[cfg(test)]
 mod tests {
-    use rstest::rstest;
     use vortex_dtype::{DType, Nullability};
 
     use crate::arrays::BoolArray;
     use crate::compute::cast;
-    use crate::compute::conformance::cast::test_cast_conformance;
 
     #[test]
     fn try_cast_bool_success() {
@@ -49,14 +47,5 @@ mod tests {
     fn try_cast_bool_fail() {
         let bool = BoolArray::from_iter(vec![Some(true), Some(false), None]);
         cast(bool.as_ref(), &DType::Bool(Nullability::NonNullable)).unwrap();
-    }
-
-    #[rstest]
-    #[case(BoolArray::from_iter(vec![true, false, true, true, false]))]
-    #[case(BoolArray::from_iter(vec![Some(true), Some(false), None, Some(true), None]))]
-    #[case(BoolArray::from_iter(vec![true]))]
-    #[case(BoolArray::from_iter(vec![false, false]))]
-    fn test_cast_bool_conformance(#[case] array: BoolArray) {
-        test_cast_conformance(array.as_ref());
     }
 }

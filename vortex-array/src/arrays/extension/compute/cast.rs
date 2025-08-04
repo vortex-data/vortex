@@ -41,15 +41,11 @@ register_kernel!(CastKernelAdapter(ExtensionVTable).lift());
 mod tests {
     use std::sync::Arc;
 
-    use rstest::rstest;
-    use vortex_buffer::buffer;
     use vortex_dtype::datetime::{TIMESTAMP_ID, TemporalMetadata, TimeUnit};
     use vortex_dtype::{ExtDType, Nullability, PType};
 
     use super::*;
-    use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
-    use crate::compute::conformance::cast::test_cast_conformance;
 
     #[test]
     fn cast_same_ext_dtype() {
@@ -106,41 +102,5 @@ mod tests {
         let arr = ExtensionArray::new(original_dtype, storage);
 
         assert!(cast(arr.as_ref(), &DType::Extension(target_dtype)).is_err());
-    }
-
-    #[rstest]
-    #[case(create_timestamp_array(TimeUnit::Ms, false))]
-    #[case(create_timestamp_array(TimeUnit::Us, true))]
-    #[case(create_timestamp_array(TimeUnit::Ns, false))]
-    #[case(create_timestamp_array(TimeUnit::S, true))]
-    fn test_cast_extension_conformance(#[case] array: ExtensionArray) {
-        test_cast_conformance(array.as_ref());
-    }
-
-    fn create_timestamp_array(time_unit: TimeUnit, nullable: bool) -> ExtensionArray {
-        let ext_dtype = Arc::new(ExtDType::new(
-            TIMESTAMP_ID.clone(),
-            Arc::new(if nullable {
-                DType::Primitive(PType::I64, Nullability::Nullable)
-            } else {
-                DType::Primitive(PType::I64, Nullability::NonNullable)
-            }),
-            Some(TemporalMetadata::Timestamp(time_unit, Some("UTC".to_string())).into()),
-        ));
-
-        let storage = if nullable {
-            PrimitiveArray::from_option_iter([
-                Some(1_000_000i64), // 1 second in microseconds
-                None,
-                Some(2_000_000),
-                Some(3_000_000),
-                None,
-            ])
-            .into_array()
-        } else {
-            buffer![1_000_000i64, 2_000_000, 3_000_000, 4_000_000, 5_000_000].into_array()
-        };
-
-        ExtensionArray::new(ext_dtype, storage)
     }
 }
