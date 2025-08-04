@@ -10,7 +10,6 @@ use vortex_mask::Mask;
 use crate::{SparseArray, SparseVTable};
 
 mod binary_numeric;
-mod cast;
 mod invert;
 mod take;
 

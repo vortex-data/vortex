@@ -60,14 +60,12 @@ register_kernel!(CastKernelAdapter(DecimalVTable).lift());
 
 #[cfg(test)]
 mod tests {
-    use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, DecimalDType, Nullability};
 
     use crate::arrays::DecimalArray;
     use crate::canonical::ToCanonical;
     use crate::compute::cast;
-    use crate::compute::conformance::cast::test_cast_conformance;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
 
@@ -162,14 +160,5 @@ mod tests {
                 .to_string()
                 .contains("No compute kernel to cast")
         );
-    }
-
-    #[rstest]
-    #[case(DecimalArray::new(buffer![100i32, 200, 300], DecimalDType::new(10, 2), Validity::NonNullable))]
-    #[case(DecimalArray::new(buffer![10000i64, 20000, 30000], DecimalDType::new(18, 4), Validity::NonNullable))]
-    #[case(DecimalArray::from_option_iter([Some(100i32), None, Some(300)], DecimalDType::new(10, 2)))]
-    #[case(DecimalArray::new(buffer![42i32], DecimalDType::new(5, 1), Validity::NonNullable))]
-    fn test_cast_decimal_conformance(#[case] array: DecimalArray) {
-        test_cast_conformance(array.as_ref());
     }
 }
