@@ -74,7 +74,7 @@ fn test_cast_from_null(array: &dyn Array) {
     let result = cast(array, &DType::Null).vortex_unwrap();
     assert_eq!(result.len(), array.len());
     assert_eq!(result.dtype(), &DType::Null);
-    
+
     // Null can also be cast to any nullable type
     let nullable_types = vec![
         DType::Bool(Nullability::Nullable),
@@ -83,24 +83,24 @@ fn test_cast_from_null(array: &dyn Array) {
         DType::Utf8(Nullability::Nullable),
         DType::Binary(Nullability::Nullable),
     ];
-    
+
     for dtype in nullable_types {
         let result = cast(array, &dtype).vortex_unwrap();
         assert_eq!(result.len(), array.len());
         assert_eq!(result.dtype(), &dtype);
-        
+
         // Verify all values are null
         for i in 0..array.len().min(10) {
             assert!(result.scalar_at(i).vortex_unwrap().is_null());
         }
     }
-    
+
     // Casting to non-nullable types should fail
     let non_nullable_types = vec![
         DType::Bool(Nullability::NonNullable),
         DType::Primitive(PType::I32, Nullability::NonNullable),
     ];
-    
+
     for dtype in non_nullable_types {
         assert!(cast(array, &dtype).is_err());
     }

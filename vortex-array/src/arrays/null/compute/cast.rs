@@ -50,17 +50,20 @@ mod tests {
             &DType::Primitive(PType::I32, Nullability::Nullable),
         )
         .unwrap();
-        
+
         // Should create a ConstantArray of nulls
         assert_eq!(result.len(), 5);
-        assert_eq!(result.dtype(), &DType::Primitive(PType::I32, Nullability::Nullable));
-        
+        assert_eq!(
+            result.dtype(),
+            &DType::Primitive(PType::I32, Nullability::Nullable)
+        );
+
         // Verify all values are null
         for i in 0..5 {
             assert!(result.scalar_at(i).unwrap().is_null());
         }
     }
-    
+
     #[test]
     fn test_cast_null_to_non_nullable_fails() {
         let null_array = NullArray::new(5);
