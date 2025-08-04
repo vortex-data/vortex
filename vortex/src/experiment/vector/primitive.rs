@@ -7,6 +7,7 @@ use arrow_buffer::BooleanBuffer;
 use bitvec::array::BitArray;
 use bitvec::order::Msb0;
 use bitvec::slice::BitSlice;
+use bitvec::vec::BitVec;
 use std::mem::take;
 use vortex_dtype::NativePType;
 use vortex_error::vortex_panic;
@@ -100,6 +101,17 @@ impl<T: NativePType> PrimitiveVector<'_, '_, T> {
             }
         };
         self.view.selection = Selection::Prefix { len };
+    }
+
+    pub fn flatten_with_mask(&mut self, mask: BitMaskView) {
+        let mut offset = 0;
+        mask.iter_ones(|idx| {
+            unsafe {
+                // SAFETY: We assume that the elements are of type T and that the view is valid.
+                *self.as_mut().get_unchecked_mut(offset) = *self.as_ref().get_unchecked(idx);
+                offset += 1;
+            }
+        });
     }
 }
 

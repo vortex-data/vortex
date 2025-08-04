@@ -43,14 +43,16 @@ pub fn decompress_bitpacking_early_filter<T: NativePType>(bencher: Bencher, frac
     let mask = (0..100_000)
         .map(|_| rng.random_bool(fraction_kept))
         .collect::<BooleanBuffer>();
-    let mask = &Mask::from_buffer(mask);
 
-    bencher.bench(|| {
-        filter(array.as_ref(), mask)
-            .unwrap()
-            .to_canonical()
-            .unwrap()
-    });
+    bencher
+        // Be sure to reconstruct the mask to avoid cached set_indices
+        .with_inputs(|| Mask::from_buffer(mask.clone()))
+        .bench_local_values(|mask| {
+            filter(array.as_ref(), &mask)
+                .unwrap()
+                .to_canonical()
+                .unwrap()
+        });
 }
 
 // #[divan::bench(types = [i8, i16, i32, i64], args = [0.001, 0.01, 0.1, 0.5, 0.9, 0.99, 0.999])]
@@ -69,11 +71,10 @@ pub fn decompress_bitpacking_late_filter<T: NativePType>(bencher: Bencher, fract
     let mask = (0..100_000)
         .map(|_| rng.random_bool(fraction_kept))
         .collect::<BooleanBuffer>();
-    let mask = &Mask::from_buffer(mask);
 
     bencher
-        .with_inputs(|| array.clone())
-        .bench_values(|array| filter(array.to_canonical().unwrap().as_ref(), mask).unwrap());
+        .with_inputs(|| Mask::from_buffer(mask.clone()))
+        .bench_values(|mask| filter(array.to_canonical().unwrap().as_ref(), &mask).unwrap());
 }
 
 // #[divan::bench(types = [i8, i16, i32, i64], args = [0.001, 0.01, 0.1, 0.5, 0.9, 0.99, 0.999])]

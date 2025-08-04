@@ -50,20 +50,20 @@ impl<T: NativePType> Evaluation for PrimitiveEvaluation<T> {
     fn step(
         &mut self,
         ctx: &dyn EvaluationContext,
-        selected: BitMaskView,
-        defined: BitMaskView,
+        selected: BitMask,
+        defined: BitMask,
         out: &mut Vector,
     ) -> Poll<VortexResult<()>> {
         let buffer = ready!(self.buffer.get_or_load(ctx))?;
 
         let mut primitive = out.as_primitive::<T>();
         match selected {
-            BitMaskView::All => {
+            BitMask::All => {
                 primitive.as_mut()[self.offset..][..N].copy_from_slice(&buffer[self.offset..][..N]);
                 self.offset += N;
             }
-            BitMaskView::None => {}
-            BitMaskView::Some(indices) => {
+            BitMask::None => {}
+            BitMask::Some(indices) => {
                 for index in indices.iter_ones() {
                     primitive.as_mut()[self.offset] = buffer[self.offset + index];
                     self.offset += 1;
@@ -71,7 +71,7 @@ impl<T: NativePType> Evaluation for PrimitiveEvaluation<T> {
             }
         }
 
-        out.set_selection_mask(selected.to_owned());
+        out.set_selection_mask(selected);
 
         Poll::Ready(Ok(()))
     }

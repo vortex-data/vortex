@@ -62,7 +62,7 @@ fn export_primitive_impl<T: NativePType>(
     for m in mask.chunks_exact(N) {
         let m = BitVector::try_from(m).expect("Mask chunks should be valid BitVector");
         let mut view = Vector::new_primitive::<T>(&mut elements_slice[offset..][..N], None);
-        match pipeline.step(&(), BitMaskView::Some(&m), BitMaskView::All, &mut view) {
+        match pipeline.step(&(), BitMask::Some(m), BitMask::All, &mut view) {
             Poll::Ready(result) => result?,
             Poll::Pending => {
                 vortex_panic!("Array pipelines cannot yield pending");

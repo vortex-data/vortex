@@ -75,8 +75,8 @@ where
     fn step(
         &mut self,
         ctx: &dyn EvaluationContext,
-        selected: BitMaskView,
-        defined: BitMaskView,
+        selected: BitMask,
+        defined: BitMask,
         out: &mut Vector,
     ) -> Poll<VortexResult<()>> {
         let mut elems = Vector::new_primitive::<T>(self.lhs_elems.as_mut(), None);
@@ -90,7 +90,7 @@ where
         for (i, item) in self.lhs_elems.iter().enumerate() {
             out_bits.set(i, (self.op)(item, &self.rhs));
         }
-        out.set_selection_mask(selected.to_owned());
+        // out.set_selection_mask(selected);
 
         Poll::Ready(Ok(()))
     }

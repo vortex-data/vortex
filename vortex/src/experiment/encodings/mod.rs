@@ -4,7 +4,7 @@
 pub mod bitpacked;
 mod compare;
 pub mod primitive;
-pub mod validity;
+// pub mod validity;
 
 use crate::experiment::buffers::BufferId;
 use crate::experiment::mask::{BitMask, BitMaskView};

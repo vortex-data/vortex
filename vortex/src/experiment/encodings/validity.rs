@@ -39,8 +39,8 @@ impl Evaluation for ValidityEvaluation {
     fn step(
         &mut self,
         ctx: &dyn EvaluationContext,
-        selected: BitMaskView,
-        defined: BitMaskView,
+        selected: BitMask,
+        defined: BitMask,
         out: &mut Vector,
     ) -> Poll<VortexResult<()>> {
         // First, we export a validity array from the validity child.

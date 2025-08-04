@@ -23,14 +23,6 @@ pub enum BitMask {
 }
 
 impl BitMask {
-    pub fn true_count(&self) -> usize {
-        match self {
-            BitMask::All => N,
-            BitMask::None => 0,
-            BitMask::Some(bits) => bits.count_ones(),
-        }
-    }
-
     pub fn borrow(&self) -> BitMaskView {
         match self {
             BitMask::All => BitMaskView::All,
@@ -117,7 +109,27 @@ impl<'a> BitMaskView<'a> {
         match self {
             BitMaskView::All => N,
             BitMaskView::None => 0,
-            BitMaskView::Some(bits) => bits.count_ones(),
+            BitMaskView::Some(bits) => bits
+                .into_inner()
+                .into_iter()
+                .map(|word| word.count_ones() as usize)
+                .sum::<usize>(),
+        }
+    }
+
+    pub fn more_trues_than(&self, mut n: usize) -> bool {
+        match self {
+            Self::All => N > n,
+            Self::None => n > 0,
+            Self::Some(bits) => {
+                for mut raw in bits.into_inner() {
+                    n = n.saturating_sub(raw.count_ones() as usize);
+                    if n == 0 {
+                        return true;
+                    }
+                }
+                false
+            }
         }
     }
 
