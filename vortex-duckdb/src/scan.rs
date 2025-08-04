@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use bitvec::macros::internal::funty::Fundamental;
+use tokio::task::block_in_place;
 use url::Url;
 use vortex::dtype::FieldNames;
 use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
@@ -12,6 +13,7 @@ use vortex::expr::{ExprRef, and, and_collect, col, lit, root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::scan::{MultiScan, MultiScanIterator};
 use vortex::{ArrayRef, ToCanonical};
+use vortex_file::GenericVortexFile;
 
 use crate::RUNTIME;
 use crate::convert::{try_from_bound_expression, try_from_table_filter};
@@ -22,7 +24,6 @@ use crate::duckdb::{
 };
 use crate::exporter::{ArrayExporter, ConversionCache};
 use crate::utils::object_store::s3_store;
-use vortex_file::GenericVortexFile;
 
 pub struct VortexBindData {
     first_file: VortexFile,
@@ -205,7 +206,7 @@ impl TableFunction for VortexTableFunction {
             .get_parameter(0)
             .ok_or_else(|| vortex_err!("Missing file glob parameter"))?;
 
-        let (file_urls, _metadata) = tokio::task::block_in_place(|| {
+        let (file_urls, _metadata) = block_in_place(|| {
             RUNTIME.block_on(crate::utils::glob::expand_glob(
                 &file_glob_string.as_string(),
             ))
@@ -219,7 +220,7 @@ impl TableFunction for VortexTableFunction {
 
         let footer_cache = FooterCache::new(ctx.object_cache());
         let entry = footer_cache.entry(first_file_url.as_ref());
-        let first_file = tokio::task::block_in_place(|| {
+        let first_file = block_in_place(|| {
             RUNTIME.block_on(async {
                 let options = entry.apply_to_file(VortexOpenOptions::file());
                 let file = open_file(first_file_url.clone(), options).await?;
@@ -324,7 +325,7 @@ impl TableFunction for VortexTableFunction {
                         } else {
                             let cache = FooterCache::new(object_cache);
                             let entry = cache.entry(path.as_ref());
-                            tokio::task::block_in_place(|| {
+                            block_in_place(|| {
                                 RUNTIME.block_on(async {
                                     let options = entry.apply_to_file(VortexOpenOptions::file());
                                     let file = open_file(path.clone(), options).await?;
