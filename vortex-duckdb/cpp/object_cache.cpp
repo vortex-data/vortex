@@ -9,15 +9,15 @@
 namespace vortex {
 
 // Function pointer type for custom deleter
-typedef void (*deleter_fn_t)(void *ptr);
+typedef void (*deleter_fn)(void *ptr);
 
 // Wrapper class to hold opaque pointers in DuckDB's object cache
 class OpaqueWrapper : public duckdb::ObjectCacheEntry {
 public:
     void *ptr;
-    deleter_fn_t deleter;
+    deleter_fn deleter;
 
-    explicit OpaqueWrapper(void *p, deleter_fn_t del = nullptr) : ptr(p), deleter(del) {
+    explicit OpaqueWrapper(void *p, deleter_fn del = nullptr) : ptr(p), deleter(del) {
     }
 
     ~OpaqueWrapper() override {
@@ -40,7 +40,7 @@ public:
 } // namespace vortex
 
 extern "C" void duckdb_vx_object_cache_put(duckdb_vx_object_cache cache, const char *key, void *value,
-                                           vortex::deleter_fn_t deleter) {
+                                           vortex::deleter_fn deleter) {
     auto object_cache = reinterpret_cast<duckdb::ObjectCache *>(cache);
     auto wrapper = duckdb::make_shared_ptr<vortex::OpaqueWrapper>(value, deleter);
     object_cache->Put(std::string(key), wrapper);
