@@ -4,7 +4,7 @@
 use std::collections::VecDeque;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll, Waker, ready};
+use std::task::{Context, Poll, Waker};
 
 use arcref::ArcRef;
 use futures::future::try_join_all;
@@ -189,7 +189,7 @@ where
                 let item = guard.buffers[self.index]
                     .pop_front()
                     .vortex_expect("just pushed");
-                let wakers = std::mem::replace(&mut guard.wakers, Vec::new());
+                let wakers = std::mem::take(&mut guard.wakers);
 
                 drop(guard);
                 for waker in wakers {
