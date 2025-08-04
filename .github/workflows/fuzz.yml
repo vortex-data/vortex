@@ -60,7 +60,7 @@ jobs:
           AWS_REGION: "us-east-1"
           AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
       - name: Fail job if fuzz run found a bug
-        if: steps.fuzz.outcome == "failure"
+        if: steps.fuzz.outcome == 'failure'
         run: exit 1
 
   ops_fuzz:
@@ -117,5 +117,5 @@ jobs:
           AWS_REGION: "us-east-1"
           AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
       - name: Fail job if fuzz run found a bug
-        if: steps.fuzz.outcome == "failure"
+        if: steps.fuzz.outcome == 'failure'
         run: exit 1

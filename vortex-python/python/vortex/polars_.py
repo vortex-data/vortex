@@ -12,7 +12,7 @@ import vortex.expr as ve
 
 def polars_to_vortex(expr: pl.Expr) -> ve.Expr:
     """Convert a Polars expression to a Vortex expression."""
-    return _polars_to_vortex(json.loads(expr.meta.write_json()))
+    return _polars_to_vortex(json.loads(expr.meta.serialize(format="json")))
 
 
 _OPS = {
@@ -67,17 +67,24 @@ def _polars_to_vortex(expr: dict) -> ve.Expr:
     if "Column" in expr:
         return ve.column(expr["Column"])
 
-    # See https://github.com/pola-rs/polars/pull/21849)
+    # See https://github.com/pola-rs/polars/pull/21849
     if "Scalar" in expr:
-        dtype = expr["Scalar"]["dtype"]  # DType
-        value = expr["Scalar"]["value"]  # AnyValue
+        scalar = expr["Scalar"]
 
-        if "Null" in value:
+        if "Null" in scalar:
             value = None
-        elif "String" in value:
-            value = value["String"]
+            dtype = "Null"
+        elif "String" in scalar:
+            value = scalar["String"]
+            dtype = "String"
+        elif "Int" in scalar:
+            value = scalar["Int"]
+            dtype = "Int64"
+        elif "Float" in scalar:
+            value = scalar["Float"]
+            dtype = "Float64"
         else:
-            raise ValueError(f"Unsupported Polars scalar value type {value}")
+            raise ValueError(f"Unsupported Polars scalar value type {scalar}")
 
         return ve.literal(_LITERAL_TYPES[dtype](value), value)
 
