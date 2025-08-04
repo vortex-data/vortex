@@ -65,7 +65,7 @@ use vortex_mask::Mask;
 mod bool;
 mod primitive;
 
-pub const N: usize = 2048;
+pub const N: usize = 1024;
 
 /// A vector is the atomic unit of canonical data in Vortex.
 ///
