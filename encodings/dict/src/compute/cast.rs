@@ -13,9 +13,18 @@ impl CastKernel for DictVTable {
         // Cast the dictionary values to the target type
         let casted_values = cast(array.values(), dtype)?;
 
+        let casted_codes = if dtype.nullability() != array.codes().dtype().nullability() {
+            cast(
+                array.codes(),
+                &array.codes().dtype().with_nullability(dtype.nullability()),
+            )?
+        } else {
+            array.codes().clone()
+        };
+
         // Create a new dictionary array with the same codes but casted values
         Ok(Some(
-            DictArray::try_new(array.codes().clone(), casted_values)?.into_array(),
+            DictArray::try_new(casted_codes, casted_values)?.into_array(),
         ))
     }
 }

@@ -4,17 +4,22 @@
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 
-use crate::arrays::{NullArray, NullVTable};
+use crate::arrays::{ConstantArray, NullArray, NullVTable};
 use crate::compute::{CastKernel, CastKernelAdapter};
-use crate::{ArrayRef, register_kernel};
+use crate::{ArrayRef, IntoArray, register_kernel};
+use vortex_scalar::{Scalar, ScalarValue};
 
 impl CastKernel for NullVTable {
     fn cast(&self, array: &NullArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        // Null can only be cast to Null
-        match dtype {
-            DType::Null => Ok(Some(array.to_array())),
-            _ => vortex_bail!("Cannot cast Null to {}", dtype),
+        if !dtype.is_nullable() {
+            vortex_bail!("Cannot cast Null to {}", dtype);
         }
+        if dtype == &DType::Null {
+            return Ok(Some(array.to_array()));
+        }
+
+        let scalar = Scalar::new(dtype.clone(), ScalarValue::null());
+        Ok(Some(ConstantArray::new(scalar, array.len()).into_array()))
     }
 }
 

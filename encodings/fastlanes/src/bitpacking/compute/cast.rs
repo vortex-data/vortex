@@ -23,18 +23,18 @@ impl CastKernel for BitPackedVTable {
                         array.packed().clone(),
                         dtype.as_ptype(),
                         new_validity,
-                        match array.patches() {
-                            Some(patches) => {
+                        array
+                            .patches()
+                            .map(|patches| {
                                 let new_values = cast(patches.values(), dtype)?;
-                                Some(Patches::new(
+                                VortexResult::Ok(Patches::new(
                                     patches.array_len(),
                                     patches.offset(),
                                     patches.indices().clone(),
                                     new_values,
                                 ))
-                            }
-                            None => None,
-                        },
+                            })
+                            .transpose()?,
                         array.bit_width(),
                         array.len(),
                         array.offset(),
