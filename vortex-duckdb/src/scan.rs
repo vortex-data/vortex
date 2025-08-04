@@ -4,12 +4,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::convert::{try_from_bound_expression, try_from_table_filter};
-use crate::duckdb::{
-    BindInput, BindResult, Cardinality, ClientContext, DataChunk, Expression, LogicalType,
-    ObjectCache, TableFunction, TableInitInput,
-};
-use crate::exporter::{ArrayExporter, ConversionCache};
 use bitvec::macros::internal::funty::Fundamental;
 use vortex::dtype::FieldNames;
 use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
@@ -18,6 +12,13 @@ use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::scan::{MultiScan, MultiScanIterator};
 use vortex::{ArrayRef, ToCanonical};
 use vortex_file::Footer;
+
+use crate::convert::{try_from_bound_expression, try_from_table_filter};
+use crate::duckdb::{
+    BindInput, BindResult, Cardinality, ClientContext, DataChunk, Expression, LogicalType,
+    ObjectCache, TableFunction, TableInitInput,
+};
+use crate::exporter::{ArrayExporter, ConversionCache};
 
 pub struct VortexBindData {
     first_file: VortexFile,

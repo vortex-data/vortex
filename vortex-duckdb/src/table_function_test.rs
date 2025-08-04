@@ -4,6 +4,7 @@
 //! Test table function that demonstrates object cache usage
 
 use std::ffi::CString;
+
 use vortex::error::{VortexResult, vortex_err};
 
 use crate::cpp::DUCKDB_TYPE;

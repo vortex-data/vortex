@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::{cpp, wrapper};
 use std::ffi::CString;
 use std::os::raw::c_void;
+
 use vortex::error::{VortexUnwrap, vortex_err};
+
+use crate::{cpp, wrapper};
 
 /// Custom deleter function for Box<T> allocated in Rust
 unsafe extern "C-unwind" fn rust_box_deleter<T>(ptr: *mut c_void) {
@@ -48,7 +50,7 @@ impl ObjectCache {
         unsafe {
             let opaque_ptr = cpp::duckdb_vx_object_cache_get(self.as_ptr(), key_cstr.as_ptr());
             (!opaque_ptr.is_null())
-                .then(|| (opaque_ptr as *const T).as_ref())
+                .then_some((opaque_ptr as *const T).as_ref())
                 .flatten()
         }
     }
