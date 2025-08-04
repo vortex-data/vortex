@@ -268,7 +268,7 @@ impl TableFunction for VortexTableFunction {
                 .map_or("true".to_string(), |f| f.to_string())
         );
 
-        let object_cache = init_input.object_cache()?;
+        let object_cache = init_input.client_context()?.object_cache();
 
         let closures =
             bind_data

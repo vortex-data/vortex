@@ -6,7 +6,7 @@ use std::ptr;
 
 use vortex::error::{VortexResult, vortex_bail, vortex_err};
 
-use crate::duckdb::{ClientContext, Database, ObjectCache, QueryResult};
+use crate::duckdb::{ClientContext, Database, QueryResult};
 use crate::{cpp, duckdb_try, wrapper};
 
 wrapper!(

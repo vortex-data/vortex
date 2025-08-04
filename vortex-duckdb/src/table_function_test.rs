@@ -63,11 +63,12 @@ impl TableFunction for TestTableFunction {
 
     fn init_global(input: &TableInitInput<Self>) -> VortexResult<Self::GlobalState> {
         // Try to get the object cache - if it fails, just continue without caching
-        if let Ok(cache) = input.object_cache() {
+        if let Ok(ctx) = input.client_context() {
             let cached_data = CachedData {
                 message: "Hello from table function cache!".to_string(),
                 count: 42,
             };
+            let cache = ctx.object_cache();
 
             // Try to put data in cache, but don't fail if it doesn't work
             cache.put(&input.bind_data().cache_key, cached_data);
