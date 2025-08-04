@@ -290,7 +290,7 @@ impl TableFunction for VortexTableFunction {
                             first_file
                         } else {
                             let cache = FooterCache::new(object_cache);
-                            let entry = cache.entry(path.as_os_str().to_str().unwrap());
+                            let entry = cache.entry(&path.as_os_str().to_string_lossy());
                             let file = entry
                                 .apply_to(VortexOpenOptions::file())
                                 .open_blocking(&path)?;

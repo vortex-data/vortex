@@ -42,11 +42,9 @@ impl TableFunction for TestTableFunction {
         _input: &BindInput,
         result: &mut BindResult,
     ) -> VortexResult<Self::BindData> {
-        // Add a single integer column to output
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
         result.add_result_column("test_value", &logical_type);
 
-        // Try to access object cache during bind phase
         let cache = client_context.object_cache();
         let cached_data = CachedData {
             message: "Hello from bind phase cache!".to_string(),
@@ -62,7 +60,6 @@ impl TableFunction for TestTableFunction {
     }
 
     fn init_global(input: &TableInitInput<Self>) -> VortexResult<Self::GlobalState> {
-        // Try to get the object cache - if it fails, just continue without caching
         if let Ok(ctx) = input.client_context() {
             let cached_data = CachedData {
                 message: "Hello from table function cache!".to_string(),
@@ -70,7 +67,6 @@ impl TableFunction for TestTableFunction {
             };
             let cache = ctx.object_cache();
 
-            // Try to put data in cache, but don't fail if it doesn't work
             cache.put(&input.bind_data().cache_key, cached_data);
         }
 
@@ -91,10 +87,6 @@ impl TableFunction for TestTableFunction {
         _global_state: &mut Self::GlobalState,
         chunk: &mut DataChunk,
     ) -> VortexResult<()> {
-        // For this test, we'll just return one row with the cached data count
-        // In a real implementation, you might retrieve data from the cache here
-        // but for simplicity, we'll just return the known count value
-
         chunk.set_len(0);
 
         Ok(())
@@ -129,8 +121,9 @@ mod tests {
 
         // Try to verify that we can access the cached data from outside the table function
         // This part is optional since we're not sure if the object cache access is working yet
-        let cc = conn.client_context();
-        if let Ok(cache) = cc {
+        let ctx = conn.client_context();
+        if let Ok(ctx) = ctx {
+            let cache = ctx.object_cache();
             // Check data from bind phase
             let bind_cached_data = cache.get::<CachedData>("bind_phase_data");
             if let Some(data) = bind_cached_data {

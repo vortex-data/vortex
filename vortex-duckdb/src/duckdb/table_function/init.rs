@@ -9,7 +9,7 @@ use vortex::error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::cpp;
 use crate::duckdb::data::Data;
-use crate::duckdb::{ClientContext, ObjectCache, TableFilterSet, TableFunction};
+use crate::duckdb::{ClientContext, TableFilterSet, TableFunction};
 
 /// Native callback for the global initialization of a table function.
 pub(crate) unsafe extern "C-unwind" fn init_global_callback<T: TableFunction>(
