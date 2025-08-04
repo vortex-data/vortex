@@ -7,7 +7,7 @@ use std::sync::Arc;
 use crate::convert::{try_from_bound_expression, try_from_table_filter};
 use crate::duckdb::{
     BindInput, BindResult, Cardinality, ClientContext, DataChunk, Expression, LogicalType,
-    TableFunction, TableInitInput,
+    ObjectCache, TableFunction, TableInitInput,
 };
 use crate::exporter::{ArrayExporter, ConversionCache};
 use bitvec::macros::internal::funty::Fundamental;
@@ -148,16 +148,6 @@ fn extract_table_filter_expr(
     Ok(Some(filter_expr))
 }
 
-struct FooterWrapper {
-    footer: Footer,
-}
-
-impl Drop for FooterWrapper {
-    fn drop(&mut self) {
-        println!("Dropping footer");
-    }
-}
-
 impl TableFunction for VortexTableFunction {
     type BindData = VortexBindData;
     type GlobalState = VortexGlobalData;
@@ -210,11 +200,7 @@ impl TableFunction for VortexTableFunction {
         let first_file = VortexOpenOptions::file();
 
         let first_file = if let Some(file_footer) = file_footer {
-            println!("cache hit ptr={:p}", file_footer);
-            println!("dtype={:?}", file_footer.dtype());
-            let _ = file_footer;
-            first_file
-            // first_file.with_footer(file_footer.clone())
+            first_file.with_footer(file_footer.clone())
         } else {
             first_file
         };
@@ -225,12 +211,7 @@ impl TableFunction for VortexTableFunction {
             .map_err(|e| vortex_err!("Failed to open Vortex file: {}", e))?;
 
         if !file_footer_cached {
-            let x = cache.put(
-                &first_file_key,
-                // This must
-                first_file.footer().clone(),
-            );
-            unsafe { println!("{}", x.as_ref().unwrap().dtype()) }
+            cache.put(&first_file_key, first_file.footer().clone());
         }
 
         let (column_names, column_types) = extract_schema_from_vortex_file(&first_file)?;
@@ -305,6 +286,8 @@ impl TableFunction for VortexTableFunction {
                 .map_or("true".to_string(), |f| f.to_string())
         );
 
+        let object_cache = init_input.object_cache()?;
+
         let closures =
             bind_data
                 .file_paths
@@ -316,6 +299,7 @@ impl TableFunction for VortexTableFunction {
                     let filter_expr = filter_expr.clone();
                     let projection_expr = projection_expr.clone();
                     let conversion_cache = Arc::new(ConversionCache::new(idx as u64));
+                    let object_cache = unsafe { ObjectCache::borrow(object_cache.as_ptr()) };
 
                     move || {
                         let file = if idx == 0 {
@@ -323,7 +307,23 @@ impl TableFunction for VortexTableFunction {
                             // the first file was already opened during bind.
                             first_file
                         } else {
-                            VortexOpenOptions::file().open_blocking(&path)?
+                            let cache = object_cache;
+                            let footer = cache.get::<Footer>(path.as_os_str().to_str().unwrap());
+                            let cache_missed = footer.is_none();
+                            let file = VortexOpenOptions::file();
+                            let file = if let Some(footer) = footer {
+                                file.with_footer(footer.clone())
+                            } else {
+                                file
+                            }
+                            .open_blocking(&path)?;
+
+                            if cache_missed {
+                                cache
+                                    .put(path.as_os_str().to_str().unwrap(), file.footer().clone());
+                            };
+
+                            file
                         };
 
                         if let Some(filter) = &filter_expr {

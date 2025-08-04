@@ -41,26 +41,16 @@ public:
 
 extern "C" void duckdb_vx_object_cache_put(duckdb_vx_object_cache cache, const char *key, void *value,
                                            vortex::deleter_fn_t deleter) {
-    // try {
     auto object_cache = reinterpret_cast<duckdb::ObjectCache *>(cache);
     auto wrapper = duckdb::make_shared_ptr<vortex::OpaqueWrapper>(value, deleter);
     object_cache->Put(std::string(key), wrapper);
-    std::cout << "duckdb_vx_object_cache_put" << std::endl;
-    // } catch (...) {
-    // Silently fail on errors - could add error reporting later
-    // }
 }
 
 extern "C" void *duckdb_vx_object_cache_get(duckdb_vx_object_cache cache, const char *key) {
-    try {
-        auto object_cache = reinterpret_cast<duckdb::ObjectCache *>(cache);
-        auto entry = object_cache->Get<vortex::OpaqueWrapper>(std::string(key));
-        if (!entry) {
-            return nullptr;
-        }
-        std::cout << "obduckdb_vx_object_cache_get" << std::endl;
-        return entry->ptr;
-    } catch (...) {
+    auto object_cache = reinterpret_cast<duckdb::ObjectCache *>(cache);
+    auto entry = object_cache->Get<vortex::OpaqueWrapper>(std::string(key));
+    if (!entry) {
         return nullptr;
     }
+    return entry->ptr;
 }

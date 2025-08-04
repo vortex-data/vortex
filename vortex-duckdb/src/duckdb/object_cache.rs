@@ -8,7 +8,6 @@ use vortex::error::{VortexUnwrap, vortex_err};
 
 /// Custom deleter function for Box<T> allocated in Rust
 unsafe extern "C-unwind" fn rust_box_deleter<T>(ptr: *mut c_void) {
-    println!("rust_box_deleter: ptr={:p}", ptr);
     if !ptr.is_null() {
         unsafe {
             let _ = Box::from_raw(ptr as *mut T);
@@ -22,13 +21,11 @@ impl ObjectCache {
     /// Store an entry in the object cache with the given key.
     /// The entry will be converted to an opaque pointer and stored.
     /// Uses a proper deleter to ensure memory is freed when the cache entry is removed.
-    pub fn put<'a, T: 'a>(&'a self, key: &str, entry: T) -> *mut T {
+    pub fn put<T: 'static>(&self, key: &str, entry: T) -> *mut T {
         let key_cstr = CString::new(key)
             .map_err(|e| vortex_err!("invalid key: {}", e))
             .vortex_unwrap();
         let opaque_ptr = Box::into_raw(Box::new(entry));
-
-        println!("put: value ptr={:p}", opaque_ptr);
 
         unsafe {
             cpp::duckdb_vx_object_cache_put(
@@ -50,15 +47,13 @@ impl ObjectCache {
 
         unsafe {
             let opaque_ptr = cpp::duckdb_vx_object_cache_get(self.as_ptr(), key_cstr.as_ptr());
-            println!("get: opaque_ptr ptr={:p}", opaque_ptr);
-            if opaque_ptr.is_null() {
-                None
-            } else {
-                (opaque_ptr as *const T).as_ref()
-            }
+            (!opaque_ptr.is_null())
+                .then(|| (opaque_ptr as *const T).as_ref())
+                .flatten()
         }
     }
 }
 
-// unsafe impl Send for ObjectCache {}
-// unsafe impl Sync for ObjectCache {}
+// This is Send + Sync since the cache has a mutex wrapper.
+unsafe impl Send for ObjectCache {}
+unsafe impl Sync for ObjectCache {}
