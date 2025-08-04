@@ -3,11 +3,11 @@
 
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
+use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::arrays::{ConstantArray, NullArray, NullVTable};
 use crate::compute::{CastKernel, CastKernelAdapter};
 use crate::{ArrayRef, IntoArray, register_kernel};
-use vortex_scalar::{Scalar, ScalarValue};
 
 impl CastKernel for NullVTable {
     fn cast(&self, array: &NullArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {

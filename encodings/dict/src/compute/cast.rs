@@ -41,6 +41,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
+    use crate::DictVTable;
     use crate::builders::dict_encode;
 
     #[test]
@@ -76,6 +77,94 @@ mod tests {
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::I64, Nullability::Nullable)
+        );
+    }
+
+    #[test]
+    fn test_cast_dict_allvalid_to_nonnullable_and_back() {
+        // Create an AllValid dict array (no nulls)
+        let values = buffer![10i32, 20, 30, 40].into_array();
+        let dict = dict_encode(&values).unwrap();
+
+        // Verify initial state - codes should be NonNullable, values should be NonNullable
+        assert_eq!(dict.codes().dtype().nullability(), Nullability::NonNullable);
+        assert_eq!(
+            dict.values().dtype().nullability(),
+            Nullability::NonNullable
+        );
+
+        // Cast to NonNullable (should be identity since already NonNullable)
+        let non_nullable = cast(
+            dict.as_ref(),
+            &DType::Primitive(PType::I32, Nullability::NonNullable),
+        )
+        .unwrap();
+        assert_eq!(
+            non_nullable.dtype(),
+            &DType::Primitive(PType::I32, Nullability::NonNullable)
+        );
+
+        // Check that codes and values are still NonNullable
+        let non_nullable_dict = non_nullable.as_::<DictVTable>();
+        assert_eq!(
+            non_nullable_dict.codes().dtype().nullability(),
+            Nullability::NonNullable
+        );
+        assert_eq!(
+            non_nullable_dict.values().dtype().nullability(),
+            Nullability::NonNullable
+        );
+
+        // Cast to Nullable
+        let nullable = cast(
+            non_nullable.as_ref(),
+            &DType::Primitive(PType::I32, Nullability::Nullable),
+        )
+        .unwrap();
+        assert_eq!(
+            nullable.dtype(),
+            &DType::Primitive(PType::I32, Nullability::Nullable)
+        );
+
+        // Check that both codes and values are now Nullable
+        let nullable_dict = nullable.as_::<DictVTable>();
+        assert_eq!(
+            nullable_dict.codes().dtype().nullability(),
+            Nullability::Nullable
+        );
+        assert_eq!(
+            nullable_dict.values().dtype().nullability(),
+            Nullability::Nullable
+        );
+
+        // Cast back to NonNullable
+        let back_to_non_nullable = cast(
+            nullable.as_ref(),
+            &DType::Primitive(PType::I32, Nullability::NonNullable),
+        )
+        .unwrap();
+        assert_eq!(
+            back_to_non_nullable.dtype(),
+            &DType::Primitive(PType::I32, Nullability::NonNullable)
+        );
+
+        // Check that both codes and values are NonNullable again
+        let back_dict = back_to_non_nullable.as_::<DictVTable>();
+        assert_eq!(
+            back_dict.codes().dtype().nullability(),
+            Nullability::NonNullable
+        );
+        assert_eq!(
+            back_dict.values().dtype().nullability(),
+            Nullability::NonNullable
+        );
+
+        // Verify values are unchanged
+        let original_values = dict.to_canonical().unwrap().into_primitive().unwrap();
+        let final_values = back_dict.to_canonical().unwrap().into_primitive().unwrap();
+        assert_eq!(
+            original_values.as_slice::<i32>(),
+            final_values.as_slice::<i32>()
         );
     }
 
