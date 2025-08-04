@@ -8,7 +8,7 @@ use bitvec::macros::internal::funty::Fundamental;
 use tokio::task::block_in_place;
 use url::Url;
 use vortex::dtype::FieldNames;
-use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{ExprRef, and, and_collect, col, lit, root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::scan::{MultiScan, MultiScanIterator};
@@ -325,7 +325,7 @@ impl TableFunction for VortexTableFunction {
                                     let options = entry.apply_to_file(VortexOpenOptions::file());
                                     let file = open_file(path.clone(), options).await?;
                                     entry.put_if_absent(|| file.footer().clone());
-                                    Ok::<VortexFile, vortex::error::VortexError>(file)
+                                    VortexResult::Ok(file)
                                 })
                             })?
                         };
