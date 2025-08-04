@@ -2,14 +2,41 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use num_traits::AsPrimitive;
-use vortex_array::compute::{MaskKernel, MaskKernelAdapter, TakeKernel, TakeKernelAdapter};
+use vortex_array::compute::{
+    CastKernel, CastKernelAdapter, MaskKernel, MaskKernelAdapter, TakeKernel, TakeKernelAdapter,
+};
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
-use vortex_dtype::match_each_integer_ptype;
+use vortex_dtype::{DType, match_each_integer_ptype};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use super::{ByteBoolArray, ByteBoolVTable};
+
+impl CastKernel for ByteBoolVTable {
+    fn cast(&self, array: &ByteBoolArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+        // ByteBool is essentially a bool array stored as bytes
+        // The main difference from BoolArray is the storage format
+        // For casting, we can decode to canonical (BoolArray) and let it handle the cast
+
+        // If just changing nullability, we can optimize
+        if array.dtype().eq_ignore_nullability(dtype) {
+            let new_validity = array
+                .validity()
+                .clone()
+                .cast_nullability(dtype.nullability())?;
+
+            return Ok(Some(
+                ByteBoolArray::new(array.buffer().clone(), new_validity).into_array(),
+            ));
+        }
+
+        // For other casts, decode to canonical and let BoolArray handle it
+        Ok(None)
+    }
+}
+
+register_kernel!(CastKernelAdapter(ByteBoolVTable).lift());
 
 impl MaskKernel for ByteBoolVTable {
     fn mask(&self, array: &ByteBoolArray, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -146,5 +173,27 @@ mod tests {
     #[case(ByteBoolArray::from(vec![true]))]
     fn test_take_byte_bool_conformance(#[case] array: ByteBoolArray) {
         test_take_conformance(array.as_ref());
+    }
+
+    use vortex_array::compute::cast;
+    use vortex_array::compute::conformance::cast::test_cast_conformance;
+    use vortex_dtype::{DType, Nullability};
+
+    #[test]
+    fn test_cast_bytebool_to_nullable() {
+        let array = ByteBoolArray::from(vec![true, false, true, false]);
+        let casted = cast(array.as_ref(), &DType::Bool(Nullability::Nullable)).unwrap();
+        assert_eq!(casted.dtype(), &DType::Bool(Nullability::Nullable));
+        assert_eq!(casted.len(), 4);
+    }
+
+    #[rstest]
+    #[case(ByteBoolArray::from(vec![true, false, true, true, false]))]
+    #[case(ByteBoolArray::from(vec![Some(true), Some(false), None, Some(true), None]))]
+    #[case(ByteBoolArray::from(vec![false]))]
+    #[case(ByteBoolArray::from(vec![true]))]
+    #[case(ByteBoolArray::from(vec![Some(true), None]))]
+    fn test_cast_bytebool_conformance(#[case] array: ByteBoolArray) {
+        test_cast_conformance(array.as_ref());
     }
 }
