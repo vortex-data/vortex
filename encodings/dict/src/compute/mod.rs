@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod binary_numeric;
+mod cast;
 mod compare;
 mod fill_null;
 mod is_constant;
