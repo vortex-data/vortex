@@ -23,6 +23,7 @@ use crate::duckdb::{
     ObjectCache, TableFunction, TableInitInput,
 };
 use crate::exporter::{ArrayExporter, ConversionCache};
+use crate::utils::glob::expand_glob;
 use crate::utils::object_store::s3_store;
 
 pub struct VortexBindData {
@@ -88,9 +89,7 @@ fn extract_schema_from_vortex_file(
     let mut column_types = Vec::new();
 
     for (field_name, field_dtype) in struct_dtype.names().iter().zip(struct_dtype.fields()) {
-        let logical_type = LogicalType::try_from(&field_dtype)
-            .map_err(|e| vortex_err!("Failed to convert field '{}' type: {}", field_name, e))?;
-
+        let logical_type = LogicalType::try_from(&field_dtype)?;
         column_names.push(field_name.to_string());
         column_types.push(logical_type);
     }
@@ -206,12 +205,8 @@ impl TableFunction for VortexTableFunction {
             .get_parameter(0)
             .ok_or_else(|| vortex_err!("Missing file glob parameter"))?;
 
-        let (file_urls, _metadata) = block_in_place(|| {
-            RUNTIME.block_on(crate::utils::glob::expand_glob(
-                &file_glob_string.as_string(),
-            ))
-        })
-        .map_err(|e| vortex_err!("Failed to expand glob: {}", e))?;
+        let (file_urls, _metadata) =
+            block_in_place(|| RUNTIME.block_on(expand_glob(&file_glob_string.as_string())))?;
 
         // The first file is skipped in `create_file_paths_queue`.
         let Some(first_file_url) = file_urls.first() else {
