@@ -1,0 +1,46 @@
+use crate::duckdb::ObjectCache;
+use vortex_file::{FileType, Footer, VortexOpenOptions};
+
+pub struct FooterCache {
+    object_cache: ObjectCache,
+}
+
+pub struct Entry {
+    object_cache: ObjectCache,
+    key: String,
+    value: Option<Footer>,
+}
+
+impl Entry {
+    pub fn put_if_absent(&self, value: impl FnOnce() -> Footer) {
+        self.object_cache.put(&self.key, value());
+    }
+
+    pub fn apply_to<F: FileType>(&self, file: VortexOpenOptions<F>) -> VortexOpenOptions<F> {
+        if let Some(footer) = &self.value {
+            file.with_footer(footer.clone())
+        } else {
+            file
+        }
+    }
+}
+
+impl FooterCache {
+    pub fn new(object_cache: ObjectCache) -> Self {
+        Self { object_cache }
+    }
+
+    pub fn entry(&self, key: &str) -> Entry {
+        let key = Self::key(key);
+        let value = self.object_cache.get(&key).cloned();
+        Entry {
+            object_cache: unsafe { ObjectCache::borrow(self.object_cache.as_ptr()) },
+            key,
+            value,
+        }
+    }
+
+    fn key(key: &str) -> String {
+        format!("vx_cache_key://{key}")
+    }
+}

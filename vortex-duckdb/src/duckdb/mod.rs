@@ -8,6 +8,7 @@ mod data;
 mod data_chunk;
 mod database;
 mod expr;
+pub mod file_cache;
 mod logical_type;
 mod object_cache;
 mod query_result;

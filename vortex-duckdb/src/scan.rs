@@ -11,9 +11,9 @@ use vortex::expr::{ExprRef, and, and_collect, col, lit, root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::scan::{MultiScan, MultiScanIterator};
 use vortex::{ArrayRef, ToCanonical};
-use vortex_file::Footer;
 
 use crate::convert::{try_from_bound_expression, try_from_table_filter};
+use crate::duckdb::file_cache::FooterCache;
 use crate::duckdb::{
     BindInput, BindResult, Cardinality, ClientContext, DataChunk, Expression, LogicalType,
     ObjectCache, TableFunction, TableInitInput,
@@ -183,37 +183,18 @@ impl TableFunction for VortexTableFunction {
             .collect::<Result<_, _>>()
             .map_err(|e| vortex_err!("Failed to glob files: {}", e))?;
 
-        if file_paths.is_empty() {
+        let Some(first_file_path) = file_paths.first() else {
             vortex_bail!("No files matched the glob");
-        }
-
-        let first_file_path = file_paths[0].clone();
-
-        let first_file_key = format!(
-            "vx_cache_key://{}",
-            first_file_path.as_os_str().to_string_lossy()
-        );
-        let cache = ctx.object_cache();
-        let file_footer = cache.get::<Footer>(&first_file_key);
-        let file_footer_cached = file_footer.is_some();
-
-        // The first file is skipped in `create_file_paths_queue`.
-        let first_file = VortexOpenOptions::file();
-
-        let first_file = if let Some(file_footer) = file_footer {
-            first_file.with_footer(file_footer.clone())
-        } else {
-            first_file
         };
 
-        // FIXME(ngates): out of bounds if no files matched the glob.
-        let first_file = first_file
-            .open_blocking(&first_file_path)
+        let footer_cache = FooterCache::new(ctx.object_cache());
+        let entry = footer_cache.entry(&first_file_path.as_os_str().to_string_lossy());
+        // The first file is skipped in `create_file_paths_queue`.
+        let first_file = entry
+            .apply_to(VortexOpenOptions::file())
+            .open_blocking(first_file_path)
             .map_err(|e| vortex_err!("Failed to open Vortex file: {}", e))?;
-
-        if !file_footer_cached {
-            cache.put(&first_file_key, first_file.footer().clone());
-        }
+        entry.put_if_absent(|| first_file.footer().clone());
 
         let (column_names, column_types) = extract_schema_from_vortex_file(&first_file)?;
 
@@ -308,21 +289,13 @@ impl TableFunction for VortexTableFunction {
                             // the first file was already opened during bind.
                             first_file
                         } else {
-                            let cache = object_cache;
-                            let footer = cache.get::<Footer>(path.as_os_str().to_str().unwrap());
-                            let cache_missed = footer.is_none();
-                            let file = VortexOpenOptions::file();
-                            let file = if let Some(footer) = footer {
-                                file.with_footer(footer.clone())
-                            } else {
-                                file
-                            }
-                            .open_blocking(&path)?;
+                            let cache = FooterCache::new(object_cache);
+                            let entry = cache.entry(path.as_os_str().to_str().unwrap());
+                            let file = entry
+                                .apply_to(VortexOpenOptions::file())
+                                .open_blocking(&path)?;
 
-                            if cache_missed {
-                                cache
-                                    .put(path.as_os_str().to_str().unwrap(), file.footer().clone());
-                            };
+                            entry.put_if_absent(|| file.footer().clone());
 
                             file
                         };
