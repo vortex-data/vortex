@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::experiment::mask::{BitMask, BitMaskView};
 use crate::experiment::vector::{BitVector, N, Selection, VType, Vector};
 use arrow_buffer::BooleanBuffer;
 use bitvec::array::BitArray;
@@ -78,7 +79,16 @@ impl<T: NativePType> PrimitiveVector<'_, '_, T> {
                 indices.len()
             }
             Selection::Mask(mask) => {
-                flatten_mask(mask, self.as_mut())
+                let mut offset = 0;
+                BitMaskView::Some(&mask).iter_ones(|idx| {
+                    unsafe {
+                        // SAFETY: We assume that the elements are of type T and that the view is valid.
+                        *self.as_mut().get_unchecked_mut(offset) =
+                            *self.as_ref().get_unchecked(idx);
+                        offset += 1;
+                    }
+                });
+                offset
                 // FIXME(ngates): this "naive" implementation is way slower annoyingly. Which
                 //  suggests we may not want to rely on bitvec crate for this :(
                 // let mut offset = 0;
@@ -91,26 +101,6 @@ impl<T: NativePType> PrimitiveVector<'_, '_, T> {
         };
         self.view.selection = Selection::Prefix { len };
     }
-}
-
-#[inline(never)]
-pub fn flatten_mask<T: NativePType>(mask: BitVector, out: &mut [T]) -> usize {
-    let mut offset = 0;
-    let mut bit_idx = 0;
-    for mut raw in mask.into_inner() {
-        while raw != 0 {
-            let bit_pos = raw.trailing_zeros();
-            raw ^= 1 << bit_pos;
-
-            // SAFETY: we verify the bounds of the vector during construction.
-            unsafe {
-                *out.get_unchecked_mut(offset) = *out.get_unchecked(bit_idx + bit_pos as usize);
-            }
-            offset += 1;
-        }
-        bit_idx += 64;
-    }
-    offset
 }
 
 impl<T: NativePType> AsRef<[T]> for PrimitiveVector<'_, '_, T> {

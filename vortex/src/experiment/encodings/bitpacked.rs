@@ -4,7 +4,7 @@
 use crate::experiment::buffers::{BufferHandle, BufferId, ByteBufferHandle};
 use crate::experiment::encodings::{BindContext, Encoding, Evaluation, EvaluationContext};
 use crate::experiment::mask::{BitMask, BitMaskView};
-use crate::experiment::vector::{N, Vector};
+use crate::experiment::vector::{N, Selection, Vector};
 use fastlanes::{BitPacking, FastLanes};
 use std::task::{Poll, ready};
 use vortex_buffer::Buffer;
@@ -60,32 +60,58 @@ impl<T: NativePType + BitPacking> Evaluation for BitPackedEvaluation<T> {
     ) -> Poll<VortexResult<()>> {
         let buffer = ready!(self.buffer.get_or_load(ctx))?;
 
-        //if selected.true_count() < 16 {
-        // TODO(ngates): I think we found it was <= 8 elements where unpack_single is faster
-        //  than unpacking the whole chunk... Given we do two chunks, that's ~16 elements?
-        //  We could also intersect with the defined mask to see if we can prune further, but
-        //  may not be worth doing the extra work.
-        //}
-
-        // Otherwise, we unconditionally unpack two chunks of 1024 elements each into the
-        // output vector, and simply return the mask we were given.
         let mut view = out.as_primitive::<T>();
         let packed = &buffer.as_slice()[self.packed_offset..];
-        for i in 0..(N / 1024) {
-            unsafe {
-                BitPacking::unchecked_unpack(
-                    self.width,
-                    &packed[(i * self.packed_stride)..][..self.packed_stride],
-                    &mut view.as_mut()[(i * 1024)..][..1024],
-                );
+
+        // We compute the number of FastLanes vectors that we have remaining.
+        let nvecs = (N / 1024).min(packed.len() / self.packed_stride);
+
+        // We short-circuit full unpacking logic if the mask is sufficiently sparse.
+        match selected.true_count() {
+            0 => todo!("Handle empty selection case"),
+            true_count if true_count < 16 => {
+                let mut offset = 0;
+                selected.iter_ones(|idx| {
+                    let chunk_idx = idx / 1024;
+                    let bit_idx = idx % 1024;
+                    // SAFETY: we verify the bounds of the vector during construction.
+                    unsafe {
+                        *view.as_mut().get_unchecked_mut(offset) =
+                            BitPacking::unchecked_unpack_single(
+                                self.width,
+                                &packed[(chunk_idx * self.packed_stride)..][..self.packed_stride],
+                                bit_idx as usize,
+                            );
+                    }
+                    offset += 1;
+                });
+
+                self.packed_offset += nvecs * self.packed_stride;
+
+                // Set the selection to the given mask, which is a bit array of length N.
+                out.set_selection(Selection::Prefix { len: true_count });
+
+                Poll::Ready(Ok(()))
+            }
+            _ => {
+                for i in 0..nvecs {
+                    unsafe {
+                        BitPacking::unchecked_unpack(
+                            self.width,
+                            &packed[(i * self.packed_stride)..][..self.packed_stride],
+                            &mut view.as_mut()[(i * 1024)..],
+                        );
+                    }
+                }
+
+                self.packed_offset += nvecs * self.packed_stride;
+
+                // Set the selection to the given mask, which is a bit array of length N.
+                // out.set_selection_mask(selected.to_owned());
+                out.set_selection_mask(selected.to_owned());
+
+                Poll::Ready(Ok(()))
             }
         }
-
-        self.packed_offset += (N / 1024) * self.packed_stride;
-
-        // Set the selection to the given mask, which is a bit array of length N.
-        out.set_selection_mask(selected.to_owned());
-
-        Poll::Ready(Ok(()))
     }
 }

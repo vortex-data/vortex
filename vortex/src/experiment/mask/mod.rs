@@ -40,10 +40,6 @@ impl BitMask {
     }
 }
 
-struct IterOnes<'a> {
-    bits: &'a BitVector,
-}
-
 impl BitAnd for &BitMask {
     type Output = BitMask;
 
@@ -122,6 +118,28 @@ impl<'a> BitMaskView<'a> {
             BitMaskView::All => N,
             BitMaskView::None => 0,
             BitMaskView::Some(bits) => bits.count_ones(),
+        }
+    }
+
+    pub fn iter_ones<F>(&self, mut f: F)
+    where
+        F: FnMut(usize),
+    {
+        match self {
+            Self::All => (0..N).for_each(&mut f),
+            Self::None => {}
+            Self::Some(bits) => {
+                let mut bit_idx = 0;
+                for mut raw in bits.into_inner() {
+                    while raw != 0 {
+                        let bit_pos = raw.trailing_zeros();
+                        raw ^= 1 << bit_pos;
+
+                        f(bit_idx + bit_pos as usize);
+                    }
+                    bit_idx += 64;
+                }
+            }
         }
     }
 }
