@@ -6,18 +6,15 @@ pub mod bitpacked;
 // pub mod primitive;
 // pub mod validity;
 
-use crate::experiment::bits::BitView;
-use crate::experiment::buffers::BufferId;
-use crate::experiment::view::ViewMut;
-use bitvec::view::BitViewSized;
-use std::ops::{Deref, Range};
-use std::sync::atomic::AtomicUsize;
+use crate::bits::BitView;
+use crate::buffers::BufferId;
+use crate::view::ViewMut;
+use std::ops::Range;
 use std::task::Poll;
 use vortex_array::stats::StatsSet;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_err};
-use vortex_utils::aliases::hash_map::HashMap;
 
 pub trait Encoding {
     /// [`DType`] and length of the node are passed down in the bind context.
@@ -104,7 +101,7 @@ pub trait EvaluationContext {
 }
 
 impl EvaluationContext for () {
-    fn buffer(&self, buffer_id: BufferId) -> Poll<VortexResult<ByteBuffer>> {
+    fn buffer(&self, _buffer_id: BufferId) -> Poll<VortexResult<ByteBuffer>> {
         Poll::Ready(Err(vortex_err!(
             "EvaluationContext is not implemented for ()"
         )))

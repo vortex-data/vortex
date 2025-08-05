@@ -47,14 +47,6 @@ vortex-utils = { workspace = true }
 vortex-zigzag = { workspace = true }
 vortex-zstd = { workspace = true, optional = true }
 
-arrow-array = { workspace = true }
-arrow-buffer = { workspace = true }
-arrow-schema = { workspace = true }
-bitvec = { workspace = true }
-fastlanes = { workspace = true }
-futures = { workspace = true }
-itertools = { workspace = true }
-
 [dev-dependencies]
 arrow-array = { workspace = true }
 divan = { workspace = true }
@@ -78,10 +70,5 @@ zstd = ["dep:vortex-zstd", "vortex-file/zstd", "vortex-layout/zstd"]
 
 [[bench]]
 name = "single_encoding_throughput"
-harness = false
-test = false
-
-[[bench]]
-name = "bitpacking_pipeline"
 harness = false
 test = false

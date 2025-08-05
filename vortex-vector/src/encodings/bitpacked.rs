@@ -1,18 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::experiment::N;
-use crate::experiment::bits::BitView;
-use crate::experiment::buffers::BufferHandle;
-use crate::experiment::encodings::{BindContext, Encoding, Evaluation, EvaluationContext};
-use crate::experiment::selection::Selection;
-use crate::experiment::view::{Canonical, ViewMut};
+use crate::N;
+use crate::bits::BitView;
+use crate::buffers::BufferHandle;
+use crate::encodings::{BindContext, Encoding, Evaluation, EvaluationContext};
+use crate::selection::Selection;
+use crate::view::{Canonical, ViewMut};
 use fastlanes::{BitPacking, FastLanes};
-use std::any::type_name;
 use std::task::{Poll, ready};
-use vortex_dtype::{NativePType, match_each_integer_ptype};
+use vortex_dtype::{PhysicalPType, match_each_integer_ptype};
 use vortex_error::VortexResult;
-use vortex_fastlanes::unpack_iter::BitPacked;
 
 pub struct BitPackedEncoding {
     bit_width: usize,
@@ -31,7 +29,8 @@ impl Encoding for BitPackedEncoding {
         match_each_integer_ptype!(ptype, |T| {
             Ok(Box::new(BitPackedEvaluation::<T> {
                 width: self.bit_width,
-                packed_stride: self.bit_width * <<T as BitPacked>::UnsignedT as FastLanes>::LANES,
+                packed_stride: self.bit_width
+                    * <<T as PhysicalPType>::Physical as FastLanes>::LANES,
                 buffer: self.buffer.clone().into_typed(),
                 packed_offset: 0,
             }))
@@ -41,19 +40,19 @@ impl Encoding for BitPackedEncoding {
 
 // TODO(ngates): we should try putting the const bit width as a generic here, to avoid
 //  a switch in the fastlanes library on every invocation of `unchecked_unpack`.
-struct BitPackedEvaluation<T: BitPacked> {
+struct BitPackedEvaluation<T: PhysicalPType<Physical: BitPacking>> {
     width: usize,
     packed_stride: usize,
 
-    buffer: BufferHandle<<T as BitPacked>::UnsignedT>,
+    buffer: BufferHandle<<T as PhysicalPType>::Physical>,
     packed_offset: usize,
 }
 
 impl<T> Evaluation for BitPackedEvaluation<T>
 where
-    T: BitPacked,
+    T: PhysicalPType<Physical: BitPacking>,
     T: Canonical<Element = T>,
-    <T as BitPacked>::UnsignedT: Canonical<Element = <T as BitPacked>::UnsignedT>,
+    <T as PhysicalPType>::Physical: Canonical<Element = <T as PhysicalPType>::Physical>,
 {
     fn seek(&mut self, chunk_idx: usize) -> VortexResult<()> {
         let fls_chunk_idx = chunk_idx * (N / 1024);
@@ -70,9 +69,9 @@ where
         let buffer = ready!(self.buffer.get_or_load(ctx))?;
 
         // We re-interpret the output view as the unsigned bitpacked type.
-        out.reinterpret_as::<<T as BitPacked>::UnsignedT>();
+        out.reinterpret_as::<<T as PhysicalPType>::Physical>();
 
-        let elements = out.as_mut::<<T as BitPacked>::UnsignedT>();
+        let elements = out.as_mut::<<T as PhysicalPType>::Physical>();
         let packed = &buffer.as_slice()[self.packed_offset..];
 
         // We compute the number of FastLanes vectors that we have remaining.

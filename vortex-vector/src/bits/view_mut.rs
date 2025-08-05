@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::experiment::N;
-use crate::experiment::bits::BitView;
+use crate::N;
+use crate::bits::BitView;
 use bitvec::array::BitArray;
 use bitvec::order::Msb0;
 

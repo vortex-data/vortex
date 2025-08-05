@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::experiment::encodings::EvaluationContext;
+use crate::encodings::EvaluationContext;
 use std::ops::Deref;
 use std::sync::atomic::AtomicUsize;
 use std::task::{Poll, ready};
 use vortex_buffer::{Buffer, ByteBuffer};
-use vortex_error::{VortexExpect, VortexResult, vortex_panic};
+use vortex_error::{VortexResult, vortex_panic};
 use vortex_utils::aliases::hash_map::HashMap;
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(0);

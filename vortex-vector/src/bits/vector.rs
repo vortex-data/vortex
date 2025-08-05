@@ -4,15 +4,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::experiment::N;
-use crate::experiment::bits::{BitView, BitViewMut};
+use crate::N;
+use crate::bits::{BitView, BitViewMut};
 use bitvec::array::BitArray;
 use bitvec::order::Msb0;
-use bitvec::slice::BitSlice;
-use bitvec::store::BitStore;
-use std::ops::{Deref, Not};
+use std::ops::Not;
 use std::sync::{Arc, LazyLock};
-use vortex_error::{VortexExpect, vortex_err};
 
 static EMPTY: LazyLock<BitVector> = LazyLock::new(|| BitVector {
     bits: Arc::new(BitArray::ZERO),

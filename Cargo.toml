@@ -28,7 +28,7 @@ members = [
     "vortex-scalar",
     "vortex-tui",
     "vortex-utils",
-    "xtask",
+    "xtask", "vortex-vector",
 ]
 exclude = ["duckdb-vortex/duckdb-rs", "java/testfiles", "wasm-test"]
 resolver = "2"

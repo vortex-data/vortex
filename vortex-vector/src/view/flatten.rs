@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::experiment::selection::Selection;
-use crate::experiment::view::{Canonical, ViewMut};
+use crate::selection::Selection;
+use crate::view::{Canonical, ViewMut};
 use std::mem::take;
 
 impl<'a> ViewMut<'a> {

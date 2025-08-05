@@ -4,19 +4,13 @@
 // mod bool;
 mod primitive;
 
-use crate::experiment::array::primitive::export_primitive;
-use crate::experiment::buffers::BufferId;
-use crate::experiment::encodings::Encoding;
-use bitvec::order::Msb0;
-use bitvec::slice::BitSlice;
-use bitvec::vec::BitVec;
+use crate::array::primitive::export_primitive;
+use crate::encodings::Encoding;
 use vortex_array::Canonical;
 use vortex_array::stats::StatsSet;
-use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
-use vortex_utils::aliases::hash_map::HashMap;
 
 pub struct Array {
     len: usize,

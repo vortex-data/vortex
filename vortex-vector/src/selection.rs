@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::experiment::N;
-use crate::experiment::bits::BitVector;
+use crate::N;
+use crate::bits::BitVector;
 
 /// Defines a selection of elements from a view or vector.
 pub enum Selection {

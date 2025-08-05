@@ -37,8 +37,8 @@ pub mod buffers;
 pub mod encodings;
 pub mod expression;
 pub mod pipeline;
-mod selection;
-mod vector;
+pub mod selection;
+pub mod vector;
 pub mod view;
 
 /// The number of elements in each step of a Vortex evaluation pipeline.

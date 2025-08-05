@@ -55,19 +55,17 @@
 
 mod flatten;
 
-use crate::experiment::N;
-use crate::experiment::selection::Selection;
-use bitvec::prelude::*;
-use std::marker::PhantomData;
+use crate::N;
+use crate::selection::Selection;
 use vortex_array::ArrayRef;
 use vortex_array::arrays::BinaryView;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::half::f16;
-use vortex_dtype::{NativePType, PType, PTypeVisitor, match_each_native_ptype};
+use vortex_dtype::{NativePType, PType};
 use vortex_error::VortexExpect;
 
-use crate::experiment::bits::BitVector;
-use crate::experiment::bits::BitViewMut;
+use crate::bits::BitVector;
+use crate::bits::BitViewMut;
 
 /// A vector is the atomic unit of canonical data in Vortex.
 ///
@@ -134,8 +132,10 @@ pub struct ViewMut<'a> {
 
     /// Additional buffers of data used by the vector, such as string data.
     // TODO(ngates): ideally these buffers are compressed somehow? E.g. using FSST?
+    #[allow(dead_code)]
     data: Vec<ByteBuffer>,
     // Additional arrays used by the vector, such as...?
+    #[allow(dead_code)]
     children: Vec<ArrayRef>,
 
     /// Marker defining the lifetime of the contents of the vector.
@@ -180,6 +180,7 @@ impl<'a> ViewMut<'a> {
     }
 
     /// Re-interpret cast the vector into a new type where the element has the same width.
+    #[inline(always)]
     pub fn reinterpret_as<C: Canonical>(&mut self) {
         assert_eq!(
             self.vtype.byte_width(),
@@ -199,6 +200,7 @@ impl<'a> ViewMut<'a> {
     }
 
     /// Returns a mutable handle to the elements array.
+    #[inline(always)]
     pub fn elements<C: Canonical>(&mut self) -> &'a mut [C::Element; N] {
         assert_eq!(self.vtype, C::vtype(), "Invalid type for canonical view");
         // SAFETY: We assume that the elements are of type C::Element and that the view is valid.
@@ -206,12 +208,14 @@ impl<'a> ViewMut<'a> {
     }
 
     /// Returns an immutable slice of the elements in the vector.
+    #[inline(always)]
     pub fn as_ref<C: Canonical>(&self) -> &'a [C::Element] {
         assert_eq!(self.vtype, C::vtype(), "Invalid type for canonical view");
         unsafe { std::slice::from_raw_parts(self.elements.cast::<C::Element>(), N) }
     }
 
     /// Returns a mutable slice of the elements in the vector, allowing for modification.
+    #[inline(always)]
     pub fn as_mut<C: Canonical>(&mut self) -> &'a mut [C::Element] {
         assert_eq!(self.vtype, C::vtype(), "Invalid type for canonical view");
         unsafe { std::slice::from_raw_parts_mut(self.elements.cast::<C::Element>(), N) }
@@ -239,6 +243,7 @@ impl<'a> ViewMut<'a> {
         }
     }
 
+    #[inline(always)]
     pub fn set_selection(&mut self, selection: Selection) {
         #[cfg(debug_assertions)]
         {
@@ -259,7 +264,7 @@ impl<'a> ViewMut<'a> {
                         "Selection constant element must be less than N"
                     );
                 }
-                Selection::Mask(mask) => {}
+                Selection::Mask(_mask) => {}
             }
         }
         self.selection = selection;
@@ -284,6 +289,9 @@ pub trait Canonical {
 
 struct Bool;
 impl Canonical for Bool {
+    /// NOTE: for now, we have chosen to store boolean values as byte-sized booleans instead
+    ///  of packed into a bit mask, this is typically more efficient for SIMD compute operations.
+    ///  For masks, we still use bit-packed booleans.
     type Element = bool;
 
     fn vtype() -> VType {

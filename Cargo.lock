@@ -6265,12 +6265,7 @@ name = "vortex"
 version = "0.1.0"
 dependencies = [
  "arrow-array",
- "arrow-buffer",
- "arrow-schema",
- "bitvec",
  "codspeed-divan-compat",
- "fastlanes",
- "futures",
  "itertools 0.14.0",
  "mimalloc",
  "parquet",
@@ -7049,6 +7044,25 @@ name = "vortex-utils"
 version = "0.1.0"
 dependencies = [
  "hashbrown 0.15.4",
+]
+
+[[package]]
+name = "vortex-vector"
+version = "0.1.0"
+dependencies = [
+ "arrow-buffer",
+ "bitvec",
+ "codspeed-divan-compat",
+ "fastlanes",
+ "itertools 0.14.0",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-dtype",
+ "vortex-error",
+ "vortex-fastlanes",
+ "vortex-mask",
+ "vortex-scalar",
+ "vortex-utils",
 ]
 
 [[package]]

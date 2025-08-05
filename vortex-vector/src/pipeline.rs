@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::experiment::view::ViewMut;
+use crate::view::ViewMut;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 

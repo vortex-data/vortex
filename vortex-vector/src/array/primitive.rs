@@ -1,22 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::experiment::N;
-use crate::experiment::array::Array;
-use crate::experiment::bits::{BitView, BooleanBufferChunksIter, iter_boolean_buffer};
-use crate::experiment::encodings::BindContext;
-use crate::experiment::view::{Canonical, ViewMut};
-use arrow_buffer::BooleanBuffer;
-use bitvec::order::Msb0;
-use bitvec::slice::BitSlice;
-use bitvec::vec::BitVec;
-use itertools::Itertools;
+use crate::N;
+use crate::array::Array;
+use crate::bits::{BitView, BooleanBufferChunksIter};
+use crate::encodings::BindContext;
+use crate::view::{Canonical, ViewMut};
 use std::task::Poll;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_dtype::{NativePType, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_panic};
+use vortex_error::{VortexResult, vortex_panic};
 use vortex_mask::Mask;
 
 /// Utility for exporting an encoding into a canonical boolean array.
@@ -86,11 +81,10 @@ fn export_primitive_impl<T: Canonical<Element = T> + NativePType>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use super::*;
-    use crate::IntoArray;
-    use crate::buffer::buffer;
-    use crate::experiment::buffers::BufferHandle;
-    use crate::experiment::encodings::bitpacked::BitPackedEncoding;
+    use crate::buffers::BufferHandle;
+    use crate::encodings::bitpacked::BitPackedEncoding;
+    use vortex_array::IntoArray;
+    use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_fastlanes::BitPackedArray;
 

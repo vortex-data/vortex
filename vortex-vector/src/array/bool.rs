@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::experiment::N;
-use crate::experiment::array::Array;
-use crate::experiment::bits::BitVector;
-use crate::experiment::encodings::BindContext;
-use crate::experiment::view_mut::ViewMut;
+use crate::N;
+use crate::array::Array;
+use crate::bits::BitVector;
+use crate::encodings::BindContext;
+use crate::view_mut::ViewMut;
 use arrow_buffer::BooleanBuffer;
 use bitvec::order::Msb0;
 use bitvec::vec::BitVec;
