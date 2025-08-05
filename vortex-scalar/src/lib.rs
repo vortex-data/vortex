@@ -557,11 +557,13 @@ from_vec_for_scalar!(ByteBuffer);
 #[cfg(test)]
 #[allow(clippy::panic)]
 mod tests {
-    use crate::{InnerScalarValue, PValue, Scalar, ScalarValue};
-    use rstest::rstest;
     use std::sync::Arc;
+
+    use rstest::rstest;
     use vortex_dtype::half::f16;
     use vortex_dtype::{DType, ExtDType, ExtID, FieldDType, Nullability, PType, StructFields};
+
+    use crate::{InnerScalarValue, PValue, Scalar, ScalarValue};
 
     #[rstest]
     fn null_can_cast_to_anything_nullable(
@@ -791,7 +793,7 @@ mod tests {
     }
 
     #[test]
-    fn test_f16_coercion_from_u32() {
+    fn test_f16_no_coercion_from_u32() {
         let f16_value = f16::from_f32(0.42);
         let u32_bits = f16_value.to_bits() as u32;
 
@@ -800,16 +802,17 @@ mod tests {
             ScalarValue(InnerScalarValue::Primitive(PValue::U32(u32_bits))),
         );
 
+        // No coercion expected from u32
         match scalar.value() {
-            ScalarValue(InnerScalarValue::Primitive(PValue::F16(v))) => {
-                assert_eq!(*v, f16_value);
+            ScalarValue(InnerScalarValue::Primitive(PValue::U32(v))) => {
+                assert_eq!(*v, u32_bits);
             }
-            _ => panic!("Expected F16 value after coercion"),
+            _ => panic!("Expected U32 value (no coercion)"),
         }
     }
 
     #[test]
-    fn test_f16_coercion_from_u16() {
+    fn test_f16_no_coercion_from_u16() {
         let f16_value = f16::from_f32(1.5);
         let u16_bits = f16_value.to_bits();
 
@@ -818,16 +821,17 @@ mod tests {
             ScalarValue(InnerScalarValue::Primitive(PValue::U16(u16_bits))),
         );
 
+        // No coercion expected from u16
         match scalar.value() {
-            ScalarValue(InnerScalarValue::Primitive(PValue::F16(v))) => {
-                assert_eq!(*v, f16_value);
+            ScalarValue(InnerScalarValue::Primitive(PValue::U16(v))) => {
+                assert_eq!(*v, u16_bits);
             }
-            _ => panic!("Expected F16 value after coercion"),
+            _ => panic!("Expected U16 value (no coercion)"),
         }
     }
 
     #[test]
-    fn test_f32_coercion_from_u32() {
+    fn test_f32_no_coercion_from_u32() {
         let f32_value = std::f32::consts::PI;
         let u32_bits = f32_value.to_bits();
 
@@ -836,16 +840,17 @@ mod tests {
             ScalarValue(InnerScalarValue::Primitive(PValue::U32(u32_bits))),
         );
 
+        // No coercion expected from u32
         match scalar.value() {
-            ScalarValue(InnerScalarValue::Primitive(PValue::F32(v))) => {
-                assert_eq!(*v, f32_value);
+            ScalarValue(InnerScalarValue::Primitive(PValue::U32(v))) => {
+                assert_eq!(*v, u32_bits);
             }
-            _ => panic!("Expected F32 value after coercion"),
+            _ => panic!("Expected U32 value (no coercion)"),
         }
     }
 
     #[test]
-    fn test_f64_coercion_from_u64() {
+    fn test_f64_no_coercion_from_u64() {
         let f64_value = std::f64::consts::E;
         let u64_bits = f64_value.to_bits();
 
@@ -854,18 +859,19 @@ mod tests {
             ScalarValue(InnerScalarValue::Primitive(PValue::U64(u64_bits))),
         );
 
+        // No coercion expected from u64
         match scalar.value() {
-            ScalarValue(InnerScalarValue::Primitive(PValue::F64(v))) => {
-                assert_eq!(*v, f64_value);
+            ScalarValue(InnerScalarValue::Primitive(PValue::U64(v))) => {
+                assert_eq!(*v, u64_bits);
             }
-            _ => panic!("Expected F64 value after coercion"),
+            _ => panic!("Expected U64 value (no coercion)"),
         }
     }
 
     #[test]
     fn test_struct_field_coercion() {
         let f16_value = f16::from_f32(0.42);
-        let f32_value = 3.14f32;
+        let f32_value = std::f32::consts::PI;
 
         let struct_dtype = DType::Struct(
             StructFields::from_iter([
@@ -890,9 +896,7 @@ mod tests {
             ScalarValue(InnerScalarValue::Primitive(PValue::U64(
                 f16_value.to_bits() as u64,
             ))),
-            ScalarValue(InnerScalarValue::Primitive(PValue::U32(
-                f32_value.to_bits(),
-            ))),
+            ScalarValue(InnerScalarValue::Primitive(PValue::F32(f32_value))),
         ];
 
         let scalar = Scalar::new(
@@ -919,12 +923,12 @@ mod tests {
             _ => panic!("Expected F16 value for field 'b' after coercion"),
         }
 
-        // Check third field (f32 coerced from u32)
+        // Check third field (no coercion needed)
         match fields[2].value() {
             ScalarValue(InnerScalarValue::Primitive(PValue::F32(v))) => {
                 assert_eq!(*v, f32_value);
             }
-            _ => panic!("Expected F32 value for field 'c' after coercion"),
+            _ => panic!("Expected F32 value for field 'c'"),
         }
     }
 
@@ -956,11 +960,11 @@ mod tests {
         );
 
         let elements = vec![
-            ScalarValue(InnerScalarValue::Primitive(PValue::U16(
-                f16_value1.to_bits(),
+            ScalarValue(InnerScalarValue::Primitive(PValue::U64(
+                f16_value1.to_bits() as u64,
             ))),
-            ScalarValue(InnerScalarValue::Primitive(PValue::U16(
-                f16_value2.to_bits(),
+            ScalarValue(InnerScalarValue::Primitive(PValue::U64(
+                f16_value2.to_bits() as u64,
             ))),
         ];
 
@@ -975,9 +979,9 @@ mod tests {
         for (i, expected) in [f16_value1, f16_value2].iter().enumerate() {
             match elements[i].value() {
                 ScalarValue(InnerScalarValue::Primitive(PValue::F16(v))) => {
-                    assert_eq!(v, expected, "Element {} mismatch", i);
+                    assert_eq!(v, expected, "Element {i} mismatch");
                 }
-                _ => panic!("Expected F16 value for element {} after coercion", i),
+                _ => panic!("Expected F16 value for element {i} after coercion"),
             }
         }
     }

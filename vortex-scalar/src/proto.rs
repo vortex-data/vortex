@@ -239,7 +239,10 @@ mod tests {
 
     #[test]
     fn test_f16() {
-        round_trip(Scalar::primitive(f16::from_f32(0.42), Nullability::Nullable));
+        round_trip(Scalar::primitive(
+            f16::from_f32(0.42),
+            Nullability::Nullable,
+        ));
     }
 
     #[test]
