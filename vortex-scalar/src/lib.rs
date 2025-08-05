@@ -1008,4 +1008,111 @@ mod tests {
             _ => panic!("Expected U64 value to remain unchanged when too large for F16"),
         }
     }
+
+    #[test]
+    fn test_extension_dtype_coercion() {
+        // Create an extension type with f16 storage
+        let ext_id = ExtID::new("test_f16_ext".into());
+        let storage_dtype = Arc::new(DType::Primitive(PType::F16, Nullability::NonNullable));
+        let ext_dtype = Arc::new(ExtDType::new(ext_id, storage_dtype, None));
+        
+        // Test f16 value stored as u64 gets coerced through extension type
+        let f16_value = f16::from_f32(0.42);
+        let u64_bits = f16_value.to_bits() as u64;
+        
+        let scalar = Scalar::new(
+            DType::Extension(ext_dtype.clone()),
+            ScalarValue(InnerScalarValue::Primitive(PValue::U64(u64_bits))),
+        );
+        
+        // Verify the value was coerced to f16
+        match scalar.value() {
+            ScalarValue(InnerScalarValue::Primitive(PValue::F16(v))) => {
+                assert_eq!(*v, f16_value);
+            }
+            _ => panic!("Expected F16 value after extension type coercion"),
+        }
+    }
+
+    #[test]
+    fn test_extension_dtype_no_coercion() {
+        // Create an extension type with u32 storage
+        let ext_id = ExtID::new("test_u32_ext".into());
+        let storage_dtype = Arc::new(DType::Primitive(PType::U32, Nullability::NonNullable));
+        let ext_dtype = Arc::new(ExtDType::new(ext_id, storage_dtype, None));
+        
+        // Test u32 value is not coerced
+        let u32_value = 42u32;
+        
+        let scalar = Scalar::new(
+            DType::Extension(ext_dtype.clone()),
+            ScalarValue(InnerScalarValue::Primitive(PValue::U32(u32_value))),
+        );
+        
+        // Verify the value remains u32
+        match scalar.value() {
+            ScalarValue(InnerScalarValue::Primitive(PValue::U32(v))) => {
+                assert_eq!(*v, u32_value);
+            }
+            _ => panic!("Expected U32 value to remain unchanged"),
+        }
+    }
+
+    #[test]
+    fn test_extension_dtype_nested_struct_coercion() {
+        // Create an extension type with struct storage that contains f16 field
+        let ext_id = ExtID::new("test_struct_ext".into());
+        let struct_dtype = Arc::new(DType::Struct(
+            StructFields::from_iter([
+                (
+                    "id",
+                    FieldDType::from(DType::Primitive(PType::U32, Nullability::NonNullable)),
+                ),
+                (
+                    "value",
+                    FieldDType::from(DType::Primitive(PType::F16, Nullability::NonNullable)),
+                ),
+            ]),
+            Nullability::NonNullable,
+        ));
+        let ext_dtype = Arc::new(ExtDType::new(ext_id, struct_dtype, None));
+        
+        // Create struct value with f16 stored as u64
+        let f16_value = f16::from_f32(1.5);
+        let field_values = vec![
+            ScalarValue(InnerScalarValue::Primitive(PValue::U32(123))),
+            ScalarValue(InnerScalarValue::Primitive(PValue::U64(
+                f16_value.to_bits() as u64,
+            ))),
+        ];
+        
+        let scalar = Scalar::new(
+            DType::Extension(ext_dtype.clone()),
+            ScalarValue(InnerScalarValue::List(field_values.into())),
+        );
+        
+        // Verify the struct field was coerced
+        match scalar.value() {
+            ScalarValue(InnerScalarValue::List(fields)) => {
+                assert_eq!(fields.len(), 2);
+                
+                // Check ID field (no coercion)
+                match &fields[0].0 {
+                    InnerScalarValue::Primitive(PValue::U32(v)) => {
+                        assert_eq!(*v, 123);
+                    }
+                    _ => panic!("Expected U32 value for ID field"),
+                }
+                
+                // Check value field (f16 coerced from u64)
+                match &fields[1].0 {
+                    InnerScalarValue::Primitive(PValue::F16(v)) => {
+                        assert_eq!(*v, f16_value);
+                    }
+                    _ => panic!("Expected F16 value for value field after coercion"),
+                }
+            }
+            _ => panic!("Expected List value for struct storage in extension type"),
+        }
+    }
 }
