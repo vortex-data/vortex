@@ -52,7 +52,6 @@ jobs:
 
   ops_fuzz_minimize:
     name: "Minimize Array Ops Fuzz Corpus"
-    timeout-minutes: 180
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m8g.2xlarge
