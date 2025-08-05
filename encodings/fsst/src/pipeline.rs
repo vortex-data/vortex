@@ -3,15 +3,17 @@
 
 use fsst::{Compressor, Symbol};
 use std::task::{Poll, ready};
+use vortex_array::arrays::BinaryView;
 use vortex_array::pipeline::bits::BitView;
 use vortex_array::pipeline::buffers::BufferHandle;
+use vortex_array::pipeline::types::BinaryType;
 use vortex_array::pipeline::vector::PrimitiveVector;
 use vortex_array::pipeline::view::ViewMut;
 use vortex_array::pipeline::{Pipeline, PipelineContext};
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 
-pub struct FSSTPipeline {
+pub struct FSSTPipeline<B: BinaryType> {
     len: usize,
 
     symbols_buffer: BufferHandle<Symbol>,
@@ -26,16 +28,13 @@ pub struct FSSTPipeline {
     uncompressed_lens: Box<dyn Pipeline>,
     uncompressed_lens_vec: PrimitiveVector<u32>,
 
-    /// The current row offset.
-    row_offset: usize,
-    /// The current offset into the compressed codes buffer.
-    codes_offset: usize,
+    _phantom: std::marker::PhantomData<B>,
 }
 
-impl Pipeline for FSSTPipeline {
+impl<B: BinaryType> Pipeline for FSSTPipeline<B> {
     fn seek(&mut self, chunk_idx: usize) -> VortexResult<()> {
-        // Implement seeking logic here
-        todo!()
+        self.codes_offsets.seek(chunk_idx)?;
+        self.uncompressed_lens.seek(chunk_idx)
     }
 
     fn step(
@@ -44,6 +43,8 @@ impl Pipeline for FSSTPipeline {
         selected: BitView,
         out: &mut ViewMut,
     ) -> Poll<VortexResult<()>> {
+        // TODO(ngates): use a join! macro here to ensure we try to fetch all buffers before
+        //  returning pending.
         let symbols = ready!(self.symbols_buffer.get_or_load(ctx))?;
         let symbol_lens = ready!(self.symbols_lens_buffer.get_or_load(ctx))?;
         let codes = ready!(self.codes_buffer.get_or_load(ctx))?;
@@ -86,6 +87,8 @@ impl Pipeline for FSSTPipeline {
         unsafe { uncompressed.set_len(output_size) };
 
         // Now we have to build a string view from the data...? We should probably just push
-        todo!()
+        let _views_out = out.elements::<B>();
+
+        Poll::Ready(Ok(()))
     }
 }
