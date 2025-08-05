@@ -5,7 +5,8 @@ use std::sync::Arc;
 
 use num_traits::ToBytes;
 use vortex_buffer::{BufferString, ByteBuffer};
-use vortex_dtype::{DType, half::f16};
+use vortex_dtype::DType;
+use vortex_dtype::half::f16;
 use vortex_error::{VortexError, vortex_err};
 use vortex_proto::scalar as pb;
 use vortex_proto::scalar::ListValue;
@@ -319,5 +320,187 @@ mod tests {
             scalar,
             Scalar::new(scalar.dtype().clone(), scalar_read_back)
         );
+    }
+
+    #[test]
+    fn test_scalar_value_direct_roundtrip_f16() {
+        // Test that ScalarValue with f16 roundtrips correctly without going through Scalar
+        let f16_values = vec![
+            f16::from_f32(0.0),
+            f16::from_f32(1.0),
+            f16::from_f32(-1.0),
+            f16::from_f32(0.42),
+            f16::from_f32(5.722046e-6),
+            f16::from_f32(std::f32::consts::PI),
+            f16::INFINITY,
+            f16::NEG_INFINITY,
+            f16::NAN,
+        ];
+
+        for f16_val in f16_values {
+            let scalar_value = ScalarValue(InnerScalarValue::Primitive(PValue::F16(f16_val)));
+            let written = scalar_value.to_protobytes::<Vec<u8>>();
+            let read_back = ScalarValue::from_protobytes(&written).unwrap();
+
+            match (&scalar_value.0, &read_back.0) {
+                (
+                    InnerScalarValue::Primitive(PValue::F16(original)),
+                    InnerScalarValue::Primitive(PValue::F16(roundtripped)),
+                ) => {
+                    if original.is_nan() && roundtripped.is_nan() {
+                        // NaN values are equal for our purposes
+                        continue;
+                    }
+                    assert_eq!(
+                        original, roundtripped,
+                        "F16 value {} did not roundtrip correctly",
+                        original
+                    );
+                }
+                _ => panic!(
+                    "Expected f16 primitive values, got {:?} and {:?}",
+                    scalar_value, read_back
+                ),
+            }
+        }
+    }
+
+    #[test]
+    fn test_scalar_value_direct_roundtrip_preserves_values() {
+        // Test that ScalarValue roundtripping preserves values (but not necessarily exact types)
+        // Note: Proto encoding consolidates integer types (u8/u16/u32 → u64, i8/i16/i32 → i64)
+
+        // Test cases that should roundtrip exactly
+        let exact_roundtrip_cases = vec![
+            ("null", ScalarValue(InnerScalarValue::Null)),
+            ("bool_true", ScalarValue(InnerScalarValue::Bool(true))),
+            ("bool_false", ScalarValue(InnerScalarValue::Bool(false))),
+            (
+                "u64",
+                ScalarValue(InnerScalarValue::Primitive(PValue::U64(
+                    18446744073709551615,
+                ))),
+            ),
+            (
+                "i64",
+                ScalarValue(InnerScalarValue::Primitive(PValue::I64(
+                    -9223372036854775808,
+                ))),
+            ),
+            (
+                "f32",
+                ScalarValue(InnerScalarValue::Primitive(PValue::F32(
+                    std::f32::consts::E,
+                ))),
+            ),
+            (
+                "f64",
+                ScalarValue(InnerScalarValue::Primitive(PValue::F64(
+                    std::f64::consts::PI,
+                ))),
+            ),
+            (
+                "string",
+                ScalarValue(InnerScalarValue::BufferString(Arc::new(
+                    BufferString::from("test"),
+                ))),
+            ),
+            (
+                "bytes",
+                ScalarValue(InnerScalarValue::Buffer(Arc::new(
+                    vec![1, 2, 3, 4, 5].into(),
+                ))),
+            ),
+        ];
+
+        for (name, value) in exact_roundtrip_cases {
+            let written = value.to_protobytes::<Vec<u8>>();
+            let read_back = ScalarValue::from_protobytes(&written).unwrap();
+
+            let original_debug = format!("{:?}", value);
+            let roundtrip_debug = format!("{:?}", read_back);
+            assert_eq!(
+                original_debug, roundtrip_debug,
+                "ScalarValue {} did not roundtrip exactly",
+                name
+            );
+        }
+
+        // Test cases where type changes but value is preserved
+        // Unsigned integers consolidate to U64
+        let unsigned_cases = vec![
+            (
+                "u8",
+                ScalarValue(InnerScalarValue::Primitive(PValue::U8(255))),
+                255u64,
+            ),
+            (
+                "u16",
+                ScalarValue(InnerScalarValue::Primitive(PValue::U16(65535))),
+                65535u64,
+            ),
+            (
+                "u32",
+                ScalarValue(InnerScalarValue::Primitive(PValue::U32(4294967295))),
+                4294967295u64,
+            ),
+        ];
+
+        for (name, value, expected) in unsigned_cases {
+            let written = value.to_protobytes::<Vec<u8>>();
+            let read_back = ScalarValue::from_protobytes(&written).unwrap();
+
+            match &read_back.0 {
+                InnerScalarValue::Primitive(PValue::U64(v)) => {
+                    assert_eq!(
+                        *v, expected,
+                        "ScalarValue {} value not preserved: expected {}, got {}",
+                        name, expected, v
+                    );
+                }
+                _ => panic!(
+                    "Unexpected type after roundtrip for {}: {:?}",
+                    name, read_back
+                ),
+            }
+        }
+
+        // Signed integers consolidate to I64
+        let signed_cases = vec![
+            (
+                "i8",
+                ScalarValue(InnerScalarValue::Primitive(PValue::I8(-128))),
+                -128i64,
+            ),
+            (
+                "i16",
+                ScalarValue(InnerScalarValue::Primitive(PValue::I16(-32768))),
+                -32768i64,
+            ),
+            (
+                "i32",
+                ScalarValue(InnerScalarValue::Primitive(PValue::I32(-2147483648))),
+                -2147483648i64,
+            ),
+        ];
+
+        for (name, value, expected) in signed_cases {
+            let written = value.to_protobytes::<Vec<u8>>();
+            let read_back = ScalarValue::from_protobytes(&written).unwrap();
+
+            match &read_back.0 {
+                InnerScalarValue::Primitive(PValue::I64(v)) => {
+                    assert_eq!(
+                        *v, expected,
+                        "ScalarValue {} value not preserved: expected {}, got {}",
+                        name, expected, v
+                    );
+                }
+                _ => panic!(
+                    "Unexpected type after roundtrip for {}: {:?}",
+                    name, read_back
+                ),
+            }
+        }
     }
 }
