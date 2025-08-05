@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arcref::ArcRef;
 use std::fmt::Debug;
 use std::iter;
 use std::sync::Arc;
@@ -109,9 +108,9 @@ impl CopyFunction for VortexCopyFunction {
         let writer = RUNTIME.spawn(async move {
             let file = File::create(file_path).await?;
             VortexWriteOptions::default()
-                .with_strategy(ArcRef::from(Arc::new(VortexLayoutStrategy::with_executor(
-                    Arc::new(Handle::current()),
-                ))))
+                .with_strategy(VortexLayoutStrategy::with_executor(Arc::new(
+                    Handle::current(),
+                )))
                 .write(file, array_stream)
                 .await
         });
