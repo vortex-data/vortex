@@ -611,7 +611,7 @@ fn test_comparison_inverse_consistency(array: &dyn Array) {
             "Inverted Eq should have same length as NotEq"
         );
 
-        for i in 0..inverted_eq.len().min(10) {
+        for i in 0..inverted_eq.len() {
             let inv_val = inverted_eq.scalar_at(i).vortex_unwrap();
             let neq_val = neq_result.scalar_at(i).vortex_unwrap();
             assert_eq!(
@@ -629,7 +629,7 @@ fn test_comparison_inverse_consistency(array: &dyn Array) {
     ) {
         let inverted_gt = invert(&gt_result).vortex_unwrap();
 
-        for i in 0..inverted_gt.len().min(10) {
+        for i in 0..inverted_gt.len() {
             let inv_val = inverted_gt.scalar_at(i).vortex_unwrap();
             let lte_val = lte_result.scalar_at(i).vortex_unwrap();
             assert_eq!(
@@ -647,7 +647,7 @@ fn test_comparison_inverse_consistency(array: &dyn Array) {
     ) {
         let inverted_lt = invert(&lt_result).vortex_unwrap();
 
-        for i in 0..inverted_lt.len().min(10) {
+        for i in 0..inverted_lt.len() {
             let inv_val = inverted_lt.scalar_at(i).vortex_unwrap();
             let gte_val = gte_result.scalar_at(i).vortex_unwrap();
             assert_eq!(
@@ -746,7 +746,8 @@ fn test_comparison_symmetry_consistency(array: &dyn Array) {
 /// - `NOT(A OR B)` equals `(NOT A) AND (NOT B)`
 ///
 /// # Test Details
-/// - Creates two boolean masks from the array
+/// - If the array is boolean, uses it directly for testing boolean operations
+/// - Creates two boolean masks from patterns based on the array
 /// - Computes AND/OR operations and their inversions
 /// - Verifies De Morgan's laws hold for all elements
 ///
@@ -755,25 +756,42 @@ fn test_comparison_symmetry_consistency(array: &dyn Array) {
 /// This test catches bugs where encodings might optimize boolean operations
 /// incorrectly, breaking fundamental logical properties.
 fn test_boolean_demorgan_consistency(array: &dyn Array) {
-    use crate::compute::{and, invert, or};
+    use vortex_dtype::DType;
 
     let len = array.len();
     if len < 4 {
         return; // Need enough elements for meaningful boolean patterns
     }
 
-    // Create two boolean arrays with different patterns
-    let mask1_pattern: Vec<bool> = (0..len).map(|i| i % 2 == 0).collect();
-    let mask2_pattern: Vec<bool> = (0..len).map(|i| i % 3 == 0).collect();
+    // If the input array is boolean, use it directly, otherwise create test patterns
+    match array.dtype() {
+        DType::Bool(_) => {
+            // Use the array itself as one of the boolean masks
+            // Create a second mask with a different pattern
+            let mask2_pattern: Vec<bool> = (0..len).map(|i| i % 3 == 0).collect();
+            let mask2 = BoolArray::from_iter(mask2_pattern);
+            test_demorgan_laws(array, mask2.as_ref());
+        }
+        _ => {
+            // Create two boolean arrays with different patterns if array is not boolean
+            let mask1_pattern: Vec<bool> = (0..len).map(|i| i % 2 == 0).collect();
+            let mask2_pattern: Vec<bool> = (0..len).map(|i| i % 3 == 0).collect();
 
-    let mask1 = BoolArray::from_iter(mask1_pattern);
-    let mask2 = BoolArray::from_iter(mask2_pattern);
+            let mask1 = BoolArray::from_iter(mask1_pattern);
+            let mask2 = BoolArray::from_iter(mask2_pattern);
+            test_demorgan_laws(mask1.as_ref(), mask2.as_ref());
+        }
+    }
+}
+
+fn test_demorgan_laws(mask1: &dyn Array, mask2: &dyn Array) {
+    use crate::compute::{and, invert, or};
 
     // Test first De Morgan's law: NOT(A AND B) = (NOT A) OR (NOT B)
     if let (Ok(a_and_b), Ok(not_a), Ok(not_b)) = (
-        and(mask1.as_ref(), mask2.as_ref()),
-        invert(mask1.as_ref()),
-        invert(mask2.as_ref()),
+        and(mask1, mask2),
+        invert(mask1),
+        invert(mask2),
     ) {
         let not_a_and_b = invert(&a_and_b).vortex_unwrap();
         let not_a_or_not_b = or(&not_a, &not_b).vortex_unwrap();
@@ -784,7 +802,7 @@ fn test_boolean_demorgan_consistency(array: &dyn Array) {
             "De Morgan's law results should have same length"
         );
 
-        for i in 0..not_a_and_b.len().min(20) {
+        for i in 0..not_a_and_b.len() {
             let left = not_a_and_b.scalar_at(i).vortex_unwrap();
             let right = not_a_or_not_b.scalar_at(i).vortex_unwrap();
             assert_eq!(
@@ -797,14 +815,14 @@ fn test_boolean_demorgan_consistency(array: &dyn Array) {
 
     // Test second De Morgan's law: NOT(A OR B) = (NOT A) AND (NOT B)
     if let (Ok(a_or_b), Ok(not_a), Ok(not_b)) = (
-        or(mask1.as_ref(), mask2.as_ref()),
-        invert(mask1.as_ref()),
-        invert(mask2.as_ref()),
+        or(mask1, mask2),
+        invert(mask1),
+        invert(mask2),
     ) {
         let not_a_or_b = invert(&a_or_b).vortex_unwrap();
         let not_a_and_not_b = and(&not_a, &not_b).vortex_unwrap();
 
-        for i in 0..not_a_or_b.len().min(20) {
+        for i in 0..not_a_or_b.len() {
             let left = not_a_or_b.scalar_at(i).vortex_unwrap();
             let right = not_a_and_not_b.scalar_at(i).vortex_unwrap();
             assert_eq!(
@@ -834,7 +852,7 @@ fn test_boolean_demorgan_consistency(array: &dyn Array) {
 fn test_slice_aggregate_consistency(array: &dyn Array) {
     use vortex_dtype::DType;
 
-    use crate::compute::{min_max, sum};
+    use crate::compute::{min_max, nan_count, sum};
 
     let len = array.len();
     if len < 5 {
@@ -895,6 +913,17 @@ fn test_slice_aggregate_consistency(array: &dyn Array) {
             }
             (None, None) => {} // Both empty, OK
             _ => vortex_panic!("min_max results don't match"),
+        }
+    }
+
+    // Test nan_count for floating point types
+    if matches!(array.dtype(), DType::Primitive(vortex_dtype::PType::F16 | vortex_dtype::PType::F32 | vortex_dtype::PType::F64, _)) {
+        if let (Ok(slice_nan_count), Ok(canonical_nan_count)) = (nan_count(&sliced), nan_count(&canonical_sliced)) {
+            assert_eq!(
+                slice_nan_count, canonical_nan_count,
+                "nan_count on sliced array should match canonical. \
+                 Sliced: {slice_nan_count}, Canonical: {canonical_nan_count}"
+            );
         }
     }
 }
