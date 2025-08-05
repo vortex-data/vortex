@@ -19,11 +19,11 @@ pub struct BitView<'a> {
 
 impl BitView<'static> {
     pub fn all_true() -> Self {
-        unsafe { BitView::new_unchecked(&[u64::MAX; N / 64], N) }
+        unsafe { BitView::new_unchecked(unsafe { std::mem::transmute(&[u64::MAX; N / 64]) }, N) }
     }
 
     pub fn all_false() -> Self {
-        unsafe { BitView::new_unchecked(&[0; N / 64], 0) }
+        unsafe { BitView::new_unchecked(unsafe { std::mem::transmute(&[0; N / 64]) }, 0) }
     }
 }
 
@@ -34,7 +34,10 @@ impl<'a> BitView<'a> {
         BitView { bits, true_count }
     }
 
-    pub(crate) unsafe fn new_unchecked(bits: &'a [u64; N / 64], true_count: usize) -> Self {
+    pub(crate) unsafe fn new_unchecked(
+        bits: &'a BitArray<[u64; N / 64], Msb0>,
+        true_count: usize,
+    ) -> Self {
         BitView {
             bits: unsafe { std::mem::transmute(bits) },
             true_count,

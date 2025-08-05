@@ -18,6 +18,7 @@
 
 pub mod bits;
 pub mod buffers;
+mod canonical;
 pub mod common;
 pub mod export;
 pub mod selection;
@@ -84,6 +85,8 @@ pub trait Pipeline {
 }
 
 pub trait ToPipeline {
+    fn len(&self) -> usize;
+
     /// Create a pipeline.
     fn to_pipeline(&self) -> Box<dyn Pipeline>;
 }

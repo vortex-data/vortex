@@ -10,4 +10,5 @@
 
 mod primitive;
 
+use crate::pipeline::types::Canonical;
 pub use primitive::*;

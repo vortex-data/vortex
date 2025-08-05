@@ -8,5 +8,4 @@
 // pub mod validity;
 
 mod dictionary;
-mod fsst;
 mod varbin;

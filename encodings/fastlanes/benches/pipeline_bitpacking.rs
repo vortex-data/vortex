@@ -9,14 +9,14 @@ use divan::Bencher;
 use mimalloc::MiMalloc;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
-use vortex::encodings::fastlanes::bitpack_to_best_bit_width;
-use vortex::{IntoArray, ToCanonical};
 use vortex_array::compute::filter;
-use vortex_array::pipeline::array::Array;
 use vortex_array::pipeline::buffers::BufferHandle;
-use vortex_array::pipeline::encodings::bitpacked::BitPackedEncoding;
+use vortex_array::pipeline::export::PrimitiveExporter;
+use vortex_array::pipeline::types::Canonical;
+use vortex_array::{IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
+use vortex_fastlanes::{BitPackedEncoding, bitpack_to_best_bit_width};
 use vortex_mask::Mask;
 
 #[global_allocator]
@@ -77,7 +77,10 @@ pub fn decompress_bitpacking_late_filter<T: NativePType>(bencher: Bencher, fract
 
 // #[divan::bench(types = [i8, i16, i32, i64], args = [0.001, 0.01, 0.1, 0.5, 0.9, 0.99, 0.999])]
 #[divan::bench(types = [i8, i16, i32, i64], args = [0.005, 0.01, 0.0105, 0.02, 0.03, 0.04, 0.05])]
-pub fn decompress_bitpacking_fused_filter<T: NativePType>(bencher: Bencher, fraction_kept: f64) {
+pub fn decompress_bitpacking_fused_filter<T: Canonical<Element = T> + NativePType>(
+    bencher: Bencher,
+    fraction_kept: f64,
+) {
     let mut rng = StdRng::seed_from_u64(0);
     let values = (0..100_000)
         .map(|_| T::from(rng.random_range(0..100)).unwrap())
@@ -86,18 +89,6 @@ pub fn decompress_bitpacking_fused_filter<T: NativePType>(bencher: Bencher, frac
         .to_primitive()
         .unwrap();
     let array = bitpack_to_best_bit_width(&values).unwrap();
-
-    // Create a V2 array.
-    let enc = BitPackedEncoding::new(
-        array.bit_width() as usize,
-        BufferHandle::new(array.packed().clone()),
-    );
-    let array2 = Array::new(
-        array.len(),
-        array.dtype().clone(),
-        array.statistics().to_owned(),
-        Box::new(enc),
-    );
 
     let mask = (0..100_000)
         .map(|_| rng.random_bool(fraction_kept))

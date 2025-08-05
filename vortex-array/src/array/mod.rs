@@ -691,3 +691,13 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
         }
     }
 }
+
+impl ToPipeline for dyn Array + '_ {
+    fn len(&self) -> usize {
+        self.len()
+    }
+
+    fn to_pipeline(&self) -> Box<dyn Pipeline> {
+        Array::to_pipeline(self).vortex_expect("Failed to create pipeline")
+    }
+}
