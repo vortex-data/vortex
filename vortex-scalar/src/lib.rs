@@ -25,6 +25,7 @@ mod binary;
 mod bool;
 mod comparison;
 mod decimal;
+mod decimal_traits;
 mod display;
 mod error_utils;
 mod extension;

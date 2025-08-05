@@ -101,9 +101,13 @@ impl<'a> PrimitiveScalar<'a> {
 
     /// Returns the value as a specific native primitive type.
     ///
+    /// Returns `None` if the scalar is null, otherwise returns `Some(value)` where
+    /// value is the underlying primitive value cast to the requested type `T`.
+    ///
     /// # Panics
     ///
     /// Panics if the primitive type of this scalar does not match the requested type.
+    /// For example, attempting to read an i32 scalar as f32 will panic.
     pub fn typed_value<T: NativePType + TryFrom<PValue, Error = VortexError>>(&self) -> Option<T> {
         assert_eq!(
             self.ptype,

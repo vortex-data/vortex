@@ -1,6 +1,43 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Null scalar conversion implementations.
+//!
+//! This module provides conversions between Scalar values and the unit type `()`.
+//! 
+//! # Conversion Behavior
+//! 
+//! The `TryFrom<&Scalar>` implementation for `()` succeeds in two cases:
+//! 
+//! 1. **Pure null scalars**: Scalars with `DType::Null` always convert successfully to `()`.
+//! 
+//! 2. **Typed null scalars**: Scalars of any type (primitive, string, binary, etc.) that 
+//!    have a null value also convert successfully to `()`. This includes scalars created 
+//!    with methods like `Scalar::null_typed::<T>()`.
+//! 
+//! This behavior means that typed null scalars (e.g., a null i32 or null string) are 
+//! treated equivalently to pure null scalars for the purpose of unit type conversion.
+//! 
+//! # Examples
+//! 
+//! ```ignore
+//! use vortex_scalar::Scalar;
+//! use vortex_dtype::DType;
+//! 
+//! // Pure null scalar converts to ()
+//! let null_scalar = Scalar::null(DType::Null);
+//! let unit: () = null_scalar.try_into().unwrap();
+//! 
+//! // Typed null scalar also converts to ()
+//! let null_int = Scalar::null_typed::<i32>();
+//! let unit: () = null_int.try_into().unwrap();
+//! 
+//! // Non-null scalar fails conversion
+//! let int_scalar = Scalar::primitive(42i32, Nullability::NonNullable);
+//! let result = <()>::try_from(&int_scalar);
+//! assert!(result.is_err());
+//! ```
+
 use vortex_error::VortexError;
 
 use crate::Scalar;
