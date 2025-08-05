@@ -18,6 +18,7 @@ use crate::{InnerScalarValue, Scalar, ScalarValue};
 ///
 /// This type provides a view into a list scalar value, which can contain
 /// zero or more elements of the same type, or be null.
+#[derive(Debug)]
 pub struct ListScalar<'a> {
     dtype: &'a DType,
     element_dtype: &'a Arc<DType>,
@@ -220,5 +221,349 @@ impl<'a, T: for<'b> TryFrom<&'b Scalar, Error = VortexError>> TryFrom<&'a Scalar
             elems.push(T::try_from(&e)?);
         }
         Ok(elems)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use vortex_dtype::{DType, Nullability, PType};
+
+    use super::*;
+
+    #[test]
+    fn test_list_scalar_creation() {
+        let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
+        let children = vec![
+            Scalar::primitive(1i32, Nullability::NonNullable),
+            Scalar::primitive(2i32, Nullability::NonNullable),
+            Scalar::primitive(3i32, Nullability::NonNullable),
+        ];
+        let list_scalar = Scalar::list(element_dtype.clone(), children, Nullability::NonNullable);
+        
+        let list = ListScalar::try_from(&list_scalar).unwrap();
+        assert_eq!(list.len(), 3);
+        assert!(!list.is_empty());
+        assert!(!list.is_null());
+    }
+
+    #[test]
+    fn test_empty_list() {
+        let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
+        let list_scalar = Scalar::list(element_dtype.clone(), vec![], Nullability::NonNullable);
+        
+        let list = ListScalar::try_from(&list_scalar).unwrap();
+        assert_eq!(list.len(), 0);
+        assert!(list.is_empty());
+        assert!(!list.is_null());
+    }
+
+    #[test]
+    fn test_null_list() {
+        let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::Nullable));
+        let list_scalar = Scalar::list_empty(element_dtype.clone(), Nullability::Nullable);
+        
+        let list = ListScalar::try_from(&list_scalar).unwrap();
+        assert_eq!(list.len(), 0);
+        assert!(list.is_empty());
+        assert!(list.is_null());
+    }
+
+    #[test]
+    fn test_list_element_access() {
+        let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
+        let children = vec![
+            Scalar::primitive(10i32, Nullability::NonNullable),
+            Scalar::primitive(20i32, Nullability::NonNullable),
+            Scalar::primitive(30i32, Nullability::NonNullable),
+        ];
+        let list_scalar = Scalar::list(element_dtype.clone(), children, Nullability::NonNullable);
+        
+        let list = ListScalar::try_from(&list_scalar).unwrap();
+        
+        // Test element access
+        let elem0 = list.element(0).unwrap();
+        assert_eq!(elem0.as_primitive().typed_value::<i32>().unwrap(), 10);
+        
+        let elem1 = list.element(1).unwrap();
+        assert_eq!(elem1.as_primitive().typed_value::<i32>().unwrap(), 20);
+        
+        let elem2 = list.element(2).unwrap();
+        assert_eq!(elem2.as_primitive().typed_value::<i32>().unwrap(), 30);
+        
+        // Test out of bounds
+        assert!(list.element(3).is_none());
+    }
+
+    #[test]
+    fn test_list_elements() {
+        let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
+        let children = vec![
+            Scalar::primitive(100i32, Nullability::NonNullable),
+            Scalar::primitive(200i32, Nullability::NonNullable),
+        ];
+        let list_scalar = Scalar::list(element_dtype.clone(), children, Nullability::NonNullable);
+        
+        let list = ListScalar::try_from(&list_scalar).unwrap();
+        let elements = list.elements().unwrap();
+        
+        assert_eq!(elements.len(), 2);
+        assert_eq!(elements[0].as_primitive().typed_value::<i32>().unwrap(), 100);
+        assert_eq!(elements[1].as_primitive().typed_value::<i32>().unwrap(), 200);
+    }
+
+    #[test]
+    fn test_list_display() {
+        let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
+        let children = vec![
+            Scalar::primitive(1i32, Nullability::NonNullable),
+            Scalar::primitive(2i32, Nullability::NonNullable),
+        ];
+        let list_scalar = Scalar::list(element_dtype.clone(), children, Nullability::NonNullable);
+        
+        let list = ListScalar::try_from(&list_scalar).unwrap();
+        let display = format!("{}", list);
+        assert!(display.contains("1"));
+        assert!(display.contains("2"));
+    }
+
+    #[test]
+    fn test_null_list_display() {
+        let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::Nullable));
+        let list_scalar = Scalar::list_empty(element_dtype.clone(), Nullability::Nullable);
+        
+        let list = ListScalar::try_from(&list_scalar).unwrap();
+        let display = format!("{}", list);
+        assert_eq!(display, "null");
+    }
+
+    #[test]
+    fn test_list_equality() {
+        let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
+        let children1 = vec![
+            Scalar::primitive(1i32, Nullability::NonNullable),
+            Scalar::primitive(2i32, Nullability::NonNullable),
+        ];
+        let list_scalar1 = Scalar::list(element_dtype.clone(), children1, Nullability::NonNullable);
+        
+        let children2 = vec![
+            Scalar::primitive(1i32, Nullability::NonNullable),
+            Scalar::primitive(2i32, Nullability::NonNullable),
+        ];
+        let list_scalar2 = Scalar::list(element_dtype.clone(), children2, Nullability::NonNullable);
+        
+        let list1 = ListScalar::try_from(&list_scalar1).unwrap();
+        let list2 = ListScalar::try_from(&list_scalar2).unwrap();
+        
+        assert_eq!(list1, list2);
+    }
+
+    #[test]
+    fn test_list_inequality() {
+        let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
+        let children1 = vec![
+            Scalar::primitive(1i32, Nullability::NonNullable),
+            Scalar::primitive(2i32, Nullability::NonNullable),
+        ];
+        let list_scalar1 = Scalar::list(element_dtype.clone(), children1, Nullability::NonNullable);
+        
+        let children2 = vec![
+            Scalar::primitive(1i32, Nullability::NonNullable),
+            Scalar::primitive(3i32, Nullability::NonNullable),
+        ];
+        let list_scalar2 = Scalar::list(element_dtype.clone(), children2, Nullability::NonNullable);
+        
+        let list1 = ListScalar::try_from(&list_scalar1).unwrap();
+        let list2 = ListScalar::try_from(&list_scalar2).unwrap();
+        
+        assert_ne!(list1, list2);
+    }
+
+    #[test]
+    fn test_list_partial_ord() {
+        let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
+        
+        let children1 = vec![
+            Scalar::primitive(1i32, Nullability::NonNullable),
+        ];
+        let list_scalar1 = Scalar::list(element_dtype.clone(), children1, Nullability::NonNullable);
+        
+        let children2 = vec![
+            Scalar::primitive(2i32, Nullability::NonNullable),
+        ];
+        let list_scalar2 = Scalar::list(element_dtype.clone(), children2, Nullability::NonNullable);
+        
+        let list1 = ListScalar::try_from(&list_scalar1).unwrap();
+        let list2 = ListScalar::try_from(&list_scalar2).unwrap();
+        
+        assert!(list1 < list2);
+    }
+
+    #[test]
+    fn test_list_partial_ord_different_types() {
+        let element_dtype1 = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
+        let element_dtype2 = Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable));
+        
+        let children1 = vec![
+            Scalar::primitive(1i32, Nullability::NonNullable),
+        ];
+        let list_scalar1 = Scalar::list(element_dtype1.clone(), children1, Nullability::NonNullable);
+        
+        let children2 = vec![
+            Scalar::primitive(1i64, Nullability::NonNullable),
+        ];
+        let list_scalar2 = Scalar::list(element_dtype2.clone(), children2, Nullability::NonNullable);
+        
+        let list1 = ListScalar::try_from(&list_scalar1).unwrap();
+        let list2 = ListScalar::try_from(&list_scalar2).unwrap();
+        
+        assert!(list1.partial_cmp(&list2).is_none());
+    }
+
+    #[test]
+    fn test_list_hash() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
+        let children = vec![
+            Scalar::primitive(1i32, Nullability::NonNullable),
+            Scalar::primitive(2i32, Nullability::NonNullable),
+        ];
+        let list_scalar = Scalar::list(element_dtype.clone(), children, Nullability::NonNullable);
+        
+        let list = ListScalar::try_from(&list_scalar).unwrap();
+        
+        let mut hasher1 = DefaultHasher::new();
+        list.hash(&mut hasher1);
+        let hash1 = hasher1.finish();
+        
+        let mut hasher2 = DefaultHasher::new();
+        list.hash(&mut hasher2);
+        let hash2 = hasher2.finish();
+        
+        assert_eq!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_vec_conversion() {
+        let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
+        let children = vec![
+            Scalar::primitive(10i32, Nullability::NonNullable),
+            Scalar::primitive(20i32, Nullability::NonNullable),
+            Scalar::primitive(30i32, Nullability::NonNullable),
+        ];
+        let list_scalar = Scalar::list(element_dtype.clone(), children, Nullability::NonNullable);
+        
+        let vec: Vec<i32> = Vec::try_from(&list_scalar).unwrap();
+        assert_eq!(vec, vec![10, 20, 30]);
+    }
+
+    #[test]
+    fn test_vec_conversion_null_list() {
+        let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::Nullable));
+        let list_scalar = Scalar::list_empty(element_dtype.clone(), Nullability::Nullable);
+        
+        let result: Result<Vec<i32>, VortexError> = Vec::try_from(&list_scalar);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_list_cast() {
+        let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
+        let children = vec![
+            Scalar::primitive(1i32, Nullability::NonNullable),
+            Scalar::primitive(2i32, Nullability::NonNullable),
+        ];
+        let list_scalar = Scalar::list(element_dtype.clone(), children, Nullability::NonNullable);
+        
+        let list = ListScalar::try_from(&list_scalar).unwrap();
+        
+        // Cast to list with i64 elements
+        let target_dtype = DType::List(
+            Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
+            Nullability::NonNullable,
+        );
+        
+        let casted = list.cast(&target_dtype).unwrap();
+        let casted_list = ListScalar::try_from(&casted).unwrap();
+        
+        assert_eq!(casted_list.len(), 2);
+        let elem0 = casted_list.element(0).unwrap();
+        assert_eq!(elem0.as_primitive().typed_value::<i64>().unwrap(), 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "tried to create list of i32 with values of type i64")]
+    fn test_list_wrong_element_type_panic() {
+        let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
+        let children = vec![
+            Scalar::primitive(1i64, Nullability::NonNullable), // Wrong type!
+        ];
+        let _ = Scalar::list(element_dtype.clone(), children, Nullability::NonNullable);
+    }
+
+    #[test]
+    fn test_try_from_wrong_dtype() {
+        let scalar = Scalar::primitive(42i32, Nullability::NonNullable);
+        let result = ListScalar::try_from(&scalar);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_string_list() {
+        let element_dtype = Arc::new(DType::Utf8(Nullability::NonNullable));
+        let children = vec![
+            Scalar::utf8("hello".to_string(), Nullability::NonNullable),
+            Scalar::utf8("world".to_string(), Nullability::NonNullable),
+        ];
+        let list_scalar = Scalar::list(element_dtype.clone(), children, Nullability::NonNullable);
+        
+        let list = ListScalar::try_from(&list_scalar).unwrap();
+        assert_eq!(list.len(), 2);
+        
+        let elem0 = list.element(0).unwrap();
+        assert_eq!(elem0.as_utf8().value().unwrap().as_str(), "hello");
+        
+        let elem1 = list.element(1).unwrap();
+        assert_eq!(elem1.as_utf8().value().unwrap().as_str(), "world");
+    }
+
+    #[test]
+    fn test_nested_lists() {
+        let inner_element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
+        let inner_list_dtype = Arc::new(DType::List(inner_element_dtype.clone(), Nullability::NonNullable));
+        
+        let inner_list1 = Scalar::list(
+            inner_element_dtype.clone(),
+            vec![
+                Scalar::primitive(1i32, Nullability::NonNullable),
+                Scalar::primitive(2i32, Nullability::NonNullable),
+            ],
+            Nullability::NonNullable,
+        );
+        
+        let inner_list2 = Scalar::list(
+            inner_element_dtype.clone(),
+            vec![
+                Scalar::primitive(3i32, Nullability::NonNullable),
+                Scalar::primitive(4i32, Nullability::NonNullable),
+            ],
+            Nullability::NonNullable,
+        );
+        
+        let outer_list = Scalar::list(
+            inner_list_dtype.clone(),
+            vec![inner_list1, inner_list2],
+            Nullability::NonNullable,
+        );
+        
+        let list = ListScalar::try_from(&outer_list).unwrap();
+        assert_eq!(list.len(), 2);
+        
+        let nested_list = list.element(0).unwrap();
+        let nested = ListScalar::try_from(&nested_list).unwrap();
+        assert_eq!(nested.len(), 2);
     }
 }
