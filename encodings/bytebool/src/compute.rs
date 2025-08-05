@@ -177,6 +177,7 @@ mod tests {
 
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
+    use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_dtype::{DType, Nullability};
 
     #[test]
@@ -195,5 +196,18 @@ mod tests {
     #[case(ByteBoolArray::from(vec![Some(true), None]))]
     fn test_cast_bytebool_conformance(#[case] array: ByteBoolArray) {
         test_cast_conformance(array.as_ref());
+    }
+
+    #[rstest]
+    #[case::non_nullable(ByteBoolArray::from(vec![true, false, true, true, false]))]
+    #[case::nullable(ByteBoolArray::from(vec![Some(true), Some(false), None, Some(true), None]))]
+    #[case::all_true(ByteBoolArray::from(vec![true, true, true, true]))]
+    #[case::all_false(ByteBoolArray::from(vec![false, false, false, false]))]
+    #[case::single_true(ByteBoolArray::from(vec![true]))]
+    #[case::single_false(ByteBoolArray::from(vec![false]))]
+    #[case::single_null(ByteBoolArray::from(vec![None]))]
+    #[case::mixed_with_nulls(ByteBoolArray::from(vec![Some(true), None, Some(false), None, Some(true)]))]
+    fn test_bytebool_consistency(#[case] array: ByteBoolArray) {
+        test_array_consistency(array.as_ref());
     }
 }
