@@ -185,8 +185,8 @@ mod tests {
         let original_dir = env::current_dir().unwrap();
         env::set_current_dir(temp_dir.path()).unwrap();
 
-        File::create(&file_path).unwrap();
-        let result = local_filesystem::expand_glob(&file_path).unwrap();
+        File::create(file_path).unwrap();
+        let result = local_filesystem::expand_glob(file_path).unwrap();
 
         assert_eq!(result.0.len(), 1);
         assert_eq!(
