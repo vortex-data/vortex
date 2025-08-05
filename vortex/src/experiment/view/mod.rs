@@ -58,7 +58,7 @@ use crate::experiment::selection::Selection;
 use bitvec::prelude::*;
 use vortex_array::ArrayRef;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{PType, match_each_native_ptype};
+use vortex_dtype::{PType, PTypeVisitor, match_each_native_ptype};
 use vortex_error::VortexExpect;
 
 use crate::experiment::vector::BitVector;
@@ -142,6 +142,8 @@ pub struct ViewMut<'a> {
     /// Marker defining the lifetime of the contents of the vector.
     _marker: std::marker::PhantomData<&'a mut ()>,
 }
+
+pub trait DynViewMut: PTypeVisitor<PrimitiveViewMut> {}
 
 /// Defines the "vector type", a physical type describing the data that's held in the vector.
 ///

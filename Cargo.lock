@@ -6539,6 +6539,7 @@ dependencies = [
  "jiff",
  "num-traits",
  "num_enum",
+ "paste",
  "prost 0.14.1",
  "rstest",
  "serde",

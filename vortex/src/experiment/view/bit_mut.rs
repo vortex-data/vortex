@@ -6,6 +6,8 @@ use crate::experiment::view::bit::BitView;
 use bitvec::array::BitArray;
 use bitvec::order::Msb0;
 
+/// A mutable borrowed fixed-size bit vector of length `N` bits, represented as an array of
+/// 64-bit words.
 pub struct BitViewMut<'a> {
     bits: &'a mut BitArray<[u64; N / 64], Msb0>,
     true_count: usize,
@@ -27,5 +29,9 @@ impl<'a> BitViewMut<'a> {
 
     pub fn true_count(&self) -> usize {
         self.true_count
+    }
+
+    pub fn as_view(&self) -> BitView<'_> {
+        unsafe { BitView::new_unchecked(&self.bits, self.true_count) }
     }
 }
