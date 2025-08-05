@@ -65,11 +65,12 @@ fn sum_float(chunks: &[ArrayRef]) -> VortexResult<f64> {
 
 #[cfg(test)]
 mod tests {
+    use vortex_dtype::Nullability;
+    use vortex_scalar::Scalar;
+
     use crate::array::IntoArray;
     use crate::arrays::{ChunkedArray, ConstantArray, PrimitiveArray};
     use crate::compute::sum;
-    use vortex_dtype::Nullability;
-    use vortex_scalar::Scalar;
 
     #[test]
     fn test_sum_chunked_floats_with_nulls() {
