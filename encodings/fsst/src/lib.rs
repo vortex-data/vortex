@@ -19,6 +19,7 @@ mod ops;
 mod serde;
 #[cfg(test)]
 mod tests;
+mod prefix;
 
 pub use array::*;
 pub use compress::*;
