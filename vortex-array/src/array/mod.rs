@@ -691,9 +691,3 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
         }
     }
 }
-
-impl ToPipeline for dyn Array + '_ {
-    fn to_pipeline(&self) -> VortexResult<Box<dyn Pipeline>> {
-        self.to_pipeline()
-    }
-}

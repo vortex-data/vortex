@@ -6,3 +6,5 @@
 // mod compare;
 // pub mod primitive;
 // pub mod validity;
+
+mod dictionary;
