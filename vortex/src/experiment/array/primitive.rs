@@ -3,9 +3,9 @@
 
 use crate::experiment::N;
 use crate::experiment::array::Array;
+use crate::experiment::bits::{BitView, BooleanBufferChunksIter, iter_boolean_buffer};
 use crate::experiment::encodings::BindContext;
-use crate::experiment::mask::{BooleanBufferChunksIter, iter_boolean_buffer};
-use crate::experiment::view::{BitView, ViewMut};
+use crate::experiment::view::ViewMut;
 use arrow_buffer::BooleanBuffer;
 use bitvec::order::Msb0;
 use bitvec::slice::BitSlice;

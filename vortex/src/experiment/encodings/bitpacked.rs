@@ -2,10 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::experiment::N;
+use crate::experiment::bits::BitView;
 use crate::experiment::buffers::BufferHandle;
 use crate::experiment::encodings::{BindContext, Encoding, Evaluation, EvaluationContext};
 use crate::experiment::selection::Selection;
-use crate::experiment::view::{BitView, ViewMut};
+use crate::experiment::view::ViewMut;
 use fastlanes::{BitPacking, FastLanes};
 use std::marker::PhantomData;
 use std::task::{Poll, ready};
@@ -85,7 +86,7 @@ impl<T: NativePType + BitPacking> Evaluation for BitPackedEvaluation<T> {
             self.packed_offset += nvecs * self.packed_stride;
 
             // Set the selection to the given mask, which is a bit array of length N.
-            out.set_selection_mask(selected);
+            out.set_selection_mask(selected.into());
 
             Poll::Ready(Ok(()))
         } else {

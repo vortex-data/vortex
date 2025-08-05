@@ -61,12 +61,9 @@ use vortex_buffer::ByteBuffer;
 use vortex_dtype::{PType, PTypeVisitor, match_each_native_ptype};
 use vortex_error::VortexExpect;
 
-use crate::experiment::vector::BitVector;
-pub use bit::*;
-pub use bit_mut::*;
+use crate::experiment::bits::BitVector;
+use crate::experiment::bits::BitViewMut;
 
-mod bit;
-mod bit_mut;
 mod bool;
 mod primitive;
 
@@ -129,7 +126,7 @@ pub struct ViewMut<'a> {
     elements: *mut u8,
     /// The validity mask for the vector, indicating which elements in the buffer are valid.
     /// This value can be `None` if the expected DType is `NonNullable`.
-    validity: Option<BitView<'a>>,
+    validity: Option<BitViewMut<'a>>,
     // A selection mask over the elements and validity of the vector.
     selection: Selection,
 
@@ -142,8 +139,6 @@ pub struct ViewMut<'a> {
     /// Marker defining the lifetime of the contents of the vector.
     _marker: std::marker::PhantomData<&'a mut ()>,
 }
-
-pub trait DynViewMut: PTypeVisitor<PrimitiveViewMut> {}
 
 /// Defines the "vector type", a physical type describing the data that's held in the vector.
 ///
@@ -171,12 +166,12 @@ impl<'a> ViewMut<'a> {
     //         .vortex_expect("Vector does not support validity")
     // }
 
-    pub fn set_selection_mask(&mut self, mask: BitView) {
+    pub fn set_selection_mask(&mut self, mask: BitVector) {
         match mask.true_count() {
             0 => self.selection = Selection::Prefix { len: 0 },
             N => self.selection = Selection::Prefix { len: N },
             _ => {
-                self.selection = Selection::Mask(BitVector::from(mask));
+                self.selection = Selection::Mask(mask);
             }
         }
     }

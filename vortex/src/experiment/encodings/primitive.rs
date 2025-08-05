@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::experiment::N;
+use crate::experiment::bits::BitMask;
 use crate::experiment::buffers::{BufferHandle, ByteBufferHandle};
 use crate::experiment::encodings::{BindContext, Encoding, Evaluation, EvaluationContext};
-use crate::experiment::mask::BitMask;
 use crate::experiment::selection::Selection;
 use crate::experiment::view_mut::ViewMut;
 use std::task::{Poll, ready};

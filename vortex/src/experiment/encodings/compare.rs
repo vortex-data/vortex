@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::experiment::N;
+use crate::experiment::bits::BitMask;
 use crate::experiment::encodings::{BindContext, Encoding, Evaluation, EvaluationContext};
-use crate::experiment::mask::BitMask;
 use crate::experiment::view_mut::ViewMut;
 use std::task::{Poll, ready};
 use vortex_dtype::{NativePType, match_each_native_ptype};

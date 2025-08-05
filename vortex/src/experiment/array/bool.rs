@@ -3,8 +3,8 @@
 
 use crate::experiment::N;
 use crate::experiment::array::Array;
+use crate::experiment::bits::BitVector;
 use crate::experiment::encodings::BindContext;
-use crate::experiment::mask::BitVector;
 use crate::experiment::view_mut::ViewMut;
 use arrow_buffer::BooleanBuffer;
 use bitvec::order::Msb0;

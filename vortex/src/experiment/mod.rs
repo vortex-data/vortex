@@ -32,10 +32,10 @@
 //! be inlined into these work threads such that we end up with a thread-per-core model.
 
 pub mod array;
+pub mod bits;
 pub mod buffers;
 pub mod encodings;
 pub mod expression;
-pub mod mask;
 pub mod pipeline;
 mod selection;
 mod vector;

@@ -6,8 +6,9 @@ pub mod bitpacked;
 // pub mod primitive;
 // pub mod validity;
 
+use crate::experiment::bits::BitView;
 use crate::experiment::buffers::BufferId;
-use crate::experiment::view::{BitView, ViewMut};
+use crate::experiment::view::ViewMut;
 use bitvec::view::BitViewSized;
 use std::ops::{Deref, Range};
 use std::sync::atomic::AtomicUsize;
@@ -35,12 +36,16 @@ pub struct BindContext<'a> {
 /// An instantiated evaluation of a pipeline.
 pub trait Evaluation {
     /// Seek the evaluation to a specific chunk offset.
-    /// The resulting row offset should be `idx * N`, where `N` is the number of elements in
-    /// a chunk.
     ///
-    // NOTE(ngates): we have a separate seek function since it can often be more efficient for
-    //  arrays to assume they will be evaluated in order, e.g. run-length would have to do a full
-    //  binary search of the ends in each step if we passed an offset that way.
+    /// i.e. the resulting row offset is `idx * N`, where `N` is the number of elements in a chunk.
+    ///
+    /// The reason for a separate seek function (vs passing an offset directly to `step`) is that
+    /// it allows the evaluation to optimize for sequential access patterns, which is common in
+    /// many encodings. For example, a run-length encoding can efficiently seek to the start of a
+    /// chunk without needing to perform a full binary search of the ends in each step.
+    ///
+    // TODO(ngates): should this be `skip(n)` instead? Depends if we want to support going
+    //  backwards?
     fn seek(&mut self, chunk_idx: usize) -> VortexResult<()>;
 
     /// Attempts to perform a single step of the evaluation, writing data to the output vector.

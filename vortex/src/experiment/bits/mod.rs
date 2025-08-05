@@ -2,5 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod iter;
+mod vector;
+mod view;
+mod view_mut;
 
 pub use iter::*;
+pub use vector::*;
+pub use view::*;
+pub use view_mut::*;

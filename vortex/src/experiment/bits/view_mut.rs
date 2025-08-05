@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::experiment::N;
-use crate::experiment::view::bit::BitView;
+use crate::experiment::bits::BitView;
 use bitvec::array::BitArray;
 use bitvec::order::Msb0;
 
@@ -33,5 +33,9 @@ impl<'a> BitViewMut<'a> {
 
     pub fn as_view(&self) -> BitView<'_> {
         unsafe { BitView::new_unchecked(&self.bits, self.true_count) }
+    }
+
+    pub fn as_raw_mut(&mut self) -> &mut [u64; N / 64] {
+        unsafe { std::mem::transmute(&mut self.bits) }
     }
 }

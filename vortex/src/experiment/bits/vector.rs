@@ -5,7 +5,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::experiment::N;
-use crate::experiment::view::{BitView, BitViewMut};
+use crate::experiment::bits::{BitView, BitViewMut};
 use bitvec::array::BitArray;
 use bitvec::order::Msb0;
 use bitvec::slice::BitSlice;

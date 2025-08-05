@@ -2,17 +2,22 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::experiment::N;
+use crate::experiment::bits::BitViewMut;
 use crate::experiment::selection::Selection;
-use crate::experiment::view::{BitView, VType, ViewMut};
+use crate::experiment::view::{VType, ViewMut};
 use std::mem::take;
 use vortex_dtype::NativePType;
 use vortex_error::vortex_panic;
+
+pub struct PrimitiveViewMut<'a, T> {
+    elements: &'a mut [T; N],
+}
 
 impl<'v> ViewMut<'v> {
     /// Create a new `Vector` holding primitive elements.
     pub fn new_primitive<T: NativePType>(
         elements: &'v mut [T],
-        validity: Option<BitView<'v>>,
+        validity: Option<BitViewMut<'v>>,
     ) -> Self {
         assert_eq!(elements.len(), N);
         ViewMut {
