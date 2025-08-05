@@ -12,6 +12,7 @@
 #include "error.h"
 #include "table_filter.h"
 #include "duckdb_vx/data.h"
+#include "duckdb_vx/client_context.h"
 
 #ifdef __cplusplus /* If compiled as C++, use C ABI */
 extern "C" {
@@ -45,6 +46,7 @@ typedef struct {
     const idx_t *projection_ids;
     size_t projection_ids_count;
     duckdb_vx_table_filter_set filters;
+    duckdb_vx_client_context client_context;
     // void *sample_options;
 } duckdb_vx_tfunc_init_input;
 
@@ -71,7 +73,7 @@ typedef struct {
     const char *const *named_parameter_names;
     size_t named_parameter_count;
 
-    duckdb_vx_data (*bind)(duckdb_vx_tfunc_bind_input input, duckdb_vx_tfunc_bind_result result,
+    duckdb_vx_data (*bind)(duckdb_vx_client_context ctx, duckdb_vx_tfunc_bind_input input, duckdb_vx_tfunc_bind_result result,
                            duckdb_vx_error *error_out);
 
     duckdb_vx_data (*bind_data_clone)(const void *bind_data, duckdb_vx_error *error_out);
@@ -84,7 +86,7 @@ typedef struct {
     duckdb_vx_data (*init_local)(const duckdb_vx_tfunc_init_input *input, void *init_global_data,
                                  duckdb_vx_error *error_out);
 
-    void (*function)(const void *bind_data, void *init_global_data, void *init_local_data,
+    void (*function)(duckdb_vx_client_context ctx, const void *bind_data, void *init_global_data, void *init_local_data,
                      duckdb_data_chunk data_chunk_out, duckdb_vx_error *error_out);
 
     // void *in_out_function;

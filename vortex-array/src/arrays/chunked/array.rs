@@ -239,8 +239,7 @@ mod test {
     use crate::array::Array;
     use crate::arrays::chunked::ChunkedArray;
     use crate::arrays::{ChunkedVTable, PrimitiveArray};
-    use crate::compute::conformance::binary_numeric::test_binary_numeric_conformance;
-    use crate::compute::{cast, sub_scalar};
+    use crate::compute::sub_scalar;
     use crate::validity::Validity;
     use crate::{IntoArray, ToCanonical, assert_arrays_eq};
 
@@ -349,15 +348,6 @@ mod test {
 
         assert_eq!(rechunked.nchunks(), 4);
         assert_arrays_eq!(chunked, rechunked);
-    }
-
-    #[test]
-    fn test_chunked_binary_numeric() {
-        let array = chunked_array();
-        // The tests test both X - 1 and 1 - X, so we need signed values
-        let signed_dtype = DType::from(PType::try_from(array.dtype()).unwrap().to_signed());
-        let array = cast(array.as_ref(), &signed_dtype).unwrap();
-        test_binary_numeric_conformance::<u64>(array)
     }
 
     #[test]

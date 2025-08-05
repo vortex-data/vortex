@@ -32,6 +32,3 @@ vortex = { workspace = true, features = ["tokio"] }
 
 [build-dependencies]
 cxx-build = "1.0"
-
-[features]
-gen_test_data = []

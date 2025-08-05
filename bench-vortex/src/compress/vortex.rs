@@ -4,9 +4,7 @@
 use std::io::Cursor;
 use std::sync::Arc;
 
-use arrow_array::RecordBatch;
 use bytes::Bytes;
-use itertools::Itertools;
 use tokio::runtime::Handle;
 use vortex::Array;
 use vortex::file::{VortexLayoutStrategy, VortexOpenOptions, VortexWriteOptions};
@@ -23,11 +21,14 @@ pub async fn vortex_compress_write(array: &dyn Array, buf: &mut Vec<u8>) -> anyh
 }
 
 #[inline(never)]
-pub async fn vortex_decompress_read(buf: Bytes) -> anyhow::Result<Vec<RecordBatch>> {
+pub async fn vortex_decompress_read(buf: Bytes) -> anyhow::Result<usize> {
     let scan = VortexOpenOptions::in_memory().open(buf)?.scan()?;
     let schema = Arc::new(scan.dtype()?.to_arrow_schema()?);
 
-    Ok(scan
-        .into_record_batch_reader_multithread(schema)?
-        .try_collect()?)
+    let iter = scan.into_record_batch_reader_multithread(schema)?;
+    let mut nbytes = 0;
+    for batch in iter {
+        nbytes += batch.unwrap().get_array_memory_size()
+    }
+    Ok(nbytes)
 }

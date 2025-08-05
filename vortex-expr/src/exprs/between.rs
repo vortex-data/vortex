@@ -17,7 +17,7 @@ use crate::{
 vtable!(Between);
 
 #[allow(clippy::derived_hash_with_manual_eq)]
-#[derive(Clone, Debug, Hash)]
+#[derive(Clone, Debug, Hash, Eq)]
 pub struct BetweenExpr {
     arr: ExprRef,
     lower: ExprRef,

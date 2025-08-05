@@ -3,8 +3,10 @@
 
 use std::fmt::Debug;
 use std::iter;
+use std::sync::Arc;
 
 use tokio::fs::File;
+use tokio::runtime::Handle;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
@@ -14,7 +16,7 @@ use vortex::dtype::Nullability::{NonNullable, Nullable};
 use vortex::dtype::{DType, StructFields};
 use vortex::error::{VortexExpect, VortexResult, vortex_err};
 use vortex::stream::ArrayStreamAdapter;
-use vortex_file::VortexWriteOptions;
+use vortex_file::{VortexLayoutStrategy, VortexWriteOptions};
 
 use crate::RUNTIME;
 use crate::convert::{data_chunk_to_arrow, from_duckdb_table};
@@ -107,6 +109,9 @@ impl CopyFunction for VortexCopyFunction {
         let writer = RUNTIME.spawn(async move {
             let file = File::create(file_path).await?;
             VortexWriteOptions::default()
+                .with_strategy(VortexLayoutStrategy::with_executor(Arc::new(
+                    Handle::current(),
+                )))
                 .write(file, array_stream)
                 .await
         });

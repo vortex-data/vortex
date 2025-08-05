@@ -491,7 +491,7 @@ const vx_dtype *vx_dtype_list_element(const vx_dtype *dtype);
 
 bool vx_dtype_is_time(const DType *dtype);
 
-bool vx_dype_is_date(const DType *dtype);
+bool vx_dtype_is_date(const DType *dtype);
 
 bool vx_dtype_is_timestamp(const DType *dtype);
 

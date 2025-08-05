@@ -4,7 +4,7 @@
 use std::collections::VecDeque;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll, ready};
+use std::task::{Context, Poll, Waker};
 
 use arcref::ArcRef;
 use futures::future::try_join_all;
@@ -124,6 +124,7 @@ where
     let state = Arc::new(Mutex::new(TransposeState {
         upstream: stream,
         buffers: (0..elements).map(|_| VecDeque::new()).collect(),
+        wakers: Vec::new(),
         exhausted: false,
     }));
     (0..elements)
@@ -142,6 +143,7 @@ where
     upstream: S,
     // TODO(os): make these buffers bounded so transposed streams can not run ahead unbounded
     buffers: Vec<VecDeque<VortexResult<T>>>,
+    wakers: Vec<Waker>,
     exhausted: bool,
 }
 
@@ -171,22 +173,32 @@ where
             return Poll::Ready(None);
         }
 
-        match ready!(Pin::new(&mut guard.upstream).poll_next(cx)) {
-            None => {
+        match Pin::new(&mut guard.upstream).poll_next(cx) {
+            Poll::Pending => {
+                guard.wakers.push(cx.waker().clone());
+                Poll::Pending
+            }
+            Poll::Ready(None) => {
                 guard.exhausted = true;
                 Poll::Ready(None)
             }
-            Some(Ok(vec_t)) => {
+            Poll::Ready(Some(Ok(vec_t))) => {
                 for (t, buffer) in vec_t.into_iter().zip_eq(guard.buffers.iter_mut()) {
                     buffer.push_back(Ok(t));
                 }
-                Poll::Ready(Some(
-                    guard.buffers[self.index]
-                        .pop_front()
-                        .vortex_expect("just pushed"),
-                ))
+                let item = guard.buffers[self.index]
+                    .pop_front()
+                    .vortex_expect("just pushed");
+                let wakers = std::mem::take(&mut guard.wakers);
+
+                drop(guard);
+                for waker in wakers {
+                    waker.wake();
+                }
+
+                Poll::Ready(Some(item))
             }
-            Some(Err(err)) => {
+            Poll::Ready(Some(Err(err))) => {
                 let shared_err = Arc::new(err);
                 for buffer in guard.buffers.iter_mut() {
                     buffer.push_back(Err(shared_err.clone().into()));

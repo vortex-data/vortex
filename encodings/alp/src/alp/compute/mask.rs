@@ -13,7 +13,7 @@ impl MaskKernel for ALPVTable {
         let masked_encoded = mask(array.encoded(), filter_mask)?;
         let masked_patches = array
             .patches()
-            .map(|p| p.filter(filter_mask))
+            .map(|p| p.mask(filter_mask))
             .transpose()?
             .flatten()
             .map(|patches| {

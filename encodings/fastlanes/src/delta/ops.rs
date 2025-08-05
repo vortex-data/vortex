@@ -56,7 +56,10 @@ impl OperationsVTable<DeltaVTable> for DeltaVTable {
 
 #[cfg(test)]
 mod test {
-    use vortex_array::ToCanonical;
+    use rstest::rstest;
+    use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
+    use vortex_array::compute::conformance::consistency::test_array_consistency;
+    use vortex_array::{IntoArray, ToCanonical};
     use vortex_error::VortexError;
 
     use super::*;
@@ -347,5 +350,28 @@ mod test {
             delta.scalar_at(2001),
             Err(VortexError::OutOfBounds(2001, 0, 2000, _))
         ));
+    }
+
+    #[rstest]
+    // Basic delta arrays
+    #[case::delta_u32(DeltaArray::try_from_vec((0u32..100).collect()).unwrap())]
+    #[case::delta_u64(DeltaArray::try_from_vec((0..100).map(|i| i as u64 * 10).collect()).unwrap())]
+    // Large arrays (multiple chunks)
+    #[case::delta_large_u32(DeltaArray::try_from_vec((0u32..2048).collect()).unwrap())]
+    #[case::delta_large_u64(DeltaArray::try_from_vec((0u64..2048).collect()).unwrap())]
+    // Single element
+    #[case::delta_single(DeltaArray::try_from_vec(vec![42u32]).unwrap())]
+    fn test_delta_consistency(#[case] array: DeltaArray) {
+        test_array_consistency(array.as_ref());
+    }
+
+    #[rstest]
+    #[case::delta_u8_basic(DeltaArray::try_from_vec(vec![1u8, 1, 1, 1, 1]).unwrap())]
+    #[case::delta_u16_basic(DeltaArray::try_from_vec(vec![1u16, 1, 1, 1, 1]).unwrap())]
+    #[case::delta_u32_basic(DeltaArray::try_from_vec(vec![1u32, 1, 1, 1, 1]).unwrap())]
+    #[case::delta_u64_basic(DeltaArray::try_from_vec(vec![1u64, 1, 1, 1, 1]).unwrap())]
+    #[case::delta_u32_large(DeltaArray::try_from_vec(vec![1u32; 100]).unwrap())]
+    fn test_delta_binary_numeric(#[case] array: DeltaArray) {
+        test_binary_numeric_array(array.into_array());
     }
 }

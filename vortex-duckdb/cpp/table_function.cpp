@@ -79,7 +79,8 @@ unique_ptr<FunctionData> c_bind(ClientContext &context, TableFunctionBindInput &
     };
 
     duckdb_vx_error error_out = nullptr;
-    auto ffi_bind_data = info.vtab.bind(reinterpret_cast<duckdb_vx_tfunc_bind_input>(&input),
+    auto ctx = reinterpret_cast<duckdb_vx_client_context>(&context);
+    auto ffi_bind_data = info.vtab.bind(ctx, reinterpret_cast<duckdb_vx_tfunc_bind_input>(&input),
                                         reinterpret_cast<duckdb_vx_tfunc_bind_result>(&result), &error_out);
     if (error_out) {
         throw BinderException(IntoErrString(error_out));
@@ -99,6 +100,7 @@ unique_ptr<GlobalTableFunctionState> c_init_global(ClientContext &context, Table
         .projection_ids = input.projection_ids.data(),
         .projection_ids_count = input.projection_ids.size(),
         .filters = reinterpret_cast<duckdb_vx_table_filter_set>(input.filters.get()),
+        .client_context = reinterpret_cast<duckdb_vx_client_context>(&context),
     };
 
     duckdb_vx_error error_out = nullptr;
@@ -123,6 +125,7 @@ unique_ptr<LocalTableFunctionState> c_init_local(ExecutionContext &context, Tabl
         .projection_ids = input.projection_ids.data(),
         .projection_ids_count = input.projection_ids.size(),
         .filters = reinterpret_cast<duckdb_vx_table_filter_set>(input.filters.get()),
+        .client_context = reinterpret_cast<duckdb_vx_client_context>(&context),
     };
 
     duckdb_vx_error error_out = nullptr;
@@ -138,12 +141,13 @@ unique_ptr<LocalTableFunctionState> c_init_local(ExecutionContext &context, Tabl
 void c_function(ClientContext &context, TableFunctionInput &input, DataChunk &output) {
     const auto &bind = input.bind_data->Cast<CTableBindData>();
 
+    auto ctx = reinterpret_cast<duckdb_vx_client_context>(&context);
     const auto bind_data = bind.ffi_data->DataPtr();
     auto global_data = input.global_state->Cast<CTableGlobalData>().ffi_data->DataPtr();
     auto local_data = input.local_state->Cast<CTableLocalData>().ffi_data->DataPtr();
 
     duckdb_vx_error error_out = nullptr;
-    bind.info->vtab.function(bind_data, global_data, local_data, reinterpret_cast<duckdb_data_chunk>(&output),
+    bind.info->vtab.function(ctx, bind_data, global_data, local_data, reinterpret_cast<duckdb_data_chunk>(&output),
                              &error_out);
     if (error_out) {
         throw InvalidInputException(IntoErrString(error_out));

@@ -18,7 +18,7 @@ use crate::{
 vtable!(GetItem);
 
 #[allow(clippy::derived_hash_with_manual_eq)]
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone, Hash, Eq)]
 pub struct GetItemExpr {
     field: FieldName,
     child: ExprRef,

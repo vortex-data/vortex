@@ -9,6 +9,7 @@ use futures_util::StreamExt;
 use indicatif::ProgressBar;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use tokio::fs::File;
+use tokio::runtime::Handle;
 use vortex::ArrayRef;
 use vortex::arrow::FromArrowArray;
 use vortex::compressor::CompactCompressor;
@@ -16,7 +17,6 @@ use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::{VortexError, VortexExpect, VortexResult};
 use vortex::file::{VortexLayoutStrategy, VortexWriteOptions};
-use vortex::layout::LocalExecutor;
 use vortex::stream::ArrayStreamAdapter;
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -76,12 +76,12 @@ pub async fn exec_convert(flags: Flags) -> VortexResult<()> {
             .boxed();
     }
 
-    let executor = Arc::new(LocalExecutor);
     let strategy = match flags.strategy {
-        Strategy::Btrblocks => VortexLayoutStrategy::with_executor(executor),
-        Strategy::Compact => {
-            VortexLayoutStrategy::compact_with_executor(executor, CompactCompressor::default())
-        }
+        Strategy::Btrblocks => VortexLayoutStrategy::with_executor(Arc::new(Handle::current())),
+        Strategy::Compact => VortexLayoutStrategy::compact_with_executor(
+            Arc::new(Handle::current()),
+            CompactCompressor::default(),
+        ),
     };
     VortexWriteOptions::default()
         .with_strategy(strategy)

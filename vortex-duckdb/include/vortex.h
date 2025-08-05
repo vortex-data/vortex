@@ -24,6 +24,7 @@ extern "C" {
  * - C++ wrappers call the corresponding Rust functions
  *
  * This ensures DuckDB can find the symbols when loading the extension.
+ *
  * The DuckDB extension ABI initialization function.
  */
 void vortex_init_rust(duckdb_database db);

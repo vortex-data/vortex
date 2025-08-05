@@ -229,10 +229,9 @@ fn is_sorted_impl(
         return Ok(!strict);
     }
 
-    let invalid_count = array.invalid_count()?;
-
     // Enforce strictness before we even try to check if the array is sorted.
     if strict {
+        let invalid_count = array.invalid_count()?;
         match invalid_count {
             // We can keep going
             0 => {}
