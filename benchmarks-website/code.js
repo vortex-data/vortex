@@ -2282,6 +2282,14 @@ window.initAndRender = (function () {
           chartName.includes(state.searchTerm);
         chart.style.display = matches ? "block" : "none";
       });
+
+      // Then, hide sections that have no visible charts
+      document.querySelectorAll(".benchmark-set").forEach((section) => {
+        const visibleCharts = section.querySelectorAll(
+          ".chart-container[style='display: block;'], .chart-container:not([style]), .chart-container[style='']"
+        );
+        section.style.display = visibleCharts.length > 0 ? "block" : "none";
+      });
     },
   };
 
