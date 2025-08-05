@@ -275,7 +275,10 @@ export const chartManager = {
                 window.zoomSync.synchronizeZoomForCategory(
                   categoryName,
                   chart,
-                  index
+                  index,
+                  true,
+                  window.state,
+                  window.utils
                 );
               }
             : undefined,
@@ -290,7 +293,9 @@ export const chartManager = {
                   categoryName,
                   chart,
                   index,
-                  false
+                  false,
+                  window.state,
+                  window.utils
                 );
               }
             : undefined,
