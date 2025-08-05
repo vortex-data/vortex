@@ -80,6 +80,12 @@ impl<'a> Utf8Scalar<'a> {
     pub fn value(&self) -> Option<BufferString> {
         self.value.as_ref().map(|v| v.as_ref().clone())
     }
+    
+    /// Returns a reference to the string value, or None if null.
+    /// This avoids cloning the underlying BufferString.
+    pub fn value_ref(&self) -> Option<&BufferString> {
+        self.value.as_ref().map(|v| v.as_ref())
+    }
 
     /// Constructs a value at most `max_length` in size that's greater than this value.
     ///

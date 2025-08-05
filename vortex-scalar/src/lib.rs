@@ -47,6 +47,9 @@ mod consistency_tests;
 #[cfg(test)]
 mod decimal_cast_tests;
 
+#[cfg(test)]
+mod performance_tests;
+
 pub use bigint::*;
 pub use binary::*;
 pub use bool::*;

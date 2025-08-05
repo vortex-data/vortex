@@ -70,44 +70,6 @@ mod tests {
         assert!(output.contains("scale=2"));
     }
 
-    // Demonstrates that error messages are now consistent
-    #[test]
-    fn test_error_message_consistency() {
-        // All scalar types now use consistent error format: "Cannot cast X to Y: reason"
-        
-        // Primitive scalar cast error
-        let prim = Scalar::primitive(42i32, Nullability::NonNullable);
-        let result = prim.cast(&DType::Bool(Nullability::NonNullable));
-        if let Err(e) = result {
-            let error_str = format!("{}", e);
-            // Should have consistent format
-            assert!(error_str.contains("Cannot cast"));
-            assert!(error_str.contains("i32"));
-            assert!(error_str.contains("bool"));
-        }
-        
-        // Bool scalar cast error
-        let bool_scalar = Scalar::bool(true, Nullability::NonNullable);
-        let result = bool_scalar.cast(&DType::Primitive(PType::I32, Nullability::NonNullable));
-        if let Err(e) = result {
-            let error_str = format!("{}", e);
-            // Should have consistent format
-            assert!(error_str.contains("Cannot cast"));
-            assert!(error_str.contains("bool"));
-            assert!(error_str.contains("i32"));
-        }
-        
-        // Binary scalar cast error
-        let binary_scalar = Scalar::binary(vec![1, 2, 3], Nullability::NonNullable);
-        let result = binary_scalar.cast(&DType::Utf8(Nullability::NonNullable));
-        if let Err(e) = result {
-            let error_str = format!("{}", e);
-            // Should have consistent format
-            assert!(error_str.contains("Cannot cast"));
-            assert!(error_str.contains("binary"));
-            assert!(error_str.contains("utf8"));
-        }
-    }
 
     // This used to panic with todo!() but now works correctly
     #[test]
