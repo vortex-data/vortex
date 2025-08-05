@@ -44,6 +44,7 @@ register_kernel!(CastKernelAdapter(PcoVTable).lift());
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
@@ -96,52 +97,28 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_cast_pco_conformance_f32() {
-        let values = PrimitiveArray::new(
-            Buffer::copy_from(vec![1.23f32, 4.56, 7.89, 10.11, 12.13]),
-            vortex_array::validity::Validity::NonNullable,
-        );
-        let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
-        test_cast_conformance(pco.as_ref());
-    }
-
-    #[test]
-    fn test_cast_pco_conformance_f64() {
-        let values = PrimitiveArray::new(
-            Buffer::copy_from(vec![100.1f64, 200.2, 300.3, 400.4, 500.5]),
-            vortex_array::validity::Validity::NonNullable,
-        );
-        let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
-        test_cast_conformance(pco.as_ref());
-    }
-
-    #[test]
-    fn test_cast_pco_conformance_i32() {
-        let values = PrimitiveArray::new(
-            Buffer::copy_from(vec![100i32, 200, 300, 400, 500]),
-            vortex_array::validity::Validity::NonNullable,
-        );
-        let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
-        test_cast_conformance(pco.as_ref());
-    }
-
-    #[test]
-    fn test_cast_pco_conformance_u64() {
-        let values = PrimitiveArray::new(
-            Buffer::copy_from(vec![1000u64, 2000, 3000, 4000]),
-            vortex_array::validity::Validity::NonNullable,
-        );
-        let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
-        test_cast_conformance(pco.as_ref());
-    }
-
-    #[test]
-    fn test_cast_pco_conformance_single() {
-        let values = PrimitiveArray::new(
-            Buffer::copy_from(vec![42.42f64]),
-            vortex_array::validity::Validity::NonNullable,
-        );
+    #[rstest]
+    #[case::f32(PrimitiveArray::new(
+        Buffer::copy_from(vec![1.23f32, 4.56, 7.89, 10.11, 12.13]),
+        vortex_array::validity::Validity::NonNullable,
+    ))]
+    #[case::f64(PrimitiveArray::new(
+        Buffer::copy_from(vec![100.1f64, 200.2, 300.3, 400.4, 500.5]),
+        vortex_array::validity::Validity::NonNullable,
+    ))]
+    #[case::i32(PrimitiveArray::new(
+        Buffer::copy_from(vec![100i32, 200, 300, 400, 500]),
+        vortex_array::validity::Validity::NonNullable,
+    ))]
+    #[case::u64(PrimitiveArray::new(
+        Buffer::copy_from(vec![1000u64, 2000, 3000, 4000]),
+        vortex_array::validity::Validity::NonNullable,
+    ))]
+    #[case::single(PrimitiveArray::new(
+        Buffer::copy_from(vec![42.42f64]),
+        vortex_array::validity::Validity::NonNullable,
+    ))]
+    fn test_cast_pco_conformance(#[case] values: PrimitiveArray) {
         let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
         test_cast_conformance(pco.as_ref());
     }

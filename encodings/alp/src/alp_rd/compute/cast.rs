@@ -47,6 +47,7 @@ register_kernel!(CastKernelAdapter(ALPRDVTable).lift());
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
@@ -105,49 +106,38 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_cast_alprd_conformance_f32() {
+    #[rstest]
+    #[case::f32({
         let values = vec![1.23f32, 4.56, 7.89, 10.11, 12.13];
         let arr = PrimitiveArray::from_iter(values.clone());
         let encoder = RDEncoder::new(&values);
-        let alprd = encoder.encode(&arr);
-        test_cast_conformance(alprd.as_ref());
-    }
-
-    #[test]
-    fn test_cast_alprd_conformance_f64() {
+        encoder.encode(&arr)
+    })]
+    #[case::f64({
         let values = vec![100.1f64, 200.2, 300.3, 400.4, 500.5];
         let arr = PrimitiveArray::from_iter(values.clone());
         let encoder = RDEncoder::new(&values);
-        let alprd = encoder.encode(&arr);
-        test_cast_conformance(alprd.as_ref());
-    }
-
-    #[test]
-    fn test_cast_alprd_conformance_nullable() {
-        let arr =
-            PrimitiveArray::from_option_iter([Some(1.1f32), None, Some(2.2), Some(3.3), None]);
-        let values = vec![1.1f32, 2.2, 3.3];
-        let encoder = RDEncoder::new(&values);
-        let alprd = encoder.encode(&arr);
-        test_cast_conformance(alprd.as_ref());
-    }
-
-    #[test]
-    fn test_cast_alprd_conformance_single() {
+        encoder.encode(&arr)
+    })]
+    #[case::single({
         let values = vec![42.42f64];
         let arr = PrimitiveArray::from_iter(values.clone());
         let encoder = RDEncoder::new(&values);
-        let alprd = encoder.encode(&arr);
-        test_cast_conformance(alprd.as_ref());
-    }
-
-    #[test]
-    fn test_cast_alprd_conformance_negative() {
+        encoder.encode(&arr)
+    })]
+    #[case::negative({
         let values = vec![0.0f32, -1.5, 2.5, -3.5, 4.5];
         let arr = PrimitiveArray::from_iter(values.clone());
         let encoder = RDEncoder::new(&values);
-        let alprd = encoder.encode(&arr);
+        encoder.encode(&arr)
+    })]
+    #[case::nullable({
+        let arr = PrimitiveArray::from_option_iter([Some(1.1f32), None, Some(2.2), Some(3.3), None]);
+        let values = vec![1.1f32, 2.2, 3.3];
+        let encoder = RDEncoder::new(&values);
+        encoder.encode(&arr)
+    })]
+    fn test_cast_alprd_conformance(#[case] alprd: crate::alp_rd::ALPRDArray) {
         test_cast_conformance(alprd.as_ref());
     }
 }

@@ -46,6 +46,7 @@ register_kernel!(CastKernelAdapter(DecimalBytePartsVTable).lift());
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::cast;
@@ -96,54 +97,29 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[test]
-    fn test_cast_decimal_byte_parts_conformance_i32() {
-        let array = DecimalBytePartsArray::try_new(
-            PrimitiveArray::from_iter([100i32, 200, 300, 400, 500]).into_array(),
-            DecimalDType::new(10, 2),
-        )
-        .unwrap();
-        test_cast_conformance(array.as_ref());
-    }
-
-    #[test]
-    fn test_cast_decimal_byte_parts_conformance_i64() {
-        let array = DecimalBytePartsArray::try_new(
-            PrimitiveArray::from_iter([1000i64, 2000, 3000, 4000]).into_array(),
-            DecimalDType::new(19, 4),
-        )
-        .unwrap();
-        test_cast_conformance(array.as_ref());
-    }
-
-    #[test]
-    fn test_cast_decimal_byte_parts_conformance_nullable() {
-        let array = DecimalBytePartsArray::try_new(
-            PrimitiveArray::from_option_iter([Some(100i32), None, Some(300), Some(400), None])
-                .into_array(),
-            DecimalDType::new(10, 2),
-        )
-        .unwrap();
-        test_cast_conformance(array.as_ref());
-    }
-
-    #[test]
-    fn test_cast_decimal_byte_parts_conformance_single() {
-        let array = DecimalBytePartsArray::try_new(
-            PrimitiveArray::from_iter([42i32]).into_array(),
-            DecimalDType::new(5, 1),
-        )
-        .unwrap();
-        test_cast_conformance(array.as_ref());
-    }
-
-    #[test]
-    fn test_cast_decimal_byte_parts_conformance_negative() {
-        let array = DecimalBytePartsArray::try_new(
-            PrimitiveArray::from_iter([-100i32, -200, 300, -400, 500]).into_array(),
-            DecimalDType::new(10, 2),
-        )
-        .unwrap();
+    #[rstest]
+    #[case::i32(DecimalBytePartsArray::try_new(
+        PrimitiveArray::from_iter([100i32, 200, 300, 400, 500]).into_array(),
+        DecimalDType::new(10, 2),
+    ).unwrap())]
+    #[case::i64(DecimalBytePartsArray::try_new(
+        PrimitiveArray::from_iter([1000i64, 2000, 3000, 4000]).into_array(),
+        DecimalDType::new(19, 4),
+    ).unwrap())]
+    #[case::nullable(DecimalBytePartsArray::try_new(
+        PrimitiveArray::from_option_iter([Some(100i32), None, Some(300), Some(400), None])
+            .into_array(),
+        DecimalDType::new(10, 2),
+    ).unwrap())]
+    #[case::single(DecimalBytePartsArray::try_new(
+        PrimitiveArray::from_iter([42i32]).into_array(),
+        DecimalDType::new(5, 1),
+    ).unwrap())]
+    #[case::negative(DecimalBytePartsArray::try_new(
+        PrimitiveArray::from_iter([-100i32, -200, 300, -400, 500]).into_array(),
+        DecimalDType::new(10, 2),
+    ).unwrap())]
+    fn test_cast_decimal_byte_parts_conformance(#[case] array: DecimalBytePartsArray) {
         test_cast_conformance(array.as_ref());
     }
 }

@@ -6883,6 +6883,7 @@ dependencies = [
  "half",
  "pco",
  "prost 0.14.1",
+ "rstest",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
@@ -7064,6 +7065,7 @@ name = "vortex-zstd"
 version = "0.1.0"
 dependencies = [
  "prost 0.14.1",
+ "rstest",
  "vortex-array",
  "vortex-buffer",
  "vortex-dict",

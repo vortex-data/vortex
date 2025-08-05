@@ -44,6 +44,7 @@ register_kernel!(CastKernelAdapter(ZstdVTable).lift());
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
@@ -93,42 +94,24 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_cast_zstd_conformance_i32() {
-        let values = PrimitiveArray::new(
-            Buffer::copy_from(vec![100i32, 200, 300, 400, 500]),
-            vortex_array::validity::Validity::NonNullable,
-        );
-        let zstd = ZstdArray::from_primitive(&values, 0, 0).unwrap();
-        test_cast_conformance(zstd.as_ref());
-    }
-
-    #[test]
-    fn test_cast_zstd_conformance_f64() {
-        let values = PrimitiveArray::new(
-            Buffer::copy_from(vec![1.1f64, 2.2, 3.3, 4.4, 5.5]),
-            vortex_array::validity::Validity::NonNullable,
-        );
-        let zstd = ZstdArray::from_primitive(&values, 0, 0).unwrap();
-        test_cast_conformance(zstd.as_ref());
-    }
-
-    #[test]
-    fn test_cast_zstd_conformance_single() {
-        let values = PrimitiveArray::new(
-            Buffer::copy_from(vec![42i64]),
-            vortex_array::validity::Validity::NonNullable,
-        );
-        let zstd = ZstdArray::from_primitive(&values, 0, 0).unwrap();
-        test_cast_conformance(zstd.as_ref());
-    }
-
-    #[test]
-    fn test_cast_zstd_conformance_large() {
-        let values = PrimitiveArray::new(
-            Buffer::copy_from((0..1000).map(|i| i as u32).collect::<Vec<_>>()),
-            vortex_array::validity::Validity::NonNullable,
-        );
+    #[rstest]
+    #[case::i32(PrimitiveArray::new(
+        Buffer::copy_from(vec![100i32, 200, 300, 400, 500]),
+        vortex_array::validity::Validity::NonNullable,
+    ))]
+    #[case::f64(PrimitiveArray::new(
+        Buffer::copy_from(vec![1.1f64, 2.2, 3.3, 4.4, 5.5]),
+        vortex_array::validity::Validity::NonNullable,
+    ))]
+    #[case::single(PrimitiveArray::new(
+        Buffer::copy_from(vec![42i64]),
+        vortex_array::validity::Validity::NonNullable,
+    ))]
+    #[case::large(PrimitiveArray::new(
+        Buffer::copy_from((0..1000).map(|i| i as u32).collect::<Vec<_>>()),
+        vortex_array::validity::Validity::NonNullable,
+    ))]
+    fn test_cast_zstd_conformance(#[case] values: PrimitiveArray) {
         let zstd = ZstdArray::from_primitive(&values, 0, 0).unwrap();
         test_cast_conformance(zstd.as_ref());
     }

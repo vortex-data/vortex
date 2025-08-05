@@ -87,6 +87,7 @@ register_kernel!(CastKernelAdapter(SequenceVTable).lift());
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
     use vortex_dtype::{DType, Nullability, PType};
@@ -145,41 +146,18 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_cast_sequence_conformance_i32() {
-        let sequence = SequenceArray::typed_new(0i32, 1i32, Nullability::NonNullable, 5).unwrap();
-        test_cast_conformance(sequence.as_ref());
-    }
-
-    #[test]
-    fn test_cast_sequence_conformance_u64() {
-        let sequence =
-            SequenceArray::typed_new(1000u64, 100u64, Nullability::NonNullable, 4).unwrap();
-        test_cast_conformance(sequence.as_ref());
-    }
-
-    #[test]
-    fn test_cast_sequence_conformance_negative_step() {
-        let sequence =
-            SequenceArray::typed_new(100i32, -10i32, Nullability::NonNullable, 5).unwrap();
-        test_cast_conformance(sequence.as_ref());
-    }
-
-    #[test]
-    fn test_cast_sequence_conformance_single() {
-        let sequence = SequenceArray::typed_new(42i64, 0i64, Nullability::NonNullable, 1).unwrap();
-        test_cast_conformance(sequence.as_ref());
-    }
-
-    #[test]
-    fn test_cast_sequence_conformance_constant() {
-        let sequence = SequenceArray::typed_new(
-            100i32,
-            0i32, // multiplier of 0 means constant array
-            Nullability::NonNullable,
-            5,
-        )
-        .unwrap();
+    #[rstest]
+    #[case::i32(SequenceArray::typed_new(0i32, 1i32, Nullability::NonNullable, 5).unwrap())]
+    #[case::u64(SequenceArray::typed_new(1000u64, 100u64, Nullability::NonNullable, 4).unwrap())]
+    #[case::negative_step(SequenceArray::typed_new(100i32, -10i32, Nullability::NonNullable, 5).unwrap())]
+    #[case::single(SequenceArray::typed_new(42i64, 0i64, Nullability::NonNullable, 1).unwrap())]
+    #[case::constant(SequenceArray::typed_new(
+        100i32,
+        0i32, // multiplier of 0 means constant array
+        Nullability::NonNullable,
+        5,
+    ).unwrap())]
+    fn test_cast_sequence_conformance(#[case] sequence: SequenceArray) {
         test_cast_conformance(sequence.as_ref());
     }
 }
