@@ -711,7 +711,7 @@ fn test_comparison_symmetry_consistency(array: &dyn Array) {
             "Symmetric comparisons should have same length"
         );
 
-        for i in 0..arr_gt_scalar.len().min(10) {
+        for i in 0..arr_gt_scalar.len() {
             let arr_gt = arr_gt_scalar.scalar_at(i).vortex_unwrap();
             let scalar_lt = scalar_lt_arr.scalar_at(i).vortex_unwrap();
             assert_eq!(
@@ -727,7 +727,7 @@ fn test_comparison_symmetry_consistency(array: &dyn Array) {
         compare(array, const_array.as_ref(), Operator::Eq),
         compare(const_array.as_ref(), array, Operator::Eq),
     ) {
-        for i in 0..arr_eq_scalar.len().min(10) {
+        for i in 0..arr_eq_scalar.len() {
             let arr_eq = arr_eq_scalar.scalar_at(i).vortex_unwrap();
             let scalar_eq = scalar_eq_arr.scalar_at(i).vortex_unwrap();
             assert_eq!(
