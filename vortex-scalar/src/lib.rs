@@ -42,6 +42,9 @@ mod round_trip_tests;
 #[cfg(test)]
 mod consistency_tests;
 
+#[cfg(test)]
+mod decimal_cast_tests;
+
 pub use bigint::*;
 pub use binary::*;
 pub use bool::*;
@@ -231,7 +234,7 @@ impl Scalar {
             DType::Null => unreachable!(), // handled by if is_null case
             DType::Bool(_) => self.as_bool().cast(target),
             DType::Primitive(..) => self.as_primitive().cast(target),
-            DType::Decimal(..) => todo!("(aduffy): implement DecimalScalar casting"),
+            DType::Decimal(..) => self.as_decimal().cast(target),
             DType::Utf8(_) => self.as_utf8().cast(target),
             DType::Binary(_) => self.as_binary().cast(target),
             DType::Struct(..) => self.as_struct().cast(target),

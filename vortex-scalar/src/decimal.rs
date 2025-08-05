@@ -6,8 +6,10 @@ use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 
-use vortex_dtype::{DType, DecimalDType, Nullability};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail};
+use num_traits::ToPrimitive as NumToPrimitive;
+
+use vortex_dtype::{DType, DecimalDType, Nullability, PType};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 use crate::scalar_value::InnerScalarValue;
 use crate::{BigCast, Scalar, ScalarValue, ToPrimitive, i256};
@@ -323,6 +325,129 @@ impl<'a> DecimalScalar<'a> {
     /// Returns the decimal value, or None if null.
     pub fn decimal_value(&self) -> &Option<DecimalValue> {
         &self.value
+    }
+
+    /// Cast decimal scalar to another data type.
+    pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
+        match dtype {
+            DType::Decimal(target_dtype, target_nullability) => {
+                // Cast between decimal types
+                if self.decimal_type == *target_dtype {
+                    // Same decimal type, just change nullability if needed
+                    return Ok(Scalar::new(
+                        dtype.clone(),
+                        ScalarValue(InnerScalarValue::Decimal(
+                            self.value.clone().unwrap_or(DecimalValue::I128(0)),
+                        )),
+                    ));
+                }
+                
+                // Different precision/scale - need to implement scaling logic
+                // For now, we'll do a simple value preservation without scaling
+                // TODO: Implement proper decimal scaling logic
+                if let Some(value) = &self.value {
+                    Ok(Scalar::decimal(
+                        value.clone(),
+                        *target_dtype,
+                        *target_nullability,
+                    ))
+                } else {
+                    Ok(Scalar::null(dtype.clone()))
+                }
+            }
+            DType::Primitive(ptype, nullability) => {
+                // Cast decimal to primitive type
+                if let Some(decimal_value) = &self.value {
+                    // Convert decimal value to primitive, accounting for scale
+                    let scale_factor = 10_i128.pow(self.decimal_type.scale() as u32);
+                    
+                    // Convert to i128 for calculation
+                    let scaled_value = match_each_decimal_value!(decimal_value, |v| {
+                        NumToPrimitive::to_i128(v).ok_or_else(|| 
+                            vortex_err!("Decimal value too large to cast to primitive")
+                        )
+                    })?;
+                    
+                    // Apply scale to get the actual value
+                    let actual_value = scaled_value as f64 / scale_factor as f64;
+                    
+                    // Cast to target primitive type
+                    use PType::*;
+                    let primitive_scalar = match ptype {
+                        U8 => {
+                            let v = actual_value as u8;
+                            if actual_value < 0.0 || actual_value > u8::MAX as f64 {
+                                vortex_bail!("Decimal value {} out of range for u8", actual_value);
+                            }
+                            Scalar::primitive(v, *nullability)
+                        }
+                        U16 => {
+                            let v = actual_value as u16;
+                            if actual_value < 0.0 || actual_value > u16::MAX as f64 {
+                                vortex_bail!("Decimal value {} out of range for u16", actual_value);
+                            }
+                            Scalar::primitive(v, *nullability)
+                        }
+                        U32 => {
+                            let v = actual_value as u32;
+                            if actual_value < 0.0 || actual_value > u32::MAX as f64 {
+                                vortex_bail!("Decimal value {} out of range for u32", actual_value);
+                            }
+                            Scalar::primitive(v, *nullability)
+                        }
+                        U64 => {
+                            let v = actual_value as u64;
+                            if actual_value < 0.0 || actual_value > u64::MAX as f64 {
+                                vortex_bail!("Decimal value {} out of range for u64", actual_value);
+                            }
+                            Scalar::primitive(v, *nullability)
+                        }
+                        I8 => {
+                            let v = actual_value as i8;
+                            if actual_value < i8::MIN as f64 || actual_value > i8::MAX as f64 {
+                                vortex_bail!("Decimal value {} out of range for i8", actual_value);
+                            }
+                            Scalar::primitive(v, *nullability)
+                        }
+                        I16 => {
+                            let v = actual_value as i16;
+                            if actual_value < i16::MIN as f64 || actual_value > i16::MAX as f64 {
+                                vortex_bail!("Decimal value {} out of range for i16", actual_value);
+                            }
+                            Scalar::primitive(v, *nullability)
+                        }
+                        I32 => {
+                            let v = actual_value as i32;
+                            if actual_value < i32::MIN as f64 || actual_value > i32::MAX as f64 {
+                                vortex_bail!("Decimal value {} out of range for i32", actual_value);
+                            }
+                            Scalar::primitive(v, *nullability)
+                        }
+                        I64 => {
+                            let v = actual_value as i64;
+                            if actual_value < i64::MIN as f64 || actual_value > i64::MAX as f64 {
+                                vortex_bail!("Decimal value {} out of range for i64", actual_value);
+                            }
+                            Scalar::primitive(v, *nullability)
+                        }
+                        F16 => {
+                            use vortex_dtype::half::f16;
+                            Scalar::primitive(f16::from_f64(actual_value), *nullability)
+                        }
+                        F32 => Scalar::primitive(actual_value as f32, *nullability),
+                        F64 => Scalar::primitive(actual_value, *nullability),
+                    };
+                    Ok(primitive_scalar)
+                } else {
+                    // Null decimal to primitive
+                    Ok(Scalar::null(dtype.clone()))
+                }
+            }
+            _ => vortex_bail!(
+                "Can't cast decimal scalar to {}",
+                dtype
+            ),
+        }
     }
 }
 
