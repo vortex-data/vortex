@@ -21,8 +21,6 @@ pub mod exporter;
 mod scan;
 mod utils;
 
-#[allow(clippy::suspicious_doc_comments)]
-#[allow(clippy::enum_variant_names)]
 #[rustfmt::skip]
 #[path = "./cpp.rs"]
 /// This module provides the FFI interface to our C++ code exposing additional functionality

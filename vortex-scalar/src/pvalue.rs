@@ -309,16 +309,18 @@ impl TryFrom<PValue> for f64 {
     type Error = VortexError;
 
     fn try_from(value: PValue) -> Result<Self, Self::Error> {
-        // We serialize f64 as u64, but this can also sometimes be narrowed down to u8 if e.g. == 0
         match value {
-            PValue::U8(u) => Some(Self::from_bits(u as u64)),
-            PValue::U16(u) => Some(Self::from_bits(u as u64)),
-            PValue::U32(u) => Some(Self::from_bits(u as u64)),
-            PValue::U64(u) => Some(Self::from_bits(u)),
+            PValue::U8(u) => <Self as NumCast>::from(u),
+            PValue::U16(u) => <Self as NumCast>::from(u),
+            PValue::U32(u) => <Self as NumCast>::from(u),
+            PValue::U64(u) => <Self as NumCast>::from(u),
+            PValue::I8(i) => <Self as NumCast>::from(i),
+            PValue::I16(i) => <Self as NumCast>::from(i),
+            PValue::I32(i) => <Self as NumCast>::from(i),
+            PValue::I64(i) => <Self as NumCast>::from(i),
             PValue::F16(f) => <Self as NumCast>::from(f),
             PValue::F32(f) => <Self as NumCast>::from(f),
             PValue::F64(f) => <Self as NumCast>::from(f),
-            _ => None,
         }
         .ok_or_else(|| vortex_err!("Cannot read primitive value {:?} as {}", value, PType::F64))
     }
@@ -329,17 +331,18 @@ impl TryFrom<PValue> for f32 {
 
     #[allow(clippy::cast_possible_truncation)]
     fn try_from(value: PValue) -> Result<Self, Self::Error> {
-        // We serialize f32 as u32, but this can also sometimes be narrowed down to u8 if e.g. == 0
         match value {
-            PValue::U8(u) => Some(Self::from_bits(u as u32)),
-            PValue::U16(u) => Some(Self::from_bits(u as u32)),
-            PValue::U32(u) => Some(Self::from_bits(u)),
-            // We assume that the value was created from a valid f16 and only changed in serialization
-            PValue::U64(u) => <Self as NumCast>::from(Self::from_bits(u as u32)),
+            PValue::U8(u) => <Self as NumCast>::from(u),
+            PValue::U16(u) => <Self as NumCast>::from(u),
+            PValue::U32(u) => <Self as NumCast>::from(u),
+            PValue::U64(u) => <Self as NumCast>::from(u),
+            PValue::I8(i) => <Self as NumCast>::from(i),
+            PValue::I16(i) => <Self as NumCast>::from(i),
+            PValue::I32(i) => <Self as NumCast>::from(i),
+            PValue::I64(i) => <Self as NumCast>::from(i),
             PValue::F16(f) => <Self as NumCast>::from(f),
             PValue::F32(f) => <Self as NumCast>::from(f),
             PValue::F64(f) => <Self as NumCast>::from(f),
-            _ => None,
         }
         .ok_or_else(|| vortex_err!("Cannot read primitive value {:?} as {}", value, PType::F32))
     }
@@ -350,17 +353,18 @@ impl TryFrom<PValue> for f16 {
 
     #[allow(clippy::cast_possible_truncation)]
     fn try_from(value: PValue) -> Result<Self, Self::Error> {
-        // We serialize f16 as u16, but this can also sometimes be narrowed down to u8 if e.g. == 0
         match value {
-            PValue::U8(u) => Some(Self::from_bits(u as u16)),
-            PValue::U16(u) => Some(Self::from_bits(u)),
-            // We assume that the value was created from a valid f16 and only changed in serialization
-            PValue::U32(u) => Some(Self::from_bits(u as u16)),
-            PValue::U64(u) => Some(Self::from_bits(u as u16)),
-            PValue::F16(u) => Some(u),
+            PValue::U8(u) => <Self as NumCast>::from(u),
+            PValue::U16(u) => <Self as NumCast>::from(u),
+            PValue::U32(u) => <Self as NumCast>::from(u),
+            PValue::U64(u) => <Self as NumCast>::from(u),
+            PValue::I8(i) => <Self as NumCast>::from(i),
+            PValue::I16(i) => <Self as NumCast>::from(i),
+            PValue::I32(i) => <Self as NumCast>::from(i),
+            PValue::I64(i) => <Self as NumCast>::from(i),
+            PValue::F16(f) => Some(f),
             PValue::F32(f) => <Self as NumCast>::from(f),
             PValue::F64(f) => <Self as NumCast>::from(f),
-            _ => None,
         }
         .ok_or_else(|| vortex_err!("Cannot read primitive value {:?} as {}", value, PType::F16))
     }

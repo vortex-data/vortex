@@ -268,10 +268,10 @@ impl Scalar {
     /// Note that an explicit PType is passed since any compatible PValue may be used as the value
     /// for a primitive type.
     pub fn primitive_value(value: PValue, ptype: PType, nullability: Nullability) -> Self {
-        Self {
-            dtype: DType::Primitive(ptype, nullability),
-            value: ScalarValue(InnerScalarValue::Primitive(value)),
-        }
+        Self::new(
+            DType::Primitive(ptype, nullability),
+            ScalarValue(InnerScalarValue::Primitive(value)),
+        )
     }
 
     /// Reinterprets the bytes of this scalar as a different primitive type.
@@ -341,10 +341,10 @@ macro_rules! primitive_scalar {
 
         impl From<$T> for Scalar {
             fn from(value: $T) -> Self {
-                Scalar {
-                    dtype: DType::Primitive(<$T>::PTYPE, Nullability::NonNullable),
-                    value: ScalarValue(InnerScalarValue::Primitive(value.into())),
-                }
+                Scalar::new(
+                    DType::Primitive(<$T>::PTYPE, Nullability::NonNullable),
+                    ScalarValue(InnerScalarValue::Primitive(value.into())),
+                )
             }
         }
     };
