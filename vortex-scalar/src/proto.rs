@@ -324,6 +324,29 @@ mod tests {
     }
 
     #[test]
+    fn test_backcompat_f16_serialized_as_u64() {
+        // Note that this is a backwards compatibility test for poor design in the previous implementation.
+        // Previously, f16 ScalarValues were serialized as `pb::ScalarValue::Uint64Value(v.to_bits() as u64)`.
+        let pb_scalar_value = pb::ScalarValue {
+            kind: Some(Kind::Uint64Value(f16::from_f32(0.42).to_bits() as u64)),
+        };
+        let scalar_value = ScalarValue::try_from(&pb_scalar_value).unwrap();
+        assert_eq!(
+            scalar_value.as_pvalue().unwrap(),
+            Some(PValue::U64(14008u64))
+        );
+
+        let scalar = Scalar::new(
+            DType::Primitive(PType::F16, Nullability::Nullable),
+            scalar_value,
+        );
+        assert_eq!(
+            scalar.value.as_pvalue().unwrap().unwrap(),
+            PValue::F16(f16::from_f32(0.42))
+        );
+    }
+
+    #[test]
     fn test_scalar_value_direct_roundtrip_f16() {
         // Test that ScalarValue with f16 roundtrips correctly without going through Scalar
         let f16_values = vec![
