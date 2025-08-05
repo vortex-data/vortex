@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use num_traits::ToBytes;
 use vortex_buffer::{BufferString, ByteBuffer};
-use vortex_dtype::{DType, PType, half::f16};
-use vortex_error::{VortexError, vortex_bail, vortex_err};
+use vortex_dtype::DType;
+use vortex_error::{VortexError, vortex_err};
 use vortex_proto::scalar as pb;
 use vortex_proto::scalar::ListValue;
 use vortex_proto::scalar::scalar_value::Kind;
@@ -124,25 +124,7 @@ impl TryFrom<&pb::Scalar> for Scalar {
                 .ok_or_else(|| vortex_err!(InvalidSerde: "Scalar missing value"))?,
         )?;
 
-        let value = if matches!(dtype, DType::Primitive(PType::F16, _)) {
-            let pvalue = value
-                .as_pvalue()?
-                .ok_or_else(|| vortex_err!("Invalid F16 value: {value:?}"))?;
-            let f16_value =
-                match pvalue {
-                    PValue::U64(v) => f16::from_bits(u16::try_from(v).map_err(|_| {
-                        vortex_err!("F16 serialized as u64, value out of range: {v}")
-                    })?),
-                    PValue::F16(v) => v,
-                    _ => vortex_bail!("Invalid F16 value: {value:?}"),
-                };
-
-            ScalarValue(InnerScalarValue::Primitive(PValue::F16(f16_value)))
-        } else {
-            value
-        };
-
-        Ok(Self { dtype, value })
+        Ok(Scalar::new(dtype, value))
     }
 }
 
@@ -190,7 +172,7 @@ mod tests {
     use vortex_proto::scalar as pb;
 
     use super::*;
-    use crate::{InnerScalarValue, PValue, Scalar, ScalarValue, i256};
+    use crate::{InnerScalarValue, Scalar, ScalarValue, i256};
 
     fn round_trip(scalar: Scalar) {
         assert_eq!(
@@ -257,12 +239,7 @@ mod tests {
 
     #[test]
     fn test_f16() {
-        round_trip(Scalar::new(
-            DType::Primitive(PType::F16, Nullability::Nullable),
-            ScalarValue(InnerScalarValue::Primitive(PValue::F16(f16::from_f32(
-                0.42,
-            )))),
-        ));
+        round_trip(Scalar::primitive(f16::from_f32(0.42), Nullability::Nullable));
     }
 
     #[test]

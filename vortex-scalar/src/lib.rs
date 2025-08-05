@@ -16,7 +16,7 @@ use std::sync::Arc;
 pub use scalar_type::ScalarType;
 use vortex_buffer::{Buffer, BufferString, ByteBuffer};
 use vortex_dtype::half::f16;
-use vortex_dtype::{DECIMAL128_MAX_PRECISION, DType, Nullability};
+use vortex_dtype::{DECIMAL128_MAX_PRECISION, DType, Nullability, PType};
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
 mod arrow;
@@ -47,7 +47,7 @@ pub use pvalue::*;
 pub use scalar_value::*;
 pub use struct_::*;
 pub use utf8::*;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 /// A single logical item, composed of both a [`ScalarValue`] and a logical [`DType`].
 ///
@@ -66,10 +66,91 @@ pub struct Scalar {
 impl Scalar {
     /// Creates a new scalar with the given data type and value.
     ///
-    /// FIXME(ngates): this is unchecked... we don't know that the scalar value is compatible
-    ///  with the data type.
+    /// This function performs type coercion when necessary to ensure the value matches
+    /// the expected data type. This is particularly important for backwards compatibility
+    /// with serialized scalars where floating point values may have been stored as integers.
     pub fn new(dtype: DType, value: ScalarValue) -> Self {
-        Self { dtype, value }
+        // Unwrap is safe here because coerce_value only returns errors for invalid u64 to u16 conversions
+        let coerced_value = match Self::coerce_value(&dtype, value.clone()) {
+            Ok(coerced) => coerced,
+            Err(_) => value,
+        };
+        Self {
+            dtype,
+            value: coerced_value,
+        }
+    }
+
+    /// Coerces a scalar value to match the expected data type.
+    ///
+    /// This handles cases where:
+    /// - Floating point values were serialized as their bit representation
+    /// - Struct fields need recursive coercion
+    /// - List elements need recursive coercion
+    fn coerce_value(dtype: &DType, value: ScalarValue) -> VortexResult<ScalarValue> {
+        match (dtype, &value.0) {
+            // Handle primitive type coercion
+            (DType::Primitive(ptype, _), InnerScalarValue::Primitive(pvalue)) => {
+                match (ptype, pvalue) {
+                    // F16 coercion from integer types (backwards compatibility)
+                    (PType::F16, PValue::U64(v)) if *v <= u16::MAX as u64 => {
+                        Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F16(
+                            f16::from_bits(u16::try_from(*v).map_err(|_| {
+                                vortex_err!(
+                                    "bit representation of f16 has more than 16 bits: {}",
+                                    v
+                                )
+                            })?),
+                        ))))
+                    }
+                    (PType::F16, PValue::U32(v)) if *v <= u16::MAX as u32 => Ok(ScalarValue(
+                        InnerScalarValue::Primitive(PValue::F16(f16::from_bits(*v as u16))),
+                    )),
+                    (PType::F16, PValue::U16(v)) => Ok(ScalarValue(InnerScalarValue::Primitive(
+                        PValue::F16(f16::from_bits(*v)),
+                    ))),
+                    (PType::F16, PValue::U8(v)) => Ok(ScalarValue(InnerScalarValue::Primitive(
+                        PValue::F16(f16::from_bits(*v as u16)),
+                    ))),
+                    // F32 coercion from integer types (backwards compatibility)
+                    (PType::F32, PValue::U64(v)) if *v <= u32::MAX as u64 => Ok(ScalarValue(
+                        InnerScalarValue::Primitive(PValue::F32(f32::from_bits(*v as u32))),
+                    )),
+                    (PType::F32, PValue::U32(v)) => Ok(ScalarValue(InnerScalarValue::Primitive(
+                        PValue::F32(f32::from_bits(*v)),
+                    ))),
+                    // F64 coercion from integer types (backwards compatibility)
+                    (PType::F64, PValue::U64(v)) => Ok(ScalarValue(InnerScalarValue::Primitive(
+                        PValue::F64(f64::from_bits(*v)),
+                    ))),
+                    // No coercion needed
+                    _ => Ok(value),
+                }
+            }
+            // Handle struct coercion - recursively coerce fields
+            (DType::Struct(struct_fields, _), InnerScalarValue::List(field_values)) => {
+                let coerced_fields: Result<Vec<ScalarValue>, _> = struct_fields
+                    .fields()
+                    .zip(field_values.iter())
+                    .map(|(field_dtype, field_value)| {
+                        Self::coerce_value(&field_dtype, field_value.clone())
+                    })
+                    .collect();
+                Ok(ScalarValue(InnerScalarValue::List(coerced_fields?.into())))
+            }
+            // Handle list coercion - recursively coerce elements
+            (DType::List(elem_dtype, _), InnerScalarValue::List(elements)) => {
+                let coerced_elements: Result<Vec<ScalarValue>, _> = elements
+                    .iter()
+                    .map(|elem| Self::coerce_value(elem_dtype, elem.clone()))
+                    .collect();
+                Ok(ScalarValue(InnerScalarValue::List(
+                    coerced_elements?.into(),
+                )))
+            }
+            // No coercion needed for other types
+            _ => Ok(value),
+        }
     }
 
     /// Returns a reference to the scalar's data type.
@@ -497,13 +578,13 @@ from_vec_for_scalar!(BufferString);
 from_vec_for_scalar!(ByteBuffer);
 
 #[cfg(test)]
-mod test {
-    use std::sync::Arc;
-
-    use rstest::rstest;
-    use vortex_dtype::{DType, ExtDType, ExtID, Nullability, PType};
-
+#[allow(clippy::panic)]
+mod tests {
     use crate::{InnerScalarValue, PValue, Scalar, ScalarValue};
+    use rstest::rstest;
+    use std::sync::Arc;
+    use vortex_dtype::half::f16;
+    use vortex_dtype::{DType, ExtDType, ExtID, FieldDType, Nullability, PType, StructFields};
 
     #[rstest]
     fn null_can_cast_to_anything_nullable(
@@ -712,5 +793,234 @@ mod test {
 
         let c_field = scalar.field("c").unwrap();
         assert!(c_field.is_null());
+    }
+
+    #[test]
+    fn test_f16_coercion_from_u64() {
+        let f16_value = f16::from_f32(5.722046e-6);
+        let u64_bits = f16_value.to_bits() as u64;
+
+        let scalar = Scalar::new(
+            DType::Primitive(PType::F16, Nullability::NonNullable),
+            ScalarValue(InnerScalarValue::Primitive(PValue::U64(u64_bits))),
+        );
+
+        match scalar.value() {
+            ScalarValue(InnerScalarValue::Primitive(PValue::F16(v))) => {
+                assert_eq!(*v, f16_value);
+            }
+            _ => panic!("Expected F16 value after coercion"),
+        }
+    }
+
+    #[test]
+    fn test_f16_coercion_from_u32() {
+        let f16_value = f16::from_f32(0.42);
+        let u32_bits = f16_value.to_bits() as u32;
+
+        let scalar = Scalar::new(
+            DType::Primitive(PType::F16, Nullability::NonNullable),
+            ScalarValue(InnerScalarValue::Primitive(PValue::U32(u32_bits))),
+        );
+
+        match scalar.value() {
+            ScalarValue(InnerScalarValue::Primitive(PValue::F16(v))) => {
+                assert_eq!(*v, f16_value);
+            }
+            _ => panic!("Expected F16 value after coercion"),
+        }
+    }
+
+    #[test]
+    fn test_f16_coercion_from_u16() {
+        let f16_value = f16::from_f32(1.5);
+        let u16_bits = f16_value.to_bits();
+
+        let scalar = Scalar::new(
+            DType::Primitive(PType::F16, Nullability::NonNullable),
+            ScalarValue(InnerScalarValue::Primitive(PValue::U16(u16_bits))),
+        );
+
+        match scalar.value() {
+            ScalarValue(InnerScalarValue::Primitive(PValue::F16(v))) => {
+                assert_eq!(*v, f16_value);
+            }
+            _ => panic!("Expected F16 value after coercion"),
+        }
+    }
+
+    #[test]
+    fn test_f32_coercion_from_u32() {
+        let f32_value = std::f32::consts::PI;
+        let u32_bits = f32_value.to_bits();
+
+        let scalar = Scalar::new(
+            DType::Primitive(PType::F32, Nullability::NonNullable),
+            ScalarValue(InnerScalarValue::Primitive(PValue::U32(u32_bits))),
+        );
+
+        match scalar.value() {
+            ScalarValue(InnerScalarValue::Primitive(PValue::F32(v))) => {
+                assert_eq!(*v, f32_value);
+            }
+            _ => panic!("Expected F32 value after coercion"),
+        }
+    }
+
+    #[test]
+    fn test_f64_coercion_from_u64() {
+        let f64_value = std::f64::consts::E;
+        let u64_bits = f64_value.to_bits();
+
+        let scalar = Scalar::new(
+            DType::Primitive(PType::F64, Nullability::NonNullable),
+            ScalarValue(InnerScalarValue::Primitive(PValue::U64(u64_bits))),
+        );
+
+        match scalar.value() {
+            ScalarValue(InnerScalarValue::Primitive(PValue::F64(v))) => {
+                assert_eq!(*v, f64_value);
+            }
+            _ => panic!("Expected F64 value after coercion"),
+        }
+    }
+
+    #[test]
+    fn test_struct_field_coercion() {
+        let f16_value = f16::from_f32(0.42);
+        let f32_value = 3.14f32;
+
+        let struct_dtype = DType::Struct(
+            StructFields::from_iter([
+                (
+                    "a",
+                    FieldDType::from(DType::Primitive(PType::U32, Nullability::NonNullable)),
+                ),
+                (
+                    "b",
+                    FieldDType::from(DType::Primitive(PType::F16, Nullability::NonNullable)),
+                ),
+                (
+                    "c",
+                    FieldDType::from(DType::Primitive(PType::F32, Nullability::NonNullable)),
+                ),
+            ]),
+            Nullability::NonNullable,
+        );
+
+        let field_values = vec![
+            ScalarValue(InnerScalarValue::Primitive(PValue::U32(42))),
+            ScalarValue(InnerScalarValue::Primitive(PValue::U64(
+                f16_value.to_bits() as u64,
+            ))),
+            ScalarValue(InnerScalarValue::Primitive(PValue::U32(
+                f32_value.to_bits(),
+            ))),
+        ];
+
+        let scalar = Scalar::new(
+            struct_dtype,
+            ScalarValue(InnerScalarValue::List(field_values.into())),
+        );
+
+        let struct_scalar = scalar.as_struct();
+        let fields = struct_scalar.fields().unwrap();
+
+        // Check first field (no coercion needed)
+        match fields[0].value() {
+            ScalarValue(InnerScalarValue::Primitive(PValue::U32(v))) => {
+                assert_eq!(*v, 42);
+            }
+            _ => panic!("Expected U32 value for field 'a'"),
+        }
+
+        // Check second field (f16 coerced from u64)
+        match fields[1].value() {
+            ScalarValue(InnerScalarValue::Primitive(PValue::F16(v))) => {
+                assert_eq!(*v, f16_value);
+            }
+            _ => panic!("Expected F16 value for field 'b' after coercion"),
+        }
+
+        // Check third field (f32 coerced from u32)
+        match fields[2].value() {
+            ScalarValue(InnerScalarValue::Primitive(PValue::F32(v))) => {
+                assert_eq!(*v, f32_value);
+            }
+            _ => panic!("Expected F32 value for field 'c' after coercion"),
+        }
+    }
+
+    #[test]
+    fn test_no_coercion_for_matching_types() {
+        // Test that when types already match, no coercion happens
+        let i32_value = 42i32;
+        let scalar = Scalar::new(
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            ScalarValue(InnerScalarValue::Primitive(PValue::I32(i32_value))),
+        );
+
+        match scalar.value() {
+            ScalarValue(InnerScalarValue::Primitive(PValue::I32(v))) => {
+                assert_eq!(*v, i32_value);
+            }
+            _ => panic!("Expected I32 value"),
+        }
+    }
+
+    #[test]
+    fn test_list_element_coercion() {
+        let f16_value1 = f16::from_f32(1.0);
+        let f16_value2 = f16::from_f32(2.0);
+
+        let list_dtype = DType::List(
+            Arc::new(DType::Primitive(PType::F16, Nullability::NonNullable)),
+            Nullability::NonNullable,
+        );
+
+        let elements = vec![
+            ScalarValue(InnerScalarValue::Primitive(PValue::U16(
+                f16_value1.to_bits(),
+            ))),
+            ScalarValue(InnerScalarValue::Primitive(PValue::U16(
+                f16_value2.to_bits(),
+            ))),
+        ];
+
+        let scalar = Scalar::new(
+            list_dtype,
+            ScalarValue(InnerScalarValue::List(elements.into())),
+        );
+
+        let list_scalar = scalar.as_list();
+        let elements = list_scalar.elements().unwrap();
+
+        for (i, expected) in [f16_value1, f16_value2].iter().enumerate() {
+            match elements[i].value() {
+                ScalarValue(InnerScalarValue::Primitive(PValue::F16(v))) => {
+                    assert_eq!(v, expected, "Element {} mismatch", i);
+                }
+                _ => panic!("Expected F16 value for element {} after coercion", i),
+            }
+        }
+    }
+
+    #[test]
+    fn test_coercion_with_overflow_protection() {
+        // Test that values too large for target type are not coerced
+        let large_u64 = u64::MAX;
+
+        // This should NOT be coerced to F16 because it's too large
+        let scalar = Scalar::new(
+            DType::Primitive(PType::F16, Nullability::NonNullable),
+            ScalarValue(InnerScalarValue::Primitive(PValue::U64(large_u64))),
+        );
+
+        match scalar.value() {
+            ScalarValue(InnerScalarValue::Primitive(PValue::U64(v))) => {
+                assert_eq!(*v, large_u64);
+            }
+            _ => panic!("Expected U64 value to remain unchanged when too large for F16"),
+        }
     }
 }
