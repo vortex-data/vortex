@@ -175,6 +175,7 @@ mod tests {
     use vortex_buffer::BufferString;
     use vortex_dtype::half::f16;
     use vortex_dtype::{DType, DecimalDType, FieldDType, Nullability, PType, StructFields};
+    use vortex_error::vortex_panic;
     use vortex_proto::scalar as pb;
 
     use super::*;
@@ -353,14 +354,14 @@ mod tests {
                     }
                     assert_eq!(
                         original, roundtripped,
-                        "F16 value {} did not roundtrip correctly",
-                        original
+                        "F16 value {original:?} did not roundtrip correctly"
                     );
                 }
-                _ => panic!(
-                    "Expected f16 primitive values, got {:?} and {:?}",
-                    scalar_value, read_back
-                ),
+                _ => {
+                    vortex_panic!(
+                        "Expected f16 primitive values, got {scalar_value:?} and {read_back:?}"
+                    )
+                }
             }
         }
     }
@@ -417,12 +418,11 @@ mod tests {
             let written = value.to_protobytes::<Vec<u8>>();
             let read_back = ScalarValue::from_protobytes(&written).unwrap();
 
-            let original_debug = format!("{:?}", value);
-            let roundtrip_debug = format!("{:?}", read_back);
+            let original_debug = format!("{value:?}");
+            let roundtrip_debug = format!("{read_back:?}");
             assert_eq!(
                 original_debug, roundtrip_debug,
-                "ScalarValue {} did not roundtrip exactly",
-                name
+                "ScalarValue {name} did not roundtrip exactly"
             );
         }
 
@@ -454,14 +454,12 @@ mod tests {
                 InnerScalarValue::Primitive(PValue::U64(v)) => {
                     assert_eq!(
                         *v, expected,
-                        "ScalarValue {} value not preserved: expected {}, got {}",
-                        name, expected, v
+                        "ScalarValue {name} value not preserved: expected {expected}, got {v}"
                     );
                 }
-                _ => panic!(
-                    "Unexpected type after roundtrip for {}: {:?}",
-                    name, read_back
-                ),
+                _ => {
+                    vortex_panic!("Unexpected type after roundtrip for {name}: {read_back:?}")
+                }
             }
         }
 
@@ -492,14 +490,12 @@ mod tests {
                 InnerScalarValue::Primitive(PValue::I64(v)) => {
                     assert_eq!(
                         *v, expected,
-                        "ScalarValue {} value not preserved: expected {}, got {}",
-                        name, expected, v
+                        "ScalarValue {name} value not preserved: expected {expected}, got {v}"
                     );
                 }
-                _ => panic!(
-                    "Unexpected type after roundtrip for {}: {:?}",
-                    name, read_back
-                ),
+                _ => {
+                    vortex_panic!("Unexpected type after roundtrip for {name}: {read_back:?}")
+                }
             }
         }
     }
