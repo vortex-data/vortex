@@ -53,14 +53,14 @@ fn sum_int<T: NativePType + PrimInt + FromPrimitiveOrF16>(
     Ok(Some(result))
 }
 
-fn sum_float(chunks: &[ArrayRef]) -> VortexResult<Option<f64>> {
+fn sum_float(chunks: &[ArrayRef]) -> VortexResult<f64> {
     let mut result = 0f64;
     for chunk in chunks {
         if let Some(chunk_sum) = sum(chunk)?.as_primitive().as_::<f64>()? {
             result += chunk_sum;
         };
     }
-    Ok(Some(result))
+    Ok(result)
 }
 
 #[cfg(test)]
