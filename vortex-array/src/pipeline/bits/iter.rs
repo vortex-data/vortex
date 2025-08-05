@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::N;
+use crate::pipeline::N;
 use arrow_buffer::BooleanBuffer;
 use arrow_buffer::bit_chunk_iterator::BitChunkIterator;
 use bitvec::order::Msb0;

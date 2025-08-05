@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::bits::{BitMask, BitMaskView, BitVector};
-use crate::encodings::{BindContext, Encoding, Evaluation, EvaluationContext};
-use crate::view_mut::{Selection, Vector};
+use crate::pipeline::bits::{BitMask, BitMaskView, BitVector};
+use crate::pipeline::encodings::{BindContext, Encoding, Evaluation, EvaluationContext};
+use crate::pipeline::view_mut::{Selection, Vector};
 use bitvec::array::BitArray;
 use std::ops::BitAnd;
 use std::task::{Poll, ready};

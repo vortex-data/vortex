@@ -6339,9 +6339,11 @@ dependencies = [
  "arrow-schema",
  "arrow-select",
  "arrow-string",
+ "bitvec",
  "cfg-if",
  "codspeed-divan-compat",
  "enum-iterator",
+ "fastlanes",
  "flatbuffers",
  "futures-util",
  "getrandom 0.3.3",
@@ -6350,6 +6352,7 @@ dependencies = [
  "inventory",
  "itertools 0.14.0",
  "log",
+ "mimalloc",
  "multiversion",
  "num-traits",
  "num_enum",
@@ -6364,6 +6367,7 @@ dependencies = [
  "serde",
  "static_assertions",
  "tabled",
+ "vortex",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
@@ -7044,27 +7048,6 @@ name = "vortex-utils"
 version = "0.1.0"
 dependencies = [
  "hashbrown 0.15.4",
-]
-
-[[package]]
-name = "vortex-vector"
-version = "0.1.0"
-dependencies = [
- "arrow-buffer",
- "bitvec",
- "codspeed-divan-compat",
- "fastlanes",
- "itertools 0.14.0",
- "mimalloc",
- "rand 0.9.2",
- "vortex",
- "vortex-array",
- "vortex-buffer",
- "vortex-dtype",
- "vortex-error",
- "vortex-mask",
- "vortex-scalar",
- "vortex-utils",
 ]
 
 [[package]]

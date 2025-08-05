@@ -28,8 +28,10 @@ arrow-ord = { workspace = true }
 arrow-schema = { workspace = true }
 arrow-select = { workspace = true }
 arrow-string = { workspace = true }
+bitvec = { workspace = true }
 cfg-if = { workspace = true }
 enum-iterator = { workspace = true }
+fastlanes = { workspace = true }
 flatbuffers = { workspace = true }
 futures-util = { workspace = true }
 getrandom_v03 = { workspace = true }
@@ -74,7 +76,10 @@ test-harness = ["dep:goldenfile", "dep:rstest", "dep:rstest_reuse"]
 
 [dev-dependencies]
 divan = { workspace = true }
+mimalloc = { workspace = true }
+rand = { workspace = true }
 rstest = { workspace = true }
+vortex = { workspace = true }
 vortex-array = { path = ".", features = ["test-harness"] }
 
 [[bench]]
@@ -100,3 +105,9 @@ harness = false
 [[bench]]
 name = "chunk_array_builder"
 harness = false
+
+
+[[bench]]
+name = "pipeline_bitpacking"
+harness = false
+test = false

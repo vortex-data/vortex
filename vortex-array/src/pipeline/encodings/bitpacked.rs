@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::N;
-use crate::bits::BitView;
-use crate::buffers::BufferHandle;
-use crate::encodings::{BindContext, Encoding};
-use crate::pipeline::{Pipeline, PipelineContext};
-use crate::selection::Selection;
-use crate::view::{Canonical, ViewMut};
+use crate::pipeline::N;
+use crate::pipeline::bits::BitView;
+use crate::pipeline::buffers::BufferHandle;
+use crate::pipeline::encodings::{BindContext, Encoding};
+use crate::pipeline::pipeline::{Pipeline, PipelineContext};
+use crate::pipeline::selection::Selection;
+use crate::pipeline::view::{Canonical, ViewMut};
 use fastlanes::{BitPacking, FastLanes};
 use std::task::{Poll, ready};
 use vortex_dtype::{PhysicalPType, match_each_integer_ptype};

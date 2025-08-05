@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::bits::BitView;
-use crate::buffers::BufferId;
-use crate::view::ViewMut;
+use crate::pipeline::bits::BitView;
+use crate::pipeline::buffers::BufferId;
+use crate::pipeline::view::ViewMut;
 use std::ops::Range;
 use std::task::Poll;
 use vortex_buffer::ByteBuffer;

@@ -55,17 +55,17 @@
 
 mod flatten;
 
-use crate::N;
-use crate::selection::Selection;
-use vortex_array::ArrayRef;
-use vortex_array::arrays::BinaryView;
+use crate::ArrayRef;
+use crate::arrays::BinaryView;
+use crate::pipeline::N;
+use crate::pipeline::selection::Selection;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PType};
 use vortex_error::VortexExpect;
 
-use crate::bits::BitVector;
-use crate::bits::BitViewMut;
+use crate::pipeline::bits::BitVector;
+use crate::pipeline::bits::BitViewMut;
 
 /// A vector is the atomic unit of canonical data in Vortex.
 ///

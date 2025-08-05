@@ -4,8 +4,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::N;
-use crate::bits::{BitView, BitViewMut};
+use crate::pipeline::N;
+use crate::pipeline::bits::{BitView, BitViewMut};
 use bitvec::array::BitArray;
 use bitvec::order::Msb0;
 use std::ops::Not;

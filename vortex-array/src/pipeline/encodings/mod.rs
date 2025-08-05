@@ -6,8 +6,8 @@ pub mod bitpacked;
 // pub mod primitive;
 // pub mod validity;
 
-use crate::pipeline::Pipeline;
-use vortex_array::stats::StatsSet;
+use crate::pipeline::pipeline::Pipeline;
+use crate::stats::StatsSet;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 

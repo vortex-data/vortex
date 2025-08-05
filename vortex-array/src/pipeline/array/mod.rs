@@ -4,10 +4,10 @@
 // mod bool;
 mod primitive;
 
-use crate::array::primitive::export_primitive;
-use crate::encodings::Encoding;
-use vortex_array::Canonical;
-use vortex_array::stats::StatsSet;
+use crate::Canonical;
+use crate::pipeline::array::primitive::export_primitive;
+use crate::pipeline::encodings::Encoding;
+use crate::stats::StatsSet;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;

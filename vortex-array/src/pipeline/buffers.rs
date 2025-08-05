@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::pipeline::PipelineContext;
+use crate::pipeline::pipeline::PipelineContext;
 use std::ops::Deref;
 use std::sync::atomic::AtomicUsize;
 use std::task::{Poll, ready};

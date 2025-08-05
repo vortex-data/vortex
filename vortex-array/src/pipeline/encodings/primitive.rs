@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::N;
-use crate::bits::BitMask;
-use crate::buffers::{BufferHandle, ByteBufferHandle};
-use crate::encodings::{BindContext, Encoding, Evaluation, EvaluationContext};
-use crate::selection::Selection;
-use crate::view_mut::ViewMut;
+use crate::pipeline::N;
+use crate::pipeline::bits::BitMask;
+use crate::pipeline::buffers::{BufferHandle, ByteBufferHandle};
+use crate::pipeline::encodings::{BindContext, Encoding, Evaluation, EvaluationContext};
+use crate::pipeline::selection::Selection;
+use crate::pipeline::view_mut::ViewMut;
 use std::task::{Poll, ready};
 use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::VortexResult;

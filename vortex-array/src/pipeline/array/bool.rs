@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::N;
-use crate::array::Array;
-use crate::bits::BitVector;
-use crate::encodings::BindContext;
-use crate::view_mut::ViewMut;
+use crate::arrays::BoolArray;
+use crate::pipeline::N;
+use crate::pipeline::array::Array;
+use crate::pipeline::bits::BitVector;
+use crate::pipeline::encodings::BindContext;
+use crate::pipeline::view_mut::ViewMut;
+use crate::validity::Validity;
 use arrow_buffer::BooleanBuffer;
 use bitvec::order::Msb0;
 use bitvec::vec::BitVec;
 use std::task::Poll;
-use vortex_array::arrays::BoolArray;
-use vortex_array::validity::Validity;
 use vortex_error::{VortexResult, vortex_panic};
 
 /// Utility for exporting an encoding into a canonical boolean array.

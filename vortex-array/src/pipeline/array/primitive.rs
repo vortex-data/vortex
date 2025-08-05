@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::N;
-use crate::array::Array;
-use crate::bits::{BitView, BooleanBufferChunksIter};
-use crate::encodings::BindContext;
-use crate::view::{Canonical, ViewMut};
+use crate::arrays::PrimitiveArray;
+use crate::pipeline::N;
+use crate::pipeline::array::Array;
+use crate::pipeline::bits::{BitView, BooleanBufferChunksIter};
+use crate::pipeline::encodings::BindContext;
+use crate::pipeline::view::{Canonical, ViewMut};
+use crate::validity::Validity;
 use std::task::Poll;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::{VortexResult, vortex_panic};
@@ -81,9 +81,9 @@ fn export_primitive_impl<T: Canonical<Element = T> + NativePType>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::buffers::BufferHandle;
-    use crate::encodings::bitpacked::BitPackedEncoding;
-    use vortex_array::IntoArray;
+    use crate::IntoArray;
+    use crate::pipeline::buffers::BufferHandle;
+    use crate::pipeline::encodings::bitpacked::BitPackedEncoding;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_fastlanes::BitPackedArray;

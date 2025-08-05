@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::N;
+use crate::pipeline::N;
 use bitvec::prelude::*;
 use vortex_error::{VortexError, vortex_err};
 
