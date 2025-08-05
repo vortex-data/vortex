@@ -14,72 +14,72 @@ impl CastKernel for SequenceVTable {
         // SequenceArray represents arithmetic sequences (base + i * multiplier) which
         // only makes sense for integer types. Floating-point sequences would accumulate
         // rounding errors, and other types don't support arithmetic operations.
-        match dtype {
-            DType::Primitive(target_ptype, target_nullability) if target_ptype.is_int() => {
-                // Check if this is just a nullability change
-                if array.ptype() == *target_ptype
-                    && array.dtype().nullability() != *target_nullability
-                {
-                    // For SequenceArray, we can just create a new one with the same parameters
-                    // but different nullability
-                    return Ok(Some(
-                        SequenceArray::new(
-                            array.base(),
-                            array.multiplier(),
-                            *target_ptype,
-                            *target_nullability,
-                            array.len(),
-                        )?
-                        .into_array(),
-                    ));
-                }
-
-                // For type changes, we need to cast the base and multiplier
-                if array.ptype() != *target_ptype {
-                    // Create scalars from PValues and cast them
-                    let base_scalar = Scalar::new(
-                        DType::Primitive(array.ptype(), Nullability::NonNullable),
-                        ScalarValue::from(array.base()),
-                    );
-                    let multiplier_scalar = Scalar::new(
-                        DType::Primitive(array.ptype(), Nullability::NonNullable),
-                        ScalarValue::from(array.multiplier()),
-                    );
-
-                    let new_base_scalar = base_scalar
-                        .cast(&DType::Primitive(*target_ptype, Nullability::NonNullable))?;
-                    let new_multiplier_scalar = multiplier_scalar
-                        .cast(&DType::Primitive(*target_ptype, Nullability::NonNullable))?;
-
-                    // Extract PValues from the casted scalars
-                    let new_base = new_base_scalar
-                        .as_primitive()
-                        .pvalue()
-                        .ok_or_else(|| vortex_err!("Cast resulted in null base value"))?;
-                    let new_multiplier = new_multiplier_scalar
-                        .as_primitive()
-                        .pvalue()
-                        .ok_or_else(|| vortex_err!("Cast resulted in null multiplier value"))?;
-
-                    return Ok(Some(
-                        SequenceArray::new(
-                            new_base,
-                            new_multiplier,
-                            *target_ptype,
-                            *target_nullability,
-                            array.len(),
-                        )?
-                        .into_array(),
-                    ));
-                }
-
-                Ok(None)
-            }
-            _ => {
-                // Cannot cast sequence to non-integer types
-                Ok(None)
-            }
+        let DType::Primitive(target_ptype, target_nullability) = dtype else {
+            return Ok(None);
+        };
+        
+        if !target_ptype.is_int() {
+            return Ok(None);
         }
+
+        // Check if this is just a nullability change
+        if array.ptype() == *target_ptype
+            && array.dtype().nullability() != *target_nullability
+        {
+            // For SequenceArray, we can just create a new one with the same parameters
+            // but different nullability
+            return Ok(Some(
+                SequenceArray::new(
+                    array.base(),
+                    array.multiplier(),
+                    *target_ptype,
+                    *target_nullability,
+                    array.len(),
+                )?
+                .into_array(),
+            ));
+        }
+
+        // For type changes, we need to cast the base and multiplier
+        if array.ptype() != *target_ptype {
+            // Create scalars from PValues and cast them
+            let base_scalar = Scalar::new(
+                DType::Primitive(array.ptype(), Nullability::NonNullable),
+                ScalarValue::from(array.base()),
+            );
+            let multiplier_scalar = Scalar::new(
+                DType::Primitive(array.ptype(), Nullability::NonNullable),
+                ScalarValue::from(array.multiplier()),
+            );
+
+            let new_base_scalar = base_scalar
+                .cast(&DType::Primitive(*target_ptype, Nullability::NonNullable))?;
+            let new_multiplier_scalar = multiplier_scalar
+                .cast(&DType::Primitive(*target_ptype, Nullability::NonNullable))?;
+
+            // Extract PValues from the casted scalars
+            let new_base = new_base_scalar
+                .as_primitive()
+                .pvalue()
+                .ok_or_else(|| vortex_err!("Cast resulted in null base value"))?;
+            let new_multiplier = new_multiplier_scalar
+                .as_primitive()
+                .pvalue()
+                .ok_or_else(|| vortex_err!("Cast resulted in null multiplier value"))?;
+
+            return Ok(Some(
+                SequenceArray::new(
+                    new_base,
+                    new_multiplier,
+                    *target_ptype,
+                    *target_nullability,
+                    array.len(),
+                )?
+                .into_array(),
+            ));
+        }
+
+        Ok(None)
     }
 }
 

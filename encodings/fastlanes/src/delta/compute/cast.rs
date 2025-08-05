@@ -15,11 +15,8 @@ impl CastKernel for DeltaVTable {
         // unsigned integers to avoid overflow issues. Signed integers could produce
         // negative deltas that wouldn't fit in the unsigned delta representation.
         // This encoding is optimized for monotonically increasing sequences.
-        match dtype {
-            DType::Primitive(ptype, _) if ptype.is_unsigned_int() => {
-                // Continue with the cast
-            }
-            _ => return Ok(None),
+        if !matches!(dtype, DType::Primitive(ptype, _) if ptype.is_unsigned_int()) {
+            return Ok(None);
         }
 
         // Cast both bases and deltas to the target type

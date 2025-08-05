@@ -10,35 +10,29 @@ use crate::{DecimalBytePartsArray, DecimalBytePartsVTable};
 
 impl CastKernel for DecimalBytePartsVTable {
     fn cast(&self, array: &DecimalBytePartsArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        // DecimalBytePartsArray is a specialized encoding for decimal values that stores
-        // the most significant parts separately. It can only cast to other decimal types
-        // to preserve the decimal semantics. Casting to non-decimal types would require
-        // decoding to the canonical DecimalArray first.
-        match dtype {
-            DType::Decimal(target_decimal, target_nullability) => {
-                // Check if this is just a nullability change
-                if array.decimal_dtype() == target_decimal
-                    && array.dtype().nullability() != *target_nullability
-                {
-                    // Cast the msp array to handle nullability change
-                    let new_msp = cast(
-                        array.msp(),
-                        &array.msp().dtype().with_nullability(*target_nullability),
-                    )?;
+        // DecimalBytePartsArray can only have Decimal dtype, so we only handle decimal-to-decimal casts
+        let DType::Decimal(target_decimal, target_nullability) = dtype else {
+            // Cannot cast decimal to non-decimal types - delegate to canonical form
+            return Ok(None);
+        };
 
-                    return Ok(Some(
-                        DecimalBytePartsArray::try_new(new_msp, *target_decimal)?.into_array(),
-                    ));
-                }
+        // Check if this is just a nullability change
+        if array.decimal_dtype() == target_decimal
+            && array.dtype().nullability() != *target_nullability
+        {
+            // Cast the msp array to handle nullability change
+            let new_msp = cast(
+                array.msp(),
+                &array.msp().dtype().with_nullability(*target_nullability),
+            )?;
 
-                // For precision/scale changes, decode to canonical and let DecimalArray handle it
-                Ok(None)
-            }
-            _ => {
-                // Cannot cast decimal to non-decimal types
-                Ok(None)
-            }
+            return Ok(Some(
+                DecimalBytePartsArray::try_new(new_msp, *target_decimal)?.into_array(),
+            ));
         }
+
+        // For precision/scale changes, decode to canonical and let DecimalArray handle it
+        Ok(None)
     }
 }
 
