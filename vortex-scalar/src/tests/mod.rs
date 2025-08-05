@@ -3,9 +3,6 @@
 
 //! Test modules for the vortex-scalar crate.
 
-#[cfg(test)]
 mod consistency;
-#[cfg(test)]
 mod core;
-#[cfg(test)]
 mod round_trip;
