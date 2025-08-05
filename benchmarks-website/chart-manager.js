@@ -119,7 +119,21 @@ export const chartManager = {
               ? name
               : renamedDatasets[name] || name;
           const color = utils.stringToColor(renamedName);
-          const limitedData = benches.slice(startIndex);
+          // Convert object with numeric keys back to array
+          let benchesArray;
+          if (Array.isArray(benches)) {
+            benchesArray = benches;
+          } else if (benches && typeof benches === 'object') {
+            // Convert object with numeric keys to array
+            const maxIndex = Math.max(...Object.keys(benches).map(k => parseInt(k, 10)).filter(n => !isNaN(n)));
+            benchesArray = new Array(maxIndex + 1);
+            for (let i = 0; i <= maxIndex; i++) {
+              benchesArray[i] = benches[i] || null;
+            }
+          } else {
+            benchesArray = [];
+          }
+          const limitedData = benchesArray.slice(startIndex);
           return {
             label: renamedName,
             data: limitedData.map((b) => (b ? b.value : null)),

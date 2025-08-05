@@ -7,6 +7,23 @@ import { dataProcessor } from './data-processor.js';
 import { chartManager } from './chart-manager.js';
 import { scoring } from './scoring.js';
 import { zoomSync } from './zoom-sync.js';
+import { workerManager } from './worker-manager.js';
+
+// Fun rendering messages
+const RENDERING_MESSAGES = [
+  "Materializing charts from the data dimension...",
+  "Rendering graphs faster than light travels...",
+  "Drawing charts with the precision of Leonardo da Vinci...",
+  "Manifesting benchmarks from the quantum realm...",
+  "Generating plots like Bob Ross paints happy trees...",
+  "Building charts with the power of the One Ring...",
+  "Crafting visualizations like Tony Stark builds suits...",
+  "Assembling graphs with Voltron-like precision...",
+];
+
+function getRandomRenderingMessage() {
+  return RENDERING_MESSAGES[Math.floor(Math.random() * RENDERING_MESSAGES.length)];
+}
 
 // Main module
 window.initAndRender = (function () {
@@ -652,15 +669,11 @@ window.initAndRender = (function () {
         ).then((r) => r.text()),
       ]);
 
-      const data = this.parseJsonl(dataResponse);
-      const commitsArray = this.parseJsonl(commitsResponse);
-
-      const commits = {};
-      commitsArray.forEach((commit) => {
-        commits[commit.id] = commit;
-      });
-
-      return { data, commits };
+      // Return raw text data for worker processing
+      return { 
+        benchmarkData: dataResponse, 
+        commitsData: commitsResponse 
+      };
     },
 
     async fetchGzippedData(url) {
@@ -687,6 +700,18 @@ window.initAndRender = (function () {
         .split("\n")
         .filter((line) => line.trim().length !== 0)
         .map((line) => JSON.parse(line));
+    },
+
+    updateLoadingProgress(progress, message) {
+      const main = domElements.main || document.getElementById("main");
+      const loadingIndicator = main.querySelector('.loading-indicator');
+      
+      if (loadingIndicator) {
+        const progressText = loadingIndicator.querySelector('p');
+        if (progressText) {
+          progressText.textContent = `${message} (${Math.round(progress)}%)`;
+        }
+      }
     },
 
     initializeControls() {
@@ -915,8 +940,78 @@ window.initAndRender = (function () {
     },
   };
 
-  // Render benchmark set function
-  function renderBenchmarkSet(
+  // Async function to render all benchmark sets with batching
+  async function renderBenchmarkSetsAsync(grouped, main, toc, keptGroups) {
+    const batchSize = 1; // Render 1 benchmark set at a time for maximum responsiveness
+    let currentBatch = 0;
+    let totalSets = 0;
+    
+    // Determine what we're rendering
+    let renderQueue = [];
+    if (keptGroups === undefined) {
+      renderQueue = grouped.map(({ name, dataSet }) => ({ name, dataSet, groupFilterSettings: {} }));
+    } else {
+      const dataSetsMap = new Map(
+        grouped.map(({ name, dataSet }) => [name, dataSet])
+      );
+      renderQueue = keptGroups.map(([name, groupFilterSettings]) => ({
+        name,
+        dataSet: dataSetsMap.get(name),
+        groupFilterSettings
+      }));
+    }
+    
+    totalSets = renderQueue.length;
+    
+    // Process in batches
+    for (let i = 0; i < renderQueue.length; i += batchSize) {
+      const batch = renderQueue.slice(i, i + batchSize);
+      
+      // Render this batch
+      for (const { name, dataSet, groupFilterSettings } of batch) {
+        // Add placeholder while rendering
+        const placeholder = document.createElement('div');
+        placeholder.className = 'benchmark-placeholder';
+        placeholder.innerHTML = `
+          <div class="benchmark-header">
+            <div class="title-wrapper">
+              <h1 class="benchmark-title">
+                <span class="collapse-icon">▼</span> ${name}
+              </h1>
+              <div class="benchmark-secondary-info">
+                <div class="benchmark-meta">Loading...</div>
+              </div>
+            </div>
+          </div>
+        `;
+        main.appendChild(placeholder);
+        
+        await renderBenchmarkSet(name, dataSet, main, toc, groupFilterSettings);
+        
+        // Remove placeholder after rendering
+        if (placeholder.parentNode) {
+          placeholder.remove();
+        }
+        
+        currentBatch++;
+      }
+      
+      // Update progress and yield control after each batch
+      const progress = (currentBatch / totalSets) * 100;
+      const progressElement = document.getElementById('rendering-progress');
+      if (progressElement) {
+        progressElement.textContent = `${getRandomRenderingMessage()} ${currentBatch}/${totalSets} (${Math.round(progress)}%)`;
+      }
+      
+      if (i + batchSize < renderQueue.length) {
+        // Yield control to prevent UI freezing
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+    }
+  }
+
+  // Async render benchmark set function
+  async function renderBenchmarkSet(
     name,
     benchSet,
     main,
@@ -928,7 +1023,19 @@ window.initAndRender = (function () {
       benchSet,
       groupFilterSettings
     );
+    
+    // Add fade-in animation effect
+    section.style.opacity = '0';
+    section.style.transform = 'translateY(20px)';
+    section.style.transition = 'opacity 0.3s ease-out, transform 0.3s ease-out';
+    
     main.appendChild(section);
+    
+    // Trigger fade-in animation
+    requestAnimationFrame(() => {
+      section.style.opacity = '1';
+      section.style.transform = 'translateY(0)';
+    });
 
     // Create TOC entry
     const tocLi = document.createElement("li");
@@ -974,58 +1081,77 @@ window.initAndRender = (function () {
     const { keptCharts, hiddenDatasets, removedDatasets, renamedDatasets } =
       groupFilterSettings;
 
+    // Render charts with async yielding to prevent UI blocking
+    await renderChartsAsync(
+      benchSet,
+      keptCharts,
+      chartsContainer,
+      name,
+      hiddenDatasets,
+      removedDatasets,
+      renamedDatasets,
+      chartIndex
+    );
+  }
+
+  // Async function to render charts with yielding
+  async function renderChartsAsync(
+    benchSet,
+    keptCharts,
+    chartsContainer,
+    name,
+    hiddenDatasets,
+    removedDatasets,
+    renamedDatasets,
+    startIndex
+  ) {
+    let chartIndex = startIndex;
+    const chartsToRender = [];
+    
+    // Collect all charts to render
     if (keptCharts === undefined) {
       if (benchSet !== undefined) {
         for (const [benchName, benches] of benchSet.entries()) {
-          state.charts.push(
-            chartManager.renderChart(
-              chartsContainer,
-              name,
-              benchName,
-              benches,
-              hiddenDatasets,
-              removedDatasets,
-              renamedDatasets,
-              chartIndex++
-            )
-          );
+          chartsToRender.push({ benchName, benches });
         }
       }
     } else if (keptCharts) {
       for (const benchName of keptCharts) {
         const benches = benchSet.get(benchName);
         if (benches) {
-          state.charts.push(
-            chartManager.renderChart(
-              chartsContainer,
-              name,
-              benchName,
-              benches,
-              hiddenDatasets,
-              removedDatasets,
-              renamedDatasets,
-              chartIndex++
-            )
-          );
+          chartsToRender.push({ benchName, benches });
         }
       }
     } else {
       // This is the case when keptCharts is not defined at all (not undefined, just missing)
       if (benchSet !== undefined) {
         for (const [benchName, benches] of benchSet.entries()) {
-          state.charts.push(
-            chartManager.renderChart(
-              chartsContainer,
-              name,
-              benchName,
-              benches,
-              hiddenDatasets,
-              removedDatasets,
-              renamedDatasets,
-              chartIndex++
-            )
-          );
+          chartsToRender.push({ benchName, benches });
         }
+      }
+    }
+    
+    // Render charts with yielding between each one
+    for (let i = 0; i < chartsToRender.length; i++) {
+      const { benchName, benches } = chartsToRender[i];
+      
+      state.charts.push(
+        chartManager.renderChart(
+          chartsContainer,
+          name,
+          benchName,
+          benches,
+          hiddenDatasets,
+          removedDatasets,
+          renamedDatasets,
+          chartIndex++
+        )
+      );
+      
+      // Yield control after each chart to prevent blocking
+      // Only yield if there are more charts to render
+      if (i < chartsToRender.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 0));
       }
     }
   }
@@ -1038,36 +1164,51 @@ window.initAndRender = (function () {
       window.domElements = domElements;
       window.zoomSync = zoomSync;
       
-      const { data, commits } = await initializer.loadData();
-      const grouped = dataProcessor.downloadAndGroupData(
-        data,
-        commits,
-        keptGroups
+      // Initialize workers
+      workerManager.init();
+      
+      const { benchmarkData, commitsData } = await initializer.loadData();
+      
+      // Process data using worker or fallback
+      const grouped = await workerManager.processData(
+        benchmarkData,
+        commitsData,
+        keptGroups,
+        initializer.updateLoadingProgress
       );
 
       const main = domElements.main || document.getElementById("main");
       const toc = domElements.toc || document.getElementById("toc");
 
-      // Clear loading indicator
-      main.innerHTML = "";
+      // Clear loading indicator and show rendering progress
+      main.innerHTML = `
+        <div class="loading-indicator">
+          <div class="loading-spinner"></div>
+          <p id="rendering-progress">${getRandomRenderingMessage()} Preparing to render charts...</p>
+        </div>
+      `;
 
-      // Render all charts
-      if (keptGroups === undefined) {
-        for (const { name, dataSet } of grouped) {
-          renderBenchmarkSet(name, dataSet, main, toc);
-        }
-      } else {
-        const dataSetsMap = new Map(
-          grouped.map(({ name, dataSet }) => [name, dataSet])
-        );
-        for (const [name, groupFilterSettings] of keptGroups) {
-          const dataSet = dataSetsMap.get(name);
-          renderBenchmarkSet(name, dataSet, main, toc, groupFilterSettings);
-        }
+      // Render all charts with batching to prevent UI freezing
+      await renderBenchmarkSetsAsync(grouped, main, toc, keptGroups);
+      
+      // Remove rendering progress indicator
+      const loadingIndicator = main.querySelector('.loading-indicator');
+      if (loadingIndicator) {
+        loadingIndicator.remove();
       }
 
       initializer.initializeControls();
       urlManager.initializeFromParams();
+      
+      // Clean up workers after initialization (give more time for any pending operations)
+      setTimeout(() => {
+        workerManager.terminate();
+      }, 5000);
+      
+      // Ensure workers are cleaned up on page unload
+      window.addEventListener('beforeunload', () => {
+        workerManager.terminate();
+      });
     } catch (error) {
       console.error("Failed to load benchmark data:", error);
       const main = domElements.main || document.getElementById("main");
