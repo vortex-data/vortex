@@ -17,6 +17,7 @@ use vortex_io::VortexWrite;
 use vortex_layout::layouts::file_stats::accumulate_stats;
 use vortex_layout::segments::SequenceWriter;
 use vortex_layout::{LayoutContext, LayoutStrategy, LocalExecutor};
+use vortex_scan::TaskExecutor;
 
 use crate::footer::{FileStatistics, FooterFlatBufferWriter, Postscript, PostscriptSegment};
 use crate::segments::writer::SerialSegmentWriter;
@@ -36,12 +37,22 @@ pub struct VortexWriteOptions {
 impl Default for VortexWriteOptions {
     fn default() -> Self {
         Self {
-            strategy: VortexLayoutStrategy::with_executor(Arc::new(LocalExecutor)),
+            strategy: VortexLayoutStrategy::with_executor(default_executor()),
             exclude_dtype: false,
             file_statistics: PRUNING_STATS.to_vec(),
             max_variable_length_statistics_size: 64,
         }
     }
+}
+
+fn default_executor() -> Arc<dyn TaskExecutor> {
+    #[cfg(feature = "tokio")]
+    {
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            return Arc::new(handle);
+        }
+    }
+    Arc::new(LocalExecutor)
 }
 
 impl VortexWriteOptions {
