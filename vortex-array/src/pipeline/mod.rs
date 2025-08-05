@@ -1,15 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! This crate contains experiments into vectorized data processing within Vortex.
+//! This module contains experiments into pipelined data processing within Vortex.
 //!
-//! Vectors are fixed-size chunks of data in Vortex represented in a canonical form. The size
-//! is a compile-time constant [`N`], which is set to 1024 elements by default.
+//! Arrays (and eventually Layouts) will be convertible into a [`Pipeline`] that can then be
+//! exported into a [`ViewMut`] one chunk of [`N`] elements at a time. This allows us to keep
+//! compute largely within the L1 cache, as well as to write out canonical data into externally
+//! provided buffers.
+//!
+//! Each chunk is represented in a canonical physical form, as determined by the logical
+//! [`vortex_dtype::DType`] of the array. This provides a predicate base on which to perform
+//! compute. Unlike DuckDB and other vectorized systems, we force a single canonical representation
+//! instead of supporting multiple encodings because compute push-down is applied a priori to the
+//! logical representation.
+//!
+//! It is a work-in-progress, and is not yet used in production.
 
 pub mod bits;
 pub mod buffers;
 pub mod common;
-// pub mod export;
 pub mod selection;
 pub mod vector;
 pub mod view;
@@ -50,7 +59,6 @@ pub trait Pipeline {
     /// it allows the pipeline to optimize for sequential access patterns, which is common in
     /// many encodings. For example, a run-length encoding can efficiently seek to the start of a
     /// chunk without needing to perform a full binary search of the ends in each step.
-    ///
     // TODO(ngates): should this be `skip(n)` instead? Depends if we want to support going
     //  backwards?
     fn seek(&mut self, chunk_idx: usize) -> VortexResult<()>;
