@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use num_traits::ToBytes;
 use vortex_buffer::{BufferString, ByteBuffer};
-use vortex_dtype::DType;
+use vortex_dtype::{DType, half::f16};
 use vortex_error::{VortexError, vortex_err};
 use vortex_proto::scalar as pb;
 use vortex_proto::scalar::ListValue;
@@ -94,7 +94,7 @@ impl From<&PValue> for pb::ScalarValue {
                 kind: Some(Kind::Uint64Value(*v)),
             },
             PValue::F16(v) => pb::ScalarValue {
-                kind: Some(Kind::Uint64Value(v.to_bits() as u64)),
+                kind: Some(Kind::F16Value(v.to_bits() as u64)),
             },
             PValue::F32(v) => pb::ScalarValue {
                 kind: Some(Kind::F32Value(*v)),
@@ -142,6 +142,11 @@ impl TryFrom<&pb::ScalarValue> for ScalarValue {
             Kind::BoolValue(v) => Ok(ScalarValue(InnerScalarValue::Bool(*v))),
             Kind::Int64Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::I64(*v)))),
             Kind::Uint64Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::U64(*v)))),
+            Kind::F16Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F16(
+                f16::from_bits(u16::try_from(*v).map_err(|_| {
+                    vortex_err!("f16 bitwise representation has more than 16 bits: {}", v)
+                })?),
+            )))),
             Kind::F32Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F32(*v)))),
             Kind::F64Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F64(*v)))),
             Kind::StringValue(v) => Ok(ScalarValue(InnerScalarValue::BufferString(Arc::new(
