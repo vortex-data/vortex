@@ -533,7 +533,10 @@ mod tests {
     #[test]
     fn test_nested_lists() {
         let inner_element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
-        let inner_list_dtype = Arc::new(DType::List(inner_element_dtype.clone(), Nullability::NonNullable));
+        let inner_list_dtype = Arc::new(DType::List(
+            inner_element_dtype.clone(),
+            Nullability::NonNullable,
+        ));
 
         let inner_list1 = Scalar::list(
             inner_element_dtype.clone(),

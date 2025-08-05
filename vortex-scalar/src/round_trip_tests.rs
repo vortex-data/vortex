@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Tests for internal consistency and round-tripping of scalar types.
-//! 
+//!
 //! These tests ensure that conversions between different representations
 //! (Scalar, ScalarValue, specialized types, protobuf) maintain consistency
 //! and preserve data integrity.
@@ -16,8 +16,8 @@ mod tests {
     use vortex_proto::scalar as pb;
 
     use crate::{
-        BinaryScalar, BoolScalar, DecimalScalar, DecimalValue, ListScalar, PrimitiveScalar,
-        Scalar, ScalarValue, Utf8Scalar, i256,
+        BinaryScalar, BoolScalar, DecimalScalar, DecimalValue, ListScalar, PrimitiveScalar, Scalar,
+        ScalarValue, Utf8Scalar, i256,
     };
 
     // Test that primitive scalars round-trip through ScalarValue
@@ -95,7 +95,10 @@ mod tests {
         // Test BinaryScalar
         let binary_scalar = Scalar::binary(vec![1, 2, 3, 4], Nullability::NonNullable);
         let binary_specialized = BinaryScalar::try_from(&binary_scalar).unwrap();
-        assert_eq!(binary_specialized.value().unwrap().as_slice(), &[1, 2, 3, 4]);
+        assert_eq!(
+            binary_specialized.value().unwrap().as_slice(),
+            &[1, 2, 3, 4]
+        );
     }
 
     // Test that From<T> and TryFrom<&Scalar> for T are consistent
@@ -149,15 +152,15 @@ mod tests {
             Scalar::primitive(3i32, Nullability::NonNullable),
         ];
         let list_scalar = Scalar::list(element_dtype, children.clone(), Nullability::NonNullable);
-        
+
         // Extract as ListScalar
         let list_specialized = ListScalar::try_from(&list_scalar).unwrap();
         assert_eq!(list_specialized.len(), 3);
-        
+
         // Extract as Vec<i32>
         let vec: Vec<i32> = Vec::try_from(&list_scalar).unwrap();
         assert_eq!(vec, vec![1, 2, 3]);
-        
+
         // Check that elements match
         for (i, expected) in children.iter().enumerate() {
             let elem = list_specialized.element(i).unwrap();
@@ -169,7 +172,7 @@ mod tests {
     #[test]
     fn test_decimal_scalar_round_trip() {
         let decimal_dtype = DecimalDType::new(10, 2);
-        
+
         // Test various decimal value types
         let decimal_values = vec![
             DecimalValue::I8(100),
@@ -179,16 +182,16 @@ mod tests {
             DecimalValue::I128(123456789012345678901234567890i128),
             DecimalValue::I256(i256::from_i128(987654321098765432109876543210i128)),
         ];
-        
+
         for value in decimal_values {
             let scalar = Scalar::decimal(value.clone(), decimal_dtype, Nullability::NonNullable);
             let decimal_specialized = DecimalScalar::try_from(&scalar).unwrap();
-            
+
             match decimal_specialized.decimal_value() {
                 Some(extracted) => assert_eq!(extracted, &value),
                 None => panic!("Expected decimal value, got None"),
             }
-            
+
             // Test round-trip through ScalarValue
             let scalar_value = scalar.value().clone();
             let dtype = scalar.dtype().clone();
@@ -209,11 +212,11 @@ mod tests {
         let pb_empty = pb::Scalar::from(&empty_list);
         let round_tripped = Scalar::try_from(&pb_empty).unwrap();
         assert_eq!(empty_list, round_tripped);
-        
+
         // Test nested lists
         let inner_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
         let outer_dtype = Arc::new(DType::List(inner_dtype.clone(), Nullability::NonNullable));
-        
+
         let inner_list1 = Scalar::list(
             inner_dtype.clone(),
             vec![
@@ -222,24 +225,20 @@ mod tests {
             ],
             Nullability::NonNullable,
         );
-        
-        let nested_list = Scalar::list(
-            outer_dtype,
-            vec![inner_list1],
-            Nullability::NonNullable,
-        );
-        
+
+        let nested_list = Scalar::list(outer_dtype, vec![inner_list1], Nullability::NonNullable);
+
         let pb_nested = pb::Scalar::from(&nested_list);
         let round_tripped_nested = Scalar::try_from(&pb_nested).unwrap();
         assert_eq!(nested_list, round_tripped_nested);
-        
+
         // Test large binary data
         let large_binary = vec![42u8; 10000];
         let binary_scalar = Scalar::binary(large_binary.clone(), Nullability::NonNullable);
         let pb_binary = pb::Scalar::from(&binary_scalar);
         let round_tripped_binary = Scalar::try_from(&pb_binary).unwrap();
         assert_eq!(binary_scalar, round_tripped_binary);
-        
+
         // Verify the data is preserved
         let extracted: ByteBuffer = ByteBuffer::try_from(&round_tripped_binary).unwrap();
         assert_eq!(extracted.as_slice(), &large_binary);
@@ -253,19 +252,19 @@ mod tests {
         let scalar_value = ScalarValue::from(pvalue);
         let extracted: i32 = i32::try_from(&scalar_value).unwrap();
         assert_eq!(pvalue, extracted);
-        
+
         // Test string conversions
         let string_value = "test".to_string();
         let scalar_value = ScalarValue::from(string_value.clone());
         let extracted: String = String::try_from(&scalar_value).unwrap();
         assert_eq!(string_value, extracted);
-        
+
         // Test BufferString conversions
         let buffer_string = BufferString::from("buffer test");
         let scalar_value = ScalarValue::from(buffer_string.clone());
         let extracted: BufferString = BufferString::try_from(&scalar_value).unwrap();
         assert_eq!(extracted.as_str(), buffer_string.as_str());
-        
+
         // Test ByteBuffer conversions
         let bytes = vec![1, 2, 3, 4, 5];
         let byte_buffer = ByteBuffer::copy_from(&bytes);
@@ -279,16 +278,16 @@ mod tests {
     fn test_nullability_preservation() {
         let nullable_scalar = Scalar::primitive(42i32, Nullability::Nullable);
         let non_nullable_scalar = Scalar::primitive(42i32, Nullability::NonNullable);
-        
+
         assert_ne!(nullable_scalar.dtype(), non_nullable_scalar.dtype());
-        
+
         // Test through protobuf
         let pb_nullable = pb::Scalar::from(&nullable_scalar);
         let pb_non_nullable = pb::Scalar::from(&non_nullable_scalar);
-        
+
         let recovered_nullable = Scalar::try_from(&pb_nullable).unwrap();
         let recovered_non_nullable = Scalar::try_from(&pb_non_nullable).unwrap();
-        
+
         assert_eq!(nullable_scalar.dtype(), recovered_nullable.dtype());
         assert_eq!(non_nullable_scalar.dtype(), recovered_non_nullable.dtype());
         assert_ne!(recovered_nullable.dtype(), recovered_non_nullable.dtype());
@@ -301,7 +300,7 @@ mod tests {
         let scalar_usize = Scalar::from(value_usize);
         let extracted_usize: usize = usize::try_from(&scalar_usize).unwrap();
         assert_eq!(value_usize, extracted_usize);
-        
+
         // Test through ScalarValue
         let scalar_value = ScalarValue::from(value_usize);
         let extracted_from_value: usize = usize::try_from(&scalar_value).unwrap();
@@ -315,12 +314,12 @@ mod tests {
         let string_scalar = Scalar::utf8("not a number".to_string(), Nullability::NonNullable);
         let result: Result<i32, _> = i32::try_from(&string_scalar);
         assert!(result.is_err());
-        
+
         // Try to convert an integer scalar to a list
         let int_scalar = Scalar::primitive(42i32, Nullability::NonNullable);
         let result = ListScalar::try_from(&int_scalar);
         assert!(result.is_err());
-        
+
         // Try to convert a boolean to a decimal
         let bool_scalar = Scalar::bool(true, Nullability::NonNullable);
         let result = DecimalScalar::try_from(&bool_scalar);
