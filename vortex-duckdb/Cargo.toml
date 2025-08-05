@@ -21,6 +21,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [dependencies]
 anyhow = { workspace = true }
+arcref = { workspace = true }
 arrow-array = { workspace = true }
 arrow-buffer = { workspace = true }
 arrow-schema = { workspace = true }

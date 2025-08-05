@@ -6547,6 +6547,7 @@ name = "vortex-duckdb"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arcref",
  "arrow-array",
  "arrow-buffer",
  "arrow-schema",
