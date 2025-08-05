@@ -2,22 +2,19 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::pipeline::bits::BitView;
+use crate::pipeline::buffers::BufferHandle;
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{Pipeline, PipelineContext};
 use std::task::Poll;
 use vortex_error::VortexResult;
 
-/// Dictionary-encoded pipeline
-pub struct DictionaryPipeline {
-    codes: Box<dyn Pipeline>,
-    // Depending on the type of the values, we may want to do different things here.
-    // For primitives, we may want to keep the values compressed and use scalar accessors. But
-    // is the function call overhead too high unless these are inlined? We could support inlining
-    // by parameterizing this pipeline with the type of the values pipeline?
+pub struct FSSTPipeline {
+    symbols_buffer: BufferHandle<Symbol>,
 }
 
-impl Pipeline for DictionaryPipeline {
+impl Pipeline for FSSTPipeline {
     fn seek(&mut self, chunk_idx: usize) -> VortexResult<()> {
+        // Implement seeking logic here
         todo!()
     }
 
@@ -27,6 +24,7 @@ impl Pipeline for DictionaryPipeline {
         selected: BitView,
         out: &mut ViewMut,
     ) -> Poll<VortexResult<()>> {
+        // Implement stepping logic here
         todo!()
     }
 }

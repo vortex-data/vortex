@@ -16,6 +16,7 @@ mod canonical;
 mod compress;
 mod compute;
 mod ops;
+mod pipeline;
 mod serde;
 #[cfg(test)]
 mod tests;

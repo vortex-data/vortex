@@ -1,21 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::BitPackedVTable;
+use crate::{BitPackedArray, BitPackedVTable};
 use fastlanes::{BitPacking, FastLanes};
 use std::task::{Poll, ready};
 use vortex_array::pipeline::N;
 use vortex_array::pipeline::bits::BitView;
 use vortex_array::pipeline::buffers::BufferHandle;
 use vortex_array::pipeline::selection::Selection;
-use vortex_array::pipeline::view::{Canonical, ViewMut};
+use vortex_array::pipeline::types::Canonical;
+use vortex_array::pipeline::view::ViewMut;
 use vortex_array::pipeline::{Pipeline, PipelineContext};
 use vortex_array::vtable::PipelineVTable;
 use vortex_dtype::{PhysicalPType, match_each_integer_ptype};
 use vortex_error::{VortexResult, vortex_bail};
 
 impl PipelineVTable<BitPackedVTable> for BitPackedVTable {
-    fn to_pipeline(array: &BitPackedVTable::Array) -> VortexResult<Box<dyn Pipeline>> {
+    fn to_pipeline(array: &BitPackedArray) -> VortexResult<Box<dyn Pipeline>> {
         if array.dtype.is_nullable() {
             vortex_bail!("BitPackedVTable does not support nullable types");
         }

@@ -3,6 +3,7 @@
 
 use crate::pipeline::N;
 use bitvec::prelude::*;
+use std::ops::Not;
 use vortex_error::{VortexError, vortex_err};
 
 /// A borrowed fixed-size bit vector of length `N` bits, represented as an array of 64-bit words.
@@ -16,6 +17,16 @@ pub struct BitView<'a> {
     true_count: usize,
 }
 
+impl BitView<'static> {
+    pub fn all_true() -> Self {
+        unsafe { BitView::new_unchecked(&[u64::MAX; N / 64], N) }
+    }
+
+    pub fn all_false() -> Self {
+        unsafe { BitView::new_unchecked(&[0; N / 64], 0) }
+    }
+}
+
 impl<'a> BitView<'a> {
     pub fn new(bits: &[u64; N / 64]) -> Self {
         let true_count = bits.iter().map(|&word| word.count_ones() as usize).sum();
@@ -23,11 +34,11 @@ impl<'a> BitView<'a> {
         BitView { bits, true_count }
     }
 
-    pub(crate) unsafe fn new_unchecked(
-        bits: &'a BitArray<[u64; N / 64], Msb0>,
-        true_count: usize,
-    ) -> Self {
-        BitView { bits, true_count }
+    pub(crate) unsafe fn new_unchecked(bits: &'a [u64; N / 64], true_count: usize) -> Self {
+        BitView {
+            bits: unsafe { std::mem::transmute(bits) },
+            true_count,
+        }
     }
 
     /// Returns the number of `true` bits in the view.

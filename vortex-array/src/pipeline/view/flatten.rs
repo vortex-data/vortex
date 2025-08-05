@@ -2,7 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::pipeline::selection::Selection;
-use crate::pipeline::view::{Canonical, ViewMut};
+use crate::pipeline::types::Canonical;
+use crate::pipeline::view::ViewMut;
 use std::mem::take;
 
 impl<'a> ViewMut<'a> {

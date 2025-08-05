@@ -20,6 +20,7 @@ pub mod bits;
 pub mod buffers;
 pub mod common;
 pub mod selection;
+pub mod types;
 pub mod vector;
 pub mod view;
 
