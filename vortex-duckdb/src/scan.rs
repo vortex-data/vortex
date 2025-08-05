@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use bitvec::macros::internal::funty::Fundamental;
+use futures::stream::{self, StreamExt};
 use tokio::task::block_in_place;
 use url::Url;
 use vortex::dtype::FieldNames;
@@ -298,51 +299,68 @@ impl TableFunction for VortexTableFunction {
         );
 
         let object_cache = init_input.client_context()?.object_cache();
+        let file_urls = bind_data.file_urls.clone();
+        let first_file = bind_data.first_file.clone();
+        let (file_tx, mut file_rx) = tokio::sync::mpsc::channel(16);
+        let file_tx_keep_alive = file_tx.clone();
 
-        let closures =
-            bind_data
-                .file_urls
-                .clone()
-                .into_iter()
-                .enumerate()
-                .map(move |(idx, path)| {
-                    let first_file = bind_data.first_file.clone();
-                    let filter_expr = filter_expr.clone();
-                    let projection_expr = projection_expr.clone();
-                    let conversion_cache = Arc::new(ConversionCache::new(idx as u64));
-                    let object_cache = unsafe { ObjectCache::borrow(object_cache.as_ptr()) };
+        let file_stream = stream::iter(file_urls.into_iter().enumerate())
+            .map(move |(idx, path)| {
+                let first_file = first_file.clone();
+                let object_cache = unsafe { ObjectCache::borrow(object_cache.as_ptr()) };
+                let file_tx = file_tx.clone();
 
-                    move || {
-                        let file = if idx == 0 {
-                            // The first path from `file_paths` is skipped as
-                            // the first file was already opened during bind.
-                            first_file
-                        } else {
-                            let cache = FooterCache::new(object_cache);
-                            let entry = cache.entry(path.as_ref());
-                            block_in_place(|| {
-                                RUNTIME.block_on(async {
-                                    let options = entry.apply_to_file(VortexOpenOptions::file());
-                                    let file = open_file(path.clone(), options).await?;
-                                    entry.put_if_absent(|| file.footer().clone());
-                                    VortexResult::Ok(file)
-                                })
-                            })?
-                        };
+                async move {
+                    let file_result = if idx == 0 {
+                        VortexResult::Ok(first_file)
+                    } else {
+                        let cache = FooterCache::new(object_cache);
+                        let entry = cache.entry(path.as_ref());
+                        let options = entry.apply_to_file(VortexOpenOptions::file());
+                        let file = open_file(path.clone(), options).await.unwrap();
+                        entry.put_if_absent(|| file.footer().clone());
+                        VortexResult::Ok(file)
+                    };
 
-                        if let Some(ref filter) = filter_expr
-                            && file.can_prune(filter)?
-                        {
-                            return Ok(vec![]);
-                        };
-
-                        file.scan()?
-                            .with_some_filter(filter_expr)
-                            .with_projection(projection_expr)
-                            .map(move |split| Ok((split, conversion_cache.clone())))
-                            .build()
+                    match file_result {
+                        Ok(file) => {
+                            let _ = file_tx.send((idx, file)).await;
+                        }
+                        Err(e) => {
+                            log::error!("Error opening file: {}", e);
+                        }
                     }
-                });
+                }
+            })
+            .buffer_unordered(32);
+
+        RUNTIME.spawn(file_stream.for_each(|_| async {}));
+
+        let closures = (0..bind_data.file_urls.len()).map(|_| {
+            let Some((idx, file)) = file_rx.blocking_recv() else {
+                panic!("Expected file from queue");
+            };
+
+            _ = file_tx_keep_alive;
+
+            let filter_expr = filter_expr.clone();
+            let projection_expr = projection_expr.clone();
+            let conversion_cache = Arc::new(ConversionCache::new(idx as u64));
+
+            move || {
+                if let Some(ref filter) = filter_expr {
+                    if file.can_prune(filter)? {
+                        return Ok(vec![]);
+                    }
+                }
+
+                file.scan()?
+                    .with_some_filter(filter_expr)
+                    .with_projection(projection_expr)
+                    .map(move |split| Ok((split, conversion_cache.clone())))
+                    .build()
+            }
+        });
 
         Ok(VortexGlobalData {
             scan: MultiScan::new(closures),

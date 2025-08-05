@@ -38,8 +38,9 @@ mod s3 {
     pub(super) async fn expand_glob<T: AsRef<str>>(
         url_glob: T,
     ) -> VortexResult<(Vec<Url>, Option<Vec<ObjectMeta>>)> {
-        validate_glob(&url_glob)?;
         assert_eq!("s3://", &url_glob.as_ref()[..5]);
+
+        validate_glob(&url_glob)?;
         let url = Url::parse(url_glob.as_ref())?;
 
         let bucket = url
