@@ -1175,7 +1175,7 @@ window.initAndRender = (function () {
     },
 
     calculateClickBenchScore(benchSet) {
-      if (!benchSet || benchSet.size === 0) {
+      if (!benchSet || typeof benchSet.get !== 'function' || benchSet.size === 0) {
         return null;
       }
 
@@ -2430,10 +2430,10 @@ window.initAndRender = (function () {
     },
 
     async loadData() {
-      // Use web worker for data loading if available
-      if (this.workerManager) {
-        return await this.workerManager.loadBenchmarkData();
-      }
+      // Temporarily disable worker to debug the issue
+      // if (this.workerManager) {
+      //   return await this.workerManager.loadBenchmarkData();
+      // }
 
       // Fallback to main thread processing
       const [dataResponse, commitsResponse] = await Promise.all([
@@ -2863,7 +2863,7 @@ window.initAndRender = (function () {
       await initializer.initialize();
       
       const { data, commits } = await initializer.loadData();
-      const grouped = await dataProcessor.processDataWithWorker(
+      const grouped = dataProcessor.downloadAndGroupData(
         data,
         commits,
         keptGroups
