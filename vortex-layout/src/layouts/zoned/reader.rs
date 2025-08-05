@@ -429,7 +429,7 @@ mod test {
     use vortex_expr::{gt, lit, root};
     use vortex_mask::Mask;
 
-    use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
+    use crate::layouts::chunked::writer::ChunkedStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
     use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
@@ -442,7 +442,7 @@ mod test {
         let segments = TestSegments::default();
         let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
         let strategy = ZonedStrategy::new(
-            ArcRef::new_arc(Arc::new(ChunkedLayoutStrategy::default())),
+            ArcRef::new_arc(Arc::new(ChunkedStrategy::default())),
             ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())),
             ZonedLayoutOptions {
                 block_size: 3,

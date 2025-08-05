@@ -81,14 +81,15 @@ impl LayoutStrategy for ZonedStrategy {
             stream
                 .map(move |chunk| {
                     let stats = stats.clone();
-                    async move {
+
+                    // Spawn the future to compute the chunk stats onto the provided executor.
+                    executor.spawn(async move {
                         let (sequence_id, chunk) = chunk?;
                         chunk.statistics().compute_all(&stats)?;
                         VortexResult::Ok((sequence_id, chunk))
                     }
-                    .boxed()
+                    .boxed())
                 })
-                .map(move |stats_future| executor.spawn(stats_future))
                 .buffered(self.options.parallelism),
         )
         .sendable();

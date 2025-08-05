@@ -7,17 +7,21 @@
 //! all while remaining independent of the read code.
 
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
+use arcref::ArcRef;
 use futures::Stream;
 use pin_project_lite::pin_project;
 use vortex_array::{ArrayContext, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::SendableLayoutFuture;
+use crate::layouts::buffered::BufferedStrategy;
+use crate::layouts::compressed::BtrBlocksCompressedStrategy;
 use crate::segments::SequenceWriter;
 use crate::sequence::SequenceId;
+use crate::{LayoutRef, SendableLayoutFuture};
 
 pub trait SequentialStream: Stream<Item = VortexResult<(SequenceId, ArrayRef)>> {
     fn dtype(&self) -> &DType;
@@ -47,6 +51,45 @@ pub trait LayoutStrategy: 'static + Send + Sync {
     ) -> SendableLayoutFuture;
 }
 // [layout writer]
+
+// Helper implementation for async functions
+impl<F, Fut> LayoutStrategy for F
+where
+    F: (Fn(&ArrayContext, SequenceWriter, SendableSequentialStream) -> Fut) + Send + Sync + 'static,
+    Fut: Future<Output = VortexResult<LayoutRef>> + Send + Sync + 'static,
+{
+    fn write_stream(
+        &self,
+        ctx: &ArrayContext,
+        sequence_writer: SequenceWriter,
+        stream: SendableSequentialStream,
+    ) -> SendableLayoutFuture {
+        let fut = self(ctx, sequence_writer, stream);
+        Box::pin(fut)
+    }
+}
+
+pub trait LayoutStrategyExt: LayoutStrategy {
+    /// Wrap a layout with a buffer. The input chunk stream will be reorganized into chunks of
+    /// size `bytes`.
+    fn buffered(self, bytes: u64) -> impl LayoutStrategy
+    where
+        Self: Sized,
+    {
+        BufferedStrategy::new(ArcRef::new_arc(Arc::new(self)), bytes)
+    }
+
+    fn compressed(self) -> impl LayoutStrategy
+    where
+        Self: Sized,
+    {
+        // If there's no executor, we don't give a shit
+
+        BtrBlocksCompressedStrategy::new(ArcRef::new_arc(Arc::new(self)))
+    }
+}
+
+impl<T: LayoutStrategy> LayoutStrategyExt for T {}
 
 pub trait SequentialStreamExt: SequentialStream {
     // not named boxed to prevent clashing with StreamExt

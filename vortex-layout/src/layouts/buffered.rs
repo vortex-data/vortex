@@ -14,6 +14,7 @@ use crate::{
     SequentialStreamExt as _,
 };
 
+/// A writer that accumulates chunks before flushing to another strategy.
 pub struct BufferedStrategy {
     child: ArcRef<dyn LayoutStrategy>,
     buffer_size: u64,

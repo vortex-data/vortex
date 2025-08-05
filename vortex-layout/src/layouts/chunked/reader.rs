@@ -343,7 +343,7 @@ mod test {
     use vortex_expr::root;
     use vortex_mask::Mask;
 
-    use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
+    use crate::layouts::chunked::writer::ChunkedStrategy;
     use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
     use crate::{LayoutRef, LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt as _};
@@ -354,7 +354,7 @@ mod test {
         let ctx = ArrayContext::empty();
         let segments = TestSegments::default();
         let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
-        let strategy = ChunkedLayoutStrategy::default();
+        let strategy = ChunkedStrategy::default();
         let mut sequence_id = SequenceId::root();
         let layout = block_on(
             strategy.write_stream(

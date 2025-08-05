@@ -18,12 +18,12 @@ use crate::{
     SequentialStreamAdapter, SequentialStreamExt as _,
 };
 
-pub struct ChunkedLayoutStrategy {
+pub struct ChunkedStrategy {
     /// The layout strategy for each chunk.
     pub chunk_strategy: ArcRef<dyn LayoutStrategy>,
 }
 
-impl Default for ChunkedLayoutStrategy {
+impl Default for ChunkedStrategy {
     fn default() -> Self {
         Self {
             chunk_strategy: ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())),
@@ -31,7 +31,7 @@ impl Default for ChunkedLayoutStrategy {
     }
 }
 
-impl LayoutStrategy for ChunkedLayoutStrategy {
+impl LayoutStrategy for ChunkedStrategy {
     fn write_stream(
         &self,
         ctx: &ArrayContext,
