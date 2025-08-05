@@ -171,5 +171,4 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
 }
 
 #[cfg(test)]
-#[path = "arrow_tests.rs"]
 mod tests;
