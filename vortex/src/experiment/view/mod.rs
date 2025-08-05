@@ -58,6 +58,7 @@ use crate::experiment::selection::Selection;
 use bitvec::prelude::*;
 use std::marker::PhantomData;
 use vortex_array::ArrayRef;
+use vortex_array::arrays::BinaryView;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PType, PTypeVisitor, match_each_native_ptype};
@@ -152,6 +153,16 @@ pub enum VType {
     VarBin,
 }
 
+impl VType {
+    fn byte_width(&self) -> usize {
+        match self {
+            VType::Bool => 1,
+            VType::Primitive(ptype) => ptype.byte_width(),
+            VType::VarBin => size_of::<BinaryView>(),
+        }
+    }
+}
+
 impl<'a> ViewMut<'a> {
     /// Return the logical length of the vector, which is the number of selected elements.
     pub fn len(&self) -> usize {
@@ -162,11 +173,27 @@ impl<'a> ViewMut<'a> {
         }
     }
 
-    // TODO(ngates): should booleans be stored as byte-bools? Faster SIMD I guess?
+    /// Returns a mutable handle to the elements array.
     pub fn elements<C: Canonical>(&mut self) -> &'a mut [C::Element; N] {
         assert_eq!(self.vtype, C::vtype(), "Invalid type for canonical view");
         // SAFETY: We assume that the elements are of type C::Element and that the view is valid.
         unsafe { &mut *(self.elements.cast::<[C::Element; N]>()) }
+    }
+
+    /// Re-interpret cast the vector into a new type where the element has the same width.
+    pub fn reinterpret_as<C: Canonical>(&mut self) {
+        assert_eq!(
+            self.vtype.byte_width(),
+            size_of::<C::Element>(),
+            "Invalid type for reinterpretation"
+        );
+        self.vtype = C::vtype();
+    }
+
+    /// Returns a mutable slice of the elements in the vector, allowing for modification.
+    pub fn as_mut<C: Canonical>(&mut self) -> &'a mut [C::Element] {
+        assert_eq!(self.vtype, C::vtype(), "Invalid type for canonical view");
+        unsafe { std::slice::from_raw_parts_mut(self.elements.cast::<C::Element>(), N) }
     }
 
     /// Access the validity mask of the vector.
