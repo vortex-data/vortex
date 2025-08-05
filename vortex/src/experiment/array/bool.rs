@@ -1,20 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::experiment::N;
 use crate::experiment::array::Array;
 use crate::experiment::encodings::BindContext;
-use crate::experiment::mask::{BitMask, BitMaskView, BitVectorMaskExt};
-use crate::experiment::vector::{N, Vector};
-use arrow_array::BooleanArray;
+use crate::experiment::mask::BitVector;
+use crate::experiment::view_mut::ViewMut;
 use arrow_buffer::BooleanBuffer;
 use bitvec::order::Msb0;
 use bitvec::vec::BitVec;
 use std::task::Poll;
-use vortex_array::arrays::{BoolArray, PrimitiveArray};
+use vortex_array::arrays::BoolArray;
 use vortex_array::validity::Validity;
-use vortex_error::{VortexResult, vortex_err, vortex_panic};
-use vortex_mask::Mask;
-use vortex_mask::Mask::Values;
+use vortex_error::{VortexResult, vortex_panic};
 
 /// Utility for exporting an encoding into a canonical boolean array.
 pub(super) fn export_bool(array: &Array) -> VortexResult<BoolArray> {
@@ -46,8 +44,8 @@ pub(super) fn export_bool(array: &Array) -> VortexResult<BoolArray> {
         let validity_iter = unsafe { validity.iter_vector_chunks() };
 
         for (e, v) in bits_iter.zip(validity_iter) {
-            let mut view = Vector::new_bool(e, Some(v));
-            match pipeline.step(&(), BitMask::All, BitMask::All, &mut view) {
+            let mut view = ViewMut::new_bool(e, Some(v));
+            match pipeline.step(&(), BitVector::full(), &mut view) {
                 Poll::Ready(result) => result?,
                 Poll::Pending => {
                     vortex_panic!("Array pipelines cannot yield pending");
@@ -56,7 +54,7 @@ pub(super) fn export_bool(array: &Array) -> VortexResult<BoolArray> {
         }
     } else {
         for e in bits_iter {
-            let mut view = Vector::new_bool(e, None);
+            let mut view = ViewMut::new_bool(e, None);
             match pipeline.step(&(), BitMask::All, BitMask::All, &mut view) {
                 Poll::Ready(result) => result?,
                 Poll::Pending => {

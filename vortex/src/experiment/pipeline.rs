@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::experiment::vector::Vector;
+use crate::experiment::view_mut::ViewMut;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -44,7 +44,7 @@ pub trait Pipeline {
     /// whereas a bit-mask would require much slower ranked selection.
     /// Perhaps not with this? Or with a SIMD unpack?
     ///  <https://www.microsoft.com/en-us/research/publication/selection-pushdown-in-column-stores-using-bit-manipulation-instructions/>
-    fn next<'v>(&mut self, mask: &Mask, out: &'v mut Vector<'v>) -> VortexResult<()>;
+    fn next<'v>(&mut self, mask: &Mask, out: &'v mut ViewMut<'v>) -> VortexResult<()>;
 }
 
 pub trait SupportsPipeline {

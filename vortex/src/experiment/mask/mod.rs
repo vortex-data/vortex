@@ -1,148 +1,41 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::experiment::vector::N;
-use bitvec::array::BitArray;
-use bitvec::order::Msb0;
-use bitvec::slice::BitSlice;
-use bitvec::vec::BitVec;
-use std::ops::{BitAnd, BitOr, Deref};
+mod buffer;
+mod iter;
+mod vector;
+mod view;
 
-/// The main type for masks is a [`BitArray`].
-/// We have a fixed size of `N` bits, matching the number of elements in a vector chunk.
-pub type BitVector = BitArray<[u64; N / 64], Msb0>;
+pub use buffer::*;
+pub use iter::*;
+pub use vector::*;
+pub use view::*;
 
-/// We wrap up a BitVector to quickly handle the all-true and all-false cases.
-// TODO(ngates): some bitvec APIs are actually footguns in terms of performance, so we should
-//  probably just wrap up `[u64; N / 64]` directly instead of using BitArray.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum BitMask {
-    All,
-    None,
-    Some(BitVector),
+use crate::experiment::N;
+
+pub trait BitMask {
+    fn true_count(&self) -> usize;
+    fn as_raw(&self) -> &[u64; N / 64];
+    fn to_owned(&self) -> BitVector;
 }
 
-impl BitMask {
-    pub fn borrow(&self) -> BitMaskView {
-        match self {
-            BitMask::All => BitMaskView::All,
-            BitMask::None => BitMaskView::None,
-            BitMask::Some(bits) => BitMaskView::Some(bits),
-        }
-    }
-}
-
-impl BitAnd for &BitMask {
-    type Output = BitMask;
-
-    fn bitand(self, rhs: Self) -> Self::Output {
-        match (self, rhs) {
-            (BitMask::All, BitMask::All) => BitMask::All,
-            (BitMask::None, _) | (_, BitMask::None) => BitMask::None,
-            (BitMask::All, BitMask::Some(b)) | (BitMask::Some(b), BitMask::All) => {
-                BitMask::Some(b.clone())
-            }
-            (BitMask::Some(a), BitMask::Some(b)) => BitMask::Some(a.clone() & b),
-        }
-    }
-}
-
-impl BitAnd<&BitVector> for &BitMask {
-    type Output = BitMask;
-
-    fn bitand(self, rhs: &BitVector) -> Self::Output {
-        match self {
-            BitMask::All => BitMask::Some(rhs.clone()),
-            BitMask::None => BitMask::None,
-            BitMask::Some(a) => BitMask::Some(a.clone() & rhs),
-        }
-    }
-}
-
-impl BitOr for &BitMask {
-    type Output = BitMask;
-
-    fn bitor(self, rhs: Self) -> Self::Output {
-        match (self, rhs) {
-            (BitMask::None, BitMask::None) => BitMask::None,
-            (BitMask::All, _) | (_, BitMask::All) => BitMask::All,
-            (BitMask::None, BitMask::Some(b)) | (BitMask::Some(b), BitMask::None) => {
-                BitMask::Some(b.clone())
-            }
-            (BitMask::Some(a), BitMask::Some(b)) => BitMask::Some(a.clone() | b),
-        }
-    }
-}
-
-impl BitOr<&BitVector> for &BitMask {
-    type Output = BitMask;
-
-    fn bitor(self, rhs: &BitVector) -> Self::Output {
-        match self {
-            BitMask::None => BitMask::Some(rhs.clone()),
-            BitMask::All => BitMask::All,
-            BitMask::Some(a) => BitMask::Some(a.clone() | rhs),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BitMaskView<'a> {
-    All,
-    None,
-    Some(&'a BitVector),
-}
-
-impl<'a> BitMaskView<'a> {
-    pub fn to_owned(&self) -> BitMask {
-        match self {
-            BitMaskView::All => BitMask::All,
-            BitMaskView::None => BitMask::None,
-            BitMaskView::Some(bits) => {
-                BitMask::Some(BitVector::try_from(bits.as_bitslice()).expect("known size"))
-            }
-        }
-    }
-
-    /// Returns the number of true bits in the mask.
-    pub fn true_count(&self) -> usize {
-        match self {
-            BitMaskView::All => N,
-            BitMaskView::None => 0,
-            BitMaskView::Some(bits) => bits
-                .into_inner()
-                .into_iter()
-                .map(|word| word.count_ones() as usize)
-                .sum::<usize>(),
-        }
-    }
-
-    pub fn more_trues_than(&self, mut n: usize) -> bool {
-        match self {
-            Self::All => N > n,
-            Self::None => n > 0,
-            Self::Some(bits) => {
-                for mut raw in bits.into_inner() {
-                    n = n.saturating_sub(raw.count_ones() as usize);
-                    if n == 0 {
-                        return true;
-                    }
-                }
-                false
-            }
-        }
-    }
-
+impl dyn BitMask + '_ {
+    /// Runs the provided function `f` for each index of a `true` bit in the view.
     pub fn iter_ones<F>(&self, mut f: F)
     where
         F: FnMut(usize),
     {
-        match self {
-            Self::All => (0..N).for_each(&mut f),
-            Self::None => {}
-            Self::Some(bits) => {
+        match self.true_count() {
+            0 => {}
+            N => (0..N).for_each(&mut f),
+            _ => {
                 let mut bit_idx = 0;
-                for mut raw in bits.into_inner() {
+                for raw in self.as_raw().iter() {
+                    let mut raw = *raw;
+                    if raw == 0 {
+                        bit_idx += 64;
+                        continue;
+                    }
                     while raw != 0 {
                         let bit_pos = raw.trailing_zeros();
                         raw ^= 1 << bit_pos;
@@ -153,50 +46,5 @@ impl<'a> BitMaskView<'a> {
                 }
             }
         }
-    }
-}
-
-impl<'a> From<&'a BitSlice<u64, Msb0>> for BitMaskView<'a> {
-    fn from(bits: &'a BitSlice<u64, Msb0>) -> Self {
-        let true_count = bits.count_ones();
-        if true_count == N {
-            BitMaskView::All
-        } else if true_count == 0 {
-            BitMaskView::None
-        } else {
-            BitMaskView::Some(bits.try_into().expect("size"))
-        }
-    }
-}
-
-impl BitAnd<&BitVector> for BitMaskView<'_> {
-    type Output = BitMask;
-
-    fn bitand(self, rhs: &BitVector) -> Self::Output {
-        match self {
-            BitMaskView::All => BitMask::Some(rhs.clone()),
-            BitMaskView::None => BitMask::None,
-            // BitMaskView::Some(a) => BitMask::Some(rhs & rhs),
-            BitMaskView::Some(a) => {
-                todo!()
-            }
-        }
-    }
-}
-
-pub trait BitVectorMaskExt {
-    /// Returns an iterator over the mutable array chunks of a BitVector.
-    ///
-    /// See [`bitvec::slice::ChunksExactMut::remove_alias`] for safety details.
-    unsafe fn iter_vector_chunks(&mut self) -> impl Iterator<Item = &'_ mut BitVector>;
-}
-
-impl BitVectorMaskExt for BitVec<u64, Msb0> {
-    unsafe fn iter_vector_chunks(&mut self) -> impl Iterator<Item = &'_ mut BitVector> {
-        let iter = self.chunks_exact_mut(N);
-        let iter = unsafe { iter.remove_alias() };
-        iter.map(move |chunk: &mut BitSlice<u64, Msb0>| {
-            <&mut BitVector>::try_from(chunk).expect("known chunk size")
-        })
     }
 }

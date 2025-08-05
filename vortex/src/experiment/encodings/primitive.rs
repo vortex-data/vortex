@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::experiment::buffers::{BufferHandle, BufferId, ByteBufferHandle};
+use crate::experiment::N;
+use crate::experiment::buffers::{BufferHandle, ByteBufferHandle};
 use crate::experiment::encodings::{BindContext, Encoding, Evaluation, EvaluationContext};
-use crate::experiment::mask::{BitMask, BitMaskView};
-use crate::experiment::vector::{N, Vector};
+use crate::experiment::mask::BitMask;
+use crate::experiment::selection::Selection;
+use crate::experiment::view_mut::ViewMut;
 use std::task::{Poll, ready};
-use vortex_buffer::Buffer;
 use vortex_dtype::{NativePType, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexResult;
 
 pub struct PrimitiveEncoding {
     buffer: ByteBufferHandle,
@@ -50,21 +51,25 @@ impl<T: NativePType> Evaluation for PrimitiveEvaluation<T> {
     fn step(
         &mut self,
         ctx: &dyn EvaluationContext,
-        selected: BitMask,
-        defined: BitMask,
-        out: &mut Vector,
+        selected: &dyn BitMask,
+        out: &mut ViewMut,
     ) -> Poll<VortexResult<()>> {
         let buffer = ready!(self.buffer.get_or_load(ctx))?;
 
         let mut primitive = out.as_primitive::<T>();
-        match selected {
-            BitMask::All => {
+        match selected.true_count() {
+            0 => {
+                // If no elements are selected, we can skip copying.
+                self.offset += selected.true_count();
+                out.set_selection(Selection::Prefix { len: 0 });
+            }
+            N => {
                 primitive.as_mut()[self.offset..][..N].copy_from_slice(&buffer[self.offset..][..N]);
                 self.offset += N;
+                out.set_selection(Selection::Prefix { len: N });
             }
-            BitMask::None => {}
-            BitMask::Some(indices) => {
-                for index in indices.iter_ones() {
+            _ => {
+                for index in selected.iter_ones() {
                     primitive.as_mut()[self.offset] = buffer[self.offset + index];
                     self.offset += 1;
                 }

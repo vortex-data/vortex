@@ -2,13 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub mod bitpacked;
-mod compare;
-pub mod primitive;
+// mod compare;
+// pub mod primitive;
 // pub mod validity;
 
 use crate::experiment::buffers::BufferId;
-use crate::experiment::mask::{BitMask, BitMaskView};
-use crate::experiment::vector::Vector;
+use crate::experiment::mask::{BitMask, BitView};
+use crate::experiment::view_mut::ViewMut;
+use bitvec::view::BitViewSized;
 use std::ops::{Deref, Range};
 use std::sync::atomic::AtomicUsize;
 use std::task::Poll;
@@ -50,17 +51,14 @@ pub trait Evaluation {
     /// The `selected` parameter defines which elements of the chunk should be exported, where
     /// `None` indicates that all elements are selected.
     ///
-    /// The `defined` parameter indicates which elements are defined, meaning which elements the
-    /// exporter "cares about", where `None` indicates that all elements are defined. For example,
-    /// if the parent knows all but one element is null, we must still "select" all elements
-    /// in order to make sure they are correctly ordered within the vector, but it's useful to
-    /// know that only one of the element is useful to the parent. The others can be ignored.
+    // TODO(ngates): we could introduce a `defined` parameter to indicate which elements are
+    //  defined and will be interpreted by the parent. This would allow us to skip writing
+    //  elements that are not defined, for example if the parent is a dense null validity encoding.
     fn step(
         &mut self,
         ctx: &dyn EvaluationContext,
-        selected: BitMask,
-        defined: BitMask,
-        out: &mut Vector,
+        selected: &dyn BitMask,
+        out: &mut ViewMut,
     ) -> Poll<VortexResult<()>>;
 }
 

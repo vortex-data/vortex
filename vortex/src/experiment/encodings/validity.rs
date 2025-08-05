@@ -3,7 +3,7 @@
 
 use crate::experiment::encodings::{BindContext, Encoding, Evaluation, EvaluationContext};
 use crate::experiment::mask::{BitMask, BitMaskView, BitVector};
-use crate::experiment::vector::{Selection, Vector};
+use crate::experiment::view_mut::{Selection, Vector};
 use bitvec::array::BitArray;
 use std::ops::BitAnd;
 use std::task::{Poll, ready};

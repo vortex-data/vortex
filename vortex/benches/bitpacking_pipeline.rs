@@ -103,7 +103,9 @@ pub fn decompress_bitpacking_fused_filter<T: NativePType>(bencher: Bencher, frac
 
     let mask = (0..100_000)
         .map(|_| rng.random_bool(fraction_kept))
-        .collect::<BitVec<u64, Msb0>>();
+        .collect::<BooleanBuffer>();
 
-    bencher.bench_local(|| array2.to_canonical(&mask).unwrap());
+    bencher
+        .with_inputs(|| Mask::from_buffer(mask.clone()))
+        .bench_local_values(|mask| array2.to_canonical(&mask).unwrap());
 }

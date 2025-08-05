@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::experiment::buffers::{BufferHandle, BufferId, ByteBufferHandle};
+use crate::experiment::N;
+use crate::experiment::buffers::{BufferHandle, ByteBufferHandle};
 use crate::experiment::encodings::{BindContext, Encoding, Evaluation, EvaluationContext};
-use crate::experiment::mask::{BitMask, BitMaskView};
-use crate::experiment::vector::{N, Selection, Vector};
+use crate::experiment::mask::{BitMask, BitView};
+use crate::experiment::selection::Selection;
+use crate::experiment::view_mut::ViewMut;
 use fastlanes::{BitPacking, FastLanes};
 use std::task::{Poll, ready};
-use vortex_buffer::Buffer;
 use vortex_dtype::{NativePType, match_each_unsigned_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexResult;
 
 pub struct BitPackedEncoding {
     bit_width: usize,
@@ -54,9 +55,8 @@ impl<T: NativePType + BitPacking> Evaluation for BitPackedEvaluation<T> {
     fn step(
         &mut self,
         ctx: &dyn EvaluationContext,
-        selected: BitMask,
-        defined: BitMask,
-        out: &mut Vector,
+        selected: &dyn BitMask,
+        out: &mut ViewMut,
     ) -> Poll<VortexResult<()>> {
         let buffer = ready!(self.buffer.get_or_load(ctx))?;
 
@@ -67,7 +67,7 @@ impl<T: NativePType + BitPacking> Evaluation for BitPackedEvaluation<T> {
         let nvecs = (N / 1024).min(packed.len() / self.packed_stride);
 
         // We short-circuit full unpacking logic if the mask is sufficiently sparse.
-        if selected.borrow().more_trues_than(16) {
+        if selected.true_count() > 16 {
             for i in 0..nvecs {
                 unsafe {
                     BitPacking::unchecked_unpack(
@@ -81,13 +81,13 @@ impl<T: NativePType + BitPacking> Evaluation for BitPackedEvaluation<T> {
             self.packed_offset += nvecs * self.packed_stride;
 
             // Set the selection to the given mask, which is a bit array of length N.
-            // out.set_selection_mask(selected);
-            view.flatten_with_mask(selected.borrow());
+            out.set_selection_mask(selected);
+            // view.flatten_with_mask(selected.borrow());
 
             Poll::Ready(Ok(()))
         } else {
             let mut offset = 0;
-            selected.borrow().iter_ones(|idx| {
+            selected.iter_ones(|idx| {
                 let chunk_idx = idx / 1024;
                 let bit_idx = idx % 1024;
                 // SAFETY: we verify the bounds of the vector during construction.
@@ -105,7 +105,7 @@ impl<T: NativePType + BitPacking> Evaluation for BitPackedEvaluation<T> {
 
             // Set the selection to the given mask, which is a bit array of length N.
             out.set_selection(Selection::Prefix {
-                len: selected.borrow().true_count(),
+                len: selected.true_count(),
             });
 
             Poll::Ready(Ok(()))

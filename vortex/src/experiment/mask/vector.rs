@@ -1,0 +1,98 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use crate::experiment::N;
+use crate::experiment::mask::BitMask;
+use crate::experiment::mask::view::BitView;
+use bitvec::array::BitArray;
+use bitvec::order::Msb0;
+use bitvec::slice::BitSlice;
+use bitvec::store::BitStore;
+use std::ops::{Deref, Not};
+use std::sync::{Arc, LazyLock};
+use vortex_error::{VortexExpect, vortex_err};
+
+static EMPTY: LazyLock<BitVector> = LazyLock::new(|| BitVector {
+    bits: Arc::new(BitArray::ZERO),
+    true_count: 0,
+});
+
+static FULL: LazyLock<BitVector> = LazyLock::new(|| BitVector {
+    bits: Arc::new(BitArray::ZERO.not()),
+    true_count: N,
+});
+
+/// An owned fixed-size bit vector of length `N` bits, represented as an array of 64-bit words.
+///
+/// Internally, it uses a [`BitArray`] to store the bits, but this crate has some
+/// performance foot-guns in cases where we can lean on better assumptions, and therefore we wrap
+/// it up for use within Vortex.
+#[derive(Debug, Clone)]
+pub struct BitVector {
+    pub(super) bits: Arc<BitArray<[u64; N / 64], Msb0>>,
+    pub(super) true_count: usize,
+}
+
+impl PartialEq for BitVector {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.bits, &other.bits)
+            || (self.true_count == other.true_count && self.bits == other.bits)
+    }
+}
+
+impl Eq for BitVector {}
+
+impl BitVector {
+    pub fn empty() -> &'static BitVector {
+        &EMPTY
+    }
+
+    pub fn full() -> &'static BitVector {
+        &FULL
+    }
+
+    pub fn as_mask(&self) -> &dyn BitMask {
+        self
+    }
+
+    pub fn as_raw_mut(&mut self) -> &mut [u64; N / 64] {
+        // SAFETY: We assume that the bits are mutable and that the view is valid.
+        let raw = Arc::make_mut(&mut self.bits).as_raw_mut_slice();
+        unsafe { &mut *(raw.as_mut_ptr() as *mut [u64; N / 64]) }
+    }
+
+    pub fn fill_from<I>(&mut self, iter: I)
+    where
+        I: IntoIterator<Item = u64>,
+    {
+        let mut true_count = 0;
+        for (dst, word) in self.as_raw_mut().iter_mut().zip(iter) {
+            true_count += word.count_ones() as usize;
+            *dst = word;
+        }
+        self.true_count = true_count;
+    }
+
+    pub fn borrow(&self) -> BitView<'_> {
+        BitView {
+            bits: &self.bits,
+            true_count: self.true_count,
+        }
+    }
+}
+
+impl BitMask for BitVector {
+    fn true_count(&self) -> usize {
+        self.true_count
+    }
+
+    fn as_raw(&self) -> &[u64; N / 64] {
+        // It's actually remarkably hard to get a reference to the underlying array!
+        let raw = self.bits.as_raw_slice();
+        unsafe { &*(raw.as_ptr() as *const [u64; N / 64]) }
+    }
+
+    fn to_owned(&self) -> BitVector {
+        self.clone()
+    }
+}

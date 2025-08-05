@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::experiment::N;
 use crate::experiment::encodings::{BindContext, Encoding, Evaluation, EvaluationContext};
-use crate::experiment::mask::{BitMask, BitMaskView};
-use crate::experiment::vector::{N, Vector};
+use crate::experiment::mask::BitMask;
+use crate::experiment::view_mut::ViewMut;
 use std::task::{Poll, ready};
 use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
@@ -75,11 +76,10 @@ where
     fn step(
         &mut self,
         ctx: &dyn EvaluationContext,
-        selected: BitMask,
-        defined: BitMask,
-        out: &mut Vector,
+        selected: &dyn BitMask,
+        out: &mut ViewMut,
     ) -> Poll<VortexResult<()>> {
-        let mut elems = Vector::new_primitive::<T>(self.lhs_elems.as_mut(), None);
+        let mut elems = ViewMut::new_primitive::<T>(self.lhs_elems.as_mut(), None);
         ready!(self.lhs.step(ctx, selected, defined, &mut elems))?;
 
         // FIXME(ngates): we need to look at the selected and defined masks to determine

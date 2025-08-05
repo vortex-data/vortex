@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod bool;
+// mod bool;
 mod primitive;
 
-use crate::experiment::array::bool::export_bool;
 use crate::experiment::array::primitive::export_primitive;
 use crate::experiment::buffers::BufferId;
 use crate::experiment::encodings::Encoding;
@@ -44,9 +43,9 @@ impl Array {
         &self.dtype
     }
 
-    pub fn to_canonical(&self, mask: &BitSlice<u64, Msb0>) -> VortexResult<Canonical> {
+    pub fn to_canonical(&self, mask: &Mask) -> VortexResult<Canonical> {
         match &self.dtype {
-            DType::Bool(_) => export_bool(self).map(Canonical::Bool),
+            // DType::Bool(_) => export_bool(self).map(Canonical::Bool),
             DType::Primitive(..) => export_primitive(self, mask).map(Canonical::Primitive),
             _ => vortex_bail!("Unsupported dtype for canonical conversion: {}", self.dtype),
         }
