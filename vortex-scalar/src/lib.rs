@@ -1021,7 +1021,7 @@ mod tests {
         let u64_bits = f16_value.to_bits() as u64;
 
         let scalar = Scalar::new(
-            DType::Extension(ext_dtype.clone()),
+            DType::Extension(ext_dtype),
             ScalarValue(InnerScalarValue::Primitive(PValue::U64(u64_bits))),
         );
 
@@ -1045,7 +1045,7 @@ mod tests {
         let u32_value = 42u32;
 
         let scalar = Scalar::new(
-            DType::Extension(ext_dtype.clone()),
+            DType::Extension(ext_dtype),
             ScalarValue(InnerScalarValue::Primitive(PValue::U32(u32_value))),
         );
 
@@ -1087,7 +1087,7 @@ mod tests {
         ];
 
         let scalar = Scalar::new(
-            DType::Extension(ext_dtype.clone()),
+            DType::Extension(ext_dtype),
             ScalarValue(InnerScalarValue::List(field_values.into())),
         );
 
