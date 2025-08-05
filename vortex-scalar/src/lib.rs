@@ -69,16 +69,13 @@ impl Scalar {
     /// This function performs type coercion when necessary to ensure the value matches
     /// the expected data type. This is particularly important for backwards compatibility
     /// with serialized scalars where floating point values may have been stored as integers.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the value cannot be coerced to the expected data type.
     pub fn new(dtype: DType, value: ScalarValue) -> Self {
-        // Unwrap is safe here because coerce_value only returns errors for invalid u64 to u16 conversions
-        let coerced_value = match Self::coerce_value(&dtype, value.clone()) {
-            Ok(coerced) => coerced,
-            Err(_) => value,
-        };
-        Self {
-            dtype,
-            value: coerced_value,
-        }
+        let value = Self::coerce_value(&dtype, value).vortex_expect("Failed to coerce value");
+        Self { dtype, value }
     }
 
     /// Coerces a scalar value to match the expected data type.
@@ -103,26 +100,6 @@ impl Scalar {
                             })?),
                         ))))
                     }
-                    (PType::F16, PValue::U32(v)) if *v <= u16::MAX as u32 => Ok(ScalarValue(
-                        InnerScalarValue::Primitive(PValue::F16(f16::from_bits(*v as u16))),
-                    )),
-                    (PType::F16, PValue::U16(v)) => Ok(ScalarValue(InnerScalarValue::Primitive(
-                        PValue::F16(f16::from_bits(*v)),
-                    ))),
-                    (PType::F16, PValue::U8(v)) => Ok(ScalarValue(InnerScalarValue::Primitive(
-                        PValue::F16(f16::from_bits(*v as u16)),
-                    ))),
-                    // F32 coercion from integer types (backwards compatibility)
-                    (PType::F32, PValue::U64(v)) if *v <= u32::MAX as u64 => Ok(ScalarValue(
-                        InnerScalarValue::Primitive(PValue::F32(f32::from_bits(*v as u32))),
-                    )),
-                    (PType::F32, PValue::U32(v)) => Ok(ScalarValue(InnerScalarValue::Primitive(
-                        PValue::F32(f32::from_bits(*v)),
-                    ))),
-                    // F64 coercion from integer types (backwards compatibility)
-                    (PType::F64, PValue::U64(v)) => Ok(ScalarValue(InnerScalarValue::Primitive(
-                        PValue::F64(f64::from_bits(*v)),
-                    ))),
                     // No coercion needed
                     _ => Ok(value),
                 }
