@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#[cfg(test)]
+mod tests2;
+mod traits;
+
 use std::cmp::Ordering;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
@@ -341,7 +345,7 @@ impl<'a> DecimalScalar<'a> {
                         )),
                     ));
                 }
-                
+
                 // Different precision/scale - need to implement scaling logic
                 // For now, we'll do a simple value preservation without scaling
                 // TODO: Implement proper decimal scaling logic
@@ -360,17 +364,17 @@ impl<'a> DecimalScalar<'a> {
                 if let Some(decimal_value) = &self.value {
                     // Convert decimal value to primitive, accounting for scale
                     let scale_factor = 10_i128.pow(self.decimal_type.scale() as u32);
-                    
+
                     // Convert to i128 for calculation
                     let scaled_value = match_each_decimal_value!(decimal_value, |v| {
-                        NumToPrimitive::to_i128(v).ok_or_else(|| 
+                        NumToPrimitive::to_i128(v).ok_or_else(|| {
                             vortex_err!("Decimal value too large to cast to primitive")
-                        )
+                        })
                     })?;
-                    
+
                     // Apply scale to get the actual value
                     let actual_value = scaled_value as f64 / scale_factor as f64;
-                    
+
                     // Cast to target primitive type
                     use PType::*;
                     let primitive_scalar = match ptype {
@@ -443,10 +447,7 @@ impl<'a> DecimalScalar<'a> {
                     Ok(Scalar::null(dtype.clone()))
                 }
             }
-            _ => vortex_bail!(
-                "Cannot cast decimal to {}: unsupported conversion",
-                dtype
-            ),
+            _ => vortex_bail!("Cannot cast decimal to {}: unsupported conversion", dtype),
         }
     }
 }
@@ -637,14 +638,18 @@ mod tests {
             DecimalDType::new(10, 2),
             Nullability::NonNullable,
         );
-        
+
         // Cast to f64 should give us 123.45
-        let float_result = decimal_scalar.cast(&DType::Primitive(PType::F64, Nullability::NonNullable)).unwrap();
+        let float_result = decimal_scalar
+            .cast(&DType::Primitive(PType::F64, Nullability::NonNullable))
+            .unwrap();
         let float_value: f64 = float_result.try_into().unwrap();
         assert!((float_value - 123.45).abs() < 0.001);
-        
+
         // Cast to i32 should give us 123 (truncated)
-        let int_result = decimal_scalar.cast(&DType::Primitive(PType::I32, Nullability::NonNullable)).unwrap();
+        let int_result = decimal_scalar
+            .cast(&DType::Primitive(PType::I32, Nullability::NonNullable))
+            .unwrap();
         let int_value: i32 = int_result.try_into().unwrap();
         assert_eq!(int_value, 123);
     }
@@ -656,16 +661,20 @@ mod tests {
             DecimalDType::new(10, 2),
             Nullability::Nullable,
         ));
-        
+
         // Cast null decimal to primitive should preserve null
-        let result = null_decimal.cast(&DType::Primitive(PType::I32, Nullability::Nullable)).unwrap();
+        let result = null_decimal
+            .cast(&DType::Primitive(PType::I32, Nullability::Nullable))
+            .unwrap();
         assert!(result.is_null());
-        
+
         // Cast null decimal to another decimal type should preserve null
-        let result = null_decimal.cast(&DType::Decimal(
-            DecimalDType::new(20, 4),
-            Nullability::Nullable,
-        )).unwrap();
+        let result = null_decimal
+            .cast(&DType::Decimal(
+                DecimalDType::new(20, 4),
+                Nullability::Nullable,
+            ))
+            .unwrap();
         assert!(result.is_null());
     }
 
@@ -677,7 +686,7 @@ mod tests {
             DecimalDType::new(10, 0),
             Nullability::NonNullable,
         );
-        
+
         // Cast to i8 should fail due to overflow
         let result = decimal_scalar.cast(&DType::Primitive(PType::I8, Nullability::NonNullable));
         assert!(result.is_err());
@@ -691,13 +700,15 @@ mod tests {
             DecimalDType::new(10, 2),
             Nullability::NonNullable,
         );
-        
+
         // Cast to different decimal type (currently just preserves value)
-        let result = decimal_scalar.cast(&DType::Decimal(
-            DecimalDType::new(20, 4),
-            Nullability::NonNullable,
-        )).unwrap();
-        
+        let result = decimal_scalar
+            .cast(&DType::Decimal(
+                DecimalDType::new(20, 4),
+                Nullability::NonNullable,
+            ))
+            .unwrap();
+
         // Value should be preserved (TODO: proper scaling logic)
         let decimal_value: Option<DecimalValue> = result.try_into().unwrap();
         assert_eq!(decimal_value, Some(DecimalValue::I32(12345)));
@@ -711,12 +722,14 @@ mod tests {
             DecimalDType::new(10, 2),
             Nullability::NonNullable,
         );
-        
+
         // Cast to f64 should give us -56.78
-        let float_result = decimal_scalar.cast(&DType::Primitive(PType::F64, Nullability::NonNullable)).unwrap();
+        let float_result = decimal_scalar
+            .cast(&DType::Primitive(PType::F64, Nullability::NonNullable))
+            .unwrap();
         let float_value: f64 = float_result.try_into().unwrap();
         assert!((float_value - (-56.78)).abs() < 0.001);
-        
+
         // Cast to unsigned should fail
         let result = decimal_scalar.cast(&DType::Primitive(PType::U32, Nullability::NonNullable));
         assert!(result.is_err());
@@ -733,12 +746,13 @@ mod tests {
             (DecimalValue::I32(i32::MAX), DecimalDType::new(10, 0)),
             (DecimalValue::I32(i32::MIN), DecimalDType::new(10, 0)),
         ];
-        
+
         for (value, dtype) in test_cases {
             let decimal_scalar = Scalar::decimal(value, dtype, Nullability::NonNullable);
-            
+
             // Cast to f64 should always work for these ranges
-            let result = decimal_scalar.cast(&DType::Primitive(PType::F64, Nullability::NonNullable));
+            let result =
+                decimal_scalar.cast(&DType::Primitive(PType::F64, Nullability::NonNullable));
             assert!(result.is_ok());
         }
     }
@@ -747,24 +761,32 @@ mod tests {
     fn test_decimal_cast_with_scale() {
         // Test various scale factors
         let test_cases = vec![
-            (1234, 0, 1234.0),      // No scale
-            (1234, 1, 123.4),       // Scale 1
-            (1234, 2, 12.34),       // Scale 2
-            (1234, 3, 1.234),       // Scale 3
-            (1234, 4, 0.1234),      // Scale 4
+            (1234, 0, 1234.0), // No scale
+            (1234, 1, 123.4),  // Scale 1
+            (1234, 2, 12.34),  // Scale 2
+            (1234, 3, 1.234),  // Scale 3
+            (1234, 4, 0.1234), // Scale 4
         ];
-        
+
         for (value, scale, expected) in test_cases {
             let decimal_scalar = Scalar::decimal(
                 DecimalValue::I32(value),
                 DecimalDType::new(10, scale),
                 Nullability::NonNullable,
             );
-            
-            let float_result = decimal_scalar.cast(&DType::Primitive(PType::F64, Nullability::NonNullable)).unwrap();
+
+            let float_result = decimal_scalar
+                .cast(&DType::Primitive(PType::F64, Nullability::NonNullable))
+                .unwrap();
             let float_value: f64 = float_result.try_into().unwrap();
-            assert!((float_value - expected).abs() < 0.0001, 
-                   "Expected {} but got {} for value={} scale={}", expected, float_value, value, scale);
+            assert!(
+                (float_value - expected).abs() < 0.0001,
+                "Expected {} but got {} for value={} scale={}",
+                expected,
+                float_value,
+                value,
+                scale
+            );
         }
     }
 
@@ -775,14 +797,14 @@ mod tests {
             DecimalDType::new(10, 2),
             Nullability::NonNullable,
         );
-        
+
         // Cast to unsupported types should fail
         let result = decimal_scalar.cast(&DType::Bool(Nullability::NonNullable));
         assert!(result.is_err());
-        
+
         let result = decimal_scalar.cast(&DType::Utf8(Nullability::NonNullable));
         assert!(result.is_err());
-        
+
         let result = decimal_scalar.cast(&DType::Binary(Nullability::NonNullable));
         assert!(result.is_err());
     }

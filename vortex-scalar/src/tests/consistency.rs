@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Tests demonstrating inconsistencies in the vortex-scalar crate.
-//! These tests document current behavior that may be inconsistent or problematic.
+//! Tests documenting current behavior that may be inconsistent or problematic.
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{DType, Nullability, PType};
+    use std::fmt::Write;
+    
+    use vortex_dtype::{DecimalDType, DType, Nullability, PType};
 
-    use crate::{BoolScalar, PrimitiveScalar, Scalar};
+    use crate::{BoolScalar, DecimalValue, PrimitiveScalar, Scalar};
 
     // Demonstrates inconsistent null comparison behavior
     #[test]
@@ -39,8 +40,6 @@ mod tests {
     // Demonstrates that different scalar types have different Display formats
     #[test]
     fn test_display_format_inconsistency() {
-        use std::fmt::Write;
-        
         let mut output = String::new();
         
         // Primitive scalar shows just the value and type
@@ -56,9 +55,6 @@ mod tests {
         output.clear();
         
         // Decimal scalar shows value with precision/scale metadata
-        use crate::DecimalValue;
-        use vortex_dtype::DecimalDType;
-        
         let decimal = Scalar::decimal(
             DecimalValue::I32(4200),
             DecimalDType::new(10, 2),
@@ -70,13 +66,9 @@ mod tests {
         assert!(output.contains("scale=2"));
     }
 
-
     // This used to panic with todo!() but now works correctly
     #[test]
     fn test_decimal_casting_now_works() {
-        use crate::{DecimalValue};
-        use vortex_dtype::DecimalDType;
-        
         let decimal = Scalar::decimal(
             DecimalValue::I32(4200),
             DecimalDType::new(10, 2),
