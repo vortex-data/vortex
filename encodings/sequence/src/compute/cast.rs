@@ -17,15 +17,13 @@ impl CastKernel for SequenceVTable {
         let DType::Primitive(target_ptype, target_nullability) = dtype else {
             return Ok(None);
         };
-        
+
         if !target_ptype.is_int() {
             return Ok(None);
         }
 
         // Check if this is just a nullability change
-        if array.ptype() == *target_ptype
-            && array.dtype().nullability() != *target_nullability
-        {
+        if array.ptype() == *target_ptype && array.dtype().nullability() != *target_nullability {
             // For SequenceArray, we can just create a new one with the same parameters
             // but different nullability
             return Ok(Some(
@@ -52,8 +50,8 @@ impl CastKernel for SequenceVTable {
                 ScalarValue::from(array.multiplier()),
             );
 
-            let new_base_scalar = base_scalar
-                .cast(&DType::Primitive(*target_ptype, Nullability::NonNullable))?;
+            let new_base_scalar =
+                base_scalar.cast(&DType::Primitive(*target_ptype, Nullability::NonNullable))?;
             let new_multiplier_scalar = multiplier_scalar
                 .cast(&DType::Primitive(*target_ptype, Nullability::NonNullable))?;
 
@@ -95,25 +93,6 @@ mod tests {
     use crate::SequenceArray;
 
     #[test]
-    fn test_cast_sequence_i32_to_i64() {
-        let sequence = SequenceArray::typed_new(10i32, 5i32, Nullability::NonNullable, 5).unwrap();
-
-        let casted = cast(
-            sequence.as_ref(),
-            &DType::Primitive(PType::I64, Nullability::NonNullable),
-        )
-        .unwrap();
-        assert_eq!(
-            casted.dtype(),
-            &DType::Primitive(PType::I64, Nullability::NonNullable)
-        );
-
-        // Verify the values
-        let decoded = casted.to_canonical().unwrap().into_primitive().unwrap();
-        assert_eq!(decoded.as_slice::<i64>(), &[10i64, 15, 20, 25, 30]);
-    }
-
-    #[test]
     fn test_cast_sequence_nullability() {
         let sequence = SequenceArray::typed_new(0u32, 1u32, Nullability::NonNullable, 4).unwrap();
 
@@ -130,10 +109,50 @@ mod tests {
     }
 
     #[test]
-    fn test_cast_sequence_to_float_fails() {
+    fn test_cast_sequence_u32_to_i64() {
+        let sequence =
+            SequenceArray::typed_new(100u32, 10u32, Nullability::NonNullable, 4).unwrap();
+
+        let casted = cast(
+            sequence.as_ref(),
+            &DType::Primitive(PType::I64, Nullability::NonNullable),
+        )
+        .unwrap();
+        assert_eq!(
+            casted.dtype(),
+            &DType::Primitive(PType::I64, Nullability::NonNullable)
+        );
+
+        // Verify the values
+        let decoded = casted.to_canonical().unwrap().into_primitive().unwrap();
+        assert_eq!(decoded.as_slice::<i64>(), &[100i64, 110, 120, 130]);
+    }
+
+    #[test]
+    fn test_cast_sequence_i16_to_i32_nullable() {
+        // Test ptype change AND nullability change in one cast
+        let sequence = SequenceArray::typed_new(5i16, 3i16, Nullability::NonNullable, 3).unwrap();
+
+        let casted = cast(
+            sequence.as_ref(),
+            &DType::Primitive(PType::I32, Nullability::Nullable),
+        )
+        .unwrap();
+        assert_eq!(
+            casted.dtype(),
+            &DType::Primitive(PType::I32, Nullability::Nullable)
+        );
+
+        // Verify the values
+        let decoded = casted.to_canonical().unwrap().into_primitive().unwrap();
+        assert_eq!(decoded.as_slice::<i32>(), &[5i32, 8, 11]);
+    }
+
+    #[test]
+    fn test_cast_sequence_to_float_delegates_to_canonical() {
         let sequence = SequenceArray::typed_new(0i32, 1i32, Nullability::NonNullable, 5).unwrap();
 
-        // Cast to float should return None (delegate to canonical)
+        // Cast to float should delegate to canonical (SequenceArray doesn't support float)
         let casted = cast(
             sequence.as_ref(),
             &DType::Primitive(PType::F32, Nullability::NonNullable),
@@ -144,6 +163,11 @@ mod tests {
             casted.dtype(),
             &DType::Primitive(PType::F32, Nullability::NonNullable)
         );
+
+        // Verify the values were correctly converted
+        let decoded = casted.to_canonical().unwrap().into_primitive().unwrap();
+        let float_values = decoded.as_slice::<f32>();
+        assert_eq!(float_values, &[0.0f32, 1.0, 2.0, 3.0, 4.0]);
     }
 
     #[rstest]
