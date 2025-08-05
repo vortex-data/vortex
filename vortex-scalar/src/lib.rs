@@ -39,6 +39,9 @@ mod utf8;
 #[cfg(test)]
 mod round_trip_tests;
 
+#[cfg(test)]
+mod consistency_tests;
+
 pub use bigint::*;
 pub use binary::*;
 pub use bool::*;
