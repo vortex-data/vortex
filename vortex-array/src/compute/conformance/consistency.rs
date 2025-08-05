@@ -19,12 +19,12 @@
 //!   interact with null values.
 //! - **Edge Cases**: Tests empty arrays, single elements, and boundary conditions.
 
-use vortex_dtype::DType;
+use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexUnwrap, vortex_panic};
 use vortex_mask::Mask;
 
 use crate::arrays::{BoolArray, PrimitiveArray};
-use crate::compute::{filter, mask, take};
+use crate::compute::{Operator, and, cast, compare, filter, invert, mask, or, take};
 use crate::{Array, IntoArray};
 
 /// Tests that filter and take operations produce consistent results.
@@ -428,8 +428,7 @@ fn test_empty_operations_consistency(array: &dyn Array) {
     assert_eq!(empty_filter.dtype(), array.dtype());
 
     // Empty take
-    let empty_indices =
-        PrimitiveArray::empty::<u64>(vortex_dtype::Nullability::NonNullable).into_array();
+    let empty_indices = PrimitiveArray::empty::<u64>(Nullability::NonNullable).into_array();
     let empty_take = take(array, &empty_indices).vortex_unwrap();
     assert_eq!(empty_take.len(), 0);
     assert_eq!(empty_take.dtype(), array.dtype());
@@ -576,10 +575,6 @@ fn test_large_array_consistency(array: &dyn Array) {
 /// This test catches bugs where an encoding might implement one comparison
 /// correctly but fail on its logical inverse.
 fn test_comparison_inverse_consistency(array: &dyn Array) {
-    use vortex_dtype::DType;
-
-    use crate::compute::{Operator, compare, invert};
-
     let len = array.len();
     if len == 0 {
         return;
@@ -676,10 +671,6 @@ fn test_comparison_inverse_consistency(array: &dyn Array) {
 /// Ensures that comparison operations maintain mathematical ordering properties
 /// regardless of operand order.
 fn test_comparison_symmetry_consistency(array: &dyn Array) {
-    use vortex_dtype::DType;
-
-    use crate::compute::{Operator, compare};
-
     let len = array.len();
     if len == 0 {
         return;
@@ -757,8 +748,6 @@ fn test_comparison_symmetry_consistency(array: &dyn Array) {
 /// This test catches bugs where encodings might optimize boolean operations
 /// incorrectly, breaking fundamental logical properties.
 fn test_boolean_demorgan_consistency(array: &dyn Array) {
-    use crate::compute::{and, invert, or};
-
     if !matches!(array.dtype(), DType::Bool(_)) {
         return;
     }
@@ -891,13 +880,7 @@ fn test_slice_aggregate_consistency(array: &dyn Array) {
     }
 
     // Test nan_count for floating point types
-    if matches!(
-        array.dtype(),
-        DType::Primitive(
-            vortex_dtype::PType::F16 | vortex_dtype::PType::F32 | vortex_dtype::PType::F64,
-            _
-        )
-    ) {
+    if array.dtype().is_float() {
         if let (Ok(slice_nan_count), Ok(canonical_nan_count)) =
             (nan_count(&sliced), nan_count(&canonical_sliced))
         {
@@ -926,10 +909,6 @@ fn test_slice_aggregate_consistency(array: &dyn Array) {
 /// offset information during cast operations. Such bugs can lead to incorrect data being
 /// returned after casting a sliced array.
 fn test_cast_slice_consistency(array: &dyn Array) {
-    use vortex_dtype::{DType, Nullability, PType};
-
-    use crate::compute::cast;
-
     let len = array.len();
     if len < 5 {
         return; // Need at least 5 elements for meaningful slice

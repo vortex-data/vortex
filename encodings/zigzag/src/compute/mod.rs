@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod cast;
+
 use vortex_array::compute::{
     FilterKernel, FilterKernelAdapter, MaskKernel, MaskKernelAdapter, TakeKernel,
     TakeKernelAdapter, filter, mask, take,
