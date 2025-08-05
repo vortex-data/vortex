@@ -7,8 +7,7 @@ pub mod bitpacked;
 // pub mod validity;
 
 use crate::experiment::buffers::BufferId;
-use crate::experiment::mask::{BitMask, BitView};
-use crate::experiment::view_mut::ViewMut;
+use crate::experiment::view::{BitView, ViewMut};
 use bitvec::view::BitViewSized;
 use std::ops::{Deref, Range};
 use std::sync::atomic::AtomicUsize;
@@ -57,7 +56,7 @@ pub trait Evaluation {
     fn step(
         &mut self,
         ctx: &dyn EvaluationContext,
-        selected: &dyn BitMask,
+        selected: BitView,
         out: &mut ViewMut,
     ) -> Poll<VortexResult<()>>;
 }

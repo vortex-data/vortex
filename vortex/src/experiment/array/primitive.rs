@@ -4,10 +4,8 @@
 use crate::experiment::N;
 use crate::experiment::array::Array;
 use crate::experiment::encodings::BindContext;
-use crate::experiment::mask::{
-    BitBuffer, BitMask, BitVector, BitView, BooleanBufferChunksIter, iter_boolean_buffer,
-};
-use crate::experiment::view_mut::ViewMut;
+use crate::experiment::mask::{BooleanBufferChunksIter, iter_boolean_buffer};
+use crate::experiment::view::{BitView, ViewMut};
 use arrow_buffer::BooleanBuffer;
 use bitvec::order::Msb0;
 use bitvec::slice::BitSlice;
@@ -50,19 +48,15 @@ fn export_primitive_impl<T: NativePType>(
     unsafe { elements.set_len(capacity) };
     let elements_slice = elements.as_mut_slice();
 
-    // Optionally create a validity vector if the array has a validity mask.
-    let mut validity = BitBuffer::with_capacity(capacity);
-    unsafe { validity.set_len(capacity) };
-
     // Iterate the given mask in chunks of N.
     // TODO(ngates): deal with AllTrue / AllFalse masks?
     let mut offset = 0;
     let boolean_buffer = mask.to_boolean_buffer();
     let chunks = BooleanBufferChunksIter::new(&boolean_buffer);
     for chunk in chunks {
-        let mask_view = BitView::try_from(&chunk)?;
+        let mask_view = BitView::new(&chunk);
         let mut view = ViewMut::new_primitive::<T>(&mut elements_slice[offset..][..N], None);
-        match pipeline.step(&(), &mask_view, &mut view) {
+        match pipeline.step(&(), mask_view, &mut view) {
             Poll::Ready(result) => result?,
             Poll::Pending => {
                 vortex_panic!("Array pipelines cannot yield pending");
@@ -76,7 +70,7 @@ fn export_primitive_impl<T: NativePType>(
 
     // Set the length of the values and validity buffers to the actual length
     unsafe { elements.set_len(offset) };
-    unsafe { validity.set_len(offset) };
+    // unsafe { validity.set_len(offset) };
 
     Ok(PrimitiveArray::new(
         elements.freeze(),
@@ -95,14 +89,15 @@ mod test {
     use super::*;
     use crate::IntoArray;
     use crate::buffer::buffer;
-    use crate::experiment::buffers::ByteBufferHandle;
+    use crate::experiment::buffers::BufferHandle;
     use crate::experiment::encodings::bitpacked::BitPackedEncoding;
     use vortex_error::VortexResult;
     use vortex_fastlanes::BitPackedArray;
+
     #[test]
     fn test_bitpacked() -> VortexResult<()> {
         let old_array = BitPackedArray::encode(&buffer![4u32; 100000].into_array(), 3)?;
-        let buffer = ByteBufferHandle::new(old_array.packed().clone());
+        let buffer = BufferHandle::new(old_array.packed().clone());
         let encoding = BitPackedEncoding::new(old_array.bit_width() as usize, buffer);
 
         let array = Array {

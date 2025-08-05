@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::experiment::N;
-use crate::experiment::mask::{BitMask, BitVector};
 use bitvec::prelude::*;
 use std::ops::Deref;
 use std::sync::Arc;
@@ -13,13 +12,26 @@ use vortex_error::{VortexError, vortex_err};
 /// Internally, it uses a [`BitArray`] to store the bits, but this crate has some
 /// performance foot-guns in cases where we can lean on better assumptions, and therefore we wrap
 /// it up for use within Vortex.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct BitView<'a> {
-    pub(super) bits: &'a BitArray<[u64; N / 64], Msb0>,
-    pub(super) true_count: usize,
+    bits: &'a BitArray<[u64; N / 64], Msb0>,
+    true_count: usize,
 }
 
 impl<'a> BitView<'a> {
+    pub fn new(bits: &[u64; N / 64]) -> Self {
+        let true_count = bits.iter().map(|&word| word.count_ones() as usize).sum();
+        let bits: &BitArray<[u64; N / 64], Msb0> = unsafe { std::mem::transmute(bits) };
+        BitView { bits, true_count }
+    }
+
+    pub(crate) unsafe fn new_unchecked(
+        bits: &'a BitArray<[u64; N / 64], Msb0>,
+        true_count: usize,
+    ) -> Self {
+        BitView { bits, true_count }
+    }
+
     /// Returns the number of `true` bits in the view.
     pub fn true_count(&self) -> usize {
         self.true_count
@@ -47,36 +59,24 @@ impl<'a> BitView<'a> {
             }
         }
     }
-}
 
-impl<'a> BitMask for BitView<'a> {
-    fn true_count(&self) -> usize {
-        self.true_count
-    }
-
-    fn as_raw(&self) -> &[u64; N / 64] {
+    pub fn as_raw(&self) -> &[u64; N / 64] {
         // It's actually remarkably hard to get a reference to the underlying array!
         let raw = self.bits.as_raw_slice();
         unsafe { &*(raw.as_ptr() as *const [u64; N / 64]) }
     }
+}
 
-    fn to_owned(&self) -> BitVector {
-        match self.true_count {
-            0 => BitVector::empty().clone(),
-            N => BitVector::full().clone(),
-            _ => BitVector {
-                bits: Arc::new(self.bits.clone()),
-                true_count: self.true_count,
-            },
-        }
+impl<'a> From<&'a [u64; N / 64]> for BitView<'a> {
+    fn from(value: &'a [u64; N / 64]) -> Self {
+        Self::new(value)
     }
 }
 
-fn count_true(bits: &BitArray<[u64; N / 64], Msb0>) -> usize {
-    bits.into_inner()
-        .iter()
-        .map(|word| word.count_ones() as usize)
-        .sum()
+impl<'a> From<&'a BitArray<[u64; N / 64], Msb0>> for BitView<'a> {
+    fn from(bits: &'a BitArray<[u64; N / 64], Msb0>) -> Self {
+        BitView::new(unsafe { std::mem::transmute(bits) })
+    }
 }
 
 impl<'a> TryFrom<&'a BitSlice<u64, Msb0>> for BitView<'a> {
@@ -86,17 +86,6 @@ impl<'a> TryFrom<&'a BitSlice<u64, Msb0>> for BitView<'a> {
         let bits: &BitArray<[u64; N / 64], Msb0> = value
             .try_into()
             .map_err(|e| vortex_err!("Failed to convert BitSlice to BitArray: {}", e))?;
-        let true_count = count_true(bits);
-        Ok(BitView { bits, true_count })
-    }
-}
-
-impl<'a> TryFrom<&'a [u64; N / 64]> for BitView<'a> {
-    type Error = VortexError;
-
-    fn try_from(value: &'a [u64; N / 64]) -> Result<Self, Self::Error> {
-        let bits: &BitArray<[u64; N / 64], Msb0> = unsafe { std::mem::transmute(value) };
-        let true_count = count_true(bits);
-        Ok(BitView { bits, true_count })
+        Ok(BitView::new(unsafe { std::mem::transmute(bits) }))
     }
 }

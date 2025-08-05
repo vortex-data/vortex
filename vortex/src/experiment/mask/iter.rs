@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::experiment::N;
-use crate::experiment::mask::{BitMask, BitVector, BitView, buffer};
 use arrow_buffer::BooleanBuffer;
 use arrow_buffer::bit_chunk_iterator::{BitChunkIterator, BitChunks};
 use bitvec::order::Msb0;

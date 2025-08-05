@@ -5,14 +5,12 @@
 #![allow(unexpected_cfgs)]
 
 use arrow_buffer::BooleanBuffer;
-use bitvec::order::Msb0;
-use bitvec::vec::BitVec;
 use divan::Bencher;
 use mimalloc::MiMalloc;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex::experiment::array::Array;
-use vortex::experiment::buffers::ByteBufferHandle;
+use vortex::experiment::buffers::BufferHandle;
 use vortex::experiment::encodings::bitpacked::BitPackedEncoding;
 use vortex::{IntoArray, ToCanonical};
 use vortex_array::compute::filter;
@@ -92,7 +90,7 @@ pub fn decompress_bitpacking_fused_filter<T: NativePType>(bencher: Bencher, frac
     // Create a V2 array.
     let enc = BitPackedEncoding::new(
         array.bit_width() as usize,
-        ByteBufferHandle::new(array.packed().clone()),
+        BufferHandle::new(array.packed().clone()),
     );
     let array2 = Array::new(
         array.len(),

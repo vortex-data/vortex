@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::experiment::N;
-use crate::experiment::mask::BitVector;
+use crate::experiment::vector::BitVector;
 
 /// Defines a selection of elements from a view or vector.
 pub enum Selection {

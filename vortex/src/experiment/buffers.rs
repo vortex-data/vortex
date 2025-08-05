@@ -36,8 +36,6 @@ pub enum BufferHandle<T> {
     Ready(Buffer<T>),
 }
 
-pub type ByteBufferHandle = BufferHandle<u8>;
-
 impl<T> BufferHandle<T> {
     pub fn new(buffer: Buffer<T>) -> Self {
         BufferHandle::Ready(buffer)
@@ -47,9 +45,11 @@ impl<T> BufferHandle<T> {
         BufferHandle::Pending(id)
     }
 
-    pub fn from_byte_buffer(buffer: ByteBufferHandle) -> Self {
-        match buffer {
-            BufferHandle::Ready(buf) => BufferHandle::Ready(Buffer::<T>::from_byte_buffer(buf)),
+    pub fn into_typed<S>(self) -> BufferHandle<S> {
+        match self {
+            BufferHandle::Ready(buffer) => {
+                BufferHandle::Ready(Buffer::<S>::from_byte_buffer(buffer.into_byte_buffer()))
+            }
             BufferHandle::Pending(id) => BufferHandle::Pending(id),
         }
     }
@@ -60,9 +60,7 @@ impl<T> BufferHandle<T> {
             BufferHandle::Pending(_) => None,
         }
     }
-}
 
-impl<T> BufferHandle<T> {
     pub fn get_or_load(&mut self, ctx: &dyn EvaluationContext) -> Poll<VortexResult<&Buffer<T>>> {
         if let BufferHandle::Ready(buffer) = self {
             return Poll::Ready(Ok(buffer));

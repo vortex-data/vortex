@@ -3,14 +3,15 @@
 
 use crate::experiment::N;
 use crate::experiment::selection::Selection;
-use crate::experiment::view_mut::{BitVector, VType, ViewMut};
+use crate::experiment::vector::BitVector;
+use crate::experiment::view::{BitView, VType, ViewMut};
 use bitvec::order::Msb0;
 use bitvec::slice::BitSlice;
 use bitvec::view::BitViewSized;
 use vortex_error::{VortexExpect, vortex_err};
 
 impl<'v> ViewMut<'v> {
-    pub fn new_bool(values: &'v mut BitVector, validity: Option<&'v mut BitVector>) -> Self {
+    pub fn new_bool(values: &'v mut BitVector, validity: Option<BitView<'v>>) -> Self {
         ViewMut {
             vtype: VType::Bool,
             elements: values.as_raw_mut().as_mut_ptr().cast(),

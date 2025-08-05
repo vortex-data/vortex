@@ -3,7 +3,7 @@
 
 use crate::experiment::N;
 use crate::experiment::selection::Selection;
-use crate::experiment::view_mut::{BitVector, VType, ViewMut};
+use crate::experiment::view::{BitView, VType, ViewMut};
 use std::mem::take;
 use vortex_dtype::NativePType;
 use vortex_error::vortex_panic;
@@ -12,7 +12,7 @@ impl<'v> ViewMut<'v> {
     /// Create a new `Vector` holding primitive elements.
     pub fn new_primitive<T: NativePType>(
         elements: &'v mut [T],
-        validity: Option<&'v mut BitVector>,
+        validity: Option<BitView<'v>>,
     ) -> Self {
         assert_eq!(elements.len(), N);
         ViewMut {
@@ -63,7 +63,7 @@ impl<T: NativePType> PrimitiveVector<'_, '_, T> {
             }
             Selection::Mask(mask) => {
                 let mut offset = 0;
-                mask.as_mask().iter_ones(|idx| {
+                mask.as_view().iter_ones(|idx| {
                     unsafe {
                         // SAFETY: We assume that the elements are of type T and that the view is valid.
                         *self.as_mut().get_unchecked_mut(offset) =

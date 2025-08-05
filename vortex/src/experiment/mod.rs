@@ -39,7 +39,7 @@ pub mod mask;
 pub mod pipeline;
 mod selection;
 mod vector;
-pub mod view_mut;
+pub mod view;
 
 /// The number of elements in each step of a Vortex evaluation pipeline.
 pub const N: usize = 1024;

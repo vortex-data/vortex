@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use crate::experiment::N;
-use crate::experiment::mask::BitMask;
-use crate::experiment::mask::view::BitView;
+use crate::experiment::view::{BitView, BitViewMut};
 use bitvec::array::BitArray;
 use bitvec::order::Msb0;
 use bitvec::slice::BitSlice;
@@ -51,8 +53,14 @@ impl BitVector {
         &FULL
     }
 
-    pub fn as_mask(&self) -> &dyn BitMask {
-        self
+    pub fn true_count(&self) -> usize {
+        self.true_count
+    }
+
+    pub fn as_raw(&self) -> &[u64; N / 64] {
+        // It's actually remarkably hard to get a reference to the underlying array!
+        let raw = self.bits.as_raw_slice();
+        unsafe { &*(raw.as_ptr() as *const [u64; N / 64]) }
     }
 
     pub fn as_raw_mut(&mut self) -> &mut [u64; N / 64] {
@@ -73,26 +81,19 @@ impl BitVector {
         self.true_count = true_count;
     }
 
-    pub fn borrow(&self) -> BitView<'_> {
-        BitView {
-            bits: &self.bits,
-            true_count: self.true_count,
-        }
+    pub fn as_view(&self) -> BitView<'_> {
+        unsafe { BitView::new_unchecked(&self.bits, self.true_count) }
+    }
+
+    pub fn as_view_mut(&mut self) -> BitViewMut<'_> {
+        unsafe { BitViewMut::new_unchecked(Arc::make_mut(&mut self.bits), self.true_count) }
     }
 }
 
-impl BitMask for BitVector {
-    fn true_count(&self) -> usize {
-        self.true_count
-    }
-
-    fn as_raw(&self) -> &[u64; N / 64] {
-        // It's actually remarkably hard to get a reference to the underlying array!
-        let raw = self.bits.as_raw_slice();
-        unsafe { &*(raw.as_ptr() as *const [u64; N / 64]) }
-    }
-
-    fn to_owned(&self) -> BitVector {
-        self.clone()
+impl From<BitView<'_>> for BitVector {
+    fn from(value: BitView<'_>) -> Self {
+        let true_count = value.true_count();
+        let bits = Arc::new(BitArray::<[u64; N / 64], Msb0>::from(*value.as_raw()));
+        BitVector { bits, true_count }
     }
 }

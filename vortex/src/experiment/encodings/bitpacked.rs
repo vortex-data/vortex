@@ -2,23 +2,23 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::experiment::N;
-use crate::experiment::buffers::{BufferHandle, ByteBufferHandle};
+use crate::experiment::buffers::BufferHandle;
 use crate::experiment::encodings::{BindContext, Encoding, Evaluation, EvaluationContext};
-use crate::experiment::mask::{BitMask, BitView};
 use crate::experiment::selection::Selection;
-use crate::experiment::view_mut::ViewMut;
+use crate::experiment::view::{BitView, ViewMut};
 use fastlanes::{BitPacking, FastLanes};
+use std::marker::PhantomData;
 use std::task::{Poll, ready};
 use vortex_dtype::{NativePType, match_each_unsigned_integer_ptype};
 use vortex_error::VortexResult;
 
 pub struct BitPackedEncoding {
     bit_width: usize,
-    buffer: ByteBufferHandle,
+    buffer: BufferHandle<u8>,
 }
 
 impl BitPackedEncoding {
-    pub fn new(bit_width: usize, buffer: ByteBufferHandle) -> Self {
+    pub fn new(bit_width: usize, buffer: BufferHandle<u8>) -> Self {
         Self { bit_width, buffer }
     }
 }
@@ -30,19 +30,23 @@ impl Encoding for BitPackedEncoding {
             Ok(Box::new(BitPackedEvaluation::<T> {
                 width: self.bit_width,
                 packed_stride: self.bit_width * <T as FastLanes>::LANES,
-                buffer: BufferHandle::from_byte_buffer(self.buffer.clone()),
+                buffer: self.buffer.clone().into_typed(),
                 packed_offset: 0,
+                _phantom: Default::default(),
             }))
         })
     }
 }
 
+// TODO(ngates): we should try putting the const bit width as a generic here, to avoid
+//  a switch in the fastlanes library on every invocation of `unchecked_unpack`.
 struct BitPackedEvaluation<T> {
     width: usize,
     packed_stride: usize,
 
     buffer: BufferHandle<T>,
     packed_offset: usize,
+    _phantom: PhantomData<T>,
 }
 
 impl<T: NativePType + BitPacking> Evaluation for BitPackedEvaluation<T> {
@@ -55,7 +59,7 @@ impl<T: NativePType + BitPacking> Evaluation for BitPackedEvaluation<T> {
     fn step(
         &mut self,
         ctx: &dyn EvaluationContext,
-        selected: &dyn BitMask,
+        selected: BitView,
         out: &mut ViewMut,
     ) -> Poll<VortexResult<()>> {
         let buffer = ready!(self.buffer.get_or_load(ctx))?;
@@ -82,7 +86,6 @@ impl<T: NativePType + BitPacking> Evaluation for BitPackedEvaluation<T> {
 
             // Set the selection to the given mask, which is a bit array of length N.
             out.set_selection_mask(selected);
-            // view.flatten_with_mask(selected.borrow());
 
             Poll::Ready(Ok(()))
         } else {

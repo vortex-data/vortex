@@ -54,7 +54,6 @@
 //! evaluation. If either fails to return, a default canonical implementation is used, as now.
 
 use crate::experiment::N;
-use crate::experiment::mask::{BitMask, BitVector};
 use crate::experiment::selection::Selection;
 use bitvec::prelude::*;
 use vortex_array::ArrayRef;
@@ -62,6 +61,12 @@ use vortex_buffer::ByteBuffer;
 use vortex_dtype::{PType, match_each_native_ptype};
 use vortex_error::VortexExpect;
 
+use crate::experiment::vector::BitVector;
+pub use bit::*;
+pub use bit_mut::*;
+
+mod bit;
+mod bit_mut;
 mod bool;
 mod primitive;
 
@@ -124,7 +129,7 @@ pub struct ViewMut<'a> {
     elements: *mut u8,
     /// The validity mask for the vector, indicating which elements in the buffer are valid.
     /// This value can be `None` if the expected DType is `NonNullable`.
-    validity: Option<&'a mut BitVector>,
+    validity: Option<BitView<'a>>,
     // A selection mask over the elements and validity of the vector.
     selection: Selection,
 
@@ -158,18 +163,18 @@ impl<'a> ViewMut<'a> {
         }
     }
 
-    pub fn validity(&mut self) -> &mut BitVector {
-        self.validity
-            .as_mut()
-            .vortex_expect("Vector does not support validity")
-    }
+    // pub fn validity(&mut self) -> &mut BitVector {
+    //     self.validity
+    //         .as_mut()
+    //         .vortex_expect("Vector does not support validity")
+    // }
 
-    pub fn set_selection_mask(&mut self, mask: &dyn BitMask) {
+    pub fn set_selection_mask(&mut self, mask: BitView) {
         match mask.true_count() {
             0 => self.selection = Selection::Prefix { len: 0 },
             N => self.selection = Selection::Prefix { len: N },
             _ => {
-                self.selection = Selection::Mask(mask.to_owned());
+                self.selection = Selection::Mask(BitVector::from(mask));
             }
         }
     }
