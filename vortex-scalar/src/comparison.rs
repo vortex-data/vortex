@@ -9,7 +9,6 @@
 //! 2. If dtypes are incompatible, return None
 //! 3. Otherwise, compare the values
 
-use std::cmp::Ordering;
 
 /// Standard partial comparison implementation for scalar types.
 /// 
@@ -38,7 +37,7 @@ macro_rules! impl_scalar_partial_ord {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::Nullability;
     
     use crate::Scalar;
 

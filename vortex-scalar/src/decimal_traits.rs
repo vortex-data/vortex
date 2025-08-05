@@ -6,7 +6,7 @@
 use vortex_dtype::{DType, DecimalDType, Nullability};
 use vortex_error::{VortexError, vortex_err};
 
-use crate::{DecimalScalar, DecimalValue, Scalar, ScalarValue};
+use crate::{DecimalScalar, DecimalValue, Scalar};
 
 // Add From<DecimalValue> for Scalar to match other types
 impl From<DecimalValue> for Scalar {

@@ -56,7 +56,7 @@ mod tests {
         output.clear();
         
         // Decimal scalar shows value with precision/scale metadata
-        use crate::{DecimalScalar, DecimalValue};
+        use crate::DecimalValue;
         use vortex_dtype::DecimalDType;
         
         let decimal = Scalar::decimal(
