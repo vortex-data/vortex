@@ -155,6 +155,8 @@ fn main() {
         .raw_line("#![allow(non_camel_case_types)]")
         .raw_line("#![allow(non_upper_case_globals)]")
         .raw_line("#![allow(non_snake_case)]")
+        .raw_line("#![allow(clippy::suspicious_doc_comments)]")
+        .raw_line("#![allow(clippy::enum_variant_names)]")
         // Add the #[must_use] attribute to FFI functions that return results.
         .must_use_type("duckdb_state")
         .rustified_enum("duckdb_state")

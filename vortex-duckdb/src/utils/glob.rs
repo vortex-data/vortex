@@ -49,9 +49,7 @@ mod s3 {
         let list_prefix = list_prefix(url_path(&url)?);
         let object_store = s3_store(bucket)?;
 
-        // The AWS S3 `ListObjectsV2` API returns multiple objects per HTTP
-        // request (up to 1000 by default), but the object store stream
-        // interface yields them to you one at a time.
+        // The AWS S3 `ListObjectsV2` API returns multiple objects per HTTP request, up to 1000 by default.
         let stream = object_store.list(Some(&object_store::path::Path::from(list_prefix)));
 
         let glob_pattern = glob::Pattern::new(url_glob.as_ref())
