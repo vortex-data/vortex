@@ -115,10 +115,7 @@ impl<'a> ListScalar<'a> {
         self.elements
             .as_ref()
             .and_then(|l| l.get(idx))
-            .map(|value| Scalar::new(
-                self.element_dtype().clone(),
-                value.clone(),
-            ))
+            .map(|value| Scalar::new(self.element_dtype().clone(), value.clone()))
     }
 
     /// Returns all elements in the list as a vector of scalars.
