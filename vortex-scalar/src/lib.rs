@@ -125,6 +125,10 @@ impl Scalar {
                     coerced_elements?.into(),
                 )))
             }
+            // Handle extension type coercion - recursively coerce the storage scalar
+            (DType::Extension(ext_dtype), _) => {
+                Self::coerce_value(ext_dtype.storage_dtype(), value)
+            }
             // No coercion needed for other types
             _ => Ok(value),
         }
