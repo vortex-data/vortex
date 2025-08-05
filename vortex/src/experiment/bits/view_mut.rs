@@ -8,6 +8,7 @@ use bitvec::order::Msb0;
 
 /// A mutable borrowed fixed-size bit vector of length `N` bits, represented as an array of
 /// 64-bit words.
+#[derive(Debug)]
 pub struct BitViewMut<'a> {
     bits: &'a mut BitArray<[u64; N / 64], Msb0>,
     true_count: usize,

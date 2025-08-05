@@ -56,9 +56,11 @@
 use crate::experiment::N;
 use crate::experiment::selection::Selection;
 use bitvec::prelude::*;
+use std::marker::PhantomData;
 use vortex_array::ArrayRef;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{PType, PTypeVisitor, match_each_native_ptype};
+use vortex_dtype::half::f16;
+use vortex_dtype::{NativePType, PType, PTypeVisitor, match_each_native_ptype};
 use vortex_error::VortexExpect;
 
 use crate::experiment::bits::BitVector;
@@ -160,11 +162,24 @@ impl<'a> ViewMut<'a> {
         }
     }
 
-    // pub fn validity(&mut self) -> &mut BitVector {
-    //     self.validity
-    //         .as_mut()
-    //         .vortex_expect("Vector does not support validity")
-    // }
+    // TODO(ngates): should booleans be stored as byte-bools? Faster SIMD I guess?
+    pub fn elements<C: Canonical>(&mut self) -> &'a mut [C::Element; N] {
+        assert_eq!(self.vtype, C::vtype(), "Invalid type for canonical view");
+        // SAFETY: We assume that the elements are of type C::Element and that the view is valid.
+        unsafe { &mut *(self.elements.cast::<[C::Element; N]>()) }
+    }
+
+    /// Access the validity mask of the vector.
+    ///
+    /// ## Panics
+    ///
+    /// Panics if the vector does not support validity, i.e. if the DType was non-nullable when
+    /// it was created.
+    pub fn validity(&mut self) -> &mut BitViewMut<'a> {
+        self.validity
+            .as_mut()
+            .vortex_expect("Vector does not support validity")
+    }
 
     pub fn set_selection_mask(&mut self, mask: BitVector) {
         match mask.true_count() {
@@ -223,3 +238,43 @@ impl<'a> ViewMut<'a> {
         }
     }
 }
+
+/// A trait to identify canonical vector types.
+pub trait Canonical {
+    type Element;
+
+    fn vtype() -> VType;
+}
+
+struct Bool;
+impl Canonical for Bool {
+    type Element = bool;
+
+    fn vtype() -> VType {
+        VType::Bool
+    }
+}
+
+macro_rules! canonical_ptype {
+    ($T:ty) => {
+        impl Canonical for $T {
+            type Element = $T;
+
+            fn vtype() -> VType {
+                VType::Primitive(<$T as NativePType>::PTYPE)
+            }
+        }
+    };
+}
+
+canonical_ptype!(u8);
+canonical_ptype!(u16);
+canonical_ptype!(u32);
+canonical_ptype!(u64);
+canonical_ptype!(i8);
+canonical_ptype!(i16);
+canonical_ptype!(i32);
+canonical_ptype!(i64);
+canonical_ptype!(f16);
+canonical_ptype!(f32);
+canonical_ptype!(f64);
