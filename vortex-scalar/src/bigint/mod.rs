@@ -306,10 +306,10 @@ mod tests {
     #[test]
     fn test_i256_display() {
         let value = i256::from_i128(42);
-        assert_eq!(format!("{}", value), "42");
+        assert_eq!(format!("{value}"), "42");
         
         let negative = i256::from_i128(-42);
-        assert_eq!(format!("{}", negative), "-42");
+        assert_eq!(format!("{negative}"), "-42");
     }
 
     #[test]

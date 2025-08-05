@@ -86,21 +86,21 @@ fn test_primitive_i64_to_arrow() {
 fn test_primitive_f16_to_arrow() {
     use vortex_dtype::half::f16;
     
-    let scalar = Scalar::primitive(f16::from_f32(3.14159), Nullability::NonNullable);
+    let scalar = Scalar::primitive(f16::from_f32(1.234), Nullability::NonNullable);
     let result = Arc::<dyn Datum>::try_from(&scalar);
     assert!(result.is_ok());
 }
 
 #[test]
 fn test_primitive_f32_to_arrow() {
-    let scalar = Scalar::primitive(3.14159f32, Nullability::NonNullable);
+    let scalar = Scalar::primitive(1.234f32, Nullability::NonNullable);
     let result = Arc::<dyn Datum>::try_from(&scalar);
     assert!(result.is_ok());
 }
 
 #[test]
 fn test_primitive_f64_to_arrow() {
-    let scalar = Scalar::primitive(3.14159265359f64, Nullability::NonNullable);
+    let scalar = Scalar::primitive(1.234567890123f64, Nullability::NonNullable);
     let result = Arc::<dyn Datum>::try_from(&scalar);
     assert!(result.is_ok());
 }
