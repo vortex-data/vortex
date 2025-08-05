@@ -12,12 +12,12 @@ use rand::{Rng, SeedableRng};
 use vortex::encodings::fastlanes::bitpack_to_best_bit_width;
 use vortex::{IntoArray, ToCanonical};
 use vortex_array::compute::filter;
+use vortex_array::pipeline::array::Array;
+use vortex_array::pipeline::buffers::BufferHandle;
+use vortex_array::pipeline::encodings::bitpacked::BitPackedEncoding;
 use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
 use vortex_mask::Mask;
-use vortex_vector::array::Array;
-use vortex_vector::buffers::BufferHandle;
-use vortex_vector::encodings::bitpacked::BitPackedEncoding;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;

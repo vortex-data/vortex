@@ -21,11 +21,12 @@ use crate::arrays::{
 };
 use crate::builders::ArrayBuilder;
 use crate::compute::{ComputeFn, Cost, InvocationArgs, IsConstantOpts, Output, is_constant_opts};
+use crate::pipeline::{Pipeline, ToPipeline};
 use crate::serde::ArrayChildren;
 use crate::stats::{Precision, Stat, StatsSetRef};
 use crate::vtable::{
-    ArrayVTable, CanonicalVTable, ComputeVTable, OperationsVTable, SerdeVTable, VTable,
-    ValidityVTable, VisitorVTable,
+    ArrayVTable, CanonicalVTable, ComputeVTable, OperationsVTable, PipelineVTable, SerdeVTable,
+    VTable, ValidityVTable, VisitorVTable,
 };
 use crate::{Canonical, EncodingId, EncodingRef, SerializeMetadata};
 
@@ -121,6 +122,9 @@ pub trait Array: 'static + private::Sealed + Send + Sync + Debug + ArrayVisitor 
     /// The [`DType`] of the builder must match that of the array.
     fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()>;
 
+    /// Returns a pipeline for the array.
+    fn to_pipeline(&self) -> VortexResult<Box<dyn Pipeline>>;
+
     /// Returns the statistics of the array.
     // TODO(ngates): change how this works. It's weird.
     fn statistics(&self) -> StatsSetRef<'_>;
@@ -215,6 +219,10 @@ impl Array for Arc<dyn Array> {
 
     fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         self.as_ref().append_to_builder(builder)
+    }
+
+    fn to_pipeline(&self) -> VortexResult<Box<dyn Pipeline>> {
+        self.as_ref().to_pipeline()
     }
 
     fn statistics(&self) -> StatsSetRef<'_> {
@@ -527,6 +535,10 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         Ok(())
     }
 
+    fn to_pipeline(&self) -> VortexResult<Box<dyn Pipeline>> {
+        <V::PipelineVTable as PipelineVTable<V>>::to_pipeline(&self.0)
+    }
+
     fn statistics(&self) -> StatsSetRef<'_> {
         <V::ArrayVTable as ArrayVTable<V>>::stats(&self.0)
     }
@@ -677,5 +689,11 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
             Ok(None) => write!(f, "<serde not supported>"),
             Ok(Some(metadata)) => Debug::fmt(&metadata, f),
         }
+    }
+}
+
+impl ToPipeline for dyn Array + '_ {
+    fn to_pipeline(&self) -> VortexResult<Box<dyn Pipeline>> {
+        self.to_pipeline()
     }
 }

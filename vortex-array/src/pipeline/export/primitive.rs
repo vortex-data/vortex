@@ -20,7 +20,7 @@ pub(super) fn export_primitive(array: &Array, mask: &Mask) -> VortexResult<Primi
     match_each_native_ptype!(ptype, |T| { export_primitive_impl::<T>(array, mask) })
 }
 
-/// Export into  a primitive array using the given selection mask.
+/// Export into a primitive array using the given selection mask.
 fn export_primitive_impl<T: Canonical<Element = T> + NativePType>(
     array: &Array,
     mask: &Mask,
@@ -80,17 +80,19 @@ fn export_primitive_impl<T: Canonical<Element = T> + NativePType>(
 
 #[cfg(test)]
 mod test {
-    use super::*;
     use crate::IntoArray;
     use crate::pipeline::buffers::BufferHandle;
     use crate::pipeline::encodings::bitpacked::BitPackedEncoding;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_fastlanes::BitPackedArray;
+    use vortex_mask::Mask;
 
     #[test]
     fn test_bitpacked() -> VortexResult<()> {
-        let old_array = BitPackedArray::encode(&buffer![4u32; 100000].into_array(), 3)?;
+        let array = BitPackedArray::encode(&buffer![4u32; 100000].into_array(), 3)?;
+        let pipeline = array.to_pipeline();
+
         let buffer = BufferHandle::new(old_array.packed().clone());
         let encoding = BitPackedEncoding::new(old_array.bit_width() as usize, buffer);
 

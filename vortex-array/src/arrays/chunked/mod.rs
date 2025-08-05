@@ -26,6 +26,7 @@ impl VTable for ChunkedVTable {
     type ComputeVTable = Self;
     type EncodeVTable = NotSupported;
     type SerdeVTable = Self;
+    type PipelineVTable = NotSupported;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.chunked")

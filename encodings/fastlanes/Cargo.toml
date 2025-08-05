@@ -34,6 +34,7 @@ vortex-scalar = { workspace = true }
 
 [dev-dependencies]
 divan = { workspace = true }
+mimalloc = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
 vortex-alp = { path = "../alp" }
@@ -60,3 +61,8 @@ required-features = ["test-harness"]
 name = "compute_between"
 harness = false
 required-features = ["test-harness"]
+
+[[bench]]
+name = "pipeline_bitpacking"
+harness = false
+test = false
