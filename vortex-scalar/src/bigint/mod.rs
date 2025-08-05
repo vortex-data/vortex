@@ -244,9 +244,11 @@ impl num_traits::ToPrimitive for i256 {
 }
 
 #[cfg(test)]
+#[allow(clippy::many_single_char_names)]
 mod tests {
-    use super::*;
     use num_traits::ToPrimitive;
+
+    use super::*;
 
     #[test]
     fn test_i256_constants() {
@@ -261,13 +263,13 @@ mod tests {
     fn test_i256_from_i128() {
         let value = i256::from_i128(123456789);
         assert_eq!(value.maybe_i128(), Some(123456789));
-        
+
         let negative = i256::from_i128(-987654321);
         assert_eq!(negative.maybe_i128(), Some(-987654321));
-        
+
         let max_i128 = i256::from_i128(i128::MAX);
         assert_eq!(max_i128.maybe_i128(), Some(i128::MAX));
-        
+
         let min_i128 = i256::from_i128(i128::MIN);
         assert_eq!(min_i128.maybe_i128(), Some(i128::MIN));
     }
@@ -278,7 +280,7 @@ mod tests {
         let (lower, upper) = value.into_parts();
         assert_eq!(lower, 1000);
         assert_eq!(upper, 2000);
-        
+
         // Test to_parts (non-consuming)
         let (lower2, upper2) = value.to_parts();
         assert_eq!(lower2, 1000);
@@ -288,16 +290,16 @@ mod tests {
     #[test]
     fn test_i256_byte_conversions() {
         let original = i256::from_i128(123456789012345);
-        
+
         // Test little-endian
         let le_bytes = original.to_le_bytes();
         let recovered_le = i256::from_le_bytes(le_bytes);
         assert_eq!(original, recovered_le);
-        
+
         // Test big-endian
         let be_bytes = original.to_be_bytes();
         assert_ne!(le_bytes, be_bytes); // Should be different unless value is symmetric
-        
+
         // Test zero
         let zero_le = i256::ZERO.to_le_bytes();
         assert_eq!(zero_le, [0u8; 32]);
@@ -307,7 +309,7 @@ mod tests {
     fn test_i256_display() {
         let value = i256::from_i128(42);
         assert_eq!(format!("{value}"), "42");
-        
+
         let negative = i256::from_i128(-42);
         assert_eq!(format!("{negative}"), "-42");
     }
@@ -318,7 +320,7 @@ mod tests {
         let b = i256::from_i128(200);
         let sum = a + b;
         assert_eq!(sum.maybe_i128(), Some(300));
-        
+
         // Test negative addition
         let c = i256::from_i128(-50);
         let sum2 = a + c;
@@ -331,7 +333,7 @@ mod tests {
         let b = i256::from_i128(200);
         let diff = a - b;
         assert_eq!(diff.maybe_i128(), Some(300));
-        
+
         // Test negative result
         let diff2 = b - a;
         assert_eq!(diff2.maybe_i128(), Some(-300));
@@ -343,7 +345,7 @@ mod tests {
         let b = i256::from_i128(200);
         let product = a * b;
         assert_eq!(product.maybe_i128(), Some(20000));
-        
+
         // Test negative multiplication
         let c = i256::from_i128(-5);
         let product2 = a * c;
@@ -356,7 +358,7 @@ mod tests {
         let b = i256::from_i128(25);
         let quotient = a / b;
         assert_eq!(quotient.maybe_i128(), Some(40));
-        
+
         // Test negative division
         let c = i256::from_i128(-1000);
         let quotient2 = c / b;
@@ -369,7 +371,7 @@ mod tests {
         let b = i256::from_i128(10);
         let remainder = a % b;
         assert_eq!(remainder.maybe_i128(), Some(3));
-        
+
         // Test negative remainder
         let c = i256::from_i128(-103);
         let remainder2 = c % b;
@@ -381,11 +383,11 @@ mod tests {
         let base = i256::from_i128(2);
         let result = base.wrapping_pow(10);
         assert_eq!(result.maybe_i128(), Some(1024));
-        
+
         let base2 = i256::from_i128(10);
         let result2 = base2.wrapping_pow(3);
         assert_eq!(result2.maybe_i128(), Some(1000));
-        
+
         // Test with 0 exponent
         let result3 = base.wrapping_pow(0);
         assert_eq!(result3.maybe_i128(), Some(1));
@@ -397,7 +399,7 @@ mod tests {
         let b = i256::from_i128(200);
         let result = a.wrapping_add(b);
         assert_eq!(result.maybe_i128(), Some(300));
-        
+
         // Test the method version
         let result2 = a.wrapping_add(b);
         assert_eq!(result2.maybe_i128(), Some(300));
@@ -408,7 +410,7 @@ mod tests {
         assert!(i256::zero().is_zero());
         assert!(!i256::from_i128(1).is_zero());
         assert!(!i256::from_i128(-1).is_zero());
-        
+
         // Test ConstZero
         assert_eq!(i256::ZERO, <i256 as ConstZero>::ZERO);
     }
@@ -425,7 +427,7 @@ mod tests {
         let b = i256::from_i128(200);
         let result = a.checked_add(&b);
         assert_eq!(result, Some(i256::from_i128(300)));
-        
+
         // Note: Testing overflow would require values larger than i128
     }
 
@@ -443,7 +445,7 @@ mod tests {
         let b = i256::from_i128(200);
         let result = a.checked_sub(&b);
         assert_eq!(result, Some(i256::from_i128(300)));
-        
+
         // Test negative result
         let result2 = b.checked_sub(&a);
         assert_eq!(result2, Some(i256::from_i128(-300)));
@@ -463,11 +465,11 @@ mod tests {
         let shift_amount = i256::from_i128(1);
         let result = value >> shift_amount;
         assert_eq!(result.maybe_i128(), Some(64));
-        
+
         let shift_amount2 = i256::from_i128(2);
         let result2 = value >> shift_amount2;
         assert_eq!(result2.maybe_i128(), Some(32));
-        
+
         // Shift by 0
         let shift_zero = i256::from_i128(0);
         let result3 = value >> shift_zero;
@@ -479,10 +481,10 @@ mod tests {
         let value = i256::from_i128(32);
         let result = value << 1;
         assert_eq!(result.maybe_i128(), Some(64));
-        
+
         let result2 = value << 2;
         assert_eq!(result2.maybe_i128(), Some(128));
-        
+
         // Shift by 0
         let result3 = value << 0;
         assert_eq!(result3.maybe_i128(), Some(32));
@@ -494,7 +496,7 @@ mod tests {
         let b = i256::from_i128(0b1100);
         let result = a | b;
         assert_eq!(result.maybe_i128(), Some(0b1110));
-        
+
         // Test with zero
         let result2 = a | i256::ZERO;
         assert_eq!(result2.maybe_i128(), Some(0b1010));
@@ -503,19 +505,19 @@ mod tests {
     #[test]
     fn test_i256_to_primitive() {
         let value = i256::from_i128(1000);
-        
+
         // Test to_i64
         assert_eq!(value.to_i64(), Some(1000i64));
-        
+
         // Test to_i128
         assert_eq!(value.to_i128(), Some(1000i128));
-        
+
         // Test to_u64
         assert_eq!(value.to_u64(), Some(1000u64));
-        
+
         // Test to_u128
         assert_eq!(value.to_u128(), Some(1000u128));
-        
+
         // Test negative value
         let negative = i256::from_i128(-500);
         assert_eq!(negative.to_i64(), Some(-500i64));
@@ -529,7 +531,7 @@ mod tests {
         let arrow_value = arrow_buffer::i256::from_i128(42);
         let our_value: i256 = arrow_value.into();
         assert_eq!(our_value.maybe_i128(), Some(42));
-        
+
         // Convert back
         let arrow_again: arrow_buffer::i256 = our_value.into();
         assert_eq!(arrow_again, arrow_value);
@@ -547,7 +549,7 @@ mod tests {
         let a = i256::from_i128(100);
         let b = i256::from_i128(200);
         let c = i256::from_i128(-50);
-        
+
         assert!(a < b);
         assert!(b > a);
         assert!(c < a);
@@ -560,23 +562,23 @@ mod tests {
     fn test_i256_hash() {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
-        
+
         let value1 = i256::from_i128(42);
         let value2 = i256::from_i128(42);
         let value3 = i256::from_i128(43);
-        
+
         let mut hasher1 = DefaultHasher::new();
         value1.hash(&mut hasher1);
         let hash1 = hasher1.finish();
-        
+
         let mut hasher2 = DefaultHasher::new();
         value2.hash(&mut hasher2);
         let hash2 = hasher2.finish();
-        
+
         let mut hasher3 = DefaultHasher::new();
         value3.hash(&mut hasher3);
         let hash3 = hasher3.finish();
-        
+
         assert_eq!(hash1, hash2); // Same values should have same hash
         assert_ne!(hash1, hash3); // Different values should (likely) have different hash
     }
@@ -586,7 +588,7 @@ mod tests {
         // Create a value that doesn't fit in i128
         let large_value = i256::from_parts(u128::MAX, 1);
         assert_eq!(large_value.maybe_i128(), None);
-        
+
         // The parts should be preserved
         let (lower, upper) = large_value.to_parts();
         assert_eq!(lower, u128::MAX);

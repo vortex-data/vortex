@@ -109,25 +109,61 @@ mod tests {
 
     #[test]
     fn test_primitive_scalar_types() {
-        assert_eq!(u8::dtype(), DType::Primitive(PType::U8, Nullability::NonNullable));
-        assert_eq!(u16::dtype(), DType::Primitive(PType::U16, Nullability::NonNullable));
-        assert_eq!(u32::dtype(), DType::Primitive(PType::U32, Nullability::NonNullable));
-        assert_eq!(u64::dtype(), DType::Primitive(PType::U64, Nullability::NonNullable));
-        
-        assert_eq!(i8::dtype(), DType::Primitive(PType::I8, Nullability::NonNullable));
-        assert_eq!(i16::dtype(), DType::Primitive(PType::I16, Nullability::NonNullable));
-        assert_eq!(i32::dtype(), DType::Primitive(PType::I32, Nullability::NonNullable));
-        assert_eq!(i64::dtype(), DType::Primitive(PType::I64, Nullability::NonNullable));
-        
-        assert_eq!(f32::dtype(), DType::Primitive(PType::F32, Nullability::NonNullable));
-        assert_eq!(f64::dtype(), DType::Primitive(PType::F64, Nullability::NonNullable));
-        assert_eq!(f16::dtype(), DType::Primitive(PType::F16, Nullability::NonNullable));
+        assert_eq!(
+            u8::dtype(),
+            DType::Primitive(PType::U8, Nullability::NonNullable)
+        );
+        assert_eq!(
+            u16::dtype(),
+            DType::Primitive(PType::U16, Nullability::NonNullable)
+        );
+        assert_eq!(
+            u32::dtype(),
+            DType::Primitive(PType::U32, Nullability::NonNullable)
+        );
+        assert_eq!(
+            u64::dtype(),
+            DType::Primitive(PType::U64, Nullability::NonNullable)
+        );
+
+        assert_eq!(
+            i8::dtype(),
+            DType::Primitive(PType::I8, Nullability::NonNullable)
+        );
+        assert_eq!(
+            i16::dtype(),
+            DType::Primitive(PType::I16, Nullability::NonNullable)
+        );
+        assert_eq!(
+            i32::dtype(),
+            DType::Primitive(PType::I32, Nullability::NonNullable)
+        );
+        assert_eq!(
+            i64::dtype(),
+            DType::Primitive(PType::I64, Nullability::NonNullable)
+        );
+
+        assert_eq!(
+            f32::dtype(),
+            DType::Primitive(PType::F32, Nullability::NonNullable)
+        );
+        assert_eq!(
+            f64::dtype(),
+            DType::Primitive(PType::F64, Nullability::NonNullable)
+        );
+        assert_eq!(
+            f16::dtype(),
+            DType::Primitive(PType::F16, Nullability::NonNullable)
+        );
     }
 
     #[test]
     fn test_usize_scalar_type() {
         // usize is mapped to U64
-        assert_eq!(usize::dtype(), DType::Primitive(PType::U64, Nullability::NonNullable));
+        assert_eq!(
+            usize::dtype(),
+            DType::Primitive(PType::U64, Nullability::NonNullable)
+        );
     }
 
     #[test]
@@ -146,22 +182,34 @@ mod tests {
         // Test Vec<primitive> types
         assert_eq!(
             Vec::<u16>::dtype(),
-            DType::List(Arc::new(DType::Primitive(PType::U16, Nullability::NonNullable)), Nullability::NonNullable)
+            DType::List(
+                Arc::new(DType::Primitive(PType::U16, Nullability::NonNullable)),
+                Nullability::NonNullable
+            )
         );
-        
+
         assert_eq!(
             Vec::<i32>::dtype(),
-            DType::List(Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)), Nullability::NonNullable)
+            DType::List(
+                Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+                Nullability::NonNullable
+            )
         );
-        
+
         assert_eq!(
             Vec::<f64>::dtype(),
-            DType::List(Arc::new(DType::Primitive(PType::F64, Nullability::NonNullable)), Nullability::NonNullable)
+            DType::List(
+                Arc::new(DType::Primitive(PType::F64, Nullability::NonNullable)),
+                Nullability::NonNullable
+            )
         );
-        
+
         assert_eq!(
             Vec::<f16>::dtype(),
-            DType::List(Arc::new(DType::Primitive(PType::F16, Nullability::NonNullable)), Nullability::NonNullable)
+            DType::List(
+                Arc::new(DType::Primitive(PType::F16, Nullability::NonNullable)),
+                Nullability::NonNullable
+            )
         );
     }
 
@@ -169,12 +217,18 @@ mod tests {
     fn test_vec_string_scalar_type() {
         assert_eq!(
             Vec::<String>::dtype(),
-            DType::List(Arc::new(DType::Utf8(Nullability::NonNullable)), Nullability::NonNullable)
+            DType::List(
+                Arc::new(DType::Utf8(Nullability::NonNullable)),
+                Nullability::NonNullable
+            )
         );
-        
+
         assert_eq!(
             Vec::<BufferString>::dtype(),
-            DType::List(Arc::new(DType::Utf8(Nullability::NonNullable)), Nullability::NonNullable)
+            DType::List(
+                Arc::new(DType::Utf8(Nullability::NonNullable)),
+                Nullability::NonNullable
+            )
         );
     }
 
@@ -183,7 +237,10 @@ mod tests {
         // Vec<usize> should be List(U64)
         assert_eq!(
             Vec::<usize>::dtype(),
-            DType::List(Arc::new(DType::Primitive(PType::U64, Nullability::NonNullable)), Nullability::NonNullable)
+            DType::List(
+                Arc::new(DType::Primitive(PType::U64, Nullability::NonNullable)),
+                Nullability::NonNullable
+            )
         );
     }
 
@@ -191,7 +248,10 @@ mod tests {
     fn test_vec_byte_buffer_scalar_type() {
         assert_eq!(
             Vec::<ByteBuffer>::dtype(),
-            DType::List(Arc::new(DType::Binary(Nullability::NonNullable)), Nullability::NonNullable)
+            DType::List(
+                Arc::new(DType::Binary(Nullability::NonNullable)),
+                Nullability::NonNullable
+            )
         );
     }
 }

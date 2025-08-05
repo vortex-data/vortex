@@ -36,6 +36,9 @@ mod scalar_value;
 mod struct_;
 mod utf8;
 
+#[cfg(test)]
+mod round_trip_tests;
+
 pub use bigint::*;
 pub use binary::*;
 pub use bool::*;
