@@ -19,6 +19,7 @@
 //!   interact with null values.
 //! - **Edge Cases**: Tests empty arrays, single elements, and boundary conditions.
 
+use vortex_dtype::DType;
 use vortex_error::{VortexUnwrap, vortex_panic};
 use vortex_mask::Mask;
 
@@ -762,7 +763,11 @@ fn test_boolean_demorgan_consistency(array: &dyn Array) {
         return;
     }
 
-    let mask = BoolArray::from_iter((0..array.len()).map(|i| i % 3 == 0)).as_ref();
+    let mask = {
+        let mask_pattern: Vec<bool> = (0..array.len()).map(|i| i % 3 == 0).collect();
+        BoolArray::from_iter(mask_pattern)
+    };
+    let mask = mask.as_ref();
 
     // Test first De Morgan's law: NOT(A AND B) = (NOT A) OR (NOT B)
     if let (Ok(a_and_b), Ok(not_a), Ok(not_b)) = (and(array, mask), invert(array), invert(mask)) {
