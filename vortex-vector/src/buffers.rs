@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::encodings::EvaluationContext;
+use crate::pipeline::PipelineContext;
 use std::ops::Deref;
 use std::sync::atomic::AtomicUsize;
 use std::task::{Poll, ready};
@@ -61,7 +61,7 @@ impl<T> BufferHandle<T> {
         }
     }
 
-    pub fn get_or_load(&mut self, ctx: &dyn EvaluationContext) -> Poll<VortexResult<&Buffer<T>>> {
+    pub fn get_or_load(&mut self, ctx: &dyn PipelineContext) -> Poll<VortexResult<&Buffer<T>>> {
         if let BufferHandle::Ready(buffer) = self {
             return Poll::Ready(Ok(buffer));
         }
@@ -81,7 +81,7 @@ impl<T> BufferHandle<T> {
     }
 }
 
-impl EvaluationContext for HashMap<BufferId, ByteBuffer> {
+impl PipelineContext for HashMap<BufferId, ByteBuffer> {
     fn buffer(&self, buffer_id: BufferId) -> Poll<VortexResult<ByteBuffer>> {
         match self.get(&buffer_id) {
             Some(buffer) => Poll::Ready(Ok(buffer.clone())),

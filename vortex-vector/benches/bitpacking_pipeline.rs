@@ -9,15 +9,15 @@ use divan::Bencher;
 use mimalloc::MiMalloc;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
-use vortex::experiment::array::Array;
-use vortex::experiment::buffers::BufferHandle;
-use vortex::experiment::encodings::bitpacked::BitPackedEncoding;
+use vortex::encodings::fastlanes::bitpack_to_best_bit_width;
 use vortex::{IntoArray, ToCanonical};
 use vortex_array::compute::filter;
 use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
-use vortex_fastlanes::bitpack_to_best_bit_width;
 use vortex_mask::Mask;
+use vortex_vector::array::Array;
+use vortex_vector::buffers::BufferHandle;
+use vortex_vector::encodings::bitpacked::BitPackedEncoding;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;

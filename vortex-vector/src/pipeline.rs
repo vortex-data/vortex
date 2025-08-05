@@ -1,62 +1,108 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::bits::BitView;
+use crate::buffers::BufferId;
 use crate::view::ViewMut;
-use vortex_error::VortexResult;
-use vortex_mask::Mask;
+use std::ops::Range;
+use std::task::Poll;
+use vortex_buffer::ByteBuffer;
+use vortex_error::{VortexResult, vortex_err};
 
-/// A pipeline provides a push-based way to emit a stream of vectors.
+/// A pipeline provides a push-based way to emit a stream of canonical data.
 ///
 /// By passing multiple vector computations through the same pipeline, we can amortize
 /// the setup costs (such as DType validation, stats short-circuiting, etc.), and to make better
 /// use of CPU caches by performing all operations while the data is hot.
 ///
-/// I haven't yet figured out the exact semantics of a pipeline. There's a few high-level options:
-/// * We pass a mask into `next` and expect a vector containing exactly the true count.
-/// * We pass a mask into `next` and expect a vector containing less than or equal to the true count.
-/// * We do not pass a mask into `next` and expect a vector containing whatever is easy for the
-///   pipeline to export.
+/// By passing a mask into the `step` function, we give encodings visibility into the data that
+/// will be read by their parents. Some encodings may choose to decode all `N` elements, and then
+/// set the given selection mask on the output vector. Other encodings may choose to only unpack
+/// the selected elements.
 ///
-/// By allowing pipelines to return partial results, we enable them to throw away their leading
-/// data that may not be exactly aligned with the ideal `N` elements per vector. However, if
-/// we allow this, then it's hardly likely that join nodes in the pipeline will line up, and so we
-/// will need complex buffering logic.
-///
-/// By passing a mask into `next`, we do provide visibility into the density of the data. Some
-/// arrays may choose to decompress the full `N` elements, and then use the given mask as the
-/// vector's selection mask. If two vectors do the same, we can compare the masks and then perform
-/// an operation without needing to perform the selection. If the selection masks are not the same,
-/// we need a way to flatten a vector into a "prefix" vector, where the first `true_count` elements
-/// are dense at the start of the vector, allowing us to still use vectorized kernels. If a
-/// selection mask is _too_ sparse, e.g. a handful of elements, then we may wish to buffer adjacent
-/// masks together to form a denser vector. Ideally, the compute function that instantiate the
-/// pipeline would have full visibility into the larger mask and can make that decision.
-///
-/// There may be value in allowing pipelines to export no data. In other words, the `next` function
-/// indicates that the data isn't ready yet (ideally it has populated some sort of context in
-/// the meantime that allows the caller to make progress, for example, downloading segments). But
-/// these feels like future work where we potentially merge arrays and layouts.
+/// We are considering further adding a `defined` parameter that indicates which elements are
+/// defined and will be interpreted by the parent. This differs from masking, in that undefined
+/// elements should still live in the correct location, it just doesn't matter what their value
+/// is. This will allow, e.g. a validity encoding to tell its children that the values in certain
+/// positions are going to be masked out anyway, so don't bother doing any expensive compute.
 pub trait Pipeline {
-    /// Exports the next vector from the pipeline, given a length [`N`] mask and an output vector.
+    /// Seek the pipeline to a specific chunk offset.
     ///
-    /// Note that while the input mask is a bit array, the output vector's selection mask is in
-    /// terms of indices. This is because we can then read elements using `elems[selection[idx]]`
-    /// whereas a bit-mask would require much slower ranked selection.
-    /// Perhaps not with this? Or with a SIMD unpack?
-    ///  <https://www.microsoft.com/en-us/research/publication/selection-pushdown-in-column-stores-using-bit-manipulation-instructions/>
-    fn next<'v>(&mut self, mask: &Mask, out: &'v mut ViewMut<'v>) -> VortexResult<()>;
+    /// i.e. the resulting row offset is `idx * N`, where `N` is the number of elements in a chunk.
+    ///
+    /// The reason for a separate seek function (vs passing an offset directly to `step`) is that
+    /// it allows the pipeline to optimize for sequential access patterns, which is common in
+    /// many encodings. For example, a run-length encoding can efficiently seek to the start of a
+    /// chunk without needing to perform a full binary search of the ends in each step.
+    ///
+    // TODO(ngates): should this be `skip(n)` instead? Depends if we want to support going
+    //  backwards?
+    fn seek(&mut self, chunk_idx: usize) -> VortexResult<()>;
+
+    /// Attempts to perform a single step of the pipeline, writing data to the output vector.
+    /// Returns `Poll::Done` if the pipeline is complete, or `Poll::Pending` if buffers are
+    /// required to continue.
+    ///
+    /// The `selected` parameter defines which elements of the chunk should be exported, where
+    /// `None` indicates that all elements are selected.
+    ///
+    // TODO(ngates): we could introduce a `defined` parameter to indicate which elements are
+    //  defined and will be interpreted by the parent. This would allow us to skip writing
+    //  elements that are not defined, for example if the parent is a dense null validity encoding.
+    fn step(
+        &mut self,
+        ctx: &dyn PipelineContext,
+        selected: BitView,
+        out: &mut ViewMut,
+    ) -> Poll<VortexResult<()>>;
 }
 
-pub trait SupportsPipeline {
-    /// Returns a pipeline that can be used to export canonical data from this array.
-    ///
-    /// NOTE(ngates): if we expose these functions on the array VTables, then we can get access
-    ///  to the typed pipelines without needing to box them. This would require us to special-case
-    ///  the compute functions (e.g. add a `type ComparePipeline: Pipeline` associated type to
-    ///  the array vtable), but it would mean that if both the array and the compute function are
-    ///  concrete types, then the kernel can inline them.
-    fn pipeline(&self) -> Box<dyn Pipeline>;
+pub trait ToPipeline {
+    /// Create a pipeline.
+    fn to_pipeline(&self) -> Box<dyn Pipeline>;
+}
 
-    // TODO(ngates): there will be another function, similar to find_kernel, that takes a compute
-    //  function and returns a pipeline?
+pub trait PipelineContext {
+    /// Get a buffer by its ID.
+    fn buffer(&self, buffer_id: BufferId) -> Poll<VortexResult<ByteBuffer>>;
+
+    /// Pre-fetch buffers for future use (non-blocking hint).
+    fn prefetch(&self, buffer_ids: &[BufferId]) {
+        for &buffer_id in buffer_ids {
+            let _ = self.buffer(buffer_id);
+        }
+    }
+
+    /// Request a range of data from a buffer (for partial reads).
+    fn buffer_range(
+        &self,
+        buffer_id: BufferId,
+        range: Range<usize>,
+    ) -> Poll<VortexResult<ByteBuffer>> {
+        match self.buffer(buffer_id) {
+            Poll::Ready(Ok(buffer)) => {
+                let start = range.start;
+                let end = range.end;
+                if start < end && end <= buffer.len() {
+                    Poll::Ready(Ok(buffer.slice(start..end)))
+                } else {
+                    Poll::Ready(Err(vortex_err!(
+                        "Invalid range for buffer: {}..{}",
+                        start,
+                        end
+                    )))
+                }
+            }
+            Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+impl PipelineContext for () {
+    fn buffer(&self, _buffer_id: BufferId) -> Poll<VortexResult<ByteBuffer>> {
+        Poll::Ready(Err(vortex_err!(
+            "EvaluationContext is not implemented for ()"
+        )))
+    }
 }

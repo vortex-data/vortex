@@ -28,7 +28,9 @@ vortex-utils = { workspace = true }
 
 [dev-dependencies]
 divan = { workspace = true }
-vortex-fastlanes = { workspace = true }
+mimalloc = { workspace = true }
+rand = { workspace = true }
+vortex = { workspace = true }
 
 [lints]
 workspace = true

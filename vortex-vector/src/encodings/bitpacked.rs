@@ -4,7 +4,8 @@
 use crate::N;
 use crate::bits::BitView;
 use crate::buffers::BufferHandle;
-use crate::encodings::{BindContext, Encoding, Evaluation, EvaluationContext};
+use crate::encodings::{BindContext, Encoding};
+use crate::pipeline::{Pipeline, PipelineContext};
 use crate::selection::Selection;
 use crate::view::{Canonical, ViewMut};
 use fastlanes::{BitPacking, FastLanes};
@@ -24,7 +25,7 @@ impl BitPackedEncoding {
 }
 
 impl Encoding for BitPackedEncoding {
-    fn bind(&self, ctx: &BindContext) -> VortexResult<Box<dyn Evaluation>> {
+    fn bind(&self, ctx: &BindContext) -> VortexResult<Box<dyn Pipeline>> {
         let ptype = ctx.dtype.as_ptype();
         match_each_integer_ptype!(ptype, |T| {
             Ok(Box::new(BitPackedEvaluation::<T> {
@@ -48,7 +49,7 @@ struct BitPackedEvaluation<T: PhysicalPType<Physical: BitPacking>> {
     packed_offset: usize,
 }
 
-impl<T> Evaluation for BitPackedEvaluation<T>
+impl<T> Pipeline for BitPackedEvaluation<T>
 where
     T: PhysicalPType<Physical: BitPacking>,
     T: Canonical<Element = T>,
@@ -62,7 +63,7 @@ where
 
     fn step(
         &mut self,
-        ctx: &dyn EvaluationContext,
+        ctx: &dyn PipelineContext,
         selected: BitView,
         out: &mut ViewMut,
     ) -> Poll<VortexResult<()>> {
