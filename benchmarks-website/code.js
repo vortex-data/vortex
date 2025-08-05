@@ -354,6 +354,27 @@ window.initAndRender = (function () {
       }));
     },
 
+    // Method to use worker for data processing when available
+    async processDataWithWorker(data, commitMetadata, seriesRenameFn) {
+      // Check if worker is available and data is large enough to benefit
+      if (initializer.workerManager && data.length > 1000) {
+        try {
+          // Use worker for heavy processing
+          return await initializer.workerManager.processChartData(
+            data, 
+            commitMetadata, 
+            'main', 
+            { seriesRenameFn }
+          );
+        } catch (error) {
+          console.warn('Worker processing failed, falling back to main thread:', error);
+        }
+      }
+      
+      // Fallback to main thread processing
+      return this.downloadAndGroupData(data, commitMetadata, seriesRenameFn);
+    },
+
     initializeGroups() {
       const groups = {};
       BENCHMARK_GROUPS.forEach((name) => {
@@ -2269,10 +2290,15 @@ window.initAndRender = (function () {
       }
     },
 
-    filterBySearch(term) {
+    async filterBySearch(term) {
       state.searchTerm = term.toLowerCase();
 
-      document.querySelectorAll(".chart-container").forEach((chart) => {
+      // For simple DOM filtering, keep it on main thread since it's fast
+      // But batch the DOM updates to avoid blocking
+      const chartContainers = document.querySelectorAll(".chart-container");
+      const updates = [];
+
+      chartContainers.forEach((chart) => {
         const benchmarkName = chart
           .getAttribute("data-benchmark")
           .toLowerCase();
@@ -2280,8 +2306,16 @@ window.initAndRender = (function () {
         const matches =
           benchmarkName.includes(state.searchTerm) ||
           chartName.includes(state.searchTerm);
-        chart.style.display = matches ? "block" : "none";
+        
+        updates.push(() => {
+          chart.style.display = matches ? "block" : "none";
+        });
       });
+
+      // Batch DOM updates using requestAnimationFrame
+      if (updates.length > 0) {
+        ui.batchDOMUpdates(updates);
+      }
     },
   };
 
@@ -2387,7 +2421,21 @@ window.initAndRender = (function () {
 
   // Initialization module
   const initializer = {
+    workerManager: null,
+
+    async initialize() {
+      // Initialize worker manager
+      this.workerManager = new WorkerManager();
+      await this.workerManager.initialize();
+    },
+
     async loadData() {
+      // Use web worker for data loading if available
+      if (this.workerManager) {
+        return await this.workerManager.loadBenchmarkData();
+      }
+
+      // Fallback to main thread processing
       const [dataResponse, commitsResponse] = await Promise.all([
         this.fetchGzippedData(
           "https://vortex-benchmark-results-database.s3.amazonaws.com/data.json.gz"
@@ -2811,8 +2859,11 @@ window.initAndRender = (function () {
   // Main initialization
   return async function initAndRender(keptGroups) {
     try {
+      // Initialize worker manager first
+      await initializer.initialize();
+      
       const { data, commits } = await initializer.loadData();
-      const grouped = dataProcessor.downloadAndGroupData(
+      const grouped = await dataProcessor.processDataWithWorker(
         data,
         commits,
         keptGroups
@@ -2831,7 +2882,7 @@ window.initAndRender = (function () {
         }
       } else {
         const dataSetsMap = new Map(
-          grouped.map(({ name, dataSet }) => [name, dataSet])
+          Object.keys(grouped).forEach(function( name, dataSet) { [name, dataSet] })
         );
         for (const [name, groupFilterSettings] of keptGroups) {
           const dataSet = dataSetsMap.get(name);
