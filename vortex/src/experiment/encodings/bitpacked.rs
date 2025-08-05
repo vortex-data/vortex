@@ -8,6 +8,7 @@ use crate::experiment::encodings::{BindContext, Encoding, Evaluation, Evaluation
 use crate::experiment::selection::Selection;
 use crate::experiment::view::{Canonical, ViewMut};
 use fastlanes::{BitPacking, FastLanes};
+use std::any::type_name;
 use std::task::{Poll, ready};
 use vortex_dtype::{NativePType, match_each_integer_ptype};
 use vortex_error::VortexResult;
@@ -26,7 +27,7 @@ impl BitPackedEncoding {
 
 impl Encoding for BitPackedEncoding {
     fn bind(&self, ctx: &BindContext) -> VortexResult<Box<dyn Evaluation>> {
-        let ptype = ctx.dtype.as_ptype().to_unsigned();
+        let ptype = ctx.dtype.as_ptype();
         match_each_integer_ptype!(ptype, |T| {
             Ok(Box::new(BitPackedEvaluation::<T> {
                 width: self.bit_width,

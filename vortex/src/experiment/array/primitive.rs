@@ -5,7 +5,7 @@ use crate::experiment::N;
 use crate::experiment::array::Array;
 use crate::experiment::bits::{BitView, BooleanBufferChunksIter, iter_boolean_buffer};
 use crate::experiment::encodings::BindContext;
-use crate::experiment::view::ViewMut;
+use crate::experiment::view::{Canonical, ViewMut};
 use arrow_buffer::BooleanBuffer;
 use bitvec::order::Msb0;
 use bitvec::slice::BitSlice;
@@ -26,7 +26,7 @@ pub(super) fn export_primitive(array: &Array, mask: &Mask) -> VortexResult<Primi
 }
 
 /// Export into  a primitive array using the given selection mask.
-fn export_primitive_impl<T: NativePType>(
+fn export_primitive_impl<T: Canonical<Element = T> + NativePType>(
     array: &Array,
     mask: &Mask,
 ) -> VortexResult<PrimitiveArray> {
@@ -55,14 +55,14 @@ fn export_primitive_impl<T: NativePType>(
     let chunks = BooleanBufferChunksIter::new(&boolean_buffer);
     for chunk in chunks {
         let mask_view = BitView::new(&chunk);
-        let mut view = ViewMut::new_primitive::<T>(&mut elements_slice[offset..][..N], None);
+        let mut view = ViewMut::new::<T>(&mut elements_slice[offset..][..N], None);
         match pipeline.step(&(), mask_view, &mut view) {
             Poll::Ready(result) => result?,
             Poll::Pending => {
                 vortex_panic!("Array pipelines cannot yield pending");
             }
         }
-        view.flatten();
+        view.flatten::<T>();
         offset += view.len();
     }
 

@@ -53,6 +53,8 @@
 //! So each array has one function to get a compute kernel, and one function to get a compute
 //! evaluation. If either fails to return, a default canonical implementation is used, as now.
 
+mod flatten;
+
 use crate::experiment::N;
 use crate::experiment::selection::Selection;
 use bitvec::prelude::*;
@@ -66,9 +68,6 @@ use vortex_error::VortexExpect;
 
 use crate::experiment::bits::BitVector;
 use crate::experiment::bits::BitViewMut;
-
-mod bool;
-mod primitive;
 
 /// A vector is the atomic unit of canonical data in Vortex.
 ///
@@ -120,7 +119,7 @@ mod primitive;
 /// Maybe this works? Not sure yet.
 pub struct ViewMut<'a> {
     /// The physical type of the vector, which defines how the elements are stored.
-    vtype: VType,
+    pub(crate) vtype: VType,
     /// A pointer to the allocated elements buffer.
     /// Alignment is at least the size of the element type.
     /// The capacity of the elements buffer is N * size_of::<T>() where T is the element type.
@@ -164,6 +163,32 @@ impl VType {
 }
 
 impl<'a> ViewMut<'a> {
+    pub fn new<C: Canonical>(
+        elements: &'a mut [C::Element],
+        validity: Option<BitViewMut<'a>>,
+    ) -> Self {
+        assert_eq!(elements.len(), N);
+        Self {
+            vtype: C::vtype(),
+            elements: elements.as_mut_ptr().cast(),
+            validity,
+            selection: Selection::default(),
+            data: vec![],
+            children: vec![],
+            _marker: Default::default(),
+        }
+    }
+
+    /// Re-interpret cast the vector into a new type where the element has the same width.
+    pub fn reinterpret_as<C: Canonical>(&mut self) {
+        assert_eq!(
+            self.vtype.byte_width(),
+            size_of::<C::Element>(),
+            "Invalid type for reinterpretation"
+        );
+        self.vtype = C::vtype();
+    }
+
     /// Return the logical length of the vector, which is the number of selected elements.
     pub fn len(&self) -> usize {
         match self.selection {
@@ -180,14 +205,10 @@ impl<'a> ViewMut<'a> {
         unsafe { &mut *(self.elements.cast::<[C::Element; N]>()) }
     }
 
-    /// Re-interpret cast the vector into a new type where the element has the same width.
-    pub fn reinterpret_as<C: Canonical>(&mut self) {
-        assert_eq!(
-            self.vtype.byte_width(),
-            size_of::<C::Element>(),
-            "Invalid type for reinterpretation"
-        );
-        self.vtype = C::vtype();
+    /// Returns an immutable slice of the elements in the vector.
+    pub fn as_ref<C: Canonical>(&self) -> &'a [C::Element] {
+        assert_eq!(self.vtype, C::vtype(), "Invalid type for canonical view");
+        unsafe { std::slice::from_raw_parts(self.elements.cast::<C::Element>(), N) }
     }
 
     /// Returns a mutable slice of the elements in the vector, allowing for modification.
@@ -252,23 +273,11 @@ impl<'a> ViewMut<'a> {
             Selection::Mask(_) => false,
         }
     }
-
-    /// Flatten the vector, which means to remove any non-prefix selection.
-    pub fn flatten(&mut self) {
-        match self.vtype {
-            VType::Primitive(ptype) => {
-                match_each_native_ptype!(ptype, |T| {
-                    self.as_primitive::<T>().flatten();
-                })
-            }
-            _ => todo!(),
-        }
-    }
 }
 
 /// A trait to identify canonical vector types.
 pub trait Canonical {
-    type Element;
+    type Element: 'static + Copy;
 
     fn vtype() -> VType;
 }
