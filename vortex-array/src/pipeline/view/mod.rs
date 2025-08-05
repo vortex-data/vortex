@@ -160,14 +160,8 @@ impl<'a> ViewMut<'a> {
             .vortex_expect("Vector does not support validity")
     }
 
-    pub fn set_selection_mask(&mut self, mask: BitVector) {
-        match mask.true_count() {
-            0 => self.selection = Selection::Prefix { len: 0 },
-            N => self.selection = Selection::Prefix { len: N },
-            _ => {
-                self.selection = Selection::Mask(mask);
-            }
-        }
+    pub fn add_buffer(&mut self, buffer: ByteBuffer) {
+        self.data.push(buffer);
     }
 
     #[inline(always)]
@@ -195,6 +189,21 @@ impl<'a> ViewMut<'a> {
             }
         }
         self.selection = selection;
+    }
+
+    pub fn set_selection_len(&mut self, len: usize) {
+        assert!(len <= N);
+        self.selection = Selection::Prefix { len };
+    }
+
+    pub fn set_selection_mask(&mut self, mask: BitVector) {
+        match mask.true_count() {
+            0 => self.selection = Selection::Prefix { len: 0 },
+            N => self.selection = Selection::Prefix { len: N },
+            _ => {
+                self.selection = Selection::Mask(mask);
+            }
+        }
     }
 
     /// Whether the vector is in a flat representation, meaning it has no selection reordering.

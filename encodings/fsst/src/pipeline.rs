@@ -11,7 +11,7 @@ use vortex_array::pipeline::vector::PrimitiveVector;
 use vortex_array::pipeline::view::ViewMut;
 use vortex_array::pipeline::{Pipeline, PipelineContext};
 use vortex_buffer::ByteBufferMut;
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 
 pub struct FSSTPipeline<B: BinaryType> {
     len: usize,
@@ -75,20 +75,42 @@ impl<B: BinaryType> Pipeline for FSSTPipeline<B> {
         selected.iter_ones(|idx| {
             output_size += uncompressed_lens[idx] as usize;
         });
+
         let mut uncompressed = ByteBufferMut::with_capacity(output_size + 7);
+        let mut views_out = out.elements::<B>();
 
         // TODO(ngates): iterate the mask as indices, slices, or all-true.
+        let view_idx = 0;
         selected.iter_ones(|idx| {
             let codes_range = codes_offsets[idx] as usize..codes_offsets[idx + 1] as usize;
-            compressor
+            let len = compressor
                 .decompressor()
                 .decompress_into(&codes[codes_range], uncompressed.spare_capacity_mut());
+            let offset = uncompressed.len();
+            unsafe { uncompressed.set_len(offset + len) };
+            views_out[view_idx] = BinaryView::make_view(
+                &uncompressed.as_slice()[offset..],
+                0,
+                u32::try_from(offset).vortex_expect("FSSTPipeline: offset overflow"),
+            )
         });
         unsafe { uncompressed.set_len(output_size) };
 
-        // Now we have to build a string view from the data...? We should probably just push
-        let _views_out = out.elements::<B>();
+        out.add_buffer(uncompressed.freeze());
+        out.set_selection_len(selected.true_count());
 
         Poll::Ready(Ok(()))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::tests::build_fsst_array;
+    use vortex_array::Array;
+
+    #[test]
+    fn test_fsst_pipeline() {
+        let fsst_array = build_fsst_array();
+        let pipeline = fsst_array.to_pipeline().unwrap();
     }
 }

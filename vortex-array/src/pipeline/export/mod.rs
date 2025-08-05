@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 // mod bool;
+// mod primitive;
+
 mod primitive;
 
 use crate::Array;
