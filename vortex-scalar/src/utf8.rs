@@ -40,7 +40,11 @@ impl Eq for Utf8Scalar<'_> {}
 
 impl PartialOrd for Utf8Scalar<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.value.cmp(&other.value))
+        // Check dtype compatibility first (ignoring nullability)
+        if !self.dtype.eq_ignore_nullability(other.dtype) {
+            return None;
+        }
+        self.value.partial_cmp(&other.value)
     }
 }
 
@@ -149,7 +153,7 @@ impl<'a> Utf8Scalar<'a> {
 
     pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
         if !matches!(dtype, DType::Utf8(..)) {
-            vortex_bail!("Can't cast utf8 to {}", dtype)
+            vortex_bail!("Cannot cast utf8 to {}: unsupported conversion", dtype)
         }
         Ok(Scalar::new(
             dtype.clone(),

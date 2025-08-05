@@ -44,7 +44,11 @@ impl Eq for BinaryScalar<'_> {}
 
 impl PartialOrd for BinaryScalar<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.value.cmp(&other.value))
+        // Check dtype compatibility first (ignoring nullability)
+        if !self.dtype.eq_ignore_nullability(other.dtype) {
+            return None;
+        }
+        self.value.partial_cmp(&other.value)
     }
 }
 
@@ -133,7 +137,7 @@ impl<'a> BinaryScalar<'a> {
 
     pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
         if !matches!(dtype, DType::Binary(..)) {
-            vortex_bail!("Can't cast binary to {}", dtype)
+            vortex_bail!("Cannot cast binary to {}: unsupported conversion", dtype)
         }
         Ok(Scalar::new(
             dtype.clone(),

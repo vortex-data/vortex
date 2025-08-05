@@ -133,7 +133,7 @@ impl<'a> ListScalar<'a> {
 
     pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
         let DType::List(element_dtype, ..) = dtype else {
-            vortex_bail!("Can't cast {:?} to {}", self.dtype(), dtype)
+            vortex_bail!("Cannot cast {} to {}: list can only be cast to list", self.dtype(), dtype)
         };
 
         Ok(Scalar::new(

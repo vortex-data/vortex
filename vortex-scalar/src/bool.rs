@@ -39,7 +39,11 @@ impl Eq for BoolScalar<'_> {}
 
 impl PartialOrd for BoolScalar<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.value.cmp(&other.value))
+        // Check dtype compatibility first (ignoring nullability)
+        if !self.dtype.eq_ignore_nullability(other.dtype) {
+            return None;
+        }
+        self.value.partial_cmp(&other.value)
     }
 }
 
@@ -63,7 +67,7 @@ impl<'a> BoolScalar<'a> {
 
     pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
         if !matches!(dtype, DType::Bool(..)) {
-            vortex_bail!("Can't cast bool to {}", dtype)
+            vortex_bail!("Cannot cast bool to {}: unsupported conversion", dtype)
         }
         Ok(Scalar::bool(
             self.value.vortex_expect("nullness handled in Scalar::cast"),

@@ -23,16 +23,17 @@ mod tests {
         // Primitive scalars check dtype compatibility first
         assert_eq!(prim_i32.partial_cmp(&prim_i64), None); // Different types => None
         
-        // Test with boolean scalars
-        let null_bool1 = Scalar::null(DType::Bool(Nullability::Nullable));
-        let null_bool2 = Scalar::null(DType::Bool(Nullability::NonNullable));
+        // Test with boolean scalars with different nullability
+        // We can't create nullable and non-nullable null bools, so test with non-null values
+        let bool_nullable = Scalar::bool(true, Nullability::Nullable);
+        let bool_non_nullable = Scalar::bool(true, Nullability::NonNullable);
         
-        let bool1 = BoolScalar::try_from(&null_bool1).unwrap();
-        let bool2 = BoolScalar::try_from(&null_bool2).unwrap();
+        let bool1 = BoolScalar::try_from(&bool_nullable).unwrap();
+        let bool2 = BoolScalar::try_from(&bool_non_nullable).unwrap();
         
-        // Bool scalars compare values directly without checking dtype
-        // This is inconsistent with primitive scalars
-        assert!(bool1.partial_cmp(&bool2).is_some()); // Should be None for consistency
+        // Bool scalars should now check dtype compatibility but ignore nullability
+        // So they should still compare as they have the same base type
+        assert!(bool1.partial_cmp(&bool2).is_some()); // Same base type, different nullability -> Some
     }
 
     // Demonstrates that different scalar types have different Display formats
@@ -69,26 +70,42 @@ mod tests {
         assert!(output.contains("scale=2"));
     }
 
-    // Demonstrates missing error context in some scalar types
+    // Demonstrates that error messages are now consistent
     #[test]
-    fn test_error_message_inconsistency() {
-        // Primitive scalar cast error has detailed context
+    fn test_error_message_consistency() {
+        // All scalar types now use consistent error format: "Cannot cast X to Y: reason"
+        
+        // Primitive scalar cast error
         let prim = Scalar::primitive(42i32, Nullability::NonNullable);
         let result = prim.cast(&DType::Bool(Nullability::NonNullable));
         if let Err(e) = result {
             let error_str = format!("{}", e);
-            // Primitive cast errors include source and target types
+            // Should have consistent format
+            assert!(error_str.contains("Cannot cast"));
             assert!(error_str.contains("i32"));
             assert!(error_str.contains("bool"));
         }
         
-        // Bool scalar cast error has minimal context
+        // Bool scalar cast error
         let bool_scalar = Scalar::bool(true, Nullability::NonNullable);
         let result = bool_scalar.cast(&DType::Primitive(PType::I32, Nullability::NonNullable));
         if let Err(e) = result {
             let error_str = format!("{}", e);
-            // Bool cast errors are less detailed
-            assert!(error_str.contains("Can't cast bool"));
+            // Should have consistent format
+            assert!(error_str.contains("Cannot cast"));
+            assert!(error_str.contains("bool"));
+            assert!(error_str.contains("i32"));
+        }
+        
+        // Binary scalar cast error
+        let binary_scalar = Scalar::binary(vec![1, 2, 3], Nullability::NonNullable);
+        let result = binary_scalar.cast(&DType::Utf8(Nullability::NonNullable));
+        if let Err(e) = result {
+            let error_str = format!("{}", e);
+            // Should have consistent format
+            assert!(error_str.contains("Cannot cast"));
+            assert!(error_str.contains("binary"));
+            assert!(error_str.contains("utf8"));
         }
     }
 

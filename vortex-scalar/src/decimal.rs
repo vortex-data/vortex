@@ -444,7 +444,7 @@ impl<'a> DecimalScalar<'a> {
                 }
             }
             _ => vortex_bail!(
-                "Can't cast decimal scalar to {}",
+                "Cannot cast decimal to {}: unsupported conversion",
                 dtype
             ),
         }
