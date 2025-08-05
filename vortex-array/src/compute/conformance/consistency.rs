@@ -756,43 +756,23 @@ fn test_comparison_symmetry_consistency(array: &dyn Array) {
 /// This test catches bugs where encodings might optimize boolean operations
 /// incorrectly, breaking fundamental logical properties.
 fn test_boolean_demorgan_consistency(array: &dyn Array) {
-    use vortex_dtype::DType;
-
-    let len = array.len();
-    if len < 4 {
-        return; // Need enough elements for meaningful boolean patterns
+    if !matches!(array.dtype(), DType::Bool(_)) {
+        return;
     }
 
     // If the input array is boolean, use it directly, otherwise create test patterns
-    match array.dtype() {
-        DType::Bool(_) => {
-            // Use the array itself as one of the boolean masks
-            // Create a second mask with a different pattern
-            let mask2_pattern: Vec<bool> = (0..len).map(|i| i % 3 == 0).collect();
-            let mask2 = BoolArray::from_iter(mask2_pattern);
-            test_demorgan_laws(array, mask2.as_ref());
-        }
-        _ => {
-            // Create two boolean arrays with different patterns if array is not boolean
-            let mask1_pattern: Vec<bool> = (0..len).map(|i| i % 2 == 0).collect();
-            let mask2_pattern: Vec<bool> = (0..len).map(|i| i % 3 == 0).collect();
-
-            let mask1 = BoolArray::from_iter(mask1_pattern);
-            let mask2 = BoolArray::from_iter(mask2_pattern);
-            test_demorgan_laws(mask1.as_ref(), mask2.as_ref());
-        }
-    }
+    // Use the array itself as one of the boolean masks
+    // Create a second mask with a different pattern
+    let mask2_pattern: Vec<bool> = (0..len).map(|i| i % 3 == 0).collect();
+    let mask2 = BoolArray::from_iter(mask2_pattern);
+    test_demorgan_laws(array, mask2.as_ref());
 }
 
 fn test_demorgan_laws(mask1: &dyn Array, mask2: &dyn Array) {
     use crate::compute::{and, invert, or};
 
     // Test first De Morgan's law: NOT(A AND B) = (NOT A) OR (NOT B)
-    if let (Ok(a_and_b), Ok(not_a), Ok(not_b)) = (
-        and(mask1, mask2),
-        invert(mask1),
-        invert(mask2),
-    ) {
+    if let (Ok(a_and_b), Ok(not_a), Ok(not_b)) = (and(mask1, mask2), invert(mask1), invert(mask2)) {
         let not_a_and_b = invert(&a_and_b).vortex_unwrap();
         let not_a_or_not_b = or(&not_a, &not_b).vortex_unwrap();
 
@@ -814,11 +794,7 @@ fn test_demorgan_laws(mask1: &dyn Array, mask2: &dyn Array) {
     }
 
     // Test second De Morgan's law: NOT(A OR B) = (NOT A) AND (NOT B)
-    if let (Ok(a_or_b), Ok(not_a), Ok(not_b)) = (
-        or(mask1, mask2),
-        invert(mask1),
-        invert(mask2),
-    ) {
+    if let (Ok(a_or_b), Ok(not_a), Ok(not_b)) = (or(mask1, mask2), invert(mask1), invert(mask2)) {
         let not_a_or_b = invert(&a_or_b).vortex_unwrap();
         let not_a_and_not_b = and(&not_a, &not_b).vortex_unwrap();
 
@@ -917,8 +893,16 @@ fn test_slice_aggregate_consistency(array: &dyn Array) {
     }
 
     // Test nan_count for floating point types
-    if matches!(array.dtype(), DType::Primitive(vortex_dtype::PType::F16 | vortex_dtype::PType::F32 | vortex_dtype::PType::F64, _)) {
-        if let (Ok(slice_nan_count), Ok(canonical_nan_count)) = (nan_count(&sliced), nan_count(&canonical_sliced)) {
+    if matches!(
+        array.dtype(),
+        DType::Primitive(
+            vortex_dtype::PType::F16 | vortex_dtype::PType::F32 | vortex_dtype::PType::F64,
+            _
+        )
+    ) {
+        if let (Ok(slice_nan_count), Ok(canonical_nan_count)) =
+            (nan_count(&sliced), nan_count(&canonical_sliced))
+        {
             assert_eq!(
                 slice_nan_count, canonical_nan_count,
                 "nan_count on sliced array should match canonical. \
