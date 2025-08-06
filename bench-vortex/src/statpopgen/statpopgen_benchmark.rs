@@ -60,7 +60,7 @@ impl StatPopGenBenchmark {
 }
 
 pub fn register_table(session: &SessionContext, base_url: &Url, format: Format) -> Result<()> {
-    let table_path = base_url.join(&format!("output3.{}", format.ext()))?;
+    let table_path = base_url.join(&format!("output4.{}", format.ext()))?;
     let table_url = ListingTableUrl::try_new(table_path, None)?;
     let config = ListingTableConfig::new(table_url)
         .with_listing_options(
@@ -82,21 +82,42 @@ pub fn register_table(session: &SessionContext, base_url: &Url, format: Format) 
 
 impl Benchmark for StatPopGenBenchmark {
     fn queries(&self) -> Result<Vec<(usize, String)>> {
-        let n_variants = 98783;
         Ok(vec![
             // Count the number of genomic variants in the dataset.
-            (1, "SELECT COUNT(*) FROM statpopgen;".to_string()),
+            (0, "SELECT COUNT(*) FROM statpopgen;".to_string()),
             // Count the number of samples (genomes / people / individual) in the dataset.
             (
                 1,
-                "SELECT array_length(statpopgen.\"GT\", 1) FROM statpopgen LIMIT 1;".to_string(),
+                "SELECT array_length(\"GT\", 1) FROM statpopgen LIMIT 1;".to_string(),
             ),
             // Extract just the GT column (which is frequently sent to a statistical method).
-            (n_variants, "SELECT statpopgen.\"GT\" FROM statpopgen;".to_string()),
+            (2, "SELECT \"GT\" FROM statpopgen;".to_string()),
             // Calculate the reference allele frequency: 0 = 0/0 homozygous reference, 1 = 0/1 heterzygous, 2 = 1/1 homozygous alternate.
-            (n_variants, "SELECT CHROM, POS, (2 * SUM(GT == 0) + SUM(GT == 1)) / (2 * SUM(GT IS NOT NULL)) (SELECT CHROM, POS, UNNEST(statpopgen.\"GT\") AS GT FROM statpopgen) GROUP BY CHROM, POS;".to_string()),
+            (3, "
+SELECT \"CHROM\",
+       \"POS\",
+       \"REF\",
+       \"ALT\",
+       ((2 * SUM(CAST(GT == 0 AS INT)) + SUM(CAST(GT == 1 AS INT))) / (2 * SUM(CAST(GT IS NOT NULL AS INT)))) AS RAF
+FROM (SELECT \"CHROM\", \"POS\", \"REF\", \"ALT\", UNNEST(\"GT\") AS GT FROM statpopgen)
+GROUP BY \"CHROM\",
+         \"POS\",
+         \"REF\",
+         \"ALT\";
+".to_string()),
             // Calculate the alternate allele frequency: 0 = 0/0 homozygous reference, 1 = 0/1 heterzygous, 2 = 1/1 homozygous alternate.
-            (n_variants, "SELECT CHROM, POS, (SUM(GT == 1) + 2 * SUM(GT == 2)) / (2 * SUM(GT IS NOT NULL)) (SELECT CHROM, POS, UNNEST(statpopgen.\"GT\") AS GT FROM statpopgen) GROUP BY CHROM, POS;".to_string()),
+            (4, "
+SELECT \"CHROM\",
+       \"POS\",
+       \"REF\",
+       \"ALT\",
+       ((2 * SUM(CAST(GT == 2 AS INT)) + SUM(CAST(GT == 1 AS INT))) / (2 * SUM(CAST(GT IS NOT NULL AS INT)))) AS RAF
+FROM (SELECT \"CHROM\", \"POS\", \"REF\", \"ALT\", UNNEST(\"GT\") AS GT FROM statpopgen)
+GROUP BY \"CHROM\",
+         \"POS\",
+         \"REF\",
+         \"ALT\";
+".to_string()),
         ])
     }
 
@@ -124,7 +145,8 @@ impl Benchmark for StatPopGenBenchmark {
 
     fn expected_row_counts(&self) -> Option<&[usize]> {
         // Statpopgen reference row counts
-        static REFERENCE_ROW_COUNTS: [usize; 1] = [1; 1];
+        static N_VARIANTS: usize = 98783;
+        static REFERENCE_ROW_COUNTS: [usize; 5] = [1, 1, N_VARIANTS, N_VARIANTS, N_VARIANTS];
         Some(&REFERENCE_ROW_COUNTS)
     }
 
@@ -145,6 +167,21 @@ impl Benchmark for StatPopGenBenchmark {
 
 pub static SCHEMA: LazyLock<SchemaRef> = LazyLock::new(|| {
     Arc::from(Schema::new(vec![
+        Field::new("CHROM", DataType::Utf8, true),
+        Field::new("POS", DataType::Int32, true),
+        Field::new("ID", DataType::Utf8, true),
+        Field::new("REF", DataType::Utf8, true),
+        Field::new(
+            "ALT",
+            DataType::List(Arc::new(Field::new("child", DataType::Utf8, true))),
+            true,
+        ),
+        Field::new("QUAL", DataType::Utf8, true),
+        Field::new(
+            "FILTER",
+            DataType::List(Arc::new(Field::new("child", DataType::Utf8, true))),
+            true,
+        ),
         Field::new("AC", DataType::Int32, true),
         Field::new("AN", DataType::Int32, true),
         Field::new("AF", DataType::Float64, true),

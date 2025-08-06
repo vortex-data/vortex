@@ -166,11 +166,11 @@ struct StatPopGenArgs {
 
     #[arg(long, value_delimiter = ',', value_parser = value_parser!(Target),
         default_values = vec![
-            "datafusion:parquet",
+            // "datafusion:parquet",
             "datafusion:vortex",
-            "duckdb:parquet",
+            // "duckdb:parquet",
             "duckdb:vortex",
-            "duckdb:duckdb"
+            // "duckdb:duckdb"
         ]
     )]
     targets: Vec<Target>,
