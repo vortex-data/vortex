@@ -21,7 +21,7 @@ use crate::arrays::{
 };
 use crate::builders::ArrayBuilder;
 use crate::compute::{ComputeFn, Cost, InvocationArgs, IsConstantOpts, Output, is_constant_opts};
-use crate::pipeline::Pipeline;
+use crate::pipeline::Operator;
 use crate::serde::ArrayChildren;
 use crate::stats::{Precision, Stat, StatsSetRef};
 use crate::vtable::{
@@ -123,7 +123,7 @@ pub trait Array: 'static + private::Sealed + Send + Sync + Debug + ArrayVisitor 
     fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()>;
 
     /// Returns a pipeline for the array.
-    fn to_pipeline(&self) -> VortexResult<Box<dyn Pipeline>>;
+    fn to_pipeline(&self) -> VortexResult<Box<dyn Operator>>;
 
     /// Returns the statistics of the array.
     // TODO(ngates): change how this works. It's weird.
@@ -221,7 +221,7 @@ impl Array for Arc<dyn Array> {
         self.as_ref().append_to_builder(builder)
     }
 
-    fn to_pipeline(&self) -> VortexResult<Box<dyn Pipeline>> {
+    fn to_pipeline(&self) -> VortexResult<Box<dyn Operator>> {
         self.as_ref().to_pipeline()
     }
 
@@ -535,7 +535,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         Ok(())
     }
 
-    fn to_pipeline(&self) -> VortexResult<Box<dyn Pipeline>> {
+    fn to_pipeline(&self) -> VortexResult<Box<dyn Operator>> {
         <V::PipelineVTable as PipelineVTable<V>>::to_pipeline(&self.0)
     }
 

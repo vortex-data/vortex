@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod common;
-mod operator;
 mod pipeline;
 mod plan;
 mod vector;

@@ -3,11 +3,11 @@
 
 //! Vector allocation strategy for pipelines
 
-use crate::pipeline::VectorId;
 use crate::pipeline::nodes::pipeline::Pipeline;
 use crate::pipeline::nodes::pipeline::dag::DagNode;
 use crate::pipeline::types::VType;
 use crate::pipeline::vector::Vector;
+use crate::pipeline::vector::VectorId;
 use crate::pipeline::view::View;
 use std::cell::{Ref, RefCell};
 use std::collections::HashMap;

@@ -3,7 +3,7 @@
 
 //! This module contains experiments into pipelined data processing within Vortex.
 //!
-//! Arrays (and eventually Layouts) will be convertible into a [`Pipeline`] that can then be
+//! Arrays (and eventually Layouts) will be convertible into a [`Operator`] that can then be
 //! exported into a [`ViewMut`] one chunk of [`N`] elements at a time. This allows us to keep
 //! compute largely within the L1 cache, as well as to write out canonical data into externally
 //! provided buffers.
@@ -32,11 +32,11 @@ pub const N: usize = 1024;
 
 use crate::pipeline::bits::BitView;
 use crate::pipeline::buffers::BufferId;
-use crate::pipeline::vector::Vector;
-use crate::pipeline::view::{View, ViewMut};
-use std::cell::Ref;
+use crate::pipeline::vector::VectorRefMut;
+use crate::pipeline::view::ViewMut;
 use std::ops::{Deref, Range};
 use std::task::Poll;
+use vector::{VectorId, VectorRef};
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexResult, vortex_err, vortex_panic};
 
@@ -56,7 +56,7 @@ use vortex_error::{VortexResult, vortex_err, vortex_panic};
 /// elements should still live in the correct location, it just doesn't matter what their value
 /// is. This will allow, e.g. a validity encoding to tell its children that the values in certain
 /// positions are going to be masked out anyway, so don't bother doing any expensive compute.
-pub trait Pipeline {
+pub trait Operator {
     /// Seek the pipeline to a specific chunk offset.
     ///
     /// i.e. the resulting row offset is `idx * N`, where `N` is the number of elements in a chunk.
@@ -87,7 +87,7 @@ pub trait Pipeline {
     ) -> Poll<VortexResult<()>>;
 }
 
-pub trait PipelineExt: Pipeline {
+pub trait PipelineExt: Operator {
     /// Perform a single step of the pipeline, panics if the step returns [`Poll::Pending`].
     fn step_now(
         &mut self,
@@ -104,42 +104,7 @@ pub trait PipelineExt: Pipeline {
     }
 }
 
-impl<P: Pipeline + ?Sized> PipelineExt for P {}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct VectorId(pub(super) usize);
-
-impl Deref for VectorId {
-    type Target = usize;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-/// A [`VectorRef`] provides a small wrapper to allow accessing a [`View`] with the same lifetime
-/// as the borrowed vector, rather than the lifetime of the [`Ref`].
-pub struct VectorRef<'a> {
-    borrow: Ref<'a, Vector>,
-    view: View<'a>,
-}
-
-impl<'a> VectorRef<'a> {
-    pub fn new(borrow: Ref<'a, Vector>) -> Self {
-        let view = borrow.as_view();
-        // SAFETY: we continue to hold onto the [`Ref`], so it is safe to erase the lifetime.
-        let view = unsafe { std::mem::transmute::<View<'_>, View<'a>>(view) };
-        Self { borrow, view }
-    }
-}
-
-impl<'a> Deref for VectorRef<'a> {
-    type Target = View<'a>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.view
-    }
-}
+impl<P: Operator + ?Sized> PipelineExt for P {}
 
 pub trait PipelineContext {
     /// Get a vector by its ID.

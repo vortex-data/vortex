@@ -4,7 +4,7 @@
 use crate::pipeline::bits::BitView;
 use crate::pipeline::types::Element;
 use crate::pipeline::vector::TypedVector;
-use crate::pipeline::{N, Pipeline, PipelineContext};
+use crate::pipeline::{N, Operator, PipelineContext};
 use bitvec::order::Msb0;
 use bitvec::vec::BitVec;
 use std::iter;
@@ -14,14 +14,14 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 struct PrimitiveExporter<'a, T> {
     ctx: &'a dyn PipelineContext,
-    pipeline: Box<dyn Pipeline>,
+    pipeline: Box<dyn Operator>,
     remaining: usize,
     vector: TypedVector<T>,
     tail_mask: BitVec<u64, Msb0>,
 }
 
 impl<'a, T: Element + NativePType> PrimitiveExporter<'a, T> {
-    pub fn new(ctx: &'a dyn PipelineContext, pipeline: Box<dyn Pipeline>, len: usize) -> Self {
+    pub fn new(ctx: &'a dyn PipelineContext, pipeline: Box<dyn Operator>, len: usize) -> Self {
         Self {
             ctx,
             pipeline,

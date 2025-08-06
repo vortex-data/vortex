@@ -8,7 +8,7 @@ use vortex_array::pipeline::bits::BitView;
 use vortex_array::pipeline::buffers::BufferHandle;
 use vortex_array::pipeline::vector::PrimitiveVector;
 use vortex_array::pipeline::view::ViewMut;
-use vortex_array::pipeline::{Pipeline, PipelineContext};
+use vortex_array::pipeline::{Operator, PipelineContext};
 use vortex_buffer::ByteBufferMut;
 use vortex_error::{VortexExpect, VortexResult};
 
@@ -20,15 +20,15 @@ pub struct FSSTPipeline {
 
     compressor: Option<Compressor>,
 
-    codes_offsets: Box<dyn Pipeline>,
+    codes_offsets: Box<dyn Operator>,
     codes_offsets_vec: PrimitiveVector<u32>,
     codes_buffer: BufferHandle<u8>,
 
-    uncompressed_lens: Box<dyn Pipeline>,
+    uncompressed_lens: Box<dyn Operator>,
     uncompressed_lens_vec: PrimitiveVector<u32>,
 }
 
-impl Pipeline for FSSTPipeline {
+impl Operator for FSSTPipeline {
     fn seek(&mut self, chunk_idx: usize) -> VortexResult<()> {
         self.codes_offsets.seek(chunk_idx)?;
         self.uncompressed_lens.seek(chunk_idx)

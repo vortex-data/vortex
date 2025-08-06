@@ -6,8 +6,8 @@ use crate::pipeline::nodes::BinaryOperator;
 use crate::pipeline::nodes::plan::BindContext;
 use crate::pipeline::nodes::plan::source::{SourceNode, SourceNodeAdapter, SourceOperator};
 use crate::pipeline::types::Element;
-use crate::pipeline::vector::Vector;
-use crate::pipeline::view::{TypedView, TypedViewMut};
+use crate::pipeline::vector::{Vector, VectorRefMut};
+use crate::pipeline::view::{TypedView, TypedViewMut, ViewMut};
 use crate::pipeline::{N, PipelineContext};
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
@@ -55,7 +55,7 @@ impl<T: Element + NativePType> SourceOperator<T> for PrimitiveSourceOperator<T> 
     fn step_all_true(
         &mut self,
         ctx: &dyn PipelineContext,
-        out: &mut Vector,
+        out: &mut ViewMut,
     ) -> Poll<VortexResult<()>> {
         let buffer = ready!(self.buffer.get_or_load(ctx))?;
         let remaining = buffer.len() - self.offset;
@@ -65,7 +65,7 @@ impl<T: Element + NativePType> SourceOperator<T> for PrimitiveSourceOperator<T> 
                 .copy_from_slice(&buffer[self.offset..][..N]);
             self.offset += N;
         } else {
-            out.as_mut::<T>().as_mut_slice()[..remaining].copy_from_slice(&buffer[self.offset..]);
+            out.as_mut::<T>()[..remaining].copy_from_slice(&buffer[self.offset..]);
             self.offset += remaining;
         }
 

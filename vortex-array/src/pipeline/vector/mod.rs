@@ -13,7 +13,9 @@ use crate::pipeline::bits::BitVector;
 use crate::pipeline::selection::Selection;
 use crate::pipeline::types::{Element, VType};
 use crate::pipeline::view::{TypedViewMut, View, ViewMut};
+use std::cell::{Ref, RefMut};
 use std::fmt::Debug;
+use std::ops::{Deref, DerefMut};
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 
 pub struct TypedVector<T> {
@@ -91,5 +93,70 @@ impl Vector {
 
     pub fn as_view(&self) -> View<'_> {
         todo!()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VectorId(pub(crate) usize);
+
+impl Deref for VectorId {
+    type Target = usize;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+/// A [`VectorRef`] provides a small wrapper to allow accessing a [`View`] with the same lifetime
+/// as the borrowed vector, rather than the lifetime of the [`Ref`].
+pub struct VectorRef<'a> {
+    borrow: Ref<'a, Vector>,
+    view: View<'a>,
+}
+
+impl<'a> VectorRef<'a> {
+    pub fn new(borrow: Ref<'a, Vector>) -> Self {
+        let view = borrow.as_view();
+        // SAFETY: we continue to hold onto the [`Ref`], so it is safe to erase the lifetime.
+        let view = unsafe { std::mem::transmute::<View<'_>, View<'a>>(view) };
+        Self { borrow, view }
+    }
+}
+
+impl<'a> Deref for VectorRef<'a> {
+    type Target = View<'a>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.view
+    }
+}
+
+/// A [`VectorRefMut`] provides a small wrapper to allow accessing a [`ViewMut`] with the same
+/// lifetime as the borrowed vector, rather than the lifetime of the [`RefMut`].
+pub struct VectorRefMut<'a> {
+    borrow: RefMut<'a, Vector>,
+    view: ViewMut<'a>,
+}
+
+impl<'a> VectorRefMut<'a> {
+    pub fn new(mut borrow: RefMut<'a, Vector>) -> Self {
+        let view = borrow.as_view_mut();
+        // SAFETY: we continue to hold onto the [`Ref`], so it is safe to erase the lifetime.
+        let view = unsafe { std::mem::transmute::<ViewMut<'_>, ViewMut<'a>>(view) };
+        Self { borrow, view }
+    }
+}
+
+impl<'a> Deref for VectorRefMut<'a> {
+    type Target = ViewMut<'a>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.view
+    }
+}
+
+impl<'a> DerefMut for VectorRefMut<'a> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.view
     }
 }

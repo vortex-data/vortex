@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::pipeline::VectorId;
-use crate::pipeline::nodes::operator::Operator;
+use crate::pipeline::Operator;
 use crate::pipeline::nodes::pipeline::Pipeline;
 use crate::pipeline::nodes::pipeline::buffers::VectorAllocationPlan;
 use crate::pipeline::nodes::pipeline::dag::DagNode;
 use crate::pipeline::nodes::plan::BindContext;
+use crate::pipeline::vector::VectorId;
 use vortex_error::{VortexExpect, VortexResult};
 
 impl Pipeline<'_> {

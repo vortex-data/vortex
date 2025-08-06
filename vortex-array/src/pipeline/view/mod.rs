@@ -187,6 +187,7 @@ impl<'a> ViewMut<'a> {
     }
 
     /// Returns a mutable slice of the elements in the vector, allowing for modification.
+    /// FIXME(ngates): test the performance if we return &mut [E; N] instead of &[E].
     #[inline(always)]
     pub fn as_mut<E: Element>(&mut self) -> &'a mut [E] {
         assert_eq!(self.vtype, E::vtype(), "Invalid type for canonical view");

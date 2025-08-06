@@ -5,9 +5,9 @@
 
 pub mod source;
 
-use crate::pipeline::VectorId;
-use crate::pipeline::nodes::operator::Operator;
+use crate::pipeline::Operator;
 use crate::pipeline::types::VType;
+use crate::pipeline::vector::VectorId;
 use dyn_hash::DynHash;
 use vortex_error::VortexResult;
 

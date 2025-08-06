@@ -10,13 +10,13 @@ use vortex_array::pipeline::buffers::BufferHandle;
 use vortex_array::pipeline::selection::Selection;
 use vortex_array::pipeline::types::Element;
 use vortex_array::pipeline::view::ViewMut;
-use vortex_array::pipeline::{Pipeline, PipelineContext};
+use vortex_array::pipeline::{Operator, PipelineContext};
 use vortex_array::vtable::PipelineVTable;
 use vortex_dtype::{PhysicalPType, match_each_integer_ptype};
 use vortex_error::{VortexResult, vortex_bail};
 
 impl PipelineVTable<BitPackedVTable> for BitPackedVTable {
-    fn to_pipeline(array: &BitPackedArray) -> VortexResult<Box<dyn Pipeline>> {
+    fn to_pipeline(array: &BitPackedArray) -> VortexResult<Box<dyn Operator>> {
         if array.dtype.is_nullable() {
             vortex_bail!("BitPackedVTable does not support nullable types");
         }
@@ -48,7 +48,7 @@ pub(crate) struct BitPackedPipeline<T: PhysicalPType<Physical: BitPacking>> {
     packed_offset: usize,
 }
 
-impl<T> Pipeline for BitPackedPipeline<T>
+impl<T> Operator for BitPackedPipeline<T>
 where
     T: PhysicalPType<Physical: BitPacking>,
     T: Element,

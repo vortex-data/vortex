@@ -3,12 +3,12 @@
 
 //! A source node takes no input vectors and produces a single output vector.
 
-use crate::pipeline::PipelineContext;
 use crate::pipeline::bits::BitView;
-use crate::pipeline::nodes::operator::Operator;
 use crate::pipeline::nodes::plan::{BindContext, PlanNode};
 use crate::pipeline::types::{Element, VType};
-use crate::pipeline::vector::Vector;
+use crate::pipeline::vector::{Vector, VectorRefMut};
+use crate::pipeline::view::ViewMut;
+use crate::pipeline::{Operator, PipelineContext};
 use std::cell::Ref;
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -62,7 +62,7 @@ pub trait SourceOperator<X: Element>: 'static {
     fn step_all_true(
         &mut self,
         ctx: &dyn PipelineContext,
-        out: &mut Vector,
+        out: &mut ViewMut,
     ) -> Poll<VortexResult<()>>;
 }
 
@@ -85,11 +85,15 @@ where
     X: Element,
     Op: SourceOperator<X>,
 {
+    fn seek(&mut self, chunk_idx: usize) -> VortexResult<()> {
+        todo!()
+    }
+
     fn step(
         &mut self,
         ctx: &dyn PipelineContext,
         mask: BitView,
-        output: &mut Vector,
+        output: &mut ViewMut,
     ) -> Poll<VortexResult<()>> {
         println!("MASK: {:?}", mask);
         self.op.step_all_true(ctx, output)

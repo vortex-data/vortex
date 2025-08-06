@@ -5,7 +5,7 @@ use crate::arrays::PrimitiveArray;
 use crate::pipeline::bits::{BitVector, BitView, BitViewMut};
 use crate::pipeline::types::Element;
 use crate::pipeline::view::ViewMut;
-use crate::pipeline::{N, Pipeline, PipelineExt};
+use crate::pipeline::{N, Operator, PipelineExt};
 use crate::validity::Validity;
 use crate::{Array, Canonical};
 use vortex_buffer::BufferMut;
@@ -37,7 +37,7 @@ pub fn export_canonical(array: &dyn Array, mask: &Mask) -> VortexResult<Canonica
 
 fn export_primitive_nonnull<T: Element + NativePType>(
     len: usize,
-    mut pipeline: Box<dyn Pipeline>,
+    mut pipeline: Box<dyn Operator>,
 ) -> VortexResult<PrimitiveArray> {
     let capacity = len.next_multiple_of(N) + N;
 
@@ -67,7 +67,7 @@ fn export_primitive_nonnull<T: Element + NativePType>(
 
 fn export_primitive_nonnull_masked<T: Element + NativePType>(
     mask: &Mask,
-    mut pipeline: Box<dyn Pipeline>,
+    mut pipeline: Box<dyn Operator>,
 ) -> VortexResult<PrimitiveArray> {
     let len = mask.len();
     let capacity = mask.true_count().next_multiple_of(N) + N;
