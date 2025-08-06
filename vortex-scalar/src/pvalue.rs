@@ -9,7 +9,9 @@ use num_traits::NumCast;
 use paste::paste;
 use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PType, ToBytes};
-use vortex_error::{VortexError, VortexExpect, VortexUnwrap, vortex_err, vortex_panic};
+use vortex_error::{
+    VortexError, VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_err,
+};
 
 /// A primitive value that can represent any primitive type supported by Vortex.
 ///
@@ -388,14 +390,14 @@ pub(super) trait CoercePValue: Sized {
     ///
     /// Integers can be widened from narrower type
     /// Floats stored as integers will be reinterpreted as bit representation of the float
-    fn coerce(value: PValue) -> Self;
+    fn coerce(value: PValue) -> VortexResult<Self>;
 }
 
 macro_rules! int_coerce {
     ($T:ty) => {
         impl CoercePValue for $T {
-            fn coerce(value: PValue) -> Self {
-                Self::try_from(value).vortex_unwrap()
+            fn coerce(value: PValue) -> VortexResult<Self> {
+                Self::try_from(value)
             }
         }
     };
@@ -412,50 +414,62 @@ int_coerce!(i64);
 
 impl CoercePValue for f16 {
     #[allow(clippy::cast_possible_truncation)]
-    fn coerce(value: PValue) -> Self {
+    fn coerce(value: PValue) -> VortexResult<Self> {
         // Support storing floats as narrowed integers
         match value {
-            PValue::U8(u) => Self::from_bits(u as u16),
-            PValue::U16(u) => Self::from_bits(u),
-            PValue::U32(u) => Self::from_bits(u as u16),
-            PValue::U64(u) => Self::from_bits(u as u16),
-            PValue::F16(u) => u,
-            PValue::F32(f) => <Self as NumCast>::from(f).vortex_expect("Cannot convert f32 to f16"),
-            PValue::F64(f) => <Self as NumCast>::from(f).vortex_expect("Cannot convert f64 to f16"),
-            _ => vortex_panic!("Unsupported PValue {value:?} type for f16"),
+            PValue::U8(u) => Ok(Self::from_bits(u as u16)),
+            PValue::U16(u) => Ok(Self::from_bits(u)),
+            PValue::U32(u) => Ok(Self::from_bits(u as u16)),
+            PValue::U64(u) => Ok(Self::from_bits(u as u16)),
+            PValue::F16(u) => Ok(u),
+            PValue::F32(f) => {
+                <Self as NumCast>::from(f).ok_or_else(|| vortex_err!("Cannot convert f32 to f16"))
+            }
+            PValue::F64(f) => {
+                <Self as NumCast>::from(f).ok_or_else(|| vortex_err!("Cannot convert f64 to f16"))
+            }
+            _ => vortex_bail!("Unsupported PValue {value:?} type for f16"),
         }
     }
 }
 
 impl CoercePValue for f32 {
     #[allow(clippy::cast_possible_truncation)]
-    fn coerce(value: PValue) -> Self {
+    fn coerce(value: PValue) -> VortexResult<Self> {
         // Support storing floats as narrowed integers
         match value {
-            PValue::U8(u) => Self::from_bits(u as u32),
-            PValue::U16(u) => Self::from_bits(u as u32),
-            PValue::U32(u) => Self::from_bits(u),
-            PValue::U64(u) => Self::from_bits(u as u32),
-            PValue::F16(f) => <Self as NumCast>::from(f).vortex_expect("Cannot convert f16 to f32"),
-            PValue::F32(f) => f,
-            PValue::F64(f) => <Self as NumCast>::from(f).vortex_expect("Cannot convert f64 to f32"),
-            _ => vortex_panic!("Unsupported PValue {value:?} type for f32"),
+            PValue::U8(u) => Ok(Self::from_bits(u as u32)),
+            PValue::U16(u) => Ok(Self::from_bits(u as u32)),
+            PValue::U32(u) => Ok(Self::from_bits(u)),
+            PValue::U64(u) => Ok(Self::from_bits(u as u32)),
+            PValue::F16(f) => {
+                <Self as NumCast>::from(f).ok_or_else(|| vortex_err!("Cannot convert f16 to f32"))
+            }
+            PValue::F32(f) => Ok(f),
+            PValue::F64(f) => {
+                <Self as NumCast>::from(f).ok_or_else(|| vortex_err!("Cannot convert f64 to f32"))
+            }
+            _ => vortex_bail!("Unsupported PValue {value:?} type for f32"),
         }
     }
 }
 
 impl CoercePValue for f64 {
-    fn coerce(value: PValue) -> Self {
+    fn coerce(value: PValue) -> VortexResult<Self> {
         // Support storing floats as narrowed integers
         match value {
-            PValue::U8(u) => Self::from_bits(u as u64),
-            PValue::U16(u) => Self::from_bits(u as u64),
-            PValue::U32(u) => Self::from_bits(u as u64),
-            PValue::U64(u) => Self::from_bits(u),
-            PValue::F16(f) => <Self as NumCast>::from(f).vortex_expect("Cannot convert f16 to f64"),
-            PValue::F32(f) => <Self as NumCast>::from(f).vortex_expect("Cannot convert f32 to f64"),
-            PValue::F64(f) => f,
-            _ => vortex_panic!("Unsupported PValue {value:?} type for f64"),
+            PValue::U8(u) => Ok(Self::from_bits(u as u64)),
+            PValue::U16(u) => Ok(Self::from_bits(u as u64)),
+            PValue::U32(u) => Ok(Self::from_bits(u as u64)),
+            PValue::U64(u) => Ok(Self::from_bits(u)),
+            PValue::F16(f) => {
+                <Self as NumCast>::from(f).ok_or_else(|| vortex_err!("Cannot convert f16 to f64"))
+            }
+            PValue::F32(f) => {
+                <Self as NumCast>::from(f).ok_or_else(|| vortex_err!("Cannot convert f32 to f64"))
+            }
+            PValue::F64(f) => Ok(f),
+            _ => vortex_bail!("Unsupported PValue {value:?} type for f64"),
         }
     }
 }

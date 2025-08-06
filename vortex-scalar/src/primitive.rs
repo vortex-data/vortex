@@ -62,12 +62,15 @@ impl<'a> PrimitiveScalar<'a> {
     /// Returns an error if the data type is not a primitive type or if the value
     /// cannot be converted to the expected primitive type.
     pub fn try_new(dtype: &'a DType, value: &ScalarValue) -> VortexResult<Self> {
-        let ptype = dtype.as_ptype();
+        let ptype = PType::try_from(dtype)?;
 
         // Read the serialized value into the correct PValue.
         // The serialized form may come back over the wire as e.g. any integer type.
         let pvalue = match_each_native_ptype!(ptype, |T| {
-            value.as_pvalue()?.map(|pv| PValue::from(<T>::coerce(pv)))
+            value
+                .as_pvalue()?
+                .map(|pv| VortexResult::Ok(PValue::from(<T>::coerce(pv)?)))
+                .transpose()?
         });
 
         Ok(Self {
