@@ -7,22 +7,24 @@ use std::sync::Arc;
 
 use arcref::ArcRef;
 use async_trait::async_trait;
-use vortex_array::ArrayContext;
+use futures::StreamExt;
+use vortex_array::arrays::NullArray;
 use vortex_array::stats::PRUNING_STATS;
+use vortex_array::{Array, ArrayContext};
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_layout::layouts::buffered::BufferedStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedStrategy;
 use vortex_layout::layouts::compressed::BtrBlocksCompressedStrategy;
 use vortex_layout::layouts::dict::writer::DictStrategy;
-use vortex_layout::layouts::flat::writer::{DEFAULT_FLAT_STRATEGY, FlatLayoutStrategy};
+use vortex_layout::layouts::flat::writer::{FlatLayoutStrategy, DEFAULT_FLAT_STRATEGY};
 use vortex_layout::layouts::repartition::{RepartitionStrategy, RepartitionWriterOptions};
 use vortex_layout::layouts::struct_::writer::StructStrategy;
 use vortex_layout::layouts::view::writer::ViewStrategy;
 use vortex_layout::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
 use vortex_layout::segments::SequenceWriter;
 use vortex_layout::{
-    LayoutRef, LayoutStrategy, LayoutStrategyExt, SendableLayoutFuture, SendableSequentialStream,
+    LayoutRef, LayoutStrategy, LayoutStrategyExt, SendableSequentialStream, SequentialStream,
     TaskExecutor,
 };
 
@@ -36,20 +38,58 @@ pub struct FixedSizeStrategy {
     dtype: DType,
 }
 
-/// A layout strategy that generates layouts differently for fixed-size and variable-size types.
-pub struct SelectingLayoutStrategy {
+/// The default layout strategy for column chunks in Vortex.
+///
+/// This strategy generates different layouts for fixed-width and variable-size types. Primitives,
+/// bools, and the like are all
+pub struct DefaultLayoutStrategy {
     fixed_size: Arc<dyn LayoutStrategy>,
     variable_size: Arc<dyn LayoutStrategy>,
 }
 
-impl LayoutStrategy for SelectingLayoutStrategy {
-    fn write_stream(
+#[async_trait]
+impl LayoutStrategy for DefaultLayoutStrategy {
+    async fn write_stream(
         &self,
         ctx: &ArrayContext,
         sequence_writer: SequenceWriter,
-        stream: SendableSequentialStream,
-    ) -> SendableLayoutFuture {
-        todo!()
+        mut stream: SendableSequentialStream,
+    ) -> VortexResult<LayoutRef> {
+        match stream.dtype() {
+            // Zero-size types: write a single layout
+            DType::Null => {
+                // NullArray should be treated differently since it is zero-sized at rest.
+                // Rather than repartitioning, buffering and zone-mapping, we instead just want
+                // to write a single chunk that encodes the NullArray at full-length.
+                let mut sequence_id = None;
+                let mut row_count = 0;
+                while let Some(chunk) = stream.next().await {
+                    let (seq, chunk) = chunk?;
+                    sequence_id = Some(seq);
+                    row_count += chunk.len();
+                }
+
+                let sequence_id = sequence_id.vortex_expect("no chunks received for writing");
+
+                // Write a single
+                let buffers = NullArray::new(row_count).serialize(ctx)?;
+
+                sequence_writer.put()
+            }
+
+            // Fixed-size types: write a partitioned layout with zone maps and some constant
+            // size-based chunking.
+            DType::Bool(..) | DType::Primitive(..) | DType::Decimal(..) => {
+                todo!()
+            }
+            DType::Extension(..) => {
+                // If the extension dtype is one of the fixed-width types
+            }
+            DType::Utf8(_) => {}
+            DType::Binary(_) => {}
+            DType::Struct(..) => {}
+            DType::List(..) => {}
+        }
     }
 }
 
@@ -79,7 +119,8 @@ async fn write_variable_size(
 impl VortexLayoutStrategy {
     pub fn with_executor(executor: Arc<dyn TaskExecutor>) -> ArcRef<dyn LayoutStrategy> {
         // 7. for each chunk create a flat layout
-        let buffered = ArcRef::new_arc(ChunkedStrategy::default().buffered(2 << 20));
+        let buffered: ArcRef<dyn LayoutStrategy> =
+            ArcRef::new_arc(Arc::new(ChunkedStrategy::default().buffered(2 << 20)));
         // 5. compress each chunk
         let compressing = arcref(BtrBlocksCompressedStrategy::new(
             buffered,

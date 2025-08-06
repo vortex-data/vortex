@@ -94,7 +94,6 @@
 //! buffers, and [cloud storage](vortex_io::ObjectStoreReadAt), can be used as the backing store.
 
 mod driver;
-mod experiment;
 mod file;
 mod footer;
 mod generic;
