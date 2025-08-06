@@ -107,6 +107,7 @@ pub async fn register_vortex_files(
             .await?;
         }
         BenchmarkDataset::PublicBi { .. } => todo!(),
+        BenchmarkDataset::StatPopGen => todo!(),
     }
 
     Ok(())
@@ -154,6 +155,7 @@ pub async fn register_vortex_compact_files(
             .await?;
         }
         BenchmarkDataset::PublicBi { .. } => todo!(),
+        BenchmarkDataset::StatPopGen => todo!(),
     }
 
     Ok(())

@@ -28,6 +28,7 @@ clap = { workspace = true, features = ["derive"] }
 datafusion = { workspace = true, features = [
     "parquet",
     "datetime_expressions",
+    "nested_expressions",
 ] }
 datafusion-common = { workspace = true }
 datafusion-physical-plan = { workspace = true }

@@ -11,7 +11,7 @@ use url::Url;
 use vortex::ArrayRef;
 
 use crate::clickbench::Flavor;
-use crate::{Format, clickbench};
+use crate::{Format, clickbench, statpopgen};
 
 pub mod data_downloads;
 pub mod file;
@@ -36,6 +36,8 @@ pub enum BenchmarkDataset {
     ClickBench { flavor: Flavor },
     #[serde(rename = "public-bi")]
     PublicBi { name: String },
+    #[serde(rename = "statpopgen")]
+    StatPopGen,
 }
 
 impl BenchmarkDataset {
@@ -45,6 +47,7 @@ impl BenchmarkDataset {
             BenchmarkDataset::TpcDS { .. } => "tpcds",
             BenchmarkDataset::ClickBench { .. } => "clickbench",
             BenchmarkDataset::PublicBi { .. } => "public-bi",
+            BenchmarkDataset::StatPopGen => "statpopgen",
         }
     }
 }
@@ -59,6 +62,7 @@ impl Display for BenchmarkDataset {
                 Flavor::Single => write!(f, "clickbench-single"),
             },
             BenchmarkDataset::PublicBi { name } => write!(f, "public-bi({name})"),
+            BenchmarkDataset::StatPopGen => write!(f, "statpopgen"),
         }
     }
 }
@@ -92,13 +96,12 @@ impl BenchmarkDataset {
                 "time_dim",
                 "web_returns",
             ],
-
             BenchmarkDataset::TpcH { .. } => &[
                 "customer", "lineitem", "nation", "orders", "part", "partsupp", "region",
                 "supplier",
             ],
-
             BenchmarkDataset::ClickBench { .. } | BenchmarkDataset::PublicBi { .. } => todo!(),
+            BenchmarkDataset::StatPopGen => &["statpopgen"],
         }
     }
 
@@ -140,6 +143,15 @@ impl BenchmarkDataset {
             }
             (BenchmarkDataset::PublicBi { .. }, _) => {
                 anyhow::bail!("public bi unsupported for now")
+            }
+            (BenchmarkDataset::StatPopGen, Format::Parquet) => {
+                statpopgen::register_table(session, base_url, Format::Parquet)?
+            }
+            (BenchmarkDataset::StatPopGen, Format::OnDiskVortex) => {
+                statpopgen::register_table(session, base_url, Format::OnDiskVortex)?
+            }
+            (BenchmarkDataset::StatPopGen, format) => {
+                anyhow::bail!("StatPopGen in {format} unsupported for now")
             }
         }
 
