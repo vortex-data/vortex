@@ -39,12 +39,12 @@ pub enum BenchmarkDataset {
 }
 
 impl BenchmarkDataset {
-    pub fn name(&self) -> &str {
+    pub fn name(&self) -> String {
         match self {
-            BenchmarkDataset::TpcH { .. } => "tpch",
-            BenchmarkDataset::TpcDS { .. } => "tpcds",
-            BenchmarkDataset::ClickBench { .. } => "clickbench",
-            BenchmarkDataset::PublicBi { .. } => "public-bi",
+            BenchmarkDataset::TpcH { scale_factor } => format!("tpch_sf{scale_factor}"),
+            BenchmarkDataset::TpcDS { scale_factor } => format!("tpcds_sf{scale_factor}"),
+            BenchmarkDataset::ClickBench { .. } => "clickbench".to_string(),
+            BenchmarkDataset::PublicBi { .. } => "public-bi".to_string(),
         }
     }
 }
