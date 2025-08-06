@@ -128,12 +128,7 @@ impl<'a> PrimitiveScalar<'a> {
         Ok(match_each_native_ptype!(ptype, |Q| {
             Scalar::primitive(
                 pvalue.as_primitive::<Q>().map_err(|err| {
-                    vortex_err!(
-                        "Cannot cast {} to {}: {}",
-                        self.ptype,
-                        dtype,
-                        err
-                    )
+                    vortex_err!("Cannot cast {} to {}: {}", self.ptype, dtype, err)
                 })?,
                 dtype.nullability(),
             )
@@ -149,28 +144,66 @@ impl<'a> PrimitiveScalar<'a> {
         match self.pvalue {
             None => Ok(None),
             Some(pv) => Ok(Some(match pv {
-                PValue::U8(v) => T::from_u8(v)
-                    .ok_or_else(|| vortex_err!("Cannot cast u8 to {}: value out of range", type_name::<T>())),
-                PValue::U16(v) => T::from_u16(v)
-                    .ok_or_else(|| vortex_err!("Cannot cast u16 to {}: value out of range", type_name::<T>())),
-                PValue::U32(v) => T::from_u32(v)
-                    .ok_or_else(|| vortex_err!("Cannot cast u32 to {}: value out of range", type_name::<T>())),
-                PValue::U64(v) => T::from_u64(v)
-                    .ok_or_else(|| vortex_err!("Cannot cast u64 to {}: value out of range", type_name::<T>())),
-                PValue::I8(v) => T::from_i8(v)
-                    .ok_or_else(|| vortex_err!("Cannot cast i8 to {}: value out of range", type_name::<T>())),
-                PValue::I16(v) => T::from_i16(v)
-                    .ok_or_else(|| vortex_err!("Cannot cast i16 to {}: value out of range", type_name::<T>())),
-                PValue::I32(v) => T::from_i32(v)
-                    .ok_or_else(|| vortex_err!("Cannot cast i32 to {}: value out of range", type_name::<T>())),
-                PValue::I64(v) => T::from_i64(v)
-                    .ok_or_else(|| vortex_err!("Cannot cast i64 to {}: value out of range", type_name::<T>())),
-                PValue::F16(v) => T::from_f16(v)
-                    .ok_or_else(|| vortex_err!("Cannot cast f16 to {}: value out of range", type_name::<T>())),
-                PValue::F32(v) => T::from_f32(v)
-                    .ok_or_else(|| vortex_err!("Cannot cast f32 to {}: value out of range", type_name::<T>())),
-                PValue::F64(v) => T::from_f64(v)
-                    .ok_or_else(|| vortex_err!("Cannot cast f64 to {}: value out of range", type_name::<T>())),
+                PValue::U8(v) => T::from_u8(v).ok_or_else(|| {
+                    vortex_err!("Cannot cast u8 to {}: value out of range", type_name::<T>())
+                }),
+                PValue::U16(v) => T::from_u16(v).ok_or_else(|| {
+                    vortex_err!(
+                        "Cannot cast u16 to {}: value out of range",
+                        type_name::<T>()
+                    )
+                }),
+                PValue::U32(v) => T::from_u32(v).ok_or_else(|| {
+                    vortex_err!(
+                        "Cannot cast u32 to {}: value out of range",
+                        type_name::<T>()
+                    )
+                }),
+                PValue::U64(v) => T::from_u64(v).ok_or_else(|| {
+                    vortex_err!(
+                        "Cannot cast u64 to {}: value out of range",
+                        type_name::<T>()
+                    )
+                }),
+                PValue::I8(v) => T::from_i8(v).ok_or_else(|| {
+                    vortex_err!("Cannot cast i8 to {}: value out of range", type_name::<T>())
+                }),
+                PValue::I16(v) => T::from_i16(v).ok_or_else(|| {
+                    vortex_err!(
+                        "Cannot cast i16 to {}: value out of range",
+                        type_name::<T>()
+                    )
+                }),
+                PValue::I32(v) => T::from_i32(v).ok_or_else(|| {
+                    vortex_err!(
+                        "Cannot cast i32 to {}: value out of range",
+                        type_name::<T>()
+                    )
+                }),
+                PValue::I64(v) => T::from_i64(v).ok_or_else(|| {
+                    vortex_err!(
+                        "Cannot cast i64 to {}: value out of range",
+                        type_name::<T>()
+                    )
+                }),
+                PValue::F16(v) => T::from_f16(v).ok_or_else(|| {
+                    vortex_err!(
+                        "Cannot cast f16 to {}: value out of range",
+                        type_name::<T>()
+                    )
+                }),
+                PValue::F32(v) => T::from_f32(v).ok_or_else(|| {
+                    vortex_err!(
+                        "Cannot cast f32 to {}: value out of range",
+                        type_name::<T>()
+                    )
+                }),
+                PValue::F64(v) => T::from_f64(v).ok_or_else(|| {
+                    vortex_err!(
+                        "Cannot cast f64 to {}: value out of range",
+                        type_name::<T>()
+                    )
+                }),
             }?)),
         }
     }
