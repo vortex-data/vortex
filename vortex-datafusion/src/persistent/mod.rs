@@ -10,7 +10,13 @@ mod opener;
 mod sink;
 mod source;
 
+use std::sync::Arc;
+
+use datafusion::physical_plan::PhysicalExpr;
 pub use format::{VortexFormat, VortexFormatFactory, VortexFormatOptions};
+use vortex::expr::{ExprRef, VortexExpr};
+
+use crate::convert::TryFromDataFusion;
 
 #[cfg(test)]
 /// Utility function to register Vortex with a [`SessionStateBuilder`]
@@ -21,13 +27,26 @@ fn register_vortex_format_factory(
     if let Some(table_factories) = session_state_builder.table_factories() {
         table_factories.insert(
             datafusion::common::GetExt::get_ext(&factory).to_uppercase(), // Has to be uppercase
-            std::sync::Arc::new(datafusion::datasource::provider::DefaultTableFactory::new()),
+            Arc::new(datafusion::datasource::provider::DefaultTableFactory::new()),
         );
     }
 
     if let Some(file_formats) = session_state_builder.file_formats() {
-        file_formats.push(std::sync::Arc::new(factory));
+        file_formats.push(Arc::new(factory));
     }
+}
+
+// If we cannot convert an expr to a vortex expr, we run no filter, since datafusion
+// will rerun the filter expression anyway.
+pub(crate) fn make_vortex_predicate(
+    predicate: &[&Arc<dyn PhysicalExpr>],
+) -> Option<Arc<dyn VortexExpr>> {
+    // This splits expressions into conjunctions and converts them to vortex expressions.
+    // Any inconvertible expressions are dropped since true /\ a == a.
+    predicate
+        .iter()
+        .filter_map(|e| ExprRef::try_from_df(e).ok())
+        .reduce(vortex::expr::and)
 }
 
 #[cfg(test)]

@@ -3,8 +3,11 @@
 
 use vortex::error::VortexResult;
 
-mod exprs;
-mod scalars;
+mod dynamic;
+mod expr;
+mod scalar;
+
+pub use dynamic::*;
 
 /// First-party trait for implementing conversion from DataFusion types to Vortex types.
 pub(crate) trait TryFromDataFusion<D: ?Sized>: Sized {

@@ -58,6 +58,7 @@ tokio = { workspace = true, features = ["full"] }
 vortex = { path = ".", features = ["parquet", "tokio"] }
 
 [features]
+datafusion = ["vortex-error/datafusion"]
 default = ["files", "zstd"]
 files = ["dep:vortex-file"]
 memmap2 = ["vortex-buffer/memmap2"]

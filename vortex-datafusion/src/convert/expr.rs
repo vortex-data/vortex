@@ -1,21 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use datafusion::logical_expr::Operator as DFOperator;
 use datafusion::physical_expr::{PhysicalExpr, expressions};
 use vortex::error::{VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{BinaryExpr, ExprRef, IntoExpr, LikeExpr, Operator, get_item, lit, root};
 use vortex::scalar::Scalar;
 
-use crate::convert::{FromDataFusion, TryFromDataFusion};
+use crate::convert::{DFDynamicExpr, FromDataFusion, TryFromDataFusion};
 
 // TODO(joe): Don't return an error when we have an unsupported node, bubble up "TRUE" as in keep
 //  for that node, up to any `and` or `or` node.
-impl TryFromDataFusion<dyn PhysicalExpr> for ExprRef {
-    fn try_from_df(df: &dyn PhysicalExpr) -> VortexResult<Self> {
+impl TryFromDataFusion<Arc<dyn PhysicalExpr>> for ExprRef {
+    fn try_from_df(df: &Arc<dyn PhysicalExpr>) -> VortexResult<Self> {
         if let Some(binary_expr) = df.as_any().downcast_ref::<expressions::BinaryExpr>() {
-            let left = ExprRef::try_from_df(binary_expr.left().as_ref())?;
-            let right = ExprRef::try_from_df(binary_expr.right().as_ref())?;
+            let left = ExprRef::try_from_df(binary_expr.left())?;
+            let right = ExprRef::try_from_df(binary_expr.right())?;
             let operator = Operator::try_from_df(binary_expr.op())?;
 
             return Ok(BinaryExpr::new_expr(left, operator, right));
@@ -26,11 +28,19 @@ impl TryFromDataFusion<dyn PhysicalExpr> for ExprRef {
         }
 
         if let Some(like) = df.as_any().downcast_ref::<expressions::LikeExpr>() {
-            let child = ExprRef::try_from_df(like.expr().as_ref())?;
-            let pattern = ExprRef::try_from_df(like.pattern().as_ref())?;
+            let child = ExprRef::try_from_df(like.expr())?;
+            let pattern = ExprRef::try_from_df(like.pattern())?;
             return Ok(
                 LikeExpr::new(child, pattern, like.negated(), like.case_insensitive()).into_expr(),
             );
+        }
+
+        if df
+            .as_any()
+            .downcast_ref::<expressions::DynamicFilterPhysicalExpr>()
+            .is_some()
+        {
+            return Ok(DFDynamicExpr::new_expr(df.clone()));
         }
 
         if let Some(literal) = df.as_any().downcast_ref::<expressions::Literal>() {
@@ -53,6 +63,7 @@ impl TryFromDataFusion<DFOperator> for Operator {
             DFOperator::GtEq => Ok(Operator::Gte),
             DFOperator::And => Ok(Operator::And),
             DFOperator::Or => Ok(Operator::Or),
+            DFOperator::Plus => Ok(Operator::Add),
             DFOperator::IsDistinctFrom
             | DFOperator::IsNotDistinctFrom
             | DFOperator::RegexMatch
@@ -71,7 +82,6 @@ impl TryFromDataFusion<DFOperator> for Operator {
             | DFOperator::StringConcat
             | DFOperator::AtArrow
             | DFOperator::ArrowAt
-            | DFOperator::Plus
             | DFOperator::Minus
             | DFOperator::Multiply
             | DFOperator::Divide

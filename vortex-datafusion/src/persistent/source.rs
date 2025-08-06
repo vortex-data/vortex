@@ -18,7 +18,7 @@ use datafusion::physical_plan::{DisplayFormatType, PhysicalExpr};
 use object_store::ObjectStore;
 use object_store::path::Path;
 use vortex::error::VortexExpect as _;
-use vortex::expr::{ExprRef, VortexExpr, and, root};
+use vortex::expr::{VortexExpr, root};
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::layout::LayoutReader;
 use vortex::metrics::VortexMetrics;
@@ -26,13 +26,11 @@ use vortex::metrics::VortexMetrics;
 use super::cache::VortexFileCache;
 use super::config::{ConfigProjection, FileScanConfigExt};
 use super::metrics::PARTITION_LABEL;
-use super::opener::VortexFileOpener;
-use crate::can_be_pushed_down;
-use crate::convert::TryFromDataFusion as _;
+use super::opener::VortexOpener;
 
-/// A config for [`VortexFileOpener`]. Used to create [`DataSourceExec`] based physical plans.
-///
-/// [`DataSourceExec`]: datafusion_physical_plan::source::DataSourceExec
+use crate::{can_be_pushed_down, make_vortex_predicate};
+
+/// A config for [`VortexOpener`]. Used to create [`FileSource`] based physical plans.
 #[derive(Clone)]
 pub struct VortexSource {
     pub(crate) file_cache: VortexFileCache,
@@ -87,19 +85,20 @@ impl FileSource for VortexSource {
             .batch_size
             .vortex_expect("batch_size must be supplied to VortexSource");
 
-        let opener = VortexFileOpener::new(
+        let opener = VortexOpener {
             object_store,
-            self.projection.clone().unwrap_or_else(root),
-            self.predicate.clone(),
-            self.file_cache.clone(),
-            self.arrow_schema
+            projection: self.projection.clone().unwrap_or_else(root),
+            filter: self.predicate.clone(),
+            file_cache: self.file_cache.clone(),
+            projected_arrow_schema: self
+                .arrow_schema
                 .clone()
                 .vortex_expect("We should have a schema here"),
             batch_size,
-            base_config.limit,
-            partition_metrics,
-            self.layout_readers.clone(),
-        );
+            limit: base_config.limit,
+            metrics: partition_metrics,
+            layout_readers: self.layout_readers.clone(),
+        };
 
         Arc::new(opener)
     }
@@ -236,17 +235,4 @@ impl FileSource for VortexSource {
             )),
         }
     }
-}
-
-// If we cannot convert an expr to a vortex expr, we run no filter, since datafusion
-// will rerun the filter expression anyway.
-pub(crate) fn make_vortex_predicate(
-    predicate: &[&Arc<dyn PhysicalExpr>],
-) -> Option<Arc<dyn VortexExpr>> {
-    // This splits expressions into conjunctions and converts them to vortex expressions.
-    // Any inconvertible expressions are dropped since true /\ a == a.
-    predicate
-        .iter()
-        .filter_map(|e| ExprRef::try_from_df(e.as_ref()).ok())
-        .reduce(and)
 }

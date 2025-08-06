@@ -14,7 +14,7 @@ use futures::{FutureExt as _, StreamExt, TryStreamExt, stream};
 use object_store::ObjectStore;
 use object_store::path::Path;
 use vortex::error::VortexError;
-use vortex::expr::{ExprRef, VortexExpr};
+use vortex::expr::ExprRef;
 use vortex::layout::LayoutReader;
 use vortex::metrics::VortexMetrics;
 use vortex::scan::ScanBuilder;
@@ -23,7 +23,7 @@ use vortex::{ArrayRef, ToCanonical};
 use super::cache::VortexFileCache;
 
 #[derive(Clone)]
-pub(crate) struct VortexFileOpener {
+pub(crate) struct VortexOpener {
     pub object_store: Arc<dyn ObjectStore>,
     pub projection: ExprRef,
     pub filter: Option<ExprRef>,
@@ -31,38 +31,11 @@ pub(crate) struct VortexFileOpener {
     pub projected_arrow_schema: SchemaRef,
     pub batch_size: usize,
     pub limit: Option<usize>,
-    metrics: VortexMetrics,
-    layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
+    pub metrics: VortexMetrics,
+    pub layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
 }
 
-impl VortexFileOpener {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        object_store: Arc<dyn ObjectStore>,
-        projection: Arc<dyn VortexExpr>,
-        filter: Option<Arc<dyn VortexExpr>>,
-        file_cache: VortexFileCache,
-        projected_arrow_schema: SchemaRef,
-        batch_size: usize,
-        limit: Option<usize>,
-        metrics: VortexMetrics,
-        layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
-    ) -> Self {
-        Self {
-            object_store,
-            projection,
-            filter,
-            file_cache,
-            projected_arrow_schema,
-            batch_size,
-            limit,
-            metrics,
-            layout_readers,
-        }
-    }
-}
-
-impl FileOpener for VortexFileOpener {
+impl FileOpener for VortexOpener {
     fn open(&self, file_meta: FileMeta, _file: PartitionedFile) -> DFResult<FileOpenFuture> {
         let filter = self.filter.clone();
         let projection = self.projection.clone();

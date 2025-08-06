@@ -6580,6 +6580,7 @@ name = "vortex-error"
 version = "0.1.0"
 dependencies = [
  "arrow-schema",
+ "datafusion-common",
  "flatbuffers",
  "jiff",
  "object_store",

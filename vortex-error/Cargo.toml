@@ -17,9 +17,11 @@ version = { workspace = true }
 flatbuffers = ["dep:flatbuffers"]
 python = ["dep:pyo3"]
 serde = ["dep:serde_json"]
+datafusion = ["dep:datafusion-common"]
 
 [dependencies]
 arrow-schema = { workspace = true }
+datafusion-common = { workspace = true, optional = true }
 flatbuffers = { workspace = true, optional = true }
 jiff = { workspace = true }
 object_store = { workspace = true, optional = true }

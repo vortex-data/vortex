@@ -136,6 +136,9 @@ pub enum VortexError {
     /// Wrap prost unknown enum value
     #[cfg(feature = "prost")]
     ProstUnknownEnumValue(prost::UnknownEnumValue, Box<Backtrace>),
+    #[cfg(feature = "datafusion")]
+    /// Wrap datafusion errors
+    Datafusion(datafusion_common::error::DataFusionError, Box<Backtrace>),
 }
 
 impl VortexError {
@@ -242,6 +245,10 @@ impl Display for VortexError {
             }
             #[cfg(feature = "prost")]
             VortexError::ProstUnknownEnumValue(err, backtrace) => {
+                write!(f, "{err}\nBacktrace:\n{backtrace}")
+            }
+            #[cfg(feature = "datafusion")]
+            VortexError::Datafusion(err, backtrace) => {
                 write!(f, "{err}\nBacktrace:\n{backtrace}")
             }
         }
@@ -578,6 +585,13 @@ impl From<prost::DecodeError> for VortexError {
 impl From<prost::UnknownEnumValue> for VortexError {
     fn from(value: prost::UnknownEnumValue) -> Self {
         VortexError::ProstUnknownEnumValue(value, Box::new(Backtrace::capture()))
+    }
+}
+
+#[cfg(feature = "datafusion")]
+impl From<datafusion_common::DataFusionError> for VortexError {
+    fn from(value: datafusion_common::DataFusionError) -> Self {
+        VortexError::Datafusion(value, Box::new(Backtrace::capture()))
     }
 }
 
