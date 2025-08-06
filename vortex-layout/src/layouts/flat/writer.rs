@@ -7,14 +7,14 @@ use vortex_array::serde::SerializeOptions;
 use vortex_array::stats::{Precision, Stat, StatsProvider};
 use vortex_array::{Array, ArrayContext};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::{BinaryScalar, Utf8Scalar};
 
 use crate::layouts::flat::FlatLayout;
 use crate::layouts::zoned::{lower_bound, upper_bound};
 use crate::segments::SequenceWriter;
 use crate::{
-    IntoLayout, LayoutRef, LayoutStrategy, SendableLayoutFuture, SendableSequentialStream,
+    IntoLayout, LayoutRef, LayoutStrategy, SendableSequentialStream,
 };
 
 pub static DEFAULT_FLAT_STRATEGY: FlatLayoutStrategy = FlatLayoutStrategy::new();
@@ -25,6 +25,35 @@ pub struct FlatLayoutStrategy {
     pub include_padding: bool,
     /// Maximum length of variable length statistics
     pub max_variable_length_statistics_size: usize,
+}
+
+#[derive(Clone)]
+pub struct FlatWriterOptions {
+    /// Whether to include padding for memory-mapped reads.
+    pub include_padding: bool,
+    /// Maximum length of variable length statistics
+    pub max_variable_length_statistics_size: usize,
+}
+
+impl Default for FlatWriterOptions {
+    fn default() -> Self {
+        Self {
+            include_padding: true,
+            max_variable_length_statistics_size: 64,
+        }
+    }
+}
+
+
+/// The [`LayoutStrategy`] that can write `FlatLayout`s to a stream.
+pub async fn write_flat(
+    ctx: &ArrayContext,
+    sequence_writer: SequenceWriter,
+    mut stream: SendableSequentialStream,
+) -> VortexResult<LayoutRef> {
+    let Some(chunk) = stream.next().await else {
+        vortex_bail!("write_flat expected a single chunk");
+    }
 }
 
 impl FlatLayoutStrategy {
@@ -171,7 +200,7 @@ mod tests {
             array.dtype().clone(),
             stream::once(async move { Ok((SequenceId::root().downgrade(), array)) }),
         )
-        .sendable()
+            .sendable()
     }
 
     // Currently, flat layouts do not force compute stats during write, they only retain
@@ -274,7 +303,7 @@ mod tests {
                 2,
                 validity,
             )
-            .unwrap();
+                .unwrap();
 
             let ctx = ArrayContext::empty();
 

@@ -9,6 +9,7 @@ use arcref::ArcRef;
 use async_trait::async_trait;
 use futures::StreamExt;
 use vortex_array::arrays::NullArray;
+use vortex_array::serde::SerializeOptions;
 use vortex_array::stats::PRUNING_STATS;
 use vortex_array::{Array, ArrayContext};
 use vortex_dtype::DType;
@@ -17,15 +18,16 @@ use vortex_layout::layouts::buffered::BufferedStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedStrategy;
 use vortex_layout::layouts::compressed::BtrBlocksCompressedStrategy;
 use vortex_layout::layouts::dict::writer::DictStrategy;
-use vortex_layout::layouts::flat::writer::{FlatLayoutStrategy, DEFAULT_FLAT_STRATEGY};
+use vortex_layout::layouts::flat::FlatLayout;
+use vortex_layout::layouts::flat::writer::{DEFAULT_FLAT_STRATEGY, FlatLayoutStrategy};
 use vortex_layout::layouts::repartition::{RepartitionStrategy, RepartitionWriterOptions};
 use vortex_layout::layouts::struct_::writer::StructStrategy;
 use vortex_layout::layouts::view::writer::ViewStrategy;
 use vortex_layout::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
 use vortex_layout::segments::SequenceWriter;
 use vortex_layout::{
-    LayoutRef, LayoutStrategy, LayoutStrategyExt, SendableSequentialStream, SequentialStream,
-    TaskExecutor,
+    IntoLayout, LayoutRef, LayoutStrategy, LayoutStrategyExt, SendableSequentialStream,
+    SequentialStream, TaskExecutor,
 };
 
 const ROW_BLOCK_SIZE: usize = 8192;
@@ -52,7 +54,7 @@ impl LayoutStrategy for DefaultLayoutStrategy {
     async fn write_stream(
         &self,
         ctx: &ArrayContext,
-        sequence_writer: SequenceWriter,
+        sink: SequenceWriter,
         mut stream: SendableSequentialStream,
     ) -> VortexResult<LayoutRef> {
         match stream.dtype() {
@@ -61,27 +63,32 @@ impl LayoutStrategy for DefaultLayoutStrategy {
                 // NullArray should be treated differently since it is zero-sized at rest.
                 // Rather than repartitioning, buffering and zone-mapping, we instead just want
                 // to write a single chunk that encodes the NullArray at full-length.
+                // We can choose any sequence ID to write the segments, but we choose the first
+                // one.
                 let mut sequence_id = None;
                 let mut row_count = 0;
                 while let Some(chunk) = stream.next().await {
                     let (seq, chunk) = chunk?;
-                    sequence_id = Some(seq);
+                    sequence_id.get_or_insert(seq);
                     row_count += chunk.len();
                 }
 
                 let sequence_id = sequence_id.vortex_expect("no chunks received for writing");
 
-                // Write a single
-                let buffers = NullArray::new(row_count).serialize(ctx)?;
+                // Write a single segment describing the NullArray into the sink
+                let buffers =
+                    NullArray::new(row_count).serialize(ctx, &SerializeOptions::default())?;
+                let segment_id = sink.put(sequence_id, buffers).await?;
 
-                sequence_writer.put()
+                Ok(
+                    FlatLayout::new(row_count as u64, DType::Null, segment_id, ctx.clone())
+                        .into_layout(),
+                )
             }
 
             // Fixed-size types: write a partitioned layout with zone maps and some constant
             // size-based chunking.
-            DType::Bool(..) | DType::Primitive(..) | DType::Decimal(..) => {
-                todo!()
-            }
+            DType::Bool(..) | DType::Primitive(..) | DType::Decimal(..) => {}
             DType::Extension(..) => {
                 // If the extension dtype is one of the fixed-width types
             }
@@ -114,6 +121,25 @@ async fn write_variable_size(
     let buffered = chunked.buffered(2 << 20);
 
     zoned.write_stream(ctx, sink, source).await
+}
+
+struct FixedSizeStrategy {
+    /// An optional task executor. If one is not provided ahead of time, then we just use
+    /// the current thread executor.
+    executor: Arc<dyn TaskExecutor>,
+}
+
+#[async_trait]
+impl LayoutStrategy for FixedSizeStrategy {
+    async fn write_stream(
+        &self,
+        ctx: &ArrayContext,
+        sequence_writer: SequenceWriter,
+        stream: SendableSequentialStream,
+    ) -> VortexResult<LayoutRef> {
+
+        todo!()
+    }
 }
 
 impl VortexLayoutStrategy {
