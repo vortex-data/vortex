@@ -98,39 +98,3 @@ impl Default for NodeId {
         NodeId(NODE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
     }
 }
-
-#[cfg(test)]
-mod test {
-    use crate::pipeline::buffers::BufferHandle;
-    use crate::pipeline::nodes::common::PrimitiveSource;
-    use crate::pipeline::nodes::pipeline::Pipeline;
-    use crate::pipeline::nodes::plan::PlanNode;
-    use crate::pipeline::vector::Vector;
-    use std::cell::RefCell;
-    use std::task::Poll;
-    use vortex_buffer::buffer;
-    use vortex_error::vortex_panic;
-
-    #[test]
-    fn test_pipeline() {
-        // First, let's construct a simple pipeline with a unary operator.
-        let data = buffer![0..10000];
-        let src = PrimitiveSource::new(data.len(), BufferHandle::new(data.into_byte_buffer()));
-
-        let mut out = RefCell::new(Vector::new_with_vtype(src.output_type()));
-
-        let mut pipeline = Pipeline::new(&src).unwrap();
-        let mut more_work = true;
-        while more_work {
-            more_work = match pipeline.step(&(), &mut out) {
-                Poll::Ready(more_work) => more_work.unwrap(),
-                Poll::Pending => {
-                    vortex_panic!("Pending for in-memory pipeline")
-                }
-            };
-            println!("OUTPUT: {:?}", out.borrow());
-        }
-
-        assert!(false);
-    }
-}

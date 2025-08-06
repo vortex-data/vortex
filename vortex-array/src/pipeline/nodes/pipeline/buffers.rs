@@ -3,14 +3,17 @@
 
 //! Vector allocation strategy for pipelines
 
+use crate::pipeline::VectorId;
 use crate::pipeline::nodes::pipeline::Pipeline;
 use crate::pipeline::nodes::pipeline::dag::DagNode;
 use crate::pipeline::types::VType;
 use crate::pipeline::vector::Vector;
-use std::cell::RefCell;
+use crate::pipeline::view::View;
+use std::cell::{Ref, RefCell};
 use std::collections::HashMap;
 use vortex_error::{VortexExpect, VortexResult};
 
+#[derive(Debug)]
 pub(super) struct VectorAllocationPlan {
     /// Where each node writes its output
     pub(super) output_targets: Vec<OutputTarget>,
@@ -27,6 +30,16 @@ pub(super) enum OutputTarget {
     IntermediateVector(usize), // vector idx
     /// Node mutates its input in-place (input node index, vector idx)
     InPlace(usize, usize),
+}
+
+impl OutputTarget {
+    pub fn vector_id(&self) -> Option<VectorId> {
+        match self {
+            OutputTarget::IntermediateVector(idx) => Some(VectorId(*idx)),
+            OutputTarget::InPlace(_, idx) => Some(VectorId(*idx)),
+            OutputTarget::ExternalOutput => None,
+        }
+    }
 }
 
 /// Represents an allocated vector that can be reused

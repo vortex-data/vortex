@@ -8,6 +8,7 @@ use crate::pipeline::N;
 use crate::pipeline::bits::{BitView, BitViewMut};
 use bitvec::array::BitArray;
 use bitvec::order::Msb0;
+use std::fmt::{Debug, Formatter};
 use std::ops::Not;
 use std::sync::{Arc, LazyLock};
 
@@ -26,10 +27,19 @@ static FULL: LazyLock<BitVector> = LazyLock::new(|| BitVector {
 /// Internally, it uses a [`BitArray`] to store the bits, but this crate has some
 /// performance foot-guns in cases where we can lean on better assumptions, and therefore we wrap
 /// it up for use within Vortex.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct BitVector {
     pub(super) bits: Arc<BitArray<[u64; N / 64], Msb0>>,
     pub(super) true_count: usize,
+}
+
+impl Debug for BitVector {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BitVector")
+            .field("true_count", &self.true_count)
+            //.field("bits", &self.bits.as_raw_slice())
+            .finish()
+    }
 }
 
 impl PartialEq for BitVector {

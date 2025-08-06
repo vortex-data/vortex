@@ -5,7 +5,6 @@ use crate::pipeline::buffers::BufferHandle;
 use crate::pipeline::nodes::BinaryOperator;
 use crate::pipeline::nodes::plan::BindContext;
 use crate::pipeline::nodes::plan::source::{SourceNode, SourceNodeAdapter, SourceOperator};
-use crate::pipeline::nodes::vector::VectorMut;
 use crate::pipeline::types::Element;
 use crate::pipeline::vector::Vector;
 use crate::pipeline::view::{TypedView, TypedViewMut};
@@ -18,7 +17,6 @@ use vortex_error::VortexResult;
 
 #[derive(Debug)]
 pub struct PrimitiveSource<T: NativePType> {
-    len: usize,
     buffer: BufferHandle<T>,
 }
 
@@ -28,42 +26,50 @@ impl<T: Element + NativePType> PrimitiveSource<T> {
         len: usize,
         buffer: BufferHandle<T>,
     ) -> SourceNodeAdapter<T, PrimitiveSourceOperator<T>, Self> {
-        SourceNodeAdapter::new(PrimitiveSource { len, buffer })
+        SourceNodeAdapter::new(PrimitiveSource { buffer })
     }
 }
 
 impl<T: NativePType> Hash for PrimitiveSource<T> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.buffer.hash(state);
-        self.len.hash(state);
     }
 }
 
 impl<T: Element + NativePType> SourceNode<T, PrimitiveSourceOperator<T>> for PrimitiveSource<T> {
     fn bind(&self, _ctx: &dyn BindContext) -> VortexResult<PrimitiveSourceOperator<T>> {
         Ok(PrimitiveSourceOperator {
-            _len: self.len,
             buffer: self.buffer.clone(),
-            _offset: 0,
+            offset: 0,
         })
     }
 }
 
 /// A source node that produces a primitive type vector.
 pub struct PrimitiveSourceOperator<T: NativePType> {
-    _len: usize,
     buffer: BufferHandle<T>,
     offset: usize,
 }
 
 impl<T: Element + NativePType> SourceOperator<T> for PrimitiveSourceOperator<T> {
-    fn execute_all(
+    fn step_all_true(
         &mut self,
         ctx: &dyn PipelineContext,
         out: &mut Vector,
     ) -> Poll<VortexResult<()>> {
         let buffer = ready!(self.buffer.get_or_load(ctx))?;
-        todo!()
+        let remaining = buffer.len() - self.offset;
+
+        if remaining > N {
+            out.as_mut::<T>()
+                .copy_from_slice(&buffer[self.offset..][..N]);
+            self.offset += N;
+        } else {
+            out.as_mut::<T>().as_mut_slice()[..remaining].copy_from_slice(&buffer[self.offset..]);
+            self.offset += remaining;
+        }
+
+        Poll::Ready(Ok(()))
     }
 }
 

@@ -6,7 +6,6 @@ mod dag;
 mod operators;
 mod toposort;
 
-use crate::pipeline::PipelineContext;
 use crate::pipeline::bits::BitView;
 use crate::pipeline::buffers::BufferId;
 use crate::pipeline::nodes::operator::Operator;
@@ -14,7 +13,10 @@ use crate::pipeline::nodes::pipeline::buffers::{OutputTarget, VectorAllocationPl
 use crate::pipeline::nodes::pipeline::dag::DagNode;
 use crate::pipeline::nodes::plan::PlanNode;
 use crate::pipeline::vector::Vector;
+use crate::pipeline::view::View;
+use crate::pipeline::{PipelineContext, VectorId, VectorRef};
 use std::cell::{Ref, RefCell};
+use std::ops::{Deref, DerefMut};
 use std::task::Poll;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
@@ -79,8 +81,12 @@ impl<'a> Pipeline<'a> {
         // Each step of the pipeline re-initializes the node states.
         let node_states = vec![NodeState::NotStarted; dag.len()];
         let next_nodes = leaf_nodes.clone();
+
         // But the operators are constructed once.
-        let operators = Self::bind_operators(&dag)?;
+        let operators = Self::bind_operators(&dag, &allocation_plan)?;
+
+        println!("Allocation Plan: {:?}", allocation_plan);
+        assert!(!next_nodes.is_empty(), "No nodes to execute");
 
         Ok(Self {
             dag,
@@ -95,42 +101,37 @@ impl<'a> Pipeline<'a> {
     }
 
     /// Step the pipeline forward
-    pub fn step(
-        &mut self,
-        ctx: &dyn PipelineContext,
-        out: &mut RefCell<Vector>,
-    ) -> Poll<VortexResult<bool>> {
+    pub fn step(&mut self, out: &mut RefCell<Vector>) -> Poll<VortexResult<bool>> {
         let mut pending = false;
 
         // Loop until all the available nodes are pending.
         while let Some(node_idx) = self.next_nodes.pop() {
+            println!("Executing node: {}", node_idx);
             self.node_states[node_idx] = NodeState::Executing;
             let operator = self.operators[node_idx].as_mut();
             let node = &self.dag[node_idx];
-
-            // Gather input views from children
-            let inputs: Vec<Ref<Vector>> = node
-                .children
-                .iter()
-                .map(|&child_idx| {
-                    match &self.allocation_plan.output_targets[child_idx] {
-                        OutputTarget::ExternalOutput => {
-                            // Child wrote to external output - create view
-                            // out.as_view()
-                            todo!("")
-                        }
-                        OutputTarget::IntermediateVector(vector_idx) => {
-                            // Child wrote to intermediate vector
-                            self.allocation_plan.vectors[*vector_idx].borrow()
-                        }
-                        OutputTarget::InPlace(_, vector_idx) => {
-                            // Child to operate in-place
-                            // TODO(ngates): that means we should not pass an input at all?
-                            self.allocation_plan.vectors[*vector_idx].borrow()
-                        }
-                    }
-                })
-                .collect();
+            //
+            // // Gather input views from children
+            // let inputs: Vec<Ref<Vector>> = node
+            //     .children
+            //     .iter()
+            //     .map(|&child_idx| {
+            //         match &self.allocation_plan.output_targets[child_idx] {
+            //             OutputTarget::ExternalOutput => {
+            //                 unreachable!("Child node cannot write to external output directly")
+            //             }
+            //             OutputTarget::IntermediateVector(vector_idx) => {
+            //                 // Child wrote to intermediate vector
+            //                 self.allocation_plan.vectors[*vector_idx].borrow()
+            //             }
+            //             OutputTarget::InPlace(_, vector_idx) => {
+            //                 // Child to operate in-place
+            //                 // TODO(ngates): that means we should not pass an input at all?
+            //                 self.allocation_plan.vectors[*vector_idx].borrow()
+            //             }
+            //         }
+            //     })
+            //     .collect();
 
             // Determine output
             let mut output = match &self.allocation_plan.output_targets[node_idx] {
@@ -150,14 +151,17 @@ impl<'a> Pipeline<'a> {
                 }
             };
 
+            let ctx: Context = Context {
+                allocation_plan: &self.allocation_plan,
+            };
+
             // Execute with mask (all-true for now)
             let mask = BitView::all_true();
 
-            if let Poll::Ready(()) = operator.execute_dyn(ctx, mask, &inputs, &mut output)? {
+            if let Poll::Ready(()) = operator.step(&ctx, mask, &mut output)? {
                 // If the operator completed successfully, we remove this node from the
                 // next_nodes list and push its parents.
                 self.node_states[node_idx] = NodeState::Completed;
-                self.next_nodes.retain(|&n| n != node_idx);
                 // Add parents to next_nodes if they are now ready
                 for &parent_idx in &node.parents {
                     // Check if all children of the parent are completed
@@ -182,21 +186,75 @@ impl<'a> Pipeline<'a> {
             Poll::Pending
         } else {
             // If all nodes are completed, we return Poll::Ready(Ok(()))
-            Poll::Ready(Ok(self.next_nodes.is_empty()))
+            if self.next_nodes.is_empty() {
+                self.reset_step();
+                Poll::Ready(Ok(false)) // No more work for the current step
+            } else {
+                Poll::Ready(Ok(true))
+            }
         }
+    }
+
+    // Reset the state for the next step of the pipeline.
+    fn reset_step(&mut self) {
+        self.node_states.iter_mut().for_each(|state| {
+            *state = NodeState::NotStarted;
+        });
+        self.next_nodes.clear();
+        self.next_nodes.extend(self.leaf_nodes.iter().cloned());
     }
 }
 
-struct Context {}
+struct Context<'a> {
+    allocation_plan: &'a VectorAllocationPlan,
+}
 
-impl PipelineContext for Context {
+impl<'a> PipelineContext for Context<'a> {
     fn buffer(&self, _buffer_id: BufferId) -> Poll<VortexResult<ByteBuffer>> {
         todo!()
+    }
+
+    fn vector(&self, vector_id: VectorId) -> VectorRef {
+        VectorRef::new(self.allocation_plan.vectors[*vector_id].borrow())
     }
 }
 
 #[cfg(test)]
 mod test {
+    use crate::pipeline::N;
+    use crate::pipeline::buffers::BufferHandle;
+    use crate::pipeline::nodes::common::PrimitiveSource;
+    use crate::pipeline::nodes::pipeline::Pipeline;
+    use crate::pipeline::nodes::plan::PlanNode;
+    use crate::pipeline::vector::Vector;
+    use std::cell::RefCell;
+    use std::task::Poll;
+    use vortex_buffer::buffer;
+    use vortex_error::vortex_panic;
+
     #[test]
-    fn test_common_sub_expressions() {}
+    fn test_pipeline() {
+        // First, let's construct a simple pipeline with a unary operator.
+        let data = buffer![0..10000];
+        let nchunks = data.len().next_multiple_of(N);
+        let src = PrimitiveSource::new(data.len(), BufferHandle::new(data.into_byte_buffer()));
+
+        let mut out = RefCell::new(Vector::new_with_vtype(src.output_type()));
+
+        let mut pipeline = Pipeline::new(&src).unwrap();
+        for _ in 0..nchunks {
+            let mut more_work = true;
+            println!("DOING WORK");
+            while more_work {
+                more_work = match pipeline.step(&mut out) {
+                    Poll::Ready(more_work) => more_work.unwrap(),
+                    Poll::Pending => {
+                        vortex_panic!("Pending for in-memory pipeline")
+                    }
+                };
+            }
+        }
+
+        assert!(false);
+    }
 }

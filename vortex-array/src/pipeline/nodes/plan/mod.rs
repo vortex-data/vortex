@@ -5,6 +5,7 @@
 
 pub mod source;
 
+use crate::pipeline::VectorId;
 use crate::pipeline::nodes::operator::Operator;
 use crate::pipeline::types::VType;
 use dyn_hash::DynHash;
@@ -32,4 +33,6 @@ pub trait PlanNode: DynHash {
 dyn_hash::hash_trait_object!(PlanNode);
 
 /// The context used when binding a node for execution.
-pub trait BindContext {}
+pub trait BindContext {
+    fn input_ids(&self) -> &[VectorId];
+}

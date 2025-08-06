@@ -7,14 +7,13 @@ use crate::pipeline::PipelineContext;
 use crate::pipeline::bits::BitView;
 use crate::pipeline::nodes::operator::Operator;
 use crate::pipeline::nodes::plan::{BindContext, PlanNode};
-use crate::pipeline::nodes::vector::VectorMut;
 use crate::pipeline::types::{Element, VType};
 use crate::pipeline::vector::Vector;
 use std::cell::Ref;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;
-use std::task::{Poll, ready};
+use std::task::Poll;
 use vortex_error::VortexResult;
 
 #[derive(Debug)]
@@ -60,7 +59,7 @@ pub trait SourceNode<E, Op>: Debug + Hash {
 
 pub trait SourceOperator<X: Element>: 'static {
     /// Execute with a mask that is all true.
-    fn execute_all(
+    fn step_all_true(
         &mut self,
         ctx: &dyn PipelineContext,
         out: &mut Vector,
@@ -86,14 +85,13 @@ where
     X: Element,
     Op: SourceOperator<X>,
 {
-    fn execute_dyn(
+    fn step(
         &mut self,
         ctx: &dyn PipelineContext,
         mask: BitView,
-        _inputs: &[Ref<Vector>],
         output: &mut Vector,
     ) -> Poll<VortexResult<()>> {
         println!("MASK: {:?}", mask);
-        self.op.execute_all(ctx, output)
+        self.op.step_all_true(ctx, output)
     }
 }

@@ -2,7 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::pipeline::N;
+use crate::pipeline::bits::BitVector;
 use bitvec::prelude::*;
+use std::fmt::{Debug, Formatter};
 use vortex_error::{VortexError, vortex_err};
 
 /// A borrowed fixed-size bit vector of length `N` bits, represented as an array of 64-bit words.
@@ -10,10 +12,19 @@ use vortex_error::{VortexError, vortex_err};
 /// Internally, it uses a [`BitArray`] to store the bits, but this crate has some
 /// performance foot-guns in cases where we can lean on better assumptions, and therefore we wrap
 /// it up for use within Vortex.
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct BitView<'a> {
     bits: &'a BitArray<[u64; N / 64], Msb0>,
     true_count: usize,
+}
+
+impl Debug for BitView<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BitView")
+            .field("true_count", &self.true_count)
+            .field("bits", &self.as_raw())
+            .finish()
+    }
 }
 
 impl BitView<'static> {

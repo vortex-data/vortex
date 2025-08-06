@@ -10,10 +10,10 @@ use std::task::Poll;
 use vortex_error::VortexResult;
 
 pub struct VarBinPipeline {
-    views_buffer: BufferHandle<BinaryView>,
-    data_buffers: Vec<BufferHandle<u8>>,
+    _views_buffer: BufferHandle<BinaryView>,
+    _data_buffers: Vec<BufferHandle<u8>>,
 
-    len: usize,
+    _len: usize,
     offset: usize,
 }
 

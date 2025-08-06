@@ -102,12 +102,3 @@ impl<T> BufferHandle<T> {
         }
     }
 }
-
-impl PipelineContext for HashMap<BufferId, ByteBuffer> {
-    fn buffer(&self, buffer_id: BufferId) -> Poll<VortexResult<ByteBuffer>> {
-        match self.get(&buffer_id) {
-            Some(buffer) => Poll::Ready(Ok(buffer.clone())),
-            None => Poll::Pending,
-        }
-    }
-}

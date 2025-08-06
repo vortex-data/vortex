@@ -15,12 +15,11 @@ pub trait Operator: 'static {
     /// Get metadata about this operator
     /// fn metadata(&self) -> OperatorMetadata;
 
-    /// Execute with dynamic dispatch (fallback)
-    fn execute_dyn(
+    /// Execute a single step with dynamic dispatch (fallback)
+    fn step(
         &mut self,
         ctx: &dyn PipelineContext,
         mask: BitView,
-        inputs: &[Ref<Vector>],
         output: &mut Vector,
     ) -> Poll<VortexResult<()>>;
 }

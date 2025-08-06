@@ -10,7 +10,7 @@ pub struct VectorMut<'a, E: Element> {
 }
 
 impl<'a, E: Element> VectorMut<'a, E> {
-    pub fn select_mask(&mut self, mask: BitView) {
+    pub fn select_mask(&mut self, _mask: BitView) {
         todo!()
     }
 }

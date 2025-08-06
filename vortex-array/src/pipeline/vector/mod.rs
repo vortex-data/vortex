@@ -11,8 +11,9 @@
 use crate::pipeline::N;
 use crate::pipeline::bits::BitVector;
 use crate::pipeline::selection::Selection;
-use crate::pipeline::types::VType;
+use crate::pipeline::types::{Element, VType};
 use crate::pipeline::view::{TypedViewMut, View, ViewMut};
+use std::fmt::Debug;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 
 pub struct TypedVector<T> {
@@ -69,6 +70,11 @@ impl Vector {
             selection: Selection::default(),
             data: vec![],
         }
+    }
+
+    pub fn as_mut<T: Element>(&mut self) -> &mut [T; N] {
+        assert_eq!(self.vtype, T::vtype());
+        unsafe { &mut *(self.elements.as_mut_ptr().cast::<T>().cast::<[T; N]>()) }
     }
 
     pub fn as_view_mut(&mut self) -> ViewMut<'_> {

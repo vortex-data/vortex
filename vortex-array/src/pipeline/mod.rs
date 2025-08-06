@@ -32,8 +32,10 @@ pub const N: usize = 1024;
 
 use crate::pipeline::bits::BitView;
 use crate::pipeline::buffers::BufferId;
-use crate::pipeline::view::ViewMut;
-use std::ops::Range;
+use crate::pipeline::vector::Vector;
+use crate::pipeline::view::{View, ViewMut};
+use std::cell::Ref;
+use std::ops::{Deref, Range};
 use std::task::Poll;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexResult, vortex_err, vortex_panic};
@@ -104,7 +106,45 @@ pub trait PipelineExt: Pipeline {
 
 impl<P: Pipeline + ?Sized> PipelineExt for P {}
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VectorId(pub(super) usize);
+
+impl Deref for VectorId {
+    type Target = usize;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+/// A [`VectorRef`] provides a small wrapper to allow accessing a [`View`] with the same lifetime
+/// as the borrowed vector, rather than the lifetime of the [`Ref`].
+pub struct VectorRef<'a> {
+    borrow: Ref<'a, Vector>,
+    view: View<'a>,
+}
+
+impl<'a> VectorRef<'a> {
+    pub fn new(borrow: Ref<'a, Vector>) -> Self {
+        let view = borrow.as_view();
+        // SAFETY: we continue to hold onto the [`Ref`], so it is safe to erase the lifetime.
+        let view = unsafe { std::mem::transmute::<View<'_>, View<'a>>(view) };
+        Self { borrow, view }
+    }
+}
+
+impl<'a> Deref for VectorRef<'a> {
+    type Target = View<'a>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.view
+    }
+}
+
 pub trait PipelineContext {
+    /// Get a vector by its ID.
+    fn vector(&self, vector_id: VectorId) -> VectorRef;
+
     /// Get a buffer by its ID.
     fn buffer(&self, buffer_id: BufferId) -> Poll<VortexResult<ByteBuffer>>;
 
@@ -142,9 +182,11 @@ pub trait PipelineContext {
 }
 
 impl PipelineContext for () {
-    fn buffer(&self, _buffer_id: BufferId) -> Poll<VortexResult<ByteBuffer>> {
-        Poll::Ready(Err(vortex_err!(
-            "EvaluationContext is not implemented for ()"
-        )))
+    fn vector(&self, vector_id: VectorId) -> VectorRef {
+        todo!()
+    }
+
+    fn buffer(&self, buffer_id: BufferId) -> Poll<VortexResult<ByteBuffer>> {
+        todo!()
     }
 }
