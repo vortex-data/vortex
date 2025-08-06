@@ -275,26 +275,27 @@ body {
   overflow-y: auto;
   transition: transform 0.3s ease;
   z-index: 998;
-  transform: translateX(0);
+  transform: translateX(-100%); /* Start collapsed by default */
 }
 
-/* Desktop: sidebar visible by default */
+/* Desktop: sidebar overlay styling */
 @media (min-width: 1200px) {
   .sidebar {
-    box-shadow: 2px 0 4px rgba(0, 0, 0, 0.05);
+    box-shadow: 2px 0 12px rgba(0, 0, 0, 0.15);
   }
   
   .sidebar.collapsed {
     transform: translateX(-100%);
   }
   
-  /* Add margin to main content for sidebar space on desktop */
-  .main-content {
-    margin-left: var(--sidebar-width);
+  .sidebar:not(.collapsed) {
+    transform: translateX(0);
   }
   
-  .sidebar.collapsed ~ .main-content {
+  /* Remove margin from main content - sidebar is now overlay */
+  .main-content {
     margin-left: 0;
+    width: 100%;
   }
 }
 
@@ -444,7 +445,6 @@ body {
   padding: 32px;
   width: 100%;
   position: relative;
-  transition: margin-left 0.3s ease;
 }
 
 /* Larger padding on wide screens */
@@ -1044,7 +1044,7 @@ body {
   display: none;
 }
 
-/* Sidebar overlay for mobile */
+/* Sidebar overlay for all screen sizes */
 .sidebar-overlay {
   display: none;
   position: fixed;
@@ -1056,10 +1056,32 @@ body {
   z-index: 997;
 }
 
-/* Only show overlay on tablets and mobile */
+/* Lighter overlay on desktop for better UX */
 @media (min-width: 1200px) {
   .sidebar-overlay {
-    display: none !important;
+    background: rgba(0, 0, 0, 0.3);
+  }
+}
+
+/* Show overlay only when sidebar has explicit 'open' class */
+.sidebar.open ~ .sidebar-overlay {
+  display: block;
+}
+
+/* For mobile - show overlay when active class is present */
+@media (max-width: 1199px) {
+  .sidebar.active ~ .sidebar-overlay {
+    display: block;
+  }
+  
+  /* On mobile, don't use the 'open' class rule */
+  .sidebar.open ~ .sidebar-overlay {
+    display: none;
+  }
+  
+  /* Re-enable for mobile active state */
+  .sidebar.active ~ .sidebar-overlay {
+    display: block;
   }
 }
 
@@ -1083,10 +1105,6 @@ body {
   
   body {
     padding-top: var(--header-height);
-  }
-  
-  .sidebar.active ~ .sidebar-overlay {
-    display: block;
   }
 
   .header-content {

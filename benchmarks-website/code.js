@@ -750,11 +750,25 @@ window.initAndRender = (function () {
         domElements[camelCaseId] = document.getElementById(id);
       });
 
-      // Restore sidebar state on desktop
+      // Initialize sidebar state on desktop
       if (window.innerWidth >= 1200) {
-        const isCollapsed = localStorage.getItem("sidebarCollapsed") === "true";
-        if (isCollapsed && domElements.sidebar) {
-          domElements.sidebar.classList.add("collapsed");
+        const sidebarPref = localStorage.getItem("sidebarCollapsed");
+        if (domElements.sidebar) {
+          // Set default to collapsed (true) on first visit  
+          if (sidebarPref === null) {
+            localStorage.setItem("sidebarCollapsed", "true");
+          }
+          
+          // Apply saved preference
+          if (sidebarPref === "false") {
+            // User previously opened sidebar via toggle
+            domElements.sidebar.classList.remove("collapsed");
+            domElements.sidebar.classList.add("open");
+          } else {
+            // Default collapsed or user previously closed it via toggle
+            domElements.sidebar.classList.add("collapsed");
+            domElements.sidebar.classList.remove("open");
+          }
         }
       }
 
@@ -827,11 +841,12 @@ window.initAndRender = (function () {
         if (isDesktop) {
           // On desktop, toggle collapsed state
           domElements.sidebar.classList.toggle("collapsed");
+          domElements.sidebar.classList.toggle("open");
 
           // Save preference to localStorage
           const isCollapsed =
             domElements.sidebar.classList.contains("collapsed");
-          localStorage.setItem("sidebarCollapsed", isCollapsed);
+          localStorage.setItem("sidebarCollapsed", isCollapsed.toString());
         } else {
           // On mobile/tablet, toggle active state
           domElements.sidebar.classList.toggle("active");
@@ -842,15 +857,25 @@ window.initAndRender = (function () {
         const isDesktop = window.innerWidth >= 1200;
         if (isDesktop) {
           domElements.sidebar.classList.add("collapsed");
-          localStorage.setItem("sidebarCollapsed", true);
+          domElements.sidebar.classList.remove("open");
+          localStorage.setItem("sidebarCollapsed", "true");
         } else {
           domElements.sidebar.classList.remove("active");
         }
       });
 
-      // Sidebar overlay click (mobile)
+      // Sidebar overlay click (mobile and desktop) - only closes, doesn't toggle
       domElements.sidebarOverlay.addEventListener("click", () => {
-        domElements.sidebar.classList.remove("active");
+        const isDesktop = window.innerWidth >= 1200;
+        if (isDesktop) {
+          // On desktop, close sidebar (don't toggle, just close)
+          domElements.sidebar.classList.add("collapsed");
+          domElements.sidebar.classList.remove("open");
+          localStorage.setItem("sidebarCollapsed", "true");
+        } else {
+          // On mobile/tablet, remove active state
+          domElements.sidebar.classList.remove("active");
+        }
       });
 
       // Expand/Collapse
@@ -933,10 +958,19 @@ window.initAndRender = (function () {
           // Moving from mobile to desktop
           domElements.sidebar.classList.remove("active");
           // Restore saved collapsed state
-          const isCollapsed =
-            localStorage.getItem("sidebarCollapsed") === "true";
-          if (isCollapsed) {
+          const sidebarPref = localStorage.getItem("sidebarCollapsed");
+          // Set default to collapsed (true) on first visit  
+          if (sidebarPref === null) {
+            localStorage.setItem("sidebarCollapsed", "true");
+          }
+          
+          // Apply saved preference
+          if (sidebarPref === "false") {
+            domElements.sidebar.classList.remove("collapsed");
+            domElements.sidebar.classList.add("open");
+          } else {
             domElements.sidebar.classList.add("collapsed");
+            domElements.sidebar.classList.remove("open");
           }
         }
 
@@ -1100,6 +1134,9 @@ window.initAndRender = (function () {
       renamedDatasets,
       chartIndex
     );
+    
+    // Update zoom sync cache for this category
+    window.zoomSync.updateCacheForCategory(name);
   }
 
   // Async function to render charts with yielding
@@ -1171,6 +1208,7 @@ window.initAndRender = (function () {
       window.state = state;
       window.domElements = domElements;
       window.zoomSync = zoomSync;
+      window.utils = utils;
       
       // Initialize workers
       workerManager.init();
@@ -1213,9 +1251,10 @@ window.initAndRender = (function () {
         workerManager.terminate();
       }, 5000);
       
-      // Ensure workers are cleaned up on page unload
+      // Ensure workers and zoom sync are cleaned up on page unload
       window.addEventListener('beforeunload', () => {
         workerManager.terminate();
+        window.zoomSync.cleanup();
       });
     } catch (error) {
       console.error("Failed to load benchmark data:", error);

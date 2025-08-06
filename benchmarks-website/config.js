@@ -5,8 +5,9 @@ export const CONFIG = {
   MOBILE_BREAKPOINT: 1199,
   MOBILE_MAX_DATA_POINTS: 100,
   DEFAULT_VISIBLE_COMMITS: 50,
-  DEBOUNCE_DELAY: 50,
-  MOBILE_DEBOUNCE_DELAY: 200,
+  DEBOUNCE_DELAY: 150, // Increased from 50ms to reduce update frequency
+  MOBILE_DEBOUNCE_DELAY: 300, // Increased from 200ms for better mobile performance
+  ZOOM_THROTTLE_DELAY: 16, // ~60fps throttling for zoom operations
   THROTTLE_SCROLL: 100,
   SEARCH_DEBOUNCE: 300,
   CHART_OBSERVER_MARGIN: "50px",
@@ -21,6 +22,8 @@ export const CONFIG = {
   SCROLL_ACTIVE_THRESHOLD: 100,
   URL_INIT_DELAY: 100,
   RESIZE_DEBOUNCE: 250,
+  // Performance monitoring (set to true to enable console timing)
+  ENABLE_ZOOM_PERFORMANCE_TIMING: false,
 };
 
 // Color mappings for series
