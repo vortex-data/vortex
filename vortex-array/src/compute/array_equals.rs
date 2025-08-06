@@ -149,8 +149,6 @@ impl ComputeFnVTable for ArrayEquals {
                 if let Some(all_true) = check_comparison_stats(&compare_result) {
                     return Ok(Scalar::from(all_true).into());
                 }
-
-                // Fall through to general case handling below
             }
             (None, None) => {
                 // Neither is constant - continue with general algorithm
@@ -158,7 +156,6 @@ impl ComputeFnVTable for ArrayEquals {
         }
 
         // Check statistics for early exit
-        // TODO(optimization): Add more sophisticated statistical comparisons for floating point arrays
         if !check_stats_equality(left, right) {
             return Ok(Scalar::from(false).into());
         }
@@ -236,7 +233,6 @@ impl ComputeFnVTable for ArrayEquals {
     }
 }
 
-// todo: statistics
 pub trait ArrayEqualsKernel: VTable {
     fn compare_array(
         &self,
@@ -356,6 +352,7 @@ fn compare_batch(left: &dyn Array, right: &dyn Array) -> VortexResult<bool> {
 }
 
 /// Check if a constant comparison result indicates equality
+/// todo: do we really need check_constant_result + check_comparison_stats?
 fn check_constant_result(compare_result: &dyn Array) -> VortexResult<Option<bool>> {
     if let Some(constant_scalar) = compare_result.as_constant() {
         // If constant is true, all are equal
@@ -379,6 +376,7 @@ fn check_non_constant_result(
     }
 
     // Fallback to element-wise check
+    // todo: kill this
     for i in 0..compare_result.len() {
         let cmp_scalar = compare_result.scalar_at(i)?;
 
