@@ -11,17 +11,17 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use arcref::ArcRef;
+use async_trait::async_trait;
 use futures::Stream;
 use pin_project_lite::pin_project;
 use vortex_array::{ArrayContext, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
+use crate::LayoutRef;
 use crate::layouts::buffered::BufferedStrategy;
-use crate::layouts::compressed::BtrBlocksCompressedStrategy;
 use crate::segments::SequenceWriter;
 use crate::sequence::SequenceId;
-use crate::{LayoutRef, SendableLayoutFuture};
 
 pub trait SequentialStream: Stream<Item = VortexResult<(SequenceId, ArrayRef)>> {
     fn dtype(&self) -> &DType;
@@ -42,30 +42,31 @@ impl SequentialStream for SendableSequentialStream {
 /// layout
 // Tag for Python docs:
 // [layout writer]
+#[async_trait]
 pub trait LayoutStrategy: 'static + Send + Sync {
-    fn write_stream(
+    async fn write_stream(
         &self,
         ctx: &ArrayContext,
         sequence_writer: SequenceWriter,
         stream: SendableSequentialStream,
-    ) -> SendableLayoutFuture;
+    ) -> VortexResult<LayoutRef>;
 }
 // [layout writer]
 
-// Helper implementation for async functions
+// Helper implementation for async functions that accept the parameters of the write_stream method.
+#[async_trait]
 impl<F, Fut> LayoutStrategy for F
 where
     F: (Fn(&ArrayContext, SequenceWriter, SendableSequentialStream) -> Fut) + Send + Sync + 'static,
     Fut: Future<Output = VortexResult<LayoutRef>> + Send + Sync + 'static,
 {
-    fn write_stream(
+    async fn write_stream(
         &self,
         ctx: &ArrayContext,
         sequence_writer: SequenceWriter,
         stream: SendableSequentialStream,
-    ) -> SendableLayoutFuture {
-        let fut = self(ctx, sequence_writer, stream);
-        Box::pin(fut)
+    ) -> VortexResult<LayoutRef> {
+        self(ctx, sequence_writer, stream).await
     }
 }
 
@@ -77,15 +78,6 @@ pub trait LayoutStrategyExt: LayoutStrategy {
         Self: Sized,
     {
         BufferedStrategy::new(ArcRef::new_arc(Arc::new(self)), bytes)
-    }
-
-    fn compressed(self) -> impl LayoutStrategy
-    where
-        Self: Sized,
-    {
-        // If there's no executor, we don't give a shit
-
-        BtrBlocksCompressedStrategy::new(ArcRef::new_arc(Arc::new(self)))
     }
 }
 

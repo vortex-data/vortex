@@ -7,8 +7,9 @@ use std::sync::Arc;
 use std::task::{Context, Poll, ready};
 
 use arcref::ArcRef;
+use async_trait::async_trait;
 use futures::future::try_join_all;
-use futures::{Stream, StreamExt, TryStreamExt};
+use futures::{FutureExt, Stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use parking_lot::Mutex;
 use vortex_array::{Array, ArrayContext, ToCanonical};
@@ -18,8 +19,8 @@ use vortex_utils::set::UniqueCount;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SequenceWriter;
 use crate::{
-    IntoLayout as _, LayoutStrategy, SendableLayoutFuture, SendableSequentialStream,
-    SequentialStreamAdapter, SequentialStreamExt,
+    IntoLayout as _, LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
+    SequentialStreamExt,
 };
 
 pub struct StructStrategy {
@@ -33,21 +34,22 @@ impl StructStrategy {
     }
 }
 
+#[async_trait]
 impl LayoutStrategy for StructStrategy {
-    fn write_stream(
+    async fn write_stream(
         &self,
         ctx: &ArrayContext,
         sequence_writer: SequenceWriter,
         stream: SendableSequentialStream,
-    ) -> SendableLayoutFuture {
+    ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         let Some(struct_dtype) = stream.dtype().as_struct().cloned() else {
             // nothing we can do if dtype is not struct
-            return self.child.write_stream(ctx, sequence_writer, stream);
+            return self.child.write_stream(ctx, sequence_writer, stream).await;
         };
 
         if struct_dtype.names().iter().unique_count() != struct_dtype.names().len() {
-            return Box::pin(async { vortex_bail!("StructLayout must have unique field names") });
+            vortex_bail!("StructLayout must have unique field names");
         }
 
         let stream = stream.map(|chunk| {
@@ -60,15 +62,13 @@ impl LayoutStrategy for StructStrategy {
 
         // There are no fields so this is the layout leaf
         if struct_dtype.nfields() == 0 {
-            return Box::pin(async move {
-                let row_count = stream
-                    .try_fold(
-                        0u64,
-                        |acc, (_, arr)| async move { Ok(acc + arr.len() as u64) },
-                    )
-                    .await?;
-                Ok(StructLayout::new(row_count, dtype, vec![]).into_layout())
-            });
+            let row_count = stream
+                .try_fold(
+                    0u64,
+                    |acc, (_, arr)| async move { Ok(acc + arr.len() as u64) },
+                )
+                .await?;
+            return Ok(StructLayout::new(row_count, dtype, vec![]).into_layout());
         }
 
         // stream<struct_chunk> -> stream<vec<column_chunk>>
@@ -97,20 +97,22 @@ impl LayoutStrategy for StructStrategy {
         });
         let child = self.child.clone();
         let ctx = ctx.clone();
-        let layout_futures = column_dtypes
+        let layout_futures: Vec<_> = column_dtypes
             .zip_eq(column_streams)
             .map(move |(dtype, stream)| {
                 let column_stream = SequentialStreamAdapter::new(dtype, stream).sendable();
-                child.write_stream(&ctx, sequence_writer.clone(), column_stream)
-            });
+                let child = child.clone();
+                let ctx = ctx.clone();
+                let writer = sequence_writer.clone();
+                Box::pin(async move { child.write_stream(&ctx, writer, column_stream).await })
+            })
+            .collect();
 
-        Box::pin(async move {
-            let column_layouts = try_join_all(layout_futures).await?;
-            // TODO(os): transposed stream could count row counts as well,
-            // This must hold though, all columns must have the same row count of the struct layout
-            let row_count = column_layouts.first().map(|l| l.row_count()).unwrap_or(0);
-            Ok(StructLayout::new(row_count, dtype, column_layouts).into_layout())
-        })
+        let column_layouts = try_join_all(layout_futures).await?;
+        // TODO(os): transposed stream could count row counts as well,
+        // This must hold though, all columns must have the same row count of the struct layout
+        let row_count = column_layouts.first().map(|l| l.row_count()).unwrap_or(0);
+        Ok(StructLayout::new(row_count, dtype, column_layouts).into_layout())
     }
 }
 

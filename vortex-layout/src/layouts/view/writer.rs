@@ -2,6 +2,7 @@
 //  SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use arcref::ArcRef;
+use async_trait::async_trait;
 use futures::StreamExt;
 use futures::stream::once;
 use vortex_array::arrays::VarBinViewVTable;
@@ -9,13 +10,13 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{Array, ArrayContext};
 use vortex_dtype::{DType, Nullability};
-use vortex_error::vortex_bail;
+use vortex_error::{VortexResult, vortex_bail};
 
 use crate::children::OwnedLayoutChildren;
 use crate::layouts::view::{ValidityTag, ViewLayout};
 use crate::segments::SequenceWriter;
 use crate::{
-    IntoLayout, LayoutStrategy, SendableLayoutFuture, SendableSequentialStream,
+    IntoLayout, LayoutRef, LayoutStrategy, SendableLayoutFuture, SendableSequentialStream,
     SequentialStreamAdapter, SequentialStreamExt,
 };
 
@@ -42,82 +43,81 @@ impl ViewStrategy {
 
 const VALIDITY_DTYPE: DType = DType::Bool(Nullability::NonNullable);
 
+#[async_trait]
 impl LayoutStrategy for ViewStrategy {
-    fn write_stream(
+    async fn write_stream(
         &self,
         ctx: &ArrayContext,
         writer: SequenceWriter,
         mut stream: SendableSequentialStream,
-    ) -> SendableLayoutFuture {
+    ) -> VortexResult<LayoutRef> {
         let validity_strategy = self.validity_strategy.clone();
         let fallback_strategy = self.fallback_strategy.clone();
         let ctx = ctx.clone();
 
-        Box::pin(async move {
-            let Some(chunk) = stream.next().await else {
-                vortex_bail!("ViewLayout needs a single chunk");
-            };
-            let (sequence_id, chunk) = chunk?;
-            let row_count = chunk.len() as u64;
+        let Some(chunk) = stream.next().await else {
+            vortex_bail!("ViewLayout needs a single chunk");
+        };
+        let (sequence_id, chunk) = chunk?;
+        let row_count = chunk.len() as u64;
 
-            // If the chunk is a VarBinView, serialize using our specialized layout.
-            if let Some(view_array) = chunk.as_opt::<VarBinViewVTable>() {
-                let mut ptr = sequence_id.descend();
+        // If the chunk is a VarBinView, serialize using our specialized layout.
+        if let Some(view_array) = chunk.as_opt::<VarBinViewVTable>() {
+            let mut ptr = sequence_id.descend();
 
-                let view_id = ptr.advance();
+            let view_id = ptr.advance();
 
-                let views = view_array.views().clone().into_byte_buffer();
-                let views_segment = writer.put(view_id, vec![views]).await?;
+            let views = view_array.views().clone().into_byte_buffer();
+            let views_segment = writer.put(view_id, vec![views]).await?;
 
-                let mut buffer_segments = Vec::new();
-                for buffer in view_array.buffers().iter() {
-                    let buf_id = ptr.advance();
-                    let buf_segment = writer.put(buf_id, vec![buffer.clone()]).await?;
-                    buffer_segments.push(buf_segment);
-                }
-
-                // Write the validity child, if present.
-                // Record metadata about if the validity is all valid, all invalid, or an array.
-                let validity_tag = match view_array.validity() {
-                    Validity::NonNullable => ValidityTag::NonNullable,
-                    Validity::AllValid => ValidityTag::AllValid,
-                    Validity::AllInvalid => ValidityTag::AllInvalid,
-                    Validity::Array(_) => ValidityTag::Array,
-                };
-
-                let children =
-                    if let Some(validity_array) = view_array.validity().clone().into_array() {
-                        let child = validity_strategy
-                            .write_stream(
-                                &ctx,
-                                writer,
-                                SequentialStreamAdapter::new(
-                                    VALIDITY_DTYPE,
-                                    once(async move { Ok((ptr.advance(), validity_array)) }),
-                                )
-                                .sendable(),
-                            )
-                            .await?;
-
-                        vec![child]
-                    } else {
-                        vec![]
-                    };
-
-                Ok(ViewLayout::new(
-                    row_count,
-                    chunk.dtype().clone(),
-                    validity_tag,
-                    views_segment,
-                    buffer_segments,
-                    OwnedLayoutChildren::layout_children(children),
-                    ctx.clone(),
-                )
-                .into_layout())
-            } else {
-                return fallback_strategy.write_stream(&ctx, writer, stream).await;
+            let mut buffer_segments = Vec::new();
+            for buffer in view_array.buffers().iter() {
+                let buf_id = ptr.advance();
+                let buf_segment = writer.put(buf_id, vec![buffer.clone()]).await?;
+                buffer_segments.push(buf_segment);
             }
-        })
+
+            // Write the validity child, if present.
+            // Record metadata about if the validity is all valid, all invalid, or an array.
+            let validity_tag = match view_array.validity() {
+                Validity::NonNullable => ValidityTag::NonNullable,
+                Validity::AllValid => ValidityTag::AllValid,
+                Validity::AllInvalid => ValidityTag::AllInvalid,
+                Validity::Array(_) => ValidityTag::Array,
+            };
+
+            let children = if let Some(validity_array) = view_array.validity().clone().into_array()
+            {
+                let child = validity_strategy
+                    .write_stream(
+                        &ctx,
+                        writer,
+                        SequentialStreamAdapter::new(
+                            VALIDITY_DTYPE,
+                            once(async move { Ok((ptr.advance(), validity_array)) }),
+                        )
+                        .sendable(),
+                    )
+                    .await?;
+
+                vec![child]
+            } else {
+                vec![]
+            };
+
+            Ok(ViewLayout::new(
+                row_count,
+                chunk.dtype().clone(),
+                validity_tag,
+                views_segment,
+                buffer_segments,
+                OwnedLayoutChildren::layout_children(children),
+                ctx.clone(),
+            )
+            .into_layout())
+        } else {
+            fallback_strategy.write_stream(&ctx, writer, stream).await
+        }
     }
 }
 

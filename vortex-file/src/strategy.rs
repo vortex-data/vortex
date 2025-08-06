@@ -6,21 +6,25 @@
 use std::sync::Arc;
 
 use arcref::ArcRef;
-use vortex_array::stats::PRUNING_STATS;
+use async_trait::async_trait;
 use vortex_array::ArrayContext;
+use vortex_array::stats::PRUNING_STATS;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_layout::layouts::buffered::BufferedStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedStrategy;
 use vortex_layout::layouts::compressed::BtrBlocksCompressedStrategy;
 use vortex_layout::layouts::dict::writer::DictStrategy;
-use vortex_layout::layouts::flat::writer::{FlatLayoutStrategy, DEFAULT_FLAT_STRATEGY};
+use vortex_layout::layouts::flat::writer::{DEFAULT_FLAT_STRATEGY, FlatLayoutStrategy};
 use vortex_layout::layouts::repartition::{RepartitionStrategy, RepartitionWriterOptions};
 use vortex_layout::layouts::struct_::writer::StructStrategy;
 use vortex_layout::layouts::view::writer::ViewStrategy;
 use vortex_layout::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
 use vortex_layout::segments::SequenceWriter;
-use vortex_layout::{LayoutRef, LayoutStrategy, LayoutStrategyExt, SendableLayoutFuture, SendableSequentialStream, TaskExecutor};
+use vortex_layout::{
+    LayoutRef, LayoutStrategy, LayoutStrategyExt, SendableLayoutFuture, SendableSequentialStream,
+    TaskExecutor,
+};
 
 const ROW_BLOCK_SIZE: usize = 8192;
 
@@ -39,7 +43,12 @@ pub struct SelectingLayoutStrategy {
 }
 
 impl LayoutStrategy for SelectingLayoutStrategy {
-    fn write_stream(&self, ctx: &ArrayContext, sequence_writer: SequenceWriter, stream: SendableSequentialStream) -> SendableLayoutFuture {
+    fn write_stream(
+        &self,
+        ctx: &ArrayContext,
+        sequence_writer: SequenceWriter,
+        stream: SendableSequentialStream,
+    ) -> SendableLayoutFuture {
         todo!()
     }
 }
@@ -61,17 +70,10 @@ async fn write_variable_size(
         executor.clone(),
     );
 
-    let chunked = ChunkedStrategy::default()
-        .buffered(2 << 20);
+    let chunked = ChunkedStrategy::default().buffered(2 << 20);
     let buffered = chunked.buffered(2 << 20);
 
-
-
-    zoned.write_stream(
-        ctx,
-        sink,
-        source
-    ).await
+    zoned.write_stream(ctx, sink, source).await
 }
 
 impl VortexLayoutStrategy {
@@ -215,13 +217,14 @@ fn arcref(item: impl LayoutStrategy) -> ArcRef<dyn LayoutStrategy> {
 /// fixed-size datasets.
 pub struct VariableSizeStrategy;
 
+#[async_trait]
 impl LayoutStrategy for VariableSizeStrategy {
-    fn write_stream(
+    async fn write_stream(
         &self,
         ctx: &ArrayContext,
         sequence_writer: SequenceWriter,
         stream: SendableSequentialStream,
-    ) -> SendableLayoutFuture {
+    ) -> VortexResult<LayoutRef> {
         todo!()
     }
 }

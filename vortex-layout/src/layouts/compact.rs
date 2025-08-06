@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use arcref::ArcRef;
+use async_trait::async_trait;
 use futures::{FutureExt as _, StreamExt as _};
 use vortex_array::arrays::{ExtensionArray, ListArray, StructArray};
 use vortex_array::stats::Stat;
@@ -17,8 +18,8 @@ use vortex_zstd::ZstdArray;
 use crate::executor::{TaskExecutor, TaskExecutorExt as _};
 use crate::segments::SequenceWriter;
 use crate::{
-    LayoutStrategy, SendableLayoutFuture, SendableSequentialStream, SequentialStreamAdapter,
-    SequentialStreamExt as _,
+    LayoutRef, LayoutStrategy, SendableLayoutFuture, SendableSequentialStream,
+    SequentialStreamAdapter, SequentialStreamExt as _,
 };
 
 fn is_pco_number_type(ptype: PType) -> bool {
@@ -183,13 +184,14 @@ impl CompactCompressedStrategy {
     }
 }
 
+#[async_trait]
 impl LayoutStrategy for CompactCompressedStrategy {
-    fn write_stream(
+    async fn write_stream(
         &self,
         ctx: &ArrayContext,
         sequence_writer: SequenceWriter,
         stream: SendableSequentialStream,
-    ) -> SendableLayoutFuture {
+    ) -> VortexResult<LayoutRef> {
         let executor = self.executor.clone();
 
         let dtype = stream.dtype().clone();
@@ -210,11 +212,13 @@ impl LayoutStrategy for CompactCompressedStrategy {
             .map(move |compress_future| executor.spawn(compress_future))
             .buffered(self.parallelism);
 
-        self.child.write_stream(
-            ctx,
-            sequence_writer,
-            SequentialStreamAdapter::new(dtype, stream).sendable(),
-        )
+        self.child
+            .write_stream(
+                ctx,
+                sequence_writer,
+                SequentialStreamAdapter::new(dtype, stream).sendable(),
+            )
+            .await
     }
 }
 

@@ -1,14 +1,18 @@
-use futures::stream::once;
-use futures::StreamExt;
 use std::future::ready;
 use std::sync::Arc;
+
+use futures::StreamExt;
+use futures::stream::once;
 use vortex_array::arrays::NullArray;
 use vortex_array::{ArrayContext, IntoArray};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::segments::SequenceWriter;
-use vortex_layout::{LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStream, SequentialStreamAdapter, SequentialStreamExt, TaskExecutor};
+use vortex_layout::{
+    LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStream, SequentialStreamAdapter,
+    SequentialStreamExt, TaskExecutor,
+};
 
 pub async fn write_file(
     ctx: &ArrayContext,
@@ -35,26 +39,18 @@ pub async fn write_file(
 
                 // Assign a new sequence ID for this type instead.
                 let single_null_chunk = NullArray::new(rows).into_array();
-                let stream = SequentialStreamAdapter::new(dtype, once(ready(single_null_chunk))).sendable();
+                let stream =
+                    SequentialStreamAdapter::new(dtype, once(ready(single_null_chunk))).sendable();
 
                 // Write a FlatStrategy into the output node instead.
                 let flat_writer = FlatLayoutStrategy::default();
 
-                flat_writer.write_stream(
-                    ctx,
-                    sink.clone(),
-                    stream,
-                )
+                flat_writer.write_stream(ctx, sink.clone(), stream)
             }
-            DType::Bool(_) |
-            DType::Primitive(_, _) |
-            DType::Decimal(_, _) |
-            DType::Extension(_) => {
+            DType::Bool(_) | DType::Primitive(..) | DType::Decimal(..) | DType::Extension(_) => {
                 // Extension we assume is fixed-size if it is not otherwise one of the others.
                 // Write the fixed-size values out instead
-                Box::pin(write_fixed_width(
-                    ctx, source, sink.clone(), task_executor,
-                ))
+                Box::pin(write_fixed_width(ctx, source, sink.clone(), task_executor))
             }
             // Collect a shared dictionary, extract that chunk out instead.
             // They always do some work before writing to their child instead.
@@ -62,14 +58,12 @@ pub async fn write_file(
             // If Dict is not selected for a colum, it will apply View + FSST instead.
             DType::Utf8(_) => {}
             DType::Binary(_) => {}
-            DType::List(_, _) => {}
+            DType::List(..) => {}
             // If it's another top-level struct, we should do
-            DType::Struct(_, _) => {}
+            DType::Struct(..) => {}
         }
     }
-    let written = fields.fields()
-        .map(|field|)
-        .collect();
+    let written = fields.fields().map(|field| {}).collect();
 }
 
 /// Vortex file writer for fixed-width columns. These are types such as Primitive, Bool,
@@ -102,18 +96,14 @@ async fn write_flat(
     todo!()
 }
 
-pub struct Writer {
-
-}
+pub struct Writer {}
 
 /// Writer for direct file access instead of other things here...I think there is too much
 /// pluggability in some of these positions.
 ///
 /// Even just having it all in Rust makes a big difference. We want to be able to plugin new
 /// WASM encodings to opt for this.
-impl Writer {
-
-}
+impl Writer {}
 
 #[cfg(test)]
 mod tests {

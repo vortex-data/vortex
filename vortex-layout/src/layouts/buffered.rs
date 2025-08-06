@@ -5,13 +5,15 @@ use std::collections::VecDeque;
 
 use arcref::ArcRef;
 use async_stream::try_stream;
+use async_trait::async_trait;
 use futures::{StreamExt as _, pin_mut};
 use vortex_array::ArrayContext;
+use vortex_error::VortexResult;
 
 use crate::segments::SequenceWriter;
 use crate::{
-    LayoutStrategy, SendableLayoutFuture, SendableSequentialStream, SequentialStreamAdapter,
-    SequentialStreamExt as _,
+    LayoutRef, LayoutStrategy, SendableLayoutFuture, SendableSequentialStream,
+    SequentialStreamAdapter, SequentialStreamExt as _,
 };
 
 /// A writer that accumulates chunks before flushing to another strategy.
@@ -26,13 +28,14 @@ impl BufferedStrategy {
     }
 }
 
+#[async_trait]
 impl LayoutStrategy for BufferedStrategy {
-    fn write_stream(
+    async fn write_stream(
         &self,
         ctx: &ArrayContext,
         sequence_writer: SequenceWriter,
         stream: SendableSequentialStream,
-    ) -> SendableLayoutFuture {
+    ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         let buffer_size = self.buffer_size;
         let buffered_stream = try_stream! {
@@ -71,10 +74,12 @@ impl LayoutStrategy for BufferedStrategy {
                 }
             }
         };
-        self.child.write_stream(
-            ctx,
-            sequence_writer,
-            SequentialStreamAdapter::new(dtype, buffered_stream).sendable(),
-        )
+        self.child
+            .write_stream(
+                ctx,
+                sequence_writer,
+                SequentialStreamAdapter::new(dtype, buffered_stream).sendable(),
+            )
+            .await
     }
 }

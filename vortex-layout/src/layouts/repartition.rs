@@ -5,6 +5,7 @@ use std::collections::VecDeque;
 
 use arcref::ArcRef;
 use async_stream::try_stream;
+use async_trait::async_trait;
 use futures::{StreamExt as _, pin_mut};
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
@@ -12,8 +13,8 @@ use vortex_error::{VortexExpect, VortexResult};
 
 use crate::segments::SequenceWriter;
 use crate::{
-    LayoutStrategy, SendableLayoutFuture, SendableSequentialStream, SequentialStreamAdapter,
-    SequentialStreamExt,
+    LayoutRef, LayoutStrategy, SendableLayoutFuture, SendableSequentialStream,
+    SequentialStreamAdapter, SequentialStreamExt,
 };
 
 #[derive(Clone)]
@@ -39,13 +40,14 @@ impl RepartitionStrategy {
     }
 }
 
+#[async_trait]
 impl LayoutStrategy for RepartitionStrategy {
-    fn write_stream(
+    async fn write_stream(
         &self,
         ctx: &ArrayContext,
         sequence_writer: SequenceWriter,
         stream: SendableSequentialStream,
-    ) -> SendableLayoutFuture {
+    ) -> VortexResult<LayoutRef> {
         // TODO(os): spawn stream below like:
         // canon_stream = stream.map(async {to_canonical}).map(spawn).buffered(parallelism)
         let dtype = stream.dtype().clone();
@@ -102,11 +104,13 @@ impl LayoutStrategy for RepartitionStrategy {
             }
         };
 
-        self.child.write_stream(
-            ctx,
-            sequence_writer,
-            SequentialStreamAdapter::new(dtype, repartitioned_stream).sendable(),
-        )
+        self.child
+            .write_stream(
+                ctx,
+                sequence_writer,
+                SequentialStreamAdapter::new(dtype, repartitioned_stream).sendable(),
+            )
+            .await
     }
 }
 

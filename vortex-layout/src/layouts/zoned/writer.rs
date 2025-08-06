@@ -5,6 +5,7 @@ use std::future;
 use std::sync::Arc;
 
 use arcref::ArcRef;
+use async_trait::async_trait;
 use futures::stream::once;
 use futures::{FutureExt, StreamExt as _};
 use parking_lot::Mutex;
@@ -18,8 +19,8 @@ use crate::layouts::zoned::zone_map::StatsAccumulator;
 use crate::segments::SequenceWriter;
 use crate::sequence::SequenceId;
 use crate::{
-    IntoLayout, LayoutStrategy, SendableLayoutFuture, SendableSequentialStream,
-    SequentialStreamAdapter, SequentialStreamExt, TaskExecutor, TaskExecutorExt,
+    IntoLayout, LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
+    SequentialStreamExt, TaskExecutor, TaskExecutorExt,
 };
 
 pub struct ZonedLayoutOptions {
@@ -67,13 +68,14 @@ impl ZonedStrategy {
     }
 }
 
+#[async_trait]
 impl LayoutStrategy for ZonedStrategy {
-    fn write_stream(
+    async fn write_stream(
         &self,
         ctx: &ArrayContext,
         sequence_writer: SequenceWriter,
         stream: SendableSequentialStream,
-    ) -> SendableLayoutFuture {
+    ) -> VortexResult<LayoutRef> {
         let executor = self.executor.clone();
         let stats = self.options.stats.clone();
         let precomputed_stream = SequentialStreamAdapter::new(
@@ -83,12 +85,14 @@ impl LayoutStrategy for ZonedStrategy {
                     let stats = stats.clone();
 
                     // Spawn the future to compute the chunk stats onto the provided executor.
-                    executor.spawn(async move {
-                        let (sequence_id, chunk) = chunk?;
-                        chunk.statistics().compute_all(&stats)?;
-                        VortexResult::Ok((sequence_id, chunk))
-                    }
-                    .boxed())
+                    executor.spawn(
+                        async move {
+                            let (sequence_id, chunk) = chunk?;
+                            chunk.statistics().compute_all(&stats)?;
+                            VortexResult::Ok((sequence_id, chunk))
+                        }
+                        .boxed(),
+                    )
                 })
                 .buffered(self.options.parallelism),
         )
@@ -111,38 +115,34 @@ impl LayoutStrategy for ZonedStrategy {
         let child = self.child.clone();
         let stats_strategy = self.stats.clone();
         let block_size = self.options.block_size;
-        Box::pin(async move {
-            let data_layout = child
-                .write_stream(&ctx, sequence_writer.clone(), stream)
-                .await?;
+        let data_layout = child
+            .write_stream(&ctx, sequence_writer.clone(), stream)
+            .await?;
 
-            let Some(stats_table) = stats_accumulator.lock().as_stats_table() else {
-                // If we have no stats (e.g. the DType doesn't support them), then we just return the
-                // child layout.
-                return Ok(data_layout);
-            };
-            // We must defer creating the stats table LayoutWriter until now, because the DType of
-            // the table depends on which stats were successfully computed.
-            let stats_array = stats_table.array().to_array().clone();
+        let Some(stats_table) = stats_accumulator.lock().as_stats_table() else {
+            // If we have no stats (e.g. the DType doesn't support them), then we just return the
+            // child layout.
+            return Ok(data_layout);
+        };
+        // We must defer creating the stats table LayoutWriter until now, because the DType of
+        // the table depends on which stats were successfully computed.
+        let stats_array = stats_table.array().to_array().clone();
 
-            let stats_stream =
-                sequence_writer.new_sequential(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
-                    stats_array.dtype().clone(),
-                    once(async { Ok(stats_array) }),
-                )));
+        let stats_stream = sequence_writer.new_sequential(ArrayStreamExt::boxed(
+            ArrayStreamAdapter::new(stats_array.dtype().clone(), once(async { Ok(stats_array) })),
+        ));
 
-            let zones_layout = stats_strategy
-                .write_stream(&ctx, sequence_writer, stats_stream)
-                .await?;
+        let zones_layout = stats_strategy
+            .write_stream(&ctx, sequence_writer, stats_stream)
+            .await?;
 
-            Ok(ZonedLayout::new(
-                data_layout,
-                zones_layout,
-                block_size,
-                stats_table.present_stats().clone(),
-            )
-            .into_layout())
-        })
+        Ok(ZonedLayout::new(
+            data_layout,
+            zones_layout,
+            block_size,
+            stats_table.present_stats().clone(),
+        )
+        .into_layout())
     }
 }
 

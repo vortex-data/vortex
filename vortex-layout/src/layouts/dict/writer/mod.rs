@@ -7,6 +7,7 @@ use std::task::{Context, Poll, ready};
 
 use arcref::ArcRef;
 use async_stream::try_stream;
+use async_trait::async_trait;
 use futures::channel::{mpsc, oneshot};
 use futures::stream::{BoxStream, once};
 use futures::{FutureExt, SinkExt, Stream, StreamExt, pin_mut, try_join};
@@ -22,7 +23,7 @@ use crate::layouts::chunked::ChunkedLayout;
 use crate::segments::SequenceWriter;
 use crate::sequence::{SequenceId, SequencePointer};
 use crate::{
-    IntoLayout, LayoutStrategy, OwnedLayoutChildren, SendableLayoutFuture,
+    IntoLayout, LayoutRef, LayoutStrategy, OwnedLayoutChildren, SendableLayoutFuture,
     SendableSequentialStream, SequentialStreamAdapter, SequentialStreamExt, TaskExecutor,
     TaskExecutorExt as _,
 };
@@ -77,15 +78,19 @@ impl DictStrategy {
     }
 }
 
+#[async_trait]
 impl LayoutStrategy for DictStrategy {
-    fn write_stream(
+    async fn write_stream(
         &self,
         ctx: &ArrayContext,
         sequence_writer: SequenceWriter,
         stream: SendableSequentialStream,
-    ) -> SendableLayoutFuture {
+    ) -> VortexResult<LayoutRef> {
         if !dict_layout_supported(stream.dtype()) {
-            return self.fallback.write_stream(ctx, sequence_writer, stream);
+            return self
+                .fallback
+                .write_stream(ctx, sequence_writer, stream)
+                .await;
         }
         let codes = self.codes.clone();
         let values = self.values.clone();
@@ -94,94 +99,91 @@ impl LayoutStrategy for DictStrategy {
         let options = self.options.clone();
         let dtype = stream.dtype().clone();
         let executor = self.executor.clone();
-        Box::pin(async move {
-            // 0. decide if chunks are eligible for dict encoding
-            let (stream, first_chunk) = peek_first_chunk(stream).await?;
-            let stream = SequentialStreamAdapter::new(dtype.clone(), stream).sendable();
+        // 0. decide if chunks are eligible for dict encoding
+        let (stream, first_chunk) = peek_first_chunk(stream).await?;
+        let stream = SequentialStreamAdapter::new(dtype.clone(), stream).sendable();
 
-            let should_fallback = match first_chunk {
-                None => true, // empty stream
-                Some(chunk) => {
-                    let compressed = BtrBlocksCompressor.compress(&chunk)?;
-                    !compressed.is_encoding(DictEncoding.id())
-                }
-            };
-            if should_fallback {
-                // first chunk did not compress to dict, or did not exist. Skip dict layout
-                return fallback
-                    .write_stream(&ctx, sequence_writer.clone(), stream)
-                    .await;
+        let should_fallback = match first_chunk {
+            None => true, // empty stream
+            Some(chunk) => {
+                let compressed = BtrBlocksCompressor.compress(&chunk)?;
+                !compressed.is_encoding(DictEncoding.id())
             }
+        };
+        if should_fallback {
+            // first chunk did not compress to dict, or did not exist. Skip dict layout
+            return fallback
+                .write_stream(&ctx, sequence_writer.clone(), stream)
+                .await;
+        }
 
-            // 1. from a chunk stream, create a stream that yields codes
-            // followed by a single value chunk when dict constraints are hit.
-            // (a1, a2) -> (code(c1), code(c2), values(v1), code(c3), ...)
-            let mut dict_stream = dict_encode_stream(stream, options.constraints);
+        // 1. from a chunk stream, create a stream that yields codes
+        // followed by a single value chunk when dict constraints are hit.
+        // (a1, a2) -> (code(c1), code(c2), values(v1), code(c3), ...)
+        let mut dict_stream = dict_encode_stream(stream, options.constraints);
 
-            // 2.a spawn encoding codes
-            let (mut encoded_tx, encoded_rx) = mpsc::channel(options.encoded_buffer_size);
-            let encode_handle = executor.spawn({
-                async move {
-                    while let Some(item) = dict_stream.next().await {
-                        encoded_tx
-                            .send(item)
-                            .await
-                            .map_err(|e| vortex_err!("rx dropped: {}", e))?;
-                    }
-                    Ok(())
+        // 2.a spawn encoding codes
+        let (mut encoded_tx, encoded_rx) = mpsc::channel(options.encoded_buffer_size);
+        let encode_handle = executor.spawn({
+            async move {
+                while let Some(item) = dict_stream.next().await {
+                    encoded_tx
+                        .send(item)
+                        .await
+                        .map_err(|e| vortex_err!("rx dropped: {}", e))?;
                 }
-                .boxed()
-            });
-
-            // 2.b get contiguous runs of codes from the dict stream and
-            // create child dict layouts from them.
-            let dtype_clone = dtype.clone();
-            let child_layouts_fut = async move {
-                let mut children = Vec::new();
-                let mut runs = DictEncodedRuns::new(Box::pin(encoded_rx));
-                while let Some((codes_stream, values_future)) = runs.next_run().await {
-                    let (codes_stream, first_chunk) =
-                        peek_first_chunk(codes_stream.boxed()).await?;
-                    let codes_dtype = match first_chunk {
-                        // codes_stream is empty, this would happen if the parent stream end coincided with a dict run end
-                        None => break,
-                        Some(chunk) => chunk.dtype().clone(),
-                    };
-                    let codes_layout = codes
-                        .write_stream(
-                            &ctx,
-                            sequence_writer.clone(),
-                            SequentialStreamAdapter::new(codes_dtype, codes_stream).sendable(),
-                        )
-                        .await?;
-                    let values_layout = values
-                        .write_stream(
-                            &ctx,
-                            sequence_writer.clone(),
-                            SequentialStreamAdapter::new(dtype_clone.clone(), once(values_future))
-                                .sendable(),
-                        )
-                        .await?;
-                    children.push(DictLayout::new(values_layout, codes_layout).into_layout());
-                }
-                Ok(children)
-            };
-
-            // join dict encoding task
-            let (mut children, _) = try_join!(child_layouts_fut, encode_handle)?;
-
-            if children.len() == 1 {
-                return Ok(children.remove(0));
+                Ok(())
             }
+            .boxed()
+        });
 
-            let row_count = children.iter().map(|child| child.row_count()).sum();
-            Ok(ChunkedLayout::new(
-                row_count,
-                dtype,
-                OwnedLayoutChildren::layout_children(children),
-            )
-            .into_layout())
-        })
+        // 2.b get contiguous runs of codes from the dict stream and
+        // create child dict layouts from them.
+        let dtype_clone = dtype.clone();
+        let child_layouts_fut = async move {
+            let mut children = Vec::new();
+            let mut runs = DictEncodedRuns::new(Box::pin(encoded_rx));
+            while let Some((codes_stream, values_future)) = runs.next_run().await {
+                let (codes_stream, first_chunk) = peek_first_chunk(codes_stream.boxed()).await?;
+                let codes_dtype = match first_chunk {
+                    // codes_stream is empty, this would happen if the parent stream end coincided with a dict run end
+                    None => break,
+                    Some(chunk) => chunk.dtype().clone(),
+                };
+                let codes_layout = codes
+                    .write_stream(
+                        &ctx,
+                        sequence_writer.clone(),
+                        SequentialStreamAdapter::new(codes_dtype, codes_stream).sendable(),
+                    )
+                    .await?;
+                let values_layout = values
+                    .write_stream(
+                        &ctx,
+                        sequence_writer.clone(),
+                        SequentialStreamAdapter::new(dtype_clone.clone(), once(values_future))
+                            .sendable(),
+                    )
+                    .await?;
+                children.push(DictLayout::new(values_layout, codes_layout).into_layout());
+            }
+            Ok(children)
+        };
+
+        // join dict encoding task
+        let (mut children, _) = try_join!(child_layouts_fut, encode_handle)?;
+
+        if children.len() == 1 {
+            return Ok(children.remove(0));
+        }
+
+        let row_count = children.iter().map(|child| child.row_count()).sum();
+        Ok(ChunkedLayout::new(
+            row_count,
+            dtype,
+            OwnedLayoutChildren::layout_children(children),
+        )
+        .into_layout())
     }
 }
 
