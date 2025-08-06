@@ -48,7 +48,7 @@ impl SerdeVTable<PcoVTable> for PcoVTable {
         _encoding: &PcoEncoding,
         dtype: &DType,
         len: usize,
-        metadata: &PcoMetadata,
+        metadata: PcoMetadata,
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<PcoArray> {

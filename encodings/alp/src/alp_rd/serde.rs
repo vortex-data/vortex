@@ -55,7 +55,7 @@ impl SerdeVTable<ALPRDVTable> for ALPRDVTable {
         _encoding: &ALPRDEncoding,
         dtype: &DType,
         len: usize,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        metadata: <Self::Metadata as DeserializeMetadata>::Output,
         _buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ALPRDArray> {

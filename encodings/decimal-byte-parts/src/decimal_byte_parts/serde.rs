@@ -35,7 +35,7 @@ impl SerdeVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
         _encoding: &DecimalBytePartsEncoding,
         dtype: &DType,
         len: usize,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        metadata: <Self::Metadata as DeserializeMetadata>::Output,
         _buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<DecimalBytePartsArray> {

@@ -33,7 +33,7 @@ impl SerdeVTable<DecimalVTable> for DecimalVTable {
         _encoding: &DecimalEncoding,
         dtype: &DType,
         len: usize,
-        metadata: &DecimalMetadata,
+        metadata: DecimalMetadata,
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<DecimalArray> {

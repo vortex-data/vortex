@@ -46,7 +46,7 @@ impl SerdeVTable<SequenceVTable> for SequenceVTable {
         _encoding: &SequenceEncoding,
         dtype: &DType,
         len: usize,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        metadata: <Self::Metadata as DeserializeMetadata>::Output,
         _buffers: &[ByteBuffer],
         _children: &dyn ArrayChildren,
     ) -> VortexResult<SequenceArray> {
@@ -57,7 +57,6 @@ impl SerdeVTable<SequenceVTable> for SequenceVTable {
             DType::Primitive(ptype, NonNullable),
             metadata
                 .base
-                .as_ref()
                 .ok_or_else(|| vortex_err!("base required"))?
                 .try_into()?,
         )
@@ -69,7 +68,6 @@ impl SerdeVTable<SequenceVTable> for SequenceVTable {
             DType::Primitive(ptype, NonNullable),
             metadata
                 .multiplier
-                .as_ref()
                 .ok_or_else(|| vortex_err!("base required"))?
                 .try_into()?,
         )

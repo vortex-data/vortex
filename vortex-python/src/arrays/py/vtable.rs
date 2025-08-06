@@ -151,7 +151,7 @@ impl SerdeVTable<PythonVTable> for PythonVTable {
         _encoding: &PythonEncoding,
         _dtype: &DType,
         _len: usize,
-        _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        _metadata: <Self::Metadata as DeserializeMetadata>::Output,
         _buffers: &[ByteBuffer],
         _children: &dyn ArrayChildren,
     ) -> VortexResult<PythonArray> {

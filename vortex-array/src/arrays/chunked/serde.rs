@@ -24,7 +24,7 @@ impl SerdeVTable<ChunkedVTable> for ChunkedVTable {
         _encoding: &ChunkedEncoding,
         dtype: &DType,
         _len: usize,
-        _metadata: &Self::Metadata,
+        _metadata: Self::Metadata,
         _buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ChunkedArray> {

@@ -107,21 +107,19 @@ impl From<&PValue> for pb::ScalarValue {
     }
 }
 
-impl TryFrom<&pb::Scalar> for Scalar {
+impl TryFrom<pb::Scalar> for Scalar {
     type Error = VortexError;
 
-    fn try_from(value: &pb::Scalar) -> Result<Self, Self::Error> {
+    fn try_from(value: pb::Scalar) -> Result<Self, Self::Error> {
         let dtype = DType::try_from(
             value
                 .dtype
-                .as_ref()
                 .ok_or_else(|| vortex_err!(InvalidSerde: "Scalar missing dtype"))?,
         )?;
 
         let value = ScalarValue::try_from(
             value
                 .value
-                .as_ref()
                 .ok_or_else(|| vortex_err!(InvalidSerde: "Scalar missing value"))?,
         )?;
 
@@ -129,27 +127,26 @@ impl TryFrom<&pb::Scalar> for Scalar {
     }
 }
 
-impl TryFrom<&pb::ScalarValue> for ScalarValue {
+impl TryFrom<pb::ScalarValue> for ScalarValue {
     type Error = VortexError;
 
-    fn try_from(value: &pb::ScalarValue) -> Result<Self, Self::Error> {
+    fn try_from(value: pb::ScalarValue) -> Result<Self, Self::Error> {
         let kind = value
             .kind
-            .as_ref()
             .ok_or_else(|| vortex_err!(InvalidSerde: "ScalarValue missing kind"))?;
 
         match kind {
             Kind::NullValue(_) => Ok(ScalarValue(InnerScalarValue::Null)),
-            Kind::BoolValue(v) => Ok(ScalarValue(InnerScalarValue::Bool(*v))),
-            Kind::Int64Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::I64(*v)))),
-            Kind::Uint64Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::U64(*v)))),
+            Kind::BoolValue(v) => Ok(ScalarValue(InnerScalarValue::Bool(v))),
+            Kind::Int64Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::I64(v)))),
+            Kind::Uint64Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::U64(v)))),
             Kind::F16Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F16(
-                f16::from_bits(u16::try_from(*v).map_err(|_| {
-                    vortex_err!("f16 bitwise representation has more than 16 bits: {}", v)
+                f16::from_bits(u16::try_from(v).map_err(|_| {
+                    vortex_err!("f16 bitwise representation has more than 16 bits: {v}")
                 })?),
             )))),
-            Kind::F32Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F32(*v)))),
-            Kind::F64Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F64(*v)))),
+            Kind::F32Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F32(v)))),
+            Kind::F64Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F64(v)))),
             Kind::StringValue(v) => Ok(ScalarValue(InnerScalarValue::BufferString(Arc::new(
                 BufferString::from(v.clone()),
             )))),
@@ -158,7 +155,7 @@ impl TryFrom<&pb::ScalarValue> for ScalarValue {
             )))),
             Kind::ListValue(v) => {
                 let mut values = Vec::with_capacity(v.values.len());
-                for elem in v.values.iter() {
+                for elem in v.values.into_iter() {
                     values.push(elem.try_into()?);
                 }
                 Ok(ScalarValue(InnerScalarValue::List(values.into())))
@@ -182,10 +179,7 @@ mod tests {
     use crate::{InnerScalarValue, Scalar, ScalarValue, i256};
 
     fn round_trip(scalar: Scalar) {
-        assert_eq!(
-            scalar,
-            Scalar::try_from(&pb::Scalar::from(&scalar)).unwrap(),
-        );
+        assert_eq!(scalar, Scalar::try_from(pb::Scalar::from(&scalar)).unwrap(),);
     }
 
     #[test]
@@ -330,7 +324,7 @@ mod tests {
         let pb_scalar_value = pb::ScalarValue {
             kind: Some(Kind::Uint64Value(f16::from_f32(0.42).to_bits() as u64)),
         };
-        let scalar_value = ScalarValue::try_from(&pb_scalar_value).unwrap();
+        let scalar_value = ScalarValue::try_from(pb_scalar_value).unwrap();
         assert_eq!(
             scalar_value.as_pvalue().unwrap(),
             Some(PValue::U64(14008u64))

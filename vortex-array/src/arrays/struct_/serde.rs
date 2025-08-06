@@ -24,7 +24,7 @@ impl SerdeVTable<StructVTable> for StructVTable {
         _encoding: &StructEncoding,
         dtype: &DType,
         len: usize,
-        _metadata: &Self::Metadata,
+        _metadata: Self::Metadata,
         _buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<StructArray> {

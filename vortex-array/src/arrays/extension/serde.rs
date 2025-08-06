@@ -22,7 +22,7 @@ impl SerdeVTable<ExtensionVTable> for ExtensionVTable {
         _encoding: &ExtensionEncoding,
         dtype: &DType,
         len: usize,
-        _metadata: &Self::Metadata,
+        _metadata: Self::Metadata,
         _buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ExtensionArray> {

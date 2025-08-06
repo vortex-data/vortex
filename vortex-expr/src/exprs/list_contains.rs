@@ -61,7 +61,7 @@ impl VTable for ListContainsVTable {
 
     fn build(
         _encoding: &Self::Encoding,
-        _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        _metadata: <Self::Metadata as DeserializeMetadata>::Output,
         children: Vec<ExprRef>,
     ) -> VortexResult<Self::Expr> {
         if children.len() != 2 {

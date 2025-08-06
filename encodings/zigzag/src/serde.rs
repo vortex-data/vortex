@@ -23,7 +23,7 @@ impl SerdeVTable<ZigZagVTable> for ZigZagVTable {
         _encoding: &ZigZagEncoding,
         dtype: &DType,
         len: usize,
-        _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        _metadata: <Self::Metadata as DeserializeMetadata>::Output,
         _buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ZigZagArray> {

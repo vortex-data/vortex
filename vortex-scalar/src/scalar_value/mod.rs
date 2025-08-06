@@ -59,7 +59,7 @@ impl ScalarValue {
     /// Deserializes a scalar value from Protocol Buffers format.
     pub fn from_protobytes(buf: &[u8]) -> VortexResult<Self> {
         ScalarValue::try_from(
-            &pb::ScalarValue::decode(buf)
+            pb::ScalarValue::decode(buf)
                 .map_err(|e| vortex_err!("Failed to deserialize protobuf {e}"))?,
         )
     }

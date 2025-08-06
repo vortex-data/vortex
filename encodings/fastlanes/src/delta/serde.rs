@@ -37,7 +37,7 @@ impl SerdeVTable<DeltaVTable> for DeltaVTable {
         _encoding: &DeltaEncoding,
         dtype: &DType,
         len: usize,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        metadata: <Self::Metadata as DeserializeMetadata>::Output,
         _buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<DeltaArray> {

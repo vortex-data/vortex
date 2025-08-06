@@ -66,7 +66,7 @@ impl VTable for BinaryVTable {
 
     fn build(
         _encoding: &Self::Encoding,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        metadata: <Self::Metadata as DeserializeMetadata>::Output,
         children: Vec<ExprRef>,
     ) -> VortexResult<Self::Expr> {
         Ok(BinaryExpr::new(

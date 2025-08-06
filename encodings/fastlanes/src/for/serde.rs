@@ -29,7 +29,7 @@ impl SerdeVTable<FoRVTable> for FoRVTable {
         _encoding: &FoREncoding,
         dtype: &DType,
         len: usize,
-        metadata: &ScalarValue,
+        metadata: ScalarValue,
         _buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<FoRArray> {

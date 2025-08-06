@@ -79,14 +79,14 @@ impl VTable for SelectVTable {
 
     fn build(
         _encoding: &Self::Encoding,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        metadata: <Self::Metadata as DeserializeMetadata>::Output,
         mut children: Vec<ExprRef>,
     ) -> VortexResult<Self::Expr> {
         if children.len() != 1 {
             vortex_bail!("Select expression must have exactly one child");
         }
 
-        let fields = match metadata.opts.as_ref() {
+        let fields = match metadata.opts {
             Some(opts) => match opts {
                 Opts::Include(field_names) => SelectField::Include(FieldNames::from_iter(
                     field_names.names.iter().map(|s| s.as_str()),

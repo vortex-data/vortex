@@ -52,7 +52,7 @@ impl VTable for LiteralVTable {
 
     fn build(
         _encoding: &Self::Encoding,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        metadata: <Self::Metadata as DeserializeMetadata>::Output,
         children: Vec<ExprRef>,
     ) -> VortexResult<Self::Expr> {
         if !children.is_empty() {
@@ -63,7 +63,6 @@ impl VTable for LiteralVTable {
         }
         let value: Scalar = metadata
             .value
-            .as_ref()
             .ok_or_else(|| vortex_err!("Literal metadata missing value"))?
             .try_into()?;
         Ok(LiteralExpr::new(value))

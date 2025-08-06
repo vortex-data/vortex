@@ -106,7 +106,7 @@ impl VTable for DynamicComparisonVTable {
 
     fn build(
         _encoding: &Self::Encoding,
-        _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        _metadata: <Self::Metadata as DeserializeMetadata>::Output,
         _children: Vec<ExprRef>,
     ) -> VortexResult<Self::Expr> {
         vortex_bail!("DynamicComparison expression does not support building from metadata");

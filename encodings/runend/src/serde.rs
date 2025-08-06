@@ -39,7 +39,7 @@ impl SerdeVTable<RunEndVTable> for RunEndVTable {
         _encoding: &RunEndEncoding,
         dtype: &DType,
         len: usize,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        metadata: <Self::Metadata as DeserializeMetadata>::Output,
         _buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<RunEndArray> {

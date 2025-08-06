@@ -23,7 +23,7 @@ impl SerdeVTable<PrimitiveVTable> for PrimitiveVTable {
         _encoding: &PrimitiveEncoding,
         dtype: &DType,
         len: usize,
-        _metadata: &Self::Metadata,
+        _metadata: Self::Metadata,
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<PrimitiveArray> {

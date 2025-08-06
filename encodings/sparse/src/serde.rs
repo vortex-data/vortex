@@ -34,7 +34,7 @@ impl SerdeVTable<SparseVTable> for SparseVTable {
         _encoding: &SparseEncoding,
         dtype: &DType,
         len: usize,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        metadata: <Self::Metadata as DeserializeMetadata>::Output,
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<SparseArray> {

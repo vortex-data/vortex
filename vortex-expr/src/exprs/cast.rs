@@ -60,7 +60,7 @@ impl VTable for CastVTable {
 
     fn build(
         _encoding: &Self::Encoding,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        metadata: <Self::Metadata as DeserializeMetadata>::Output,
         children: Vec<ExprRef>,
     ) -> VortexResult<Self::Expr> {
         if children.len() != 1 {
@@ -71,7 +71,6 @@ impl VTable for CastVTable {
         }
         let target: DType = metadata
             .target
-            .as_ref()
             .ok_or_else(|| vortex_err!("missing target dtype in CastOpts"))?
             .try_into()?;
         Ok(CastExpr {

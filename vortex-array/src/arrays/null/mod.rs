@@ -111,7 +111,7 @@ impl SerdeVTable<NullVTable> for NullVTable {
         _encoding: &NullEncoding,
         _dtype: &DType,
         len: usize,
-        _metadata: &Self::Metadata,
+        _metadata: Self::Metadata,
         _buffers: &[ByteBuffer],
         _children: &dyn ArrayChildren,
     ) -> VortexResult<NullArray> {

@@ -35,7 +35,7 @@ impl SerdeVTable<ListVTable> for ListVTable {
         _encoding: &ListEncoding,
         dtype: &DType,
         len: usize,
-        metadata: &ListMetadata,
+        metadata: ListMetadata,
         _buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ListArray> {

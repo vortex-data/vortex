@@ -33,7 +33,7 @@ pub trait SerdeVTable<V: VTable> {
         encoding: &V::Encoding,
         dtype: &DType,
         len: usize,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        metadata: <Self::Metadata as DeserializeMetadata>::Output,
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<V::Array>;
@@ -50,7 +50,7 @@ impl<V: VTable> SerdeVTable<V> for NotSupported {
         encoding: &V::Encoding,
         _dtype: &DType,
         _len: usize,
-        _metadata: &Self::Metadata,
+        _metadata: Self::Metadata,
         _buffers: &[ByteBuffer],
         _children: &dyn ArrayChildren,
     ) -> VortexResult<V::Array> {

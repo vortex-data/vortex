@@ -35,7 +35,7 @@ impl SerdeVTable<BoolVTable> for BoolVTable {
         _encoding: &<BoolVTable as VTable>::Encoding,
         dtype: &DType,
         len: usize,
-        metadata: &BoolMetadata,
+        metadata: BoolMetadata,
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<BoolArray> {

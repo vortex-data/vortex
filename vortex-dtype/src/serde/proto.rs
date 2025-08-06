@@ -11,13 +11,20 @@ use crate::proto::dtype::d_type::DtypeType;
 use crate::proto::dtype::field::FieldType;
 use crate::{DType, DecimalDType, ExtDType, ExtID, ExtMetadata, PType, StructFields};
 
-impl TryFrom<&pb::DType> for DType {
+impl TryFrom<Box<pb::DType>> for DType {
     type Error = VortexError;
 
-    fn try_from(value: &pb::DType) -> Result<Self, Self::Error> {
+    fn try_from(value: Box<pb::DType>) -> Result<Self, Self::Error> {
+        (*value).try_into()
+    }
+}
+
+impl TryFrom<pb::DType> for DType {
+    type Error = VortexError;
+
+    fn try_from(value: pb::DType) -> Result<Self, Self::Error> {
         match value
             .dtype_type
-            .as_ref()
             .ok_or_else(|| vortex_err!(InvalidSerde: "Unrecognized DType"))?
         {
             DtypeType::Null(_) => Ok(Self::Null),
@@ -34,7 +41,7 @@ impl TryFrom<&pb::DType> for DType {
                 StructFields::new(
                     s.names.iter().map(|s| s.as_str()).collect(),
                     s.dtypes
-                        .iter()
+                        .into_iter()
                         .map(TryInto::<Self>::try_into)
                         .collect::<VortexResult<Vec<_>>>()?,
                 ),
@@ -44,9 +51,7 @@ impl TryFrom<&pb::DType> for DType {
                 let nullable = l.nullable.into();
                 Ok(Self::List(
                     l.element_type
-                        .as_ref()
                         .ok_or_else(|| vortex_err!(InvalidSerde: "Invalid list element type"))?
-                        .as_ref()
                         .try_into()
                         .map(Arc::new)?,
                     nullable,
@@ -56,9 +61,7 @@ impl TryFrom<&pb::DType> for DType {
                 Arc::new(ExtDType::new(
                     ExtID::from(e.id.as_str()),
                     Arc::new(DType::try_from(e.storage_dtype
-                                                 .as_ref()
                                                  .ok_or_else(|| vortex_err!(InvalidSerde: "storage_dtype must be provided in DType proto message"))?
-                                                 .as_ref(),
                     ).map_err(|e| vortex_err!("failed converting DType from proto message: {}", e))?),
                     e.metadata.as_ref().map(|m| ExtMetadata::from(m.as_ref())),
                 ),
@@ -147,15 +150,14 @@ impl From<PType> for pb::PType {
     }
 }
 
-impl TryFrom<&pb::FieldPath> for FieldPath {
+impl TryFrom<pb::FieldPath> for FieldPath {
     type Error = VortexError;
 
-    fn try_from(value: &pb::FieldPath) -> Result<Self, Self::Error> {
+    fn try_from(value: pb::FieldPath) -> Result<Self, Self::Error> {
         let mut path = Vec::with_capacity(value.path.len());
-        for field in value.path.iter() {
+        for field in value.path.into_iter() {
             match field
                 .field_type
-                .as_ref()
                 .ok_or_else(|| vortex_err!(InvalidSerde: "FieldPath part missing type"))?
             {
                 FieldType::Name(name) => path.push(Field::from(name.as_str())),

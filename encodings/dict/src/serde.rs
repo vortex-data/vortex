@@ -38,7 +38,7 @@ impl SerdeVTable<DictVTable> for DictVTable {
         _encoding: &DictEncoding,
         dtype: &DType,
         len: usize,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        metadata: <Self::Metadata as DeserializeMetadata>::Output,
         _buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<DictArray> {

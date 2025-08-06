@@ -51,7 +51,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// Construct a new [`VortexExpr`] from the provided parts.
     fn build(
         encoding: &Self::Encoding,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        metadata: <Self::Metadata as DeserializeMetadata>::Output,
         children: Vec<ExprRef>,
     ) -> VortexResult<Self::Expr>;
 

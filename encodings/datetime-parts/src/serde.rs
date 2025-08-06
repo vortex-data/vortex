@@ -44,7 +44,7 @@ impl SerdeVTable<DateTimePartsVTable> for DateTimePartsVTable {
         _encoding: &DateTimePartsEncoding,
         dtype: &DType,
         len: usize,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        metadata: <Self::Metadata as DeserializeMetadata>::Output,
         _buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<DateTimePartsArray> {

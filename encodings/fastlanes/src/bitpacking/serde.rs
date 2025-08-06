@@ -41,7 +41,7 @@ impl SerdeVTable<BitPackedVTable> for BitPackedVTable {
         _encoding: &BitPackedEncoding,
         dtype: &DType,
         len: usize,
-        metadata: &BitPackedMetadata,
+        metadata: BitPackedMetadata,
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<BitPackedArray> {

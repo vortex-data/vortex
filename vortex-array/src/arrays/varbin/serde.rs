@@ -32,7 +32,7 @@ impl SerdeVTable<VarBinVTable> for VarBinVTable {
         _encoding: &VarBinEncoding,
         dtype: &DType,
         len: usize,
-        metadata: &VarBinMetadata,
+        metadata: VarBinMetadata,
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<VarBinArray> {

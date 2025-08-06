@@ -25,7 +25,7 @@ impl SerdeVTable<VarBinViewVTable> for VarBinViewVTable {
         _encoding: &VarBinViewEncoding,
         dtype: &DType,
         len: usize,
-        _metadata: &Self::Metadata,
+        _metadata: Self::Metadata,
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<VarBinViewArray> {

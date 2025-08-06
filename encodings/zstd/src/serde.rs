@@ -39,7 +39,7 @@ impl SerdeVTable<ZstdVTable> for ZstdVTable {
         _encoding: &ZstdEncoding,
         dtype: &DType,
         len: usize,
-        metadata: &ZstdMetadata,
+        metadata: ZstdMetadata,
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ZstdArray> {

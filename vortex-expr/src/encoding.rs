@@ -43,7 +43,7 @@ impl<V: VTable> ExprEncoding for ExprEncodingAdapter<V> {
 
     fn build(&self, metadata: &[u8], children: Vec<ExprRef>) -> VortexResult<ExprRef> {
         let metadata = <V::Metadata as DeserializeMetadata>::deserialize(metadata)?;
-        Ok(V::build(&self.0, &metadata, children)?.into_expr())
+        Ok(V::build(&self.0, metadata, children)?.into_expr())
     }
 }
 

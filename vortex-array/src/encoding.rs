@@ -96,7 +96,7 @@ impl<V: VTable> Encoding for EncodingAdapter<V> {
                 metadata,
             )?;
         let array = <V::SerdeVTable as SerdeVTable<V>>::build(
-            &self.0, dtype, len, &metadata, buffers, children,
+            &self.0, dtype, len, metadata, buffers, children,
         )?;
         assert_eq!(array.len(), len, "Array length mismatch after building");
         assert_eq!(array.dtype(), dtype, "Array dtype mismatch after building");

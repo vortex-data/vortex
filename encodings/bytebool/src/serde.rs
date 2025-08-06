@@ -22,7 +22,7 @@ impl SerdeVTable<ByteBoolVTable> for ByteBoolVTable {
         _encoding: &ByteBoolEncoding,
         dtype: &DType,
         len: usize,
-        _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        _metadata: <Self::Metadata as DeserializeMetadata>::Output,
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ByteBoolArray> {

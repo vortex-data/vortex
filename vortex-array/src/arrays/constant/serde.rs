@@ -22,7 +22,7 @@ impl SerdeVTable<ConstantVTable> for ConstantVTable {
         _encoding: &ConstantEncoding,
         dtype: &DType,
         len: usize,
-        _metadata: &Self::Metadata,
+        _metadata: Self::Metadata,
         buffers: &[ByteBuffer],
         _children: &dyn ArrayChildren,
     ) -> VortexResult<ConstantArray> {
