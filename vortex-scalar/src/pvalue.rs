@@ -9,9 +9,7 @@ use num_traits::NumCast;
 use paste::paste;
 use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PType, ToBytes};
-use vortex_error::{
-    VortexError, VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_err,
-};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 /// A primitive value that can represent any primitive type supported by Vortex.
 ///
