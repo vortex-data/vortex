@@ -37,14 +37,15 @@ pub(crate) struct VortexOpener {
 
 impl FileOpener for VortexOpener {
     fn open(&self, file_meta: FileMeta, _file: PartitionedFile) -> DFResult<FileOpenFuture> {
-        let filter = self.filter.clone();
-        let projection = self.projection.clone();
-        let file_cache = self.file_cache.clone();
         let object_store = self.object_store.clone();
+        let projection = self.projection.clone();
+        let filter = self.filter.clone();
+        let file_cache = self.file_cache.clone();
         let projected_arrow_schema = self.projected_arrow_schema.clone();
-        let metrics = self.metrics.clone();
         let batch_size = self.batch_size;
         let limit = self.limit;
+        let metrics = self.metrics.clone();
+
         let layout_reader = self.layout_readers.clone();
 
         Ok(async move {

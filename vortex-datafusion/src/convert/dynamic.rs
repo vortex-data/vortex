@@ -7,9 +7,13 @@ use datafusion::physical_plan::PhysicalExpr;
 use datafusion::physical_plan::expressions::DynamicFilterPhysicalExpr;
 
 use vortex::arrays::BoolArray;
-use vortex::dtype::{DType, Nullability};
+use vortex::compute::cast;
+use vortex::dtype::DType;
 use vortex::error::{VortexExpect, VortexResult, vortex_bail};
-use vortex::expr::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable};
+use vortex::expr::traversal::{Node, Transformed};
+use vortex::expr::{
+    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, GetItemVTable, IntoExpr, Scope, VTable, root,
+};
 use vortex::{ArrayRef, DeserializeMetadata, EmptyMetadata, IntoArray};
 
 use crate::make_vortex_predicate;
@@ -41,14 +45,21 @@ impl DFDynamicExpr {
     pub fn try_new(df_expr: Arc<dyn PhysicalExpr>) -> VortexResult<Self> {
         match df_expr.as_any().downcast_ref::<DynamicFilterPhysicalExpr>() {
             Some(dynamic_expr) => {
-                let initial_vortex_children = dynamic_expr
+                let mut initial_vortex_children = dynamic_expr
                     .children()
                     .into_iter()
-                    .filter_map(|e| make_vortex_predicate(&[e]))
+                    .map(|e| make_vortex_predicate(&[e]).vortex_expect("must work"))
                     .collect::<Vec<_>>();
+
                 if initial_vortex_children.len() != dynamic_expr.children().len() {
                     vortex_bail!("Couldn't convert all expressions")
                 }
+
+                if initial_vortex_children.len() == 1 {
+                    let arr = initial_vortex_children.pop().vortex_expect("validated");
+                    initial_vortex_children = vec![vortex::expr::and(arr.clone(), arr)];
+                }
+
                 Ok(Self {
                     inner: df_expr,
                     initial_vortex_children,
@@ -76,7 +87,15 @@ impl std::fmt::Display for DFDynamicExpr {
     }
 }
 
-impl AnalysisExpr for DFDynamicExpr {}
+impl AnalysisExpr for DFDynamicExpr {
+    fn stat_falsification(&self, catalog: &mut dyn vortex::expr::StatsCatalog) -> Option<ExprRef> {
+        let current = self.inner_expr().current().ok()?;
+        let vx_predicate = make_vortex_predicate(&[&current])?;
+        vx_predicate.stat_falsification(catalog)
+        // _ = catalog;
+        // None
+    }
+}
 
 pub struct DFDynamicExprEncoding;
 
@@ -101,6 +120,11 @@ impl VTable for DFDynamicVTable {
 
     fn children(expr: &Self::Expr) -> Vec<&ExprRef> {
         expr.initial_vortex_children.iter().collect()
+        // expr.inner_expr()
+        //     .children()
+        //     .into_iter()
+        //     .map(|e| &make_vortex_predicate(&[e]).vortex_expect("must work"))
+        //     .collect::<Vec<_>>()
     }
 
     fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
@@ -108,7 +132,7 @@ impl VTable for DFDynamicVTable {
             panic!("oops")
         }
 
-        Ok(expr.clone())
+        DFDynamicExpr::try_new(expr.inner.clone())
     }
 
     fn build(
@@ -124,17 +148,36 @@ impl VTable for DFDynamicVTable {
         let current = inner.current()?;
 
         if current == datafusion::physical_expr::expressions::lit(true) {
-            return Ok(BoolArray::from_iter(vec![true; scope.root().len()]).into_array());
+            let o = BoolArray::from_iter(vec![true; scope.root().len()]).into_array();
+            return cast(
+                o.as_ref(),
+                &o.dtype().with_nullability(scope.dtype().nullability()),
+            );
         }
 
         match make_vortex_predicate(&[&current]) {
-            Some(expr) => expr.evaluate(scope),
-            None => Ok(scope.root().clone()),
+            Some(expr) => {
+                let expr = expr
+                    .transform_up(|node| {
+                        if node.is::<GetItemVTable>() {
+                            Ok(Transformed::yes(root()))
+                        } else {
+                            Ok(Transformed::no(node))
+                        }
+                    })?
+                    .into_inner();
+                let o = expr.unchecked_evaluate(scope)?;
+                cast(
+                    o.as_ref(),
+                    &o.dtype().with_nullability(scope.dtype().nullability()),
+                )
+            }
+            None => panic!("Oops"),
         }
     }
 
-    fn return_dtype(_expr: &Self::Expr, _scope: &DType) -> VortexResult<DType> {
-        Ok(DType::Bool(Nullability::NonNullable))
+    fn return_dtype(_expr: &Self::Expr, scope: &DType) -> VortexResult<DType> {
+        Ok(DType::Bool(scope.nullability()))
         // return Ok(scope.clone());
     }
 }
