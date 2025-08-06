@@ -52,17 +52,8 @@ impl ScanBuilder<ArrayRef> {
         let tasks = self.build()?;
         // We need to clone and send the map_fn into each task.
         let map_fn = Arc::new(map_fn);
-        let handle = CPU_RUNTIME.handle().clone();
 
         let mut stream = stream::iter(tasks)
-            .map(move |task| {
-                let map_fn = map_fn.clone();
-                // We don't _need_ to spawn the work here. But it allows Tokio to make progress on
-                // the tasks in the background, even if the consumer thread is not calling
-                // poll_next.
-
-                handle.spawn(async move { task.await.transpose().map(|t| map_fn(t)) })
-            })
             // TODO(ngates): this is very crude indeed. This buffered call essentially controls how
             //  many splits we have in-flight at any given time. We multiple workers by concurrency
             //  to configure per-thread concurrency, which essentially means each thread can make
@@ -76,10 +67,10 @@ impl ScanBuilder<ArrayRef> {
         Ok(iter::from_fn(move || {
             tokio::task::block_in_place(|| CPU_RUNTIME.handle().block_on(stream.next()))
         })
-        .filter_map(|result| {
-            result
-                .map_err(|e| vortex_err!("Failed to join on a spawned scan task {e}"))
-                .vortex_expect("Failed to join on a spawned scan task")
+        .filter_map(move |result| match result {
+            Ok(Some(array)) => Some(map_fn(Ok(array))),
+            Ok(None) => None,
+            Err(e) => Some(map_fn(Err(e))),
         }))
     }
 }
