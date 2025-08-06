@@ -53,3 +53,19 @@ def test_to_arrow_batch_size(vxf):
 def test_to_arrow_columns(vxf):
     rbr = vxf.to_arrow(projection=["string", "bool"])
     assert rbr.schema == pa.schema([("string", pa.string_view()), ("bool", pa.bool_())])
+
+
+def test_empty_file(tmpdir_factory):
+    # test for writing empty files with null columns
+    # create an empty table with schema `empty: null`
+    table = pa.Table.from_pydict({"empty": []})
+    assert repr(table.schema) == "empty: null"
+
+    # cast to Vortex array
+    empty = vx.array(table)
+    assert len(empty) == 0
+    assert repr(empty.dtype) == 'struct({"empty": null()}, nullable=False)'
+
+    # writing file should succeed
+    empty_file = tmpdir_factory.mktemp("data") / "empty.vortex"
+    vortex.io.write(empty, str(empty_file))

@@ -128,10 +128,10 @@ impl<'a> StructScalar<'a> {
         let fields = self
             .fields
             .vortex_expect("Can't take field out of null struct scalar");
-        Some(Scalar {
-            dtype: self.struct_fields().field_by_index(idx)?,
-            value: fields[idx].clone(),
-        })
+        Some(Scalar::new(
+            self.struct_fields().field_by_index(idx)?,
+            fields[idx].clone(),
+        ))
     }
 
     /// Returns the fields of the struct scalar, or None if the scalar is null.
@@ -175,12 +175,12 @@ impl<'a> StructScalar<'a> {
                 .iter()
                 .enumerate()
                 .map(|(i, f)| {
-                    Scalar {
-                        dtype: own_st
+                    Scalar::new(
+                        own_st
                             .field_by_index(i)
                             .vortex_expect("Iterating over scalar fields"),
-                        value: f.clone(),
-                    }
+                        f.clone(),
+                    )
                     .cast(
                         &st.field_by_index(i)
                             .vortex_expect("Iterating over scalar fields"),
@@ -188,10 +188,10 @@ impl<'a> StructScalar<'a> {
                     .map(|s| s.value)
                 })
                 .collect::<VortexResult<Vec<_>>>()?;
-            Ok(Scalar {
-                dtype: dtype.clone(),
-                value: ScalarValue(InnerScalarValue::List(fields.into())),
-            })
+            Ok(Scalar::new(
+                dtype.clone(),
+                ScalarValue(InnerScalarValue::List(fields.into())),
+            ))
         } else {
             Ok(Scalar::null(dtype.clone()))
         }
@@ -257,16 +257,16 @@ impl Scalar {
             }
         }
 
-        Self {
+        Self::new(
             dtype,
-            value: ScalarValue(InnerScalarValue::List(
+            ScalarValue(InnerScalarValue::List(
                 children
                     .into_iter()
                     .map(|x| x.into_value())
                     .collect_vec()
                     .into(),
             )),
-        }
+        )
     }
 }
 

@@ -5,7 +5,7 @@
 #include "vortex/exception.hpp"
 
 #include "rust/cxx.h"
-#include "vortex_cxx_bridge/lib.h"
+#include "vortex_cxx_bridge/write.h"
 
 namespace vortex {
 

@@ -1,28 +1,35 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use bitvec::macros::internal::funty::Fundamental;
+use tokio::task::block_in_place;
+use url::Url;
 use vortex::dtype::FieldNames;
 use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{ExprRef, and, and_collect, col, lit, root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::scan::{MultiScan, MultiScanIterator};
 use vortex::{ArrayRef, ToCanonical};
+use vortex_file::GenericVortexFile;
 
+use crate::RUNTIME;
 use crate::convert::{try_from_bound_expression, try_from_table_filter};
+use crate::duckdb::footer_cache::FooterCache;
 use crate::duckdb::{
-    BindInput, BindResult, Cardinality, DataChunk, Expression, LogicalType, TableFunction,
-    TableInitInput,
+    BindInput, BindResult, Cardinality, ClientContext, DataChunk, Expression, LogicalType,
+    ObjectCache, TableFunction, TableInitInput,
 };
 use crate::exporter::{ArrayExporter, ConversionCache};
+use crate::utils::glob::expand_glob;
+use crate::utils::object_store::s3_store;
 
 pub struct VortexBindData {
     first_file: VortexFile,
     filter_exprs: Vec<ExprRef>,
-    file_paths: Vec<PathBuf>,
+    file_urls: Vec<Url>,
     column_names: Vec<String>,
     column_types: Vec<LogicalType>,
 }
@@ -34,7 +41,7 @@ impl Clone for VortexBindData {
             first_file: self.first_file.clone(),
             // filter_expr don't need to be cloned as they are consumed once in `init_global`.
             filter_exprs: vec![],
-            file_paths: self.file_paths.clone(),
+            file_urls: self.file_urls.clone(),
             column_names: self.column_names.clone(),
             column_types: self.column_types.clone(),
         }
@@ -44,7 +51,7 @@ impl Clone for VortexBindData {
 impl std::fmt::Debug for VortexBindData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("VortexBindData")
-            .field("file_paths", &self.file_paths)
+            .field("file_urls", &self.file_urls)
             .field("column_names", &self.column_names)
             .field("column_types", &self.column_types)
             .field("filter_expr", &self.filter_exprs)
@@ -54,6 +61,7 @@ impl std::fmt::Debug for VortexBindData {
 
 pub struct VortexGlobalData {
     scan: MultiScan<(ArrayRef, Arc<ConversionCache>)>,
+    batch_id: AtomicU64,
 }
 
 pub struct VortexLocalData {
@@ -81,9 +89,7 @@ fn extract_schema_from_vortex_file(
     let mut column_types = Vec::new();
 
     for (field_name, field_dtype) in struct_dtype.names().iter().zip(struct_dtype.fields()) {
-        let logical_type = LogicalType::try_from(&field_dtype)
-            .map_err(|e| vortex_err!("Failed to convert field '{}' type: {}", field_name, e))?;
-
+        let logical_type = LogicalType::try_from(&field_dtype)?;
         column_names.push(field_name.to_string());
         column_types.push(logical_type);
     }
@@ -148,6 +154,32 @@ fn extract_table_filter_expr(
     Ok(Some(filter_expr))
 }
 
+/// Helper function to open a Vortex file from either a local or S3 URL
+async fn open_file(
+    url: Url,
+    options: VortexOpenOptions<GenericVortexFile>,
+) -> VortexResult<VortexFile> {
+    if url.scheme() == "s3" {
+        assert!(url.scheme() == "s3");
+        let bucket = url
+            .host_str()
+            .ok_or_else(|| vortex_err!("Failed to extract bucket name from URL: {url}"))?;
+
+        let path = url
+            .path()
+            .strip_prefix("/")
+            .ok_or_else(|| vortex_err!("Invalid S3 path: {url}"))?;
+
+        options.open_object_store(&s3_store(bucket)?, path).await
+    } else {
+        let path = url
+            .to_file_path()
+            .map_err(|_| vortex_err!("Invalid file URL: {url}"))?;
+
+        options.open(path).await
+    }
+}
+
 impl TableFunction for VortexTableFunction {
     type BindData = VortexBindData;
     type GlobalState = VortexGlobalData;
@@ -164,29 +196,33 @@ impl TableFunction for VortexTableFunction {
         vec![LogicalType::varchar()]
     }
 
-    fn bind(input: &BindInput, result: &mut BindResult) -> VortexResult<Self::BindData> {
+    fn bind(
+        ctx: &ClientContext,
+        input: &BindInput,
+        result: &mut BindResult,
+    ) -> VortexResult<Self::BindData> {
         let file_glob_string = input
             .get_parameter(0)
             .ok_or_else(|| vortex_err!("Missing file glob parameter"))?;
 
-        let paths = match glob::glob(&file_glob_string.as_string()) {
-            Ok(paths) => paths,
-            Err(e) => vortex_bail!("Failed to glob files: {}", e),
-        };
-
-        let file_paths: Vec<_> = paths
-            .collect::<Result<_, _>>()
-            .map_err(|e| vortex_err!("Failed to glob files: {}", e))?;
-
-        if file_paths.is_empty() {
-            vortex_bail!("No files matched the glob");
-        }
+        let (file_urls, _metadata) =
+            block_in_place(|| RUNTIME.block_on(expand_glob(&file_glob_string.as_string())))?;
 
         // The first file is skipped in `create_file_paths_queue`.
-        let first_file = VortexOpenOptions::file()
-            // FIXME(ngates): out of bounds if no files matched the glob.
-            .open_blocking(&file_paths[0])
-            .map_err(|e| vortex_err!("Failed to open Vortex file: {}", e))?;
+        let Some(first_file_url) = file_urls.first() else {
+            vortex_bail!("No files matched the glob");
+        };
+
+        let footer_cache = FooterCache::new(ctx.object_cache());
+        let entry = footer_cache.entry(first_file_url.as_ref());
+        let first_file = block_in_place(|| {
+            RUNTIME.block_on(async {
+                let options = entry.apply_to_file(VortexOpenOptions::file());
+                let file = open_file(first_file_url.clone(), options).await?;
+                entry.put_if_absent(|| file.footer().clone());
+                VortexResult::Ok(file)
+            })
+        })?;
 
         let (column_names, column_types) = extract_schema_from_vortex_file(&first_file)?;
 
@@ -196,18 +232,19 @@ impl TableFunction for VortexTableFunction {
         }
 
         Ok(VortexBindData {
-            file_paths,
+            file_urls,
             first_file,
+            filter_exprs: vec![],
             column_names,
             column_types,
-            filter_exprs: vec![],
         })
     }
 
     fn scan(
+        _client_context: &ClientContext,
         _bind_data: &Self::BindData,
         local_state: &mut Self::LocalState,
-        _global_state: &mut Self::GlobalState,
+        global_state: &mut Self::GlobalState,
         chunk: &mut DataChunk,
     ) -> VortexResult<()> {
         loop {
@@ -222,7 +259,8 @@ impl TableFunction for VortexTableFunction {
                     &array_result.to_struct()?,
                     &conversion_cache,
                 )?);
-                local_state.batch_id = Some(conversion_cache.instance_id());
+                // Relaxed since there is no intra-instruction ordering required.
+                local_state.batch_id = Some(global_state.batch_id.fetch_add(1, Ordering::Relaxed));
             }
 
             let exporter = local_state
@@ -259,9 +297,11 @@ impl TableFunction for VortexTableFunction {
                 .map_or("true".to_string(), |f| f.to_string())
         );
 
+        let object_cache = init_input.client_context()?.object_cache();
+
         let closures =
             bind_data
-                .file_paths
+                .file_urls
                 .clone()
                 .into_iter()
                 .enumerate()
@@ -270,6 +310,7 @@ impl TableFunction for VortexTableFunction {
                     let filter_expr = filter_expr.clone();
                     let projection_expr = projection_expr.clone();
                     let conversion_cache = Arc::new(ConversionCache::new(idx as u64));
+                    let object_cache = unsafe { ObjectCache::borrow(object_cache.as_ptr()) };
 
                     move || {
                         let file = if idx == 0 {
@@ -277,10 +318,19 @@ impl TableFunction for VortexTableFunction {
                             // the first file was already opened during bind.
                             first_file
                         } else {
-                            VortexOpenOptions::file().open_blocking(&path)?
+                            let cache = FooterCache::new(object_cache);
+                            let entry = cache.entry(path.as_ref());
+                            block_in_place(|| {
+                                RUNTIME.block_on(async {
+                                    let options = entry.apply_to_file(VortexOpenOptions::file());
+                                    let file = open_file(path.clone(), options).await?;
+                                    entry.put_if_absent(|| file.footer().clone());
+                                    VortexResult::Ok(file)
+                                })
+                            })?
                         };
 
-                        if let Some(filter) = &filter_expr {
+                        if let Some(ref filter) = filter_expr {
                             if file.can_prune(filter)? {
                                 return Ok(vec![]);
                             }
@@ -296,6 +346,7 @@ impl TableFunction for VortexTableFunction {
 
         Ok(VortexGlobalData {
             scan: MultiScan::new(closures),
+            batch_id: AtomicU64::new(0),
         })
     }
 
@@ -322,7 +373,7 @@ impl TableFunction for VortexTableFunction {
     }
 
     fn cardinality(bind_data: &Self::BindData) -> Cardinality {
-        if bind_data.file_paths.len() == 1 {
+        if bind_data.file_urls.len() == 1 {
             Cardinality::Maximum(bind_data.first_file.row_count())
         } else {
             // This is the same behavior as DuckDB's Parquet extension, although we could

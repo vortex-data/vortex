@@ -19,13 +19,8 @@ mod convert;
 pub mod duckdb;
 pub mod exporter;
 mod scan;
+mod utils;
 
-#[allow(dead_code)]
-#[allow(non_camel_case_types)]
-#[allow(non_upper_case_globals)]
-#[allow(non_snake_case)]
-#[allow(clippy::suspicious_doc_comments)]
-#[allow(clippy::enum_variant_names)]
 #[rustfmt::skip]
 #[path = "./cpp.rs"]
 /// This module provides the FFI interface to our C++ code exposing additional functionality
@@ -34,7 +29,7 @@ mod scan;
 mod cpp;
 mod copy;
 #[cfg(test)]
-mod vortex_e2e_tests;
+mod e2e_test;
 
 /// Initialize the Vortex extension by registering the extension functions.
 pub fn register_table_functions(conn: &Connection) -> VortexResult<()> {

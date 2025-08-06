@@ -2,12 +2,12 @@ name: Fuzz
 
 on:
   schedule:
-    - cron: '0 */4 * * *'  # daily
+    - cron: "0 */4 * * *"  # every 4 hours
   workflow_dispatch:
 
 jobs:
   io_fuzz:
-    name: 'IO Fuzz'
+    name: "IO Fuzz"
     timeout-minutes: 180
     runs-on:
       - runs-on=${{ github.run_id }}
@@ -33,13 +33,14 @@ jobs:
       - name: Restore corpus
         shell: bash
         run: |
+          aws s3api head-object --bucket vortex-fuzz-corpus --key "io_corpus.tar.zst" --query ETag --output text > current_etag
           aws s3 cp s3://vortex-fuzz-corpus/io_corpus.tar.zst .
           tar -xf io_corpus.tar.zst
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
-          AWS_REGION: 'us-east-1'
-          AWS_ENDPOINT_URL: 'https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com'
+          AWS_REGION: "us-east-1"
+          AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
       - name: Run fuzzing target
         id: fuzz
         run: RUST_BACKTRACE=1 cargo +nightly fuzz run file_io -j "$(nproc)" -- -max_total_time=7200
@@ -53,18 +54,18 @@ jobs:
         shell: bash
         run: |
           tar -acf io_corpus.tar.zst fuzz/corpus/file_io
-          aws s3api put-object --bucket vortex-fuzz-corpus --key "io_corpus.tar.zst" --body io_corpus.tar.zst --checksum-algorithm CRC32
+          aws s3api put-object --bucket vortex-fuzz-corpus --key "io_corpus.tar.zst" --body io_corpus.tar.zst --checksum-algorithm CRC32 --if-match "$(cat current_etag)"
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
-          AWS_REGION: 'us-east-1'
-          AWS_ENDPOINT_URL: 'https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com'
+          AWS_REGION: "us-east-1"
+          AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
       - name: Fail job if fuzz run found a bug
         if: steps.fuzz.outcome == 'failure'
         run: exit 1
 
   ops_fuzz:
-    name: 'Array Operations Fuzz'
+    name: "Array Operations Fuzz"
     timeout-minutes: 180
     runs-on:
       - runs-on=${{ github.run_id }}
@@ -90,13 +91,14 @@ jobs:
       - name: Restore corpus
         shell: bash
         run: |
+          aws s3api head-object --bucket vortex-fuzz-corpus --key "array_ops_corpus.tar.zst" --query ETag --output text > current_etag
           aws s3 cp s3://vortex-fuzz-corpus/array_ops_corpus.tar.zst .
           tar -xf array_ops_corpus.tar.zst
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
-          AWS_REGION: 'us-east-1'
-          AWS_ENDPOINT_URL: 'https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com'
+          AWS_REGION: "us-east-1"
+          AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
       - name: Run fuzzing target
         id: fuzz
         run: RUST_BACKTRACE=1 cargo +nightly fuzz run array_ops -j "$(nproc)" -- -max_total_time=7200
@@ -110,12 +112,12 @@ jobs:
         shell: bash
         run: |
           tar -acf array_ops_corpus.tar.zst fuzz/corpus/array_ops
-          aws s3api put-object --bucket vortex-fuzz-corpus --key "array_ops_corpus.tar.zst" --body array_ops_corpus.tar.zst --checksum-algorithm CRC32
+          aws s3api put-object --bucket vortex-fuzz-corpus --key "array_ops_corpus.tar.zst" --body array_ops_corpus.tar.zst --checksum-algorithm CRC32 --if-match "$(cat current_etag)"
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
-          AWS_REGION: 'us-east-1'
-          AWS_ENDPOINT_URL: 'https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com'
+          AWS_REGION: "us-east-1"
+          AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
       - name: Fail job if fuzz run found a bug
         if: steps.fuzz.outcome == 'failure'
         run: exit 1

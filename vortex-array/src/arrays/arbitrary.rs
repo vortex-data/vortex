@@ -29,7 +29,13 @@ pub struct ArbitraryArray(pub ArrayRef);
 impl<'a> Arbitrary<'a> for ArbitraryArray {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
         let dtype = u.arbitrary()?;
-        random_array(u, &dtype, None).map(ArbitraryArray)
+        Self::arbitrary_with(u, None, &dtype)
+    }
+}
+
+impl ArbitraryArray {
+    pub fn arbitrary_with(u: &mut Unstructured, len: Option<usize>, dtype: &DType) -> Result<Self> {
+        random_array(u, dtype, len).map(ArbitraryArray)
     }
 }
 

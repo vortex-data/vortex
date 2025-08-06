@@ -15,7 +15,7 @@ use vortex_array::iter::ArrayIterator;
 use vortex_array::stats::StatsSet;
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExprRef, root};
@@ -212,6 +212,33 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
         Ok(split_tasks)
     }
+
+    /// Returns a [`Stream`] with tasks spawned onto the current Tokio runtime.
+    ///
+    /// The stream performs CPU work on the polling thread, with I/O operations dispatched as
+    /// per the Vortex I/O traits.
+    ///
+    /// Task concurrency is the product of the `concurrency` parameter and the number of worker
+    /// threads in the Tokio runtime.
+    #[cfg(feature = "tokio")]
+    pub fn into_tokio_stream(
+        self,
+    ) -> VortexResult<impl futures::Stream<Item = VortexResult<A>> + Send + 'static> {
+        use futures::StreamExt;
+        use vortex_error::{ResultExt, vortex_err};
+
+        let handle = tokio::runtime::Handle::current();
+        let num_workers = handle.metrics().num_workers();
+        let concurrency = self.concurrency * num_workers;
+        Ok(futures::stream::iter(self.build()?)
+            .map(move |task| handle.spawn(task))
+            .buffered(concurrency)
+            .map(|task| {
+                task.map_err(|e| vortex_err!("Failed to join task: {e}"))
+                    .unnest()
+            })
+            .filter_map(|chunk| async move { chunk.transpose() }))
+    }
 }
 
 impl ScanBuilder<ArrayRef> {
@@ -250,6 +277,18 @@ impl ScanBuilder<ArrayRef> {
             Arc::new(dtype),
             concurrency,
         ))
+    }
+
+    /// Returns an [`ArrayStream`] with tasks spawned onto the current Tokio runtime.
+    ///
+    /// See [`ScanBuilder::into_tokio_stream`] for more details.
+    #[cfg(feature = "tokio")]
+    pub fn into_tokio_array_stream(
+        self,
+    ) -> VortexResult<impl vortex_array::stream::ArrayStream + Send + 'static> {
+        let dtype = self.dtype()?;
+        let stream = self.into_tokio_stream()?;
+        Ok(vortex_array::stream::ArrayStreamAdapter::new(dtype, stream))
     }
 }
 

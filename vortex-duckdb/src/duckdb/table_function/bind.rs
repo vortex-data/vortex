@@ -6,20 +6,22 @@ use std::ffi::CStr;
 use vortex::error::vortex_err;
 
 use crate::duckdb::data::Data;
-use crate::duckdb::{LogicalType, TableFunction, Value, try_or_null};
+use crate::duckdb::{ClientContext, LogicalType, TableFunction, Value, try_or_null};
 use crate::{cpp, wrapper};
 
 /// The native bind callback for a table function.
 pub(crate) unsafe extern "C-unwind" fn bind_callback<T: TableFunction>(
+    ctx: cpp::duckdb_vx_client_context,
     bind_input: cpp::duckdb_vx_tfunc_bind_input,
     bind_result: cpp::duckdb_vx_tfunc_bind_result,
     error_out: *mut cpp::duckdb_vx_error,
 ) -> cpp::duckdb_vx_data {
+    let client_context = unsafe { ClientContext::borrow(ctx) };
     let bind_input = unsafe { BindInput::own(bind_input) };
     let mut bind_result = unsafe { BindResult::own(bind_result) };
 
     try_or_null(error_out, || {
-        let bind_data = T::bind(&bind_input, &mut bind_result)?;
+        let bind_data = T::bind(&client_context, &bind_input, &mut bind_result)?;
         Ok(Data::from(Box::new(bind_data)).as_ptr())
     })
 }

@@ -83,23 +83,22 @@ impl<'a> BoolScalar<'a> {
 
     /// Converts this boolean scalar into a general scalar.
     pub fn into_scalar(self) -> Scalar {
-        Scalar {
-            dtype: self.dtype.clone(),
-            value: self
-                .value
+        Scalar::new(
+            self.dtype.clone(),
+            self.value
                 .map(|x| ScalarValue(InnerScalarValue::Bool(x)))
                 .unwrap_or_else(|| ScalarValue(InnerScalarValue::Null)),
-        }
+        )
     }
 }
 
 impl Scalar {
     /// Creates a new boolean scalar with the given value and nullability.
     pub fn bool(value: bool, nullability: Nullability) -> Self {
-        Self {
-            dtype: DType::Bool(nullability),
-            value: ScalarValue(InnerScalarValue::Bool(value)),
-        }
+        Self::new(
+            DType::Bool(nullability),
+            ScalarValue(InnerScalarValue::Bool(value)),
+        )
     }
 }
 
@@ -152,10 +151,7 @@ impl TryFrom<Scalar> for Option<bool> {
 
 impl From<bool> for Scalar {
     fn from(value: bool) -> Self {
-        Self {
-            dtype: DType::Bool(NonNullable),
-            value: value.into(),
-        }
+        Self::new(DType::Bool(NonNullable), value.into())
     }
 }
 

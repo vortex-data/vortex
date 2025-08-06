@@ -150,6 +150,13 @@ fn main() {
     bindgen::Builder::default()
         .header("cpp/include/duckdb_vx.h")
         .override_abi(Abi::CUnwind, ".*")
+        // Allow for auto-generated cpp.rs code.
+        .raw_line("#![allow(dead_code)]")
+        .raw_line("#![allow(non_camel_case_types)]")
+        .raw_line("#![allow(non_upper_case_globals)]")
+        .raw_line("#![allow(non_snake_case)]")
+        .raw_line("#![allow(clippy::suspicious_doc_comments)]")
+        .raw_line("#![allow(clippy::enum_variant_names)]")
         // Add the #[must_use] attribute to FFI functions that return results.
         .must_use_type("duckdb_state")
         .rustified_enum("duckdb_state")
@@ -215,12 +222,14 @@ fn main() {
         // We include DuckDB headers from the DuckDB extension submodule.
         .include(duckdb_repo.join(format!("duckdb-{DUCKDB_VERSION}/src/include")))
         .include("cpp/include")
+        .file("cpp/client_context.cpp")
         .file("cpp/copy_function.cpp")
         .file("cpp/data.cpp")
         .file("cpp/data_chunk.cpp")
         .file("cpp/error.cpp")
         .file("cpp/expr.cpp")
         .file("cpp/logical_type.cpp")
+        .file("cpp/object_cache.cpp")
         .file("cpp/scalar_function.cpp")
         .file("cpp/table_filter.cpp")
         .file("cpp/table_function.cpp")

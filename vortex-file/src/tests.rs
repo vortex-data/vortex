@@ -13,6 +13,7 @@ use vortex_array::arrays::{
     VarBinViewArray,
 };
 use vortex_array::iter::ArrayIteratorExt;
+use vortex_array::stream::ArrayStreamExt;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, ByteBufferMut, buffer};
@@ -1155,6 +1156,34 @@ fn scan_empty_fields() -> VortexResult<()> {
     })?;
 
     assert_eq!(result.len(), array.len());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_into_tokio_array_stream() -> VortexResult<()> {
+    let strings = ChunkedArray::from_iter([
+        VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
+        VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
+    ])
+    .into_array();
+
+    let numbers = ChunkedArray::from_iter([
+        buffer![1u32, 2, 3, 4].into_array(),
+        buffer![5u32, 6, 7, 8].into_array(),
+    ])
+    .into_array();
+
+    let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
+    let buf = VortexWriteOptions::default()
+        .write_blocking(ByteBufferMut::empty(), st.to_array_stream())
+        .unwrap();
+
+    let file = VortexOpenOptions::in_memory().open(buf)?;
+    let stream = file.scan().unwrap().into_tokio_array_stream()?;
+    let array = stream.read_all().await?;
+
+    assert_eq!(array.len(), 8);
 
     Ok(())
 }

@@ -40,3 +40,32 @@ mod test {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vortex_scalar::Scalar;
+
+    use crate::arrays::ConstantArray;
+    use crate::compute::conformance::consistency::test_array_consistency;
+
+    #[rstest]
+    // From test_all_consistency
+    #[case::constant_i32(ConstantArray::new(Scalar::from(42i32), 5))]
+    #[case::constant_str(ConstantArray::new(Scalar::from("constant"), 5))]
+    #[case::constant_null(ConstantArray::new(
+        Scalar::null(vortex_dtype::DType::Primitive(
+            vortex_dtype::PType::I32,
+            vortex_dtype::Nullability::Nullable
+        )),
+        5
+    ))]
+    // Additional test cases
+    #[case::constant_f64(ConstantArray::new(Scalar::from(std::f64::consts::PI), 10))]
+    #[case::constant_bool(ConstantArray::new(Scalar::from(true), 7))]
+    #[case::constant_single(ConstantArray::new(Scalar::from(99u64), 1))]
+    #[case::constant_large(ConstantArray::new(Scalar::from("hello"), 1000))]
+    fn test_constant_consistency(#[case] array: ConstantArray) {
+        test_array_consistency(array.as_ref());
+    }
+}

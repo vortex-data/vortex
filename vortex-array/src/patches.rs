@@ -5,6 +5,7 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::hash::Hash;
 
+use arrow_buffer::BooleanBuffer;
 use itertools::Itertools as _;
 use num_traits::{NumCast, ToPrimitive};
 use serde::{Deserialize, Serialize};
@@ -87,8 +88,9 @@ impl Patches {
             "Patch indices and values must have the same length"
         );
         assert!(
-            indices.dtype().is_unsigned_int(),
-            "Patch indices must be unsigned integers"
+            indices.dtype().is_unsigned_int() && !indices.dtype().is_nullable(),
+            "Patch indices must be non-nullable unsigned integers, got {:?}",
+            indices.dtype()
         );
         assert!(
             indices.len() <= array_len,
@@ -270,6 +272,14 @@ impl Patches {
 
     /// Filter the patches by a mask, resulting in new patches for the filtered array.
     pub fn filter(&self, mask: &Mask) -> VortexResult<Option<Self>> {
+        if mask.len() != self.array_len {
+            vortex_bail!(
+                "Filter mask length {} does not match array length {}",
+                mask.len(),
+                self.array_len
+            );
+        }
+
         match mask.indices() {
             AllOr::All => Ok(Some(self.clone())),
             AllOr::None => Ok(None),
@@ -285,6 +295,46 @@ impl Patches {
                 })
             }
         }
+    }
+
+    /// Mask the patches, REMOVING the patches where the mask is true.
+    /// Unlike filter, this preserves the patch indices.
+    /// Unlike mask on a single array, this does not set masked values to null.
+    pub fn mask(&self, mask: &Mask) -> VortexResult<Option<Self>> {
+        if mask.len() != self.array_len {
+            vortex_bail!(
+                "Filter mask length {} does not match array length {}",
+                mask.len(),
+                self.array_len
+            );
+        }
+
+        let filter_mask = match mask.boolean_buffer() {
+            AllOr::All => return Ok(None),
+            AllOr::None => return Ok(Some(self.clone())),
+            AllOr::Some(masked) => {
+                let patch_indices = self.indices().to_primitive()?;
+                match_each_unsigned_integer_ptype!(patch_indices.ptype(), |P| {
+                    let patch_indices = patch_indices.as_slice::<P>();
+                    Mask::from_buffer(BooleanBuffer::collect_bool(patch_indices.len(), |i| {
+                        #[allow(clippy::cast_possible_truncation)]
+                        let idx = (patch_indices[i] as usize) - self.offset;
+                        !masked.value(idx)
+                    }))
+                })
+            }
+        };
+
+        if filter_mask.all_false() {
+            return Ok(None);
+        }
+
+        Ok(Some(Self::new_unchecked(
+            self.array_len,
+            self.offset,
+            filter(&self.indices, &filter_mask)?,
+            filter(&self.values, &filter_mask)?,
+        )))
     }
 
     /// Slice the patches by a range of the patched array.
@@ -316,7 +366,7 @@ impl Patches {
             < Self::PREFER_MAP_WHEN_PATCHES_OVER_INDICES_LESS_THAN
     }
 
-    /// Take the indicies from the patches
+    /// Take the indices from the patches
     ///
     /// Any nulls in take_indices are added to the resulting patches.
     pub fn take_with_nulls(&self, take_indices: &dyn Array) -> VortexResult<Option<Self>> {
@@ -749,7 +799,7 @@ mod test {
     }
 
     #[rstest]
-    fn take_wit_nulls(patches: Patches) {
+    fn take_with_nulls(patches: Patches) {
         let taken = patches
             .take(
                 &PrimitiveArray::new(buffer![9, 0], Validity::from_iter(vec![true, false]))
@@ -797,5 +847,446 @@ mod test {
         let primitive_doubly_sliced = doubly_sliced.values().to_primitive().unwrap();
 
         assert_eq!(primitive_doubly_sliced.as_slice::<u32>(), &[13531]);
+    }
+
+    #[test]
+    fn test_mask_all_true() {
+        let patches = Patches::new(
+            10,
+            0,
+            buffer![2u64, 5, 8].into_array(),
+            buffer![100i32, 200, 300].into_array(),
+        );
+
+        let mask = Mask::new_true(10);
+        let masked = patches.mask(&mask).unwrap();
+        assert!(masked.is_none());
+    }
+
+    #[test]
+    fn test_mask_all_false() {
+        let patches = Patches::new(
+            10,
+            0,
+            buffer![2u64, 5, 8].into_array(),
+            buffer![100i32, 200, 300].into_array(),
+        );
+
+        let mask = Mask::new_false(10);
+        let masked = patches.mask(&mask).unwrap().unwrap();
+
+        // No patch values should be masked
+        let masked_values = masked.values().to_primitive().unwrap();
+        assert_eq!(masked_values.as_slice::<i32>(), &[100, 200, 300]);
+        assert!(masked_values.is_valid(0).unwrap());
+        assert!(masked_values.is_valid(1).unwrap());
+        assert!(masked_values.is_valid(2).unwrap());
+
+        // Indices should remain unchanged
+        let indices = masked.indices().to_primitive().unwrap();
+        assert_eq!(indices.as_slice::<u64>(), &[2, 5, 8]);
+    }
+
+    #[test]
+    fn test_mask_partial() {
+        let patches = Patches::new(
+            10,
+            0,
+            buffer![2u64, 5, 8].into_array(),
+            buffer![100i32, 200, 300].into_array(),
+        );
+
+        // Mask that removes patches at indices 2 and 8 (but not 5)
+        let mask = Mask::from_iter([
+            false, false, true, false, false, false, false, false, true, false,
+        ]);
+        let masked = patches.mask(&mask).unwrap().unwrap();
+
+        // Only the patch at index 5 should remain
+        let masked_values = masked.values().to_primitive().unwrap();
+        assert_eq!(masked_values.len(), 1);
+        assert_eq!(masked_values.as_slice::<i32>(), &[200]);
+
+        // Only index 5 should remain
+        let indices = masked.indices().to_primitive().unwrap();
+        assert_eq!(indices.as_slice::<u64>(), &[5]);
+    }
+
+    #[test]
+    fn test_mask_with_offset() {
+        let patches = Patches::new(
+            10,
+            5,                                  // offset
+            buffer![7u64, 10, 13].into_array(), // actual indices are 2, 5, 8
+            buffer![100i32, 200, 300].into_array(),
+        );
+
+        // Mask that sets actual index 2 to null
+        let mask = Mask::from_iter([
+            false, false, true, false, false, false, false, false, false, false,
+        ]);
+
+        let masked = patches.mask(&mask).unwrap().unwrap();
+        assert_eq!(masked.array_len(), 10);
+        assert_eq!(masked.offset(), 5);
+        let indices = masked.indices().to_primitive().unwrap();
+        assert_eq!(indices.as_slice::<u64>(), &[10, 13]);
+        let masked_values = masked.values().to_primitive().unwrap();
+        assert_eq!(masked_values.as_slice::<i32>(), &[200, 300]);
+    }
+
+    #[test]
+    fn test_mask_nullable_values() {
+        let patches = Patches::new(
+            10,
+            0,
+            buffer![2u64, 5, 8].into_array(),
+            PrimitiveArray::from_option_iter([Some(100i32), None, Some(300)]).into_array(),
+        );
+
+        // Test masking removes patch at index 2
+        let mask = Mask::from_iter([
+            false, false, true, false, false, false, false, false, false, false,
+        ]);
+        let masked = patches.mask(&mask).unwrap().unwrap();
+
+        // Patches at indices 5 and 8 should remain
+        let indices = masked.indices().to_primitive().unwrap();
+        assert_eq!(indices.as_slice::<u64>(), &[5, 8]);
+
+        // Values should be the null and 300
+        let masked_values = masked.values().to_primitive().unwrap();
+        assert_eq!(masked_values.len(), 2);
+        assert!(!masked_values.is_valid(0).unwrap()); // the null value at index 5
+        assert!(masked_values.is_valid(1).unwrap()); // the 300 value at index 8
+        assert_eq!(
+            i32::try_from(&masked_values.scalar_at(1).unwrap()).unwrap(),
+            300i32
+        );
+    }
+
+    #[test]
+    fn test_filter_keep_all() {
+        let patches = Patches::new(
+            10,
+            0,
+            buffer![2u64, 5, 8].into_array(),
+            buffer![100i32, 200, 300].into_array(),
+        );
+
+        // Keep all indices (mask with indices 0-9)
+        let mask = Mask::from_indices(10, (0..10).collect());
+        let filtered = patches.filter(&mask).unwrap().unwrap();
+
+        let indices = filtered.indices().to_primitive().unwrap();
+        let values = filtered.values().to_primitive().unwrap();
+        assert_eq!(indices.as_slice::<u64>(), &[2, 5, 8]);
+        assert_eq!(values.as_slice::<i32>(), &[100, 200, 300]);
+    }
+
+    #[test]
+    fn test_filter_none() {
+        let patches = Patches::new(
+            10,
+            0,
+            buffer![2u64, 5, 8].into_array(),
+            buffer![100i32, 200, 300].into_array(),
+        );
+
+        // Filter out all (empty mask means keep nothing)
+        let mask = Mask::from_indices(10, vec![]);
+        let filtered = patches.filter(&mask).unwrap();
+        assert!(filtered.is_none());
+    }
+
+    #[test]
+    fn test_filter_with_indices() {
+        let patches = Patches::new(
+            10,
+            0,
+            buffer![2u64, 5, 8].into_array(),
+            buffer![100i32, 200, 300].into_array(),
+        );
+
+        // Keep indices 2, 5, 9 (so patches at 2 and 5 remain)
+        let mask = Mask::from_indices(10, vec![2, 5, 9]);
+        let filtered = patches.filter(&mask).unwrap().unwrap();
+
+        let indices = filtered.indices().to_primitive().unwrap();
+        let values = filtered.values().to_primitive().unwrap();
+        assert_eq!(indices.as_slice::<u64>(), &[0, 1]); // Adjusted indices
+        assert_eq!(values.as_slice::<i32>(), &[100, 200]);
+    }
+
+    #[test]
+    fn test_slice_full_range() {
+        let patches = Patches::new(
+            10,
+            0,
+            buffer![2u64, 5, 8].into_array(),
+            buffer![100i32, 200, 300].into_array(),
+        );
+
+        let sliced = patches.slice(0, 10).unwrap().unwrap();
+
+        let indices = sliced.indices().to_primitive().unwrap();
+        let values = sliced.values().to_primitive().unwrap();
+        assert_eq!(indices.as_slice::<u64>(), &[2, 5, 8]);
+        assert_eq!(values.as_slice::<i32>(), &[100, 200, 300]);
+    }
+
+    #[test]
+    fn test_slice_partial() {
+        let patches = Patches::new(
+            10,
+            0,
+            buffer![2u64, 5, 8].into_array(),
+            buffer![100i32, 200, 300].into_array(),
+        );
+
+        // Slice from 3 to 8 (includes patch at 5)
+        let sliced = patches.slice(3, 8).unwrap().unwrap();
+
+        let indices = sliced.indices().to_primitive().unwrap();
+        let values = sliced.values().to_primitive().unwrap();
+        assert_eq!(indices.as_slice::<u64>(), &[5]); // Index stays the same
+        assert_eq!(values.as_slice::<i32>(), &[200]);
+        assert_eq!(sliced.array_len(), 5); // 8 - 3 = 5
+        assert_eq!(sliced.offset(), 3); // New offset
+    }
+
+    #[test]
+    fn test_slice_no_patches() {
+        let patches = Patches::new(
+            10,
+            0,
+            buffer![2u64, 5, 8].into_array(),
+            buffer![100i32, 200, 300].into_array(),
+        );
+
+        // Slice from 6 to 7 (no patches in this range)
+        let sliced = patches.slice(6, 7).unwrap();
+        assert!(sliced.is_none());
+    }
+
+    #[test]
+    fn test_slice_with_offset() {
+        let patches = Patches::new(
+            10,
+            5,                                  // offset
+            buffer![7u64, 10, 13].into_array(), // actual indices are 2, 5, 8
+            buffer![100i32, 200, 300].into_array(),
+        );
+
+        // Slice from 3 to 8 (includes patch at actual index 5)
+        let sliced = patches.slice(3, 8).unwrap().unwrap();
+
+        let indices = sliced.indices().to_primitive().unwrap();
+        let values = sliced.values().to_primitive().unwrap();
+        assert_eq!(indices.as_slice::<u64>(), &[10]); // Index stays the same (offset + 5 = 10)
+        assert_eq!(values.as_slice::<i32>(), &[200]);
+        assert_eq!(sliced.offset(), 8); // New offset = 5 + 3
+    }
+
+    #[test]
+    fn test_patch_values() {
+        let patches = Patches::new(
+            10,
+            0,
+            buffer![2u64, 5, 8].into_array(),
+            buffer![100i32, 200, 300].into_array(),
+        );
+
+        let values = patches.values().to_primitive().unwrap();
+        assert_eq!(
+            i32::try_from(&values.scalar_at(0).unwrap()).unwrap(),
+            100i32
+        );
+        assert_eq!(
+            i32::try_from(&values.scalar_at(1).unwrap()).unwrap(),
+            200i32
+        );
+        assert_eq!(
+            i32::try_from(&values.scalar_at(2).unwrap()).unwrap(),
+            300i32
+        );
+    }
+
+    #[test]
+    fn test_indices_range() {
+        let patches = Patches::new(
+            10,
+            0,
+            buffer![2u64, 5, 8].into_array(),
+            buffer![100i32, 200, 300].into_array(),
+        );
+
+        assert_eq!(patches.min_index().unwrap(), 2);
+        assert_eq!(patches.max_index().unwrap(), 8);
+    }
+
+    #[test]
+    fn test_search_index() {
+        let patches = Patches::new(
+            10,
+            0,
+            buffer![2u64, 5, 8].into_array(),
+            buffer![100i32, 200, 300].into_array(),
+        );
+
+        // Search for exact indices
+        assert_eq!(patches.search_index(2).unwrap(), SearchResult::Found(0));
+        assert_eq!(patches.search_index(5).unwrap(), SearchResult::Found(1));
+        assert_eq!(patches.search_index(8).unwrap(), SearchResult::Found(2));
+
+        // Search for non-patch indices
+        assert_eq!(patches.search_index(0).unwrap(), SearchResult::NotFound(0));
+        assert_eq!(patches.search_index(3).unwrap(), SearchResult::NotFound(1));
+        assert_eq!(patches.search_index(6).unwrap(), SearchResult::NotFound(2));
+        assert_eq!(patches.search_index(9).unwrap(), SearchResult::NotFound(3));
+    }
+
+    #[test]
+    fn test_mask_boundary_patches() {
+        // Test masking patches at array boundaries
+        let patches = Patches::new(
+            10,
+            0,
+            buffer![0u64, 9].into_array(),
+            buffer![100i32, 200].into_array(),
+        );
+
+        let mask = Mask::from_iter([
+            true, false, false, false, false, false, false, false, false, false,
+        ]);
+        let masked = patches.mask(&mask).unwrap();
+        assert!(masked.is_some());
+        let masked = masked.unwrap();
+        let indices = masked.indices().to_primitive().unwrap();
+        assert_eq!(indices.as_slice::<u64>(), &[9]);
+        let values = masked.values().to_primitive().unwrap();
+        assert_eq!(values.as_slice::<i32>(), &[200]);
+    }
+
+    #[test]
+    fn test_mask_all_patches_removed() {
+        // Test when all patches are masked out
+        let patches = Patches::new(
+            10,
+            0,
+            buffer![2u64, 5, 8].into_array(),
+            buffer![100i32, 200, 300].into_array(),
+        );
+
+        // Mask that removes all patches
+        let mask = Mask::from_iter([
+            false, false, true, false, false, true, false, false, true, false,
+        ]);
+        let masked = patches.mask(&mask).unwrap();
+        assert!(masked.is_none());
+    }
+
+    #[test]
+    fn test_mask_no_patches_removed() {
+        // Test when no patches are masked
+        let patches = Patches::new(
+            10,
+            0,
+            buffer![2u64, 5, 8].into_array(),
+            buffer![100i32, 200, 300].into_array(),
+        );
+
+        // Mask that doesn't affect any patches
+        let mask = Mask::from_iter([
+            true, false, false, true, false, false, true, false, false, true,
+        ]);
+        let masked = patches.mask(&mask).unwrap().unwrap();
+
+        let indices = masked.indices().to_primitive().unwrap();
+        assert_eq!(indices.as_slice::<u64>(), &[2, 5, 8]);
+        let values = masked.values().to_primitive().unwrap();
+        assert_eq!(values.as_slice::<i32>(), &[100, 200, 300]);
+    }
+
+    #[test]
+    fn test_mask_single_patch() {
+        // Test with a single patch
+        let patches = Patches::new(
+            5,
+            0,
+            buffer![2u64].into_array(),
+            buffer![42i32].into_array(),
+        );
+
+        // Mask that removes the single patch
+        let mask = Mask::from_iter([false, false, true, false, false]);
+        let masked = patches.mask(&mask).unwrap();
+        assert!(masked.is_none());
+
+        // Mask that keeps the single patch
+        let mask = Mask::from_iter([true, false, false, true, false]);
+        let masked = patches.mask(&mask).unwrap().unwrap();
+        let indices = masked.indices().to_primitive().unwrap();
+        assert_eq!(indices.as_slice::<u64>(), &[2]);
+    }
+
+    #[test]
+    fn test_mask_contiguous_patches() {
+        // Test with contiguous patches
+        let patches = Patches::new(
+            10,
+            0,
+            buffer![3u64, 4, 5, 6].into_array(),
+            buffer![100i32, 200, 300, 400].into_array(),
+        );
+
+        // Mask that removes middle patches
+        let mask = Mask::from_iter([
+            false, false, false, false, true, true, false, false, false, false,
+        ]);
+        let masked = patches.mask(&mask).unwrap().unwrap();
+
+        let indices = masked.indices().to_primitive().unwrap();
+        assert_eq!(indices.as_slice::<u64>(), &[3, 6]);
+        let values = masked.values().to_primitive().unwrap();
+        assert_eq!(values.as_slice::<i32>(), &[100, 400]);
+    }
+
+    #[test]
+    fn test_mask_with_large_offset() {
+        // Test with a large offset that shifts all indices
+        let patches = Patches::new(
+            20,
+            15,
+            buffer![16u64, 17, 19].into_array(), // actual indices are 1, 2, 4
+            buffer![100i32, 200, 300].into_array(),
+        );
+
+        // Mask that removes the patch at actual index 2
+        let mask = Mask::from_iter([
+            false, false, true, false, false, false, false, false, false, false, false, false,
+            false, false, false, false, false, false, false, false,
+        ]);
+        let masked = patches.mask(&mask).unwrap().unwrap();
+
+        let indices = masked.indices().to_primitive().unwrap();
+        assert_eq!(indices.as_slice::<u64>(), &[16, 19]);
+        let values = masked.values().to_primitive().unwrap();
+        assert_eq!(values.as_slice::<i32>(), &[100, 300]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Filter mask length 5 does not match array length 10")]
+    fn test_mask_wrong_length() {
+        let patches = Patches::new(
+            10,
+            0,
+            buffer![2u64, 5, 8].into_array(),
+            buffer![100i32, 200, 300].into_array(),
+        );
+
+        // Mask with wrong length
+        let mask = Mask::from_iter([false, false, true, false, false]);
+        let _ = patches.mask(&mask).unwrap();
     }
 }

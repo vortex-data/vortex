@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod cast;
+
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
@@ -117,5 +119,25 @@ mod test {
         test_take_conformance(NullArray::new(5).as_ref());
         test_take_conformance(NullArray::new(1).as_ref());
         test_take_conformance(NullArray::new(10).as_ref());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use crate::arrays::NullArray;
+    use crate::compute::conformance::consistency::test_array_consistency;
+
+    #[rstest]
+    // From test_all_consistency
+    #[case::null_array_small(NullArray::new(5))]
+    #[case::null_array_medium(NullArray::new(100))]
+    // Additional test cases
+    #[case::null_array_single(NullArray::new(1))]
+    #[case::null_array_large(NullArray::new(1000))]
+    #[case::null_array_empty(NullArray::new(0))]
+    fn test_null_consistency(#[case] array: NullArray) {
+        test_array_consistency(array.as_ref());
     }
 }

@@ -4,7 +4,6 @@
 use std::iter;
 use std::sync::{Arc, LazyLock};
 
-use futures::executor::block_on;
 use futures::{StreamExt, stream};
 use tokio::runtime::{Builder, Runtime};
 use vortex_array::ArrayRef;
@@ -75,12 +74,7 @@ impl ScanBuilder<ArrayRef> {
             .buffered(num_workers * concurrency);
 
         Ok(iter::from_fn(move || {
-            // Use runtime-aware blocking strategy
-            if tokio::runtime::Handle::try_current().is_ok() {
-                tokio::task::block_in_place(|| CPU_RUNTIME.handle().block_on(stream.next()))
-            } else {
-                block_on(stream.next())
-            }
+            tokio::task::block_in_place(|| CPU_RUNTIME.handle().block_on(stream.next()))
         })
         .filter_map(|result| {
             result

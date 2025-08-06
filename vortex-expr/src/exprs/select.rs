@@ -4,9 +4,11 @@
 use std::fmt::Display;
 
 use itertools::Itertools;
-use vortex_array::{ArrayRef, DeserializeMetadata, EmptyMetadata, IntoArray, ToCanonical};
+use vortex_array::{ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata, ToCanonical};
 use vortex_dtype::{DType, FieldNames};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_proto::expr::select_opts::Opts;
+use vortex_proto::expr::{FieldNames as ProtoFieldNames, SelectOpts};
 
 use crate::field::DisplayFieldNames;
 use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
@@ -19,7 +21,7 @@ pub enum SelectField {
 
 vtable!(Select);
 
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone, Hash, Eq)]
 #[allow(clippy::derived_hash_with_manual_eq)]
 pub struct SelectExpr {
     fields: SelectField,
@@ -37,7 +39,7 @@ pub struct SelectExprEncoding;
 impl VTable for SelectVTable {
     type Expr = SelectExpr;
     type Encoding = SelectExprEncoding;
-    type Metadata = EmptyMetadata;
+    type Metadata = ProstMetadata<SelectOpts>;
 
     fn id(_encoding: &Self::Encoding) -> ExprId {
         ExprId::new_ref("select")
@@ -47,9 +49,21 @@ impl VTable for SelectVTable {
         ExprEncodingRef::new_ref(SelectExprEncoding.as_ref())
     }
 
-    fn metadata(_expr: &Self::Expr) -> Option<Self::Metadata> {
-        // Select does not support serialization
-        None
+    fn metadata(expr: &Self::Expr) -> Option<Self::Metadata> {
+        let names = expr
+            .fields()
+            .fields()
+            .iter()
+            .map(|f| f.to_string())
+            .collect_vec();
+
+        let opts = if expr.fields().is_include() {
+            Opts::Include(ProtoFieldNames { names })
+        } else {
+            Opts::Exclude(ProtoFieldNames { names })
+        };
+
+        Some(ProstMetadata(SelectOpts { opts: Some(opts) }))
     }
 
     fn children(expr: &Self::Expr) -> Vec<&ExprRef> {
@@ -65,10 +79,33 @@ impl VTable for SelectVTable {
 
     fn build(
         _encoding: &Self::Encoding,
-        _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
-        _children: Vec<ExprRef>,
+        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        mut children: Vec<ExprRef>,
     ) -> VortexResult<Self::Expr> {
-        vortex_bail!("Select does not support deserialization")
+        if children.len() != 1 {
+            vortex_bail!("Select expression must have exactly one child");
+        }
+
+        let fields = match metadata.opts.as_ref() {
+            Some(opts) => match opts {
+                Opts::Include(field_names) => SelectField::Include(FieldNames::from_iter(
+                    field_names.names.iter().map(|s| s.as_str()),
+                )),
+                Opts::Exclude(field_names) => SelectField::Exclude(FieldNames::from_iter(
+                    field_names.names.iter().map(|s| s.as_str()),
+                )),
+            },
+            None => {
+                vortex_bail!("Select expressions must be provided with fields to select or exclude")
+            }
+        };
+
+        let child = children
+            .drain(..)
+            .next()
+            .vortex_expect("number of children validated to be one");
+
+        Ok(SelectExpr { fields, child })
     }
 
     fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
@@ -171,10 +208,9 @@ impl SelectField {
     }
 
     pub fn fields(&self) -> &FieldNames {
-        match self {
-            SelectField::Include(fields) => fields,
-            SelectField::Exclude(fields) => fields,
-        }
+        let (SelectField::Include(fields) | SelectField::Exclude(fields)) = self;
+
+        fields
     }
 
     pub fn as_include_names(&self, field_names: &FieldNames) -> VortexResult<FieldNames> {
