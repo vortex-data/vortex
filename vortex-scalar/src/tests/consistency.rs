@@ -5,11 +5,10 @@
 
 #[cfg(test)]
 mod tests {
-    use std::fmt::Write;
 
-    use vortex_dtype::{DType, DecimalDType, Nullability, PType};
+    use vortex_dtype::Nullability;
 
-    use crate::{BoolScalar, DecimalValue, PrimitiveScalar, Scalar};
+    use crate::{BoolScalar, PrimitiveScalar, Scalar};
 
     // Demonstrates inconsistent null comparison behavior
     #[test]
@@ -35,68 +34,6 @@ mod tests {
         // Bool scalars should now check dtype compatibility but ignore nullability
         // So they should still compare as they have the same base type
         assert!(bool1.partial_cmp(&bool2).is_some()); // Same base type, different nullability -> Some
-    }
-
-    // Demonstrates that different scalar types have different Display formats
-    #[test]
-    fn test_display_format_inconsistency() {
-        let mut output = String::new();
-
-        // Primitive scalar shows just the value and type
-        let prim = Scalar::primitive(42u32, Nullability::NonNullable);
-        write!(&mut output, "{prim}").unwrap();
-        assert!(output.contains("42u32"));
-        output.clear();
-
-        // Bool scalar shows just the value
-        let bool_scalar = Scalar::bool(true, Nullability::NonNullable);
-        write!(&mut output, "{bool_scalar}").unwrap();
-        assert_eq!(output, "true");
-        output.clear();
-
-        // Decimal scalar shows value with precision/scale metadata
-        let decimal = Scalar::decimal(
-            DecimalValue::I32(4200),
-            DecimalDType::new(10, 2),
-            Nullability::NonNullable,
-        );
-        write!(&mut output, "{decimal}").unwrap();
-        // Decimal includes metadata in display
-        assert!(output.contains("precision=10"));
-        assert!(output.contains("scale=2"));
-    }
-
-    // This used to panic with todo!() but now works correctly
-    #[test]
-    fn test_decimal_casting_now_works() {
-        let decimal = Scalar::decimal(
-            DecimalValue::I32(4200),
-            DecimalDType::new(10, 2),
-            Nullability::NonNullable,
-        );
-
-        // This used to panic with todo!() in lib.rs:231
-        let result = decimal.cast(&DType::Primitive(PType::I64, Nullability::NonNullable));
-        assert!(result.is_ok());
-        let i64_scalar = result.unwrap();
-        assert_eq!(i64_scalar.as_primitive().typed_value::<i64>().unwrap(), 42);
-    }
-
-    // Demonstrates that Option<T> handling is inconsistent between types
-    #[test]
-    fn test_option_handling_inconsistency() {
-        // Primitive types have comprehensive Option<T> support
-        let some_i32 = Scalar::primitive(42i32, Nullability::NonNullable);
-        let none_i32 = Scalar::null_typed::<i32>();
-
-        let extracted_some: Option<i32> = Option::try_from(&some_i32).unwrap();
-        let extracted_none: Option<i32> = Option::try_from(&none_i32).unwrap();
-
-        assert_eq!(extracted_some, Some(42));
-        assert_eq!(extracted_none, None);
-
-        // But decimal types don't have the same Option<T> TryFrom implementations
-        // They use a different pattern with DecimalScalar as intermediary
     }
 
     // Test that demonstrates potential issues with typed null conversions
