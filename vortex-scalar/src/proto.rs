@@ -148,10 +148,10 @@ impl TryFrom<pb::ScalarValue> for ScalarValue {
             Kind::F32Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F32(v)))),
             Kind::F64Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F64(v)))),
             Kind::StringValue(v) => Ok(ScalarValue(InnerScalarValue::BufferString(Arc::new(
-                BufferString::from(v.clone()),
+                BufferString::from(v),
             )))),
             Kind::BytesValue(v) => Ok(ScalarValue(InnerScalarValue::Buffer(Arc::new(
-                ByteBuffer::from(v.clone()),
+                ByteBuffer::from(v),
             )))),
             Kind::ListValue(v) => {
                 let mut values = Vec::with_capacity(v.values.len());

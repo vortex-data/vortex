@@ -88,12 +88,12 @@ impl VTable for SelectVTable {
 
         let fields = match metadata.opts {
             Some(opts) => match opts {
-                Opts::Include(field_names) => SelectField::Include(FieldNames::from_iter(
-                    field_names.names.iter().map(|s| s.as_str()),
-                )),
-                Opts::Exclude(field_names) => SelectField::Exclude(FieldNames::from_iter(
-                    field_names.names.iter().map(|s| s.as_str()),
-                )),
+                Opts::Include(field_names) => {
+                    SelectField::Include(field_names.names.into_iter().collect())
+                }
+                Opts::Exclude(field_names) => {
+                    SelectField::Exclude(field_names.names.into_iter().collect())
+                }
             },
             None => {
                 vortex_bail!("Select expressions must be provided with fields to select or exclude")
@@ -255,7 +255,6 @@ impl AnalysisExpr for SelectExpr {}
 
 #[cfg(test)]
 mod tests {
-
     use vortex_array::arrays::StructArray;
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
