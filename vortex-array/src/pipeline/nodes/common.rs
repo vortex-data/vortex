@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::pipeline::bits::BitView;
 use crate::pipeline::buffers::BufferHandle;
 use crate::pipeline::nodes::BinaryOperator;
 use crate::pipeline::nodes::plan::BindContext;
@@ -52,11 +53,15 @@ pub struct PrimitiveSourceOperator<T: NativePType> {
 }
 
 impl<T: Element + NativePType> SourceOperator<T> for PrimitiveSourceOperator<T> {
-    fn step_all_true(
+    fn step(
         &mut self,
         ctx: &dyn PipelineContext,
+        mask: BitView,
         out: &mut ViewMut,
     ) -> Poll<VortexResult<()>> {
+        // FIXME(ngates): support mask.
+        assert_eq!(mask.true_count(), N, "Mask must have exactly N true bits");
+
         let buffer = ready!(self.buffer.get_or_load(ctx))?;
         let remaining = buffer.len() - self.offset;
 

@@ -69,6 +69,7 @@ impl<'a> Pipeline<'a> {
 
         // Step 3: Allocate vectors
         let allocation_plan = Self::allocate_vectors(dag_root, &dag, &execution_order)?;
+        log::info!("Allocation plan: {allocation_plan:?}");
 
         // let (buffer_slots, buffers) = Self::allocate_buffers(&dag, &execution_order)?;
 
@@ -91,7 +92,7 @@ impl<'a> Pipeline<'a> {
     }
 
     /// Step the pipeline forward
-    pub fn step(&mut self, out: &mut ViewMut) -> Poll<VortexResult<()>> {
+    pub fn step(&mut self, selected: BitView, out: &mut ViewMut) -> Poll<VortexResult<()>> {
         self.work_stack.clear();
         self.pending_nodes_next.clear();
 
@@ -106,7 +107,7 @@ impl<'a> Pipeline<'a> {
         loop {
             // Retry pending nodes first
             while let Some(node_idx) = self.pending_nodes.pop() {
-                match self.try_execute_node(node_idx, out) {
+                match self.try_execute_node(node_idx, selected, out) {
                     ExecutionResult::Completed => {
                         // Add ready parents for cache locality
                         self.push_ready_parents(node_idx);
@@ -127,10 +128,10 @@ impl<'a> Pipeline<'a> {
 
             // Process work stack
             if let Some(node_idx) = self.work_stack.pop() {
-                match self.try_execute_node(node_idx, out) {
+                match self.try_execute_node(node_idx, selected, out) {
                     ExecutionResult::Completed => {
                         // Execute entire parent chain for maximum cache locality
-                        self.execute_parent_chain(node_idx, out);
+                        self.execute_parent_chain(node_idx, selected, out);
                     }
                     ExecutionResult::Pending => {
                         self.pending_nodes.push(node_idx);
@@ -155,14 +156,14 @@ impl<'a> Pipeline<'a> {
 
     /// Execute chain of ready parents while data is in cache
     #[inline]
-    fn execute_parent_chain(&mut self, mut node_idx: usize, out: &mut ViewMut) {
+    fn execute_parent_chain(&mut self, mut node_idx: usize, selected: BitView, out: &mut ViewMut) {
         loop {
             // Find a ready parent
             let ready_parent = self.find_ready_parent(node_idx);
 
             match ready_parent {
                 Some(parent_idx) => {
-                    match self.try_execute_node(parent_idx, out) {
+                    match self.try_execute_node(parent_idx, selected, out) {
                         ExecutionResult::Completed => {
                             // Continue up the chain
                             node_idx = parent_idx;
@@ -228,7 +229,12 @@ impl<'a> Pipeline<'a> {
 
     /// Try to execute a node if ready
     #[inline]
-    fn try_execute_node(&mut self, node_idx: usize, out: &mut ViewMut) -> ExecutionResult {
+    fn try_execute_node(
+        &mut self,
+        node_idx: usize,
+        selected: BitView,
+        out: &mut ViewMut,
+    ) -> ExecutionResult {
         // Check current state
         match self.node_states[node_idx] {
             NodeState::Completed => return ExecutionResult::Completed,
@@ -237,12 +243,12 @@ impl<'a> Pipeline<'a> {
             }
             NodeState::NotStarted => {
                 // Check if dependencies are ready
+                // FIXME(ngates): is this ever not true?
                 let node = &self.dag[node_idx];
                 let ready = node
                     .children
                     .iter()
                     .all(|&child| self.node_states[child] == NodeState::Completed);
-
                 if !ready {
                     return ExecutionResult::NotReady;
                 }
@@ -252,7 +258,7 @@ impl<'a> Pipeline<'a> {
         }
 
         // Execute the node
-        match self.execute_single_node(node_idx, out) {
+        match self.execute_single_node(node_idx, selected, out) {
             Poll::Ready(Ok(())) => {
                 self.node_states[node_idx] = NodeState::Completed;
                 ExecutionResult::Completed
@@ -270,6 +276,7 @@ impl<'a> Pipeline<'a> {
     fn execute_single_node(
         &mut self,
         node_idx: usize,
+        selected: BitView,
         external_out: &mut ViewMut,
     ) -> Poll<VortexResult<()>> {
         let operator = self.operators[node_idx].as_mut();
@@ -278,14 +285,12 @@ impl<'a> Pipeline<'a> {
             allocation_plan: &self.allocation_plan,
         };
 
-        let mask = BitView::all_true();
-
         match self.allocation_plan.output_targets[node_idx] {
-            OutputTarget::ExternalOutput => operator.step(&ctx, mask, external_out),
+            OutputTarget::ExternalOutput => operator.step(&ctx, selected, external_out),
             OutputTarget::IntermediateVector(vector_idx) | OutputTarget::InPlace(_, vector_idx) => {
                 let mut vector_ref = self.allocation_plan.vectors[vector_idx].borrow_mut();
                 let mut view = vector_ref.as_view_mut();
-                operator.step(&ctx, mask, &mut view)
+                operator.step(&ctx, selected, &mut view)
             }
         }
     }
@@ -335,7 +340,7 @@ impl Operator for Pipeline<'_> {
         selected: BitView,
         out: &mut ViewMut,
     ) -> Poll<VortexResult<()>> {
-        Pipeline::step(self, out)
+        Pipeline::step(self, selected, out)
     }
 }
 
@@ -356,6 +361,7 @@ impl<'a> PipelineContext for Context<'a> {
 #[cfg(test)]
 mod test {
     use crate::pipeline::N;
+    use crate::pipeline::bits::BitView;
     use crate::pipeline::buffers::BufferHandle;
     use crate::pipeline::nodes::common::PrimitiveSource;
     use crate::pipeline::nodes::pipeline::Pipeline;
@@ -377,7 +383,7 @@ mod test {
 
         let mut pipeline = Pipeline::new(&src).unwrap();
         for i in 0..nchunks {
-            match pipeline.step(&mut out.as_view_mut()) {
+            match pipeline.step(BitView::all_true(), &mut out.as_view_mut()) {
                 Poll::Ready(result) => result.unwrap(),
                 Poll::Pending => {
                     vortex_panic!("Pending for in-memory pipeline")

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod common;
-mod pipeline;
-mod plan;
-mod vector;
+pub mod common;
+pub mod pipeline;
+pub mod plan;
+pub mod vector;
 
 use crate::pipeline::PipelineContext;
 use crate::pipeline::types::Element;

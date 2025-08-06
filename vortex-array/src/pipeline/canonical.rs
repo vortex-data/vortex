@@ -3,6 +3,7 @@
 
 use crate::arrays::PrimitiveArray;
 use crate::pipeline::bits::{BitVector, BitView, BitViewMut};
+use crate::pipeline::nodes::pipeline::Pipeline;
 use crate::pipeline::types::Element;
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{N, Operator, PipelineExt};
@@ -13,21 +14,49 @@ use vortex_dtype::{DType, NativePType, Nullability, match_each_native_ptype};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
+pub fn export_canonical_pipeline(array: &dyn Array, mask: &Mask) -> VortexResult<Canonical> {
+    if mask.all_false() {
+        return Ok(Canonical::empty(array.dtype()));
+    }
+
+    let plan = array.to_pipeline_plan()?;
+    let mut pipeline = Pipeline::new(plan.as_ref())?;
+
+    match array.dtype() {
+        DType::Primitive(ptype, Nullability::NonNullable) => {
+            if mask.all_true() {
+                match_each_native_ptype!(ptype, |T| {
+                    export_primitive_nonnull::<T>(array.len(), &mut pipeline)
+                        .map(Canonical::Primitive)
+                })
+            } else {
+                match_each_native_ptype!(ptype, |T| {
+                    export_primitive_nonnull_masked::<T>(mask, &mut pipeline)
+                        .map(Canonical::Primitive)
+                })
+            }
+        }
+        _ => vortex_bail!("Expected a primitive array, got: {}", array.dtype()),
+    }
+}
+
 pub fn export_canonical(array: &dyn Array, mask: &Mask) -> VortexResult<Canonical> {
     if mask.all_false() {
         return Ok(Canonical::empty(array.dtype()));
     }
 
-    let pipeline = array.to_pipeline()?;
+    let mut pipeline = array.to_pipeline()?;
     match array.dtype() {
         DType::Primitive(ptype, Nullability::NonNullable) => {
             if mask.all_true() {
                 match_each_native_ptype!(ptype, |T| {
-                    export_primitive_nonnull::<T>(array.len(), pipeline).map(Canonical::Primitive)
+                    export_primitive_nonnull::<T>(array.len(), pipeline.as_mut())
+                        .map(Canonical::Primitive)
                 })
             } else {
                 match_each_native_ptype!(ptype, |T| {
-                    export_primitive_nonnull_masked::<T>(mask, pipeline).map(Canonical::Primitive)
+                    export_primitive_nonnull_masked::<T>(mask, pipeline.as_mut())
+                        .map(Canonical::Primitive)
                 })
             }
         }
@@ -37,7 +66,7 @@ pub fn export_canonical(array: &dyn Array, mask: &Mask) -> VortexResult<Canonica
 
 fn export_primitive_nonnull<T: Element + NativePType>(
     len: usize,
-    mut pipeline: Box<dyn Operator>,
+    pipeline: &mut dyn Operator,
 ) -> VortexResult<PrimitiveArray> {
     let capacity = len.next_multiple_of(N) + N;
 
@@ -67,7 +96,7 @@ fn export_primitive_nonnull<T: Element + NativePType>(
 
 fn export_primitive_nonnull_masked<T: Element + NativePType>(
     mask: &Mask,
-    mut pipeline: Box<dyn Operator>,
+    pipeline: &mut dyn Operator,
 ) -> VortexResult<PrimitiveArray> {
     let len = mask.len();
     let capacity = mask.true_count().next_multiple_of(N) + N;

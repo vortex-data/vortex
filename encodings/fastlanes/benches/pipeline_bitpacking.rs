@@ -10,7 +10,7 @@ use mimalloc::MiMalloc;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex_array::compute::filter;
-use vortex_array::pipeline::canonical::export_canonical;
+use vortex_array::pipeline::canonical::{export_canonical, export_canonical_pipeline};
 use vortex_array::pipeline::types::Element;
 use vortex_array::{IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
@@ -98,6 +98,36 @@ pub fn decompress_bitpacking_fused_filter<T: Element + NativePType>(
         .bench_local_values(|mask| export_canonical(array.as_ref(), &mask).unwrap());
 
     let array = export_canonical(array.as_ref(), &Mask::from_buffer(mask.clone()))
+        .unwrap()
+        .into_primitive()
+        .unwrap();
+    assert_eq!(array.len(), mask.count_set_bits());
+}
+
+// #[divan::bench(types = [i8, i16, i32, i64], args = [0.001, 0.01, 0.1, 0.5, 0.9, 0.99, 0.999])]
+#[divan::bench(types = [i8, i16, i32, i64], args = [0.005, 0.01, 0.0105, 0.02, 0.03, 0.04, 0.05])]
+pub fn decompress_bitpacking_pipeline_filter<T: Element + NativePType>(
+    bencher: Bencher,
+    fraction_kept: f64,
+) {
+    let mut rng = StdRng::seed_from_u64(0);
+    let values = (0..100_000)
+        .map(|_| T::from(rng.random_range(0..100)).unwrap())
+        .collect::<BufferMut<T>>()
+        .into_array()
+        .to_primitive()
+        .unwrap();
+    let array = bitpack_to_best_bit_width(&values).unwrap();
+
+    let mask = (0..100_000)
+        .map(|_| rng.random_bool(fraction_kept))
+        .collect::<BooleanBuffer>();
+
+    bencher
+        .with_inputs(|| Mask::from_buffer(mask.clone()))
+        .bench_local_values(|mask| export_canonical_pipeline(array.as_ref(), &mask).unwrap());
+
+    let array = export_canonical_pipeline(array.as_ref(), &Mask::from_buffer(mask.clone()))
         .unwrap()
         .into_primitive()
         .unwrap();

@@ -59,9 +59,10 @@ pub trait SourceNode<E, Op>: Debug + Hash {
 
 pub trait SourceOperator<X: Element>: 'static {
     /// Execute with a mask that is all true.
-    fn step_all_true(
+    fn step(
         &mut self,
         ctx: &dyn PipelineContext,
+        selected: BitView,
         out: &mut ViewMut,
     ) -> Poll<VortexResult<()>>;
 }
@@ -95,7 +96,6 @@ where
         mask: BitView,
         output: &mut ViewMut,
     ) -> Poll<VortexResult<()>> {
-        println!("MASK: {:?}", mask);
-        self.op.step_all_true(ctx, output)
+        self.op.step(ctx, mask, output)
     }
 }

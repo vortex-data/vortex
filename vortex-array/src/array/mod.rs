@@ -22,6 +22,7 @@ use crate::arrays::{
 use crate::builders::ArrayBuilder;
 use crate::compute::{ComputeFn, Cost, InvocationArgs, IsConstantOpts, Output, is_constant_opts};
 use crate::pipeline::Operator;
+use crate::pipeline::nodes::plan::PlanNode;
 use crate::serde::ArrayChildren;
 use crate::stats::{Precision, Stat, StatsSetRef};
 use crate::vtable::{
@@ -123,6 +124,7 @@ pub trait Array: 'static + private::Sealed + Send + Sync + Debug + ArrayVisitor 
     fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()>;
 
     /// Returns a pipeline for the array.
+    fn to_pipeline_plan(&self) -> VortexResult<Box<dyn PlanNode>>;
     fn to_pipeline(&self) -> VortexResult<Box<dyn Operator>>;
 
     /// Returns the statistics of the array.
@@ -219,6 +221,10 @@ impl Array for Arc<dyn Array> {
 
     fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         self.as_ref().append_to_builder(builder)
+    }
+
+    fn to_pipeline_plan(&self) -> VortexResult<Box<dyn PlanNode>> {
+        self.as_ref().to_pipeline_plan()
     }
 
     fn to_pipeline(&self) -> VortexResult<Box<dyn Operator>> {
@@ -533,6 +539,10 @@ impl<V: VTable> Array for ArrayAdapter<V> {
             self.encoding_id(),
         );
         Ok(())
+    }
+
+    fn to_pipeline_plan(&self) -> VortexResult<Box<dyn PlanNode>> {
+        <V::PipelineVTable as PipelineVTable<V>>::to_pipeline_plan(&self.0)
     }
 
     fn to_pipeline(&self) -> VortexResult<Box<dyn Operator>> {
