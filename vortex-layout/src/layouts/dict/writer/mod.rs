@@ -3,27 +3,26 @@
 
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll, ready};
+use std::task::{ready, Context, Poll};
 
-use arcref::ArcRef;
 use async_stream::try_stream;
 use async_trait::async_trait;
 use futures::channel::{mpsc, oneshot};
-use futures::stream::{BoxStream, once};
-use futures::{FutureExt, SinkExt, Stream, StreamExt, pin_mut, try_join};
+use futures::stream::{once, BoxStream};
+use futures::{pin_mut, try_join, FutureExt, SinkExt, Stream, StreamExt};
 use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_btrblocks::BtrBlocksCompressor;
+use vortex_dict::builders::{dict_encoder, DictConstraints, DictEncoder};
 use vortex_dict::DictEncoding;
-use vortex_dict::builders::{DictConstraints, DictEncoder, dict_encoder};
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_err};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult, VortexUnwrap};
 
 use super::DictLayout;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::segments::SequenceWriter;
 use crate::sequence::{SequenceId, SequencePointer};
 use crate::{
-    IntoLayout, LayoutRef, LayoutStrategy, OwnedLayoutChildren, SendableLayoutFuture,
+    IntoLayout, LayoutRef, LayoutStrategy, OwnedLayoutChildren,
     SendableSequentialStream, SequentialStreamAdapter, SequentialStreamExt, TaskExecutor,
     TaskExecutorExt as _,
 };
@@ -52,19 +51,24 @@ impl Default for DictLayoutOptions {
 /// checks the first chunk to decide whether to apply dict layout and
 /// encodes chunks into dictionaries. When the dict constraints are hit, a
 /// new dictionary is created.
-pub struct DictStrategy {
-    codes: ArcRef<dyn LayoutStrategy>,
-    values: ArcRef<dyn LayoutStrategy>,
-    fallback: ArcRef<dyn LayoutStrategy>,
+pub struct DictStrategy<Codes, Values, Fallback> {
+    codes: Codes,
+    values: Values,
+    fallback: Fallback,
     options: DictLayoutOptions,
     executor: Arc<dyn TaskExecutor>,
 }
 
-impl DictStrategy {
+impl<Codes, Values, Fallback> DictStrategy<Codes, Values, Fallback>
+where
+    Codes: LayoutStrategy,
+    Values: LayoutStrategy,
+    Fallback: LayoutStrategy,
+{
     pub fn new(
-        codes: ArcRef<dyn LayoutStrategy>,
-        values: ArcRef<dyn LayoutStrategy>,
-        fallback: ArcRef<dyn LayoutStrategy>,
+        codes: Codes,
+        values: Values,
+        fallback: Fallback,
         options: DictLayoutOptions,
         executor: Arc<dyn TaskExecutor>,
     ) -> Self {
@@ -79,7 +83,12 @@ impl DictStrategy {
 }
 
 #[async_trait]
-impl LayoutStrategy for DictStrategy {
+impl<Codes, Values, Fallback> LayoutStrategy for DictStrategy<Codes, Values, Fallback>
+where
+    Codes: LayoutStrategy,
+    Values: LayoutStrategy,
+    Fallback: LayoutStrategy,
+{
     async fn write_stream(
         &self,
         ctx: &ArrayContext,
@@ -92,9 +101,6 @@ impl LayoutStrategy for DictStrategy {
                 .write_stream(ctx, sequence_writer, stream)
                 .await;
         }
-        let codes = self.codes.clone();
-        let values = self.values.clone();
-        let fallback = self.fallback.clone();
         let ctx = ctx.clone();
         let options = self.options.clone();
         let dtype = stream.dtype().clone();
@@ -112,7 +118,8 @@ impl LayoutStrategy for DictStrategy {
         };
         if should_fallback {
             // first chunk did not compress to dict, or did not exist. Skip dict layout
-            return fallback
+            return self
+                .fallback
                 .write_stream(&ctx, sequence_writer.clone(), stream)
                 .await;
         }
@@ -150,14 +157,16 @@ impl LayoutStrategy for DictStrategy {
                     None => break,
                     Some(chunk) => chunk.dtype().clone(),
                 };
-                let codes_layout = codes
+                let codes_layout = self
+                    .codes
                     .write_stream(
                         &ctx,
                         sequence_writer.clone(),
                         SequentialStreamAdapter::new(codes_dtype, codes_stream).sendable(),
                     )
                     .await?;
-                let values_layout = values
+                let values_layout = self
+                    .values
                     .write_stream(
                         &ctx,
                         sequence_writer.clone(),

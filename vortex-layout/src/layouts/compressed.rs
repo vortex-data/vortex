@@ -18,18 +18,18 @@ use crate::{
 };
 
 /// A layout writer that compresses chunks using a sampling compressor.
-pub struct BtrBlocksCompressedStrategy {
-    child: ArcRef<dyn LayoutStrategy>,
+#[derive(Clone)]
+pub struct BtrBlocksCompressedStrategy<S> {
+    child: S,
     executor: Arc<dyn TaskExecutor>,
     parallelism: usize,
 }
 
-impl BtrBlocksCompressedStrategy {
-    pub fn new(
-        child: ArcRef<dyn LayoutStrategy>,
-        executor: Arc<dyn TaskExecutor>,
-        parallelism: usize,
-    ) -> Self {
+impl<S> BtrBlocksCompressedStrategy<S>
+where
+    S: LayoutStrategy,
+{
+    pub fn new(child: S, executor: Arc<dyn TaskExecutor>, parallelism: usize) -> Self {
         Self {
             child,
             executor,
@@ -39,7 +39,10 @@ impl BtrBlocksCompressedStrategy {
 }
 
 #[async_trait]
-impl LayoutStrategy for BtrBlocksCompressedStrategy {
+impl<S> LayoutStrategy for BtrBlocksCompressedStrategy<S>
+where
+    S: LayoutStrategy,
+{
     async fn write_stream(
         &self,
         ctx: &ArrayContext,

@@ -3,10 +3,10 @@
 
 use std::sync::Arc;
 
-use futures::FutureExt;
 use futures::channel::oneshot;
 use futures::future::BoxFuture;
-use vortex_error::{ResultExt, VortexResult, vortex_err};
+use futures::FutureExt;
+use vortex_error::{vortex_err, ResultExt, VortexResult};
 
 pub trait TaskExecutor: 'static + Send + Sync {
     fn do_spawn(
@@ -71,7 +71,12 @@ impl TaskExecutor for tokio::runtime::Handle {
     }
 }
 
-pub struct LocalExecutor;
+struct LocalExecutor;
+
+/// Returns a handle to an executor that will "spawn" tasks onto the current runtime.
+pub fn local_task_executor() -> Arc<dyn TaskExecutor> {
+    Arc::new(LocalExecutor)
+}
 
 impl TaskExecutor for LocalExecutor {
     fn do_spawn(

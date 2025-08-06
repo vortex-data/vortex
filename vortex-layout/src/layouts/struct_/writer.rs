@@ -4,16 +4,15 @@
 use std::collections::VecDeque;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll, ready};
+use std::task::{ready, Context, Poll};
 
-use arcref::ArcRef;
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use futures::{FutureExt, Stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use parking_lot::Mutex;
 use vortex_array::{Array, ArrayContext, ToCanonical};
-use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_utils::set::UniqueCount;
 
 use crate::layouts::struct_::StructLayout;
@@ -23,19 +22,25 @@ use crate::{
     SequentialStreamExt,
 };
 
-pub struct StructStrategy {
-    child: ArcRef<dyn LayoutStrategy>,
+pub struct StructStrategy<S> {
+    child: S,
 }
 
 /// A [`LayoutStrategy`] that splits a StructArray batch into child layout writers
-impl StructStrategy {
-    pub fn new(child: ArcRef<dyn LayoutStrategy>) -> Self {
+impl<S> StructStrategy<S>
+where
+    S: LayoutStrategy,
+{
+    pub fn new(child: S) -> Self {
         Self { child }
     }
 }
 
 #[async_trait]
-impl LayoutStrategy for StructStrategy {
+impl<S> LayoutStrategy for StructStrategy<S>
+where
+    S: LayoutStrategy,
+{
     async fn write_stream(
         &self,
         ctx: &ArrayContext,
@@ -95,16 +100,15 @@ impl LayoutStrategy for StructStrategy {
                 .field_by_index(idx)
                 .vortex_expect("bound checked")
         });
-        let child = self.child.clone();
         let ctx = ctx.clone();
+
         let layout_futures: Vec<_> = column_dtypes
             .zip_eq(column_streams)
-            .map(move |(dtype, stream)| {
+            .map(|(dtype, stream)| {
                 let column_stream = SequentialStreamAdapter::new(dtype, stream).sendable();
-                let child = child.clone();
-                let ctx = ctx.clone();
-                let writer = sequence_writer.clone();
-                Box::pin(async move { child.write_stream(&ctx, writer, column_stream).await })
+                self.child
+                    .write_stream(&ctx, sequence_writer.clone(), column_stream)
+                    .boxed()
             })
             .collect();
 
@@ -219,8 +223,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn fails_on_duplicate_field() {
-        let strategy =
-            StructStrategy::new(ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())));
+        let strategy = StructStrategy::new(FlatLayoutStrategy::default());
         block_on(
             strategy.write_stream(
                 &ArrayContext::empty(),
@@ -245,8 +248,7 @@ mod tests {
 
     #[test]
     fn fails_on_top_level_nulls() {
-        let strategy =
-            StructStrategy::new(ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())));
+        let strategy = StructStrategy::new(FlatLayoutStrategy::default());
         let res = block_on(
             strategy.write_stream(
                 &ArrayContext::empty(),
@@ -285,8 +287,7 @@ mod tests {
 
     #[test]
     fn write_empty_field_struct_array() {
-        let strategy =
-            StructStrategy::new(ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())));
+        let strategy = StructStrategy::new(FlatLayoutStrategy::default());
         let res = block_on(
             strategy.write_stream(
                 &ArrayContext::empty(),

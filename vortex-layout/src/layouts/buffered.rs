@@ -3,33 +3,39 @@
 
 use std::collections::VecDeque;
 
-use arcref::ArcRef;
 use async_stream::try_stream;
 use async_trait::async_trait;
-use futures::{StreamExt as _, pin_mut};
+use futures::{pin_mut, StreamExt as _};
 use vortex_array::ArrayContext;
 use vortex_error::VortexResult;
 
 use crate::segments::SequenceWriter;
 use crate::{
-    LayoutRef, LayoutStrategy, SendableLayoutFuture, SendableSequentialStream,
-    SequentialStreamAdapter, SequentialStreamExt as _,
+    LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
+    SequentialStreamExt as _,
 };
 
 /// A writer that accumulates chunks before flushing to another strategy.
-pub struct BufferedStrategy {
-    child: ArcRef<dyn LayoutStrategy>,
+#[derive(Clone)]
+pub struct BufferedStrategy<S> {
+    child: S,
     buffer_size: u64,
 }
 
-impl BufferedStrategy {
-    pub fn new(child: ArcRef<dyn LayoutStrategy>, buffer_size: u64) -> Self {
+impl<S> BufferedStrategy<S>
+where
+    S: LayoutStrategy,
+{
+    pub fn new(child: S, buffer_size: u64) -> Self {
         Self { child, buffer_size }
     }
 }
 
 #[async_trait]
-impl LayoutStrategy for BufferedStrategy {
+impl<S> LayoutStrategy for BufferedStrategy<S>
+where
+    S: LayoutStrategy,
+{
     async fn write_stream(
         &self,
         ctx: &ArrayContext,

@@ -4,18 +4,17 @@
 use std::future;
 use std::sync::Arc;
 
-use arcref::ArcRef;
 use async_trait::async_trait;
 use futures::stream::once;
 use futures::{FutureExt, StreamExt as _};
 use parking_lot::Mutex;
-use vortex_array::stats::{PRUNING_STATS, Stat};
+use vortex_array::stats::{Stat, PRUNING_STATS};
 use vortex_array::stream::{ArrayStreamAdapter, ArrayStreamExt};
 use vortex_array::{ArrayContext, ArrayRef};
 use vortex_error::VortexResult;
 
-use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::StatsAccumulator;
+use crate::layouts::zoned::ZonedLayout;
 use crate::segments::SequenceWriter;
 use crate::sequence::SequenceId;
 use crate::{
@@ -23,6 +22,7 @@ use crate::{
     SequentialStreamExt, TaskExecutor, TaskExecutorExt,
 };
 
+#[derive(Clone)]
 pub struct ZonedLayoutOptions {
     /// The size of a statistics block
     pub block_size: usize,
@@ -45,17 +45,22 @@ impl Default for ZonedLayoutOptions {
     }
 }
 
-pub struct ZonedStrategy {
-    child: ArcRef<dyn LayoutStrategy>,
-    stats: ArcRef<dyn LayoutStrategy>,
+#[derive(Clone)]
+pub struct ZonedStrategy<Child, Stats> {
+    child: Child,
+    stats: Stats,
     options: ZonedLayoutOptions,
     executor: Arc<dyn TaskExecutor>,
 }
 
-impl ZonedStrategy {
+impl<Child, Stats> ZonedStrategy<Child, Stats>
+where
+    Child: LayoutStrategy,
+    Stats: LayoutStrategy,
+{
     pub fn new(
-        child: ArcRef<dyn LayoutStrategy>,
-        stats: ArcRef<dyn LayoutStrategy>,
+        child: Child,
+        stats: Stats,
         options: ZonedLayoutOptions,
         executor: Arc<dyn TaskExecutor>,
     ) -> Self {
@@ -69,7 +74,11 @@ impl ZonedStrategy {
 }
 
 #[async_trait]
-impl LayoutStrategy for ZonedStrategy {
+impl<Child, Stats> LayoutStrategy for ZonedStrategy<Child, Stats>
+where
+    Child: LayoutStrategy,
+    Stats: LayoutStrategy,
+{
     async fn write_stream(
         &self,
         ctx: &ArrayContext,
@@ -112,10 +121,9 @@ impl LayoutStrategy for ZonedStrategy {
         .sendable();
 
         let ctx = ctx.clone();
-        let child = self.child.clone();
-        let stats_strategy = self.stats.clone();
         let block_size = self.options.block_size;
-        let data_layout = child
+        let data_layout = self
+            .child
             .write_stream(&ctx, sequence_writer.clone(), stream)
             .await?;
 
@@ -132,7 +140,8 @@ impl LayoutStrategy for ZonedStrategy {
             ArrayStreamAdapter::new(stats_array.dtype().clone(), once(async { Ok(stats_array) })),
         ));
 
-        let zones_layout = stats_strategy
+        let zones_layout = self
+            .stats
             .write_stream(&ctx, sequence_writer, stats_stream)
             .await?;
 

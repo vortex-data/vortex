@@ -1,7 +1,6 @@
 //  SPDX-License-Identifier: Apache-2.0
 //  SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arcref::ArcRef;
 use async_trait::async_trait;
 use futures::StreamExt;
 use futures::stream::once;
@@ -16,24 +15,26 @@ use crate::children::OwnedLayoutChildren;
 use crate::layouts::view::{ValidityTag, ViewLayout};
 use crate::segments::SequenceWriter;
 use crate::{
-    IntoLayout, LayoutRef, LayoutStrategy, SendableLayoutFuture, SendableSequentialStream,
-    SequentialStreamAdapter, SequentialStreamExt,
+    IntoLayout, LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
+    SequentialStreamExt,
 };
 
 /// Strategy for writing a VarBinView arrays with multiple buffers.
 ///
 /// This will yield `ViewLayout`s, which at scan time can eliminate many buffer reads that
 /// are unnecessary, improving performance for arrays with large values.
-pub struct ViewStrategy {
-    pub(crate) validity_strategy: ArcRef<dyn LayoutStrategy>,
-    pub(crate) fallback_strategy: ArcRef<dyn LayoutStrategy>,
+#[derive(Clone)]
+pub struct ViewStrategy<ValidityStrategy, FallbackStrategy> {
+    pub(crate) validity_strategy: ValidityStrategy,
+    pub(crate) fallback_strategy: FallbackStrategy,
 }
 
-impl ViewStrategy {
-    pub fn new(
-        validity_strategy: ArcRef<dyn LayoutStrategy>,
-        fallback_strategy: ArcRef<dyn LayoutStrategy>,
-    ) -> Self {
+impl<ValidityStrategy, FallbackStrategy> ViewStrategy<ValidityStrategy, FallbackStrategy>
+where
+    ValidityStrategy: LayoutStrategy,
+    FallbackStrategy: LayoutStrategy,
+{
+    pub fn new(validity_strategy: ValidityStrategy, fallback_strategy: FallbackStrategy) -> Self {
         Self {
             validity_strategy,
             fallback_strategy,
@@ -44,15 +45,18 @@ impl ViewStrategy {
 const VALIDITY_DTYPE: DType = DType::Bool(Nullability::NonNullable);
 
 #[async_trait]
-impl LayoutStrategy for ViewStrategy {
+impl<ValidityStrategy, FallbackStrategy> LayoutStrategy
+    for ViewStrategy<ValidityStrategy, FallbackStrategy>
+where
+    ValidityStrategy: LayoutStrategy,
+    FallbackStrategy: LayoutStrategy,
+{
     async fn write_stream(
         &self,
         ctx: &ArrayContext,
         writer: SequenceWriter,
         mut stream: SendableSequentialStream,
     ) -> VortexResult<LayoutRef> {
-        let validity_strategy = self.validity_strategy.clone();
-        let fallback_strategy = self.fallback_strategy.clone();
         let ctx = ctx.clone();
 
         let Some(chunk) = stream.next().await else {
@@ -88,7 +92,8 @@ impl LayoutStrategy for ViewStrategy {
 
             let children = if let Some(validity_array) = view_array.validity().clone().into_array()
             {
-                let child = validity_strategy
+                let child = self
+                    .validity_strategy
                     .write_stream(
                         &ctx,
                         writer,
@@ -116,7 +121,9 @@ impl LayoutStrategy for ViewStrategy {
             )
             .into_layout())
         } else {
-            fallback_strategy.write_stream(&ctx, writer, stream).await
+            self.fallback_strategy
+                .write_stream(&ctx, writer, stream)
+                .await
         }
     }
 }

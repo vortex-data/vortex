@@ -29,19 +29,26 @@ pub struct RepartitionWriterOptions {
 ///
 /// Each emitted block (except the last) is at least `block_size_minimum` bytes and contains a
 /// multiple of `block_len_multiple` rows.
-pub struct RepartitionStrategy {
+#[derive(Clone)]
+pub struct RepartitionStrategy<S> {
     options: RepartitionWriterOptions,
-    child: ArcRef<dyn LayoutStrategy>,
+    child: S,
 }
 
-impl RepartitionStrategy {
-    pub fn new(child: ArcRef<dyn LayoutStrategy>, options: RepartitionWriterOptions) -> Self {
+impl<S> RepartitionStrategy<S>
+where
+    S: LayoutStrategy,
+{
+    pub fn new(child: S, options: RepartitionWriterOptions) -> Self {
         Self { options, child }
     }
 }
 
 #[async_trait]
-impl LayoutStrategy for RepartitionStrategy {
+impl<S> LayoutStrategy for RepartitionStrategy<S>
+where
+    S: LayoutStrategy,
+{
     async fn write_stream(
         &self,
         ctx: &ArrayContext,

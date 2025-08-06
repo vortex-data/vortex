@@ -1,46 +1,48 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
-use arcref::ArcRef;
 use async_trait::async_trait;
-use futures::StreamExt;
 use futures::stream::once;
+use futures::StreamExt;
 use vortex_array::ArrayContext;
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::children::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
-use crate::layouts::flat::writer::FlatLayoutStrategy;
 use crate::segments::SequenceWriter;
 use crate::{
     IntoLayout, LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
     SequentialStreamExt as _,
 };
 
-pub struct ChunkedStrategy {
+#[derive(Clone)]
+pub struct ChunkedStrategy<S> {
     /// The layout strategy for each chunk.
-    pub chunk_strategy: ArcRef<dyn LayoutStrategy>,
+    pub chunk_strategy: S,
 }
 
-impl Default for ChunkedStrategy {
-    fn default() -> Self {
+impl<S> ChunkedStrategy<S>
+where
+    S: LayoutStrategy,
+{
+    pub fn new(child: S) -> Self {
         Self {
-            chunk_strategy: ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())),
+            chunk_strategy: child,
         }
     }
 }
 
 #[async_trait]
-impl LayoutStrategy for ChunkedStrategy {
+impl<S> LayoutStrategy for ChunkedStrategy<S>
+where
+    S: LayoutStrategy,
+{
     async fn write_stream(
         &self,
         ctx: &ArrayContext,
         sequence_writer: SequenceWriter,
         mut stream: SendableSequentialStream,
     ) -> VortexResult<LayoutRef> {
-        let chunk_strategy = self.chunk_strategy.clone();
         let ctx = ctx.clone();
         let mut child_layouts = Vec::new();
         let mut row_count = 0;
@@ -48,7 +50,8 @@ impl LayoutStrategy for ChunkedStrategy {
         while let Some(chunk) = stream.next().await {
             let (sequence_id, chunk) = chunk?;
             row_count += chunk.len() as u64;
-            let layout = chunk_strategy
+            let layout = self
+                .chunk_strategy
                 .write_stream(
                     &ctx,
                     sequence_writer.clone(),

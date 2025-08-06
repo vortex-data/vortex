@@ -9,48 +9,80 @@ use arcref::ArcRef;
 use async_trait::async_trait;
 use futures::StreamExt;
 use vortex_array::arrays::NullArray;
-use vortex_array::serde::SerializeOptions;
 use vortex_array::stats::PRUNING_STATS;
-use vortex_array::{Array, ArrayContext};
+use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 use vortex_layout::layouts::buffered::BufferedStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedStrategy;
 use vortex_layout::layouts::compressed::BtrBlocksCompressedStrategy;
 use vortex_layout::layouts::dict::writer::DictStrategy;
-use vortex_layout::layouts::flat::FlatLayout;
-use vortex_layout::layouts::flat::writer::{DEFAULT_FLAT_STRATEGY, FlatLayoutStrategy};
+use vortex_layout::layouts::flat::writer::{
+    write_flat_layout, FlatLayoutStrategy, FlatWriterOptions, DEFAULT_FLAT_STRATEGY,
+};
 use vortex_layout::layouts::repartition::{RepartitionStrategy, RepartitionWriterOptions};
 use vortex_layout::layouts::struct_::writer::StructStrategy;
 use vortex_layout::layouts::view::writer::ViewStrategy;
 use vortex_layout::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
 use vortex_layout::segments::SequenceWriter;
 use vortex_layout::{
-    IntoLayout, LayoutRef, LayoutStrategy, LayoutStrategyExt, SendableSequentialStream,
-    SequentialStream, TaskExecutor,
+    LayoutRef, LayoutStrategy, LayoutStrategyExt, SendableSequentialStream, SequentialStream,
+    TaskExecutor,
 };
 
 const ROW_BLOCK_SIZE: usize = 8192;
 
+/// The core strategy for writing Vortex files.
+///
+/// This type implements [`LayoutStrategy`] and allows writing Vortex files from a stream of chunks
+/// to a potentially streaming output.
 pub struct VortexLayoutStrategy;
 
-/// Fixed-size column type strategy.
-pub struct FixedSizeStrategy {
-    /// The data type of the array chunks.
-    dtype: DType,
+type CompressorFn = Box<dyn Fn(&dyn Array) -> VortexResult<ArrayRef>>;
+
+#[derive(Default)]
+pub struct WriterBuilder {
+    executor: Option<Arc<dyn TaskExecutor>>,
+    compressor: Option<CompressorFn>,
 }
 
-/// The default layout strategy for column chunks in Vortex.
-///
-/// This strategy generates different layouts for fixed-width and variable-size types. Primitives,
-/// bools, and the like are all
-pub struct DefaultLayoutStrategy {
-    fixed_size: Arc<dyn LayoutStrategy>,
-    variable_size: Arc<dyn LayoutStrategy>,
+impl WriterBuilder {
+    pub fn with_executor(mut self, executor: Arc<dyn TaskExecutor>) -> Self {
+        self.executor = Some(executor);
+        self
+    }
+
+    pub fn with_compressor(mut self, compressor: CompressorFn) -> Self {
+        self.compressor = Some(compressor);
+        self
+    }
+
+    pub fn build(self) -> Writer {
+
+    }
+}
+
+pub struct Writer {
+    executor: Arc<dyn TaskExecutor>,
+    compressor: CompressorFn,
+}
+
+/// A strategy for writing that handles writing fixed-width and variable-width types differently.
+struct SplitLayoutStrategy<FixedWidth, VariableWidth, ListStrategy> {
+    executor: Arc<dyn TaskExecutor>,
+    fixed_width: FixedWidth,
+    variable_width: VariableWidth,
+    list_strategy: ListStrategy,
 }
 
 #[async_trait]
-impl LayoutStrategy for DefaultLayoutStrategy {
+impl<FixedWidth, VariableWidth, ListStrategy> LayoutStrategy
+    for SplitLayoutStrategy<FixedWidth, VariableWidth, ListStrategy>
+where
+    FixedWidth: LayoutStrategy,
+    VariableWidth: LayoutStrategy,
+    ListStrategy: LayoutStrategy,
+{
     async fn write_stream(
         &self,
         ctx: &ArrayContext,
@@ -76,81 +108,145 @@ impl LayoutStrategy for DefaultLayoutStrategy {
                 let sequence_id = sequence_id.vortex_expect("no chunks received for writing");
 
                 // Write a single segment describing the NullArray into the sink
-                let buffers =
-                    NullArray::new(row_count).serialize(ctx, &SerializeOptions::default())?;
-                let segment_id = sink.put(sequence_id, buffers).await?;
-
-                Ok(
-                    FlatLayout::new(row_count as u64, DType::Null, segment_id, ctx.clone())
-                        .into_layout(),
+                write_flat_layout(
+                    &FlatWriterOptions::default(),
+                    ctx,
+                    NullArray::new(row_count).into_array(),
+                    sequence_id,
+                    sink,
                 )
+                .await
             }
 
             // Fixed-size types: write a partitioned layout with zone maps and some constant
             // size-based chunking.
-            DType::Bool(..) | DType::Primitive(..) | DType::Decimal(..) => {}
-            DType::Extension(..) => {
-                // If the extension dtype is one of the fixed-width types
+            DType::Bool(..) | DType::Primitive(..) | DType::Decimal(..) => {
+                self.fixed_width.write_stream(ctx, sink, stream).await
             }
-            DType::Utf8(_) => {}
-            DType::Binary(_) => {}
-            DType::Struct(..) => {}
-            DType::List(..) => {}
+            DType::Extension(_) => {
+                // Build a pipeline to write the variable-size data directly instead.
+                todo!("write fixed size or variable sized depending on storage dtype")
+            }
+            DType::Utf8(_) | DType::Binary(_) => {
+                self.variable_width.write_stream(ctx, sink, stream).await
+            }
+            DType::Struct(..) => {
+                todo!("structs should be written in a smarter way")
+            }
+            DType::List(..) => self.list_strategy.write_stream(ctx, sink, stream).await,
         }
     }
 }
 
-const FLAT_STRATEGY: ArcRef<dyn LayoutStrategy> = ArcRef::new_ref(&DEFAULT_FLAT_STRATEGY);
-
 /// Write a stream of chunks of variable-width data to the sink, emitting a layout that covers
 /// it all.
-async fn write_variable_size(
+async fn write_variable_width(
     ctx: &ArrayContext,
     sink: SequenceWriter,
     source: SendableSequentialStream,
     executor: &Arc<dyn TaskExecutor>,
 ) -> VortexResult<LayoutRef> {
     let zoned = ZonedStrategy::new(
-        FLAT_STRATEGY.clone(),
-        FLAT_STRATEGY.clone(),
+        FlatLayoutStrategy::new(),
+        FlatLayoutStrategy::new(),
         ZonedLayoutOptions::default(),
         executor.clone(),
     );
 
-    let chunked = ChunkedStrategy::default().buffered(2 << 20);
-    let buffered = chunked.buffered(2 << 20);
+    let chunked = ChunkedStrategy::new(FlatLayoutStrategy::default()).buffering(2 << 20);
 
     zoned.write_stream(ctx, sink, source).await
 }
 
-struct FixedSizeStrategy {
-    /// An optional task executor. If one is not provided ahead of time, then we just use
-    /// the current thread executor.
+/// Write a stream of arrays with fixed-width types to the sink.
+async fn write_fixed_width(
+    ctx: &ArrayContext,
+    sink: SequenceWriter,
+    source: SendableSequentialStream,
+    executor: &Arc<dyn TaskExecutor>,
+) -> VortexResult<LayoutRef> {
+    // 7. for each chunk create a flat layout
+    let buffered = ChunkedStrategy::new(FlatLayoutStrategy::new()).buffering(2 << 20);
+    // 5. compress each chunk
+    let compressing = BtrBlocksCompressedStrategy::new(buffered, executor.clone(), 16);
+
+    // 4. prior to compression, coalesce up to a minimum size
+    let coalescing = RepartitionStrategy::new(
+        compressing,
+        RepartitionWriterOptions {
+            block_size_minimum: 1 << 20,
+            block_len_multiple: ROW_BLOCK_SIZE,
+        },
+    );
+
+    // 2.1. | 3.1. compress stats tables and dict values.
+    let compress_then_flat =
+        BtrBlocksCompressedStrategy::new(FlatLayoutStrategy::new(), executor.clone(), 1);
+
+    // 3. apply dict encoding or fallback
+    let dict = DictStrategy::new(
+        coalescing.clone(),
+        ViewStrategy::new(
+            ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())),
+            coalescing.clone(),
+        ),
+        coalescing.clone(),
+        Default::default(),
+        executor.clone(),
+    );
+
+    // 2. calculate stats for each row group
+    let stats = ZonedStrategy::new(
+        dict,
+        BtrBlocksCompressedStrategy::new(FlatLayoutStrategy::new(), executor.clone(), 1),
+        ZonedLayoutOptions::default(),
+        executor.clone(),
+    );
+
+    // 1. repartition each column to fixed row counts
+    let repartition = RepartitionStrategy::new(
+        stats,
+        RepartitionWriterOptions {
+            // No minimum block size in bytes
+            block_size_minimum: 0,
+            // Always repartition into 8K row blocks
+            block_len_multiple: ROW_BLOCK_SIZE,
+        },
+    );
+
+    // 0. start with splitting columns
+    StructStrategy::new(repartition)
+        .write_stream(ctx, sink, source)
+        .await
+}
+
+struct FixedWidthStrategy {
+    /// An optional task executor for spawned tasks.
     executor: Arc<dyn TaskExecutor>,
 }
 
+impl FixedWidthStrategy {
+    fn new(executor: Arc<dyn TaskExecutor>) -> Self {
+        Self { executor }
+    }
+}
+
 #[async_trait]
-impl LayoutStrategy for FixedSizeStrategy {
+impl LayoutStrategy for FixedWidthStrategy {
     async fn write_stream(
         &self,
         ctx: &ArrayContext,
         sequence_writer: SequenceWriter,
         stream: SendableSequentialStream,
     ) -> VortexResult<LayoutRef> {
-
-        todo!()
-    }
-}
-
-impl VortexLayoutStrategy {
-    pub fn with_executor(executor: Arc<dyn TaskExecutor>) -> ArcRef<dyn LayoutStrategy> {
-        // 7. for each chunk create a flat layout
-        let buffered: ArcRef<dyn LayoutStrategy> =
-            ArcRef::new_arc(Arc::new(ChunkedStrategy::default().buffered(2 << 20)));
+        // 7. buffer chunks up to 2MB (uncompressed) first.
+        let buffered: ArcRef<dyn LayoutStrategy> = ArcRef::new_arc(Arc::new(
+            ChunkedStrategy::new(FlatLayoutStrategy::new()).buffering(2 << 20),
+        ));
         // 5. compress each chunk
         let compressing = arcref(BtrBlocksCompressedStrategy::new(
             buffered,
-            executor.clone(),
+            self.executor.clone(),
             16,
         ));
 
@@ -166,7 +262,7 @@ impl VortexLayoutStrategy {
         // 2.1. | 3.1. compress stats tables and dict values.
         let compress_then_flat = arcref(BtrBlocksCompressedStrategy::new(
             ArcRef::new_ref(&DEFAULT_FLAT_STRATEGY),
-            executor.clone(),
+            self.executor.clone(),
             1,
         ));
 
@@ -179,7 +275,7 @@ impl VortexLayoutStrategy {
             )),
             coalescing.clone(),
             Default::default(),
-            executor.clone(),
+            self.executor.clone(),
         ));
 
         // 2. calculate stats for each row group
@@ -187,11 +283,11 @@ impl VortexLayoutStrategy {
             dict,
             compress_then_flat.clone(),
             ZonedLayoutOptions::default(),
-            executor.clone(),
+            self.executor.clone(),
         ));
 
         // 1. repartition each column to fixed row counts
-        let repartition = arcref(RepartitionStrategy::new(
+        let repartition = RepartitionStrategy::new(
             stats,
             RepartitionWriterOptions {
                 // No minimum block size in bytes
@@ -199,10 +295,53 @@ impl VortexLayoutStrategy {
                 // Always repartition into 8K row blocks
                 block_len_multiple: ROW_BLOCK_SIZE,
             },
-        ));
+        );
 
-        // 0. start with splitting columns
-        arcref(StructStrategy::new(repartition))
+        repartition.write_stream(ctx, sequence_writer, stream).await
+    }
+}
+
+/// Strategy for writing variable-width data. Delegates to separate strategies for
+/// UTF-8 strings or Binary data.
+struct VariableWidthStrategy<StringStrategy, BinaryStrategy> {
+    string_strategy: StringStrategy,
+    binary_strategy: BinaryStrategy,
+}
+
+#[async_trait]
+impl<StringStrategy, BinaryStrategy> LayoutStrategy
+    for VariableWidthStrategy<StringStrategy, BinaryStrategy>
+where
+    StringStrategy: LayoutStrategy,
+    BinaryStrategy: LayoutStrategy,
+{
+    async fn write_stream(
+        &self,
+        ctx: &ArrayContext,
+        sequence_writer: SequenceWriter,
+        stream: SendableSequentialStream,
+    ) -> VortexResult<LayoutRef> {
+        // Delegate to Utf8 or binary strategies
+        if stream.dtype().is_utf8() {
+            self.string_strategy
+                .write_stream(ctx, sequence_writer, stream)
+                .await
+        } else if stream.dtype().is_binary() {
+            self.binary_strategy
+                .write_stream(ctx, sequence_writer, stream)
+                .await
+        } else {
+            vortex_bail!(
+                "VariableWidthStrategy must receive wither Utf8 or Binary, was {}",
+                stream.dtype()
+            );
+        }
+    }
+}
+
+impl VortexLayoutStrategy {
+    pub fn with_executor(executor: Arc<dyn TaskExecutor>) -> ArcRef<dyn LayoutStrategy> {
+        ArcRef::new_arc(Arc::new(FixedWidthStrategy::new(executor)))
     }
 
     #[cfg(feature = "zstd")]

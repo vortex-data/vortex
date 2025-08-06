@@ -7,7 +7,6 @@
 //! all while remaining independent of the read code.
 
 use std::pin::Pin;
-use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use arcref::ArcRef;
@@ -91,14 +90,32 @@ where
     }
 }
 
+// impl for ArcRef<S>
+#[async_trait]
+impl<S> LayoutStrategy for ArcRef<S>
+where
+    S: LayoutStrategy,
+{
+    async fn write_stream(
+        &self,
+        ctx: &ArrayContext,
+        sequence_writer: SequenceWriter,
+        stream: SendableSequentialStream,
+    ) -> VortexResult<LayoutRef> {
+        self.as_ref()
+            .write_stream(ctx, sequence_writer, stream)
+            .await
+    }
+}
+
 pub trait LayoutStrategyExt: LayoutStrategy {
-    /// Wrap a layout with a buffer. The input chunk stream will be reorganized into chunks of
-    /// size `bytes`.
-    fn buffered(self, bytes: u64) -> impl LayoutStrategy
+    /// Wrap this strategy with a `bytes`-sized buffer. Only once `bytes` worth of chunk data
+    /// has been buffered will the data be sent down the pipeline.
+    fn buffering(self, bytes: u64) -> BufferedStrategy<Self>
     where
         Self: Sized,
     {
-        BufferedStrategy::new(ArcRef::new_arc(Arc::new(self)), bytes)
+        BufferedStrategy::new(self, bytes)
     }
 }
 
