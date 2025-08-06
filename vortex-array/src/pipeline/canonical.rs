@@ -8,8 +8,6 @@ use crate::pipeline::view::ViewMut;
 use crate::pipeline::{N, Pipeline, PipelineExt};
 use crate::validity::Validity;
 use crate::{Array, Canonical};
-use bitvec::order::Msb0;
-use bitvec::vec::BitVec;
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, NativePType, Nullability, match_each_native_ptype};
 use vortex_error::{VortexResult, vortex_bail};

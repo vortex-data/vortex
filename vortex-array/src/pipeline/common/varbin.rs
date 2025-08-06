@@ -25,9 +25,9 @@ impl Pipeline for VarBinPipeline {
 
     fn step(
         &mut self,
-        ctx: &dyn PipelineContext,
-        selected: BitView,
-        out: &mut ViewMut,
+        _ctx: &dyn PipelineContext,
+        _selected: BitView,
+        _out: &mut ViewMut,
     ) -> Poll<VortexResult<()>> {
         todo!()
     }

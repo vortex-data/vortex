@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::arrays::BinaryView;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use vortex_dtype::NativePType;
 use vortex_dtype::PType;
 use vortex_dtype::half::f16;
@@ -10,7 +10,7 @@ use vortex_dtype::half::f16;
 /// Defines the "vector type", a physical type describing the data that's held in the vector.
 ///
 /// See the specific vector view types, e.g. [`PrimitiveVector`], for more details.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VType {
     Bool,
     Primitive(PType),
@@ -28,6 +28,10 @@ impl Display for VType {
 }
 
 impl VType {
+    pub fn of<T: Element>() -> Self {
+        T::vtype()
+    }
+
     pub fn byte_width(&self) -> usize {
         match self {
             VType::Bool => 1,
@@ -38,7 +42,7 @@ impl VType {
 }
 
 /// A trait to identify canonical vector types.
-pub trait Element: 'static + Copy {
+pub trait Element: 'static + Copy + Debug {
     fn vtype() -> VType;
 }
 

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::pipeline::PipelineContext;
+use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use std::sync::atomic::AtomicUsize;
 use std::task::{Poll, ready};
@@ -34,6 +35,27 @@ impl Deref for BufferId {
 pub enum BufferHandle<T> {
     Pending(BufferId),
     Ready(Buffer<T>),
+}
+
+impl<T> Hash for BufferHandle<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            BufferHandle::Pending(id) => id.hash(state),
+            BufferHandle::Ready(buffer) => buffer.as_ptr().hash(state),
+        }
+    }
+}
+
+impl<T> PartialEq for BufferHandle<T> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (BufferHandle::Pending(id1), BufferHandle::Pending(id2)) => id1 == id2,
+            (BufferHandle::Ready(buf1), BufferHandle::Ready(buf2)) => {
+                buf1.as_ptr() == buf2.as_ptr()
+            }
+            _ => false,
+        }
+    }
 }
 
 impl<T> BufferHandle<T> {

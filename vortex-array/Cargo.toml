@@ -30,6 +30,7 @@ arrow-select = { workspace = true }
 arrow-string = { workspace = true }
 bitvec = { workspace = true }
 cfg-if = { workspace = true }
+dyn-hash = { workspace = true }
 enum-iterator = { workspace = true }
 flatbuffers = { workspace = true }
 futures-util = { workspace = true }

@@ -50,11 +50,11 @@ impl BitVector {
         &FULL
     }
 
-    pub fn true_until(mut n: usize) -> Self {
+    pub fn true_until(n: usize) -> Self {
         assert!(n <= N, "Cannot create a BitVector with more than N bits");
 
         let mut bits = Arc::new(BitArray::<[u64; N / 64], Msb0>::ZERO);
-        let mut bits_mut = Arc::make_mut(&mut bits);
+        let bits_mut = Arc::make_mut(&mut bits);
 
         let mut word = 0;
         let mut remaining = n;

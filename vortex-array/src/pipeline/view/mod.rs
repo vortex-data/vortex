@@ -7,12 +7,52 @@ use crate::ArrayRef;
 use crate::pipeline::N;
 use crate::pipeline::selection::Selection;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::NativePType;
 use vortex_error::VortexExpect;
 
 use crate::pipeline::bits::BitVector;
 use crate::pipeline::bits::BitViewMut;
 use crate::pipeline::types::{Element, VType};
+
+pub struct View<'a> {
+    _phantom: std::marker::PhantomData<&'a ()>,
+}
+
+pub struct TypedView<'a, E> {
+    view: View<'a>,
+    _phantom: std::marker::PhantomData<E>,
+}
+
+impl<E> AsRef<[E; N]> for TypedView<'_, E>
+where
+    E: Element,
+{
+    fn as_ref(&self) -> &[E; N] {
+        todo!()
+    }
+}
+
+pub struct TypedViewMut<'a, E> {
+    view: ViewMut<'a>,
+    _phantom: std::marker::PhantomData<E>,
+}
+
+impl<E> AsRef<[E; N]> for TypedViewMut<'_, E>
+where
+    E: Element,
+{
+    fn as_ref(&self) -> &[E; N] {
+        todo!()
+    }
+}
+
+impl<E> AsMut<[E; N]> for TypedViewMut<'_, E>
+where
+    E: Element,
+{
+    fn as_mut(&mut self) -> &mut [E; N] {
+        todo!()
+    }
+}
 
 /// A vector is the atomic unit of canonical data in Vortex.
 ///
@@ -64,29 +104,29 @@ use crate::pipeline::types::{Element, VType};
 /// Maybe this works? Not sure yet.
 pub struct ViewMut<'a> {
     /// The physical type of the vector, which defines how the elements are stored.
-    pub vtype: VType,
+    pub(super) vtype: VType,
     /// A pointer to the allocated elements buffer.
     /// Alignment is at least the size of the element type.
     /// The capacity of the elements buffer is N * size_of::<T>() where T is the element type.
     // TODO(ngates): it would be nice to guarantee _wider_ alignment, ideally 128 bytes, so that
     //  we can use aligned load/store instructions for wide SIMD lanes.
-    elements: *mut u8,
+    pub(super) elements: *mut u8,
     /// The validity mask for the vector, indicating which elements in the buffer are valid.
     /// This value can be `None` if the expected DType is `NonNullable`.
-    validity: Option<BitViewMut<'a>>,
+    pub(super) validity: Option<BitViewMut<'a>>,
     // A selection mask over the elements and validity of the vector.
-    selection: Selection,
+    pub(super) selection: Selection,
 
     /// Additional buffers of data used by the vector, such as string data.
     // TODO(ngates): ideally these buffers are compressed somehow? E.g. using FSST?
     #[allow(dead_code)]
-    data: Vec<ByteBuffer>,
+    pub(super) data: Vec<ByteBuffer>,
     // Additional arrays used by the vector, such as...?
     #[allow(dead_code)]
-    children: Vec<ArrayRef>,
+    pub(super) children: Vec<ArrayRef>,
 
     /// Marker defining the lifetime of the contents of the vector.
-    _marker: std::marker::PhantomData<&'a mut ()>,
+    pub(super) _marker: std::marker::PhantomData<&'a mut ()>,
 }
 
 impl<'a> ViewMut<'a> {
@@ -100,6 +140,12 @@ impl<'a> ViewMut<'a> {
             data: vec![],
             children: vec![],
             _marker: Default::default(),
+        }
+    }
+
+    pub fn as_view(&self) -> View<'a> {
+        View {
+            _phantom: std::marker::PhantomData,
         }
     }
 

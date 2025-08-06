@@ -21,6 +21,7 @@ pub mod buffers;
 pub mod canonical;
 pub mod common;
 pub mod export;
+mod nodes;
 pub mod selection;
 pub mod types;
 pub mod vector;

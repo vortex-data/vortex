@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::{Debug, Formatter};
+use std::hash::{Hash, Hasher};
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -106,6 +107,12 @@ assert_eq_size!(BinaryView, [u8; 16]);
 assert_eq_size!(Inlined, [u8; 16]);
 assert_eq_size!(Ref, [u8; 16]);
 assert_eq_align!(BinaryView, u128);
+
+impl Hash for BinaryView {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        unsafe { std::mem::transmute::<&BinaryView, &[u8; 16]>(self) }.hash(state);
+    }
+}
 
 impl BinaryView {
     pub const MAX_INLINED_SIZE: usize = 12;

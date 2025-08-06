@@ -7,5 +7,4 @@
 // pub mod primitive;
 // pub mod validity;
 
-mod dictionary;
 mod varbin;

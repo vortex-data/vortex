@@ -3,7 +3,7 @@
 
 use crate::pipeline::bits::BitView;
 use crate::pipeline::types::Element;
-use crate::pipeline::vector::PrimitiveVector;
+use crate::pipeline::vector::TypedVector;
 use crate::pipeline::{N, Pipeline, PipelineContext};
 use bitvec::order::Msb0;
 use bitvec::vec::BitVec;
@@ -16,7 +16,7 @@ struct PrimitiveExporter<'a, T> {
     ctx: &'a dyn PipelineContext,
     pipeline: Box<dyn Pipeline>,
     remaining: usize,
-    vector: PrimitiveVector<T>,
+    vector: TypedVector<T>,
     tail_mask: BitVec<u64, Msb0>,
 }
 
@@ -26,14 +26,14 @@ impl<'a, T: Element + NativePType> PrimitiveExporter<'a, T> {
             ctx,
             pipeline,
             remaining: len,
-            vector: PrimitiveVector::default(),
+            vector: TypedVector::default(),
             tail_mask: Default::default(),
         }
     }
 
     pub fn export_all<F>(&mut self, mut f: F)
     where
-        F: FnMut(&PrimitiveVector<T>),
+        F: FnMut(&TypedVector<T>),
     {
         self.try_export_all(|v| {
             f(v);
@@ -44,7 +44,7 @@ impl<'a, T: Element + NativePType> PrimitiveExporter<'a, T> {
 
     pub fn try_export_all<F>(&mut self, mut f: F) -> VortexResult<()>
     where
-        F: FnMut(&PrimitiveVector<T>) -> VortexResult<()>,
+        F: FnMut(&TypedVector<T>) -> VortexResult<()>,
     {
         while self.remaining > 0 {
             let mask = if self.remaining >= N {

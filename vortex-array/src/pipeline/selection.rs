@@ -5,6 +5,7 @@ use crate::pipeline::N;
 use crate::pipeline::bits::BitVector;
 
 /// Defines a selection of elements from a view or vector.
+#[derive(Clone, Debug)]
 pub enum Selection {
     /// Select all elements in the vector from zero up to the given length.
     Prefix { len: usize },
