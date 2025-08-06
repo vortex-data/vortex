@@ -41,6 +41,7 @@ impl From<ByteBuffer> for ScalarValue {
 }
 
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation)]
 mod tests {
     use super::*;
 

@@ -4,34 +4,34 @@
 //! Null scalar conversion implementations.
 //!
 //! This module provides conversions between Scalar values and the unit type `()`.
-//! 
+//!
 //! # Conversion Behavior
-//! 
+//!
 //! The `TryFrom<&Scalar>` implementation for `()` succeeds in two cases:
-//! 
+//!
 //! 1. **Pure null scalars**: Scalars with `DType::Null` always convert successfully to `()`.
-//! 
-//! 2. **Typed null scalars**: Scalars of any type (primitive, string, binary, etc.) that 
-//!    have a null value also convert successfully to `()`. This includes scalars created 
+//!
+//! 2. **Typed null scalars**: Scalars of any type (primitive, string, binary, etc.) that
+//!    have a null value also convert successfully to `()`. This includes scalars created
 //!    with methods like `Scalar::null_typed::<T>()`.
-//! 
-//! This behavior means that typed null scalars (e.g., a null i32 or null string) are 
+//!
+//! This behavior means that typed null scalars (e.g., a null i32 or null string) are
 //! treated equivalently to pure null scalars for the purpose of unit type conversion.
-//! 
+//!
 //! # Examples
-//! 
+//!
 //! ```ignore
 //! use vortex_scalar::Scalar;
 //! use vortex_dtype::DType;
-//! 
+//!
 //! // Pure null scalar converts to ()
 //! let null_scalar = Scalar::null(DType::Null);
 //! let unit: () = null_scalar.try_into().unwrap();
-//! 
+//!
 //! // Typed null scalar also converts to ()
 //! let null_int = Scalar::null_typed::<i32>();
 //! let unit: () = null_int.try_into().unwrap();
-//! 
+//!
 //! // Non-null scalar fails conversion
 //! let int_scalar = Scalar::primitive(42i32, Nullability::NonNullable);
 //! let result = <()>::try_from(&int_scalar);
@@ -70,7 +70,6 @@ mod tests {
 
         let result = <()>::try_from(&null_scalar);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), ());
     }
 
     #[test]
@@ -79,7 +78,6 @@ mod tests {
 
         let result = <()>::try_from(null_scalar);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), ());
     }
 
     #[test]
@@ -105,7 +103,6 @@ mod tests {
         // NOTE: Unexpected behavior - TryFrom succeeds for typed null scalars
         let result = <()>::try_from(&null_int);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), ());
     }
 
     #[test]
@@ -115,7 +112,6 @@ mod tests {
         // NOTE: Unexpected behavior - TryFrom succeeds for typed null scalars
         let result = <()>::try_from(&null_string);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), ());
     }
 
     #[test]
@@ -125,7 +121,6 @@ mod tests {
         // NOTE: Unexpected behavior - TryFrom succeeds for typed null scalars
         let result = <()>::try_from(&null_bool);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), ());
     }
 
     #[test]
@@ -135,12 +130,11 @@ mod tests {
         use vortex_dtype::PType;
 
         let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::Nullable));
-        let null_list = Scalar::list_empty(element_dtype.clone(), Nullability::Nullable);
+        let null_list = Scalar::list_empty(element_dtype, Nullability::Nullable);
 
         // NOTE: Unexpected behavior - TryFrom succeeds for typed null scalars
         let result = <()>::try_from(&null_list);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), ());
     }
 
     #[test]
@@ -152,7 +146,7 @@ mod tests {
             Nullability::Nullable,
         );
 
-        let null_struct = Scalar::struct_(struct_dtype.clone(), vec![Scalar::null(DType::Null)]);
+        let null_struct = Scalar::struct_(struct_dtype, vec![Scalar::null(DType::Null)]);
 
         // This should fail because it's a struct, not a pure null type
         let result = <()>::try_from(&null_struct);
@@ -166,6 +160,5 @@ mod tests {
         // NOTE: Unexpected behavior - TryFrom succeeds for typed null scalars
         let result = <()>::try_from(&null_binary);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), ());
     }
 }

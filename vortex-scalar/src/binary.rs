@@ -44,11 +44,7 @@ impl Eq for BinaryScalar<'_> {}
 
 impl PartialOrd for BinaryScalar<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        // Check dtype compatibility first (ignoring nullability)
-        if !self.dtype.eq_ignore_nullability(other.dtype) {
-            return None;
-        }
-        self.value.partial_cmp(&other.value)
+        Some(self.value.cmp(&other.value))
     }
 }
 
@@ -84,7 +80,7 @@ impl<'a> BinaryScalar<'a> {
     pub fn value(&self) -> Option<ByteBuffer> {
         self.value.as_ref().map(|v| v.as_ref().clone())
     }
-    
+
     /// Returns a reference to the binary value, or None if null.
     /// This avoids cloning the underlying ByteBuffer.
     pub fn value_ref(&self) -> Option<&ByteBuffer> {

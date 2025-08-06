@@ -4,6 +4,7 @@
 //! Core tests for scalar functionality including casting, coercion, and default values.
 
 #[cfg(test)]
+#[allow(clippy::panic)]
 mod tests {
     use std::sync::Arc;
 

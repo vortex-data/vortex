@@ -14,7 +14,7 @@ use crate::{InnerScalarValue, Scalar, ScalarValue};
 ///
 /// This type provides a view into a boolean scalar value, which can be either
 /// true, false, or null.
-#[derive(Debug, Hash)]
+#[derive(Debug, Hash, Eq)]
 pub struct BoolScalar<'a> {
     dtype: &'a DType,
     value: Option<bool>,
@@ -35,15 +35,9 @@ impl PartialEq for BoolScalar<'_> {
     }
 }
 
-impl Eq for BoolScalar<'_> {}
-
 impl PartialOrd for BoolScalar<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        // Check dtype compatibility first (ignoring nullability)
-        if !self.dtype.eq_ignore_nullability(other.dtype) {
-            return None;
-        }
-        self.value.partial_cmp(&other.value)
+        Some(self.value.cmp(&other.value))
     }
 }
 

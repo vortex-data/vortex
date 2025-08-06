@@ -3,7 +3,7 @@
 
 //! Additional trait implementations for decimal types to ensure consistency.
 
-use vortex_dtype::{DType, DecimalDType, Nullability};
+use vortex_dtype::{DecimalDType, Nullability};
 use vortex_error::{VortexError, vortex_err};
 
 use crate::{DecimalScalar, DecimalValue, Scalar};
@@ -54,7 +54,7 @@ impl TryFrom<&Scalar> for Option<DecimalValue> {
 
     fn try_from(scalar: &Scalar) -> Result<Self, Self::Error> {
         let decimal_scalar = DecimalScalar::try_from(scalar)?;
-        Ok(decimal_scalar.decimal_value().clone())
+        Ok(decimal_scalar.decimal_value())
     }
 }
 
@@ -69,19 +69,21 @@ impl TryFrom<Scalar> for Option<DecimalValue> {
 
 #[cfg(test)]
 mod tests {
+    use vortex_dtype::DType;
+
     use super::*;
 
     #[test]
     fn test_decimal_value_from_scalar() {
         let value = DecimalValue::I32(12345);
-        let scalar = Scalar::from(value.clone());
-        
+        let scalar = Scalar::from(value);
+
         // Test extraction
         let extracted: DecimalValue = DecimalValue::try_from(&scalar).unwrap();
         assert_eq!(extracted, value);
-        
+
         // Test owned extraction
-        let extracted_owned: DecimalValue = DecimalValue::try_from(scalar.clone()).unwrap();
+        let extracted_owned: DecimalValue = DecimalValue::try_from(scalar).unwrap();
         assert_eq!(extracted_owned, value);
     }
 
@@ -89,17 +91,17 @@ mod tests {
     fn test_decimal_value_option_from_scalar() {
         // Non-null case
         let value = DecimalValue::I64(999999);
-        let scalar = Scalar::from(value.clone());
-        
+        let scalar = Scalar::from(value);
+
         let extracted: Option<DecimalValue> = Option::try_from(&scalar).unwrap();
         assert_eq!(extracted, Some(value));
-        
+
         // Null case
         let null_scalar = Scalar::null(DType::Decimal(
             DecimalDType::new(10, 2),
             Nullability::Nullable,
         ));
-        
+
         let extracted_null: Option<DecimalValue> = Option::try_from(&null_scalar).unwrap();
         assert_eq!(extracted_null, None);
     }
@@ -115,11 +117,11 @@ mod tests {
             DecimalValue::I128(123456789012345678901234567890),
             DecimalValue::I256(crate::i256::from_i128(987654321)),
         ];
-        
+
         for value in values {
-            let scalar = Scalar::from(value.clone());
+            let scalar = Scalar::from(value);
             assert!(!scalar.is_null());
-            
+
             // Verify we can extract it back
             let extracted: DecimalValue = DecimalValue::try_from(&scalar).unwrap();
             assert_eq!(extracted, value);

@@ -133,7 +133,11 @@ impl<'a> ListScalar<'a> {
 
     pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
         let DType::List(element_dtype, ..) = dtype else {
-            vortex_bail!("Cannot cast {} to {}: list can only be cast to list", self.dtype(), dtype)
+            vortex_bail!(
+                "Cannot cast {} to {}: list can only be cast to list",
+                self.dtype(),
+                dtype
+            )
         };
 
         Ok(Scalar::new(
@@ -408,12 +412,10 @@ mod tests {
         let element_dtype2 = Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable));
 
         let children1 = vec![Scalar::primitive(1i32, Nullability::NonNullable)];
-        let list_scalar1 =
-            Scalar::list(element_dtype1.clone(), children1, Nullability::NonNullable);
+        let list_scalar1 = Scalar::list(element_dtype1, children1, Nullability::NonNullable);
 
         let children2 = vec![Scalar::primitive(1i64, Nullability::NonNullable)];
-        let list_scalar2 =
-            Scalar::list(element_dtype2.clone(), children2, Nullability::NonNullable);
+        let list_scalar2 = Scalar::list(element_dtype2, children2, Nullability::NonNullable);
 
         let list1 = ListScalar::try_from(&list_scalar1).unwrap();
         let list2 = ListScalar::try_from(&list_scalar2).unwrap();
@@ -454,7 +456,7 @@ mod tests {
             Scalar::primitive(20i32, Nullability::NonNullable),
             Scalar::primitive(30i32, Nullability::NonNullable),
         ];
-        let list_scalar = Scalar::list(element_dtype.clone(), children, Nullability::NonNullable);
+        let list_scalar = Scalar::list(element_dtype, children, Nullability::NonNullable);
 
         let vec: Vec<i32> = Vec::try_from(&list_scalar).unwrap();
         assert_eq!(vec, vec![10, 20, 30]);
@@ -476,7 +478,7 @@ mod tests {
             Scalar::primitive(1i32, Nullability::NonNullable),
             Scalar::primitive(2i32, Nullability::NonNullable),
         ];
-        let list_scalar = Scalar::list(element_dtype.clone(), children, Nullability::NonNullable);
+        let list_scalar = Scalar::list(element_dtype, children, Nullability::NonNullable);
 
         let list = ListScalar::try_from(&list_scalar).unwrap();
 
@@ -518,7 +520,7 @@ mod tests {
             Scalar::utf8("hello".to_string(), Nullability::NonNullable),
             Scalar::utf8("world".to_string(), Nullability::NonNullable),
         ];
-        let list_scalar = Scalar::list(element_dtype.clone(), children, Nullability::NonNullable);
+        let list_scalar = Scalar::list(element_dtype, children, Nullability::NonNullable);
 
         let list = ListScalar::try_from(&list_scalar).unwrap();
         assert_eq!(list.len(), 2);
@@ -557,7 +559,7 @@ mod tests {
         );
 
         let outer_list = Scalar::list(
-            inner_list_dtype.clone(),
+            inner_list_dtype,
             vec![inner_list1, inner_list2],
             Nullability::NonNullable,
         );

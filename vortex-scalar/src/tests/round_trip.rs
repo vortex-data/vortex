@@ -8,6 +8,7 @@
 //! and preserve data integrity.
 
 #[cfg(test)]
+#[allow(clippy::panic)]
 mod tests {
     use std::sync::Arc;
 
@@ -32,8 +33,8 @@ mod tests {
             Scalar::primitive(50000u16, Nullability::NonNullable),
             Scalar::primitive(4000000000u32, Nullability::NonNullable),
             Scalar::primitive(18446744073709551615u64, Nullability::NonNullable),
-            Scalar::primitive(3.14f32, Nullability::NonNullable),
-            Scalar::primitive(2.718281828459045f64, Nullability::NonNullable),
+            Scalar::primitive(std::f32::consts::PI, Nullability::NonNullable),
+            Scalar::primitive(std::f64::consts::E, Nullability::NonNullable),
         ];
 
         for scalar in values {
@@ -85,7 +86,7 @@ mod tests {
         // Test BoolScalar
         let bool_scalar = Scalar::bool(true, Nullability::NonNullable);
         let bool_specialized = BoolScalar::try_from(&bool_scalar).unwrap();
-        assert_eq!(bool_specialized.value().unwrap(), true);
+        assert!(bool_specialized.value().unwrap());
 
         // Test Utf8Scalar
         let utf8_scalar = Scalar::utf8("hello".to_string(), Nullability::NonNullable);
@@ -184,11 +185,11 @@ mod tests {
         ];
 
         for value in decimal_values {
-            let scalar = Scalar::decimal(value.clone(), decimal_dtype, Nullability::NonNullable);
+            let scalar = Scalar::decimal(value, decimal_dtype, Nullability::NonNullable);
             let decimal_specialized = DecimalScalar::try_from(&scalar).unwrap();
 
             match decimal_specialized.decimal_value() {
-                Some(extracted) => assert_eq!(extracted, &value),
+                Some(extracted) => assert_eq!(extracted, value),
                 None => panic!("Expected decimal value, got None"),
             }
 
@@ -218,7 +219,7 @@ mod tests {
         let outer_dtype = Arc::new(DType::List(inner_dtype.clone(), Nullability::NonNullable));
 
         let inner_list1 = Scalar::list(
-            inner_dtype.clone(),
+            inner_dtype,
             vec![
                 Scalar::primitive(1i32, Nullability::NonNullable),
                 Scalar::primitive(2i32, Nullability::NonNullable),

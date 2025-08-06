@@ -15,7 +15,7 @@ use crate::{InnerScalarValue, Scalar, ScalarValue};
 ///
 /// This type provides a view into a UTF-8 string scalar value, which can be either
 /// a valid UTF-8 string or null.
-#[derive(Debug, Hash)]
+#[derive(Debug, Hash, Eq)]
 pub struct Utf8Scalar<'a> {
     dtype: &'a DType,
     value: Option<Arc<BufferString>>,
@@ -36,15 +36,9 @@ impl PartialEq for Utf8Scalar<'_> {
     }
 }
 
-impl Eq for Utf8Scalar<'_> {}
-
 impl PartialOrd for Utf8Scalar<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        // Check dtype compatibility first (ignoring nullability)
-        if !self.dtype.eq_ignore_nullability(other.dtype) {
-            return None;
-        }
-        self.value.partial_cmp(&other.value)
+        Some(self.value.cmp(&other.value))
     }
 }
 
@@ -80,7 +74,7 @@ impl<'a> Utf8Scalar<'a> {
     pub fn value(&self) -> Option<BufferString> {
         self.value.as_ref().map(|v| v.as_ref().clone())
     }
-    
+
     /// Returns a reference to the string value, or None if null.
     /// This avoids cloning the underlying BufferString.
     pub fn value_ref(&self) -> Option<&BufferString> {
