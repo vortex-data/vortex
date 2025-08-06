@@ -8,8 +8,10 @@ use std::fmt::Debug;
 use datafusion::arrow::datatypes::{DataType, Schema};
 use datafusion::common::stats::Precision as DFPrecision;
 use datafusion::logical_expr::Operator;
-use datafusion::physical_expr::PhysicalExprRef;
-use datafusion::physical_plan::expressions::{BinaryExpr, Column, LikeExpr, Literal};
+use datafusion::physical_expr::{PhysicalExpr, PhysicalExprRef};
+use datafusion::physical_plan::expressions::{
+    BinaryExpr, Column, DynamicFilterPhysicalExpr, LikeExpr, Literal,
+};
 use vortex::stats::Precision;
 
 mod convert;
@@ -67,6 +69,11 @@ fn can_be_pushed_down(expr: &PhysicalExprRef, schema: &Schema) -> bool {
         can_be_pushed_down(like.expr(), schema) && can_be_pushed_down(like.pattern(), schema)
     } else if let Some(lit) = expr.downcast_ref::<Literal>() {
         supported_data_types(lit.value().data_type())
+    } else if let Some(dynamic_expr) = expr.downcast_ref::<DynamicFilterPhysicalExpr>() {
+        dynamic_expr
+            .children()
+            .iter()
+            .all(|child| can_be_pushed_down(child, schema))
     } else {
         log::debug!("DataFusion expression can't be pushed down: {expr:?}");
         false

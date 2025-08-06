@@ -40,7 +40,7 @@ impl TryFromDataFusion<Arc<dyn PhysicalExpr>> for ExprRef {
             .downcast_ref::<expressions::DynamicFilterPhysicalExpr>()
             .is_some()
         {
-            return Ok(DFDynamicExpr::new_expr(df.clone()));
+            return DFDynamicExpr::try_new_expr(df.clone());
         }
 
         if let Some(literal) = df.as_any().downcast_ref::<expressions::Literal>() {

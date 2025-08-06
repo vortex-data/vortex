@@ -3,40 +3,63 @@
 
 use std::sync::Arc;
 
-use datafusion::physical_plan::{PhysicalExpr, expressions::DynamicFilterPhysicalExpr};
-use vortex::ArrayRef;
-use vortex::DeserializeMetadata;
-use vortex::EmptyMetadata;
-use vortex::dtype::DType;
-use vortex::expr::IntoExpr;
+use datafusion::physical_plan::PhysicalExpr;
+use datafusion::physical_plan::expressions::DynamicFilterPhysicalExpr;
 
-use vortex::error::VortexExpect;
-use vortex::error::VortexResult;
-use vortex::error::vortex_bail;
-use vortex::expr::AnalysisExpr;
-use vortex::expr::ExprEncodingRef;
-use vortex::expr::ExprId;
-use vortex::expr::ExprRef;
-use vortex::expr::Scope;
-use vortex::expr::VTable;
+use vortex::arrays::BoolArray;
+use vortex::dtype::{DType, Nullability};
+use vortex::error::{VortexExpect, VortexResult, vortex_bail};
+use vortex::expr::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable};
+use vortex::{ArrayRef, DeserializeMetadata, EmptyMetadata, IntoArray};
 
 use crate::make_vortex_predicate;
 
 #[allow(clippy::derived_hash_with_manual_eq)]
-#[derive(Debug, Hash, Clone)]
+#[derive(Debug, Clone)]
 pub struct DFDynamicExpr {
     inner: Arc<dyn PhysicalExpr>,
+    initial_vortex_children: Vec<ExprRef>,
 }
+
+impl std::hash::Hash for DFDynamicExpr {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.initial_vortex_children.hash(state);
+    }
+}
+
+impl PartialEq for DFDynamicExpr {
+    fn eq(&self, other: &Self) -> bool {
+        self.initial_vortex_children == other.initial_vortex_children
+    }
+}
+
+impl Eq for DFDynamicExpr {}
 
 vortex::expr::vtable!(DFDynamic);
 
 impl DFDynamicExpr {
-    pub fn new(df_expr: Arc<dyn PhysicalExpr>) -> Self {
-        Self { inner: df_expr }
+    pub fn try_new(df_expr: Arc<dyn PhysicalExpr>) -> VortexResult<Self> {
+        match df_expr.as_any().downcast_ref::<DynamicFilterPhysicalExpr>() {
+            Some(dynamic_expr) => {
+                let initial_vortex_children = dynamic_expr
+                    .children()
+                    .into_iter()
+                    .filter_map(|e| make_vortex_predicate(&[e]))
+                    .collect::<Vec<_>>();
+                if initial_vortex_children.len() != dynamic_expr.children().len() {
+                    vortex_bail!("Couldn't convert all expressions")
+                }
+                Ok(Self {
+                    inner: df_expr,
+                    initial_vortex_children,
+                })
+            }
+            None => vortex_bail!(""),
+        }
     }
 
-    pub fn new_expr(df_expr: Arc<dyn PhysicalExpr>) -> ExprRef {
-        Self::new(df_expr).into_expr()
+    pub fn try_new_expr(df_expr: Arc<dyn PhysicalExpr>) -> VortexResult<ExprRef> {
+        Ok(Self::try_new(df_expr)?.into_expr())
     }
 
     fn inner_expr(&self) -> &DynamicFilterPhysicalExpr {
@@ -47,19 +70,11 @@ impl DFDynamicExpr {
     }
 }
 
-impl PartialEq for DFDynamicExpr {
-    fn eq(&self, other: &Self) -> bool {
-        self.inner.dyn_eq(other)
-    }
-}
-
 impl std::fmt::Display for DFDynamicExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "DynamicDFExpr({})", self.inner)
     }
 }
-
-impl Eq for DFDynamicExpr {}
 
 impl AnalysisExpr for DFDynamicExpr {}
 
@@ -84,13 +99,13 @@ impl VTable for DFDynamicVTable {
         None
     }
 
-    fn children(_expr: &Self::Expr) -> Vec<&ExprRef> {
-        vec![]
+    fn children(expr: &Self::Expr) -> Vec<&ExprRef> {
+        expr.initial_vortex_children.iter().collect()
     }
 
     fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
-        if !children.is_empty() {
-            vortex_bail!("DFDynamicExpr ")
+        if children.len() != expr.children().len() {
+            panic!("oops")
         }
 
         Ok(expr.clone())
@@ -108,19 +123,18 @@ impl VTable for DFDynamicVTable {
         let inner = expr.inner_expr();
         let current = inner.current()?;
 
+        if current == datafusion::physical_expr::expressions::lit(true) {
+            return Ok(BoolArray::from_iter(vec![true; scope.root().len()]).into_array());
+        }
+
         match make_vortex_predicate(&[&current]) {
             Some(expr) => expr.evaluate(scope),
             None => Ok(scope.root().clone()),
         }
     }
 
-    fn return_dtype(expr: &Self::Expr, scope: &DType) -> VortexResult<DType> {
-        let inner = expr.inner_expr();
-        let current = inner.current()?;
-
-        match make_vortex_predicate(&[&current]) {
-            Some(expr) => expr.return_dtype(scope),
-            None => Ok(scope.clone()),
-        }
+    fn return_dtype(_expr: &Self::Expr, _scope: &DType) -> VortexResult<DType> {
+        Ok(DType::Bool(Nullability::NonNullable))
+        // return Ok(scope.clone());
     }
 }

@@ -27,7 +27,6 @@ use super::cache::VortexFileCache;
 use super::config::{ConfigProjection, FileScanConfigExt};
 use super::metrics::PARTITION_LABEL;
 use super::opener::VortexOpener;
-
 use crate::{can_be_pushed_down, make_vortex_predicate};
 
 /// A config for [`VortexOpener`]. Used to create [`FileSource`] based physical plans.
