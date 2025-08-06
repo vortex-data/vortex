@@ -81,7 +81,7 @@ impl SerdeVTable<ALPRDVTable> for ALPRDVTable {
             DType::Primitive(PType::F64, _) => {
                 DType::Primitive(PType::U64, Nullability::NonNullable)
             }
-            _ => vortex_bail!("Expected f32 or f64 dtype, got {:?}", dtype),
+            _ => vortex_bail!("Expected f32 or f64 dtype, got {dtype}"),
         };
         let right_parts = children.get(1, &right_parts_dtype, len)?;
 
