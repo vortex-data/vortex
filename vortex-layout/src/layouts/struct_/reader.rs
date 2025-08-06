@@ -247,7 +247,6 @@ impl LayoutReader for StructReader {
 mod tests {
     use std::sync::Arc;
 
-    use arcref::ArcRef;
     use futures::executor::block_on;
     use futures::stream;
     use itertools::Itertools;
@@ -273,8 +272,7 @@ mod tests {
         let ctx = ArrayContext::empty();
         let segments = TestSegments::default();
         let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
-        let strategy =
-            StructStrategy::new(ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())));
+        let strategy = StructStrategy::new(FlatLayoutStrategy::default());
         let layout = block_on(
             strategy.write_stream(
                 &ctx,

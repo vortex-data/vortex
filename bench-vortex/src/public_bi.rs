@@ -32,7 +32,7 @@ use tracing::info;
 use url::Url;
 use vortex::ArrayRef;
 use vortex::error::{VortexResult, vortex_err};
-use vortex::file::{VortexLayoutStrategy, VortexOpenOptions, VortexWriteOptions};
+use vortex::file::{VortexOpenOptions, VortexWriteOptions, WriteStrategyBuilder};
 use vortex::iter::ArrayIteratorExt;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex_datafusion::VortexFormat;
@@ -339,9 +339,11 @@ impl PBIData {
             async move {
                 let vortex_file = idempotent_async(&vortex, async |output_path| {
                     VortexWriteOptions::default()
-                        .with_strategy(VortexLayoutStrategy::with_executor(Arc::new(
-                            Handle::current(),
-                        )))
+                        .with_strategy(
+                            WriteStrategyBuilder::new()
+                                .with_executor(Arc::new(Handle::current()))
+                                .build(),
+                        )
                         .write(
                             File::create(output_path).await.unwrap(),
                             parquet_to_vortex(parquet).unwrap(),

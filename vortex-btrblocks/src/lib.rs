@@ -271,7 +271,7 @@ pub trait Compressor {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BtrBlocksCompressor;
 
 impl BtrBlocksCompressor {

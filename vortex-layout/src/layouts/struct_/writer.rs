@@ -6,9 +6,9 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll, Waker};
 
-use arcref::ArcRef;
+use async_trait::async_trait;
 use futures::future::try_join_all;
-use futures::{Stream, StreamExt, TryStreamExt};
+use futures::{FutureExt, Stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use parking_lot::Mutex;
 use vortex_array::{Array, ArrayContext, ToCanonical};
@@ -19,37 +19,44 @@ use vortex_utils::aliases::hash_set::HashSet;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SequenceWriter;
 use crate::{
-    IntoLayout as _, LayoutStrategy, SendableLayoutFuture, SendableSequentialStream,
-    SequentialStreamAdapter, SequentialStreamExt,
+    IntoLayout as _, LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
+    SequentialStreamExt,
 };
 
-pub struct StructStrategy {
-    child: ArcRef<dyn LayoutStrategy>,
+pub struct StructStrategy<S> {
+    child: S,
 }
 
 /// A [`LayoutStrategy`] that splits a StructArray batch into child layout writers
-impl StructStrategy {
-    pub fn new(child: ArcRef<dyn LayoutStrategy>) -> Self {
+impl<S> StructStrategy<S>
+where
+    S: LayoutStrategy,
+{
+    pub fn new(child: S) -> Self {
         Self { child }
     }
 }
 
-impl LayoutStrategy for StructStrategy {
-    fn write_stream(
+#[async_trait]
+impl<S> LayoutStrategy for StructStrategy<S>
+where
+    S: LayoutStrategy,
+{
+    async fn write_stream(
         &self,
         ctx: &ArrayContext,
         sequence_writer: SequenceWriter,
         stream: SendableSequentialStream,
-    ) -> SendableLayoutFuture {
+    ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         let Some(struct_dtype) = stream.dtype().as_struct().cloned() else {
             // nothing we can do if dtype is not struct
-            return self.child.write_stream(ctx, sequence_writer, stream);
+            return self.child.write_stream(ctx, sequence_writer, stream).await;
         };
         if HashSet::<_, DefaultHashBuilder>::from_iter(struct_dtype.names().iter()).len()
             != struct_dtype.names().len()
         {
-            return Box::pin(async { vortex_bail!("StructLayout must have unique field names") });
+            vortex_bail!("StructLayout must have unique field names");
         }
 
         let stream = stream.map(|chunk| {
@@ -62,15 +69,13 @@ impl LayoutStrategy for StructStrategy {
 
         // There are now fields so this is the layout leaf
         if struct_dtype.nfields() == 0 {
-            return Box::pin(async move {
-                let row_count = stream
-                    .try_fold(
-                        0u64,
-                        |acc, (_, arr)| async move { Ok(acc + arr.len() as u64) },
-                    )
-                    .await?;
-                Ok(StructLayout::new(row_count, dtype, vec![]).into_layout())
-            });
+            let row_count = stream
+                .try_fold(
+                    0u64,
+                    |acc, (_, arr)| async move { Ok(acc + arr.len() as u64) },
+                )
+                .await?;
+            return Ok(StructLayout::new(row_count, dtype, vec![]).into_layout());
         }
 
         // stream<struct_chunk> -> stream<vec<column_chunk>>
@@ -97,22 +102,22 @@ impl LayoutStrategy for StructStrategy {
                 .field_by_index(idx)
                 .vortex_expect("bound checked")
         });
-        let child = self.child.clone();
-        let ctx = ctx.clone();
-        let layout_futures = column_dtypes
+
+        let layout_futures: Vec<_> = column_dtypes
             .zip_eq(column_streams)
             .map(move |(dtype, stream)| {
                 let column_stream = SequentialStreamAdapter::new(dtype, stream).sendable();
-                child.write_stream(&ctx, sequence_writer.clone(), column_stream)
-            });
+                self.child
+                    .write_stream(ctx, sequence_writer.clone(), column_stream)
+                    .boxed()
+            })
+            .collect();
 
-        Box::pin(async move {
-            let column_layouts = try_join_all(layout_futures).await?;
-            // TODO(os): transposed stream could count row counts as well,
-            // This must hold though, all columns must have the same row count of the struct layout
-            let row_count = column_layouts.first().map(|l| l.row_count()).unwrap_or(0);
-            Ok(StructLayout::new(row_count, dtype, column_layouts).into_layout())
-        })
+        let column_layouts = try_join_all(layout_futures).await?;
+        // TODO(os): transposed stream could count row counts as well,
+        // This must hold though, all columns must have the same row count of the struct layout
+        let row_count = column_layouts.first().map(|l| l.row_count()).unwrap_or(0);
+        Ok(StructLayout::new(row_count, dtype, column_layouts).into_layout())
     }
 }
 
@@ -214,9 +219,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
-    use arcref::ArcRef;
     use futures::executor::block_on;
     use futures::stream;
     use vortex_array::arrays::{BoolArray, StructArray};
@@ -234,8 +236,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn fails_on_duplicate_field() {
-        let strategy =
-            StructStrategy::new(ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())));
+        let strategy = StructStrategy::new(FlatLayoutStrategy::default());
         block_on(
             strategy.write_stream(
                 &ArrayContext::empty(),
@@ -260,8 +261,7 @@ mod tests {
 
     #[test]
     fn fails_on_top_level_nulls() {
-        let strategy =
-            StructStrategy::new(ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())));
+        let strategy = StructStrategy::new(FlatLayoutStrategy::default());
         let res = block_on(
             strategy.write_stream(
                 &ArrayContext::empty(),
@@ -300,8 +300,7 @@ mod tests {
 
     #[test]
     fn write_empty_field_struct_array() {
-        let strategy =
-            StructStrategy::new(ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())));
+        let strategy = StructStrategy::new(FlatLayoutStrategy::default());
         let res = block_on(
             strategy.write_stream(
                 &ArrayContext::empty(),

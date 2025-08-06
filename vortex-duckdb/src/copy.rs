@@ -16,7 +16,7 @@ use vortex::dtype::Nullability::{NonNullable, Nullable};
 use vortex::dtype::{DType, StructFields};
 use vortex::error::{VortexExpect, VortexResult, vortex_err};
 use vortex::stream::ArrayStreamAdapter;
-use vortex_file::{VortexLayoutStrategy, VortexWriteOptions};
+use vortex_file::{VortexWriteOptions, WriteStrategyBuilder};
 
 use crate::convert::{data_chunk_to_arrow, from_duckdb_table};
 use crate::duckdb::{CopyFunction, DataChunk, LogicalType};
@@ -119,9 +119,11 @@ impl CopyFunction for VortexCopyFunction {
         let writer = COPY_RUNTIME.spawn(async move {
             let file = File::create(file_path).await?;
             VortexWriteOptions::default()
-                .with_strategy(VortexLayoutStrategy::with_executor(Arc::new(
-                    Handle::current(),
-                )))
+                .with_strategy(
+                    WriteStrategyBuilder::new()
+                        .with_executor(Arc::new(Handle::current()))
+                        .build(),
+                )
                 .write(file, array_stream)
                 .await
         });
