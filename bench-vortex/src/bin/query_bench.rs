@@ -165,10 +165,13 @@ struct StatPopGenArgs {
     common: CommonArgs,
 
     #[arg(long, value_delimiter = ',', value_parser = value_parser!(Target),
-        default_values = vec![
+          default_values = vec![
+            // DataFusion does not support list_aggregate and simulating it with an UNNEST and GROUP
+            // BY is _very_ slow.
+            //
             // "datafusion:parquet",
-            "datafusion:vortex",
-            // "duckdb:parquet",
+            // "datafusion:vortex",
+            "duckdb:parquet",
             "duckdb:vortex",
             // "duckdb:duckdb"
         ]

@@ -182,8 +182,9 @@ impl DuckDBCtx {
             BenchmarkDataset::PublicBi { .. } => todo!(),
             BenchmarkDataset::StatPopGen => {
                 let path = format!("{base_dir}output4.{extension}");
+                println!("{}", path);
                 format!(
-                    "CREATE {} IF NOT EXISTS hits AS SELECT * FROM read_{extension}('{path}');",
+                    "CREATE {} IF NOT EXISTS statpopgen AS SELECT * FROM read_{extension}('{path}');",
                     duckdb_object.to_str()
                 )
             }

@@ -60,7 +60,7 @@ impl StatPopGenBenchmark {
 }
 
 pub fn register_table(session: &SessionContext, base_url: &Url, format: Format) -> Result<()> {
-    let table_path = base_url.join(&format!("output4.{}", format.ext()))?;
+    let table_path = base_url.join(&format!("{}/output4.{}", format.ext(), format.ext()))?;
     let table_url = ListingTableUrl::try_new(table_path, None)?;
     let config = ListingTableConfig::new(table_url)
         .with_listing_options(
@@ -93,31 +93,15 @@ impl Benchmark for StatPopGenBenchmark {
             // Extract just the GT column (which is frequently sent to a statistical method).
             (2, "SELECT \"GT\" FROM statpopgen;".to_string()),
             // Calculate the reference allele frequency: 0 = 0/0 homozygous reference, 1 = 0/1 heterzygous, 2 = 1/1 homozygous alternate.
-            (3, "
-SELECT \"CHROM\",
-       \"POS\",
-       \"REF\",
-       \"ALT\",
-       ((2 * SUM(CAST(GT == 0 AS INT)) + SUM(CAST(GT == 1 AS INT))) / (2 * SUM(CAST(GT IS NOT NULL AS INT)))) AS RAF
-FROM (SELECT \"CHROM\", \"POS\", \"REF\", \"ALT\", UNNEST(\"GT\") AS GT FROM statpopgen)
-GROUP BY \"CHROM\",
-         \"POS\",
-         \"REF\",
-         \"ALT\";
-".to_string()),
+            (
+                3,
+                "SELECT\"CHROM\", \"POS\", \"REF\", \"ALT\", 1.0 - CAST(LIST_SUM(GT) AS DOUBLE) / (2 * LIST_SUM(LIST_TRANSFORM(GT, lambda GT: GT IS NOT NULL))) AS RAF FROM statpopgen".to_string(),
+            ),
             // Calculate the alternate allele frequency: 0 = 0/0 homozygous reference, 1 = 0/1 heterzygous, 2 = 1/1 homozygous alternate.
-            (4, "
-SELECT \"CHROM\",
-       \"POS\",
-       \"REF\",
-       \"ALT\",
-       ((2 * SUM(CAST(GT == 2 AS INT)) + SUM(CAST(GT == 1 AS INT))) / (2 * SUM(CAST(GT IS NOT NULL AS INT)))) AS RAF
-FROM (SELECT \"CHROM\", \"POS\", \"REF\", \"ALT\", UNNEST(\"GT\") AS GT FROM statpopgen)
-GROUP BY \"CHROM\",
-         \"POS\",
-         \"REF\",
-         \"ALT\";
-".to_string()),
+            (
+                4,
+                "SELECT\"CHROM\", \"POS\", \"REF\", \"ALT\", CAST(LIST_SUM(GT) AS DOUBLE) / (2 * LIST_SUM(LIST_TRANSFORM(GT, lambda GT: GT IS NOT NULL))) AS AAF FROM statpopgen".to_string()
+            ),
         ])
     }
 
