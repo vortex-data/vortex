@@ -443,6 +443,12 @@ fn check_stats_equality(left: &dyn Array, right: &dyn Array) -> bool {
     for stat in stats_to_check {
         match (left.statistics().get(stat), right.statistics().get(stat)) {
             (Some(Precision::Exact(left_v)), Some(Precision::Exact(right_v))) => {
+                let left_dt = stat.dtype(left.dtype()).expect("stat exists");
+                let right_dt = stat.dtype(right.dtype()).expect("stat exists");
+
+                let left_v = Scalar::new(left_dt, left_v);
+                let right_v = Scalar::new(right_dt, right_v);
+
                 if !left_v.eq(&right_v) {
                     return false;
                 }
