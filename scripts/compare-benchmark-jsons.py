@@ -16,10 +16,6 @@ import pandas as pd
 base = pd.read_json(sys.argv[1], lines=True)
 pr = pd.read_json(sys.argv[2], lines=True)
 
-# Filter duplicate entries which can result from nightly
-# runs if the commit is identical to the base commit of the PR.
-base = base.drop_duplicates(subset=["name", "storage"], keep="last")
-
 base_commit_id = set(base["commit_id"].unique())
 pr_commit_id = set(pr["commit_id"].unique())
 
