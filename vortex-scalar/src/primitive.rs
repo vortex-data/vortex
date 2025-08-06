@@ -13,7 +13,7 @@ use vortex_error::{
     VortexError, VortexExpect as _, VortexResult, VortexUnwrap, vortex_err, vortex_panic,
 };
 
-use crate::pvalue::PValue;
+use crate::pvalue::{CoercePValue, PValue};
 use crate::{InnerScalarValue, Scalar, ScalarValue};
 
 /// A scalar value representing a primitive type.
@@ -62,16 +62,12 @@ impl<'a> PrimitiveScalar<'a> {
     /// Returns an error if the data type is not a primitive type or if the value
     /// cannot be converted to the expected primitive type.
     pub fn try_new(dtype: &'a DType, value: &ScalarValue) -> VortexResult<Self> {
-        let ptype = PType::try_from(dtype)?;
+        let ptype = dtype.as_ptype();
 
         // Read the serialized value into the correct PValue.
         // The serialized form may come back over the wire as e.g. any integer type.
         let pvalue = match_each_native_ptype!(ptype, |T| {
-            if let Some(pvalue) = value.as_pvalue()? {
-                Some(PValue::from(<T>::try_from(pvalue)?))
-            } else {
-                None
-            }
+            value.as_pvalue()?.map(|pv| PValue::from(<T>::coerce(pv)))
         });
 
         Ok(Self {

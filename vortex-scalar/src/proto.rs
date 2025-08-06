@@ -340,8 +340,9 @@ mod tests {
             DType::Primitive(PType::F16, Nullability::Nullable),
             scalar_value,
         );
+
         assert_eq!(
-            scalar.value.as_pvalue().unwrap().unwrap(),
+            scalar.as_primitive().pvalue().unwrap(),
             PValue::F16(f16::from_f32(0.42))
         );
     }
