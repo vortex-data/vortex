@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::arrays::BinaryView;
+use std::fmt::{Display, Formatter};
 use vortex_dtype::NativePType;
 use vortex_dtype::PType;
 use vortex_dtype::half::f16;
@@ -13,8 +14,17 @@ use vortex_dtype::half::f16;
 pub enum VType {
     Bool,
     Primitive(PType),
-    Utf8,
     Binary,
+}
+
+impl Display for VType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VType::Bool => write!(f, "bool"),
+            VType::Primitive(ptype) => write!(f, "{}", ptype),
+            VType::Binary => write!(f, "binary"),
+        }
+    }
 }
 
 impl VType {
@@ -22,26 +32,20 @@ impl VType {
         match self {
             VType::Bool => 1,
             VType::Primitive(ptype) => ptype.byte_width(),
-            VType::Utf8 => size_of::<BinaryView>(),
             VType::Binary => size_of::<BinaryView>(),
         }
     }
 }
 
 /// A trait to identify canonical vector types.
-pub trait Canonical {
-    type Element: 'static + Copy;
-
+pub trait Element: 'static + Copy {
     fn vtype() -> VType;
 }
 
-struct Bool;
-impl Canonical for Bool {
-    /// NOTE: for now, we have chosen to store boolean values as byte-sized booleans instead
-    ///  of packed into a bit mask, this is typically more efficient for SIMD compute operations.
-    ///  For masks, we still use bit-packed booleans.
-    type Element = bool;
-
+/// NOTE: for now, we have chosen to store boolean values as byte-sized booleans instead
+///  of packed into a bit mask, this is typically more efficient for SIMD compute operations.
+///  For masks, we still use bit-packed booleans.
+impl Element for bool {
     fn vtype() -> VType {
         VType::Bool
     }
@@ -49,9 +53,7 @@ impl Canonical for Bool {
 
 macro_rules! canonical_ptype {
     ($T:ty) => {
-        impl Canonical for $T {
-            type Element = $T;
-
+        impl Element for $T {
             fn vtype() -> VType {
                 VType::Primitive(<$T as NativePType>::PTYPE)
             }
@@ -71,29 +73,7 @@ canonical_ptype!(f16);
 canonical_ptype!(f32);
 canonical_ptype!(f64);
 
-pub trait BinaryType {
-    type Slice: ?Sized;
-}
-
-struct Utf8;
-impl BinaryType for Utf8 {
-    type Slice = str;
-}
-impl Canonical for Utf8 {
-    type Element = BinaryView;
-
-    fn vtype() -> VType {
-        VType::Utf8
-    }
-}
-
-struct Binary;
-impl BinaryType for Binary {
-    type Slice = [u8];
-}
-impl Canonical for Binary {
-    type Element = BinaryView;
-
+impl Element for BinaryView {
     fn vtype() -> VType {
         VType::Binary
     }

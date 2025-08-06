@@ -6,14 +6,13 @@ use std::task::{Poll, ready};
 use vortex_array::arrays::BinaryView;
 use vortex_array::pipeline::bits::BitView;
 use vortex_array::pipeline::buffers::BufferHandle;
-use vortex_array::pipeline::types::BinaryType;
 use vortex_array::pipeline::vector::PrimitiveVector;
 use vortex_array::pipeline::view::ViewMut;
 use vortex_array::pipeline::{Pipeline, PipelineContext};
 use vortex_buffer::ByteBufferMut;
 use vortex_error::{VortexExpect, VortexResult};
 
-pub struct FSSTPipeline<B: BinaryType> {
+pub struct FSSTPipeline {
     len: usize,
 
     symbols_buffer: BufferHandle<Symbol>,
@@ -27,11 +26,9 @@ pub struct FSSTPipeline<B: BinaryType> {
 
     uncompressed_lens: Box<dyn Pipeline>,
     uncompressed_lens_vec: PrimitiveVector<u32>,
-
-    _phantom: std::marker::PhantomData<B>,
 }
 
-impl<B: BinaryType> Pipeline for FSSTPipeline<B> {
+impl Pipeline for FSSTPipeline {
     fn seek(&mut self, chunk_idx: usize) -> VortexResult<()> {
         self.codes_offsets.seek(chunk_idx)?;
         self.uncompressed_lens.seek(chunk_idx)
@@ -77,7 +74,7 @@ impl<B: BinaryType> Pipeline for FSSTPipeline<B> {
         });
 
         let mut uncompressed = ByteBufferMut::with_capacity(output_size + 7);
-        let mut views_out = out.elements::<B>();
+        let mut views_out = out.elements::<BinaryView>();
 
         // TODO(ngates): iterate the mask as indices, slices, or all-true.
         let view_idx = 0;

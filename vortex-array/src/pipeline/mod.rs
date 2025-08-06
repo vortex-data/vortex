@@ -18,7 +18,7 @@
 
 pub mod bits;
 pub mod buffers;
-mod canonical;
+pub mod canonical;
 pub mod common;
 pub mod export;
 pub mod selection;
@@ -35,7 +35,7 @@ use crate::pipeline::view::ViewMut;
 use std::ops::Range;
 use std::task::Poll;
 use vortex_buffer::ByteBuffer;
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::{VortexResult, vortex_err, vortex_panic};
 
 /// A pipeline provides a push-based way to emit a stream of canonical data.
 ///
@@ -84,12 +84,24 @@ pub trait Pipeline {
     ) -> Poll<VortexResult<()>>;
 }
 
-pub trait ToPipeline {
-    fn len(&self) -> usize;
-
-    /// Create a pipeline.
-    fn to_pipeline(&self) -> Box<dyn Pipeline>;
+pub trait PipelineExt: Pipeline {
+    /// Perform a single step of the pipeline, panics if the step returns [`Poll::Pending`].
+    fn step_now(
+        &mut self,
+        ctx: &dyn PipelineContext,
+        selected: BitView,
+        out: &mut ViewMut,
+    ) -> VortexResult<()> {
+        match self.step(ctx, selected, out) {
+            Poll::Ready(r) => r,
+            Poll::Pending => {
+                vortex_panic!("Pipeline step is pending, but expected it to be ready.")
+            }
+        }
+    }
 }
+
+impl<P: Pipeline + ?Sized> PipelineExt for P {}
 
 pub trait PipelineContext {
     /// Get a buffer by its ID.

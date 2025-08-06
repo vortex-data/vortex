@@ -8,7 +8,7 @@ use vortex_array::pipeline::N;
 use vortex_array::pipeline::bits::BitView;
 use vortex_array::pipeline::buffers::BufferHandle;
 use vortex_array::pipeline::selection::Selection;
-use vortex_array::pipeline::types::Canonical;
+use vortex_array::pipeline::types::Element;
 use vortex_array::pipeline::view::ViewMut;
 use vortex_array::pipeline::{Pipeline, PipelineContext};
 use vortex_array::vtable::PipelineVTable;
@@ -30,7 +30,8 @@ impl PipelineVTable<BitPackedVTable> for BitPackedVTable {
                 width: array.bit_width as usize,
                 packed_stride: array.bit_width as usize
                     * <<T as PhysicalPType>::Physical as FastLanes>::LANES,
-                buffer: BufferHandle::new(array.packed.clone()).into_typed(),
+                buffer: BufferHandle::new(array.packed.clone())
+                    .into_typed::<<T as PhysicalPType>::Physical>(),
                 packed_offset: 0,
             }))
         })
@@ -50,8 +51,8 @@ pub(crate) struct BitPackedPipeline<T: PhysicalPType<Physical: BitPacking>> {
 impl<T> Pipeline for BitPackedPipeline<T>
 where
     T: PhysicalPType<Physical: BitPacking>,
-    T: Canonical<Element = T>,
-    <T as PhysicalPType>::Physical: Canonical<Element = <T as PhysicalPType>::Physical>,
+    T: Element,
+    <T as PhysicalPType>::Physical: Element,
 {
     fn seek(&mut self, chunk_idx: usize) -> VortexResult<()> {
         let fls_chunk_idx = chunk_idx * (N / 1024);

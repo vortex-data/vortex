@@ -21,7 +21,7 @@ use crate::arrays::{
 };
 use crate::builders::ArrayBuilder;
 use crate::compute::{ComputeFn, Cost, InvocationArgs, IsConstantOpts, Output, is_constant_opts};
-use crate::pipeline::{Pipeline, ToPipeline};
+use crate::pipeline::Pipeline;
 use crate::serde::ArrayChildren;
 use crate::stats::{Precision, Stat, StatsSetRef};
 use crate::vtable::{
@@ -689,15 +689,5 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
             Ok(None) => write!(f, "<serde not supported>"),
             Ok(Some(metadata)) => Debug::fmt(&metadata, f),
         }
-    }
-}
-
-impl ToPipeline for dyn Array + '_ {
-    fn len(&self) -> usize {
-        self.len()
-    }
-
-    fn to_pipeline(&self) -> Box<dyn Pipeline> {
-        Array::to_pipeline(self).vortex_expect("Failed to create pipeline")
     }
 }

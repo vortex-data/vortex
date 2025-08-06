@@ -3,7 +3,6 @@
 
 use crate::pipeline::N;
 use bitvec::prelude::*;
-use std::ops::Not;
 use vortex_error::{VortexError, vortex_err};
 
 /// A borrowed fixed-size bit vector of length `N` bits, represented as an array of 64-bit words.
@@ -19,11 +18,11 @@ pub struct BitView<'a> {
 
 impl BitView<'static> {
     pub fn all_true() -> Self {
-        unsafe { BitView::new_unchecked(unsafe { std::mem::transmute(&[u64::MAX; N / 64]) }, N) }
+        unsafe { BitView::new_unchecked(std::mem::transmute(&[u64::MAX; N / 64]), N) }
     }
 
     pub fn all_false() -> Self {
-        unsafe { BitView::new_unchecked(unsafe { std::mem::transmute(&[0; N / 64]) }, 0) }
+        unsafe { BitView::new_unchecked(std::mem::transmute(&[0; N / 64]), 0) }
     }
 }
 

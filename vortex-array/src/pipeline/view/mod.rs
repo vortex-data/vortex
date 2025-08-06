@@ -12,7 +12,7 @@ use vortex_error::VortexExpect;
 
 use crate::pipeline::bits::BitVector;
 use crate::pipeline::bits::BitViewMut;
-use crate::pipeline::types::{Canonical, VType};
+use crate::pipeline::types::{Element, VType};
 
 /// A vector is the atomic unit of canonical data in Vortex.
 ///
@@ -64,7 +64,7 @@ use crate::pipeline::types::{Canonical, VType};
 /// Maybe this works? Not sure yet.
 pub struct ViewMut<'a> {
     /// The physical type of the vector, which defines how the elements are stored.
-    pub(crate) vtype: VType,
+    pub vtype: VType,
     /// A pointer to the allocated elements buffer.
     /// Alignment is at least the size of the element type.
     /// The capacity of the elements buffer is N * size_of::<T>() where T is the element type.
@@ -90,13 +90,10 @@ pub struct ViewMut<'a> {
 }
 
 impl<'a> ViewMut<'a> {
-    pub fn new<C: Canonical>(
-        elements: &'a mut [C::Element],
-        validity: Option<BitViewMut<'a>>,
-    ) -> Self {
+    pub fn new<E: Element>(elements: &'a mut [E], validity: Option<BitViewMut<'a>>) -> Self {
         assert_eq!(elements.len(), N);
         Self {
-            vtype: C::vtype(),
+            vtype: E::vtype(),
             elements: elements.as_mut_ptr().cast(),
             validity,
             selection: Selection::default(),
@@ -108,13 +105,15 @@ impl<'a> ViewMut<'a> {
 
     /// Re-interpret cast the vector into a new type where the element has the same width.
     #[inline(always)]
-    pub fn reinterpret_as<C: Canonical>(&mut self) {
+    pub fn reinterpret_as<E: Element>(&mut self) {
         assert_eq!(
             self.vtype.byte_width(),
-            size_of::<C::Element>(),
-            "Invalid type for reinterpretation"
+            size_of::<E>(),
+            "Cannot reinterpret {} as {}",
+            self.vtype,
+            E::vtype()
         );
-        self.vtype = C::vtype();
+        self.vtype = E::vtype();
     }
 
     /// Return the logical length of the vector, which is the number of selected elements.
@@ -128,24 +127,24 @@ impl<'a> ViewMut<'a> {
 
     /// Returns a mutable handle to the elements array.
     #[inline(always)]
-    pub fn elements<C: Canonical>(&mut self) -> &'a mut [C::Element; N] {
-        assert_eq!(self.vtype, C::vtype(), "Invalid type for canonical view");
-        // SAFETY: We assume that the elements are of type C::Element and that the view is valid.
-        unsafe { &mut *(self.elements.cast::<[C::Element; N]>()) }
+    pub fn elements<E: Element>(&mut self) -> &'a mut [E; N] {
+        assert_eq!(self.vtype, E::vtype(), "Invalid type for canonical view");
+        // SAFETY: We assume that the elements are of type E and that the view is valid.
+        unsafe { &mut *(self.elements.cast::<[E; N]>()) }
     }
 
     /// Returns an immutable slice of the elements in the vector.
     #[inline(always)]
-    pub fn as_ref<C: Canonical>(&self) -> &'a [C::Element] {
-        assert_eq!(self.vtype, C::vtype(), "Invalid type for canonical view");
-        unsafe { std::slice::from_raw_parts(self.elements.cast::<C::Element>(), N) }
+    pub fn as_ref<E: Element>(&self) -> &'a [E] {
+        assert_eq!(self.vtype, E::vtype(), "Invalid type for canonical view");
+        unsafe { std::slice::from_raw_parts(self.elements.cast::<E>(), N) }
     }
 
     /// Returns a mutable slice of the elements in the vector, allowing for modification.
     #[inline(always)]
-    pub fn as_mut<C: Canonical>(&mut self) -> &'a mut [C::Element] {
-        assert_eq!(self.vtype, C::vtype(), "Invalid type for canonical view");
-        unsafe { std::slice::from_raw_parts_mut(self.elements.cast::<C::Element>(), N) }
+    pub fn as_mut<E: Element>(&mut self) -> &'a mut [E] {
+        assert_eq!(self.vtype, E::vtype(), "Invalid type for canonical view");
+        unsafe { std::slice::from_raw_parts_mut(self.elements.cast::<E>(), N) }
     }
 
     /// Access the validity mask of the vector.

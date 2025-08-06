@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::pipeline::bits::BitView;
-use crate::pipeline::types::Canonical;
+use crate::pipeline::types::Element;
 use crate::pipeline::vector::PrimitiveVector;
-use crate::pipeline::{N, Pipeline, PipelineContext, ToPipeline};
+use crate::pipeline::{N, Pipeline, PipelineContext};
 use bitvec::order::Msb0;
 use bitvec::vec::BitVec;
 use std::iter;
@@ -12,7 +12,7 @@ use std::task::Poll;
 use vortex_dtype::NativePType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
-pub struct PrimitiveExporter<'a, T> {
+struct PrimitiveExporter<'a, T> {
     ctx: &'a dyn PipelineContext,
     pipeline: Box<dyn Pipeline>,
     remaining: usize,
@@ -20,12 +20,11 @@ pub struct PrimitiveExporter<'a, T> {
     tail_mask: BitVec<u64, Msb0>,
 }
 
-impl<'a, T: Canonical<Element = T> + NativePType> PrimitiveExporter<'a, T> {
-    pub fn new<P: ToPipeline>(ctx: &'a dyn PipelineContext, pipeline: P) -> Self {
-        let len = pipeline.len();
+impl<'a, T: Element + NativePType> PrimitiveExporter<'a, T> {
+    pub fn new(ctx: &'a dyn PipelineContext, pipeline: Box<dyn Pipeline>, len: usize) -> Self {
         Self {
             ctx,
-            pipeline: pipeline.to_pipeline(),
+            pipeline,
             remaining: len,
             vector: PrimitiveVector::default(),
             tail_mask: Default::default(),

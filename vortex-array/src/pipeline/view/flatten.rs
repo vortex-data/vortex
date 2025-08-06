@@ -2,12 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::pipeline::selection::Selection;
-use crate::pipeline::types::Canonical;
+use crate::pipeline::types::Element;
 use crate::pipeline::view::ViewMut;
 use std::mem::take;
 
 impl<'a> ViewMut<'a> {
-    pub fn flatten<C: Canonical>(&mut self) {
+    pub fn flatten<C: Element>(&mut self) {
         assert_eq!(self.vtype, C::vtype(), "ViewMut::flatten: type mismatch");
         let selection = take(&mut self.selection);
         let len = match selection {

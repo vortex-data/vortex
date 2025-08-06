@@ -4,22 +4,20 @@
 use crate::arrays::BinaryView;
 use crate::pipeline::bits::BitView;
 use crate::pipeline::buffers::BufferHandle;
-use crate::pipeline::types::BinaryType;
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{N, Pipeline, PipelineContext};
 use std::task::Poll;
 use vortex_error::VortexResult;
 
-pub struct VarBinPipeline<B: BinaryType> {
+pub struct VarBinPipeline {
     views_buffer: BufferHandle<BinaryView>,
     data_buffers: Vec<BufferHandle<u8>>,
-    _phantom: std::marker::PhantomData<B>,
 
     len: usize,
     offset: usize,
 }
 
-impl<B: BinaryType> Pipeline for VarBinPipeline<B> {
+impl Pipeline for VarBinPipeline {
     fn seek(&mut self, chunk_idx: usize) -> VortexResult<()> {
         self.offset = chunk_idx * N;
         Ok(())

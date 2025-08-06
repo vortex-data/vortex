@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::pipeline::bits::BitVector;
-use crate::pipeline::types::Canonical;
+use crate::pipeline::types::Element;
 use crate::pipeline::view::ViewMut;
 use vortex_dtype::NativePType;
 
@@ -20,11 +20,11 @@ impl<T: NativePType> Default for PrimitiveVector<T> {
     }
 }
 
-impl<T: Canonical<Element = T>> PrimitiveVector<T> {
+impl<T: Element> PrimitiveVector<T> {
     pub fn as_view_mut(&mut self) -> ViewMut<'_> {
         ViewMut::new::<T>(
             &mut self.elements,
-            self.validity.as_mut().map(|mut v| v.as_view_mut()),
+            self.validity.as_mut().map(|v| v.as_view_mut()),
         )
     }
 }
