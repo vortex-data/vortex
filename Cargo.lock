@@ -6562,6 +6562,7 @@ dependencies = [
  "log",
  "num-traits",
  "object_store",
+ "once_cell",
  "parking_lot",
  "reqwest",
  "rstest",
