@@ -145,14 +145,14 @@ impl DecimalArray {
         decimal_dtype: DecimalDType,
         validity: Validity,
     ) -> Self {
-        if let Some(len) = validity.maybe_len() {
-            if buffer.len() != len {
-                vortex_panic!(
-                    "Buffer and validity length mismatch: buffer={}, validity={}",
-                    buffer.len(),
-                    len,
-                );
-            }
+        if let Some(len) = validity.maybe_len()
+            && buffer.len() != len
+        {
+            vortex_panic!(
+                "Buffer and validity length mismatch: buffer={}, validity={}",
+                buffer.len(),
+                len,
+            );
         }
 
         Self {

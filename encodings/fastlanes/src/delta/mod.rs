@@ -149,14 +149,14 @@ impl DeltaArray {
             vortex_bail!("DeltaArray: dtype must be an integer, got {}", dtype);
         }
 
-        if let Some(vlen) = validity.maybe_len() {
-            if vlen != logical_len {
-                vortex_bail!(
-                    "DeltaArray: validity length ({}) must match logical_len ({})",
-                    vlen,
-                    logical_len
-                );
-            }
+        if let Some(vlen) = validity.maybe_len()
+            && vlen != logical_len
+        {
+            vortex_bail!(
+                "DeltaArray: validity length ({}) must match logical_len ({})",
+                vlen,
+                logical_len
+            );
         }
 
         let delta = Self {

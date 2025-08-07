@@ -129,13 +129,13 @@ fn min_max_impl(
         return Ok(None);
     }
 
-    if let Some(array) = array.as_opt::<ConstantVTable>() {
-        if !array.scalar().is_null() {
-            return Ok(Some(MinMaxResult {
-                min: array.scalar().clone(),
-                max: array.scalar().clone(),
-            }));
-        }
+    if let Some(array) = array.as_opt::<ConstantVTable>()
+        && !array.scalar().is_null()
+    {
+        return Ok(Some(MinMaxResult {
+            min: array.scalar().clone(),
+            max: array.scalar().clone(),
+        }));
     }
 
     let min = array

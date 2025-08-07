@@ -137,14 +137,14 @@ impl SparseArray {
     ///
     /// Optionally provided fill value will be respected if the array is less than 90% null.
     pub fn encode(array: &dyn Array, fill_value: Option<Scalar>) -> VortexResult<ArrayRef> {
-        if let Some(fill_value) = fill_value.as_ref() {
-            if array.dtype() != fill_value.dtype() {
-                vortex_bail!(
-                    "Array and fill value types must match. got {} and {}",
-                    array.dtype(),
-                    fill_value.dtype()
-                )
-            }
+        if let Some(fill_value) = fill_value.as_ref()
+            && array.dtype() != fill_value.dtype()
+        {
+            vortex_bail!(
+                "Array and fill value types must match. got {} and {}",
+                array.dtype(),
+                fill_value.dtype()
+            )
         }
         let mask = array.validity_mask()?;
 

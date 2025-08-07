@@ -343,10 +343,10 @@ impl BtrBlocksCompressor {
             }
             Canonical::Extension(ext_array) => {
                 // We compress Timestamp-level arrays with DateTimeParts compression
-                if let Ok(temporal_array) = TemporalArray::try_from(ext_array.to_array()) {
-                    if let TemporalMetadata::Timestamp(..) = temporal_array.temporal_metadata() {
-                        return compress_temporal(temporal_array);
-                    }
+                if let Ok(temporal_array) = TemporalArray::try_from(ext_array.to_array())
+                    && let TemporalMetadata::Timestamp(..) = temporal_array.temporal_metadata()
+                {
+                    return compress_temporal(temporal_array);
                 }
 
                 // Compress the underlying storage array.
