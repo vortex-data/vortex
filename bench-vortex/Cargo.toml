@@ -41,6 +41,8 @@ indicatif = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true, features = ["max_level_debug"] }
 mimalloc = { workspace = true }
+noodles-bgzf = { workspace = true, features = ["async"] }
+noodles-vcf = { workspace = true, features = ["async"] }
 object_store = { workspace = true, features = ["aws", "gcp"] }
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true, features = ["trace"] }
@@ -60,6 +62,7 @@ tabled = { workspace = true, features = ["std"] }
 tar = { workspace = true }
 target-lexicon = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
+tokio-util = { workspace = true }
 tokio-stream = { workspace = true }
 tpchgen = { workspace = true }
 tpchgen-arrow = { workspace = true }

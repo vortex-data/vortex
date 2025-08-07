@@ -37,7 +37,7 @@ pub enum BenchmarkDataset {
     #[serde(rename = "public-bi")]
     PublicBi { name: String },
     #[serde(rename = "statpopgen")]
-    StatPopGen,
+    StatPopGen { n_rows: u64 },
 }
 
 impl BenchmarkDataset {
@@ -47,7 +47,7 @@ impl BenchmarkDataset {
             BenchmarkDataset::TpcDS { .. } => "tpcds",
             BenchmarkDataset::ClickBench { .. } => "clickbench",
             BenchmarkDataset::PublicBi { .. } => "public-bi",
-            BenchmarkDataset::StatPopGen => "statpopgen",
+            BenchmarkDataset::StatPopGen { .. } => "statpopgen",
         }
     }
 }
@@ -62,7 +62,7 @@ impl Display for BenchmarkDataset {
                 Flavor::Single => write!(f, "clickbench-single"),
             },
             BenchmarkDataset::PublicBi { name } => write!(f, "public-bi({name})"),
-            BenchmarkDataset::StatPopGen => write!(f, "statpopgen"),
+            BenchmarkDataset::StatPopGen { n_rows } => write!(f, "statpopgen(n_rows={n_rows})"),
         }
     }
 }
@@ -101,7 +101,7 @@ impl BenchmarkDataset {
                 "supplier",
             ],
             BenchmarkDataset::ClickBench { .. } | BenchmarkDataset::PublicBi { .. } => todo!(),
-            BenchmarkDataset::StatPopGen => &["statpopgen"],
+            BenchmarkDataset::StatPopGen { .. } => &["statpopgen"],
         }
     }
 
@@ -144,13 +144,13 @@ impl BenchmarkDataset {
             (BenchmarkDataset::PublicBi { .. }, _) => {
                 anyhow::bail!("public bi unsupported for now")
             }
-            (BenchmarkDataset::StatPopGen, Format::Parquet) => {
+            (BenchmarkDataset::StatPopGen { .. }, Format::Parquet) => {
                 statpopgen::register_table(session, base_url, Format::Parquet)?
             }
-            (BenchmarkDataset::StatPopGen, Format::OnDiskVortex) => {
+            (BenchmarkDataset::StatPopGen { .. }, Format::OnDiskVortex) => {
                 statpopgen::register_table(session, base_url, Format::OnDiskVortex)?
             }
-            (BenchmarkDataset::StatPopGen, format) => {
+            (BenchmarkDataset::StatPopGen { .. }, format) => {
                 anyhow::bail!("StatPopGen in {format} unsupported for now")
             }
         }

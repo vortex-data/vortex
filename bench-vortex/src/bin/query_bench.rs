@@ -171,8 +171,9 @@ struct StatPopGenArgs {
             //
             // "datafusion:parquet",
             // "datafusion:vortex",
-            "duckdb:parquet",
-            "duckdb:vortex",
+              "duckdb:parquet",
+              "duckdb:vortex",
+              "duckdb:vortex-compact",
             // "duckdb:duckdb"
         ]
     )]
@@ -180,6 +181,9 @@ struct StatPopGenArgs {
 
     #[arg(long)]
     data_url: String,
+
+    #[arg(long)]
+    n_rows: u64,
 }
 
 fn validate_scale_factor(val: &str) -> Result<String, String> {
@@ -311,7 +315,7 @@ fn run_tpcds(args: TpcDSArgs) -> anyhow::Result<()> {
 
 fn run_statpopgen(args: StatPopGenArgs) -> anyhow::Result<()> {
     // Create benchmark instance
-    let benchmark = StatPopGenBenchmark::new(Url::parse(&args.data_url)?)?;
+    let benchmark = StatPopGenBenchmark::new(Url::parse(&args.data_url)?, args.n_rows)?;
 
     // Configure driver
     let config = DriverConfig {

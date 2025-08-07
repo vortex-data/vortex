@@ -45,7 +45,9 @@ impl DuckDBCtx {
                 format!("tpcds/{scale_factor}/{}", format.name()).to_data_path()
             }
             BenchmarkDataset::PublicBi { .. } => todo!(),
-            BenchmarkDataset::StatPopGen => format!("statpopgen/{}", format.name()).to_data_path(),
+            BenchmarkDataset::StatPopGen { n_rows } => {
+                format!("statpopgen/{n_rows}/{}", format.name()).to_data_path()
+            }
         };
         std::fs::create_dir_all(&dir)?;
         let db_path = dir.join("duckdb.db");
@@ -62,6 +64,7 @@ impl DuckDBCtx {
         let db = Database::open_in_memory()?;
         let connection = db.connect()?;
         vortex_duckdb::register_table_functions(&connection)?;
+
         Ok(Self { db, connection })
     }
 
@@ -180,9 +183,8 @@ impl DuckDBCtx {
                 commands
             }
             BenchmarkDataset::PublicBi { .. } => todo!(),
-            BenchmarkDataset::StatPopGen => {
-                let path = format!("{base_dir}output4.{extension}");
-                println!("{}", path);
+            BenchmarkDataset::StatPopGen { .. } => {
+                let path = format!("{base_dir}gnomad.genomes.v3.1.2.hgdp_tgp.chr21.{extension}");
                 format!(
                     "CREATE {} IF NOT EXISTS statpopgen AS SELECT * FROM read_{extension}('{path}');",
                     duckdb_object.to_str()

@@ -538,6 +538,8 @@ dependencies = [
  "itertools 0.14.0",
  "log",
  "mimalloc",
+ "noodles-bgzf",
+ "noodles-vcf",
  "object_store",
  "opentelemetry",
  "opentelemetry-otlp",
@@ -558,6 +560,7 @@ dependencies = [
  "target-lexicon",
  "tokio",
  "tokio-stream",
+ "tokio-util",
  "tpchgen",
  "tpchgen-arrow",
  "tracing",
@@ -3838,6 +3841,76 @@ checksum = "d273983c5a657a70a3e8f2a01329822f3b8c8172b73826411a55751e404a0a4a"
 dependencies = [
  "memchr",
  "minimal-lexical",
+]
+
+[[package]]
+name = "noodles-bgzf"
+version = "0.42.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7c1c3e3f19c4afd0c540104e596a9312074de9d0c01bedd5370ffba62ba3b439"
+dependencies = [
+ "bytes",
+ "crossbeam-channel",
+ "flate2",
+ "futures",
+ "pin-project-lite",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
+name = "noodles-core"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8ebfc6396fb51059c98a35bb81b96422ac41ea1bc60b6c8e9c6b2550212e9493"
+dependencies = [
+ "bstr",
+]
+
+[[package]]
+name = "noodles-csi"
+version = "0.50.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e055462495239a7e401d2c545c87731f9c5b909f95cea402d83149d353a69da9"
+dependencies = [
+ "bit-vec",
+ "bstr",
+ "byteorder",
+ "indexmap",
+ "noodles-bgzf",
+ "noodles-core",
+]
+
+[[package]]
+name = "noodles-tabix"
+version = "0.56.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "07ba0481a5ea82a7c6f87f2d7ea0404fd17b1afffb5796c4bb7f01e8322021cb"
+dependencies = [
+ "byteorder",
+ "indexmap",
+ "noodles-bgzf",
+ "noodles-core",
+ "noodles-csi",
+ "tokio",
+]
+
+[[package]]
+name = "noodles-vcf"
+version = "0.80.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e12789efb7cdfe2b2cbb9055477b6a4375d14825d23cea73345d5668a372049"
+dependencies = [
+ "futures",
+ "indexmap",
+ "memchr",
+ "noodles-bgzf",
+ "noodles-core",
+ "noodles-csi",
+ "noodles-tabix",
+ "percent-encoding",
+ "pin-project-lite",
+ "tokio",
 ]
 
 [[package]]
