@@ -28,7 +28,7 @@ impl TakeKernel for FSSTVTable {
                 .clone(),
             fill_null(
                 &take(array.uncompressed_lengths(), indices)?,
-                &Scalar::new(
+                &Scalar::new_unchecked(
                     array.uncompressed_lengths_dtype().clone(),
                     ScalarValue::from(0),
                 ),

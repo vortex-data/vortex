@@ -86,7 +86,7 @@ impl<'a> ExtScalar<'a> {
 
     /// Returns the storage scalar of the extension scalar.
     pub fn storage(&self) -> Scalar {
-        Scalar::new(self.ext_dtype.storage_dtype().clone(), self.value.clone())
+        Scalar::new_unchecked(self.ext_dtype.storage_dtype().clone(), self.value.clone())
     }
 
     /// Returns the extension data type.
@@ -106,12 +106,12 @@ impl<'a> ExtScalar<'a> {
 
         if self.ext_dtype.storage_dtype().eq_ignore_nullability(dtype) {
             // Casting from an extension type to the underlying storage type is OK.
-            return Ok(Scalar::new(dtype.clone(), self.value.clone()));
+            return Ok(Scalar::new_unchecked(dtype.clone(), self.value.clone()));
         }
 
         if let DType::Extension(ext_dtype) = dtype {
             if self.ext_dtype.eq_ignore_nullability(ext_dtype) {
-                return Ok(Scalar::new(dtype.clone(), self.value.clone()));
+                return Ok(Scalar::new_unchecked(dtype.clone(), self.value.clone()));
             }
         }
 

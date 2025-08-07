@@ -51,7 +51,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            Some(Scalar::new(dict.dtype().clone(), 0i32.into())),
+            Some(Scalar::new_unchecked(dict.dtype().clone(), 0i32.into())),
             dict.slice(0, 1).unwrap().as_constant()
         );
 

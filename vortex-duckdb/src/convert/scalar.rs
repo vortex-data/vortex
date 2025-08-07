@@ -243,7 +243,7 @@ impl TryFrom<&Value> for Scalar {
                     Arc::new(DType::Primitive(I32, Nullable)),
                     Some(TemporalMetadata::Date(TimeUnit::D).into()),
                 )),
-                Scalar::new(DType::Primitive(I32, Nullable), ScalarValue::from(days)),
+                Scalar::new_unchecked(DType::Primitive(I32, Nullable), ScalarValue::from(days)),
             )),
             Val::Time(micros) => Ok(Scalar::extension(
                 Arc::new(ExtDType::new(
@@ -251,7 +251,7 @@ impl TryFrom<&Value> for Scalar {
                     Arc::new(DType::Primitive(I64, Nullable)),
                     Some(TemporalMetadata::Time(TimeUnit::Us).into()),
                 )),
-                Scalar::new(DType::Primitive(I64, Nullable), ScalarValue::from(micros)),
+                Scalar::new_unchecked(DType::Primitive(I64, Nullable), ScalarValue::from(micros)),
             )),
             Val::TimestampNs(nanos) => Ok(Scalar::extension(
                 Arc::new(ExtDType::new(
@@ -259,7 +259,7 @@ impl TryFrom<&Value> for Scalar {
                     Arc::new(DType::Primitive(I64, Nullable)),
                     Some(TemporalMetadata::Timestamp(TimeUnit::Ns, None).into()),
                 )),
-                Scalar::new(DType::Primitive(I64, Nullable), ScalarValue::from(nanos)),
+                Scalar::new_unchecked(DType::Primitive(I64, Nullable), ScalarValue::from(nanos)),
             )),
             Val::Timestamp(micros) => Ok(Scalar::extension(
                 Arc::new(ExtDType::new(
@@ -267,7 +267,7 @@ impl TryFrom<&Value> for Scalar {
                     Arc::new(DType::Primitive(I64, Nullable)),
                     Some(TemporalMetadata::Timestamp(TimeUnit::Us, None).into()),
                 )),
-                Scalar::new(DType::Primitive(I64, Nullable), ScalarValue::from(micros)),
+                Scalar::new_unchecked(DType::Primitive(I64, Nullable), ScalarValue::from(micros)),
             )),
             Val::TimestampMs(millis) => Ok(Scalar::extension(
                 Arc::new(ExtDType::new(
@@ -275,7 +275,7 @@ impl TryFrom<&Value> for Scalar {
                     Arc::new(DType::Primitive(I64, Nullable)),
                     Some(TemporalMetadata::Timestamp(TimeUnit::Ms, None).into()),
                 )),
-                Scalar::new(DType::Primitive(I64, Nullable), ScalarValue::from(millis)),
+                Scalar::new_unchecked(DType::Primitive(I64, Nullable), ScalarValue::from(millis)),
             )),
             Val::TimestampS(seconds) => Ok(Scalar::extension(
                 Arc::new(ExtDType::new(
@@ -283,7 +283,7 @@ impl TryFrom<&Value> for Scalar {
                     Arc::new(DType::Primitive(I64, Nullable)),
                     Some(TemporalMetadata::Timestamp(TimeUnit::S, None).into()),
                 )),
-                Scalar::new(DType::Primitive(I64, Nullable), ScalarValue::from(seconds)),
+                Scalar::new_unchecked(DType::Primitive(I64, Nullable), ScalarValue::from(seconds)),
             )),
             Val::Decimal(precision, scale, value) => Ok(Scalar::decimal(
                 DecimalValue::I128(value),
@@ -345,7 +345,7 @@ mod tests {
 
             let original_scalar = Scalar::extension(
                 ext_dtype,
-                Scalar::new(
+                Scalar::new_unchecked(
                     DType::Primitive(PType::I64, Nullability::NonNullable),
                     ScalarValue::from(timestamp_value),
                 ),

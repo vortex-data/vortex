@@ -179,7 +179,7 @@ pub trait ArrayBuilderExt: ArrayBuilder {
             self.append_null();
             Ok(())
         } else {
-            self.append_scalar(&Scalar::new(self.dtype().clone(), value))
+            self.append_scalar(&Scalar::new_unchecked(self.dtype().clone(), value))
         }
     }
 

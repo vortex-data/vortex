@@ -67,8 +67,19 @@ pub struct Scalar {
 
 impl Scalar {
     /// Creates a new scalar with the given data type and value.
-    pub fn new(dtype: DType, value: ScalarValue) -> Self {
+    /// Does not check if the data type and value are compatible.
+    pub fn new_unchecked(dtype: DType, value: ScalarValue) -> Self {
         Self { dtype, value }
+    }
+
+    /// Creates a new scalar with the given data type and value.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the data type and value are not compatible.
+    pub fn try_new(dtype: DType, value: ScalarValue) -> VortexResult<Self> {
+        let scalar = Self::new_unchecked(dtype, value);
+        scalar.cast(&scalar.dtype)
     }
 
     /// Returns a reference to the scalar's data type.
@@ -148,7 +159,7 @@ impl Scalar {
         assert!(!matches!(target, DType::Extension(..)));
         if self.is_null() {
             if target.is_nullable() {
-                return Ok(Scalar::new(target.clone(), self.value.clone()));
+                return Ok(Scalar::new_unchecked(target.clone(), self.value.clone()));
             } else {
                 vortex_bail!(
                     "Cannot cast null to {}: target type is non-nullable",
@@ -158,7 +169,7 @@ impl Scalar {
         }
 
         if self.dtype().eq_ignore_nullability(target) {
-            return Ok(Scalar::new(target.clone(), self.value.clone()));
+            return Ok(Scalar::new_unchecked(target.clone(), self.value.clone()));
         }
 
         match &self.dtype {
@@ -448,7 +459,7 @@ impl From<PrimitiveScalar<'_>> for Scalar {
             .pvalue()
             .map(|pvalue| ScalarValue(InnerScalarValue::Primitive(pvalue)))
             .unwrap_or_else(|| ScalarValue(InnerScalarValue::Null));
-        Self::new(dtype, value)
+        Self::new_unchecked(dtype, value)
     }
 }
 
@@ -459,7 +470,7 @@ impl From<DecimalScalar<'_>> for Scalar {
             .decimal_value()
             .map(|value| ScalarValue(InnerScalarValue::Decimal(value)))
             .unwrap_or_else(|| ScalarValue(InnerScalarValue::Null));
-        Self::new(dtype, value)
+        Self::new_unchecked(dtype, value)
     }
 }
 

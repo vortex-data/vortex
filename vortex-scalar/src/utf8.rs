@@ -155,7 +155,7 @@ impl<'a> Utf8Scalar<'a> {
         if !matches!(dtype, DType::Utf8(..)) {
             vortex_bail!("Cannot cast utf8 to {}: unsupported conversion", dtype)
         }
-        Ok(Scalar::new(
+        Ok(Scalar::new_unchecked(
             dtype.clone(),
             ScalarValue(InnerScalarValue::BufferString(
                 self.value

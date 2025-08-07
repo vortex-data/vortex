@@ -122,7 +122,7 @@ impl VTable for DynamicComparisonVTable {
         // Otherwise, we return the default value.
         let lhs = expr.return_dtype(scope.dtype())?;
         Ok(ConstantArray::new(
-            Scalar::new(
+            Scalar::new_unchecked(
                 DType::Bool(lhs.nullability() | expr.rhs.dtype.nullability()),
                 expr.default.into(),
             ),
@@ -166,7 +166,7 @@ impl DynamicComparisonExpr {
     }
 
     pub fn scalar(&self) -> Option<Scalar> {
-        (self.rhs.value)().map(|v| Scalar::new(self.rhs.dtype.clone(), v))
+        (self.rhs.value)().map(|v| Scalar::new_unchecked(self.rhs.dtype.clone(), v))
     }
 }
 
@@ -257,7 +257,7 @@ impl DynamicExprUpdates {
         let exprs = visitor.0.into_boxed_slice();
         let prev_versions = exprs
             .iter()
-            .map(|expr| (expr.rhs.value)().map(|v| Scalar::new(expr.rhs.dtype.clone(), v)))
+            .map(|expr| (expr.rhs.value)().map(|v| Scalar::new_unchecked(expr.rhs.dtype.clone(), v)))
             .collect();
 
         Some(Self {

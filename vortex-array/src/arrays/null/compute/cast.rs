@@ -18,7 +18,7 @@ impl CastKernel for NullVTable {
             return Ok(Some(array.to_array()));
         }
 
-        let scalar = Scalar::new(dtype.clone(), ScalarValue::null());
+        let scalar = Scalar::new_unchecked(dtype.clone(), ScalarValue::null());
         Ok(Some(ConstantArray::new(scalar, array.len()).into_array()))
     }
 }

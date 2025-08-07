@@ -52,7 +52,7 @@ pub fn extract_relevant_file_stats_as_struct_row(
                 if let Some(stat_dtype) = stat.dtype(&field_dtype) {
                     columns.push((
                         field_path_stat_field_name(field_path, *stat),
-                        ConstantArray::new(Scalar::new(stat_dtype, stat_value.clone()), 1)
+                        ConstantArray::new(Scalar::new_unchecked(stat_dtype, stat_value.clone()), 1)
                             .to_array(),
                     ));
                 }

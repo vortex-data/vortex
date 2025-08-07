@@ -99,7 +99,7 @@ fn compare_fsst_constant(
         _ => unreachable!("FSSTArray can only have string or binary data type"),
     };
 
-    let encoded_scalar = Scalar::new(
+    let encoded_scalar = Scalar::new_unchecked(
         DType::Binary(left.dtype().nullability() | right.dtype().nullability()),
         encoded_buffer.into(),
     );

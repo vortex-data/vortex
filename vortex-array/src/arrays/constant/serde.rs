@@ -30,7 +30,7 @@ impl SerdeVTable<ConstantVTable> for ConstantVTable {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
         let sv = ScalarValue::from_protobytes(&buffers[0])?;
-        let scalar = Scalar::new(dtype.clone(), sv);
+        let scalar = Scalar::new_unchecked(dtype.clone(), sv);
         Ok(ConstantArray::new(scalar, len))
     }
 }

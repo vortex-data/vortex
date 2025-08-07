@@ -189,7 +189,7 @@ impl FromDataFusion<ScalarValue> for Scalar {
             | ScalarValue::Time32Millisecond(v) => {
                 let ext_dtype = make_temporal_ext_dtype(&value.data_type())
                     .with_nullability(Nullability::Nullable);
-                Scalar::new(
+                Scalar::new_unchecked(
                     DType::Extension(Arc::new(ext_dtype)),
                     v.map(vortex::scalar::ScalarValue::from)
                         .unwrap_or_else(vortex::scalar::ScalarValue::null),
@@ -203,7 +203,7 @@ impl FromDataFusion<ScalarValue> for Scalar {
             | ScalarValue::TimestampMicrosecond(v, _)
             | ScalarValue::TimestampNanosecond(v, _) => {
                 let ext_dtype = make_temporal_ext_dtype(&value.data_type());
-                Scalar::new(
+                Scalar::new_unchecked(
                     DType::Extension(Arc::new(ext_dtype.with_nullability(Nullability::Nullable))),
                     v.map(vortex::scalar::ScalarValue::from)
                         .unwrap_or_else(vortex::scalar::ScalarValue::null),

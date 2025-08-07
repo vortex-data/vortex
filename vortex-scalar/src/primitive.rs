@@ -303,7 +303,7 @@ impl Scalar {
     /// Note that an explicit PType is passed since any compatible PValue may be used as the value
     /// for a primitive type.
     pub fn primitive_value(value: PValue, ptype: PType, nullability: Nullability) -> Self {
-        Self::new(
+        Self::new_unchecked(
             DType::Primitive(ptype, nullability),
             ScalarValue(InnerScalarValue::Primitive(value)),
         )
@@ -328,7 +328,7 @@ impl Scalar {
             "can't reinterpret cast between integers of two different widths"
         );
 
-        Scalar::new(
+        Scalar::new_unchecked(
             DType::Primitive(ptype, self.dtype.nullability()),
             primitive
                 .pvalue
@@ -376,7 +376,7 @@ macro_rules! primitive_scalar {
 
         impl From<$T> for Scalar {
             fn from(value: $T) -> Self {
-                Scalar::new(
+                Scalar::new_unchecked(
                     DType::Primitive(<$T>::PTYPE, Nullability::NonNullable),
                     ScalarValue(InnerScalarValue::Primitive(value.into())),
                 )

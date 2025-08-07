@@ -125,7 +125,7 @@ impl TryFrom<&pb::Scalar> for Scalar {
                 .ok_or_else(|| vortex_err!(InvalidSerde: "Scalar missing value"))?,
         )?;
 
-        Ok(Scalar::new(dtype, value))
+        Ok(Scalar::new_unchecked(dtype, value))
     }
 }
 
@@ -195,7 +195,7 @@ mod tests {
 
     #[test]
     fn test_bool() {
-        round_trip(Scalar::new(
+        round_trip(Scalar::new_unchecked(
             DType::Bool(Nullability::Nullable),
             ScalarValue(InnerScalarValue::Bool(true)),
         ));
@@ -203,7 +203,7 @@ mod tests {
 
     #[test]
     fn test_primitive() {
-        round_trip(Scalar::new(
+        round_trip(Scalar::new_unchecked(
             DType::Primitive(PType::I32, Nullability::Nullable),
             ScalarValue(InnerScalarValue::Primitive(42i32.into())),
         ));
@@ -211,7 +211,7 @@ mod tests {
 
     #[test]
     fn test_buffer() {
-        round_trip(Scalar::new(
+        round_trip(Scalar::new_unchecked(
             DType::Binary(Nullability::Nullable),
             ScalarValue(InnerScalarValue::Buffer(Arc::new(vec![1, 2, 3].into()))),
         ));
@@ -219,7 +219,7 @@ mod tests {
 
     #[test]
     fn test_buffer_string() {
-        round_trip(Scalar::new(
+        round_trip(Scalar::new_unchecked(
             DType::Utf8(Nullability::Nullable),
             ScalarValue(InnerScalarValue::BufferString(Arc::new(
                 BufferString::from("hello".to_string()),
@@ -229,7 +229,7 @@ mod tests {
 
     #[test]
     fn test_list() {
-        round_trip(Scalar::new(
+        round_trip(Scalar::new_unchecked(
             DType::List(
                 Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
                 Nullability::Nullable,
@@ -254,17 +254,17 @@ mod tests {
 
     #[test]
     fn test_i8() {
-        round_trip(Scalar::new(
+        round_trip(Scalar::new_unchecked(
             DType::Primitive(PType::I8, Nullability::Nullable),
             ScalarValue(InnerScalarValue::Primitive(i8::MIN.into())),
         ));
 
-        round_trip(Scalar::new(
+        round_trip(Scalar::new_unchecked(
             DType::Primitive(PType::I8, Nullability::Nullable),
             ScalarValue(InnerScalarValue::Primitive(0i8.into())),
         ));
 
-        round_trip(Scalar::new(
+        round_trip(Scalar::new_unchecked(
             DType::Primitive(PType::I8, Nullability::Nullable),
             ScalarValue(InnerScalarValue::Primitive(i8::MAX.into())),
         ));
@@ -319,7 +319,7 @@ mod tests {
         let scalar_read_back = ScalarValue::from_protobytes(&written).unwrap();
         assert_eq!(
             scalar,
-            Scalar::new(scalar.dtype().clone(), scalar_read_back)
+            Scalar::new_unchecked(scalar.dtype().clone(), scalar_read_back)
         );
     }
 
@@ -336,7 +336,7 @@ mod tests {
             Some(PValue::U64(14008u64))
         );
 
-        let scalar = Scalar::new(
+        let scalar = Scalar::new_unchecked(
             DType::Primitive(PType::F16, Nullability::Nullable),
             scalar_value,
         );

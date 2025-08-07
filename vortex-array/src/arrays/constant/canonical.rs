@@ -192,7 +192,7 @@ fn canonical_list_array(
         None => ListArray::try_new(
             Canonical::empty(element_dtype).into_array(),
             ConstantArray::new(
-                Scalar::new(
+                Scalar::new_unchecked(
                     DType::Primitive(PType::U64, Nullability::NonNullable),
                     ScalarValue::from(0),
                 ),

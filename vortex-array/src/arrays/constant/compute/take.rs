@@ -14,7 +14,7 @@ impl TakeKernel for ConstantVTable {
     fn take(&self, array: &ConstantArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         match indices.validity_mask()?.boolean_buffer() {
             AllOr::All => {
-                let scalar = Scalar::new(
+                let scalar = Scalar::new_unchecked(
                     array
                         .scalar()
                         .dtype()

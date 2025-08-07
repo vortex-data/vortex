@@ -50,7 +50,7 @@ impl CompareKernel for SequenceVTable {
         } else {
             Ok(Some(
                 ConstantArray::new(
-                    Scalar::new(DType::Bool(nullability), false.into()),
+                    Scalar::new_unchecked(DType::Bool(nullability), false.into()),
                     lhs.len(),
                 )
                 .to_array(),

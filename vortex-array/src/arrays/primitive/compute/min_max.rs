@@ -52,15 +52,15 @@ where
     {
         itertools::MinMaxResult::NoElements => None,
         itertools::MinMaxResult::OneElement(&x) => {
-            let scalar = Scalar::new(dtype.clone(), x.into());
+            let scalar = Scalar::new_unchecked(dtype.clone(), x.into());
             Some(MinMaxResult {
                 min: scalar.clone(),
                 max: scalar,
             })
         }
         itertools::MinMaxResult::MinMax(&min, &max) => Some(MinMaxResult {
-            min: Scalar::new(dtype.clone(), min.into()),
-            max: Scalar::new(dtype.clone(), max.into()),
+            min: Scalar::new_unchecked(dtype.clone(), min.into()),
+            max: Scalar::new_unchecked(dtype.clone(), max.into()),
         }),
     }
 }

@@ -199,7 +199,7 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Scalar::new(
+                Scalar::new_unchecked(
                     dtype(),
                     ScalarValue(InnerScalarValue::Primitive(PValue::I32(3 * MINUTES + 25)))
                 )
@@ -223,7 +223,7 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Scalar::new(
+                Scalar::new_unchecked(
                     dtype(),
                     ScalarValue(InnerScalarValue::Primitive(PValue::I32(25)))
                 )
@@ -234,7 +234,7 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Scalar::new(
+                Scalar::new_unchecked(
                     dtype(),
                     ScalarValue(InnerScalarValue::Primitive(PValue::I32(365)))
                 )
@@ -245,7 +245,7 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Scalar::new(
+                Scalar::new_unchecked(
                     dtype(),
                     ScalarValue(InnerScalarValue::Primitive(PValue::I32(365 * 4)))
                 )
@@ -272,7 +272,7 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Scalar::new(
+                Scalar::new_unchecked(
                     dtype(),
                     ScalarValue(InnerScalarValue::Primitive(PValue::I32(
                         3 * DAYS + 2 * HOURS + 5 * MINUTES + 10
@@ -302,7 +302,7 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Scalar::new(
+                Scalar::new_unchecked(
                     dtype(),
                     ScalarValue(InnerScalarValue::Primitive(PValue::I32(0)))
                 )
@@ -313,7 +313,7 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Scalar::new(
+                Scalar::new_unchecked(
                     dtype(),
                     ScalarValue(InnerScalarValue::Primitive(PValue::I32(
                         3 * DAYS + 2 * HOURS + 5 * MINUTES + 10

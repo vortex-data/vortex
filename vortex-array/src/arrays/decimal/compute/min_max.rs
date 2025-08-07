@@ -49,15 +49,15 @@ where
     match iter.minmax_by(|a, b| a.cmp(b)) {
         itertools::MinMaxResult::NoElements => None,
         itertools::MinMaxResult::OneElement(&x) => {
-            let scalar = Scalar::new(dtype.clone(), ScalarValue::from(x.into()));
+            let scalar = Scalar::new_unchecked(dtype.clone(), ScalarValue::from(x.into()));
             Some(MinMaxResult {
                 min: scalar.clone(),
                 max: scalar,
             })
         }
         itertools::MinMaxResult::MinMax(&min, &max) => Some(MinMaxResult {
-            min: Scalar::new(dtype.clone(), ScalarValue::from(min.into())),
-            max: Scalar::new(dtype.clone(), ScalarValue::from(max.into())),
+            min: Scalar::new_unchecked(dtype.clone(), ScalarValue::from(min.into())),
+            max: Scalar::new_unchecked(dtype.clone(), ScalarValue::from(max.into())),
         }),
     }
 }
@@ -83,11 +83,11 @@ mod tests {
         let min_max = min_max(decimal.as_ref()).unwrap();
 
         let expected = MinMaxResult {
-            min: Scalar::new(
+            min: Scalar::new_unchecked(
                 decimal.dtype().clone(),
                 ScalarValue::from(DecimalValue::from(100i32)),
             ),
-            max: Scalar::new(
+            max: Scalar::new_unchecked(
                 decimal.dtype().clone(),
                 ScalarValue::from(DecimalValue::from(200i32)),
             ),

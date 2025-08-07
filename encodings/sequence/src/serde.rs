@@ -53,7 +53,7 @@ impl SerdeVTable<SequenceVTable> for SequenceVTable {
         let ptype = dtype.as_ptype();
 
         // We go via scalar to cast the scalar values into the correct PType
-        let base = Scalar::new(
+        let base = Scalar::new_unchecked(
             DType::Primitive(ptype, NonNullable),
             metadata
                 .base
@@ -65,7 +65,7 @@ impl SerdeVTable<SequenceVTable> for SequenceVTable {
         .pvalue()
         .vortex_expect("non-nullable primitive");
 
-        let multiplier = Scalar::new(
+        let multiplier = Scalar::new_unchecked(
             DType::Primitive(ptype, NonNullable),
             metadata
                 .multiplier
