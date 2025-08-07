@@ -7,3 +7,4 @@
 #include "vortex/scan.hpp"
 #include "vortex/write_options.hpp"
 #include "vortex/exception.hpp"
+#include "vortex/expr.hpp"
