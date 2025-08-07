@@ -16,9 +16,11 @@ version = { workspace = true }
 
 [features]
 test-harness = ["rand", "vortex-fsst"]
+arrow = ["dep:arrow-array"]
 
 [dependencies]
 arrow-buffer = { workspace = true }
+arrow-array = { workspace = true, optional = true }
 num-traits = { workspace = true }
 prost = { workspace = true }
 # test-harness
