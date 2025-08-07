@@ -81,6 +81,12 @@ impl<'a> BinaryScalar<'a> {
         self.value.as_ref().map(|v| v.as_ref().clone())
     }
 
+    /// Returns a reference to the binary value, or None if null.
+    /// This avoids cloning the underlying ByteBuffer.
+    pub fn value_ref(&self) -> Option<&ByteBuffer> {
+        self.value.as_ref().map(|v| v.as_ref())
+    }
+
     /// Constructs a value at most `max_length` in size that's greater than this value.
     ///
     /// Returns None if constructing a greater value would overflow.
@@ -133,7 +139,7 @@ impl<'a> BinaryScalar<'a> {
 
     pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
         if !matches!(dtype, DType::Binary(..)) {
-            vortex_bail!("Can't cast binary to {}", dtype)
+            vortex_bail!("Cannot cast binary to {}: unsupported conversion", dtype)
         }
         Ok(Scalar::new(
             dtype.clone(),

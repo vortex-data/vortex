@@ -15,7 +15,7 @@ use crate::{InnerScalarValue, Scalar, ScalarValue};
 ///
 /// This type provides a view into a UTF-8 string scalar value, which can be either
 /// a valid UTF-8 string or null.
-#[derive(Debug, Hash)]
+#[derive(Debug, Hash, Eq)]
 pub struct Utf8Scalar<'a> {
     dtype: &'a DType,
     value: Option<Arc<BufferString>>,
@@ -35,8 +35,6 @@ impl PartialEq for Utf8Scalar<'_> {
         self.dtype.eq_ignore_nullability(other.dtype) && self.value == other.value
     }
 }
-
-impl Eq for Utf8Scalar<'_> {}
 
 impl PartialOrd for Utf8Scalar<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
@@ -75,6 +73,12 @@ impl<'a> Utf8Scalar<'a> {
     /// Returns the string value, or None if null.
     pub fn value(&self) -> Option<BufferString> {
         self.value.as_ref().map(|v| v.as_ref().clone())
+    }
+
+    /// Returns a reference to the string value, or None if null.
+    /// This avoids cloning the underlying BufferString.
+    pub fn value_ref(&self) -> Option<&BufferString> {
+        self.value.as_ref().map(|v| v.as_ref())
     }
 
     /// Constructs a value at most `max_length` in size that's greater than this value.
@@ -149,7 +153,7 @@ impl<'a> Utf8Scalar<'a> {
 
     pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
         if !matches!(dtype, DType::Utf8(..)) {
-            vortex_bail!("Can't cast utf8 to {}", dtype)
+            vortex_bail!("Cannot cast utf8 to {}: unsupported conversion", dtype)
         }
         Ok(Scalar::new(
             dtype.clone(),

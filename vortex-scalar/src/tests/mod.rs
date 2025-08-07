@@ -1,11 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-pub use array::*;
+//! Test modules for the vortex-scalar crate.
 
-mod array;
-mod compute;
-mod serde;
-
-#[cfg(test)]
-mod test;
+mod consistency;
+mod core;
+mod round_trip;

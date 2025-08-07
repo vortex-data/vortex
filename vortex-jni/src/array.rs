@@ -324,12 +324,12 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getBigDecimal(
         let scale = decimal_type.scale();
         if let Some(v) = decimal_scalar.decimal_value() {
             match v {
-                DecimalValue::I8(v) => bigdecimal_i8(env, *v, scale),
-                DecimalValue::I16(v) => bigdecimal_i16(env, *v, scale),
-                DecimalValue::I32(v) => bigdecimal_i32(env, *v, scale),
-                DecimalValue::I64(v) => bigdecimal_i64(env, *v, scale),
-                DecimalValue::I128(v) => bigdecimal_i128(env, *v, scale),
-                DecimalValue::I256(v) => bigdecimal_i256(env, *v, scale),
+                DecimalValue::I8(v) => bigdecimal_i8(env, v, scale),
+                DecimalValue::I16(v) => bigdecimal_i16(env, v, scale),
+                DecimalValue::I32(v) => bigdecimal_i32(env, v, scale),
+                DecimalValue::I64(v) => bigdecimal_i64(env, v, scale),
+                DecimalValue::I128(v) => bigdecimal_i128(env, v, scale),
+                DecimalValue::I256(v) => bigdecimal_i256(env, v, scale),
             }
         } else {
             Ok(JObject::null().into_raw())

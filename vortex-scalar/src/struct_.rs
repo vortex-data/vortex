@@ -158,7 +158,10 @@ impl<'a> StructScalar<'a> {
     /// Returns an error if the target type is not a struct or if the number of fields don't match.
     pub fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
         let DType::Struct(st, _) = dtype else {
-            vortex_bail!("Can only cast struct to another struct")
+            vortex_bail!(
+                "Cannot cast struct to {}: struct can only be cast to struct",
+                dtype
+            )
         };
         let own_st = self.struct_fields();
 

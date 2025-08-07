@@ -970,7 +970,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "117725a109d387c937a1533ce01b450cbde6b88abceea8473c4d7a85853cda3c"
 dependencies = [
  "lazy_static",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2738,9 +2738,9 @@ dependencies = [
 
 [[package]]
 name = "grid"
-version = "0.17.0"
+version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71b01d27060ad58be4663b9e4ac9e2d4806918e8876af8912afbddd1a91d5eaa"
+checksum = "12101ecc8225ea6d675bc70263074eab6169079621c2186fe0c66590b2df9681"
 
 [[package]]
 name = "h2"
@@ -3252,7 +3252,7 @@ dependencies = [
  "portable-atomic",
  "portable-atomic-util",
  "serde",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4698,7 +4698,7 @@ dependencies = [
  "once_cell",
  "socket2 0.5.10",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -5054,7 +5054,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -5635,9 +5635,9 @@ dependencies = [
 
 [[package]]
 name = "taffy"
-version = "0.8.3"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7aaef0ac998e6527d6d0d5582f7e43953bb17221ac75bb8eb2fcc2db3396db1c"
+checksum = "a13e5d13f79d558b5d353a98072ca8ca0e99da429467804de959aa8c83c9a004"
 dependencies = [
  "arrayvec",
  "grid",
@@ -5696,7 +5696,7 @@ dependencies = [
  "getrandom 0.3.3",
  "once_cell",
  "rustix 1.0.8",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6501,6 +6501,7 @@ dependencies = [
 name = "vortex-dict"
 version = "0.1.0"
 dependencies = [
+ "arrow-array",
  "arrow-buffer",
  "codspeed-divan-compat",
  "num-traits",
@@ -6562,6 +6563,7 @@ dependencies = [
  "log",
  "num-traits",
  "object_store",
+ "once_cell",
  "parking_lot",
  "reqwest",
  "rstest",
@@ -6883,6 +6885,7 @@ dependencies = [
  "half",
  "pco",
  "prost 0.14.1",
+ "rstest",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
@@ -6956,6 +6959,7 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-proto",
+ "vortex-utils",
 ]
 
 [[package]]
@@ -7064,6 +7068,7 @@ name = "vortex-zstd"
 version = "0.1.0"
 dependencies = [
  "prost 0.14.1",
+ "rstest",
  "vortex-array",
  "vortex-buffer",
  "vortex-dict",
@@ -7249,7 +7254,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

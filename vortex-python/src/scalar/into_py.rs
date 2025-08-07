@@ -46,7 +46,7 @@ impl<'py> IntoPyObject<'py> for PyVortex<&'_ Scalar> {
                 let decimal = self.0.as_decimal();
                 match decimal.decimal_value() {
                     None => Ok(py.None().into_pyobject(py)?),
-                    Some(value) => decimal_value_to_py(py, decimal_type.scale(), *value),
+                    Some(value) => decimal_value_to_py(py, decimal_type.scale(), value),
                 }
             }
             DType::Utf8(_) => self.0.as_utf8().value().map(PyVortex).into_pyobject(py),

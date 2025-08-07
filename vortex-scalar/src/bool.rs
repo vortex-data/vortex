@@ -14,7 +14,7 @@ use crate::{InnerScalarValue, Scalar, ScalarValue};
 ///
 /// This type provides a view into a boolean scalar value, which can be either
 /// true, false, or null.
-#[derive(Debug, Hash)]
+#[derive(Debug, Hash, Eq)]
 pub struct BoolScalar<'a> {
     dtype: &'a DType,
     value: Option<bool>,
@@ -34,8 +34,6 @@ impl PartialEq for BoolScalar<'_> {
         self.dtype.eq_ignore_nullability(other.dtype) && self.value == other.value
     }
 }
-
-impl Eq for BoolScalar<'_> {}
 
 impl PartialOrd for BoolScalar<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
@@ -63,7 +61,7 @@ impl<'a> BoolScalar<'a> {
 
     pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
         if !matches!(dtype, DType::Bool(..)) {
-            vortex_bail!("Can't cast bool to {}", dtype)
+            vortex_bail!("Cannot cast bool to {}: unsupported conversion", dtype)
         }
         Ok(Scalar::bool(
             self.value.vortex_expect("nullness handled in Scalar::cast"),
