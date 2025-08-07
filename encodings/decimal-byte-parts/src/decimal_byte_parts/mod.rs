@@ -134,7 +134,7 @@ impl OperationsVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
                     .vortex_expect("scalar must have correct ptype"),
             )
         });
-        Ok(Scalar::new_unchecked(
+        Ok(Scalar::new(
             array.dtype.clone(),
             DecimalValue::I64(value).into(),
         ))
@@ -176,11 +176,11 @@ mod tests {
 
         assert_eq!(Scalar::null(dtype.clone()), array.scalar_at(0).unwrap());
         assert_eq!(
-            Scalar::new_unchecked(dtype.clone(), DecimalValue::I64(200).into()),
+            Scalar::new(dtype.clone(), DecimalValue::I64(200).into()),
             array.scalar_at(1).unwrap()
         );
         assert_eq!(
-            Scalar::new_unchecked(dtype, DecimalValue::I64(400).into()),
+            Scalar::new(dtype, DecimalValue::I64(400).into()),
             array.scalar_at(2).unwrap()
         );
     }

@@ -30,7 +30,7 @@ impl FillNullKernel for DictVTable {
         // Now we rewrite the nullable codes to point at the fill value.
         let codes = fill_null(
             array.codes(),
-            &Scalar::new_unchecked(
+            &Scalar::new(
                 array
                     .codes()
                     .dtype()

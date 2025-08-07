@@ -50,7 +50,7 @@ impl ComputeFnVTable for Sum {
 
         // Short-circuit using array statistics.
         if let Some(Precision::Exact(sum)) = array.statistics().get(Stat::Sum) {
-            return Ok(Scalar::new_unchecked(sum_dtype, sum).into());
+            return Ok(Scalar::new(sum_dtype, sum).into());
         }
 
         let sum_scalar = sum_impl(array, sum_dtype, kernels)?;
@@ -122,9 +122,9 @@ pub fn sum_impl(
 ) -> VortexResult<Scalar> {
     if array.is_empty() {
         return if sum_dtype.is_float() {
-            Ok(Scalar::new_unchecked(sum_dtype, 0.0.into()))
+            Ok(Scalar::new(sum_dtype, 0.0.into()))
         } else {
-            Ok(Scalar::new_unchecked(sum_dtype, 0.into()))
+            Ok(Scalar::new(sum_dtype, 0.into()))
         };
     }
 

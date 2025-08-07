@@ -164,12 +164,12 @@ impl<T: PartialEq> PartialEq<T> for Precision<T> {
 
 impl Precision<ScalarValue> {
     pub fn into_scalar(self, dtype: DType) -> Precision<Scalar> {
-        self.map(|v| Scalar::new_unchecked(dtype, v))
+        self.map(|v| Scalar::new(dtype, v))
     }
 }
 
 impl Precision<&ScalarValue> {
     pub fn into_scalar(self, dtype: DType) -> Precision<Scalar> {
-        self.map(|v| Scalar::new_unchecked(dtype, v.clone()))
+        self.map(|v| Scalar::new(dtype, v.clone()))
     }
 }

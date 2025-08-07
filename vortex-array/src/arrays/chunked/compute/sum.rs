@@ -25,7 +25,7 @@ impl SumKernel for ChunkedVTable {
             floating: |T| { sum_float(array.chunks())?.into() }
         );
 
-        Ok(Scalar::new_unchecked(sum_dtype, scalar_value))
+        Ok(Scalar::new(sum_dtype, scalar_value))
     }
 }
 

@@ -141,7 +141,7 @@ impl<'a> BinaryScalar<'a> {
         if !matches!(dtype, DType::Binary(..)) {
             vortex_bail!("Cannot cast binary to {}: unsupported conversion", dtype)
         }
-        Ok(Scalar::new_unchecked(
+        Ok(Scalar::new(
             dtype.clone(),
             ScalarValue(InnerScalarValue::Buffer(
                 self.value

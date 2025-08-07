@@ -29,21 +29,21 @@ impl MinMaxKernel for BoolVTable {
         let Some(slice) = slices.next() else {
             // all false
             return Ok(Some(MinMaxResult {
-                min: Scalar::new_unchecked(array.dtype().clone(), false.into()),
-                max: Scalar::new_unchecked(array.dtype().clone(), false.into()),
+                min: Scalar::new(array.dtype().clone(), false.into()),
+                max: Scalar::new(array.dtype().clone(), false.into()),
             }));
         };
         if slice.0 == 0 && slice.1 == x.len() {
             // all true
             return Ok(Some(MinMaxResult {
-                min: Scalar::new_unchecked(array.dtype().clone(), true.into()),
-                max: Scalar::new_unchecked(array.dtype().clone(), true.into()),
+                min: Scalar::new(array.dtype().clone(), true.into()),
+                max: Scalar::new(array.dtype().clone(), true.into()),
             }));
         };
 
         Ok(Some(MinMaxResult {
-            min: Scalar::new_unchecked(array.dtype().clone(), false.into()),
-            max: Scalar::new_unchecked(array.dtype().clone(), true.into()),
+            min: Scalar::new(array.dtype().clone(), false.into()),
+            max: Scalar::new(array.dtype().clone(), true.into()),
         }))
     }
 }

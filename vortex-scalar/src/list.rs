@@ -35,7 +35,7 @@ impl Display for ListScalar<'_> {
                     "[{}]",
                     elems
                         .iter()
-                        .map(|e| Scalar::new_unchecked(self.element_dtype().clone(), e.clone()))
+                        .map(|e| Scalar::new(self.element_dtype().clone(), e.clone()))
                         .format(", ")
                 )
             }
@@ -116,7 +116,7 @@ impl<'a> ListScalar<'a> {
         self.elements
             .as_ref()
             .and_then(|l| l.get(idx))
-            .map(|value| Scalar::new_unchecked(self.element_dtype().clone(), value.clone()))
+            .map(|value| Scalar::new(self.element_dtype().clone(), value.clone()))
     }
 
     /// Returns all elements in the list as a vector of scalars.
@@ -126,7 +126,7 @@ impl<'a> ListScalar<'a> {
         self.elements.as_ref().map(|elems| {
             elems
                 .iter()
-                .map(|e| Scalar::new_unchecked(self.element_dtype().clone(), e.clone()))
+                .map(|e| Scalar::new(self.element_dtype().clone(), e.clone()))
                 .collect_vec()
         })
     }
@@ -140,7 +140,7 @@ impl<'a> ListScalar<'a> {
             )
         };
 
-        Ok(Scalar::new_unchecked(
+        Ok(Scalar::new(
             dtype.clone(),
             ScalarValue(InnerScalarValue::List(
                 self.elements
@@ -148,7 +148,7 @@ impl<'a> ListScalar<'a> {
                     .vortex_expect("nullness handled in Scalar::cast")
                     .iter()
                     .map(|element| {
-                        Scalar::new_unchecked(DType::clone(self.element_dtype), element.clone())
+                        Scalar::new(DType::clone(self.element_dtype), element.clone())
                             .cast(element_dtype)
                             .map(|x| x.value().clone())
                     })
@@ -179,7 +179,7 @@ impl Scalar {
                 );
             }
         }
-        Self::new_unchecked(
+        Self::new(
             DType::List(element_dtype, nullability),
             ScalarValue(InnerScalarValue::List(
                 children.into_iter().map(|x| x.value).collect(),
@@ -189,7 +189,7 @@ impl Scalar {
 
     /// Creates a new empty list scalar with the given element type.
     pub fn list_empty(element_dtype: Arc<DType>, nullability: Nullability) -> Self {
-        Self::new_unchecked(
+        Self::new(
             DType::List(element_dtype, nullability),
             ScalarValue(InnerScalarValue::Null),
         )

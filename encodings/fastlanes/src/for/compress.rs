@@ -27,7 +27,7 @@ impl FoRArray {
                 .reinterpret_cast(unsigned_ptype)
                 .into_array()
         });
-        FoRArray::try_new(encoded, Scalar::new_unchecked(dtype, min))
+        FoRArray::try_new(encoded, Scalar::new(dtype, min))
     }
 }
 

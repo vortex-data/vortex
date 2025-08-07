@@ -61,7 +61,7 @@ mod tests {
 
     #[test]
     fn list_casts() {
-        let list = Scalar::new_unchecked(
+        let list = Scalar::new(
             DType::List(
                 Arc::from(DType::Primitive(PType::U16, Nullability::Nullable)),
                 Nullability::Nullable,
@@ -98,7 +98,7 @@ mod tests {
         );
         assert_eq!(list.cast(&target_u8).unwrap().dtype(), &target_u8);
 
-        let list_with_null = Scalar::new_unchecked(
+        let list_with_null = Scalar::new(
             DType::List(
                 Arc::from(DType::Primitive(PType::U16, Nullability::Nullable)),
                 Nullability::Nullable,
@@ -129,9 +129,8 @@ mod tests {
             None,
         );
         let ext_dtype = DType::Extension(Arc::from(apples.clone()));
-        let ext_scalar =
-            Scalar::new_unchecked(ext_dtype.clone(), ScalarValue(InnerScalarValue::Bool(true)));
-        let storage_scalar = Scalar::new_unchecked(
+        let ext_scalar = Scalar::new(ext_dtype.clone(), ScalarValue(InnerScalarValue::Bool(true)));
+        let storage_scalar = Scalar::new(
             DType::clone(apples.storage_dtype()),
             ScalarValue(InnerScalarValue::Primitive(PValue::U16(1000))),
         );
@@ -167,7 +166,7 @@ mod tests {
         assert_eq!(actual.dtype(), expected_dtype);
 
         // cast from *compatible* storage type to extension
-        let storage_scalar_u64 = Scalar::new_unchecked(
+        let storage_scalar_u64 = Scalar::new(
             DType::clone(apples.storage_dtype()),
             ScalarValue(InnerScalarValue::Primitive(PValue::U64(1000))),
         );
@@ -228,7 +227,7 @@ mod tests {
         let f16_value = f16::from_f32(5.722046e-6);
         let u64_bits = f16_value.to_bits() as u64;
 
-        let scalar = Scalar::new_unchecked(
+        let scalar = Scalar::new(
             DType::Primitive(PType::F16, Nullability::NonNullable),
             ScalarValue(InnerScalarValue::Primitive(PValue::U64(u64_bits))),
         );
@@ -244,7 +243,7 @@ mod tests {
         let f16_value = f16::from_f32(0.42);
         let u32_bits = f16_value.to_bits() as u32;
 
-        let scalar = Scalar::new_unchecked(
+        let scalar = Scalar::new(
             DType::Primitive(PType::F16, Nullability::NonNullable),
             ScalarValue(InnerScalarValue::Primitive(PValue::U32(u32_bits))),
         );
@@ -263,7 +262,7 @@ mod tests {
         let f16_value = f16::from_f32(1.5);
         let u16_bits = f16_value.to_bits();
 
-        let scalar = Scalar::new_unchecked(
+        let scalar = Scalar::new(
             DType::Primitive(PType::F16, Nullability::NonNullable),
             ScalarValue(InnerScalarValue::Primitive(PValue::U16(u16_bits))),
         );
@@ -282,7 +281,7 @@ mod tests {
         let f32_value = std::f32::consts::PI;
         let u32_bits = f32_value.to_bits();
 
-        let scalar = Scalar::new_unchecked(
+        let scalar = Scalar::new(
             DType::Primitive(PType::F32, Nullability::NonNullable),
             ScalarValue(InnerScalarValue::Primitive(PValue::U32(u32_bits))),
         );
@@ -301,7 +300,7 @@ mod tests {
         let f64_value = std::f64::consts::E;
         let u64_bits = f64_value.to_bits();
 
-        let scalar = Scalar::new_unchecked(
+        let scalar = Scalar::new(
             DType::Primitive(PType::F64, Nullability::NonNullable),
             ScalarValue(InnerScalarValue::Primitive(PValue::U64(u64_bits))),
         );
@@ -346,7 +345,7 @@ mod tests {
             ScalarValue(InnerScalarValue::Primitive(PValue::F32(f32_value))),
         ];
 
-        let scalar = Scalar::new_unchecked(
+        let scalar = Scalar::new(
             struct_dtype,
             ScalarValue(InnerScalarValue::List(field_values.into())),
         );
@@ -374,7 +373,7 @@ mod tests {
     fn test_no_coercion_for_matching_types() {
         // Test that when types already match, no coercion happens
         let i32_value = 42i32;
-        let scalar = Scalar::new_unchecked(
+        let scalar = Scalar::new(
             DType::Primitive(PType::I32, Nullability::NonNullable),
             ScalarValue(InnerScalarValue::Primitive(PValue::I32(i32_value))),
         );
@@ -406,7 +405,7 @@ mod tests {
             ))),
         ];
 
-        let scalar = Scalar::new_unchecked(
+        let scalar = Scalar::new(
             list_dtype,
             ScalarValue(InnerScalarValue::List(elements.into())),
         );
@@ -428,7 +427,7 @@ mod tests {
         let large_u64 = u64::MAX;
 
         // This should NOT be coerced to F16 because it's too large
-        let scalar = Scalar::new_unchecked(
+        let scalar = Scalar::new(
             DType::Primitive(PType::F16, Nullability::NonNullable),
             ScalarValue(InnerScalarValue::Primitive(PValue::U64(large_u64))),
         );
@@ -452,7 +451,7 @@ mod tests {
         let f16_value = f16::from_f32(0.42);
         let u64_bits = f16_value.to_bits() as u64;
 
-        let scalar = Scalar::new_unchecked(
+        let scalar = Scalar::new(
             DType::Extension(ext_dtype),
             ScalarValue(InnerScalarValue::Primitive(PValue::U64(u64_bits))),
         );
@@ -497,7 +496,7 @@ mod tests {
             ))),
         ];
 
-        let scalar = Scalar::new_unchecked(
+        let scalar = Scalar::new(
             DType::Extension(ext_dtype),
             ScalarValue(InnerScalarValue::List(field_values.into())),
         );

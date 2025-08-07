@@ -35,7 +35,7 @@ impl Display for StructScalar<'_> {
                     .zip_eq(self.struct_fields().fields())
                     .zip_eq(fields.iter())
                     .map(|((name, dtype), value)| {
-                        let val = Scalar::new_unchecked(dtype, value.clone());
+                        let val = Scalar::new(dtype, value.clone());
                         format!("{name}: {val}")
                     })
                     .format(", ");
@@ -128,7 +128,7 @@ impl<'a> StructScalar<'a> {
         let fields = self
             .fields
             .vortex_expect("Can't take field out of null struct scalar");
-        Some(Scalar::new_unchecked(
+        Some(Scalar::new(
             self.struct_fields().field_by_index(idx)?,
             fields[idx].clone(),
         ))
@@ -178,7 +178,7 @@ impl<'a> StructScalar<'a> {
                 .iter()
                 .enumerate()
                 .map(|(i, f)| {
-                    Scalar::new_unchecked(
+                    Scalar::new(
                         own_st
                             .field_by_index(i)
                             .vortex_expect("Iterating over scalar fields"),
@@ -191,7 +191,7 @@ impl<'a> StructScalar<'a> {
                     .map(|s| s.value)
                 })
                 .collect::<VortexResult<Vec<_>>>()?;
-            Ok(Scalar::new_unchecked(
+            Ok(Scalar::new(
                 dtype.clone(),
                 ScalarValue(InnerScalarValue::List(fields.into())),
             ))
@@ -226,7 +226,7 @@ impl<'a> StructScalar<'a> {
         } else {
             ScalarValue(InnerScalarValue::Null)
         };
-        Ok(Scalar::new_unchecked(
+        Ok(Scalar::new(
             DType::Struct(projected_dtype, self.dtype().nullability()),
             new_fields,
         ))
@@ -260,7 +260,7 @@ impl Scalar {
             }
         }
 
-        Self::new_unchecked(
+        Self::new(
             dtype,
             ScalarValue(InnerScalarValue::List(
                 children

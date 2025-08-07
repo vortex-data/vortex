@@ -57,7 +57,7 @@ impl SerdeVTable<SparseVTable> for SparseVTable {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
-        let fill_value = Scalar::new_unchecked(dtype.clone(), ScalarValue::from_protobytes(&buffers[0])?);
+        let fill_value = Scalar::new(dtype.clone(), ScalarValue::from_protobytes(&buffers[0])?);
 
         SparseArray::try_new(patch_indices, patch_values, len, fill_value)
     }

@@ -26,7 +26,7 @@ impl TakeKernel for ALPRDVTable {
             .transpose()?;
         let right_parts = fill_null(
             &take(array.right_parts(), indices)?,
-            &Scalar::new_unchecked(array.right_parts().dtype().clone(), ScalarValue::from(0)),
+            &Scalar::new(array.right_parts().dtype().clone(), ScalarValue::from(0)),
         )?;
 
         Ok(ALPRDArray::try_new(

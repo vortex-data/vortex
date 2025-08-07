@@ -21,7 +21,7 @@ use crate::{InnerScalarValue, PValue, Scalar, ScalarValue};
 
 /// Generate an arbitrary scalar value of the given data type.
 pub fn random_scalar(u: &mut Unstructured, dtype: &DType) -> Result<Scalar> {
-    Ok(Scalar::new_unchecked(dtype.clone(), random_scalar_value(u, dtype)?))
+    Ok(Scalar::new(dtype.clone(), random_scalar_value(u, dtype)?))
 }
 
 fn random_scalar_value(u: &mut Unstructured, dtype: &DType) -> Result<ScalarValue> {

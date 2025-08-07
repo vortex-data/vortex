@@ -45,12 +45,12 @@ pub fn compute_min_max<T: ArrayAccessor<[u8]>>(
 /// Helper function to make sure that min/max has the right [`ScalarValue`] type.
 fn make_scalar(dtype: &DType, value: &[u8]) -> Scalar {
     match dtype {
-        DType::Binary(_) => Scalar::new_unchecked(dtype.clone(), value.into()),
+        DType::Binary(_) => Scalar::new(dtype.clone(), value.into()),
         DType::Utf8(_) => {
             // Safety:
             // We trust the array's dtype here
             let value = unsafe { str::from_utf8_unchecked(value) };
-            Scalar::new_unchecked(dtype.clone(), value.into())
+            Scalar::new(dtype.clone(), value.into())
         }
         _ => unreachable!(),
     }
@@ -82,14 +82,14 @@ mod tests {
 
         assert_eq!(
             min,
-            Scalar::new_unchecked(
+            Scalar::new(
                 Utf8(Nullable),
                 BufferString::from("hello world".to_string()).into(),
             )
         );
         assert_eq!(
             max,
-            Scalar::new_unchecked(
+            Scalar::new(
                 Utf8(Nullable),
                 BufferString::from("hello world this is a long string".to_string()).into()
             )

@@ -118,7 +118,7 @@ impl Scalar {
         decimal_type: DecimalDType,
         nullability: Nullability,
     ) -> Self {
-        Self::new_unchecked(
+        Self::new(
             DType::Decimal(decimal_type, nullability),
             ScalarValue(InnerScalarValue::Decimal(value)),
         )
@@ -168,7 +168,7 @@ impl<'a> DecimalScalar<'a> {
                 // Cast between decimal types
                 if self.decimal_type == *target_dtype {
                     // Same decimal type, just change nullability if needed
-                    return Ok(Scalar::new_unchecked(
+                    return Ok(Scalar::new(
                         dtype.clone(),
                         ScalarValue(InnerScalarValue::Decimal(
                             self.value.unwrap_or(DecimalValue::I128(0)),

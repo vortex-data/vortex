@@ -151,7 +151,7 @@ mod test {
 
         assert_eq!(
             taken.scalar_at(0).unwrap(),
-            Scalar::new_unchecked(
+            Scalar::new(
                 DType::Primitive(PType::I32, Nullability::Nullable),
                 ScalarValue::from(1i32)
             )

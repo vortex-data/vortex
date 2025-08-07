@@ -19,8 +19,8 @@ impl MinMaxKernel for SequenceVTable {
             (last, base)
         };
         Ok(Some(MinMaxResult {
-            min: Scalar::new_unchecked(array.dtype().clone(), min.into()),
-            max: Scalar::new_unchecked(array.dtype().clone(), max.into()),
+            min: Scalar::new(array.dtype().clone(), min.into()),
+            max: Scalar::new(array.dtype().clone(), max.into()),
         }))
     }
 }

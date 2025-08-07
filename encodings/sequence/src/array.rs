@@ -211,7 +211,7 @@ impl OperationsVTable<SequenceVTable> for SequenceVTable {
 
     fn scalar_at(array: &SequenceArray, index: usize) -> VortexResult<Scalar> {
         // Ok(Scalar::from(array.index_value(index)))
-        Ok(Scalar::new_unchecked(
+        Ok(Scalar::new(
             array.dtype().clone(),
             ScalarValue::from(array.index_value(index)?),
         ))
@@ -299,7 +299,7 @@ mod tests {
 
         assert_eq!(
             scalar,
-            Scalar::new_unchecked(scalar.dtype().clone(), ScalarValue::from(8i64))
+            Scalar::new(scalar.dtype().clone(), ScalarValue::from(8i64))
         )
     }
 

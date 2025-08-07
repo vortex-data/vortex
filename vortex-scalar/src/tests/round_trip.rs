@@ -40,7 +40,7 @@ mod tests {
         for scalar in values {
             let value = scalar.value().clone();
             let dtype = scalar.dtype().clone();
-            let reconstructed = Scalar::new_unchecked(dtype, value);
+            let reconstructed = Scalar::new(dtype, value);
             assert_eq!(scalar, reconstructed);
         }
     }
@@ -67,7 +67,7 @@ mod tests {
             assert!(scalar.is_null());
             let dtype = scalar.dtype().clone();
             let value = scalar.value().clone();
-            let reconstructed = Scalar::new_unchecked(dtype.clone(), value);
+            let reconstructed = Scalar::new(dtype.clone(), value);
             assert_eq!(scalar, reconstructed);
             assert_eq!(scalar.dtype(), reconstructed.dtype());
         }
@@ -196,7 +196,7 @@ mod tests {
             // Test round-trip through ScalarValue
             let scalar_value = scalar.value().clone();
             let dtype = scalar.dtype().clone();
-            let reconstructed = Scalar::new_unchecked(dtype, scalar_value);
+            let reconstructed = Scalar::new(dtype, scalar_value);
             assert_eq!(scalar, reconstructed);
         }
     }

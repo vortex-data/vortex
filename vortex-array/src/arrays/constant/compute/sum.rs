@@ -19,7 +19,7 @@ impl SumKernel for ConstantVTable {
             .ok_or_else(|| vortex_err!("Sum not supported for dtype {}", array.dtype()))?;
 
         let sum_value = sum_scalar(array.scalar(), array.len())?;
-        Ok(Scalar::new_unchecked(sum_dtype, sum_value))
+        Ok(Scalar::new(sum_dtype, sum_value))
     }
 }
 
