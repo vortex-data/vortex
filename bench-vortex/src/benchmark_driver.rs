@@ -68,7 +68,6 @@ pub fn run_benchmark<B: Benchmark>(benchmark: B, config: DriverConfig) -> Result
     let mut global_memory_tracker = config.track_memory.then(BenchmarkMemoryTracker::new);
 
     for target in config.targets.iter() {
-        println!("Benchmarking {} on {}", target.engine, target.format);
         let tokio_runtime = new_tokio_runtime(config.threads);
 
         let mut engine_ctx = benchmark.setup_engine_context(
@@ -137,7 +136,6 @@ fn execute_queries<B: Benchmark>(
     let expected_row_counts = benchmark.expected_row_counts();
 
     for &(query_idx, ref query_string) in queries.iter() {
-        println!("Benchmarking Query #{}", query_idx);
         // Start memory tracking before query
         if let Some(tracker) = global_memory_tracker.as_mut() {
             tracker.start_query();
