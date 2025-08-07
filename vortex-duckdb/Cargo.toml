@@ -51,6 +51,7 @@ workspace = true
 bindgen = { workspace = true }
 cbindgen = { workspace = true }
 cc = { workspace = true }
+once_cell = { workspace = true }
 reqwest = { workspace = true }
 walkdir = { workspace = true }
 zip = { workspace = true }
