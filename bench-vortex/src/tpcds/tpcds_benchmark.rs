@@ -3,17 +3,15 @@
 
 //! TPC-DS benchmark implementation
 
-use std::fs;
-
 use anyhow::{Result, anyhow};
+use datafusion::prelude::SessionContext;
 use log::info;
 use url::Url;
 
 use crate::benchmark_trait::Benchmark;
 use crate::engines::EngineCtx;
-use crate::engines::ddb::DuckDBCtx;
 use crate::tpcds::tpcds_queries;
-use crate::tpch::duckdb::{DuckdbTpcOptions, TpcDataset, generate_tpc};
+use crate::tpch::duckdb::generate_tpcds_with_connection;
 use crate::{BenchmarkDataset, Format, IdempotentPath, Target};
 
 /// TPC-DS benchmark implementation
@@ -59,64 +57,31 @@ impl Benchmark for TpcDsBenchmark {
     }
 
     fn generate_data(&self, target: &Target) -> Result<()> {
-        // TOD: move to tpchgen-rs when it supports TPC-DS
-        match target.format() {
-            Format::OnDiskDuckDB => {
-                // Use DuckDB's dsdgen function to generate TPC-DS data
-                let base_data_dir = self
-                    .data_url
-                    .to_file_path()
-                    .map_err(|_| anyhow!("Invalid file URL: {}", self.data_url))?;
+        // Use connection-based TPC-DS data generation
+        let base_data_dir = self
+            .data_url
+            .to_file_path()
+            .map_err(|_| anyhow!("Invalid file URL: {}", self.data_url))?;
 
-                // Create output directory
-                fs::create_dir_all(&base_data_dir)?;
+        info!(
+            "Generating TPC-DS data with scale factor {} for format {:?}",
+            self.scale_factor,
+            target.format()
+        );
 
-                // Generate TPC-DS data using DuckDesB
-                let duckdb_ctx = DuckDBCtx::new(self.dataset(), target.format(), false)?;
-
-                // Install and load the tpcds extension
-                let _result1 = duckdb_ctx.execute_query("INSTALL tpcds")?;
-                let _result2 = duckdb_ctx.execute_query("LOAD tpcds")?;
-
-                // Generate data using dsdgen
-                let generate_sql = format!("CALL dsdgen(sf={});", self.scale_factor);
-
-                info!(
-                    "Generating TPC-DS data with scale factor {}",
-                    self.scale_factor
-                );
-                let _result = duckdb_ctx.execute_query(&generate_sql)?;
-
-                Ok(())
-            }
-            _ => {
-                // Use the shared TPC data generation function
-                let base_data_dir = self
-                    .data_url
-                    .to_file_path()
-                    .map_err(|_| anyhow!("Invalid file URL: {}", self.data_url))?;
-
-                let opts = DuckdbTpcOptions::new(base_data_dir, TpcDataset::TpcDs, target.format())
-                    .with_scale_factor(self.scale_factor.clone());
-
-                info!(
-                    "Generating TPC-DS data with scale factor {} for format {:?}",
-                    self.scale_factor,
-                    target.format()
-                );
-
-                generate_tpc(opts)?;
-                Ok(())
-            }
-        }
+        generate_tpcds_with_connection(
+            base_data_dir,
+            self.scale_factor.clone(),
+            target.format(),
+        )?;
+        Ok(())
     }
 
     async fn register_tables(&self, engine_ctx: &EngineCtx, format: Format) -> Result<()> {
         match engine_ctx {
             EngineCtx::DataFusion(ctx) => {
-                let dataset = self.dataset();
-                dataset
-                    .register_tables(&ctx.session, &self.data_url, format)
+                // Register TPC-DS tables similar to how TPC-H does it
+                self.register_tpcds_tables(&ctx.session, &self.data_url, format)
                     .await
             }
             EngineCtx::DuckDB(ctx) => {
@@ -179,6 +144,52 @@ impl Benchmark for TpcDsBenchmark {
     }
 
     fn validate_result(&self, _queries: Vec<usize>) -> Result<()> {
+        Ok(())
+    }
+}
+
+impl TpcDsBenchmark {
+    async fn register_tpcds_tables(
+        &self,
+        session: &SessionContext,
+        base_dir: &Url,
+        format: Format,
+    ) -> Result<()> {
+        use crate::tpch::{
+            register_arrow, register_parquet, register_vortex_compact_file, register_vortex_file,
+        };
+        
+        let dataset = self.dataset();
+        let files = dataset.tables().iter().map(|f| (*f, None)).collect::<Vec<_>>();
+
+        // For TPC-DS, files are stored in a subdirectory named after the format
+        let format_dir = base_dir.join(&format!("{}/", format.name()))?;
+
+        for (name, schema) in files {
+            let format = if format == Format::Arrow {
+                Format::Parquet
+            } else {
+                format
+            };
+            
+            let path = format_dir.join(&format!("{name}.{}", format.ext()))?;
+            
+            match format {
+                Format::Arrow => register_arrow(session, name, &path, None).await?,
+                Format::Parquet => {
+                    register_parquet(session, name, &path, None, schema, &dataset).await?
+                }
+                Format::OnDiskVortex => {
+                    register_vortex_file(session, name, &path, None, schema, &dataset).await?
+                }
+                Format::VortexCompact => {
+                    register_vortex_compact_file(session, name, &path, None, schema, &dataset).await?
+                }
+                Format::OnDiskDuckDB => unreachable!("duckdb never supported with datafusion"),
+                Format::Csv => todo!(),
+            }
+        }
+
         Ok(())
     }
 }
