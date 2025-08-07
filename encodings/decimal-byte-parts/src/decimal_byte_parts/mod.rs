@@ -75,6 +75,10 @@ impl DecimalBytePartsArray {
             .as_decimal()
             .vortex_expect("must be a decimal dtype")
     }
+
+    pub(crate) fn msp(&self) -> &ArrayRef {
+        &self.msp
+    }
 }
 
 #[derive(Clone, Debug)]

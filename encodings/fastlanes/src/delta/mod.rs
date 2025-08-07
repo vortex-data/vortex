@@ -17,6 +17,7 @@ use vortex_dtype::{DType, NativePType, PType, match_each_unsigned_integer_ptype}
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 
 mod compress;
+mod compute;
 mod ops;
 mod serde;
 

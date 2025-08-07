@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod array;
+mod compute;
 mod serde;
 #[cfg(test)]
 mod test;
