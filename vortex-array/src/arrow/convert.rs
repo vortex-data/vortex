@@ -27,10 +27,7 @@ use vortex_dtype::{DType, DecimalDType, NativePType, PType};
 use vortex_error::{VortexExpect as _, vortex_panic};
 use vortex_scalar::i256;
 
-use crate::arrays::{
-    BoolArray, DecimalArray, ListArray, NullArray, PrimitiveArray, StructArray, TemporalArray,
-    VarBinArray, VarBinViewArray,
-};
+use crate::arrays::{BoolArray, DecimalArray, DictArray, ListArray, NullArray, PrimitiveArray, StructArray, TemporalArray, VarBinArray, VarBinViewArray};
 use crate::arrow::FromArrowArray;
 use crate::validity::Validity;
 use crate::{ArrayRef, IntoArray};
@@ -416,6 +413,17 @@ impl FromArrowArray<&dyn ArrowArray> for ArrayRef {
             DataType::Decimal256(..) => {
                 Self::from_arrow(array.as_primitive::<Decimal256Type>(), nullable)
             }
+            DataType::Dictionary(..) => {
+                let dict = array.as_any_dictionary();
+                // Keys are always non-nullable, but DictArray sets these to
+                // nullable if the values are nullable anyway, so just use the
+                // given nullability.
+                let keys = Self::from_arrow(dict.keys(), nullable);
+                let values = Self::from_arrow(dict.values().as_ref(), nullable);
+                DictArray::try_new(keys, values)
+                    .vortex_expect("Failed to convert Arrow DictArray")
+                    .into_array()
+            }
             _ => vortex_panic!(
                 "Array encoding not implemented for Arrow data type {}",
                 array.data_type().clone()
@@ -438,7 +446,8 @@ impl FromArrowArray<&RecordBatch> for ArrayRef {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use arrow_array::types::UInt32Type;
+use std::sync::Arc;
 
     use arrow_array::builder::{
         BinaryViewBuilder, Decimal128Builder, Decimal256Builder, Int32Builder, LargeListBuilder,
@@ -459,7 +468,7 @@ mod tests {
     use vortex_dtype::{DType, PType};
 
     use crate::arrays::{
-        DecimalVTable, ListVTable, PrimitiveVTable, StructVTable, TemporalArray, VarBinVTable,
+        DecimalVTable, DictVTable, ListVTable, PrimitiveVTable, StructVTable, TemporalArray, VarBinVTable,
         VarBinViewVTable,
     };
     use crate::arrow::FromArrowArray as _;
@@ -1210,6 +1219,35 @@ mod tests {
             .as_::<PrimitiveVTable>();
         assert_eq!(offsets_array_non_null.len(), 3); // n+1 offsets for n lists
         assert_eq!(offsets_array_non_null.ptype(), PType::I64); // Large lists use I64 offsets
+    }
+
+    // Test dict array conversions.
+    #[test]
+    fn test_dict_array_conversion() {
+        let keys = UInt32Array::from(vec![0, 1, 0, 2, 1]);
+        let values = StringArray::from(vec!["apple", "banana", "cherry"]);
+        let arrow_dict = arrow_array::DictionaryArray::<UInt32Type>::try_new(keys, Arc::new(values)).unwrap();
+
+        let vortex_array = ArrayRef::from_arrow(&arrow_dict as &dyn ArrowArray, false);
+        assert_eq!(vortex_array.len(), 5);
+        assert!(!vortex_array.dtype().is_nullable());
+
+        let dict_vortex_array = vortex_array.as_::<DictVTable>();
+        assert_eq!(dict_vortex_array.codes().len(), 5);
+        assert_eq!(dict_vortex_array.values().len(), 3);
+
+        // Test nullability.
+        let keys_with_nulls = UInt32Array::from(vec![Some(0), None, Some(1), None, Some(2)]);
+        let values = StringArray::from(vec!["apple", "banana", "cherry"]);
+        let arrow_dict_nullable = arrow_array::DictionaryArray::<UInt32Type>::try_new(keys_with_nulls, Arc::new(values)).unwrap();
+
+        let vortex_array_nullable = ArrayRef::from_arrow(&arrow_dict_nullable as &dyn ArrowArray, true);
+        assert_eq!(vortex_array_nullable.len(), 5);
+        assert!(vortex_array_nullable.dtype().is_nullable());
+
+        let dict_vortex_nullable = vortex_array_nullable.as_::<DictVTable>();
+        assert_eq!(dict_vortex_nullable.codes().len(), 5);
+        assert_eq!(dict_vortex_nullable.values().len(), 3);
     }
 
     // Test null array conversions
