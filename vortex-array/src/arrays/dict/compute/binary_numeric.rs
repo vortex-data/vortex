@@ -1,13 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{NumericKernel, NumericKernelAdapter, numeric};
-use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
+use crate::arrays::{ConstantArray, DictArray, DictVTable};
+use crate::compute::{NumericKernel, NumericKernelAdapter, numeric};
+use crate::{Array, ArrayRef, IntoArray, register_kernel};
 use vortex_error::VortexResult;
 use vortex_scalar::NumericOperator;
-
-use crate::{DictArray, DictVTable};
 
 impl NumericKernel for DictVTable {
     fn numeric(
@@ -41,11 +39,11 @@ register_kernel!(NumericKernelAdapter(DictVTable).lift());
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::ArrayRef;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
+    use crate::ArrayRef;
+    use crate::arrays::PrimitiveArray;
+    use crate::compute::conformance::binary_numeric::test_binary_numeric_array;
 
-    use crate::builders::dict_encode;
+    use crate::builders::dict::dict_encode;
 
     fn sliced_dict_array() -> ArrayRef {
         let reference = PrimitiveArray::from_option_iter([
@@ -66,7 +64,7 @@ mod tests {
         test_binary_numeric_array(array)
     }
 
-    use vortex_array::IntoArray;
+    use crate::IntoArray;
 
     #[rstest]
     #[case::dict_i32_basic(dict_encode(PrimitiveArray::from_iter([10i32, 20, 10, 30, 20, 10]).as_ref()).unwrap().into_array())]

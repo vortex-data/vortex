@@ -4,10 +4,10 @@
 use std::fmt::Debug;
 
 use arrow_buffer::BooleanBuffer;
-use vortex_array::compute::{cast, take};
-use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::vtable::{ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityVTable};
-use vortex_array::{
+use crate::compute::{cast, take};
+use crate::stats::{ArrayStats, StatsSetRef};
+use crate::vtable::{ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityVTable};
+use crate::{
     Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable,
 };
 use vortex_dtype::{DType, match_each_integer_ptype};
@@ -180,17 +180,17 @@ mod test {
     use rand::distr::{Distribution, StandardUniform};
     use rand::prelude::StdRng;
     use rand::{Rng, SeedableRng};
-    use vortex_array::arrays::{ChunkedArray, PrimitiveArray};
-    use vortex_array::builders::builder_with_capacity;
-    use vortex_array::validity::Validity;
-    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+    use crate::arrays::{ChunkedArray, PrimitiveArray};
+    use crate::builders::builder_with_capacity;
+    use crate::validity::Validity;
+    use crate::{Array, ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, NativePType, PType};
     use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
     use vortex_mask::AllOr;
 
-    use crate::DictArray;
+    use crate::arrays::DictArray;
 
     #[test]
     fn nullable_codes_validity() {

@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::arrays::{ConstantArray, ConstantVTable};
-use vortex_array::vtable::OperationsVTable;
-use vortex_array::{Array, ArrayRef, IntoArray};
+use crate::arrays::{ConstantArray, ConstantVTable};
+use crate::vtable::OperationsVTable;
+use crate::{Array, ArrayRef, IntoArray};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::{DictArray, DictVTable};
+use crate::arrays::{DictArray, DictVTable};
 
 impl OperationsVTable<DictVTable> for DictVTable {
     fn slice(array: &DictArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
@@ -37,10 +37,10 @@ impl OperationsVTable<DictVTable> for DictVTable {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::PrimitiveArray;
+    use crate::arrays::PrimitiveArray;
     use vortex_scalar::Scalar;
 
-    use crate::DictArray;
+    use crate::arrays::DictArray;
 
     #[test]
     fn test_slice_into_const_dict() {

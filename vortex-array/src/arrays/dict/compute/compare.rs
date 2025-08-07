@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::arrays::ConstantArray;
-use vortex_array::builders::builder_with_capacity;
-use vortex_array::compute::{CompareKernel, CompareKernelAdapter, Operator, cast, compare};
-use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
+use crate::arrays::ConstantArray;
+use crate::builders::builder_with_capacity;
+use crate::compute::{CompareKernel, CompareKernelAdapter, Operator, cast, compare};
+use crate::validity::Validity;
+use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexResult;
 use vortex_mask::{AllOr, Mask};
 use vortex_scalar::Scalar;
 
-use crate::{DictArray, DictVTable};
+use crate::arrays::{DictArray, DictVTable};
 
 impl CompareKernel for DictVTable {
     fn compare(
@@ -123,16 +123,16 @@ fn dict_equal_to(
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::{ConstantArray, PrimitiveArray};
-    use vortex_array::compute::{Operator, compare};
-    use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray, ToCanonical};
+    use crate::arrays::{ConstantArray, PrimitiveArray};
+    use crate::compute::{Operator, compare};
+    use crate::validity::Validity;
+    use crate::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
 
-    use crate::DictArray;
+    use crate::arrays::DictArray;
 
     #[test]
     fn test_compare_value() {

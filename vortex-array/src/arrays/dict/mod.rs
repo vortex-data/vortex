@@ -6,11 +6,9 @@
 //! Expose a [DictArray] which is zero-copy equivalent to Arrow's
 //! [DictionaryArray](https://docs.rs/arrow/latest/arrow/array/struct.DictionaryArray.html).
 
-pub use vortex_array::arrays::dict::*;
-pub mod builders {
-    pub use vortex_array::builders::dict::*;
-}
+pub use array::*;
 
-mod display;
-#[cfg(feature = "test-harness")]
-pub mod test;
+mod array;
+mod compute;
+mod ops;
+mod serde;

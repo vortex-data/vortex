@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{FillNullKernel, FillNullKernelAdapter, Operator, compare, fill_null};
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
+use crate::arrays::ConstantArray;
+use crate::compute::{FillNullKernel, FillNullKernelAdapter, Operator, compare, fill_null};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 use vortex_error::VortexResult;
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::{DictArray, DictVTable};
+use crate::arrays::{DictArray, DictVTable};
 
 impl FillNullKernel for DictVTable {
     fn fill_null(&self, array: &DictArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
@@ -50,16 +50,16 @@ register_kernel!(FillNullKernelAdapter(DictVTable).lift());
 #[cfg(test)]
 mod tests {
     use arrow_buffer::BooleanBuffer;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::fill_null;
-    use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray, ToCanonical};
+    use crate::arrays::PrimitiveArray;
+    use crate::compute::fill_null;
+    use crate::validity::Validity;
+    use crate::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
     use vortex_error::VortexUnwrap;
     use vortex_scalar::Scalar;
 
-    use crate::DictArray;
+    use crate::arrays::DictArray;
 
     #[test]
     fn nullable_codes_fill_in_values() {

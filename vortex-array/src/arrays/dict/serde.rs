@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
-use vortex_array::{
+use crate::serde::ArrayChildren;
+use crate::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
+use crate::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, Canonical, DeserializeMetadata, ProstMetadata,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
-use crate::builders::dict_encode;
-use crate::{DictArray, DictEncoding, DictVTable};
+use crate::builders::dict::dict_encode;
+use crate::arrays::{DictArray, DictEncoding, DictVTable};
 
 #[derive(Clone, prost::Message)]
 pub struct DictMetadata {
@@ -78,11 +78,11 @@ impl VisitorVTable<DictVTable> for DictVTable {
 
 #[cfg(test)]
 mod test {
-    use vortex_array::ProstMetadata;
-    use vortex_array::test_harness::check_metadata;
+    use crate::ProstMetadata;
+    use crate::test_harness::check_metadata;
     use vortex_dtype::PType;
 
-    use crate::serde::DictMetadata;
+    use super::DictMetadata;
 
     #[cfg_attr(miri, ignore)]
     #[test]

@@ -3,13 +3,13 @@
 
 use bytes::bytes_dict_builder;
 use primitive::primitive_dict_builder;
-use vortex_array::arrays::{PrimitiveVTable, VarBinVTable, VarBinViewVTable};
-use vortex_array::compress::downscale_integer_array;
-use vortex_array::{Array, ArrayRef};
+use crate::arrays::{PrimitiveVTable, VarBinVTable, VarBinViewVTable};
+use crate::compress::downscale_integer_array;
+use crate::{Array, ArrayRef};
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::{VortexResult, vortex_bail};
 
-use crate::DictArray;
+use crate::arrays::DictArray;
 
 mod bytes;
 mod primitive;

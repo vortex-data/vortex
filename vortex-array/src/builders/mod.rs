@@ -30,6 +30,7 @@
 
 mod bool;
 mod decimal;
+pub mod dict;
 mod extension;
 mod lazy_validity_builder;
 mod list;
