@@ -25,11 +25,7 @@ impl OperationsVTable<RunEndVTable> for RunEndVTable {
         Ok(RunEndArray::with_offset_and_length(
             array.ends().slice(slice_begin, slice_end)?,
             array.values().slice(slice_begin, slice_end)?,
-            if new_length == 0 {
-                0
-            } else {
-                start + array.offset()
-            },
+            start + array.offset(),
             new_length,
         )?
         .into_array())
