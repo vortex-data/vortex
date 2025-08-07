@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::compute::Operator;
+use crate::compute;
 use crate::pipeline::bits::BitView;
-use crate::pipeline::nodes::expr::{BindContext, Expression};
+use crate::pipeline::nodes::operators::{BindContext, Operator};
 use crate::pipeline::types::{Element, VType};
 use crate::pipeline::vector::VectorId;
 use crate::pipeline::view::ViewMut;
@@ -17,29 +17,28 @@ use vortex_error::{VortexResult, vortex_bail};
 #[macro_export]
 macro_rules! match_each_compare_op {
     ($self:expr, | $enc:ident | $body:block) => {{
-        use $crate::compute::Operator;
         match $self {
-            Operator::Eq => {
+            $crate::compute::Operator::Eq => {
                 type $enc = Eq;
                 $body
             }
-            Operator::NotEq => {
+            $crate::compute::Operator::NotEq => {
                 type $enc = NotEq;
                 $body
             }
-            Operator::Gt => {
+            $crate::compute::Operator::Gt => {
                 type $enc = Gt;
                 $body
             }
-            Operator::Gte => {
+            $crate::compute::Operator::Gte => {
                 type $enc = Gte;
                 $body
             }
-            Operator::Lt => {
+            $crate::compute::Operator::Lt => {
                 type $enc = Lt;
                 $body
             }
-            Operator::Lte => {
+            $crate::compute::Operator::Lte => {
                 type $enc = Lte;
                 $body
             }
@@ -48,13 +47,13 @@ macro_rules! match_each_compare_op {
 }
 
 #[derive(Debug, Hash)]
-pub struct CompareExpression {
-    children: [Box<dyn Expression>; 2],
-    op: Operator,
+pub struct CompareOperator {
+    children: [Box<dyn Operator>; 2],
+    op: compute::Operator,
 }
 
-impl CompareExpression {
-    pub fn new(lhs: Box<dyn Expression>, rhs: Box<dyn Expression>, op: Operator) -> Self {
+impl CompareOperator {
+    pub fn new(lhs: Box<dyn Operator>, rhs: Box<dyn Operator>, op: compute::Operator) -> Self {
         assert_eq!(lhs.vtype(), rhs.vtype(), "Operands must have the same type");
         Self {
             children: [lhs, rhs],
@@ -63,12 +62,12 @@ impl CompareExpression {
     }
 }
 
-impl Expression for CompareExpression {
+impl Operator for CompareOperator {
     fn vtype(&self) -> VType {
         VType::Bool
     }
 
-    fn children(&self) -> &[Box<dyn Expression>] {
+    fn children(&self) -> &[Box<dyn Operator>] {
         &self.children
     }
 

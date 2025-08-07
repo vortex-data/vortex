@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::pipeline::nodes::expr::Expression;
+use crate::pipeline::nodes::operators::Operator;
 use crate::pipeline::nodes::pipeline::Pipeline;
 use std::hash::BuildHasher;
 use vortex_error::VortexResult;
@@ -13,7 +13,7 @@ pub(super) struct DagNode<'a> {
     /// Index of this node in the DAG
     pub(super) index: usize,
     /// The original plan node
-    pub(super) plan_node: &'a dyn Expression,
+    pub(super) plan_node: &'a dyn Operator,
     /// Indices of children in the DAG
     pub(super) children: Vec<usize>,
     /// Indices of parents in the DAG (for dependency tracking)
@@ -33,13 +33,13 @@ pub(super) struct BufferSlot {
 
 impl<'a> Pipeline<'a> {
     /// Build DAG from a tree, eliminating common sub-expressions
-    pub(super) fn build_dag(root: &'a dyn Expression) -> VortexResult<(usize, Vec<DagNode<'a>>)> {
+    pub(super) fn build_dag(root: &'a dyn Operator) -> VortexResult<(usize, Vec<DagNode<'a>>)> {
         let mut dag = Vec::new();
         let mut hash_to_index = HashMap::new();
 
         // Recursive function to build DAG
         fn visit_node<'b>(
-            node: &'b dyn Expression,
+            node: &'b dyn Operator,
             dag: &mut Vec<DagNode<'b>>,
             hash_to_index: &mut HashMap<u64, usize>,
             random_state: &RandomState,

@@ -8,7 +8,7 @@ use std::task::{Poll, ready};
 use vortex_array::pipeline::PipelineContext;
 use vortex_array::pipeline::bits::BitView;
 use vortex_array::pipeline::buffers::BufferHandle;
-use vortex_array::pipeline::nodes::expr::{BindContext, Expression};
+use vortex_array::pipeline::nodes::operators::{BindContext, Operator};
 use vortex_array::pipeline::types::{Element, VType};
 use vortex_array::pipeline::view::ViewMut;
 use vortex_array::pipeline::{Kernel, N};
@@ -17,7 +17,7 @@ use vortex_dtype::{PhysicalPType, match_each_integer_ptype};
 use vortex_error::{VortexResult, vortex_bail};
 
 impl PipelineVTable<BitPackedVTable> for BitPackedVTable {
-    fn to_expression(array: &BitPackedArray) -> VortexResult<Box<dyn Expression>> {
+    fn to_operator(array: &BitPackedArray) -> VortexResult<Box<dyn Operator>> {
         Ok(Box::new(array.clone()))
     }
 
@@ -43,12 +43,12 @@ impl PipelineVTable<BitPackedVTable> for BitPackedVTable {
     }
 }
 
-impl Expression for BitPackedArray {
+impl Operator for BitPackedArray {
     fn vtype(&self) -> VType {
         VType::Primitive(self.ptype())
     }
 
-    fn children(&self) -> &[Box<dyn Expression>] {
+    fn children(&self) -> &[Box<dyn Operator>] {
         &[]
     }
 

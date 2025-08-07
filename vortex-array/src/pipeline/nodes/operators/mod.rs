@@ -13,28 +13,29 @@ use dyn_hash::DynHash;
 use std::fmt::Debug;
 use vortex_error::VortexResult;
 
-pub trait Expression: Debug + DynHash {
-    /// The output [`VType`] of this expression.
+/// An operator represents a node in a logical query plan.
+pub trait Operator: Debug + DynHash {
+    /// The output [`VType`] of this operator.
     fn vtype(&self) -> VType;
 
-    /// The child nodes of this expression.
-    fn children(&self) -> &[Box<dyn Expression>];
+    /// The children of this operator.
+    fn children(&self) -> &[Box<dyn Operator>];
 
-    /// Whether the expression operates by mutating its first child in-place.
+    /// Whether this operator works by mutating its first child in-place.
     ///
-    /// If `true`, the expression is invoked with the first child's input data passed via the
+    /// If `true`, the operator is invoked with the first child's input data passed via the
     /// mutable output view. The node is expected to mutate this data in-place.
     fn in_place(&self) -> bool {
         false
     }
 
-    /// Create a kernel for this expression
+    /// Create a kernel for this operator
     fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>>;
 }
 
-dyn_hash::hash_trait_object!(Expression);
+dyn_hash::hash_trait_object!(Operator);
 
-/// The context used when binding a node for execution.
+/// The context used when binding an operator for execution.
 pub trait BindContext {
     fn children(&self) -> &[VectorId];
 }

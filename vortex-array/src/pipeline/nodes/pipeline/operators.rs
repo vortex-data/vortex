@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::pipeline::Kernel;
-use crate::pipeline::nodes::expr::BindContext;
+use crate::pipeline::nodes::operators::BindContext;
 use crate::pipeline::nodes::pipeline::Pipeline;
 use crate::pipeline::nodes::pipeline::buffers::VectorAllocationPlan;
 use crate::pipeline::nodes::pipeline::dag::DagNode;

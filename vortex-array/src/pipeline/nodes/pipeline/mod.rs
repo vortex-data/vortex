@@ -8,7 +8,7 @@ mod toposort;
 
 use crate::pipeline::bits::BitView;
 use crate::pipeline::buffers::BufferId;
-use crate::pipeline::nodes::expr::Expression;
+use crate::pipeline::nodes::operators::Operator;
 use crate::pipeline::nodes::pipeline::buffers::{OutputTarget, VectorAllocationPlan};
 use crate::pipeline::nodes::pipeline::dag::DagNode;
 use crate::pipeline::vector::{Vector, VectorId, VectorRef, VectorRefMut};
@@ -29,7 +29,6 @@ use vortex_utils::aliases::hash_map::RandomState;
 /// - Sub-expression elimination: Identifying common sub-expressions and reusing them.
 /// - Vector allocation: Determining how many intermediate vectors are needed.
 /// - Buffer management: Managing the buffers that hold the data for each node.
-///
 pub struct Pipeline<'a> {
     /// Nodes in the DAG representing the execution plan with common sub-expressions eliminated.
     dag: Vec<DagNode<'a>>,
@@ -59,7 +58,7 @@ pub struct Pipeline<'a> {
 
 impl<'a> Pipeline<'a> {
     // TODO(ngates): can we pass the mask in here such that the plan can replace empty nodes?
-    pub fn new(plan: &'a dyn Expression) -> VortexResult<Self> {
+    pub fn new(plan: &'a dyn Operator) -> VortexResult<Self> {
         // Step 1: Convert the plan tree to a DAG by eliminating common sub-expressions.
         let (dag_root, dag) = Self::build_dag(plan)?;
         let node_count = dag.len();
@@ -361,42 +360,5 @@ impl<'a> PipelineContext for Context<'a> {
 
     fn vector(&self, vector_id: VectorId) -> VectorRef {
         VectorRef::new(self.allocation_plan.vectors[*vector_id].borrow())
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use crate::pipeline::N;
-    use crate::pipeline::bits::BitView;
-    use crate::pipeline::buffers::BufferHandle;
-    use crate::pipeline::nodes::expr::Expression;
-    use crate::pipeline::nodes::pipeline::Pipeline;
-    use crate::pipeline::nodes::primitive::PrimitiveSource;
-    use crate::pipeline::vector::Vector;
-    use std::cell::RefCell;
-    use std::task::Poll;
-    use vortex_buffer::buffer;
-    use vortex_error::vortex_panic;
-
-    #[test]
-    fn test_pipeline() {
-        // First, let's construct a simple pipeline with a unary operator.
-        let data = buffer![0..10000];
-        let nchunks = data.len().next_multiple_of(N);
-        let src = PrimitiveSource::new(data.len(), BufferHandle::new(data.into_byte_buffer()));
-
-        let mut out = Vector::new_with_vtype(src.vtype());
-
-        let mut pipeline = Pipeline::new(&src).unwrap();
-        for i in 0..nchunks {
-            match pipeline.step(BitView::all_true(), &mut out.as_view_mut()) {
-                Poll::Ready(result) => result.unwrap(),
-                Poll::Pending => {
-                    vortex_panic!("Pending for in-memory pipeline")
-                }
-            }
-        }
-
-        assert!(false);
     }
 }

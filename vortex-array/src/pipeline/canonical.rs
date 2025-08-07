@@ -3,7 +3,7 @@
 
 use crate::arrays::{BoolArray, PrimitiveArray};
 use crate::pipeline::bits::{BitVector, BitView, BitViewMut};
-use crate::pipeline::nodes::expr::Expression;
+use crate::pipeline::nodes::operators::Operator;
 use crate::pipeline::nodes::pipeline::Pipeline;
 use crate::pipeline::types::Element;
 use crate::pipeline::vector::Vector;
@@ -20,7 +20,7 @@ use vortex_mask::Mask;
 pub fn export_canonical_pipeline(
     dtype: &DType,
     len: usize,
-    expression: &dyn Expression,
+    expression: &dyn Operator,
     mask: &Mask,
 ) -> VortexResult<Canonical> {
     let mut pipeline = Pipeline::new(expression)?;

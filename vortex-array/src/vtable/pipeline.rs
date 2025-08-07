@@ -2,19 +2,19 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::pipeline::Kernel;
-use crate::pipeline::nodes::expr::Expression;
+use crate::pipeline::nodes::operators::Operator;
 use crate::vtable::{NotSupported, VTable};
 use vortex_error::{VortexResult, vortex_bail};
 
 pub trait PipelineVTable<V: VTable> {
-    /// Convert the current array into a [`Expression`].
-    fn to_expression(array: &V::Array) -> VortexResult<Box<dyn Expression>>;
+    /// Convert the current array into a [`Operator`].
+    fn to_operator(array: &V::Array) -> VortexResult<Box<dyn Operator>>;
 
     fn to_pipeline(array: &V::Array) -> VortexResult<Box<dyn Kernel>>;
 }
 
 impl<V: VTable> PipelineVTable<V> for NotSupported {
-    fn to_expression(array: &V::Array) -> VortexResult<Box<dyn Expression>> {
+    fn to_operator(array: &V::Array) -> VortexResult<Box<dyn Operator>> {
         todo!()
     }
 

@@ -4,7 +4,7 @@
 use crate::arrays::PrimitiveArray;
 use crate::pipeline::bits::BitView;
 use crate::pipeline::buffers::BufferHandle;
-use crate::pipeline::nodes::expr::{BindContext, Expression};
+use crate::pipeline::nodes::operators::{BindContext, Operator};
 use crate::pipeline::types::{Element, VType};
 use crate::pipeline::vector::{Vector, VectorRefMut};
 use crate::pipeline::view::ViewMut;
@@ -15,12 +15,12 @@ use std::task::{Poll, ready};
 use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::VortexResult;
 
-impl Expression for PrimitiveArray {
+impl Operator for PrimitiveArray {
     fn vtype(&self) -> VType {
         VType::Primitive(self.ptype())
     }
 
-    fn children(&self) -> &[Box<dyn Expression>] {
+    fn children(&self) -> &[Box<dyn Operator>] {
         &[]
     }
 
