@@ -112,7 +112,7 @@ impl<'a> Pipeline<'a> {
                     // Need new allocation
                     let alloc_id = allocations.len();
                     allocations.push(VectorAllocation {
-                        element_type: plan_node.output_type(),
+                        element_type: plan_node.vtype(),
                         available_after: Some(lifetime.last_use),
                     });
                     OutputTarget::IntermediateVector(alloc_id)
@@ -121,7 +121,7 @@ impl<'a> Pipeline<'a> {
                 // Need new allocation
                 let alloc_id = allocations.len();
                 allocations.push(VectorAllocation {
-                    element_type: plan_node.output_type(),
+                    element_type: plan_node.vtype(),
                     available_after: Some(lifetime.last_use),
                 });
                 OutputTarget::IntermediateVector(alloc_id)
@@ -215,7 +215,7 @@ impl<'a> Pipeline<'a> {
             if let Some(&first_child_idx) = node.children.first() {
                 let first_child = &dag[first_child_idx];
 
-                if node.plan_node.output_type() == first_child.plan_node.output_type() {
+                if node.plan_node.vtype() == first_child.plan_node.vtype() {
                     // This node can pass through the output buffer
                     flows_to_output.push(current);
                     // Continue down the first child
@@ -250,7 +250,7 @@ impl<'a> Pipeline<'a> {
             return false; // Cannot pass through if multiple parents
         }
         node.parents.iter().all(|&parent| {
-            if node.plan_node.output_type() != dag[parent].plan_node.output_type() {
+            if node.plan_node.vtype() != dag[parent].plan_node.vtype() {
                 return false; // Type mismatch
             }
             match output_targets[parent] {

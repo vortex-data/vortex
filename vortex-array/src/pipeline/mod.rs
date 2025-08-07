@@ -3,7 +3,7 @@
 
 //! This module contains experiments into pipelined data processing within Vortex.
 //!
-//! Arrays (and eventually Layouts) will be convertible into a [`Operator`] that can then be
+//! Arrays (and eventually Layouts) will be convertible into a [`Kernel`] that can then be
 //! exported into a [`ViewMut`] one chunk of [`N`] elements at a time. This allows us to keep
 //! compute largely within the L1 cache, as well as to write out canonical data into externally
 //! provided buffers.
@@ -20,7 +20,6 @@ pub mod bits;
 pub mod buffers;
 pub mod canonical;
 pub mod common;
-pub mod export;
 pub mod nodes;
 pub mod selection;
 pub mod types;
@@ -56,7 +55,7 @@ use vortex_error::{VortexResult, vortex_err, vortex_panic};
 /// elements should still live in the correct location, it just doesn't matter what their value
 /// is. This will allow, e.g. a validity encoding to tell its children that the values in certain
 /// positions are going to be masked out anyway, so don't bother doing any expensive compute.
-pub trait Operator {
+pub trait Kernel {
     /// Seek the pipeline to a specific chunk offset.
     ///
     /// i.e. the resulting row offset is `idx * N`, where `N` is the number of elements in a chunk.
@@ -87,7 +86,7 @@ pub trait Operator {
     ) -> Poll<VortexResult<()>>;
 }
 
-pub trait PipelineExt: Operator {
+pub trait PipelineExt: Kernel {
     /// Perform a single step of the pipeline, panics if the step returns [`Poll::Pending`].
     fn step_now(
         &mut self,
@@ -104,7 +103,7 @@ pub trait PipelineExt: Operator {
     }
 }
 
-impl<P: Operator + ?Sized> PipelineExt for P {}
+impl<P: Kernel + ?Sized> PipelineExt for P {}
 
 pub trait PipelineContext {
     /// Get a vector by its ID.

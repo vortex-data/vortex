@@ -6,7 +6,7 @@ use crate::pipeline::bits::BitView;
 use crate::pipeline::buffers::BufferHandle;
 use crate::pipeline::vector::VectorRefMut;
 use crate::pipeline::view::ViewMut;
-use crate::pipeline::{N, Operator, PipelineContext};
+use crate::pipeline::{Kernel, N, PipelineContext};
 use std::task::Poll;
 use vortex_error::VortexResult;
 
@@ -18,7 +18,7 @@ pub struct VarBinPipeline {
     offset: usize,
 }
 
-impl Operator for VarBinPipeline {
+impl Kernel for VarBinPipeline {
     fn seek(&mut self, chunk_idx: usize) -> VortexResult<()> {
         self.offset = chunk_idx * N;
         Ok(())

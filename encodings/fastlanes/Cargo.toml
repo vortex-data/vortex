@@ -39,6 +39,7 @@ rand = { workspace = true }
 rstest = { workspace = true }
 vortex-alp = { path = "../alp" }
 vortex-array = { workspace = true, features = ["test-harness"] }
+vortex-expr = { workspace = true }
 vortex-fastlanes = { path = ".", features = ["test-harness"] }
 
 [features]
@@ -64,5 +65,10 @@ required-features = ["test-harness"]
 
 [[bench]]
 name = "pipeline_bitpacking"
+harness = false
+test = false
+
+[[bench]]
+name = "pipeline_bitpacking_compare"
 harness = false
 test = false

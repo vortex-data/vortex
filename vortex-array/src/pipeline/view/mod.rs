@@ -2,55 +2,50 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod flatten;
-
 use crate::ArrayRef;
 use crate::pipeline::N;
 use crate::pipeline::selection::Selection;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 
-use crate::pipeline::bits::BitVector;
 use crate::pipeline::bits::BitViewMut;
+use crate::pipeline::bits::{BitVector, BitView};
 use crate::pipeline::types::{Element, VType};
 
 pub struct View<'a> {
-    _phantom: std::marker::PhantomData<&'a ()>,
+    /// The physical type of the vector, which defines how the elements are stored.
+    pub(super) vtype: VType,
+    /// A pointer to the allocated elements buffer.
+    /// Alignment is at least the size of the element type.
+    /// The capacity of the elements buffer is N * size_of::<T>() where T is the element type.
+    pub(super) elements: *const u8,
+    /// The validity mask for the vector, indicating which elements in the buffer are valid.
+    /// This value can be `None` if the expected DType is `NonNullable`.
+    pub(super) validity: Option<BitView<'a>>,
+    // A selection mask over the elements and validity of the vector.
+    pub(super) len: usize,
+
+    /// Additional buffers of data used by the vector, such as string data.
+    #[allow(dead_code)]
+    pub(super) data: Vec<ByteBuffer>,
+
+    /// Marker defining the lifetime of the contents of the vector.
+    pub(super) _marker: std::marker::PhantomData<&'a ()>,
 }
 
-pub struct TypedView<'a, E> {
-    view: View<'a>,
-    _phantom: std::marker::PhantomData<E>,
-}
-
-impl<E> AsRef<[E; N]> for TypedView<'_, E>
-where
-    E: Element,
-{
-    fn as_ref(&self) -> &[E; N] {
-        todo!()
+impl<'a> View<'a> {
+    #[inline(always)]
+    pub fn len(&self) -> usize {
+        self.len
     }
-}
 
-pub struct TypedViewMut<'a, E> {
-    view: ViewMut<'a>,
-    _phantom: std::marker::PhantomData<E>,
-}
-
-impl<E> AsRef<[E; N]> for TypedViewMut<'_, E>
-where
-    E: Element,
-{
-    fn as_ref(&self) -> &[E; N] {
-        todo!()
-    }
-}
-
-impl<E> AsMut<[E; N]> for TypedViewMut<'_, E>
-where
-    E: Element,
-{
-    fn as_mut(&mut self) -> &mut [E; N] {
-        todo!()
+    pub fn elements<T>(&self) -> &'a [T; N]
+    where
+        T: Element,
+    {
+        assert_eq!(self.vtype, T::vtype(), "Invalid type for canonical view");
+        // SAFETY: We assume that the elements are of type T and that the view is valid.
+        unsafe { &*(self.elements.cast::<[T; N]>()) }
     }
 }
 
@@ -114,16 +109,13 @@ pub struct ViewMut<'a> {
     /// The validity mask for the vector, indicating which elements in the buffer are valid.
     /// This value can be `None` if the expected DType is `NonNullable`.
     pub(super) validity: Option<BitViewMut<'a>>,
-    // A selection mask over the elements and validity of the vector.
-    pub(super) selection: Selection,
+    // Length of the view.
+    pub(super) len: usize,
 
     /// Additional buffers of data used by the vector, such as string data.
     // TODO(ngates): ideally these buffers are compressed somehow? E.g. using FSST?
     #[allow(dead_code)]
     pub(super) data: Vec<ByteBuffer>,
-    // Additional arrays used by the vector, such as...?
-    #[allow(dead_code)]
-    pub(super) children: Vec<ArrayRef>,
 
     /// Marker defining the lifetime of the contents of the vector.
     pub(super) _marker: std::marker::PhantomData<&'a mut ()>,
@@ -136,16 +128,9 @@ impl<'a> ViewMut<'a> {
             vtype: E::vtype(),
             elements: elements.as_mut_ptr().cast(),
             validity,
-            selection: Selection::default(),
+            len: 0,
             data: vec![],
-            children: vec![],
             _marker: Default::default(),
-        }
-    }
-
-    pub fn as_view(&self) -> View<'a> {
-        View {
-            _phantom: std::marker::PhantomData,
         }
     }
 
@@ -164,17 +149,13 @@ impl<'a> ViewMut<'a> {
 
     /// Return the logical length of the vector, which is the number of selected elements.
     pub fn len(&self) -> usize {
-        match self.selection {
-            Selection::Prefix { len } => len,
-            Selection::Constant { len, .. } => len,
-            Selection::Mask(ref mask) => mask.true_count(),
-        }
+        self.len
     }
 
     /// Returns a mutable handle to the elements array.
     #[inline(always)]
     pub fn elements<E: Element>(&mut self) -> &'a mut [E; N] {
-        assert_eq!(self.vtype, E::vtype(), "Invalid type for canonical view");
+        debug_assert_eq!(self.vtype, E::vtype(), "Invalid type for canonical view");
         // SAFETY: We assume that the elements are of type E and that the view is valid.
         unsafe { &mut *(self.elements.cast::<[E; N]>()) }
     }
@@ -182,7 +163,7 @@ impl<'a> ViewMut<'a> {
     /// Returns an immutable slice of the elements in the vector.
     #[inline(always)]
     pub fn as_ref<E: Element>(&self) -> &'a [E] {
-        assert_eq!(self.vtype, E::vtype(), "Invalid type for canonical view");
+        debug_assert_eq!(self.vtype, E::vtype(), "Invalid type for canonical view");
         unsafe { std::slice::from_raw_parts(self.elements.cast::<E>(), N) }
     }
 
@@ -190,7 +171,7 @@ impl<'a> ViewMut<'a> {
     /// FIXME(ngates): test the performance if we return &mut [E; N] instead of &[E].
     #[inline(always)]
     pub fn as_mut<E: Element>(&mut self) -> &'a mut [E] {
-        assert_eq!(self.vtype, E::vtype(), "Invalid type for canonical view");
+        debug_assert_eq!(self.vtype, E::vtype(), "Invalid type for canonical view");
         unsafe { std::slice::from_raw_parts_mut(self.elements.cast::<E>(), N) }
     }
 
@@ -210,54 +191,8 @@ impl<'a> ViewMut<'a> {
         self.data.push(buffer);
     }
 
-    #[inline(always)]
-    pub fn set_selection(&mut self, selection: Selection) {
-        #[cfg(debug_assertions)]
-        {
-            match &selection {
-                Selection::Prefix { len } => {
-                    assert!(
-                        *len <= N,
-                        "Selection prefix length must be less than or equal to N"
-                    );
-                }
-                Selection::Constant { len, element } => {
-                    assert!(
-                        *len <= N,
-                        "Selection constant length must be less than or equal to N"
-                    );
-                    assert!(
-                        *element < N,
-                        "Selection constant element must be less than N"
-                    );
-                }
-                Selection::Mask(_mask) => {}
-            }
-        }
-        self.selection = selection;
-    }
-
-    pub fn set_selection_len(&mut self, len: usize) {
+    pub fn set_len(&mut self, len: usize) {
         assert!(len <= N);
-        self.selection = Selection::Prefix { len };
-    }
-
-    pub fn set_selection_mask(&mut self, mask: BitVector) {
-        match mask.true_count() {
-            0 => self.selection = Selection::Prefix { len: 0 },
-            N => self.selection = Selection::Prefix { len: N },
-            _ => {
-                self.selection = Selection::Mask(mask);
-            }
-        }
-    }
-
-    /// Whether the vector is in a flat representation, meaning it has no selection reordering.
-    pub fn is_flat(&self) -> bool {
-        match self.selection {
-            Selection::Prefix { .. } => true,
-            Selection::Constant { .. } => true,
-            Selection::Mask(_) => false,
-        }
+        self.len = len;
     }
 }

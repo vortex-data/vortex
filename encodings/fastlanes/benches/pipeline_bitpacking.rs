@@ -125,11 +125,24 @@ pub fn decompress_bitpacking_pipeline_filter<T: Element + NativePType>(
 
     bencher
         .with_inputs(|| Mask::from_buffer(mask.clone()))
-        .bench_local_values(|mask| export_canonical_pipeline(array.as_ref(), &mask).unwrap());
+        .bench_local_values(|mask| {
+            export_canonical_pipeline(
+                array.dtype(),
+                array.len(),
+                array.to_pipeline_plan().unwrap().as_ref(),
+                &mask,
+            )
+            .unwrap()
+        });
 
-    let array = export_canonical_pipeline(array.as_ref(), &Mask::from_buffer(mask.clone()))
-        .unwrap()
-        .into_primitive()
-        .unwrap();
+    let array = export_canonical_pipeline(
+        array.dtype(),
+        array.len(),
+        array.to_pipeline_plan().unwrap().as_ref(),
+        &Mask::from_buffer(mask.clone()),
+    )
+    .unwrap()
+    .into_primitive()
+    .unwrap();
     assert_eq!(array.len(), mask.count_set_bits());
 }

@@ -8,7 +8,7 @@ use vortex_array::pipeline::bits::BitView;
 use vortex_array::pipeline::buffers::BufferHandle;
 use vortex_array::pipeline::vector::PrimitiveVector;
 use vortex_array::pipeline::view::ViewMut;
-use vortex_array::pipeline::{Operator, PipelineContext};
+use vortex_array::pipeline::{Kernel, PipelineContext};
 use vortex_buffer::ByteBufferMut;
 use vortex_error::{VortexExpect, VortexResult};
 
@@ -20,15 +20,15 @@ pub struct FSSTPipeline {
 
     compressor: Option<Compressor>,
 
-    codes_offsets: Box<dyn Operator>,
+    codes_offsets: Box<dyn Kernel>,
     codes_offsets_vec: PrimitiveVector<u32>,
     codes_buffer: BufferHandle<u8>,
 
-    uncompressed_lens: Box<dyn Operator>,
+    uncompressed_lens: Box<dyn Kernel>,
     uncompressed_lens_vec: PrimitiveVector<u32>,
 }
 
-impl Operator for FSSTPipeline {
+impl Kernel for FSSTPipeline {
     fn seek(&mut self, chunk_idx: usize) -> VortexResult<()> {
         self.codes_offsets.seek(chunk_idx)?;
         self.uncompressed_lens.seek(chunk_idx)
@@ -94,7 +94,7 @@ impl Operator for FSSTPipeline {
         unsafe { uncompressed.set_len(output_size) };
 
         out.add_buffer(uncompressed.freeze());
-        out.set_selection_len(selected.true_count());
+        out.set_len(selected.true_count());
 
         Poll::Ready(Ok(()))
     }

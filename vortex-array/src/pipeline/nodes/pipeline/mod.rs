@@ -8,17 +8,18 @@ mod toposort;
 
 use crate::pipeline::bits::BitView;
 use crate::pipeline::buffers::BufferId;
+use crate::pipeline::nodes::expr::Expression;
 use crate::pipeline::nodes::pipeline::buffers::{OutputTarget, VectorAllocationPlan};
 use crate::pipeline::nodes::pipeline::dag::DagNode;
-use crate::pipeline::nodes::plan::PlanNode;
 use crate::pipeline::vector::{Vector, VectorId, VectorRef, VectorRefMut};
 use crate::pipeline::view::ViewMut;
-use crate::pipeline::{Operator, PipelineContext};
+use crate::pipeline::{Kernel, PipelineContext};
 use std::cell::RefCell;
 use std::ops::{Deref, DerefMut};
 use std::task::Poll;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexError, VortexResult};
+use vortex_utils::aliases::hash_map::RandomState;
 
 /// The idea of a pipeline is to orchestrate driving a set of operators to completion with
 /// fully optimized resource usage.
@@ -40,7 +41,7 @@ pub struct Pipeline<'a> {
     /// The leaf nodes of the plan (nodes with no children).
     leaf_nodes: Vec<usize>,
     /// The operators bound to each node in the DAG.
-    operators: Vec<Box<dyn Operator>>,
+    operators: Vec<Box<dyn Kernel>>,
     /// The allocation plan for vectors used by the pipeline.
     allocation_plan: VectorAllocationPlan,
 
@@ -58,7 +59,7 @@ pub struct Pipeline<'a> {
 
 impl<'a> Pipeline<'a> {
     // TODO(ngates): can we pass the mask in here such that the plan can replace empty nodes?
-    pub fn new(plan: &'a dyn PlanNode) -> VortexResult<Self> {
+    pub fn new(plan: &'a dyn Expression) -> VortexResult<Self> {
         // Step 1: Convert the plan tree to a DAG by eliminating common sub-expressions.
         let (dag_root, dag) = Self::build_dag(plan)?;
         let node_count = dag.len();
@@ -69,7 +70,6 @@ impl<'a> Pipeline<'a> {
 
         // Step 3: Allocate vectors
         let allocation_plan = Self::allocate_vectors(dag_root, &dag, &execution_order)?;
-        log::info!("Allocation plan: {allocation_plan:?}");
 
         // let (buffer_slots, buffers) = Self::allocate_buffers(&dag, &execution_order)?;
 
@@ -285,14 +285,20 @@ impl<'a> Pipeline<'a> {
             allocation_plan: &self.allocation_plan,
         };
 
-        match self.allocation_plan.output_targets[node_idx] {
+        // FIXME(ngates): should we reset the output vector selection?
+        let result = match self.allocation_plan.output_targets[node_idx] {
             OutputTarget::ExternalOutput => operator.step(&ctx, selected, external_out),
             OutputTarget::IntermediateVector(vector_idx) | OutputTarget::InPlace(_, vector_idx) => {
                 let mut vector_ref = self.allocation_plan.vectors[vector_idx].borrow_mut();
-                let mut view = vector_ref.as_view_mut();
-                operator.step(&ctx, selected, &mut view)
+                let result = {
+                    let mut view = vector_ref.as_view_mut();
+                    operator.step(&ctx, selected, &mut view)
+                };
+                vector_ref.deref_mut().set_len(selected.true_count());
+                result
             }
-        }
+        };
+        result
     }
 
     /// Reset state for next pipeline step
@@ -329,7 +335,7 @@ enum ExecutionResult {
 }
 
 /// FIXME(ngates): this is a hack for testing
-impl Operator for Pipeline<'_> {
+impl Kernel for Pipeline<'_> {
     fn seek(&mut self, chunk_idx: usize) -> VortexResult<()> {
         todo!()
     }
@@ -363,9 +369,9 @@ mod test {
     use crate::pipeline::N;
     use crate::pipeline::bits::BitView;
     use crate::pipeline::buffers::BufferHandle;
-    use crate::pipeline::nodes::common::PrimitiveSource;
+    use crate::pipeline::nodes::expr::Expression;
     use crate::pipeline::nodes::pipeline::Pipeline;
-    use crate::pipeline::nodes::plan::PlanNode;
+    use crate::pipeline::nodes::primitive::PrimitiveSource;
     use crate::pipeline::vector::Vector;
     use std::cell::RefCell;
     use std::task::Poll;
@@ -379,7 +385,7 @@ mod test {
         let nchunks = data.len().next_multiple_of(N);
         let src = PrimitiveSource::new(data.len(), BufferHandle::new(data.into_byte_buffer()));
 
-        let mut out = Vector::new_with_vtype(src.output_type());
+        let mut out = Vector::new_with_vtype(src.vtype());
 
         let mut pipeline = Pipeline::new(&src).unwrap();
         for i in 0..nchunks {

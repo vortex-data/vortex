@@ -12,32 +12,11 @@ use crate::pipeline::N;
 use crate::pipeline::bits::BitVector;
 use crate::pipeline::selection::Selection;
 use crate::pipeline::types::{Element, VType};
-use crate::pipeline::view::{TypedViewMut, View, ViewMut};
+use crate::pipeline::view::{View, ViewMut};
 use std::cell::{Ref, RefMut};
 use std::fmt::Debug;
 use std::ops::{Deref, DerefMut};
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
-
-pub struct TypedVector<T> {
-    vector: Vector,
-    _marker: std::marker::PhantomData<T>,
-}
-
-impl<T> TypedVector<T> {
-    pub fn as_typed_view_mut(&mut self) -> TypedViewMut<'_, T> {
-        todo!()
-    }
-
-    pub fn as_view_mut(&mut self) -> ViewMut<'_> {
-        todo!()
-    }
-}
-
-impl<T> Default for TypedVector<T> {
-    fn default() -> Self {
-        todo!()
-    }
-}
 
 /// A vector contains fixed-size owned data in canonical form.
 #[derive(Debug)]
@@ -50,8 +29,8 @@ pub struct Vector {
     elements: ByteBufferMut,
     /// The validity mask for the vector, indicating which elements in the buffer are valid.
     validity: BitVector,
-    // A selection mask over the elements and validity of the vector.
-    selection: Selection,
+    // The length of the valid values in the vector.
+    len: usize,
 
     /// Additional buffers of data used by the vector, such as string data.
     // TODO(ngates): ideally these buffers are compressed somehow? E.g. using FSST?
@@ -60,18 +39,34 @@ pub struct Vector {
 }
 
 impl Vector {
+    pub fn new<T: Element>() -> Self {
+        Self::new_with_vtype(T::vtype())
+    }
+
     pub fn new_with_vtype(vtype: VType) -> Self {
-        let elements = ByteBufferMut::with_capacity_aligned(
+        let mut elements = ByteBufferMut::with_capacity_aligned(
             vtype.byte_width() * N,
             Alignment::new(vtype.byte_width()),
         );
+        unsafe { elements.set_len(vtype.byte_width() * N) };
+
         Self {
             vtype,
             elements,
             validity: BitVector::full().clone(),
-            selection: Selection::default(),
+            len: 0,
             data: vec![],
         }
+    }
+
+    #[inline(always)]
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn set_len(&mut self, len: usize) {
+        assert!(len <= N, "Length cannot exceed the capacity of the vector");
+        self.len = len;
     }
 
     pub fn as_mut<T: Element>(&mut self) -> &mut [T; N] {
@@ -84,15 +79,21 @@ impl Vector {
             vtype: self.vtype,
             elements: self.elements.as_mut_ptr().cast(),
             validity: Some(self.validity.as_view_mut()),
-            selection: self.selection.clone(),
+            len: self.len,
             data: vec![],
-            children: vec![],
             _marker: Default::default(),
         }
     }
 
     pub fn as_view(&self) -> View<'_> {
-        todo!()
+        View {
+            vtype: self.vtype,
+            elements: self.elements.as_ptr().cast(),
+            validity: Some(self.validity.as_view()),
+            len: self.len,
+            data: vec![],
+            _marker: Default::default(),
+        }
     }
 }
 
@@ -120,6 +121,10 @@ impl<'a> VectorRef<'a> {
         // SAFETY: we continue to hold onto the [`Ref`], so it is safe to erase the lifetime.
         let view = unsafe { std::mem::transmute::<View<'_>, View<'a>>(view) };
         Self { borrow, view }
+    }
+
+    pub fn as_view(&self) -> &View<'a> {
+        &self.view
     }
 }
 

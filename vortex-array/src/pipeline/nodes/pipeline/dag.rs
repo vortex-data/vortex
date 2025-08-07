@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::pipeline::nodes::expr::Expression;
 use crate::pipeline::nodes::pipeline::Pipeline;
-use crate::pipeline::nodes::plan::PlanNode;
 use std::hash::BuildHasher;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::{HashMap, RandomState};
 
 /// A node in our execution DAG
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(super) struct DagNode<'a> {
     /// Index of this node in the DAG
     pub(super) index: usize,
     /// The original plan node
-    pub(super) plan_node: &'a dyn PlanNode,
+    pub(super) plan_node: &'a dyn Expression,
     /// Indices of children in the DAG
     pub(super) children: Vec<usize>,
     /// Indices of parents in the DAG (for dependency tracking)
@@ -33,18 +33,19 @@ pub(super) struct BufferSlot {
 
 impl<'a> Pipeline<'a> {
     /// Build DAG from a tree, eliminating common sub-expressions
-    pub(super) fn build_dag(root: &'a dyn PlanNode) -> VortexResult<(usize, Vec<DagNode<'a>>)> {
+    pub(super) fn build_dag(root: &'a dyn Expression) -> VortexResult<(usize, Vec<DagNode<'a>>)> {
         let mut dag = Vec::new();
         let mut hash_to_index = HashMap::new();
 
         // Recursive function to build DAG
         fn visit_node<'b>(
-            node: &'b dyn PlanNode,
+            node: &'b dyn Expression,
             dag: &mut Vec<DagNode<'b>>,
             hash_to_index: &mut HashMap<u64, usize>,
+            random_state: &RandomState,
         ) -> usize {
             // Compute hash for this subtree
-            let subtree_hash = RandomState::default().hash_one(node);
+            let subtree_hash = random_state.hash_one(node);
 
             // Check if we've seen this subtree before (sub-expression elimination)
             if let Some(&existing_index) = hash_to_index.get(&subtree_hash) {
@@ -56,7 +57,7 @@ impl<'a> Pipeline<'a> {
             let child_indices: Vec<usize> = node
                 .children()
                 .iter()
-                .map(|child| visit_node(child.as_ref(), dag, hash_to_index))
+                .map(|child| visit_node(child.as_ref(), dag, hash_to_index, random_state))
                 .collect();
 
             // Create new DAG node
@@ -81,7 +82,8 @@ impl<'a> Pipeline<'a> {
         }
 
         // Build the DAG
-        let root_index = visit_node(root, &mut dag, &mut hash_to_index);
+        let random_state = RandomState::default();
+        let root_index = visit_node(root, &mut dag, &mut hash_to_index, &random_state);
 
         // Fill in parent relationships
         for i in 0..dag.len() {

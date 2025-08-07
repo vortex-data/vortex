@@ -5,7 +5,8 @@ use crate::pipeline::N;
 use crate::pipeline::bits::BitVector;
 use bitvec::prelude::*;
 use std::fmt::{Debug, Formatter};
-use vortex_error::{VortexError, vortex_err};
+use std::ops::Range;
+use vortex_error::{VortexError, VortexExpect, vortex_err};
 
 /// A borrowed fixed-size bit vector of length `N` bits, represented as an array of 64-bit words.
 ///
@@ -72,11 +73,49 @@ impl<'a> BitView<'a> {
                 for mut raw in self.bits.into_inner() {
                     while raw != 0 {
                         let bit_pos = raw.trailing_zeros();
-                        raw ^= 1 << bit_pos;
-
                         f(bit_idx + bit_pos as usize);
+                        raw &= raw - 1; // Clear the bit at `bit_pos`
                     }
                     bit_idx += 64;
+                }
+            }
+        }
+    }
+
+    /// Runs the provided function `f` for each range of `true` bits in the view.
+    ///
+    /// The function `f` receives a tuple `(start, len)` where `start` is the index of the first
+    /// `true` bit and `len` is the number of consecutive `true` bits.
+    pub fn iter_slices<F>(&self, mut f: F)
+    where
+        F: FnMut((usize, usize)),
+    {
+        match self.true_count {
+            0 => {}
+            N => f((0, N)),
+            _ => {
+                let mut bit_idx = 0;
+                for mut raw in self.bits.into_inner() {
+                    let mut offset = 0;
+                    while raw != 0 {
+                        // Skip leading zeros first
+                        let zeros = raw.leading_zeros();
+                        offset += zeros;
+                        raw <<= zeros;
+
+                        if offset >= 64 {
+                            break;
+                        }
+
+                        // Count leading ones
+                        let ones = raw.leading_ones();
+                        if ones > 0 {
+                            f((bit_idx + offset as usize, ones as usize));
+                            offset += ones;
+                            raw <<= ones;
+                        }
+                    }
+                    bit_idx += 64; // Move to next word
                 }
             }
         }
