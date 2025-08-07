@@ -16,7 +16,7 @@ use std::sync::Arc;
 pub use scalar_type::ScalarType;
 use vortex_buffer::{Buffer, BufferString, ByteBuffer};
 use vortex_dtype::half::f16;
-use vortex_dtype::{DECIMAL128_MAX_PRECISION, DType, Nullability, PType};
+use vortex_dtype::{DECIMAL128_MAX_PRECISION, DType, Nullability};
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
 mod arrow;
@@ -47,7 +47,7 @@ pub use pvalue::*;
 pub use scalar_value::*;
 pub use struct_::*;
 pub use utf8::*;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 /// A single logical item, composed of both a [`ScalarValue`] and a logical [`DType`].
 ///
@@ -65,73 +65,8 @@ pub struct Scalar {
 
 impl Scalar {
     /// Creates a new scalar with the given data type and value.
-    ///
-    /// This function performs type coercion when necessary to ensure the value matches
-    /// the expected data type. This is particularly important for backwards compatibility
-    /// with serialized scalars where floating point values may have been stored as integers.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the value cannot be coerced to the expected data type.
     pub fn new(dtype: DType, value: ScalarValue) -> Self {
-        let value = Self::coerce_value(&dtype, value).vortex_expect("Failed to coerce value");
         Self { dtype, value }
-    }
-
-    /// Coerces a scalar value to match the expected data type.
-    ///
-    /// This handles cases where:
-    /// - Floating point values were serialized as their bit representation
-    /// - Struct fields need recursive coercion
-    /// - List elements need recursive coercion
-    fn coerce_value(dtype: &DType, value: ScalarValue) -> VortexResult<ScalarValue> {
-        match (dtype, &value.0) {
-            // Handle primitive type coercion
-            (DType::Primitive(ptype, _), InnerScalarValue::Primitive(pvalue)) => {
-                match (ptype, pvalue) {
-                    // F16 coercion from integer types (backwards compatibility)
-                    (PType::F16, PValue::U64(v)) if *v <= u16::MAX as u64 => {
-                        Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F16(
-                            f16::from_bits(u16::try_from(*v).map_err(|_| {
-                                vortex_err!(
-                                    "bit representation of f16 has more than 16 bits: {}",
-                                    v
-                                )
-                            })?),
-                        ))))
-                    }
-                    // No coercion needed
-                    _ => Ok(value),
-                }
-            }
-            // Handle struct coercion - recursively coerce fields
-            (DType::Struct(struct_fields, _), InnerScalarValue::List(field_values)) => {
-                let coerced_fields: Result<Vec<ScalarValue>, _> = struct_fields
-                    .fields()
-                    .zip(field_values.iter())
-                    .map(|(field_dtype, field_value)| {
-                        Self::coerce_value(&field_dtype, field_value.clone())
-                    })
-                    .collect();
-                Ok(ScalarValue(InnerScalarValue::List(coerced_fields?.into())))
-            }
-            // Handle list coercion - recursively coerce elements
-            (DType::List(elem_dtype, _), InnerScalarValue::List(elements)) => {
-                let coerced_elements: Result<Vec<ScalarValue>, _> = elements
-                    .iter()
-                    .map(|elem| Self::coerce_value(elem_dtype, elem.clone()))
-                    .collect();
-                Ok(ScalarValue(InnerScalarValue::List(
-                    coerced_elements?.into(),
-                )))
-            }
-            // Handle extension type coercion - recursively coerce the storage scalar
-            (DType::Extension(ext_dtype), _) => {
-                Self::coerce_value(ext_dtype.storage_dtype(), value)
-            }
-            // No coercion needed for other types
-            _ => Ok(value),
-        }
     }
 
     /// Returns a reference to the scalar's data type.
@@ -566,6 +501,7 @@ mod tests {
     use rstest::rstest;
     use vortex_dtype::half::f16;
     use vortex_dtype::{DType, ExtDType, ExtID, FieldDType, Nullability, PType, StructFields};
+    use vortex_error::VortexExpect;
 
     use crate::{InnerScalarValue, PValue, Scalar, ScalarValue};
 
@@ -788,12 +724,10 @@ mod tests {
             ScalarValue(InnerScalarValue::Primitive(PValue::U64(u64_bits))),
         );
 
-        match scalar.value() {
-            ScalarValue(InnerScalarValue::Primitive(PValue::F16(v))) => {
-                assert_eq!(*v, f16_value);
-            }
-            _ => panic!("Expected F16 value after coercion"),
-        }
+        assert_eq!(
+            scalar.as_primitive().pvalue().unwrap(),
+            PValue::F16(f16_value)
+        );
     }
 
     #[test]
@@ -912,28 +846,19 @@ mod tests {
         let fields = struct_scalar.fields().unwrap();
 
         // Check first field (no coercion needed)
-        match fields[0].value() {
-            ScalarValue(InnerScalarValue::Primitive(PValue::U32(v))) => {
-                assert_eq!(*v, 42);
-            }
-            _ => panic!("Expected U32 value for field 'a'"),
-        }
+        assert_eq!(fields[0].as_primitive().pvalue().unwrap(), PValue::U32(42));
 
         // Check second field (f16 coerced from u64)
-        match fields[1].value() {
-            ScalarValue(InnerScalarValue::Primitive(PValue::F16(v))) => {
-                assert_eq!(*v, f16_value);
-            }
-            _ => panic!("Expected F16 value for field 'b' after coercion"),
-        }
+        assert_eq!(
+            fields[1].as_primitive().pvalue().unwrap(),
+            PValue::F16(f16_value)
+        );
 
         // Check third field (no coercion needed)
-        match fields[2].value() {
-            ScalarValue(InnerScalarValue::Primitive(PValue::F32(v))) => {
-                assert_eq!(*v, f32_value);
-            }
-            _ => panic!("Expected F32 value for field 'c'"),
-        }
+        assert_eq!(
+            fields[2].as_primitive().pvalue().unwrap(),
+            PValue::F32(f32_value)
+        );
     }
 
     #[test]
@@ -945,12 +870,7 @@ mod tests {
             ScalarValue(InnerScalarValue::Primitive(PValue::I32(i32_value))),
         );
 
-        match scalar.value() {
-            ScalarValue(InnerScalarValue::Primitive(PValue::I32(v))) => {
-                assert_eq!(*v, i32_value);
-            }
-            _ => panic!("Expected I32 value"),
-        }
+        assert_eq!(scalar.as_primitive().pvalue(), Some(PValue::I32(i32_value)));
     }
 
     #[test]
@@ -981,12 +901,10 @@ mod tests {
         let elements = list_scalar.elements().unwrap();
 
         for (i, expected) in [f16_value1, f16_value2].iter().enumerate() {
-            match elements[i].value() {
-                ScalarValue(InnerScalarValue::Primitive(PValue::F16(v))) => {
-                    assert_eq!(v, expected, "Element {i} mismatch");
-                }
-                _ => panic!("Expected F16 value for element {i} after coercion"),
-            }
+            assert_eq!(
+                elements[i].as_primitive().pvalue().unwrap(),
+                PValue::F16(*expected)
+            );
         }
     }
 
@@ -1026,36 +944,15 @@ mod tests {
         );
 
         // Verify the value was coerced to f16
-        match scalar.value() {
-            ScalarValue(InnerScalarValue::Primitive(PValue::F16(v))) => {
-                assert_eq!(*v, f16_value);
-            }
-            _ => panic!("Expected F16 value after extension type coercion"),
-        }
-    }
-
-    #[test]
-    fn test_extension_dtype_no_coercion() {
-        // Create an extension type with u32 storage
-        let ext_id = ExtID::new("test_u32_ext".into());
-        let storage_dtype = Arc::new(DType::Primitive(PType::U32, Nullability::NonNullable));
-        let ext_dtype = Arc::new(ExtDType::new(ext_id, storage_dtype, None));
-
-        // Test u32 value is not coerced
-        let u32_value = 42u32;
-
-        let scalar = Scalar::new(
-            DType::Extension(ext_dtype),
-            ScalarValue(InnerScalarValue::Primitive(PValue::U32(u32_value))),
+        assert_eq!(
+            scalar
+                .as_extension()
+                .storage()
+                .as_primitive()
+                .pvalue()
+                .unwrap(),
+            PValue::F16(f16_value)
         );
-
-        // Verify the value remains u32
-        match scalar.value() {
-            ScalarValue(InnerScalarValue::Primitive(PValue::U32(v))) => {
-                assert_eq!(*v, u32_value);
-            }
-            _ => panic!("Expected U32 value to remain unchanged"),
-        }
     }
 
     #[test]
@@ -1092,27 +989,19 @@ mod tests {
         );
 
         // Verify the struct field was coerced
-        match scalar.value() {
-            ScalarValue(InnerScalarValue::List(fields)) => {
-                assert_eq!(fields.len(), 2);
-
-                // Check ID field (no coercion)
-                match &fields[0].0 {
-                    InnerScalarValue::Primitive(PValue::U32(v)) => {
-                        assert_eq!(*v, 123);
-                    }
-                    _ => panic!("Expected U32 value for ID field"),
-                }
-
-                // Check value field (f16 coerced from u64)
-                match &fields[1].0 {
-                    InnerScalarValue::Primitive(PValue::F16(v)) => {
-                        assert_eq!(*v, f16_value);
-                    }
-                    _ => panic!("Expected F16 value for value field after coercion"),
-                }
-            }
-            _ => panic!("Expected List value for struct storage in extension type"),
-        }
+        let list_elems = scalar
+            .as_extension()
+            .storage()
+            .as_struct()
+            .fields()
+            .vortex_expect("non null");
+        assert_eq!(
+            list_elems[0].as_primitive().pvalue().unwrap(),
+            PValue::U32(123)
+        );
+        assert_eq!(
+            list_elems[1].as_primitive().pvalue().unwrap(),
+            PValue::F16(f16_value)
+        );
     }
 }

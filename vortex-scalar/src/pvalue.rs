@@ -9,7 +9,7 @@ use num_traits::NumCast;
 use paste::paste;
 use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PType, ToBytes};
-use vortex_error::{VortexError, VortexExpect, vortex_err};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 /// A primitive value that can represent any primitive type supported by Vortex.
 ///
@@ -295,6 +295,33 @@ macro_rules! int_pvalue {
     };
 }
 
+macro_rules! float_pvalue {
+    ($T:ty, $PT:tt) => {
+        impl TryFrom<PValue> for $T {
+            type Error = VortexError;
+
+            fn try_from(value: PValue) -> Result<Self, Self::Error> {
+                match value {
+                    PValue::U8(u) => <Self as NumCast>::from(u),
+                    PValue::U16(u) => <Self as NumCast>::from(u),
+                    PValue::U32(u) => <Self as NumCast>::from(u),
+                    PValue::U64(u) => <Self as NumCast>::from(u),
+                    PValue::I8(i) => <Self as NumCast>::from(i),
+                    PValue::I16(i) => <Self as NumCast>::from(i),
+                    PValue::I32(i) => <Self as NumCast>::from(i),
+                    PValue::I64(i) => <Self as NumCast>::from(i),
+                    PValue::F16(f) => <Self as NumCast>::from(f),
+                    PValue::F32(f) => <Self as NumCast>::from(f),
+                    PValue::F64(f) => <Self as NumCast>::from(f),
+                }
+                .ok_or_else(|| {
+                    vortex_err!("Cannot read primitive value {:?} as {}", value, PType::$PT)
+                })
+            }
+        }
+    };
+}
+
 int_pvalue!(u8, U8);
 int_pvalue!(u16, U16);
 int_pvalue!(u32, U32);
@@ -305,70 +332,9 @@ int_pvalue!(i16, I16);
 int_pvalue!(i32, I32);
 int_pvalue!(i64, I64);
 
-impl TryFrom<PValue> for f64 {
-    type Error = VortexError;
-
-    fn try_from(value: PValue) -> Result<Self, Self::Error> {
-        match value {
-            PValue::U8(u) => <Self as NumCast>::from(u),
-            PValue::U16(u) => <Self as NumCast>::from(u),
-            PValue::U32(u) => <Self as NumCast>::from(u),
-            PValue::U64(u) => <Self as NumCast>::from(u),
-            PValue::I8(i) => <Self as NumCast>::from(i),
-            PValue::I16(i) => <Self as NumCast>::from(i),
-            PValue::I32(i) => <Self as NumCast>::from(i),
-            PValue::I64(i) => <Self as NumCast>::from(i),
-            PValue::F16(f) => <Self as NumCast>::from(f),
-            PValue::F32(f) => <Self as NumCast>::from(f),
-            PValue::F64(f) => <Self as NumCast>::from(f),
-        }
-        .ok_or_else(|| vortex_err!("Cannot read primitive value {:?} as {}", value, PType::F64))
-    }
-}
-
-impl TryFrom<PValue> for f32 {
-    type Error = VortexError;
-
-    #[allow(clippy::cast_possible_truncation)]
-    fn try_from(value: PValue) -> Result<Self, Self::Error> {
-        match value {
-            PValue::U8(u) => <Self as NumCast>::from(u),
-            PValue::U16(u) => <Self as NumCast>::from(u),
-            PValue::U32(u) => <Self as NumCast>::from(u),
-            PValue::U64(u) => <Self as NumCast>::from(u),
-            PValue::I8(i) => <Self as NumCast>::from(i),
-            PValue::I16(i) => <Self as NumCast>::from(i),
-            PValue::I32(i) => <Self as NumCast>::from(i),
-            PValue::I64(i) => <Self as NumCast>::from(i),
-            PValue::F16(f) => <Self as NumCast>::from(f),
-            PValue::F32(f) => <Self as NumCast>::from(f),
-            PValue::F64(f) => <Self as NumCast>::from(f),
-        }
-        .ok_or_else(|| vortex_err!("Cannot read primitive value {:?} as {}", value, PType::F32))
-    }
-}
-
-impl TryFrom<PValue> for f16 {
-    type Error = VortexError;
-
-    #[allow(clippy::cast_possible_truncation)]
-    fn try_from(value: PValue) -> Result<Self, Self::Error> {
-        match value {
-            PValue::U8(u) => <Self as NumCast>::from(u),
-            PValue::U16(u) => <Self as NumCast>::from(u),
-            PValue::U32(u) => <Self as NumCast>::from(u),
-            PValue::U64(u) => <Self as NumCast>::from(u),
-            PValue::I8(i) => <Self as NumCast>::from(i),
-            PValue::I16(i) => <Self as NumCast>::from(i),
-            PValue::I32(i) => <Self as NumCast>::from(i),
-            PValue::I64(i) => <Self as NumCast>::from(i),
-            PValue::F16(f) => Some(f),
-            PValue::F32(f) => <Self as NumCast>::from(f),
-            PValue::F64(f) => <Self as NumCast>::from(f),
-        }
-        .ok_or_else(|| vortex_err!("Cannot read primitive value {:?} as {}", value, PType::F16))
-    }
-}
+float_pvalue!(f16, F16);
+float_pvalue!(f32, F32);
+float_pvalue!(f64, F64);
 
 macro_rules! impl_pvalue {
     ($T:ty, $PT:tt) => {
@@ -413,6 +379,95 @@ impl Display for PValue {
             Self::F16(v) => write!(f, "{v}f16"),
             Self::F32(v) => write!(f, "{v}f32"),
             Self::F64(v) => write!(f, "{v}f64"),
+        }
+    }
+}
+
+pub(super) trait CoercePValue: Sized {
+    /// Coerce value from a compatible bit representation using into given type.
+    ///
+    /// Integers can be widened from narrower type
+    /// Floats stored as integers will be reinterpreted as bit representation of the float
+    fn coerce(value: PValue) -> VortexResult<Self>;
+}
+
+macro_rules! int_coerce {
+    ($T:ty) => {
+        impl CoercePValue for $T {
+            fn coerce(value: PValue) -> VortexResult<Self> {
+                Self::try_from(value)
+            }
+        }
+    };
+}
+
+int_coerce!(u8);
+int_coerce!(u16);
+int_coerce!(u32);
+int_coerce!(u64);
+int_coerce!(i8);
+int_coerce!(i16);
+int_coerce!(i32);
+int_coerce!(i64);
+
+impl CoercePValue for f16 {
+    #[allow(clippy::cast_possible_truncation)]
+    fn coerce(value: PValue) -> VortexResult<Self> {
+        // Support storing floats as narrowed integers
+        match value {
+            PValue::U8(u) => Ok(Self::from_bits(u as u16)),
+            PValue::U16(u) => Ok(Self::from_bits(u)),
+            PValue::U32(u) => Ok(Self::from_bits(u as u16)),
+            PValue::U64(u) => Ok(Self::from_bits(u as u16)),
+            PValue::F16(u) => Ok(u),
+            PValue::F32(f) => {
+                <Self as NumCast>::from(f).ok_or_else(|| vortex_err!("Cannot convert f32 to f16"))
+            }
+            PValue::F64(f) => {
+                <Self as NumCast>::from(f).ok_or_else(|| vortex_err!("Cannot convert f64 to f16"))
+            }
+            _ => vortex_bail!("Unsupported PValue {value:?} type for f16"),
+        }
+    }
+}
+
+impl CoercePValue for f32 {
+    #[allow(clippy::cast_possible_truncation)]
+    fn coerce(value: PValue) -> VortexResult<Self> {
+        // Support storing floats as narrowed integers
+        match value {
+            PValue::U8(u) => Ok(Self::from_bits(u as u32)),
+            PValue::U16(u) => Ok(Self::from_bits(u as u32)),
+            PValue::U32(u) => Ok(Self::from_bits(u)),
+            PValue::U64(u) => Ok(Self::from_bits(u as u32)),
+            PValue::F16(f) => {
+                <Self as NumCast>::from(f).ok_or_else(|| vortex_err!("Cannot convert f16 to f32"))
+            }
+            PValue::F32(f) => Ok(f),
+            PValue::F64(f) => {
+                <Self as NumCast>::from(f).ok_or_else(|| vortex_err!("Cannot convert f64 to f32"))
+            }
+            _ => vortex_bail!("Unsupported PValue {value:?} type for f32"),
+        }
+    }
+}
+
+impl CoercePValue for f64 {
+    fn coerce(value: PValue) -> VortexResult<Self> {
+        // Support storing floats as narrowed integers
+        match value {
+            PValue::U8(u) => Ok(Self::from_bits(u as u64)),
+            PValue::U16(u) => Ok(Self::from_bits(u as u64)),
+            PValue::U32(u) => Ok(Self::from_bits(u as u64)),
+            PValue::U64(u) => Ok(Self::from_bits(u)),
+            PValue::F16(f) => {
+                <Self as NumCast>::from(f).ok_or_else(|| vortex_err!("Cannot convert f16 to f64"))
+            }
+            PValue::F32(f) => {
+                <Self as NumCast>::from(f).ok_or_else(|| vortex_err!("Cannot convert f32 to f64"))
+            }
+            PValue::F64(f) => Ok(f),
+            _ => vortex_bail!("Unsupported PValue {value:?} type for f64"),
         }
     }
 }

@@ -13,7 +13,7 @@ use vortex_error::{
     VortexError, VortexExpect as _, VortexResult, VortexUnwrap, vortex_err, vortex_panic,
 };
 
-use crate::pvalue::PValue;
+use crate::pvalue::{CoercePValue, PValue};
 use crate::{InnerScalarValue, Scalar, ScalarValue};
 
 /// A scalar value representing a primitive type.
@@ -67,11 +67,10 @@ impl<'a> PrimitiveScalar<'a> {
         // Read the serialized value into the correct PValue.
         // The serialized form may come back over the wire as e.g. any integer type.
         let pvalue = match_each_native_ptype!(ptype, |T| {
-            if let Some(pvalue) = value.as_pvalue()? {
-                Some(PValue::from(<T>::try_from(pvalue)?))
-            } else {
-                None
-            }
+            value
+                .as_pvalue()?
+                .map(|pv| VortexResult::Ok(PValue::from(<T>::coerce(pv)?)))
+                .transpose()?
         });
 
         Ok(Self {
