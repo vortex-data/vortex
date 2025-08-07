@@ -16,7 +16,7 @@ use vortex::compressor::CompactCompressor;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::{VortexError, VortexExpect, VortexResult};
-use vortex::file::{VortexLayoutStrategy, VortexWriteOptions};
+use vortex::file::{VortexWriteOptions, WriteStrategyBuilder};
 use vortex::stream::ArrayStreamAdapter;
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -76,15 +76,14 @@ pub async fn exec_convert(flags: Flags) -> VortexResult<()> {
             .boxed();
     }
 
+    let strategy = WriteStrategyBuilder::new().with_executor(Arc::new(Handle::current()));
     let strategy = match flags.strategy {
-        Strategy::Btrblocks => VortexLayoutStrategy::with_executor(Arc::new(Handle::current())),
-        Strategy::Compact => VortexLayoutStrategy::compact_with_executor(
-            Arc::new(Handle::current()),
-            CompactCompressor::default(),
-        ),
+        Strategy::Btrblocks => strategy,
+        Strategy::Compact => strategy.with_compressor(CompactCompressor::default()),
     };
+
     VortexWriteOptions::default()
-        .with_strategy(strategy)
+        .with_strategy(strategy.build())
         .write(
             File::create(output_path).await?,
             ArrayStreamAdapter::new(dtype, vortex_stream),

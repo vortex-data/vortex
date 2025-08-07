@@ -16,7 +16,7 @@ use std::sync::Arc;
 pub use scalar_type::ScalarType;
 use vortex_buffer::{Buffer, BufferString, ByteBuffer};
 use vortex_dtype::half::f16;
-use vortex_dtype::{DECIMAL128_MAX_PRECISION, DType, Nullability, PType};
+use vortex_dtype::{DECIMAL128_MAX_PRECISION, DType, Nullability};
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
 mod arrow;
@@ -49,7 +49,7 @@ pub use pvalue::*;
 pub use scalar_value::*;
 pub use struct_::*;
 pub use utf8::*;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 /// A single logical item, composed of both a [`ScalarValue`] and a logical [`DType`].
 ///
@@ -67,73 +67,8 @@ pub struct Scalar {
 
 impl Scalar {
     /// Creates a new scalar with the given data type and value.
-    ///
-    /// This function performs type coercion when necessary to ensure the value matches
-    /// the expected data type. This is particularly important for backwards compatibility
-    /// with serialized scalars where floating point values may have been stored as integers.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the value cannot be coerced to the expected data type.
     pub fn new(dtype: DType, value: ScalarValue) -> Self {
-        let value = Self::coerce_value(&dtype, value).vortex_expect("Failed to coerce value");
         Self { dtype, value }
-    }
-
-    /// Coerces a scalar value to match the expected data type.
-    ///
-    /// This handles cases where:
-    /// - Floating point values were serialized as their bit representation
-    /// - Struct fields need recursive coercion
-    /// - List elements need recursive coercion
-    fn coerce_value(dtype: &DType, value: ScalarValue) -> VortexResult<ScalarValue> {
-        match (dtype, &value.0) {
-            // Handle primitive type coercion
-            (DType::Primitive(ptype, _), InnerScalarValue::Primitive(pvalue)) => {
-                match (ptype, pvalue) {
-                    // F16 coercion from integer types (backwards compatibility)
-                    (PType::F16, PValue::U64(v)) if *v <= u16::MAX as u64 => {
-                        Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F16(
-                            f16::from_bits(u16::try_from(*v).map_err(|_| {
-                                vortex_err!(
-                                    "bit representation of f16 has more than 16 bits: {}",
-                                    v
-                                )
-                            })?),
-                        ))))
-                    }
-                    // No coercion needed
-                    _ => Ok(value),
-                }
-            }
-            // Handle struct coercion - recursively coerce fields
-            (DType::Struct(struct_fields, _), InnerScalarValue::List(field_values)) => {
-                let coerced_fields: Result<Vec<ScalarValue>, _> = struct_fields
-                    .fields()
-                    .zip(field_values.iter())
-                    .map(|(field_dtype, field_value)| {
-                        Self::coerce_value(&field_dtype, field_value.clone())
-                    })
-                    .collect();
-                Ok(ScalarValue(InnerScalarValue::List(coerced_fields?.into())))
-            }
-            // Handle list coercion - recursively coerce elements
-            (DType::List(elem_dtype, _), InnerScalarValue::List(elements)) => {
-                let coerced_elements: Result<Vec<ScalarValue>, _> = elements
-                    .iter()
-                    .map(|elem| Self::coerce_value(elem_dtype, elem.clone()))
-                    .collect();
-                Ok(ScalarValue(InnerScalarValue::List(
-                    coerced_elements?.into(),
-                )))
-            }
-            // Handle extension type coercion - recursively coerce the storage scalar
-            (DType::Extension(ext_dtype), _) => {
-                Self::coerce_value(ext_dtype.storage_dtype(), value)
-            }
-            // No coercion needed for other types
-            _ => Ok(value),
-        }
     }
 
     /// Returns a reference to the scalar's data type.

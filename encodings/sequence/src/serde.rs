@@ -91,7 +91,6 @@ impl SerdeVTable<SequenceVTable> for SequenceVTable {
 mod tests {
     use std::sync::Arc;
 
-    use arcref::ArcRef;
     use vortex_array::arrays::{PrimitiveArray, StructArray};
     use vortex_array::iter::ArrayIteratorExt;
     use vortex_dtype::Nullability;
@@ -108,7 +107,7 @@ mod tests {
 
         let file = tokio::fs::File::create("/tmp/abc.vx").await.unwrap();
         VortexWriteOptions::default()
-            .with_strategy(ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())))
+            .with_strategy(Arc::new(FlatLayoutStrategy::default()))
             .write(file, st.to_array_stream())
             .await
             .unwrap();

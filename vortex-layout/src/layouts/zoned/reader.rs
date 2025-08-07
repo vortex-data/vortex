@@ -417,7 +417,6 @@ impl PruningResult {
 mod test {
     use std::sync::Arc;
 
-    use arcref::ArcRef;
     use futures::executor::block_on;
     use futures::stream;
     use rstest::{fixture, rstest};
@@ -442,8 +441,8 @@ mod test {
         let segments = TestSegments::default();
         let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
         let strategy = ZonedStrategy::new(
-            ArcRef::new_arc(Arc::new(ChunkedLayoutStrategy::default())),
-            ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())),
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+            FlatLayoutStrategy::default(),
             ZonedLayoutOptions {
                 block_size: 3,
                 ..Default::default()
