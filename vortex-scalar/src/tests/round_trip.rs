@@ -12,13 +12,13 @@
 mod tests {
     use std::sync::Arc;
 
-    use vortex_buffer::{BufferString, ByteBuffer};
+    use vortex_buffer::ByteBuffer;
     use vortex_dtype::{DType, DecimalDType, Nullability, PType};
     use vortex_proto::scalar as pb;
 
     use crate::{
         BinaryScalar, BoolScalar, DecimalScalar, DecimalValue, ListScalar, PrimitiveScalar, Scalar,
-        ScalarValue, Utf8Scalar, i256,
+        Utf8Scalar, i256,
     };
 
     // Test that primitive scalars round-trip through ScalarValue
@@ -245,35 +245,6 @@ mod tests {
         assert_eq!(extracted.as_slice(), &large_binary);
     }
 
-    // Test ScalarValue direct conversions
-    #[test]
-    fn test_scalar_value_conversions() {
-        // Test primitive conversions
-        let pvalue = 42i32;
-        let scalar_value = ScalarValue::from(pvalue);
-        let extracted: i32 = i32::try_from(&scalar_value).unwrap();
-        assert_eq!(pvalue, extracted);
-
-        // Test string conversions
-        let string_value = "test".to_string();
-        let scalar_value = ScalarValue::from(string_value.clone());
-        let extracted: String = String::try_from(&scalar_value).unwrap();
-        assert_eq!(string_value, extracted);
-
-        // Test BufferString conversions
-        let buffer_string = BufferString::from("buffer test");
-        let scalar_value = ScalarValue::from(buffer_string.clone());
-        let extracted: BufferString = BufferString::try_from(&scalar_value).unwrap();
-        assert_eq!(extracted.as_str(), buffer_string.as_str());
-
-        // Test ByteBuffer conversions
-        let bytes = vec![1, 2, 3, 4, 5];
-        let byte_buffer = ByteBuffer::copy_from(&bytes);
-        let scalar_value = ScalarValue::from(byte_buffer.clone());
-        let extracted: ByteBuffer = ByteBuffer::try_from(&scalar_value).unwrap();
-        assert_eq!(extracted.as_slice(), byte_buffer.as_slice());
-    }
-
     // Test that nullable and non-nullable types are preserved
     #[test]
     fn test_nullability_preservation() {
@@ -301,11 +272,6 @@ mod tests {
         let scalar_usize = Scalar::from(value_usize);
         let extracted_usize: usize = usize::try_from(&scalar_usize).unwrap();
         assert_eq!(value_usize, extracted_usize);
-
-        // Test through ScalarValue
-        let scalar_value = ScalarValue::from(value_usize);
-        let extracted_from_value: usize = usize::try_from(&scalar_value).unwrap();
-        assert_eq!(value_usize, extracted_from_value);
     }
 
     // Test error cases for conversions

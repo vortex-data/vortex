@@ -11,7 +11,7 @@ use vortex_scalar::Scalar;
 use crate::Array;
 use crate::arrays::ConstantVTable;
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, UnaryArgs};
-use crate::stats::{Precision, Stat, StatsProviderExt};
+use crate::stats::{Precision, Stat, StatsProvider};
 use crate::vtable::VTable;
 
 static MIN_MAX_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
@@ -140,11 +140,11 @@ fn min_max_impl(
 
     let min = array
         .statistics()
-        .get_scalar(Stat::Min, array.dtype())
+        .get(Stat::Min)
         .and_then(Precision::as_exact);
     let max = array
         .statistics()
-        .get_scalar(Stat::Max, array.dtype())
+        .get(Stat::Max)
         .and_then(Precision::as_exact);
 
     if let Some((min, max)) = min.zip(max) {

@@ -10,7 +10,7 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::ConstantArray;
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output};
-use crate::stats::{Precision, Stat, StatsProviderExt, StatsSet};
+use crate::stats::{Precision, Stat, StatsSet};
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef, Canonical, IntoArray};
 
@@ -109,7 +109,7 @@ impl ComputeFnVTable for Take {
 fn derive_take_stats(arr: &dyn Array) -> StatsSet {
     let stats = arr.statistics().to_owned();
 
-    let is_constant = stats.get_as::<bool>(Stat::IsConstant);
+    let is_constant = arr.statistics().get_as::<bool>(Stat::IsConstant);
 
     let mut stats = stats.keep_inexact_stats(&[
         // Cannot create values smaller than min or larger than max

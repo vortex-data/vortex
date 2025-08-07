@@ -9,7 +9,6 @@ use vortex_array::{IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{NativePType, match_each_integer_ptype};
 use vortex_error::{VortexResult, vortex_err};
-use vortex_scalar::Scalar;
 
 use crate::FoRArray;
 
@@ -20,14 +19,13 @@ impl FoRArray {
             .compute_stat(Stat::Min)?
             .ok_or_else(|| vortex_err!("Min stat not found"))?;
 
-        let dtype = array.dtype().clone();
         let encoded = match_each_integer_ptype!(array.ptype(), |T| {
             let unsigned_ptype = array.ptype().to_unsigned();
             compress_primitive::<T>(array, T::try_from(&min)?)?
                 .reinterpret_cast(unsigned_ptype)
                 .into_array()
         });
-        FoRArray::try_new(encoded, Scalar::new(dtype, min))
+        FoRArray::try_new(encoded, min)
     }
 }
 
@@ -84,6 +82,7 @@ mod test {
     use vortex_array::ToCanonical;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_scalar::Scalar;
 
     use super::*;
 

@@ -9,7 +9,9 @@ use core::hash::Hash;
 use vortex_dtype::{DecimalDType, Nullability};
 use vortex_error::{VortexError, VortexExpect, vortex_err};
 
-use crate::{DecimalScalar, NativeDecimalType, Scalar, ToPrimitive, i256};
+use crate::{
+    DecimalScalar, InnerScalarValue, NativeDecimalType, Scalar, ScalarValue, ToPrimitive, i256,
+};
 
 /// Matches over each decimal value variant, binding the inner value to a variable.
 ///
@@ -181,6 +183,12 @@ impl Hash for DecimalValue {
     }
 }
 
+impl From<DecimalValue> for ScalarValue {
+    fn from(value: DecimalValue) -> Self {
+        Self(InnerScalarValue::Decimal(value))
+    }
+}
+
 // Add From<DecimalValue> for Scalar to match other types
 impl From<DecimalValue> for Scalar {
     fn from(value: DecimalValue) -> Self {
@@ -242,7 +250,9 @@ impl TryFrom<Scalar> for Option<DecimalValue> {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_dtype::DType;
+    use vortex_utils::aliases::hash_set::HashSet;
 
     use super::*;
 
@@ -299,5 +309,33 @@ mod tests {
             let extracted: DecimalValue = DecimalValue::try_from(&scalar).unwrap();
             assert_eq!(extracted, value);
         }
+    }
+
+    #[rstest]
+    #[case(DecimalValue::I8(100), DecimalValue::I8(100))]
+    #[case(DecimalValue::I16(0), DecimalValue::I256(i256::ZERO))]
+    #[case(DecimalValue::I8(100), DecimalValue::I128(100))]
+    fn test_decimal_value_eq(#[case] left: DecimalValue, #[case] right: DecimalValue) {
+        assert_eq!(left, right);
+    }
+
+    #[rstest]
+    #[case(DecimalValue::I128(10), DecimalValue::I8(11))]
+    #[case(DecimalValue::I256(i256::ZERO), DecimalValue::I16(10))]
+    #[case(DecimalValue::I128(-1_000), DecimalValue::I8(1))]
+    fn test_decimal_value_cmp(#[case] lower: DecimalValue, #[case] upper: DecimalValue) {
+        assert!(lower < upper, "expected {lower} < {upper}");
+    }
+
+    #[test]
+    fn test_hash() {
+        let mut set = HashSet::new();
+        set.insert(DecimalValue::I8(100));
+        set.insert(DecimalValue::I16(100));
+        set.insert(DecimalValue::I32(100));
+        set.insert(DecimalValue::I64(100));
+        set.insert(DecimalValue::I128(100));
+        set.insert(DecimalValue::I256(i256::from_i128(100)));
+        assert_eq!(set.len(), 1);
     }
 }

@@ -427,6 +427,41 @@ impl From<usize> for Scalar {
     }
 }
 
+macro_rules! primitive_scalar {
+    ($T:ty) => {
+        impl From<$T> for ScalarValue {
+            fn from(value: $T) -> Self {
+                ScalarValue(InnerScalarValue::Primitive(value.into()))
+            }
+        }
+    };
+}
+
+primitive_scalar!(u8);
+primitive_scalar!(u16);
+primitive_scalar!(u32);
+primitive_scalar!(u64);
+primitive_scalar!(i8);
+primitive_scalar!(i16);
+primitive_scalar!(i32);
+primitive_scalar!(i64);
+primitive_scalar!(f16);
+primitive_scalar!(f32);
+primitive_scalar!(f64);
+
+impl From<PValue> for ScalarValue {
+    fn from(value: PValue) -> Self {
+        ScalarValue(InnerScalarValue::Primitive(value))
+    }
+}
+
+/// Read a scalar as usize. For usize only, we implicitly cast for better ergonomics.
+impl From<usize> for ScalarValue {
+    fn from(value: usize) -> Self {
+        ScalarValue(InnerScalarValue::Primitive((value as u64).into()))
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Binary element-wise operations on two arrays or two scalars.
 pub enum NumericOperator {

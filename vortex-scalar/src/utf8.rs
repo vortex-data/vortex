@@ -175,15 +175,6 @@ impl<'a> Utf8Scalar<'a> {
     pub fn is_empty(&self) -> Option<bool> {
         self.value.as_ref().map(|v| v.is_empty())
     }
-
-    /// Convert typed scalar into ScalarValue
-    pub fn into_value(self) -> ScalarValue {
-        ScalarValue(
-            self.value
-                .map(InnerScalarValue::BufferString)
-                .unwrap_or_else(|| InnerScalarValue::Null),
-        )
-    }
 }
 
 impl Scalar {
@@ -308,6 +299,26 @@ impl TryFrom<Scalar> for Option<BufferString> {
 
     fn try_from(scalar: Scalar) -> Result<Self, Self::Error> {
         Self::try_from(&scalar)
+    }
+}
+
+impl From<&str> for ScalarValue {
+    fn from(value: &str) -> Self {
+        ScalarValue(InnerScalarValue::BufferString(Arc::new(
+            value.to_string().into(),
+        )))
+    }
+}
+
+impl From<String> for ScalarValue {
+    fn from(value: String) -> Self {
+        ScalarValue(InnerScalarValue::BufferString(Arc::new(value.into())))
+    }
+}
+
+impl From<BufferString> for ScalarValue {
+    fn from(value: BufferString) -> Self {
+        ScalarValue(InnerScalarValue::BufferString(Arc::new(value)))
     }
 }
 

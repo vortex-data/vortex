@@ -28,14 +28,15 @@ use datafusion::physical_plan::ExecutionPlan;
 use futures::{FutureExt, StreamExt as _, TryStreamExt as _, stream};
 use itertools::Itertools;
 use object_store::{ObjectMeta, ObjectStore};
-use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
+use vortex::dtype::{DType, Nullability, PType};
 use vortex::error::{VortexExpect, VortexResult, vortex_err};
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::metrics::VortexMetrics;
+use vortex::scalar::Scalar;
 use vortex::session::VortexSession;
 use vortex::stats;
-use vortex::stats::{Stat, StatsProviderExt, StatsSet};
+use vortex::stats::{Stat, StatsSet};
 
 use super::cache::VortexFileCache;
 use super::sink::VortexSink;
@@ -248,7 +249,7 @@ impl FileFormat for VortexFormat {
                 .iter()
                 .map(|stats_set| {
                     stats_set
-                        .get_as::<usize>(Stat::UncompressedSizeInBytes)
+                        .get_as::<usize>(Stat::UncompressedSizeInBytes, &PType::U64.into())
                         .unwrap_or_else(|| stats::Precision::inexact(0_usize))
                 })
                 .fold(stats::Precision::exact(0_usize), |acc, stats_set| {
@@ -262,14 +263,34 @@ impl FileFormat for VortexFormat {
                 .into_iter()
                 .zip(table_schema.fields().iter())
                 .map(|(stats_set, field)| {
-                    let null_count = stats_set.get_as::<usize>(Stat::NullCount);
-                    let min = stats_set
-                        .get_scalar(Stat::Min, &DType::from_arrow(field.as_ref()))
-                        .and_then(|n| n.map(|n| n.try_to_df().ok()).transpose());
+                    let null_count = stats_set.get_as::<usize>(Stat::NullCount, &PType::U64.into());
+                    let min = stats_set.get(Stat::Min).and_then(|n| {
+                        n.map(|n| {
+                            Scalar::new(
+                                Stat::Min
+                                    .dtype(&DType::from_arrow(field.as_ref()))
+                                    .vortex_expect("must have a valid dtype"),
+                                n,
+                            )
+                            .try_to_df()
+                            .ok()
+                        })
+                        .transpose()
+                    });
 
-                    let max = stats_set
-                        .get_scalar(Stat::Max, &DType::from_arrow(field.as_ref()))
-                        .and_then(|n| n.map(|n| n.try_to_df().ok()).transpose());
+                    let max = stats_set.get(Stat::Max).and_then(|n| {
+                        n.map(|n| {
+                            Scalar::new(
+                                Stat::Max
+                                    .dtype(&DType::from_arrow(field.as_ref()))
+                                    .vortex_expect("must have a valid dtype"),
+                                n,
+                            )
+                            .try_to_df()
+                            .ok()
+                        })
+                        .transpose()
+                    });
 
                     ColumnStatistics {
                         null_count: null_count.to_df(),
@@ -277,7 +298,10 @@ impl FileFormat for VortexFormat {
                         min_value: min.to_df(),
                         sum_value: Precision::Absent,
                         distinct_count: stats_set
-                            .get_as::<bool>(Stat::IsConstant)
+                            .get_as::<bool>(
+                                Stat::IsConstant,
+                                &DType::Bool(Nullability::NonNullable),
+                            )
                             .and_then(|is_constant| {
                                 is_constant.as_exact().map(|_| Precision::Exact(1))
                             })

@@ -53,18 +53,18 @@ impl LayoutStrategy for FlatLayoutStrategy {
             DType::Utf8(_) => {
                 if let Some(sv) = chunk.statistics().get(Stat::Min) {
                     let (value, truncated) = lower_bound::<Utf8Scalar>(
-                        chunk.dtype(),
                         sv.into_inner(),
                         options.max_variable_length_statistics_size,
                     )?;
                     if truncated {
-                        chunk.statistics().set(Stat::Min, Precision::Inexact(value));
+                        chunk
+                            .statistics()
+                            .set(Stat::Min, Precision::Inexact(value.into_value()));
                     }
                 }
 
                 if let Some(sv) = chunk.statistics().get(Stat::Max) {
                     let (value, truncated) = upper_bound::<Utf8Scalar>(
-                        chunk.dtype(),
                         sv.into_inner(),
                         options.max_variable_length_statistics_size,
                     )?;
@@ -72,7 +72,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
                         if truncated {
                             chunk
                                 .statistics()
-                                .set(Stat::Max, Precision::Inexact(upper_bound));
+                                .set(Stat::Max, Precision::Inexact(upper_bound.into_value()));
                         }
                     } else {
                         chunk.statistics().clear(Stat::Max)
@@ -82,18 +82,18 @@ impl LayoutStrategy for FlatLayoutStrategy {
             DType::Binary(_) => {
                 if let Some(sv) = chunk.statistics().get(Stat::Min) {
                     let (value, truncated) = lower_bound::<BinaryScalar>(
-                        chunk.dtype(),
                         sv.into_inner(),
                         options.max_variable_length_statistics_size,
                     )?;
                     if truncated {
-                        chunk.statistics().set(Stat::Min, Precision::Inexact(value));
+                        chunk
+                            .statistics()
+                            .set(Stat::Min, Precision::Inexact(value.into_value()));
                     }
                 }
 
                 if let Some(sv) = chunk.statistics().get(Stat::Max) {
                     let (value, truncated) = upper_bound::<BinaryScalar>(
-                        chunk.dtype(),
                         sv.into_inner(),
                         options.max_variable_length_statistics_size,
                     )?;
@@ -101,7 +101,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
                         if truncated {
                             chunk
                                 .statistics()
-                                .set(Stat::Max, Precision::Inexact(upper_bound));
+                                .set(Stat::Max, Precision::Inexact(upper_bound.into_value()));
                         }
                     } else {
                         chunk.statistics().clear(Stat::Max)
