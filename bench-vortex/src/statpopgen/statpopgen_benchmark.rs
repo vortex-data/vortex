@@ -89,7 +89,8 @@ impl Benchmark for StatPopGenBenchmark {
             .with_extension("sql");
         let contents = fs::read_to_string(queries_file)?;
         Ok(contents
-            .split(";")
+            .trim()
+            .split_terminator(";")
             .map(str::to_string)
             .enumerate()
             .collect())
