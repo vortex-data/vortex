@@ -265,6 +265,15 @@ mod tests {
         assert_ne!(recovered_nullable.dtype(), recovered_non_nullable.dtype());
     }
 
+    // Test usize conversions (which may be architecture-dependent)
+    #[test]
+    fn test_usize_conversions() {
+        let value_usize = 12345usize;
+        let scalar_usize = Scalar::from(value_usize);
+        let extracted_usize: usize = usize::try_from(&scalar_usize).unwrap();
+        assert_eq!(value_usize, extracted_usize);
+    }
+
     // Test error cases for conversions
     #[test]
     fn test_conversion_errors() {
