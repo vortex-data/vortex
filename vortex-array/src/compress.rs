@@ -32,10 +32,10 @@ pub fn downscale_integer_array(array: ArrayRef) -> VortexResult<ArrayRef> {
 
     // If we can't cast to i64, then leave the array as its original type.
     // It's too big to downcast anyway.
-    let Ok(min) = i64::try_from(min_max.min.value()) else {
+    let Ok(min) = i64::try_from(&min_max.min.cast(&PType::I64.into())?) else {
         return Ok(array.to_array());
     };
-    let Ok(max) = i64::try_from(min_max.max.value()) else {
+    let Ok(max) = i64::try_from(&min_max.max.cast(&PType::I64.into())?) else {
         return Ok(array.to_array());
     };
 

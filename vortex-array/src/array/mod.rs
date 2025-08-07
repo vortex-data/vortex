@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 pub use visitor::*;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::DType;
+use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
@@ -402,8 +402,9 @@ impl<V: VTable> Array for ArrayAdapter<V> {
                         stat,
                         Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted
                     ) && value.as_ref().as_exact().is_some_and(|v| {
-                        v.as_bool()
-                            .vortex_expect("must be a bool")
+                        Scalar::new(DType::Bool(Nullability::NonNullable), v.clone())
+                            .as_bool()
+                            .value()
                             .unwrap_or_default()
                     })
                 }));

@@ -466,6 +466,12 @@ decimal_scalar_pack!(u64, i128, I128);
 decimal_scalar_pack!(i128, i128, I128);
 decimal_scalar_pack!(i256, i256, I256);
 
+impl From<DecimalValue> for ScalarValue {
+    fn from(value: DecimalValue) -> Self {
+        Self(InnerScalarValue::Decimal(value))
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::disallowed_types)]
 mod tests {

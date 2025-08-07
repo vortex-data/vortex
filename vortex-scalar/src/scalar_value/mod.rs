@@ -1,13 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod binary;
-mod bool;
-mod decimal;
-mod list;
-mod primitive;
-mod utf8;
-
 use std::fmt::Display;
 use std::sync::Arc;
 
@@ -134,37 +127,37 @@ impl ScalarValue {
     }
 
     /// Returns scalar as a null value
-    pub fn as_null(&self) -> VortexResult<()> {
+    pub(crate) fn as_null(&self) -> VortexResult<()> {
         self.0.as_null()
     }
 
     /// Returns scalar as a boolean value
-    pub fn as_bool(&self) -> VortexResult<Option<bool>> {
+    pub(crate) fn as_bool(&self) -> VortexResult<Option<bool>> {
         self.0.as_bool()
     }
 
     /// Return scalar as a primitive value. PValues don't match dtypes but will be castable to the scalars dtype
-    pub fn as_pvalue(&self) -> VortexResult<Option<PValue>> {
+    pub(crate) fn as_pvalue(&self) -> VortexResult<Option<PValue>> {
         self.0.as_pvalue()
     }
 
     /// Returns scalar as a decimal value
-    pub fn as_decimal(&self) -> VortexResult<Option<DecimalValue>> {
+    pub(crate) fn as_decimal(&self) -> VortexResult<Option<DecimalValue>> {
         self.0.as_decimal()
     }
 
     /// Returns scalar as a binary buffer
-    pub fn as_buffer(&self) -> VortexResult<Option<Arc<ByteBuffer>>> {
+    pub(crate) fn as_buffer(&self) -> VortexResult<Option<Arc<ByteBuffer>>> {
         self.0.as_buffer()
     }
 
     /// Returns scalar as a string buffer
-    pub fn as_buffer_string(&self) -> VortexResult<Option<Arc<BufferString>>> {
+    pub(crate) fn as_buffer_string(&self) -> VortexResult<Option<Arc<BufferString>>> {
         self.0.as_buffer_string()
     }
 
     /// Returns scalar as a list value
-    pub fn as_list(&self) -> VortexResult<Option<&Arc<[ScalarValue]>>> {
+    pub(crate) fn as_list(&self) -> VortexResult<Option<&Arc<[ScalarValue]>>> {
         self.0.as_list()
     }
 }

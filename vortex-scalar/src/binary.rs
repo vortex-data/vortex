@@ -155,15 +155,6 @@ impl<'a> BinaryScalar<'a> {
     pub fn is_empty(&self) -> Option<bool> {
         self.value.as_ref().map(|v| v.is_empty())
     }
-
-    /// Extract value as a ScalarValue
-    pub fn into_value(self) -> ScalarValue {
-        ScalarValue(
-            self.value
-                .map(InnerScalarValue::Buffer)
-                .unwrap_or_else(|| InnerScalarValue::Null),
-        )
-    }
 }
 
 impl Scalar {
@@ -241,7 +232,7 @@ impl From<ByteBuffer> for Scalar {
     fn from(value: ByteBuffer) -> Self {
         Self {
             dtype: DType::Binary(Nullability::NonNullable),
-            value: ScalarValue(InnerScalarValue::Buffer(Arc::new(value))),
+            value: value.into(),
         }
     }
 }
@@ -252,6 +243,18 @@ impl From<Arc<ByteBuffer>> for Scalar {
             dtype: DType::Binary(Nullability::NonNullable),
             value: ScalarValue(InnerScalarValue::Buffer(value)),
         }
+    }
+}
+
+impl From<&[u8]> for ScalarValue {
+    fn from(value: &[u8]) -> Self {
+        ScalarValue::from(ByteBuffer::from(value.to_vec()))
+    }
+}
+
+impl From<ByteBuffer> for ScalarValue {
+    fn from(value: ByteBuffer) -> Self {
+        ScalarValue(InnerScalarValue::Buffer(Arc::new(value)))
     }
 }
 

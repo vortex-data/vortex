@@ -12,7 +12,7 @@ use vortex_array::stats::Stat;
 use vortex_dtype::{NativePType, match_each_integer_ptype};
 use vortex_error::{VortexError, VortexExpect, VortexUnwrap};
 use vortex_mask::AllOr;
-use vortex_scalar::{PValue, ScalarValue};
+use vortex_scalar::{PValue, Scalar};
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::sample::sample;
@@ -155,7 +155,7 @@ impl CompressorStats for IntegerStats {
 
 fn typed_int_stats<T>(array: &PrimitiveArray, count_distinct_values: bool) -> IntegerStats
 where
-    T: NativePType + PrimInt + for<'a> TryFrom<&'a ScalarValue, Error = VortexError>,
+    T: NativePType + PrimInt + for<'a> TryFrom<&'a Scalar, Error = VortexError>,
     TypedStats<T>: Into<ErasedStats>,
     NativeValue<T>: Eq + Hash,
 {

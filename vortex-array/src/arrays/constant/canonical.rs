@@ -237,7 +237,7 @@ mod tests {
 
     use crate::arrays::ConstantArray;
     use crate::canonical::ToCanonical;
-    use crate::stats::{Stat, StatsProviderExt};
+    use crate::stats::{Stat, StatsProvider};
     use crate::{Array, IntoArray};
 
     #[test]
@@ -271,17 +271,19 @@ mod tests {
             .compute_all(&all::<Stat>().collect_vec())
             .unwrap();
         let canonical = const_array.to_canonical().unwrap();
-        let canonical_stats = canonical.as_ref().statistics().to_owned();
+        let canonical_stats = canonical.as_ref().statistics();
+
+        let stats_ref = stats.as_typed_ref(canonical.as_ref().dtype());
 
         for stat in all::<Stat>() {
             if stat.dtype(canonical.as_ref().dtype()).is_none() {
                 continue;
             }
-            let canonical_stat =
-                canonical_stats.get_scalar(stat, &stat.dtype(canonical.as_ref().dtype()).unwrap());
-            let original_stat =
-                stats.get_scalar(stat, &stat.dtype(canonical.as_ref().dtype()).unwrap());
-            assert_eq!(canonical_stat, original_stat, "stat mismatch {stat}");
+            assert_eq!(
+                canonical_stats.get(stat),
+                stats_ref.get(stat),
+                "stat mismatch {stat}"
+            );
         }
     }
 

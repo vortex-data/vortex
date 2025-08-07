@@ -7,11 +7,9 @@ use std::sync::Arc;
 
 use parking_lot::RwLock;
 use vortex_error::{VortexError, VortexResult, vortex_panic};
-use vortex_scalar::ScalarValue;
+use vortex_scalar::{Scalar, ScalarValue};
 
-use super::{
-    Precision, Stat, StatType, StatsProvider, StatsProviderExt, StatsSet, StatsSetIntoIter,
-};
+use super::{Precision, Stat, StatType, StatsProvider, StatsSet, StatsSetIntoIter};
 use crate::Array;
 use crate::compute::{
     MinMaxResult, is_constant, is_sorted, is_strict_sorted, min_max, nan_count, sum,
@@ -68,18 +66,6 @@ impl From<ArrayStats> for StatsSet {
     }
 }
 
-impl StatsProvider for ArrayStats {
-    fn get(&self, stat: Stat) -> Option<Precision<ScalarValue>> {
-        let guard = self.inner.read();
-        guard.get(stat)
-    }
-
-    fn len(&self) -> usize {
-        let guard = self.inner.read();
-        guard.len()
-    }
-}
-
 impl StatsSetRef<'_> {
     pub fn set_iter(&self, iter: StatsSetIntoIter) {
         let mut guard = self.array_stats.inner.write();
@@ -119,19 +105,15 @@ impl StatsSetRef<'_> {
         f(&mut lock.iter())
     }
 
-    pub fn compute_stat(&self, stat: Stat) -> VortexResult<Option<ScalarValue>> {
+    pub fn compute_stat(&self, stat: Stat) -> VortexResult<Option<Scalar>> {
         // If it's already computed and exact, we can return it.
-        if let Some(Precision::Exact(stat)) = self.get(stat) {
-            return Ok(Some(stat));
+        if let Some(Precision::Exact(s)) = self.get(stat) {
+            return Ok(Some(s));
         }
 
         Ok(match stat {
-            Stat::Min => {
-                min_max(self.dyn_array_ref)?.map(|MinMaxResult { min, max: _ }| min.into_value())
-            }
-            Stat::Max => {
-                min_max(self.dyn_array_ref)?.map(|MinMaxResult { min: _, max }| max.into_value())
-            }
+            Stat::Min => min_max(self.dyn_array_ref)?.map(|MinMaxResult { min, max: _ }| min),
+            Stat::Max => min_max(self.dyn_array_ref)?.map(|MinMaxResult { min: _, max }| max),
             Stat::Sum => {
                 Stat::Sum
                     .dtype(self.dyn_array_ref.dtype())
@@ -141,23 +123,21 @@ impl StatsSetRef<'_> {
                         sum(self.dyn_array_ref)
                     })
                     .transpose()?
-                    .map(|s| s.into_value())
             }
             Stat::NullCount => Some(self.dyn_array_ref.invalid_count()?.into()),
             Stat::IsConstant => {
                 if self.dyn_array_ref.is_empty() {
                     None
                 } else {
-                    is_constant(self.dyn_array_ref)?.map(ScalarValue::from)
+                    is_constant(self.dyn_array_ref)?.map(|v| v.into())
                 }
             }
             Stat::IsSorted => Some(is_sorted(self.dyn_array_ref)?.into()),
             Stat::IsStrictSorted => Some(is_strict_sorted(self.dyn_array_ref)?.into()),
             Stat::UncompressedSizeInBytes => {
-                let nbytes: ScalarValue =
-                    self.dyn_array_ref.to_canonical()?.as_ref().nbytes().into();
-                self.set(stat, Precision::exact(nbytes.clone()));
-                Some(nbytes)
+                let nbytes = self.dyn_array_ref.to_canonical()?.as_ref().nbytes();
+                self.set(stat, Precision::exact(nbytes));
+                Some(nbytes.into())
             }
             Stat::NaNCount => {
                 Stat::NaNCount
@@ -177,7 +157,7 @@ impl StatsSetRef<'_> {
         let mut stats_set = StatsSet::default();
         for &stat in stats {
             if let Some(s) = self.compute_stat(stat)? {
-                stats_set.set(stat, Precision::exact(s))
+                stats_set.set(stat, Precision::exact(s.into_value()))
             }
         }
         Ok(stats_set)
@@ -185,22 +165,33 @@ impl StatsSetRef<'_> {
 }
 
 impl StatsSetRef<'_> {
-    pub fn get_as<U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
+    pub fn get_as<U: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(
         &self,
         stat: Stat,
     ) -> Option<Precision<U>> {
-        StatsProviderExt::get_as::<U>(self, stat)
+        self.get(stat).map(|v| {
+            v.map(|v| {
+                U::try_from(&v).unwrap_or_else(|err| {
+                    vortex_panic!(
+                        err,
+                        "Failed to get stat {} as {}",
+                        stat,
+                        std::any::type_name::<U>()
+                    )
+                })
+            })
+        })
     }
 
     pub fn get_as_bound<S, U>(&self) -> Option<S::Bound>
     where
         S: StatType<U>,
-        U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>,
+        U: for<'a> TryFrom<&'a Scalar, Error = VortexError>,
     {
-        StatsProviderExt::get_as_bound::<S, U>(self)
+        self.get_as::<U>(S::STAT).map(|v| v.bound::<S>())
     }
 
-    pub fn compute_as<U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
+    pub fn compute_as<U: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(
         &self,
         stat: Stat,
     ) -> Option<U> {
@@ -232,15 +223,11 @@ impl StatsSetRef<'_> {
         self.array_stats.retain(stats);
     }
 
-    pub fn compute_min<U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
-        &self,
-    ) -> Option<U> {
+    pub fn compute_min<U: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(&self) -> Option<U> {
         self.compute_as(Stat::Min)
     }
 
-    pub fn compute_max<U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
-        &self,
-    ) -> Option<U> {
+    pub fn compute_max<U: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(&self) -> Option<U> {
         self.compute_as(Stat::Max)
     }
 
@@ -266,11 +253,15 @@ impl StatsSetRef<'_> {
 }
 
 impl StatsProvider for StatsSetRef<'_> {
-    fn get(&self, stat: Stat) -> Option<Precision<ScalarValue>> {
-        self.array_stats.get(stat)
+    fn get(&self, stat: Stat) -> Option<Precision<Scalar>> {
+        self.array_stats
+            .inner
+            .read()
+            .as_typed_ref(self.dyn_array_ref.dtype())
+            .get(stat)
     }
 
     fn len(&self) -> usize {
-        self.array_stats.len()
+        self.array_stats.inner.read().len()
     }
 }
