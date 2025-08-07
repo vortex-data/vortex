@@ -115,10 +115,7 @@ impl<'a> ListScalar<'a> {
         self.elements
             .as_ref()
             .and_then(|l| l.get(idx))
-            .map(|value| Scalar {
-                dtype: self.element_dtype().clone(),
-                value: value.clone(),
-            })
+            .map(|value| Scalar::new(self.element_dtype().clone(), value.clone()))
     }
 
     /// Returns all elements in the list as a vector of scalars.
@@ -177,20 +174,20 @@ impl Scalar {
                 );
             }
         }
-        Self {
-            dtype: DType::List(element_dtype, nullability),
-            value: ScalarValue(InnerScalarValue::List(
+        Self::new(
+            DType::List(element_dtype, nullability),
+            ScalarValue(InnerScalarValue::List(
                 children.into_iter().map(|x| x.value).collect(),
             )),
-        }
+        )
     }
 
     /// Creates a new empty list scalar with the given element type.
     pub fn list_empty(element_dtype: Arc<DType>, nullability: Nullability) -> Self {
-        Self {
-            dtype: DType::List(element_dtype, nullability),
-            value: ScalarValue(InnerScalarValue::Null),
-        }
+        Self::new(
+            DType::List(element_dtype, nullability),
+            ScalarValue(InnerScalarValue::Null),
+        )
     }
 }
 

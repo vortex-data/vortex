@@ -49,9 +49,7 @@ mod s3 {
         let list_prefix = list_prefix(url_path(&url)?);
         let object_store = s3_store(bucket)?;
 
-        // The AWS S3 `ListObjectsV2` API returns multiple objects per HTTP
-        // request (up to 1000 by default), but the object store stream
-        // interface yields them to you one at a time.
+        // The AWS S3 `ListObjectsV2` API returns multiple objects per HTTP request, up to 1000 by default.
         let stream = object_store.list(Some(&object_store::path::Path::from(list_prefix)));
 
         let glob_pattern = glob::Pattern::new(url_glob.as_ref())
@@ -155,8 +153,10 @@ mod local_filesystem {
         let urls = paths
             .into_iter()
             .map(|p| {
-                let path_clone = p.clone();
-                Url::from_file_path(p)
+                let path_clone = p
+                    .canonicalize()
+                    .map_err(|_| vortex_err!("Cannot canonicalize file path: {:?}", p))?;
+                Url::from_file_path(&path_clone)
                     .map_err(|_| vortex_err!("Invalid file path: {:?}", path_clone))
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -167,11 +167,33 @@ mod local_filesystem {
 
 #[cfg(test)]
 mod tests {
+    use std::env;
     use std::fs::{self, File};
+    use std::path::PathBuf;
 
     use tempfile::TempDir;
 
     use super::*;
+
+    #[test]
+    fn test_expand_local_disk_glob_relative_path() {
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = "test.txt";
+
+        let original_dir = env::current_dir().unwrap();
+        env::set_current_dir(temp_dir.path()).unwrap();
+
+        File::create(file_path).unwrap();
+        let result = local_filesystem::expand_glob(file_path).unwrap();
+
+        assert_eq!(result.0.len(), 1);
+        assert_eq!(
+            result.0[0].to_file_path().unwrap(),
+            PathBuf::from(file_path).canonicalize().unwrap()
+        );
+
+        env::set_current_dir(&original_dir).unwrap();
+    }
 
     #[test]
     fn test_expand_local_disk_glob_single_file() {
@@ -183,7 +205,10 @@ mod tests {
         let result = local_filesystem::expand_glob(&glob_pattern).unwrap();
 
         assert_eq!(result.0.len(), 1);
-        assert_eq!(result.0[0].to_file_path().unwrap(), file_path);
+        assert_eq!(
+            result.0[0].to_file_path().unwrap(),
+            file_path.canonicalize().unwrap()
+        );
     }
 
     #[test]

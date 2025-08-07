@@ -173,7 +173,7 @@ where
             return Poll::Ready(None);
         }
 
-        match Pin::new(&mut guard.upstream).poll_next(cx) {
+        let poll_result = match Pin::new(&mut guard.upstream).poll_next(cx) {
             Poll::Pending => {
                 guard.wakers.push(cx.waker().clone());
                 Poll::Pending
@@ -189,13 +189,6 @@ where
                 let item = guard.buffers[self.index]
                     .pop_front()
                     .vortex_expect("just pushed");
-                let wakers = std::mem::take(&mut guard.wakers);
-
-                drop(guard);
-                for waker in wakers {
-                    waker.wake();
-                }
-
                 Poll::Ready(Some(item))
             }
             Poll::Ready(Some(Err(err))) => {
@@ -205,7 +198,17 @@ where
                 }
                 Poll::Ready(Some(Err(shared_err.into())))
             }
+        };
+
+        if matches!(poll_result, Poll::Ready(_)) {
+            let wakers = std::mem::take(&mut guard.wakers);
+
+            drop(guard);
+            for waker in wakers {
+                waker.wake();
+            }
         }
+        poll_result
     }
 }
 
