@@ -3,11 +3,6 @@
 
 use std::sync::Arc;
 
-use arrow_array::array::{
-    Array as ArrowArray, ArrowPrimitiveType, BooleanArray as ArrowBooleanArray, GenericByteArray,
-    NullArray as ArrowNullArray, OffsetSizeTrait, PrimitiveArray as ArrowPrimitiveArray,
-    StructArray as ArrowStructArray,
-};
 use arrow_array::cast::{AsArray, as_null_array};
 use arrow_array::types::{
     ByteArrayType, ByteViewType, Date32Type, Date64Type, Decimal128Type, Decimal256Type,
@@ -16,7 +11,12 @@ use arrow_array::types::{
     TimestampMicrosecondType, TimestampMillisecondType, TimestampNanosecondType,
     TimestampSecondType, UInt8Type, UInt16Type, UInt32Type, UInt64Type,
 };
-use arrow_array::{GenericByteViewArray, GenericListArray, RecordBatch, make_array};
+use arrow_array::{
+    Array as ArrowArray, ArrowPrimitiveType, BooleanArray as ArrowBooleanArray, GenericByteArray,
+    GenericByteViewArray, GenericListArray, NullArray as ArrowNullArray, OffsetSizeTrait,
+    PrimitiveArray as ArrowPrimitiveArray, RecordBatch, StructArray as ArrowStructArray,
+    make_array,
+};
 use arrow_buffer::buffer::{NullBuffer, OffsetBuffer};
 use arrow_buffer::{ArrowNativeType, BooleanBuffer, Buffer as ArrowBuffer, ScalarBuffer};
 use arrow_schema::{DataType, TimeUnit as ArrowTimeUnit};
