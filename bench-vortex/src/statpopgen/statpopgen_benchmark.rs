@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fs;
+use std::path::Path;
 use std::sync::{Arc, LazyLock};
 
 use anyhow::Result;
@@ -82,27 +84,15 @@ pub fn register_table(session: &SessionContext, base_url: &Url, format: Format) 
 
 impl Benchmark for StatPopGenBenchmark {
     fn queries(&self) -> Result<Vec<(usize, String)>> {
-        Ok(vec![
-            // Count the number of genomic variants in the dataset.
-            (0, "SELECT COUNT(*) FROM statpopgen;".to_string()),
-            // Count the number of samples (genomes / people / individual) in the dataset.
-            (
-                1,
-                "SELECT array_length(\"GT\", 1) FROM statpopgen LIMIT 1;".to_string(),
-            ),
-            // Extract just the GT column (which is frequently sent to a statistical method).
-            (2, "SELECT \"GT\" FROM statpopgen;".to_string()),
-            // Calculate the reference allele frequency: 0 = 0/0 homozygous reference, 1 = 0/1 heterzygous, 2 = 1/1 homozygous alternate.
-            (
-                3,
-                "SELECT\"CHROM\", \"POS\", \"REF\", \"ALT\", 1.0 - CAST(LIST_SUM(GT) AS DOUBLE) / (2 * LIST_SUM(LIST_TRANSFORM(GT, lambda GT: GT IS NOT NULL))) AS RAF FROM statpopgen".to_string(),
-            ),
-            // Calculate the alternate allele frequency: 0 = 0/0 homozygous reference, 1 = 0/1 heterzygous, 2 = 1/1 homozygous alternate.
-            (
-                4,
-                "SELECT\"CHROM\", \"POS\", \"REF\", \"ALT\", CAST(LIST_SUM(GT) AS DOUBLE) / (2 * LIST_SUM(LIST_TRANSFORM(GT, lambda GT: GT IS NOT NULL))) AS AAF FROM statpopgen".to_string()
-            ),
-        ])
+        let queries_file = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("statpopgen")
+            .with_extension("sql");
+        let contents = fs::read_to_string(queries_file)?;
+        Ok(contents
+            .split(";")
+            .map(str::to_string)
+            .enumerate()
+            .collect())
     }
 
     fn generate_data(&self, _target: &Target) -> Result<()> {
