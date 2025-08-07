@@ -37,7 +37,6 @@ vortex-array = { workspace = true, features = ["test-harness"] }
 
 [features]
 arrow = ["dep:arrow-array"]
-default = ["arrow"]
 
 [[bench]]
 name = "run_end_filter"
