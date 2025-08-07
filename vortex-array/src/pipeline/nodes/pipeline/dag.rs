@@ -99,8 +99,6 @@ impl<'a> Pipeline<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_dag_construction() {
         // Create a tree with common sub-expressions

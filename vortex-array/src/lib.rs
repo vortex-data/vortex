@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(unused_imports)]
 #![allow(dead_code)]
 #![allow(unused_variables)]
 #![cfg_attr(vortex_nightly, feature(portable_simd))]

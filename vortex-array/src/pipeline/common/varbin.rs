@@ -4,7 +4,6 @@
 use crate::arrays::BinaryView;
 use crate::pipeline::bits::BitView;
 use crate::pipeline::buffers::BufferHandle;
-use crate::pipeline::vector::VectorRefMut;
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{Kernel, N, PipelineContext};
 use std::task::Poll;

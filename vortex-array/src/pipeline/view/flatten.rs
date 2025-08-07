@@ -3,13 +3,8 @@
 
 use crate::pipeline::N;
 use crate::pipeline::bits::BitView;
-use crate::pipeline::selection::Selection;
 use crate::pipeline::types::Element;
 use crate::pipeline::view::ViewMut;
-use std::mem::take;
-use std::ptr;
-use std::sync::LazyLock;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 impl<'a> ViewMut<'a> {
     /// Flatten the view using the provided mask.

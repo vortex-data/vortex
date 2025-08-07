@@ -11,7 +11,7 @@ use crate::pipeline::view::ViewMut;
 use crate::pipeline::{Kernel, N, PipelineExt};
 use crate::validity::Validity;
 use crate::{Array, Canonical};
-use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
+use arrow_buffer::BooleanBufferBuilder;
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, NativePType, Nullability, match_each_native_ptype};
 use vortex_error::{VortexResult, vortex_bail};

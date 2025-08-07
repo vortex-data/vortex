@@ -2,14 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod flatten;
-use crate::ArrayRef;
 use crate::pipeline::N;
-use crate::pipeline::selection::Selection;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 
+use crate::pipeline::bits::BitView;
 use crate::pipeline::bits::BitViewMut;
-use crate::pipeline::bits::{BitVector, BitView};
 use crate::pipeline::types::{Element, VType};
 
 pub struct View<'a> {

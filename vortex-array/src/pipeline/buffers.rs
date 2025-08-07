@@ -6,9 +6,8 @@ use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use std::sync::atomic::AtomicUsize;
 use std::task::{Poll, ready};
-use vortex_buffer::{Buffer, ByteBuffer};
+use vortex_buffer::Buffer;
 use vortex_error::{VortexResult, vortex_panic};
-use vortex_utils::aliases::hash_map::HashMap;
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
 

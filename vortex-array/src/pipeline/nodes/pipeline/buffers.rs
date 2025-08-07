@@ -8,8 +8,7 @@ use crate::pipeline::nodes::pipeline::dag::DagNode;
 use crate::pipeline::types::VType;
 use crate::pipeline::vector::Vector;
 use crate::pipeline::vector::VectorId;
-use crate::pipeline::view::View;
-use std::cell::{Ref, RefCell};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use vortex_error::{VortexExpect, VortexResult};
 

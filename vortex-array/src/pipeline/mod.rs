@@ -31,9 +31,8 @@ pub const N: usize = 1024;
 
 use crate::pipeline::bits::BitView;
 use crate::pipeline::buffers::BufferId;
-use crate::pipeline::vector::VectorRefMut;
 use crate::pipeline::view::ViewMut;
-use std::ops::{Deref, Range};
+use std::ops::Range;
 use std::task::Poll;
 use vector::{VectorId, VectorRef};
 use vortex_buffer::ByteBuffer;

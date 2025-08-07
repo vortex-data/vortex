@@ -2,11 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::pipeline::N;
-use crate::pipeline::bits::BitVector;
 use bitvec::prelude::*;
 use std::fmt::{Debug, Formatter};
-use std::ops::Range;
-use vortex_error::{VortexError, VortexExpect, vortex_err};
+use vortex_error::{VortexError, vortex_err};
 
 /// A borrowed fixed-size bit vector of length `N` bits, represented as an array of 64-bit words.
 ///

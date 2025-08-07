@@ -11,15 +11,13 @@ use crate::pipeline::buffers::BufferId;
 use crate::pipeline::nodes::operators::Operator;
 use crate::pipeline::nodes::pipeline::buffers::{OutputTarget, VectorAllocationPlan};
 use crate::pipeline::nodes::pipeline::dag::DagNode;
-use crate::pipeline::vector::{Vector, VectorId, VectorRef, VectorRefMut};
+use crate::pipeline::vector::{VectorId, VectorRef};
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{Kernel, PipelineContext};
-use std::cell::RefCell;
-use std::ops::{Deref, DerefMut};
+use std::ops::DerefMut;
 use std::task::Poll;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexError, VortexResult};
-use vortex_utils::aliases::hash_map::RandomState;
 
 /// The idea of a pipeline is to orchestrate driving a set of operators to completion with
 /// fully optimized resource usage.

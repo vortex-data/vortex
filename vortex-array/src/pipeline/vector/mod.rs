@@ -10,7 +10,6 @@
 
 use crate::pipeline::N;
 use crate::pipeline::bits::BitVector;
-use crate::pipeline::selection::Selection;
 use crate::pipeline::types::{Element, VType};
 use crate::pipeline::view::{View, ViewMut};
 use std::cell::{Ref, RefMut};
