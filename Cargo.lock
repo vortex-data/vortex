@@ -6443,6 +6443,7 @@ dependencies = [
  "take_mut",
  "tokio",
  "vortex",
+ "vortex-expr",
 ]
 
 [[package]]

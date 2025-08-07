@@ -29,6 +29,7 @@ prost = { workspace = true }
 take_mut = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
 vortex = { workspace = true, features = ["tokio"] }
+vortex-expr = { workspace = true }
 
 [build-dependencies]
 cxx-build = "1.0"
