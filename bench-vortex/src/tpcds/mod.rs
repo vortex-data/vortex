@@ -4,6 +4,7 @@
 use std::fs;
 use std::path::Path;
 
+pub mod duckdb;
 pub mod tpcds_benchmark;
 
 pub use tpcds_benchmark::TpcDsBenchmark;

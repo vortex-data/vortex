@@ -10,8 +10,8 @@ use url::Url;
 
 use crate::benchmark_trait::Benchmark;
 use crate::engines::EngineCtx;
+use crate::tpcds::duckdb::generate_tpcds;
 use crate::tpcds::tpcds_queries;
-use crate::tpch::duckdb::generate_tpcds_with_connection;
 use crate::{BenchmarkDataset, Format, IdempotentPath, Target};
 
 /// TPC-DS benchmark implementation
@@ -69,11 +69,7 @@ impl Benchmark for TpcDsBenchmark {
             target.format()
         );
 
-        generate_tpcds_with_connection(
-            base_data_dir,
-            self.scale_factor.clone(),
-            target.format(),
-        )?;
+        generate_tpcds(base_data_dir, self.scale_factor.clone(), target.format())?;
         Ok(())
     }
 
@@ -158,9 +154,13 @@ impl TpcDsBenchmark {
         use crate::tpch::{
             register_arrow, register_parquet, register_vortex_compact_file, register_vortex_file,
         };
-        
+
         let dataset = self.dataset();
-        let files = dataset.tables().iter().map(|f| (*f, None)).collect::<Vec<_>>();
+        let files = dataset
+            .tables()
+            .iter()
+            .map(|f| (*f, None))
+            .collect::<Vec<_>>();
 
         // For TPC-DS, files are stored in a subdirectory named after the format
         let format_dir = base_dir.join(&format!("{}/", format.name()))?;
@@ -171,9 +171,9 @@ impl TpcDsBenchmark {
             } else {
                 format
             };
-            
+
             let path = format_dir.join(&format!("{name}.{}", format.ext()))?;
-            
+
             match format {
                 Format::Arrow => register_arrow(session, name, &path, None).await?,
                 Format::Parquet => {
@@ -183,7 +183,8 @@ impl TpcDsBenchmark {
                     register_vortex_file(session, name, &path, None, schema, &dataset).await?
                 }
                 Format::VortexCompact => {
-                    register_vortex_compact_file(session, name, &path, None, schema, &dataset).await?
+                    register_vortex_compact_file(session, name, &path, None, schema, &dataset)
+                        .await?
                 }
                 Format::OnDiskDuckDB => unreachable!("duckdb never supported with datafusion"),
                 Format::Csv => todo!(),

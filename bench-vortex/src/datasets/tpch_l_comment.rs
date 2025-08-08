@@ -7,7 +7,7 @@ use vortex::dtype::FieldName;
 use vortex::{ArrayRef, IntoArray, ToCanonical};
 
 use crate::datasets::Dataset;
-use crate::tpch::duckdb::{DuckdbTpcOptions, TpcDataset, generate_tpc};
+use crate::tpch::tpchgen::{TpchGenOptions, generate_tpch_tables};
 use crate::{Format, IdempotentPath, tpch};
 
 pub struct TPCHLCommentChunked;
@@ -19,10 +19,22 @@ impl Dataset for TPCHLCommentChunked {
     }
 
     async fn to_vortex_array(&self) -> ArrayRef {
-        let opts = DuckdbTpcOptions::new("tpch".to_data_path(), TpcDataset::TpcH, Format::Csv);
-        let data_dir = generate_tpc(opts).expect("gen tpch");
+        let base_path = "tpch".to_data_path();
+        let scale_factor_dir = base_path.join("1.0");
+        let data_dir = scale_factor_dir.join("csv");
 
-        let lineitem_vortex = tpch::load_table(data_dir, "lineitem", &tpch::schema::LINEITEM).await;
+        // Generate TPC-H CSV data if it doesn't exist
+        if !data_dir.exists() {
+            // Use blocking call like TPC-H benchmark does
+            let options =
+                TpchGenOptions::new("1.0".to_string(), scale_factor_dir).with_format(Format::Csv);
+
+            futures::executor::block_on(generate_tpch_tables(options))
+                .expect("Failed to generate TPC-H data");
+        }
+
+        let lineitem_vortex =
+            tpch::load_table(data_dir, "lineitem", tpch::schema::LINEITEM.clone()).await;
 
         let lineitem_chunked = lineitem_vortex.as_::<ChunkedVTable>();
         let comment_chunks = lineitem_chunked.chunks().iter().map(|chunk| {
