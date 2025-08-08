@@ -163,8 +163,4 @@ impl StatPopGenBenchmark {
 
         Ok(())
     }
-
-    pub fn parquet_to_duckdb(&self) -> VortexResult<()> {
-        todo!()
-    }
 }

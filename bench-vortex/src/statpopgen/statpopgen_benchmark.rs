@@ -115,7 +115,13 @@ impl Benchmark for StatPopGenBenchmark {
                     Format::OnDiskVortex | Format::VortexCompact => {
                         rt.block_on(self.parquet_to_vortex(target.format()))?
                     }
-                    Format::OnDiskDuckDB => self.parquet_to_duckdb()?,
+                    Format::OnDiskDuckDB => {
+                        // We wait to do this until register_tables because we don't have a duckdb
+                        // instance until then.
+                        //
+                        // DuckDBCtx::register_tables will automatically rewrite the Parquet file
+                        // into a duckdb file.
+                    }
                 }
                 Ok(())
             }
