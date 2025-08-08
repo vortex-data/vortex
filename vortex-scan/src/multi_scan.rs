@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use futures::executor::LocalPool;
 use futures::future::BoxFuture;
+use futures::stream::BoxStream;
+use futures::{StreamExt, TryStreamExt, stream};
 use vortex_error::VortexResult;
 
-use crate::work_queue::{TaskFactory, WorkStealingIterator, WorkStealingQueue};
+use crate::work_queue::{TaskFactory, WorkStealingQueue};
 
 pub type ArrayFuture<T> = BoxFuture<'static, VortexResult<Option<T>>>;
 
@@ -15,7 +16,7 @@ pub struct MultiScan<T> {
     queue: WorkStealingQueue<ArrayFuture<T>>,
 }
 
-impl<T: 'static + Send> MultiScan<T> {
+impl<T: 'static + Send + Sync> MultiScan<T> {
     /// Created with lazily constructed scan builders closures.
     pub fn new<I, F>(closures: I) -> Self
     where
@@ -32,24 +33,45 @@ impl<T: 'static + Send> MultiScan<T> {
     }
 
     pub fn new_iterator(self) -> MultiScanIterator<T> {
+        Self::new_iterator_with_concurrency(self, 4) // Default concurrency of 4
+    }
+
+    pub fn new_iterator_with_concurrency(self, concurrency: usize) -> MultiScanIterator<T> {
+        let stream = MultiScanIterator::new_stream(self.queue.clone(), concurrency);
         MultiScanIterator {
-            inner: self.queue.new_iterator(),
-            local_pool: LocalPool::new(),
+            queue: self.queue,
+            concurrency,
+            stream,
         }
     }
 }
 
 /// Scan iterator to participate in a `MultiScan`.
 pub struct MultiScanIterator<T> {
-    inner: WorkStealingIterator<ArrayFuture<T>>,
-    local_pool: LocalPool,
+    queue: WorkStealingQueue<ArrayFuture<T>>,
+    concurrency: usize,
+    stream: BoxStream<'static, VortexResult<T>>,
 }
 
-impl<T> Clone for MultiScanIterator<T> {
+impl<T: Send + Sync + 'static> MultiScanIterator<T> {
+    fn new_stream(
+        queue: WorkStealingQueue<ArrayFuture<T>>,
+        concurrency: usize,
+    ) -> BoxStream<'static, VortexResult<T>> {
+        stream::iter(queue.new_iterator())
+            .try_buffered(concurrency)
+            .filter_map(|result| async move { result.transpose() })
+            .boxed()
+    }
+}
+
+impl<T: Send + Sync + 'static> Clone for MultiScanIterator<T> {
     fn clone(&self) -> Self {
+        let stream = Self::new_stream(self.queue.clone(), self.concurrency);
         Self {
-            inner: self.inner.clone(),
-            local_pool: Default::default(),
+            queue: self.queue.clone(),
+            concurrency: self.concurrency,
+            stream,
         }
     }
 }
@@ -57,10 +79,7 @@ impl<T> Clone for MultiScanIterator<T> {
 impl<T: Send + Sync + 'static> Iterator for MultiScanIterator<T> {
     type Item = VortexResult<T>;
 
-    fn next(&mut self) -> Option<VortexResult<T>> {
-        match self.inner.next()? {
-            Ok(task) => self.local_pool.run_until(task).transpose(),
-            Err(e) => Some(Err(e)),
-        }
+    fn next(&mut self) -> Option<Self::Item> {
+        futures::executor::block_on(self.stream.next())
     }
 }

@@ -355,7 +355,7 @@ impl TableFunction for VortexTableFunction {
         global: &mut Self::GlobalState,
     ) -> VortexResult<Self::LocalState> {
         Ok(VortexLocalData {
-            iterator: global.scan.clone().new_iterator(),
+            iterator: global.scan.clone().new_iterator_with_concurrency(4),
             exporter: None,
             batch_id: None,
         })
