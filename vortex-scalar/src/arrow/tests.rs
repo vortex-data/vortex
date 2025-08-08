@@ -266,8 +266,8 @@ fn test_non_temporal_extension_to_arrow_todo() {
 
 #[test]
 fn test_temporal_time_ns_to_arrow() {
-    use vortex_dtype::datetime::{TIME_ID, TemporalMetadata, TimeUnit};
     use vortex_dtype::ExtDType;
+    use vortex_dtype::datetime::{TIME_ID, TemporalMetadata, TimeUnit};
 
     let metadata = TemporalMetadata::Time(TimeUnit::Ns);
     let ext_dtype = Arc::new(ExtDType::new(
@@ -287,8 +287,8 @@ fn test_temporal_time_ns_to_arrow() {
 
 #[test]
 fn test_temporal_time_us_to_arrow() {
-    use vortex_dtype::datetime::{TIME_ID, TemporalMetadata, TimeUnit};
     use vortex_dtype::ExtDType;
+    use vortex_dtype::datetime::{TIME_ID, TemporalMetadata, TimeUnit};
 
     let metadata = TemporalMetadata::Time(TimeUnit::Us);
     let ext_dtype = Arc::new(ExtDType::new(
@@ -308,8 +308,8 @@ fn test_temporal_time_us_to_arrow() {
 
 #[test]
 fn test_temporal_time_ms_to_arrow() {
-    use vortex_dtype::datetime::{TIME_ID, TemporalMetadata, TimeUnit};
     use vortex_dtype::ExtDType;
+    use vortex_dtype::datetime::{TIME_ID, TemporalMetadata, TimeUnit};
 
     let metadata = TemporalMetadata::Time(TimeUnit::Ms);
     let ext_dtype = Arc::new(ExtDType::new(
@@ -329,8 +329,8 @@ fn test_temporal_time_ms_to_arrow() {
 
 #[test]
 fn test_temporal_time_s_to_arrow() {
-    use vortex_dtype::datetime::{TIME_ID, TemporalMetadata, TimeUnit};
     use vortex_dtype::ExtDType;
+    use vortex_dtype::datetime::{TIME_ID, TemporalMetadata, TimeUnit};
 
     let metadata = TemporalMetadata::Time(TimeUnit::S);
     let ext_dtype = Arc::new(ExtDType::new(
@@ -350,8 +350,8 @@ fn test_temporal_time_s_to_arrow() {
 
 #[test]
 fn test_temporal_time_d_unsupported() {
-    use vortex_dtype::datetime::{TIME_ID, TemporalMetadata, TimeUnit};
     use vortex_dtype::ExtDType;
+    use vortex_dtype::datetime::{TIME_ID, TemporalMetadata, TimeUnit};
 
     let metadata = TemporalMetadata::Time(TimeUnit::D);
     let ext_dtype = Arc::new(ExtDType::new(
@@ -360,10 +360,7 @@ fn test_temporal_time_d_unsupported() {
         Some(metadata.into()),
     ));
 
-    let scalar = Scalar::extension(
-        ext_dtype,
-        Scalar::primitive(1i32, Nullability::NonNullable),
-    );
+    let scalar = Scalar::extension(ext_dtype, Scalar::primitive(1i32, Nullability::NonNullable));
 
     let result = Arc::<dyn Datum>::try_from(&scalar);
     assert!(result.is_err());
@@ -374,8 +371,8 @@ fn test_temporal_time_d_unsupported() {
 
 #[test]
 fn test_temporal_date_ms_to_arrow() {
-    use vortex_dtype::datetime::{DATE_ID, TemporalMetadata, TimeUnit};
     use vortex_dtype::ExtDType;
+    use vortex_dtype::datetime::{DATE_ID, TemporalMetadata, TimeUnit};
 
     let metadata = TemporalMetadata::Date(TimeUnit::Ms);
     let ext_dtype = Arc::new(ExtDType::new(
@@ -395,8 +392,8 @@ fn test_temporal_date_ms_to_arrow() {
 
 #[test]
 fn test_temporal_date_d_to_arrow() {
-    use vortex_dtype::datetime::{DATE_ID, TemporalMetadata, TimeUnit};
     use vortex_dtype::ExtDType;
+    use vortex_dtype::datetime::{DATE_ID, TemporalMetadata, TimeUnit};
 
     let metadata = TemporalMetadata::Date(TimeUnit::D);
     let ext_dtype = Arc::new(ExtDType::new(
@@ -416,8 +413,8 @@ fn test_temporal_date_d_to_arrow() {
 
 #[test]
 fn test_temporal_date_ns_unsupported() {
-    use vortex_dtype::datetime::{DATE_ID, TemporalMetadata, TimeUnit};
     use vortex_dtype::ExtDType;
+    use vortex_dtype::datetime::{DATE_ID, TemporalMetadata, TimeUnit};
 
     let metadata = TemporalMetadata::Date(TimeUnit::Ns);
     let ext_dtype = Arc::new(ExtDType::new(
@@ -440,8 +437,8 @@ fn test_temporal_date_ns_unsupported() {
 
 #[test]
 fn test_temporal_timestamp_ns_to_arrow() {
-    use vortex_dtype::datetime::{TIMESTAMP_ID, TemporalMetadata, TimeUnit};
     use vortex_dtype::ExtDType;
+    use vortex_dtype::datetime::{TIMESTAMP_ID, TemporalMetadata, TimeUnit};
 
     let metadata = TemporalMetadata::Timestamp(TimeUnit::Ns, None);
     let ext_dtype = Arc::new(ExtDType::new(
@@ -461,8 +458,8 @@ fn test_temporal_timestamp_ns_to_arrow() {
 
 #[test]
 fn test_temporal_timestamp_us_to_arrow() {
-    use vortex_dtype::datetime::{TIMESTAMP_ID, TemporalMetadata, TimeUnit};
     use vortex_dtype::ExtDType;
+    use vortex_dtype::datetime::{TIMESTAMP_ID, TemporalMetadata, TimeUnit};
 
     let metadata = TemporalMetadata::Timestamp(TimeUnit::Us, None);
     let ext_dtype = Arc::new(ExtDType::new(
@@ -482,8 +479,8 @@ fn test_temporal_timestamp_us_to_arrow() {
 
 #[test]
 fn test_temporal_timestamp_ms_to_arrow() {
-    use vortex_dtype::datetime::{TIMESTAMP_ID, TemporalMetadata, TimeUnit};
     use vortex_dtype::ExtDType;
+    use vortex_dtype::datetime::{TIMESTAMP_ID, TemporalMetadata, TimeUnit};
 
     let metadata = TemporalMetadata::Timestamp(TimeUnit::Ms, None);
     let ext_dtype = Arc::new(ExtDType::new(
@@ -503,8 +500,8 @@ fn test_temporal_timestamp_ms_to_arrow() {
 
 #[test]
 fn test_temporal_timestamp_s_to_arrow() {
-    use vortex_dtype::datetime::{TIMESTAMP_ID, TemporalMetadata, TimeUnit};
     use vortex_dtype::ExtDType;
+    use vortex_dtype::datetime::{TIMESTAMP_ID, TemporalMetadata, TimeUnit};
 
     let metadata = TemporalMetadata::Timestamp(TimeUnit::S, None);
     let ext_dtype = Arc::new(ExtDType::new(
@@ -524,8 +521,8 @@ fn test_temporal_timestamp_s_to_arrow() {
 
 #[test]
 fn test_temporal_timestamp_d_unsupported() {
-    use vortex_dtype::datetime::{TIMESTAMP_ID, TemporalMetadata, TimeUnit};
     use vortex_dtype::ExtDType;
+    use vortex_dtype::datetime::{TIMESTAMP_ID, TemporalMetadata, TimeUnit};
 
     let metadata = TemporalMetadata::Timestamp(TimeUnit::D, None);
     let ext_dtype = Arc::new(ExtDType::new(
@@ -548,8 +545,8 @@ fn test_temporal_timestamp_d_unsupported() {
 
 #[test]
 fn test_temporal_with_null_value() {
-    use vortex_dtype::datetime::{TIME_ID, TemporalMetadata, TimeUnit};
     use vortex_dtype::ExtDType;
+    use vortex_dtype::datetime::{TIME_ID, TemporalMetadata, TimeUnit};
 
     let metadata = TemporalMetadata::Time(TimeUnit::Ns);
     let ext_dtype = Arc::new(ExtDType::new(
@@ -569,8 +566,8 @@ fn test_temporal_with_null_value() {
 
 #[test]
 fn test_temporal_non_primitive_storage_error() {
-    use vortex_dtype::datetime::{TIME_ID, TemporalMetadata, TimeUnit};
     use vortex_dtype::ExtDType;
+    use vortex_dtype::datetime::{TIME_ID, TemporalMetadata, TimeUnit};
 
     let metadata = TemporalMetadata::Time(TimeUnit::Ns);
     let ext_dtype = Arc::new(ExtDType::new(

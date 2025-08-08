@@ -677,7 +677,7 @@ mod tests {
             &ScalarValue(InnerScalarValue::Primitive(PValue::I32(43))),
         )
         .unwrap();
-        
+
         assert_eq!(scalar1, scalar2);
         assert_ne!(scalar1, scalar3);
     }
@@ -695,21 +695,21 @@ mod tests {
             &ScalarValue(InnerScalarValue::Primitive(PValue::I32(20))),
         )
         .unwrap();
-        
+
         assert!(scalar1 < scalar2);
         assert!(scalar2 > scalar1);
-        assert_eq!(scalar1.partial_cmp(&scalar1), Some(std::cmp::Ordering::Equal));
+        assert_eq!(
+            scalar1.partial_cmp(&scalar1),
+            Some(std::cmp::Ordering::Equal)
+        );
     }
 
     #[test]
     fn test_primitive_scalar_null_handling() {
         let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
-        let null_scalar = PrimitiveScalar::try_new(
-            &dtype,
-            &ScalarValue(InnerScalarValue::Null),
-        )
-        .unwrap();
-        
+        let null_scalar =
+            PrimitiveScalar::try_new(&dtype, &ScalarValue(InnerScalarValue::Null)).unwrap();
+
         assert_eq!(null_scalar.pvalue(), None);
         assert_eq!(null_scalar.typed_value::<i32>(), None);
     }
@@ -722,7 +722,7 @@ mod tests {
             &ScalarValue(InnerScalarValue::Primitive(PValue::F64(3.14))),
         )
         .unwrap();
-        
+
         assert_eq!(scalar.typed_value::<f64>(), Some(3.14));
     }
 
@@ -735,21 +735,21 @@ mod tests {
             &ScalarValue(InnerScalarValue::Primitive(PValue::F64(3.14))),
         )
         .unwrap();
-        
+
         let _ = scalar.typed_value::<i32>();
     }
 
     #[test]
     fn test_cast_to_compatible_type() {
         use crate::Scalar;
-        
+
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let scalar = PrimitiveScalar::try_new(
             &dtype,
             &ScalarValue(InnerScalarValue::Primitive(PValue::I32(42))),
         )
         .unwrap();
-        
+
         // Cast to I64
         let target_dtype = DType::Primitive(PType::I64, Nullability::NonNullable);
         let result = scalar.cast(&target_dtype).unwrap();
@@ -764,7 +764,7 @@ mod tests {
             &ScalarValue(InnerScalarValue::Primitive(PValue::I32(300))),
         )
         .unwrap();
-        
+
         // Cast to U8 should fail due to overflow
         let target_dtype = DType::Primitive(PType::U8, Nullability::NonNullable);
         let result = scalar.cast(&target_dtype);
@@ -779,7 +779,7 @@ mod tests {
             &ScalarValue(InnerScalarValue::Primitive(PValue::I32(42))),
         )
         .unwrap();
-        
+
         assert_eq!(scalar.as_::<i64>().unwrap(), Some(42i64));
         assert_eq!(scalar.as_::<f64>().unwrap(), Some(42.0));
     }
@@ -792,7 +792,7 @@ mod tests {
             &ScalarValue(InnerScalarValue::Primitive(PValue::I32(-1))),
         )
         .unwrap();
-        
+
         // Converting -1 to u32 should fail
         let result = scalar.as_::<u32>();
         assert!(result.is_err());
@@ -801,12 +801,9 @@ mod tests {
     #[test]
     fn test_as_conversion_null() {
         let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
-        let scalar = PrimitiveScalar::try_new(
-            &dtype,
-            &ScalarValue(InnerScalarValue::Null),
-        )
-        .unwrap();
-        
+        let scalar =
+            PrimitiveScalar::try_new(&dtype, &ScalarValue(InnerScalarValue::Null)).unwrap();
+
         assert_eq!(scalar.as_::<i32>().unwrap(), None);
         assert_eq!(scalar.as_::<f64>().unwrap(), None);
     }
@@ -814,7 +811,7 @@ mod tests {
     #[test]
     fn test_numeric_operator_swap() {
         use crate::primitive::NumericOperator;
-        
+
         assert_eq!(NumericOperator::Add.swap(), NumericOperator::Add);
         assert_eq!(NumericOperator::Sub.swap(), NumericOperator::RSub);
         assert_eq!(NumericOperator::RSub.swap(), NumericOperator::Sub);
@@ -826,7 +823,7 @@ mod tests {
     #[test]
     fn test_checked_binary_numeric_add() {
         use crate::primitive::NumericOperator;
-        
+
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let scalar1 = PrimitiveScalar::try_new(
             &dtype,
@@ -838,15 +835,17 @@ mod tests {
             &ScalarValue(InnerScalarValue::Primitive(PValue::I32(20))),
         )
         .unwrap();
-        
-        let result = scalar1.checked_binary_numeric(&scalar2, NumericOperator::Add).unwrap();
+
+        let result = scalar1
+            .checked_binary_numeric(&scalar2, NumericOperator::Add)
+            .unwrap();
         assert_eq!(result.typed_value::<i32>(), Some(30));
     }
 
     #[test]
     fn test_checked_binary_numeric_overflow() {
         use crate::primitive::NumericOperator;
-        
+
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let scalar1 = PrimitiveScalar::try_new(
             &dtype,
@@ -858,7 +857,7 @@ mod tests {
             &ScalarValue(InnerScalarValue::Primitive(PValue::I32(1))),
         )
         .unwrap();
-        
+
         // Add should overflow and return None
         let result = scalar1.checked_binary_numeric(&scalar2, NumericOperator::Add);
         assert!(result.is_none());
@@ -867,28 +866,27 @@ mod tests {
     #[test]
     fn test_checked_binary_numeric_with_null() {
         use crate::primitive::NumericOperator;
-        
+
         let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
         let scalar1 = PrimitiveScalar::try_new(
             &dtype,
             &ScalarValue(InnerScalarValue::Primitive(PValue::I32(10))),
         )
         .unwrap();
-        let null_scalar = PrimitiveScalar::try_new(
-            &dtype,
-            &ScalarValue(InnerScalarValue::Null),
-        )
-        .unwrap();
-        
+        let null_scalar =
+            PrimitiveScalar::try_new(&dtype, &ScalarValue(InnerScalarValue::Null)).unwrap();
+
         // Operation with null should return null
-        let result = scalar1.checked_binary_numeric(&null_scalar, NumericOperator::Add).unwrap();
+        let result = scalar1
+            .checked_binary_numeric(&null_scalar, NumericOperator::Add)
+            .unwrap();
         assert_eq!(result.pvalue(), None);
     }
 
     #[test]
     fn test_checked_binary_numeric_mul() {
         use crate::primitive::NumericOperator;
-        
+
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let scalar1 = PrimitiveScalar::try_new(
             &dtype,
@@ -900,15 +898,17 @@ mod tests {
             &ScalarValue(InnerScalarValue::Primitive(PValue::I32(6))),
         )
         .unwrap();
-        
-        let result = scalar1.checked_binary_numeric(&scalar2, NumericOperator::Mul).unwrap();
+
+        let result = scalar1
+            .checked_binary_numeric(&scalar2, NumericOperator::Mul)
+            .unwrap();
         assert_eq!(result.typed_value::<i32>(), Some(30));
     }
 
     #[test]
     fn test_checked_binary_numeric_div() {
         use crate::primitive::NumericOperator;
-        
+
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let scalar1 = PrimitiveScalar::try_new(
             &dtype,
@@ -920,15 +920,17 @@ mod tests {
             &ScalarValue(InnerScalarValue::Primitive(PValue::I32(4))),
         )
         .unwrap();
-        
-        let result = scalar1.checked_binary_numeric(&scalar2, NumericOperator::Div).unwrap();
+
+        let result = scalar1
+            .checked_binary_numeric(&scalar2, NumericOperator::Div)
+            .unwrap();
         assert_eq!(result.typed_value::<i32>(), Some(5));
     }
 
     #[test]
     fn test_checked_binary_numeric_rdiv() {
         use crate::primitive::NumericOperator;
-        
+
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let scalar1 = PrimitiveScalar::try_new(
             &dtype,
@@ -940,16 +942,18 @@ mod tests {
             &ScalarValue(InnerScalarValue::Primitive(PValue::I32(20))),
         )
         .unwrap();
-        
+
         // RDiv means right / left, so 20 / 4 = 5
-        let result = scalar1.checked_binary_numeric(&scalar2, NumericOperator::RDiv).unwrap();
+        let result = scalar1
+            .checked_binary_numeric(&scalar2, NumericOperator::RDiv)
+            .unwrap();
         assert_eq!(result.typed_value::<i32>(), Some(5));
     }
 
     #[test]
     fn test_checked_binary_numeric_div_by_zero() {
         use crate::primitive::NumericOperator;
-        
+
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let scalar1 = PrimitiveScalar::try_new(
             &dtype,
@@ -961,7 +965,7 @@ mod tests {
             &ScalarValue(InnerScalarValue::Primitive(PValue::I32(0))),
         )
         .unwrap();
-        
+
         // Division by zero should return None for integers
         let result = scalar1.checked_binary_numeric(&scalar2, NumericOperator::Div);
         assert!(result.is_none());
@@ -970,7 +974,7 @@ mod tests {
     #[test]
     fn test_checked_binary_numeric_float_ops() {
         use crate::primitive::NumericOperator;
-        
+
         let dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
         let scalar1 = PrimitiveScalar::try_new(
             &dtype,
@@ -982,33 +986,42 @@ mod tests {
             &ScalarValue(InnerScalarValue::Primitive(PValue::F32(2.5))),
         )
         .unwrap();
-        
+
         // Test all operations with floats
-        let add_result = scalar1.checked_binary_numeric(&scalar2, NumericOperator::Add).unwrap();
+        let add_result = scalar1
+            .checked_binary_numeric(&scalar2, NumericOperator::Add)
+            .unwrap();
         assert_eq!(add_result.typed_value::<f32>(), Some(12.5));
-        
-        let sub_result = scalar1.checked_binary_numeric(&scalar2, NumericOperator::Sub).unwrap();
+
+        let sub_result = scalar1
+            .checked_binary_numeric(&scalar2, NumericOperator::Sub)
+            .unwrap();
         assert_eq!(sub_result.typed_value::<f32>(), Some(7.5));
-        
-        let mul_result = scalar1.checked_binary_numeric(&scalar2, NumericOperator::Mul).unwrap();
+
+        let mul_result = scalar1
+            .checked_binary_numeric(&scalar2, NumericOperator::Mul)
+            .unwrap();
         assert_eq!(mul_result.typed_value::<f32>(), Some(25.0));
-        
-        let div_result = scalar1.checked_binary_numeric(&scalar2, NumericOperator::Div).unwrap();
+
+        let div_result = scalar1
+            .checked_binary_numeric(&scalar2, NumericOperator::Div)
+            .unwrap();
         assert_eq!(div_result.typed_value::<f32>(), Some(4.0));
     }
 
     #[test]
     fn test_from_primitive_or_f16() {
         use vortex_dtype::half::f16;
+
         use crate::primitive::FromPrimitiveOrF16;
-        
+
         // Test f16 to f32 conversion
         let f16_val = f16::from_f32(3.14);
         assert!(f32::from_f16(f16_val).is_some());
-        
+
         // Test f16 to f64 conversion
         assert!(f64::from_f16(f16_val).is_some());
-        
+
         // Test f16 to integer conversion (should fail)
         assert!(i32::from_f16(f16_val).is_none());
         assert!(u32::from_f16(f16_val).is_none());
@@ -1018,7 +1031,7 @@ mod tests {
     fn test_partial_ord_different_types() {
         let dtype1 = DType::Primitive(PType::I32, Nullability::NonNullable);
         let dtype2 = DType::Primitive(PType::F32, Nullability::NonNullable);
-        
+
         let scalar1 = PrimitiveScalar::try_new(
             &dtype1,
             &ScalarValue(InnerScalarValue::Primitive(PValue::I32(10))),
@@ -1029,7 +1042,7 @@ mod tests {
             &ScalarValue(InnerScalarValue::Primitive(PValue::F32(10.0))),
         )
         .unwrap();
-        
+
         // Different types should not be comparable
         assert_eq!(scalar1.partial_cmp(&scalar2), None);
     }
@@ -1037,7 +1050,10 @@ mod tests {
     #[test]
     fn test_scalar_value_from_usize() {
         let value: ScalarValue = 42usize.into();
-        assert!(matches!(value.0, InnerScalarValue::Primitive(PValue::U64(42))));
+        assert!(matches!(
+            value.0,
+            InnerScalarValue::Primitive(PValue::U64(42))
+        ));
     }
 
     #[test]
@@ -1048,7 +1064,7 @@ mod tests {
             &ScalarValue(InnerScalarValue::Primitive(PValue::I32(42))),
         )
         .unwrap();
-        
+
         assert_eq!(scalar.dtype(), &dtype);
         assert_eq!(scalar.ptype(), PType::I32);
         assert_eq!(scalar.pvalue(), Some(PValue::I32(42)));

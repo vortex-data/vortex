@@ -500,34 +500,46 @@ fn test_native_decimal_type_maybe_from() {
     // Test NativeDecimalType::maybe_from for each type
     assert_eq!(i8::maybe_from(DecimalValue::I8(42)), Some(42i8));
     assert_eq!(i8::maybe_from(DecimalValue::I16(42)), None);
-    
+
     assert_eq!(i16::maybe_from(DecimalValue::I16(1234)), Some(1234i16));
     assert_eq!(i16::maybe_from(DecimalValue::I32(1234)), None);
-    
+
     assert_eq!(i32::maybe_from(DecimalValue::I32(56789)), Some(56789i32));
     assert_eq!(i32::maybe_from(DecimalValue::I64(56789)), None);
-    
-    assert_eq!(i64::maybe_from(DecimalValue::I64(123456789)), Some(123456789i64));
+
+    assert_eq!(
+        i64::maybe_from(DecimalValue::I64(123456789)),
+        Some(123456789i64)
+    );
     assert_eq!(i64::maybe_from(DecimalValue::I128(123456789)), None);
-    
-    assert_eq!(i128::maybe_from(DecimalValue::I128(987654321)), Some(987654321i128));
-    assert_eq!(i128::maybe_from(DecimalValue::I256(i256::from_i128(987654321))), None);
-    
-    assert_eq!(i256::maybe_from(DecimalValue::I256(i256::from_i128(112233))), Some(i256::from_i128(112233)));
+
+    assert_eq!(
+        i128::maybe_from(DecimalValue::I128(987654321)),
+        Some(987654321i128)
+    );
+    assert_eq!(
+        i128::maybe_from(DecimalValue::I256(i256::from_i128(987654321))),
+        None
+    );
+
+    assert_eq!(
+        i256::maybe_from(DecimalValue::I256(i256::from_i128(112233))),
+        Some(i256::from_i128(112233))
+    );
     assert_eq!(i256::maybe_from(DecimalValue::I8(42)), None);
 }
 
 #[test]
 fn test_decimal_cast_f16() {
     use vortex_dtype::half::f16;
-    
+
     // Create a decimal with value 12.5 (scale=1, so stored as 125)
     let decimal = Scalar::decimal(
         DecimalValue::I16(125),
         DecimalDType::new(4, 1),
         Nullability::NonNullable,
     );
-    
+
     // Cast to f16
     let result = decimal.cast(&DType::Primitive(PType::F16, Nullability::NonNullable));
     assert!(result.is_ok());
@@ -544,12 +556,15 @@ fn test_decimal_cast_boundary_values() {
         DecimalDType::new(10, 2),
         Nullability::NonNullable,
     );
-    
+
     // Should succeed for U16
     let result = decimal.cast(&DType::Primitive(PType::U16, Nullability::NonNullable));
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().as_primitive().typed_value::<u16>().unwrap(), 65535);
-    
+    assert_eq!(
+        result.unwrap().as_primitive().typed_value::<u16>().unwrap(),
+        65535
+    );
+
     // Should fail for U16 with value 65536
     let decimal = Scalar::decimal(
         DecimalValue::I32(65536_00), // 65536.00 with scale=2
@@ -558,7 +573,7 @@ fn test_decimal_cast_boundary_values() {
     );
     let result = decimal.cast(&DType::Primitive(PType::U16, Nullability::NonNullable));
     assert!(result.is_err());
-    
+
     // Test with I16 boundaries
     let decimal = Scalar::decimal(
         DecimalValue::I32(32767_00), // 32767.00 with scale=2
@@ -567,8 +582,11 @@ fn test_decimal_cast_boundary_values() {
     );
     let result = decimal.cast(&DType::Primitive(PType::I16, Nullability::NonNullable));
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().as_primitive().typed_value::<i16>().unwrap(), 32767);
-    
+    assert_eq!(
+        result.unwrap().as_primitive().typed_value::<i16>().unwrap(),
+        32767
+    );
+
     let decimal = Scalar::decimal(
         DecimalValue::I32(-32768_00), // -32768.00 with scale=2
         DecimalDType::new(10, 2),
@@ -576,8 +594,11 @@ fn test_decimal_cast_boundary_values() {
     );
     let result = decimal.cast(&DType::Primitive(PType::I16, Nullability::NonNullable));
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().as_primitive().typed_value::<i16>().unwrap(), -32768);
-    
+    assert_eq!(
+        result.unwrap().as_primitive().typed_value::<i16>().unwrap(),
+        -32768
+    );
+
     // Should fail for I16 with value 32768
     let decimal = Scalar::decimal(
         DecimalValue::I32(32768_00), // 32768.00 with scale=2
@@ -596,19 +617,22 @@ fn test_decimal_partial_ord() {
         Nullability::NonNullable,
     );
     let scalar1 = DecimalScalar::try_from(&decimal1).unwrap();
-    
+
     let decimal2 = Scalar::decimal(
         DecimalValue::I32(200),
         DecimalDType::new(10, 2),
         Nullability::NonNullable,
     );
     let scalar2 = DecimalScalar::try_from(&decimal2).unwrap();
-    
+
     // Same type comparison should work
     assert!(scalar1 < scalar2);
     assert!(scalar2 > scalar1);
-    assert_eq!(scalar1.partial_cmp(&scalar1), Some(std::cmp::Ordering::Equal));
-    
+    assert_eq!(
+        scalar1.partial_cmp(&scalar1),
+        Some(std::cmp::Ordering::Equal)
+    );
+
     // Different type comparison should return None
     let decimal3 = Scalar::decimal(
         DecimalValue::I32(100),
@@ -627,16 +651,16 @@ fn test_decimal_eq() {
         Nullability::NonNullable,
     );
     let scalar1 = DecimalScalar::try_from(&decimal1).unwrap();
-    
+
     let decimal2 = Scalar::decimal(
         DecimalValue::I32(100),
         DecimalDType::new(10, 2),
         Nullability::NonNullable,
     );
     let scalar2 = DecimalScalar::try_from(&decimal2).unwrap();
-    
+
     assert_eq!(scalar1, scalar2);
-    
+
     // Different values
     let decimal3 = Scalar::decimal(
         DecimalValue::I32(200),
@@ -652,13 +676,13 @@ fn test_decimal_value_from_unsigned() {
     // Test From implementations for unsigned types
     let v1: DecimalValue = 255u8.into();
     assert_eq!(v1, DecimalValue::I16(255));
-    
+
     let v2: DecimalValue = 65535u16.into();
     assert_eq!(v2, DecimalValue::I32(65535));
-    
+
     let v3: DecimalValue = 4294967295u32.into();
     assert_eq!(v3, DecimalValue::I64(4294967295));
-    
+
     let v4: DecimalValue = 18446744073709551615u64.into();
     assert_eq!(v4, DecimalValue::I128(18446744073709551615));
 }
@@ -672,11 +696,11 @@ fn test_decimal_scalar_try_from_errors() {
         Nullability::NonNullable,
     );
     let scalar = DecimalScalar::try_from(&decimal).unwrap();
-    
+
     // Try to extract as wrong type
     let result: Result<i8, _> = scalar.try_into();
     assert!(result.is_err());
-    
+
     // Try to extract from null
     let null_decimal = Scalar::null(DType::Decimal(
         DecimalDType::new(10, 2),
@@ -685,7 +709,7 @@ fn test_decimal_scalar_try_from_errors() {
     let null_scalar = DecimalScalar::try_from(&null_decimal).unwrap();
     let result: Result<i32, _> = null_scalar.try_into();
     assert!(result.is_err());
-    
+
     // Extract as Option from null should succeed
     let result: Result<Option<i32>, _> = null_scalar.try_into();
     assert!(result.is_ok());
@@ -700,7 +724,7 @@ fn test_decimal_cast_large_scale() {
         DecimalDType::new(20, 11),
         Nullability::NonNullable,
     );
-    
+
     // Cast to f64
     let result = decimal.cast(&DType::Primitive(PType::F64, Nullability::NonNullable));
     assert!(result.is_ok());
@@ -716,7 +740,7 @@ fn test_decimal_cast_zero_scale() {
         DecimalDType::new(10, 0),
         Nullability::NonNullable,
     );
-    
+
     // Cast to i32 should give exact value
     let result = decimal.cast(&DType::Primitive(PType::I32, Nullability::NonNullable));
     assert!(result.is_ok());
@@ -743,19 +767,22 @@ fn test_decimal_cast_u64_boundary() {
         DecimalDType::new(20, 0),
         Nullability::NonNullable,
     );
-    
+
     let result = decimal.cast(&DType::Primitive(PType::U64, Nullability::NonNullable));
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().as_primitive().typed_value::<u64>().unwrap(), u64::MAX);
-    
+    assert_eq!(
+        result.unwrap().as_primitive().typed_value::<u64>().unwrap(),
+        u64::MAX
+    );
+
     // Test overflow - This value exceeds U64::MAX when cast
-    // Note: The cast logic checks the float value against U64::MAX 
+    // Note: The cast logic checks the float value against U64::MAX
     let decimal = Scalar::decimal(
         DecimalValue::I128(i128::MAX), // Much larger than U64::MAX
         DecimalDType::new(38, 0),
         Nullability::NonNullable,
     );
-    
+
     let result = decimal.cast(&DType::Primitive(PType::U64, Nullability::NonNullable));
     assert!(result.is_err());
 }
@@ -769,7 +796,7 @@ fn test_decimal_i256_overflow_cast() {
         DecimalDType::new(40, 0),
         Nullability::NonNullable,
     );
-    
+
     // This should fail when trying to convert to primitive types
     let result = decimal.cast(&DType::Primitive(PType::I64, Nullability::NonNullable));
     assert!(result.is_err());

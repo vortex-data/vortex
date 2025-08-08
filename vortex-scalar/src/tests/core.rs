@@ -507,7 +507,10 @@ mod tests {
         assert_eq!(empty_utf8.nbytes(), 0);
 
         // Test binary scalar
-        let binary_scalar = Scalar::binary(ByteBuffer::from(vec![1u8, 2, 3, 4]), Nullability::NonNullable);
+        let binary_scalar = Scalar::binary(
+            ByteBuffer::from(vec![1u8, 2, 3, 4]),
+            Nullability::NonNullable,
+        );
         assert_eq!(binary_scalar.nbytes(), 4);
 
         // Test struct scalar
@@ -549,6 +552,92 @@ mod tests {
             Scalar::primitive(42i32, Nullability::NonNullable),
         );
         assert_eq!(ext_scalar.nbytes(), 4); // i32 storage
+    }
+
+    #[test]
+    fn test_decimal_nbytes() {
+        use vortex_dtype::{DECIMAL128_MAX_PRECISION, DecimalDType};
+
+        use crate::decimal::DecimalValue;
+
+        // Test decimal with precision <= 38 (should use i128 = 16 bytes)
+        let decimal_low_precision = Scalar::decimal(
+            DecimalValue::I128(123456789),
+            DecimalDType::new(DECIMAL128_MAX_PRECISION, 2), // precision 38
+            Nullability::NonNullable,
+        );
+        assert_eq!(
+            decimal_low_precision.nbytes(),
+            16,
+            "Decimals with precision <= 38 should be 16 bytes (i128)"
+        );
+
+        // Test decimal with precision > 38 (should use i256 = 32 bytes)
+        let decimal_high_precision = Scalar::decimal(
+            DecimalValue::I128(123456789),
+            DecimalDType::new(DECIMAL128_MAX_PRECISION + 1, 2), // precision 39
+            Nullability::NonNullable,
+        );
+        assert_eq!(
+            decimal_high_precision.nbytes(),
+            32,
+            "Decimals with precision > 38 should be 32 bytes (i256)"
+        );
+
+        // Test various precision boundaries
+        let decimal_p10 = Scalar::decimal(
+            DecimalValue::I32(12345),
+            DecimalDType::new(10, 2),
+            Nullability::NonNullable,
+        );
+        assert_eq!(
+            decimal_p10.nbytes(),
+            16,
+            "Decimal with precision 10 should be 16 bytes"
+        );
+
+        let decimal_p38 = Scalar::decimal(
+            DecimalValue::I64(123456789),
+            DecimalDType::new(38, 4),
+            Nullability::NonNullable,
+        );
+        assert_eq!(
+            decimal_p38.nbytes(),
+            16,
+            "Decimal with precision 38 should be 16 bytes"
+        );
+
+        let decimal_p50 = Scalar::decimal(
+            DecimalValue::I128(123456789),
+            DecimalDType::new(50, 5),
+            Nullability::NonNullable,
+        );
+        assert_eq!(
+            decimal_p50.nbytes(),
+            32,
+            "Decimal with precision 50 should be 32 bytes"
+        );
+
+        // Test null decimal - should still report size based on precision
+        let null_decimal_low = Scalar::null(DType::Decimal(
+            DecimalDType::new(20, 2),
+            Nullability::Nullable,
+        ));
+        assert_eq!(
+            null_decimal_low.nbytes(),
+            16,
+            "Null decimal with low precision should still report 16 bytes"
+        );
+
+        let null_decimal_high = Scalar::null(DType::Decimal(
+            DecimalDType::new(40, 2),
+            Nullability::Nullable,
+        ));
+        assert_eq!(
+            null_decimal_high.nbytes(),
+            32,
+            "Null decimal with high precision should still report 32 bytes"
+        );
     }
 
     #[test]
@@ -596,11 +685,11 @@ mod tests {
     fn test_scalar_into_nullable() {
         let non_nullable = Scalar::primitive(42i32, Nullability::NonNullable);
         assert_eq!(non_nullable.dtype().nullability(), Nullability::NonNullable);
-        
+
         let nullable = non_nullable.clone().into_nullable();
         assert_eq!(nullable.dtype().nullability(), Nullability::Nullable);
         assert_eq!(nullable.as_primitive().typed_value::<i32>(), Some(42));
-        
+
         // Test with already nullable scalar
         let already_nullable = Scalar::primitive(42i32, Nullability::Nullable);
         let still_nullable = already_nullable.clone().into_nullable();
@@ -611,8 +700,11 @@ mod tests {
     fn test_scalar_into_parts() {
         let scalar = Scalar::primitive(42i32, Nullability::NonNullable);
         let (dtype, value) = scalar.clone().into_parts();
-        
-        assert_eq!(dtype, DType::Primitive(PType::I32, Nullability::NonNullable));
+
+        assert_eq!(
+            dtype,
+            DType::Primitive(PType::I32, Nullability::NonNullable)
+        );
         match value {
             ScalarValue(InnerScalarValue::Primitive(PValue::I32(v))) => {
                 assert_eq!(v, 42);
@@ -625,7 +717,7 @@ mod tests {
     fn test_scalar_into_value() {
         let scalar = Scalar::primitive(42i32, Nullability::NonNullable);
         let value = scalar.into_value();
-        
+
         match value {
             ScalarValue(InnerScalarValue::Primitive(PValue::I32(v))) => {
                 assert_eq!(v, 42);
@@ -639,7 +731,7 @@ mod tests {
         let valid_scalar = Scalar::primitive(42i32, Nullability::NonNullable);
         assert!(valid_scalar.is_valid());
         assert!(!valid_scalar.is_null());
-        
+
         let null_scalar = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
         assert!(!null_scalar.is_valid());
         assert!(null_scalar.is_null());
@@ -657,13 +749,19 @@ mod tests {
         // Test Some value
         let some_value: Option<i32> = Some(42);
         let scalar = Scalar::from(some_value);
-        assert_eq!(scalar.dtype(), &DType::Primitive(PType::I32, Nullability::Nullable));
+        assert_eq!(
+            scalar.dtype(),
+            &DType::Primitive(PType::I32, Nullability::Nullable)
+        );
         assert_eq!(scalar.as_primitive().typed_value::<i32>(), Some(42));
-        
+
         // Test None value
         let none_value: Option<i32> = None;
         let null_scalar = Scalar::from(none_value);
-        assert_eq!(null_scalar.dtype(), &DType::Primitive(PType::I32, Nullability::Nullable));
+        assert_eq!(
+            null_scalar.dtype(),
+            &DType::Primitive(PType::I32, Nullability::Nullable)
+        );
         assert!(null_scalar.is_null());
     }
 
@@ -673,8 +771,9 @@ mod tests {
         let pscalar = crate::PrimitiveScalar::try_new(
             &dtype,
             &ScalarValue(InnerScalarValue::Primitive(PValue::I32(42))),
-        ).unwrap();
-        
+        )
+        .unwrap();
+
         let scalar = Scalar::from(pscalar);
         assert_eq!(scalar.dtype(), &dtype);
         assert_eq!(scalar.as_primitive().typed_value::<i32>(), Some(42));
@@ -682,19 +781,24 @@ mod tests {
 
     #[test]
     fn test_scalar_from_decimal_scalar() {
-        use crate::decimal::{DecimalScalar, DecimalValue};
         use vortex_dtype::DecimalDType;
-        
+
+        use crate::decimal::{DecimalScalar, DecimalValue};
+
         let decimal_dtype = DecimalDType::new(10, 2);
         let dtype = DType::Decimal(decimal_dtype, Nullability::NonNullable);
         let dscalar = DecimalScalar::try_new(
             &dtype,
             &ScalarValue(InnerScalarValue::Decimal(DecimalValue::I32(12345))),
-        ).unwrap();
-        
+        )
+        .unwrap();
+
         let scalar = Scalar::from(dscalar);
         assert_eq!(scalar.dtype(), &dtype);
-        assert_eq!(scalar.as_decimal().decimal_value(), Some(DecimalValue::I32(12345)));
+        assert_eq!(
+            scalar.as_decimal().decimal_value(),
+            Some(DecimalValue::I32(12345))
+        );
     }
 
     #[test]
@@ -704,19 +808,19 @@ mod tests {
         let scalar = Scalar::from(vec_u16);
         assert!(matches!(scalar.dtype(), DType::List(..)));
         assert_eq!(scalar.as_list().len(), 3);
-        
+
         // Test Vec<i32>
         let vec_i32 = vec![10i32, 20, 30];
         let scalar = Scalar::from(vec_i32);
         assert!(matches!(scalar.dtype(), DType::List(..)));
         assert_eq!(scalar.as_list().len(), 3);
-        
+
         // Test Vec<f64>
         let vec_f64 = vec![1.1f64, 2.2, 3.3];
         let scalar = Scalar::from(vec_f64);
         assert!(matches!(scalar.dtype(), DType::List(..)));
         assert_eq!(scalar.as_list().len(), 3);
-        
+
         // Test Vec<String>
         let vec_string = vec!["hello".to_string(), "world".to_string()];
         let scalar = Scalar::from(vec_string);
@@ -727,20 +831,20 @@ mod tests {
     #[test]
     fn test_scalar_hash() {
         use std::collections::HashSet;
-        
+
         let mut set = HashSet::new();
-        
+
         // Add various scalar types
         set.insert(Scalar::null(DType::Null));
         set.insert(Scalar::bool(true, Nullability::NonNullable));
         set.insert(Scalar::primitive(42i32, Nullability::NonNullable));
         set.insert(Scalar::utf8("test", Nullability::NonNullable));
-        
+
         // Test that duplicates are not added
         assert_eq!(set.len(), 4);
         set.insert(Scalar::primitive(42i32, Nullability::NonNullable));
         assert_eq!(set.len(), 4); // Should still be 4
-        
+
         // Test that different values hash differently
         set.insert(Scalar::primitive(43i32, Nullability::NonNullable));
         assert_eq!(set.len(), 5);
@@ -750,7 +854,7 @@ mod tests {
     fn test_scalar_partial_ord_incompatible_types() {
         let int_scalar = Scalar::primitive(42i32, Nullability::NonNullable);
         let bool_scalar = Scalar::bool(true, Nullability::NonNullable);
-        
+
         // Different types should return None for partial_cmp
         assert_eq!(int_scalar.partial_cmp(&bool_scalar), None);
         assert_eq!(bool_scalar.partial_cmp(&int_scalar), None);
@@ -761,10 +865,19 @@ mod tests {
         let scalar1 = Scalar::primitive(10i32, Nullability::NonNullable);
         let scalar2 = Scalar::primitive(20i32, Nullability::NonNullable);
         let scalar3 = Scalar::primitive(10i32, Nullability::NonNullable);
-        
-        assert_eq!(scalar1.partial_cmp(&scalar2), Some(std::cmp::Ordering::Less));
-        assert_eq!(scalar2.partial_cmp(&scalar1), Some(std::cmp::Ordering::Greater));
-        assert_eq!(scalar1.partial_cmp(&scalar3), Some(std::cmp::Ordering::Equal));
+
+        assert_eq!(
+            scalar1.partial_cmp(&scalar2),
+            Some(std::cmp::Ordering::Less)
+        );
+        assert_eq!(
+            scalar2.partial_cmp(&scalar1),
+            Some(std::cmp::Ordering::Greater)
+        );
+        assert_eq!(
+            scalar1.partial_cmp(&scalar3),
+            Some(std::cmp::Ordering::Equal)
+        );
     }
 
     #[test]
@@ -772,7 +885,7 @@ mod tests {
         let scalar1 = Scalar::primitive(42i32, Nullability::NonNullable);
         let scalar2 = Scalar::primitive(42i32, Nullability::NonNullable);
         let scalar3 = Scalar::primitive(43i32, Nullability::NonNullable);
-        
+
         assert_eq!(scalar1, scalar2);
         assert_ne!(scalar1, scalar3);
     }

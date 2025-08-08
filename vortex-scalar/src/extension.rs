@@ -149,8 +149,8 @@ impl Scalar {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_dtype::{DType, ExtDType, ExtID, ExtMetadata, Nullability, PType};
     use vortex_dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
+    use vortex_dtype::{DType, ExtDType, ExtID, ExtMetadata, Nullability, PType};
 
     use crate::{ExtScalar, InnerScalarValue, Scalar, ScalarValue};
 
@@ -324,16 +324,29 @@ mod tests {
         );
 
         let ext = ExtScalar::try_from(&scalar).unwrap();
-        
+
         // Cast to storage type
-        let casted = ext.cast(&DType::Primitive(PType::I32, Nullability::NonNullable)).unwrap();
-        assert_eq!(casted.dtype(), &DType::Primitive(PType::I32, Nullability::NonNullable));
+        let casted = ext
+            .cast(&DType::Primitive(PType::I32, Nullability::NonNullable))
+            .unwrap();
+        assert_eq!(
+            casted.dtype(),
+            &DType::Primitive(PType::I32, Nullability::NonNullable)
+        );
         assert_eq!(casted.as_primitive().typed_value::<i32>(), Some(42));
 
         // Cast to nullable storage type
-        let casted_nullable = ext.cast(&DType::Primitive(PType::I32, Nullability::Nullable)).unwrap();
-        assert_eq!(casted_nullable.dtype(), &DType::Primitive(PType::I32, Nullability::Nullable));
-        assert_eq!(casted_nullable.as_primitive().typed_value::<i32>(), Some(42));
+        let casted_nullable = ext
+            .cast(&DType::Primitive(PType::I32, Nullability::Nullable))
+            .unwrap();
+        assert_eq!(
+            casted_nullable.dtype(),
+            &DType::Primitive(PType::I32, Nullability::Nullable)
+        );
+        assert_eq!(
+            casted_nullable.as_primitive().typed_value::<i32>(),
+            Some(42)
+        );
     }
 
     #[test]
@@ -350,7 +363,7 @@ mod tests {
         );
 
         let ext = ExtScalar::try_from(&scalar).unwrap();
-        
+
         // Cast to same extension type
         let casted = ext.cast(&DType::Extension(ext_dtype.clone())).unwrap();
         assert_eq!(casted.dtype(), &DType::Extension(ext_dtype.clone()));
@@ -375,7 +388,7 @@ mod tests {
         );
 
         let ext = ExtScalar::try_from(&scalar).unwrap();
-        
+
         // Cast to incompatible type should fail
         let result = ext.cast(&DType::Utf8(Nullability::NonNullable));
         assert!(result.is_err());
@@ -395,7 +408,7 @@ mod tests {
         );
 
         let ext = ExtScalar::try_from(&scalar).unwrap();
-        
+
         // Cast null to non-nullable should fail
         let result = ext.cast(&DType::Primitive(PType::I32, Nullability::NonNullable));
         assert!(result.is_err());
@@ -405,7 +418,7 @@ mod tests {
     fn test_ext_scalar_try_new_non_extension() {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let value = ScalarValue(InnerScalarValue::Primitive(crate::PValue::I32(42)));
-        
+
         let result = ExtScalar::try_new(&dtype, &value);
         assert!(result.is_err());
     }
@@ -428,7 +441,6 @@ mod tests {
         assert_eq!(ext.ext_dtype(), ext_dtype.as_ref());
         assert!(ext.ext_dtype().metadata().is_some());
     }
-
 
     #[test]
     fn test_ext_scalar_equality_ignores_nullability() {

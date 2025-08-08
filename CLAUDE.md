@@ -3,6 +3,7 @@
 * project is a monorepo Rust workspace, java bindings in `/java`, python bindings in `/vortex-python`
 * run `cargo build -p` to build a specific crate
 * use `cargo clippy --all-targets --all-features` to make sure a project is free of lint issues
+* run `cargo +nightly fmt --all` to format files that you've changed (please do this every time you reach a stopping point or think you've finished work)
 
 # Architecture
 
