@@ -17,6 +17,7 @@ pub fn value_int32(v: Option<&Value>) -> VortexResult<Option<i32>> {
         _ => vortex_bail!("expected int32 {:?}", v),
     })
 }
+
 pub fn value_float64(v: Option<&Value>) -> VortexResult<Option<f64>> {
     Ok(match v {
         None => None,
@@ -24,6 +25,7 @@ pub fn value_float64(v: Option<&Value>) -> VortexResult<Option<f64>> {
         _ => vortex_bail!("expected f64 {:?}", v),
     })
 }
+
 pub fn value_string<'a>(v: Option<&'a Value>) -> VortexResult<Option<&'a str>> {
     Ok(match v {
         None => None,
@@ -31,6 +33,7 @@ pub fn value_string<'a>(v: Option<&'a Value>) -> VortexResult<Option<&'a str>> {
         _ => vortex_bail!("expected string {:?}", v),
     })
 }
+
 pub fn value_boolean(v: Option<&Value>) -> VortexResult<bool> {
     Ok(match v {
         None => false,
@@ -38,6 +41,7 @@ pub fn value_boolean(v: Option<&Value>) -> VortexResult<bool> {
         _ => vortex_bail!("expected bool {:?}", v),
     })
 }
+
 pub fn value_list_int32(
     v: Option<&Value>,
 ) -> VortexResult<Option<impl Iterator<Item = Option<i32>>>> {
@@ -50,6 +54,7 @@ pub fn value_list_int32(
         _ => vortex_bail!("expected int32 {:?}", v),
     })
 }
+
 pub fn value_list_float64(
     v: Option<&Value>,
 ) -> VortexResult<Option<impl Iterator<Item = Option<f64>>>> {
@@ -66,6 +71,7 @@ pub fn value_list_float64(
         _ => vortex_bail!("expected f64 {:?}", v),
     })
 }
+
 pub fn value_list_string<'a>(
     v: Option<&'a Value>,
 ) -> VortexResult<Option<impl Iterator<Item = Option<Cow<'a, str>>>>> {
