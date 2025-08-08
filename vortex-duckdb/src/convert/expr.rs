@@ -8,8 +8,8 @@ use vortex::compute::{BetweenOptions, StrictComparison};
 use vortex::dtype::Nullability;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{
-    BetweenExpr, BinaryExpr, ExprRef, LikeExpr, LiteralExpr, Operator, and_collect, col,
-    is_null, list_contains, lit, not, or_collect,
+    BetweenExpr, BinaryExpr, ExprRef, LikeExpr, LiteralExpr, Operator, and_collect, col, is_null,
+    list_contains, lit, not, or_collect,
 };
 use vortex::scalar::Scalar;
 
