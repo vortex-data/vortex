@@ -222,6 +222,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self,
     ) -> VortexResult<impl futures::Stream<Item = VortexResult<A>> + Send + 'static> {
         use futures::StreamExt;
+        use vortex_error::vortex_err;
 
         let handle = tokio::runtime::Handle::current();
         let num_workers = handle.metrics().num_workers();

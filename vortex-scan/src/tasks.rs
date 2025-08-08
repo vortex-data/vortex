@@ -129,6 +129,7 @@ pub(super) fn split_exec<A: 'static + Send>(
                     if let Some(dv) = filter.dynamic_updates(idx).map(|du| du.version()) {
                         if dynamic_versions[idx].is_none_or(|v| v < dv) {
                             // The dynamic expression has been updated, re-run the pruning.
+                            dynamic_versions[idx] = Some(dv);
                             let conjunct_mask = pruning_conjuncts[idx].invoke(mask.clone()).await?;
                             mask = mask.bitand(&conjunct_mask);
                         }

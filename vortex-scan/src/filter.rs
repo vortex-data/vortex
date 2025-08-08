@@ -21,7 +21,7 @@ const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;
 pub struct FilterExpr {
     /// The conjuncts involved in the filter expression.
     conjuncts: Vec<ExprRef>,
-    /// A histogram of the selectivity of each conjunct.
+    /// A histogram for the selectivity of each conjunct.
     conjunct_selectivity: Vec<RwLock<DDSketch>>,
     /// Dynamic expression trackers for each conjunct, incase they contain dynamic expressions.
     dynamic_conjuncts: Vec<Option<DynamicExprUpdates>>,
