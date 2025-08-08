@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::pipeline::nodes::pipeline::Pipeline;
-use crate::pipeline::nodes::pipeline::dag::DagNode;
+use crate::pipeline::nodes::query::Pipeline;
+use crate::pipeline::nodes::query::dag::DagNode;
 use std::collections::VecDeque;
 use vortex_error::{VortexResult, vortex_bail};
 

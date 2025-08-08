@@ -2,5 +2,4 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub mod operators;
-pub mod pipeline;
-pub mod vector;
+pub mod query;

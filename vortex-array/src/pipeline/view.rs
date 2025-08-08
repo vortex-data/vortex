@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod flatten;
 use crate::pipeline::N;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
@@ -107,8 +106,6 @@ pub struct ViewMut<'a> {
     /// The validity mask for the vector, indicating which elements in the buffer are valid.
     /// This value can be `None` if the expected DType is `NonNullable`.
     pub(super) validity: Option<BitViewMut<'a>>,
-    // Length of the view.
-    pub(super) len: usize,
 
     /// Additional buffers of data used by the vector, such as string data.
     // TODO(ngates): ideally these buffers are compressed somehow? E.g. using FSST?
@@ -126,7 +123,6 @@ impl<'a> ViewMut<'a> {
             vtype: E::vtype(),
             elements: elements.as_mut_ptr().cast(),
             validity,
-            len: 0,
             data: vec![],
             _marker: Default::default(),
         }
@@ -134,7 +130,7 @@ impl<'a> ViewMut<'a> {
 
     /// Re-interpret cast the vector into a new type where the element has the same width.
     #[inline(always)]
-    pub fn reinterpret_as<E: Element>(&mut self) {
+    pub fn reinterpret_as<E: Element>(&mut self) -> ViewMut<'a> {
         assert_eq!(
             self.vtype.byte_width(),
             size_of::<E>(),
@@ -142,12 +138,13 @@ impl<'a> ViewMut<'a> {
             self.vtype,
             E::vtype()
         );
-        self.vtype = E::vtype();
-    }
-
-    /// Return the logical length of the vector, which is the number of selected elements.
-    pub fn len(&self) -> usize {
-        self.len
+        Self {
+            vtype: E::vtype(),
+            elements: self.elements,
+            validity: self.validity.take(),
+            data: self.data.clone(),
+            _marker: Default::default(),
+        }
     }
 
     /// Returns a mutable handle to the elements array.
@@ -189,8 +186,36 @@ impl<'a> ViewMut<'a> {
         self.data.push(buffer);
     }
 
-    pub fn set_len(&mut self, len: usize) {
-        assert!(len <= N);
-        self.len = len;
+    /// Flatten the view by bringing the selected elements of the mask to the beginning of
+    /// the elements buffer.
+    ///
+    /// FIXME(ngates): also need to select validity bits.
+    pub fn select_mask<E: Element>(&mut self, mask: &BitView) {
+        assert_eq!(
+            self.vtype,
+            E::vtype(),
+            "ViewMut::flatten_mask: type mismatch"
+        );
+
+        match mask.true_count() {
+            0 => {
+                // If the mask has no true bits, we set the length to 0.
+                return;
+            }
+            N => {
+                // If the mask has N true bits, we copy all elements.
+            }
+            _ => {
+                let mut offset = 0;
+                mask.iter_ones(|idx| {
+                    unsafe {
+                        // SAFETY: We assume that the elements are of type E and that the view is valid.
+                        *self.as_mut::<E>().get_unchecked_mut(offset) =
+                            *self.as_ref::<E>().get_unchecked(idx);
+                        offset += 1;
+                    }
+                });
+            }
+        }
     }
 }

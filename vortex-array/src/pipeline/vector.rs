@@ -17,6 +17,17 @@ use std::fmt::Debug;
 use std::ops::{Deref, DerefMut};
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VectorId(pub(crate) usize);
+
+impl Deref for VectorId {
+    type Target = usize;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 /// A vector contains fixed-size owned data in canonical form.
 #[derive(Debug)]
 pub struct Vector {
@@ -78,7 +89,6 @@ impl Vector {
             vtype: self.vtype,
             elements: self.elements.as_mut_ptr().cast(),
             validity: Some(self.validity.as_view_mut()),
-            len: self.len,
             data: vec![],
             _marker: Default::default(),
         }
@@ -93,17 +103,6 @@ impl Vector {
             data: vec![],
             _marker: Default::default(),
         }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct VectorId(pub(crate) usize);
-
-impl Deref for VectorId {
-    type Target = usize;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
     }
 }
 

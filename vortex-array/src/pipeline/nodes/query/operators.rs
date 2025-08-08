@@ -3,9 +3,9 @@
 
 use crate::pipeline::Kernel;
 use crate::pipeline::nodes::operators::BindContext;
-use crate::pipeline::nodes::pipeline::Pipeline;
-use crate::pipeline::nodes::pipeline::buffers::VectorAllocationPlan;
-use crate::pipeline::nodes::pipeline::dag::DagNode;
+use crate::pipeline::nodes::query::Pipeline;
+use crate::pipeline::nodes::query::buffers::VectorAllocationPlan;
+use crate::pipeline::nodes::query::dag::DagNode;
 use crate::pipeline::vector::VectorId;
 use vortex_error::{VortexExpect, VortexResult};
 

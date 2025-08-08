@@ -5,7 +5,7 @@ use crate::{BitPackedArray, BitPackedVTable};
 use fastlanes::{BitPacking, FastLanes};
 use std::hash::{Hash, Hasher};
 use std::task::{Poll, ready};
-use vortex_array::pipeline::PipelineContext;
+use vortex_array::pipeline::KernelContext;
 use vortex_array::pipeline::bits::BitView;
 use vortex_array::pipeline::buffers::BufferHandle;
 use vortex_array::pipeline::nodes::operators::{BindContext, Operator};
@@ -98,16 +98,16 @@ where
 
     fn step(
         &mut self,
-        ctx: &dyn PipelineContext,
+        ctx: &dyn KernelContext,
         selected: BitView,
         out: &mut ViewMut,
     ) -> Poll<VortexResult<()>> {
         let buffer = ready!(self.buffer.get_or_load(ctx))?;
 
         // We re-interpret the output view as the unsigned bitpacked type.
-        out.reinterpret_as::<<T as PhysicalPType>::Physical>();
+        let mut physical_out = out.reinterpret_as::<<T as PhysicalPType>::Physical>();
 
-        let elements = out.as_mut::<<T as PhysicalPType>::Physical>();
+        let elements = physical_out.as_mut::<<T as PhysicalPType>::Physical>();
         let packed = &buffer.as_slice()[self.packed_offset..];
 
         // We compute the number of FastLanes vectors that we have remaining.
@@ -128,7 +128,7 @@ where
             self.packed_offset += nvecs * self.packed_stride;
 
             // Set the selection to the given mask, which is a bit array of length N.
-            out.select_mask::<<T as PhysicalPType>::Physical>(&selected);
+            physical_out.select_mask::<<T as PhysicalPType>::Physical>(&selected);
         } else {
             let mut offset = 0;
             selected.iter_ones(|idx| {
@@ -146,13 +146,7 @@ where
             });
 
             self.packed_offset += nvecs * self.packed_stride;
-
-            // Set the selection to the given mask, which is a bit array of length N.
-            out.set_len(selected.true_count());
         }
-
-        // Put the output vector back to type `T`!
-        out.reinterpret_as::<T>();
 
         Poll::Ready(Ok(()))
     }

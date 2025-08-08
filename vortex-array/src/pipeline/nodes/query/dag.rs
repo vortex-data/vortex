@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::pipeline::nodes::operators::Operator;
-use crate::pipeline::nodes::pipeline::Pipeline;
+use crate::pipeline::nodes::query::Pipeline;
 use std::hash::BuildHasher;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::{HashMap, RandomState};

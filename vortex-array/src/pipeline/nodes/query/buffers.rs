@@ -3,8 +3,8 @@
 
 //! Vector allocation strategy for pipelines
 
-use crate::pipeline::nodes::pipeline::Pipeline;
-use crate::pipeline::nodes::pipeline::dag::DagNode;
+use crate::pipeline::nodes::query::Pipeline;
+use crate::pipeline::nodes::query::dag::DagNode;
 use crate::pipeline::types::VType;
 use crate::pipeline::vector::Vector;
 use crate::pipeline::vector::VectorId;

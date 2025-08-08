@@ -7,7 +7,7 @@ use crate::pipeline::nodes::operators::{BindContext, Operator};
 use crate::pipeline::types::{Element, VType};
 use crate::pipeline::vector::VectorId;
 use crate::pipeline::view::ViewMut;
-use crate::pipeline::{Kernel, PipelineContext};
+use crate::pipeline::{Kernel, KernelContext};
 use std::marker::PhantomData;
 use std::task::Poll;
 use vortex_dtype::{NativePType, match_each_native_ptype};
@@ -108,7 +108,7 @@ impl<T: Element + NativePType, Op: CompareOp<T>> Kernel for ComparePrimitiveKern
 
     fn step(
         &mut self,
-        ctx: &dyn PipelineContext,
+        ctx: &dyn KernelContext,
         _selected: BitView,
         out: &mut ViewMut,
     ) -> Poll<VortexResult<()>> {

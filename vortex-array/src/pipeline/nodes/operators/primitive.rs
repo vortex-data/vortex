@@ -7,7 +7,7 @@ use crate::pipeline::buffers::BufferHandle;
 use crate::pipeline::nodes::operators::{BindContext, Operator};
 use crate::pipeline::types::{Element, VType};
 use crate::pipeline::view::ViewMut;
-use crate::pipeline::{Kernel, N, PipelineContext};
+use crate::pipeline::{Kernel, KernelContext, N};
 use std::hash::{Hash, Hasher};
 use std::task::{Poll, ready};
 use vortex_dtype::{NativePType, match_each_native_ptype};
@@ -53,7 +53,7 @@ impl<T: Element + NativePType> Kernel for PrimitiveKernel<T> {
 
     fn step(
         &mut self,
-        ctx: &dyn PipelineContext,
+        ctx: &dyn KernelContext,
         mask: BitView,
         out: &mut ViewMut,
     ) -> Poll<VortexResult<()>> {

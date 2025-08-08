@@ -9,11 +9,11 @@ mod toposort;
 use crate::pipeline::bits::BitView;
 use crate::pipeline::buffers::BufferId;
 use crate::pipeline::nodes::operators::Operator;
-use crate::pipeline::nodes::pipeline::buffers::{OutputTarget, VectorAllocationPlan};
-use crate::pipeline::nodes::pipeline::dag::DagNode;
+use crate::pipeline::nodes::query::buffers::{OutputTarget, VectorAllocationPlan};
+use crate::pipeline::nodes::query::dag::DagNode;
 use crate::pipeline::vector::{VectorId, VectorRef};
 use crate::pipeline::view::ViewMut;
-use crate::pipeline::{Kernel, PipelineContext};
+use crate::pipeline::{Kernel, KernelContext};
 use std::ops::DerefMut;
 use std::task::Poll;
 use vortex_buffer::ByteBuffer;
@@ -339,7 +339,7 @@ impl Kernel for Pipeline<'_> {
 
     fn step(
         &mut self,
-        ctx: &dyn PipelineContext,
+        ctx: &dyn KernelContext,
         selected: BitView,
         out: &mut ViewMut,
     ) -> Poll<VortexResult<()>> {
@@ -351,12 +351,12 @@ struct Context<'a> {
     allocation_plan: &'a VectorAllocationPlan,
 }
 
-impl<'a> PipelineContext for Context<'a> {
+impl<'a> KernelContext for Context<'a> {
     fn buffer(&self, _buffer_id: BufferId) -> Poll<VortexResult<ByteBuffer>> {
         todo!()
     }
 
-    fn vector(&self, vector_id: VectorId) -> VectorRef {
+    fn vector(&self, vector_id: VectorId) -> VectorRef<'_> {
         VectorRef::new(self.allocation_plan.vectors[*vector_id].borrow())
     }
 }

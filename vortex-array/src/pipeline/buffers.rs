@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::pipeline::PipelineContext;
+use crate::pipeline::KernelContext;
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use std::sync::atomic::AtomicUsize;
@@ -82,7 +82,7 @@ impl<T> BufferHandle<T> {
         }
     }
 
-    pub fn get_or_load(&mut self, ctx: &dyn PipelineContext) -> Poll<VortexResult<&Buffer<T>>> {
+    pub fn get_or_load(&mut self, ctx: &dyn KernelContext) -> Poll<VortexResult<&Buffer<T>>> {
         if let BufferHandle::Ready(buffer) = self {
             return Poll::Ready(Ok(buffer));
         }

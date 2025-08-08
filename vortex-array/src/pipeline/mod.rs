@@ -14,12 +14,11 @@
 //! instead of supporting multiple encodings because compute push-down is applied a priori to the
 //! logical representation.
 //!
-//! It is a work-in-progress, and is not yet used in production.
+//! It is a work-in-progress and is not yet used in production.
 
 pub mod bits;
 pub mod buffers;
 pub mod canonical;
-pub mod common;
 pub mod nodes;
 pub mod selection;
 pub mod types;
@@ -79,17 +78,17 @@ pub trait Kernel {
     //  elements that are not defined, for example if the parent is a dense null validity encoding.
     fn step(
         &mut self,
-        ctx: &dyn PipelineContext,
+        ctx: &dyn KernelContext,
         selected: BitView,
         out: &mut ViewMut,
     ) -> Poll<VortexResult<()>>;
 }
 
-pub trait PipelineExt: Kernel {
+pub trait KernelExt: Kernel {
     /// Perform a single step of the pipeline, panics if the step returns [`Poll::Pending`].
     fn step_now(
         &mut self,
-        ctx: &dyn PipelineContext,
+        ctx: &dyn KernelContext,
         selected: BitView,
         out: &mut ViewMut,
     ) -> VortexResult<()> {
@@ -102,11 +101,11 @@ pub trait PipelineExt: Kernel {
     }
 }
 
-impl<P: Kernel + ?Sized> PipelineExt for P {}
+impl<K: Kernel + ?Sized> KernelExt for K {}
 
-pub trait PipelineContext {
+pub trait KernelContext {
     /// Get a vector by its ID.
-    fn vector(&self, vector_id: VectorId) -> VectorRef;
+    fn vector(&self, vector_id: VectorId) -> VectorRef<'_>;
 
     /// Get a buffer by its ID.
     fn buffer(&self, buffer_id: BufferId) -> Poll<VortexResult<ByteBuffer>>;
@@ -144,8 +143,8 @@ pub trait PipelineContext {
     }
 }
 
-impl PipelineContext for () {
-    fn vector(&self, vector_id: VectorId) -> VectorRef {
+impl KernelContext for () {
+    fn vector(&self, vector_id: VectorId) -> VectorRef<'_> {
         todo!()
     }
 

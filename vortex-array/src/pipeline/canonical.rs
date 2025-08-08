@@ -4,11 +4,11 @@
 use crate::arrays::{BoolArray, PrimitiveArray};
 use crate::pipeline::bits::{BitVector, BitView, BitViewMut};
 use crate::pipeline::nodes::operators::Operator;
-use crate::pipeline::nodes::pipeline::Pipeline;
+use crate::pipeline::nodes::query::Pipeline;
 use crate::pipeline::types::Element;
 use crate::pipeline::vector::Vector;
 use crate::pipeline::view::ViewMut;
-use crate::pipeline::{Kernel, N, PipelineExt};
+use crate::pipeline::{Kernel, KernelExt, N};
 use crate::validity::Validity;
 use crate::{Array, Canonical};
 use arrow_buffer::BooleanBufferBuilder;
@@ -125,10 +125,7 @@ fn export_primitive_nonnull_masked<T: Element + NativePType>(
         mask_view.fill_with_words(&mut bit_chunks_iter);
 
         pipeline.step_now(&(), mask_view.as_view(), &mut elements_view)?;
-
-        // Flatten the elements in place.
-        // elements_view.flatten::<T>();
-        offset += elements_view.len();
+        offset += mask_view.true_count();
 
         remaining = remaining.saturating_sub(N);
     }
@@ -166,7 +163,7 @@ fn export_bool_nonnull_masked(mask: &Mask, pipeline: &mut dyn Kernel) -> VortexR
 
         // Now we collect the byte-bools into bit-bools.
         // FIXME(ngates): append_slice is really slow and stupid.
-        values.append_slice(&elements_buffer_mut.as_ref::<bool>()[0..elements_buffer_mut.len()]);
+        values.append_slice(&elements_buffer_mut.as_ref::<bool>()[0..mask_view.true_count()]);
 
         remaining = remaining.saturating_sub(N);
     }

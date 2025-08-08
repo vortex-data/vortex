@@ -8,7 +8,7 @@ use vortex_array::pipeline::bits::BitView;
 use vortex_array::pipeline::buffers::BufferHandle;
 use vortex_array::pipeline::vector::PrimitiveVector;
 use vortex_array::pipeline::view::ViewMut;
-use vortex_array::pipeline::{Kernel, PipelineContext};
+use vortex_array::pipeline::{Kernel, KernelContext};
 use vortex_buffer::ByteBufferMut;
 use vortex_error::{VortexExpect, VortexResult};
 
@@ -36,7 +36,7 @@ impl Kernel for FSSTPipeline {
 
     fn step(
         &mut self,
-        ctx: &dyn PipelineContext,
+        ctx: &dyn KernelContext,
         selected: BitView,
         out: &mut ViewMut,
     ) -> Poll<VortexResult<()>> {
