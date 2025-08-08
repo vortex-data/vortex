@@ -534,7 +534,7 @@ fn test_decimal_cast_f16() {
 fn test_decimal_cast_boundary_values() {
     // Test with U16 boundary
     let decimal = Scalar::decimal(
-        DecimalValue::I32(65535_00), // 65535.00 with scale=2
+        DecimalValue::I32(6_553_500), // 65535.00 with scale=2
         DecimalDType::new(10, 2),
         Nullability::NonNullable,
     );
@@ -549,7 +549,7 @@ fn test_decimal_cast_boundary_values() {
 
     // Should fail for U16 with value 65536
     let decimal = Scalar::decimal(
-        DecimalValue::I32(65536_00), // 65536.00 with scale=2
+        DecimalValue::I32(6_553_600), // 65536.00 with scale=2
         DecimalDType::new(10, 2),
         Nullability::NonNullable,
     );
@@ -558,7 +558,7 @@ fn test_decimal_cast_boundary_values() {
 
     // Test with I16 boundaries
     let decimal = Scalar::decimal(
-        DecimalValue::I32(32767_00), // 32767.00 with scale=2
+        DecimalValue::I32(3_276_700), // 32767.00 with scale=2
         DecimalDType::new(10, 2),
         Nullability::NonNullable,
     );
@@ -570,7 +570,7 @@ fn test_decimal_cast_boundary_values() {
     );
 
     let decimal = Scalar::decimal(
-        DecimalValue::I32(-32768_00), // -32768.00 with scale=2
+        DecimalValue::I32(-3_276_800), // -32768.00 with scale=2
         DecimalDType::new(10, 2),
         Nullability::NonNullable,
     );
@@ -583,7 +583,7 @@ fn test_decimal_cast_boundary_values() {
 
     // Should fail for I16 with value 32768
     let decimal = Scalar::decimal(
-        DecimalValue::I32(32768_00), // 32768.00 with scale=2
+        DecimalValue::I32(3_276_800), // 32768.00 with scale=2
         DecimalDType::new(10, 2),
         Nullability::NonNullable,
     );

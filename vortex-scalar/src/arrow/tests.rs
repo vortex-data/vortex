@@ -286,7 +286,10 @@ fn test_temporal_time_to_arrow(
     let scalar = Scalar::extension(
         ext_dtype,
         match ptype {
-            PType::I32 => Scalar::primitive(value as i32, Nullability::NonNullable),
+            PType::I32 => {
+                let i32_value = i32::try_from(value).expect("test value should fit in i32");
+                Scalar::primitive(i32_value, Nullability::NonNullable)
+            }
             PType::I64 => Scalar::primitive(value, Nullability::NonNullable),
             _ => unreachable!(),
         },
@@ -332,7 +335,10 @@ fn test_temporal_date_to_arrow(
     let scalar = Scalar::extension(
         ext_dtype,
         match ptype {
-            PType::I32 => Scalar::primitive(value as i32, Nullability::NonNullable),
+            PType::I32 => {
+                let i32_value = i32::try_from(value).expect("test value should fit in i32");
+                Scalar::primitive(i32_value, Nullability::NonNullable)
+            }
             PType::I64 => Scalar::primitive(value, Nullability::NonNullable),
             _ => unreachable!(),
         },

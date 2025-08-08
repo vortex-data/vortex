@@ -236,7 +236,7 @@ mod test {
 
         let scalar = bool_scalar.into_scalar();
         assert_eq!(scalar.dtype(), &DType::Bool(NonNullable));
-        assert_eq!(bool::try_from(&scalar).unwrap(), true);
+        assert!(bool::try_from(&scalar).unwrap());
 
         // Test null case
         let null_bool_scalar = BoolScalar {
@@ -256,12 +256,12 @@ mod test {
         // Cast to nullable bool
         let result = bool.cast(&DType::Bool(Nullable)).unwrap();
         assert_eq!(result.dtype(), &DType::Bool(Nullable));
-        assert_eq!(bool::try_from(&result).unwrap(), true);
+        assert!(bool::try_from(&result).unwrap());
 
         // Cast to non-nullable bool
         let result = bool.cast(&DType::Bool(NonNullable)).unwrap();
         assert_eq!(result.dtype(), &DType::Bool(NonNullable));
-        assert_eq!(bool::try_from(&result).unwrap(), true);
+        assert!(bool::try_from(&result).unwrap());
     }
 
     #[test]
@@ -302,7 +302,7 @@ mod test {
         let scalar = Scalar::bool(true, NonNullable);
         let result: Result<bool, _> = scalar.try_into();
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), true);
+        assert!(result.unwrap());
 
         // Test owned Scalar -> Option<bool>
         let scalar = Scalar::bool(false, Nullable);
@@ -321,11 +321,11 @@ mod test {
     fn test_scalar_value_from_bool() {
         let value: ScalarValue = true.into();
         let scalar = Scalar::new(DType::Bool(NonNullable), value);
-        assert_eq!(bool::try_from(&scalar).unwrap(), true);
+        assert!(bool::try_from(&scalar).unwrap());
 
         let value: ScalarValue = false.into();
         let scalar = Scalar::new(DType::Bool(NonNullable), value);
-        assert_eq!(bool::try_from(&scalar).unwrap(), false);
+        assert!(!bool::try_from(&scalar).unwrap());
     }
 
     #[test]

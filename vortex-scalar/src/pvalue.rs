@@ -648,7 +648,7 @@ mod test {
 
         // Test as_f64
         assert_eq!(PValue::F64(42.5).as_f64(), Some(42.5));
-        assert_eq!(PValue::F32(42.5).as_f64(), Some(42.5 as f64));
+        assert_eq!(PValue::F32(42.5).as_f64(), Some(42.5f64));
         assert_eq!(PValue::I32(42).as_f64(), Some(42.0));
     }
 
@@ -678,7 +678,7 @@ mod test {
 
         // Test f64 conversion
         assert_eq!(f64::try_from(PValue::F64(42.5)).unwrap(), 42.5);
-        assert_eq!(f64::try_from(PValue::F32(42.5)).unwrap(), 42.5 as f64);
+        assert_eq!(f64::try_from(PValue::F32(42.5)).unwrap(), 42.5f64);
         assert_eq!(f64::try_from(PValue::I64(-100)).unwrap(), -100.0);
     }
 

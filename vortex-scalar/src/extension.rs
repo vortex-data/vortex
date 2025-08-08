@@ -196,7 +196,7 @@ mod tests {
             Scalar::primitive(10i32, Nullability::NonNullable),
         );
         let scalar2 = Scalar::extension(
-            ext_dtype.clone(),
+            ext_dtype,
             Scalar::primitive(20i32, Nullability::NonNullable),
         );
 
@@ -238,7 +238,7 @@ mod tests {
 
     #[test]
     fn test_ext_scalar_hash() {
-        use std::collections::HashSet;
+        use vortex_utils::aliases::hash_set::HashSet;
 
         let ext_dtype = Arc::new(ExtDType::new(
             ExtID::new("test_ext".into()),
@@ -256,8 +256,8 @@ mod tests {
         );
 
         let mut set = HashSet::new();
-        set.insert(scalar1.clone());
         set.insert(scalar2);
+        set.insert(scalar1);
 
         // Same value should hash the same
         assert_eq!(set.len(), 1);
@@ -319,7 +319,7 @@ mod tests {
         ));
 
         let scalar = Scalar::extension(
-            ext_dtype.clone(),
+            ext_dtype,
             Scalar::primitive(42i32, Nullability::NonNullable),
         );
 

@@ -592,6 +592,7 @@ impl<'a> PrimitiveScalar<'a> {
 }
 
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation)]
 mod tests {
     use num_traits::CheckedSub;
     use rstest::rstest;
@@ -720,11 +721,11 @@ mod tests {
         let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
         let scalar = PrimitiveScalar::try_new(
             &dtype,
-            &ScalarValue(InnerScalarValue::Primitive(PValue::F64(3.14))),
+            &ScalarValue(InnerScalarValue::Primitive(PValue::F64(3.5))),
         )
         .unwrap();
 
-        assert_eq!(scalar.typed_value::<f64>(), Some(3.14));
+        assert_eq!(scalar.typed_value::<f64>(), Some(3.5));
     }
 
     #[test]
@@ -733,7 +734,7 @@ mod tests {
         let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
         let scalar = PrimitiveScalar::try_new(
             &dtype,
-            &ScalarValue(InnerScalarValue::Primitive(PValue::F64(3.14))),
+            &ScalarValue(InnerScalarValue::Primitive(PValue::F64(3.5))),
         )
         .unwrap();
 
@@ -1039,7 +1040,7 @@ mod tests {
         use crate::primitive::FromPrimitiveOrF16;
 
         // Test f16 to f32 conversion
-        let f16_val = f16::from_f32(3.14);
+        let f16_val = f16::from_f32(3.5);
         assert!(f32::from_f16(f16_val).is_some());
 
         // Test f16 to f64 conversion

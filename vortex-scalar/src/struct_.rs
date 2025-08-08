@@ -373,7 +373,7 @@ mod tests {
         let f0_val = Scalar::primitive::<i32>(42, Nullability::NonNullable);
         let f1_val = Scalar::utf8("world", Nullability::NonNullable);
 
-        let scalar = Scalar::struct_(dtype, vec![f0_val.clone(), f1_val.clone()]);
+        let scalar = Scalar::struct_(dtype, vec![f0_val, f1_val]);
 
         // Get field by name
         let field_a = scalar.as_struct().field("a");

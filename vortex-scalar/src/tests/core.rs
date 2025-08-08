@@ -493,10 +493,10 @@ mod tests {
         let u64_scalar = Scalar::primitive(10000000000u64, Nullability::NonNullable);
         assert_eq!(u64_scalar.nbytes(), 8);
 
-        let f32_scalar = Scalar::primitive(3.14f32, Nullability::NonNullable);
+        let f32_scalar = Scalar::primitive(3.5f32, Nullability::NonNullable);
         assert_eq!(f32_scalar.nbytes(), 4);
 
-        let f64_scalar = Scalar::primitive(3.14159265359f64, Nullability::NonNullable);
+        let f64_scalar = Scalar::primitive(3.5f64, Nullability::NonNullable);
         assert_eq!(f64_scalar.nbytes(), 8);
 
         // Test UTF-8 scalar
@@ -686,20 +686,20 @@ mod tests {
         let non_nullable = Scalar::primitive(42i32, Nullability::NonNullable);
         assert_eq!(non_nullable.dtype().nullability(), Nullability::NonNullable);
 
-        let nullable = non_nullable.clone().into_nullable();
+        let nullable = non_nullable.into_nullable();
         assert_eq!(nullable.dtype().nullability(), Nullability::Nullable);
         assert_eq!(nullable.as_primitive().typed_value::<i32>(), Some(42));
 
         // Test with already nullable scalar
         let already_nullable = Scalar::primitive(42i32, Nullability::Nullable);
-        let still_nullable = already_nullable.clone().into_nullable();
+        let still_nullable = already_nullable.into_nullable();
         assert_eq!(still_nullable.dtype().nullability(), Nullability::Nullable);
     }
 
     #[test]
     fn test_scalar_into_parts() {
         let scalar = Scalar::primitive(42i32, Nullability::NonNullable);
-        let (dtype, value) = scalar.clone().into_parts();
+        let (dtype, value) = scalar.into_parts();
 
         assert_eq!(
             dtype,
@@ -830,7 +830,7 @@ mod tests {
 
     #[test]
     fn test_scalar_hash() {
-        use std::collections::HashSet;
+        use vortex_utils::aliases::hash_set::HashSet;
 
         let mut set = HashSet::new();
 

@@ -506,9 +506,10 @@ mod tests {
         assert_eq!(buffer.as_slice(), &data);
 
         // Try from Scalar (owned)
-        let scalar2 = Scalar::binary(ByteBuffer::from(data.clone()), Nullability::NonNullable);
+        let data2 = vec![5u8, 6, 7];
+        let scalar2 = Scalar::binary(ByteBuffer::from(data2.clone()), Nullability::NonNullable);
         let buffer2: ByteBuffer = scalar2.try_into().unwrap();
-        assert_eq!(buffer2.as_slice(), &data);
+        assert_eq!(buffer2.as_slice(), &data2);
     }
 
     #[test]
@@ -549,7 +550,7 @@ mod tests {
 
         let data = vec![10u8, 20, 30];
         let buffer = Arc::new(ByteBuffer::from(data.clone()));
-        let scalar: Scalar = buffer.clone().into();
+        let scalar: Scalar = buffer.into();
 
         assert_eq!(
             scalar.dtype(),

@@ -546,14 +546,14 @@ mod tests {
     #[test]
     fn test_from_string() {
         let data = String::from("hello world");
-        let scalar: Scalar = data.clone().into();
+        let scalar: Scalar = data.into();
 
         assert_eq!(
             scalar.dtype(),
             &vortex_dtype::DType::Utf8(Nullability::NonNullable)
         );
         let utf8 = Utf8Scalar::try_from(&scalar).unwrap();
-        assert_eq!(utf8.value().unwrap().as_str(), &data);
+        assert_eq!(utf8.value().unwrap().as_str(), "hello world");
     }
 
     #[test]
@@ -561,7 +561,7 @@ mod tests {
         use vortex_buffer::BufferString;
 
         let data = BufferString::from("test");
-        let scalar: Scalar = data.clone().into();
+        let scalar: Scalar = data.into();
 
         assert_eq!(
             scalar.dtype(),
@@ -578,7 +578,7 @@ mod tests {
         use vortex_buffer::BufferString;
 
         let data = Arc::new(BufferString::from("test"));
-        let scalar: Scalar = data.clone().into();
+        let scalar: Scalar = data.into();
 
         assert_eq!(
             scalar.dtype(),
@@ -670,7 +670,7 @@ mod tests {
         use vortex_buffer::BufferString;
 
         let data = BufferString::from("test");
-        let value: crate::ScalarValue = data.clone().into();
+        let value: crate::ScalarValue = data.into();
 
         let scalar = Scalar::new(vortex_dtype::DType::Utf8(Nullability::NonNullable), value);
         let utf8 = Utf8Scalar::try_from(&scalar).unwrap();
