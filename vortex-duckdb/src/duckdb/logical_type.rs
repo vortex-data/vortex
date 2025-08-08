@@ -26,6 +26,11 @@ impl LogicalType {
         unsafe { Self::own(duckdb_create_logical_type(dtype)) }
     }
 
+    pub fn new_list(element_dtype: DUCKDB_TYPE) -> Self {
+        let element_dtype = Self::new(element_dtype);
+        unsafe { Self::own(duckdb_create_list_type(element_dtype.as_ptr())) }
+    }
+
     pub fn as_type_id(&self) -> DUCKDB_TYPE {
         unsafe { duckdb_get_type_id(self.as_ptr()) }
     }

@@ -465,7 +465,8 @@ mod tests {
         }
 
         // Set middle element as null
-        let validity_slice = vector.ensure_validity_slice();
+        // SAFETY: Vector was created with this length.
+        let validity_slice = unsafe { vector.ensure_validity_slice(len) };
         validity_slice.set(1, false);
 
         // Test conversion
@@ -581,7 +582,8 @@ mod tests {
         }
 
         // Set middle element as null
-        let validity_slice = vector.ensure_validity_slice();
+        // SAFETY: Vector was created with this length.
+        let validity_slice = unsafe { vector.ensure_validity_slice(len) };
         validity_slice.set(1, false);
 
         // Test conversion
