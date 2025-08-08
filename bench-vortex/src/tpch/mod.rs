@@ -8,12 +8,9 @@ use std::sync::Arc;
 use anyhow::bail;
 use arrow_schema::Schema;
 use datafusion::datasource::MemTable;
-use datafusion::prelude::{CsvReadOptions, SessionContext};
+use datafusion::prelude::SessionContext;
 use glob::Pattern;
 use url::Url;
-use vortex::arrays::ChunkedArray;
-use vortex::arrow::FromArrowArray;
-use vortex::{ArrayRef, IntoArray};
 
 use crate::{BenchmarkDataset, datasets};
 
