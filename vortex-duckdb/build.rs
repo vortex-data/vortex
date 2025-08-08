@@ -216,12 +216,6 @@ fn main() {
         extraced_lib_path.display()
     );
 
-    if env::var("TARGET").unwrap().contains("linux") {
-        println!("cargo:rustc-link-lib=stdc++");
-    } else {
-        println!("cargo:rustc-link-lib=c++");
-    }
-
     // Compile our C++ code that exposes additional DuckDB functionality.
     cc::Build::new()
         .std("c++17")
@@ -236,6 +230,7 @@ fn main() {
         // Unused parameter warnings are disabled as we include DuckDB
         // headers with implementations that have unused parameters.
         .flag("-Wno-unused-parameter")
+        .cpp(true)
         // We include DuckDB headers from the DuckDB extension submodule.
         .include(duckdb_repo.join(format!("duckdb-{}/src/include", DUCKDB_VERSION.as_str())))
         .include("cpp/include")
