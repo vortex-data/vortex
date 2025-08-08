@@ -27,11 +27,11 @@ SELECT "CHROM", "POS", "REF", "ALT", "GT",
 -- Read just one variant (this is the sixth one).
 SELECT *
   FROM statpopgen
- WHERE "CHROM" == "chr21"
+ WHERE "CHROM" == 'chr21'
    AND "POS" == 5030278;
 -- Read a 700 base-pair window of variants.
 SELECT *
   FROM statpopgen
- WHERE "CHROM" == "chr21"
+ WHERE "CHROM" == 'chr21'
    AND "POS" >= 5030300
    AND "POS" <= 5031000;
