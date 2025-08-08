@@ -118,3 +118,212 @@ impl Dispatch for CompioDispatcher {
         Ok(())
     }
 }
+
+#[cfg(all(test, feature = "compio"))]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    use super::*;
+
+    // Helper function to block on futures using compio runtime
+    fn block_on<F: Future>(fut: F) -> F::Output {
+        Runtime::new().unwrap().block_on(fut)
+    }
+
+    #[test]
+    fn test_dispatcher_creation() {
+        let dispatcher = CompioDispatcher::new(2);
+        assert_eq!(dispatcher.threads.len(), 2);
+        dispatcher.shutdown().unwrap();
+    }
+
+    #[test]
+    fn test_dispatcher_single_thread() {
+        let dispatcher = CompioDispatcher::new(1);
+        assert_eq!(dispatcher.threads.len(), 1);
+        dispatcher.shutdown().unwrap();
+    }
+
+    #[test]
+    fn test_dispatch_simple_task() {
+        let dispatcher = CompioDispatcher::new(2);
+        
+        let handle = dispatcher
+            .dispatch(|| async { 42 })
+            .unwrap();
+        
+        let result = block_on(handle);
+        assert_eq!(result.unwrap(), 42);
+        
+        dispatcher.shutdown().unwrap();
+    }
+
+    #[test]
+    fn test_dispatch_multiple_tasks() {
+        let dispatcher = CompioDispatcher::new(4);
+        let mut handles = Vec::new();
+        
+        for i in 0..10 {
+            let handle = dispatcher
+                .dispatch(move || async move { i * 2 })
+                .unwrap();
+            handles.push(handle);
+        }
+        
+        for (i, handle) in handles.into_iter().enumerate() {
+            let result = block_on(handle);
+            assert_eq!(result.unwrap(), i * 2);
+        }
+        
+        dispatcher.shutdown().unwrap();
+    }
+
+    #[test]
+    fn test_concurrent_task_execution() {
+        let dispatcher = CompioDispatcher::new(4);
+        let counter = Arc::new(AtomicUsize::new(0));
+        let mut handles = Vec::new();
+        
+        for _ in 0..100 {
+            let counter_clone = counter.clone();
+            let handle = dispatcher
+                .dispatch(move || async move {
+                    counter_clone.fetch_add(1, Ordering::SeqCst);
+                })
+                .unwrap();
+            handles.push(handle);
+        }
+        
+        for handle in handles {
+            block_on(handle).unwrap();
+        }
+        
+        assert_eq!(counter.load(Ordering::SeqCst), 100);
+        dispatcher.shutdown().unwrap();
+    }
+
+    #[test]
+    fn test_task_returns_string() {
+        let dispatcher = CompioDispatcher::new(2);
+        
+        let handle = dispatcher
+            .dispatch(|| async { String::from("hello world") })
+            .unwrap();
+        
+        let result = block_on(handle);
+        assert_eq!(result.unwrap(), "hello world");
+        
+        dispatcher.shutdown().unwrap();
+    }
+
+    #[test]
+    fn test_task_returns_vec() {
+        let dispatcher = CompioDispatcher::new(2);
+        
+        let handle = dispatcher
+            .dispatch(|| async { vec![1, 2, 3, 4, 5] })
+            .unwrap();
+        
+        let result = block_on(handle);
+        assert_eq!(result.unwrap(), vec![1, 2, 3, 4, 5]);
+        
+        dispatcher.shutdown().unwrap();
+    }
+
+    #[test]
+    fn test_dispatcher_shutdown_waits_for_threads() {
+        let dispatcher = CompioDispatcher::new(2);
+        
+        // Dispatch a task that takes some time
+        let handle = dispatcher
+            .dispatch(|| async {
+                // Small delay to ensure the task is running
+                std::thread::sleep(Duration::from_millis(10));
+                "completed"
+            })
+            .unwrap();
+        
+        // Get the result before shutdown
+        let result = block_on(handle);
+        assert_eq!(result.unwrap(), "completed");
+        
+        // Shutdown should complete successfully
+        dispatcher.shutdown().unwrap();
+    }
+
+    #[test]
+    fn test_tasks_complete_after_submitter_dropped() {
+        let dispatcher = CompioDispatcher::new(2);
+        let mut handles = Vec::new();
+        
+        // Submit several tasks
+        for i in 0..5 {
+            let handle = dispatcher
+                .dispatch(move || async move { i })
+                .unwrap();
+            handles.push(handle);
+        }
+        
+        // Shutdown will drop the submitter
+        // Tasks should still complete
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(50));
+            dispatcher.shutdown().unwrap();
+        });
+        
+        // Verify all tasks complete
+        for (i, handle) in handles.into_iter().enumerate() {
+            let result = block_on(handle);
+            assert_eq!(result.unwrap(), i);
+        }
+    }
+
+    #[test]
+    fn test_empty_dispatcher_shutdown() {
+        // Test that we can create and immediately shutdown a dispatcher
+        let dispatcher = CompioDispatcher::new(4);
+        dispatcher.shutdown().unwrap();
+    }
+
+    #[test]
+    fn test_dispatcher_with_many_threads() {
+        let dispatcher = CompioDispatcher::new(16);
+        assert_eq!(dispatcher.threads.len(), 16);
+        
+        // Test that all threads can handle tasks
+        let mut handles = Vec::new();
+        for i in 0..32 {
+            let handle = dispatcher
+                .dispatch(move || async move { i })
+                .unwrap();
+            handles.push(handle);
+        }
+        
+        for (i, handle) in handles.into_iter().enumerate() {
+            let result = block_on(handle);
+            assert_eq!(result.unwrap(), i);
+        }
+        
+        dispatcher.shutdown().unwrap();
+    }
+
+    #[test]
+    fn test_task_with_delay() {
+        let dispatcher = CompioDispatcher::new(2);
+        
+        let handle = dispatcher
+            .dispatch(|| async {
+                // Simulate async work
+                futures::future::ready(()).await;
+                "done"
+            })
+            .unwrap();
+        
+        let result = block_on(handle);
+        assert_eq!(result.unwrap(), "done");
+        
+        dispatcher.shutdown().unwrap();
+    }
+}
