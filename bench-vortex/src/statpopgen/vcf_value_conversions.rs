@@ -145,7 +145,6 @@ pub fn parse_pgt_format_field(
     builder: &mut ListBuilder<Int32Builder>,
     name: &str,
 ) -> VortexResult<()> {
-    // DK: bioinfomatics is a dumpster fire
     let Some(entries) = samples.select(name) else {
         builder.append_null();
         return Ok(());
@@ -157,6 +156,7 @@ pub fn parse_pgt_format_field(
             let Some(x) = x? else {
                 return Ok(None);
             };
+            // DK: bioinfomatics is a dumpster fire
             Ok(match x {
                 EntryValue::String(x) if x == "./." || x == "." => None,
                 EntryValue::String(x) if x == "0|0" => Some(0),

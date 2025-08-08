@@ -20,9 +20,9 @@ SELECT "CHROM", "POS", "REF", "ALT", "GT",
 -- Collect the necessary statistics for a Hardy-Weinberg Equalibrium test. The actual test involves
 -- the Levene-Haldane distribution which is somewhat subtle to implement in SQL.
 SELECT "CHROM", "POS", "REF", "ALT", "GT",
-       LIST_SUM(GT == 0) as N_HOM_REF,
-       LIST_SUM(GT == 1) as N_HET,
-       LIST_SUM(GT == 2) as N_HOM_ALT
+       LIST_SUM(CAST(GT == 0 AS DOUBLE)) as N_HOM_REF,
+       LIST_SUM(CAST(GT == 1 AS DOUBLE)) as N_HET,
+       LIST_SUM(CAST(GT == 2 AS DOUBLE)) as N_HOM_ALT
   FROM statpopgen;
 -- Read just one variant (this is the sixth one).
 SELECT *
