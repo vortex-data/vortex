@@ -8,7 +8,7 @@ use vortex::compute::{BetweenOptions, StrictComparison};
 use vortex::dtype::Nullability;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{
-    BetweenExpr, BinaryExpr, ExprRef, LikeExpr, LiteralExpr, NotExpr, Operator, and_collect, col,
+    BetweenExpr, BinaryExpr, ExprRef, LikeExpr, LiteralExpr, Operator, and_collect, col,
     is_null, list_contains, lit, not, or_collect,
 };
 use vortex::scalar::Scalar;
@@ -27,6 +27,7 @@ fn like_pattern_str(value: &Expression) -> VortexResult<Option<String>> {
     }
 }
 
+#[allow(clippy::cognitive_complexity)]
 pub fn try_from_bound_expression(value: &Expression) -> VortexResult<Option<ExprRef>> {
     let Some(value) = value.as_class() else {
         vortex_bail!("no expression class id {:?}", value.as_class_id())
@@ -75,29 +76,22 @@ pub fn try_from_bound_expression(value: &Expression) -> VortexResult<Option<Expr
             )
         }
         ExpressionClass::BoundOperator(operator) => match operator.op {
-            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_NOT => {
+            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_NOT
+            | DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NULL
+            | DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NOT_NULL => {
                 let children = operator.children().collect_vec();
                 assert_eq!(children.len(), 1);
                 let Some(child) = try_from_bound_expression(&children[0])? else {
                     return Ok(None);
                 };
-                NotExpr::new_expr(child)
-            }
-            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NULL => {
-                let children = operator.children().collect_vec();
-                assert_eq!(children.len(), 1);
-                let Some(child) = try_from_bound_expression(&children[0])? else {
-                    return Ok(None);
-                };
-                is_null(child)
-            }
-            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NOT_NULL => {
-                let children = operator.children().collect_vec();
-                assert_eq!(children.len(), 1);
-                let Some(child) = try_from_bound_expression(&children[0])? else {
-                    return Ok(None);
-                };
-                not(is_null(child))
+                match operator.op {
+                    DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_NOT => not(child),
+                    DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NULL => is_null(child),
+                    DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NOT_NULL => {
+                        not(is_null(child))
+                    }
+                    _ => unreachable!(),
+                }
             }
             DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_IN => {
                 // First child is element, rest form the list.
