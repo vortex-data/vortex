@@ -11,12 +11,14 @@ use dashmap::DashMap;
 use futures::future::{BoxFuture, Shared};
 use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
+use parking_lot::RwLock;
 use vortex_array::ToCanonical;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask, FieldPath, FieldPathSet};
 use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
+use vortex_expr::dynamic::DynamicExprUpdates;
 use vortex_expr::pruning::checked_pruning_expr;
-use vortex_expr::{ExprRef, Scope, root};
+use vortex_expr::{ExprRef, root};
 use vortex_mask::Mask;
 
 use crate::layouts::zoned::ZonedLayout;
@@ -24,9 +26,9 @@ use crate::layouts::zoned::zone_map::ZoneMap;
 use crate::segments::SegmentSource;
 use crate::{ArrayEvaluation, LayoutReader, MaskEvaluation, PruningEvaluation};
 
-pub(crate) type SharedZoneMap = Shared<BoxFuture<'static, SharedVortexResult<ZoneMap>>>;
-pub(crate) type SharedPruningResult = Shared<BoxFuture<'static, SharedVortexResult<Option<Mask>>>>;
-pub(crate) type PredicateCache = Arc<OnceLock<Option<ExprRef>>>;
+type SharedZoneMap = Shared<BoxFuture<'static, SharedVortexResult<ZoneMap>>>;
+type SharedPruningResult = Shared<BoxFuture<'static, SharedVortexResult<Arc<PruningResult>>>>;
+type PredicateCache = Arc<OnceLock<Option<ExprRef>>>;
 
 pub struct ZonedReader {
     layout: ZonedLayout,
@@ -37,7 +39,7 @@ pub struct ZonedReader {
     /// Zone map layout reader.
     zones_child: Arc<dyn LayoutReader>,
 
-    /// A cache of expr -> optional pruning result (applying the pruning expr to the stats table)
+    /// A cache of expr -> optional pruning result (applying the pruning expr to the zone map)
     pruning_result: DashMap<ExprRef, Option<SharedPruningResult>>,
 
     /// Shared zone map
@@ -89,11 +91,11 @@ impl ZonedReader {
             .clone()
     }
 
-    /// Get or initialize the stats table.
+    /// Get or initialize the zone map.
     ///
-    /// Only the first successful caller will initialize the stats table, all other callers will
+    /// Only the first successful caller will initialize the zone map, all other callers will
     /// resolve to the same result.
-    fn stats_table(&self) -> SharedZoneMap {
+    fn zone_map(&self) -> SharedZoneMap {
         self.zone_map
             .get_or_init(move || {
                 let nzones = self.layout.nzones();
@@ -102,7 +104,7 @@ impl ZonedReader {
                 let zones_eval = self
                     .zones_child
                     .projection_evaluation(&(0..nzones as u64), &root())
-                    .vortex_expect("Failed construct stats table evaluation");
+                    .vortex_expect("Failed construct zone map evaluation");
 
                 async move {
                     let zones_array = zones_eval
@@ -128,22 +130,24 @@ impl ZonedReader {
                     log::debug!("No pruning predicate for expr: {expr}");
                     None
                 }
-                Some(pred) => {
-                    log::debug!("Constructed pruning predicate for expr: {expr}: {pred:?}");
+                Some(predicate) => {
+                    log::debug!("Constructed pruning predicate for expr: {expr}: {predicate:?}");
+                    let zone_map = self.zone_map();
+                    let dynamic_updates = DynamicExprUpdates::new(&expr);
+
                     Some(
-                        self.stats_table()
-                            .map(move |stats_table| {
-                                stats_table.and_then(move |stats_table| {
-                                    Mask::try_from(
-                                        pred.evaluate(&Scope::new(stats_table.array().to_array()))?
-                                            .as_ref(),
-                                    )
-                                    .map_err(Arc::new)
-                                    .map(Some)
-                                })
-                            })
-                            .boxed()
-                            .shared(),
+                        async move {
+                            let zone_map = zone_map.await?;
+                            let initial_mask = zone_map.prune(&predicate)?;
+                            Ok(Arc::new(PruningResult {
+                                zone_map,
+                                predicate,
+                                dynamic_updates,
+                                latest_result: RwLock::new((0, initial_mask)),
+                            }))
+                        }
+                        .boxed()
+                        .shared(),
                     )
                 }
             })
@@ -251,7 +255,6 @@ struct ZoneMapPruningEvaluation {
     name: Arc<str>,
     expr: ExprRef,
     /// A mask indicating zones which have no matching values.
-    ///
     /// A false value indicates the corresponding zone may have a matching value.
     pruning_mask_future: SharedPruningResult,
     /// The set of zone IDs that are available to the evaluation.
@@ -270,10 +273,8 @@ impl PruningEvaluation for ZoneMapPruningEvaluation {
             self.name,
             self.expr,
         );
-        let Some(pruning_mask) = self.pruning_mask_future.clone().await? else {
-            // If the expression is not prune-able, we just return the input mask.
-            return Ok(mask);
-        };
+
+        let pruning_mask = self.pruning_mask_future.clone().await?.mask()?;
 
         let mut builder = BooleanBufferBuilder::new(mask.len());
         for (zone_idx, &zone_length) in self.zone_range.clone().zip_eq(&self.zone_lengths) {
@@ -301,6 +302,55 @@ impl PruningEvaluation for ZoneMapPruningEvaluation {
         );
 
         Ok(stats_mask)
+    }
+}
+
+/// A wrapper for the result of pruning an expression against a zone map such that we can refresh
+/// it each time the dynamic expressions are updated.
+struct PruningResult {
+    zone_map: ZoneMap,
+    predicate: ExprRef,
+    dynamic_updates: Option<DynamicExprUpdates>,
+    latest_result: RwLock<(u64, Mask)>,
+}
+
+impl PruningResult {
+    /// Return the pruning mask, computed for _at least_ the given version.
+    ///
+    /// The version typically comes from the dynamic expression updates, but zero can be passed
+    /// to fetch any version.
+    fn mask(&self) -> VortexResult<Mask> {
+        // If we're not dynamic, then the result is always the latest result.
+        let Some(dynamic_updates) = &self.dynamic_updates else {
+            return Ok(self.latest_result.read().1.clone());
+        };
+
+        // Compute the latest version of the dynamic expression values.
+        let version = dynamic_updates.version();
+
+        if self.latest_result.read().0 >= version {
+            // We're up to date, so we can return the cached result.
+            return Ok(self.latest_result.read().1.clone());
+        }
+
+        // Otherwise, we re-compute the mask for the given version number.
+        let mut guard = self.latest_result.write();
+
+        // Once we've taken the write lock, we check again in case another thread has already
+        // beaten us to it.
+        if guard.0 >= version {
+            return Ok(guard.1.clone());
+        }
+
+        log::debug!(
+            "Re-computing pruning mask for version {version} on {}",
+            self.predicate
+        );
+
+        let next_mask = self.zone_map.prune(&self.predicate)?;
+        *guard = (version, next_mask.clone());
+
+        Ok(next_mask)
     }
 }
 
