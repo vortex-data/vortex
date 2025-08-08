@@ -326,6 +326,9 @@ impl From<BufferString> for ScalarValue {
 
 #[cfg(test)]
 mod tests {
+    use std::cmp::Ordering;
+
+    use rstest::rstest;
     use vortex_dtype::Nullability;
     use vortex_error::{VortexExpect, VortexUnwrap};
 
@@ -365,35 +368,39 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_utf8_scalar_equality() {
-        let str1 = Scalar::utf8("hello", Nullability::NonNullable);
-        let str2 = Scalar::utf8("hello", Nullability::NonNullable);
-        let str3 = Scalar::utf8("world", Nullability::NonNullable);
+    #[rstest]
+    #[case("hello", "hello", true)]
+    #[case("hello", "world", false)]
+    #[case("", "", true)]
+    #[case("abc", "ABC", false)]
+    fn test_utf8_scalar_equality(#[case] str1: &str, #[case] str2: &str, #[case] expected: bool) {
+        let scalar1 = Scalar::utf8(str1, Nullability::NonNullable);
+        let scalar2 = Scalar::utf8(str2, Nullability::NonNullable);
 
-        assert_eq!(
-            Utf8Scalar::try_from(&str1).unwrap(),
-            Utf8Scalar::try_from(&str2).unwrap()
-        );
-        assert_ne!(
-            Utf8Scalar::try_from(&str1).unwrap(),
-            Utf8Scalar::try_from(&str3).unwrap()
-        );
+        let utf8_scalar1 = Utf8Scalar::try_from(&scalar1).unwrap();
+        let utf8_scalar2 = Utf8Scalar::try_from(&scalar2).unwrap();
+
+        assert_eq!(utf8_scalar1 == utf8_scalar2, expected);
     }
 
-    #[test]
-    fn test_utf8_scalar_ordering() {
-        let str1 = Scalar::utf8("apple", Nullability::NonNullable);
-        let str2 = Scalar::utf8("banana", Nullability::NonNullable);
-        let str3 = Scalar::utf8("cherry", Nullability::NonNullable);
+    #[rstest]
+    #[case("apple", "banana", Ordering::Less)]
+    #[case("banana", "apple", Ordering::Greater)]
+    #[case("apple", "apple", Ordering::Equal)]
+    #[case("", "a", Ordering::Less)]
+    #[case("z", "aa", Ordering::Greater)]
+    fn test_utf8_scalar_ordering(
+        #[case] str1: &str,
+        #[case] str2: &str,
+        #[case] expected: Ordering,
+    ) {
+        let scalar1 = Scalar::utf8(str1, Nullability::NonNullable);
+        let scalar2 = Scalar::utf8(str2, Nullability::NonNullable);
 
-        let scalar1 = Utf8Scalar::try_from(&str1).unwrap();
-        let scalar2 = Utf8Scalar::try_from(&str2).unwrap();
-        let scalar3 = Utf8Scalar::try_from(&str3).unwrap();
+        let utf8_scalar1 = Utf8Scalar::try_from(&scalar1).unwrap();
+        let utf8_scalar2 = Utf8Scalar::try_from(&scalar2).unwrap();
 
-        assert!(scalar1 < scalar2);
-        assert!(scalar2 < scalar3);
-        assert!(scalar1 < scalar3);
+        assert_eq!(utf8_scalar1.partial_cmp(&utf8_scalar2), Some(expected));
     }
 
     #[test]

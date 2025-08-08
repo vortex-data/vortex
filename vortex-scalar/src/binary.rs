@@ -268,6 +268,9 @@ impl From<ByteBuffer> for ScalarValue {
 
 #[cfg(test)]
 mod tests {
+    use std::cmp::Ordering;
+
+    use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
     use vortex_error::{VortexExpect, VortexUnwrap};
@@ -310,35 +313,43 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_binary_scalar_equality() {
-        let binary1 = Scalar::binary(buffer![1u8, 2, 3], Nullability::NonNullable);
-        let binary2 = Scalar::binary(buffer![1u8, 2, 3], Nullability::NonNullable);
-        let binary3 = Scalar::binary(buffer![1u8, 2, 4], Nullability::NonNullable);
-
-        assert_eq!(
-            BinaryScalar::try_from(&binary1).unwrap(),
-            BinaryScalar::try_from(&binary2).unwrap()
-        );
-        assert_ne!(
-            BinaryScalar::try_from(&binary1).unwrap(),
-            BinaryScalar::try_from(&binary3).unwrap()
-        );
-    }
-
-    #[test]
-    fn test_binary_scalar_ordering() {
-        let binary1 = Scalar::binary(buffer![1u8, 2, 3], Nullability::NonNullable);
-        let binary2 = Scalar::binary(buffer![1u8, 2, 4], Nullability::NonNullable);
-        let binary3 = Scalar::binary(buffer![2u8, 0, 0], Nullability::NonNullable);
+    #[rstest]
+    #[case(&[1u8, 2, 3], &[1u8, 2, 3], true)]
+    #[case(&[1u8, 2, 3], &[1u8, 2, 4], false)]
+    #[case(&[], &[], true)]
+    #[case(&[255u8], &[255u8], true)]
+    fn test_binary_scalar_equality(
+        #[case] data1: &[u8],
+        #[case] data2: &[u8],
+        #[case] expected: bool,
+    ) {
+        let binary1 = Scalar::binary(data1.to_vec(), Nullability::NonNullable);
+        let binary2 = Scalar::binary(data2.to_vec(), Nullability::NonNullable);
 
         let scalar1 = BinaryScalar::try_from(&binary1).unwrap();
         let scalar2 = BinaryScalar::try_from(&binary2).unwrap();
-        let scalar3 = BinaryScalar::try_from(&binary3).unwrap();
 
-        assert!(scalar1 < scalar2);
-        assert!(scalar2 < scalar3);
-        assert!(scalar1 < scalar3);
+        assert_eq!(scalar1 == scalar2, expected);
+    }
+
+    #[rstest]
+    #[case(&[1u8, 2, 3], &[1u8, 2, 4], Ordering::Less)]
+    #[case(&[1u8, 2, 4], &[1u8, 2, 3], Ordering::Greater)]
+    #[case(&[1u8, 2, 3], &[1u8, 2, 3], Ordering::Equal)]
+    #[case(&[], &[1u8], Ordering::Less)]
+    #[case(&[2u8, 0, 0], &[1u8, 255, 255], Ordering::Greater)]
+    fn test_binary_scalar_ordering(
+        #[case] data1: &[u8],
+        #[case] data2: &[u8],
+        #[case] expected: Ordering,
+    ) {
+        let binary1 = Scalar::binary(data1.to_vec(), Nullability::NonNullable);
+        let binary2 = Scalar::binary(data2.to_vec(), Nullability::NonNullable);
+
+        let scalar1 = BinaryScalar::try_from(&binary1).unwrap();
+        let scalar2 = BinaryScalar::try_from(&binary2).unwrap();
+
+        assert_eq!(scalar1.partial_cmp(&scalar2), Some(expected));
     }
 
     #[test]

@@ -594,6 +594,7 @@ impl<'a> PrimitiveScalar<'a> {
 #[cfg(test)]
 mod tests {
     use num_traits::CheckedSub;
+    use rstest::rstest;
     use vortex_dtype::{DType, Nullability, PType};
 
     use crate::{InnerScalarValue, PValue, PrimitiveScalar, ScalarValue};
@@ -739,36 +740,58 @@ mod tests {
         let _ = scalar.typed_value::<i32>();
     }
 
-    #[test]
-    fn test_cast_to_compatible_type() {
-        use crate::Scalar;
+    #[rstest]
+    #[case(PType::I8, 127i32, PType::I16, true)]
+    #[case(PType::I8, 127i32, PType::I32, true)]
+    #[case(PType::I8, 127i32, PType::I64, true)]
+    #[case(PType::U8, 255i32, PType::U16, true)]
+    #[case(PType::U8, 255i32, PType::U32, true)]
+    #[case(PType::I32, 42i32, PType::F32, true)]
+    #[case(PType::I32, 42i32, PType::F64, true)]
+    // Overflow cases
+    #[case(PType::I32, 300i32, PType::U8, false)]
+    #[case(PType::I32, -1i32, PType::U32, false)]
+    #[case(PType::I32, 256i32, PType::I8, false)]
+    #[case(PType::U16, 65535i32, PType::I8, false)]
+    fn test_primitive_cast(
+        #[case] source_type: PType,
+        #[case] source_value: i32,
+        #[case] target_type: PType,
+        #[case] should_succeed: bool,
+    ) {
+        let source_pvalue = match source_type {
+            PType::I8 => PValue::I8(source_value as i8),
+            PType::U8 => PValue::U8(source_value as u8),
+            PType::U16 => PValue::U16(source_value as u16),
+            PType::I32 => PValue::I32(source_value),
+            _ => unreachable!("Test case uses unexpected source type"),
+        };
 
-        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let dtype = DType::Primitive(source_type, Nullability::NonNullable);
         let scalar = PrimitiveScalar::try_new(
             &dtype,
-            &ScalarValue(InnerScalarValue::Primitive(PValue::I32(42))),
+            &ScalarValue(InnerScalarValue::Primitive(source_pvalue)),
         )
         .unwrap();
 
-        // Cast to I64
-        let target_dtype = DType::Primitive(PType::I64, Nullability::NonNullable);
-        let result = scalar.cast(&target_dtype).unwrap();
-        assert_eq!(result.as_primitive().typed_value::<i64>(), Some(42));
-    }
-
-    #[test]
-    fn test_cast_overflow() {
-        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let scalar = PrimitiveScalar::try_new(
-            &dtype,
-            &ScalarValue(InnerScalarValue::Primitive(PValue::I32(300))),
-        )
-        .unwrap();
-
-        // Cast to U8 should fail due to overflow
-        let target_dtype = DType::Primitive(PType::U8, Nullability::NonNullable);
+        let target_dtype = DType::Primitive(target_type, Nullability::NonNullable);
         let result = scalar.cast(&target_dtype);
-        assert!(result.is_err());
+
+        if should_succeed {
+            assert!(
+                result.is_ok(),
+                "Cast from {:?} to {:?} should succeed",
+                source_type,
+                target_type
+            );
+        } else {
+            assert!(
+                result.is_err(),
+                "Cast from {:?} to {:?} should fail due to overflow",
+                source_type,
+                target_type
+            );
+        }
     }
 
     #[test]

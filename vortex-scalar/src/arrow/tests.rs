@@ -4,7 +4,9 @@
 use std::sync::Arc;
 
 use arrow_array::Datum;
-use vortex_dtype::{DType, Nullability, PType};
+use rstest::rstest;
+use vortex_dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
+use vortex_dtype::{DType, ExtDType, Nullability, PType};
 
 use crate::Scalar;
 
@@ -264,84 +266,30 @@ fn test_non_temporal_extension_to_arrow_todo() {
     let _ = Arc::<dyn Datum>::try_from(&scalar);
 }
 
-#[test]
-fn test_temporal_time_ns_to_arrow() {
-    use vortex_dtype::ExtDType;
-    use vortex_dtype::datetime::{TIME_ID, TemporalMetadata, TimeUnit};
-
-    let metadata = TemporalMetadata::Time(TimeUnit::Ns);
+#[rstest]
+#[case(TimeUnit::Ns, PType::I64, 123456789i64)]
+#[case(TimeUnit::Us, PType::I64, 123456789i64)]
+#[case(TimeUnit::Ms, PType::I32, 123456i64)]
+#[case(TimeUnit::S, PType::I32, 1234i64)]
+fn test_temporal_time_to_arrow(
+    #[case] time_unit: TimeUnit,
+    #[case] ptype: PType,
+    #[case] value: i64,
+) {
+    let metadata = TemporalMetadata::Time(time_unit);
     let ext_dtype = Arc::new(ExtDType::new(
         TIME_ID.clone(),
-        Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
+        Arc::new(DType::Primitive(ptype, Nullability::NonNullable)),
         Some(metadata.into()),
     ));
 
     let scalar = Scalar::extension(
         ext_dtype,
-        Scalar::primitive(123456789i64, Nullability::NonNullable),
-    );
-
-    let result = Arc::<dyn Datum>::try_from(&scalar);
-    assert!(result.is_ok());
-}
-
-#[test]
-fn test_temporal_time_us_to_arrow() {
-    use vortex_dtype::ExtDType;
-    use vortex_dtype::datetime::{TIME_ID, TemporalMetadata, TimeUnit};
-
-    let metadata = TemporalMetadata::Time(TimeUnit::Us);
-    let ext_dtype = Arc::new(ExtDType::new(
-        TIME_ID.clone(),
-        Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
-        Some(metadata.into()),
-    ));
-
-    let scalar = Scalar::extension(
-        ext_dtype,
-        Scalar::primitive(123456789i64, Nullability::NonNullable),
-    );
-
-    let result = Arc::<dyn Datum>::try_from(&scalar);
-    assert!(result.is_ok());
-}
-
-#[test]
-fn test_temporal_time_ms_to_arrow() {
-    use vortex_dtype::ExtDType;
-    use vortex_dtype::datetime::{TIME_ID, TemporalMetadata, TimeUnit};
-
-    let metadata = TemporalMetadata::Time(TimeUnit::Ms);
-    let ext_dtype = Arc::new(ExtDType::new(
-        TIME_ID.clone(),
-        Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
-        Some(metadata.into()),
-    ));
-
-    let scalar = Scalar::extension(
-        ext_dtype,
-        Scalar::primitive(123456i32, Nullability::NonNullable),
-    );
-
-    let result = Arc::<dyn Datum>::try_from(&scalar);
-    assert!(result.is_ok());
-}
-
-#[test]
-fn test_temporal_time_s_to_arrow() {
-    use vortex_dtype::ExtDType;
-    use vortex_dtype::datetime::{TIME_ID, TemporalMetadata, TimeUnit};
-
-    let metadata = TemporalMetadata::Time(TimeUnit::S);
-    let ext_dtype = Arc::new(ExtDType::new(
-        TIME_ID.clone(),
-        Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
-        Some(metadata.into()),
-    ));
-
-    let scalar = Scalar::extension(
-        ext_dtype,
-        Scalar::primitive(1234i32, Nullability::NonNullable),
+        match ptype {
+            PType::I32 => Scalar::primitive(value as i32, Nullability::NonNullable),
+            PType::I64 => Scalar::primitive(value, Nullability::NonNullable),
+            _ => unreachable!(),
+        },
     );
 
     let result = Arc::<dyn Datum>::try_from(&scalar);
@@ -350,9 +298,6 @@ fn test_temporal_time_s_to_arrow() {
 
 #[test]
 fn test_temporal_time_d_unsupported() {
-    use vortex_dtype::ExtDType;
-    use vortex_dtype::datetime::{TIME_ID, TemporalMetadata, TimeUnit};
-
     let metadata = TemporalMetadata::Time(TimeUnit::D);
     let ext_dtype = Arc::new(ExtDType::new(
         TIME_ID.clone(),
@@ -369,63 +314,53 @@ fn test_temporal_time_d_unsupported() {
     }
 }
 
-#[test]
-fn test_temporal_date_ms_to_arrow() {
-    use vortex_dtype::ExtDType;
-    use vortex_dtype::datetime::{DATE_ID, TemporalMetadata, TimeUnit};
-
-    let metadata = TemporalMetadata::Date(TimeUnit::Ms);
+#[rstest]
+#[case(TimeUnit::Ms, PType::I64, 1234567890000i64)]
+#[case(TimeUnit::D, PType::I32, 19000i64)]
+fn test_temporal_date_to_arrow(
+    #[case] time_unit: TimeUnit,
+    #[case] ptype: PType,
+    #[case] value: i64,
+) {
+    let metadata = TemporalMetadata::Date(time_unit);
     let ext_dtype = Arc::new(ExtDType::new(
         DATE_ID.clone(),
-        Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
+        Arc::new(DType::Primitive(ptype, Nullability::NonNullable)),
         Some(metadata.into()),
     ));
 
     let scalar = Scalar::extension(
         ext_dtype,
-        Scalar::primitive(1234567890000i64, Nullability::NonNullable),
+        match ptype {
+            PType::I32 => Scalar::primitive(value as i32, Nullability::NonNullable),
+            PType::I64 => Scalar::primitive(value, Nullability::NonNullable),
+            _ => unreachable!(),
+        },
     );
 
     let result = Arc::<dyn Datum>::try_from(&scalar);
     assert!(result.is_ok());
 }
 
-#[test]
-fn test_temporal_date_d_to_arrow() {
-    use vortex_dtype::ExtDType;
-    use vortex_dtype::datetime::{DATE_ID, TemporalMetadata, TimeUnit};
-
-    let metadata = TemporalMetadata::Date(TimeUnit::D);
+#[rstest]
+#[case(TimeUnit::Ns, PType::I64)]
+#[case(TimeUnit::Us, PType::I64)]
+#[case(TimeUnit::S, PType::I32)]
+fn test_temporal_date_unsupported(#[case] time_unit: TimeUnit, #[case] ptype: PType) {
+    let metadata = TemporalMetadata::Date(time_unit);
     let ext_dtype = Arc::new(ExtDType::new(
         DATE_ID.clone(),
-        Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+        Arc::new(DType::Primitive(ptype, Nullability::NonNullable)),
         Some(metadata.into()),
     ));
 
     let scalar = Scalar::extension(
         ext_dtype,
-        Scalar::primitive(19000i32, Nullability::NonNullable),
-    );
-
-    let result = Arc::<dyn Datum>::try_from(&scalar);
-    assert!(result.is_ok());
-}
-
-#[test]
-fn test_temporal_date_ns_unsupported() {
-    use vortex_dtype::ExtDType;
-    use vortex_dtype::datetime::{DATE_ID, TemporalMetadata, TimeUnit};
-
-    let metadata = TemporalMetadata::Date(TimeUnit::Ns);
-    let ext_dtype = Arc::new(ExtDType::new(
-        DATE_ID.clone(),
-        Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
-        Some(metadata.into()),
-    ));
-
-    let scalar = Scalar::extension(
-        ext_dtype,
-        Scalar::primitive(1234567890000i64, Nullability::NonNullable),
+        match ptype {
+            PType::I32 => Scalar::primitive(1234i32, Nullability::NonNullable),
+            PType::I64 => Scalar::primitive(1234567890000i64, Nullability::NonNullable),
+            _ => unreachable!(),
+        },
     );
 
     let result = Arc::<dyn Datum>::try_from(&scalar);
@@ -435,12 +370,13 @@ fn test_temporal_date_ns_unsupported() {
     }
 }
 
-#[test]
-fn test_temporal_timestamp_ns_to_arrow() {
-    use vortex_dtype::ExtDType;
-    use vortex_dtype::datetime::{TIMESTAMP_ID, TemporalMetadata, TimeUnit};
-
-    let metadata = TemporalMetadata::Timestamp(TimeUnit::Ns, None);
+#[rstest]
+#[case(TimeUnit::Ns, 1234567890000000000i64)]
+#[case(TimeUnit::Us, 1234567890000000i64)]
+#[case(TimeUnit::Ms, 1234567890000i64)]
+#[case(TimeUnit::S, 1234567890i64)]
+fn test_temporal_timestamp_to_arrow(#[case] time_unit: TimeUnit, #[case] value: i64) {
+    let metadata = TemporalMetadata::Timestamp(time_unit, None);
     let ext_dtype = Arc::new(ExtDType::new(
         TIMESTAMP_ID.clone(),
         Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
@@ -449,70 +385,7 @@ fn test_temporal_timestamp_ns_to_arrow() {
 
     let scalar = Scalar::extension(
         ext_dtype,
-        Scalar::primitive(1234567890000000000i64, Nullability::NonNullable),
-    );
-
-    let result = Arc::<dyn Datum>::try_from(&scalar);
-    assert!(result.is_ok());
-}
-
-#[test]
-fn test_temporal_timestamp_us_to_arrow() {
-    use vortex_dtype::ExtDType;
-    use vortex_dtype::datetime::{TIMESTAMP_ID, TemporalMetadata, TimeUnit};
-
-    let metadata = TemporalMetadata::Timestamp(TimeUnit::Us, None);
-    let ext_dtype = Arc::new(ExtDType::new(
-        TIMESTAMP_ID.clone(),
-        Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
-        Some(metadata.into()),
-    ));
-
-    let scalar = Scalar::extension(
-        ext_dtype,
-        Scalar::primitive(1234567890000000i64, Nullability::NonNullable),
-    );
-
-    let result = Arc::<dyn Datum>::try_from(&scalar);
-    assert!(result.is_ok());
-}
-
-#[test]
-fn test_temporal_timestamp_ms_to_arrow() {
-    use vortex_dtype::ExtDType;
-    use vortex_dtype::datetime::{TIMESTAMP_ID, TemporalMetadata, TimeUnit};
-
-    let metadata = TemporalMetadata::Timestamp(TimeUnit::Ms, None);
-    let ext_dtype = Arc::new(ExtDType::new(
-        TIMESTAMP_ID.clone(),
-        Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
-        Some(metadata.into()),
-    ));
-
-    let scalar = Scalar::extension(
-        ext_dtype,
-        Scalar::primitive(1234567890000i64, Nullability::NonNullable),
-    );
-
-    let result = Arc::<dyn Datum>::try_from(&scalar);
-    assert!(result.is_ok());
-}
-
-#[test]
-fn test_temporal_timestamp_s_to_arrow() {
-    use vortex_dtype::ExtDType;
-    use vortex_dtype::datetime::{TIMESTAMP_ID, TemporalMetadata, TimeUnit};
-
-    let metadata = TemporalMetadata::Timestamp(TimeUnit::S, None);
-    let ext_dtype = Arc::new(ExtDType::new(
-        TIMESTAMP_ID.clone(),
-        Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
-        Some(metadata.into()),
-    ));
-
-    let scalar = Scalar::extension(
-        ext_dtype,
-        Scalar::primitive(1234567890i64, Nullability::NonNullable),
+        Scalar::primitive(value, Nullability::NonNullable),
     );
 
     let result = Arc::<dyn Datum>::try_from(&scalar);
@@ -521,9 +394,6 @@ fn test_temporal_timestamp_s_to_arrow() {
 
 #[test]
 fn test_temporal_timestamp_d_unsupported() {
-    use vortex_dtype::ExtDType;
-    use vortex_dtype::datetime::{TIMESTAMP_ID, TemporalMetadata, TimeUnit};
-
     let metadata = TemporalMetadata::Timestamp(TimeUnit::D, None);
     let ext_dtype = Arc::new(ExtDType::new(
         TIMESTAMP_ID.clone(),
@@ -545,9 +415,6 @@ fn test_temporal_timestamp_d_unsupported() {
 
 #[test]
 fn test_temporal_with_null_value() {
-    use vortex_dtype::ExtDType;
-    use vortex_dtype::datetime::{TIME_ID, TemporalMetadata, TimeUnit};
-
     let metadata = TemporalMetadata::Time(TimeUnit::Ns);
     let ext_dtype = Arc::new(ExtDType::new(
         TIME_ID.clone(),
@@ -566,9 +433,6 @@ fn test_temporal_with_null_value() {
 
 #[test]
 fn test_temporal_non_primitive_storage_error() {
-    use vortex_dtype::ExtDType;
-    use vortex_dtype::datetime::{TIME_ID, TemporalMetadata, TimeUnit};
-
     let metadata = TemporalMetadata::Time(TimeUnit::Ns);
     let ext_dtype = Arc::new(ExtDType::new(
         TIME_ID.clone(),

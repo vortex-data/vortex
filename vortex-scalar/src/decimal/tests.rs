@@ -145,54 +145,42 @@ fn test_decimal_cast_negative_values() {
     assert!(result.is_err());
 }
 
-#[test]
-fn test_decimal_cast_edge_values() {
-    // Test with extreme values for each decimal type
-    let test_cases = vec![
-        (DecimalValue::I8(i8::MAX), DecimalDType::new(3, 0)),
-        (DecimalValue::I8(i8::MIN), DecimalDType::new(3, 0)),
-        (DecimalValue::I16(i16::MAX), DecimalDType::new(5, 0)),
-        (DecimalValue::I16(i16::MIN), DecimalDType::new(5, 0)),
-        (DecimalValue::I32(i32::MAX), DecimalDType::new(10, 0)),
-        (DecimalValue::I32(i32::MIN), DecimalDType::new(10, 0)),
-    ];
+#[rstest]
+#[case(DecimalValue::I8(i8::MAX), DecimalDType::new(3, 0))]
+#[case(DecimalValue::I8(i8::MIN), DecimalDType::new(3, 0))]
+#[case(DecimalValue::I16(i16::MAX), DecimalDType::new(5, 0))]
+#[case(DecimalValue::I16(i16::MIN), DecimalDType::new(5, 0))]
+#[case(DecimalValue::I32(i32::MAX), DecimalDType::new(10, 0))]
+#[case(DecimalValue::I32(i32::MIN), DecimalDType::new(10, 0))]
+fn test_decimal_cast_edge_values(#[case] value: DecimalValue, #[case] dtype: DecimalDType) {
+    let decimal_scalar = Scalar::decimal(value, dtype, Nullability::NonNullable);
 
-    for (value, dtype) in test_cases {
-        let decimal_scalar = Scalar::decimal(value, dtype, Nullability::NonNullable);
-
-        // Cast to f64 should always work for these ranges
-        let result = decimal_scalar.cast(&DType::Primitive(PType::F64, Nullability::NonNullable));
-        assert!(result.is_ok());
-    }
+    // Cast to f64 should always work for these ranges
+    let result = decimal_scalar.cast(&DType::Primitive(PType::F64, Nullability::NonNullable));
+    assert!(result.is_ok());
 }
 
-#[test]
-fn test_decimal_cast_with_scale() {
-    // Test various scale factors
-    let test_cases = vec![
-        (1234, 0, 1234.0), // No scale
-        (1234, 1, 123.4),  // Scale 1
-        (1234, 2, 12.34),  // Scale 2
-        (1234, 3, 1.234),  // Scale 3
-        (1234, 4, 0.1234), // Scale 4
-    ];
+#[rstest]
+#[case(1234, 0, 1234.0)] // No scale
+#[case(1234, 1, 123.4)] // Scale 1
+#[case(1234, 2, 12.34)] // Scale 2
+#[case(1234, 3, 1.234)] // Scale 3
+#[case(1234, 4, 0.1234)] // Scale 4
+fn test_decimal_cast_with_scale(#[case] value: i32, #[case] scale: i8, #[case] expected: f64) {
+    let decimal_scalar = Scalar::decimal(
+        DecimalValue::I32(value),
+        DecimalDType::new(10, scale),
+        Nullability::NonNullable,
+    );
 
-    for (value, scale, expected) in test_cases {
-        let decimal_scalar = Scalar::decimal(
-            DecimalValue::I32(value),
-            DecimalDType::new(10, scale),
-            Nullability::NonNullable,
-        );
-
-        let float_result = decimal_scalar
-            .cast(&DType::Primitive(PType::F64, Nullability::NonNullable))
-            .unwrap();
-        let float_value: f64 = float_result.try_into().unwrap();
-        assert!(
-            (float_value - expected).abs() < 0.0001,
-            "Expected {expected} but got {float_value} for value={value} scale={scale}"
-        );
-    }
+    let float_result = decimal_scalar
+        .cast(&DType::Primitive(PType::F64, Nullability::NonNullable))
+        .unwrap();
+    let float_value: f64 = float_result.try_into().unwrap();
+    assert!(
+        (float_value - expected).abs() < 0.0001,
+        "Expected {expected} but got {float_value} for value={value} scale={scale}"
+    );
 }
 
 #[test]
@@ -430,8 +418,16 @@ fn test_decimal_to_unsupported_type() {
     );
 }
 
-#[test]
-fn test_decimal_i8_all_primitive_casts() {
+#[rstest]
+#[case(PType::U8, 5u64)]
+#[case(PType::U16, 5)]
+#[case(PType::U32, 5)]
+#[case(PType::U64, 5)]
+#[case(PType::I8, 5)]
+#[case(PType::I16, 5)]
+#[case(PType::I32, 5)]
+#[case(PType::I64, 5)]
+fn test_decimal_i8_all_primitive_casts(#[case] ptype: PType, #[case] expected: u64) {
     // Test casting from smallest decimal type to all primitive types
     let decimal = Scalar::decimal(
         DecimalValue::I8(50), // Represents 5.0 with scale=1
@@ -439,59 +435,45 @@ fn test_decimal_i8_all_primitive_casts() {
         Nullability::NonNullable,
     );
 
-    // Cast to each primitive type
-    let casts = vec![
-        (PType::U8, 5u64),
-        (PType::U16, 5),
-        (PType::U32, 5),
-        (PType::U64, 5),
-        (PType::I8, 5),
-        (PType::I16, 5),
-        (PType::I32, 5),
-        (PType::I64, 5),
-    ];
+    let result = decimal.cast(&DType::Primitive(ptype, Nullability::NonNullable));
+    assert!(result.is_ok(), "Failed to cast to {ptype:?}");
+    let scalar = result.unwrap();
 
-    for (ptype, expected) in casts {
-        let result = decimal.cast(&DType::Primitive(ptype, Nullability::NonNullable));
-        assert!(result.is_ok(), "Failed to cast to {ptype:?}");
-        let scalar = result.unwrap();
-
-        // Check the value matches expected
-        match ptype {
-            PType::U8 => assert_eq!(
-                scalar.as_primitive().typed_value::<u8>().unwrap() as u64,
-                expected
-            ),
-            PType::U16 => assert_eq!(
-                scalar.as_primitive().typed_value::<u16>().unwrap() as u64,
-                expected
-            ),
-            PType::U32 => assert_eq!(
-                scalar.as_primitive().typed_value::<u32>().unwrap() as u64,
-                expected
-            ),
-            PType::U64 => assert_eq!(
-                scalar.as_primitive().typed_value::<u64>().unwrap(),
-                expected
-            ),
-            PType::I8 => assert_eq!(
-                scalar.as_primitive().typed_value::<i8>().unwrap() as u64,
-                expected
-            ),
-            PType::I16 => assert_eq!(
-                scalar.as_primitive().typed_value::<i16>().unwrap() as u64,
-                expected
-            ),
-            PType::I32 => assert_eq!(
-                scalar.as_primitive().typed_value::<i32>().unwrap() as u64,
-                expected
-            ),
-            PType::I64 => assert_eq!(
-                scalar.as_primitive().typed_value::<i64>().unwrap() as u64,
-                expected
-            ),
-            _ => panic!("Unexpected type"),
-        }
+    // Check the value matches expected
+    match ptype {
+        PType::U8 => assert_eq!(
+            scalar.as_primitive().typed_value::<u8>().unwrap() as u64,
+            expected
+        ),
+        PType::U16 => assert_eq!(
+            scalar.as_primitive().typed_value::<u16>().unwrap() as u64,
+            expected
+        ),
+        PType::U32 => assert_eq!(
+            scalar.as_primitive().typed_value::<u32>().unwrap() as u64,
+            expected
+        ),
+        PType::U64 => assert_eq!(
+            scalar.as_primitive().typed_value::<u64>().unwrap(),
+            expected
+        ),
+        PType::I8 => assert_eq!(
+            scalar.as_primitive().typed_value::<i8>().unwrap() as u64,
+            expected
+        ),
+        PType::I16 => assert_eq!(
+            scalar.as_primitive().typed_value::<i16>().unwrap() as u64,
+            expected
+        ),
+        PType::I32 => assert_eq!(
+            scalar.as_primitive().typed_value::<i32>().unwrap() as u64,
+            expected
+        ),
+        PType::I64 => assert_eq!(
+            scalar.as_primitive().typed_value::<i64>().unwrap() as u64,
+            expected
+        ),
+        _ => panic!("Unexpected type"),
     }
 }
 
