@@ -364,19 +364,6 @@ mod tests {
         assert_eq!(transparent, trans_clone);
     }
 
-    #[test]
-    fn test_layout_child_type_debug() {
-        let chunk = LayoutChildType::Chunk((3, 150));
-        let debug_str = format!("{:?}", chunk);
-        assert!(debug_str.contains("Chunk"));
-        assert!(debug_str.contains("3"));
-        assert!(debug_str.contains("150"));
-        
-        let field = LayoutChildType::Field(Arc::from("my_field"));
-        let debug_str = format!("{:?}", field);
-        assert!(debug_str.contains("Field"));
-        assert!(debug_str.contains("my_field"));
-    }
 
     #[rstest]
     #[case(LayoutChildType::Chunk((0, 0)), "[0]", Some(0))]

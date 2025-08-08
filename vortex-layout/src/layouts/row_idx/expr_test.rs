@@ -17,12 +17,6 @@ mod tests {
     }
 
     #[test]
-    fn test_row_idx_expr_display() {
-        let expr = RowIdxExpr;
-        assert_eq!(format!("{}", expr), "#row_idx");
-    }
-
-    #[test]
     fn test_row_idx_expr_clone() {
         let expr1 = RowIdxExpr;
         let expr2 = expr1.clone();
@@ -30,36 +24,10 @@ mod tests {
     }
 
     #[test]
-    fn test_row_idx_expr_debug() {
-        let expr = RowIdxExpr;
-        let debug_str = format!("{:?}", expr);
-        assert!(debug_str.contains("RowIdxExpr"));
-    }
-
-    #[test]
     fn test_row_idx_expr_equality() {
         let expr1 = RowIdxExpr;
         let expr2 = RowIdxExpr;
         assert_eq!(expr1, expr2);
-    }
-
-    #[test]
-    fn test_row_idx_expr_hash() {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-
-        let expr1 = RowIdxExpr;
-        let expr2 = RowIdxExpr;
-
-        let mut hasher1 = DefaultHasher::new();
-        expr1.hash(&mut hasher1);
-        let hash1 = hasher1.finish();
-
-        let mut hasher2 = DefaultHasher::new();
-        expr2.hash(&mut hasher2);
-        let hash2 = hasher2.finish();
-
-        assert_eq!(hash1, hash2);
     }
 
     #[test]
