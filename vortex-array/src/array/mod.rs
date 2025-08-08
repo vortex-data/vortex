@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: Copyright the Vortex contributors
+//  SPDX-License-Identifier: Apache-2.0
+//  SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub mod display;
 mod visitor;
@@ -327,6 +327,18 @@ mod private {
 /// [`AsRef`]. See the `vtable!` macro for more details.
 #[repr(transparent)]
 pub struct ArrayAdapter<V: VTable>(V::Array);
+
+impl<V: VTable> ArrayAdapter<V> {
+    /// Provide a reference to the underlying array held within the adapter.
+    pub fn as_inner(&self) -> &V::Array {
+        &self.0
+    }
+
+    /// Unwrap into the inner array type, consuming the adapter.
+    pub fn into_inner(self) -> V::Array {
+        self.0
+    }
+}
 
 impl<V: VTable> Debug for ArrayAdapter<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
