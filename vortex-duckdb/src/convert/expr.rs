@@ -9,7 +9,7 @@ use vortex::dtype::Nullability;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{
     BetweenExpr, BinaryExpr, ExprRef, LikeExpr, LiteralExpr, NotExpr, Operator, and_collect, col,
-    list_contains, lit, or_collect,
+    is_null, list_contains, lit, not, or_collect,
 };
 use vortex::scalar::Scalar;
 
@@ -82,6 +82,22 @@ pub fn try_from_bound_expression(value: &Expression) -> VortexResult<Option<Expr
                     return Ok(None);
                 };
                 NotExpr::new_expr(child)
+            }
+            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NULL => {
+                let children = operator.children().collect_vec();
+                assert_eq!(children.len(), 1);
+                let Some(child) = try_from_bound_expression(&children[0])? else {
+                    return Ok(None);
+                };
+                is_null(child)
+            }
+            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NOT_NULL => {
+                let children = operator.children().collect_vec();
+                assert_eq!(children.len(), 1);
+                let Some(child) = try_from_bound_expression(&children[0])? else {
+                    return Ok(None);
+                };
+                not(is_null(child))
             }
             DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_IN => {
                 // First child is element, rest form the list.
