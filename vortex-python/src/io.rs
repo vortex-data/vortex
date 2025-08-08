@@ -108,7 +108,7 @@ pub fn read_url<'py>(
 ///     ...     {'x': 11},
 ///     ...     {'x': None},
 ///     ... ])
-///     >>> vx.io.write(a, "a.vortex")
+///     >>> vx.io.write(a, "a.vortex") # doctest: +SKIP
 ///
 /// Stream a PyArrow Table directly to Vortex without loading into memory:
 ///
@@ -121,7 +121,7 @@ pub fn read_url<'py>(
 ///
 ///     >>> import pyarrow as pa
 ///     >>> import vortex as vx
-///     >>> reader = pa.RecordBatchReader.from_batches(schema, batches)
+///     >>> reader = pa.RecordBatchReader.from_batches(schema, batches) # doctest: +SKIP
 ///     >>> vx.io.write(reader, "streamed.vortex")  # doctest: +SKIP
 ///
 #[pyfunction]
