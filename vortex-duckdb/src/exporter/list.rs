@@ -10,11 +10,10 @@ use vortex::dtype::{NativePType, match_each_integer_ptype};
 use vortex::error::{VortexResult, vortex_err};
 use vortex::mask::Mask;
 
+use super::{ConversionCache, new_array_exporter};
 use crate::cpp;
 use crate::duckdb::Vector;
 use crate::exporter::{ColumnExporter, VectorExt};
-
-use super::{ConversionCache, new_array_exporter};
 
 struct ListExporter<T> {
     validity: Mask,
