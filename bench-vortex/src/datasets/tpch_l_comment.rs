@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use async_trait::async_trait;
+use tpch::schema::LINEITEM;
 use vortex::arrays::{ChunkedArray, ChunkedVTable};
 use vortex::dtype::FieldName;
 use vortex::{ArrayRef, IntoArray, ToCanonical};
@@ -26,15 +27,14 @@ impl Dataset for TPCHLCommentChunked {
         // Generate TPC-H CSV data if it doesn't exist
         if !data_dir.exists() {
             // Use blocking call like TPC-H benchmark does
-            let options =
-                TpchGenOptions::new("1.0".to_string(), scale_factor_dir).with_format(Format::Csv);
+            let options = TpchGenOptions::new("1.0".to_string(), scale_factor_dir)
+                .with_format(Format::OnDiskVortex);
 
             futures::executor::block_on(generate_tpch_tables(options))
                 .expect("Failed to generate TPC-H data");
         }
 
-        let lineitem_vortex =
-            tpch::load_table(data_dir, "lineitem", tpch::schema::LINEITEM.clone()).await;
+        let lineitem_vortex = tpch::load_table(data_dir, "lineitem", LINEITEM.clone()).await;
 
         let lineitem_chunked = lineitem_vortex.as_::<ChunkedVTable>();
         let comment_chunks = lineitem_chunked.chunks().iter().map(|chunk| {
