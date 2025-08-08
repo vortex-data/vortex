@@ -430,8 +430,6 @@ mod tests {
 
     #[test]
     fn test_utf8_value_ref() {
-        use vortex_buffer::BufferString;
-
         let data = "test string";
         let utf8 = Scalar::utf8(data, Nullability::NonNullable);
         let scalar = Utf8Scalar::try_from(&utf8).unwrap();

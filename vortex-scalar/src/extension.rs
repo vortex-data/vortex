@@ -149,7 +149,6 @@ impl Scalar {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
     use vortex_dtype::{DType, ExtDType, ExtID, ExtMetadata, Nullability, PType};
 
     use crate::{ExtScalar, InnerScalarValue, Scalar, ScalarValue};
