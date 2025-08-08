@@ -2,4 +2,5 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub mod cnf;
+pub mod extract_conjuncts;
 pub mod nnf;
