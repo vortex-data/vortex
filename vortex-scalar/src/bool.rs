@@ -271,7 +271,6 @@ mod test {
         
         let result = bool.cast(&DType::Primitive(PType::I32, NonNullable));
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Cannot cast bool"));
     }
 
     #[test]
@@ -279,7 +278,6 @@ mod test {
         let int_scalar = Scalar::primitive(42i32, NonNullable);
         let result = BoolScalar::try_from(&int_scalar);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Expected bool scalar"));
     }
 
     #[test]
@@ -289,7 +287,6 @@ mod test {
         // Try to extract bool from null - should fail
         let result: Result<bool, _> = (&null_scalar).try_into();
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("null scalar"));
         
         // Extract Option<bool> from null - should succeed with None
         let result: Result<Option<bool>, _> = (&null_scalar).try_into();

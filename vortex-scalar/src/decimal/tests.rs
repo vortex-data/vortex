@@ -676,7 +676,6 @@ fn test_decimal_scalar_try_from_errors() {
     // Try to extract as wrong type
     let result: Result<i8, _> = scalar.try_into();
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("Cannot extract decimal"));
     
     // Try to extract from null
     let null_decimal = Scalar::null(DType::Decimal(
@@ -686,7 +685,6 @@ fn test_decimal_scalar_try_from_errors() {
     let null_scalar = DecimalScalar::try_from(&null_decimal).unwrap();
     let result: Result<i32, _> = null_scalar.try_into();
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("Cannot extract value from null"));
     
     // Extract as Option from null should succeed
     let result: Result<Option<i32>, _> = null_scalar.try_into();

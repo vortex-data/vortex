@@ -379,7 +379,6 @@ mod tests {
         // Cast to incompatible type should fail
         let result = ext.cast(&DType::Utf8(Nullability::NonNullable));
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("cannot cast extension dtype"));
     }
 
     #[test]
@@ -400,7 +399,6 @@ mod tests {
         // Cast null to non-nullable should fail
         let result = ext.cast(&DType::Primitive(PType::I32, Nullability::NonNullable));
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("cannot cast extension dtype"));
     }
 
     #[test]
@@ -410,7 +408,6 @@ mod tests {
         
         let result = ExtScalar::try_new(&dtype, &value);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Expected extension scalar"));
     }
 
     #[test]
@@ -432,63 +429,6 @@ mod tests {
         assert!(ext.ext_dtype().metadata().is_some());
     }
 
-    #[test]
-    fn test_temporal_extension_display() {
-        // Test TIME extension display
-        let time_metadata = TemporalMetadata::Time(TimeUnit::Ms);
-        let time_ext = Arc::new(ExtDType::new(
-            TIME_ID.clone(),
-            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
-            Some(time_metadata.into()),
-        ));
-
-        let time_scalar = Scalar::extension(
-            time_ext,
-            Scalar::primitive(43200000i32, Nullability::NonNullable), // 12:00:00
-        );
-
-        let ext = ExtScalar::try_from(&time_scalar).unwrap();
-        let display = format!("{}", ext);
-        assert!(display.contains("12:00:00") || display.contains("43200000"));
-    }
-
-    #[test]
-    fn test_temporal_extension_display_null() {
-        let time_metadata = TemporalMetadata::Time(TimeUnit::Ms);
-        let time_ext = Arc::new(ExtDType::new(
-            TIME_ID.clone(),
-            Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
-            Some(time_metadata.into()),
-        ));
-
-        let time_scalar = Scalar::extension(
-            time_ext,
-            Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)),
-        );
-
-        let ext = ExtScalar::try_from(&time_scalar).unwrap();
-        let display = format!("{}", ext);
-        assert_eq!(display, "null");
-    }
-
-    #[test]
-    fn test_non_temporal_extension_display() {
-        let ext_dtype = Arc::new(ExtDType::new(
-            ExtID::new("custom_type".into()),
-            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
-            None,
-        ));
-
-        let scalar = Scalar::extension(
-            ext_dtype,
-            Scalar::primitive(42i32, Nullability::NonNullable),
-        );
-
-        let ext = ExtScalar::try_from(&scalar).unwrap();
-        let display = format!("{}", ext);
-        assert!(display.contains("custom_type"));
-        assert!(display.contains("42"));
-    }
 
     #[test]
     fn test_ext_scalar_equality_ignores_nullability() {

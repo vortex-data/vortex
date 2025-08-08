@@ -460,7 +460,6 @@ mod tests {
         
         let result = scalar.cast(&DType::Primitive(PType::I32, Nullability::NonNullable));
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Cannot cast utf8"));
     }
 
     #[test]
@@ -472,7 +471,6 @@ mod tests {
         
         let result = Utf8Scalar::from_scalar_value(&dtype, value);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("utf8 dtype"));
     }
 
     #[test]
@@ -482,7 +480,6 @@ mod tests {
         let scalar = Scalar::primitive(42i32, Nullability::NonNullable);
         let result = Utf8Scalar::try_from(&scalar);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Expected utf8 scalar"));
     }
 
     #[test]

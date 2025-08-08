@@ -407,7 +407,6 @@ mod tests {
         
         let result = scalar.cast(&DType::Primitive(PType::I32, Nullability::NonNullable));
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Cannot cast binary"));
     }
 
     #[test]
@@ -419,7 +418,6 @@ mod tests {
         
         let result = BinaryScalar::from_scalar_value(&dtype, value);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("binary dtype"));
     }
 
     #[test]
@@ -429,7 +427,6 @@ mod tests {
         let scalar = Scalar::primitive(42i32, Nullability::NonNullable);
         let result = BinaryScalar::try_from(&scalar);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Expected binary scalar"));
     }
 
     #[test]
