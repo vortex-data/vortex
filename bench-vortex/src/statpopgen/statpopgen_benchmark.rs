@@ -55,7 +55,6 @@ impl StatPopGenBenchmark {
     }
 
     pub fn new(data_url: Url, n_rows: u64) -> VortexResult<Self> {
-        // let url = Self::create_data_url(&use_remote_data_dir, flavor)?;
         let n_variants =
             usize::try_from(n_rows).map_err(|_| vortex_err!("too many rows for this machine"))?;
         let expected_row_counts = vec![1, 1, n_variants, n_variants, n_variants];
