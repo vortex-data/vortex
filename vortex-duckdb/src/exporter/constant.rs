@@ -33,7 +33,7 @@ impl ColumnExporter for ConstantExporter {
         match self.value.as_ref() {
             None => {
                 // TODO(ngates): would be good if DuckDB supported constant null vectors.
-                vector.set_validity(&Mask::AllFalse(len), 0, len);
+                unsafe { vector.set_validity(&Mask::AllFalse(len), 0, len) };
             }
             Some(value) => {
                 vector.reference_value(value);
