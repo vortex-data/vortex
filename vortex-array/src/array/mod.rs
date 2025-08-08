@@ -22,7 +22,7 @@ use crate::arrays::{
 use crate::builders::ArrayBuilder;
 use crate::compute::{ComputeFn, Cost, InvocationArgs, IsConstantOpts, Output, is_constant_opts};
 use crate::pipeline::Kernel;
-use crate::pipeline::nodes::operators::Operator;
+use crate::pipeline::operators::Operator;
 use crate::serde::ArrayChildren;
 use crate::stats::{Precision, Stat, StatsSetRef};
 use crate::vtable::{

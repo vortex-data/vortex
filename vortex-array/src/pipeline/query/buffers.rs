@@ -3,8 +3,8 @@
 
 //! Vector allocation strategy for pipelines
 
-use crate::pipeline::nodes::query::Pipeline;
-use crate::pipeline::nodes::query::dag::DagNode;
+use crate::pipeline::query::Pipeline;
+use crate::pipeline::query::dag::DagNode;
 use crate::pipeline::types::VType;
 use crate::pipeline::vector::Vector;
 use crate::pipeline::vector::VectorId;
@@ -13,16 +13,16 @@ use std::collections::HashMap;
 use vortex_error::{VortexExpect, VortexResult};
 
 #[derive(Debug)]
-pub(super) struct VectorAllocationPlan {
+pub(in crate::pipeline) struct VectorAllocationPlan {
     /// Where each node writes its output
-    pub(super) output_targets: Vec<OutputTarget>,
+    pub(in crate::pipeline) output_targets: Vec<OutputTarget>,
     /// The actual allocated vectors
-    pub(super) vectors: Vec<RefCell<Vector>>,
+    pub(in crate::pipeline) vectors: Vec<RefCell<Vector>>,
 }
 
 /// Tracks which vector a node outputs to
 #[derive(Debug, Clone)]
-pub(super) enum OutputTarget {
+pub(in crate::pipeline) enum OutputTarget {
     /// Node writes to the top-level provided output
     ExternalOutput,
     /// Node writes to an allocated intermediate vector
@@ -71,7 +71,7 @@ struct NodeLifetime {
 
 impl<'a> Pipeline<'a> {
     /// Allocate vectors with lifetime analysis and zero-copy optimization
-    pub(super) fn allocate_vectors(
+    pub(in crate::pipeline) fn allocate_vectors(
         dag_root: usize,
         dag: &[DagNode<'a>],
         execution_order: &[usize],

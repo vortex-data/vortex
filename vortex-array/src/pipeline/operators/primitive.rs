@@ -4,7 +4,7 @@
 use crate::arrays::PrimitiveArray;
 use crate::pipeline::bits::BitView;
 use crate::pipeline::buffers::BufferHandle;
-use crate::pipeline::nodes::operators::{BindContext, Operator};
+use crate::pipeline::operators::{BindContext, Operator};
 use crate::pipeline::types::{Element, VType};
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{Kernel, KernelContext, N};

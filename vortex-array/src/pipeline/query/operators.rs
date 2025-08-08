@@ -2,15 +2,15 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::pipeline::Kernel;
-use crate::pipeline::nodes::operators::BindContext;
-use crate::pipeline::nodes::query::Pipeline;
-use crate::pipeline::nodes::query::buffers::VectorAllocationPlan;
-use crate::pipeline::nodes::query::dag::DagNode;
+use crate::pipeline::operators::BindContext;
+use crate::pipeline::query::Pipeline;
+use crate::pipeline::query::buffers::VectorAllocationPlan;
+use crate::pipeline::query::dag::DagNode;
 use crate::pipeline::vector::VectorId;
 use vortex_error::{VortexExpect, VortexResult};
 
 impl Pipeline<'_> {
-    pub(super) fn bind_operators(
+    pub(in crate::pipeline) fn bind_operators(
         dag: &[DagNode],
         allocation_plan: &VectorAllocationPlan,
     ) -> VortexResult<Vec<Box<dyn Kernel>>> {

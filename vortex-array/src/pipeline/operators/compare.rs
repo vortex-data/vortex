@@ -3,7 +3,7 @@
 
 use crate::compute;
 use crate::pipeline::bits::BitView;
-use crate::pipeline::nodes::operators::{BindContext, Operator};
+use crate::pipeline::operators::{BindContext, Operator};
 use crate::pipeline::types::{Element, VType};
 use crate::pipeline::vector::VectorId;
 use crate::pipeline::view::ViewMut;

@@ -3,8 +3,8 @@
 
 use crate::arrays::{BoolArray, PrimitiveArray};
 use crate::pipeline::bits::{BitVector, BitView, BitViewMut};
-use crate::pipeline::nodes::operators::Operator;
-use crate::pipeline::nodes::query::Pipeline;
+use crate::pipeline::operators::Operator;
+use crate::pipeline::query::Pipeline;
 use crate::pipeline::types::Element;
 use crate::pipeline::vector::Vector;
 use crate::pipeline::view::ViewMut;

@@ -1,39 +1,41 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::pipeline::nodes::operators::Operator;
-use crate::pipeline::nodes::query::Pipeline;
+use crate::pipeline::operators::Operator;
+use crate::pipeline::query::Pipeline;
 use std::hash::BuildHasher;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::{HashMap, RandomState};
 
 /// A node in our execution DAG
 #[derive(Clone, Debug)]
-pub(super) struct DagNode<'a> {
+pub(in crate::pipeline) struct DagNode<'a> {
     /// Index of this node in the DAG
-    pub(super) index: usize,
+    pub(in crate::pipeline) index: usize,
     /// The original plan node
-    pub(super) plan_node: &'a dyn Operator,
+    pub(in crate::pipeline) plan_node: &'a dyn Operator,
     /// Indices of children in the DAG
-    pub(super) children: Vec<usize>,
+    pub(in crate::pipeline) children: Vec<usize>,
     /// Indices of parents in the DAG (for dependency tracking)
-    pub(super) parents: Vec<usize>,
+    pub(in crate::pipeline) parents: Vec<usize>,
     /// Hash of this subtree (for deduplication)
-    pub(super) subtree_hash: u64,
+    pub(in crate::pipeline) subtree_hash: u64,
     /// Output buffer assignment (if not writing to final output)
-    pub(super) output_buffer: Option<BufferSlot>,
+    pub(in crate::pipeline) output_buffer: Option<BufferSlot>,
 }
 
 /// A reusable buffer slot
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct BufferSlot {
+pub(in crate::pipeline) struct BufferSlot {
     index: usize,
     size_bytes: usize,
 }
 
 impl<'a> Pipeline<'a> {
     /// Build DAG from a tree, eliminating common sub-expressions
-    pub(super) fn build_dag(root: &'a dyn Operator) -> VortexResult<(usize, Vec<DagNode<'a>>)> {
+    pub(in crate::pipeline) fn build_dag(
+        root: &'a dyn Operator,
+    ) -> VortexResult<(usize, Vec<DagNode<'a>>)> {
         let mut dag = Vec::new();
         let mut hash_to_index = HashMap::new();
 

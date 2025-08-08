@@ -19,7 +19,8 @@
 pub mod bits;
 pub mod buffers;
 pub mod canonical;
-pub mod nodes;
+pub mod operators;
+pub mod query;
 pub mod selection;
 pub mod types;
 pub mod vector;

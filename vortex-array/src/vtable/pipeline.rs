@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::pipeline::Kernel;
-use crate::pipeline::nodes::operators::Operator;
+use crate::pipeline::operators::Operator;
 use crate::vtable::{NotSupported, VTable};
 use vortex_error::{VortexResult, vortex_bail};
 

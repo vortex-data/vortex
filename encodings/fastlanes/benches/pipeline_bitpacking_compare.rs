@@ -11,7 +11,7 @@ use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex_array::compute::{Operator, compare, filter};
 use vortex_array::pipeline::canonical::{export_canonical, export_canonical_pipeline};
-use vortex_array::pipeline::nodes::operators::compare::CompareOperator;
+use vortex_array::pipeline::operators::compare::CompareOperator;
 use vortex_array::pipeline::types::Element;
 use vortex_array::{Array, IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;

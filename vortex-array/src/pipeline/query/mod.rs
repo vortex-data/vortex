@@ -8,9 +8,9 @@ mod toposort;
 
 use crate::pipeline::bits::BitView;
 use crate::pipeline::buffers::BufferId;
-use crate::pipeline::nodes::operators::Operator;
-use crate::pipeline::nodes::query::buffers::{OutputTarget, VectorAllocationPlan};
-use crate::pipeline::nodes::query::dag::DagNode;
+use crate::pipeline::operators::Operator;
+use crate::pipeline::query::buffers::{OutputTarget, VectorAllocationPlan};
+use crate::pipeline::query::dag::DagNode;
 use crate::pipeline::vector::{VectorId, VectorRef};
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{Kernel, KernelContext};
@@ -313,7 +313,7 @@ impl<'a> Pipeline<'a> {
 
 /// Execution state for a node
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum NodeState {
+pub(in crate::pipeline) enum NodeState {
     /// Node has not been executed yet
     NotStarted,
     /// Node is currently executing (may return Poll::Pending)
