@@ -17,12 +17,12 @@ pub fn conjuncts(expr: &ExprRef) -> Vec<ExprRef> {
 }
 
 fn conjuncts_impl(expr: &ExprRef, conjuncts: &mut Vec<ExprRef>) {
-    if let Some(expr) = expr.as_opt::<BinaryVTable>() {
-        if expr.op() == crate::Operator::And {
-            conjuncts_impl(expr.lhs(), conjuncts);
-            conjuncts_impl(expr.rhs(), conjuncts);
-            return;
-        }
+    if let Some(expr) = expr.as_opt::<BinaryVTable>()
+        && expr.op() == crate::Operator::And
+    {
+        conjuncts_impl(expr.lhs(), conjuncts);
+        conjuncts_impl(expr.rhs(), conjuncts);
+    } else {
+        conjuncts.push(expr.clone())
     }
-    conjuncts.push(expr.clone());
 }
