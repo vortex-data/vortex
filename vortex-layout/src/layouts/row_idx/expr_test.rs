@@ -41,7 +41,7 @@ mod tests {
     fn test_vtable_encoding() {
         let expr = RowIdxExpr;
         let encoding_ref = RowIdxVTable::encoding(&expr);
-        
+
         // Check that the encoding ref is the same instance
         let encoding_ref2 = RowIdxVTable::encoding(&expr);
         assert!(std::ptr::eq(
@@ -69,12 +69,12 @@ mod tests {
     #[test]
     fn test_vtable_with_children() {
         let expr = RowIdxExpr;
-        
+
         // Should succeed with empty children
         let result = RowIdxVTable::with_children(&expr, vec![]);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), expr);
-        
+
         // Should also succeed with non-empty children (it ignores them and returns the same expr)
         let dummy_expr = row_idx();
         let result = RowIdxVTable::with_children(&expr, vec![dummy_expr]);
@@ -118,10 +118,10 @@ mod tests {
 
     #[test]
     fn test_vtable_evaluate_fails() {
-        use vortex_array::arrays::PrimitiveArray;
         use vortex_array::IntoArray;
+        use vortex_array::arrays::PrimitiveArray;
         use vortex_expr::Scope;
-        
+
         let expr = RowIdxExpr;
         // Create a dummy array for the scope
         let array = PrimitiveArray::from_iter([0u64, 1, 2]).into_array();
@@ -140,7 +140,10 @@ mod tests {
         let result = RowIdxVTable::return_dtype(&expr, &scope);
         assert!(result.is_ok());
         let dtype = result.unwrap();
-        assert_eq!(dtype, DType::Primitive(PType::U64, Nullability::NonNullable));
+        assert_eq!(
+            dtype,
+            DType::Primitive(PType::U64, Nullability::NonNullable)
+        );
     }
 
     #[rstest]
@@ -154,29 +157,24 @@ mod tests {
         let result = RowIdxVTable::return_dtype(&expr, &scope_dtype);
         assert!(result.is_ok());
         // Row index dtype should always be U64 NonNullable regardless of scope
-        assert_eq!(result.unwrap(), DType::Primitive(PType::U64, Nullability::NonNullable));
-    }
-
-    #[test]
-    fn test_row_idx_expr_encoding_clone() {
-        let encoding1 = RowIdxExprEncoding;
-        let encoding2 = encoding1.clone();
-        // Both should be the same type
-        let _ = encoding2;
+        assert_eq!(
+            result.unwrap(),
+            DType::Primitive(PType::U64, Nullability::NonNullable)
+        );
     }
 
     #[test]
     fn test_row_idx_function_creates_correct_expr() {
         let expr = row_idx();
-        
+
         // Verify it's the right type
         assert!(expr.is::<RowIdxVTable>());
-        
+
         // Verify it has no children
         let children = RowIdxVTable::children(&RowIdxExpr);
         assert_eq!(children.len(), 0);
-        
-        // Verify metadata is present  
+
+        // Verify metadata is present
         let metadata = RowIdxVTable::metadata(&RowIdxExpr);
         assert!(metadata.is_some());
     }

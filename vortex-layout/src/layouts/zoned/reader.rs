@@ -156,8 +156,11 @@ impl ZonedReader {
 
     /// Get the range of zone IDs containing a row range.
     pub(crate) fn zone_range(&self, row_range: &Range<u64>) -> Range<u64> {
-        let zone_start = row_range.start / self.layout.zone_len as u64;
-        let zone_end = row_range.end.div_ceil(self.layout.zone_len as u64);
+        // Zone length is guaranteed to be > 0 by ZonedLayout::new validation
+        debug_assert!(self.layout.zone_len > 0, "zone_len must be > 0");
+        let zone_len_u64 = self.layout.zone_len as u64;
+        let zone_start = row_range.start / zone_len_u64;
+        let zone_end = row_range.end.div_ceil(zone_len_u64);
         zone_start..zone_end
     }
 

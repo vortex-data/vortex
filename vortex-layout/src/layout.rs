@@ -156,8 +156,10 @@ impl dyn Layout + '_ {
             .map_err(|_| vortex_err!("Invalid layout type"))
             .vortex_expect("Invalid layout type");
 
-        // Now we can perform a cheeky transmute since we know the adapter is transparent.
-        // SAFETY: The adapter is transparent and we know the underlying type is correct.
+        // SAFETY: LayoutAdapter<V> is #[repr(transparent)] (see line 192) which guarantees
+        // it has the same memory layout as V::Layout. The downcast above ensures we have
+        // the correct type. This transmute is safe because both Arc types point to data
+        // with identical layout and alignment.
         unsafe { std::mem::transmute::<Arc<LayoutAdapter<V>>, Arc<V::Layout>>(layout_adapter) }
     }
 
