@@ -102,32 +102,6 @@ pub async fn register_vortex_compact_file(
         .await
 }
 
-/// Load a table as an uncompressed Vortex array.
-pub async fn load_table(data_dir: impl AsRef<Path>, name: &str, schema: Schema) -> ArrayRef {
-    // Create a local session to load the CSV file from the path.
-    let path = data_dir.as_ref().join(name).with_extension("csv");
-    let record_batches = SessionContext::new()
-        .read_csv(
-            path.to_str().unwrap(),
-            CsvReadOptions::default()
-                .delimiter(b'|')
-                .has_header(false)
-                .file_extension("csv")
-                .schema(&schema),
-        )
-        .await
-        .unwrap()
-        .collect()
-        .await
-        .unwrap();
-
-    let chunks = record_batches
-        .into_iter()
-        .map(|batch| ArrayRef::from_arrow(batch, false));
-
-    ChunkedArray::from_iter(chunks).into_array()
-}
-
 pub fn tpch_queries() -> impl Iterator<Item = (usize, String)> {
     (1..=22).map(|q| (q, tpch_query(q)))
 }
