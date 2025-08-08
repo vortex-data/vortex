@@ -166,7 +166,7 @@ impl Vector {
             };
         }
 
-        let num_bytes = len.div_ceil(8); // Round up to nearest byte boundary
+        let num_bytes = len.div_ceil(64);
 
         ValidityRef {
             validity: Some(unsafe { std::slice::from_raw_parts(validity_ptr, num_bytes) }),
