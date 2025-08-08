@@ -318,13 +318,29 @@ impl PcoArray {
             .into_byte_buffer())
     }
 
-    fn _slice(&self, start: usize, stop: usize) -> Self {
+    pub(crate) fn _slice(&self, start: usize, stop: usize) -> Self {
         PcoArray {
             slice_start: self.slice_start + start,
             slice_stop: self.slice_start + stop,
             stats_set: Default::default(),
             ..self.clone()
         }
+    }
+
+    pub(crate) fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    pub(crate) fn slice_start(&self) -> usize {
+        self.slice_start
+    }
+
+    pub(crate) fn slice_stop(&self) -> usize {
+        self.slice_stop
+    }
+
+    pub(crate) fn unsliced_n_rows(&self) -> usize {
+        self.unsliced_n_rows
     }
 }
 

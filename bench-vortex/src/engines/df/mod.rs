@@ -138,6 +138,7 @@ pub async fn execute_query(
     let plan = ctx.sql(query).await?;
     let (state, plan) = plan.into_parts();
     let physical_plan = state.create_physical_plan(&plan).await?;
+
     let result = collect(physical_plan.clone(), state.task_ctx()).await?;
     Ok((result, physical_plan))
 }

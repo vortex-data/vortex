@@ -14,7 +14,7 @@ use crate::{InnerScalarValue, Scalar, ScalarValue};
 ///
 /// This type provides a view into a boolean scalar value, which can be either
 /// true, false, or null.
-#[derive(Debug, Hash)]
+#[derive(Debug, Hash, Eq)]
 pub struct BoolScalar<'a> {
     dtype: &'a DType,
     value: Option<bool>,
@@ -35,11 +35,9 @@ impl PartialEq for BoolScalar<'_> {
     }
 }
 
-impl Eq for BoolScalar<'_> {}
-
 impl PartialOrd for BoolScalar<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.value.cmp(&other.value))
+        Some(self.cmp(other))
     }
 }
 
@@ -63,7 +61,7 @@ impl<'a> BoolScalar<'a> {
 
     pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
         if !matches!(dtype, DType::Bool(..)) {
-            vortex_bail!("Can't cast bool to {}", dtype)
+            vortex_bail!("Cannot cast bool to {}: unsupported conversion", dtype)
         }
         Ok(Scalar::bool(
             self.value.vortex_expect("nullness handled in Scalar::cast"),
@@ -83,23 +81,22 @@ impl<'a> BoolScalar<'a> {
 
     /// Converts this boolean scalar into a general scalar.
     pub fn into_scalar(self) -> Scalar {
-        Scalar {
-            dtype: self.dtype.clone(),
-            value: self
-                .value
+        Scalar::new(
+            self.dtype.clone(),
+            self.value
                 .map(|x| ScalarValue(InnerScalarValue::Bool(x)))
                 .unwrap_or_else(|| ScalarValue(InnerScalarValue::Null)),
-        }
+        )
     }
 }
 
 impl Scalar {
     /// Creates a new boolean scalar with the given value and nullability.
     pub fn bool(value: bool, nullability: Nullability) -> Self {
-        Self {
-            dtype: DType::Bool(nullability),
-            value: ScalarValue(InnerScalarValue::Bool(value)),
-        }
+        Self::new(
+            DType::Bool(nullability),
+            ScalarValue(InnerScalarValue::Bool(value)),
+        )
     }
 }
 
@@ -152,10 +149,7 @@ impl TryFrom<Scalar> for Option<bool> {
 
 impl From<bool> for Scalar {
     fn from(value: bool) -> Self {
-        Self {
-            dtype: DType::Bool(NonNullable),
-            value: value.into(),
-        }
+        Self::new(DType::Bool(NonNullable), value.into())
     }
 }
 

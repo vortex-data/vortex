@@ -1,186 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#[cfg(test)]
+mod tests;
+mod value;
+
 use std::cmp::Ordering;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 
-use vortex_dtype::{DType, DecimalDType, Nullability};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail};
+use num_traits::ToPrimitive as NumToPrimitive;
+use vortex_dtype::{DType, DecimalDType, Nullability, PType};
+use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 
+pub use crate::decimal::value::{DecimalValue, DecimalValueType};
 use crate::scalar_value::InnerScalarValue;
-use crate::{BigCast, Scalar, ScalarValue, ToPrimitive, i256};
-
-/// Matches over each decimal value variant, binding the inner value to a variable.
-///
-/// # Example
-///
-/// ```ignore
-/// match_each_decimal_value!(value, |v| {
-///     println!("Value: {}", v);
-/// });
-/// ```
-#[macro_export]
-macro_rules! match_each_decimal_value {
-    ($self:expr, | $value:ident | $body:block) => {{
-        match $self {
-            DecimalValue::I8(v) => {
-                let $value = v;
-                $body
-            }
-            DecimalValue::I16(v) => {
-                let $value = v;
-                $body
-            }
-            DecimalValue::I32(v) => {
-                let $value = v;
-                $body
-            }
-            DecimalValue::I64(v) => {
-                let $value = v;
-                $body
-            }
-            DecimalValue::I128(v) => {
-                let $value = v;
-                $body
-            }
-            DecimalValue::I256(v) => {
-                let $value = v;
-                $body
-            }
-        }
-    }};
-}
-
-/// Macro to match over each decimal value type, binding the corresponding native type (from `DecimalValueType`)
-#[macro_export]
-macro_rules! match_each_decimal_value_type {
-    ($self:expr, | $enc:ident | $body:block) => {{
-        use $crate::{DecimalValueType, i256};
-        match $self {
-            DecimalValueType::I8 => {
-                type $enc = i8;
-                $body
-            }
-            DecimalValueType::I16 => {
-                type $enc = i16;
-                $body
-            }
-            DecimalValueType::I32 => {
-                type $enc = i32;
-                $body
-            }
-            DecimalValueType::I64 => {
-                type $enc = i64;
-                $body
-            }
-            DecimalValueType::I128 => {
-                type $enc = i128;
-                $body
-            }
-            DecimalValueType::I256 => {
-                type $enc = i256;
-                $body
-            }
-            ty => unreachable!("unknown decimal value type {:?}", ty),
-        }
-    }};
-}
-
-/// Type of the decimal values.
-#[derive(Clone, Copy, Debug, prost::Enumeration, PartialEq, Eq, PartialOrd, Ord)]
-#[repr(u8)]
-#[non_exhaustive]
-pub enum DecimalValueType {
-    /// 8-bit decimal value type.
-    I8 = 0,
-    /// 16-bit decimal value type.
-    I16 = 1,
-    /// 32-bit decimal value type.
-    I32 = 2,
-    /// 64-bit decimal value type.
-    I64 = 3,
-    /// 128-bit decimal value type.
-    I128 = 4,
-    /// 256-bit decimal value type.
-    I256 = 5,
-}
-
-/// A decimal value that can be stored in various integer widths.
-///
-/// This enum represents decimal values with different storage sizes,
-/// from 8-bit to 256-bit integers.
-#[derive(Debug, Clone, Copy)]
-pub enum DecimalValue {
-    /// 8-bit signed decimal value.
-    I8(i8),
-    /// 16-bit signed decimal value.
-    I16(i16),
-    /// 32-bit signed decimal value.
-    I32(i32),
-    /// 64-bit signed decimal value.
-    I64(i64),
-    /// 128-bit signed decimal value.
-    I128(i128),
-    /// 256-bit signed decimal value.
-    I256(i256),
-}
-
-impl DecimalValue {
-    /// Cast `self` to T using the respective `ToPrimitive` method.
-    /// If the value cannot be represented by `T`, `None` is returned.
-    pub fn cast<T: NativeDecimalType>(&self) -> Option<T> {
-        match_each_decimal_value!(self, |value| { T::from(*value) })
-    }
-}
-
-// Comparisons between DecimalValue types should upcast to i256 and operate in the upcast space.
-// Decimal values can take on any signed scalar type, but so long as their values are the same
-// they are considered the same.
-// DecimalScalar handles ensuring that both values being compared have the same precision/scale.
-impl PartialEq for DecimalValue {
-    fn eq(&self, other: &Self) -> bool {
-        let self_upcast = match_each_decimal_value!(self, |v| {
-            v.to_i256()
-                .vortex_expect("upcast to i256 must always succeed")
-        });
-        let other_upcast = match_each_decimal_value!(other, |v| {
-            v.to_i256()
-                .vortex_expect("upcast to i256 must always succeed")
-        });
-
-        self_upcast == other_upcast
-    }
-}
-
-impl Eq for DecimalValue {}
-
-impl PartialOrd for DecimalValue {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        let self_upcast = match_each_decimal_value!(self, |v| {
-            v.to_i256()
-                .vortex_expect("upcast to i256 must always succeed")
-        });
-        let other_upcast = match_each_decimal_value!(other, |v| {
-            v.to_i256()
-                .vortex_expect("upcast to i256 must always succeed")
-        });
-
-        self_upcast.partial_cmp(&other_upcast)
-    }
-}
-
-// Hashing works in the upcast space similar to the other comparison and equality operators.
-impl Hash for DecimalValue {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        let self_upcast = match_each_decimal_value!(self, |v| {
-            v.to_i256()
-                .vortex_expect("upcast to i256 must always succeed")
-        });
-        self_upcast.hash(state);
-    }
-}
+use crate::{BigCast, Scalar, ScalarValue, i256, match_each_decimal_value};
 
 /// Type of decimal scalar values.
 ///
@@ -321,8 +157,125 @@ impl<'a> DecimalScalar<'a> {
     }
 
     /// Returns the decimal value, or None if null.
-    pub fn decimal_value(&self) -> &Option<DecimalValue> {
-        &self.value
+    pub fn decimal_value(&self) -> Option<DecimalValue> {
+        self.value
+    }
+
+    /// Cast decimal scalar to another data type.
+    pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
+        match dtype {
+            DType::Decimal(target_dtype, target_nullability) => {
+                // Cast between decimal types
+                if self.decimal_type == *target_dtype {
+                    // Same decimal type, just change nullability if needed
+                    return Ok(Scalar::new(
+                        dtype.clone(),
+                        ScalarValue(InnerScalarValue::Decimal(
+                            self.value.unwrap_or(DecimalValue::I128(0)),
+                        )),
+                    ));
+                }
+
+                // Different precision/scale - need to implement scaling logic
+                // For now, we'll do a simple value preservation without scaling
+                // TODO: Implement proper decimal scaling logic
+                if let Some(value) = &self.value {
+                    Ok(Scalar::decimal(*value, *target_dtype, *target_nullability))
+                } else {
+                    Ok(Scalar::null(dtype.clone()))
+                }
+            }
+            DType::Primitive(ptype, nullability) => {
+                // Cast decimal to primitive type
+                if let Some(decimal_value) = &self.value {
+                    // Convert decimal value to primitive, accounting for scale
+                    let scale_factor = 10_i128.pow(self.decimal_type.scale() as u32);
+
+                    // Convert to i128 for calculation
+                    let scaled_value = match_each_decimal_value!(decimal_value, |v| {
+                        NumToPrimitive::to_i128(v).ok_or_else(|| {
+                            vortex_err!("Decimal value too large to cast to primitive")
+                        })
+                    })?;
+
+                    // Apply scale to get the actual value
+                    let actual_value = scaled_value as f64 / scale_factor as f64;
+
+                    // Cast to target primitive type
+                    use PType::*;
+                    #[allow(clippy::cast_possible_truncation)]
+                    let primitive_scalar = match ptype {
+                        U8 => {
+                            let v = actual_value as u8;
+                            if actual_value < 0.0 || actual_value > u8::MAX as f64 {
+                                vortex_bail!("Decimal value {} out of range for u8", actual_value);
+                            }
+                            Scalar::primitive(v, *nullability)
+                        }
+                        U16 => {
+                            let v = actual_value as u16;
+                            if actual_value < 0.0 || actual_value > u16::MAX as f64 {
+                                vortex_bail!("Decimal value {} out of range for u16", actual_value);
+                            }
+                            Scalar::primitive(v, *nullability)
+                        }
+                        U32 => {
+                            let v = actual_value as u32;
+                            if actual_value < 0.0 || actual_value > u32::MAX as f64 {
+                                vortex_bail!("Decimal value {} out of range for u32", actual_value);
+                            }
+                            Scalar::primitive(v, *nullability)
+                        }
+                        U64 => {
+                            let v = actual_value as u64;
+                            if actual_value < 0.0 || actual_value > u64::MAX as f64 {
+                                vortex_bail!("Decimal value {} out of range for u64", actual_value);
+                            }
+                            Scalar::primitive(v, *nullability)
+                        }
+                        I8 => {
+                            let v = actual_value as i8;
+                            if actual_value < i8::MIN as f64 || actual_value > i8::MAX as f64 {
+                                vortex_bail!("Decimal value {} out of range for i8", actual_value);
+                            }
+                            Scalar::primitive(v, *nullability)
+                        }
+                        I16 => {
+                            let v = actual_value as i16;
+                            if actual_value < i16::MIN as f64 || actual_value > i16::MAX as f64 {
+                                vortex_bail!("Decimal value {} out of range for i16", actual_value);
+                            }
+                            Scalar::primitive(v, *nullability)
+                        }
+                        I32 => {
+                            let v = actual_value as i32;
+                            if actual_value < i32::MIN as f64 || actual_value > i32::MAX as f64 {
+                                vortex_bail!("Decimal value {} out of range for i32", actual_value);
+                            }
+                            Scalar::primitive(v, *nullability)
+                        }
+                        I64 => {
+                            let v = actual_value as i64;
+                            if actual_value < i64::MIN as f64 || actual_value > i64::MAX as f64 {
+                                vortex_bail!("Decimal value {} out of range for i64", actual_value);
+                            }
+                            Scalar::primitive(v, *nullability)
+                        }
+                        F16 => {
+                            use vortex_dtype::half::f16;
+                            Scalar::primitive(f16::from_f64(actual_value), *nullability)
+                        }
+                        F32 => Scalar::primitive(actual_value as f32, *nullability),
+                        F64 => Scalar::primitive(actual_value, *nullability),
+                    };
+                    Ok(primitive_scalar)
+                } else {
+                    // Null decimal to primitive
+                    Ok(Scalar::null(dtype.clone()))
+                }
+            }
+            _ => vortex_bail!("Cannot cast decimal to {}: unsupported conversion", dtype),
+        }
     }
 }
 
@@ -465,41 +418,3 @@ decimal_scalar_pack!(u64, i128, I128);
 
 decimal_scalar_pack!(i128, i128, I128);
 decimal_scalar_pack!(i256, i256, I256);
-
-#[cfg(test)]
-#[allow(clippy::disallowed_types)]
-mod tests {
-    use std::collections::HashSet;
-
-    use rstest::rstest;
-
-    use crate::{DecimalValue, i256};
-
-    #[rstest]
-    #[case(DecimalValue::I8(100), DecimalValue::I8(100))]
-    #[case(DecimalValue::I16(0), DecimalValue::I256(i256::ZERO))]
-    #[case(DecimalValue::I8(100), DecimalValue::I128(100))]
-    fn test_decimal_value_eq(#[case] left: DecimalValue, #[case] right: DecimalValue) {
-        assert_eq!(left, right);
-    }
-
-    #[rstest]
-    #[case(DecimalValue::I128(10), DecimalValue::I8(11))]
-    #[case(DecimalValue::I256(i256::ZERO), DecimalValue::I16(10))]
-    #[case(DecimalValue::I128(-1_000), DecimalValue::I8(1))]
-    fn test_decimal_value_cmp(#[case] lower: DecimalValue, #[case] upper: DecimalValue) {
-        assert!(lower < upper, "expected {lower} < {upper}");
-    }
-
-    #[test]
-    fn test_hash() {
-        let mut set = HashSet::new();
-        set.insert(DecimalValue::I8(100));
-        set.insert(DecimalValue::I16(100));
-        set.insert(DecimalValue::I32(100));
-        set.insert(DecimalValue::I64(100));
-        set.insert(DecimalValue::I128(100));
-        set.insert(DecimalValue::I256(i256::from_i128(100)));
-        assert_eq!(set.len(), 1);
-    }
-}

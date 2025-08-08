@@ -330,10 +330,10 @@ impl TableFunction for VortexTableFunction {
                             })?
                         };
 
-                        if let Some(ref filter) = filter_expr {
-                            if file.can_prune(filter)? {
-                                return Ok(vec![]);
-                            }
+                        if let Some(ref filter) = filter_expr
+                            && file.can_prune(filter)?
+                        {
+                            return Ok(vec![]);
                         };
 
                         file.scan()?

@@ -155,7 +155,7 @@ impl Vector {
         })
     }
 
-    pub fn validity_ref(&self, len: usize) -> ValidityRef {
+    pub fn validity_ref(&self, len: usize) -> ValidityRef<'_> {
         let validity_ptr = unsafe { cpp::duckdb_vector_get_validity(self.as_ptr()) };
 
         if validity_ptr.is_null() {

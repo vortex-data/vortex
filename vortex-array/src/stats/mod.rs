@@ -19,15 +19,15 @@ mod array;
 mod bound;
 pub mod flatbuffers;
 mod precision;
+mod provider;
 mod stat_bound;
 mod stats_set;
-mod traits;
 
 pub use array::*;
 pub use bound::{LowerBound, UpperBound};
 pub use precision::Precision;
+pub use provider::*;
 pub use stat_bound::*;
-pub use traits::*;
 use vortex_error::VortexExpect;
 
 /// Statistics that are used for pruning files (i.e., we want to ensure they are computed when compressing/writing).

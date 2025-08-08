@@ -109,10 +109,10 @@ impl<'a> ExtScalar<'a> {
             return Ok(Scalar::new(dtype.clone(), self.value.clone()));
         }
 
-        if let DType::Extension(ext_dtype) = dtype {
-            if self.ext_dtype.eq_ignore_nullability(ext_dtype) {
-                return Ok(Scalar::new(dtype.clone(), self.value.clone()));
-            }
+        if let DType::Extension(ext_dtype) = dtype
+            && self.ext_dtype.eq_ignore_nullability(ext_dtype)
+        {
+            return Ok(Scalar::new(dtype.clone(), self.value.clone()));
         }
 
         vortex_bail!(

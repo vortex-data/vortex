@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod cast;
+
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;

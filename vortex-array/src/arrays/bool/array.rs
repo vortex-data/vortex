@@ -71,14 +71,14 @@ impl BoolArray {
     /// Creates a new [`BoolArray`] from a [`BooleanBuffer`] and [`Validity`], without checking
     /// any invariants.
     pub fn new(buffer: BooleanBuffer, validity: Validity) -> Self {
-        if let Some(len) = validity.maybe_len() {
-            if buffer.len() != len {
-                vortex_panic!(
-                    "Buffer and validity length mismatch: buffer={}, validity={}",
-                    buffer.len(),
-                    len
-                );
-            }
+        if let Some(len) = validity.maybe_len()
+            && buffer.len() != len
+        {
+            vortex_panic!(
+                "Buffer and validity length mismatch: buffer={}, validity={}",
+                buffer.len(),
+                len
+            );
         }
 
         // Shrink the buffer to remove any whole bytes.

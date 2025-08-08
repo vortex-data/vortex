@@ -77,7 +77,7 @@ impl RunEndArray {
             );
         }
 
-        if offset != 0 {
+        if offset != 0 && length != 0 {
             let first_run_end: usize = ends.scalar_at(0)?.as_ref().try_into()?;
             if first_run_end <= offset {
                 vortex_bail!("First run end {first_run_end} must be bigger than offset {offset}");

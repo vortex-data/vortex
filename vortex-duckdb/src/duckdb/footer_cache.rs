@@ -37,7 +37,7 @@ impl FooterCache {
         Self { object_cache }
     }
 
-    pub fn entry(&self, key: &str) -> Entry {
+    pub fn entry(&self, key: &str) -> Entry<'_> {
         let key = Self::key(key);
         let value = self.object_cache.get(&key);
         Entry {

@@ -557,10 +557,10 @@ mod tests {
             if node.is::<GetItemVTable>() {
                 nodes.push(node)
             }
-            if let Some(bin) = node.as_opt::<BinaryVTable>() {
-                if bin.op() == Operator::Eq {
-                    return Ok(TraversalOrder::Skip);
-                }
+            if let Some(bin) = node.as_opt::<BinaryVTable>()
+                && bin.op() == Operator::Eq
+            {
+                return Ok(TraversalOrder::Skip);
             }
             Ok(TraversalOrder::Continue)
         })
@@ -585,10 +585,10 @@ mod tests {
             if node.is::<GetItemVTable>() {
                 nodes.push(node)
             }
-            if let Some(bin) = node.as_opt::<BinaryVTable>() {
-                if bin.op() == Operator::Eq {
-                    return Ok(TraversalOrder::Stop);
-                }
+            if let Some(bin) = node.as_opt::<BinaryVTable>()
+                && bin.op() == Operator::Eq
+            {
+                return Ok(TraversalOrder::Stop);
             }
             Ok(TraversalOrder::Continue)
         })

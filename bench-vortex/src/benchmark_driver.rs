@@ -218,32 +218,32 @@ fn execute_queries<B: Benchmark>(
         };
 
         // Validate row count if expected counts are provided
-        if let Some(expected_counts) = expected_row_counts {
-            if query_idx < expected_counts.len() {
-                assert_eq!(
-                    row_count, expected_counts[query_idx],
-                    "Row count mismatch for query {query_idx} - duckdb:{format}",
-                );
-            }
+        if let Some(expected_counts) = expected_row_counts
+            && query_idx < expected_counts.len()
+        {
+            assert_eq!(
+                row_count, expected_counts[query_idx],
+                "Row count mismatch for query {query_idx} - duckdb:{format}",
+            );
         }
 
         // End memory tracking after query and collect measurements
-        if let Some(tracker) = global_memory_tracker.as_ref() {
-            if let Some(memory_result) = tracker.end_query() {
-                memory_measurements.push(MemoryMeasurement {
-                    query_idx,
-                    target: match engine_ctx {
-                        EngineCtx::DataFusion(_) => Target::new(Engine::DataFusion, format),
-                        EngineCtx::DuckDB(_) => Target::new(Engine::DuckDB, format),
-                    },
-                    benchmark_dataset: benchmark.dataset(),
-                    storage: url_scheme_to_storage(benchmark.data_url())?,
-                    physical_memory_delta: memory_result.physical_memory_delta,
-                    virtual_memory_delta: memory_result.virtual_memory_delta,
-                    peak_physical_memory: memory_result.peak_physical_memory,
-                    peak_virtual_memory: memory_result.peak_virtual_memory,
-                });
-            }
+        if let Some(tracker) = global_memory_tracker.as_ref()
+            && let Some(memory_result) = tracker.end_query()
+        {
+            memory_measurements.push(MemoryMeasurement {
+                query_idx,
+                target: match engine_ctx {
+                    EngineCtx::DataFusion(_) => Target::new(Engine::DataFusion, format),
+                    EngineCtx::DuckDB(_) => Target::new(Engine::DuckDB, format),
+                },
+                benchmark_dataset: benchmark.dataset(),
+                storage: url_scheme_to_storage(benchmark.data_url())?,
+                physical_memory_delta: memory_result.physical_memory_delta,
+                virtual_memory_delta: memory_result.virtual_memory_delta,
+                peak_physical_memory: memory_result.peak_physical_memory,
+                peak_virtual_memory: memory_result.peak_virtual_memory,
+            });
         }
 
         progress_bar.inc(1);
@@ -253,13 +253,13 @@ fn execute_queries<B: Benchmark>(
 }
 
 async fn export_metrics_if_requested(engine_ctx: &EngineCtx, export_spans: bool) -> Result<()> {
-    if let EngineCtx::DataFusion(ctx) = engine_ctx {
-        if export_spans {
-            if let Err(err) = export_plan_spans(Format::OnDiskVortex, &ctx.execution_plans).await {
-                warn!("failed to export spans {err}");
-            }
-        }
+    if let EngineCtx::DataFusion(ctx) = engine_ctx
+        && export_spans
+        && let Err(err) = export_plan_spans(Format::OnDiskVortex, &ctx.execution_plans).await
+    {
+        warn!("failed to export spans {err}");
     }
+
     Ok(())
 }
 

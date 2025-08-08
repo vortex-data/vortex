@@ -44,7 +44,7 @@ impl TryToDataFusion<ScalarValue> for Scalar {
                     match dscalar.decimal_value() {
                         None => ScalarValue::Decimal128(None, precision, scale),
                         Some(DecimalValue::I128(v128)) => {
-                            ScalarValue::Decimal128(Some(*v128), precision, scale)
+                            ScalarValue::Decimal128(Some(v128), precision, scale)
                         }
                         _ => vortex_bail!(
                             "invalid ScalarValue for decimal with precision {}",
@@ -55,7 +55,7 @@ impl TryToDataFusion<ScalarValue> for Scalar {
                     match dscalar.decimal_value() {
                         None => ScalarValue::Decimal256(None, precision, scale),
                         Some(DecimalValue::I256(v256)) => {
-                            ScalarValue::Decimal256(Some((*v256).into()), precision, scale)
+                            ScalarValue::Decimal256(Some(v256.into()), precision, scale)
                         }
                         _ => vortex_bail!(
                             "invalid ScalarValue for decimal with precision {}",

@@ -143,6 +143,10 @@ impl SequenceArray {
         Self::try_last(self.base, self.multiplier, self.ptype(), self.length)
             .vortex_expect("validated array")
     }
+
+    pub fn dtype(&self) -> &DType {
+        &self.dtype
+    }
 }
 
 impl VTable for SequenceVTable {

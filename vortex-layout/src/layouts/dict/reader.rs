@@ -241,7 +241,6 @@ impl ArrayEvaluation for DictArrayEvaluation {
 mod tests {
     use std::sync::Arc;
 
-    use arcref::ArcRef;
     use futures::executor::block_on;
     use futures::stream;
     use rstest::rstest;
@@ -265,9 +264,9 @@ mod tests {
     #[tokio::test]
     async fn reading_nested_packs_works() {
         let strategy = DictStrategy::new(
-            ArcRef::from(Arc::from(FlatLayoutStrategy::default()) as Arc<dyn LayoutStrategy>),
-            ArcRef::from(Arc::from(FlatLayoutStrategy::default()) as Arc<dyn LayoutStrategy>),
-            ArcRef::from(Arc::from(FlatLayoutStrategy::default()) as Arc<dyn LayoutStrategy>),
+            FlatLayoutStrategy::default(),
+            FlatLayoutStrategy::default(),
+            FlatLayoutStrategy::default(),
             DictLayoutOptions::default(),
             Arc::new(LocalExecutor),
         );
@@ -362,9 +361,9 @@ mod tests {
         #[case] expected: Vec<bool>,
     ) {
         let strategy = DictStrategy::new(
-            ArcRef::from(Arc::from(FlatLayoutStrategy::default()) as Arc<dyn LayoutStrategy>),
-            ArcRef::from(Arc::from(FlatLayoutStrategy::default()) as Arc<dyn LayoutStrategy>),
-            ArcRef::from(Arc::from(FlatLayoutStrategy::default()) as Arc<dyn LayoutStrategy>),
+            FlatLayoutStrategy::default(),
+            FlatLayoutStrategy::default(),
+            FlatLayoutStrategy::default(),
             DictLayoutOptions::default(),
             Arc::new(LocalExecutor),
         );
@@ -411,9 +410,9 @@ mod tests {
     #[tokio::test]
     async fn reading_is_null_works() {
         let strategy = DictStrategy::new(
-            ArcRef::from(Arc::from(FlatLayoutStrategy::default()) as Arc<dyn LayoutStrategy>),
-            ArcRef::from(Arc::from(FlatLayoutStrategy::default()) as Arc<dyn LayoutStrategy>),
-            ArcRef::from(Arc::from(FlatLayoutStrategy::default()) as Arc<dyn LayoutStrategy>),
+            FlatLayoutStrategy::default(),
+            FlatLayoutStrategy::default(),
+            FlatLayoutStrategy::default(),
             DictLayoutOptions::default(),
             Arc::new(LocalExecutor),
         );

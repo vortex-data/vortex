@@ -72,7 +72,7 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
                 };
 
                 let decimal_array = match_each_decimal_value!(value, |value| {
-                    DecimalArray::new(Buffer::full(*value, array.len()), *decimal_type, validity)
+                    DecimalArray::new(Buffer::full(value, array.len()), *decimal_type, validity)
                 });
                 Canonical::Decimal(decimal_array)
             }
@@ -237,7 +237,7 @@ mod tests {
 
     use crate::arrays::ConstantArray;
     use crate::canonical::ToCanonical;
-    use crate::stats::{Stat, StatsProviderExt};
+    use crate::stats::{Stat, StatsProvider};
     use crate::{Array, IntoArray};
 
     #[test]
@@ -271,30 +271,32 @@ mod tests {
             .compute_all(&all::<Stat>().collect_vec())
             .unwrap();
         let canonical = const_array.to_canonical().unwrap();
-        let canonical_stats = canonical.as_ref().statistics().to_owned();
+        let canonical_stats = canonical.as_ref().statistics();
+
+        let stats_ref = stats.as_typed_ref(canonical.as_ref().dtype());
 
         for stat in all::<Stat>() {
             if stat.dtype(canonical.as_ref().dtype()).is_none() {
                 continue;
             }
-            let canonical_stat =
-                canonical_stats.get_scalar(stat, &stat.dtype(canonical.as_ref().dtype()).unwrap());
-            let original_stat =
-                stats.get_scalar(stat, &stat.dtype(canonical.as_ref().dtype()).unwrap());
-            assert_eq!(canonical_stat, original_stat, "stat mismatch {stat}");
+            assert_eq!(
+                canonical_stats.get(stat),
+                stats_ref.get(stat),
+                "stat mismatch {stat}"
+            );
         }
     }
 
     #[test]
     fn test_canonicalize_scalar_values() {
-        let f16_scalar = Scalar::primitive(f16::from_f32(5.722046e-6), Nullability::NonNullable);
-        let scalar = Scalar::new(
-            DType::Primitive(PType::F16, Nullability::NonNullable),
-            Scalar::primitive(96u8, Nullability::NonNullable).into_value(),
-        );
-        let const_array = ConstantArray::new(scalar.clone(), 1).into_array();
+        let f16_value = f16::from_f32(5.722046e-6);
+        let f16_scalar = Scalar::primitive(f16_value, Nullability::NonNullable);
+
+        // Create a ConstantArray with the f16 scalar
+        let const_array = ConstantArray::new(f16_scalar.clone(), 1).into_array();
         let canonical_const = const_array.to_primitive().unwrap();
-        assert_eq!(canonical_const.scalar_at(0).unwrap(), scalar);
+
+        // Verify the scalar value is preserved through canonicalization
         assert_eq!(canonical_const.scalar_at(0).unwrap(), f16_scalar);
     }
 

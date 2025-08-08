@@ -42,10 +42,10 @@ impl OperationsVTable<BitPackedVTable> for BitPackedVTable {
     }
 
     fn scalar_at(array: &BitPackedArray, index: usize) -> VortexResult<Scalar> {
-        if let Some(patches) = array.patches() {
-            if let Some(patch) = patches.get_patched(index)? {
-                return Ok(patch);
-            }
+        if let Some(patches) = array.patches()
+            && let Some(patch) = patches.get_patched(index)?
+        {
+            return Ok(patch);
         }
         unpack_single(array, index)?.cast(array.dtype())
     }

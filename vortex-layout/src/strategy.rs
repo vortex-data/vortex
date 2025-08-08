@@ -1,21 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Each [`LayoutWriter`] is passed horizontal chunks of a Vortex array one-by-one, and is
-//! eventually asked to return a [`crate::LayoutData`]. The writers can buffer, re-chunk, flush, or
-//! otherwise manipulate the chunks of data enabling experimentation with different strategies
-//! all while remaining independent of the read code.
-
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+use async_trait::async_trait;
 use futures::Stream;
 use pin_project_lite::pin_project;
 use vortex_array::{ArrayContext, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::SendableLayoutFuture;
+use crate::LayoutRef;
 use crate::segments::SequenceWriter;
 use crate::sequence::SequenceId;
 
@@ -31,14 +27,38 @@ impl SequentialStream for SendableSequentialStream {
     }
 }
 
+// [layout writer]
+#[async_trait]
 pub trait LayoutStrategy: 'static + Send + Sync {
-    fn write_stream(
+    /// Asynchronously process an ordered stream of array chunks, emitting them into a sink and
+    /// returning the [`Layout`][crate::Layout] instance that can be parsed to retrieve the data
+    /// from rest.
+    ///
+    /// This trait uses the `#[async_trait]` attribute to denote that trait objects of this type
+    /// can be `Box`ed or `Arc`ed and shared around. Commonly, these strategies are composed to
+    /// form a pipeline of operations, each of which modifies the chunk stream in some way before
+    /// passing the data on to a downstream writer.
+    ///
+    /// # Blocking operations
+    ///
+    /// This is an async trait method, which will return a `BoxFuture` that you can await from
+    /// any runtime. Implementations should avoid directly performing blocking work within the
+    /// `write_stream`, and should instead spawn it onto an appropriate runtime or threadpool
+    /// dedicated to such work.
+    ///
+    /// Such operations are common, and include things like compression and parsing large blobs
+    /// of data, or serializing very large messages to flatbuffers.
+    ///
+    /// Consider accepting a [`TaskExecutor`][crate::TaskExecutor] as an input to your strategy
+    /// to support spawning this work in the background.
+    async fn write_stream(
         &self,
         ctx: &ArrayContext,
         sequence_writer: SequenceWriter,
         stream: SendableSequentialStream,
-    ) -> SendableLayoutFuture;
+    ) -> VortexResult<LayoutRef>;
 }
+// [layout writer]
 
 pub trait SequentialStreamExt: SequentialStream {
     // not named boxed to prevent clashing with StreamExt

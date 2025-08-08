@@ -118,11 +118,11 @@ fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
     if array.ptype().is_signed_int() {
         unpatched_taken = unpatched_taken.reinterpret_cast(array.ptype());
     }
-    if let Some(patches) = array.patches() {
-        if let Some(patches) = patches.take(indices.as_ref())? {
-            let cast_patches = patches.cast_values(unpatched_taken.dtype())?;
-            return unpatched_taken.patch(&cast_patches);
-        }
+    if let Some(patches) = array.patches()
+        && let Some(patches) = patches.take(indices.as_ref())?
+    {
+        let cast_patches = patches.cast_values(unpatched_taken.dtype())?;
+        return unpatched_taken.patch(&cast_patches);
     }
 
     Ok(unpatched_taken)

@@ -21,6 +21,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         + Debug
         + Display
         + PartialEq
+        + Eq
         + Hash
         + Deref<Target = dyn VortexExpr>
         + IntoExpr
