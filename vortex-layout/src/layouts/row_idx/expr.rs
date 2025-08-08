@@ -80,3 +80,7 @@ impl VTable for RowIdxVTable {
 pub fn row_idx() -> ExprRef {
     RowIdxExpr.into_expr()
 }
+
+#[cfg(test)]
+#[path = "expr_test.rs"]
+mod expr_test;
