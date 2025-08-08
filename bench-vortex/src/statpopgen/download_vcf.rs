@@ -32,7 +32,9 @@ use crate::statpopgen::schema::SCHEMA;
 
 use super::StatPopGenBenchmark;
 
-const ROW_GROUP_SIZE_IN_VARIANTS: u64 = 1 << 14;
+// DuckDB parallelizes parquet at row-group granularity. Each of our rows are quite big (~4000
+// genotypes each with tens of bytes of data).
+const ROW_GROUP_SIZE_IN_VARIANTS: u64 = 1024;
 
 impl StatPopGenBenchmark {
     pub async fn download_parquet(&self) -> VortexResult<()> {
