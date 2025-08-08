@@ -63,14 +63,14 @@ impl SerdeVTable<ALPVTable> for ALPVTable {
             })
             .transpose()?;
 
-        ALPArray::try_new(
+        Ok(ALPArray::new(
             encoded,
             Exponents {
                 e: u8::try_from(metadata.exp_e).vortex_expect("Exponent e overflow"),
                 f: u8::try_from(metadata.exp_f).vortex_expect("Exponent f overflow"),
             },
             patches,
-        )
+        ))
     }
 }
 

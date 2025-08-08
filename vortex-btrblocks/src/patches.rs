@@ -19,7 +19,7 @@ pub fn compress_patches(patches: &Patches) -> VortexResult<Patches> {
         .compute_is_constant()
         .unwrap_or_default()
     {
-        ConstantArray::new(values.scalar_at(0)?, values.len()).into_array()
+        ConstantArray::new(values.scalar_at(0), values.len()).into_array()
     } else {
         values.clone()
     };

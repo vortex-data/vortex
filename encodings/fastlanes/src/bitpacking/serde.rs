@@ -82,17 +82,15 @@ impl SerdeVTable<BitPackedVTable> for BitPackedVTable {
             })
             .transpose()?;
 
-        unsafe {
-            BitPackedArray::new_unchecked_with_offset(
-                packed,
-                PType::try_from(dtype)?,
-                validity,
-                patches,
-                u8::try_from(metadata.bit_width).vortex_expect("Bit width out of range"),
-                len,
-                u16::try_from(metadata.offset).vortex_expect("Offset out of range"),
-            )
-        }
+        BitPackedArray::try_new(
+            packed,
+            PType::try_from(dtype)?,
+            validity,
+            patches,
+            u8::try_from(metadata.bit_width).vortex_expect("Bit width out of range"),
+            len,
+            u16::try_from(metadata.offset).vortex_expect("Offset out of range"),
+        )
     }
 }
 

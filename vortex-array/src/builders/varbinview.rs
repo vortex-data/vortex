@@ -481,16 +481,8 @@ mod tests {
         array.append_to_builder(&mut builder).unwrap();
         assert_eq!(builder.completed_block_count(), 1);
 
-        array
-            .slice(1, 2)
-            .unwrap()
-            .append_to_builder(&mut builder)
-            .unwrap();
-        array
-            .slice(0, 1)
-            .unwrap()
-            .append_to_builder(&mut builder)
-            .unwrap();
+        array.slice(1, 2).append_to_builder(&mut builder).unwrap();
+        array.slice(0, 1).append_to_builder(&mut builder).unwrap();
         assert_eq!(builder.completed_block_count(), 1);
 
         let array2 = {
@@ -503,16 +495,8 @@ mod tests {
         array2.append_to_builder(&mut builder).unwrap();
         assert_eq!(builder.completed_block_count(), 2);
 
-        array
-            .slice(0, 1)
-            .unwrap()
-            .append_to_builder(&mut builder)
-            .unwrap();
-        array2
-            .slice(0, 1)
-            .unwrap()
-            .append_to_builder(&mut builder)
-            .unwrap();
+        array.slice(0, 1).append_to_builder(&mut builder).unwrap();
+        array2.slice(0, 1).append_to_builder(&mut builder).unwrap();
         assert_eq!(builder.completed_block_count(), 2);
     }
 }

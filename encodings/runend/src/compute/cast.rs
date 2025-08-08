@@ -14,7 +14,7 @@ impl CastKernel for RunEndVTable {
         let casted_values = cast(array.values(), dtype)?;
 
         Ok(Some(
-            RunEndArray::with_offset_and_length(
+            RunEndArray::try_new_offset_length(
                 array.ends().clone(),
                 casted_values,
                 array.offset(),
@@ -96,7 +96,7 @@ mod tests {
         .unwrap();
 
         // Slice it to get offset 3, length 5: [200, 200, 300, 300, 300]
-        let sliced = runend.slice(3, 8).unwrap();
+        let sliced = runend.slice(3, 8);
 
         // Verify the slice is correct before casting
         let sliced_decoded = sliced.to_canonical().unwrap().into_primitive().unwrap();

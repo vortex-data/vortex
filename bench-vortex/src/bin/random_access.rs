@@ -94,13 +94,13 @@ fn random_access(
             .vortex_expect("could not get DOLocationID");
         for (idx, loc) in [90i32, 249, 230, 79, 239, 236].iter().enumerate() {
             assert_eq!(
-                pu_location_id.scalar_at(idx).vortex_expect("scalar_at"),
+                pu_location_id.scalar_at(idx),
                 Scalar::primitive(*loc, NonNullable)
             );
         }
         for (idx, loc) in [164i32, 231, 25, 224, 243, 239].iter().enumerate() {
             assert_eq!(
-                do_location_id.scalar_at(idx).vortex_expect("scalar_at"),
+                do_location_id.scalar_at(idx),
                 Scalar::primitive(*loc, NonNullable)
             );
         }

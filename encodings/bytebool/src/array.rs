@@ -119,19 +119,16 @@ impl CanonicalVTable<ByteBoolVTable> for ByteBoolVTable {
 }
 
 impl OperationsVTable<ByteBoolVTable> for ByteBoolVTable {
-    fn slice(array: &ByteBoolArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        Ok(ByteBoolArray::new(
+    fn slice(array: &ByteBoolArray, start: usize, stop: usize) -> ArrayRef {
+        ByteBoolArray::new(
             array.buffer().slice(start..stop),
-            array.validity().slice(start, stop)?,
+            array.validity().slice(start, stop),
         )
-        .into_array())
+        .into_array()
     }
 
-    fn scalar_at(array: &ByteBoolArray, index: usize) -> VortexResult<Scalar> {
-        Ok(Scalar::bool(
-            array.buffer()[index] == 1,
-            array.dtype().nullability(),
-        ))
+    fn scalar_at(array: &ByteBoolArray, index: usize) -> Scalar {
+        Scalar::bool(array.buffer()[index] == 1, array.dtype().nullability())
     }
 }
 

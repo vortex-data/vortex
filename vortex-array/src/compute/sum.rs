@@ -191,20 +191,20 @@ mod test {
     fn sum_constant() {
         let array = PrimitiveArray::from_iter([1, 1, 1, 1]);
         let result = sum(array.as_ref()).unwrap();
-        assert_eq!(result.as_primitive().as_::<i32>().unwrap(), Some(4));
+        assert_eq!(result.as_primitive().as_::<i32>(), Some(4));
     }
 
     #[test]
     fn sum_constant_float() {
         let array = PrimitiveArray::from_iter([1., 1., 1., 1.]);
         let result = sum(array.as_ref()).unwrap();
-        assert_eq!(result.as_primitive().as_::<f32>().unwrap(), Some(4.));
+        assert_eq!(result.as_primitive().as_::<f32>(), Some(4.));
     }
 
     #[test]
     fn sum_boolean() {
         let array = BoolArray::from_iter([true, false, false, true]);
         let result = sum(array.as_ref()).unwrap();
-        assert_eq!(result.as_primitive().as_::<i32>().unwrap(), Some(2));
+        assert_eq!(result.as_primitive().as_::<i32>(), Some(2));
     }
 }

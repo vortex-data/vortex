@@ -47,10 +47,7 @@ fn test_heterogenous_mask(array: &dyn Array) {
         if masked_out {
             assert!(!masked.is_valid(i).vortex_unwrap());
         } else {
-            assert_eq!(
-                masked.scalar_at(i).vortex_unwrap(),
-                array.scalar_at(i).vortex_unwrap().into_nullable()
-            );
+            assert_eq!(masked.scalar_at(i), array.scalar_at(i).into_nullable());
         }
     }
 }
@@ -66,10 +63,7 @@ fn test_empty_mask(array: &dyn Array) {
 
     // All elements should be preserved
     for i in 0..len {
-        assert_eq!(
-            masked.scalar_at(i).vortex_unwrap(),
-            array.scalar_at(i).vortex_unwrap().into_nullable()
-        );
+        assert_eq!(masked.scalar_at(i), array.scalar_at(i).into_nullable());
     }
 }
 
@@ -101,10 +95,7 @@ fn test_alternating_mask(array: &dyn Array) {
         if i % 2 == 0 {
             assert!(!masked.is_valid(i).vortex_unwrap());
         } else {
-            assert_eq!(
-                masked.scalar_at(i).vortex_unwrap(),
-                array.scalar_at(i).vortex_unwrap().into_nullable()
-            );
+            assert_eq!(masked.scalar_at(i), array.scalar_at(i).into_nullable());
         }
     }
 }
@@ -151,10 +142,7 @@ fn test_single_element_mask(array: &dyn Array) {
     assert!(!masked.is_valid(0).vortex_unwrap());
 
     for i in 1..len {
-        assert_eq!(
-            masked.scalar_at(i).vortex_unwrap(),
-            array.scalar_at(i).vortex_unwrap().into_nullable()
-        );
+        assert_eq!(masked.scalar_at(i), array.scalar_at(i).into_nullable());
     }
 }
 
@@ -178,8 +166,8 @@ fn test_double_mask(array: &dyn Array) {
             assert!(!double_masked.is_valid(i).vortex_unwrap());
         } else {
             assert_eq!(
-                double_masked.scalar_at(i).vortex_unwrap(),
-                array.scalar_at(i).vortex_unwrap().into_nullable()
+                double_masked.scalar_at(i),
+                array.scalar_at(i).into_nullable()
             );
         }
     }
@@ -208,10 +196,7 @@ fn test_nullable_mask_input(array: &dyn Array) {
         if bool_values[i] && validity_values[i] {
             assert!(!masked.is_valid(i).vortex_unwrap());
         } else {
-            assert_eq!(
-                masked.scalar_at(i).vortex_unwrap(),
-                array.scalar_at(i).vortex_unwrap().into_nullable()
-            );
+            assert_eq!(masked.scalar_at(i), array.scalar_at(i).into_nullable());
         }
     }
 }

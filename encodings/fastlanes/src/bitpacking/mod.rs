@@ -88,24 +88,31 @@ impl BitPackedArray {
     ///
     /// See also the [`encode`][Self::encode] method on this type for a safe path to create a new
     /// bit-packed array.
-    pub unsafe fn new_unchecked(
+    pub(crate) fn new_unchecked(
         packed: ByteBuffer,
-        ptype: PType,
+        dtype: DType,
         validity: Validity,
         patches: Option<Patches>,
         bit_width: u8,
         len: usize,
-    ) -> VortexResult<Self> {
-        // SAFETY: checked by caller.
-        unsafe {
-            Self::new_unchecked_with_offset(packed, ptype, validity, patches, bit_width, len, 0)
+        offset: u16,
+    ) -> Self {
+        Self {
+            offset,
+            len,
+            dtype,
+            bit_width,
+            packed,
+            patches,
+            validity,
+            stats_set: Default::default(),
         }
     }
 
     /// An unsafe constructor for a `BitPackedArray` that also specifies a slicing offset.
     ///
     /// See also [`new_unchecked`][Self::new_unchecked].
-    pub(crate) unsafe fn new_unchecked_with_offset(
+    pub(crate) fn try_new(
         packed: ByteBuffer,
         ptype: PType,
         validity: Validity,
@@ -155,16 +162,9 @@ impl BitPackedArray {
         //  enforce custom alignments.
         // let packed = ByteBuffer::new_with_alignment(packed, FASTLANES_ALIGNMENT);
 
-        Ok(Self {
-            offset,
-            len: length,
-            dtype,
-            bit_width,
-            packed,
-            patches,
-            validity,
-            stats_set: Default::default(),
-        })
+        Ok(Self::new_unchecked(
+            packed, dtype, validity, patches, bit_width, length, offset,
+        ))
     }
 
     pub fn ptype(&self) -> PType {

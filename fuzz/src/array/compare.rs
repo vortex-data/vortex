@@ -108,9 +108,7 @@ pub fn compare_canonical_array(
             )
         }),
         DType::Struct(..) | DType::List(..) => {
-            let scalar_vals = (0..array.len())
-                .map(|i| array.scalar_at(i))
-                .collect::<VortexResult<Vec<_>>>()?;
+            let scalar_vals: Vec<Scalar> = (0..array.len()).map(|i| array.scalar_at(i)).collect();
             Ok(BoolArray::from_iter(
                 scalar_vals
                     .iter()

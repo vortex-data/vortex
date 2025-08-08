@@ -1,5 +1,5 @@
-//  SPDX-License-Identifier: Apache-2.0
-//  SPDX-FileCopyrightText: Copyright the Vortex contributors
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub mod display;
 mod visitor;
@@ -55,10 +55,12 @@ pub trait Array: 'static + private::Sealed + Send + Sync + Debug + ArrayVisitor 
     fn encoding_id(&self) -> EncodingId;
 
     /// Performs a constant-time slice of the array.
-    fn slice(&self, start: usize, end: usize) -> VortexResult<ArrayRef>;
+    fn slice(&self, start: usize, end: usize) -> ArrayRef;
 
     /// Fetch the scalar at the given index.
-    fn scalar_at(&self, index: usize) -> VortexResult<Scalar>;
+    ///
+    /// This method panics if the index is out of bounds for the array.
+    fn scalar_at(&self, index: usize) -> Scalar;
 
     /// Returns whether the array is of the given encoding.
     fn is_encoding(&self, encoding: EncodingId) -> bool {
@@ -173,11 +175,11 @@ impl Array for Arc<dyn Array> {
         self.as_ref().encoding_id()
     }
 
-    fn slice(&self, start: usize, end: usize) -> VortexResult<ArrayRef> {
+    fn slice(&self, start: usize, end: usize) -> ArrayRef {
         self.as_ref().slice(start, end)
     }
 
-    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(&self, index: usize) -> Scalar {
         self.as_ref().scalar_at(index)
     }
 
@@ -284,7 +286,7 @@ impl dyn Array + '_ {
     }
 
     pub fn as_constant(&self) -> Option<Scalar> {
-        self.is_constant().then(|| self.scalar_at(0).ok()).flatten()
+        self.is_constant().then(|| self.scalar_at(0))
     }
 
     /// Total size of the array in bytes, including all children and buffers.
@@ -371,25 +373,29 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         V::encoding(&self.0).id()
     }
 
-    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+    fn slice(&self, start: usize, stop: usize) -> ArrayRef {
         if start == 0 && stop == self.len() {
-            return Ok(self.to_array());
+            return self.to_array();
         }
 
-        if start > self.len() {
-            vortex_bail!(OutOfBounds: start, 0, self.len());
-        }
-        if stop > self.len() {
-            vortex_bail!(OutOfBounds: stop, 0, self.len());
-        }
-        if start > stop {
-            vortex_bail!("start ({start}) must be <= stop ({stop})");
-        }
+        assert!(
+            start <= self.len(),
+            "OutOfBounds: start {start} > length {}",
+            self.len()
+        );
+        assert!(
+            stop <= self.len(),
+            "OutOfBounds: stop {stop} > length {}",
+            self.len()
+        );
+
+        assert!(start <= stop, "start ({start}) must be <= stop ({stop})");
+
         if start == stop {
-            return Ok(Canonical::empty(self.dtype()).into_array());
+            return Canonical::empty(self.dtype()).into_array();
         }
 
-        let sliced = <V::OperationsVTable as OperationsVTable<V>>::slice(&self.0, start, stop)?;
+        let sliced = <V::OperationsVTable as OperationsVTable<V>>::slice(&self.0, start, stop);
 
         assert_eq!(
             sliced.len(),
@@ -423,19 +429,17 @@ impl<V: VTable> Array for ArrayAdapter<V> {
             });
         }
 
-        Ok(sliced)
+        sliced
     }
 
-    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        if index >= self.len() {
-            vortex_bail!(OutOfBounds: index, 0, self.len());
+    fn scalar_at(&self, index: usize) -> Scalar {
+        assert!(index < self.len(), "index {index} out of bounds");
+        if self.is_invalid(index).vortex_expect("index out of bounds") {
+            return Scalar::null(self.dtype().clone());
         }
-        if self.is_invalid(index)? {
-            return Ok(Scalar::null(self.dtype().clone()));
-        }
-        let scalar = <V::OperationsVTable as OperationsVTable<V>>::scalar_at(&self.0, index)?;
+        let scalar = <V::OperationsVTable as OperationsVTable<V>>::scalar_at(&self.0, index);
         assert_eq!(self.dtype(), scalar.dtype(), "Scalar dtype mismatch");
-        Ok(scalar)
+        scalar
     }
 
     fn is_valid(&self, index: usize) -> VortexResult<bool> {

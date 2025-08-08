@@ -220,10 +220,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_slice(
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
 
     try_or_throw(&mut env, |_| {
-        let sliced_array = array_ref
-            .inner
-            .as_ref()
-            .slice(start as usize, end as usize)?;
+        let sliced_array = array_ref.inner.as_ref().slice(start as usize, end as usize);
         Ok(NativeArray::new(sliced_array).into_raw())
     })
 }
@@ -272,14 +269,14 @@ macro_rules! get_primitive {
                         .to_extension()
                         .vortex_expect("extension array")
                         .storage()
-                        .scalar_at(index as usize)?
+                        .scalar_at(index as usize)
                 } else {
-                    array_ref.inner.scalar_at(index as usize)?
+                    array_ref.inner.scalar_at(index as usize)
                 };
 
                 Ok(scalar_value
                     .as_primitive()
-                    .as_::<$native>()?
+                    .as_::<$native>()
                     .unwrap_or_default())
             })
         }
@@ -312,9 +309,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getBigDecimal(
                 .to_extension()
                 .vortex_expect("extension array")
                 .storage()
-                .scalar_at(index as usize)?
+                .scalar_at(index as usize)
         } else {
-            array_ref.inner.scalar_at(index as usize)?
+            array_ref.inner.scalar_at(index as usize)
         };
 
         let decimal_scalar = scalar_value.as_decimal();
@@ -376,7 +373,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getBool(
 ) -> jboolean {
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
     try_or_throw(&mut env, |_| {
-        let value = array_ref.inner.scalar_at(index as usize)?;
+        let value = array_ref.inner.scalar_at(index as usize);
         match value.as_bool().value() {
             None => Ok(JNI_FALSE),
             Some(b) => {
@@ -399,7 +396,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getUTF8<'local>(
 ) -> jstring {
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
     try_or_throw(&mut env, |env| {
-        let value = array_ref.inner.scalar_at(index as usize)?;
+        let value = array_ref.inner.scalar_at(index as usize);
         match value.as_utf8().value() {
             None => Ok(JObject::null().into_raw()),
             Some(buf_str) => Ok(env.new_string(buf_str.as_str())?.into_raw()),
@@ -448,7 +445,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getBinary<'local>(
 ) -> jbyteArray {
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
     try_or_throw(&mut env, |env| {
-        let value = array_ref.inner.scalar_at(index as usize)?;
+        let value = array_ref.inner.scalar_at(index as usize);
         match value.as_binary().value() {
             None => Ok(JObject::null().into_raw()),
             Some(buf) => Ok(env.byte_array_from_slice(buf.as_slice())?.into_raw()),

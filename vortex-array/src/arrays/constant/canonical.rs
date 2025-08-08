@@ -245,7 +245,7 @@ mod tests {
         let const_null = ConstantArray::new(Scalar::null(DType::Null), 42);
         let actual = const_null.to_null().unwrap();
         assert_eq!(actual.len(), 42);
-        assert_eq!(actual.scalar_at(33).unwrap(), Scalar::null(DType::Null));
+        assert_eq!(actual.scalar_at(33), Scalar::null(DType::Null));
     }
 
     #[test]
@@ -258,7 +258,7 @@ mod tests {
         assert_eq!(canonical.len(), 4);
 
         for i in 0..=3 {
-            assert_eq!(canonical.scalar_at(i).unwrap(), "four".into());
+            assert_eq!(canonical.scalar_at(i), "four".into());
         }
     }
 
@@ -297,7 +297,7 @@ mod tests {
         let canonical_const = const_array.to_primitive().unwrap();
 
         // Verify the scalar value is preserved through canonicalization
-        assert_eq!(canonical_const.scalar_at(0).unwrap(), f16_scalar);
+        assert_eq!(canonical_const.scalar_at(0), f16_scalar);
     }
 
     #[test]

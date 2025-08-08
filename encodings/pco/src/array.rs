@@ -19,7 +19,7 @@ use vortex_array::vtable::{
 use vortex_array::{ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable};
 use vortex_buffer::{BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::{DType, PType, half};
-use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
 use vortex_scalar::Scalar;
 
 use crate::serde::PcoMetadata;
@@ -69,9 +69,9 @@ impl VTable for PcoVTable {
     }
 }
 
-fn number_type_from_dtype(dtype: &DType) -> VortexResult<NumberType> {
+fn number_type_from_dtype(dtype: &DType) -> NumberType {
     let ptype = dtype.as_ptype();
-    let number_type = match ptype {
+    match ptype {
         PType::F16 => NumberType::F16,
         PType::F32 => NumberType::F32,
         PType::F64 => NumberType::F64,
@@ -81,9 +81,8 @@ fn number_type_from_dtype(dtype: &DType) -> VortexResult<NumberType> {
         PType::U16 => NumberType::U16,
         PType::U32 => NumberType::U32,
         PType::U64 => NumberType::U64,
-        _ => vortex_bail!("PType not supported by Pco: {:?}", ptype),
-    };
-    Ok(number_type)
+        _ => unreachable!("PType not supported by Pco: {:?}", ptype),
+    }
 }
 
 fn collect_valid(parray: &PrimitiveArray) -> VortexResult<PrimitiveArray> {
@@ -152,7 +151,7 @@ impl PcoArray {
         values_per_chunk: usize,
         values_per_page: usize,
     ) -> VortexResult<Self> {
-        let number_type = number_type_from_dtype(parray.dtype())?;
+        let number_type = number_type_from_dtype(parray.dtype());
         let values_per_page = if values_per_page == 0 {
             values_per_chunk
         } else {
@@ -230,7 +229,7 @@ impl PcoArray {
     pub fn decompress(&self) -> VortexResult<ArrayRef> {
         // To start, we figure out which chunks and pages we need to decompress, and with
         // what value offset into the first such page.
-        let number_type = number_type_from_dtype(&self.dtype)?;
+        let number_type = number_type_from_dtype(&self.dtype);
         let values_byte_buffer = match_number_enum!(
             number_type,
             NumberType<T> => {
@@ -242,7 +241,7 @@ impl PcoArray {
             values_byte_buffer,
             self.dtype.as_ptype(),
             self.unsliced_validity
-                .slice(self.slice_start, self.slice_stop)?,
+                .slice(self.slice_start, self.slice_stop),
             self.slice_stop - self.slice_start,
         )?;
         Ok(primitive.into_array())
@@ -370,11 +369,15 @@ impl CanonicalVTable<PcoVTable> for PcoVTable {
 }
 
 impl OperationsVTable<PcoVTable> for PcoVTable {
-    fn slice(array: &PcoArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        Ok(array._slice(start, stop).into_array())
+    fn slice(array: &PcoArray, start: usize, stop: usize) -> ArrayRef {
+        array._slice(start, stop).into_array()
     }
 
-    fn scalar_at(array: &PcoArray, index: usize) -> VortexResult<Scalar> {
-        array._slice(index, index + 1).decompress()?.scalar_at(0)
+    fn scalar_at(array: &PcoArray, index: usize) -> Scalar {
+        array
+            ._slice(index, index + 1)
+            .decompress()
+            .vortex_expect("pcodec decompress")
+            .scalar_at(0)
     }
 }

@@ -35,11 +35,11 @@ use crate::vtable::{ArrayVTable, CanonicalVTable, ValidityHelper};
 /// let array: BoolArray = [true, false, true, false].into_iter().collect();
 ///
 /// // Slice the array
-/// let sliced = array.slice(1, 3).unwrap();
+/// let sliced = array.slice(1, 3);
 /// assert_eq!(sliced.len(), 2);
 ///
 /// // Access individual values
-/// let value = array.scalar_at(0).unwrap();
+/// let value = array.scalar_at(0);
 /// assert_eq!(value, true.into());
 /// ```
 #[derive(Clone, Debug)]
@@ -215,7 +215,7 @@ mod tests {
     #[test]
     fn bool_array() {
         let arr = BoolArray::from_iter([true, false, true]);
-        let scalar = bool::try_from(&arr.scalar_at(0).unwrap()).unwrap();
+        let scalar = bool::try_from(&arr.scalar_at(0)).unwrap();
         assert!(scalar);
     }
 
@@ -225,9 +225,9 @@ mod tests {
 
         assert!(matches!(arr.validity(), Validity::AllValid));
 
-        let scalar = bool::try_from(&arr.scalar_at(0).unwrap()).unwrap();
+        let scalar = bool::try_from(&arr.scalar_at(0)).unwrap();
         assert!(scalar);
-        let scalar = bool::try_from(&arr.scalar_at(1).unwrap()).unwrap();
+        let scalar = bool::try_from(&arr.scalar_at(1)).unwrap();
         assert!(!scalar);
     }
 
@@ -235,19 +235,19 @@ mod tests {
     fn test_bool_from_iter() {
         let arr = BoolArray::from_iter([Some(true), Some(true), None, Some(false), None]);
 
-        let scalar = bool::try_from(&arr.scalar_at(0).unwrap()).unwrap();
+        let scalar = bool::try_from(&arr.scalar_at(0)).unwrap();
         assert!(scalar);
 
-        let scalar = bool::try_from(&arr.scalar_at(1).unwrap()).unwrap();
+        let scalar = bool::try_from(&arr.scalar_at(1)).unwrap();
         assert!(scalar);
 
-        let scalar = arr.scalar_at(2).unwrap();
+        let scalar = arr.scalar_at(2);
         assert!(scalar.is_null());
 
-        let scalar = bool::try_from(&arr.scalar_at(3).unwrap()).unwrap();
+        let scalar = bool::try_from(&arr.scalar_at(3)).unwrap();
         assert!(!scalar);
 
-        let scalar = arr.scalar_at(4).unwrap();
+        let scalar = arr.scalar_at(4);
         assert!(scalar.is_null());
     }
 
@@ -259,7 +259,7 @@ mod tests {
             builder.append_n(11, true);
             BoolArray::from(builder.finish())
         };
-        let sliced = arr.slice(4, 12).unwrap();
+        let sliced = arr.slice(4, 12);
         let sliced_len = sliced.len();
         let (values, offset) = sliced.to_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 4);
@@ -289,7 +289,7 @@ mod tests {
     #[test]
     fn slice_array_in_middle() {
         let arr = BoolArray::from(BooleanBuffer::new_set(16));
-        let sliced = arr.slice(4, 12).unwrap();
+        let sliced = arr.slice(4, 12);
         let sliced_len = sliced.len();
         let (values, offset) = sliced.to_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 4);

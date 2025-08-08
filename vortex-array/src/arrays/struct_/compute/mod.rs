@@ -128,14 +128,14 @@ mod tests {
         assert_eq!(taken.len(), 2);
 
         assert_eq!(
-            taken.scalar_at(0).unwrap(),
+            taken.scalar_at(0),
             Scalar::struct_(
                 DType::Struct(StructFields::new(FieldNames::default(), vec![]), Nullable),
                 vec![]
             )
         );
         assert_eq!(
-            taken.scalar_at(1).unwrap(),
+            taken.scalar_at(1),
             Scalar::null(DType::Struct(
                 StructFields::new(FieldNames::default(), vec![]),
                 Nullable
@@ -153,14 +153,14 @@ mod tests {
         assert_eq!(taken.len(), 2);
 
         assert_eq!(
-            taken.scalar_at(0).unwrap(),
+            taken.scalar_at(0),
             Scalar::struct_(
                 struct_arr.dtype().union_nullability(Nullable),
                 vec![Scalar::primitive(1, NonNullable)],
             )
         );
         assert_eq!(
-            taken.scalar_at(1).unwrap(),
+            taken.scalar_at(1),
             Scalar::null(struct_arr.dtype().union_nullability(Nullable),)
         );
     }

@@ -9,7 +9,7 @@ use crate::{RunEndArray, RunEndVTable};
 
 impl InvertKernel for RunEndVTable {
     fn invert(&self, array: &RunEndArray) -> VortexResult<ArrayRef> {
-        RunEndArray::with_offset_and_length(
+        RunEndArray::try_new_offset_length(
             array.ends().clone(),
             invert(array.values())?,
             array.len(),

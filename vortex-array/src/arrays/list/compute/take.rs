@@ -208,7 +208,7 @@ mod test {
 
         assert!(result.is_valid(0).unwrap());
         assert_eq!(
-            result.scalar_at(0).unwrap(),
+            result.scalar_at(0),
             Scalar::list(
                 element_dtype.clone(),
                 vec![0i32.into(), 5.into()],
@@ -220,7 +220,7 @@ mod test {
 
         assert!(result.is_valid(2).unwrap());
         assert_eq!(
-            result.scalar_at(2).unwrap(),
+            result.scalar_at(2),
             Scalar::list(
                 element_dtype.clone(),
                 vec![3i32.into()],
@@ -230,7 +230,7 @@ mod test {
 
         assert!(result.is_valid(3).unwrap());
         assert_eq!(
-            result.scalar_at(3).unwrap(),
+            result.scalar_at(3),
             Scalar::list(element_dtype, vec![], Nullability::Nullable)
         );
     }
@@ -288,7 +288,7 @@ mod test {
 
         assert!(result.is_valid(0).unwrap());
         assert_eq!(
-            result.scalar_at(0).unwrap(),
+            result.scalar_at(0),
             Scalar::list(
                 element_dtype.clone(),
                 vec![3i32.into()],
@@ -298,7 +298,7 @@ mod test {
 
         assert!(result.is_valid(1).unwrap());
         assert_eq!(
-            result.scalar_at(1).unwrap(),
+            result.scalar_at(1),
             Scalar::list(
                 element_dtype.clone(),
                 vec![0i32.into(), 5.into()],
@@ -308,7 +308,7 @@ mod test {
 
         assert!(result.is_valid(2).unwrap());
         assert_eq!(
-            result.scalar_at(2).unwrap(),
+            result.scalar_at(2),
             Scalar::list(element_dtype, vec![], Nullability::NonNullable)
         );
     }

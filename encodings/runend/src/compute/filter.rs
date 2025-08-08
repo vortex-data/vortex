@@ -162,7 +162,7 @@ mod tests {
 
     #[test]
     fn filter_sliced_run_end() {
-        let arr = ree_array().slice(2, 7).unwrap();
+        let arr = ree_array().slice(2, 7);
         let filtered = filter_run_end(
             arr.as_::<RunEndVTable>(),
             &Mask::from_iter([true, false, false, true, true]),

@@ -10,8 +10,8 @@ use vortex_array::{
     Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable,
 };
 use vortex_dtype::{DType, PType, match_each_unsigned_integer_ptype};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
-use vortex_scalar::{PrimitiveScalar, Scalar};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_scalar::Scalar;
 use zigzag::ZigZag as ExternalZigZag;
 
 use crate::compute::ZigZagEncoded;
@@ -52,6 +52,10 @@ pub struct ZigZagArray {
 pub struct ZigZagEncoding;
 
 impl ZigZagArray {
+    pub fn new(encoded: ArrayRef) -> Self {
+        Self::try_new(encoded).vortex_expect("ZigZigArray new")
+    }
+
     pub fn try_new(encoded: ArrayRef) -> VortexResult<Self> {
         let encoded_dtype = encoded.dtype().clone();
         if !encoded_dtype.is_unsigned_int() {
@@ -98,30 +102,26 @@ impl CanonicalVTable<ZigZagVTable> for ZigZagVTable {
 }
 
 impl OperationsVTable<ZigZagVTable> for ZigZagVTable {
-    fn slice(array: &ZigZagArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        Ok(ZigZagArray::try_new(array.encoded().slice(start, stop)?)?.into_array())
+    fn slice(array: &ZigZagArray, start: usize, stop: usize) -> ArrayRef {
+        ZigZagArray::new(array.encoded().slice(start, stop)).into_array()
     }
 
-    fn scalar_at(array: &ZigZagArray, index: usize) -> VortexResult<Scalar> {
-        let scalar = array.encoded().scalar_at(index)?;
+    fn scalar_at(array: &ZigZagArray, index: usize) -> Scalar {
+        let scalar = array.encoded().scalar_at(index);
         if scalar.is_null() {
-            return Ok(scalar.reinterpret_cast(array.ptype()));
+            return scalar.reinterpret_cast(array.ptype());
         }
 
-        let pscalar = PrimitiveScalar::try_from(&scalar)?;
+        let pscalar = scalar.as_primitive();
         match_each_unsigned_integer_ptype!(pscalar.ptype(), |P| {
-            Ok(Scalar::primitive(
-                <<P as ZigZagEncoded>::Int>::decode(pscalar.typed_value::<P>().ok_or_else(
-                    || {
-                        vortex_err!(
-                            "Cannot decode provided scalar: expected {}, got ptype {}",
-                            std::any::type_name::<P>(),
-                            pscalar.ptype()
-                        )
-                    },
-                )?),
+            Scalar::primitive(
+                <<P as ZigZagEncoded>::Int>::decode(
+                    pscalar
+                        .typed_value::<P>()
+                        .vortex_expect("zigzag corruption"),
+                ),
                 array.dtype().nullability(),
-            ))
+            )
         })
     }
 }
@@ -159,12 +159,9 @@ mod test {
             array.statistics().compute_is_constant()
         );
 
-        let sliced = zigzag.slice(0, 2).unwrap();
+        let sliced = zigzag.slice(0, 2);
         let sliced = sliced.as_::<ZigZagVTable>();
-        assert_eq!(
-            sliced.scalar_at(sliced.len() - 1).unwrap(),
-            Scalar::from(-5i32)
-        );
+        assert_eq!(sliced.scalar_at(sliced.len() - 1), Scalar::from(-5i32));
 
         assert_eq!(
             sliced.statistics().compute_min::<i32>(),

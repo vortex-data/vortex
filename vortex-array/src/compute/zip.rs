@@ -195,11 +195,11 @@ pub(crate) fn zip_impl_with_builder(
         AllOr::None => Ok(if_false.to_array()),
         AllOr::Some(slices) => {
             for (start, end) in slices {
-                builder.extend_from_array(&if_false.slice(builder.len(), *start)?)?;
-                builder.extend_from_array(&if_true.slice(*start, *end)?)?;
+                builder.extend_from_array(&if_false.slice(builder.len(), *start))?;
+                builder.extend_from_array(&if_true.slice(*start, *end))?;
             }
             if builder.len() < if_false.len() {
-                builder.extend_from_array(&if_false.slice(builder.len(), if_false.len())?)?;
+                builder.extend_from_array(&if_false.slice(builder.len(), if_false.len()))?;
             }
             Ok(builder.finish())
         }

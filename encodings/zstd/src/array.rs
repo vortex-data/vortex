@@ -441,7 +441,7 @@ impl ZstdArray {
         // Last, we slice the exact values requested out of the decompressed data.
         let slice_validity = self
             .unsliced_validity
-            .slice(self.slice_start, self.slice_stop)?;
+            .slice(self.slice_start, self.slice_stop);
 
         match &self.dtype {
             DType::Primitive(..) => {
@@ -535,11 +535,15 @@ impl CanonicalVTable<ZstdVTable> for ZstdVTable {
 }
 
 impl OperationsVTable<ZstdVTable> for ZstdVTable {
-    fn slice(array: &ZstdArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        Ok(array._slice(start, stop).into_array())
+    fn slice(array: &ZstdArray, start: usize, stop: usize) -> ArrayRef {
+        array._slice(start, stop).into_array()
     }
 
-    fn scalar_at(array: &ZstdArray, index: usize) -> VortexResult<Scalar> {
-        array._slice(index, index + 1).decompress()?.scalar_at(0)
+    fn scalar_at(array: &ZstdArray, index: usize) -> Scalar {
+        array
+            ._slice(index, index + 1)
+            .decompress()
+            .vortex_expect("zstd decompress")
+            .scalar_at(0)
     }
 }

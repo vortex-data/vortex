@@ -63,13 +63,11 @@ impl ChunkedArray {
         }
     }
 
-    // TODO(ngates): remove result
     #[inline]
-    pub fn chunk(&self, idx: usize) -> VortexResult<&ArrayRef> {
-        if idx >= self.nchunks() {
-            vortex_bail!("chunk index {} > num chunks ({})", idx, self.nchunks());
-        }
-        Ok(&self.chunks[idx])
+    pub fn chunk(&self, idx: usize) -> &ArrayRef {
+        assert!(idx < self.nchunks(), "chunk index {idx} out of bounds");
+
+        &self.chunks[idx]
     }
 
     pub fn nchunks(&self) -> usize {
@@ -194,7 +192,7 @@ impl ValidityVTable<ChunkedVTable> for ChunkedVTable {
             return Ok(true);
         }
         let (chunk, offset_in_chunk) = array.find_chunk_idx(index);
-        array.chunk(chunk)?.is_valid(offset_in_chunk)
+        array.chunk(chunk).is_valid(offset_in_chunk)
     }
 
     fn all_valid(array: &ChunkedArray) -> VortexResult<bool> {

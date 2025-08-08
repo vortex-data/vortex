@@ -31,8 +31,8 @@ fn is_sorted_impl(
             continue;
         }
 
-        let first = chunk.scalar_at(0)?;
-        let last = chunk.scalar_at(chunk.len() - 1)?;
+        let first = chunk.scalar_at(0);
+        let last = chunk.scalar_at(chunk.len() - 1);
 
         first_last.push((first, last));
     }

@@ -48,7 +48,7 @@ static MASK_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
 /// assert_eq!(masked.len(), 5);
 /// assert!(!masked.is_valid(0).unwrap());
 /// assert!(!masked.is_valid(1).unwrap());
-/// assert_eq!(masked.scalar_at(2).unwrap(), Scalar::from(Some(1)));
+/// assert_eq!(masked.scalar_at(2), Scalar::from(Some(1)));
 /// assert!(!masked.is_valid(3).unwrap());
 /// assert!(!masked.is_valid(4).unwrap());
 /// ```

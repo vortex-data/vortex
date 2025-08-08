@@ -36,7 +36,7 @@ impl TakeFromKernel for RunEndVTable {
         let values = take(source, indices.values())?;
 
         // Create a new run-end array containing values as values, instead of indices as values.
-        let ree_array = RunEndArray::with_offset_and_length(
+        let ree_array = RunEndArray::try_new_offset_length(
             indices.ends().clone(),
             values,
             indices.offset(),

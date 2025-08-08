@@ -49,7 +49,7 @@ impl SerdeVTable<RunEndVTable> for RunEndVTable {
 
         let values = children.get(1, dtype, runs)?;
 
-        RunEndArray::with_offset_and_length(
+        RunEndArray::try_new_offset_length(
             ends,
             values,
             usize::try_from(metadata.offset).vortex_expect("Offset must be a valid usize"),

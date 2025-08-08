@@ -82,7 +82,7 @@ impl SparseArray {
         }
 
         if !indices.is_empty() {
-            let last_index = usize::try_from(&indices.scalar_at(indices.len() - 1)?)?;
+            let last_index = usize::try_from(&indices.scalar_at(indices.len() - 1))?;
 
             if last_index - indices_offset >= len {
                 vortex_bail!("Array length was set to {len} but the last index is {last_index}");
@@ -103,11 +103,15 @@ impl SparseArray {
                 fill_value.dtype(),
             );
         }
-        Ok(Self {
+        Ok(Self::new_unchecked(patches, fill_value))
+    }
+
+    pub(crate) fn new_unchecked(patches: Patches, fill_value: Scalar) -> Self {
+        Self {
             patches,
             fill_value,
             stats_set: Default::default(),
-        })
+        }
     }
 
     #[inline]
@@ -242,7 +246,7 @@ impl ArrayVTable<SparseVTable> for SparseVTable {
 
 impl ValidityVTable<SparseVTable> for SparseVTable {
     fn is_valid(array: &SparseArray, index: usize) -> VortexResult<bool> {
-        Ok(match array.patches().get_patched(index)? {
+        Ok(match array.patches().get_patched(index) {
             None => array.fill_scalar().is_valid(),
             Some(patch_value) => patch_value.is_valid(),
         })
@@ -336,7 +340,7 @@ mod test {
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
-    use vortex_error::{VortexError, VortexUnwrap};
+    use vortex_error::VortexUnwrap;
     use vortex_scalar::{PrimitiveScalar, Scalar};
 
     use super::*;
@@ -363,17 +367,16 @@ mod test {
     pub fn test_scalar_at() {
         let array = sparse_array(nullable_fill());
 
-        assert_eq!(array.scalar_at(0).unwrap(), nullable_fill());
-        assert_eq!(array.scalar_at(2).unwrap(), Scalar::from(Some(100_i32)));
-        assert_eq!(array.scalar_at(5).unwrap(), Scalar::from(Some(200_i32)));
+        assert_eq!(array.scalar_at(0), nullable_fill());
+        assert_eq!(array.scalar_at(2), Scalar::from(Some(100_i32)));
+        assert_eq!(array.scalar_at(5), Scalar::from(Some(200_i32)));
+    }
 
-        let error = array.scalar_at(10).err().unwrap();
-        let VortexError::OutOfBounds(i, start, stop, _) = error else {
-            unreachable!()
-        };
-        assert_eq!(i, 10);
-        assert_eq!(start, 0);
-        assert_eq!(stop, 10);
+    #[test]
+    #[should_panic(expected = "out of bounds")]
+    fn test_scalar_at_oob() {
+        let array = sparse_array(nullable_fill());
+        let _ = array.scalar_at(10);
     }
 
     #[test]
@@ -387,31 +390,24 @@ mod test {
         .unwrap();
 
         assert_eq!(
-            PrimitiveScalar::try_from(&arr.scalar_at(10).unwrap())
+            PrimitiveScalar::try_from(&arr.scalar_at(10))
                 .unwrap()
                 .typed_value::<u32>(),
             Some(1234)
         );
-        assert!(arr.scalar_at(0).unwrap().is_null());
-        assert!(arr.scalar_at(99).unwrap().is_null());
+        assert!(arr.scalar_at(0).is_null());
+        assert!(arr.scalar_at(99).is_null());
     }
 
     #[test]
     pub fn scalar_at_sliced() {
-        let sliced = sparse_array(nullable_fill()).slice(2, 7).unwrap();
-        assert_eq!(usize::try_from(&sliced.scalar_at(0).unwrap()).unwrap(), 100);
-        let error = sliced.scalar_at(5).err().unwrap();
-        let VortexError::OutOfBounds(i, start, stop, _) = error else {
-            unreachable!()
-        };
-        assert_eq!(i, 5);
-        assert_eq!(start, 0);
-        assert_eq!(stop, 5);
+        let sliced = sparse_array(nullable_fill()).slice(2, 7);
+        assert_eq!(usize::try_from(&sliced.scalar_at(0)).unwrap(), 100);
     }
 
     #[test]
     pub fn validity_mask_sliced_null_fill() {
-        let sliced = sparse_array(nullable_fill()).slice(2, 7).unwrap();
+        let sliced = sparse_array(nullable_fill()).slice(2, 7);
         assert_eq!(
             sliced.validity_mask().unwrap(),
             Mask::from_iter(vec![true, false, false, true, false])
@@ -431,8 +427,7 @@ mod test {
             Scalar::primitive(1.0f32, Nullability::Nullable),
         )
         .unwrap()
-        .slice(2, 7)
-        .unwrap();
+        .slice(2, 7);
 
         assert_eq!(
             sliced.validity_mask().unwrap(),
@@ -442,31 +437,11 @@ mod test {
 
     #[test]
     pub fn scalar_at_sliced_twice() {
-        let sliced_once = sparse_array(nullable_fill()).slice(1, 8).unwrap();
-        assert_eq!(
-            usize::try_from(&sliced_once.scalar_at(1).unwrap()).unwrap(),
-            100
-        );
-        let error = sliced_once.scalar_at(7).err().unwrap();
-        let VortexError::OutOfBounds(i, start, stop, _) = error else {
-            unreachable!()
-        };
-        assert_eq!(i, 7);
-        assert_eq!(start, 0);
-        assert_eq!(stop, 7);
+        let sliced_once = sparse_array(nullable_fill()).slice(1, 8);
+        assert_eq!(usize::try_from(&sliced_once.scalar_at(1)).unwrap(), 100);
 
-        let sliced_twice = sliced_once.slice(1, 6).unwrap();
-        assert_eq!(
-            usize::try_from(&sliced_twice.scalar_at(3).unwrap()).unwrap(),
-            200
-        );
-        let error2 = sliced_twice.scalar_at(5).err().unwrap();
-        let VortexError::OutOfBounds(i, start, stop, _) = error2 else {
-            unreachable!()
-        };
-        assert_eq!(i, 5);
-        assert_eq!(start, 0);
-        assert_eq!(stop, 5);
+        let sliced_twice = sliced_once.slice(1, 6);
+        assert_eq!(usize::try_from(&sliced_twice.scalar_at(3)).unwrap(), 200);
     }
 
     #[test]

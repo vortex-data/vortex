@@ -78,13 +78,22 @@ impl DateTimePartsArray {
             );
         }
 
-        Ok(Self {
+        Ok(Self::new_unchecked(dtype, days, seconds, subseconds))
+    }
+
+    pub(crate) fn new_unchecked(
+        dtype: DType,
+        days: ArrayRef,
+        seconds: ArrayRef,
+        subseconds: ArrayRef,
+    ) -> Self {
+        Self {
             dtype,
             days,
             seconds,
             subseconds,
             stats_set: Default::default(),
-        })
+        }
     }
 
     pub fn days(&self) -> &ArrayRef {

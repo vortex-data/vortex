@@ -41,7 +41,7 @@ impl TakeKernel for ChunkedVTable {
                     Validity::from_mask(indices_mask.slice(start, stop - start), nullability),
                 );
                 chunks.push(take(
-                    array.chunk(prev_chunk_idx)?,
+                    array.chunk(prev_chunk_idx),
                     indices_in_chunk_array.as_ref(),
                 )?);
                 indices_in_chunk.clear();
@@ -59,7 +59,7 @@ impl TakeKernel for ChunkedVTable {
                 Validity::from_mask(indices_mask.slice(start, stop - start), nullability),
             );
             chunks.push(take(
-                array.chunk(prev_chunk_idx)?,
+                array.chunk(prev_chunk_idx),
                 indices_in_chunk_array.as_ref(),
             )?);
         }
@@ -126,9 +126,9 @@ mod test {
         )
         .unwrap();
         assert_eq!(result.dtype(), expect.dtype());
-        assert_eq!(result.scalar_at(0).unwrap(), expect.scalar_at(0).unwrap());
-        assert_eq!(result.scalar_at(1).unwrap(), expect.scalar_at(1).unwrap());
-        assert_eq!(result.scalar_at(2).unwrap(), expect.scalar_at(2).unwrap());
+        assert_eq!(result.scalar_at(0), expect.scalar_at(0));
+        assert_eq!(result.scalar_at(1), expect.scalar_at(1));
+        assert_eq!(result.scalar_at(2), expect.scalar_at(2));
     }
 
     #[test]

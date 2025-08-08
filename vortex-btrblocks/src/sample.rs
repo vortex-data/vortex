@@ -23,7 +23,7 @@ pub(crate) fn sample(input: &dyn Array, sample_size: u32, sample_count: u32) -> 
     ChunkedArray::try_new(
         slices
             .into_iter()
-            .map(|(start, end)| input.slice(start, end).vortex_expect("slice"))
+            .map(|(start, end)| input.slice(start, end))
             .collect(),
         input.dtype().clone(),
     )

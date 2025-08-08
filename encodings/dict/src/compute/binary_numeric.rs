@@ -57,7 +57,7 @@ mod tests {
             Some(5),
         ]);
         let dict = dict_encode(reference.as_ref()).unwrap();
-        dict.slice(1, 4).unwrap()
+        dict.slice(1, 4)
     }
 
     #[test]
@@ -75,7 +75,7 @@ mod tests {
     #[case::dict_u64_basic(dict_encode(PrimitiveArray::from_iter([5000u64, 6000, 5000, 7000, 6000]).as_ref()).unwrap().into_array())]
     #[case::dict_f32_basic(dict_encode(PrimitiveArray::from_iter([1.5f32, 2.5, 1.5, 3.5, 2.5]).as_ref()).unwrap().into_array())]
     #[case::dict_f64_basic(dict_encode(PrimitiveArray::from_iter([10.1f64, 20.2, 10.1, 30.3, 20.2]).as_ref()).unwrap().into_array())]
-    #[case::dict_i32_sliced(dict_encode(PrimitiveArray::from_iter([100i32, 200, 100, 300, 200, 100]).as_ref()).unwrap().slice(1, 5).unwrap())]
+    #[case::dict_i32_sliced(dict_encode(PrimitiveArray::from_iter([100i32, 200, 100, 300, 200, 100]).as_ref()).unwrap().slice(1, 5))]
     #[case::dict_nullable(dict_encode(PrimitiveArray::from_option_iter([Some(42i32), None, Some(42), Some(1), None]).as_ref()).unwrap().into_array())]
     fn test_dict_binary_numeric_rstest(#[case] array: ArrayRef) {
         test_binary_numeric_array(array)

@@ -76,7 +76,7 @@ impl<S: LayoutStrategy> CompressingStrategy<S> {
         }
     }
 
-    /// Create a new writer that compresses using a [`CompactCompressor`] to compress chunks.
+    /// Create a new writer that compresses using a `CompactCompressor` to compress chunks.
     ///
     /// This may create smaller files than the BtrBlocks writer, in exchange for some penalty
     /// to decoding performance. This is only recommended for datasets that make heavy use of

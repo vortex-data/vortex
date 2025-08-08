@@ -23,7 +23,7 @@ impl CastKernel for ALPVTable {
             )?;
 
             Ok(Some(
-                ALPArray::try_new(new_encoded, array.exponents(), array.patches().cloned())?
+                ALPArray::new(new_encoded, array.exponents(), array.patches().cloned())
                     .into_array(),
             ))
         } else {

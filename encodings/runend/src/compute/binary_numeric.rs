@@ -23,7 +23,7 @@ impl NumericKernel for RunEndVTable {
         let rhs_const_array = ConstantArray::new(rhs_scalar, array.values().len()).into_array();
 
         Ok(Some(
-            RunEndArray::with_offset_and_length(
+            RunEndArray::try_new_offset_length(
                 array.ends().clone(),
                 numeric(array.values(), &rhs_const_array, op)?,
                 array.offset(),

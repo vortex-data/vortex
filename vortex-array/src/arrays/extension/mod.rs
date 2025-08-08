@@ -120,7 +120,7 @@ pub struct ExtensionEncoding;
 /// assert_eq!(currency_array.id().as_ref(), "example.currency");
 ///
 /// // Access maintains extension type information
-/// let first_value = currency_array.scalar_at(0).unwrap();
+/// let first_value = currency_array.scalar_at(0);
 /// assert!(first_value.as_extension_opt().is_some());
 /// ```
 #[derive(Clone, Debug)]
@@ -189,19 +189,16 @@ impl CanonicalVTable<ExtensionVTable> for ExtensionVTable {
 }
 
 impl OperationsVTable<ExtensionVTable> for ExtensionVTable {
-    fn slice(array: &ExtensionArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        Ok(ExtensionArray::new(
+    fn slice(array: &ExtensionArray, start: usize, stop: usize) -> ArrayRef {
+        ExtensionArray::new(
             array.ext_dtype().clone(),
-            array.storage().slice(start, stop)?,
+            array.storage().slice(start, stop),
         )
-        .into_array())
+        .into_array()
     }
 
-    fn scalar_at(array: &ExtensionArray, index: usize) -> VortexResult<Scalar> {
-        Ok(Scalar::extension(
-            array.ext_dtype().clone(),
-            array.storage().scalar_at(index)?,
-        ))
+    fn scalar_at(array: &ExtensionArray, index: usize) -> Scalar {
+        Scalar::extension(array.ext_dtype().clone(), array.storage().scalar_at(index))
     }
 }
 

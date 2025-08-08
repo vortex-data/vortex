@@ -77,11 +77,11 @@ mod test {
     #[test]
     fn take_with_non_zero_offset() {
         let sparse = sparse_array();
-        let sparse = sparse.slice(30, 40).unwrap();
+        let sparse = sparse.slice(30, 40);
         let sparse = take(&sparse, &buffer![6, 7, 8].into_array()).unwrap();
-        assert_eq!(sparse.scalar_at(0).unwrap(), test_array_fill_value());
-        assert_eq!(sparse.scalar_at(1).unwrap(), Scalar::from(Some(0.47)));
-        assert_eq!(sparse.scalar_at(2).unwrap(), test_array_fill_value());
+        assert_eq!(sparse.scalar_at(0), test_array_fill_value());
+        assert_eq!(sparse.scalar_at(1), Scalar::from(Some(0.47)));
+        assert_eq!(sparse.scalar_at(2), test_array_fill_value());
     }
 
     #[test]
@@ -99,7 +99,7 @@ mod test {
         let sparse = sparse_array();
         let taken = take(&sparse, &buffer![69].into_array()).unwrap();
         assert_eq!(taken.len(), 1);
-        assert_eq!(taken.scalar_at(0).unwrap(), test_array_fill_value());
+        assert_eq!(taken.scalar_at(0), test_array_fill_value());
     }
 
     #[test]
@@ -147,15 +147,15 @@ mod test {
         .unwrap();
 
         assert_eq!(
-            taken.scalar_at(0).unwrap(),
+            taken.scalar_at(0),
             Scalar::primitive(1, Nullability::Nullable)
         );
         assert_eq!(
-            taken.scalar_at(1).unwrap(),
+            taken.scalar_at(1),
             Scalar::primitive(10, Nullability::Nullable)
         );
         assert_eq!(
-            taken.scalar_at(2).unwrap(),
+            taken.scalar_at(2),
             Scalar::null(DType::Primitive(I32, Nullability::Nullable))
         );
     }
@@ -178,15 +178,15 @@ mod test {
         .unwrap();
 
         assert_eq!(
-            taken.scalar_at(0).unwrap(),
+            taken.scalar_at(0),
             Scalar::primitive(1, Nullability::Nullable)
         );
         assert_eq!(
-            taken.scalar_at(1).unwrap(),
+            taken.scalar_at(1),
             Scalar::primitive(10, Nullability::Nullable)
         );
         assert_eq!(
-            taken.scalar_at(2).unwrap(),
+            taken.scalar_at(2),
             Scalar::null(DType::Primitive(I32, Nullability::Nullable))
         );
     }

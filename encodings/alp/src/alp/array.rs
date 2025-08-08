@@ -10,7 +10,7 @@ use vortex_array::vtable::{
 };
 use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, vtable};
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexResult, vortex_panic};
 
 use crate::alp::{Exponents, decompress};
 
@@ -51,24 +51,19 @@ pub struct ALPArray {
 pub struct ALPEncoding;
 
 impl ALPArray {
-    // TODO(ngates): remove try_new and panic on wrong DType?
-    pub fn try_new(
-        encoded: ArrayRef,
-        exponents: Exponents,
-        patches: Option<Patches>,
-    ) -> VortexResult<Self> {
+    pub fn new(encoded: ArrayRef, exponents: Exponents, patches: Option<Patches>) -> Self {
         let dtype = match encoded.dtype() {
             DType::Primitive(PType::I32, nullability) => DType::Primitive(PType::F32, *nullability),
             DType::Primitive(PType::I64, nullability) => DType::Primitive(PType::F64, *nullability),
-            d => vortex_bail!(MismatchedTypes: "int32 or int64", d),
+            d => vortex_panic!(MismatchedTypes: "int32 or int64", d),
         };
-        Ok(Self {
+        Self {
             dtype,
             encoded,
             exponents,
             patches,
             stats_set: Default::default(),
-        })
+        }
     }
 
     pub fn ptype(&self) -> PType {

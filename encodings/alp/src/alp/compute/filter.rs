@@ -16,10 +16,7 @@ impl FilterKernel for ALPVTable {
             .transpose()?
             .flatten();
 
-        Ok(
-            ALPArray::try_new(filter(array.encoded(), mask)?, array.exponents(), patches)?
-                .to_array(),
-        )
+        Ok(ALPArray::new(filter(array.encoded(), mask)?, array.exponents(), patches).to_array())
     }
 }
 

@@ -8,7 +8,7 @@ use std::sync::Arc;
 use static_assertions::{assert_eq_align, assert_eq_size};
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexResult, VortexUnwrap, vortex_bail, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_panic};
 
 use crate::builders::{ArrayBuilder, VarBinViewBuilder};
 use crate::stats::{ArrayStats, StatsSetRef};
@@ -373,6 +373,15 @@ pub struct VarBinViewArray {
 pub struct VarBinViewEncoding;
 
 impl VarBinViewArray {
+    pub fn new(
+        views: Buffer<BinaryView>,
+        buffers: Arc<[ByteBuffer]>,
+        dtype: DType,
+        validity: Validity,
+    ) -> Self {
+        Self::try_new(views, buffers, dtype, validity).vortex_expect("VarBinViewArray new")
+    }
+
     pub fn try_new(
         views: Buffer<BinaryView>,
         buffers: Arc<[ByteBuffer]>,
@@ -614,12 +623,9 @@ mod test {
         let binary_arr =
             VarBinViewArray::from_iter_str(["hello world", "hello world this is a long string"]);
         assert_eq!(binary_arr.len(), 2);
+        assert_eq!(binary_arr.scalar_at(0), Scalar::from("hello world"));
         assert_eq!(
-            binary_arr.scalar_at(0).unwrap(),
-            Scalar::from("hello world")
-        );
-        assert_eq!(
-            binary_arr.scalar_at(1).unwrap(),
+            binary_arr.scalar_at(1),
             Scalar::from("hello world this is a long string")
         );
     }
@@ -628,10 +634,9 @@ mod test {
     pub fn slice_array() {
         let binary_arr =
             VarBinViewArray::from_iter_str(["hello world", "hello world this is a long string"])
-                .slice(1, 2)
-                .unwrap();
+                .slice(1, 2);
         assert_eq!(
-            binary_arr.scalar_at(0).unwrap(),
+            binary_arr.scalar_at(0),
             Scalar::from("hello world this is a long string")
         );
     }
@@ -644,8 +649,8 @@ mod test {
         assert!(matches!(flattened, Canonical::VarBinView(_)));
 
         let var_bin = flattened.into_varbinview().unwrap().into_array();
-        assert_eq!(var_bin.scalar_at(0).unwrap(), Scalar::from("string1"));
-        assert_eq!(var_bin.scalar_at(1).unwrap(), Scalar::from("string2"));
+        assert_eq!(var_bin.scalar_at(0), Scalar::from("string1"));
+        assert_eq!(var_bin.scalar_at(1), Scalar::from("string2"));
     }
 
     #[test]

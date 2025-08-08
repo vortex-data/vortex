@@ -276,7 +276,7 @@ impl ScanBuilder<ArrayRef> {
         ))
     }
 
-    /// Returns an [`ArrayStream`] with tasks spawned onto the current Tokio runtime.
+    /// Returns an `ArrayStream` with tasks spawned onto the current Tokio runtime.
     ///
     /// See [`ScanBuilder::into_tokio_stream`] for more details.
     ///

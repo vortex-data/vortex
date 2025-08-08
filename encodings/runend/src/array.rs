@@ -55,15 +55,22 @@ pub struct RunEndEncoding;
 
 impl RunEndArray {
     pub fn try_new(ends: ArrayRef, values: ArrayRef) -> VortexResult<Self> {
+        if !ends.dtype().is_int() || ends.dtype().is_nullable() {
+            vortex_bail!("ends must be non-nullable integer, not {}", ends.dtype());
+        }
+
         let length = if ends.is_empty() {
             0
         } else {
-            ends.scalar_at(ends.len() - 1)?.as_ref().try_into()?
+            ends.scalar_at(ends.len() - 1)
+                .as_primitive()
+                .as_::<usize>()
+                .vortex_expect("run ends are non-null")
         };
-        Self::with_offset_and_length(ends, values, 0, length)
+        Self::try_new_offset_length(ends, values, 0, length)
     }
 
-    pub(crate) fn with_offset_and_length(
+    pub(crate) fn try_new_offset_length(
         ends: ArrayRef,
         values: ArrayRef,
         offset: usize,
@@ -77,7 +84,7 @@ impl RunEndArray {
         }
 
         if offset != 0 && length != 0 {
-            let first_run_end: usize = ends.scalar_at(0)?.as_ref().try_into()?;
+            let first_run_end: usize = ends.scalar_at(0).as_ref().try_into()?;
             if first_run_end <= offset {
                 vortex_bail!("First run end {first_run_end} must be bigger than offset {offset}");
             }
@@ -90,25 +97,33 @@ impl RunEndArray {
             vortex_bail!("Ends array must be strictly sorted");
         }
 
-        Ok(Self {
+        Ok(Self::new_unchecked(ends, values, offset, length))
+    }
+
+    pub(crate) fn new_unchecked(
+        ends: ArrayRef,
+        values: ArrayRef,
+        offset: usize,
+        length: usize,
+    ) -> Self {
+        Self {
             ends,
             values,
             offset,
             length,
             stats_set: Default::default(),
-        })
+        }
     }
 
     /// Convert the given logical index to an index into the `values` array
-    pub fn find_physical_index(&self, index: usize) -> VortexResult<usize> {
-        Ok(self
-            .ends()
+    pub fn find_physical_index(&self, index: usize) -> usize {
+        self.ends()
             .as_primitive_typed()
             .search_sorted(
                 &PValue::from(index + self.offset()),
                 SearchSortedSide::Right,
             )
-            .to_ends_index(self.ends().len()))
+            .to_ends_index(self.ends().len())
     }
 
     /// Run the array through run-end encoding.
@@ -164,9 +179,7 @@ impl ArrayVTable<RunEndVTable> for RunEndVTable {
 
 impl ValidityVTable<RunEndVTable> for RunEndVTable {
     fn is_valid(array: &RunEndArray, index: usize) -> VortexResult<bool> {
-        let physical_idx = array
-            .find_physical_index(index)
-            .vortex_expect("Invalid index");
+        let physical_idx = array.find_physical_index(index);
         array.values().is_valid(physical_idx)
     }
 
@@ -183,7 +196,7 @@ impl ValidityVTable<RunEndVTable> for RunEndVTable {
             Mask::AllTrue(_) => Mask::AllTrue(array.len()),
             Mask::AllFalse(_) => Mask::AllFalse(array.len()),
             Mask::Values(values) => {
-                let ree_validity = RunEndArray::with_offset_and_length(
+                let ree_validity = RunEndArray::try_new_offset_length(
                     array.ends().clone(),
                     values.into_array(),
                     array.offset(),
@@ -239,9 +252,9 @@ mod tests {
         // 0, 1 => 1
         // 2, 3, 4 => 2
         // 5, 6, 7, 8, 9 => 3
-        assert_eq!(arr.scalar_at(0).unwrap(), 1.into());
-        assert_eq!(arr.scalar_at(2).unwrap(), 2.into());
-        assert_eq!(arr.scalar_at(5).unwrap(), 3.into());
-        assert_eq!(arr.scalar_at(9).unwrap(), 3.into());
+        assert_eq!(arr.scalar_at(0), 1.into());
+        assert_eq!(arr.scalar_at(2), 2.into());
+        assert_eq!(arr.scalar_at(5), 3.into());
+        assert_eq!(arr.scalar_at(9), 3.into());
     }
 }

@@ -68,11 +68,11 @@ impl CanonicalVTable<PythonVTable> for PythonVTable {
 }
 
 impl OperationsVTable<PythonVTable> for PythonVTable {
-    fn slice(_array: &PythonArray, _start: usize, _stop: usize) -> VortexResult<ArrayRef> {
+    fn slice(_array: &PythonArray, _start: usize, _stop: usize) -> ArrayRef {
         todo!()
     }
 
-    fn scalar_at(_array: &PythonArray, _index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(_array: &PythonArray, _index: usize) -> Scalar {
         todo!()
     }
 }

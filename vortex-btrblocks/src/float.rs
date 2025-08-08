@@ -217,7 +217,7 @@ impl Scheme for ALPScheme {
 
         let patches = alp.patches().map(compress_patches).transpose()?;
 
-        Ok(ALPArray::try_new(compressed_alp_ints, alp.exponents(), patches)?.into_array())
+        Ok(ALPArray::new(compressed_alp_ints, alp.exponents(), patches).into_array())
     }
 }
 

@@ -147,7 +147,7 @@ mod test {
             Some(5),
         ]);
         let dict = dict_encode(reference.as_ref()).unwrap();
-        dict.slice(1, 4).unwrap()
+        dict.slice(1, 4)
     }
 
     #[test]
@@ -156,15 +156,15 @@ mod test {
         let compared = compare(&sliced, ConstantArray::new(42, 3).as_ref(), Operator::Eq).unwrap();
 
         assert_eq!(
-            compared.scalar_at(0).unwrap(),
+            compared.scalar_at(0),
             Scalar::bool(false, Nullability::Nullable)
         );
         assert_eq!(
-            compared.scalar_at(1).unwrap(),
+            compared.scalar_at(1),
             Scalar::null(DType::Bool(Nullability::Nullable))
         );
         assert_eq!(
-            compared.scalar_at(2).unwrap(),
+            compared.scalar_at(2),
             Scalar::bool(true, Nullability::Nullable)
         );
     }

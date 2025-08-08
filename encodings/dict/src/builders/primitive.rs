@@ -194,13 +194,7 @@ mod test {
             &[0, 0, 0, 1, 1, 0, 1, 0]
         );
         let dict_values = dict.values();
-        assert_eq!(
-            dict_values.scalar_at(0).unwrap(),
-            Scalar::primitive(1, Nullable)
-        );
-        assert_eq!(
-            dict_values.scalar_at(1).unwrap(),
-            Scalar::primitive(3, Nullable)
-        );
+        assert_eq!(dict_values.scalar_at(0), Scalar::primitive(1, Nullable));
+        assert_eq!(dict_values.scalar_at(1), Scalar::primitive(3, Nullable));
     }
 }

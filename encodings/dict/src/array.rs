@@ -49,6 +49,10 @@ pub struct DictArray {
 pub struct DictEncoding;
 
 impl DictArray {
+    pub fn new(codes: ArrayRef, values: ArrayRef) -> Self {
+        Self::try_new(codes, values).vortex_expect("DictArray new")
+    }
+
     pub fn try_new(mut codes: ArrayRef, values: ArrayRef) -> VortexResult<Self> {
         if !codes.dtype().is_unsigned_int() {
             vortex_bail!(MismatchedTypes: "unsigned int", codes.dtype());
@@ -120,9 +124,7 @@ impl CanonicalVTable<DictVTable> for DictVTable {
 
 impl ValidityVTable<DictVTable> for DictVTable {
     fn is_valid(array: &DictArray, index: usize) -> VortexResult<bool> {
-        let scalar = array.codes().scalar_at(index).map_err(|err| {
-            err.with_context(format!("Failed to get index {index} from DictArray codes"))
-        })?;
+        let scalar = array.codes().scalar_at(index);
 
         if scalar.is_null() {
             return Ok(false);

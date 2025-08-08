@@ -65,13 +65,12 @@ pub unsafe extern "C-unwind" fn vx_array_slice(
     array: *const vx_array,
     start: u32,
     stop: u32,
-    error_out: *mut *mut vx_error,
+    // TODO(aduffy): deprecate this from the FFI API.
+    _error_out: *mut *mut vx_error,
 ) -> *const vx_array {
     let array = vx_array::as_ref(array);
-    try_or_default(error_out, || {
-        let sliced = array.slice(start as usize, stop as usize)?;
-        Ok(vx_array::new(sliced))
-    })
+    let sliced = array.slice(start as usize, stop as usize);
+    vx_array::new(sliced)
 }
 
 #[unsafe(no_mangle)]
@@ -99,22 +98,20 @@ macro_rules! ffiarray_get_ptype {
             #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<vx_array_get_ $ptype>](array: *const vx_array, index: u32) -> $ptype {
                 let array = vx_array::as_ref(array);
-                let value = array.scalar_at(index as usize).vortex_expect("scalar_at");
+                let value = array.scalar_at(index as usize);
                 value.as_primitive()
                     .as_::<$ptype>()
-                    .vortex_expect("as_")
                     .vortex_expect("null value")
             }
 
             #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<vx_array_get_storage_ $ptype>](array: *const vx_array, index: u32) -> $ptype {
                 let array = vx_array::as_ref(array);
-                let value = array.scalar_at(index as usize).vortex_expect("scalar_at");
+                let value = array.scalar_at(index as usize);
                 value.as_extension()
                     .storage()
                     .as_primitive()
                     .as_::<$ptype>()
-                    .vortex_expect("as_")
                     .vortex_expect("null value")
             }
         }
@@ -143,7 +140,7 @@ pub unsafe extern "C-unwind" fn vx_array_get_utf8(
     len: *mut c_int,
 ) {
     let array = vx_array::as_ref(array);
-    let value = array.scalar_at(index as usize).vortex_expect("scalar_at");
+    let value = array.scalar_at(index as usize);
     let utf8_scalar = value.as_utf8();
     if let Some(buffer) = utf8_scalar.value() {
         let bytes = buffer.as_bytes();
@@ -163,7 +160,7 @@ pub unsafe extern "C-unwind" fn vx_array_get_binary(
     len: *mut c_int,
 ) {
     let array = vx_array::as_ref(array);
-    let value = array.scalar_at(index as usize).vortex_expect("scalar_at");
+    let value = array.scalar_at(index as usize);
     let utf8_scalar = value.as_binary();
     if let Some(bytes) = utf8_scalar.value() {
         let dst = unsafe { std::slice::from_raw_parts_mut(dst as *mut u8, bytes.len()) };
