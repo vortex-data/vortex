@@ -69,3 +69,19 @@ def test_empty_file(tmpdir_factory):
     # writing file should succeed
     empty_file = tmpdir_factory.mktemp("data") / "empty.vortex"
     vortex.io.write(empty, str(empty_file))
+
+
+def test_stream_pyarrow(tmpdir_factory):
+    import pyarrow.parquet as pq
+
+    data_dir = tmpdir_factory.mktemp("data")
+    table = pa.Table.from_pydict(
+        {
+            "names": ["Alice", "Bob", "Carol"],
+            "ages": [21, 22, 23],
+        }
+    )
+    pq.write_table(table, str(data_dir / "names.parquet"))
+
+    df = pq.read_table(str(data_dir / "names.parquet"))
+    vortex.io.write(df, str(data_dir / "names.vortex"))
