@@ -5163,21 +5163,25 @@ impl StatPopGenBenchmark {
     const BATCH_SIZE: usize = 8192;
 
     pub async fn parquet_to_vortex(&self, format: Format) -> VortexResult<()> {
-        info!("Converting StatPopGen dataset from Parquet to Vortex.");
         let parquet_path = self.parquet_path()?;
-
         let (output_path, strategy) = match format {
-            Format::OnDiskVortex => (
-                self.vortex_path()?,
-                VortexLayoutStrategy::with_executor(Arc::new(Handle::current())),
-            ),
-            Format::VortexCompact => (
-                self.vortex_compact_path()?,
-                VortexLayoutStrategy::compact_with_executor(
-                    Arc::new(Handle::current()),
-                    CompactCompressor::default(),
-                ),
-            ),
+            Format::OnDiskVortex => {
+                info!("Converting StatPopGen dataset from Parquet to Vortex.");
+                (
+                    self.vortex_path()?,
+                    VortexLayoutStrategy::with_executor(Arc::new(Handle::current())),
+                )
+            }
+            Format::VortexCompact => {
+                info!("Converting StatPopGen dataset from Parquet to Vortex-compact.");
+                (
+                    self.vortex_compact_path()?,
+                    VortexLayoutStrategy::compact_with_executor(
+                        Arc::new(Handle::current()),
+                        CompactCompressor::default(),
+                    ),
+                )
+            }
             otherwise => {
                 vortex_bail!("you asked for vortex but gave me {}", otherwise)
             }
