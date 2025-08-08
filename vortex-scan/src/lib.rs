@@ -222,7 +222,6 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self,
     ) -> VortexResult<impl futures::Stream<Item = VortexResult<A>> + Send + 'static> {
         use futures::StreamExt;
-        use vortex_error::{ResultExt, vortex_err};
 
         let handle = tokio::runtime::Handle::current();
         let num_workers = handle.metrics().num_workers();
@@ -232,7 +231,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             .buffered(concurrency)
             .map(|task| {
                 task.map_err(|e| vortex_err!("Failed to join task: {e}"))
-                    .unnest()
+                    .flatten()
             })
             .filter_map(|chunk| async move { chunk.transpose() }))
     }

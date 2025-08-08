@@ -100,7 +100,7 @@ impl ZoneMap {
                 // For stats that are associative, we can just compute them over the stat column
                 Stat::Min | Stat::Max | Stat::Sum => {
                     if let Some(s) = array.statistics().compute_stat(stat)? {
-                        stats_set.set(stat, Precision::exact(s))
+                        stats_set.set(stat, Precision::exact(s.into_value()))
                     }
                 }
                 // These stats sum up
@@ -174,7 +174,7 @@ impl StatsAccumulator {
     pub fn push_chunk(&mut self, array: &dyn Array) -> VortexResult<()> {
         for builder in self.builders.iter_mut() {
             if let Some(v) = array.statistics().compute_stat(builder.stat())? {
-                builder.append_scalar_value(v)?;
+                builder.append_scalar(v.cast(&v.dtype().as_nullable())?)?;
             } else {
                 builder.append_null();
             }

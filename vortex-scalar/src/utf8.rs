@@ -15,7 +15,7 @@ use crate::{InnerScalarValue, Scalar, ScalarValue};
 ///
 /// This type provides a view into a UTF-8 string scalar value, which can be either
 /// a valid UTF-8 string or null.
-#[derive(Debug, Hash)]
+#[derive(Debug, Hash, Eq)]
 pub struct Utf8Scalar<'a> {
     dtype: &'a DType,
     value: Option<Arc<BufferString>>,
@@ -36,11 +36,9 @@ impl PartialEq for Utf8Scalar<'_> {
     }
 }
 
-impl Eq for Utf8Scalar<'_> {}
-
 impl PartialOrd for Utf8Scalar<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.value.cmp(&other.value))
+        Some(self.cmp(other))
     }
 }
 
@@ -75,6 +73,12 @@ impl<'a> Utf8Scalar<'a> {
     /// Returns the string value, or None if null.
     pub fn value(&self) -> Option<BufferString> {
         self.value.as_ref().map(|v| v.as_ref().clone())
+    }
+
+    /// Returns a reference to the string value, or None if null.
+    /// This avoids cloning the underlying BufferString.
+    pub fn value_ref(&self) -> Option<&BufferString> {
+        self.value.as_ref().map(|v| v.as_ref())
     }
 
     /// Constructs a value at most `max_length` in size that's greater than this value.
@@ -149,7 +153,7 @@ impl<'a> Utf8Scalar<'a> {
 
     pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
         if !matches!(dtype, DType::Utf8(..)) {
-            vortex_bail!("Can't cast utf8 to {}", dtype)
+            vortex_bail!("Cannot cast utf8 to {}: unsupported conversion", dtype)
         }
         Ok(Scalar::new(
             dtype.clone(),
@@ -170,15 +174,6 @@ impl<'a> Utf8Scalar<'a> {
     /// Returns whether its value is non-null and empty, otherwise `None`.
     pub fn is_empty(&self) -> Option<bool> {
         self.value.as_ref().map(|v| v.is_empty())
-    }
-
-    /// Convert typed scalar into ScalarValue
-    pub fn into_value(self) -> ScalarValue {
-        ScalarValue(
-            self.value
-                .map(InnerScalarValue::BufferString)
-                .unwrap_or_else(|| InnerScalarValue::Null),
-        )
     }
 }
 
@@ -304,6 +299,26 @@ impl TryFrom<Scalar> for Option<BufferString> {
 
     fn try_from(scalar: Scalar) -> Result<Self, Self::Error> {
         Self::try_from(&scalar)
+    }
+}
+
+impl From<&str> for ScalarValue {
+    fn from(value: &str) -> Self {
+        ScalarValue(InnerScalarValue::BufferString(Arc::new(
+            value.to_string().into(),
+        )))
+    }
+}
+
+impl From<String> for ScalarValue {
+    fn from(value: String) -> Self {
+        ScalarValue(InnerScalarValue::BufferString(Arc::new(value.into())))
+    }
+}
+
+impl From<BufferString> for ScalarValue {
+    fn from(value: BufferString) -> Self {
+        ScalarValue(InnerScalarValue::BufferString(Arc::new(value)))
     }
 }
 

@@ -6,13 +6,13 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use dyn_eq::DynEq;
 use dyn_hash::DynHash;
 pub use exprs::*;
 pub mod aliases;
 mod analysis;
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
+pub mod dyn_traits;
 mod encoding;
 mod exprs;
 mod field;
@@ -50,6 +50,7 @@ use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail};
 use vortex_utils::aliases::hash_set::HashSet;
 pub use vtable::*;
 
+use crate::dyn_traits::DynEq;
 use crate::traversal::{Node, ReferenceCollector};
 
 pub trait IntoExpr {
@@ -98,8 +99,15 @@ pub trait VortexExpr:
     fn return_dtype(&self, scope: &DType) -> VortexResult<DType>;
 }
 
-dyn_eq::eq_trait_object!(VortexExpr);
 dyn_hash::hash_trait_object!(VortexExpr);
+
+impl PartialEq for dyn VortexExpr {
+    fn eq(&self, other: &Self) -> bool {
+        self.dyn_eq(other.as_any())
+    }
+}
+
+impl Eq for dyn VortexExpr {}
 
 impl dyn VortexExpr + '_ {
     pub fn id(&self) -> ExprId {

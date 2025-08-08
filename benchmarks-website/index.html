@@ -51,168 +51,196 @@
     <!-- Chart.js Zoom Plugin -->
 
     <!-- <script src="data.js"></script> -->
-    <script src="code.js"></script>
-    <script id="main-script">
-      initAndRender([
-        ["Random Access", undefined],
-        [
-          "Compression",
-          {
-            keptCharts: [
-              "COMPRESS TIME",
-              "PARQUET RS-ZSTD COMPRESS TIME",
-              "DECOMPRESS TIME",
-              "PARQUET RS-ZSTD DECOMPRESS TIME",
-              "VORTEX:PARQUET-ZSTD RATIO COMPRESS TIME",
-              "VORTEX:PARQUET-ZSTD RATIO DECOMPRESS TIME",
+    <script type="module" id="main-script">
+      import './code.js';
+      
+      // Wait for initialization to complete
+      const waitForInit = () => {
+        if (window.initAndRender) {
+          window.initAndRender([
+            ["Random Access", {
+              renamedDatasets: {
+                "vortex-tokio-local-disk": "vortex-nvme",
+                "parquet-tokio-local-disk": "parquet-nvme"
+              }
+            }],
+            [
+              "Compression",
+              {
+                keptCharts: [
+                  "COMPRESS TIME",
+                  "PARQUET RS-ZSTD COMPRESS TIME",
+                  "DECOMPRESS TIME",
+                  "PARQUET RS-ZSTD DECOMPRESS TIME",
+                  "VORTEX:PARQUET-ZSTD RATIO COMPRESS TIME",
+                  "VORTEX:PARQUET-ZSTD RATIO DECOMPRESS TIME",
+                ],
+                hiddenDatasets: new Set([
+                  "wide table cols=1000 chunks=1 rows=1000",
+                  "wide table cols=1000 chunks=50 rows=1000",
+                ]),
+                removedDatasets: new Set([
+                  "TPC-H l_comment canonical",
+                  "TPC-H l_comment chunked without fsst",
+                  "wide table cols=10 chunks=1 rows=1000",
+                  "wide table cols=100 chunks=1 rows=1000",
+                  "wide table cols=10 chunks=50 rows=1000",
+                  "wide table cols=100 chunks=50 rows=1000",
+                ]),
+                renamedDatasets: undefined,
+              },
             ],
-            hiddenDatasets: undefined,
-            removedDatasets: new Set([
-              "TPC-H l_comment canonical",
-              "TPC-H l_comment chunked without fsst",
-            ]),
-            renamedDatasets: undefined,
-          },
-        ],
-        [
-          "Compression Size",
-          {
-            keptCharts: ["VORTEX SIZE", "VORTEX:PARQUET-ZSTD SIZE RATIO"],
-            hiddenDatasets: undefined,
-          },
-        ],
-        [
-          "Clickbench",
-          {
-            renamedDatasets: {
-              "DataFusion:vortex-file-compressed": "datafusion:vortex",
-              "DataFusion:parquet": "datafusion:parquet",
-              "DataFusion:arrow": "datafusion:arrow",
+            [
+              "Compression Size",
+              {
+                keptCharts: ["VORTEX SIZE", "VORTEX:PARQUET-ZSTD SIZE RATIO"],
+                hiddenDatasets: new Set(["wide table cols=1000"]),
+                removedDatasets: new Set([
+                  "wide table cols=10 chunks=1 rows=1000",
+                  "wide table cols=100 chunks=1 rows=1000",
+                  "wide table cols=10 chunks=50 rows=1000",
+                  "wide table cols=100 chunks=50 rows=1000",
+                ]),
+              },
+            ],
+            [
+              "Clickbench",
+              {
+                renamedDatasets: {
+                  "DataFusion:vortex-file-compressed": "datafusion:vortex",
+                  "DataFusion:parquet": "datafusion:parquet",
+                  "DataFusion:arrow": "datafusion:in-memory-arrow",
 
-              "DuckDB:vortex-file-compressed": "duckdb:vortex",
-              "DuckDB:parquet": "duckdb:parquet",
-              "DuckDB:duckdb": "duckdb:duckdb",
-            },
-          },
-        ],
-        [
-          "TPC-H (NVMe) (SF=1)",
-          {
-            keptCharts: undefined,
-            hiddenDatasets: undefined,
-            removedDatasets: new Set([]),
-            renamedDatasets: {
-              "DataFusion:vortex-file-compressed": "datafusion:vortex",
-              "DataFusion:parquet": "datafusion:parquet",
-              "DataFusion:arrow": "datafusion:arrow",
+                  "DuckDB:vortex-file-compressed": "duckdb:vortex",
+                  "DuckDB:parquet": "duckdb:parquet",
+                  "DuckDB:duckdb": "duckdb:duckdb",
+                },
+              },
+            ],
+            [
+              "TPC-H (NVMe) (SF=1)",
+              {
+                keptCharts: undefined,
+                hiddenDatasets: undefined,
+                removedDatasets: new Set([]),
+                renamedDatasets: {
+                  "DataFusion:vortex-file-compressed": "datafusion:vortex",
+                  "DataFusion:parquet": "datafusion:parquet",
+                  "DataFusion:arrow": "datafusion:in-memory-arrow",
 
-              "DuckDB:vortex-file-compressed": "duckdb:vortex",
-              "DuckDB:parquet": "duckdb:parquet",
-              "DuckDB:duckdb": "duckdb:duckdb",
-            },
-          },
-        ],
-        [
-          "TPC-H (S3) (SF=1)",
-          {
-            keptCharts: undefined,
-            hiddenDatasets: undefined,
-            renamedDatasets: {
-              "DataFusion:vortex-file-compressed": "datafusion:vortex",
-              "DataFusion:parquet": "datafusion:parquet",
-              "DataFusion:arrow": "datafusion:arrow",
+                  "DuckDB:vortex-file-compressed": "duckdb:vortex",
+                  "DuckDB:parquet": "duckdb:parquet",
+                  "DuckDB:duckdb": "duckdb:duckdb",
+                },
+              },
+            ],
+            [
+              "TPC-H (S3) (SF=1)",
+              {
+                keptCharts: undefined,
+                hiddenDatasets: undefined,
+                renamedDatasets: {
+                  "DataFusion:vortex-file-compressed": "datafusion:vortex",
+                  "DataFusion:parquet": "datafusion:parquet",
+                  "DataFusion:arrow": "datafusion:in-memory-arrow",
 
-              "DuckDB:vortex-file-compressed": "duckdb:vortex",
-              "DuckDB:parquet": "duckdb:parquet",
-              "DuckDB:duckdb": "duckdb:duckdb",
-            },
-          },
-        ],
-        [
-          "TPC-H (NVMe) (SF=10)",
-          {
-            renamedDatasets: {
-              "DataFusion:vortex-file-compressed": "datafusion:vortex",
-              "DataFusion:parquet": "datafusion:parquet",
-              "DataFusion:arrow": "datafusion:arrow",
+                  "DuckDB:vortex-file-compressed": "duckdb:vortex",
+                  "DuckDB:parquet": "duckdb:parquet",
+                  "DuckDB:duckdb": "duckdb:duckdb",
+                },
+              },
+            ],
+            [
+              "TPC-H (NVMe) (SF=10)",
+              {
+                renamedDatasets: {
+                  "DataFusion:vortex-file-compressed": "datafusion:vortex",
+                  "DataFusion:parquet": "datafusion:parquet",
+                  "DataFusion:arrow": "datafusion:in-memory-arrow",
 
-              "DuckDB:vortex-file-compressed": "duckdb:vortex",
-              "DuckDB:parquet": "duckdb:parquet",
-              "DuckDB:duckdb": "duckdb:duckdb",
-            },
-          },
-        ],
-        [
-          "TPC-H (S3) (SF=10)",
-          {
-            renamedDatasets: {
-              "DataFusion:vortex-file-compressed": "datafusion:vortex",
-              "DataFusion:parquet": "datafusion:parquet",
-              "DataFusion:arrow": "datafusion:arrow",
+                  "DuckDB:vortex-file-compressed": "duckdb:vortex",
+                  "DuckDB:parquet": "duckdb:parquet",
+                  "DuckDB:duckdb": "duckdb:duckdb",
+                },
+              },
+            ],
+            [
+              "TPC-H (S3) (SF=10)",
+              {
+                renamedDatasets: {
+                  "DataFusion:vortex-file-compressed": "datafusion:vortex",
+                  "DataFusion:parquet": "datafusion:parquet",
+                  "DataFusion:arrow": "datafusion:in-memory-arrow",
 
-              "DuckDB:vortex-file-compressed": "duckdb:vortex",
-              "DuckDB:parquet": "duckdb:parquet",
-              "DuckDB:duckdb": "duckdb:duckdb",
-            },
-          },
-        ],
-        [
-          "TPC-H (NVMe) (SF=100)",
-          {
-            renamedDatasets: {
-              "DataFusion:vortex-file-compressed": "datafusion:vortex",
-              "DataFusion:parquet": "datafusion:parquet",
-              "DataFusion:arrow": "datafusion:arrow",
+                  "DuckDB:vortex-file-compressed": "duckdb:vortex",
+                  "DuckDB:parquet": "duckdb:parquet",
+                  "DuckDB:duckdb": "duckdb:duckdb",
+                },
+              },
+            ],
+            [
+              "TPC-H (NVMe) (SF=100)",
+              {
+                renamedDatasets: {
+                  "DataFusion:vortex-file-compressed": "datafusion:vortex",
+                  "DataFusion:parquet": "datafusion:parquet",
+                  "DataFusion:arrow": "datafusion:in-memory-arrow",
 
-              "DuckDB:vortex-file-compressed": "duckdb:vortex",
-              "DuckDB:parquet": "duckdb:parquet",
-              "DuckDB:duckdb": "duckdb:duckdb",
-            },
-          },
-        ],
-        [
-          "TPC-H (S3) (SF=100)",
-          {
-            renamedDatasets: {
-              "DataFusion:vortex-file-compressed": "datafusion:vortex",
-              "DataFusion:parquet": "datafusion:parquet",
-              "DataFusion:arrow": "datafusion:arrow",
+                  "DuckDB:vortex-file-compressed": "duckdb:vortex",
+                  "DuckDB:parquet": "duckdb:parquet",
+                  "DuckDB:duckdb": "duckdb:duckdb",
+                },
+              },
+            ],
+            [
+              "TPC-H (S3) (SF=100)",
+              {
+                renamedDatasets: {
+                  "DataFusion:vortex-file-compressed": "datafusion:vortex",
+                  "DataFusion:parquet": "datafusion:parquet",
+                  "DataFusion:arrow": "datafusion:in-memory-arrow",
 
-              "DuckDB:vortex-file-compressed": "duckdb:vortex",
-              "DuckDB:parquet": "duckdb:parquet",
-              "DuckDB:duckdb": "duckdb:duckdb",
-            },
-          },
-        ],
-        [
-          "TPC-H (NVMe) (SF=1000)",
-          {
-            renamedDatasets: {
-              "DataFusion:vortex-file-compressed": "datafusion:vortex",
-              "DataFusion:parquet": "datafusion:parquet",
-              "DataFusion:arrow": "datafusion:arrow",
+                  "DuckDB:vortex-file-compressed": "duckdb:vortex",
+                  "DuckDB:parquet": "duckdb:parquet",
+                  "DuckDB:duckdb": "duckdb:duckdb",
+                },
+              },
+            ],
+            [
+              "TPC-H (NVMe) (SF=1000)",
+              {
+                renamedDatasets: {
+                  "DataFusion:vortex-file-compressed": "datafusion:vortex",
+                  "DataFusion:parquet": "datafusion:parquet",
+                  "DataFusion:arrow": "datafusion:in-memory-arrow",
 
-              "DuckDB:vortex-file-compressed": "duckdb:vortex",
-              "DuckDB:parquet": "duckdb:parquet",
-              "DuckDB:duckdb": "duckdb:duckdb",
-            },
-          },
-        ],
-        [
-          "TPC-H (S3) (SF=1000)",
-          {
-            renamedDatasets: {
-              "DataFusion:vortex-file-compressed": "datafusion:vortex",
-              "DataFusion:parquet": "datafusion:parquet",
-              "DataFusion:arrow": "datafusion:arrow",
+                  "DuckDB:vortex-file-compressed": "duckdb:vortex",
+                  "DuckDB:parquet": "duckdb:parquet",
+                  "DuckDB:duckdb": "duckdb:duckdb",
+                },
+              },
+            ],
+            [
+              "TPC-H (S3) (SF=1000)",
+              {
+                renamedDatasets: {
+                  "DataFusion:vortex-file-compressed": "datafusion:vortex",
+                  "DataFusion:parquet": "datafusion:parquet",
+                  "DataFusion:arrow": "datafusion:in-memory-arrow",
 
-              "DuckDB:vortex-file-compressed": "duckdb:vortex",
-              "DuckDB:parquet": "duckdb:parquet",
-              "DuckDB:duckdb": "duckdb:duckdb",
-            },
-          },
-        ],
-      ]);
+                  "DuckDB:vortex-file-compressed": "duckdb:vortex",
+                  "DuckDB:parquet": "duckdb:parquet",
+                  "DuckDB:duckdb": "duckdb:duckdb",
+                },
+              },
+            ],
+          ]);
+        } else {
+          setTimeout(waitForInit, 100);
+        }
+      };
+      
+      waitForInit();
     </script>
   </head>
 
@@ -227,13 +255,17 @@
           <a href="/" class="logo-link">
             <img src="vortex_black_nobg.svg" alt="Vortex" class="site-logo" />
           </a>
-          <h1 class="site-title">Vortex Benchmarks</h1>
         </div>
+        <h1 class="site-title">Vortex Benchmarks</h1>
         <div class="header-center">
           <div class="filter-controls">
             <button id="expand-all" class="control-btn">Expand All</button>
             <button id="collapse-all" class="control-btn">Collapse All</button>
-            <select id="category-filter" class="category-filter">
+            <select
+              id="category-filter"
+              class="category-filter"
+              aria-label="Filter benchmarks by category"
+            >
               <option value="all">All Benchmarks</option>
               <option value="Read/Write">Read/Write</option>
               <option value="Queries (NVMe)">Queries (NVMe)</option>
@@ -288,8 +320,11 @@
 
     <!-- Main Content Area -->
     <div class="main-container">
+      <!-- Sidebar hover zone -->
+      <div class="sidebar-hover-zone" id="sidebar-hover-zone"></div>
+
       <!-- Sidebar Navigation -->
-      <aside id="sidebar" class="sidebar">
+      <aside id="sidebar" class="sidebar collapsed">
         <nav class="sidebar-nav">
           <div class="sidebar-header">
             <h2>Navigation</h2>
@@ -301,11 +336,7 @@
               ×
             </button>
           </div>
-          <button
-            id="clear-filter"
-            class="clear-filter-btn"
-            style="display: none"
-          >
+          <button id="clear-filter" class="clear-filter-btn hidden">
             Clear Filter
           </button>
           <ul id="toc" class="toc-list"></ul>
@@ -328,6 +359,9 @@
           <p>Loading benchmarks...</p>
         </div>
       </main>
+
+      <!-- Sidebar overlay for mobile -->
+      <div class="sidebar-overlay" id="sidebar-overlay"></div>
     </div>
 
     <!-- Back to Top Button -->

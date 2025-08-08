@@ -5,9 +5,7 @@
 #include "vortex/scan.hpp"
 #include "vortex/exception.hpp"
 #include "scan_impl.hpp"
-
 #include "rust/cxx.h"
-#include "vortex_cxx_bridge/lib.h"
 
 namespace vortex {
 // VortexFile implementation

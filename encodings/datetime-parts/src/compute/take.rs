@@ -62,7 +62,7 @@ impl TakeKernel for DateTimePartsVTable {
             .seconds()
             .statistics()
             .get(Stat::Min)
-            .map(|s| s.into_scalar(array.seconds().dtype().clone()).into_inner())
+            .map(|s| s.into_inner())
             .unwrap_or_else(|| Scalar::primitive(0i64, Nullability::NonNullable))
             .cast(array.seconds().dtype())?;
         let taken_seconds = fill_null(taken_seconds.as_ref(), &seconds_fill)?;
@@ -71,10 +71,7 @@ impl TakeKernel for DateTimePartsVTable {
             .subseconds()
             .statistics()
             .get(Stat::Min)
-            .map(|s| {
-                s.into_scalar(array.subseconds().dtype().clone())
-                    .into_inner()
-            })
+            .map(|s| s.into_inner())
             .unwrap_or_else(|| Scalar::primitive(0i64, Nullability::NonNullable))
             .cast(array.subseconds().dtype())?;
         let taken_subseconds = fill_null(taken_subseconds.as_ref(), &subseconds_fill)?;

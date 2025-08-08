@@ -223,7 +223,7 @@ pub trait ArrayBuilderExt: ArrayBuilder {
                 match scalar.as_decimal().decimal_value() {
                     None => builder.append_null(),
                     Some(v) => match_each_decimal_value!(v, |dec_val| {
-                        builder.append_value(*dec_val);
+                        builder.append_value(dec_val);
                     }),
                 }
             }

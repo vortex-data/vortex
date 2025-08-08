@@ -4,7 +4,6 @@
 use std::future;
 use std::sync::Arc;
 
-use arcref::ArcRef;
 use futures::TryStreamExt;
 use futures::executor::block_on;
 use futures::future::try_join;
@@ -20,14 +19,14 @@ use vortex_layout::{LayoutContext, LayoutStrategy, LocalExecutor};
 
 use crate::footer::{FileStatistics, FooterFlatBufferWriter, Postscript, PostscriptSegment};
 use crate::segments::writer::SerialSegmentWriter;
-use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION, VortexLayoutStrategy};
+use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION, WriteStrategyBuilder};
 
 /// Configure a new writer, which can eventually be used to write an [`ArrayStream`] into a sink that implements [`VortexWrite`].
 ///
-/// By default, the [`LayoutStrategy`] will be the [`VortexLayoutStrategy`], which includes re-chunking and will also
-/// uncompress all data back to its canonical form before compressing it using the `vortex_btrblocks::BtrBlocksCompressor`.
+/// Unless overridden, the default [write strategy][crate::WriteStrategyBuilder] will be used with no
+/// additional configuration.
 pub struct VortexWriteOptions {
-    strategy: ArcRef<dyn LayoutStrategy>,
+    strategy: Arc<dyn LayoutStrategy>,
     exclude_dtype: bool,
     max_variable_length_statistics_size: usize,
     file_statistics: Vec<Stat>,
@@ -36,7 +35,9 @@ pub struct VortexWriteOptions {
 impl Default for VortexWriteOptions {
     fn default() -> Self {
         Self {
-            strategy: VortexLayoutStrategy::with_executor(Arc::new(LocalExecutor)),
+            strategy: WriteStrategyBuilder::new()
+                .with_executor(Arc::new(LocalExecutor))
+                .build(),
             exclude_dtype: false,
             file_statistics: PRUNING_STATS.to_vec(),
             max_variable_length_statistics_size: 64,
@@ -46,7 +47,7 @@ impl Default for VortexWriteOptions {
 
 impl VortexWriteOptions {
     /// Replace the default layout strategy with the provided one.
-    pub fn with_strategy(mut self, strategy: ArcRef<dyn LayoutStrategy>) -> Self {
+    pub fn with_strategy(mut self, strategy: Arc<dyn LayoutStrategy>) -> Self {
         self.strategy = strategy;
         self
     }

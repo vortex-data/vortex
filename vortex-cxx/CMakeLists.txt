@@ -3,6 +3,9 @@
 
 cmake_minimum_required(VERSION 3.22)
 
+# FetchContent from URL timestamp handling
+cmake_policy(SET CMP0135 NEW)
+
 project(vortex)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -24,14 +27,9 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(Corrosion)
 
+set(RUST_SOURCE_FILE lib.rs read.rs write.rs)
+
 # Import Rust crate using Corrosion
-if(VORTEX_ENABLE_TESTING)
-    set(CORROSION_FEATURES gen_test_data)
-    # Workaround to conditionally generate bindings of the test function *and* compile the test function: https://github.com/dtolnay/cxx/issues/1325
-    set(RUST_SOURCE_FILE lib.rs gen_test_data.rs)
-else()
-    set(RUST_SOURCE_FILE lib.rs)
-endif()
 corrosion_import_crate(
     MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml
     FEATURES ${CORROSION_FEATURES}
@@ -49,7 +47,6 @@ FetchContent_MakeAvailable(nanoarrow)
 set(CPP_SOURCE_FILE
     cpp/src/write_options.cpp
     cpp/src/file.cpp
-    cpp/src/thread_pool.cpp
     cpp/src/scan.cpp
 )
 
@@ -87,10 +84,10 @@ if (VORTEX_ENABLE_TESTING)
     FetchContent_MakeAvailable(googletest)
 
     enable_testing()
-    add_executable(vortex_cxx_test cpp/tests/basic_test.cpp)
+    add_executable(vortex_cxx_test cpp/tests/basic_test.cpp cpp/tests/test_data_generator.cpp)
     target_include_directories(vortex_cxx_test PUBLIC ${CPP_INCLUDE_DIRS})
+    target_include_directories(vortex_cxx_test PRIVATE cpp/tests)
     target_link_libraries(vortex_cxx_test PRIVATE gtest_main vortex nanoarrow_static)
-    # unit tests link to the bridge for the gen_test_data function only
     target_include_directories(vortex_cxx_test PRIVATE 
         ${CMAKE_CURRENT_BINARY_DIR}/corrosion_generated/cxxbridge/vortex_cxx_bridge/include
     )

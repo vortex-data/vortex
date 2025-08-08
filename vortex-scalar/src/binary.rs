@@ -44,7 +44,7 @@ impl Eq for BinaryScalar<'_> {}
 
 impl PartialOrd for BinaryScalar<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.value.cmp(&other.value))
+        Some(self.cmp(other))
     }
 }
 
@@ -79,6 +79,12 @@ impl<'a> BinaryScalar<'a> {
     /// Returns the binary value as a byte buffer, or None if null.
     pub fn value(&self) -> Option<ByteBuffer> {
         self.value.as_ref().map(|v| v.as_ref().clone())
+    }
+
+    /// Returns a reference to the binary value, or None if null.
+    /// This avoids cloning the underlying ByteBuffer.
+    pub fn value_ref(&self) -> Option<&ByteBuffer> {
+        self.value.as_ref().map(|v| v.as_ref())
     }
 
     /// Constructs a value at most `max_length` in size that's greater than this value.
@@ -133,7 +139,7 @@ impl<'a> BinaryScalar<'a> {
 
     pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
         if !matches!(dtype, DType::Binary(..)) {
-            vortex_bail!("Can't cast binary to {}", dtype)
+            vortex_bail!("Cannot cast binary to {}: unsupported conversion", dtype)
         }
         Ok(Scalar::new(
             dtype.clone(),
@@ -154,15 +160,6 @@ impl<'a> BinaryScalar<'a> {
     /// Returns whether its value is non-null and empty, otherwise `None`.
     pub fn is_empty(&self) -> Option<bool> {
         self.value.as_ref().map(|v| v.is_empty())
-    }
-
-    /// Extract value as a ScalarValue
-    pub fn into_value(self) -> ScalarValue {
-        ScalarValue(
-            self.value
-                .map(InnerScalarValue::Buffer)
-                .unwrap_or_else(|| InnerScalarValue::Null),
-        )
     }
 }
 
@@ -241,7 +238,7 @@ impl From<ByteBuffer> for Scalar {
     fn from(value: ByteBuffer) -> Self {
         Self {
             dtype: DType::Binary(Nullability::NonNullable),
-            value: ScalarValue(InnerScalarValue::Buffer(Arc::new(value))),
+            value: value.into(),
         }
     }
 }
@@ -252,6 +249,18 @@ impl From<Arc<ByteBuffer>> for Scalar {
             dtype: DType::Binary(Nullability::NonNullable),
             value: ScalarValue(InnerScalarValue::Buffer(value)),
         }
+    }
+}
+
+impl From<&[u8]> for ScalarValue {
+    fn from(value: &[u8]) -> Self {
+        ScalarValue::from(ByteBuffer::from(value.to_vec()))
+    }
+}
+
+impl From<ByteBuffer> for ScalarValue {
+    fn from(value: ByteBuffer) -> Self {
+        ScalarValue(InnerScalarValue::Buffer(Arc::new(value)))
     }
 }
 

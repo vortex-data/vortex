@@ -113,10 +113,10 @@ impl FileOpener for VortexFileOpener {
             let scan_builder = ScanBuilder::new(layout_reader);
             let mut scan_builder = apply_byte_range(file_meta, vxf.row_count(), scan_builder);
 
-            if let Some(limit) = limit {
-                if filter.is_none() {
-                    scan_builder = scan_builder.with_limit(limit);
-                }
+            if let Some(limit) = limit
+                && filter.is_none()
+            {
+                scan_builder = scan_builder.with_limit(limit);
             }
 
             let stream = scan_builder

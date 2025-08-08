@@ -13,7 +13,7 @@ use vortex_error::{
     VortexError, VortexExpect as _, VortexResult, VortexUnwrap, vortex_err, vortex_panic,
 };
 
-use crate::pvalue::PValue;
+use crate::pvalue::{CoercePValue, PValue};
 use crate::{InnerScalarValue, Scalar, ScalarValue};
 
 /// A scalar value representing a primitive type.
@@ -67,11 +67,10 @@ impl<'a> PrimitiveScalar<'a> {
         // Read the serialized value into the correct PValue.
         // The serialized form may come back over the wire as e.g. any integer type.
         let pvalue = match_each_native_ptype!(ptype, |T| {
-            if let Some(pvalue) = value.as_pvalue()? {
-                Some(PValue::from(<T>::try_from(pvalue)?))
-            } else {
-                None
-            }
+            value
+                .as_pvalue()?
+                .map(|pv| VortexResult::Ok(PValue::from(<T>::coerce(pv)?)))
+                .transpose()?
         });
 
         Ok(Self {
@@ -101,9 +100,13 @@ impl<'a> PrimitiveScalar<'a> {
 
     /// Returns the value as a specific native primitive type.
     ///
+    /// Returns `None` if the scalar is null, otherwise returns `Some(value)` where
+    /// value is the underlying primitive value cast to the requested type `T`.
+    ///
     /// # Panics
     ///
     /// Panics if the primitive type of this scalar does not match the requested type.
+    /// For example, attempting to read an i32 scalar as f32 will panic.
     pub fn typed_value<T: NativePType + TryFrom<PValue, Error = VortexError>>(&self) -> Option<T> {
         assert_eq!(
             self.ptype,
@@ -124,13 +127,7 @@ impl<'a> PrimitiveScalar<'a> {
         Ok(match_each_native_ptype!(ptype, |Q| {
             Scalar::primitive(
                 pvalue.as_primitive::<Q>().map_err(|err| {
-                    vortex_err!(
-                        "Can't cast {} scalar {} to {} (cause: {})",
-                        self.ptype,
-                        pvalue,
-                        dtype,
-                        err
-                    )
+                    vortex_err!("Cannot cast {} to {}: {}", self.ptype, dtype, err)
                 })?,
                 dtype.nullability(),
             )
@@ -146,28 +143,66 @@ impl<'a> PrimitiveScalar<'a> {
         match self.pvalue {
             None => Ok(None),
             Some(pv) => Ok(Some(match pv {
-                PValue::U8(v) => T::from_u8(v)
-                    .ok_or_else(|| vortex_err!("Failed to cast u8 to {}", type_name::<T>())),
-                PValue::U16(v) => T::from_u16(v)
-                    .ok_or_else(|| vortex_err!("Failed to cast u16 to {}", type_name::<T>())),
-                PValue::U32(v) => T::from_u32(v)
-                    .ok_or_else(|| vortex_err!("Failed to cast u32 to {}", type_name::<T>())),
-                PValue::U64(v) => T::from_u64(v)
-                    .ok_or_else(|| vortex_err!("Failed to cast u64 to {}", type_name::<T>())),
-                PValue::I8(v) => T::from_i8(v)
-                    .ok_or_else(|| vortex_err!("Failed to cast i8 to {}", type_name::<T>())),
-                PValue::I16(v) => T::from_i16(v)
-                    .ok_or_else(|| vortex_err!("Failed to cast i16 to {}", type_name::<T>())),
-                PValue::I32(v) => T::from_i32(v)
-                    .ok_or_else(|| vortex_err!("Failed to cast i32 to {}", type_name::<T>())),
-                PValue::I64(v) => T::from_i64(v)
-                    .ok_or_else(|| vortex_err!("Failed to cast i64 to {}", type_name::<T>())),
-                PValue::F16(v) => T::from_f16(v)
-                    .ok_or_else(|| vortex_err!("Failed to cast f16 to {}", type_name::<T>())),
-                PValue::F32(v) => T::from_f32(v)
-                    .ok_or_else(|| vortex_err!("Failed to cast f32 to {}", type_name::<T>())),
-                PValue::F64(v) => T::from_f64(v)
-                    .ok_or_else(|| vortex_err!("Failed to cast f64 to {}", type_name::<T>())),
+                PValue::U8(v) => T::from_u8(v).ok_or_else(|| {
+                    vortex_err!("Cannot cast u8 to {}: value out of range", type_name::<T>())
+                }),
+                PValue::U16(v) => T::from_u16(v).ok_or_else(|| {
+                    vortex_err!(
+                        "Cannot cast u16 to {}: value out of range",
+                        type_name::<T>()
+                    )
+                }),
+                PValue::U32(v) => T::from_u32(v).ok_or_else(|| {
+                    vortex_err!(
+                        "Cannot cast u32 to {}: value out of range",
+                        type_name::<T>()
+                    )
+                }),
+                PValue::U64(v) => T::from_u64(v).ok_or_else(|| {
+                    vortex_err!(
+                        "Cannot cast u64 to {}: value out of range",
+                        type_name::<T>()
+                    )
+                }),
+                PValue::I8(v) => T::from_i8(v).ok_or_else(|| {
+                    vortex_err!("Cannot cast i8 to {}: value out of range", type_name::<T>())
+                }),
+                PValue::I16(v) => T::from_i16(v).ok_or_else(|| {
+                    vortex_err!(
+                        "Cannot cast i16 to {}: value out of range",
+                        type_name::<T>()
+                    )
+                }),
+                PValue::I32(v) => T::from_i32(v).ok_or_else(|| {
+                    vortex_err!(
+                        "Cannot cast i32 to {}: value out of range",
+                        type_name::<T>()
+                    )
+                }),
+                PValue::I64(v) => T::from_i64(v).ok_or_else(|| {
+                    vortex_err!(
+                        "Cannot cast i64 to {}: value out of range",
+                        type_name::<T>()
+                    )
+                }),
+                PValue::F16(v) => T::from_f16(v).ok_or_else(|| {
+                    vortex_err!(
+                        "Cannot cast f16 to {}: value out of range",
+                        type_name::<T>()
+                    )
+                }),
+                PValue::F32(v) => T::from_f32(v).ok_or_else(|| {
+                    vortex_err!(
+                        "Cannot cast f32 to {}: value out of range",
+                        type_name::<T>()
+                    )
+                }),
+                PValue::F64(v) => T::from_f64(v).ok_or_else(|| {
+                    vortex_err!(
+                        "Cannot cast f64 to {}: value out of range",
+                        type_name::<T>()
+                    )
+                }),
             }?)),
         }
     }
@@ -268,10 +303,10 @@ impl Scalar {
     /// Note that an explicit PType is passed since any compatible PValue may be used as the value
     /// for a primitive type.
     pub fn primitive_value(value: PValue, ptype: PType, nullability: Nullability) -> Self {
-        Self {
-            dtype: DType::Primitive(ptype, nullability),
-            value: ScalarValue(InnerScalarValue::Primitive(value)),
-        }
+        Self::new(
+            DType::Primitive(ptype, nullability),
+            ScalarValue(InnerScalarValue::Primitive(value)),
+        )
     }
 
     /// Reinterprets the bytes of this scalar as a different primitive type.
@@ -341,10 +376,10 @@ macro_rules! primitive_scalar {
 
         impl From<$T> for Scalar {
             fn from(value: $T) -> Self {
-                Scalar {
-                    dtype: DType::Primitive(<$T>::PTYPE, Nullability::NonNullable),
-                    value: ScalarValue(InnerScalarValue::Primitive(value.into())),
-                }
+                Scalar::new(
+                    DType::Primitive(<$T>::PTYPE, Nullability::NonNullable),
+                    ScalarValue(InnerScalarValue::Primitive(value.into())),
+                )
             }
         }
     };
@@ -389,6 +424,41 @@ impl TryFrom<&Scalar> for Option<usize> {
 impl From<usize> for Scalar {
     fn from(value: usize) -> Self {
         Scalar::primitive(value as u64, Nullability::NonNullable)
+    }
+}
+
+macro_rules! primitive_scalar {
+    ($T:ty) => {
+        impl From<$T> for ScalarValue {
+            fn from(value: $T) -> Self {
+                ScalarValue(InnerScalarValue::Primitive(value.into()))
+            }
+        }
+    };
+}
+
+primitive_scalar!(u8);
+primitive_scalar!(u16);
+primitive_scalar!(u32);
+primitive_scalar!(u64);
+primitive_scalar!(i8);
+primitive_scalar!(i16);
+primitive_scalar!(i32);
+primitive_scalar!(i64);
+primitive_scalar!(f16);
+primitive_scalar!(f32);
+primitive_scalar!(f64);
+
+impl From<PValue> for ScalarValue {
+    fn from(value: PValue) -> Self {
+        ScalarValue(InnerScalarValue::Primitive(value))
+    }
+}
+
+/// Read a scalar as usize. For usize only, we implicitly cast for better ergonomics.
+impl From<usize> for ScalarValue {
+    fn from(value: usize) -> Self {
+        ScalarValue(InnerScalarValue::Primitive((value as u64).into()))
     }
 }
 

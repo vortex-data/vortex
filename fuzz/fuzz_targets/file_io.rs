@@ -50,71 +50,63 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
             .vortex_unwrap()
     };
 
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
+    let full_buff = VortexWriteOptions::default()
+        .write_blocking(ByteBufferMut::empty(), array_data.to_array_stream())
         .vortex_unwrap();
 
-    runtime.block_on(async move {
-        let full_buff = VortexWriteOptions::default()
-            .write(ByteBufferMut::empty(), array_data.to_array_stream())
-            .await
+    let mut output = VortexOpenOptions::in_memory()
+        .open(full_buff)
+        .vortex_unwrap()
+        .scan()
+        .vortex_unwrap()
+        .with_projection(projection_expr.unwrap_or_else(|| root()))
+        .with_some_filter(filter_expr)
+        .into_array_iter()
+        .vortex_unwrap()
+        .try_collect::<_, Vec<_>, _>()
+        .vortex_unwrap();
+
+    let output_array = match output.len() {
+        0 => Canonical::empty(expected_array.dtype()).into_array(),
+        1 => output.pop().vortex_expect("one output"),
+        _ => ChunkedArray::from_iter(output).into_array(),
+    };
+
+    assert_eq!(
+        expected_array.len(),
+        output_array.len(),
+        "Length was not preserved."
+    );
+    assert_eq!(
+        expected_array.dtype(),
+        output_array.dtype(),
+        "DTypes aren't preserved expected {}, actual {}",
+        expected_array.dtype(),
+        output_array.dtype()
+    );
+
+    if matches!(
+        expected_array.dtype(),
+        DType::Struct(_, _) | DType::List(_, _)
+    ) {
+        compare_struct(expected_array, output_array);
+    } else {
+        let bool_result = compare(&expected_array, &output_array, Operator::Eq)
+            .vortex_unwrap()
+            .to_bool()
             .vortex_unwrap();
-
-        let mut output = VortexOpenOptions::in_memory()
-            .open(full_buff)
-            .vortex_unwrap()
-            .scan()
-            .vortex_unwrap()
-            .with_projection(projection_expr.unwrap_or_else(|| root()))
-            .with_some_filter(filter_expr)
-            .into_array_iter_multithread()
-            .vortex_unwrap()
-            .try_collect::<_, Vec<_>, _>()
-            .vortex_unwrap();
-
-        let output_array = match output.len() {
-            0 => Canonical::empty(expected_array.dtype()).into_array(),
-            1 => output.pop().vortex_expect("one output"),
-            _ => ChunkedArray::from_iter(output).into_array(),
-        };
-
-        assert_eq!(
-            expected_array.len(),
-            output_array.len(),
-            "Length was not preserved."
-        );
-        assert_eq!(
-            expected_array.dtype(),
-            output_array.dtype(),
-            "DTypes aren't preserved expected {}, actual {}",
-            expected_array.dtype(),
-            output_array.dtype()
-        );
-
-        if matches!(
-            expected_array.dtype(),
-            DType::Struct(_, _) | DType::List(_, _)
-        ) {
-            compare_struct(expected_array, output_array);
-        } else {
-            let bool_result = compare(&expected_array, &output_array, Operator::Eq)
-                .vortex_unwrap()
-                .to_bool()
-                .vortex_unwrap();
-            let true_count = bool_result.boolean_buffer().count_set_bits();
-            if true_count != expected_array.len()
-                && (bool_result.all_valid().vortex_unwrap()
-                    || expected_array.all_valid().vortex_unwrap())
-            {
-                vortex_panic!(
-                    "Failed to match original array {}with{}",
-                    expected_array.display_tree(),
-                    output_array.display_tree()
-                );
-            }
+        let true_count = bool_result.boolean_buffer().count_set_bits();
+        if true_count != expected_array.len()
+            && (bool_result.all_valid().vortex_unwrap()
+                || expected_array.all_valid().vortex_unwrap())
+        {
+            vortex_panic!(
+                "Failed to match original array {}with{}",
+                expected_array.display_tree(),
+                output_array.display_tree()
+            );
         }
-    });
+    }
 
     Corpus::Keep
 });

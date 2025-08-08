@@ -13,9 +13,7 @@ use futures::future::{BoxFuture, Shared, WeakShared};
 use futures::stream::BoxStream;
 use futures::{FutureExt, StreamExt, TryFutureExt};
 use vortex_buffer::ByteBuffer;
-use vortex_error::{
-    ResultExt, SharedVortexResult, VortexError, VortexExpect, VortexResult, vortex_err,
-};
+use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult, vortex_err};
 
 use crate::segments::{SegmentId, SegmentSource};
 
@@ -201,7 +199,7 @@ impl SegmentEventsFuture {
         let this = SegmentEventsFuture {
             future: recv
                 .map_err(|e| vortex_err!("pending segment receiver dropped: {}", e))
-                .map(|r| r.unnest())
+                .map(|r| r.flatten())
                 .map_err(Arc::new)
                 .boxed(),
             id,

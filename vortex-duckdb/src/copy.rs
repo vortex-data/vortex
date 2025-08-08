@@ -3,8 +3,10 @@
 
 use std::fmt::Debug;
 use std::iter;
+use std::sync::{Arc, LazyLock};
 
 use tokio::fs::File;
+use tokio::runtime::{self, Handle, Runtime};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
@@ -14,9 +16,8 @@ use vortex::dtype::Nullability::{NonNullable, Nullable};
 use vortex::dtype::{DType, StructFields};
 use vortex::error::{VortexExpect, VortexResult, vortex_err};
 use vortex::stream::ArrayStreamAdapter;
-use vortex_file::VortexWriteOptions;
+use vortex_file::{VortexWriteOptions, WriteStrategyBuilder};
 
-use crate::RUNTIME;
 use crate::convert::{data_chunk_to_arrow, from_duckdb_table};
 use crate::duckdb::{CopyFunction, DataChunk, LogicalType};
 
@@ -27,6 +28,13 @@ pub struct BindData {
     dtype: DType,
     fields: StructFields,
 }
+
+static COPY_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
+    runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .vortex_expect("Cannot start runtime")
+});
 
 /// Write to a file has two phases, writing data chunks and then closing the file.
 /// We use a spawned tokio task to actually compress arrays are write it to disk.
@@ -67,12 +75,16 @@ impl CopyFunction for VortexCopyFunction {
         _init_local: &mut Self::LocalState,
         chunk: &mut DataChunk,
     ) -> VortexResult<()> {
-        init_global
-            .sink
-            .as_ref()
-            .vortex_expect("sink closed early")
-            .blocking_send(data_chunk_to_arrow(bind_data.fields.names(), chunk))
-            .map_err(|e| vortex_err!("send error {}", e.to_string()))?;
+        let chunk = data_chunk_to_arrow(bind_data.fields.names(), chunk);
+        COPY_RUNTIME.block_on(async {
+            init_global
+                .sink
+                .as_ref()
+                .vortex_expect("sink closed early")
+                .send(chunk)
+                .await
+                .map_err(|e| vortex_err!("send error {}", e.to_string()))
+        })?;
 
         Ok(())
     }
@@ -81,7 +93,7 @@ impl CopyFunction for VortexCopyFunction {
         _bind_data: &Self::BindData,
         init_global: &mut Self::GlobalState,
     ) -> VortexResult<()> {
-        RUNTIME.block_on(async {
+        COPY_RUNTIME.block_on(async {
             if let Some(sink) = init_global.sink.take() {
                 drop(sink)
             }
@@ -104,9 +116,14 @@ impl CopyFunction for VortexCopyFunction {
         let array_stream =
             ArrayStreamAdapter::new(bind_data.dtype.clone(), ReceiverStream::new(rx));
 
-        let writer = RUNTIME.spawn(async move {
+        let writer = COPY_RUNTIME.spawn(async move {
             let file = File::create(file_path).await?;
             VortexWriteOptions::default()
+                .with_strategy(
+                    WriteStrategyBuilder::new()
+                        .with_executor(Arc::new(Handle::current()))
+                        .build(),
+                )
                 .write(file, array_stream)
                 .await
         });

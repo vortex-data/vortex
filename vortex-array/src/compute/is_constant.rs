@@ -12,7 +12,7 @@ use vortex_scalar::Scalar;
 use crate::Array;
 use crate::arrays::{ConstantVTable, NullVTable};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
-use crate::stats::{Precision, Stat, StatsProviderExt};
+use crate::stats::{Precision, Stat, StatsProvider};
 use crate::vtable::VTable;
 
 static IS_CONSTANT_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
@@ -139,8 +139,8 @@ fn is_constant_impl(
     }
 
     // We already know here that the array is all valid, so we check for min/max stats.
-    let min = array.statistics().get_scalar(Stat::Min, array.dtype());
-    let max = array.statistics().get_scalar(Stat::Max, array.dtype());
+    let min = array.statistics().get(Stat::Min);
+    let max = array.statistics().get(Stat::Max);
 
     if let Some((min, max)) = min.zip(max) {
         // min/max are equal and exact and there are no NaNs

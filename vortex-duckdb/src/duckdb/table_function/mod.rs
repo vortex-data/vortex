@@ -15,7 +15,9 @@ mod pushdown_complex_filter;
 pub use bind::*;
 pub use init::*;
 
+use crate::cpp::duckdb_vx_client_context;
 use crate::duckdb::LogicalType;
+use crate::duckdb::client_context::ClientContext;
 use crate::duckdb::connection::Connection;
 use crate::duckdb::data_chunk::DataChunk;
 use crate::duckdb::expr::Expression;
@@ -60,10 +62,15 @@ pub trait TableFunction: Sized + Debug {
 
     /// This function is used for determining the schema of a table producing function and
     /// returning bind data.
-    fn bind(input: &BindInput, result: &mut BindResult) -> VortexResult<Self::BindData>;
+    fn bind(
+        client_context: &ClientContext,
+        input: &BindInput,
+        result: &mut BindResult,
+    ) -> VortexResult<Self::BindData>;
 
     /// The function is called during query execution and is responsible for producing the output
     fn scan(
+        client_context: &ClientContext,
         bind_data: &Self::BindData,
         init_local: &mut Self::LocalState,
         init_global: &mut Self::GlobalState,
@@ -174,12 +181,14 @@ impl Connection {
 
 /// The native function callback for a table function.
 unsafe extern "C-unwind" fn function<T: TableFunction>(
+    duckdb_client_context: duckdb_vx_client_context,
     bind_data: *const c_void,
     global_init_data: *mut c_void,
     local_init_data: *mut c_void,
     output: cpp::duckdb_data_chunk,
     error_out: *mut cpp::duckdb_vx_error,
 ) {
+    let client_context = unsafe { ClientContext::borrow(duckdb_client_context) };
     let bind_data = unsafe { &*(bind_data as *const T::BindData) };
     let global_init_data = unsafe { global_init_data.cast::<T::GlobalState>().as_mut() }
         .vortex_expect("global_init_data null pointer");
@@ -188,6 +197,7 @@ unsafe extern "C-unwind" fn function<T: TableFunction>(
     let mut data_chunk = unsafe { DataChunk::borrow(output) };
 
     match T::scan(
+        &client_context,
         bind_data,
         local_init_data,
         global_init_data,

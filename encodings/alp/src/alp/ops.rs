@@ -27,10 +27,10 @@ impl OperationsVTable<ALPVTable> for ALPVTable {
             return Ok(Scalar::null(array.dtype().clone()));
         }
 
-        if let Some(patches) = array.patches() {
-            if let Some(patch) = patches.get_patched(index)? {
-                return patch.cast(array.dtype());
-            }
+        if let Some(patches) = array.patches()
+            && let Some(patch) = patches.get_patched(index)?
+        {
+            return patch.cast(array.dtype());
         }
 
         let encoded_val = array.encoded().scalar_at(index)?;

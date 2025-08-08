@@ -43,26 +43,26 @@ impl ExecutionPlanVisitor for VortexMetricsFinder {
             }
 
             // Include our own metrics from VortexSource
-            if let Some(file_scan) = exec.data_source().as_any().downcast_ref::<FileScanConfig>() {
-                if let Some(scan) = file_scan
+            if let Some(file_scan) = exec.data_source().as_any().downcast_ref::<FileScanConfig>()
+                && let Some(scan) = file_scan
                     .file_source
                     .as_any()
                     .downcast_ref::<VortexSource>()
+            {
+                let mut set = MetricsSet::new();
+                for metric in scan
+                    .metrics
+                    .snapshot()
+                    .iter()
+                    .flat_map(|(id, metric)| metric_to_datafusion(id, metric))
                 {
-                    let mut set = MetricsSet::new();
-                    for metric in scan
-                        .metrics
-                        .snapshot()
-                        .iter()
-                        .flat_map(|(id, metric)| metric_to_datafusion(id, metric))
-                    {
-                        set.push(Arc::new(metric));
-                    }
-
-                    self.0.push(set);
+                    set.push(Arc::new(metric));
                 }
+
+                self.0.push(set);
             }
         }
+
         Ok(true)
     }
 }

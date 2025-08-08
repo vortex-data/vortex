@@ -6,7 +6,7 @@ use std::sync::Arc;
 use futures::FutureExt;
 use futures::channel::oneshot;
 use futures::future::BoxFuture;
-use vortex_error::{ResultExt, VortexResult, vortex_err};
+use vortex_error::{VortexResult, vortex_err};
 
 pub trait TaskExecutor: 'static + Send + Sync {
     fn do_spawn(
@@ -50,7 +50,7 @@ impl<E: TaskExecutor + ?Sized> TaskExecutorExt for E {
             fut.await?;
             recv.await
                 .map_err(|canceled| vortex_err!("Spawned task canceled {}", canceled))
-                .unnest()
+                .flatten()
         })
     }
 }
@@ -66,7 +66,7 @@ impl TaskExecutor for tokio::runtime::Handle {
 
         tokio::runtime::Handle::spawn(self, f.in_current_span())
             .map_err(vortex_error::VortexError::from)
-            .map(|result| result.unnest())
+            .map(|result| result.flatten())
             .boxed()
     }
 }

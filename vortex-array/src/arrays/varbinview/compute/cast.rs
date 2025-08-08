@@ -39,6 +39,7 @@ mod tests {
 
     use crate::arrays::VarBinViewArray;
     use crate::compute::cast;
+    use crate::compute::conformance::cast::test_cast_conformance;
 
     #[rstest]
     #[case(
@@ -73,5 +74,16 @@ mod tests {
         let non_nullable_source = source.as_nonnullable();
         let varbin = VarBinViewArray::from_iter(vec![Some("a"), Some("b"), None], source);
         cast(varbin.as_ref(), &non_nullable_source).unwrap();
+    }
+
+    #[rstest]
+    #[case(VarBinViewArray::from_iter(vec![Some("hello"), Some("world"), Some("test")], DType::Utf8(Nullability::NonNullable)))]
+    #[case(VarBinViewArray::from_iter(vec![Some("hello"), None, Some("world")], DType::Utf8(Nullability::Nullable)))]
+    #[case(VarBinViewArray::from_iter(vec![Some(b"binary".as_slice()), Some(b"data".as_slice())], DType::Binary(Nullability::NonNullable)))]
+    #[case(VarBinViewArray::from_iter(vec![Some(b"test".as_slice()), None], DType::Binary(Nullability::Nullable)))]
+    #[case(VarBinViewArray::from_iter(vec![Some("single")], DType::Utf8(Nullability::NonNullable)))]
+    #[case(VarBinViewArray::from_iter(vec![Some("very long string that exceeds the inline size to test view functionality with multiple buffers")], DType::Utf8(Nullability::NonNullable)))]
+    fn test_cast_varbinview_conformance(#[case] array: VarBinViewArray) {
+        test_cast_conformance(array.as_ref());
     }
 }

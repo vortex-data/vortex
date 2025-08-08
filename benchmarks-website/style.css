@@ -18,9 +18,9 @@
   --border-color: var(--vortex-gray);
   
   /* Layout */
-  --header-height: 96px;
+  --header-height: 72px;
   --sidebar-width: 280px;
-  --chart-spacing: 32px;
+  --chart-spacing: 24px;
   --mobile-breakpoint: 768px;
   --tablet-breakpoint: 1024px;
   
@@ -47,7 +47,7 @@ html {
   background-color: var(--bg-color);
   font-size: 16px;
   scroll-behavior: smooth;
-  color: var(--text-color);
+  overflow-x: hidden;
 }
 
 body {
@@ -59,6 +59,8 @@ body {
   padding-top: var(--header-height);
   line-height: 1.6;
   letter-spacing: -0.01em;
+  overflow-x: hidden;
+  position: relative;
 }
 
 /* Sticky Header */
@@ -74,6 +76,8 @@ body {
   border-bottom: 1px solid var(--border-color);
   box-shadow: var(--shadow-sm);
   z-index: 1000;
+  display: flex;
+  align-items: center;
 }
 
 .header-content {
@@ -81,19 +85,31 @@ body {
   align-items: center;
   justify-content: space-between;
   height: 100%;
-  padding: 0 24px;
-  max-width: 1600px;
-  margin: 0 auto;
+  padding: 0 32px;
+  width: 100%;
+}
+
+/* Match padding with main content */
+@media (min-width: 1600px) {
+  .header-content {
+    padding: 0 60px;
+  }
+}
+
+@media (min-width: 1920px) {
+  .header-content {
+    padding: 0 80px;
+  }
 }
 
 .header-left {
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 12px;
 }
 
 .menu-toggle {
-  display: none;
+  display: block;
   background: none;
   border: none;
   font-size: 20px;
@@ -120,7 +136,7 @@ body {
 }
 
 .site-logo {
-  height: 56px;
+  height: 48px;
   width: auto;
   display: block;
 }
@@ -130,8 +146,17 @@ body {
   font-size: 1.5rem;
   font-weight: 600;
   margin: 0;
+  margin-left: calc(var(--sidebar-width) - 180px); /* Moved left by ~100px */
   color: var(--text-color);
   display: none;
+  white-space: nowrap;
+}
+
+/* Show title on desktop screens */
+@media (min-width: 1400px) {
+  .site-title {
+    display: block;
+  }
 }
 
 .header-center {
@@ -232,18 +257,58 @@ body {
 .main-container {
   display: flex;
   min-height: calc(100vh - var(--header-height));
+  overflow-x: hidden;
+  width: 100%;
 }
 
 /* Sidebar Navigation */
 .sidebar {
   width: var(--sidebar-width);
-  background: var(--bg-secondary);
+  background: rgba(250, 250, 250, 0.98);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
   border-right: 1px solid var(--border-color);
-  position: sticky;
+  position: fixed;
   top: var(--header-height);
+  left: 0;
   height: calc(100vh - var(--header-height));
   overflow-y: auto;
   transition: transform 0.3s ease;
+  z-index: 998;
+  transform: translateX(-100%); /* Start collapsed by default */
+}
+
+/* Desktop: sidebar overlay styling */
+@media (min-width: 1200px) {
+  .sidebar {
+    box-shadow: 2px 0 12px rgba(0, 0, 0, 0.15);
+  }
+  
+  .sidebar.collapsed {
+    transform: translateX(-100%);
+  }
+  
+  .sidebar:not(.collapsed) {
+    transform: translateX(0);
+  }
+  
+  /* Remove margin from main content - sidebar is now overlay */
+  .main-content {
+    margin-left: 0;
+    width: 100%;
+  }
+}
+
+/* Hide sidebar on tablets and mobile by default */
+@media (max-width: 1199px) {
+  .sidebar {
+    transform: translateX(-100%);
+    box-shadow: 2px 0 12px rgba(0, 0, 0, 0.15);
+  }
+  
+  .sidebar.active {
+    transform: translateX(0);
+  }
 }
 
 .sidebar-nav {
@@ -276,6 +341,13 @@ body {
   cursor: pointer;
   padding: 4px;
   line-height: 1;
+}
+
+/* Show close button on tablets and mobile */
+@media (max-width: 1199px) {
+  .sidebar-close {
+    display: block;
+  }
 }
 
 .clear-filter-btn {
@@ -371,9 +443,28 @@ body {
 .main-content {
   flex: 1;
   padding: 32px;
-  max-width: 1400px;
-  margin: 0 auto;
   width: 100%;
+  position: relative;
+}
+
+/* Larger padding on wide screens */
+@media (min-width: 1600px) {
+  .main-content {
+    padding: 40px 60px;
+  }
+}
+
+@media (min-width: 1920px) {
+  .main-content {
+    padding: 48px 80px;
+  }
+}
+
+/* Adjust padding on smaller screens */
+@media (max-width: 768px) {
+  .main-content {
+    padding: 16px;
+  }
 }
 
 /* Loading Indicator */
@@ -413,25 +504,113 @@ body {
   background: var(--bg-color);
   border-radius: var(--radius-lg);
   border: 1px solid var(--border-color);
-  overflow: hidden;
+  overflow: visible; /* Changed from hidden to allow sticky headers */
   transition: all 0.3s ease;
+  position: relative;
+  z-index: 1;
+}
+
+/* Remove top margin from first benchmark set */
+.benchmark-set:first-child {
+  margin-top: 0;
+}
+
+/* Prevent layout shift when first section expands */
+.benchmark-set:first-child:not(.collapsed) {
+  margin-top: 0;
+  padding-top: 0;
+}
+
+/* Style for benchmark groups with no data */
+.benchmark-set.no-data {
+  opacity: 0.5;
+}
+
+.benchmark-set.no-data .benchmark-header {
+  cursor: not-allowed;
+}
+
+.benchmark-set.no-data .benchmark-title {
+  color: var(--text-secondary);
+}
+
+.benchmark-set.no-data .collapse-icon {
+  visibility: hidden;
+}
+
+/* Reduce margin on mobile */
+@media (max-width: 768px) {
+  .benchmark-set {
+    margin-bottom: 24px;
+    border-radius: var(--radius-md);
+  }
 }
 
 .benchmark-set.collapsed .benchmark-graphs {
   display: none;
 }
 
+.benchmark-set.collapsed .engine-filter-container {
+  display: none;
+}
+
+/* Wrapper to maintain space when header becomes sticky */
+.sticky-header-wrapper {
+  position: relative;
+}
+
+/* Headers are not sticky when collapsed */
+.sticky-header-container {
+  position: relative;
+  z-index: 50;
+  background: var(--bg-secondary);
+  /* Maintain border radius at top */
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  margin: 0;
+  padding: 0;
+}
+
+/* Sticky headers only on desktop to avoid mobile layout issues */
+@media (min-width: 769px) {
+  .benchmark-set:not(.collapsed) .sticky-header-container {
+    position: sticky;
+    top: calc(var(--header-height) - 1px);
+    /* Add shadow when stuck */
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0);
+    transition: box-shadow 0.2s ease;
+  }
+
+  /* Add shadow when the header is stuck (only for expanded groups) */
+  .benchmark-set:not(.collapsed) .sticky-header-container.is-stuck {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  }
+}
+
+
 .benchmark-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 24px 32px;
+  padding: 16px 32px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
   cursor: pointer;
   -webkit-user-select: none;
   user-select: none;
   transition: background-color 0.2s;
+}
+
+/* Adjust padding on smaller screens */
+@media (max-width: 1200px) {
+  .benchmark-header {
+    padding: 14px 24px;
+  }
+}
+
+@media (max-width: 768px) {
+  .benchmark-header {
+    padding: 12px 16px;
+  }
 }
 
 .benchmark-header:hover {
@@ -443,11 +622,12 @@ body {
   align-items: center;
   gap: 16px;
   flex: 1;
+  min-width: 0;
 }
 
 .benchmark-title {
   font-family: "Funnel Display", sans-serif;
-  font-size: 1.75rem;
+  font-size: 1.5rem;
   font-weight: 600;
   margin: 0;
   color: var(--text-color);
@@ -455,6 +635,7 @@ body {
   align-items: center;
   gap: 12px;
   letter-spacing: -0.02em;
+  line-height: 1.2;
 }
 
 .group-link-btn {
@@ -462,7 +643,7 @@ body {
   background: none;
   border: none;
   cursor: pointer;
-  opacity: 0;
+  opacity: 0.5;
   padding: 4px 8px;
   border-radius: var(--radius-sm);
   transition: all 0.2s;
@@ -484,42 +665,102 @@ body {
 }
 
 .collapse-icon {
-  font-size: 1.2rem;
+  font-size: 1rem;
   transition: transform 0.3s ease;
+  flex-shrink: 0;
 }
 
 .benchmark-set.collapsed .collapse-icon {
   transform: rotate(-90deg);
 }
 
+.benchmark-secondary-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
 .benchmark-meta {
   font-family: "Geist Mono", monospace;
   display: flex;
   gap: 16px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
   color: var(--text-secondary);
   letter-spacing: 0.02em;
   text-transform: uppercase;
+  flex-shrink: 0;
+  line-height: 1;
 }
 
-.benchmark-description {
-  padding: 16px 32px;
+/* Info icon with tooltip */
+.info-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
   background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-color);
-  font-size: 14px;
   color: var(--text-secondary);
-  line-height: 1.6;
+  font-size: 16px;
+  cursor: help;
+  position: relative;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.info-icon:hover {
+  background: var(--primary-color);
+  color: white;
+}
+
+.info-icon::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: rgba(16, 16, 16, 0.9);
+  color: white;
+  font-size: 13px;
+  line-height: 1.4;
+  border-radius: var(--radius-sm);
+  white-space: normal;
+  width: 300px;
+  max-width: 90vw;
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.2s;
+  pointer-events: none;
+  z-index: 100;
+  font-weight: normal;
+}
+
+.info-icon:hover::after {
+  opacity: 1;
+  visibility: visible;
 }
 
 /* Engine Filter Controls */
 .engine-filter-container {
-  padding: 16px 32px;
+  padding: 12px 32px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* Adjust padding on smaller screens */
+@media (max-width: 768px) {
+  .engine-filter-container {
+    padding: 12px 16px;
+  }
 }
 
 .engine-filter-label {
@@ -586,15 +827,66 @@ body {
 /* Chart Grid */
 .benchmark-graphs {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
-  gap: var(--chart-spacing);
-  padding: var(--chart-spacing);
+  grid-template-columns: 1fr;
+  gap: 20px;
+  padding: 20px;
+  /* Maintain border radius at bottom */
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  background: var(--bg-color);
+}
+
+/* Two columns on larger screens */
+@media (min-width: 1200px) {
+  .benchmark-graphs {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 24px;
+    padding: 24px;
+  }
+  
+  /* Single chart groups should use full width */
+  .benchmark-graphs.single-chart {
+    grid-template-columns: 1fr;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+}
+
+/* Use more space on wider screens */
+@media (min-width: 1600px) {
+  .benchmark-graphs {
+    padding: 28px 32px;
+  }
+  
+  .benchmark-graphs.single-chart {
+    max-width: 1600px;
+  }
+}
+
+@media (min-width: 1920px) {
+  .benchmark-graphs.single-chart {
+    max-width: 1800px;
+  }
+}
+
+/* Single column up to 1200px for better readability */
+@media (max-width: 1199px) {
+  .benchmark-graphs {
+    grid-template-columns: 1fr;
+    max-width: 900px;
+    margin: 0 auto;
+  }
 }
 
 .benchmark-graphs.list-view {
   grid-template-columns: 1fr;
-  max-width: 1000px;
+  max-width: 1200px;
   margin: 0 auto;
+}
+
+@media (min-width: 1600px) {
+  .benchmark-graphs.list-view {
+    max-width: 1400px;
+  }
 }
 
 .chart-container {
@@ -604,6 +896,15 @@ body {
   padding: 20px;
   position: relative;
   transition: all 0.3s ease;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Larger padding on bigger screens */
+@media (min-width: 1600px) {
+  .chart-container {
+    padding: 24px;
+  }
 }
 
 .chart-container:hover {
@@ -616,7 +917,7 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .chart-title {
@@ -738,16 +1039,68 @@ body {
   position: relative;
 }
 
-/* Mobile Styles */
-@media (max-width: 1200px) {
-  .benchmark-graphs {
-    grid-template-columns: 1fr;
+/* Sidebar hover zone - disabled */
+.sidebar-hover-zone {
+  display: none;
+}
+
+/* Sidebar overlay for all screen sizes */
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 997;
+}
+
+/* Lighter overlay on desktop for better UX */
+@media (min-width: 1200px) {
+  .sidebar-overlay {
+    background: rgba(0, 0, 0, 0.3);
+  }
+}
+
+/* Show overlay only when sidebar has explicit 'open' class */
+.sidebar.open ~ .sidebar-overlay {
+  display: block;
+}
+
+/* For mobile - show overlay when active class is present */
+@media (max-width: 1199px) {
+  .sidebar.active ~ .sidebar-overlay {
+    display: block;
+  }
+  
+  /* On mobile, don't use the 'open' class rule */
+  .sidebar.open ~ .sidebar-overlay {
+    display: none;
+  }
+  
+  /* Re-enable for mobile active state */
+  .sidebar.active ~ .sidebar-overlay {
+    display: block;
+  }
+}
+
+/* Site title visibility handled in the .site-title section above */
+
+/* Tablet styles */
+@media (min-width: 769px) and (max-width: 1199px) {
+  .header-center {
+    display: flex;
+  }
+  
+  .search-filter {
+    width: 150px;
   }
 }
 
 @media (max-width: 768px) {
   :root {
-    --header-height: 64px;
+    --header-height: 56px;
   }
   
   body {
@@ -768,7 +1121,7 @@ body {
   }
 
   .site-logo {
-    height: 36px;
+    height: 32px;
   }
   
   .site-title {
@@ -792,26 +1145,7 @@ body {
     display: none;
   }
 
-  .menu-toggle {
-    display: block;
-  }
-
-  .sidebar {
-    position: fixed;
-    top: var(--header-height);
-    left: 0;
-    transform: translateX(-100%);
-    z-index: 999;
-    box-shadow: var(--shadow-lg);
-  }
-
-  .sidebar.active {
-    transform: translateX(0);
-  }
-
-  .sidebar-close {
-    display: block;
-  }
+  /* Menu toggle and sidebar are handled in their respective sections above */
 
   .main-content {
     padding: 16px;
@@ -823,16 +1157,36 @@ body {
 
   .benchmark-header {
     padding: 16px;
+    flex-wrap: wrap;
+    gap: 12px;
   }
+  
+  /* Sticky header handled in the sticky-header-container section above */
 
   .benchmark-title {
-    font-size: 1.4rem;
+    font-size: 1.25rem;
+    flex: 1 1 100%;
+  }
+  
+  .title-wrapper {
+    flex-wrap: wrap;
+    flex: 1 1 100%;
+  }
+  
+  .benchmark-secondary-info {
+    flex: 1 1 100%;
+    margin-top: 8px;
   }
 
   .benchmark-graphs {
     grid-template-columns: 1fr;
     gap: 16px;
     padding: 16px;
+  }
+  
+  .benchmark-set {
+    border-radius: 0;
+    margin-bottom: 16px;
   }
 
   .chart-container {
@@ -841,14 +1195,19 @@ body {
   }
   
   .chart-container canvas {
-    max-height: 300px; /* Smaller charts on mobile */
-    min-height: 200px; /* Ensure minimum height */
+    max-height: 350px; /* Smaller charts on mobile */
+    min-height: 250px; /* Ensure minimum height */
   }
   
   /* Disable hover effects on mobile */
   .chart-container:hover {
     transform: none;
     box-shadow: none;
+  }
+  
+  /* Hide fullscreen button on mobile */
+  .chart-action-btn {
+    display: none;
   }
   
   /* Hide engine filters on mobile to save space */
@@ -858,6 +1217,16 @@ body {
   }
   
   .filter-separator {
+    display: none;
+  }
+  
+  /* Hide reset zoom button on mobile since X-axis scrolling is disabled */
+  .reset-zoom-btn {
+    display: none;
+  }
+  
+  /* Hide empty control containers on mobile */
+  .engine-filter-container:not(:has(.engine-filter-btn)) {
     display: none;
   }
 
@@ -891,7 +1260,7 @@ h1, h2, h3, h4, h5, h6 {
   letter-spacing: -0.02em;
 }
 
-code, pre, .monospace {
+code, pre {
   font-family: "Geist Mono", monospace;
   font-size: 0.9em;
 }
@@ -916,25 +1285,63 @@ code, pre, .monospace {
   }
 }
 
-/* Chart specific improvements */
-.chart-container {
-  position: relative;
-  height: auto;
-  width: 100%;
-}
+/* Chart specific improvements - handled in main .chart-container section above */
 
 .chart-container canvas {
-  max-height: 400px;
+  max-height: 450px;
+  min-height: 320px;
   width: 100% !important;
   height: auto !important;
   display: block;
 }
 
 .benchmark-graphs.list-view .chart-container canvas {
-  max-height: 500px;
+  max-height: 600px;
+  min-height: 400px;
 }
 
-/* Responsive text */
+/* Larger charts on wide screens */
+@media (min-width: 1600px) {
+  .chart-container canvas {
+    max-height: 520px;
+    min-height: 360px;
+  }
+  
+  .benchmark-graphs.list-view .chart-container canvas {
+    max-height: 620px;
+    min-height: 450px;
+  }
+}
+
+
+/* Wide screen optimizations - keep 2 columns but add more spacing */
+@media (min-width: 1920px) {
+  .benchmark-graphs {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 32px;
+    padding: 32px 48px;
+  }
+  
+  .chart-container canvas {
+    max-height: 580px;
+    min-height: 400px;
+  }
+  
+  .benchmark-graphs.list-view .chart-container canvas {
+    max-height: 680px;
+    min-height: 480px;
+  }
+}
+
+/* Ultra-wide screens - still 2 columns but even more padding */
+@media (min-width: 2400px) {
+  .benchmark-graphs {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 36px;
+    padding: 36px 60px;
+  }
+}
+
 @media (max-width: 480px) {
   .site-title {
     font-size: 1rem;
@@ -948,3 +1355,178 @@ code, pre, .monospace {
     font-size: 14px;
   }
 }
+
+/* Benchmark Scores Summary */
+.benchmark-scores-summary {
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  padding: 12px 32px;
+  margin: 0;
+  /* Ensure no top margin when following sticky container */
+  margin-top: 0 !important;
+}
+
+@media (max-width: 768px) {
+  .benchmark-scores-summary {
+    padding: 8px 16px;
+  }
+  
+  .benchmark-scores-summary .scores-list {
+    display: flex;
+    flex-direction: column;
+    column-count: 1;
+    gap: 6px;
+  }
+  
+  .benchmark-scores-summary .scores-title {
+    font-size: 11px;
+    margin-bottom: 6px;
+  }
+  
+  .benchmark-scores-summary .score-item {
+    padding: 8px 10px;
+    margin-bottom: 6px;
+    font-size: 12px;
+  }
+  
+  .benchmark-scores-summary .score-rank {
+    font-size: 13px;
+    min-width: 28px;
+  }
+  
+  .benchmark-scores-summary .score-series {
+    font-size: 13px;
+    margin: 0 6px;
+  }
+  
+  .benchmark-scores-summary .score-value {
+    font-size: 12px;
+    padding: 2px 8px;
+  }
+  
+  .benchmark-scores-summary .score-runtime,
+  .benchmark-scores-summary .score-label {
+    font-size: 11px;
+  }
+  
+  .benchmark-scores-summary .scores-explanation {
+    font-size: 11px;
+    margin-top: 6px;
+  }
+}
+
+.scores-title {
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0 0 8px 0;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.scores-list {
+  column-count: 2;
+  column-gap: 20px;
+}
+
+/* Single item should use full width */
+.scores-list:has(.score-item:only-child) {
+  column-count: 1;
+}
+
+/* Single column for smaller screens */
+@media (max-width: 780px) {
+  .scores-list {
+    column-count: 1;
+  }
+}
+
+.score-item {
+  display: flex;
+  align-items: center;
+  background: var(--bg-color);
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  transition: all 0.2s ease;
+  font-size: 13px;
+  break-inside: avoid;
+}
+
+.score-item:hover {
+  border-color: var(--primary-color);
+  background: var(--bg-secondary);
+}
+
+.score-rank {
+  font-weight: 600;
+  color: var(--primary-color);
+  min-width: 30px;
+  font-size: 14px;
+}
+
+.score-series {
+  flex: 1;
+  font-weight: 500;
+  color: var(--text-color);
+  margin: 0 8px;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.score-metrics {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.score-value {
+  font-family: 'Geist Mono', monospace;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  padding: 3px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+
+.score-runtime {
+  font-family: 'Geist Mono', monospace;
+  font-weight: 600;
+  color: var(--primary-color);
+  background: rgba(89, 113, 253, 0.1);
+  padding: 3px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+
+.scores-explanation {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-style: italic;
+  text-align: center;
+}
+
+.score-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0 2px;
+}
+
+/* Responsive - consolidated with above mobile styles */
+@media (max-width: 768px) {
+  .score-item {
+    min-width: 0;
+    width: 100%;
+  }
+  
+  .score-series {
+    flex: 1;
+    min-width: 0;
+  }
+}
+

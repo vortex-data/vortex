@@ -200,7 +200,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_is_time(dtype: *const DType) -> bool {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_dype_is_date(dtype: *const DType) -> bool {
+pub unsafe extern "C-unwind" fn vx_dtype_is_date(dtype: *const DType) -> bool {
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
 
     match dtype {

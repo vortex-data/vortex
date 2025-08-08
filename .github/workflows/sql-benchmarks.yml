@@ -35,7 +35,7 @@ on:
               "name": "TPC-H on S3",
               "local_dir": "bench-vortex/data/tpch/1.0",
               "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/tpch/1.0/",
-              "targets": "datafusion:parquet,datafusion:vortex,duckdb:parquet",
+              "targets": "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex",
               "scale_factor": "--scale-factor 1.0"
             }
           ]
