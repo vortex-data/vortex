@@ -103,7 +103,7 @@ impl Benchmark for TpcHBenchmark {
 
                 // Generate data using our streaming tpchgen module
                 let runtime = tokio::runtime::Runtime::new()?;
-                runtime.block_on(async { tpchgen::generate_tpch_tables(&options).await })?;
+                runtime.block_on(async { tpchgen::generate_tpch_tables(options).await })?;
 
                 Ok(())
             }
