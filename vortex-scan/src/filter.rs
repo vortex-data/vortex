@@ -10,7 +10,6 @@ use sketches_ddsketch::DDSketch;
 use vortex_error::{VortexExpect, vortex_err, vortex_panic};
 use vortex_expr::ExprRef;
 use vortex_expr::dynamic::DynamicExprUpdates;
-use vortex_expr::forms::cnf::cnf;
 use vortex_expr::forms::extract_conjuncts::conjuncts;
 
 /// The selectivity histogram quantile to use for reordering conjuncts. Where 0 == no rows match.

@@ -3,7 +3,6 @@
 
 use vortex_array::compute::{BetweenOptions, StrictComparison};
 
-use crate::forms::cnf::cnf;
 use crate::forms::extract_conjuncts::conjuncts;
 use crate::{
     BetweenExpr, BinaryVTable, ExprRef, GetItemExpr, IntoExpr, LiteralExpr, Operator, and, lit,
