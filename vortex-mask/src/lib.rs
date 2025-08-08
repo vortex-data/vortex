@@ -8,6 +8,9 @@ mod eq;
 mod intersect_by_rank;
 mod iter_bools;
 
+#[cfg(test)]
+mod tests;
+
 use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter};
 use std::sync::{Arc, OnceLock};
@@ -267,6 +270,14 @@ impl Mask {
         });
         debug_assert_eq!(buf.len(), len);
         let true_count = len - false_count;
+
+        // Return optimized variants when appropriate
+        if false_count == 0 {
+            return Self::AllTrue(len);
+        }
+        if false_count == len {
+            return Self::AllFalse(len);
+        }
 
         Self::Values(Arc::new(MaskValues {
             buffer: buf.finish(),
@@ -558,6 +569,9 @@ impl Mask {
 
     /// Limit the mask to the first `limit` true values
     pub fn limit(self, limit: usize) -> Self {
+        // Early return optimization: if we're asking for more true values than the total
+        // length of the mask, then even if all values were true, we couldn't exceed the
+        // limit, so return the original mask unchanged.
         if self.len() <= limit {
             return self;
         }
@@ -636,114 +650,5 @@ impl FromIterator<Mask> for Mask {
             };
         }
         Self::from_buffer(buffer.finish())
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn mask_all_true() {
-        let mask = Mask::new_true(5);
-        assert_eq!(mask.len(), 5);
-        assert_eq!(mask.true_count(), 5);
-        assert_eq!(mask.density(), 1.0);
-        assert_eq!(mask.indices(), AllOr::All);
-        assert_eq!(mask.slices(), AllOr::All);
-        assert_eq!(mask.boolean_buffer(), AllOr::All,);
-    }
-
-    #[test]
-    fn mask_all_false() {
-        let mask = Mask::new_false(5);
-        assert_eq!(mask.len(), 5);
-        assert_eq!(mask.true_count(), 0);
-        assert_eq!(mask.density(), 0.0);
-        assert_eq!(mask.indices(), AllOr::None);
-        assert_eq!(mask.slices(), AllOr::None);
-        assert_eq!(mask.boolean_buffer(), AllOr::None,);
-    }
-
-    #[test]
-    fn mask_from() {
-        let masks = [
-            Mask::from_indices(5, vec![0, 2, 3]),
-            Mask::from_slices(5, vec![(0, 1), (2, 4)]),
-            Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, true, false])),
-        ];
-
-        for mask in &masks {
-            assert_eq!(mask.len(), 5);
-            assert_eq!(mask.true_count(), 3);
-            assert_eq!(mask.density(), 0.6);
-            assert_eq!(mask.indices(), AllOr::Some(&[0, 2, 3][..]));
-            assert_eq!(mask.slices(), AllOr::Some(&[(0, 1), (2, 4)][..]));
-            assert_eq!(
-                mask.boolean_buffer(),
-                AllOr::Some(&BooleanBuffer::from_iter([true, false, true, true, false]))
-            );
-        }
-    }
-
-    #[test]
-    fn limit_all_true_mask() {
-        let all_true = Mask::new_true(4);
-        let limited_mask = all_true.clone().limit(2);
-        assert_eq!(all_true.len(), limited_mask.len());
-        assert_eq!(limited_mask.true_count(), 2);
-        assert_eq!(
-            limited_mask.boolean_buffer(),
-            AllOr::Some(&BooleanBuffer::from_iter([true, true, false, false]))
-        );
-
-        let limited_mask = all_true.clone().limit(5);
-        assert_eq!(limited_mask, all_true);
-    }
-
-    #[test]
-    fn limit_mask_values() {
-        let original_mask = Mask::from_iter([true, true, false, true, false, true]);
-        let limited_mask = original_mask.clone().limit(2);
-
-        assert_eq!(
-            limited_mask.boolean_buffer(),
-            AllOr::Some(&BooleanBuffer::from_iter([
-                true, true, false, false, false, false
-            ]))
-        );
-        assert_eq!(limited_mask.true_count(), 2);
-
-        let limited_mask = original_mask.limit(3);
-
-        assert_eq!(
-            limited_mask.boolean_buffer(),
-            AllOr::Some(&BooleanBuffer::from_iter([
-                true, true, false, true, false, false
-            ]))
-        );
-        assert_eq!(limited_mask.true_count(), 3);
-
-        let original_mask = Mask::from_iter([true, true, false, true, false, true]);
-        let limited_mask = original_mask.clone().limit(100);
-
-        assert_eq!(original_mask, limited_mask);
-    }
-
-    #[test]
-    fn length_zero_masks() {
-        let all_false = Mask::new_false(0);
-        let all_true = Mask::new_true(0);
-        let buffer_set = Mask::from_buffer(BooleanBuffer::new_set(0));
-        let buffer_unset = Mask::from_buffer(BooleanBuffer::new_unset(0));
-
-        assert!(all_false.all_false());
-        assert!(all_false.all_true());
-        assert!(all_true.all_false());
-        assert!(all_true.all_true());
-        assert!(buffer_set.all_false());
-        assert!(buffer_set.all_true());
-        assert!(buffer_unset.all_false());
-        assert!(buffer_unset.all_true());
     }
 }
