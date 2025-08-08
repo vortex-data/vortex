@@ -71,6 +71,10 @@ impl<T: NativePType> ColumnExporter for ListExporter<T> {
             };
         }
 
+        // TODO(DK): This calls `list_vector_reserve` once for each call to `export`. Moreover, we
+        // copy slices of the elements once for each call to `export`. Would `export` be faster if
+        // we copied all the elements on the first call to `export` so that subsequent calls need
+        // only copy the correct slice of offsets?
         vector.list_vector_reserve(sum_of_list_lens)?;
         let mut elements_vector = vector.list_vector_get_child();
         vector.list_vector_set_size(sum_of_list_lens)?;
