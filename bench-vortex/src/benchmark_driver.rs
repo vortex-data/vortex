@@ -222,8 +222,10 @@ fn execute_queries<B: Benchmark>(
             && query_idx < expected_counts.len()
         {
             assert_eq!(
-                row_count, expected_counts[query_idx],
-                "Row count mismatch for query {query_idx} - duckdb:{format}",
+                row_count,
+                expected_counts[query_idx],
+                "Row count mismatch for query {query_idx} - {}:{format}",
+                engine_ctx.to_engine()
             );
         }
 
@@ -233,10 +235,7 @@ fn execute_queries<B: Benchmark>(
         {
             memory_measurements.push(MemoryMeasurement {
                 query_idx,
-                target: match engine_ctx {
-                    EngineCtx::DataFusion(_) => Target::new(Engine::DataFusion, format),
-                    EngineCtx::DuckDB(_) => Target::new(Engine::DuckDB, format),
-                },
+                target: Target::new(engine_ctx.to_engine(), format),
                 benchmark_dataset: benchmark.dataset(),
                 storage: url_scheme_to_storage(benchmark.data_url())?,
                 physical_memory_delta: memory_result.physical_memory_delta,

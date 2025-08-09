@@ -208,6 +208,7 @@ impl FileFormat for VortexFormat {
         let object = object.clone();
         let store = store.clone();
         let cache = self.file_cache.clone();
+
         SpawnedTask::spawn(async move {
             let vxf = cache.try_get(&object, store.clone()).await.map_err(|e| {
                 DataFusionError::Execution(format!(
@@ -329,15 +330,6 @@ impl FileFormat for VortexFormat {
         _state: &dyn Session,
         file_scan_config: FileScanConfig,
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
-        if file_scan_config
-            .file_groups
-            .iter()
-            .flat_map(|fg| fg.files())
-            .any(|f| f.range.is_some())
-        {
-            return not_impl_err!("File level partitioning isn't implemented yet for Vortex");
-        }
-
         if !file_scan_config.table_partition_cols.is_empty() {
             return not_impl_err!("Hive style partitioning isn't implemented yet for Vortex");
         }
@@ -347,9 +339,11 @@ impl FileFormat for VortexFormat {
         }
 
         let source = VortexSource::new(self.file_cache.clone(), self.session.metrics().clone());
+        let source = Arc::new(source);
+
         Ok(DataSourceExec::from_data_source(
             FileScanConfigBuilder::from(file_scan_config)
-                .with_source(Arc::new(source))
+                .with_source(source)
                 .build(),
         ))
     }

@@ -32,6 +32,12 @@ pub enum Operator {
     ///
     /// The result is null at any index that either input is null.
     Add,
+    /// The difference between the arguments.
+    ///
+    /// Errs at runtime if the sum would overflow or underflow.
+    ///
+    /// The result is null at any index that either input is null.
+    Sub,
 }
 
 impl From<Operator> for i32 {
@@ -53,6 +59,7 @@ impl From<Operator> for BinaryOp {
             Operator::And => BinaryOp::And,
             Operator::Or => BinaryOp::Or,
             Operator::Add => BinaryOp::Add,
+            Operator::Sub => BinaryOp::Sub,
         }
     }
 }
@@ -77,6 +84,7 @@ impl From<BinaryOp> for Operator {
             BinaryOp::And => Operator::And,
             BinaryOp::Or => Operator::Or,
             BinaryOp::Add => Operator::Add,
+            BinaryOp::Sub => Operator::Sub,
         }
     }
 }
@@ -92,7 +100,8 @@ impl Display for Operator {
             Operator::Lte => "<=",
             Operator::And => "and",
             Operator::Or => "or",
-            Operator::Add => "+w",
+            Operator::Add => "+",
+            Operator::Sub => "-",
         };
         Display::fmt(display, f)
     }
@@ -107,7 +116,7 @@ impl Operator {
             Operator::Gte => Some(Operator::Lt),
             Operator::Lt => Some(Operator::Gte),
             Operator::Lte => Some(Operator::Gt),
-            Operator::And | Operator::Or | Operator::Add => None,
+            Operator::And | Operator::Or | Operator::Add | Operator::Sub => None,
         }
     }
 
@@ -131,6 +140,7 @@ impl Operator {
             Operator::And => Operator::And,
             Operator::Or => Operator::Or,
             Operator::Add => Operator::Add,
+            Operator::Sub => Operator::Sub,
         }
     }
 

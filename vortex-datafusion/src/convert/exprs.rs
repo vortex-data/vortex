@@ -1,18 +1,43 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
+use datafusion::arrow::datatypes::{DataType, Schema};
 use datafusion::logical_expr::Operator as DFOperator;
-use datafusion::physical_expr::{PhysicalExpr, expressions};
+use datafusion::physical_expr::{PhysicalExpr, PhysicalExprRef, expressions};
 use vortex::error::{VortexResult, vortex_bail, vortex_err};
-use vortex::expr::{BinaryExpr, ExprRef, IntoExpr, LikeExpr, Operator, get_item, lit, root};
+use vortex::expr::{ExprRef, Operator, and};
 use vortex::scalar::Scalar;
 
 use crate::convert::{FromDataFusion, TryFromDataFusion};
+
+const SUPPORTED_BINARY_OPS: &[DFOperator] = &[
+    DFOperator::Eq,
+    DFOperator::NotEq,
+    DFOperator::Gt,
+    DFOperator::GtEq,
+    DFOperator::Lt,
+    DFOperator::LtEq,
+];
+
+// If we cannot convert an expr to a vortex expr, we run no filter, since datafusion
+// will rerun the filter expression anyway.
+pub(crate) fn make_vortex_predicate(predicate: &[&Arc<dyn PhysicalExpr>]) -> Option<ExprRef> {
+    // This splits expressions into conjunctions and converts them to vortex expressions.
+    // Any inconvertible expressions are dropped since true /\ a == a.
+    predicate
+        .iter()
+        .filter_map(|e| ExprRef::try_from_df(e.as_ref()).ok())
+        .reduce(and)
+}
 
 // TODO(joe): Don't return an error when we have an unsupported node, bubble up "TRUE" as in keep
 //  for that node, up to any `and` or `or` node.
 impl TryFromDataFusion<dyn PhysicalExpr> for ExprRef {
     fn try_from_df(df: &dyn PhysicalExpr) -> VortexResult<Self> {
+        use vortex::expr::{BinaryExpr, ExprRef, IntoExpr, LikeExpr, get_item, lit, root};
+
         if let Some(binary_expr) = df.as_any().downcast_ref::<expressions::BinaryExpr>() {
             let left = ExprRef::try_from_df(binary_expr.left().as_ref())?;
             let right = ExprRef::try_from_df(binary_expr.right().as_ref())?;
@@ -91,4 +116,50 @@ impl TryFromDataFusion<DFOperator> for Operator {
             }
         }
     }
+}
+
+pub(crate) fn can_be_pushed_down(expr: &PhysicalExprRef, schema: &Schema) -> bool {
+    use datafusion::physical_plan::expressions::{BinaryExpr, Column, LikeExpr, Literal};
+
+    let expr = expr.as_any();
+    if let Some(binary) = expr.downcast_ref::<BinaryExpr>() {
+        (binary.op().is_logic_operator() || SUPPORTED_BINARY_OPS.contains(binary.op()))
+            && can_be_pushed_down(binary.left(), schema)
+            && can_be_pushed_down(binary.right(), schema)
+    } else if let Some(col) = expr.downcast_ref::<Column>() {
+        let field = schema.field(col.index());
+        supported_data_types(field.data_type())
+    } else if let Some(like) = expr.downcast_ref::<LikeExpr>() {
+        can_be_pushed_down(like.expr(), schema) && can_be_pushed_down(like.pattern(), schema)
+    } else if let Some(lit) = expr.downcast_ref::<Literal>() {
+        supported_data_types(&lit.value().data_type())
+    } else {
+        log::debug!("DataFusion expression can't be pushed down: {expr:?}");
+        false
+    }
+}
+
+fn supported_data_types(dt: &DataType) -> bool {
+    use DataType::*;
+    let is_supported = dt.is_null()
+        || dt.is_numeric()
+        || matches!(
+            dt,
+            Boolean
+                | Utf8
+                | Utf8View
+                | Binary
+                | BinaryView
+                | Date32
+                | Date64
+                | Timestamp(_, _)
+                | Time32(_)
+                | Time64(_)
+        );
+
+    if !is_supported {
+        log::debug!("DataFusion data type {dt:?} is not supported");
+    }
+
+    is_supported
 }

@@ -477,7 +477,7 @@ pub enum NumericOperator {
     Mul,
     /// Binary element-wise division of two arrays or of two scalars.
     Div,
-    /// Same as [NumericOperator::Div] but with the parameters flipped: `right - left`.
+    /// Same as [NumericOperator::Div] but with the parameters flipped: `right / left`.
     RDiv,
     // Missing from arrow-rs:
     // Min,
