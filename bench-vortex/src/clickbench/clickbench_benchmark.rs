@@ -16,7 +16,6 @@ use crate::{BenchmarkDataset, CompactionStrategy, Format, IdempotentPath, Target
 /// ClickBench benchmark implementation
 pub struct ClickBenchBenchmark {
     pub flavor: Flavor,
-    pub single_file: bool,
     pub queries_file: Option<String>,
     pub data_url: Url,
 }
@@ -24,14 +23,12 @@ pub struct ClickBenchBenchmark {
 impl ClickBenchBenchmark {
     pub fn new(
         flavor: Flavor,
-        single_file: bool,
         queries_file: Option<String>,
         use_remote_data_dir: Option<String>,
     ) -> Result<Self> {
         let url = Self::create_data_url(&use_remote_data_dir, flavor)?;
         Ok(Self {
             flavor,
-            single_file,
             queries_file,
             data_url: url,
         })
@@ -152,7 +149,6 @@ impl Benchmark for ClickBenchBenchmark {
 
     fn dataset(&self) -> BenchmarkDataset {
         BenchmarkDataset::ClickBench {
-            single_file: self.single_file,
             flavor: self.flavor,
         }
     }
@@ -173,11 +169,7 @@ impl Benchmark for ClickBenchBenchmark {
     }
 
     fn dataset_display(&self) -> String {
-        if self.single_file {
-            "clickbench-single".to_string()
-        } else {
-            "clickbench-partitioned".to_string()
-        }
+        format!("clickbench_{}", self.flavor)
     }
 
     fn data_url(&self) -> &Url {
