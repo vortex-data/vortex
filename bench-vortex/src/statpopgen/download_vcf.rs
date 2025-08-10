@@ -69,13 +69,13 @@ impl StatPopGenBenchmark {
             let header = vcf_reader.read_header().await?;
             let progress = ProgressBar::new(self.n_rows);
             let mut record = Record::default();
-            let mut builder = GnomADBuilder::new();
+            let mut builder = GnomADBuilder::new(&header);
             let file = File::create(parquet_output_path).await?;
             let mut writer = AsyncArrowWriter::try_new(file, SCHEMA.clone(), None)?;
             for i in progress.wrap_iter(0..self.n_rows) {
                 if i == ROW_GROUP_SIZE_IN_VARIANTS {
                     let rb = builder.finish()?;
-                    builder = GnomADBuilder::new();
+                    builder = GnomADBuilder::new(&header);
                     writer.write(&rb).await?;
                     writer.flush().await?;
                 }

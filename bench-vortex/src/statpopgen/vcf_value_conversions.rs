@@ -2,6 +2,7 @@ use arrow_array::builder::*;
 use itertools::Itertools as _;
 use noodles_vcf::Header;
 use noodles_vcf::record::Samples;
+use noodles_vcf::variant::record::info::field::value::array::Values;
 use noodles_vcf::variant::record::info::field::value::{Array, Value};
 use noodles_vcf::variant::record::samples::Series;
 use noodles_vcf::variant::record::samples::series::value::Array as EntryArray;
@@ -9,24 +10,24 @@ use noodles_vcf::variant::record::samples::series::value::Value as EntryValue;
 use std::borrow::Cow;
 use vortex::error::{VortexResult, vortex_bail};
 
-pub fn value_int32(v: Option<&Value>) -> VortexResult<Option<i32>> {
+pub fn value_int32(v: Option<Value>) -> VortexResult<Option<i32>> {
     Ok(match v {
         None => None,
 
-        Some(Value::Integer(x)) => Some(*x),
+        Some(Value::Integer(x)) => Some(x),
         _ => vortex_bail!("expected int32 {:?}", v),
     })
 }
 
-pub fn value_float64(v: Option<&Value>) -> VortexResult<Option<f64>> {
+pub fn value_float32(v: Option<Value>) -> VortexResult<Option<f32>> {
     Ok(match v {
         None => None,
-        Some(Value::Float(x)) => Some(*x as f64),
+        Some(Value::Float(x)) => Some(x),
         _ => vortex_bail!("expected f64 {:?}", v),
     })
 }
 
-pub fn value_string<'a>(v: Option<&'a Value>) -> VortexResult<Option<&'a str>> {
+pub fn value_string(v: Option<Value>) -> VortexResult<Option<Cow<str>>> {
     Ok(match v {
         None => None,
         Some(Value::String(x)) => Some(x),
@@ -34,7 +35,7 @@ pub fn value_string<'a>(v: Option<&'a Value>) -> VortexResult<Option<&'a str>> {
     })
 }
 
-pub fn value_boolean(v: Option<&Value>) -> VortexResult<bool> {
+pub fn value_boolean(v: Option<Value>) -> VortexResult<bool> {
     Ok(match v {
         None => false,
         Some(Value::Flag) => true,
@@ -42,46 +43,42 @@ pub fn value_boolean(v: Option<&Value>) -> VortexResult<bool> {
     })
 }
 
-pub fn value_list_int32(
-    v: Option<&Value>,
-) -> VortexResult<Option<impl Iterator<Item = Option<i32>>>> {
+pub fn value_list_int32<'a>(
+    v: Option<Value<'a>>,
+) -> VortexResult<Option<Box<dyn Values<'a, i32> + 'a>>> {
     Ok(match v {
         None => None,
         Some(Value::Array(a)) => match a {
-            Array::Integer(values) => Some(values.iter().map(|x| x.expect("no errors"))),
-            _ => vortex_bail!("expected int32 {:?}", v),
+            Array::Integer(values) => Some(values),
+            v => vortex_bail!("expected int32 {:?}", v),
         },
-        _ => vortex_bail!("expected int32 {:?}", v),
+        v => vortex_bail!("expected int32 {:?}", v),
     })
 }
 
-pub fn value_list_float64(
-    v: Option<&Value>,
-) -> VortexResult<Option<impl Iterator<Item = Option<f64>>>> {
+pub fn value_list_float32<'a>(
+    v: Option<Value<'a>>,
+) -> VortexResult<Option<Box<dyn Values<'a, f32> + 'a>>> {
     Ok(match v {
         None => None,
         Some(Value::Array(a)) => match a {
-            Array::Float(values) => Some(
-                values
-                    .iter()
-                    .map(|x| x.expect("no errors").map(|x| x as f64)),
-            ),
-            _ => vortex_bail!("expected int32 {:?}", v),
+            Array::Float(values) => Some(values),
+            v => vortex_bail!("expected int32 {:?}", v),
         },
-        _ => vortex_bail!("expected f64 {:?}", v),
+        v => vortex_bail!("expected f64 {:?}", v),
     })
 }
 
 pub fn value_list_string<'a>(
-    v: Option<&'a Value>,
-) -> VortexResult<Option<impl Iterator<Item = Option<Cow<'a, str>>>>> {
+    v: Option<Value<'a>>,
+) -> VortexResult<Option<Box<dyn Values<'a, Cow<'a, str>> + 'a>>> {
     Ok(match v {
         None => None,
         Some(Value::Array(a)) => match a {
-            Array::String(values) => Some(values.iter().map(|x| x.expect("no errors"))),
-            _ => vortex_bail!("expected int32 {:?}", v),
+            Array::String(values) => Some(values),
+            v => vortex_bail!("expected int32 {:?}", v),
         },
-        _ => vortex_bail!("expected string {:?}", v),
+        v => vortex_bail!("expected string {:?}", v),
     })
 }
 
