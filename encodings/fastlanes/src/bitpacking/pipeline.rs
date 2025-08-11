@@ -107,7 +107,7 @@ where
         // We re-interpret the output view as the unsigned bitpacked type.
         let mut physical_out = out.reinterpret_as::<<T as PhysicalPType>::Physical>();
 
-        let elements = physical_out.as_mut::<<T as PhysicalPType>::Physical>();
+        let elements = physical_out.as_slice_mut::<<T as PhysicalPType>::Physical>();
         let packed = &buffer.as_slice()[self.packed_offset..];
 
         // We compute the number of FastLanes vectors that we have remaining.

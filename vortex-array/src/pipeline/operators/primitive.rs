@@ -64,11 +64,11 @@ impl<T: Element + NativePType> Kernel for PrimitiveKernel<T> {
         let remaining = buffer.len() - self.offset;
 
         if remaining > N {
-            out.as_mut::<T>()
+            out.as_slice_mut::<T>()
                 .copy_from_slice(&buffer[self.offset..][..N]);
             self.offset += N;
         } else {
-            out.as_mut::<T>()[..remaining].copy_from_slice(&buffer[self.offset..]);
+            out.as_slice_mut::<T>()[..remaining].copy_from_slice(&buffer[self.offset..]);
             self.offset += remaining;
         }
 

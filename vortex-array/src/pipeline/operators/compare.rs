@@ -113,10 +113,10 @@ impl<T: Element + NativePType, Op: CompareOp<T>> Kernel for ComparePrimitiveKern
         out: &mut ViewMut,
     ) -> Poll<VortexResult<()>> {
         let lhs_vec = ctx.vector(self.lhs);
-        let lhs = lhs_vec.elements::<T>();
+        let lhs = lhs_vec.as_slice::<T>();
         let rhs_vec = ctx.vector(self.rhs);
-        let rhs = rhs_vec.elements::<T>();
-        let bools = out.as_mut::<bool>();
+        let rhs = rhs_vec.as_slice::<T>();
+        let bools = out.as_slice_mut::<bool>();
 
         assert_eq!(
             lhs.len(),

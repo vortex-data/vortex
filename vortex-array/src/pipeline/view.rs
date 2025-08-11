@@ -36,13 +36,13 @@ impl<'a> View<'a> {
         self.len
     }
 
-    pub fn elements<T>(&self) -> &'a [T; N]
+    pub fn as_slice<T>(&self) -> &'a [T]
     where
         T: Element,
     {
-        assert_eq!(self.vtype, T::vtype(), "Invalid type for canonical view");
+        debug_assert_eq!(self.vtype, T::vtype(), "Invalid type for canonical view");
         // SAFETY: We assume that the elements are of type T and that the view is valid.
-        unsafe { &*(self.elements.cast::<[T; N]>()) }
+        unsafe { std::slice::from_raw_parts(self.elements.cast(), N) }
     }
 }
 
@@ -147,17 +147,9 @@ impl<'a> ViewMut<'a> {
         }
     }
 
-    /// Returns a mutable handle to the elements array.
-    #[inline(always)]
-    pub fn elements<E: Element>(&mut self) -> &'a mut [E; N] {
-        debug_assert_eq!(self.vtype, E::vtype(), "Invalid type for canonical view");
-        // SAFETY: We assume that the elements are of type E and that the view is valid.
-        unsafe { &mut *(self.elements.cast::<[E; N]>()) }
-    }
-
     /// Returns an immutable slice of the elements in the vector.
     #[inline(always)]
-    pub fn as_ref<E: Element>(&self) -> &'a [E] {
+    pub fn as_slice<E: Element>(&self) -> &'a [E] {
         debug_assert_eq!(self.vtype, E::vtype(), "Invalid type for canonical view");
         unsafe { std::slice::from_raw_parts(self.elements.cast::<E>(), N) }
     }
@@ -165,7 +157,7 @@ impl<'a> ViewMut<'a> {
     /// Returns a mutable slice of the elements in the vector, allowing for modification.
     /// FIXME(ngates): test the performance if we return &mut [E; N] instead of &[E].
     #[inline(always)]
-    pub fn as_mut<E: Element>(&mut self) -> &'a mut [E] {
+    pub fn as_slice_mut<E: Element>(&mut self) -> &'a mut [E] {
         debug_assert_eq!(self.vtype, E::vtype(), "Invalid type for canonical view");
         unsafe { std::slice::from_raw_parts_mut(self.elements.cast::<E>(), N) }
     }
@@ -210,8 +202,8 @@ impl<'a> ViewMut<'a> {
                 mask.iter_ones(|idx| {
                     unsafe {
                         // SAFETY: We assume that the elements are of type E and that the view is valid.
-                        *self.as_mut::<E>().get_unchecked_mut(offset) =
-                            *self.as_ref::<E>().get_unchecked(idx);
+                        *self.as_slice_mut::<E>().get_unchecked_mut(offset) =
+                            *self.as_slice::<E>().get_unchecked(idx);
                         offset += 1;
                     }
                 });

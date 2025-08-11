@@ -163,7 +163,7 @@ fn export_bool_nonnull_masked(mask: &Mask, pipeline: &mut dyn Kernel) -> VortexR
 
         // Now we collect the byte-bools into bit-bools.
         // FIXME(ngates): append_slice is really slow and stupid.
-        values.append_slice(&elements_buffer_mut.as_ref::<bool>()[0..mask_view.true_count()]);
+        values.append_slice(&elements_buffer_mut.as_slice::<bool>()[0..mask_view.true_count()]);
 
         remaining = remaining.saturating_sub(N);
     }
