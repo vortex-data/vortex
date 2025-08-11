@@ -481,12 +481,16 @@ mod tests {
     fn test_buffer_size_calculation_large_type() {
         use vortex_buffer::BufferMut;
 
-        struct LargeType([u8; 1024]);
+        // Test with a struct containing a large array
+        #[repr(C)]
+        struct LargeType {
+            _data: [u8; 1024],
+        }
 
         let mut buf = BufferMut::<LargeType>::with_capacity(10);
         // Extend with 10 elements
         for _ in 0..10 {
-            buf.push(LargeType([0u8; 1024]));
+            buf.push(LargeType { _data: [0u8; 1024] });
         }
         let buffer = buf.freeze();
 

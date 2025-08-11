@@ -183,15 +183,15 @@ impl Dispatch for IoDispatcher {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32"), feature = "tokio"))]
 mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
 
-    use super::*;
+    use super::{Dispatch, IoDispatcher};
 
-    #[test]
-    fn test_dispatcher_task_panic_handling() {
+    #[::tokio::test]
+    async fn test_dispatcher_task_panic_handling() {
         let dispatcher = IoDispatcher::new();
         let completed = Arc::new(AtomicBool::new(false));
         let completed_clone = completed.clone();
@@ -214,7 +214,7 @@ mod tests {
         // Note: this depends on implementation details
 
         // The normal task should complete
-        let result = futures::executor::block_on(normal_handle);
+        let result = normal_handle.await;
         assert_eq!(result.unwrap(), 42);
         assert!(completed.load(Ordering::SeqCst));
 
@@ -228,8 +228,8 @@ mod tests {
         dispatcher.shutdown().unwrap();
     }
 
-    #[test]
-    fn test_dispatcher_many_threads() {
+    #[::tokio::test]
+    async fn test_dispatcher_many_threads() {
         let dispatcher = IoDispatcher::new();
         let mut handles = Vec::new();
 
@@ -239,7 +239,7 @@ mod tests {
         }
 
         for (i, handle) in handles.into_iter().enumerate() {
-            let result = futures::executor::block_on(handle);
+            let result = handle.await;
             assert_eq!(result.unwrap(), i * 2);
         }
 
