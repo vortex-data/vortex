@@ -72,6 +72,8 @@ export const BENCHMARK_DESCRIPTIONS = {
     "TPC-H benchmark queries executed against data stored in Amazon S3, measuring cloud storage query performance and the impact of network latency on analytical workloads",
   Clickbench:
     "ClickHouse's analytical benchmark suite testing real-world query patterns on web analytics data, run against NVMe storage",
+  "TPC-DS (NVMe)":
+    "TPC-DS benchmark queries executed on local NVMe storage, testing complex analytical query performance with a retail sales dataset",
 };
 
 // Category tags mapping
@@ -88,6 +90,8 @@ export const CATEGORY_TAGS = {
   "TPC-H (S3) (SF=100)": ["Queries (S3)", "TPC-H (SF=100)"],
   "TPC-H (NVMe) (SF=1000)": ["Queries (NVMe)", "TPC-H (SF=1000)"],
   "TPC-H (S3) (SF=1000)": ["Queries (S3)", "TPC-H (SF=1000)"],
+  "TPC-DS (NVMe) (SF=1)": ["Queries (NVMe)", "TPC-DS (SF=1)"],
+  "TPC-DS (NVMe) (SF=10)": ["Queries (NVMe)", "TPC-DS (SF=10)"],
 };
 
 // Scale factor descriptions
@@ -127,4 +131,6 @@ export const BENCHMARK_GROUPS = [
   "TPC-H (S3) (SF=100)",
   "TPC-H (NVMe) (SF=1000)",
   "TPC-H (S3) (SF=1000)",
+  "TPC-DS (NVMe) (SF=1)",
+  "TPC-DS (NVMe) (SF=10)",
 ];

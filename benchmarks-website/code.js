@@ -67,9 +67,25 @@ window.initAndRender = (function () {
       return "";
     },
 
+    getTpcdsDescription(categoryName) {
+      const scaleFactorMatch = categoryName.match(/SF=(\d+)/);
+      const scaleFactor = scaleFactorMatch ? scaleFactorMatch[1] : null;
+      const scaleFactorInfo =
+        SCALE_FACTOR_DESCRIPTIONS[scaleFactor] || "various scale factors";
+
+      if (categoryName.includes("NVMe")) {
+        return `TPC-DS benchmark queries executed on local NVMe storage, testing complex analytical query performance with a retail sales dataset at ${scaleFactorInfo}`;
+      } else if (categoryName.includes("S3")) {
+        return `TPC-DS benchmark queries executed against data stored in Amazon S3, measuring cloud storage query performance for complex retail analytics workloads at ${scaleFactorInfo}`;
+      }
+      return "";
+    },
+
     getDescription(categoryName) {
       if (categoryName.startsWith("TPC-H")) {
         return this.getTpchDescription(categoryName);
+      } else if (categoryName.startsWith("TPC-DS")) {
+        return this.getTpcdsDescription(categoryName);
       }
       const baseCategory = categoryName.split(" (")[0];
       return BENCHMARK_DESCRIPTIONS[baseCategory] || "";
