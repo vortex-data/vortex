@@ -21,7 +21,7 @@ on:
               "subcommand": "tpch",
               "name": "TPC-H on NVME",
               "targets": "datafusion:arrow,datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb",
-              "scale_factor": "--scale-factor 1"
+              "scale_factor": "--scale-factor 1.0"
             },
             {
               "id": "clickbench-nvme",
@@ -36,6 +36,13 @@ on:
               "local_dir": "bench-vortex/data/tpch/1.0",
               "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/tpch/1.0/",
               "targets": "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex",
+              "scale_factor": "--scale-factor 1.0"
+            },
+            {
+              "id": "tpcds",
+              "subcommand": "tpcds",
+              "name": "TPC-DS on NVME",
+              "targets": "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb",
               "scale_factor": "--scale-factor 1.0"
             }
           ]
