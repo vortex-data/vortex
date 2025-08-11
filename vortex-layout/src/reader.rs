@@ -5,19 +5,19 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
 
-use async_trait::async_trait;
+use crate::children::LayoutChildren;
+use crate::segments::{SegmentId, SegmentSource, Segments};
 use futures::FutureExt;
 use futures::future::{BoxFuture, Shared};
 use once_cell::sync::OnceCell;
+use parking_lot::Mutex;
 use vortex_array::ArrayRef;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{SharedVortexResult, VortexError, VortexResult, vortex_bail};
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
-
-use crate::children::LayoutChildren;
-use crate::segments::SegmentSource;
+use vortex_utils::aliases::hash_set::HashSet;
 
 pub type LayoutReaderRef = Arc<dyn LayoutReader>;
 
@@ -77,18 +77,20 @@ pub fn mask_future_ready(mask: Mask) -> MaskFuture {
 /// Returns a mask where all false values are proven to be false in the given expression.
 ///
 /// The returned mask **does not** need to have been intersected with the input mask.
-#[async_trait]
 pub trait PruningEvaluation: 'static + Send + Sync {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask>;
+    fn invoke(&self, mask: Mask, segments: &dyn Segments) -> VortexResult<Mask>;
+
+    fn required_segments(&self, segments: &mut HashSet<SegmentId>);
 }
 
 pub struct NoOpPruningEvaluation;
 
-#[async_trait]
 impl PruningEvaluation for NoOpPruningEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+    fn invoke(&self, mask: Mask, _segments: &dyn Segments) -> VortexResult<Mask> {
         Ok(mask)
     }
+
+    fn required_segments(&self, _segments: &mut HashSet<SegmentId>) {}
 }
 
 /// Refines the given mask, returning a mask equal in length to the input mask.
@@ -96,25 +98,82 @@ impl PruningEvaluation for NoOpPruningEvaluation {
 /// ## Post-conditions
 ///
 /// The returned mask **MUST** have been intersected with the input mask.
-#[async_trait]
 pub trait MaskEvaluation: 'static + Send + Sync {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask>;
+    fn invoke(&self, mask: Mask, segments: &dyn Segments) -> VortexResult<Mask>;
+
+    fn required_segments(&self, segments: &mut HashSet<SegmentId>);
 }
 
 pub struct NoOpMaskEvaluation;
 
-#[async_trait]
 impl MaskEvaluation for NoOpMaskEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+    fn invoke(&self, mask: Mask, _segments: &dyn Segments) -> VortexResult<Mask> {
         Ok(mask)
     }
+
+    fn required_segments(&self, _segments: &mut HashSet<SegmentId>) {}
 }
 
 /// Evaluates an expression against an array, returning an array equal in length to the true count
 /// of the input mask.
-#[async_trait]
 pub trait ArrayEvaluation: 'static + Send + Sync {
-    async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef>;
+    fn invoke(&self, mask: Mask, segments: &dyn Segments) -> VortexResult<ArrayRef>;
+
+    fn required_segments(&self, segments: &mut HashSet<SegmentId>);
+}
+
+/// Provides semantics equivalent to `LazyLock`, except where segments are bound late.
+#[derive(Clone)]
+pub struct LazyWithSegments<T> {
+    cell: OnceCell<T>,
+    ctor: Arc<Mutex<Option<Box<dyn FnOnce(&dyn Segments) -> VortexResult<T> + Send>>>>,
+    required_segments: HashSet<SegmentId>,
+}
+
+impl<T> LazyWithSegments<T> {
+    pub fn new(ctor: impl FnOnce(&dyn Segments) -> VortexResult<T> + Send + 'static) -> Self {
+        Self {
+            cell: OnceCell::new(),
+            ctor: Arc::new(Mutex::new(Some(Box::new(ctor)))),
+            required_segments: Default::default(),
+        }
+    }
+
+    pub fn with_required_segments(
+        mut self,
+        segment_ids: impl IntoIterator<Item = SegmentId>,
+    ) -> Self {
+        self.required_segments.extend(segment_ids.into_iter());
+        self
+    }
+
+    pub fn with_lazy_required_segments<R>(mut self, lazy: &LazyWithSegments<R>) -> Self {
+        self.required_segments
+            .extend(lazy.required_segments.iter().cloned());
+        self
+    }
+
+    pub fn with_array_evaluation_segments(mut self, eval: &dyn ArrayEvaluation) -> Self {
+        eval.required_segments(&mut self.required_segments);
+        self
+    }
+
+    pub fn with_mask_evaluation_segments(mut self, eval: &dyn MaskEvaluation) -> Self {
+        eval.required_segments(&mut self.required_segments);
+        self
+    }
+
+    pub fn get(&self, segments: &dyn Segments) -> VortexResult<&T> {
+        self.cell.get_or_try_init(|| {
+            let mut ctor_guard = self.ctor.lock();
+            let ctor = ctor_guard.take().expect("Constructor already consumed");
+            ctor(segments)
+        })
+    }
+
+    pub fn required_segments(&self, segments: &mut HashSet<SegmentId>) {
+        segments.extend(self.required_segments.iter().cloned());
+    }
 }
 
 pub struct LazyReaderChildren {

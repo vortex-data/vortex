@@ -5,6 +5,12 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
 
+use crate::layouts::chunked::ChunkedLayout;
+use crate::reader::LayoutReader;
+use crate::segments::{SegmentId, SegmentSource, Segments};
+use crate::{
+    ArrayEvaluation, LayoutReaderRef, LazyReaderChildren, MaskEvaluation, PruningEvaluation,
+};
 use async_trait::async_trait;
 use futures::future::ready;
 use futures::stream::FuturesOrdered;
@@ -17,13 +23,7 @@ use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
-
-use crate::layouts::chunked::ChunkedLayout;
-use crate::reader::LayoutReader;
-use crate::segments::SegmentSource;
-use crate::{
-    ArrayEvaluation, LayoutReaderRef, LazyReaderChildren, MaskEvaluation, PruningEvaluation,
-};
+use vortex_utils::aliases::hash_set::HashSet;
 
 /// A [`LayoutReader`] for chunked layouts.
 pub struct ChunkedReader {
@@ -218,9 +218,8 @@ struct ChunkedPruningEvaluation {
     mask_ranges: Vec<Range<usize>>,
 }
 
-#[async_trait]
 impl PruningEvaluation for ChunkedPruningEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+    fn invoke(&self, mask: Mask, segments: &dyn Segments) -> VortexResult<Mask> {
         log::debug!(
             "Chunked pruning evaluation {} (mask = {})",
             self.name,
@@ -228,22 +227,20 @@ impl PruningEvaluation for ChunkedPruningEvaluation {
         );
 
         // Split the mask over each chunk.
-        let masks: Vec<_> = FuturesOrdered::from_iter(
-            self.mask_ranges
-                .iter()
-                .map(|range| mask.slice(range.start, range.end - range.start))
-                .zip_eq(&self.chunk_evals)
-                .map(|(mask, chunk_eval)| {
-                    if mask.all_false() {
-                        // If the mask is all false, we can skip the evaluation.
-                        ready(Ok(mask)).boxed()
-                    } else {
-                        chunk_eval.invoke(mask).boxed()
-                    }
-                }),
-        )
-        .try_collect()
-        .await?;
+        let masks: Vec<_> = self
+            .mask_ranges
+            .iter()
+            .map(|range| mask.slice(range.start, range.end - range.start))
+            .zip_eq(&self.chunk_evals)
+            .map(|(mask, chunk_eval)| {
+                if mask.all_false() {
+                    // If the mask is all false, we can skip the evaluation.
+                    Ok(mask)
+                } else {
+                    chunk_eval.invoke(mask, segments)
+                }
+            })
+            .try_collect()?;
 
         // If there is only one mask, we can return it directly.
         if masks.len() == 1 {
@@ -252,6 +249,12 @@ impl PruningEvaluation for ChunkedPruningEvaluation {
 
         // Combine the masks.
         Ok(Mask::from_iter(masks))
+    }
+
+    fn required_segments(&self, segments: &mut HashSet<SegmentId>) {
+        for chunk_eval in &self.chunk_evals {
+            chunk_eval.required_segments(segments);
+        }
     }
 }
 

@@ -3,10 +3,14 @@
 
 use std::collections::BTreeSet;
 use std::ops::{BitAnd, Range};
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
-use async_trait::async_trait;
-use futures::FutureExt;
+use crate::layouts::flat::FlatLayout;
+use crate::segments::{SegmentId, SegmentSource, Segments};
+use crate::{
+    ArrayEvaluation, LayoutReader, LazyWithSegments, MaskEvaluation, NoOpPruningEvaluation,
+    PruningEvaluation,
+};
 use vortex_array::compute::filter;
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
@@ -15,13 +19,7 @@ use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
 use vortex_expr::{ExprRef, Scope, is_root};
 use vortex_mask::Mask;
-
-use crate::layouts::SharedArrayFuture;
-use crate::layouts::flat::FlatLayout;
-use crate::segments::SegmentSource;
-use crate::{
-    ArrayEvaluation, LayoutReader, MaskEvaluation, NoOpPruningEvaluation, PruningEvaluation,
-};
+use vortex_utils::aliases::hash_set::HashSet;
 
 /// The threshold of mask density below which we will evaluate the expression only over the
 /// selected rows, and above which we evaluate the expression over all rows and then select
@@ -30,11 +28,13 @@ use crate::{
 //  actual expression? Perhaps all expressions are given a selection mask to decide for themselves?
 const EXPR_EVAL_THRESHOLD: f64 = 0.2;
 
+type SharedArray = LazyWithSegments<ArrayRef>;
+
 pub struct FlatReader {
     layout: FlatLayout,
     name: Arc<str>,
     segment_source: Arc<dyn SegmentSource>,
-    array: OnceLock<SharedArrayFuture>,
+    shared_array: SharedArray,
 }
 
 impl FlatReader {
@@ -43,44 +43,23 @@ impl FlatReader {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
     ) -> Self {
+        let ctx = layout.ctx.clone();
+        let dtype = layout.dtype().clone();
+        let row_count = usize::try_from(layout.row_count()).vortex_unwrap();
+        let segment_id = layout.segment_id();
+
+        let shared_array = LazyWithSegments::new(move |segments| {
+            let segment = segments.get(segment_id);
+            ArrayParts::try_from(segment)?.decode(&ctx, &dtype, row_count)
+        })
+        .with_required_segments([segment_id]);
+
         Self {
             layout,
             name,
             segment_source,
-            array: Default::default(),
+            shared_array,
         }
-    }
-
-    /// Returns a cached future that resolves this array.
-    ///
-    /// This method is idempotent, and returns a cached future on subsequent calls, all of which
-    /// will use the original segment reader.
-    // TODO(ngates): caching this and ignoring SegmentReaders may be a terrible idea... we may
-    //  instead want to store all segment futures and race them, so if a layout requests a
-    //  projection future before a pruning future, the pruning isn't blocked.
-    fn array_future(&self) -> VortexResult<SharedArrayFuture> {
-        let row_count = usize::try_from(self.layout.row_count()).vortex_unwrap();
-
-        // We create the segment_fut here to ensure we give the segment reader visibility into
-        // how to prioritize this segment, even if the `array` future has already been initialized.
-        // This is gross... see the function's TODO for a maybe better solution?
-        let segment_fut = self.segment_source.request(self.layout.segment_id());
-
-        Ok(self
-            .array
-            .get_or_init(|| {
-                let ctx = self.layout.ctx.clone();
-                let dtype = self.layout.dtype().clone();
-                async move {
-                    let segment = segment_fut.await?;
-                    ArrayParts::try_from(segment)?
-                        .decode(&ctx, &dtype, row_count)
-                        .map_err(Arc::new)
-                }
-                .boxed()
-                .shared()
-            })
-            .clone())
     }
 }
 
@@ -127,7 +106,7 @@ impl LayoutReader for FlatReader {
 
         Ok(Box::new(FlatEvaluation {
             name: self.name.clone(),
-            array: self.array_future()?,
+            array: self.shared_array.clone(),
             row_range,
             expr: expr.clone(),
         }))
@@ -144,7 +123,7 @@ impl LayoutReader for FlatReader {
                 .vortex_expect("Row range end must fit within FlatLayout size");
         Ok(Box::new(FlatEvaluation {
             name: self.name.clone(),
-            array: self.array_future()?,
+            array: self.shared_array.clone(),
             row_range,
             expr: expr.clone(),
         }))
@@ -153,20 +132,19 @@ impl LayoutReader for FlatReader {
 
 struct FlatEvaluation {
     name: Arc<str>,
-    array: SharedArrayFuture,
+    array: SharedArray,
     row_range: Range<usize>,
     expr: ExprRef,
 }
 
-#[async_trait]
 impl MaskEvaluation for FlatEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+    fn invoke(&self, mask: Mask, segments: &dyn Segments) -> VortexResult<Mask> {
         // TODO(ngates): if the mask density is low enough, or if the mask is dense within a range
         //  (as often happens with zone map pruning), then we could slice/filter the array prior
         //  to evaluating the expression.
 
         // Now we await the array .
-        let mut array = self.array.clone().await?;
+        let mut array = self.array.get(segments)?.clone();
 
         // Slice the array based on the row mask.
         if self.row_range.start > 0 || self.row_range.end < array.len() {
@@ -200,11 +178,14 @@ impl MaskEvaluation for FlatEvaluation {
 
         Ok(array_mask)
     }
+
+    fn required_segments(&self, segments: &mut HashSet<SegmentId>) {
+        self.array.required_segments(segments);
+    }
 }
 
-#[async_trait]
 impl ArrayEvaluation for FlatEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
+    fn invoke(&self, mask: Mask, segments: &dyn Segments) -> VortexResult<ArrayRef> {
         log::debug!(
             "Flat array evaluation {} - {} (mask = {})",
             self.name,
@@ -213,7 +194,7 @@ impl ArrayEvaluation for FlatEvaluation {
         );
 
         // Now we await the array .
-        let mut array = self.array.clone().await?;
+        let mut array = self.array.get(segments)?.clone();
 
         // Slice the array based on the row mask.
         if self.row_range.start > 0 || self.row_range.end < array.len() {
@@ -231,6 +212,10 @@ impl ArrayEvaluation for FlatEvaluation {
         }
 
         Ok(array)
+    }
+
+    fn required_segments(&self, segments: &mut HashSet<SegmentId>) {
+        self.array.required_segments(segments);
     }
 }
 

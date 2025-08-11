@@ -6,14 +6,15 @@ mod sink;
 mod source;
 mod test;
 
-use std::fmt::Display;
-use std::ops::Deref;
-
+use dashmap::DashMap;
 pub use events::*;
 pub use sink::*;
 pub use source::*;
+use std::fmt::Display;
+use std::ops::Deref;
 pub use test::*;
-use vortex_error::VortexError;
+use vortex_buffer::ByteBuffer;
+use vortex_error::{VortexError, VortexExpect};
 
 /// The identifier for a single segment.
 // TODO(ngates): should this be a `[u8]` instead? Allowing for arbitrary segment identifiers?
@@ -45,5 +46,18 @@ impl Deref for SegmentId {
 impl Display for SegmentId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "SegmentId({})", self.0)
+    }
+}
+
+/// Blocking accessor for segments.
+pub trait Segments: Send + Sync {
+    fn get(&self, segment_id: SegmentId) -> ByteBuffer;
+}
+
+impl Segments for DashMap<SegmentId, ByteBuffer> {
+    fn get(&self, segment_id: SegmentId) -> ByteBuffer {
+        DashMap::get(self, &segment_id)
+            .vortex_expect("Segment not found")
+            .clone()
     }
 }

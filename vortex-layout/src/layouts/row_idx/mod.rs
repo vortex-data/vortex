@@ -8,6 +8,12 @@ use std::fmt::{Display, Formatter};
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
+use crate::layouts::partitioned::{PartitionedArrayEvaluation, PartitionedMaskEvaluation};
+use crate::segments::SegmentId;
+use crate::{
+    ArrayEvaluation, LayoutReader, MaskEvaluation, NoOpMaskEvaluation, NoOpPruningEvaluation,
+    PruningEvaluation,
+};
 use Nullability::NonNullable;
 use async_trait::async_trait;
 use dashmap::DashMap;
@@ -23,12 +29,7 @@ use vortex_expr::{ExactExpr, ExprRef, Scope, is_root, root};
 use vortex_mask::Mask;
 use vortex_scalar::PValue;
 use vortex_sequence::SequenceArray;
-
-use crate::layouts::partitioned::{PartitionedArrayEvaluation, PartitionedMaskEvaluation};
-use crate::{
-    ArrayEvaluation, LayoutReader, MaskEvaluation, NoOpMaskEvaluation, NoOpPruningEvaluation,
-    PruningEvaluation,
-};
+use vortex_utils::aliases::hash_set::HashSet;
 
 pub struct RowIdxLayoutReader {
     name: Arc<str>,
@@ -246,6 +247,8 @@ impl PruningEvaluation for RowIdxEvaluation {
                 .as_ref(),
         )
     }
+
+    fn required_segments(&self, _segments: &mut HashSet<SegmentId>) {}
 }
 
 #[async_trait]

@@ -5,29 +5,27 @@ use std::collections::BTreeSet;
 use std::ops::{BitAnd, Range};
 use std::sync::{Arc, OnceLock};
 
+use crate::layouts::zoned::ZonedLayout;
+use crate::layouts::zoned::zone_map::ZoneMap;
+use crate::segments::{SegmentId, SegmentSource, Segments};
+use crate::{ArrayEvaluation, LayoutReader, LazyWithSegments, MaskEvaluation, PruningEvaluation};
 use arrow_buffer::BooleanBufferBuilder;
-use async_trait::async_trait;
 use dashmap::DashMap;
-use futures::future::{BoxFuture, Shared};
-use futures::{FutureExt, TryFutureExt};
+use futures::future::{Lazy, Shared};
 use itertools::Itertools;
 use parking_lot::RwLock;
 use vortex_array::ToCanonical;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask, FieldPath, FieldPathSet};
-use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
+use vortex_error::{VortexError, VortexExpect, VortexResult};
 use vortex_expr::dynamic::DynamicExprUpdates;
 use vortex_expr::pruning::checked_pruning_expr;
 use vortex_expr::{ExprRef, root};
 use vortex_mask::Mask;
+use vortex_utils::aliases::hash_set::HashSet;
 
-use crate::layouts::zoned::ZonedLayout;
-use crate::layouts::zoned::zone_map::ZoneMap;
-use crate::segments::SegmentSource;
-use crate::{ArrayEvaluation, LayoutReader, MaskEvaluation, PruningEvaluation};
-
-type SharedZoneMap = Shared<BoxFuture<'static, SharedVortexResult<ZoneMap>>>;
-type SharedPruningResult = Shared<BoxFuture<'static, SharedVortexResult<Arc<PruningResult>>>>;
+type SharedZoneMap = LazyWithSegments<ZoneMap>;
+type SharedPruningResult = LazyWithSegments<Arc<PruningResult>>;
 type PredicateCache = Arc<OnceLock<Option<ExprRef>>>;
 
 pub struct ZonedReader {
@@ -36,14 +34,12 @@ pub struct ZonedReader {
 
     /// Data layout reader
     data_child: Arc<dyn LayoutReader>,
-    /// Zone map layout reader.
-    zones_child: Arc<dyn LayoutReader>,
 
     /// A cache of expr -> optional pruning result (applying the pruning expr to the zone map)
     pruning_result: DashMap<ExprRef, Option<SharedPruningResult>>,
 
     /// Shared zone map
-    zone_map: OnceLock<SharedZoneMap>,
+    zone_map: SharedZoneMap,
 
     /// A cache of expr -> optional pruning predicate.
     /// This also uses the present_stats from the `ZonedLayout`
@@ -59,17 +55,32 @@ impl ZonedReader {
         let data_child = layout
             .data
             .new_reader(name.clone(), segment_source.clone())?;
-        let zones_child = layout
+
+        // The evaluation object of the zone map.
+        let zones_eval = layout
             .zones
-            .new_reader(format!("{name}.zones").into(), segment_source)?;
+            .new_reader(format!("{name}.zones").into(), segment_source)?
+            .projection_evaluation(&(0..layout.nzones() as u64), &root())?;
+        let mut zones_segments = HashSet::default();
+        zones_eval.required_segments(&mut zones_segments);
+
+        let nzones = layout.nzones();
+        let present_stats = layout.present_stats.clone();
+        let zone_map = LazyWithSegments::new(move |segments| {
+            let zones_array = zones_eval
+                .invoke(Mask::new_true(nzones), segments)?
+                .to_struct()?;
+            // SAFETY: This is only fine to call because we perform validation above
+            Ok(ZoneMap::new_unchecked(zones_array, present_stats))
+        })
+        .with_required_segments(zones_segments);
 
         Ok(Self {
             layout,
             name,
             data_child,
-            zones_child,
             pruning_result: Default::default(),
-            zone_map: Default::default(),
+            zone_map,
             pruning_predicates: Default::default(),
         })
     }
@@ -91,36 +102,6 @@ impl ZonedReader {
             .clone()
     }
 
-    /// Get or initialize the zone map.
-    ///
-    /// Only the first successful caller will initialize the zone map, all other callers will
-    /// resolve to the same result.
-    fn zone_map(&self) -> SharedZoneMap {
-        self.zone_map
-            .get_or_init(move || {
-                let nzones = self.layout.nzones();
-                let present_stats = self.layout.present_stats.clone();
-
-                let zones_eval = self
-                    .zones_child
-                    .projection_evaluation(&(0..nzones as u64), &root())
-                    .vortex_expect("Failed construct zone map evaluation");
-
-                async move {
-                    let zones_array = zones_eval
-                        .invoke(Mask::new_true(nzones))
-                        .await?
-                        .to_struct()?;
-                    // SAFETY: This is only fine to call because we perform validation above
-                    Ok(ZoneMap::new_unchecked(zones_array, present_stats))
-                }
-                .map_err(Arc::new)
-                .boxed()
-                .shared()
-            })
-            .clone()
-    }
-
     /// Returns a pruning mask where `true` means the chunk _can be pruned_.
     fn pruning_mask_future(&self, expr: ExprRef) -> Option<SharedPruningResult> {
         self.pruning_result
@@ -132,12 +113,13 @@ impl ZonedReader {
                 }
                 Some(predicate) => {
                     log::debug!("Constructed pruning predicate for expr: {expr}: {predicate:?}");
-                    let zone_map = self.zone_map();
+                    let zone_map = self.zone_map.clone();
+                    let zone_map2 = self.zone_map.clone();
                     let dynamic_updates = DynamicExprUpdates::new(&expr);
 
                     Some(
-                        async move {
-                            let zone_map = zone_map.await?;
+                        LazyWithSegments::new(move |segments| {
+                            let zone_map = zone_map.get(segments)?.clone();
                             let initial_mask = zone_map.prune(&predicate)?;
                             Ok(Arc::new(PruningResult {
                                 zone_map,
@@ -145,9 +127,8 @@ impl ZonedReader {
                                 dynamic_updates,
                                 latest_result: RwLock::new((0, initial_mask)),
                             }))
-                        }
-                        .boxed()
-                        .shared(),
+                        })
+                        .with_lazy_required_segments(&zone_map2),
                     )
                 }
             })
@@ -225,7 +206,7 @@ impl LayoutReader for ZonedReader {
         Ok(Box::new(ZoneMapPruningEvaluation {
             name: self.name.clone(),
             expr: expr.clone(),
-            pruning_mask_future,
+            shared_pruning_result: pruning_mask_future,
             zone_range,
             zone_lengths,
             data_eval,
@@ -256,7 +237,7 @@ struct ZoneMapPruningEvaluation {
     expr: ExprRef,
     /// A mask indicating zones which have no matching values.
     /// A false value indicates the corresponding zone may have a matching value.
-    pruning_mask_future: SharedPruningResult,
+    shared_pruning_result: SharedPruningResult,
     /// The set of zone IDs that are available to the evaluation.
     zone_range: Range<u64>,
     /// The lengths of each zone in the zone_range.
@@ -265,16 +246,15 @@ struct ZoneMapPruningEvaluation {
     data_eval: Box<dyn PruningEvaluation>,
 }
 
-#[async_trait]
 impl PruningEvaluation for ZoneMapPruningEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+    fn invoke(&self, mask: Mask, segments: &dyn Segments) -> VortexResult<Mask> {
         log::debug!(
             "Invoking stats pruning evaluation {}: {}",
             self.name,
             self.expr,
         );
 
-        let pruning_mask = self.pruning_mask_future.clone().await?.mask()?;
+        let pruning_mask = self.shared_pruning_result.get(segments)?.mask()?;
 
         let mut builder = BooleanBufferBuilder::new(mask.len());
         for (zone_idx, &zone_length) in self.zone_range.clone().zip_eq(&self.zone_lengths) {
@@ -289,7 +269,7 @@ impl PruningEvaluation for ZoneMapPruningEvaluation {
 
         // Forward to data child for further pruning.
         if !stats_mask.all_false() {
-            let data_mask = self.data_eval.invoke(stats_mask.clone()).await?;
+            let data_mask = self.data_eval.invoke(stats_mask.clone(), segments)?;
             stats_mask = stats_mask.bitand(&data_mask);
         }
 
@@ -302,6 +282,10 @@ impl PruningEvaluation for ZoneMapPruningEvaluation {
         );
 
         Ok(stats_mask)
+    }
+
+    fn required_segments(&self, segments: &mut HashSet<SegmentId>) {
+        self.data_eval.required_segments(segments);
     }
 }
 

@@ -5,9 +5,8 @@ use std::fmt::Display;
 use std::ops::BitAnd;
 use std::sync::Arc;
 
-use async_trait::async_trait;
-use futures::TryStreamExt;
-use futures::stream::FuturesOrdered;
+use crate::segments::{SegmentId, Segments};
+use crate::{ArrayEvaluation, MaskEvaluation};
 use itertools::Itertools;
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
@@ -17,8 +16,7 @@ use vortex_error::{VortexError, VortexResult};
 use vortex_expr::transform::partition::PartitionedExpr;
 use vortex_expr::{ExprRef, Scope};
 use vortex_mask::Mask;
-
-use crate::{ArrayEvaluation, MaskEvaluation};
+use vortex_utils::aliases::hash_set::HashSet;
 
 /// An implementation of [`MaskEvaluation`] for partitioned expressions.
 pub struct PartitionedMaskEvaluation<P> {
@@ -64,21 +62,21 @@ enum PartitionEval {
     Array(Box<dyn ArrayEvaluation>),
 }
 
-#[async_trait]
 impl<P: 'static + Send + Sync> MaskEvaluation for PartitionedMaskEvaluation<P> {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
-        // TODO(ngates): ideally we'd spawn these so the CPU can be utilized more effectively.
-        let field_arrays: Vec<_> = FuturesOrdered::from_iter(self.field_evals.iter().map(|eval| {
-            let mask = mask.clone();
-            async move {
+    fn invoke(&self, mask: Mask, segments: &dyn Segments) -> VortexResult<Mask> {
+        let field_arrays: Vec<_> = self
+            .field_evals
+            .iter()
+            .map(|eval| {
+                let mask = mask.clone();
                 match eval {
-                    PartitionEval::Mask(eval) => Ok(eval.invoke(mask.clone()).await?.into_array()),
-                    PartitionEval::Array(eval) => eval.invoke(Mask::new_true(mask.len())).await,
+                    PartitionEval::Mask(eval) => {
+                        Ok(eval.invoke(mask.clone(), segments)?.into_array())
+                    }
+                    PartitionEval::Array(eval) => eval.invoke(Mask::new_true(mask.len()), segments),
                 }
-            }
-        }))
-        .try_collect()
-        .await?;
+            })
+            .try_collect()?;
 
         let root_scope = StructArray::try_new(
             self.partitioned.partition_names.clone(),
@@ -97,6 +95,15 @@ impl<P: 'static + Send + Sync> MaskEvaluation for PartitionedMaskEvaluation<P> {
         let mask = mask.bitand(&root_mask);
 
         Ok(mask)
+    }
+
+    fn required_segments(&self, segments: &mut HashSet<SegmentId>) {
+        for eval in &self.field_evals {
+            match eval {
+                PartitionEval::Mask(eval) => eval.required_segments(segments),
+                PartitionEval::Array(eval) => eval.required_segments(segments),
+            }
+        }
     }
 }
 
@@ -126,16 +133,13 @@ impl<P> PartitionedArrayEvaluation<P> {
     }
 }
 
-#[async_trait]
 impl<P: 'static + Send + Sync + Display> ArrayEvaluation for PartitionedArrayEvaluation<P> {
-    async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
-        let field_arrays: Vec<_> = FuturesOrdered::from_iter(
-            self.field_evals
-                .iter()
-                .map(|eval| eval.invoke(mask.clone())),
-        )
-        .try_collect()
-        .await?;
+    fn invoke(&self, mask: Mask, segments: &dyn Segments) -> VortexResult<ArrayRef> {
+        let field_arrays: Vec<_> = self
+            .field_evals
+            .iter()
+            .map(|eval| eval.invoke(mask.clone(), segments))
+            .try_collect()?;
 
         let root_scope = StructArray::try_new(
             self.partitioned.partition_names.clone(),
@@ -146,5 +150,11 @@ impl<P: 'static + Send + Sync + Display> ArrayEvaluation for PartitionedArrayEva
         .into_array();
 
         self.partitioned.root.evaluate(&Scope::new(root_scope))
+    }
+
+    fn required_segments(&self, segments: &mut HashSet<SegmentId>) {
+        for eval in &self.field_evals {
+            eval.required_segments(segments);
+        }
     }
 }
