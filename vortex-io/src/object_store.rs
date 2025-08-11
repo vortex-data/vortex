@@ -117,6 +117,7 @@ impl VortexReadAt for ObjectStoreReadAt {
     }
 }
 
+#[derive(Clone)]
 pub struct ObjectStoreWriter {
     inner: Arc<Mutex<ObjectStoreWriterInner>>,
 }

@@ -158,13 +158,14 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
+    use vortex_error::VortexExpect;
 
     use super::*;
 
     // Helper function to block on futures using compio runtime
     fn block_on<F: Future>(fut: F) -> F::Output {
         Runtime::new()
-            .expect("Failed to create compio runtime")
+            .vortex_expect("Failed to create compio runtime")
             .block_on(fut)
     }
 
