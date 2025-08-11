@@ -66,12 +66,12 @@ jobs:
       - uses: runs-on/action@v2
         with:
           sccache: s3
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         if: inputs.mode == 'pr'
         with:
           ref: ${{ github.event.pull_request.head.sha }}
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         if: inputs.mode != 'pr'
       - uses: ./.github/actions/setup-rust
 
