@@ -4,7 +4,7 @@
 use std::collections::VecDeque;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll, Waker};
+use std::task::{Context, Poll, Waker, ready};
 
 use async_trait::async_trait;
 use futures::future::try_join_all;
@@ -15,6 +15,7 @@ use parking_lot::Mutex;
 use vortex_array::{Array, ArrayContext, ToCanonical};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 use vortex_utils::aliases::DefaultHashBuilder;
+use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::layouts::struct_::StructLayout;
@@ -134,7 +135,7 @@ where
     }));
 
     let shared_waker = Arc::new(SharedWaker {
-        wakers: Arc::new(Mutex::new(vec![None; elements])),
+        wakers: Default::default(),
     });
 
     (0..elements)
@@ -158,22 +159,19 @@ where
 }
 
 struct SharedWaker {
-    wakers: Arc<Mutex<Vec<Option<Waker>>>>,
+    wakers: Arc<Mutex<HashMap<usize, Waker>>>,
 }
 
 impl SharedWaker {
     pub fn add(self: Arc<Self>, index: usize, waker: Waker) {
-        self.wakers.lock()[index] = Some(waker);
+        self.wakers.lock().insert(index, waker);
     }
 }
 
 impl ArcWake for SharedWaker {
     fn wake_by_ref(arc_self: &Arc<Self>) {
-        let mut guard = arc_self.wakers.lock();
-        for waker in guard.iter_mut() {
-            if let Some(waker) = waker.take() {
-                waker.wake();
-            }
+        for (_, waker) in arc_self.wakers.lock().drain() {
+            waker.wake();
         }
     }
 }
@@ -211,13 +209,12 @@ where
 
         let shared_waker_ref = waker_ref(&self.shared_waker);
         let mut upstream_cx = Context::from_waker(&shared_waker_ref);
-        match Pin::new(&mut guard.upstream).poll_next(&mut upstream_cx) {
-            Poll::Pending => Poll::Pending,
-            Poll::Ready(None) => {
+        match ready!(Pin::new(&mut guard.upstream).poll_next(&mut upstream_cx)) {
+            None => {
                 guard.exhausted = true;
                 Poll::Ready(None)
             }
-            Poll::Ready(Some(Ok(vec_t))) => {
+            Some(Ok(vec_t)) => {
                 for (t, buffer) in vec_t.into_iter().zip_eq(guard.buffers.iter_mut()) {
                     buffer.push_back(Ok(t));
                 }
@@ -226,7 +223,7 @@ where
                     .vortex_expect("just pushed");
                 Poll::Ready(Some(item))
             }
-            Poll::Ready(Some(Err(err))) => {
+            Some(Err(err)) => {
                 let shared_err = Arc::new(err);
                 for buffer in guard.buffers.iter_mut() {
                     buffer.push_back(Err(shared_err.clone().into()));
