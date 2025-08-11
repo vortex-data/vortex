@@ -197,6 +197,37 @@ impl<'a> ViewMut<'a> {
             N => {
                 // If the mask has N true bits, we copy all elements.
             }
+            n if n > N / 2 => {
+                // High density: use iter_zeros to compact by removing gaps
+                let slice = self.as_slice_mut::<E>();
+                let mut write_idx = 0;
+                let mut read_idx = 0;
+
+                mask.iter_zeros(|zero_idx| {
+                    // Copy elements from read_idx to zero_idx (exclusive) to write_idx
+                    let count = zero_idx - read_idx;
+                    unsafe {
+                        // SAFETY: We assume that the elements are of type E and that the view is valid.
+                        // Using memmove for potentially overlapping regions
+                        std::ptr::copy(
+                            slice.as_ptr().add(read_idx),
+                            slice.as_mut_ptr().add(write_idx),
+                            count,
+                        );
+                        write_idx += count;
+                    }
+                    read_idx = zero_idx + 1;
+                });
+
+                // Copy any remaining elements after the last zero
+                unsafe {
+                    std::ptr::copy(
+                        slice.as_ptr().add(read_idx),
+                        slice.as_mut_ptr().add(write_idx),
+                        N - read_idx,
+                    );
+                }
+            }
             _ => {
                 let mut offset = 0;
                 mask.iter_ones(|idx| {

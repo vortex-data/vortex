@@ -80,6 +80,28 @@ impl<'a> BitView<'a> {
         }
     }
 
+    /// Runs the provided function `f` for each index of a `true` bit in the view.
+    pub fn iter_zeros<F>(&self, mut f: F)
+    where
+        F: FnMut(usize),
+    {
+        match self.true_count {
+            0 => (0..N).for_each(&mut f),
+            N => {}
+            _ => {
+                let mut bit_idx = 0;
+                for mut raw in self.bits.into_inner() {
+                    while raw != u64::MAX {
+                        let bit_pos = raw.trailing_ones();
+                        f(bit_idx + bit_pos as usize);
+                        raw |= 1u64 << bit_pos; // Set the zero bit to 1
+                    }
+                    bit_idx += 64;
+                }
+            }
+        }
+    }
+
     /// Runs the provided function `f` for each range of `true` bits in the view.
     ///
     /// The function `f` receives a tuple `(start, len)` where `start` is the index of the first
