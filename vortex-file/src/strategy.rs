@@ -134,6 +134,6 @@ impl WriteStrategyBuilder {
         );
 
         // 0. start with splitting columns
-        Arc::new(StructStrategy::new(repartition))
+        Arc::new(StructStrategy::new(repartition, executor))
     }
 }

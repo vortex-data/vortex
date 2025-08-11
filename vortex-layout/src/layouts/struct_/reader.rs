@@ -264,7 +264,9 @@ mod tests {
     use crate::layouts::struct_::writer::StructStrategy;
     use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
-    use crate::{LayoutRef, LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt as _};
+    use crate::{
+        LayoutRef, LayoutStrategy, LocalExecutor, SequentialStreamAdapter, SequentialStreamExt as _,
+    };
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
@@ -272,7 +274,7 @@ mod tests {
         let ctx = ArrayContext::empty();
         let segments = TestSegments::default();
         let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
-        let strategy = StructStrategy::new(FlatLayoutStrategy::default());
+        let strategy = StructStrategy::new(FlatLayoutStrategy::default(), Arc::new(LocalExecutor));
         let layout = block_on(
             strategy.write_stream(
                 &ctx,
