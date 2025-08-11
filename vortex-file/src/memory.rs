@@ -7,7 +7,7 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex_layout::segments::{SegmentId, SegmentSource};
+use vortex_layout::segments::{SegmentFuture, SegmentId, SegmentSource};
 
 use crate::{FileType, Footer, VortexFile, VortexOpenOptions};
 
@@ -81,8 +81,7 @@ impl SegmentSource for InMemorySegmentReader {
     fn request(
         &self,
         id: SegmentId,
-        _for_whom: &Arc<str>,
-    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
+    ) -> SegmentFuture {
         let Some(spec) = self.footer.segment_map().get(*id as usize) else {
             return async move { vortex_bail!("segment not found {id}") }.boxed();
         };

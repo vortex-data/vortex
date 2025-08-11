@@ -15,7 +15,7 @@ use futures::{FutureExt, StreamExt, TryFutureExt};
 use vortex_buffer::ByteBuffer;
 use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult, vortex_err};
 
-use crate::segments::{SegmentId, SegmentSource};
+use crate::segments::{SegmentFuture, SegmentId, SegmentSource};
 
 /// A utility for turning a [`SegmentSource`] into a stream of [`SegmentEvent`]s.
 ///
@@ -145,11 +145,7 @@ struct EventsSegmentSource {
 }
 
 impl SegmentSource for EventsSegmentSource {
-    fn request(
-        &self,
-        id: SegmentId,
-        for_whom: &Arc<str>,
-    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
+    fn request(&self, id: SegmentId) -> SegmentFuture {
         self.events
             .clone()
             .segment_future(id, for_whom.clone())
