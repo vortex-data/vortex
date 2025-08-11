@@ -14,7 +14,7 @@ use std::ops::Deref;
 pub use events::*;
 pub use sink::*;
 pub use source::*;
-#[cfg(test)]
+#[cfg("test-harness")]
 pub use test::*;
 use vortex_error::VortexError;
 
