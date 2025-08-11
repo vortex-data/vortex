@@ -130,11 +130,7 @@ impl CoalescedDriver {
     }
 
     fn on_requested(&mut self, request: SegmentRequest) {
-        trace_log!(
-            "on_requested: segment={} for_whom={}",
-            *request.id(),
-            request.for_whom(),
-        );
+        trace_log!("on_requested: segment={}", *request.id(),);
         self.requested.insert_if_absent(request.id());
         self.state.insert(
             request.id(),

@@ -137,24 +137,18 @@ impl SegmentCacheSourceAdapter {
 }
 
 impl SegmentSource for SegmentCacheSourceAdapter {
-    fn request(&self, id: SegmentId, for_whom: &Arc<str>) -> SegmentFuture {
+    fn request(&self, id: SegmentId) -> SegmentFuture {
         let cache = self.cache.clone();
-        let delegate = self.source.request(id, for_whom);
-        let for_whom = for_whom.clone();
+        let delegate = self.source.request(id);
 
         async move {
             if let Ok(Some(segment)) = cache.get(id).await {
-                log::debug!("Resolved segment {} for {} from cache", id, &for_whom);
+                log::debug!("Resolved segment {} from cache", id);
                 return Ok(segment);
             }
             let result = delegate.await?;
             if let Err(e) = cache.put(id, result.clone()).await {
-                log::warn!(
-                    "Failed to store segment {} for {} in cache: {}",
-                    id,
-                    &for_whom,
-                    e
-                );
+                log::warn!("Failed to store segment {} in cache: {}", id, e);
             }
             Ok(result)
         }
