@@ -19,7 +19,7 @@ SELECT "CHROM", "POS", "REF", "ALT", "GT",
  WHERE reference_allele_frequency > 0.9 OR reference_allele_frequency < 0.1;
 -- Collect the necessary statistics for a Hardy-Weinberg Equalibrium test. The actual test involves
 -- the Levene-Haldane distribution which is somewhat subtle to implement in SQL.
-SELECT "CHROM", "POS", "REF", "ALT", "GT",
+SELECT "CHROM", "POS", "REF", "ALT",
        LIST_SUM(LIST_TRANSFORM(GT, lambda GT: GT == 0)) as N_HOM_REF,
        LIST_SUM(LIST_TRANSFORM(GT, lambda GT: GT == 1)) as N_HET,
        LIST_SUM(LIST_TRANSFORM(GT, lambda GT: GT == 2)) as N_HOM_ALT
