@@ -121,3 +121,20 @@ where
         self.inner.size_hint()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use futures::stream;
+    use vortex_dtype::Nullability::NonNullable;
+    use vortex_dtype::{DType, PType};
+
+    use super::*;
+
+    #[test]
+    fn test_sequential_stream_adapter_dtype() {
+        let dtype = DType::Primitive(PType::I32, NonNullable);
+        let stream = stream::empty();
+        let adapter = SequentialStreamAdapter::new(dtype.clone(), stream);
+        assert_eq!(adapter.dtype(), &dtype);
+    }
+}

@@ -152,3 +152,42 @@ impl LazyReaderChildren {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use futures::executor::block_on;
+    use vortex_mask::Mask;
+
+    use super::*;
+
+    #[test]
+    fn test_mask_future_ready() {
+        let mask = Mask::new_true(10);
+        let future = mask_future_ready(mask.clone());
+
+        // Test that the future resolves to the correct mask
+        let result = block_on(future);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), mask);
+    }
+
+    #[tokio::test]
+    async fn test_noop_pruning_evaluation() {
+        let eval = NoOpPruningEvaluation;
+        let input_mask = Mask::new_true(100);
+        let result = eval.invoke(input_mask.clone()).await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), input_mask);
+    }
+
+    #[tokio::test]
+    async fn test_noop_mask_evaluation() {
+        let eval = NoOpMaskEvaluation;
+        let input_mask = Mask::from_iter([true, false, true, false]);
+        let result = eval.invoke(input_mask.clone()).await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), input_mask);
+    }
+}
