@@ -1,10 +1,14 @@
-# Development Guidelines
+# Vortex
+
+## Development Guidelines
 
 * project is a monorepo Rust workspace, java bindings in `/java`, python bindings in `/vortex-python`
 * run `cargo build -p` to build a specific crate
-* use `cargo clippy --all-targets --all-features` to make sure a project is free of lint issues
+* use `cargo clippy --all-targets --all-features` to make sure a project is free of lint issues. Please do this every time you reach a stopping point or think you've finished work.
+* run `cargo +nightly fmt --all` to format Rust source files. Please do this every time you reach a stopping point or think you've finished work.
+* you can try running `cargo fix --lib --allow-dirty --allow-staged && cargo clippy --fix --lib --allow-dirty --allow-staged` to automatically many fix minor errors.
 
-# Architecture
+## Architecture
 
 * `vortex-buffer` defines zero-copy aligned `Buffer<T>` and `BufferMut<T>` that are guaranteed
   to be aligned to `T` (or whatever requested runtime alignment).
@@ -17,7 +21,7 @@
   in `vortex-layout` crate.
 * `/vortex-python` contains the python bindings. rst flavored docs for the project are in `/docs`
 
-# Code Style
+## Code Style
 
 * Prefer `impl AsRef<T>` to `&T` for public interfaces where possible, e.g. `impl AsRef<Path>`
 * avoid usage of unsafe where not necessary, use zero-cost safe abstractions wherever possible,
@@ -26,3 +30,8 @@
   strictly required.
 * Use `vortex_err!` to create a `VortexError` with a format string and `vortex_bail!` to do the same but immediately
   return it as a `VortexResult<T>` to the surrounding context.
+* When writing tests, strongly consider using `rstest` cases to parameterize repetitive test logic.
+
+## Other
+
+* When summarizing your work, please produce summaries in valid Markdown that can be easily copied/pasted to Github.

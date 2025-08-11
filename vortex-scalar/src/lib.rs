@@ -189,7 +189,7 @@ impl Scalar {
             DType::Bool(_) => 1,
             DType::Primitive(ptype, _) => ptype.byte_width(),
             DType::Decimal(dt, _) => {
-                if dt.precision() >= DECIMAL128_MAX_PRECISION {
+                if dt.precision() <= DECIMAL128_MAX_PRECISION {
                     size_of::<i128>()
                 } else {
                     size_of::<i256>()
@@ -385,6 +385,34 @@ impl PartialEq for Scalar {
 impl Eq for Scalar {}
 
 impl PartialOrd for Scalar {
+    /// Compares two scalar values for ordering.
+    ///
+    /// # Returns
+    /// - `Some(Ordering)` if both scalars have the same data type (ignoring nullability)
+    /// - `None` if the scalars have different data types
+    ///
+    /// # Ordering Rules
+    /// When types match, the ordering follows these rules:
+    /// - Null values are considered less than all non-null values
+    /// - Non-null values are compared according to their natural ordering
+    ///
+    /// # Examples
+    /// ```ignore
+    /// // Same types compare successfully
+    /// let a = Scalar::primitive(10i32, Nullability::NonNullable);
+    /// let b = Scalar::primitive(20i32, Nullability::NonNullable);
+    /// assert_eq!(a.partial_cmp(&b), Some(Ordering::Less));
+    ///
+    /// // Different types return None
+    /// let int_scalar = Scalar::primitive(10i32, Nullability::NonNullable);
+    /// let str_scalar = Scalar::utf8("hello", Nullability::NonNullable);
+    /// assert_eq!(int_scalar.partial_cmp(&str_scalar), None);
+    ///
+    /// // Nulls are less than non-nulls
+    /// let null = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
+    /// let value = Scalar::primitive(0i32, Nullability::Nullable);
+    /// assert_eq!(null.partial_cmp(&value), Some(Ordering::Less));
+    /// ```
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         if !self.dtype().eq_ignore_nullability(other.dtype()) {
             return None;

@@ -155,15 +155,9 @@ impl DuckDBCtx {
                 }
                 commands
             }
-            BenchmarkDataset::ClickBench { single_file, .. } => {
-                let file_glob = if *single_file {
-                    format!("{base_dir}hits.{extension}")
-                } else {
-                    format!("{base_dir}*.{extension}")
-                };
-
+            BenchmarkDataset::ClickBench { .. } => {
                 format!(
-                    "CREATE {} IF NOT EXISTS hits AS SELECT * FROM read_{extension}('{file_glob}');",
+                    "CREATE {} IF NOT EXISTS hits AS SELECT * FROM read_{extension}('{base_dir}*.{extension}');",
                     duckdb_object.to_str()
                 )
             }

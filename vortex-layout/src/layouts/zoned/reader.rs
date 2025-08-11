@@ -28,6 +28,7 @@ use crate::{ArrayEvaluation, LayoutReader, MaskEvaluation, PruningEvaluation};
 
 type SharedZoneMap = Shared<BoxFuture<'static, SharedVortexResult<ZoneMap>>>;
 type SharedPruningResult = Shared<BoxFuture<'static, SharedVortexResult<Arc<PruningResult>>>>;
+type PredicateCache = Arc<OnceLock<Option<ExprRef>>>;
 
 pub struct ZonedReader {
     layout: ZonedLayout,
@@ -38,7 +39,7 @@ pub struct ZonedReader {
     /// Zone map layout reader.
     zones_child: Arc<dyn LayoutReader>,
 
-    /// A cache of expr -> optional pruning result
+    /// A cache of expr -> optional pruning result (applying the pruning expr to the zone map)
     pruning_result: DashMap<ExprRef, Option<SharedPruningResult>>,
 
     /// Shared zone map
@@ -46,9 +47,7 @@ pub struct ZonedReader {
 
     /// A cache of expr -> optional pruning predicate.
     /// This also uses the present_stats from the `ZonedLayout`
-    pruning_predicates: Arc<DashMap<ExprRef, Option<ExprRef>>>,
-    /// A cache of expr -> dynamic update tracker
-    dynamic_updates: Arc<DashMap<ExprRef, Option<Arc<DynamicExprUpdates>>>>,
+    pruning_predicates: Arc<DashMap<ExprRef, PredicateCache>>,
 }
 
 impl ZonedReader {
@@ -72,17 +71,15 @@ impl ZonedReader {
             pruning_result: Default::default(),
             zone_map: Default::default(),
             pruning_predicates: Default::default(),
-            dynamic_updates: Default::default(),
         })
     }
 
     /// Get or create the pruning predicate for a given expression.
-    ///
-    /// Returns None if there is no pruning predicate suitable for the expression.
     fn pruning_predicate(&self, expr: ExprRef) -> Option<ExprRef> {
         self.pruning_predicates
             .entry(expr.clone())
-            .or_insert_with(move || {
+            .or_default()
+            .get_or_init(move || {
                 let field_path_set = FieldPathSet::from_iter(
                     self.layout
                         .present_stats
@@ -91,16 +88,6 @@ impl ZonedReader {
                 );
                 checked_pruning_expr(&expr, &field_path_set).map(|(expr, _)| expr)
             })
-            .value()
-            .clone()
-    }
-
-    /// Get or create the dynamic updates for a given expression.
-    fn dynamic_updates(&self, expr: &ExprRef) -> Option<Arc<DynamicExprUpdates>> {
-        self.dynamic_updates
-            .entry(expr.clone())
-            .or_insert_with(move || DynamicExprUpdates::new(expr).map(Arc::new))
-            .value()
             .clone()
     }
 
@@ -117,14 +104,13 @@ impl ZonedReader {
                 let zones_eval = self
                     .zones_child
                     .projection_evaluation(&(0..nzones as u64), &root())
-                    .vortex_expect("Failed to zone map projection");
+                    .vortex_expect("Failed construct zone map evaluation");
 
                 async move {
                     let zones_array = zones_eval
                         .invoke(Mask::new_true(nzones))
                         .await?
                         .to_struct()?;
-
                     // SAFETY: This is only fine to call because we perform validation above
                     Ok(ZoneMap::new_unchecked(zones_array, present_stats))
                 }
@@ -136,7 +122,7 @@ impl ZonedReader {
     }
 
     /// Returns a pruning mask where `true` means the chunk _can be pruned_.
-    fn pruning_result_future(&self, expr: ExprRef) -> Option<SharedPruningResult> {
+    fn pruning_mask_future(&self, expr: ExprRef) -> Option<SharedPruningResult> {
         self.pruning_result
             .entry(expr.clone())
             .or_insert_with(|| match self.pruning_predicate(expr.clone()) {
@@ -145,8 +131,9 @@ impl ZonedReader {
                     None
                 }
                 Some(predicate) => {
-                    log::debug!("Constructing pruning predicate for expr: {expr}: {predicate:?}");
+                    log::debug!("Constructed pruning predicate for expr: {expr}: {predicate:?}");
                     let zone_map = self.zone_map();
+                    let dynamic_updates = DynamicExprUpdates::new(&expr);
 
                     Some(
                         async move {
@@ -155,6 +142,7 @@ impl ZonedReader {
                             Ok(Arc::new(PruningResult {
                                 zone_map,
                                 predicate,
+                                dynamic_updates,
                                 latest_result: RwLock::new((0, initial_mask)),
                             }))
                         }
@@ -167,16 +155,15 @@ impl ZonedReader {
     }
 
     /// Get the range of zone IDs containing a row range.
-    pub(crate) fn zone_range(&self, row_range: &Range<u64>) -> Range<usize> {
+    pub(crate) fn zone_range(&self, row_range: &Range<u64>) -> Range<u64> {
         let zone_start = row_range.start / self.layout.zone_len as u64;
         let zone_end = row_range.end.div_ceil(self.layout.zone_len as u64);
-        usize::try_from(zone_start).vortex_expect("zone larger than usize")
-            ..usize::try_from(zone_end).vortex_expect("zone larger than usize")
+        zone_start..zone_end
     }
 
     /// Get the row index for the first row in a zone with the given `zone_index`.
-    pub(crate) fn first_row_offset(&self, zone_idx: usize) -> u64 {
-        (zone_idx as u64 * self.layout.zone_len as u64).min(self.layout.row_count())
+    pub(crate) fn first_row_offset(&self, zone_idx: u64) -> u64 {
+        (zone_idx * self.layout.zone_len as u64).min(self.layout.row_count())
     }
 }
 
@@ -211,7 +198,7 @@ impl LayoutReader for ZonedReader {
         log::debug!("Stats pruning evaluation: {} - {}", &self.name, expr);
         let data_eval = self.data_child.pruning_evaluation(row_range, expr)?;
 
-        let Some(pruning_mask_future) = self.pruning_result_future(expr.clone()) else {
+        let Some(pruning_mask_future) = self.pruning_mask_future(expr.clone()) else {
             log::debug!("Stats pruning evaluation: not prune-able {expr}");
             return Ok(data_eval);
         };
@@ -238,7 +225,7 @@ impl LayoutReader for ZonedReader {
         Ok(Box::new(ZoneMapPruningEvaluation {
             name: self.name.clone(),
             expr: expr.clone(),
-            pruning_result: pruning_mask_future,
+            pruning_mask_future,
             zone_range,
             zone_lengths,
             data_eval,
@@ -250,22 +237,7 @@ impl LayoutReader for ZonedReader {
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
-        let data_eval = self.data_child.filter_evaluation(row_range, expr)?;
-
-        let Some(pruning_result) = self.pruning_result_future(expr.clone()) else {
-            return Ok(data_eval);
-        };
-
-        let Some(dynamic_updates) = self.dynamic_updates(expr) else {
-            return Ok(data_eval);
-        };
-
-        Ok(Box::new(ZoneMapDynamicFilterEvaluation {
-            zone_range: self.zone_range(row_range),
-            pruning_result,
-            dynamic_updates,
-            child: self.data_child.filter_evaluation(row_range, expr)?,
-        }))
+        self.data_child.filter_evaluation(row_range, expr)
     }
 
     fn projection_evaluation(
@@ -283,11 +255,10 @@ struct ZoneMapPruningEvaluation {
     name: Arc<str>,
     expr: ExprRef,
     /// A mask indicating zones which have no matching values.
-    ///
     /// A false value indicates the corresponding zone may have a matching value.
-    pruning_result: SharedPruningResult,
+    pruning_mask_future: SharedPruningResult,
     /// The set of zone IDs that are available to the evaluation.
-    zone_range: Range<usize>,
+    zone_range: Range<u64>,
     /// The lengths of each zone in the zone_range.
     zone_lengths: Vec<usize>,
     /// The evaluation of the data child.
@@ -303,18 +274,11 @@ impl PruningEvaluation for ZoneMapPruningEvaluation {
             self.expr,
         );
 
-        let pruning_result = self.pruning_result.clone().await?.mask_for_version(0)?;
-        if pruning_result.all_true() {
-            // If the pruning result is all true, we can prune everything.
-            return Ok(Mask::new_false(mask.len()));
-        } else if pruning_result.all_false() {
-            // If the pruning result is all false, we can prune nothing.
-            return Ok(Mask::new_true(mask.len()));
-        }
+        let pruning_mask = self.pruning_mask_future.clone().await?.mask()?;
 
         let mut builder = BooleanBufferBuilder::new(mask.len());
         for (zone_idx, &zone_length) in self.zone_range.clone().zip_eq(&self.zone_lengths) {
-            builder.append_n(zone_length, !pruning_result.value(zone_idx));
+            builder.append_n(zone_length, !pruning_mask.value(usize::try_from(zone_idx)?));
         }
 
         let stats_mask = Mask::from(builder.finish());
@@ -341,44 +305,12 @@ impl PruningEvaluation for ZoneMapPruningEvaluation {
     }
 }
 
-/// Filter evaluation that re-computes the pruning mask each time the dynamic expressions
-/// are updated.
-pub struct ZoneMapDynamicFilterEvaluation {
-    // The range in the zone mask that corresponds to the row range.
-    zone_range: Range<usize>,
-    pruning_result: SharedPruningResult,
-    dynamic_updates: Arc<DynamicExprUpdates>,
-    child: Box<dyn MaskEvaluation>,
-}
-
-#[async_trait]
-impl MaskEvaluation for ZoneMapDynamicFilterEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
-        let version = self.dynamic_updates.version();
-
-        let pruning_mask = self
-            .pruning_result
-            .clone()
-            .await?
-            .mask_for_version(version)?;
-
-        // We perform a trivial pruning check in case the dynamic expressions have been updated.
-        if pruning_mask
-            .slice(self.zone_range.start, self.zone_range.len())
-            .all_true()
-        {
-            return Ok(Mask::new_false(mask.len()));
-        }
-
-        self.child.invoke(mask).await
-    }
-}
-
-/// A wrapper for the result of pruning an expression against a zone map that refreshes every
-/// time the dynamic expressions are updated.
+/// A wrapper for the result of pruning an expression against a zone map such that we can refresh
+/// it each time the dynamic expressions are updated.
 struct PruningResult {
     zone_map: ZoneMap,
     predicate: ExprRef,
+    dynamic_updates: Option<DynamicExprUpdates>,
     latest_result: RwLock<(u64, Mask)>,
 }
 
@@ -387,9 +319,17 @@ impl PruningResult {
     ///
     /// The version typically comes from the dynamic expression updates, but zero can be passed
     /// to fetch any version.
-    fn mask_for_version(&self, version: u64) -> VortexResult<Mask> {
-        // If we are sufficiently up-to-date, we can return the cached mask.
+    fn mask(&self) -> VortexResult<Mask> {
+        // If we're not dynamic, then the result is always the latest result.
+        let Some(dynamic_updates) = &self.dynamic_updates else {
+            return Ok(self.latest_result.read().1.clone());
+        };
+
+        // Compute the latest version of the dynamic expression values.
+        let version = dynamic_updates.version();
+
         if self.latest_result.read().0 >= version {
+            // We're up to date, so we can return the cached result.
             return Ok(self.latest_result.read().1.clone());
         }
 
@@ -406,6 +346,7 @@ impl PruningResult {
             "Re-computing pruning mask for version {version} on {}",
             self.predicate
         );
+
         let next_mask = self.zone_map.prune(&self.predicate)?;
         *guard = (version, next_mask.clone());
 
@@ -489,9 +430,7 @@ mod test {
     ) {
         block_on(async {
             let row_count = layout.row_count();
-            let reader = layout
-                .new_reader("test_stats_pruning_mask".into(), segments)
-                .unwrap();
+            let reader = layout.new_reader("".into(), segments).unwrap();
 
             // Choose a prune-able expression
             let expr = gt(root(), lit(7));

@@ -327,6 +327,9 @@ pub fn clickbench_queries(queries_file_path: PathBuf) -> Vec<(usize, String)> {
         .collect()
 }
 
+/// Clickbench has two different flavors:
+/// - Singe - 1 file containing the whole dataset, just under 100 million rows.
+/// - Partitioned (which we run by default) - 100 files, each containing ~1 million rows, all sharing the same schema.
 #[derive(ValueEnum, Default, Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize)]
 pub enum Flavor {
     #[default]
@@ -342,6 +345,7 @@ impl Display for Flavor {
             self.to_possible_value()
                 .vortex_expect("Invalid flavour value")
                 .get_name()
+                .to_lowercase()
         )
     }
 }

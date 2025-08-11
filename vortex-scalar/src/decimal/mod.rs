@@ -274,7 +274,9 @@ impl<'a> DecimalScalar<'a> {
                     Ok(Scalar::null(dtype.clone()))
                 }
             }
-            _ => vortex_bail!("Cannot cast decimal to {}: unsupported conversion", dtype),
+            _ => vortex_bail!(
+                "Cannot cast decimal to {dtype}: decimal scalars can only be cast to decimal or primitive numeric types"
+            ),
         }
     }
 }

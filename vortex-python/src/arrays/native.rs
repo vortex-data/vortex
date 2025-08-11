@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: Copyright the Vortex contributors
+//  SPDX-License-Identifier: Apache-2.0
+//  SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ops::Deref;
 
@@ -22,7 +22,7 @@ use vortex::encodings::sparse::SparseVTable;
 use vortex::encodings::zigzag::ZigZagVTable;
 use vortex::error::VortexExpect;
 use vortex::vtable::VTable;
-use vortex::{Array, ArrayRef};
+use vortex::{Array, ArrayAdapter, ArrayRef};
 
 use crate::arrays::PyArray;
 use crate::arrays::builtins::{
@@ -223,7 +223,8 @@ impl<V: EncodingSubclass> AsArrayRef<<V::VTable as VTable>::Array> for PyRef<'_,
         self.as_super()
             .inner()
             .as_any()
-            .downcast_ref::<<V::VTable as VTable>::Array>()
+            .downcast_ref::<ArrayAdapter<V::VTable>>()
             .vortex_expect("Failed to downcast array")
+            .as_inner()
     }
 }

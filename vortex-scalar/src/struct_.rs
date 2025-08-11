@@ -18,6 +18,7 @@ use crate::{InnerScalarValue, Scalar, ScalarValue};
 ///
 /// This type provides a view into a struct scalar value, which can contain
 /// named fields with different types, or be null.
+#[derive(Debug)]
 pub struct StructScalar<'a> {
     dtype: &'a DType,
     fields: Option<&'a Arc<[ScalarValue]>>,
@@ -364,5 +365,295 @@ mod tests {
         let f1_val = Scalar::utf8("hello", Nullability::NonNullable);
 
         Scalar::struct_(dtype, vec![f0_val, f1_val]);
+    }
+
+    #[test]
+    fn test_struct_field_by_name() {
+        let (_, _, dtype) = setup_types();
+        let f0_val = Scalar::primitive::<i32>(42, Nullability::NonNullable);
+        let f1_val = Scalar::utf8("world", Nullability::NonNullable);
+
+        let scalar = Scalar::struct_(dtype, vec![f0_val, f1_val]);
+
+        // Get field by name
+        let field_a = scalar.as_struct().field("a");
+        assert!(field_a.is_some());
+        assert_eq!(
+            field_a
+                .unwrap()
+                .as_primitive()
+                .typed_value::<i32>()
+                .unwrap(),
+            42
+        );
+
+        let field_b = scalar.as_struct().field("b");
+        assert!(field_b.is_some());
+        assert_eq!(field_b.unwrap().as_utf8().value().unwrap(), "world".into());
+
+        // Non-existent field
+        let field_c = scalar.as_struct().field("c");
+        assert!(field_c.is_none());
+    }
+
+    #[test]
+    fn test_struct_fields() {
+        let (_, _, dtype) = setup_types();
+        let f0_val = Scalar::primitive::<i32>(100, Nullability::NonNullable);
+        let f1_val = Scalar::utf8("test", Nullability::NonNullable);
+
+        let scalar = Scalar::struct_(dtype, vec![f0_val, f1_val]);
+
+        let fields = scalar.as_struct().fields().unwrap();
+        assert_eq!(fields.len(), 2);
+        assert_eq!(fields[0].as_primitive().typed_value::<i32>().unwrap(), 100);
+        assert_eq!(fields[1].as_utf8().value().unwrap(), "test".into());
+    }
+
+    #[test]
+    fn test_struct_null_fields() {
+        let (_, _, dtype) = setup_types();
+        let null_scalar = Scalar::null(dtype);
+
+        assert!(null_scalar.as_struct().is_null());
+        assert!(null_scalar.as_struct().fields().is_none());
+        assert!(null_scalar.as_struct().field_values().is_none());
+    }
+
+    #[test]
+    fn test_struct_cast_to_struct() {
+        // Create source struct
+        let source_fields = StructFields::new(
+            vec!["x".into(), "y".into()].into(),
+            vec![
+                DType::Primitive(I32, Nullability::NonNullable),
+                DType::Primitive(I32, Nullability::NonNullable),
+            ],
+        );
+        let source_dtype = DType::Struct(source_fields, Nullability::NonNullable);
+
+        // Create target struct with different field types
+        let target_fields = StructFields::new(
+            vec!["x".into(), "y".into()].into(),
+            vec![
+                DType::Primitive(vortex_dtype::PType::I64, Nullability::NonNullable),
+                DType::Primitive(vortex_dtype::PType::I64, Nullability::NonNullable),
+            ],
+        );
+        let target_dtype = DType::Struct(target_fields, Nullability::NonNullable);
+
+        let f0 = Scalar::primitive::<i32>(42, Nullability::NonNullable);
+        let f1 = Scalar::primitive::<i32>(123, Nullability::NonNullable);
+        let source_scalar = Scalar::struct_(source_dtype, vec![f0, f1]);
+
+        // Cast to target type
+        let result = source_scalar.as_struct().cast(&target_dtype).unwrap();
+        assert_eq!(result.dtype(), &target_dtype);
+
+        let fields = result.as_struct().fields().unwrap();
+        assert_eq!(fields[0].as_primitive().typed_value::<i64>().unwrap(), 42);
+        assert_eq!(fields[1].as_primitive().typed_value::<i64>().unwrap(), 123);
+    }
+
+    #[test]
+    fn test_struct_cast_mismatched_fields() {
+        let source_fields = StructFields::new(
+            vec!["a".into()].into(),
+            vec![DType::Primitive(I32, Nullability::NonNullable)],
+        );
+        let source_dtype = DType::Struct(source_fields, Nullability::NonNullable);
+
+        let target_fields = StructFields::new(
+            vec!["a".into(), "b".into()].into(),
+            vec![
+                DType::Primitive(I32, Nullability::NonNullable),
+                DType::Primitive(I32, Nullability::NonNullable),
+            ],
+        );
+        let target_dtype = DType::Struct(target_fields, Nullability::NonNullable);
+
+        let scalar = Scalar::struct_(
+            source_dtype,
+            vec![Scalar::primitive::<i32>(1, Nullability::NonNullable)],
+        );
+
+        let result = scalar.as_struct().cast(&target_dtype);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_struct_cast_to_non_struct() {
+        let (_, _, dtype) = setup_types();
+        let scalar = Scalar::struct_(
+            dtype,
+            vec![
+                Scalar::primitive::<i32>(1, Nullability::NonNullable),
+                Scalar::utf8("test", Nullability::NonNullable),
+            ],
+        );
+
+        let result = scalar
+            .as_struct()
+            .cast(&DType::Primitive(I32, Nullability::NonNullable));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_struct_project() {
+        let (_, _, dtype) = setup_types();
+        let f0_val = Scalar::primitive::<i32>(42, Nullability::NonNullable);
+        let f1_val = Scalar::utf8("hello", Nullability::NonNullable);
+
+        let scalar = Scalar::struct_(dtype, vec![f0_val, f1_val]);
+
+        // Project to only field "b"
+        let projected = scalar.as_struct().project(&["b".into()]).unwrap();
+        let projected_struct = projected.as_struct();
+
+        assert_eq!(projected_struct.names().len(), 1);
+        assert_eq!(projected_struct.names()[0], "b".into());
+
+        let fields = projected_struct.fields().unwrap();
+        assert_eq!(fields.len(), 1);
+        assert_eq!(fields[0].as_utf8().value().unwrap(), "hello".into());
+    }
+
+    #[test]
+    fn test_struct_project_null() {
+        let (_, _, dtype) = setup_types();
+        let null_scalar = Scalar::null(dtype);
+
+        let projected = null_scalar.as_struct().project(&["a".into()]).unwrap();
+        assert!(projected.as_struct().is_null());
+    }
+
+    #[test]
+    fn test_struct_equality() {
+        let (_, _, dtype) = setup_types();
+
+        let scalar1 = Scalar::struct_(
+            dtype.clone(),
+            vec![
+                Scalar::primitive::<i32>(1, Nullability::NonNullable),
+                Scalar::utf8("test", Nullability::NonNullable),
+            ],
+        );
+
+        let scalar2 = Scalar::struct_(
+            dtype.clone(),
+            vec![
+                Scalar::primitive::<i32>(1, Nullability::NonNullable),
+                Scalar::utf8("test", Nullability::NonNullable),
+            ],
+        );
+
+        let scalar3 = Scalar::struct_(
+            dtype,
+            vec![
+                Scalar::primitive::<i32>(2, Nullability::NonNullable),
+                Scalar::utf8("test", Nullability::NonNullable),
+            ],
+        );
+
+        assert_eq!(scalar1.as_struct(), scalar2.as_struct());
+        assert_ne!(scalar1.as_struct(), scalar3.as_struct());
+    }
+
+    #[test]
+    fn test_struct_partial_ord() {
+        let (_, _, dtype) = setup_types();
+
+        let scalar1 = Scalar::struct_(
+            dtype.clone(),
+            vec![
+                Scalar::primitive::<i32>(1, Nullability::NonNullable),
+                Scalar::utf8("a", Nullability::NonNullable),
+            ],
+        );
+
+        let scalar2 = Scalar::struct_(
+            dtype,
+            vec![
+                Scalar::primitive::<i32>(2, Nullability::NonNullable),
+                Scalar::utf8("b", Nullability::NonNullable),
+            ],
+        );
+
+        // Structs with same dtype can be compared
+        assert!(scalar1.as_struct() < scalar2.as_struct());
+
+        // Different struct types cannot be compared
+        let other_dtype = DType::Struct(
+            StructFields::new(
+                vec!["c".into()].into(),
+                vec![DType::Primitive(I32, Nullability::NonNullable)],
+            ),
+            Nullability::NonNullable,
+        );
+        let scalar3 = Scalar::struct_(
+            other_dtype,
+            vec![Scalar::primitive::<i32>(1, Nullability::NonNullable)],
+        );
+
+        assert_eq!(scalar1.as_struct().partial_cmp(&scalar3.as_struct()), None);
+    }
+
+    #[test]
+    fn test_struct_hash() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let (_, _, dtype) = setup_types();
+
+        let scalar1 = Scalar::struct_(
+            dtype.clone(),
+            vec![
+                Scalar::primitive::<i32>(1, Nullability::NonNullable),
+                Scalar::utf8("test", Nullability::NonNullable),
+            ],
+        );
+
+        let scalar2 = Scalar::struct_(
+            dtype,
+            vec![
+                Scalar::primitive::<i32>(1, Nullability::NonNullable),
+                Scalar::utf8("test", Nullability::NonNullable),
+            ],
+        );
+
+        let mut hasher1 = DefaultHasher::new();
+        scalar1.as_struct().hash(&mut hasher1);
+        let hash1 = hasher1.finish();
+
+        let mut hasher2 = DefaultHasher::new();
+        scalar2.as_struct().hash(&mut hasher2);
+        let hash2 = hasher2.finish();
+
+        assert_eq!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_struct_try_new_non_struct_dtype() {
+        let dtype = DType::Primitive(I32, Nullability::NonNullable);
+        let value = ScalarValue(InnerScalarValue::Primitive(crate::PValue::I32(42)));
+
+        let result = StructScalar::try_new(&dtype, &value);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_struct_field_out_of_bounds() {
+        let (_, _, dtype) = setup_types();
+        let scalar = Scalar::struct_(
+            dtype,
+            vec![
+                Scalar::primitive::<i32>(1, Nullability::NonNullable),
+                Scalar::utf8("test", Nullability::NonNullable),
+            ],
+        );
+
+        // Try to access field beyond bounds
+        let field = scalar.as_struct().field_by_idx(10);
+        assert!(field.is_none());
     }
 }

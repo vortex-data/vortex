@@ -25,12 +25,15 @@ vortex-layout = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
 
+bit-vec = { workspace = true }
 crossbeam-deque = { workspace = true }
 crossbeam-queue = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
+log = { workspace = true }
 parking_lot = { workspace = true }
 roaring = { workspace = true, optional = true }
+sketches-ddsketch = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"], optional = true }
 
 [features]
