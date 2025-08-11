@@ -50,6 +50,7 @@ on:
               "subcommand": "statpopgen",
               "name": "Statistical and Population Genetics",
               "local_dir": "bench-vortex/data/statpopgen",
+              "targets": "duckdb:parquet,duckdb:vortex,duckdb:duckdb",
               "scale_factor": "--n-rows 100000"
             },
           ]
