@@ -45,7 +45,7 @@ pub struct StructStrategyOptions {
 
 impl Default for StructStrategyOptions {
     fn default() -> Self {
-        Self { buffer_size: 128 }
+        Self { buffer_size: 512 }
     }
 }
 
