@@ -157,26 +157,20 @@ impl VortexWrite for ObjectStoreWriter {
         inner.buffer.extend_from_slice(buffer.as_slice());
 
         if inner.buffer.len() > CHUNKS_SIZE {
-            let mut buffer =
-                std::mem::replace(&mut inner.buffer, BytesMut::with_capacity(CHUNKS_SIZE)).freeze();
             let mut parts = vec![];
 
-            while buffer.len() > CHUNKS_SIZE {
-                let payload = buffer.split_to(CHUNKS_SIZE);
+            // Split off chunks while buffer is larger than CHUNKS_SIZE
+            while inner.buffer.len() > CHUNKS_SIZE {
+                let chunk = inner.buffer.split_to(CHUNKS_SIZE);
                 let part_fut = inner
                     .upload
                     .as_mut()
-                    .put_part(PutPayload::from_bytes(payload));
+                    .put_part(PutPayload::from_bytes(chunk.freeze()));
 
                 parts.push(part_fut);
             }
 
             try_join_all(parts).await?;
-
-            // Put remaining data back into buffer
-            if !buffer.is_empty() {
-                inner.buffer = BytesMut::from(buffer.as_ref());
-            }
         }
 
         Ok(buffer)

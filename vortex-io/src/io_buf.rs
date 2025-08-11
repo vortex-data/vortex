@@ -7,6 +7,7 @@ use std::ops::Range;
 
 use bytes::Bytes;
 use vortex_buffer::{Buffer, ConstByteBuffer};
+use vortex_error::VortexExpect;
 
 /// Trait for types that can provide a readonly byte buffer interface to I/O frameworks.
 ///
@@ -118,17 +119,45 @@ unsafe impl IoBuf for Vec<u8> {
 unsafe impl<T: IoBuf> IoBuf for OwnedSlice<T> {
     #[inline]
     fn read_ptr(&self) -> *const u8 {
-        unsafe { self.buf.read_ptr().add(self.begin) }
+        debug_assert!(self.begin <= self.end, "Invalid slice bounds");
+        debug_assert!(
+            self.end <= self.buf.bytes_init(),
+            "Slice end exceeds buffer bounds"
+        );
+
+        let base_ptr = self.buf.read_ptr();
+        debug_assert!(!base_ptr.is_null(), "Base pointer is null");
+
+        // Check for potential pointer overflow in debug builds
+        #[cfg(debug_assertions)]
+        {
+            let max_offset = isize::MAX as usize;
+            assert!(
+                self.begin <= max_offset,
+                "Offset too large for pointer arithmetic"
+            );
+        }
+
+        unsafe { base_ptr.add(self.begin) }
     }
 
     #[inline]
     fn bytes_init(&self) -> usize {
+        debug_assert!(self.begin <= self.end, "Invalid slice bounds");
         self.end - self.begin
     }
 
     #[inline]
     fn as_slice(&self) -> &[u8] {
-        unsafe { std::slice::from_raw_parts(self.read_ptr(), self.bytes_init()) }
+        let ptr = self.read_ptr();
+        let len = self.bytes_init();
+
+        debug_assert!(
+            !ptr.is_null() || len == 0,
+            "Null pointer with non-zero length"
+        );
+
+        unsafe { std::slice::from_raw_parts(ptr, len) }
     }
 }
 
@@ -166,7 +195,9 @@ unsafe impl<T: Unpin + 'static> IoBuf for Buffer<T> {
     }
 
     fn bytes_init(&self) -> usize {
-        self.len() * size_of::<T>()
+        self.len()
+            .checked_mul(size_of::<T>())
+            .vortex_expect("Buffer size calculation overflow")
     }
 
     fn as_slice(&self) -> &[u8] {
