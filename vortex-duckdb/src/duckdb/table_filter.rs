@@ -278,6 +278,6 @@ impl DynamicFilterData {
         if ptr.is_null() {
             return None;
         }
-        Some(unsafe { Value::borrow(ptr) })
+        Some(unsafe { Value::own(ptr) })
     }
 }

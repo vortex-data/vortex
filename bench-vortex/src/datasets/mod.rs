@@ -33,7 +33,7 @@ pub enum BenchmarkDataset {
     #[serde(rename = "tpcds")]
     TpcDS { scale_factor: String },
     #[serde(rename = "clickbench")]
-    ClickBench { single_file: bool, flavor: Flavor },
+    ClickBench { flavor: Flavor },
     #[serde(rename = "public-bi")]
     PublicBi { name: String },
 }
@@ -54,13 +54,10 @@ impl Display for BenchmarkDataset {
         match self {
             BenchmarkDataset::TpcH { scale_factor } => write!(f, "tpch(sf={scale_factor})"),
             BenchmarkDataset::TpcDS { scale_factor } => write!(f, "tpcds(sf={scale_factor})"),
-            BenchmarkDataset::ClickBench { single_file, .. } => {
-                if *single_file {
-                    write!(f, "clickbench-single")
-                } else {
-                    write!(f, "clickbench-partitioned")
-                }
-            }
+            BenchmarkDataset::ClickBench { flavor, .. } => match flavor {
+                Flavor::Partitioned => write!(f, "clickbench-partitioned"),
+                Flavor::Single => write!(f, "clickbench-single"),
+            },
             BenchmarkDataset::PublicBi { name } => write!(f, "public-bi({name})"),
         }
     }
@@ -119,37 +116,22 @@ impl BenchmarkDataset {
             (BenchmarkDataset::TpcH { .. }, _) | (BenchmarkDataset::TpcDS { .. }, _) => {
                 // TPC-H tables are handled separately
             }
-            (BenchmarkDataset::ClickBench { single_file, .. }, Format::Parquet) => {
-                // Use glob pattern for partitioned files, specific file pattern for single file
-                let glob = if *single_file {
-                    glob::Pattern::new("hits_0.parquet")?
-                } else {
-                    glob::Pattern::new("*.parquet")?
-                };
+            (BenchmarkDataset::ClickBench { .. }, Format::Parquet) => {
                 clickbench::register_parquet_files(
                     session,
                     "hits",
                     base_url,
                     &clickbench::HITS_SCHEMA,
-                    Some(glob),
+                    Some(glob::Pattern::new("*.parquet")?),
                 )?;
             }
-            (
-                BenchmarkDataset::ClickBench { single_file, .. },
-                Format::OnDiskVortex | Format::VortexCompact,
-            ) => {
-                // Use glob pattern for partitioned files, specific file pattern for single file
-                let glob = if *single_file {
-                    Some(glob::Pattern::new("hits_0.vortex")?)
-                } else {
-                    Some(glob::Pattern::new("*.vortex")?)
-                };
+            (BenchmarkDataset::ClickBench { .. }, Format::OnDiskVortex | Format::VortexCompact) => {
                 clickbench::register_vortex_files(
                     session.clone(),
                     "hits",
                     base_url,
                     Some(clickbench::HITS_SCHEMA.clone()),
-                    glob,
+                    Some(glob::Pattern::new("*.vortex")?),
                 )
                 .await?;
             }
