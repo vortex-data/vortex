@@ -12,11 +12,6 @@ SELECT "CHROM", "POS", "REF", "ALT", 1.0 - CAST(LIST_SUM(GT) AS DOUBLE) / (2 * L
 SELECT "CHROM", "POS", "REF", "ALT", CAST(LIST_SUM(GT) AS DOUBLE) / (2 * LIST_SUM(LIST_TRANSFORM(GT, lambda GT: GT IS NOT NULL))) AS alternate_allele_frequency FROM statpopgen;
 -- Count the number of "called" (i.e. not null) genotypes per variant.
 SELECT "CHROM", "POS", "REF", "ALT", LIST_SUM(LIST_TRANSFORM(GT, lambda GT: GT IS NOT NULL)) AS n_called FROM statpopgen;
--- Collect all the genotypes at variants whose minor allele frequency is < 10%.
-SELECT "CHROM", "POS", "REF", "ALT", "GT",
-       1.0 - CAST(LIST_SUM(GT) AS DOUBLE) / (2 * LIST_SUM(LIST_TRANSFORM(GT, lambda GT: GT IS NOT NULL))) AS reference_allele_frequency
-  FROM statpopgen
- WHERE reference_allele_frequency > 0.9 OR reference_allele_frequency < 0.1;
 -- Collect the necessary statistics for a Hardy-Weinberg Equalibrium test. The actual test involves
 -- the Levene-Haldane distribution which is somewhat subtle to implement in SQL.
 SELECT "CHROM", "POS", "REF", "ALT",
@@ -40,3 +35,8 @@ SELECT *
   SELECT "CHROM", "POS", SUM(LIST_SUM("GT")) AS N_ALTS
     FROM statpopgen
 GROUP BY "CHROM", "POS";
+-- Collect all the genotypes at variants whose minor allele frequency is < 10%.
+SELECT "CHROM", "POS", "REF", "ALT", "GT",
+       1.0 - CAST(LIST_SUM(GT) AS DOUBLE) / (2 * LIST_SUM(LIST_TRANSFORM(GT, lambda GT: GT IS NOT NULL))) AS reference_allele_frequency
+  FROM statpopgen
+ WHERE reference_allele_frequency > 0.9 OR reference_allele_frequency < 0.1;

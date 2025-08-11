@@ -20,42 +20,81 @@ use crate::engines::EngineCtx;
 use crate::statpopgen::schema::SCHEMA;
 use crate::{BenchmarkDataset, Format, Target};
 
-/// Statpopgen benchmark implementation
+/// Statistical population genetics benchmark implementation.
+///
+/// This benchmark runs genomic analysis queries against variant data from the
+/// gnomAD (Genome Aggregation Database) dataset. It supports multiple data formats
+/// including Parquet and Vortex for performance comparison.
+///
+/// The benchmark consists of queries that perform typical population genetics analyses
+/// such as allele frequency calculations, Hardy-Weinberg equilibrium tests, and
+/// variant filtering operations.
 pub struct StatPopGenBenchmark {
+    /// Base URL for the dataset location (must be a file:// URL for local datasets)
     pub data_url: Url,
+    /// Number of variant rows in the dataset
     pub n_rows: u64,
+    /// Expected row counts for each benchmark query, used for result validation
     pub expected_row_counts: Vec<usize>,
 }
 
 impl StatPopGenBenchmark {
+    /// Returns the filesystem path to the Parquet dataset file.
+    ///
+    /// Constructs the path based on the configured data URL and number of rows.
+    /// The path follows the pattern: `{data_url}/{n_rows}/parquet/gnomad.genomes.v3.1.2.hgdp_tgp.chr21.parquet`
     pub fn parquet_path(&self) -> VortexResult<PathBuf> {
         self.data_url
             .join(&(self.n_rows.to_string() + "/parquet/"))?
             .join("gnomad.genomes.v3.1.2.hgdp_tgp.chr21.parquet")?
             .to_file_path()
-            .map_err(|_| vortex_err!("data url must be a local file system path"))
+            .map_err(|_| vortex_err!("Failed to convert data URL to filesystem path - ensure data_url uses 'file://' scheme"))
     }
 
+    /// Returns the filesystem path to the compressed Vortex dataset file.
+    ///
+    /// Constructs the path based on the configured data URL and number of rows.
+    /// The path follows the pattern: `{data_url}/{n_rows}/vortex-file-compressed/gnomad.genomes.v3.1.2.hgdp_tgp.chr21.vortex`
     pub fn vortex_path(&self) -> VortexResult<PathBuf> {
         self.data_url
             .join(&(self.n_rows.to_string() + "/vortex-file-compressed/"))?
             .join("gnomad.genomes.v3.1.2.hgdp_tgp.chr21.vortex")?
             .to_file_path()
-            .map_err(|_| vortex_err!("data url must be a local file system path"))
+            .map_err(|_| vortex_err!("Failed to convert data URL to filesystem path - ensure data_url uses 'file://' scheme"))
     }
 
+    /// Returns the filesystem path to the compacted Vortex dataset file.
+    ///
+    /// Constructs the path based on the configured data URL and number of rows.
+    /// The path follows the pattern: `{data_url}/{n_rows}/vortex-compact/gnomad.genomes.v3.1.2.hgdp_tgp.chr21.vortex`
     pub fn vortex_compact_path(&self) -> VortexResult<PathBuf> {
         self.data_url
             .join(&(self.n_rows.to_string() + "/vortex-compact/"))?
             .join("gnomad.genomes.v3.1.2.hgdp_tgp.chr21.vortex")?
             .to_file_path()
-            .map_err(|_| vortex_err!("data url must be a local file system path"))
+            .map_err(|_| vortex_err!("Failed to convert data URL to filesystem path - ensure data_url uses 'file://' scheme"))
     }
 
+    /// Creates a new StatPopGenBenchmark instance.
+    ///
+    /// # Arguments
+    /// * `data_url` - Base URL pointing to the dataset location (must be a file:// URL)
+    /// * `n_rows` - Number of variant rows in the dataset
+    ///
+    /// # Returns
+    /// A configured benchmark instance with pre-calculated expected row counts for query validation.
     pub fn new(data_url: Url, n_rows: u64) -> VortexResult<Self> {
-        let n_variants =
-            usize::try_from(n_rows).map_err(|_| vortex_err!("too many rows for this machine"))?;
-        let expected_row_counts = vec![1, 1, n_variants, n_variants, n_variants];
+        let n_variants = usize::try_from(n_rows).map_err(|_| {
+            vortex_err!(
+                "Dataset size ({} rows) exceeds maximum supported size for this platform",
+                n_rows
+            )
+        })?;
+        // The number of rows returned by the filter (the last query) varies by number of rows.
+        let expected_row_counts = vec![
+            1, 1, n_variants, n_variants, n_variants, n_variants, n_variants, n_variants,
+            n_variants, n_variants,
+        ];
 
         Ok(Self {
             data_url,
@@ -65,18 +104,42 @@ impl StatPopGenBenchmark {
     }
 }
 
+/// Registers a table with DataFusion for the specified format.
+///
+/// Creates and configures a ListingTable that points to the dataset file in the
+/// specified format, then registers it with the DataFusion session context.
+///
+/// # Arguments
+/// * `session` - The DataFusion session context to register the table with
+/// * `base_url` - Base URL for the dataset location
+/// * `format` - The data format (Parquet, Vortex, etc.) to register
+///
+/// # Errors
+/// Returns an error if table registration fails or if the format is unsupported.
 pub fn register_table(session: &SessionContext, base_url: &Url, format: Format) -> Result<()> {
     let table_path = base_url.join(&format!("{}/output4.{}", format.ext(), format.ext()))?;
     let table_url = ListingTableUrl::try_new(table_path, None)?;
     let config = ListingTableConfig::new(table_url)
         .with_listing_options(
             ListingOptions::new(match format {
-                Format::Csv => todo!(),
-                Format::Arrow => todo!(),
+                Format::Csv => {
+                    return Err(anyhow::anyhow!(
+                        "CSV format is not supported for statpopgen benchmark"
+                    ));
+                }
+                Format::Arrow => {
+                    return Err(anyhow::anyhow!(
+                        "Arrow format is not supported for statpopgen benchmark"
+                    ));
+                }
                 Format::Parquet => Arc::from(ParquetFormat::new()),
                 Format::OnDiskVortex => Arc::from(VortexFormat::default()),
-                Format::VortexCompact => todo!(),
-                Format::OnDiskDuckDB => todo!(),
+                Format::VortexCompact => Arc::from(VortexFormat::default()),
+                Format::OnDiskDuckDB => {
+                    return Err(anyhow::anyhow!(
+                        "DuckDB format should not be registered through DataFusion"
+                    ));
+                }
             })
             .with_session_config_options(session.state().config()),
         )
@@ -122,7 +185,10 @@ impl Benchmark for StatPopGenBenchmark {
                 }
                 Ok(())
             }
-            _ => todo!(),
+            scheme => anyhow::bail!(
+                "Unsupported URL scheme '{}' - only 'file://' URLs are supported for local datasets",
+                scheme
+            ),
         }
     }
 
