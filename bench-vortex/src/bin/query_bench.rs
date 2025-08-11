@@ -181,7 +181,7 @@ struct StatPopGenArgs {
     targets: Vec<Target>,
 
     #[arg(long)]
-    data_url: String,
+    data_url: Option<String>,
 
     #[arg(long)]
     n_rows: u64,
@@ -316,7 +316,13 @@ fn run_tpcds(args: TpcDSArgs) -> anyhow::Result<()> {
 
 fn run_statpopgen(args: StatPopGenArgs) -> anyhow::Result<()> {
     // Create benchmark instance
-    let benchmark = StatPopGenBenchmark::new(Url::parse(&args.data_url)?, args.n_rows)?;
+    let data_url = if let Some(data_url) = args.data_url.as_ref() {
+        Url::parse(data_url)?
+    } else {
+        Url::from_directory_path("statpopgen".to_data_path())
+            .map_err(|_| anyhow::anyhow!("bad data path?"))?
+    };
+    let benchmark = StatPopGenBenchmark::new(data_url, args.n_rows)?;
 
     // Configure driver
     let config = DriverConfig {
