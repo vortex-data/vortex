@@ -203,3 +203,89 @@ impl VortexWrite for ObjectStoreWriter {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use object_store::{ObjectStore, path::Path};
+
+    use super::*;
+
+    async fn create_test_store() -> (
+        Arc<object_store::memory::InMemory>,
+        Path,
+    ) {
+        let store = Arc::new(object_store::memory::InMemory::new());
+        let location = Path::from("test.bin");
+        (store, location)
+    }
+
+    #[tokio::test]
+    async fn test_object_store_writer_concurrent_writes() {
+        let (store, location) = create_test_store().await;
+        let writer = Arc::new(
+            ObjectStoreWriter::new(store.clone(), &location)
+                .await
+                .unwrap(),
+        );
+
+        let handles: Vec<_> = (0..10)
+            .map(|i| {
+                let w = writer.clone();
+                tokio::spawn(async move {
+                    #[allow(clippy::cast_possible_truncation)]
+                    let data = vec![i as u8; 1000];
+                    let mut w = w.as_ref().clone();
+                    w.write_all(data).await
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            handle.await.unwrap().unwrap();
+        }
+
+        let mut writer = Arc::try_unwrap(writer).unwrap_or_else(|arc| (*arc).clone());
+        writer.flush().await.unwrap();
+
+        // Verify data was written
+        let result = store.get(&location).await.unwrap();
+        let bytes = result.bytes().await.unwrap();
+        assert_eq!(bytes.len(), 10000); // 10 * 1000
+    }
+
+    #[tokio::test]
+    async fn test_object_store_writer_max_buffer_size() {
+        let (store, location) = create_test_store().await;
+        let mut writer = ObjectStoreWriter::new(store, &location).await.unwrap();
+
+        // Try to write more than MAX_BUFFER_SIZE
+        let huge_data = vec![0u8; MAX_BUFFER_SIZE + 1];
+        let result = writer.write_all(huge_data).await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("exceed maximum"));
+    }
+
+    #[tokio::test]
+    async fn test_object_store_writer_multiple_flushes() {
+        let (store, location) = create_test_store().await;
+        let mut writer = ObjectStoreWriter::new(store.clone(), &location)
+            .await
+            .unwrap();
+
+        // Write and flush multiple times
+        for i in 0..3 {
+            #[allow(clippy::cast_possible_truncation)]
+            let data = vec![i as u8; 100];
+            writer.write_all(data).await.unwrap();
+            writer.flush().await.unwrap();
+        }
+
+        // Verify all data was written
+        let result = store.get(&location).await.unwrap();
+        let bytes = result.bytes().await.unwrap();
+        assert_eq!(bytes.len(), 300);
+    }
+}

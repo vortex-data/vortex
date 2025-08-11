@@ -439,4 +439,67 @@ mod tests {
         let recovered = slice.into_inner();
         assert_eq!(recovered, original);
     }
+
+    // Panic tests for bounds checking
+    #[test]
+    #[should_panic(expected = "Invalid range")]
+    fn test_owned_slice_invalid_range() {
+        let data = vec![1, 2, 3];
+        #[allow(clippy::reversed_empty_ranges)]
+        let _ = data.slice_owned(5..3); // start > end
+    }
+
+    #[test]
+    #[should_panic(expected = "exceeds buffer length")]
+    fn test_owned_slice_out_of_bounds() {
+        let data = vec![1, 2, 3];
+        let _ = data.slice_owned(1..10); // end > len
+    }
+
+    #[test]
+    fn test_owned_slice_zero_sized_at_boundary() {
+        let data = vec![1, 2, 3];
+        let slice = data.slice_owned(3..3); // Zero-sized at end
+        assert_eq!(slice.bytes_init(), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "exceeds buffer length")]
+    fn test_owned_slice_start_out_of_bounds() {
+        let data = vec![1, 2, 3];
+        let _ = data.slice_owned(10..11); // start > len
+    }
+
+    // Buffer overflow protection tests
+    #[test]
+    fn test_buffer_size_calculation_u8() {
+        let buffer: Buffer<u8> = Buffer::from(vec![1, 2, 3]);
+        assert_eq!(buffer.bytes_init(), 3);
+    }
+
+    #[test]
+    fn test_buffer_size_calculation_large_type() {
+        use vortex_buffer::BufferMut;
+        
+        struct LargeType([u8; 1024]);
+
+        let mut buf = BufferMut::<LargeType>::with_capacity(10);
+        // Extend with 10 elements
+        for _ in 0..10 {
+            buf.push(LargeType([0u8; 1024]));
+        }
+        let buffer = buf.freeze();
+
+        // This should use checked arithmetic and not overflow
+        let size = buffer.bytes_init();
+        assert_eq!(size, 10 * 1024);
+    }
+
+    #[test]
+    fn test_buffer_size_near_max() {
+        // Test with a moderately large buffer that won't cause OOM
+        let large_size = 1_000_000;
+        let buffer: Buffer<u8> = Buffer::from(vec![0u8; large_size]);
+        assert_eq!(buffer.bytes_init(), large_size);
+    }
 }

@@ -32,8 +32,5 @@ mod read;
 mod tokio;
 mod write;
 
-#[cfg(test)]
-mod test_gaps;
-
 /// Required alignment for all custom buffer allocations.
 pub const ALIGNMENT: usize = 64;

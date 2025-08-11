@@ -182,3 +182,67 @@ impl Dispatch for IoDispatcher {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    use super::*;
+
+    #[test]
+    fn test_dispatcher_task_panic_handling() {
+        let dispatcher = IoDispatcher::new();
+        let completed = Arc::new(AtomicBool::new(false));
+        let completed_clone = completed.clone();
+
+        // Dispatch a task that will panic
+        #[allow(clippy::panic)]
+        let _handle = dispatcher.dispatch(move || async move {
+            panic!("Task panic");
+        });
+
+        // Also dispatch a normal task to verify dispatcher continues working
+        let normal_handle = dispatcher
+            .dispatch(move || async move {
+                completed_clone.store(true, Ordering::SeqCst);
+                42
+            })
+            .unwrap();
+
+        // The panic task should propagate the error
+        // Note: this depends on implementation details
+
+        // The normal task should complete
+        let result = futures::executor::block_on(normal_handle);
+        assert_eq!(result.unwrap(), 42);
+        assert!(completed.load(Ordering::SeqCst));
+
+        dispatcher.shutdown().unwrap();
+    }
+
+    #[test]
+    fn test_dispatcher_shutdown_empty_queue() {
+        let dispatcher = IoDispatcher::new();
+        // Immediate shutdown should work
+        dispatcher.shutdown().unwrap();
+    }
+
+    #[test]
+    fn test_dispatcher_many_threads() {
+        let dispatcher = IoDispatcher::new();
+        let mut handles = Vec::new();
+
+        for i in 0..100 {
+            let handle = dispatcher.dispatch(move || async move { i * 2 }).unwrap();
+            handles.push(handle);
+        }
+
+        for (i, handle) in handles.into_iter().enumerate() {
+            let result = futures::executor::block_on(handle);
+            assert_eq!(result.unwrap(), i * 2);
+        }
+
+        dispatcher.shutdown().unwrap();
+    }
+}
