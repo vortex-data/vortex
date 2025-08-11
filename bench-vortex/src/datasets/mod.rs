@@ -151,7 +151,7 @@ impl BenchmarkDataset {
                 statpopgen::register_table(session, base_url, Format::OnDiskVortex)?
             }
             (BenchmarkDataset::StatPopGen { .. }, format) => {
-                anyhow::bail!("StatPopGen in {format} unsupported for now")
+                anyhow::bail!("StatPopGen in {format} unsupported in DataFusion")
             }
         }
 

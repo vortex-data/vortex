@@ -45,6 +45,13 @@ on:
               "targets": "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb",
               "scale_factor": "--scale-factor 1.0"
             },
+            {
+              "id": "statpopgen",
+              "subcommand": "statpopgen",
+              "name": "Statistical and Population Genetics",
+              "local_dir": "bench-vortex/data/statpopgen",
+              "scale_factor": "--n-rows 100000"
+            },
           ]
 
 jobs:

@@ -35,3 +35,8 @@ SELECT *
  WHERE "CHROM" == 'chr21'
    AND "POS" >= 5030300
    AND "POS" <= 5031000;
+-- Count all the the alternate alleles across all genotypes at this position (nb: a single position,
+-- e.g. chr21:123456, may have many "variants", e.g. `A, G`, `A, T`, `A, AGGTG`).
+  SELECT "CHROM", "POS", SUM(LIST_SUM("GT")) AS N_ALTS
+    FROM statpopgen
+GROUP BY "CHROM", "POS";
