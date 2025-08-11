@@ -153,7 +153,8 @@ impl Dispatch for CompioDispatcher {
     }
 }
 
-#[cfg(all(test, feature = "compio"))]
+#[cfg(test)]
+#[cfg(feature = "compio")]
 mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};

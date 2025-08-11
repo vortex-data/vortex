@@ -183,7 +183,9 @@ impl Dispatch for IoDispatcher {
     }
 }
 
-#[cfg(all(test, not(target_arch = "wasm32"), feature = "tokio"))]
+#[cfg(test)]
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "tokio")]
 mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
