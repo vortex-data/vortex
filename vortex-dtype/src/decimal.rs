@@ -8,21 +8,20 @@ use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_
 
 use crate::DType;
 
-const MAX_PRECISION: u8 = 76;
-const MAX_SCALE: i8 = 76;
-const MIN_SCALE: i8 = -76;
-
 /// Maximum precision for a Decimal128 type from Arrow
 pub const DECIMAL128_MAX_PRECISION: u8 = 38;
 
 /// Maximum precision for a Decimal256 type from Arrow
 pub const DECIMAL256_MAX_PRECISION: u8 = 76;
 
-/// Maximum sacle for a Decimal128 type from Arrow
+/// Maximum scale for a Decimal128 type from Arrow
 pub const DECIMAL128_MAX_SCALE: i8 = 38;
 
-/// Maximum sacle for a Decimal256 type from Arrow
+/// Maximum scale for a Decimal256 type from Arrow
 pub const DECIMAL256_MAX_SCALE: i8 = 76;
+
+const MAX_PRECISION: u8 = DECIMAL256_MAX_PRECISION;
+const MAX_SCALE: i8 = DECIMAL256_MAX_SCALE;
 
 /// Parameters that define the precision and scale of a decimal type.
 ///
@@ -41,6 +40,12 @@ impl DecimalDType {
     ///
     /// Returns an error if precision exceeds MAX_PRECISION or scale is outside [MIN_SCALE, MAX_SCALE].
     pub fn try_new(precision: u8, scale: i8) -> VortexResult<Self> {
+        if precision == 0 {
+            vortex_bail!(
+                "decimal precision must be between 1 and {} (inclusive)",
+                MAX_PRECISION
+            );
+        }
         if precision > MAX_PRECISION {
             vortex_bail!(
                 "decimal precision {} exceeds MAX_PRECISION {}",
@@ -53,11 +58,11 @@ impl DecimalDType {
             vortex_bail!("decimal scale {} exceeds MAX_SCALE {}", scale, MAX_SCALE);
         }
 
-        if scale < MIN_SCALE {
+        if scale > 0 && scale as u8 > precision {
             vortex_bail!(
-                "decimal scale {} is less than MIN_SCALE {}",
+                "decimal scale {} is greater than precision {}",
                 scale,
-                MIN_SCALE
+                precision
             );
         }
 
@@ -150,8 +155,10 @@ mod tests {
 
     #[test]
     fn test_decimal_max_scale() {
-        let decimal = DecimalDType::try_new(10, MAX_SCALE).unwrap();
+        // MAX_SCALE only works when precision >= scale
+        let decimal = DecimalDType::try_new(MAX_PRECISION, MAX_SCALE).unwrap();
         assert_eq!(decimal.scale(), MAX_SCALE);
+        assert_eq!(decimal.precision(), MAX_PRECISION);
     }
 
     #[test]
@@ -159,6 +166,42 @@ mod tests {
         // Negative scale is valid - represents zeros before decimal point
         let decimal = DecimalDType::try_new(10, -5).unwrap();
         assert_eq!(decimal.scale(), -5);
+
+        // Negative scale doesn't need to be less than precision
+        let decimal2 = DecimalDType::try_new(5, -10).unwrap();
+        assert_eq!(decimal2.scale(), -10);
+        assert_eq!(decimal2.precision(), 5);
+    }
+
+    #[test]
+    fn test_decimal_zero_precision() {
+        // Zero precision is not allowed
+        let result = DecimalDType::try_new(0, 0);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("must be between 1 and")
+        );
+    }
+
+    #[test]
+    fn test_decimal_scale_greater_than_precision() {
+        // When scale is positive, it must be <= precision
+        let result = DecimalDType::try_new(5, 6);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("scale 6 is greater than precision 5")
+        );
+
+        // Edge case: scale == precision should work
+        let decimal = DecimalDType::try_new(5, 5).unwrap();
+        assert_eq!(decimal.precision(), 5);
+        assert_eq!(decimal.scale(), 5);
     }
 
     #[test]
@@ -175,7 +218,7 @@ mod tests {
 
     #[test]
     fn test_decimal_exceeds_max_scale() {
-        let result = DecimalDType::try_new(10, MAX_SCALE + 1);
+        let result = DecimalDType::try_new(MAX_PRECISION, MAX_SCALE + 1);
         assert!(result.is_err());
         assert!(
             result
@@ -186,21 +229,26 @@ mod tests {
     }
 
     #[test]
-    fn test_decimal_min_scale() {
-        let decimal = DecimalDType::try_new(10, MIN_SCALE).unwrap();
-        assert_eq!(decimal.scale(), MIN_SCALE);
-    }
+    fn test_decimal_precision_scale_edge_cases() {
+        // Precision 1 with scale 0 (single digit integer)
+        let decimal = DecimalDType::try_new(1, 0).unwrap();
+        assert_eq!(decimal.precision(), 1);
+        assert_eq!(decimal.scale(), 0);
 
-    #[test]
-    fn test_decimal_below_min_scale() {
-        let result = DecimalDType::try_new(10, MIN_SCALE - 1);
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("less than MIN_SCALE")
-        );
+        // Precision 1 with scale 1 (0.X format)
+        let decimal = DecimalDType::try_new(1, 1).unwrap();
+        assert_eq!(decimal.precision(), 1);
+        assert_eq!(decimal.scale(), 1);
+
+        // Scale 0 is valid for any precision
+        let decimal = DecimalDType::try_new(10, 0).unwrap();
+        assert_eq!(decimal.precision(), 10);
+        assert_eq!(decimal.scale(), 0);
+
+        // Negative scale with small precision is valid
+        let decimal = DecimalDType::try_new(1, -5).unwrap();
+        assert_eq!(decimal.precision(), 1);
+        assert_eq!(decimal.scale(), -5);
     }
 
     #[test]

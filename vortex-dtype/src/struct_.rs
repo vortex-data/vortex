@@ -358,10 +358,6 @@ impl StructFields {
     /// ## Panics
     /// Panics if the index is out of bounds for the struct fields.
     /// Prefer using `try_without_field` for fallible removal.
-    #[deprecated(
-        since = "0.1.0",
-        note = "Use try_without_field() for fallible field removal"
-    )]
     pub fn without_field(&self, index: usize) -> Self {
         self.try_without_field(index)
             .unwrap_or_else(|e| vortex_panic!("Failed to remove field: {}", e))
