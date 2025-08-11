@@ -110,7 +110,7 @@ impl FileOpener for VortexFileOpener {
                 }
             };
 
-            let scan_builder = ScanBuilder::new(layout_reader);
+            let scan_builder = ScanBuilder::new(layout_reader, vxf.segment_source());
             let mut scan_builder = apply_byte_range(file_meta, vxf.row_count(), scan_builder);
 
             if let Some(limit) = limit
