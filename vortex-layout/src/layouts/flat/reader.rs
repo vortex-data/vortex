@@ -17,7 +17,7 @@ use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::layouts::SharedArray;
 use crate::layouts::flat::FlatLayout;
-use crate::segments::{SegmentId, SegmentSource, Segments};
+use crate::segments::{SegmentId, Segments};
 use crate::{
     ArrayEvaluation, LayoutReader, LazyWithSegments, MaskEvaluation, NoOpPruningEvaluation,
     PruningEvaluation,
@@ -37,11 +37,7 @@ pub struct FlatReader {
 }
 
 impl FlatReader {
-    pub(crate) fn new(
-        layout: FlatLayout,
-        name: Arc<str>,
-        _segment_source: Arc<dyn SegmentSource>,
-    ) -> Self {
+    pub(crate) fn new(layout: FlatLayout, name: Arc<str>) -> Self {
         let ctx = layout.ctx.clone();
         let dtype = layout.dtype().clone();
         let row_count = usize::try_from(layout.row_count()).vortex_unwrap();
@@ -219,8 +215,6 @@ impl ArrayEvaluation for FlatEvaluation {
 
 #[cfg(test)]
 mod test {
-    use std::sync::Arc;
-
     use arrow_buffer::BooleanBuffer;
     use futures::executor::block_on;
     use futures::stream;
@@ -232,7 +226,7 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
+    use crate::segments::{SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
     use crate::{LayoutStrategy as _, SequentialStreamAdapter, SequentialStreamExt};
 
@@ -256,15 +250,16 @@ mod test {
                 )
                 .await
                 .unwrap();
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let result = layout
-                .new_reader("".into(), segments)
+                .new_reader("".into())
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()
-                .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
-                .await
+                .invoke(
+                    Mask::new_true(layout.row_count().try_into().unwrap()),
+                    &segments,
+                )
                 .unwrap()
                 .to_primitive()
                 .unwrap();
@@ -296,16 +291,17 @@ mod test {
                 )
                 .await
                 .unwrap();
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let expr = gt(root(), lit(3i32));
             let result = layout
-                .new_reader("".into(), segments)
+                .new_reader("".into())
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &expr)
                 .unwrap()
-                .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
-                .await
+                .invoke(
+                    Mask::new_true(layout.row_count().try_into().unwrap()),
+                    &segments,
+                )
                 .unwrap()
                 .to_bool()
                 .unwrap();
@@ -337,15 +333,13 @@ mod test {
                 )
                 .await
                 .unwrap();
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let result = layout
-                .new_reader("".into(), segments)
+                .new_reader("".into())
                 .unwrap()
                 .projection_evaluation(&(2..4), &root())
                 .unwrap()
-                .invoke(Mask::new_true(2))
-                .await
+                .invoke(Mask::new_true(2), &segments)
                 .unwrap()
                 .to_primitive()
                 .unwrap();

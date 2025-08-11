@@ -18,7 +18,7 @@ use vortex_utils::aliases::hash_set::HashSet;
 
 use super::DictLayout;
 use crate::layouts::SharedArray;
-use crate::segments::{SegmentId, SegmentSource, Segments};
+use crate::segments::{SegmentId, Segments};
 use crate::{
     ArrayEvaluation, LayoutReader, LayoutReaderRef, LazyWithSegments, MaskEvaluation,
     NoOpPruningEvaluation, PruningEvaluation,
@@ -38,19 +38,11 @@ pub struct DictReader {
 }
 
 impl DictReader {
-    pub(super) fn try_new(
-        layout: DictLayout,
-        name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
-    ) -> VortexResult<Self> {
+    pub(super) fn try_new(layout: DictLayout, name: Arc<str>) -> VortexResult<Self> {
         let values_len = usize::try_from(layout.values.row_count())?;
-        let codes = layout
-            .codes
-            .new_reader(format!("{name}.codes").into(), segment_source.clone())?;
+        let codes = layout.codes.new_reader(format!("{name}.codes").into())?;
 
-        let values = layout
-            .values
-            .new_reader(format!("{name}.values").into(), segment_source.clone())?;
+        let values = layout.values.new_reader(format!("{name}.values").into())?;
 
         let values_eval = values.projection_evaluation(&(0..values_len as u64), &root())?;
         let mut values_segments = HashSet::default();
@@ -309,12 +301,14 @@ mod tests {
         );
         assert!(layout.encoding_id() == LayoutId::new_ref("vortex.dict"));
         let actual = layout
-            .new_reader("".into(), Arc::from(segments))
+            .new_reader("".into())
             .unwrap()
             .projection_evaluation(&(0..layout.row_count()), &expression)
             .unwrap()
-            .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
-            .await
+            .invoke(
+                Mask::new_true(layout.row_count().try_into().unwrap()),
+                &segments,
+            )
             .unwrap();
         let expected = StructArray::try_new(
             FieldNames::from([FieldName::from("top")]),
@@ -389,12 +383,11 @@ mod tests {
             )),
         );
         let mask = layout
-            .new_reader("".into(), Arc::from(segments))
+            .new_reader("".into())
             .unwrap()
             .filter_evaluation(&(0..3), &filter)
             .unwrap()
-            .invoke(Mask::new_true(3))
-            .await
+            .invoke(Mask::new_true(3), &segments)
             .unwrap();
 
         assert_eq!(
@@ -449,12 +442,14 @@ mod tests {
         let expression = not(is_null(root())); // easier to test not_is_null b/c that's the validity array
         assert!(layout.encoding_id() == LayoutId::new_ref("vortex.dict"));
         let actual = layout
-            .new_reader("".into(), Arc::from(segments))
+            .new_reader("".into())
             .unwrap()
             .projection_evaluation(&(0..layout.row_count()), &expression)
             .unwrap()
-            .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
-            .await
+            .invoke(
+                Mask::new_true(layout.row_count().try_into().unwrap()),
+                &segments,
+            )
             .unwrap();
         let expected = array.validity_mask().unwrap().into_array();
         let actual = actual.into_arrow_preferred().unwrap();

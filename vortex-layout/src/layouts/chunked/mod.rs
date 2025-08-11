@@ -12,7 +12,7 @@ use vortex_error::VortexResult;
 
 use crate::children::LayoutChildren;
 use crate::layouts::chunked::reader::ChunkedReader;
-use crate::segments::{SegmentId, SegmentSource};
+use crate::segments::SegmentId;
 use crate::{
     LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable, vtable,
 };
@@ -60,16 +60,8 @@ impl VTable for ChunkedVTable {
         LayoutChildType::Chunk((idx, layout.chunk_offsets[idx]))
     }
 
-    fn new_reader(
-        layout: &Self::Layout,
-        name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
-    ) -> VortexResult<LayoutReaderRef> {
-        Ok(Arc::new(ChunkedReader::new(
-            layout.clone(),
-            name,
-            segment_source,
-        )))
+    fn new_reader(layout: &Self::Layout, name: Arc<str>) -> VortexResult<LayoutReaderRef> {
+        Ok(Arc::new(ChunkedReader::new(layout.clone(), name)))
     }
 
     fn build(

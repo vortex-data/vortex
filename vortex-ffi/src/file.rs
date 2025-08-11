@@ -257,8 +257,8 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
         )?;
 
         let layout_reader = file.layout_reader()?;
-        let mut scan_builder =
-            ScanBuilder::new(layout_reader).with_row_offset(scan_options.row_offset);
+        let mut scan_builder = ScanBuilder::new(layout_reader, file.segment_source())
+            .with_row_offset(scan_options.row_offset);
 
         // Apply options if provided.
         if let Some(projection_expr) = scan_options.projection_expr {

@@ -21,7 +21,7 @@ use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::ZoneMap;
-use crate::segments::{SegmentId, SegmentSource, Segments};
+use crate::segments::{SegmentId, Segments};
 use crate::{ArrayEvaluation, LayoutReader, LazyWithSegments, MaskEvaluation, PruningEvaluation};
 
 type SharedZoneMap = LazyWithSegments<ZoneMap>;
@@ -47,19 +47,13 @@ pub struct ZonedReader {
 }
 
 impl ZonedReader {
-    pub(super) fn try_new(
-        layout: ZonedLayout,
-        name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
-    ) -> VortexResult<Self> {
-        let data_child = layout
-            .data
-            .new_reader(name.clone(), segment_source.clone())?;
+    pub(super) fn try_new(layout: ZonedLayout, name: Arc<str>) -> VortexResult<Self> {
+        let data_child = layout.data.new_reader(name.clone())?;
 
         // The evaluation object of the zone map.
         let zones_eval = layout
             .zones
-            .new_reader(format!("{name}.zones").into(), segment_source.clone())?
+            .new_reader(format!("{name}.zones").into())?
             .projection_evaluation(&(0..layout.nzones() as u64), &root())?;
         let mut zones_segments = HashSet::default();
         zones_eval.required_segments(&mut zones_segments);
@@ -357,12 +351,12 @@ mod test {
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
-    use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
+    use crate::segments::{SequenceWriter, TestSegments};
     use crate::{LayoutRef, LayoutStrategy, LocalExecutor};
 
     #[fixture]
     /// Create a stats layout with three chunks of primitive arrays.
-    fn stats_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
+    fn stats_layout() -> (TestSegments, LayoutRef) {
         let ctx = ArrayContext::empty();
         let segments = TestSegments::default();
         let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
@@ -385,55 +379,50 @@ mod test {
                 ]),
             )));
         let layout = block_on(strategy.write_stream(&ctx, sequence_writer, array_stream)).unwrap();
-        (Arc::new(segments), layout)
+        (segments, layout)
     }
 
     #[rstest]
-    fn test_stats_evaluator(
-        #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
-    ) {
-        block_on(async {
-            let result = layout
-                .new_reader("".into(), segments)
-                .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &root())
-                .unwrap()
-                .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
-                .await
-                .unwrap()
-                .to_primitive()
-                .unwrap();
+    fn test_stats_evaluator(#[from(stats_layout)] (segments, layout): (TestSegments, LayoutRef)) {
+        let result = layout
+            .new_reader("".into())
+            .unwrap()
+            .projection_evaluation(&(0..layout.row_count()), &root())
+            .unwrap()
+            .invoke(
+                Mask::new_true(layout.row_count().try_into().unwrap()),
+                &segments,
+            )
+            .unwrap()
+            .to_primitive()
+            .unwrap();
 
-            assert_eq!(result.len(), 9);
-            assert_eq!(result.as_slice::<i32>(), &[1, 2, 3, 4, 5, 6, 7, 8, 9]);
-        })
+        assert_eq!(result.len(), 9);
+        assert_eq!(result.as_slice::<i32>(), &[1, 2, 3, 4, 5, 6, 7, 8, 9]);
     }
 
     #[rstest]
     fn test_stats_pruning_mask(
-        #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+        #[from(stats_layout)] (segments, layout): (TestSegments, LayoutRef),
     ) {
-        block_on(async {
-            let row_count = layout.row_count();
-            let reader = layout.new_reader("".into(), segments).unwrap();
+        let row_count = layout.row_count();
+        let reader = layout.new_reader("".into()).unwrap();
 
-            // Choose a prune-able expression
-            let expr = gt(root(), lit(7));
+        // Choose a prune-able expression
+        let expr = gt(root(), lit(7));
 
-            let result = reader
-                .pruning_evaluation(&(0..row_count), &expr)
-                .unwrap()
-                .invoke(Mask::new_true(row_count.try_into().unwrap()))
-                .await
-                .unwrap()
-                .to_boolean_buffer()
-                .iter()
-                .collect::<Vec<_>>();
+        let result = reader
+            .pruning_evaluation(&(0..row_count), &expr)
+            .unwrap()
+            .invoke(Mask::new_true(row_count.try_into().unwrap()), &segments)
+            .unwrap()
+            .to_boolean_buffer()
+            .iter()
+            .collect::<Vec<_>>();
 
-            assert_eq!(
-                result.as_slice(),
-                &[false, false, false, false, false, false, true, true, true]
-            );
-        })
+        assert_eq!(
+            result.as_slice(),
+            &[false, false, false, false, false, false, true, true, true]
+        );
     }
 }

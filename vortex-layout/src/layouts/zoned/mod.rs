@@ -17,7 +17,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
 use crate::children::LayoutChildren;
 use crate::layouts::zoned::reader::ZonedReader;
 use crate::layouts::zoned::zone_map::ZoneMap;
-use crate::segments::{SegmentId, SegmentSource};
+use crate::segments::SegmentId;
 use crate::{
     LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable, vtable,
 };
@@ -76,16 +76,8 @@ impl VTable for ZonedVTable {
         }
     }
 
-    fn new_reader(
-        layout: &Self::Layout,
-        name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
-    ) -> VortexResult<LayoutReaderRef> {
-        Ok(Arc::new(ZonedReader::try_new(
-            layout.clone(),
-            name,
-            segment_source,
-        )?))
+    fn new_reader(layout: &Self::Layout, name: Arc<str>) -> VortexResult<LayoutReaderRef> {
+        Ok(Arc::new(ZonedReader::try_new(layout.clone(), name)?))
     }
 
     fn build(

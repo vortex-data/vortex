@@ -18,7 +18,7 @@ use vortex_mask::Mask;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::children::LayoutChildren;
-use crate::segments::{SegmentId, SegmentSource, Segments};
+use crate::segments::{SegmentId, Segments};
 
 pub type LayoutReaderRef = Arc<dyn LayoutReader>;
 
@@ -195,21 +195,15 @@ impl<T: Send + Clone> LazyWithSegments<T> {
 
 pub struct LazyReaderChildren {
     children: Arc<dyn LayoutChildren>,
-    segment_source: Arc<dyn SegmentSource>,
-
     // TODO(ngates): we may want a hash map of some sort here?
     cache: Vec<OnceCell<LayoutReaderRef>>,
 }
 
 impl LazyReaderChildren {
-    pub fn new(children: Arc<dyn LayoutChildren>, segment_source: Arc<dyn SegmentSource>) -> Self {
+    pub fn new(children: Arc<dyn LayoutChildren>) -> Self {
         let nchildren = children.nchildren();
         let cache = (0..nchildren).map(|_| OnceCell::new()).collect();
-        Self {
-            children,
-            segment_source,
-            cache,
-        }
+        Self { children, cache }
     }
 
     pub fn get(
@@ -224,7 +218,7 @@ impl LazyReaderChildren {
 
         self.cache[idx].get_or_try_init(|| {
             let child = self.children.child(idx, dtype)?;
-            child.new_reader(name.clone(), self.segment_source.clone())
+            child.new_reader(name.clone())
         })
     }
 }

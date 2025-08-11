@@ -279,8 +279,6 @@ impl ArrayEvaluation for RowIdxEvaluation {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use arrow_buffer::BooleanBuffer;
     use futures::executor::block_on;
     use futures::stream;
@@ -292,7 +290,7 @@ mod tests {
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::row_idx::{RowIdxLayoutReader, row_idx};
-    use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
+    use crate::segments::{SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
     use crate::{LayoutReader, LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt};
 
@@ -316,18 +314,18 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let expr = eq(root(), lit(3i32));
-            let result =
-                RowIdxLayoutReader::new(0, layout.new_reader("".into(), segments).unwrap())
-                    .projection_evaluation(&(0..layout.row_count()), &expr)
-                    .unwrap()
-                    .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
-                    .await
-                    .unwrap()
-                    .to_bool()
-                    .unwrap();
+            let result = RowIdxLayoutReader::new(0, layout.new_reader("".into()).unwrap())
+                .projection_evaluation(&(0..layout.row_count()), &expr)
+                .unwrap()
+                .invoke(
+                    Mask::new_true(layout.row_count().try_into().unwrap()),
+                    &segments,
+                )
+                .unwrap()
+                .to_bool()
+                .unwrap();
 
             assert_eq!(
                 &BooleanBuffer::from_iter([false, false, true, false, false]),
@@ -356,18 +354,18 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let expr = gt(row_idx(), lit(3u64));
-            let result =
-                RowIdxLayoutReader::new(0, layout.new_reader("".into(), segments).unwrap())
-                    .projection_evaluation(&(0..layout.row_count()), &expr)
-                    .unwrap()
-                    .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
-                    .await
-                    .unwrap()
-                    .to_bool()
-                    .unwrap();
+            let result = RowIdxLayoutReader::new(0, layout.new_reader("".into()).unwrap())
+                .projection_evaluation(&(0..layout.row_count()), &expr)
+                .unwrap()
+                .invoke(
+                    Mask::new_true(layout.row_count().try_into().unwrap()),
+                    &segments,
+                )
+                .unwrap()
+                .to_bool()
+                .unwrap();
 
             assert_eq!(
                 &BooleanBuffer::from_iter([false, false, false, false, true]),
@@ -396,22 +394,22 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let expr = or(
                 eq(root(), lit(3i32)),
                 or(gt(row_idx(), lit(3u64)), eq(root(), lit(1i32))),
             );
 
-            let result =
-                RowIdxLayoutReader::new(0, layout.new_reader("".into(), segments).unwrap())
-                    .projection_evaluation(&(0..layout.row_count()), &expr)
-                    .unwrap()
-                    .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
-                    .await
-                    .unwrap()
-                    .to_bool()
-                    .unwrap();
+            let result = RowIdxLayoutReader::new(0, layout.new_reader("".into()).unwrap())
+                .projection_evaluation(&(0..layout.row_count()), &expr)
+                .unwrap()
+                .invoke(
+                    Mask::new_true(layout.row_count().try_into().unwrap()),
+                    &segments,
+                )
+                .unwrap()
+                .to_bool()
+                .unwrap();
 
             assert_eq!(
                 vec![true, false, true, false, true],

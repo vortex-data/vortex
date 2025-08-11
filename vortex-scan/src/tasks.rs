@@ -8,15 +8,15 @@ use std::sync::Arc;
 
 use bit_vec::BitVec;
 use futures::FutureExt;
-use futures::future::{BoxFuture, ok, try_join_all};
+use futures::future::{BoxFuture, ok};
 use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_error::{VortexError, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_layout::LayoutReader;
 use vortex_layout::segments::SegmentSource;
+use vortex_layout::segments::SegmentSourceExt;
 use vortex_mask::Mask;
-use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::Selection;
@@ -119,17 +119,7 @@ pub(super) fn split_exec<A: 'static + Send>(
                 let mut dynamic_versions = vec![None; filter.conjuncts().len()];
 
                 // First, we fetch all the pruning segments.
-                let src2 = src.clone();
-                let pruning_segments = HashMap::from_iter(
-                    try_join_all(pruning_segment_ids.iter().map(move |id| {
-                        let src = src2.clone();
-                        async move {
-                            let segment = src.request(*id).await?;
-                            Ok::<_, VortexError>((*id, segment))
-                        }
-                    }))
-                    .await?,
-                );
+                let pruning_segments = src.clone().request_all(&pruning_segment_ids).await?;
 
                 // TODO(ngates): we could use FuturedUnordered to intersect the masks in parallel.
                 for (idx, conjunct) in pruning_conjuncts.iter().enumerate() {
@@ -170,17 +160,8 @@ pub(super) fn split_exec<A: 'static + Send>(
                     }
 
                     // Wait for all the segments to be ready before evaluating the conjunct.
-                    let src2 = src.clone();
-                    let conjunct_segments = HashMap::from_iter(
-                        try_join_all(conjunct_segment_ids[idx].iter().map(move |id| {
-                            let src = src2.clone();
-                            async move {
-                                let segment = src.request(*id).await?;
-                                Ok::<_, VortexError>((*id, segment))
-                            }
-                        }))
-                        .await?,
-                    );
+                    let conjunct_segments =
+                        src.clone().request_all(&conjunct_segment_ids[idx]).await?;
 
                     let conjunct_mask = conjuncts[idx].invoke(mask.clone(), &conjunct_segments)?;
 
@@ -211,17 +192,11 @@ pub(super) fn split_exec<A: 'static + Send>(
     let array_fut = async move {
         let filtered_mask = filter.await?;
 
-        let src = ctx.segment_source.clone();
-        let pruning_segments = HashMap::from_iter(
-            try_join_all(pruning_segment_ids.iter().map(move |id| {
-                let src = src.clone();
-                async move {
-                    let segment = src.request(*id).await?;
-                    Ok::<_, VortexError>((*id, segment))
-                }
-            }))
-            .await?,
-        );
+        let pruning_segments = ctx
+            .segment_source
+            .clone()
+            .request_all(&pruning_segment_ids)
+            .await?;
 
         let array_ref = exec.invoke(filtered_mask, &pruning_segments)?;
         mapper(array_ref).map(Some)

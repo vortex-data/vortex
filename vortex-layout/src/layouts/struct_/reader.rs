@@ -19,7 +19,6 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::layouts::partitioned::{PartitionedArrayEvaluation, PartitionedMaskEvaluation};
 use crate::layouts::struct_::StructLayout;
-use crate::segments::SegmentSource;
 use crate::{
     ArrayEvaluation, LayoutReader, LayoutReaderRef, LazyReaderChildren, MaskEvaluation,
     NoOpPruningEvaluation, PruningEvaluation,
@@ -39,11 +38,7 @@ pub struct StructReader {
 }
 
 impl StructReader {
-    pub(super) fn try_new(
-        layout: StructLayout,
-        name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
-    ) -> VortexResult<Self> {
+    pub(super) fn try_new(layout: StructLayout, name: Arc<str>) -> VortexResult<Self> {
         let struct_dt = layout.struct_fields();
 
         // NOTE: This number is arbitrary and likely depends on the longest common prefix of field names
@@ -56,8 +51,7 @@ impl StructReader {
                 .collect()
         });
 
-        let lazy_children =
-            LazyReaderChildren::new(layout.children.clone(), segment_source.clone());
+        let lazy_children = LazyReaderChildren::new(layout.children.clone());
 
         // Create an expanded root expression that contains all fields of the struct.
         let expanded_root_expr = replace_root_fields(root(), struct_dt);
@@ -245,8 +239,6 @@ impl LayoutReader for StructReader {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use futures::executor::block_on;
     use futures::stream;
     use itertools::Itertools;
@@ -262,13 +254,13 @@ mod tests {
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::struct_::writer::StructStrategy;
-    use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
+    use crate::segments::{SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
     use crate::{LayoutRef, LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt as _};
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
-    fn struct_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
+    fn struct_layout() -> (TestSegments, LayoutRef) {
         let ctx = ArrayContext::empty();
         let segments = TestSegments::default();
         let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
@@ -306,25 +298,21 @@ mod tests {
         )
         .unwrap();
 
-        (Arc::new(segments), layout)
+        (segments, layout)
     }
 
     #[rstest]
-    fn test_struct_layout_or(
-        #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
-    ) {
-        let reader = layout.new_reader("".into(), segments).unwrap();
+    fn test_struct_layout_or(#[from(struct_layout)] (segments, layout): (TestSegments, LayoutRef)) {
+        let reader = layout.new_reader("".into()).unwrap();
         let filt = or(
             eq(col("a"), lit(7)),
             or(eq(col("b"), lit(5)), eq(col("a"), lit(3))),
         );
-        let result = block_on(
-            reader
-                .filter_evaluation(&(0..3), &filt)
-                .unwrap()
-                .invoke(Mask::new_true(3)),
-        )
-        .unwrap();
+        let result = reader
+            .filter_evaluation(&(0..3), &filt)
+            .unwrap()
+            .invoke(Mask::new_true(3), &segments)
+            .unwrap();
         assert_eq!(
             vec![true, true, true],
             result.to_boolean_buffer().iter().collect_vec()
@@ -332,18 +320,14 @@ mod tests {
     }
 
     #[rstest]
-    fn test_struct_layout(
-        #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
-    ) {
-        let reader = layout.new_reader("".into(), segments).unwrap();
+    fn test_struct_layout(#[from(struct_layout)] (segments, layout): (TestSegments, LayoutRef)) {
+        let reader = layout.new_reader("".into()).unwrap();
         let expr = gt(get_item("a", root()), get_item("b", root()));
-        let result = block_on(
-            reader
-                .projection_evaluation(&(0..3), &expr)
-                .unwrap()
-                .invoke(Mask::new_true(3)),
-        )
-        .unwrap();
+        let result = reader
+            .projection_evaluation(&(0..3), &expr)
+            .unwrap()
+            .invoke(Mask::new_true(3), &segments)
+            .unwrap();
         assert_eq!(
             vec![true, false, false],
             result
@@ -357,17 +341,15 @@ mod tests {
 
     #[rstest]
     fn test_struct_layout_row_mask(
-        #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+        #[from(struct_layout)] (segments, layout): (TestSegments, LayoutRef),
     ) {
-        let reader = layout.new_reader("".into(), segments).unwrap();
+        let reader = layout.new_reader("".into()).unwrap();
         let expr = gt(get_item("a", root()), get_item("b", root()));
-        let result = block_on(
-            reader
-                .projection_evaluation(&(0..3), &expr)
-                .unwrap()
-                .invoke(Mask::from_iter([true, true, false])),
-        )
-        .unwrap();
+        let result = reader
+            .projection_evaluation(&(0..3), &expr)
+            .unwrap()
+            .invoke(Mask::from_iter([true, true, false]), &segments)
+            .unwrap();
 
         assert_eq!(result.len(), 2);
 
@@ -384,21 +366,19 @@ mod tests {
 
     #[rstest]
     fn test_struct_layout_select(
-        #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+        #[from(struct_layout)] (segments, layout): (TestSegments, LayoutRef),
     ) {
-        let reader = layout.new_reader("".into(), segments).unwrap();
+        let reader = layout.new_reader("".into()).unwrap();
         let expr = pack(
             [("a", get_item("a", root())), ("b", get_item("b", root()))],
             NonNullable,
         );
-        let result = block_on(
-            reader
-                .projection_evaluation(&(0..3), &expr)
-                .unwrap()
-                // Take rows 0 and 1, skip row 2, and anything after that
-                .invoke(Mask::from_iter([true, true, false])),
-        )
-        .unwrap();
+        let result = reader
+            .projection_evaluation(&(0..3), &expr)
+            .unwrap()
+            // Take rows 0 and 1, skip row 2, and anything after that
+            .invoke(Mask::from_iter([true, true, false]), &segments)
+            .unwrap();
 
         assert_eq!(result.len(), 2);
 

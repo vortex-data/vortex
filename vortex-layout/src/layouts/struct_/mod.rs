@@ -12,7 +12,7 @@ use vortex_dtype::{DType, Field, FieldMask, StructFields};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
 
 use crate::children::{LayoutChildren, OwnedLayoutChildren};
-use crate::segments::{SegmentId, SegmentSource};
+use crate::segments::SegmentId;
 use crate::{
     LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable, vtable,
 };
@@ -72,16 +72,8 @@ impl VTable for StructVTable {
         )
     }
 
-    fn new_reader(
-        layout: &Self::Layout,
-        name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
-    ) -> VortexResult<LayoutReaderRef> {
-        Ok(Arc::new(StructReader::try_new(
-            layout.clone(),
-            name,
-            segment_source,
-        )?))
+    fn new_reader(layout: &Self::Layout, name: Arc<str>) -> VortexResult<LayoutReaderRef> {
+        Ok(Arc::new(StructReader::try_new(layout.clone(), name)?))
     }
 
     fn build(

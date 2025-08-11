@@ -64,8 +64,6 @@ impl SplitBy {
 
 #[cfg(test)]
 mod test {
-    use std::sync::Arc;
-
     use futures::executor::block_on;
     use futures::stream;
     use vortex_array::{ArrayContext, IntoArray};
@@ -73,7 +71,7 @@ mod test {
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, FieldPath, PType};
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
-    use vortex_layout::segments::{SegmentSource, SequenceWriter, TestSegments};
+    use vortex_layout::segments::{SequenceWriter, TestSegments};
     use vortex_layout::sequence::SequenceId;
     use vortex_layout::{LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt as _};
 
@@ -100,8 +98,7 @@ mod test {
         )
         .unwrap();
 
-        let segments: Arc<dyn SegmentSource> = Arc::new(segments);
-        let reader = layout.new_reader("".into(), segments).unwrap();
+        let reader = layout.new_reader("".into()).unwrap();
 
         let splits = SplitBy::Layout
             .splits(reader.as_ref(), &[FieldMask::Exact(FieldPath::root())])
@@ -130,8 +127,7 @@ mod test {
         )
         .unwrap();
 
-        let segments: Arc<dyn SegmentSource> = Arc::new(segments);
-        let reader = layout.new_reader("".into(), segments).unwrap();
+        let reader = layout.new_reader("".into()).unwrap();
 
         let splits = SplitBy::RowCount(3)
             .splits(reader.as_ref(), &[FieldMask::Exact(FieldPath::root())])

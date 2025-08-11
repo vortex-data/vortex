@@ -17,7 +17,7 @@ use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::layouts::chunked::ChunkedLayout;
 use crate::reader::LayoutReader;
-use crate::segments::{SegmentId, SegmentSource, Segments};
+use crate::segments::{SegmentId, Segments};
 use crate::{
     ArrayEvaluation, LayoutReaderRef, LazyReaderChildren, MaskEvaluation, PruningEvaluation,
 };
@@ -32,11 +32,7 @@ pub struct ChunkedReader {
 }
 
 impl ChunkedReader {
-    pub fn new(
-        layout: ChunkedLayout,
-        name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
-    ) -> Self {
+    pub fn new(layout: ChunkedLayout, name: Arc<str>) -> Self {
         let nchildren = layout.nchildren();
 
         let mut chunk_offsets = vec![0; nchildren];
@@ -45,8 +41,7 @@ impl ChunkedReader {
         }
         chunk_offsets.push(layout.row_count());
 
-        let lazy_children =
-            LazyReaderChildren::new(layout.children.clone(), segment_source.clone());
+        let lazy_children = LazyReaderChildren::new(layout.children.clone());
 
         Self {
             layout,
@@ -338,8 +333,6 @@ impl ArrayEvaluation for ChunkedArrayEvaluation {
 
 #[cfg(test)]
 mod test {
-    use std::sync::Arc;
-
     use futures::executor::block_on;
     use futures::stream;
     use rstest::{fixture, rstest};
@@ -352,13 +345,13 @@ mod test {
 
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
+    use crate::segments::{Segments, SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
     use crate::{LayoutRef, LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt as _};
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
-    fn chunked_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
+    fn chunked_layout() -> (Box<dyn Segments>, LayoutRef) {
         let ctx = ArrayContext::empty();
         let segments = TestSegments::default();
         let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
@@ -381,27 +374,27 @@ mod test {
         )
         .unwrap();
 
-        (Arc::new(segments), layout)
+        (Box::new(segments), layout)
     }
 
     #[rstest]
     fn test_chunked_evaluator(
-        #[from(chunked_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+        #[from(chunked_layout)] (segments, layout): (Box<dyn Segments>, LayoutRef),
     ) {
-        block_on(async {
-            let result = layout
-                .new_reader("".into(), segments)
-                .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &root())
-                .unwrap()
-                .invoke(Mask::new_true(usize::try_from(layout.row_count()).unwrap()))
-                .await
-                .unwrap()
-                .to_primitive()
-                .unwrap();
+        let result = layout
+            .new_reader("".into())
+            .unwrap()
+            .projection_evaluation(&(0..layout.row_count()), &root())
+            .unwrap()
+            .invoke(
+                Mask::new_true(usize::try_from(layout.row_count()).unwrap()),
+                segments.as_ref(),
+            )
+            .unwrap()
+            .to_primitive()
+            .unwrap();
 
-            assert_eq!(result.len(), 9);
-            assert_eq!(result.as_slice::<i32>(), &[1, 2, 3, 4, 5, 6, 7, 8, 9]);
-        })
+        assert_eq!(result.len(), 9);
+        assert_eq!(result.as_slice::<i32>(), &[1, 2, 3, 4, 5, 6, 7, 8, 9]);
     }
 }

@@ -11,7 +11,7 @@ use vortex_array::SerializeMetadata;
 use vortex_dtype::{DType, FieldName};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
-use crate::segments::{SegmentId, SegmentSource};
+use crate::segments::SegmentId;
 use crate::{LayoutEncodingId, LayoutEncodingRef, LayoutReaderRef, VTable};
 
 pub type LayoutId = ArcRef<str>;
@@ -50,11 +50,7 @@ pub trait Layout: 'static + Send + Sync + Debug + private::Sealed {
     /// Get the segment IDs for this layout.
     fn segment_ids(&self) -> Vec<SegmentId>;
 
-    fn new_reader(
-        &self,
-        name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
-    ) -> VortexResult<LayoutReaderRef>;
+    fn new_reader(&self, name: Arc<str>) -> VortexResult<LayoutReaderRef>;
 }
 
 pub trait IntoLayout {
@@ -243,12 +239,8 @@ impl<V: VTable> Layout for LayoutAdapter<V> {
         V::segment_ids(&self.0)
     }
 
-    fn new_reader(
-        &self,
-        name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
-    ) -> VortexResult<LayoutReaderRef> {
-        V::new_reader(&self.0, name, segment_source)
+    fn new_reader(&self, name: Arc<str>) -> VortexResult<LayoutReaderRef> {
+        V::new_reader(&self.0, name)
     }
 }
 

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::TOKIO_RUNTIME;
+use crate::browse::app::{AppState, LayoutCursor};
 use humansize::{DECIMAL, make_format};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -13,11 +15,10 @@ use vortex::error::VortexExpect;
 use vortex::expr::root;
 use vortex::layout::layouts::flat::FlatVTable;
 use vortex::layout::layouts::zoned::ZonedVTable;
+use vortex::layout::segments::SegmentSourceExt;
 use vortex::mask::Mask;
+use vortex::utils::aliases::hash_set::HashSet;
 use vortex::{Array, ArrayRef, ToCanonical};
-
-use crate::TOKIO_RUNTIME;
-use crate::browse::app::{AppState, LayoutCursor};
 
 /// Render the Layouts tab.
 pub fn render_layouts(app_state: &mut AppState, area: Rect, buf: &mut Buffer) {
@@ -94,17 +95,30 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
     let reader = app
         .cursor
         .layout()
-        .new_reader("".into(), app.vxf.segment_source())
+        .new_reader("".into())
         .vortex_expect("Failed to create reader");
 
-    let array = TOKIO_RUNTIME
+    let eval = reader
+        .projection_evaluation(&(0..row_count), &root())
+        .vortex_expect("Failed to construct projection");
+    let mut eval_segments = HashSet::new();
+    eval.required_segments(&mut eval_segments);
+
+    let eval_segments = TOKIO_RUNTIME
         .block_on(
-            reader
-                .projection_evaluation(&(0..row_count), &root())
-                .vortex_expect("Failed to construct projection")
-                .invoke(Mask::new_true(
-                    usize::try_from(row_count).vortex_expect("row_count overflowed usize"),
-                )),
+            app.cursor
+                .segment_source()
+                .clone()
+                .request_all(&eval_segments),
+        )
+        .vortex_expect("Failed to load segments");
+
+    let array = reader
+        .projection_evaluation(&(0..row_count), &root())
+        .vortex_expect("Failed to construct projection")
+        .invoke(
+            Mask::new_true(usize::try_from(row_count).vortex_expect("row_count overflowed usize")),
+            &eval_segments,
         )
         .vortex_expect("Failed to read flat array");
 

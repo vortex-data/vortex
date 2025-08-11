@@ -135,6 +135,10 @@ impl LayoutCursor {
     pub fn segment_spec(&self, id: SegmentId) -> &SegmentSpec {
         &self.segment_map[*id as usize]
     }
+
+    pub fn segment_source(&self) -> &Arc<dyn SegmentSource> {
+        &self.segment_source
+    }
 }
 
 #[derive(Default, PartialEq, Eq)]

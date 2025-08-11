@@ -76,11 +76,10 @@ impl VortexFile {
 
     /// Create a new layout reader for the file.
     pub fn layout_reader(&self) -> VortexResult<Arc<dyn LayoutReader>> {
-        let segment_source = self.segment_source();
         self.footer
             .layout()
             // TODO(ngates): we may want to allow the user pass in a name here?
-            .new_reader("".into(), segment_source)
+            .new_reader("".into())
     }
 
     /// Initiate a scan of the file, returning a builder for configuring the scan.

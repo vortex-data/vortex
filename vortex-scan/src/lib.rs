@@ -36,6 +36,7 @@ mod multi_scan;
 mod multi_thread;
 pub mod row_mask;
 mod selection;
+mod split;
 mod split_by;
 mod tasks;
 mod work_queue;
