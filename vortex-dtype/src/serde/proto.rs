@@ -24,9 +24,9 @@ impl TryFrom<&pb::DType> for DType {
             DtypeType::Bool(b) => Ok(Self::Bool(b.nullable.into())),
             DtypeType::Primitive(p) => Ok(Self::Primitive(p.r#type().into(), p.nullable.into())),
             DtypeType::Decimal(d) => Ok(Self::Decimal(
-                DecimalDType::new(
+                DecimalDType::try_new(
                     d.precision.try_into().map_err(|_| vortex_err!("proto precision could not be downcast to u8"))?,
-                    d.scale.try_into().map_err(|_| vortex_err!("proto scale could not be downcast to i8"))?),
+                    d.scale.try_into().map_err(|_| vortex_err!("proto scale could not be downcast to i8"))?)?,
                 d.nullable.into())),
             DtypeType::Utf8(u) => Ok(Self::Utf8(u.nullable.into())),
             DtypeType::Binary(b) => Ok(Self::Binary(b.nullable.into())),

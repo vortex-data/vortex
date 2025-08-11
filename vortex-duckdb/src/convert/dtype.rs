@@ -176,7 +176,10 @@ impl FromLogicalType for DType {
             DUCKDB_TYPE::DUCKDB_TYPE_BLOB => DType::Binary(nullability),
             DUCKDB_TYPE::DUCKDB_TYPE_DECIMAL => {
                 let (width, scale) = logical_type.as_decimal();
-                DType::Decimal(DecimalDType::new(width, scale.try_into()?), nullability)
+                DType::Decimal(
+                    DecimalDType::try_new(width, scale.try_into()?)?,
+                    nullability,
+                )
             }
             DUCKDB_TYPE::DUCKDB_TYPE_DATE => DType::Extension(Arc::new(ExtDType::new(
                 DATE_ID.clone(),

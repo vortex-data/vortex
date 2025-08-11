@@ -287,7 +287,7 @@ impl TryFrom<&Value> for Scalar {
             )),
             Val::Decimal(precision, scale, value) => Ok(Scalar::decimal(
                 DecimalValue::I128(value),
-                DecimalDType::new(precision, scale),
+                DecimalDType::try_new(precision, scale)?,
                 Nullable,
             )),
         }
