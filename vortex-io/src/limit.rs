@@ -3,6 +3,7 @@
 
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll, ready};
 
 use futures::Stream;
@@ -12,11 +13,15 @@ use tokio::sync::{Semaphore, TryAcquireError};
 use vortex_error::VortexUnwrap;
 
 /// [`Future`] that carries the amount of memory it will require to hold the completed value.
-#[pin_project]
+/// Also tracks the semaphore to return permits on drop if not completed.
+#[pin_project(PinnedDrop)]
 struct SizedFut<Fut> {
     #[pin]
     inner: Fut,
     size_in_bytes: usize,
+    /// Semaphore to return permits to if dropped before completion.
+    /// None if the future has completed and permits were already returned.
+    semaphore: Option<Arc<Semaphore>>,
 }
 
 impl<Fut: Future> Future for SizedFut<Fut> {
@@ -24,10 +29,28 @@ impl<Fut: Future> Future for SizedFut<Fut> {
     type Output = (Fut::Output, usize);
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let size_in_bytes = self.size_in_bytes;
-        let inner = ready!(self.project().inner.poll(cx));
+        let this = self.project();
+        let size_in_bytes = *this.size_in_bytes;
+        let inner = ready!(this.inner.poll(cx));
+
+        // Clear the semaphore reference since we're completing normally
+        // and permits will be returned by the Stream implementation
+        *this.semaphore = None;
 
         Poll::Ready((inner, size_in_bytes))
+    }
+}
+
+#[pin_project::pinned_drop]
+impl<Fut> PinnedDrop for SizedFut<Fut> {
+    fn drop(self: Pin<&mut Self>) {
+        let this = self.project();
+
+        // If we still have a reference to the semaphore, it means the future
+        // didn't complete normally. Return the permits to prevent leaking them.
+        if let Some(semaphore) = this.semaphore.take() {
+            semaphore.add_permits(*this.size_in_bytes);
+        }
     }
 }
 
@@ -44,14 +67,14 @@ impl<Fut: Future> Future for SizedFut<Fut> {
 pub struct SizeLimitedStream<Fut> {
     #[pin]
     inflight: FuturesUnordered<SizedFut<Fut>>,
-    bytes_available: Semaphore,
+    bytes_available: Arc<Semaphore>,
 }
 
 impl<Fut> SizeLimitedStream<Fut> {
     pub fn new(max_bytes: usize) -> Self {
         Self {
             inflight: FuturesUnordered::new(),
-            bytes_available: Semaphore::new(max_bytes),
+            bytes_available: Arc::new(Semaphore::new(max_bytes)),
         }
     }
 
@@ -81,6 +104,7 @@ where
         let sized_fut = SizedFut {
             inner: fut,
             size_in_bytes: bytes,
+            semaphore: Some(self.bytes_available.clone()),
         };
 
         // push into the pending queue
@@ -101,6 +125,7 @@ where
                 let sized_fut = SizedFut {
                     inner: fut,
                     size_in_bytes: bytes,
+                    semaphore: Some(self.bytes_available.clone()),
                 };
 
                 self.inflight.push(sized_fut);
