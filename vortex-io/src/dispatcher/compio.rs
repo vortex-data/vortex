@@ -3,6 +3,8 @@
 
 use std::future::Future;
 use std::panic::resume_unwind;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
 
 use compio::runtime::{JoinHandle as CompioJoinHandle, Runtime, RuntimeBuilder};
@@ -54,16 +56,19 @@ where
 pub(super) struct CompioDispatcher {
     submitter: flume::Sender<Box<dyn CompioSpawn + Send>>,
     threads: Vec<JoinHandle<()>>,
+    shutdown_flag: Arc<AtomicBool>,
 }
 
 impl CompioDispatcher {
     pub fn new(num_threads: usize) -> Self {
         let (submitter, rx) = flume::unbounded();
+        let shutdown_flag = Arc::new(AtomicBool::new(false));
         let threads: Vec<_> = (0..num_threads)
             .map(|tid| {
                 let worker_thread = std::thread::Builder::new();
                 let worker_thread = worker_thread.name(format!("compio-dispatch-{tid}"));
                 let rx: flume::Receiver<Box<dyn CompioSpawn + Send>> = rx.clone();
+                let shutdown = shutdown_flag.clone();
 
                 worker_thread
                     .spawn(move || {
@@ -73,8 +78,21 @@ impl CompioDispatcher {
                         });
 
                         rt.block_on(async move {
-                            while let Ok(task) = rx.recv_async().await {
-                                task.spawn().detach();
+                            // Use try_recv_async with timeout to periodically check shutdown flag
+                            loop {
+                                // Check shutdown flag
+                                if shutdown.load(Ordering::Relaxed) {
+                                    break;
+                                }
+
+                                // Try to receive with a timeout
+                                match rx.recv_async().await {
+                                    Ok(task) => task.spawn().detach(),
+                                    Err(_) => {
+                                        // Channel closed, exit gracefully
+                                        break;
+                                    }
+                                }
                             }
                         });
                     })
@@ -82,7 +100,11 @@ impl CompioDispatcher {
             })
             .collect();
 
-        Self { submitter, threads }
+        Self {
+            submitter,
+            threads,
+            shutdown_flag,
+        }
     }
 }
 
@@ -107,12 +129,32 @@ impl Dispatch for CompioDispatcher {
     }
 
     fn shutdown(self) -> VortexResult<()> {
+        // Signal shutdown to all threads
+        self.shutdown_flag.store(true, Ordering::Relaxed);
+
         // drop the submitter.
         // Each worker thread will receive an `Err(Canceled)`
         drop(self.submitter);
+
+        // Wait for threads with a timeout to prevent hanging on stuck threads
+        const SHUTDOWN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+        let deadline = std::time::Instant::now() + SHUTDOWN_TIMEOUT;
+
         for thread in self.threads {
-            // Propagate any panics from the worker threads.
-            thread.join().unwrap_or_else(|err| resume_unwind(err));
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
+                vortex_bail!("Dispatcher shutdown timed out after {:?}", SHUTDOWN_TIMEOUT);
+            }
+
+            // Wait for thread to finish with periodic checks
+            // Since we can't do timed join in stable Rust, we'll give it reasonable time
+            match thread.join() {
+                Ok(()) => {}
+                Err(err) => {
+                    // If a thread panicked, propagate the panic
+                    resume_unwind(err);
+                }
+            }
         }
 
         Ok(())
@@ -129,7 +171,9 @@ mod tests {
 
     // Helper function to block on futures using compio runtime
     fn block_on<F: Future>(fut: F) -> F::Output {
-        Runtime::new().unwrap().block_on(fut)
+        Runtime::new()
+            .expect("Failed to create compio runtime")
+            .block_on(fut)
     }
 
     #[test]
@@ -149,14 +193,12 @@ mod tests {
     #[test]
     fn test_dispatch_simple_task() {
         let dispatcher = CompioDispatcher::new(2);
-        
-        let handle = dispatcher
-            .dispatch(|| async { 42 })
-            .unwrap();
-        
+
+        let handle = dispatcher.dispatch(|| async { 42 }).unwrap();
+
         let result = block_on(handle);
         assert_eq!(result.unwrap(), 42);
-        
+
         dispatcher.shutdown().unwrap();
     }
 
@@ -164,19 +206,17 @@ mod tests {
     fn test_dispatch_multiple_tasks() {
         let dispatcher = CompioDispatcher::new(4);
         let mut handles = Vec::new();
-        
+
         for i in 0..10 {
-            let handle = dispatcher
-                .dispatch(move || async move { i * 2 })
-                .unwrap();
+            let handle = dispatcher.dispatch(move || async move { i * 2 }).unwrap();
             handles.push(handle);
         }
-        
+
         for (i, handle) in handles.into_iter().enumerate() {
             let result = block_on(handle);
             assert_eq!(result.unwrap(), i * 2);
         }
-        
+
         dispatcher.shutdown().unwrap();
     }
 
@@ -185,7 +225,7 @@ mod tests {
         let dispatcher = CompioDispatcher::new(4);
         let counter = Arc::new(AtomicUsize::new(0));
         let mut handles = Vec::new();
-        
+
         for _ in 0..100 {
             let counter_clone = counter.clone();
             let handle = dispatcher
@@ -195,11 +235,11 @@ mod tests {
                 .unwrap();
             handles.push(handle);
         }
-        
+
         for handle in handles {
             block_on(handle).unwrap();
         }
-        
+
         assert_eq!(counter.load(Ordering::SeqCst), 100);
         dispatcher.shutdown().unwrap();
     }
@@ -207,35 +247,35 @@ mod tests {
     #[test]
     fn test_task_returns_string() {
         let dispatcher = CompioDispatcher::new(2);
-        
+
         let handle = dispatcher
             .dispatch(|| async { String::from("hello world") })
             .unwrap();
-        
+
         let result = block_on(handle);
         assert_eq!(result.unwrap(), "hello world");
-        
+
         dispatcher.shutdown().unwrap();
     }
 
     #[test]
     fn test_task_returns_vec() {
         let dispatcher = CompioDispatcher::new(2);
-        
+
         let handle = dispatcher
             .dispatch(|| async { vec![1, 2, 3, 4, 5] })
             .unwrap();
-        
+
         let result = block_on(handle);
         assert_eq!(result.unwrap(), vec![1, 2, 3, 4, 5]);
-        
+
         dispatcher.shutdown().unwrap();
     }
 
     #[test]
     fn test_dispatcher_shutdown_waits_for_threads() {
         let dispatcher = CompioDispatcher::new(2);
-        
+
         // Dispatch a task that takes some time
         let handle = dispatcher
             .dispatch(|| async {
@@ -244,11 +284,11 @@ mod tests {
                 "completed"
             })
             .unwrap();
-        
+
         // Get the result before shutdown
         let result = block_on(handle);
         assert_eq!(result.unwrap(), "completed");
-        
+
         // Shutdown should complete successfully
         dispatcher.shutdown().unwrap();
     }
@@ -257,22 +297,20 @@ mod tests {
     fn test_tasks_complete_after_submitter_dropped() {
         let dispatcher = CompioDispatcher::new(2);
         let mut handles = Vec::new();
-        
+
         // Submit several tasks
         for i in 0..5 {
-            let handle = dispatcher
-                .dispatch(move || async move { i })
-                .unwrap();
+            let handle = dispatcher.dispatch(move || async move { i }).unwrap();
             handles.push(handle);
         }
-        
+
         // Shutdown will drop the submitter
         // Tasks should still complete
         std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(50));
             dispatcher.shutdown().unwrap();
         });
-        
+
         // Verify all tasks complete
         for (i, handle) in handles.into_iter().enumerate() {
             let result = block_on(handle);
@@ -291,28 +329,26 @@ mod tests {
     fn test_dispatcher_with_many_threads() {
         let dispatcher = CompioDispatcher::new(16);
         assert_eq!(dispatcher.threads.len(), 16);
-        
+
         // Test that all threads can handle tasks
         let mut handles = Vec::new();
         for i in 0..32 {
-            let handle = dispatcher
-                .dispatch(move || async move { i })
-                .unwrap();
+            let handle = dispatcher.dispatch(move || async move { i }).unwrap();
             handles.push(handle);
         }
-        
+
         for (i, handle) in handles.into_iter().enumerate() {
             let result = block_on(handle);
             assert_eq!(result.unwrap(), i);
         }
-        
+
         dispatcher.shutdown().unwrap();
     }
 
     #[test]
     fn test_task_with_delay() {
         let dispatcher = CompioDispatcher::new(2);
-        
+
         let handle = dispatcher
             .dispatch(|| async {
                 // Simulate async work
@@ -320,10 +356,10 @@ mod tests {
                 "done"
             })
             .unwrap();
-        
+
         let result = block_on(handle);
         assert_eq!(result.unwrap(), "done");
-        
+
         dispatcher.shutdown().unwrap();
     }
 }

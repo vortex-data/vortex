@@ -14,6 +14,7 @@ use object_store::{
     GetOptions, GetRange, GetResultPayload, MultipartUpload, ObjectStore, ObjectStoreScheme,
     PutPayload,
 };
+use tokio::sync::Mutex;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{VortexExpect, VortexResult};
 
@@ -68,6 +69,9 @@ impl VortexReadAt for ObjectStoreReadAt {
 
         let buffer = match response.payload {
             GetResultPayload::File(file, _) => {
+                // SAFETY: We're setting the length to the exact size we're about to read.
+                // The read_exact_at call will either fill the entire buffer or return an error,
+                // ensuring no uninitialized memory is exposed.
                 unsafe { buffer.set_len(len) };
                 #[cfg(feature = "tokio")]
                 {
@@ -114,34 +118,52 @@ impl VortexReadAt for ObjectStoreReadAt {
 }
 
 pub struct ObjectStoreWriter {
+    inner: Arc<Mutex<ObjectStoreWriterInner>>,
+}
+
+struct ObjectStoreWriterInner {
     upload: Box<dyn MultipartUpload>,
     buffer: BytesMut,
 }
 
 const CHUNKS_SIZE: usize = 25 * 1024 * 1024;
+const MAX_BUFFER_SIZE: usize = 100 * 1024 * 1024; // 100MB max buffer
 
 impl ObjectStoreWriter {
     pub async fn new(object_store: Arc<dyn ObjectStore>, location: &Path) -> VortexResult<Self> {
         let upload = object_store.put_multipart(location).await?;
         Ok(Self {
-            upload,
-            buffer: BytesMut::with_capacity(CHUNKS_SIZE),
+            inner: Arc::new(Mutex::new(ObjectStoreWriterInner {
+                upload,
+                buffer: BytesMut::with_capacity(CHUNKS_SIZE),
+            })),
         })
     }
 }
 
 impl VortexWrite for ObjectStoreWriter {
     async fn write_all<B: IoBuf>(&mut self, buffer: B) -> io::Result<B> {
-        self.buffer.extend_from_slice(buffer.as_slice());
+        let mut inner = self.inner.lock().await;
 
-        if self.buffer.len() > CHUNKS_SIZE {
+        // Check if adding this data would exceed max buffer size
+        let new_size = inner.buffer.len() + buffer.as_slice().len();
+        if new_size > MAX_BUFFER_SIZE {
+            return Err(io::Error::other(format!(
+                "Buffer size would exceed maximum of {} bytes",
+                MAX_BUFFER_SIZE
+            )));
+        }
+
+        inner.buffer.extend_from_slice(buffer.as_slice());
+
+        if inner.buffer.len() > CHUNKS_SIZE {
             let mut buffer =
-                std::mem::replace(&mut self.buffer, BytesMut::with_capacity(CHUNKS_SIZE)).freeze();
+                std::mem::replace(&mut inner.buffer, BytesMut::with_capacity(CHUNKS_SIZE)).freeze();
             let mut parts = vec![];
 
             while buffer.len() > CHUNKS_SIZE {
                 let payload = buffer.split_to(CHUNKS_SIZE);
-                let part_fut = self
+                let part_fut = inner
                     .upload
                     .as_mut()
                     .put_part(PutPayload::from_bytes(payload));
@@ -150,19 +172,25 @@ impl VortexWrite for ObjectStoreWriter {
             }
 
             try_join_all(parts).await?;
+
+            // Put remaining data back into buffer
+            if !buffer.is_empty() {
+                inner.buffer = BytesMut::from(buffer.as_ref());
+            }
         }
 
         Ok(buffer)
     }
 
     async fn flush(&mut self) -> io::Result<()> {
-        let mut buffer = std::mem::take(&mut self.buffer).freeze();
+        let mut inner = self.inner.lock().await;
+        let mut buffer = std::mem::take(&mut inner.buffer).freeze();
         let mut parts = vec![];
 
         while !buffer.is_empty() {
             let chunk_size = usize::min(buffer.len(), CHUNKS_SIZE);
             let payload = buffer.split_to(chunk_size);
-            let part_fut = self
+            let part_fut = inner
                 .upload
                 .as_mut()
                 .put_part(PutPayload::from_bytes(payload));
@@ -172,7 +200,7 @@ impl VortexWrite for ObjectStoreWriter {
 
         try_join_all(parts).await?;
 
-        self.upload.complete().await?;
+        inner.upload.complete().await?;
         Ok(())
     }
 
