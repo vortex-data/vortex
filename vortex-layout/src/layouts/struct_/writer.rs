@@ -8,6 +8,7 @@ use std::task::{Context, Poll, Waker};
 
 use async_trait::async_trait;
 use futures::future::try_join_all;
+use futures::task::{ArcWake, waker_ref};
 use futures::{FutureExt, Stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use parking_lot::Mutex;
@@ -129,13 +130,18 @@ where
     let state = Arc::new(Mutex::new(TransposeState {
         upstream: stream,
         buffers: (0..elements).map(|_| VecDeque::new()).collect(),
-        wakers: Vec::new(),
         exhausted: false,
     }));
+
+    let shared_waker = Arc::new(SharedWaker {
+        wakers: Arc::new(Mutex::new(vec![None; elements])),
+    });
+
     (0..elements)
         .map(|index| TransposedStream {
             index,
             state: state.clone(),
+            shared_waker: shared_waker.clone(),
         })
         .collect()
 }
@@ -148,8 +154,28 @@ where
     upstream: S,
     // TODO(os): make these buffers bounded so transposed streams can not run ahead unbounded
     buffers: Vec<VecDeque<VortexResult<T>>>,
-    wakers: Vec<Waker>,
     exhausted: bool,
+}
+
+struct SharedWaker {
+    wakers: Arc<Mutex<Vec<Option<Waker>>>>,
+}
+
+impl SharedWaker {
+    pub fn add(self: Arc<Self>, index: usize, waker: Waker) {
+        self.wakers.lock()[index] = Some(waker);
+    }
+}
+
+impl ArcWake for SharedWaker {
+    fn wake_by_ref(arc_self: &Arc<Self>) {
+        let mut guard = arc_self.wakers.lock();
+        for waker in guard.iter_mut() {
+            if let Some(waker) = waker.take() {
+                waker.wake();
+            }
+        }
+    }
 }
 
 struct TransposedStream<T, S>
@@ -159,6 +185,7 @@ where
 {
     index: usize,
     state: Arc<Mutex<TransposeState<T, S>>>,
+    shared_waker: Arc<SharedWaker>,
 }
 
 impl<T, S> Stream for TransposedStream<T, S>
@@ -178,11 +205,14 @@ where
             return Poll::Ready(None);
         }
 
-        let poll_result = match Pin::new(&mut guard.upstream).poll_next(cx) {
-            Poll::Pending => {
-                guard.wakers.push(cx.waker().clone());
-                Poll::Pending
-            }
+        self.shared_waker
+            .clone()
+            .add(self.index, cx.waker().clone());
+
+        let shared_waker_ref = waker_ref(&self.shared_waker);
+        let mut upstream_cx = Context::from_waker(&shared_waker_ref);
+        match Pin::new(&mut guard.upstream).poll_next(&mut upstream_cx) {
+            Poll::Pending => Poll::Pending,
             Poll::Ready(None) => {
                 guard.exhausted = true;
                 Poll::Ready(None)
@@ -203,17 +233,7 @@ where
                 }
                 Poll::Ready(Some(Err(shared_err.into())))
             }
-        };
-
-        if matches!(poll_result, Poll::Ready(_)) {
-            let wakers = std::mem::take(&mut guard.wakers);
-
-            drop(guard);
-            for waker in wakers {
-                waker.wake();
-            }
         }
-        poll_result
     }
 }
 
