@@ -28,6 +28,7 @@ use crate::utils::object_store::s3_store;
 
 pub struct VortexBindData {
     first_file: VortexFile,
+    initial_files: Vec<VortexFile>,
     filter_exprs: Vec<ExprRef>,
     file_urls: Vec<Url>,
     column_names: Vec<String>,
@@ -39,6 +40,7 @@ impl Clone for VortexBindData {
     fn clone(&self) -> Self {
         Self {
             first_file: self.first_file.clone(),
+            initial_files: self.initial_files.clone(),
             // filter_expr don't need to be cloned as they are consumed once in `init_global`.
             filter_exprs: vec![],
             file_urls: self.file_urls.clone(),
@@ -208,22 +210,37 @@ impl TableFunction for VortexTableFunction {
         let (file_urls, _metadata) =
             block_in_place(|| RUNTIME.block_on(expand_glob(&file_glob_string.as_string())))?;
 
-        // The first file is skipped in `create_file_paths_queue`.
-        let Some(first_file_url) = file_urls.first() else {
-            vortex_bail!("No files matched the glob");
-        };
+        // let footer_cache = FooterCache::new(ctx.object_cache());
+        // let entry = footer_cache.entry(first_file_url.as_ref());
+        // let first_file = block_in_place(|| {
+        //     RUNTIME.block_on(async {
+        //         let options = entry.apply_to_file(VortexOpenOptions::file());
+        //         let file = open_file(first_file_url.clone(), options).await?;
+        //         entry.put_if_absent(|| file.footer().clone());
+        //         VortexResult::Ok(file)
+        //     })
+        // })?;
 
         let footer_cache = FooterCache::new(ctx.object_cache());
-        let entry = footer_cache.entry(first_file_url.as_ref());
-        let first_file = block_in_place(|| {
-            RUNTIME.block_on(async {
+        let batch_size = 8.min(file_urls.len());
+
+        // Open first batch of files concurrently
+        let first_batch_futures = file_urls[..batch_size].iter().map(|url| {
+            let entry = footer_cache.entry(url.as_ref());
+            let url = url.clone();
+            async move {
                 let options = entry.apply_to_file(VortexOpenOptions::file());
-                let file = open_file(first_file_url.clone(), options).await?;
+                let file = open_file(url, options).await?;
                 entry.put_if_absent(|| file.footer().clone());
                 VortexResult::Ok(file)
-            })
+            }
+        });
+
+        let mut initial_files = block_in_place(|| {
+            RUNTIME.block_on(futures::future::try_join_all(first_batch_futures))
         })?;
 
+        let first_file = initial_files.pop().unwrap();
         let (column_names, column_types) = extract_schema_from_vortex_file(&first_file)?;
 
         // Add result columns based on the extracted schema.
@@ -234,6 +251,7 @@ impl TableFunction for VortexTableFunction {
         Ok(VortexBindData {
             file_urls,
             first_file,
+            initial_files,
             filter_exprs: vec![],
             column_names,
             column_types,
@@ -306,17 +324,22 @@ impl TableFunction for VortexTableFunction {
                 .into_iter()
                 .enumerate()
                 .map(move |(idx, path)| {
-                    let first_file = bind_data.first_file.clone();
+                    let first_file = if idx < bind_data.initial_files.len() {
+                        Some(bind_data.initial_files[idx].clone())
+                    } else {
+                        None
+                    };
+
                     let filter_expr = filter_expr.clone();
                     let projection_expr = projection_expr.clone();
                     let conversion_cache = Arc::new(ConversionCache::new(idx as u64));
                     let object_cache = unsafe { ObjectCache::borrow(object_cache.as_ptr()) };
 
                     move || {
-                        let file = if idx == 0 {
+                        let file = if let Some(file) = first_file {
                             // The first path from `file_paths` is skipped as
                             // the first file was already opened during bind.
-                            first_file
+                            file
                         } else {
                             let cache = FooterCache::new(object_cache);
                             let entry = cache.entry(path.as_ref());
