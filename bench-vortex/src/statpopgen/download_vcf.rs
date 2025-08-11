@@ -93,6 +93,11 @@ impl StatPopGenBenchmark {
 
             writer.close().await?;
 
+            info!(
+                "Finished downloading first {} lines of gnomAD v3.1.2 HGDP-1kG chr21.",
+                self.n_rows
+            );
+
             Ok(())
         })
         .await?;

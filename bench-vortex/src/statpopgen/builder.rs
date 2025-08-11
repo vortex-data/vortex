@@ -126,7 +126,7 @@ impl<'a> GnomADBuilder<'a> {
                         InfoArrayBuilder::Integer(Default::default())
                     }
                     (Number::Count(1), Type::Float) => InfoArrayBuilder::Float(Default::default()),
-                    (Number::Count(1), Type::Flag) => InfoArrayBuilder::Flag(Default::default()),
+                    (Number::Count(0), Type::Flag) => InfoArrayBuilder::Flag(Default::default()),
                     (Number::Count(1), Type::Character) => todo!(),
                     (Number::Count(1), Type::String) => {
                         InfoArrayBuilder::String(Default::default())
