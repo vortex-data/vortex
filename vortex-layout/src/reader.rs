@@ -5,8 +5,6 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
 
-use crate::children::LayoutChildren;
-use crate::segments::{SegmentId, SegmentSource, Segments};
 use futures::FutureExt;
 use futures::future::{BoxFuture, Shared};
 use once_cell::sync::OnceCell;
@@ -18,6 +16,9 @@ use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult, 
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_set::HashSet;
+
+use crate::children::LayoutChildren;
+use crate::segments::{SegmentId, SegmentSource, Segments};
 
 pub type LayoutReaderRef = Arc<dyn LayoutReader>;
 

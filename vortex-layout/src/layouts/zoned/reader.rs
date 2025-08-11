@@ -5,10 +5,6 @@ use std::collections::BTreeSet;
 use std::ops::{BitAnd, Range};
 use std::sync::{Arc, OnceLock};
 
-use crate::layouts::zoned::ZonedLayout;
-use crate::layouts::zoned::zone_map::ZoneMap;
-use crate::segments::{SegmentId, SegmentSource, Segments};
-use crate::{ArrayEvaluation, LayoutReader, LazyWithSegments, MaskEvaluation, PruningEvaluation};
 use arrow_buffer::BooleanBufferBuilder;
 use dashmap::DashMap;
 use itertools::Itertools;
@@ -22,6 +18,11 @@ use vortex_expr::pruning::checked_pruning_expr;
 use vortex_expr::{ExprRef, root};
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_set::HashSet;
+
+use crate::layouts::zoned::ZonedLayout;
+use crate::layouts::zoned::zone_map::ZoneMap;
+use crate::segments::{SegmentId, SegmentSource, Segments};
+use crate::{ArrayEvaluation, LayoutReader, LazyWithSegments, MaskEvaluation, PruningEvaluation};
 
 type SharedZoneMap = LazyWithSegments<ZoneMap>;
 type SharedPruningResult = LazyWithSegments<Arc<PruningResult>>;

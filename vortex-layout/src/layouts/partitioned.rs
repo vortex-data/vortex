@@ -5,8 +5,6 @@ use std::fmt::Display;
 use std::ops::BitAnd;
 use std::sync::Arc;
 
-use crate::segments::{SegmentId, Segments};
-use crate::{ArrayEvaluation, MaskEvaluation};
 use itertools::Itertools;
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
@@ -17,6 +15,9 @@ use vortex_expr::transform::partition::PartitionedExpr;
 use vortex_expr::{ExprRef, Scope};
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_set::HashSet;
+
+use crate::segments::{SegmentId, Segments};
+use crate::{ArrayEvaluation, MaskEvaluation};
 
 /// An implementation of [`MaskEvaluation`] for partitioned expressions.
 pub struct PartitionedMaskEvaluation<P> {

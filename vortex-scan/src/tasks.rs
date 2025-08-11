@@ -6,8 +6,6 @@
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
-use crate::Selection;
-use crate::filter::FilterExpr;
 use bit_vec::BitVec;
 use futures::FutureExt;
 use futures::future::{BoxFuture, ok, try_join_all};
@@ -20,6 +18,9 @@ use vortex_layout::segments::SegmentSource;
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
+
+use crate::Selection;
+use crate::filter::FilterExpr;
 
 pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 

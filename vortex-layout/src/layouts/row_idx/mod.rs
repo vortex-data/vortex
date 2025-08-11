@@ -8,12 +8,6 @@ use std::fmt::{Display, Formatter};
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
-use crate::layouts::partitioned::{PartitionedArrayEvaluation, PartitionedMaskEvaluation};
-use crate::segments::{SegmentId, Segments};
-use crate::{
-    ArrayEvaluation, LayoutReader, MaskEvaluation, NoOpMaskEvaluation, NoOpPruningEvaluation,
-    PruningEvaluation,
-};
 use Nullability::NonNullable;
 use dashmap::DashMap;
 pub use expr::*;
@@ -29,6 +23,13 @@ use vortex_mask::Mask;
 use vortex_scalar::PValue;
 use vortex_sequence::SequenceArray;
 use vortex_utils::aliases::hash_set::HashSet;
+
+use crate::layouts::partitioned::{PartitionedArrayEvaluation, PartitionedMaskEvaluation};
+use crate::segments::{SegmentId, Segments};
+use crate::{
+    ArrayEvaluation, LayoutReader, MaskEvaluation, NoOpMaskEvaluation, NoOpPruningEvaluation,
+    PruningEvaluation,
+};
 
 pub struct RowIdxLayoutReader {
     name: Arc<str>,

@@ -5,13 +5,6 @@ use std::collections::BTreeSet;
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
-use super::DictLayout;
-use crate::layouts::SharedArray;
-use crate::segments::{SegmentId, SegmentSource, Segments};
-use crate::{
-    ArrayEvaluation, LayoutReader, LayoutReaderRef, LazyWithSegments, MaskEvaluation,
-    NoOpPruningEvaluation, PruningEvaluation,
-};
 use dashmap::DashMap;
 use vortex_array::ArrayRef;
 use vortex_array::compute::{MinMaxResult, filter, min_max};
@@ -22,6 +15,14 @@ use vortex_error::VortexResult;
 use vortex_expr::{ExprRef, Scope, root};
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_set::HashSet;
+
+use super::DictLayout;
+use crate::layouts::SharedArray;
+use crate::segments::{SegmentId, SegmentSource, Segments};
+use crate::{
+    ArrayEvaluation, LayoutReader, LayoutReaderRef, LazyWithSegments, MaskEvaluation,
+    NoOpPruningEvaluation, PruningEvaluation,
+};
 
 pub struct DictReader {
     layout: DictLayout,

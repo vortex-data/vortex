@@ -5,12 +5,6 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
 
-use crate::layouts::chunked::ChunkedLayout;
-use crate::reader::LayoutReader;
-use crate::segments::{SegmentId, SegmentSource, Segments};
-use crate::{
-    ArrayEvaluation, LayoutReaderRef, LazyReaderChildren, MaskEvaluation, PruningEvaluation,
-};
 use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::arrays::ChunkedArray;
@@ -20,6 +14,13 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_set::HashSet;
+
+use crate::layouts::chunked::ChunkedLayout;
+use crate::reader::LayoutReader;
+use crate::segments::{SegmentId, SegmentSource, Segments};
+use crate::{
+    ArrayEvaluation, LayoutReaderRef, LazyReaderChildren, MaskEvaluation, PruningEvaluation,
+};
 
 /// A [`LayoutReader`] for chunked layouts.
 pub struct ChunkedReader {

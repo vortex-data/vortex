@@ -5,13 +5,6 @@ use std::collections::BTreeSet;
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
-use crate::layouts::SharedArray;
-use crate::layouts::flat::FlatLayout;
-use crate::segments::{SegmentId, SegmentSource, Segments};
-use crate::{
-    ArrayEvaluation, LayoutReader, LazyWithSegments, MaskEvaluation, NoOpPruningEvaluation,
-    PruningEvaluation,
-};
 use vortex_array::compute::filter;
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
@@ -21,6 +14,14 @@ use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
 use vortex_expr::{ExprRef, Scope, is_root};
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_set::HashSet;
+
+use crate::layouts::SharedArray;
+use crate::layouts::flat::FlatLayout;
+use crate::segments::{SegmentId, SegmentSource, Segments};
+use crate::{
+    ArrayEvaluation, LayoutReader, LazyWithSegments, MaskEvaluation, NoOpPruningEvaluation,
+    PruningEvaluation,
+};
 
 /// The threshold of mask density below which we will evaluate the expression only over the
 /// selected rows, and above which we evaluate the expression over all rows and then select

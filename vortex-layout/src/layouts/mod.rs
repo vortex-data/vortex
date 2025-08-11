@@ -3,8 +3,9 @@
 
 //! A collection of built-in layouts for Vortex
 
-use crate::LazyWithSegments;
 use vortex_array::ArrayRef;
+
+use crate::LazyWithSegments;
 
 pub mod buffered;
 pub mod chunked;
