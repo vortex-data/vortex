@@ -71,7 +71,8 @@ impl ChunkedReader {
     fn chunk_offset(&self, idx: usize) -> u64 {
         self.chunk_offsets.get(idx).copied().unwrap_or_else(|| {
             vortex_panic!(
-                "Chunk offset {idx} out of bounds (num_children: {}, num_offsets: {})",
+                "Internal error: Chunk offset {idx} out of bounds (num_children: {}, num_offsets: {}). \
+                This indicates a bug in ChunkedReader initialization or chunk_range calculation.",
                 self.layout.nchildren(),
                 self.chunk_offsets.len()
             )
@@ -117,12 +118,19 @@ impl ChunkedReader {
                     .vortex_expect("Invalid row range"),
             )
             .vortex_expect("Mask offset exceeds usize::MAX");
-            let mask_relative_end = mask_relative_start + intersecting_len;
+            let mask_relative_end = mask_relative_start
+                .checked_add(intersecting_len)
+                .vortex_expect("Mask range calculation overflow");
             let mask_range = mask_relative_start..mask_relative_end;
 
             // Figure out the row range within the chunk.
-            let chunk_relative_start = intersecting_row_range.start - chunk_row_range.start;
-            let chunk_relative_end = chunk_relative_start + intersecting_len as u64;
+            let chunk_relative_start = intersecting_row_range
+                .start
+                .checked_sub(chunk_row_range.start)
+                .vortex_expect("Chunk range calculation underflow");
+            let chunk_relative_end = chunk_relative_start
+                .checked_add(intersecting_len as u64)
+                .vortex_expect("Chunk range calculation overflow");
             let chunk_range = chunk_relative_start..chunk_relative_end;
 
             (chunk_idx, chunk_range, mask_range)
