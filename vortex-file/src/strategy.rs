@@ -122,18 +122,18 @@ impl WriteStrategyBuilder {
             executor.clone(),
         );
 
-        // 1. repartition each column to fixed row counts
-        let repartition = RepartitionStrategy::new(
-            stats,
+        // 1. split columns
+        let struct_ = StructStrategy::new(stats, executor, Default::default());
+
+        // 0. repartition each column to fixed row counts
+        Arc::new(RepartitionStrategy::new(
+            struct_,
             RepartitionWriterOptions {
                 // No minimum block size in bytes
                 block_size_minimum: 0,
                 // Always repartition into 8K row blocks
                 block_len_multiple: ROW_BLOCK_SIZE,
             },
-        );
-
-        // 0. start with splitting columns
-        Arc::new(StructStrategy::new(repartition, executor))
+        ))
     }
 }

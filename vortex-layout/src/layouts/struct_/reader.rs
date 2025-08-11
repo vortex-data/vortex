@@ -274,7 +274,11 @@ mod tests {
         let ctx = ArrayContext::empty();
         let segments = TestSegments::default();
         let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
-        let strategy = StructStrategy::new(FlatLayoutStrategy::default(), Arc::new(LocalExecutor));
+        let strategy = StructStrategy::new(
+            FlatLayoutStrategy::default(),
+            Arc::new(LocalExecutor),
+            Default::default(),
+        );
         let layout = block_on(
             strategy.write_stream(
                 &ctx,

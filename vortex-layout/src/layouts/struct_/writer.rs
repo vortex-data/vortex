@@ -6,7 +6,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::channel::mpsc;
 use futures::future::try_join_all;
-use futures::{FutureExt, StreamExt, TryStreamExt, try_join};
+use futures::{FutureExt, SinkExt, StreamExt, TryStreamExt, try_join};
 use itertools::Itertools;
 use vortex_array::{Array, ArrayContext, ToCanonical};
 use vortex_error::{VortexError, VortexExpect as _, VortexResult, vortex_bail};
@@ -22,6 +22,7 @@ use crate::{
 pub struct StructStrategy<S> {
     child: S,
     executor: Arc<dyn TaskExecutor>,
+    options: StructStrategyOptions,
 }
 
 /// A [`LayoutStrategy`] that splits a StructArray batch into child layout writers
@@ -29,8 +30,22 @@ impl<S> StructStrategy<S>
 where
     S: LayoutStrategy,
 {
-    pub fn new(child: S, executor: Arc<dyn TaskExecutor>) -> Self {
-        Self { child, executor }
+    pub fn new(child: S, executor: Arc<dyn TaskExecutor>, options: StructStrategyOptions) -> Self {
+        Self {
+            child,
+            executor,
+            options,
+        }
+    }
+}
+
+pub struct StructStrategyOptions {
+    buffer_size: usize,
+}
+
+impl Default for StructStrategyOptions {
+    fn default() -> Self {
+        Self { buffer_size: 128 }
     }
 }
 
@@ -92,7 +107,7 @@ where
         });
 
         let (mut column_txs, column_rxs): (Vec<_>, Vec<_>) = (0..struct_dtype.nfields())
-            .map(|_| mpsc::unbounded())
+            .map(|_| mpsc::channel(self.options.buffer_size))
             .unzip();
 
         let produce_handle = self.executor.spawn(
@@ -101,13 +116,13 @@ where
                     match columns_vec_stream.next().await {
                         Some(Ok(vec_columns)) => {
                             for (tx, chunk) in column_txs.iter_mut().zip_eq(vec_columns) {
-                                let _ = tx.unbounded_send(VortexResult::Ok(chunk));
+                                let _ = tx.send(VortexResult::Ok(chunk)).await;
                             }
                         }
                         Some(Err(err)) => {
                             let shared: Arc<VortexError> = Arc::new(err);
                             for tx in column_txs.iter_mut() {
-                                let _ = tx.unbounded_send(Err(shared.clone().into()));
+                                let _ = tx.send(Err(shared.clone().into())).await;
                             }
                         }
                         None => break,
@@ -163,7 +178,11 @@ mod tests {
     #[test]
     #[should_panic]
     fn fails_on_duplicate_field() {
-        let strategy = StructStrategy::new(FlatLayoutStrategy::default(), Arc::new(LocalExecutor));
+        let strategy = StructStrategy::new(
+            FlatLayoutStrategy::default(),
+            Arc::new(LocalExecutor),
+            Default::default(),
+        );
         block_on(
             strategy.write_stream(
                 &ArrayContext::empty(),
@@ -188,7 +207,11 @@ mod tests {
 
     #[test]
     fn fails_on_top_level_nulls() {
-        let strategy = StructStrategy::new(FlatLayoutStrategy::default(), Arc::new(LocalExecutor));
+        let strategy = StructStrategy::new(
+            FlatLayoutStrategy::default(),
+            Arc::new(LocalExecutor),
+            Default::default(),
+        );
         let res = block_on(
             strategy.write_stream(
                 &ArrayContext::empty(),
@@ -227,7 +250,11 @@ mod tests {
 
     #[test]
     fn write_empty_field_struct_array() {
-        let strategy = StructStrategy::new(FlatLayoutStrategy::default(), Arc::new(LocalExecutor));
+        let strategy = StructStrategy::new(
+            FlatLayoutStrategy::default(),
+            Arc::new(LocalExecutor),
+            Default::default(),
+        );
         let res = block_on(
             strategy.write_stream(
                 &ArrayContext::empty(),
