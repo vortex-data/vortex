@@ -96,8 +96,7 @@ impl LayoutCursor {
     /// NOTE: this is only safe to run against a FLAT layout.
     pub fn flatbuffer_size(&self) -> usize {
         let segment_id = self.layout.as_::<FlatVTable>().segment_id();
-        let segment =
-            block_on(self.segment_source.request(segment_id, &("".into()))).vortex_unwrap();
+        let segment = block_on(self.segment_source.request(segment_id)).vortex_unwrap();
         ArrayParts::try_from(segment)
             .vortex_unwrap()
             .metadata()

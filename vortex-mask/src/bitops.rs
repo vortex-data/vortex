@@ -36,3 +36,285 @@ impl Not for &Mask {
         }
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::many_single_char_names)]
+mod tests {
+    use arrow_buffer::BooleanBuffer;
+
+    use super::*;
+
+    #[test]
+    fn test_bitand_all_combinations() {
+        let len = 5;
+
+        // Test AllTrue & AllTrue
+        let all_true = Mask::new_true(len);
+        let result = &all_true & &all_true;
+        assert!(result.all_true());
+        assert_eq!(result.true_count(), len);
+
+        // Test AllTrue & AllFalse
+        let all_false = Mask::new_false(len);
+        let result = &all_true & &all_false;
+        assert!(result.all_false());
+        assert_eq!(result.true_count(), 0);
+
+        // Test AllFalse & AllTrue
+        let result = &all_false & &all_true;
+        assert!(result.all_false());
+        assert_eq!(result.true_count(), 0);
+
+        // Test AllFalse & AllFalse
+        let result = &all_false & &all_false;
+        assert!(result.all_false());
+        assert_eq!(result.true_count(), 0);
+    }
+
+    #[test]
+    fn test_bitand_with_values() {
+        let mask1 = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, false, true]));
+        let mask2 = Mask::from_buffer(BooleanBuffer::from_iter([true, true, false, false, true]));
+
+        let result = &mask1 & &mask2;
+        assert_eq!(result.len(), 5);
+        assert_eq!(result.true_count(), 2);
+        assert!(result.value(0)); // true & true = true
+        assert!(!result.value(1)); // false & true = false
+        assert!(!result.value(2)); // true & false = false
+        assert!(!result.value(3)); // false & false = false
+        assert!(result.value(4)); // true & true = true
+    }
+
+    #[test]
+    fn test_bitand_all_true_with_values() {
+        let all_true = Mask::new_true(5);
+        let values = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, false, true]));
+
+        // AllTrue & Values should return Values
+        let result = &all_true & &values;
+        assert_eq!(result.true_count(), 3);
+        assert_eq!(result.len(), 5);
+        assert!(result.value(0));
+        assert!(!result.value(1));
+        assert!(result.value(2));
+        assert!(!result.value(3));
+        assert!(result.value(4));
+    }
+
+    #[test]
+    fn test_bitand_all_false_with_values() {
+        let all_false = Mask::new_false(5);
+        let values = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, false, true]));
+
+        // AllFalse & Values should return AllFalse
+        let result = &all_false & &values;
+        assert!(result.all_false());
+        assert_eq!(result.true_count(), 0);
+    }
+
+    #[test]
+    fn test_bitand_values_with_all_true() {
+        let values = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, false, true]));
+        let all_true = Mask::new_true(5);
+
+        // Values & AllTrue should return Values
+        let result = &values & &all_true;
+        assert_eq!(result.true_count(), 3);
+        assert_eq!(result.len(), 5);
+        assert!(result.value(0));
+        assert!(!result.value(1));
+        assert!(result.value(2));
+        assert!(!result.value(3));
+        assert!(result.value(4));
+    }
+
+    #[test]
+    fn test_bitand_values_with_all_false() {
+        let values = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, false, true]));
+        let all_false = Mask::new_false(5);
+
+        // Values & AllFalse should return AllFalse
+        let result = &values & &all_false;
+        assert!(result.all_false());
+        assert_eq!(result.true_count(), 0);
+    }
+
+    #[test]
+    fn test_bitand_empty_masks() {
+        let empty1 = Mask::new_true(0);
+        let empty2 = Mask::new_false(0);
+
+        let result = &empty1 & &empty2;
+        assert_eq!(result.len(), 0);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    #[should_panic(expected = "Masks must have the same length")]
+    fn test_bitand_different_lengths() {
+        let mask1 = Mask::new_true(5);
+        let mask2 = Mask::new_true(3);
+        let _ = &mask1 & &mask2;
+    }
+
+    #[test]
+    fn test_not_all_true() {
+        let all_true = Mask::new_true(5);
+        let result = !&all_true;
+        assert!(result.all_false());
+        assert_eq!(result.true_count(), 0);
+        assert_eq!(result.len(), 5);
+    }
+
+    #[test]
+    fn test_not_all_false() {
+        let all_false = Mask::new_false(5);
+        let result = !&all_false;
+        assert!(result.all_true());
+        assert_eq!(result.true_count(), 5);
+        assert_eq!(result.len(), 5);
+    }
+
+    #[test]
+    fn test_not_values() {
+        let values = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, false, true]));
+        let result = !&values;
+
+        assert_eq!(result.len(), 5);
+        assert_eq!(result.true_count(), 2);
+        assert!(!result.value(0)); // !true = false
+        assert!(result.value(1)); // !false = true
+        assert!(!result.value(2)); // !true = false
+        assert!(result.value(3)); // !false = true
+        assert!(!result.value(4)); // !true = false
+    }
+
+    #[test]
+    fn test_not_empty() {
+        let empty_true = Mask::new_true(0);
+        let result = !&empty_true;
+        assert_eq!(result.len(), 0);
+        assert!(result.is_empty());
+
+        let empty_false = Mask::new_false(0);
+        let result = !&empty_false;
+        assert_eq!(result.len(), 0);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_double_not() {
+        let original =
+            Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, false, true]));
+        let double_not = !&(!&original);
+
+        // Double negation should return the original
+        assert_eq!(double_not.true_count(), original.true_count());
+        for i in 0..5 {
+            assert_eq!(double_not.value(i), original.value(i));
+        }
+    }
+
+    #[test]
+    fn test_demorgan_law() {
+        // Test De Morgan's law: !(A & B) = !A | !B
+        // Since we only have AND and NOT, we can't test the full law,
+        // but we can verify that !(A & B) behaves correctly
+        let a = Mask::from_buffer(BooleanBuffer::from_iter([true, true, false, false]));
+        let b = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, false]));
+
+        let and_result = &a & &b;
+        let not_and = !&and_result;
+
+        assert_eq!(not_and.len(), 4);
+        assert!(!not_and.value(0)); // !(true & true) = false
+        assert!(not_and.value(1)); // !(true & false) = true
+        assert!(not_and.value(2)); // !(false & true) = true
+        assert!(not_and.value(3)); // !(false & false) = true
+    }
+
+    #[test]
+    fn test_bitand_associativity() {
+        // Test (A & B) & C = A & (B & C)
+        let a = Mask::from_buffer(BooleanBuffer::from_iter([true, true, false, true]));
+        let b = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, true]));
+        let c = Mask::from_buffer(BooleanBuffer::from_iter([false, true, true, true]));
+
+        let left_assoc = &(&a & &b) & &c;
+        let right_assoc = &a & &(&b & &c);
+
+        assert_eq!(left_assoc.true_count(), right_assoc.true_count());
+        for i in 0..4 {
+            assert_eq!(left_assoc.value(i), right_assoc.value(i));
+        }
+    }
+
+    #[test]
+    fn test_bitand_commutativity() {
+        // Test A & B = B & A
+        let a = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, false]));
+        let b = Mask::from_buffer(BooleanBuffer::from_iter([false, true, false, true]));
+
+        let ab = &a & &b;
+        let ba = &b & &a;
+
+        assert_eq!(ab.true_count(), ba.true_count());
+        for i in 0..4 {
+            assert_eq!(ab.value(i), ba.value(i));
+        }
+    }
+
+    #[test]
+    fn test_bitand_identity() {
+        // Test A & AllTrue = A
+        let mask = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, false]));
+        let all_true = Mask::new_true(4);
+
+        let result = &mask & &all_true;
+        assert_eq!(result.true_count(), mask.true_count());
+        for i in 0..4 {
+            assert_eq!(result.value(i), mask.value(i));
+        }
+    }
+
+    #[test]
+    fn test_bitand_annihilator() {
+        // Test A & AllFalse = AllFalse
+        let mask = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, false]));
+        let all_false = Mask::new_false(4);
+
+        let result = &mask & &all_false;
+        assert!(result.all_false());
+        assert_eq!(result.true_count(), 0);
+    }
+
+    #[test]
+    fn test_bitand_idempotence() {
+        // Test A & A = A
+        let mask = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, false, true]));
+        let result = &mask & &mask;
+
+        assert_eq!(result.true_count(), mask.true_count());
+        for i in 0..5 {
+            assert_eq!(result.value(i), mask.value(i));
+        }
+    }
+
+    #[test]
+    fn test_complex_expression() {
+        // Test a more complex expression: !((!A) & B)
+        let a = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, false]));
+        let b = Mask::from_buffer(BooleanBuffer::from_iter([true, true, false, false]));
+
+        let not_a = !&a;
+        let not_a_and_b = &not_a & &b;
+        let result = !&not_a_and_b;
+
+        // Verify the result manually
+        assert!(result.value(0)); // !((!true) & true) = !(false & true) = !false = true
+        assert!(!result.value(1)); // !((!false) & true) = !(true & true) = !true = false
+        assert!(result.value(2)); // !((!true) & false) = !(false & false) = !false = true
+        assert!(result.value(3)); // !((!false) & false) = !(true & false) = !false = true
+    }
+}

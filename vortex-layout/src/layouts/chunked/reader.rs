@@ -14,7 +14,7 @@ use vortex_array::ArrayRef;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
@@ -47,6 +47,7 @@ impl ChunkedReader {
             chunk_offsets[i] = chunk_offsets[i - 1] + layout.children.child_row_count(i - 1);
         }
         chunk_offsets.push(layout.row_count());
+        debug_assert_eq!(chunk_offsets.len(), nchildren + 1);
 
         let lazy_children = LazyReaderChildren::new(layout.children.clone(), segment_source);
 
@@ -68,14 +69,21 @@ impl ChunkedReader {
     }
 
     fn chunk_offset(&self, idx: usize) -> u64 {
-        self.chunk_offsets[idx]
+        self.chunk_offsets.get(idx).copied().unwrap_or_else(|| {
+            vortex_panic!(
+                "Internal error: Chunk offset {idx} out of bounds (num_children: {}, num_offsets: {}). \
+                This indicates a bug in ChunkedReader initialization or chunk_range calculation.",
+                self.layout.nchildren(),
+                self.chunk_offsets.len()
+            )
+        })
     }
 
     fn chunk_range(&self, row_range: &Range<u64>) -> Range<usize> {
         let start_chunk = self
             .chunk_offsets
             .binary_search(&row_range.start)
-            .unwrap_or_else(|x| x - 1);
+            .unwrap_or_else(|x| x.saturating_sub(1));
         let end_chunk = self
             .chunk_offsets
             .binary_search(&row_range.end)
@@ -94,20 +102,35 @@ impl ChunkedReader {
             // Find the intersection of the mask and the chunk row ranges.
             let intersecting_row_range =
                 row_range.start.max(chunk_row_range.start)..row_range.end.min(chunk_row_range.end);
-            let intersecting_len =
-                usize::try_from(intersecting_row_range.end - intersecting_row_range.start)
-                    .vortex_expect("Invalid row range");
+            let intersecting_len = usize::try_from(
+                intersecting_row_range
+                    .end
+                    .checked_sub(intersecting_row_range.start)
+                    .vortex_expect("Invalid row range"),
+            )
+            .vortex_expect("Row range length exceeds usize::MAX");
 
             // Figure out the offset into the mask.
-            let mask_relative_start =
-                usize::try_from(intersecting_row_range.start - row_range.start)
-                    .vortex_expect("Invalid row range");
-            let mask_relative_end = mask_relative_start + intersecting_len;
+            let mask_relative_start = usize::try_from(
+                intersecting_row_range
+                    .start
+                    .checked_sub(row_range.start)
+                    .vortex_expect("Invalid row range"),
+            )
+            .vortex_expect("Mask offset exceeds usize::MAX");
+            let mask_relative_end = mask_relative_start
+                .checked_add(intersecting_len)
+                .vortex_expect("Mask range calculation overflow");
             let mask_range = mask_relative_start..mask_relative_end;
 
             // Figure out the row range within the chunk.
-            let chunk_relative_start = intersecting_row_range.start - chunk_row_range.start;
-            let chunk_relative_end = chunk_relative_start + intersecting_len as u64;
+            let chunk_relative_start = intersecting_row_range
+                .start
+                .checked_sub(chunk_row_range.start)
+                .vortex_expect("Chunk range calculation underflow");
+            let chunk_relative_end = chunk_relative_start
+                .checked_add(intersecting_len as u64)
+                .vortex_expect("Chunk range calculation overflow");
             let chunk_range = chunk_relative_start..chunk_relative_end;
 
             (chunk_idx, chunk_range, mask_range)

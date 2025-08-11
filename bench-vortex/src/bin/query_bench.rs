@@ -104,9 +104,6 @@ struct ClickBenchArgs {
 
     #[arg(long, value_enum, default_value_t = Flavor::Partitioned)]
     flavor: Flavor,
-
-    #[arg(long, default_value_t = false)]
-    single_file: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -185,7 +182,6 @@ fn run_clickbench(args: ClickBenchArgs) -> anyhow::Result<()> {
     // Create benchmark instance
     let benchmark = ClickBenchBenchmark::new(
         args.flavor,
-        args.single_file,
         args.queries_file.map(|p| p.to_string_lossy().to_string()),
         args.common.use_remote_data_dir,
     )?;

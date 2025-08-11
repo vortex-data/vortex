@@ -17,7 +17,7 @@ jobs:
       - uses: runs-on/action@v2
         with:
           sccache: s3
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-rust
         with:
           toolchain: nightly
@@ -63,7 +63,7 @@ jobs:
       - uses: runs-on/action@v2
         with:
           sccache: s3
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-rust
         with:
           toolchain: nightly

@@ -18,5 +18,8 @@ arrow-buffer = { workspace = true }
 itertools = { workspace = true }
 vortex-error = { workspace = true }
 
+[dev-dependencies]
+rstest = { workspace = true }
+
 [lints]
 workspace = true

@@ -36,6 +36,9 @@ roaring = { workspace = true, optional = true }
 sketches-ddsketch = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"], optional = true }
 
+[dev-dependencies]
+vortex-layout = { workspace = true, features = ["test-harness"] }
+
 [features]
 default = []
 roaring = ["dep:roaring", "vortex-layout/roaring"]
