@@ -125,6 +125,7 @@ pub trait Array: 'static + private::Sealed + Send + Sync + Debug + ArrayVisitor 
 
     /// Returns a pipeline for the array.
     fn to_pipeline_plan(&self) -> VortexResult<Box<dyn Operator>>;
+
     fn to_pipeline(&self) -> VortexResult<Box<dyn Kernel>>;
 
     /// Returns the statistics of the array.
