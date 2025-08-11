@@ -3,7 +3,7 @@
 // Scoring module for benchmarks
 const scoring = {
   isQueryBenchmark(categoryName) {
-    return categoryName === "Clickbench" || categoryName.startsWith("TPC-H");
+    return categoryName === "Clickbench" || categoryName.startsWith("TPC-H") || categoryName.startsWith("TPC-DS");
   },
 
   isRandomAccessBenchmark(categoryName) {
