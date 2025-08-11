@@ -39,6 +39,34 @@ pub struct StatPopGenBenchmark {
 }
 
 impl StatPopGenBenchmark {
+    /// Creates a new StatPopGenBenchmark instance.
+    ///
+    /// # Arguments
+    /// * `data_url` - Base URL pointing to the dataset location (must be a file:// URL)
+    /// * `n_rows` - Number of variant rows in the dataset
+    ///
+    /// # Returns
+    /// A configured benchmark instance with pre-calculated expected row counts for query validation.
+    pub fn new(data_url: Url, n_rows: u64) -> VortexResult<Self> {
+        let n_variants = usize::try_from(n_rows).map_err(|_| {
+            vortex_err!(
+                "Dataset size ({} rows) exceeds maximum supported size for this platform",
+                n_rows
+            )
+        })?;
+        // The number of rows returned by the filter (the last query) varies by number of rows.
+        let expected_row_counts = vec![
+            1, 1, n_variants, n_variants, n_variants, n_variants, n_variants, n_variants,
+            n_variants, n_variants,
+        ];
+
+        Ok(Self {
+            data_url,
+            n_rows,
+            expected_row_counts,
+        })
+    }
+
     /// Returns the filesystem path to the Parquet dataset file.
     ///
     /// Constructs the path based on the configured data URL and number of rows.
@@ -73,34 +101,6 @@ impl StatPopGenBenchmark {
             .join("gnomad.genomes.v3.1.2.hgdp_tgp.chr21.vortex")?
             .to_file_path()
             .map_err(|_| vortex_err!("Failed to convert data URL to filesystem path - ensure data_url uses 'file://' scheme"))
-    }
-
-    /// Creates a new StatPopGenBenchmark instance.
-    ///
-    /// # Arguments
-    /// * `data_url` - Base URL pointing to the dataset location (must be a file:// URL)
-    /// * `n_rows` - Number of variant rows in the dataset
-    ///
-    /// # Returns
-    /// A configured benchmark instance with pre-calculated expected row counts for query validation.
-    pub fn new(data_url: Url, n_rows: u64) -> VortexResult<Self> {
-        let n_variants = usize::try_from(n_rows).map_err(|_| {
-            vortex_err!(
-                "Dataset size ({} rows) exceeds maximum supported size for this platform",
-                n_rows
-            )
-        })?;
-        // The number of rows returned by the filter (the last query) varies by number of rows.
-        let expected_row_counts = vec![
-            1, 1, n_variants, n_variants, n_variants, n_variants, n_variants, n_variants,
-            n_variants, n_variants,
-        ];
-
-        Ok(Self {
-            data_url,
-            n_rows,
-            expected_row_counts,
-        })
     }
 }
 
