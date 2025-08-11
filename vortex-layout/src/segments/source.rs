@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-
 use futures::future::BoxFuture;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
