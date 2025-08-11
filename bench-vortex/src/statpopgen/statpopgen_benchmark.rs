@@ -2,8 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fs;
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -13,8 +12,7 @@ use datafusion::datasource::listing::{
 };
 use datafusion::prelude::SessionContext;
 use url::Url;
-use vortex::error::VortexResult;
-use vortex::error::vortex_err;
+use vortex::error::{VortexResult, vortex_err};
 use vortex_datafusion::VortexFormat;
 
 use crate::benchmark_trait::Benchmark;

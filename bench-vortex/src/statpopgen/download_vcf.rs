@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::io;
+use std::sync::Arc;
+
 use futures::StreamExt;
 use indicatif::ProgressBar;
 use noodles_vcf::Record;
-use parquet::arrow::AsyncArrowWriter;
-use parquet::arrow::ParquetRecordBatchStreamBuilder;
+use parquet::arrow::{AsyncArrowWriter, ParquetRecordBatchStreamBuilder};
 use reqwest::Client;
-use std::io;
-use std::sync::Arc;
 use tokio::fs::{File, create_dir_all};
 use tokio::io::BufReader;
 use tokio::runtime::Handle;
@@ -19,18 +19,14 @@ use vortex::arrow::FromArrowArray;
 use vortex::compressor::CompactCompressor;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
-use vortex::error::{VortexError, VortexResult};
-use vortex::error::{vortex_bail, vortex_err};
-use vortex::file::VortexWriteOptions;
-use vortex::file::WriteStrategyBuilder;
+use vortex::error::{VortexError, VortexResult, vortex_bail, vortex_err};
+use vortex::file::{VortexWriteOptions, WriteStrategyBuilder};
 use vortex::stream::ArrayStreamAdapter;
 
-use crate::Format;
-use crate::idempotent_async;
+use super::StatPopGenBenchmark;
 use crate::statpopgen::builder::GnomADBuilder;
 use crate::statpopgen::schema::SCHEMA;
-
-use super::StatPopGenBenchmark;
+use crate::{Format, idempotent_async};
 
 // DuckDB parallelizes parquet at row-group granularity. Each of our rows are quite big (~4000
 // genotypes each with tens of bytes of data).

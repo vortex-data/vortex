@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::borrow::Cow;
+
 use arrow_array::builder::*;
 use itertools::Itertools as _;
 use noodles_vcf::Header;
@@ -8,9 +10,9 @@ use noodles_vcf::record::Samples;
 use noodles_vcf::variant::record::info::field::value::array::Values;
 use noodles_vcf::variant::record::info::field::value::{Array, Value};
 use noodles_vcf::variant::record::samples::Series;
-use noodles_vcf::variant::record::samples::series::value::Array as EntryArray;
-use noodles_vcf::variant::record::samples::series::value::Value as EntryValue;
-use std::borrow::Cow;
+use noodles_vcf::variant::record::samples::series::value::{
+    Array as EntryArray, Value as EntryValue,
+};
 use vortex::error::{VortexResult, vortex_bail};
 
 pub fn value_int32(v: Option<Value>) -> VortexResult<Option<i32>> {

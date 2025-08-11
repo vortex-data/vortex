@@ -3,11 +3,8 @@
 
 use std::sync::{Arc, LazyLock};
 
-use arrow_schema::DataType;
 use arrow_schema::DataType::*;
-use arrow_schema::Field;
-use arrow_schema::Schema;
-use arrow_schema::SchemaRef;
+use arrow_schema::{DataType, Field, Schema, SchemaRef};
 
 pub fn list(x: DataType) -> DataType {
     List(Arc::new(Field::new("item", x, true)))
