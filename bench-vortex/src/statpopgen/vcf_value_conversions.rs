@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use arrow_array::builder::*;
 use itertools::Itertools as _;
 use noodles_vcf::Header;
