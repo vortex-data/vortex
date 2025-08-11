@@ -4,7 +4,6 @@
 use std::sync::Arc;
 
 use futures::FutureExt;
-use futures::future::BoxFuture;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_layout::segments::{SegmentFuture, SegmentId, SegmentSource};
@@ -78,10 +77,7 @@ struct InMemorySegmentReader {
 }
 
 impl SegmentSource for InMemorySegmentReader {
-    fn request(
-        &self,
-        id: SegmentId,
-    ) -> SegmentFuture {
+    fn request(&self, id: SegmentId) -> SegmentFuture {
         let Some(spec) = self.footer.segment_map().get(*id as usize) else {
             return async move { vortex_bail!("segment not found {id}") }.boxed();
         };
