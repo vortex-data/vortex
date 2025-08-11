@@ -9,53 +9,28 @@ use std::task::{Context, Poll, ready};
 use futures::Stream;
 use futures_util::stream::FuturesUnordered;
 use pin_project::pin_project;
-use tokio::sync::{Semaphore, TryAcquireError};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError};
 use vortex_error::VortexUnwrap;
 
 /// [`Future`] that carries the amount of memory it will require to hold the completed value.
-/// Also tracks the semaphore to return permits on drop if not completed.
 ///
-/// Note: We can't use `OwnedSemaphorePermit` here because:
-/// 1. We need to return permits when the Stream polls the result (not when the future completes)
-/// 2. The permit count needs to be tracked alongside the result for the Stream to know how many to return
-/// 3. `OwnedSemaphorePermit` doesn't allow extracting the permit count or moving ownership in poll()
-#[pin_project(PinnedDrop)]
+/// The `OwnedSemaphorePermit` ensures permits are automatically returned when this future
+/// is dropped, either after completion or if cancelled/aborted.
+#[pin_project]
 struct SizedFut<Fut> {
     #[pin]
     inner: Fut,
-    size_in_bytes: usize,
-    /// Semaphore to return permits to if dropped before completion.
-    /// None if the future has completed and permits were already returned.
-    semaphore: Option<Arc<Semaphore>>,
+    /// Owned permit that will be automatically dropped when the future completes or is dropped
+    _permits: OwnedSemaphorePermit,
 }
 
 impl<Fut: Future> Future for SizedFut<Fut> {
-    // We tag the size in bytes alongside the original output
-    type Output = (Fut::Output, usize);
+    type Output = Fut::Output;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.project();
-        let size_in_bytes = *this.size_in_bytes;
-        let inner = ready!(this.inner.poll(cx));
-
-        // Clear the semaphore reference since we're completing normally
-        // and permits will be returned by the Stream implementation
-        *this.semaphore = None;
-
-        Poll::Ready((inner, size_in_bytes))
-    }
-}
-
-#[pin_project::pinned_drop]
-impl<Fut> PinnedDrop for SizedFut<Fut> {
-    fn drop(self: Pin<&mut Self>) {
-        let this = self.project();
-
-        // If we still have a reference to the semaphore, it means the future
-        // didn't complete normally. Return the permits to prevent leaking them.
-        if let Some(semaphore) = this.semaphore.take() {
-            semaphore.add_permits(*this.size_in_bytes);
-        }
+        let result = ready!(this.inner.poll(cx));
+        Poll::Ready(result)
     }
 }
 
@@ -100,16 +75,16 @@ where
         // Attempt to acquire enough permits to begin working on a request that will occupy
         // `bytes` amount of memory when it completes.
         // Acquiring the permits is what creates backpressure for the producer.
-        self.bytes_available
-            .acquire_many(bytes.try_into().vortex_unwrap())
+        let permits = self
+            .bytes_available
+            .clone()
+            .acquire_many_owned(bytes.try_into().vortex_unwrap())
             .await
-            .unwrap_or_else(|_| unreachable!("pushing to closed semaphore"))
-            .forget();
+            .unwrap_or_else(|_| unreachable!("pushing to closed semaphore"));
 
         let sized_fut = SizedFut {
             inner: fut,
-            size_in_bytes: bytes,
-            semaphore: Some(self.bytes_available.clone()),
+            _permits: permits,
         };
 
         // push into the pending queue
@@ -123,14 +98,13 @@ where
     pub fn try_push(&self, fut: Fut, bytes: usize) -> Result<(), Fut> {
         match self
             .bytes_available
-            .try_acquire_many(bytes.try_into().vortex_unwrap())
+            .clone()
+            .try_acquire_many_owned(bytes.try_into().vortex_unwrap())
         {
             Ok(permits) => {
-                permits.forget();
                 let sized_fut = SizedFut {
                     inner: fut,
-                    size_in_bytes: bytes,
-                    semaphore: Some(self.bytes_available.clone()),
+                    _permits: permits,
                 };
 
                 self.inflight.push(sized_fut);
@@ -159,9 +133,9 @@ where
         let this = self.project();
         match ready!(this.inflight.poll_next(cx)) {
             None => Poll::Ready(None),
-            Some((result, bytes_read)) => {
-                this.bytes_available.add_permits(bytes_read);
-
+            Some(result) => {
+                // Permits are automatically returned when the SizedFut is dropped
+                // after being polled to completion by FuturesUnordered
                 Poll::Ready(Some(result))
             }
         }
