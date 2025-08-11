@@ -136,18 +136,10 @@ impl Dispatch for CompioDispatcher {
         // Each worker thread will receive an `Err(Canceled)`
         drop(self.submitter);
 
-        // Wait for threads with a timeout to prevent hanging on stuck threads
-        const SHUTDOWN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
-        let deadline = std::time::Instant::now() + SHUTDOWN_TIMEOUT;
-
+        // Wait for all threads to finish their current work and exit.
+        // This will wait indefinitely, but that's correct - we want to ensure
+        // all work completes, even if it's a long-running operation.
         for thread in self.threads {
-            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-            if remaining.is_zero() {
-                vortex_bail!("Dispatcher shutdown timed out after {:?}", SHUTDOWN_TIMEOUT);
-            }
-
-            // Wait for thread to finish with periodic checks
-            // Since we can't do timed join in stable Rust, we'll give it reasonable time
             match thread.join() {
                 Ok(()) => {}
                 Err(err) => {
