@@ -10,7 +10,7 @@ use sketches_ddsketch::DDSketch;
 use vortex_error::{VortexExpect, vortex_err, vortex_panic};
 use vortex_expr::ExprRef;
 use vortex_expr::dynamic::DynamicExprUpdates;
-use vortex_expr::forms::cnf::cnf;
+use vortex_expr::forms::conjuncts;
 
 /// The selectivity histogram quantile to use for reordering conjuncts. Where 0 == no rows match.
 const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;
@@ -33,7 +33,7 @@ pub struct FilterExpr {
 
 impl FilterExpr {
     pub(crate) fn new(expr: ExprRef) -> Self {
-        let conjuncts = cnf(expr);
+        let conjuncts = conjuncts(&expr);
         let num_conjuncts = conjuncts.len();
 
         let dynamic_conjuncts = conjuncts.iter().map(DynamicExprUpdates::new).collect_vec();
