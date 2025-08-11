@@ -229,7 +229,7 @@ mod tests {
     async fn test_size_limited_stream_dropped_future_releases_permits() {
         use futures::future::BoxFuture;
 
-        let mut stream = SizeLimitedStream::<BoxFuture<'static, Vec<u8>>>::new(10);
+        let stream = SizeLimitedStream::<BoxFuture<'static, Vec<u8>>>::new(10);
 
         // Push a future that will never complete
         stream

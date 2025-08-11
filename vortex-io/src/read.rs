@@ -171,7 +171,7 @@ impl<T: VortexReadAt> VortexReadAt for InstrumentedReadAt<T> {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_buffer::{ByteBuffer, Alignment};
+    use vortex_buffer::{Alignment, ByteBuffer};
 
     use super::*;
 
@@ -207,10 +207,7 @@ mod tests {
     async fn test_byte_buffer_read_at() {
         let data = ByteBuffer::from(vec![1, 2, 3, 4, 5]);
 
-        let result = data
-            .read_byte_range(1..4, Alignment::none())
-            .await
-            .unwrap();
+        let result = data.read_byte_range(1..4, Alignment::none()).await.unwrap();
         assert_eq!(result.as_ref(), &[2, 3, 4]);
     }
 
@@ -218,24 +215,16 @@ mod tests {
     async fn test_byte_buffer_read_out_of_bounds() {
         let data = ByteBuffer::from(vec![1, 2, 3]);
 
-        let result = data
-            .read_byte_range(1..10, Alignment::none())
-            .await;
+        let result = data.read_byte_range(1..10, Alignment::none()).await;
         assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err().kind(),
-            io::ErrorKind::UnexpectedEof
-        );
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::UnexpectedEof);
     }
 
     #[tokio::test]
     async fn test_arc_read_at() {
         let data = Arc::new(ByteBuffer::from(vec![1, 2, 3, 4, 5]));
 
-        let result = data
-            .read_byte_range(2..5, Alignment::none())
-            .await
-            .unwrap();
+        let result = data.read_byte_range(2..5, Alignment::none()).await.unwrap();
         assert_eq!(result.as_ref(), &[3, 4, 5]);
 
         let size = data.size().await.unwrap();

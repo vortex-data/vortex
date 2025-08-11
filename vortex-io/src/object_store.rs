@@ -208,14 +208,12 @@ impl VortexWrite for ObjectStoreWriter {
 mod tests {
     use std::sync::Arc;
 
-    use object_store::{ObjectStore, path::Path};
+    use object_store::ObjectStore;
+    use object_store::path::Path;
 
     use super::*;
 
-    async fn create_test_store() -> (
-        Arc<object_store::memory::InMemory>,
-        Path,
-    ) {
+    async fn create_test_store() -> (Arc<object_store::memory::InMemory>, Path) {
         let store = Arc::new(object_store::memory::InMemory::new());
         let location = Path::from("test.bin");
         (store, location)

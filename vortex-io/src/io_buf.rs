@@ -480,7 +480,7 @@ mod tests {
     #[test]
     fn test_buffer_size_calculation_large_type() {
         use vortex_buffer::BufferMut;
-        
+
         struct LargeType([u8; 1024]);
 
         let mut buf = BufferMut::<LargeType>::with_capacity(10);
