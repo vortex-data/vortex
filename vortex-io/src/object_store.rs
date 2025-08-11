@@ -14,7 +14,6 @@ use object_store::{
     GetOptions, GetRange, GetResultPayload, MultipartUpload, ObjectStore, ObjectStoreScheme,
     PutPayload,
 };
-use tokio::sync::Mutex;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{VortexExpect, VortexResult};
 
@@ -117,12 +116,7 @@ impl VortexReadAt for ObjectStoreReadAt {
     }
 }
 
-#[derive(Clone)]
 pub struct ObjectStoreWriter {
-    inner: Arc<Mutex<ObjectStoreWriterInner>>,
-}
-
-struct ObjectStoreWriterInner {
     upload: Box<dyn MultipartUpload>,
     buffer: BytesMut,
 }
@@ -134,20 +128,16 @@ impl ObjectStoreWriter {
     pub async fn new(object_store: Arc<dyn ObjectStore>, location: &Path) -> VortexResult<Self> {
         let upload = object_store.put_multipart(location).await?;
         Ok(Self {
-            inner: Arc::new(Mutex::new(ObjectStoreWriterInner {
-                upload,
-                buffer: BytesMut::with_capacity(CHUNKS_SIZE),
-            })),
+            upload,
+            buffer: BytesMut::with_capacity(CHUNKS_SIZE),
         })
     }
 }
 
 impl VortexWrite for ObjectStoreWriter {
     async fn write_all<B: IoBuf>(&mut self, buffer: B) -> io::Result<B> {
-        let mut inner = self.inner.lock().await;
-
         // Check if adding this data would exceed max buffer size
-        let new_size = inner.buffer.len() + buffer.as_slice().len();
+        let new_size = self.buffer.len() + buffer.as_slice().len();
         if new_size > MAX_BUFFER_SIZE {
             return Err(io::Error::other(format!(
                 "Buffer size would exceed maximum of {} bytes",
@@ -155,15 +145,15 @@ impl VortexWrite for ObjectStoreWriter {
             )));
         }
 
-        inner.buffer.extend_from_slice(buffer.as_slice());
+        self.buffer.extend_from_slice(buffer.as_slice());
 
-        if inner.buffer.len() > CHUNKS_SIZE {
+        if self.buffer.len() > CHUNKS_SIZE {
             let mut parts = vec![];
 
             // Split off chunks while buffer is larger than CHUNKS_SIZE
-            while inner.buffer.len() > CHUNKS_SIZE {
-                let chunk = inner.buffer.split_to(CHUNKS_SIZE);
-                let part_fut = inner
+            while self.buffer.len() > CHUNKS_SIZE {
+                let chunk = self.buffer.split_to(CHUNKS_SIZE);
+                let part_fut = self
                     .upload
                     .as_mut()
                     .put_part(PutPayload::from_bytes(chunk.freeze()));
@@ -178,14 +168,13 @@ impl VortexWrite for ObjectStoreWriter {
     }
 
     async fn flush(&mut self) -> io::Result<()> {
-        let mut inner = self.inner.lock().await;
-        let mut buffer = std::mem::take(&mut inner.buffer).freeze();
+        let mut buffer = std::mem::take(&mut self.buffer).freeze();
         let mut parts = vec![];
 
         while !buffer.is_empty() {
             let chunk_size = usize::min(buffer.len(), CHUNKS_SIZE);
             let payload = buffer.split_to(chunk_size);
-            let part_fut = inner
+            let part_fut = self
                 .upload
                 .as_mut()
                 .put_part(PutPayload::from_bytes(payload));
@@ -195,7 +184,7 @@ impl VortexWrite for ObjectStoreWriter {
 
         try_join_all(parts).await?;
 
-        inner.upload.complete().await?;
+        self.upload.complete().await?;
         Ok(())
     }
 
@@ -219,39 +208,9 @@ mod tests {
         (store, location)
     }
 
-    #[tokio::test]
-    async fn test_object_store_writer_concurrent_writes() {
-        let (store, location) = create_test_store().await;
-        let writer = Arc::new(
-            ObjectStoreWriter::new(store.clone(), &location)
-                .await
-                .unwrap(),
-        );
-
-        let handles: Vec<_> = (0..10)
-            .map(|i| {
-                let w = writer.clone();
-                tokio::spawn(async move {
-                    #[allow(clippy::cast_possible_truncation)]
-                    let data = vec![i as u8; 1000];
-                    let mut w = w.as_ref().clone();
-                    w.write_all(data).await
-                })
-            })
-            .collect();
-
-        for handle in handles {
-            handle.await.unwrap().unwrap();
-        }
-
-        let mut writer = Arc::try_unwrap(writer).unwrap_or_else(|arc| (*arc).clone());
-        writer.flush().await.unwrap();
-
-        // Verify data was written
-        let result = store.get(&location).await.unwrap();
-        let bytes = result.bytes().await.unwrap();
-        assert_eq!(bytes.len(), 10000); // 10 * 1000
-    }
+    // Note: Concurrent writes test removed because &mut self in write_all already ensures
+    // exclusive access. Multiple writers would need to be created with separate buffers,
+    // which is not the intended use case.
 
     #[tokio::test]
     async fn test_object_store_writer_max_buffer_size() {

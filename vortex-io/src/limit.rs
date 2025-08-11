@@ -14,6 +14,11 @@ use vortex_error::VortexUnwrap;
 
 /// [`Future`] that carries the amount of memory it will require to hold the completed value.
 /// Also tracks the semaphore to return permits on drop if not completed.
+///
+/// Note: We can't use `OwnedSemaphorePermit` here because:
+/// 1. We need to return permits when the Stream polls the result (not when the future completes)
+/// 2. The permit count needs to be tracked alongside the result for the Stream to know how many to return
+/// 3. `OwnedSemaphorePermit` doesn't allow extracting the permit count or moving ownership in poll()
 #[pin_project(PinnedDrop)]
 struct SizedFut<Fut> {
     #[pin]
