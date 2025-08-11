@@ -28,7 +28,13 @@ pub fn main() {
     divan::main();
 }
 
-#[divan::bench(types = [i8, i16, i32, i64], args = [0.005, 0.01, 0.025, 0.05, 0.2, 0.5, 0.9])]
+const TRUE_COUNT: &[f64] = &[
+    0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99, 1.00,
+];
+//
+// const TRUE_COUNT: &[f64] = &[1.];
+
+#[divan::bench(types = [ i64], args = TRUE_COUNT)]
 pub fn early_filter<T: NativePType>(bencher: Bencher, fraction_kept: f64) {
     let mut rng = StdRng::seed_from_u64(0);
     let values = (0..100_000)
@@ -58,7 +64,7 @@ pub fn early_filter<T: NativePType>(bencher: Bencher, fraction_kept: f64) {
         });
 }
 
-#[divan::bench(types = [i8, i16, i32, i64], args = [0.005, 0.01, 0.025, 0.05, 0.2, 0.5, 0.9])]
+#[divan::bench(types = [i64], args = TRUE_COUNT)]
 pub fn late_filter<T: NativePType>(bencher: Bencher, fraction_kept: f64) {
     let mut rng = StdRng::seed_from_u64(0);
     let values = (0..100_000)
@@ -112,7 +118,7 @@ pub fn late_filter<T: NativePType>(bencher: Bencher, fraction_kept: f64) {
 //     assert_eq!(array.len(), mask.count_set_bits());
 // }
 
-#[divan::bench(types = [i8, i16, i32, i64], args = [0.005, 0.01, 0.025, 0.05, 0.2, 0.5, 0.9])]
+#[divan::bench(types = [i64], args = TRUE_COUNT)]
 pub fn pipeline<T: Element + NativePType>(bencher: Bencher, fraction_kept: f64) {
     let mut rng = StdRng::seed_from_u64(0);
     let values = (0..100_000)

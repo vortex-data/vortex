@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::arrays::BinaryView;
 use std::fmt::{Debug, Display, Formatter};
-use vortex_dtype::NativePType;
-use vortex_dtype::PType;
+
 use vortex_dtype::half::f16;
+use vortex_dtype::{NativePType, PType};
+
+use crate::arrays::BinaryView;
 
 /// Defines the "vector type", a physical type describing the data that's held in the vector.
 ///

@@ -6,6 +6,12 @@ mod dag;
 mod operators;
 mod toposort;
 
+use std::ops::DerefMut;
+use std::task::Poll;
+
+use vortex_buffer::ByteBuffer;
+use vortex_error::{VortexError, VortexResult};
+
 use crate::pipeline::bits::BitView;
 use crate::pipeline::buffers::BufferId;
 use crate::pipeline::operators::Operator;
@@ -14,10 +20,6 @@ use crate::pipeline::query::dag::DagNode;
 use crate::pipeline::vector::{VectorId, VectorRef};
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{Kernel, KernelContext};
-use std::ops::DerefMut;
-use std::task::Poll;
-use vortex_buffer::ByteBuffer;
-use vortex_error::{VortexError, VortexResult};
 
 /// The idea of a pipeline is to orchestrate driving a set of operators to completion with
 /// fully optimized resource usage.

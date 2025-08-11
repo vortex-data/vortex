@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use fsst::{Compressor, Symbol};
 use std::task::{Poll, ready};
+
+use fsst::{Compressor, Symbol};
 use vortex_array::arrays::BinaryView;
 use vortex_array::pipeline::bits::BitView;
 use vortex_array::pipeline::buffers::BufferHandle;
@@ -102,8 +103,9 @@ impl Kernel for FSSTPipeline {
 
 #[cfg(test)]
 mod test {
-    use crate::tests::build_fsst_array;
     use vortex_array::Array;
+
+    use crate::tests::build_fsst_array;
 
     #[test]
     fn test_fsst_pipeline() {

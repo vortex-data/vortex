@@ -29,14 +29,16 @@ pub mod view;
 /// The number of elements in each step of a Vortex evaluation pipeline.
 pub const N: usize = 1024;
 
-use crate::pipeline::bits::BitView;
-use crate::pipeline::buffers::BufferId;
-use crate::pipeline::view::ViewMut;
 use std::ops::Range;
 use std::task::Poll;
+
 use vector::{VectorId, VectorRef};
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexResult, vortex_err, vortex_panic};
+
+use crate::pipeline::bits::BitView;
+use crate::pipeline::buffers::BufferId;
+use crate::pipeline::view::ViewMut;
 
 /// A pipeline provides a push-based way to emit a stream of canonical data.
 ///

@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::{Hash, Hasher};
+use std::task::{Poll, ready};
+
+use vortex_dtype::{NativePType, match_each_native_ptype};
+use vortex_error::VortexResult;
+
 use crate::arrays::PrimitiveArray;
 use crate::pipeline::bits::BitView;
 use crate::pipeline::buffers::BufferHandle;
@@ -8,10 +14,6 @@ use crate::pipeline::operators::{BindContext, Operator};
 use crate::pipeline::types::{Element, VType};
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{Kernel, KernelContext, N};
-use std::hash::{Hash, Hasher};
-use std::task::{Poll, ready};
-use vortex_dtype::{NativePType, match_each_native_ptype};
-use vortex_error::VortexResult;
 
 impl Operator for PrimitiveArray {
     fn vtype(&self) -> VType {

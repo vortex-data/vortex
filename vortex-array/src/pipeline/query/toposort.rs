@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::collections::VecDeque;
+
+use vortex_error::{VortexResult, vortex_bail};
+
 use crate::pipeline::query::Pipeline;
 use crate::pipeline::query::dag::DagNode;
-use std::collections::VecDeque;
-use vortex_error::{VortexResult, vortex_bail};
 
 impl Pipeline<'_> {
     /// Returns the nodes of the DAG with no children.

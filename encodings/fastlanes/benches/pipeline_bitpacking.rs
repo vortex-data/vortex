@@ -123,6 +123,12 @@ pub fn decompress_bitpacking_pipeline_filter<T: Element + NativePType>(
         .map(|_| rng.random_bool(fraction_kept))
         .collect::<BooleanBuffer>();
 
+    let expect = filter(
+        array.to_canonical().unwrap().as_ref(),
+        &Mask::from_buffer(mask.clone()),
+    )
+    .unwrap();
+
     bencher
         .with_inputs(|| Mask::from_buffer(mask.clone()))
         .bench_local_values(|mask| {
@@ -145,4 +151,9 @@ pub fn decompress_bitpacking_pipeline_filter<T: Element + NativePType>(
     .into_primitive()
     .unwrap();
     assert_eq!(array.len(), mask.count_set_bits());
+
+    assert_eq!(
+        array.into_buffer::<T>(),
+        expect.to_primitive().unwrap().into_buffer::<T>()
+    );
 }

@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::pipeline::operators::Operator;
-use crate::pipeline::query::Pipeline;
 use std::hash::BuildHasher;
+
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::{HashMap, RandomState};
+
+use crate::pipeline::operators::Operator;
+use crate::pipeline::query::Pipeline;
 
 /// A node in our execution DAG
 #[derive(Clone, Debug)]

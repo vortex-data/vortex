@@ -8,14 +8,16 @@
 //  performance hit for as_mut(), or whether we want zero-copy cloning. Not clear that we ever
 //  need the clone behavior.
 
+use std::cell::{Ref, RefMut};
+use std::fmt::Debug;
+use std::ops::{Deref, DerefMut};
+
+use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
+
 use crate::pipeline::N;
 use crate::pipeline::bits::BitVector;
 use crate::pipeline::types::{Element, VType};
 use crate::pipeline::view::{View, ViewMut};
-use std::cell::{Ref, RefMut};
-use std::fmt::Debug;
-use std::ops::{Deref, DerefMut};
-use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct VectorId(pub(crate) usize);

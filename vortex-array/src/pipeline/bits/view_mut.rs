@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::pipeline::N;
-use crate::pipeline::bits::BitView;
 use bitvec::array::BitArray;
 use bitvec::order::Msb0;
+
+use crate::pipeline::N;
+use crate::pipeline::bits::BitView;
 
 /// A mutable borrowed fixed-size bit vector of length `N` bits, represented as an array of
 /// 64-bit words.

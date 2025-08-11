@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::pipeline::N;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 
-use crate::pipeline::bits::BitView;
-use crate::pipeline::bits::BitViewMut;
+use crate::pipeline::N;
+use crate::pipeline::bits::{BitView, BitViewMut};
 use crate::pipeline::types::{Element, VType};
 
 pub struct View<'a> {
@@ -197,7 +196,7 @@ impl<'a> ViewMut<'a> {
             N => {
                 // If the mask has N true bits, we copy all elements.
             }
-            n if n > N / 2 => {
+            n if n > 3 * N / 4 => {
                 // High density: use iter_zeros to compact by removing gaps
                 let slice = self.as_slice_mut::<E>();
                 let mut write_idx = 0;

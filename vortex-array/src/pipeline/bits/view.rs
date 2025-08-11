@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::pipeline::N;
-use bitvec::prelude::*;
 use std::fmt::{Debug, Formatter};
+
+use bitvec::prelude::*;
 use vortex_error::{VortexError, vortex_err};
+
+use crate::pipeline::N;
 
 /// A borrowed fixed-size bit vector of length `N` bits, represented as an array of 64-bit words.
 ///

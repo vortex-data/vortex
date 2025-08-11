@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::pipeline::N;
 use arrow_buffer::BooleanBuffer;
 use arrow_buffer::bit_chunk_iterator::BitChunkIterator;
 use bitvec::order::Msb0;
 use bitvec::slice::{BitSlice, ChunksExact};
+
+use crate::pipeline::N;
 
 pub fn iter_boolean_buffer<'a>(buffer: &'a BooleanBuffer) -> ChunksExact<'a, u64, Msb0> {
     assert_eq!(buffer.offset(), 0, "BooleanBuffer must have an offset of 0");

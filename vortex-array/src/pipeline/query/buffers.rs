@@ -3,14 +3,15 @@
 
 //! Vector allocation strategy for pipelines
 
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+use vortex_error::{VortexExpect, VortexResult};
+
 use crate::pipeline::query::Pipeline;
 use crate::pipeline::query::dag::DagNode;
 use crate::pipeline::types::VType;
-use crate::pipeline::vector::Vector;
-use crate::pipeline::vector::VectorId;
-use std::cell::RefCell;
-use std::collections::HashMap;
-use vortex_error::{VortexExpect, VortexResult};
+use crate::pipeline::vector::{Vector, VectorId};
 
 #[derive(Debug)]
 pub(in crate::pipeline) struct VectorAllocationPlan {
@@ -254,7 +255,7 @@ impl<'a> Pipeline<'a> {
             }
             match output_targets[parent] {
                 Some(OutputTarget::ExternalOutput) => true,
-                Some(OutputTarget::InPlace(_, _)) => true, // Can pass through
+                Some(OutputTarget::InPlace(..)) => true, // Can pass through
                 _ => false,
             }
         })

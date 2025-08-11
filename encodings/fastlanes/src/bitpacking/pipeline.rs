@@ -1,20 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::{BitPackedArray, BitPackedVTable};
-use fastlanes::{BitPacking, FastLanes};
 use std::hash::{Hash, Hasher};
 use std::task::{Poll, ready};
-use vortex_array::pipeline::KernelContext;
+
+use fastlanes::{BitPacking, FastLanes};
 use vortex_array::pipeline::bits::BitView;
 use vortex_array::pipeline::buffers::BufferHandle;
 use vortex_array::pipeline::operators::{BindContext, Operator};
 use vortex_array::pipeline::types::{Element, VType};
 use vortex_array::pipeline::view::ViewMut;
-use vortex_array::pipeline::{Kernel, N};
+use vortex_array::pipeline::{Kernel, KernelContext, N};
 use vortex_array::vtable::PipelineVTable;
 use vortex_dtype::{PhysicalPType, match_each_integer_ptype};
 use vortex_error::{VortexResult, vortex_bail};
+
+use crate::{BitPackedArray, BitPackedVTable};
 
 impl PipelineVTable<BitPackedVTable> for BitPackedVTable {
     fn to_operator(array: &BitPackedArray) -> VortexResult<Box<dyn Operator>> {

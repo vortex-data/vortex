@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::marker::PhantomData;
+use std::task::Poll;
+
+use vortex_dtype::{NativePType, match_each_native_ptype};
+use vortex_error::{VortexResult, vortex_bail};
+
 use crate::compute;
 use crate::pipeline::bits::BitView;
 use crate::pipeline::operators::{BindContext, Operator};
@@ -8,10 +14,6 @@ use crate::pipeline::types::{Element, VType};
 use crate::pipeline::vector::VectorId;
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{Kernel, KernelContext};
-use std::marker::PhantomData;
-use std::task::Poll;
-use vortex_dtype::{NativePType, match_each_native_ptype};
-use vortex_error::{VortexResult, vortex_bail};
 
 #[macro_export]
 macro_rules! match_each_compare_op {

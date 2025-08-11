@@ -6,12 +6,14 @@
 pub mod compare;
 pub mod primitive;
 
+use std::fmt::Debug;
+
+use dyn_hash::DynHash;
+use vortex_error::VortexResult;
+
 use crate::pipeline::Kernel;
 use crate::pipeline::types::VType;
 use crate::pipeline::vector::VectorId;
-use dyn_hash::DynHash;
-use std::fmt::Debug;
-use vortex_error::VortexResult;
 
 /// An operator represents a node in a logical query plan.
 pub trait Operator: Debug + DynHash {
