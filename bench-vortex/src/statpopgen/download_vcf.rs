@@ -19,7 +19,7 @@ use vortex::arrow::FromArrowArray;
 use vortex::compressor::CompactCompressor;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
-use vortex::error::{VortexError, VortexExpect, VortexResult};
+use vortex::error::{VortexError, VortexResult};
 use vortex::error::{vortex_bail, vortex_err};
 use vortex::file::VortexWriteOptions;
 use vortex::file::WriteStrategyBuilder;
@@ -73,7 +73,7 @@ impl StatPopGenBenchmark {
             let file = File::create(parquet_output_path).await?;
             let mut writer = AsyncArrowWriter::try_new(file, SCHEMA.clone(), None)?;
             for i in progress.wrap_iter(0..self.n_rows) {
-                if i == ROW_GROUP_SIZE_IN_VARIANTS {
+                if i % ROW_GROUP_SIZE_IN_VARIANTS == 0 {
                     let rb = builder.finish()?;
                     builder = GnomADBuilder::new(&header);
                     writer.write(&rb).await?;
@@ -98,8 +98,6 @@ impl StatPopGenBenchmark {
         .await?;
         Ok(())
     }
-
-    const BATCH_SIZE: usize = 8192;
 
     pub async fn parquet_to_vortex(&self, format: Format) -> VortexResult<()> {
         let parquet_path = self.parquet_path()?;
@@ -129,10 +127,8 @@ impl StatPopGenBenchmark {
         .await?;
         let file = File::open(parquet_path).await?;
 
-        let parquet = ParquetRecordBatchStreamBuilder::new(file)
-            .await?
-            .with_batch_size(Self::BATCH_SIZE);
-        let num_rows = parquet.metadata().file_metadata().num_rows();
+        let parquet = ParquetRecordBatchStreamBuilder::new(file).await?;
+        let num_groups = parquet.metadata().num_row_groups();
 
         let dtype = DType::from_arrow(parquet.schema().as_ref());
         let mut vortex_stream = parquet
@@ -146,10 +142,7 @@ impl StatPopGenBenchmark {
 
         // Parquet reader returns batches, rather than row groups. So make sure we correctly
         // configure the progress bar.
-        let nbatches = u64::try_from(num_rows)
-            .vortex_expect("negative row count?")
-            .div_ceil(Self::BATCH_SIZE as u64);
-        vortex_stream = ProgressBar::new(nbatches)
+        vortex_stream = ProgressBar::new(num_groups as u64)
             .wrap_stream(vortex_stream)
             .boxed();
 
