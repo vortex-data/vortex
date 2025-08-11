@@ -160,25 +160,28 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
-    use vortex_error::VortexExpect;
+    use vortex_error::VortexResult;
 
     use super::*;
 
-    // Helper function to block on futures using compio runtime
-    // Reduced resource usage approach for CI environments
-    fn block_on<F: Future>(fut: F) -> F::Output {
-        // Use RuntimeBuilder which may have better resource management than Runtime::new()
-        let runtime = RuntimeBuilder::new()
-            .build()
-            .or_else(|_| {
-                // Fallback to basic runtime if builder fails
-                Runtime::new()
-            })
-            .vortex_expect(
-                "Failed to create compio runtime for tests - resource constraints in CI",
-            );
+    // Helper function to wait for dispatcher results in tests
+    // Simple busy-wait for oneshot receivers which complete quickly
+    fn wait_for<R>(handle: VortexJoinHandle<R>) -> VortexResult<R> {
+        use std::task::{Context, Poll};
 
-        runtime.block_on(fut)
+        use futures::FutureExt;
+
+        let mut handle = Box::pin(handle);
+        loop {
+            // Create a no-op waker that does nothing when woken
+            let waker = futures::task::noop_waker();
+            let mut cx = Context::from_waker(&waker);
+
+            match handle.poll_unpin(&mut cx) {
+                Poll::Ready(result) => return result,
+                Poll::Pending => std::thread::yield_now(),
+            }
+        }
     }
 
     #[test]
@@ -201,7 +204,7 @@ mod tests {
 
         let handle = dispatcher.dispatch(|| async { 42 }).unwrap();
 
-        let result = block_on(handle);
+        let result = wait_for(handle);
         assert_eq!(result.unwrap(), 42);
 
         dispatcher.shutdown().unwrap();
@@ -218,7 +221,7 @@ mod tests {
         }
 
         for (i, handle) in handles.into_iter().enumerate() {
-            let result = block_on(handle);
+            let result = wait_for(handle);
             assert_eq!(result.unwrap(), i * 2);
         }
 
@@ -242,7 +245,7 @@ mod tests {
         }
 
         for handle in handles {
-            block_on(handle).unwrap();
+            wait_for(handle).unwrap();
         }
 
         assert_eq!(counter.load(Ordering::SeqCst), 100);
@@ -257,7 +260,7 @@ mod tests {
             .dispatch(|| async { String::from("hello world") })
             .unwrap();
 
-        let result = block_on(handle);
+        let result = wait_for(handle);
         assert_eq!(result.unwrap(), "hello world");
 
         dispatcher.shutdown().unwrap();
@@ -271,7 +274,7 @@ mod tests {
             .dispatch(|| async { vec![1, 2, 3, 4, 5] })
             .unwrap();
 
-        let result = block_on(handle);
+        let result = wait_for(handle);
         assert_eq!(result.unwrap(), vec![1, 2, 3, 4, 5]);
 
         dispatcher.shutdown().unwrap();
@@ -291,7 +294,7 @@ mod tests {
             .unwrap();
 
         // Get the result before shutdown
-        let result = block_on(handle);
+        let result = wait_for(handle);
         assert_eq!(result.unwrap(), "completed");
 
         // Shutdown should complete successfully
@@ -318,7 +321,7 @@ mod tests {
 
         // Verify all tasks complete
         for (i, handle) in handles.into_iter().enumerate() {
-            let result = block_on(handle);
+            let result = wait_for(handle);
             assert_eq!(result.unwrap(), i);
         }
     }
@@ -343,7 +346,7 @@ mod tests {
         }
 
         for (i, handle) in handles.into_iter().enumerate() {
-            let result = block_on(handle);
+            let result = wait_for(handle);
             assert_eq!(result.unwrap(), i);
         }
 
@@ -362,7 +365,7 @@ mod tests {
             })
             .unwrap();
 
-        let result = block_on(handle);
+        let result = wait_for(handle);
         assert_eq!(result.unwrap(), "done");
 
         dispatcher.shutdown().unwrap();
