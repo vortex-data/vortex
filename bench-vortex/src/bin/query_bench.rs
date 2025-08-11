@@ -181,7 +181,7 @@ struct StatPopGenArgs {
     targets: Vec<Target>,
 
     #[arg(long)]
-    n_rows: u64,
+    scale_factor: u64,
 }
 
 fn validate_scale_factor(val: &str) -> Result<String, String> {
@@ -315,7 +315,7 @@ fn run_statpopgen(args: StatPopGenArgs) -> anyhow::Result<()> {
     // Create benchmark instance
     let data_url = Url::from_directory_path("statpopgen".to_data_path())
         .map_err(|_| anyhow::anyhow!("bad data path?"))?;
-    let benchmark = StatPopGenBenchmark::new(data_url, args.n_rows)?;
+    let benchmark = StatPopGenBenchmark::new(data_url, args.scale_factor)?;
 
     // Configure driver
     let config = DriverConfig {

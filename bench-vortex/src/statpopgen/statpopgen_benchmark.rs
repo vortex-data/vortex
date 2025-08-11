@@ -11,6 +11,7 @@ use datafusion::datasource::listing::{
     ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
 };
 use datafusion::prelude::SessionContext;
+use tracing::info;
 use url::Url;
 use vortex::error::{VortexResult, vortex_err};
 use vortex_datafusion::VortexFormat;
@@ -32,10 +33,12 @@ use crate::{BenchmarkDataset, Format, Target};
 pub struct StatPopGenBenchmark {
     /// Base URL for the dataset location (must be a file:// URL for local datasets)
     pub data_url: Url,
-    /// Number of variant rows in the dataset
+    /// The scale factor. The dataset contains this many thousands of rows.
+    pub scale_factor: u64,
+    /// The number of rows in the dataset.
     pub n_rows: u64,
     /// Expected row counts for each benchmark query, used for result validation
-    pub expected_row_counts: Vec<usize>,
+    pub expected_row_counts: Option<Vec<usize>>,
 }
 
 impl StatPopGenBenchmark {
@@ -43,26 +46,43 @@ impl StatPopGenBenchmark {
     ///
     /// # Arguments
     /// * `data_url` - Base URL pointing to the dataset location (must be a file:// URL)
-    /// * `n_rows` - Number of variant rows in the dataset
+    /// * `scale_factor` - Scale factor. The dataset will contain this many thousands of rows.
     ///
     /// # Returns
     /// A configured benchmark instance with pre-calculated expected row counts for query validation.
-    pub fn new(data_url: Url, n_rows: u64) -> VortexResult<Self> {
-        let n_variants = usize::try_from(n_rows).map_err(|_| {
+    pub fn new(data_url: Url, scale_factor: u64) -> VortexResult<Self> {
+        let n_rows = scale_factor * 1000;
+        let n_rows = usize::try_from(n_rows).map_err(|_| {
             vortex_err!(
                 "Dataset size ({} rows) exceeds maximum supported size for this platform",
                 n_rows
             )
         })?;
+
         // The number of rows returned by the filter (the last query) varies by number of rows.
-        let expected_row_counts = vec![
-            1, 1, n_variants, n_variants, n_variants, n_variants, n_variants, n_variants,
-            n_variants, n_variants,
-        ];
+        let expected_row_counts = match scale_factor {
+            1 => Some(vec![
+                1, 1, n_rows, n_rows, n_rows, n_rows, n_rows, 1, 47, 891,
+            ]),
+            10 => Some(vec![
+                1, 1, n_rows, n_rows, n_rows, n_rows, n_rows, 1, 47, 8507,
+            ]),
+            100 => Some(vec![
+                1, 1, n_rows, n_rows, n_rows, n_rows, n_rows, 1, 47, 85877,
+            ]),
+            _ => {
+                info!(
+                    "Expected row counts are not available for scale factor {}",
+                    scale_factor
+                );
+                None
+            }
+        };
 
         Ok(Self {
             data_url,
-            n_rows,
+            scale_factor,
+            n_rows: n_rows as u64,
             expected_row_counts,
         })
     }
@@ -218,7 +238,7 @@ impl Benchmark for StatPopGenBenchmark {
 
     fn expected_row_counts(&self) -> Option<&[usize]> {
         // Statpopgen reference row counts
-        Some(&self.expected_row_counts)
+        self.expected_row_counts.as_ref().map(|x| x.as_ref())
     }
 
     // Dataset-specific methods (inlined from BenchmarkDataset)
