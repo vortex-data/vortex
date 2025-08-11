@@ -108,56 +108,62 @@ impl StatPopGenBenchmark {
         let parquet_path = self.parquet_path()?;
         let strategy = WriteStrategyBuilder::new().with_executor(Arc::new(Handle::current()));
         let (output_path, strategy) = match format {
-            Format::OnDiskVortex => {
-                info!("Converting StatPopGen dataset from Parquet to Vortex.");
-                (self.vortex_path()?, strategy)
-            }
-            Format::VortexCompact => {
-                info!("Converting StatPopGen dataset from Parquet to Vortex-compact.");
-                (
-                    self.vortex_compact_path()?,
-                    strategy.with_compressor(CompactCompressor::default()),
-                )
-            }
+            Format::OnDiskVortex => (self.vortex_path()?, strategy),
+            Format::VortexCompact => (
+                self.vortex_compact_path()?,
+                strategy.with_compressor(CompactCompressor::default()),
+            ),
             otherwise => {
                 vortex_bail!("you asked for vortex but gave me {}", otherwise)
             }
         };
 
-        create_dir_all(
-            &output_path
-                .parent()
-                .ok_or_else(|| vortex_err!("vortex path must be a file in a directory"))?,
-        )
-        .await?;
-        let file = File::open(parquet_path).await?;
+        idempotent_async(&output_path, async |output_path| -> VortexResult<_> {
+            info!("Converting StatPopGen dataset from Parquet to {}.", format);
 
-        let parquet = ParquetRecordBatchStreamBuilder::new(file).await?;
-        let num_groups = parquet.metadata().num_row_groups();
-
-        let dtype = DType::from_arrow(parquet.schema().as_ref());
-        let mut vortex_stream = parquet
-            .build()?
-            .map(|record_batch| {
-                record_batch
-                    .map_err(VortexError::from)
-                    .map(|rb| ArrayRef::from_arrow(rb, false))
-            })
-            .boxed();
-
-        // Parquet reader returns batches, rather than row groups. So make sure we correctly
-        // configure the progress bar.
-        vortex_stream = ProgressBar::new(num_groups as u64)
-            .wrap_stream(vortex_stream)
-            .boxed();
-
-        VortexWriteOptions::default()
-            .with_strategy(strategy.build())
-            .write(
-                File::create(output_path).await?,
-                ArrayStreamAdapter::new(dtype, vortex_stream),
+            create_dir_all(
+                &output_path
+                    .parent()
+                    .ok_or_else(|| vortex_err!("vortex path must be a file in a directory"))?,
             )
             .await?;
+            let file = File::open(parquet_path).await?;
+
+            let parquet = ParquetRecordBatchStreamBuilder::new(file).await?;
+            let num_groups = parquet.metadata().num_row_groups();
+
+            let dtype = DType::from_arrow(parquet.schema().as_ref());
+            let mut vortex_stream = parquet
+                .build()?
+                .map(|record_batch| {
+                    record_batch
+                        .map_err(VortexError::from)
+                        .map(|rb| ArrayRef::from_arrow(rb, false))
+                })
+                .boxed();
+
+            // Parquet reader returns batches, rather than row groups. So make sure we correctly
+            // configure the progress bar.
+            vortex_stream = ProgressBar::new(num_groups as u64)
+                .wrap_stream(vortex_stream)
+                .boxed();
+
+            VortexWriteOptions::default()
+                .with_strategy(strategy.build())
+                .write(
+                    File::create(output_path).await?,
+                    ArrayStreamAdapter::new(dtype, vortex_stream),
+                )
+                .await?;
+
+            info!(
+                "Finished converting StatPopGen dataset from Parquet to {}.",
+                format
+            );
+
+            Ok(())
+        })
+        .await?;
 
         Ok(())
     }

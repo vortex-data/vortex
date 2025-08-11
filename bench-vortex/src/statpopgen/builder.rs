@@ -21,6 +21,7 @@ use vortex::error::VortexExpect as _;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::utils::aliases::hash_map::HashMap;
+use vortex::utils::aliases::hash_set::HashSet;
 
 #[allow(dead_code)]
 #[allow(non_snake_case)]
@@ -198,11 +199,20 @@ impl<'a> GnomADBuilder<'a> {
     pub fn consume_info(&mut self, header: &Header, info: Info) -> VortexResult<()> {
         info.iter(header)
             .process_results(|iter| -> VortexResult<()> {
+                let mut all_fields: HashSet<&str> = self.info_builder.keys().cloned().collect();
                 for (name, value) in iter {
+                    all_fields.remove(name);
                     self.info_builder
                         .get_mut(name)
                         .vortex_expect("key must exist")
                         .push(value)?;
+                }
+
+                for missing_field in all_fields {
+                    self.info_builder
+                        .get_mut(missing_field)
+                        .vortex_expect("key must exist")
+                        .push(None)?;
                 }
 
                 Ok(())
