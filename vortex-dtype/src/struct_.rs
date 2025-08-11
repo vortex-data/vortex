@@ -325,7 +325,11 @@ impl StructFields {
     /// Returns an error if the index is out of bounds for the struct fields.
     pub fn try_without_field(&self, index: usize) -> VortexResult<Self> {
         if index >= self.nfields() {
-            vortex_bail!("index {} out of bounds for struct with {} fields", index, self.nfields());
+            vortex_bail!(
+                "index {} out of bounds for struct with {} fields",
+                index,
+                self.nfields()
+            );
         }
 
         let names = self
@@ -354,7 +358,10 @@ impl StructFields {
     /// ## Panics
     /// Panics if the index is out of bounds for the struct fields.
     /// Prefer using `try_without_field` for fallible removal.
-    #[deprecated(since = "0.1.0", note = "Use try_without_field() for fallible field removal")]
+    #[deprecated(
+        since = "0.1.0",
+        note = "Use try_without_field() for fallible field removal"
+    )]
     pub fn without_field(&self, index: usize) -> Self {
         self.try_without_field(index)
             .unwrap_or_else(|e| vortex_panic!("Failed to remove field: {}", e))
@@ -469,11 +476,11 @@ mod test {
         let a_type = DType::Primitive(PType::I32, Nullability::Nullable);
         let b_type = DType::Bool(Nullability::NonNullable);
         let sdt = StructFields::from_iter([("A", a_type), ("B", b_type)]);
-        
+
         let result = sdt.try_without_field(2);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("out of bounds"));
-        
+
         let result = sdt.try_without_field(100);
         assert!(result.is_err());
     }
@@ -484,7 +491,7 @@ mod test {
         let a_type = DType::Primitive(PType::I32, Nullability::Nullable);
         let b_type = DType::Bool(Nullability::NonNullable);
         let sdt = StructFields::from_iter([("A", a_type), ("B", b_type.clone())]);
-        
+
         let without_a = sdt.without_field(0);
         assert_eq!(without_a.names()[0], "B".into());
         assert_eq!(without_a.field_by_index(0).unwrap(), b_type);

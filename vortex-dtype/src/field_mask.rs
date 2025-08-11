@@ -109,7 +109,7 @@ mod tests {
         let mask = FieldMask::All;
         assert!(mask.matches_all());
         assert!(mask.matches_root());
-        
+
         // Test builder method
         let mask2 = all();
         assert_eq!(mask, mask2);
@@ -121,7 +121,7 @@ mod tests {
         let mask = from_prefix(vec![Field::from("user")]);
         assert!(!mask.matches_all());
         assert!(!mask.matches_root());
-        
+
         // Test from_exact
         let mask = from_exact(vec![Field::from("user"), Field::from("name")]);
         assert!(!mask.matches_all());
@@ -139,7 +139,7 @@ mod tests {
         } else {
             unreachable!("Expected Prefix mask");
         }
-        
+
         // Test exact_from_str
         let mask = exact_from_str("user.profile.name");
         if let FieldMask::Exact(path) = mask {
@@ -150,11 +150,11 @@ mod tests {
         } else {
             unreachable!("Expected Exact mask");
         }
-        
+
         // Test empty string
         let mask = prefix_from_str("");
         assert_eq!(mask, FieldMask::All);
-        
+
         let mask = exact_from_str("");
         assert_eq!(mask, FieldMask::Exact(FieldPath::root()));
     }

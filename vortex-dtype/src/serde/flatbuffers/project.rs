@@ -85,9 +85,10 @@ fn read_field(
 
 #[cfg(test)]
 mod tests {
+    use vortex_flatbuffers::WriteFlatBufferExt;
+
     use super::*;
     use crate::{DType, FieldName, Nullability, PType, StructFields};
-    use vortex_flatbuffers::WriteFlatBufferExt;
 
     fn create_test_struct_dtype() -> DType {
         DType::Struct(
@@ -122,7 +123,12 @@ mod tests {
         let field = Field::Name("nonexistent".into());
         let result = resolve_field(fb_struct, &field);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Unknown field name"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Unknown field name")
+        );
     }
 
     #[test]
@@ -136,7 +142,12 @@ mod tests {
         let field = Field::ElementType;
         let result = resolve_field(fb_struct, &field);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Only field names are supported"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Only field names are supported")
+        );
     }
 
     #[test]
@@ -153,7 +164,10 @@ mod tests {
         // Extract "age" field
         let field = Field::Name("age".into());
         let extracted = extract_field(fb_dtype, &field, &buffer).unwrap();
-        assert_eq!(extracted, DType::Primitive(PType::I32, Nullability::Nullable));
+        assert_eq!(
+            extracted,
+            DType::Primitive(PType::I32, Nullability::Nullable)
+        );
     }
 
     #[test]
@@ -165,7 +179,12 @@ mod tests {
         let field = Field::Name("name".into());
         let result = extract_field(fb_dtype, &field, &buffer);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("should be a struct"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("should be a struct")
+        );
     }
 
     #[test]
@@ -175,10 +194,7 @@ mod tests {
         let fb_dtype = fb::root_as_dtype(buffer.as_ref()).unwrap();
 
         // Project only "name" and "age" fields
-        let projection = vec![
-            Field::Name("name".into()),
-            Field::Name("age".into()),
-        ];
+        let projection = vec![Field::Name("name".into()), Field::Name("age".into())];
         let projected = project_and_deserialize(fb_dtype, &projection, &buffer).unwrap();
 
         // Check the result is a struct with only the projected fields
@@ -186,8 +202,14 @@ mod tests {
             assert_eq!(fields.nfields(), 2);
             assert_eq!(fields.field_name(0).unwrap(), &FieldName::from("name"));
             assert_eq!(fields.field_name(1).unwrap(), &FieldName::from("age"));
-            assert_eq!(fields.field_by_index(0).unwrap(), DType::Utf8(Nullability::Nullable));
-            assert_eq!(fields.field_by_index(1).unwrap(), DType::Primitive(PType::I32, Nullability::Nullable));
+            assert_eq!(
+                fields.field_by_index(0).unwrap(),
+                DType::Utf8(Nullability::Nullable)
+            );
+            assert_eq!(
+                fields.field_by_index(1).unwrap(),
+                DType::Primitive(PType::I32, Nullability::Nullable)
+            );
             assert_eq!(nullability, Nullability::NonNullable);
         } else {
             unreachable!("Expected Struct dtype");
@@ -207,7 +229,12 @@ mod tests {
         ];
         let result = project_and_deserialize(fb_dtype, &projection, &buffer);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Unknown field name"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Unknown field name")
+        );
     }
 
     #[test]

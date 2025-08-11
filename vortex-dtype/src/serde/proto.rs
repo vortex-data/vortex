@@ -147,13 +147,35 @@ impl From<PType> for pb::PType {
     }
 }
 
+impl TryFrom<&pb::FieldPath> for FieldPath {
+    type Error = VortexError;
+
+    fn try_from(value: &pb::FieldPath) -> Result<Self, Self::Error> {
+        let mut path = Vec::with_capacity(value.path.len());
+        for field in value.path.iter() {
+            match field
+                .field_type
+                .as_ref()
+                .ok_or_else(|| vortex_err!(InvalidSerde: "FieldPath part missing type"))?
+            {
+                FieldType::Name(name) => path.push(Field::from(name.as_str())),
+            }
+        }
+        Ok(FieldPath::from(path))
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use crate::proto::dtype::d_type::DtypeType;
     use crate::proto::dtype::field::FieldType;
-    use crate::{DType, DecimalDType, ExtDType, ExtID, ExtMetadata, Field, FieldPath, Nullability, PType, StructFields};
-    use std::sync::Arc;
+    use crate::{
+        DType, DecimalDType, ExtDType, ExtID, ExtMetadata, Field, FieldPath, Nullability, PType,
+        StructFields,
+    };
 
     fn round_trip_dtype(dtype: &DType) -> DType {
         let pb_dtype = pb::DType::from(dtype);
@@ -233,8 +255,14 @@ mod tests {
     #[test]
     fn test_list_round_trip() {
         let list_types = vec![
-            DType::List(Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)), Nullability::Nullable),
-            DType::List(Arc::new(DType::Utf8(Nullability::Nullable)), Nullability::NonNullable),
+            DType::List(
+                Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+                Nullability::Nullable,
+            ),
+            DType::List(
+                Arc::new(DType::Utf8(Nullability::Nullable)),
+                Nullability::NonNullable,
+            ),
             DType::List(
                 Arc::new(DType::List(
                     Arc::new(DType::Bool(Nullability::NonNullable)),
@@ -267,7 +295,11 @@ mod tests {
         let test_paths = vec![
             FieldPath::root(),
             FieldPath::from(vec![Field::from("field1")]),
-            FieldPath::from(vec![Field::from("field1"), Field::from("field2"), Field::from("field3")]),
+            FieldPath::from(vec![
+                Field::from("field1"),
+                Field::from("field2"),
+                Field::from("field3"),
+            ]),
         ];
 
         for path in test_paths {
@@ -280,7 +312,7 @@ mod tests {
                     })
                     .collect(),
             };
-            
+
             let converted = FieldPath::try_from(&pb_path).expect("Failed to convert FieldPath");
             assert_eq!(path, converted);
         }
@@ -289,9 +321,17 @@ mod tests {
     #[test]
     fn test_ptype_conversions() {
         let ptypes = vec![
-            PType::U8, PType::U16, PType::U32, PType::U64,
-            PType::I8, PType::I16, PType::I32, PType::I64,
-            PType::F16, PType::F32, PType::F64,
+            PType::U8,
+            PType::U16,
+            PType::U32,
+            PType::U64,
+            PType::I8,
+            PType::I16,
+            PType::I32,
+            PType::I64,
+            PType::F16,
+            PType::F32,
+            PType::F64,
         ];
 
         for ptype in ptypes {
@@ -318,13 +358,16 @@ mod tests {
 
     #[test]
     fn test_missing_dtype_type() {
-        let pb_dtype = pb::DType {
-            dtype_type: None,
-        };
+        let pb_dtype = pb::DType { dtype_type: None };
 
         let result = DType::try_from(&pb_dtype);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Unrecognized DType"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Unrecognized DType")
+        );
     }
 
     #[test]
@@ -338,7 +381,12 @@ mod tests {
 
         let result = DType::try_from(&pb_dtype);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Invalid list element type"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Invalid list element type")
+        );
     }
 
     #[test]
@@ -353,24 +401,11 @@ mod tests {
 
         let result = DType::try_from(&pb_dtype);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("storage_dtype must be provided"));
-    }
-}
-
-impl TryFrom<&pb::FieldPath> for FieldPath {
-    type Error = VortexError;
-
-    fn try_from(value: &pb::FieldPath) -> Result<Self, Self::Error> {
-        let mut path = Vec::with_capacity(value.path.len());
-        for field in value.path.iter() {
-            match field
-                .field_type
-                .as_ref()
-                .ok_or_else(|| vortex_err!(InvalidSerde: "FieldPath part missing type"))?
-            {
-                FieldType::Name(name) => path.push(Field::from(name.as_str())),
-            }
-        }
-        Ok(FieldPath::from(path))
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("storage_dtype must be provided")
+        );
     }
 }

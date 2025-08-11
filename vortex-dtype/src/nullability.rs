@@ -75,7 +75,6 @@ mod tests {
         assert_eq!(default, Nullability::NonNullable);
     }
 
-
     #[test]
     fn test_nullability_bitor() {
         use Nullability::*;
