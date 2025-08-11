@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Field mask represents a field projection, which leads to a set of field paths under a given layout.
-// TODO(ngates): this API needs work. It could be made a lot easier to use.
 
 use vortex_error::{VortexResult, vortex_bail};
 
@@ -20,6 +19,70 @@ pub enum FieldMask {
 }
 
 impl FieldMask {
+    /// Create a new FieldMask that selects all fields.
+    pub fn all() -> Self {
+        FieldMask::All
+    }
+
+    /// Create a new FieldMask that selects all fields under the given prefix.
+    /// 
+    /// # Examples
+    /// ```
+    /// use vortex_dtype::{FieldMask, FieldPath, Field};
+    /// 
+    /// // Select all fields under "user"
+    /// let mask = FieldMask::from_prefix(vec![Field::from("user")]);
+    /// ```
+    pub fn from_prefix<I: IntoIterator<Item = Field>>(fields: I) -> Self {
+        FieldMask::Prefix(FieldPath::from(fields.into_iter().collect::<Vec<_>>()))
+    }
+
+    /// Create a new FieldMask that selects exactly the field at the given path.
+    /// 
+    /// # Examples
+    /// ```
+    /// use vortex_dtype::{FieldMask, FieldPath, Field};
+    /// 
+    /// // Select exactly "user.name"
+    /// let mask = FieldMask::from_exact(vec![Field::from("user"), Field::from("name")]);
+    /// ```
+    pub fn from_exact<I: IntoIterator<Item = Field>>(fields: I) -> Self {
+        FieldMask::Exact(FieldPath::from(fields.into_iter().collect::<Vec<_>>()))
+    }
+
+    /// Create a prefix mask from a dot-separated string path.
+    /// 
+    /// # Examples
+    /// ```
+    /// use vortex_dtype::FieldMask;
+    /// 
+    /// // Select all fields under "user.profile"
+    /// let mask = FieldMask::prefix_from_str("user.profile");
+    /// ```
+    pub fn prefix_from_str(path: &str) -> Self {
+        if path.is_empty() {
+            return FieldMask::All;
+        }
+        let fields: Vec<Field> = path.split('.').map(Field::from).collect();
+        FieldMask::from_prefix(fields)
+    }
+
+    /// Create an exact mask from a dot-separated string path.
+    /// 
+    /// # Examples
+    /// ```
+    /// use vortex_dtype::FieldMask;
+    /// 
+    /// // Select exactly "user.profile.name"
+    /// let mask = FieldMask::exact_from_str("user.profile.name");
+    /// ```
+    pub fn exact_from_str(path: &str) -> Self {
+        if path.is_empty() {
+            return FieldMask::Exact(FieldPath::root());
+        }
+        let fields: Vec<Field> = path.split('.').map(Field::from).collect();
+        FieldMask::from_exact(fields)
+    }
     /// Creates a new field mask stepping one level into the layout structure.
     pub fn step_into(self) -> VortexResult<Self> {
         match self {
@@ -81,6 +144,54 @@ mod tests {
         let mask = FieldMask::All;
         assert!(mask.matches_all());
         assert!(mask.matches_root());
+        
+        // Test builder method
+        let mask2 = FieldMask::all();
+        assert_eq!(mask, mask2);
+    }
+
+    #[test]
+    fn test_field_mask_builders() {
+        // Test from_prefix
+        let mask = FieldMask::from_prefix(vec![Field::from("user")]);
+        assert!(!mask.matches_all());
+        assert!(!mask.matches_root());
+        
+        // Test from_exact
+        let mask = FieldMask::from_exact(vec![Field::from("user"), Field::from("name")]);
+        assert!(!mask.matches_all());
+        assert!(!mask.matches_root());
+    }
+
+    #[test]
+    fn test_field_mask_from_string() {
+        // Test prefix_from_str
+        let mask = FieldMask::prefix_from_str("user.profile");
+        if let FieldMask::Prefix(path) = mask {
+            assert_eq!(path.parts().len(), 2);
+            assert_eq!(path.parts()[0], Field::from("user"));
+            assert_eq!(path.parts()[1], Field::from("profile"));
+        } else {
+            panic!("Expected Prefix mask");
+        }
+        
+        // Test exact_from_str
+        let mask = FieldMask::exact_from_str("user.profile.name");
+        if let FieldMask::Exact(path) = mask {
+            assert_eq!(path.parts().len(), 3);
+            assert_eq!(path.parts()[0], Field::from("user"));
+            assert_eq!(path.parts()[1], Field::from("profile"));
+            assert_eq!(path.parts()[2], Field::from("name"));
+        } else {
+            panic!("Expected Exact mask");
+        }
+        
+        // Test empty string
+        let mask = FieldMask::prefix_from_str("");
+        assert_eq!(mask, FieldMask::All);
+        
+        let mask = FieldMask::exact_from_str("");
+        assert_eq!(mask, FieldMask::Exact(FieldPath::root()));
     }
 
     #[test]

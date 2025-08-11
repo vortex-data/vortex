@@ -4,12 +4,13 @@
 use std::fmt::{Display, Formatter};
 
 use num_traits::ToPrimitive;
-use vortex_error::{VortexError, VortexExpect, vortex_bail};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_panic};
 
 use crate::DType;
 
 const MAX_PRECISION: u8 = 76;
 const MAX_SCALE: i8 = 76;
+const MIN_SCALE: i8 = -76;
 
 /// Maximum precision for a Decimal128 type from Arrow
 pub const DECIMAL128_MAX_PRECISION: u8 = 38;
@@ -34,23 +35,44 @@ pub struct DecimalDType {
 }
 
 impl DecimalDType {
-    /// Checked constructor for a `DecimalDType`.
+    /// Fallible constructor for a `DecimalDType`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if precision exceeds MAX_PRECISION or scale is outside [MIN_SCALE, MAX_SCALE].
+    pub fn try_new(precision: u8, scale: i8) -> VortexResult<Self> {
+        if precision > MAX_PRECISION {
+            vortex_bail!(
+                "decimal precision {} exceeds MAX_PRECISION {}",
+                precision,
+                MAX_PRECISION
+            );
+        }
+
+        if scale > MAX_SCALE {
+            vortex_bail!("decimal scale {} exceeds MAX_SCALE {}", scale, MAX_SCALE);
+        }
+
+        if scale < MIN_SCALE {
+            vortex_bail!(
+                "decimal scale {} is less than MIN_SCALE {}",
+                scale,
+                MIN_SCALE
+            );
+        }
+
+        Ok(Self { precision, scale })
+    }
+
+    /// Unchecked constructor for a `DecimalDType`.
     ///
     /// # Panics
     ///
     /// Attempting to build a new instance with invalid precision or scale values will panic.
+    /// Prefer using `try_new` for fallible construction.
     pub fn new(precision: u8, scale: i8) -> Self {
-        assert!(
-            precision <= MAX_PRECISION,
-            "decimal precision {precision} exceeds MAX_PRECISION"
-        );
-
-        assert!(
-            scale <= MAX_SCALE,
-            "decimal scale {scale} exceeds MAX_SCALE"
-        );
-
-        Self { precision, scale }
+        Self::try_new(precision, scale)
+            .unwrap_or_else(|e| vortex_panic!(e, "Failed to create DecimalDType"))
     }
 
     /// The precision is the number of significant figures that the decimal tracks.
@@ -107,40 +129,78 @@ mod tests {
 
     #[test]
     fn test_decimal_valid_construction() {
-        let decimal = DecimalDType::new(10, 2);
+        let decimal = DecimalDType::try_new(10, 2).unwrap();
+        assert_eq!(decimal.precision(), 10);
+        assert_eq!(decimal.scale(), 2);
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn test_decimal_new_deprecated() {
+        let decimal = DecimalDType::try_new(10, 2).unwrap();
         assert_eq!(decimal.precision(), 10);
         assert_eq!(decimal.scale(), 2);
     }
 
     #[test]
     fn test_decimal_max_precision() {
-        let decimal = DecimalDType::new(MAX_PRECISION, 0);
+        let decimal = DecimalDType::try_new(MAX_PRECISION, 0).unwrap();
         assert_eq!(decimal.precision(), MAX_PRECISION);
     }
 
     #[test]
     fn test_decimal_max_scale() {
-        let decimal = DecimalDType::new(10, MAX_SCALE);
+        let decimal = DecimalDType::try_new(10, MAX_SCALE).unwrap();
         assert_eq!(decimal.scale(), MAX_SCALE);
     }
 
     #[test]
     fn test_decimal_negative_scale() {
         // Negative scale is valid - represents zeros before decimal point
-        let decimal = DecimalDType::new(10, -5);
+        let decimal = DecimalDType::try_new(10, -5).unwrap();
         assert_eq!(decimal.scale(), -5);
     }
 
     #[test]
-    #[should_panic(expected = "decimal precision 77 exceeds MAX_PRECISION")]
     fn test_decimal_exceeds_max_precision() {
-        DecimalDType::new(MAX_PRECISION + 1, 0);
+        let result = DecimalDType::try_new(MAX_PRECISION + 1, 0);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("exceeds MAX_PRECISION")
+        );
     }
 
     #[test]
-    #[should_panic(expected = "decimal scale 77 exceeds MAX_SCALE")]
     fn test_decimal_exceeds_max_scale() {
-        DecimalDType::new(10, MAX_SCALE + 1);
+        let result = DecimalDType::try_new(10, MAX_SCALE + 1);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("exceeds MAX_SCALE")
+        );
+    }
+
+    #[test]
+    fn test_decimal_min_scale() {
+        let decimal = DecimalDType::try_new(10, MIN_SCALE).unwrap();
+        assert_eq!(decimal.scale(), MIN_SCALE);
+    }
+
+    #[test]
+    fn test_decimal_below_min_scale() {
+        let result = DecimalDType::try_new(10, MIN_SCALE - 1);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("less than MIN_SCALE")
+        );
     }
 
     #[test]
@@ -185,10 +245,9 @@ mod tests {
         assert!(bits > 0 && bits <= 256);
     }
 
-
     #[test]
     fn test_try_from_dtype() {
-        let decimal = DecimalDType::new(10, 2);
+        let decimal = DecimalDType::try_new(10, 2).unwrap();
         let dtype = DType::Decimal(decimal, Nullability::NonNullable);
 
         let converted = DecimalDType::try_from(&dtype).unwrap();
@@ -198,7 +257,7 @@ mod tests {
 
     #[test]
     fn test_try_from_dtype_owned() {
-        let decimal = DecimalDType::new(10, 2);
+        let decimal = DecimalDType::try_new(10, 2).unwrap();
         let dtype = DType::Decimal(decimal, Nullability::Nullable);
 
         let converted = DecimalDType::try_from(dtype).unwrap();
