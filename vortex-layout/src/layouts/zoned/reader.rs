@@ -156,14 +156,19 @@ impl ZonedReader {
 
     /// Get the range of zone IDs containing a row range.
     pub(crate) fn zone_range(&self, row_range: &Range<u64>) -> Range<u64> {
-        let zone_start = row_range.start / self.layout.zone_len as u64;
-        let zone_end = row_range.end.div_ceil(self.layout.zone_len as u64);
+        // Zone length is guaranteed to be > 0 by ZonedLayout::new validation
+        debug_assert!(self.layout.zone_len > 0, "zone_len must be > 0");
+        let zone_len_u64 = self.layout.zone_len as u64;
+        let zone_start = row_range.start / zone_len_u64;
+        let zone_end = row_range.end.div_ceil(zone_len_u64);
         zone_start..zone_end
     }
 
     /// Get the row index for the first row in a zone with the given `zone_index`.
     pub(crate) fn first_row_offset(&self, zone_idx: u64) -> u64 {
-        (zone_idx * self.layout.zone_len as u64).min(self.layout.row_count())
+        zone_idx
+            .saturating_mul(self.layout.zone_len as u64)
+            .min(self.layout.row_count())
     }
 }
 
@@ -328,9 +333,12 @@ impl PruningResult {
         // Compute the latest version of the dynamic expression values.
         let version = dynamic_updates.version();
 
-        if self.latest_result.read().0 >= version {
-            // We're up to date, so we can return the cached result.
-            return Ok(self.latest_result.read().1.clone());
+        {
+            let read_guard = self.latest_result.read();
+            if read_guard.0 >= version {
+                // We're up to date, so we can return the cached result.
+                return Ok(read_guard.1.clone());
+            }
         }
 
         // Otherwise, we re-compute the mask for the given version number.
