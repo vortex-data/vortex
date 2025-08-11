@@ -17,6 +17,7 @@ use noodles_vcf::record::Info;
 use noodles_vcf::variant::record::info::field::Value;
 use noodles_vcf::{Header, Record};
 use std::sync::Arc;
+use vortex::error::VortexExpect as _;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::utils::aliases::hash_map::HashMap;
@@ -200,7 +201,7 @@ impl<'a> GnomADBuilder<'a> {
                 for (name, value) in iter {
                     self.info_builder
                         .get_mut(name)
-                        .expect("key must exist")
+                        .vortex_expect("key must exist")
                         .push(value)?;
                 }
 
@@ -232,38 +233,43 @@ impl<'a> GnomADBuilder<'a> {
         assert_eq!(len, self.PL_builder.len());
         assert_eq!(len, self.SB_builder.len());
 
+        let variant_fields = [
+            Arc::new(self.CHROM_builder.finish()) as ArrayRef,
+            Arc::new(self.POS_builder.finish()),
+            Arc::new(self.ID_builder.finish()),
+            Arc::new(self.REF_builder.finish()),
+            Arc::new(self.ALT_builder.finish()),
+            Arc::new(self.QUAL_builder.finish()),
+            Arc::new(self.FILTER_builder.finish()),
+        ];
+        let format_fields = [
+            Arc::new(self.GT_builder.finish()) as ArrayRef,
+            Arc::new(self.GQ_builder.finish()),
+            Arc::new(self.DP_builder.finish()),
+            Arc::new(self.AD_builder.finish()),
+            Arc::new(self.MIN_DP_builder.finish()),
+            Arc::new(self.PGT_builder.finish()),
+            Arc::new(self.PID_builder.finish()),
+            Arc::new(self.PL_builder.finish()),
+            Arc::new(self.SB_builder.finish()),
+        ];
+        let info_fields = SCHEMA.fields()
+            [variant_fields.len()..(SCHEMA.fields().len() - format_fields.len())]
+            .iter()
+            .map(|field| {
+                self.info_builder
+                    .remove(field.name().as_str())
+                    .vortex_expect("field must exist")
+                    .finish()
+            });
+
         RecordBatch::try_new(
             SCHEMA.clone(),
-            [
-                Arc::new(self.CHROM_builder.finish()) as ArrayRef,
-                Arc::new(self.POS_builder.finish()),
-                Arc::new(self.ID_builder.finish()),
-                Arc::new(self.REF_builder.finish()),
-                Arc::new(self.ALT_builder.finish()),
-                Arc::new(self.QUAL_builder.finish()),
-                Arc::new(self.FILTER_builder.finish()),
-            ]
-            .into_iter()
-            .chain(
-                self.info_builder
-                    .into_iter()
-                    .map(|(_, builder)| builder.finish()),
-            )
-            .chain(
-                [
-                    Arc::new(self.GT_builder.finish()) as ArrayRef,
-                    Arc::new(self.GQ_builder.finish()),
-                    Arc::new(self.DP_builder.finish()),
-                    Arc::new(self.AD_builder.finish()),
-                    Arc::new(self.MIN_DP_builder.finish()),
-                    Arc::new(self.PGT_builder.finish()),
-                    Arc::new(self.PID_builder.finish()),
-                    Arc::new(self.PL_builder.finish()),
-                    Arc::new(self.SB_builder.finish()),
-                ]
-                .into_iter(),
-            )
-            .collect(),
+            variant_fields
+                .into_iter()
+                .chain(info_fields)
+                .chain(format_fields)
+                .collect(),
         )
     }
 }
