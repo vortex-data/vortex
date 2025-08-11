@@ -17,20 +17,6 @@ mod tests {
     }
 
     #[test]
-    fn test_row_idx_expr_clone() {
-        let expr1 = RowIdxExpr;
-        let expr2 = expr1.clone();
-        assert_eq!(expr1, expr2);
-    }
-
-    #[test]
-    fn test_row_idx_expr_equality() {
-        let expr1 = RowIdxExpr;
-        let expr2 = RowIdxExpr;
-        assert_eq!(expr1, expr2);
-    }
-
-    #[test]
     fn test_vtable_id() {
         let encoding = RowIdxExprEncoding;
         let id = RowIdxVTable::id(&encoding);

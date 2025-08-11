@@ -5,7 +5,7 @@ mod events;
 mod sink;
 mod source;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-harness"))]
 mod test;
 
 use std::fmt::Display;
@@ -14,7 +14,7 @@ use std::ops::Deref;
 pub use events::*;
 pub use sink::*;
 pub use source::*;
-#[cfg("test-harness")]
+#[cfg(any(test, feature = "test-harness"))]
 pub use test::*;
 use vortex_error::VortexError;
 

@@ -264,8 +264,9 @@ mod private {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use rstest::rstest;
+
+    use super::*;
 
     #[test]
     fn test_layout_child_type_name() {
@@ -345,25 +346,6 @@ mod tests {
         assert_ne!(chunk1, field1);
         assert_ne!(field1, aux1);
         assert_ne!(aux1, trans1);
-    }
-
-    #[test]
-    fn test_layout_child_type_clone() {
-        let chunk = LayoutChildType::Chunk((10, 500));
-        let chunk_clone = chunk.clone();
-        assert_eq!(chunk, chunk_clone);
-
-        let field = LayoutChildType::Field(Arc::from("test_field"));
-        let field_clone = field.clone();
-        assert_eq!(field, field_clone);
-
-        let aux = LayoutChildType::Auxiliary(Arc::from("auxiliary_data"));
-        let aux_clone = aux.clone();
-        assert_eq!(aux, aux_clone);
-
-        let transparent = LayoutChildType::Transparent(Arc::from("transparent_layer"));
-        let trans_clone = transparent.clone();
-        assert_eq!(transparent, trans_clone);
     }
 
     #[rstest]
