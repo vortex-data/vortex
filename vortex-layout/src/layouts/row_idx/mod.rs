@@ -9,13 +9,12 @@ use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
 use crate::layouts::partitioned::{PartitionedArrayEvaluation, PartitionedMaskEvaluation};
-use crate::segments::SegmentId;
+use crate::segments::{SegmentId, Segments};
 use crate::{
     ArrayEvaluation, LayoutReader, MaskEvaluation, NoOpMaskEvaluation, NoOpPruningEvaluation,
     PruningEvaluation,
 };
 use Nullability::NonNullable;
-use async_trait::async_trait;
 use dashmap::DashMap;
 pub use expr::*;
 use vortex_array::compute::filter;
@@ -43,6 +42,7 @@ impl RowIdxLayoutReader {
     pub fn new(row_offset: u64, child: Arc<dyn LayoutReader>) -> Self {
         Self {
             name: child.name().clone(),
+
             row_offset,
             child,
             partition_cache: DashMap::new(),
@@ -237,9 +237,8 @@ impl RowIdxEvaluation {
     }
 }
 
-#[async_trait]
 impl PruningEvaluation for RowIdxEvaluation {
-    async fn invoke(&self, _mask: Mask) -> VortexResult<Mask> {
+    fn invoke(&self, _mask: Mask, _segments: &dyn Segments) -> VortexResult<Mask> {
         // TODO(ngates): we could optimize this if the mask was already quite sparse.
         Mask::try_from(
             self.expr
@@ -251,9 +250,8 @@ impl PruningEvaluation for RowIdxEvaluation {
     fn required_segments(&self, _segments: &mut HashSet<SegmentId>) {}
 }
 
-#[async_trait]
 impl MaskEvaluation for RowIdxEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+    fn invoke(&self, mask: Mask, _segments: &dyn Segments) -> VortexResult<Mask> {
         // TODO(ngates): we could optimize this if the mask was already quite sparse.
         let result = Mask::try_from(
             self.expr
@@ -265,14 +263,17 @@ impl MaskEvaluation for RowIdxEvaluation {
         // pruning evaluation does not.
         Ok(result.bitand(&mask))
     }
+
+    fn required_segments(&self, _segments: &mut HashSet<SegmentId>) {}
 }
 
-#[async_trait]
 impl ArrayEvaluation for RowIdxEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
+    fn invoke(&self, mask: Mask, _segments: &dyn Segments) -> VortexResult<ArrayRef> {
         let array = filter(&self.array, &mask)?;
         self.expr.evaluate(&Scope::new(array))
     }
+
+    fn required_segments(&self, _segments: &mut HashSet<SegmentId>) {}
 }
 
 #[cfg(test)]

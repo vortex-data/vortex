@@ -85,7 +85,10 @@ impl VortexFile {
 
     /// Initiate a scan of the file, returning a builder for configuring the scan.
     pub fn scan(&self) -> VortexResult<ScanBuilder<ArrayRef>> {
-        Ok(ScanBuilder::new(self.layout_reader()?).with_metrics(self.metrics.clone()))
+        Ok(
+            ScanBuilder::new(self.layout_reader()?, self.segment_source.clone())
+                .with_metrics(self.metrics.clone()),
+        )
     }
 
     /// Returns true if the expression will never match any rows in the file.

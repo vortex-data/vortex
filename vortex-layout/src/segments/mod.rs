@@ -6,7 +6,6 @@ mod sink;
 mod source;
 mod test;
 
-use dashmap::DashMap;
 pub use events::*;
 pub use sink::*;
 pub use source::*;
@@ -15,6 +14,7 @@ use std::ops::Deref;
 pub use test::*;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexError, VortexExpect};
+use vortex_utils::aliases::hash_map::HashMap;
 
 /// The identifier for a single segment.
 // TODO(ngates): should this be a `[u8]` instead? Allowing for arbitrary segment identifiers?
@@ -54,9 +54,9 @@ pub trait Segments: Send + Sync {
     fn get(&self, segment_id: SegmentId) -> ByteBuffer;
 }
 
-impl Segments for DashMap<SegmentId, ByteBuffer> {
+impl Segments for HashMap<SegmentId, ByteBuffer> {
     fn get(&self, segment_id: SegmentId) -> ByteBuffer {
-        DashMap::get(self, &segment_id)
+        HashMap::get(self, &segment_id)
             .vortex_expect("Segment not found")
             .clone()
     }

@@ -20,6 +20,7 @@ use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExprRef, root};
 use vortex_layout::layouts::row_idx::RowIdxLayoutReader;
+use vortex_layout::segments::SegmentSource;
 use vortex_layout::{LayoutReader, LayoutReaderRef};
 pub use vortex_layout::{TaskExecutor, TaskExecutorExt};
 use vortex_metrics::VortexMetrics;
@@ -43,6 +44,7 @@ mod work_stealing_iter;
 /// A struct for building a scan operation.
 pub struct ScanBuilder<A> {
     layout_reader: LayoutReaderRef,
+    segment_source: Arc<dyn SegmentSource>,
     projection: ExprRef,
     filter: Option<ExprRef>,
     /// Optionally read a subset of the rows in the file.
@@ -138,6 +140,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
         let old_map_fn = self.map_fn;
         ScanBuilder {
             layout_reader: self.layout_reader,
+            segment_source: self.segment_source,
             projection: self.projection,
             filter: self.filter,
             row_range: self.row_range,
@@ -187,6 +190,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
         let splits = self.split_by.splits(layout_reader.as_ref(), &field_mask)?;
 
         let ctx = Arc::new(TaskContext {
+            segment_source: self.segment_source,
             row_range: self.row_range,
             selection: self.selection,
             filter: filter.map(|f| Arc::new(FilterExpr::new(f))),
@@ -239,9 +243,13 @@ impl<A: 'static + Send> ScanBuilder<A> {
 }
 
 impl ScanBuilder<ArrayRef> {
-    pub fn new(layout_reader: Arc<dyn LayoutReader>) -> Self {
+    pub fn new(
+        layout_reader: Arc<dyn LayoutReader>,
+        segment_source: Arc<dyn SegmentSource>,
+    ) -> Self {
         Self {
             layout_reader,
+            segment_source,
             projection: root(),
             filter: None,
             row_range: None,

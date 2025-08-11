@@ -3,9 +3,8 @@
 
 //! A collection of built-in layouts for Vortex
 
-use futures::future::{BoxFuture, Shared};
+use crate::LazyWithSegments;
 use vortex_array::ArrayRef;
-use vortex_error::SharedVortexResult;
 
 pub mod buffered;
 pub mod chunked;
@@ -21,4 +20,4 @@ pub mod row_idx;
 pub mod struct_;
 pub mod zoned;
 
-type SharedArrayFuture = Shared<BoxFuture<'static, SharedVortexResult<ArrayRef>>>;
+type SharedArray = LazyWithSegments<ArrayRef>;

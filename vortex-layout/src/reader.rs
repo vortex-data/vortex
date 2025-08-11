@@ -10,11 +10,11 @@ use crate::segments::{SegmentId, SegmentSource, Segments};
 use futures::FutureExt;
 use futures::future::{BoxFuture, Shared};
 use once_cell::sync::OnceCell;
-use parking_lot::Mutex;
+use parking_lot::RwLock;
 use vortex_array::ArrayRef;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask};
-use vortex_error::{SharedVortexResult, VortexError, VortexResult, vortex_bail};
+use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult, vortex_bail};
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_set::HashSet;
@@ -124,55 +124,71 @@ pub trait ArrayEvaluation: 'static + Send + Sync {
 
 /// Provides semantics equivalent to `LazyLock`, except where segments are bound late.
 #[derive(Clone)]
-pub struct LazyWithSegments<T> {
-    cell: OnceCell<T>,
-    ctor: Arc<Mutex<Option<Box<dyn FnOnce(&dyn Segments) -> VortexResult<T> + Send>>>>,
+pub struct LazyWithSegments<T>(Arc<RwLock<LazyWithSegmentsInner<T>>>);
+
+struct LazyWithSegmentsInner<T> {
+    result: Option<SharedVortexResult<T>>,
+    ctor: Option<Box<dyn FnOnce(&dyn Segments) -> VortexResult<T> + Send + Sync>>,
     required_segments: HashSet<SegmentId>,
 }
 
-impl<T> LazyWithSegments<T> {
-    pub fn new(ctor: impl FnOnce(&dyn Segments) -> VortexResult<T> + Send + 'static) -> Self {
-        Self {
-            cell: OnceCell::new(),
-            ctor: Arc::new(Mutex::new(Some(Box::new(ctor)))),
-            required_segments: Default::default(),
-        }
-    }
-
-    pub fn with_required_segments(
-        mut self,
-        segment_ids: impl IntoIterator<Item = SegmentId>,
+impl<T: Send + Clone> LazyWithSegments<T> {
+    pub fn new(
+        ctor: impl FnOnce(&dyn Segments) -> VortexResult<T> + Send + Sync + 'static,
     ) -> Self {
-        self.required_segments.extend(segment_ids.into_iter());
+        Self(Arc::new(RwLock::new(LazyWithSegmentsInner {
+            result: None,
+            ctor: Some(Box::new(ctor)),
+            required_segments: Default::default(),
+        })))
+    }
+
+    pub fn with_required_segments(self, segment_ids: impl IntoIterator<Item = SegmentId>) -> Self {
+        self.0
+            .write()
+            .required_segments
+            .extend(segment_ids.into_iter());
         self
     }
 
-    pub fn with_lazy_required_segments<R>(mut self, lazy: &LazyWithSegments<R>) -> Self {
-        self.required_segments
-            .extend(lazy.required_segments.iter().cloned());
+    pub fn with_lazy_required_segments<R>(self, lazy: &LazyWithSegments<R>) -> Self {
+        self.0
+            .write()
+            .required_segments
+            .extend(lazy.0.read().required_segments.iter().cloned());
         self
     }
 
-    pub fn with_array_evaluation_segments(mut self, eval: &dyn ArrayEvaluation) -> Self {
-        eval.required_segments(&mut self.required_segments);
+    pub fn with_array_evaluation_segments(self, eval: &dyn ArrayEvaluation) -> Self {
+        eval.required_segments(&mut self.0.write().required_segments);
         self
     }
 
-    pub fn with_mask_evaluation_segments(mut self, eval: &dyn MaskEvaluation) -> Self {
-        eval.required_segments(&mut self.required_segments);
+    pub fn with_mask_evaluation_segments(self, eval: &dyn MaskEvaluation) -> Self {
+        eval.required_segments(&mut self.0.write().required_segments);
         self
     }
 
-    pub fn get(&self, segments: &dyn Segments) -> VortexResult<&T> {
-        self.cell.get_or_try_init(|| {
-            let mut ctor_guard = self.ctor.lock();
-            let ctor = ctor_guard.take().expect("Constructor already consumed");
-            ctor(segments)
-        })
+    pub fn get(&self, segments: &dyn Segments) -> SharedVortexResult<T> {
+        {
+            let read = self.0.read();
+            if let Some(result) = &read.result {
+                return result.clone();
+            }
+        }
+
+        let mut write = self.0.write();
+        if let Some(result) = &write.result {
+            return result.clone();
+        }
+
+        let ctor = write.ctor.take().expect("Constructor already consumed");
+        write.result = Some(ctor(segments).map_err(Arc::new));
+        write.result.as_ref().cloned().vortex_expect("infallible")
     }
 
     pub fn required_segments(&self, segments: &mut HashSet<SegmentId>) {
-        segments.extend(self.required_segments.iter().cloned());
+        segments.extend(self.0.read().required_segments.iter().cloned());
     }
 }
 

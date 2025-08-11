@@ -11,10 +11,6 @@ use crate::segments::{SegmentId, SegmentSource, Segments};
 use crate::{
     ArrayEvaluation, LayoutReaderRef, LazyReaderChildren, MaskEvaluation, PruningEvaluation,
 };
-use async_trait::async_trait;
-use futures::future::ready;
-use futures::stream::FuturesOrdered;
-use futures::{FutureExt, TryStreamExt};
 use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::arrays::ChunkedArray;
@@ -48,7 +44,8 @@ impl ChunkedReader {
         }
         chunk_offsets.push(layout.row_count());
 
-        let lazy_children = LazyReaderChildren::new(layout.children.clone(), segment_source);
+        let lazy_children =
+            LazyReaderChildren::new(layout.children.clone(), segment_source.clone());
 
         Self {
             layout,
@@ -264,9 +261,8 @@ struct ChunkedMaskEvaluation {
     mask_ranges: Vec<Range<usize>>,
 }
 
-#[async_trait]
 impl MaskEvaluation for ChunkedMaskEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+    fn invoke(&self, mask: Mask, segments: &dyn Segments) -> VortexResult<Mask> {
         log::debug!(
             "Chunked mask evaluation {} (mask = {})",
             self.name,
@@ -274,22 +270,20 @@ impl MaskEvaluation for ChunkedMaskEvaluation {
         );
 
         // Split the mask over each chunk.
-        let masks: Vec<_> = FuturesOrdered::from_iter(
-            self.mask_ranges
-                .iter()
-                .map(|range| mask.slice(range.start, range.end - range.start))
-                .zip_eq(&self.chunk_evals)
-                .map(|(mask, chunk_eval)| {
-                    if mask.all_false() {
-                        // If the mask is all false, we can skip the evaluation.
-                        ready(Ok(mask)).boxed()
-                    } else {
-                        chunk_eval.invoke(mask).boxed()
-                    }
-                }),
-        )
-        .try_collect()
-        .await?;
+        let masks: Vec<_> = self
+            .mask_ranges
+            .iter()
+            .map(|range| mask.slice(range.start, range.end - range.start))
+            .zip_eq(&self.chunk_evals)
+            .map(|(mask, chunk_eval)| {
+                if mask.all_false() {
+                    // If the mask is all false, we can skip the evaluation.
+                    Ok(mask)
+                } else {
+                    chunk_eval.invoke(mask, segments)
+                }
+            })
+            .try_collect()?;
 
         // If there is only one mask, we can return it directly.
         if masks.len() == 1 {
@@ -299,6 +293,12 @@ impl MaskEvaluation for ChunkedMaskEvaluation {
         // Combine the masks.
         Ok(Mask::from_iter(masks))
     }
+
+    fn required_segments(&self, segments: &mut HashSet<SegmentId>) {
+        for chunk_eval in &self.chunk_evals {
+            chunk_eval.required_segments(segments);
+        }
+    }
 }
 
 struct ChunkedArrayEvaluation {
@@ -307,20 +307,17 @@ struct ChunkedArrayEvaluation {
     mask_ranges: Vec<Range<usize>>,
 }
 
-#[async_trait]
 impl ArrayEvaluation for ChunkedArrayEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
+    fn invoke(&self, mask: Mask, segments: &dyn Segments) -> VortexResult<ArrayRef> {
         // Split the mask over each chunk.
-        let chunks: Vec<_> = FuturesOrdered::from_iter(
-            self.mask_ranges
-                .iter()
-                .map(|range| mask.slice(range.start, range.end - range.start))
-                .zip_eq(&self.chunk_evals)
-                .filter(|(mask, _chunk_eval)| mask.true_count() > 0)
-                .map(|(mask, chunk_eval)| chunk_eval.invoke(mask)),
-        )
-        .try_collect()
-        .await?;
+        let chunks: Vec<_> = self
+            .mask_ranges
+            .iter()
+            .map(|range| mask.slice(range.start, range.end - range.start))
+            .zip_eq(&self.chunk_evals)
+            .filter(|(mask, _chunk_eval)| mask.true_count() > 0)
+            .map(|(mask, chunk_eval)| chunk_eval.invoke(mask, segments))
+            .try_collect()?;
 
         // If there is only one chunk, we can return it directly.
         if chunks.len() == 1 {
@@ -329,6 +326,12 @@ impl ArrayEvaluation for ChunkedArrayEvaluation {
 
         // Combine the arrays.
         Ok(ChunkedArray::try_new(chunks, self.dtype.clone())?.to_array())
+    }
+
+    fn required_segments(&self, segments: &mut HashSet<SegmentId>) {
+        for chunk_eval in &self.chunk_evals {
+            chunk_eval.required_segments(segments);
+        }
     }
 }
 

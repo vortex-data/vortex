@@ -6983,6 +6983,7 @@ dependencies = [
  "vortex-layout",
  "vortex-mask",
  "vortex-metrics",
+ "vortex-utils",
 ]
 
 [[package]]

@@ -11,13 +11,12 @@ use crate::segments::{SegmentId, SegmentSource, Segments};
 use crate::{ArrayEvaluation, LayoutReader, LazyWithSegments, MaskEvaluation, PruningEvaluation};
 use arrow_buffer::BooleanBufferBuilder;
 use dashmap::DashMap;
-use futures::future::{Lazy, Shared};
 use itertools::Itertools;
 use parking_lot::RwLock;
 use vortex_array::ToCanonical;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask, FieldPath, FieldPathSet};
-use vortex_error::{VortexError, VortexExpect, VortexResult};
+use vortex_error::{VortexError, VortexResult};
 use vortex_expr::dynamic::DynamicExprUpdates;
 use vortex_expr::pruning::checked_pruning_expr;
 use vortex_expr::{ExprRef, root};
@@ -59,7 +58,7 @@ impl ZonedReader {
         // The evaluation object of the zone map.
         let zones_eval = layout
             .zones
-            .new_reader(format!("{name}.zones").into(), segment_source)?
+            .new_reader(format!("{name}.zones").into(), segment_source.clone())?
             .projection_evaluation(&(0..layout.nzones() as u64), &root())?;
         let mut zones_segments = HashSet::default();
         zones_eval.required_segments(&mut zones_segments);
@@ -286,6 +285,7 @@ impl PruningEvaluation for ZoneMapPruningEvaluation {
 
     fn required_segments(&self, segments: &mut HashSet<SegmentId>) {
         self.data_eval.required_segments(segments);
+        self.shared_pruning_result.required_segments(segments);
     }
 }
 

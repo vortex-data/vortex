@@ -6,18 +6,20 @@
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
+use crate::Selection;
+use crate::filter::FilterExpr;
 use bit_vec::BitVec;
 use futures::FutureExt;
-use futures::future::{BoxFuture, ok};
+use futures::future::{BoxFuture, ok, try_join_all};
 use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_error::{VortexError, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_layout::LayoutReader;
+use vortex_layout::segments::SegmentSource;
 use vortex_mask::Mask;
-
-use crate::Selection;
-use crate::filter::FilterExpr;
+use vortex_utils::aliases::hash_map::HashMap;
+use vortex_utils::aliases::hash_set::HashSet;
 
 pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 
@@ -88,6 +90,10 @@ pub(super) fn split_exec<A: 'static + Send>(
                 .iter()
                 .map(|expr| ctx.reader.pruning_evaluation(&row_range, expr))
                 .try_collect()?;
+            let mut pruning_segment_ids = HashSet::new();
+            pruning_conjuncts
+                .iter()
+                .for_each(|eval| eval.required_segments(&mut pruning_segment_ids));
 
             // And one projection task per conjunct.
             let conjuncts: Vec<_> = filter
@@ -95,12 +101,34 @@ pub(super) fn split_exec<A: 'static + Send>(
                 .iter()
                 .map(|expr| ctx.reader.filter_evaluation(&row_range, expr))
                 .try_collect()?;
+            let conjunct_segment_ids = conjuncts
+                .iter()
+                .map(|eval| {
+                    let mut segments = HashSet::new();
+                    eval.required_segments(&mut segments);
+                    segments
+                })
+                .collect::<Vec<_>>();
 
             let filter = filter.clone();
 
+            let src = ctx.segment_source.clone();
             async move {
                 let mut mask = row_mask;
                 let mut dynamic_versions = vec![None; filter.conjuncts().len()];
+
+                // First, we fetch all the pruning segments.
+                let src2 = src.clone();
+                let pruning_segments = HashMap::from_iter(
+                    try_join_all(pruning_segment_ids.iter().map(move |id| {
+                        let src = src2.clone();
+                        async move {
+                            let segment = src.request(*id).await?;
+                            Ok::<_, VortexError>((*id, segment))
+                        }
+                    }))
+                    .await?,
+                );
 
                 // TODO(ngates): we could use FuturedUnordered to intersect the masks in parallel.
                 for (idx, conjunct) in pruning_conjuncts.iter().enumerate() {
@@ -112,7 +140,7 @@ pub(super) fn split_exec<A: 'static + Send>(
                     // We will re-run the pruning later if the version has changed in the meantime.
                     dynamic_versions[idx] = filter.dynamic_updates(idx).map(|du| du.version());
 
-                    let conjunct_mask = conjunct.invoke(mask.clone()).await?;
+                    let conjunct_mask = conjunct.invoke(mask.clone(), &pruning_segments)?;
                     mask = mask.bitand(&conjunct_mask);
                 }
 
@@ -131,7 +159,8 @@ pub(super) fn split_exec<A: 'static + Send>(
                     {
                         // The dynamic expression has been updated, re-run the pruning.
                         dynamic_versions[idx] = Some(dv);
-                        let conjunct_mask = pruning_conjuncts[idx].invoke(mask.clone()).await?;
+                        let conjunct_mask =
+                            pruning_conjuncts[idx].invoke(mask.clone(), &pruning_segments)?;
                         mask = mask.bitand(&conjunct_mask);
                     }
 
@@ -139,7 +168,20 @@ pub(super) fn split_exec<A: 'static + Send>(
                         return Ok(mask);
                     }
 
-                    let conjunct_mask = conjuncts[idx].invoke(mask.clone()).await?;
+                    // Wait for all the segments to be ready before evaluating the conjunct.
+                    let src2 = src.clone();
+                    let conjunct_segments = HashMap::from_iter(
+                        try_join_all(conjunct_segment_ids[idx].iter().map(move |id| {
+                            let src = src2.clone();
+                            async move {
+                                let segment = src.request(*id).await?;
+                                Ok::<_, VortexError>((*id, segment))
+                            }
+                        }))
+                        .await?,
+                    );
+
+                    let conjunct_mask = conjuncts[idx].invoke(mask.clone(), &conjunct_segments)?;
 
                     // TODO(ngates): what selectivity should we report?
                     let selectivity = conjunct_mask.true_count() as f64 / mask.len() as f64;
@@ -161,9 +203,26 @@ pub(super) fn split_exec<A: 'static + Send>(
         .reader
         .projection_evaluation(&row_range, &ctx.projection)?;
     let mapper = ctx.mapper.clone();
+
+    let mut pruning_segment_ids = HashSet::new();
+    exec.required_segments(&mut pruning_segment_ids);
+
     let array_fut = async move {
         let filtered_mask = filter.await?;
-        let array_ref = exec.invoke(filtered_mask).await?;
+
+        let src = ctx.segment_source.clone();
+        let pruning_segments = HashMap::from_iter(
+            try_join_all(pruning_segment_ids.iter().map(move |id| {
+                let src = src.clone();
+                async move {
+                    let segment = src.request(*id).await?;
+                    Ok::<_, VortexError>((*id, segment))
+                }
+            }))
+            .await?,
+        );
+
+        let array_ref = exec.invoke(filtered_mask, &pruning_segments)?;
         mapper(array_ref).map(Some)
     };
 
@@ -172,6 +231,7 @@ pub(super) fn split_exec<A: 'static + Send>(
 
 /// Information needed to execute a single split task.
 pub(super) struct TaskContext<A> {
+    pub(super) segment_source: Arc<dyn SegmentSource>,
     /// A caller-provided range of the file to read. All tasks should intersect their reads
     /// with this range to ensure that they are split as well.
     pub(super) row_range: Option<Range<u64>>,

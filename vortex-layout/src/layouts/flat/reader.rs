@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
+use crate::layouts::SharedArray;
 use crate::layouts::flat::FlatLayout;
 use crate::segments::{SegmentId, SegmentSource, Segments};
 use crate::{
@@ -28,12 +29,9 @@ use vortex_utils::aliases::hash_set::HashSet;
 //  actual expression? Perhaps all expressions are given a selection mask to decide for themselves?
 const EXPR_EVAL_THRESHOLD: f64 = 0.2;
 
-type SharedArray = LazyWithSegments<ArrayRef>;
-
 pub struct FlatReader {
     layout: FlatLayout,
     name: Arc<str>,
-    segment_source: Arc<dyn SegmentSource>,
     shared_array: SharedArray,
 }
 
@@ -41,7 +39,7 @@ impl FlatReader {
     pub(crate) fn new(
         layout: FlatLayout,
         name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
+        _segment_source: Arc<dyn SegmentSource>,
     ) -> Self {
         let ctx = layout.ctx.clone();
         let dtype = layout.dtype().clone();
@@ -57,7 +55,6 @@ impl FlatReader {
         Self {
             layout,
             name,
-            segment_source,
             shared_array,
         }
     }

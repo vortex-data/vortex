@@ -24,6 +24,7 @@ vortex-expr = { workspace = true }
 vortex-layout = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
+vortex-utils = { workspace = true }
 
 bit-vec = { workspace = true }
 crossbeam-deque = { workspace = true }

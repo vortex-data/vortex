@@ -3,41 +3,36 @@
 
 use std::collections::BTreeSet;
 use std::ops::{BitAnd, Range};
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
-use async_trait::async_trait;
+use super::DictLayout;
+use crate::layouts::SharedArray;
+use crate::segments::{SegmentId, SegmentSource, Segments};
+use crate::{
+    ArrayEvaluation, LayoutReader, LayoutReaderRef, LazyWithSegments, MaskEvaluation,
+    NoOpPruningEvaluation, PruningEvaluation,
+};
 use dashmap::DashMap;
-use futures::{FutureExt, join};
 use vortex_array::ArrayRef;
 use vortex_array::compute::{MinMaxResult, filter, min_max};
 use vortex_array::stats::Precision;
 use vortex_dict::DictArray;
 use vortex_dtype::{DType, FieldMask};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexResult;
 use vortex_expr::{ExprRef, Scope, root};
 use vortex_mask::Mask;
-
-use super::DictLayout;
-use crate::layouts::SharedArrayFuture;
-use crate::segments::SegmentSource;
-use crate::{
-    ArrayEvaluation, LayoutReader, LayoutReaderRef, MaskEvaluation, NoOpPruningEvaluation,
-    PruningEvaluation,
-};
+use vortex_utils::aliases::hash_set::HashSet;
 
 pub struct DictReader {
     layout: DictLayout,
     #[allow(dead_code)] // Typically used for logging
     name: Arc<str>,
 
-    /// Length of the values array
-    values_len: usize,
     /// Cached dict values array
-    values_array: OnceLock<SharedArrayFuture>,
+    values_array: SharedArray,
     /// Cache of expression evaluation results on the values array by expression
-    values_evals: DashMap<ExprRef, SharedArrayFuture>,
+    values_evals: DashMap<ExprRef, SharedArray>,
 
-    values: LayoutReaderRef,
     codes: LayoutReaderRef,
 }
 
@@ -48,54 +43,42 @@ impl DictReader {
         segment_source: Arc<dyn SegmentSource>,
     ) -> VortexResult<Self> {
         let values_len = usize::try_from(layout.values.row_count())?;
+        let codes = layout
+            .codes
+            .new_reader(format!("{name}.codes").into(), segment_source.clone())?;
+
         let values = layout
             .values
             .new_reader(format!("{name}.values").into(), segment_source.clone())?;
-        let codes = layout
-            .codes
-            .new_reader(format!("{name}.codes").into(), segment_source)?;
+
+        let values_eval = values.projection_evaluation(&(0..values_len as u64), &root())?;
+        let mut values_segments = HashSet::default();
+        values_eval.required_segments(&mut values_segments);
+
+        let values_array = LazyWithSegments::new(move |segments| {
+            values_eval.invoke(Mask::new_true(values_len), segments)
+        })
+        .with_required_segments(values_segments);
 
         Ok(Self {
             layout,
             name,
-            values_len,
-            values_array: Default::default(),
+            values_array,
             values_evals: Default::default(),
-            values,
             codes,
         })
     }
 
-    fn values_array(&self) -> SharedArrayFuture {
-        // We capture the name, so it may be wrong if we re-use the same reader within multiple
-        // different parent readers. But that's rare...
-        let values_len = self.values_len;
-        self.values_array
-            .get_or_init(move || {
-                let eval = self
-                    .values
-                    .projection_evaluation(&(0..values_len as u64), &root())
-                    .vortex_expect("must construct dict values array evaluation");
-
-                async move {
-                    eval.invoke(Mask::new_true(values_len))
-                        .await
-                        .map_err(Arc::new)
-                }
-                .boxed()
-                .shared()
-            })
-            .clone()
-    }
-
-    fn values_eval(&self, expr: ExprRef) -> SharedArrayFuture {
+    fn values_eval(&self, expr: ExprRef) -> SharedArray {
         self.values_evals
             .entry(expr.clone())
             .or_insert_with(|| {
-                self.values_array()
-                    .map(move |array| expr.evaluate(&Scope::new(array?)).map_err(Arc::new))
-                    .boxed()
-                    .shared()
+                let values_array = self.values_array.clone();
+                LazyWithSegments::new(move |segments| {
+                    let values = values_array.get(segments)?.clone();
+                    expr.evaluate(&Scope::new(values))
+                })
+                .with_lazy_required_segments(&self.values_array)
             })
             .clone()
     }
@@ -148,7 +131,7 @@ impl LayoutReader for DictReader {
         let codes_eval = self.codes.projection_evaluation(row_range, &root())?;
 
         Ok(Box::new(DictMaskEvaluation {
-            values_eval,
+            values_array: values_eval,
             codes_eval,
         }))
     }
@@ -161,7 +144,7 @@ impl LayoutReader for DictReader {
         let values_eval = self.values_eval(root());
         let codes_eval = self.codes.projection_evaluation(row_range, &root())?;
         Ok(Box::new(DictArrayEvaluation {
-            values_eval,
+            values_array: values_eval,
             codes_eval,
             expr: expr.clone(),
         }))
@@ -169,38 +152,41 @@ impl LayoutReader for DictReader {
 }
 
 struct DictMaskEvaluation {
-    values_eval: SharedArrayFuture,
+    values_array: SharedArray,
     codes_eval: Box<dyn ArrayEvaluation>,
 }
 
-#[async_trait]
 impl MaskEvaluation for DictMaskEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+    fn invoke(&self, mask: Mask, segments: &dyn Segments) -> VortexResult<Mask> {
         if mask.all_false() {
             return Ok(mask);
         }
 
-        let values_result = self.values_eval.clone().await?;
+        let values_result = self.values_array.get(segments)?;
 
         // Short-circuit when the values are all true/false.
-        if let Some(MinMaxResult { min, max }) = min_max(&values_result)? {
+        if let Some(MinMaxResult { min, max }) = min_max(values_result.as_ref())? {
             if !max.as_bool().value().unwrap_or(true) {
                 // All values are false
                 return Ok(Mask::AllFalse(mask.len()));
             }
             if min.as_bool().value().unwrap_or(false) {
                 // All values are true, but we still need to respect codes validity
-                let codes = self.codes_eval.invoke(Mask::new_true(mask.len())).await?;
+                let codes = self
+                    .codes_eval
+                    .invoke(Mask::new_true(mask.len()), segments)?;
                 return Ok(mask.bitand(&codes.validity_mask()?));
             }
         }
 
-        let codes = self.codes_eval.invoke(Mask::new_true(mask.len())).await?;
+        let codes = self
+            .codes_eval
+            .invoke(Mask::new_true(mask.len()), segments)?;
         // TODO(os): remove the low density code path, does not really improve perf
         if mask.density() < 0.1 {
             let codes = filter(&codes, &mask)?;
             let dict_mask = &Mask::try_from(
-                DictArray::try_new(codes, values_result)?
+                DictArray::try_new(codes, values_result.clone())?
                     .to_array()
                     .as_ref(),
             )?;
@@ -211,29 +197,38 @@ impl MaskEvaluation for DictMaskEvaluation {
             // so different row ranges do not canonicalise the same array
             // multiple times.
             let dict_mask = &Mask::try_from(
-                DictArray::try_new(codes, values_result)?
+                DictArray::try_new(codes, values_result.clone())?
                     .to_array()
                     .as_ref(),
             )?;
             Ok(mask.bitand(dict_mask))
         }
     }
+
+    fn required_segments(&self, segments: &mut HashSet<SegmentId>) {
+        self.values_array.required_segments(segments);
+        self.codes_eval.required_segments(segments);
+    }
 }
 
 struct DictArrayEvaluation {
-    values_eval: SharedArrayFuture,
+    values_array: SharedArray,
     codes_eval: Box<dyn ArrayEvaluation>,
     expr: ExprRef,
 }
 
-#[async_trait]
 impl ArrayEvaluation for DictArrayEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
-        let (values_result, codes) = join!(self.values_eval.clone(), self.codes_eval.invoke(mask));
-        let (values_result, codes) = (values_result?, codes?);
+    fn invoke(&self, mask: Mask, segments: &dyn Segments) -> VortexResult<ArrayRef> {
+        let values = self.values_array.get(segments)?.clone();
+        let codes = self.codes_eval.invoke(mask, segments)?;
 
-        let array = DictArray::try_new(codes, values_result)?.to_array();
+        let array = DictArray::try_new(codes, values)?.to_array();
         self.expr.evaluate(&Scope::new(array))
+    }
+
+    fn required_segments(&self, segments: &mut HashSet<SegmentId>) {
+        self.values_array.required_segments(segments);
+        self.codes_eval.required_segments(segments);
     }
 }
 
@@ -348,12 +343,12 @@ mod tests {
         vec![Some(""), None, Some("")], // Dict values: [""]
         "", // Filter for empty string
         vec![true, false, true], // Expected: nulls excluded, all dict values match
-    )]
+        )]
     #[case::all_false_case(
         vec![Some("x"), None, Some("x")], // Dict values: ["x"] 
         "", // Filter for empty string
         vec![false, false, false], // Expected: all false, no dict values match
-    )]
+        )]
     #[tokio::test]
     async fn shortpathes_filtering(
         #[case] data: Vec<Option<&str>>,
