@@ -122,18 +122,26 @@ impl WriteStrategyBuilder {
             executor.clone(),
         );
 
-        // 1. split columns
-        let struct_ = StructStrategy::new(stats, executor, Default::default());
-
-        // 0. repartition each column to fixed row counts
-        Arc::new(RepartitionStrategy::new(
-            struct_,
+        // 1. repartition each column to fixed row counts
+        let repartition = RepartitionStrategy::new(
+            stats,
             RepartitionWriterOptions {
                 // No minimum block size in bytes
                 block_size_minimum: 0,
                 // Always repartition into 8K row blocks
                 block_len_multiple: ROW_BLOCK_SIZE,
             },
+        );
+
+        // 0. start with splitting columns
+        Arc::new(StructStrategy::new(
+            repartition,
+            executor,
+            // TODO(os): default buffer can hold 128 elements, ideally we repartition first
+            //           so we have some understanding of column sizes. We have to have a buffer
+            //           big enough to hold a total of 2Mb of each column in memory, else buffered
+            //           writer above won't be able to make progress.
+            Default::default(),
         ))
     }
 }
