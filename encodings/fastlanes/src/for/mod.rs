@@ -16,6 +16,7 @@ use vortex_scalar::Scalar;
 mod compress;
 mod compute;
 mod ops;
+mod pipeline;
 mod serde;
 
 vtable!(FoR);
@@ -32,7 +33,7 @@ impl VTable for FoRVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
     type SerdeVTable = Self;
-    type PipelineVTable = NotSupported;
+    type PipelineVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("fastlanes.for")

@@ -43,6 +43,19 @@ impl<'a> View<'a> {
         // SAFETY: We assume that the elements are of type T and that the view is valid.
         unsafe { std::slice::from_raw_parts(self.elements.cast(), N) }
     }
+
+    /// Re-interpret cast the vector into a new type where the element has the same width.
+    #[inline(always)]
+    pub fn reinterpret_as<E: Element>(&mut self) {
+        assert_eq!(
+            self.vtype.byte_width(),
+            size_of::<E>(),
+            "Cannot reinterpret {} as {}",
+            self.vtype,
+            E::vtype()
+        );
+        self.vtype = E::vtype();
+    }
 }
 
 /// A vector is the atomic unit of canonical data in Vortex.

@@ -155,3 +155,110 @@ impl KernelContext for () {
         todo!()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use arrow_buffer::BooleanBuffer;
+    use rand::prelude::StdRng;
+    use rand::{Rng, SeedableRng};
+    use vortex_buffer::BufferMut;
+    use vortex_dtype::{DType, Nullability};
+    use vortex_mask::Mask;
+
+    use crate::arrays::PrimitiveArray;
+    use crate::canonical::ToCanonical;
+    use crate::compute::Operator;
+    use crate::pipeline::canonical::export_canonical_pipeline;
+    use crate::pipeline::operators::compare::CompareOperator;
+    use crate::{Array, IntoArray};
+
+    #[test]
+    fn test_pipeline_with_comparison() {
+        // Create test data
+        let mut rng = StdRng::seed_from_u64(42);
+        let values = (0..1000)
+            .map(|_| rng.random_range(0i32..100))
+            .collect::<BufferMut<i32>>()
+            .into_array()
+            .to_primitive()
+            .unwrap();
+
+        // Create a mask that selects ~50% of elements
+        let mask_bools: Vec<bool> = (0..1000)
+            .map(|_| rng.random_bool(0.5))
+            .collect();
+        let mask = Mask::from_buffer(BooleanBuffer::from_iter(mask_bools));
+
+        // Create a pipeline with comparison: array > array (self-comparison)
+        let expr1 = values.to_pipeline_plan().unwrap();
+        let expr2 = values.to_pipeline_plan().unwrap();
+        let compare_expr = CompareOperator::new(expr1, expr2, Operator::Gt);
+
+        // Execute the pipeline
+        let result = export_canonical_pipeline(
+            &DType::Bool(Nullability::NonNullable),
+            values.len(),
+            &compare_expr,
+            &mask,
+        ).unwrap();
+
+        // Verify the result
+        assert!(matches!(result, crate::Canonical::Bool(_)));
+        if let crate::Canonical::Bool(bool_array) = result {
+            // Since we're comparing array > array (same values), all results should be false
+            let expected_len = mask.true_count();
+            assert_eq!(bool_array.len(), expected_len);
+            
+            // All values should be false since we're comparing identical values
+            let bool_buffer = bool_array.boolean_buffer();
+            assert_eq!(bool_buffer.count_set_bits(), 0, "All comparisons should be false");
+        }
+    }
+
+    #[test] 
+    fn test_pipeline_with_different_arrays_comparison() {
+        // Create test data with known pattern
+        let values1 = (0..1000)
+            .map(|i| (i % 100) as i32)
+            .collect::<BufferMut<i32>>()
+            .into_array()
+            .to_primitive()
+            .unwrap();
+        let values2 = (0..1000)
+            .map(|i| ((i + 1) % 100) as i32)
+            .collect::<BufferMut<i32>>()
+            .into_array()
+            .to_primitive()
+            .unwrap();
+
+        // Select all elements
+        let mask = Mask::from_buffer(BooleanBuffer::new_set(1000));
+
+        // Create pipeline: array1 < array2
+        let expr1 = values1.to_pipeline_plan().unwrap();
+        let expr2 = values2.to_pipeline_plan().unwrap();
+        let compare_expr = CompareOperator::new(expr1, expr2, Operator::Lt);
+
+        // Execute the pipeline
+        let result = export_canonical_pipeline(
+            &DType::Bool(Nullability::NonNullable),
+            1000,
+            &compare_expr,
+            &mask,
+        ).unwrap();
+
+        // Verify the result
+        assert!(matches!(result, crate::Canonical::Bool(_)));
+        if let crate::Canonical::Bool(bool_array) = result {
+            assert_eq!(bool_array.len(), 1000);
+            
+            // Most comparisons should be true (except when values wrap around)
+            let bool_buffer = bool_array.boolean_buffer();
+            let true_count = bool_buffer.count_set_bits();
+            
+            // Should be approximately 990 true values (10 false when wrapping from 99 to 0)
+            assert!(true_count > 980, "Expected most comparisons to be true, got {}", true_count);
+            assert!(true_count < 1000, "Expected some comparisons to be false due to wraparound");
+        }
+    }
+}
