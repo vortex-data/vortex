@@ -37,7 +37,6 @@ mod multi_scan;
 mod multi_thread;
 pub mod row_mask;
 mod selection;
-mod split;
 mod split_by;
 mod state;
 mod tasks;
@@ -217,47 +216,6 @@ impl<A: 'static + Send> ScanBuilder<A> {
         Ok(split_tasks)
     }
 
-    pub fn build2(mut self) -> VortexResult<Scan2> {
-        if self.filter.is_some() && self.limit.is_some() {
-            vortex_bail!("Vortex doesn't support scans with both a filter and a limit")
-        }
-
-        // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
-        // conjunction splitting if a filter is provided.
-        let mut layout_reader = self.layout_reader;
-
-        // Enrich the layout reader to support RowIdx expressions.
-        // Note that this is applied below the filter layout reader since it can perform
-        // better over individual conjunctions.
-        layout_reader = Arc::new(RowIdxLayoutReader::new(self.row_offset, layout_reader));
-
-        // Normalize and simplify the expressions.
-        let projection = simplify_typed(self.projection.clone(), layout_reader.dtype())?;
-        let filter = self
-            .filter
-            .clone()
-            .map(|f| simplify_typed(f, layout_reader.dtype()))
-            .transpose()?;
-
-        // Construct field masks and compute the row splits of the scan.
-        let (filter_mask, projection_mask) =
-            filter_and_projection_masks(&projection, filter.as_ref(), layout_reader.dtype())?;
-        let field_mask: Vec<_> = [filter_mask, projection_mask].concat();
-        let splits = self.split_by.splits(layout_reader.as_ref(), &field_mask)?;
-
-        let ctx = TaskContext {
-            segment_source: self.segment_source,
-            row_range: self.row_range,
-            selection: self.selection,
-            filter: filter.map(|f| Arc::new(FilterExpr::new(f))),
-            reader: layout_reader,
-            projection,
-            mapper: self.map_fn,
-        };
-
-        Scan2::try_new(splits, ctx)
-    }
-
     /// Returns a [`Stream`] with tasks spawned onto the current Tokio runtime.
     ///
     /// The stream performs CPU work on the polling thread, with I/O operations dispatched as
@@ -338,6 +296,47 @@ impl ScanBuilder<ArrayRef> {
         let dtype = self.dtype()?;
         let stream = self.into_tokio_stream()?;
         Ok(vortex_array::stream::ArrayStreamAdapter::new(dtype, stream))
+    }
+
+    pub fn build2(self) -> VortexResult<Scan2> {
+        if self.filter.is_some() && self.limit.is_some() {
+            vortex_bail!("Vortex doesn't support scans with both a filter and a limit")
+        }
+
+        // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
+        // conjunction splitting if a filter is provided.
+        let mut layout_reader = self.layout_reader;
+
+        // Enrich the layout reader to support RowIdx expressions.
+        // Note that this is applied below the filter layout reader since it can perform
+        // better over individual conjunctions.
+        layout_reader = Arc::new(RowIdxLayoutReader::new(self.row_offset, layout_reader));
+
+        // Normalize and simplify the expressions.
+        let projection = simplify_typed(self.projection.clone(), layout_reader.dtype())?;
+        let filter = self
+            .filter
+            .clone()
+            .map(|f| simplify_typed(f, layout_reader.dtype()))
+            .transpose()?;
+
+        // Construct field masks and compute the row splits of the scan.
+        let (filter_mask, projection_mask) =
+            filter_and_projection_masks(&projection, filter.as_ref(), layout_reader.dtype())?;
+        let field_mask: Vec<_> = [filter_mask, projection_mask].concat();
+        let splits = self.split_by.splits(layout_reader.as_ref(), &field_mask)?;
+
+        let ctx = TaskContext {
+            segment_source: self.segment_source,
+            row_range: self.row_range,
+            selection: self.selection,
+            filter: filter.map(|f| Arc::new(FilterExpr::new(f))),
+            reader: layout_reader,
+            projection,
+            mapper: self.map_fn,
+        };
+
+        Scan2::try_new(splits, ctx)
     }
 }
 

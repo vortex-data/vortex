@@ -206,7 +206,7 @@ pub(super) fn split_exec<A: 'static + Send>(
 }
 
 /// Information needed to execute a single split task.
-pub(super) struct TaskContext<A> {
+pub struct TaskContext<A> {
     pub(super) segment_source: Arc<dyn SegmentSource>,
     /// A caller-provided range of the file to read. All tasks should intersect their reads
     /// with this range to ensure that they are split as well.

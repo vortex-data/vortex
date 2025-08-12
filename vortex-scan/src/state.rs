@@ -6,10 +6,10 @@ use crate::tasks::TaskContext;
 use crossbeam_channel::{Receiver, Sender};
 use crossbeam_deque::{Injector, Stealer, Worker};
 use dashmap::DashMap;
+use futures::StreamExt;
 use futures::executor::block_on;
 use futures::future::BoxFuture;
 use futures::stream::FuturesUnordered;
-use futures::{FutureExt, StreamExt};
 use parking_lot::{Mutex, RwLock};
 use std::collections::VecDeque;
 use std::iter;
@@ -17,21 +17,18 @@ use std::ops::Range;
 use std::sync::{Arc, LazyLock};
 use std::task::{Context, Poll, Wake, Waker};
 use vortex_array::ArrayRef;
+use vortex_array::iter::ArrayIterator;
 use vortex_buffer::ByteBuffer;
-use vortex_error::{VortexResult, vortex_err, vortex_panic};
+use vortex_dtype::DType;
+use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_layout::segments::{SegmentId, SegmentSource};
 use vortex_layout::{ArrayEvaluation, MaskEvaluation};
 use vortex_mask::Mask;
+use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 
 pub struct Scan2 {
-    scheduler: Mutex<Scheduler>,
-}
-
-impl Scan2 {
-    pub fn try_new(ranges: Vec<Range<u64>>, ctx: TaskContext<ArrayRef>) -> VortexResult<Self> {
-        todo!()
-    }
+    global: Arc<GlobalState>,
 }
 
 struct GlobalState {
@@ -41,8 +38,98 @@ struct GlobalState {
     stealers: RwLock<Vec<Stealer<WorkItem>>>,
 }
 
+impl Scan2 {
+    pub fn try_new(ranges: Vec<Range<u64>>, ctx: TaskContext<ArrayRef>) -> VortexResult<Self> {
+        let dtype = ctx.projection.return_dtype(ctx.reader.dtype())?;
+
+        let nsplits = ranges.len();
+        let mut splits = Vec::with_capacity(nsplits);
+        for row_range in ranges.into_iter() {
+            let len = usize::try_from(row_range.end - row_range.start)
+                .vortex_expect("Split row range is larger than usize");
+
+            let mut filters = vec![];
+            let mut filter_segments = vec![];
+            if let Some(filter) = ctx.filter.as_ref() {
+                for conjunct in filter.conjuncts() {
+                    let eval = ctx.reader.filter_evaluation(&row_range, conjunct)?;
+
+                    let mut segments = HashSet::new();
+                    eval.required_segments(&mut segments);
+
+                    filters.push(eval);
+                    filter_segments.push(segments);
+                }
+            }
+
+            let projection = ctx
+                .reader
+                .projection_evaluation(&row_range, &ctx.projection)?;
+            let mut projection_segments = HashSet::new();
+            projection.required_segments(&mut projection_segments);
+
+            splits.push(Split {
+                len,
+                filters,
+                filter_segments,
+                projection,
+                projection_segments,
+            });
+        }
+
+        let shared = Arc::new(SharedState {
+            dtype,
+            splits,
+            injector: Injector::new(),
+            working_set: Default::default(),
+            filter_expr: ctx.filter.clone(),
+        });
+
+        let (cpu_send, cpu_recv) = crossbeam_channel::unbounded();
+
+        let scheduler = Mutex::new(Scheduler {
+            shared: shared.clone(),
+            source: ctx.segment_source.clone(),
+            segment_futures: Default::default(),
+            cpu_events: cpu_recv,
+            finished: false,
+            errored: false,
+            active_splits: 0..0,
+            splits: iter::repeat_with(|| SplitState::NotStarted)
+                .take(nsplits)
+                .collect(),
+            working_set_size: 0,
+            target_segment_count: 1000,
+            waiting_for_segments: Default::default(),
+        });
+
+        let global = Arc::new(GlobalState {
+            scheduler,
+            shared,
+            cpu_events: cpu_send,
+            stealers: Default::default(),
+        });
+
+        Ok(Self { global })
+    }
+
+    pub fn new_worker(&self) -> ScanWorker {
+        let worker = Worker::new_fifo();
+        self.global.stealers.write().push(worker.stealer());
+
+        ScanWorker {
+            global: self.global.clone(),
+            worker,
+            finished: false,
+            completed: VecDeque::new(),
+        }
+    }
+}
+
 /// State that is shared across workers and the scheduler
 struct SharedState {
+    /// The DType of the projection
+    dtype: DType,
     /// Information about each split in the scan.
     splits: Vec<Split>,
     /// Injector for launching CPU tasks.
@@ -60,7 +147,6 @@ impl SharedState {
 }
 
 struct Split {
-    row_range: Range<u64>,
     len: usize,
 
     filters: Vec<Box<dyn MaskEvaluation>>,
@@ -109,11 +195,13 @@ struct Scheduler {
 
     /// The total size of bytes in the working set of segments.
     working_set_size: u64,
-    /// The target size of bytes in the working set of segments.
-    target_working_set_size: u64,
+
+    /// The target number of segments to hold in memory.
+    /// TODO(ngates): use segment size once the segment source reports it.
+    target_segment_count: usize,
 
     /// Track which work items are waiting for segments.
-    waiting_for_segments: Arc<DashMap<SegmentId, Vec<SplitIdx>>>,
+    waiting_for_segments: HashMap<SegmentId, Vec<SplitIdx>>,
 }
 
 #[derive(Debug)]
@@ -191,34 +279,30 @@ impl Scheduler {
             }
         }
 
+        // Check for termination.
+        if self.active_splits.end == self.splits.len() {
+            self.finished = true;
+            return Ok(made_progress);
+        }
+
         // Now we can look to launch new splits based on the total working set size and
-        // in-flight request sizes.
-
-        // NOTE(ngates): for worker affinity, we can create a channel per worker to send tasks
-        //  down. Workers should then pull tasks from this channel and push them into their worker
-        //  queue to make them eligible for stealing.
-
-        // Now we spawn splits based on making progress with reasonable memory constraints and I/O
-        // targets.
-        while self.working_set_size < self.target_working_set_size {
-            // self.expand_splits()
+        // in-flight request sizes. We don't currently know the in-flight segment sizes, so we
+        // will just do it based on segment count instead.
+        while self.active_splits.end < self.splits.len() - 1
+            && self.shared.working_set.len() + self.segment_futures.len()
+                < self.target_segment_count
+        {
+            self.active_splits.end += 1;
+            while self.make_progress_on_split(self.active_splits.end) {}
         }
 
-        if self.active_splits.is_empty() {
-            // If our range of active splits is empty, we should always attempt to make progress.
+        // If our range of active splits is empty, we should always attempt to make progress.
+        if self.active_splits.end < self.splits.len() - 1 && self.active_splits.is_empty() {
+            self.active_splits.end += 1;
+            while self.make_progress_on_split(self.active_splits.end) {}
         }
 
-        let segment_id = SegmentId::from(10);
-        let segment_fut = self.source.request(segment_id);
-        self.segment_futures.push(
-            async move {
-                let buffer = segment_fut.await?;
-                Ok(IoEvent { segment_id, buffer })
-            }
-            .boxed(),
-        );
-
-        Ok(made_progress)
+        Ok(true)
     }
 
     /// Block waiting for some more I/O to complete.
@@ -244,7 +328,7 @@ impl Scheduler {
             .insert(event.segment_id, event.buffer);
 
         // Check which splits are waiting for this segment.
-        if let Some((_id, items)) = self.waiting_for_segments.remove(&event.segment_id) {
+        if let Some(items) = self.waiting_for_segments.remove(&event.segment_id) {
             for split_idx in items {
                 let split_state = &mut self.splits[split_idx];
                 match split_state {
@@ -384,7 +468,7 @@ impl Scheduler {
     }
 }
 
-struct ScanWorker {
+pub struct ScanWorker {
     global: Arc<GlobalState>,
     worker: Worker<WorkItem>,
 
@@ -445,6 +529,12 @@ impl Iterator for ScanWorker {
                 return Some(Err(e));
             }
         }
+    }
+}
+
+impl ArrayIterator for ScanWorker {
+    fn dtype(&self) -> &DType {
+        &self.global.shared.dtype
     }
 }
 

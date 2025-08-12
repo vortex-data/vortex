@@ -1187,3 +1187,18 @@ async fn test_into_tokio_array_stream() -> VortexResult<()> {
 
     Ok(())
 }
+
+#[test]
+fn basic_file_roundtrip2() -> VortexResult<()> {
+    let vxf = chunked_file()?;
+    let result = vxf
+        .scan()?
+        .build2()?
+        .new_worker()
+        .read_all()?
+        .to_primitive()?;
+
+    assert_eq!(result.as_slice::<i32>(), &[0, 1, 2, 3, 4, 5, 6, 7, 8]);
+
+    Ok(())
+}
