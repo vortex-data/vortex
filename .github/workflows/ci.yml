@@ -13,8 +13,8 @@ on:
 permissions:
   actions: read
   contents: read
-  checks: write  # audit-check creates checks
-  issues: write  # audit-check creates issues
+  checks: write # audit-check creates checks
+  issues: write # audit-check creates issues
 
 env:
   CARGO_TERM_COLOR: always
@@ -173,7 +173,7 @@ jobs:
             command: "build"
             target: wasm32-unknown-unknown
             env:
-              rustflags: "RUSTFLAGS='-A warnings --cfg getrandom_backend=\"wasm_js\"'"
+              rustflags: 'RUSTFLAGS=''-A warnings --cfg getrandom_backend="wasm_js"'''
             args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-datafusion --exclude vortex-duckdb --exclude vortex-tui --exclude vortex-zstd"
     steps:
       - uses: runs-on/action@v2
@@ -282,7 +282,7 @@ jobs:
       - tag=suite-${{ matrix.suite }}
     env:
       RUSTFLAGS: "-Cinstrument-coverage -A warnings"
-      CARGO_INCREMENTAL: 0  # Disable incremental compilation to get accurate coverage
+      CARGO_INCREMENTAL: 0 # Disable incremental compilation to get accurate coverage
       LLVM_PROFILE_FILE: "target/coverage/vortex-%p-%m.profraw"
       GRCOV_OUTPUT_FILE: "target/coverage/vortex.lcov"
     steps:
@@ -373,8 +373,6 @@ jobs:
       - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=loom
-    env:
-      RUSTFLAGS: "--cfg loom -A warnings"
     steps:
       - uses: runs-on/action@v2
         with:
@@ -385,7 +383,7 @@ jobs:
           toolchain: nightly
           components: "rust-src, rustfmt, clippy"
       - name: Run Loom Tests
-        run: cargo +nightly test --release -p vortex-scan --test loom_concurrency
+        run: cargo +nightly test --release -p vortex-scan loom_tests
 
   build-java:
     name: "Java"

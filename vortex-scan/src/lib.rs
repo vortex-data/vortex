@@ -328,7 +328,7 @@ fn to_field_mask(field: FieldName) -> FieldMask {
     FieldMask::Prefix(FieldPath::from(Field::Name(field)))
 }
 
-#[cfg(all(test, loom))]
+#[cfg(test)]
 mod loom_tests {
     use bit_vec::BitVec;
     use futures::future;
