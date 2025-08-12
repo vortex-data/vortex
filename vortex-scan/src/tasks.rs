@@ -3,18 +3,21 @@
 
 //! Split scanning task implementation.
 
-use std::ops::Range;
+use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
+use bit_vec::BitVec;
 use futures::FutureExt;
 use futures::future::{BoxFuture, ok};
+use itertools::Itertools;
 use vortex_array::ArrayRef;
-use vortex_error::VortexResult;
+use vortex_error::{VortexError, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_layout::LayoutReader;
 use vortex_mask::Mask;
 
 use crate::Selection;
+use crate::filter::FilterExpr;
 
 pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 
@@ -75,20 +78,79 @@ pub(super) fn split_exec<A: 'static + Send>(
             ok(row_mask).boxed()
         }
         Some(filter) => {
-            // Step 2: if there is a filter provided, attempt to prune this range based on the filter.
             // NOTE: it's very important that the pruning and filter evaluations are built OUTSIDE
-            // of the future. Registering these row ranges eagerly is a hint to the IO system that
+            // the future. Registering these row ranges eagerly is a hint to the IO system that
             // we want to start prefetching the IO for this split.
-            let prune = ctx.reader.pruning_evaluation(&row_range, filter)?;
-            let eval = ctx.reader.filter_evaluation(&row_range, filter)?;
+
+            // Create one pruning task per conjunct.
+            let pruning_conjuncts: Vec<_> = filter
+                .conjuncts()
+                .iter()
+                .map(|expr| ctx.reader.pruning_evaluation(&row_range, expr))
+                .try_collect()?;
+
+            // And one projection task per conjunct.
+            let conjuncts: Vec<_> = filter
+                .conjuncts()
+                .iter()
+                .map(|expr| ctx.reader.filter_evaluation(&row_range, expr))
+                .try_collect()?;
+
+            let filter = filter.clone();
 
             async move {
-                let pruned_mask = prune.invoke(row_mask).await?;
+                let mut mask = row_mask;
+                let mut dynamic_versions = vec![None; filter.conjuncts().len()];
 
-                // Step 3: apply exact filtering. The pruning step has already eliminated entire blocks
-                // where we know the filter won't match any rows, so the amount of work to do here
-                // should be a lot less.
-                eval.invoke(pruned_mask).await
+                // TODO(ngates): we could use FuturedUnordered to intersect the masks in parallel.
+                for (idx, conjunct) in pruning_conjuncts.iter().enumerate() {
+                    if mask.all_false() {
+                        return Ok(mask);
+                    }
+
+                    // Store the latest version of the dynamic expression prior to pruning.
+                    // We will re-run the pruning later if the version has changed in the meantime.
+                    dynamic_versions[idx] = filter.dynamic_updates(idx).map(|du| du.version());
+
+                    let conjunct_mask = conjunct.invoke(mask.clone()).await?;
+                    mask = mask.bitand(&conjunct_mask);
+                }
+
+                // Now we loop through the conjuncts in the preferred order and evaluate them.
+                let mut remaining = BitVec::from_elem(conjuncts.len(), true);
+                while let Some(idx) = filter.next_conjunct(&remaining) {
+                    remaining.set(idx, false);
+
+                    if mask.all_false() {
+                        return Ok(mask);
+                    }
+
+                    // If the dynamic expression has changed since pruning, re-run the pruning.
+                    if let Some(dv) = filter.dynamic_updates(idx).map(|du| du.version())
+                        && dynamic_versions[idx].is_none_or(|v| v < dv)
+                    {
+                        // The dynamic expression has been updated, re-run the pruning.
+                        dynamic_versions[idx] = Some(dv);
+                        let conjunct_mask = pruning_conjuncts[idx].invoke(mask.clone()).await?;
+                        mask = mask.bitand(&conjunct_mask);
+                    }
+
+                    if mask.all_false() {
+                        return Ok(mask);
+                    }
+
+                    let conjunct_mask = conjuncts[idx].invoke(mask.clone()).await?;
+
+                    // TODO(ngates): what selectivity should we report?
+                    let selectivity = conjunct_mask.true_count() as f64 / mask.len() as f64;
+                    //let selectivity = conjunct_mask.true_count() as f64 / mask.true_count() as f64;
+                    filter.report_selectivity(idx, selectivity);
+
+                    // Filter evaluations return a mask already intersected with the input mask.
+                    mask = conjunct_mask;
+                }
+
+                Ok::<_, VortexError>(mask)
             }
             .boxed()
         }
@@ -113,19 +175,14 @@ pub(super) struct TaskContext<A> {
     /// A caller-provided range of the file to read. All tasks should intersect their reads
     /// with this range to ensure that they are split as well.
     pub(super) row_range: Option<Range<u64>>,
-
     /// A row selection to apply.
     pub(super) selection: Selection,
-
-    /// The filter expression for the current task.
-    pub(super) filter: Option<ExprRef>,
-
+    /// The shared filter expression.
+    pub(super) filter: Option<Arc<FilterExpr>>,
     /// The layout reader.
     pub(super) reader: Arc<dyn LayoutReader>,
-
     /// The projection expression to apply to gather the scanned rows.
     pub(super) projection: ExprRef,
-
     /// Function that maps into an A.
     pub(super) mapper: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
 }

@@ -35,6 +35,7 @@ vortex-metrics = { workspace = true }
 wasm-bindgen-futures = { workspace = true }
 
 [dev-dependencies]
+rstest = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing-subscriber = { workspace = true }

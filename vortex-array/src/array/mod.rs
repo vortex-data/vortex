@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: Copyright the Vortex contributors
+//  SPDX-License-Identifier: Apache-2.0
+//  SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub mod display;
 mod visitor;
@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 pub use visitor::*;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::DType;
+use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
@@ -328,6 +328,18 @@ mod private {
 #[repr(transparent)]
 pub struct ArrayAdapter<V: VTable>(V::Array);
 
+impl<V: VTable> ArrayAdapter<V> {
+    /// Provide a reference to the underlying array held within the adapter.
+    pub fn as_inner(&self) -> &V::Array {
+        &self.0
+    }
+
+    /// Unwrap into the inner array type, consuming the adapter.
+    pub fn into_inner(self) -> V::Array {
+        self.0
+    }
+}
+
 impl<V: VTable> Debug for ArrayAdapter<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
@@ -402,8 +414,9 @@ impl<V: VTable> Array for ArrayAdapter<V> {
                         stat,
                         Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted
                     ) && value.as_ref().as_exact().is_some_and(|v| {
-                        v.as_bool()
-                            .vortex_expect("must be a bool")
+                        Scalar::new(DType::Bool(Nullability::NonNullable), v.clone())
+                            .as_bool()
+                            .value()
                             .unwrap_or_default()
                     })
                 }));

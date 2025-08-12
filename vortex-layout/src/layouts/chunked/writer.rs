@@ -1,76 +1,77 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
-use arcref::ArcRef;
+use async_trait::async_trait;
 use futures::StreamExt;
 use futures::stream::once;
 use vortex_array::ArrayContext;
-use vortex_error::VortexExpect;
+use vortex_error::{VortexExpect, VortexResult};
 
 use crate::children::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
-use crate::layouts::flat::writer::FlatLayoutStrategy;
 use crate::segments::SequenceWriter;
 use crate::{
-    IntoLayout, LayoutStrategy, SendableLayoutFuture, SendableSequentialStream,
-    SequentialStreamAdapter, SequentialStreamExt as _,
+    IntoLayout, LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
+    SequentialStreamExt as _,
 };
 
-pub struct ChunkedLayoutStrategy {
+#[derive(Clone)]
+pub struct ChunkedLayoutStrategy<S> {
     /// The layout strategy for each chunk.
-    pub chunk_strategy: ArcRef<dyn LayoutStrategy>,
+    pub chunk_strategy: S,
 }
 
-impl Default for ChunkedLayoutStrategy {
-    fn default() -> Self {
-        Self {
-            chunk_strategy: ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())),
-        }
+impl<S> ChunkedLayoutStrategy<S>
+where
+    S: LayoutStrategy,
+{
+    pub fn new(chunk_strategy: S) -> Self {
+        Self { chunk_strategy }
     }
 }
 
-impl LayoutStrategy for ChunkedLayoutStrategy {
-    fn write_stream(
+#[async_trait]
+impl<S> LayoutStrategy for ChunkedLayoutStrategy<S>
+where
+    S: LayoutStrategy,
+{
+    async fn write_stream(
         &self,
         ctx: &ArrayContext,
         sequence_writer: SequenceWriter,
         mut stream: SendableSequentialStream,
-    ) -> SendableLayoutFuture {
-        let chunk_strategy = self.chunk_strategy.clone();
+    ) -> VortexResult<LayoutRef> {
         let ctx = ctx.clone();
-        Box::pin(async move {
-            let mut child_layouts = Vec::new();
-            let mut row_count = 0;
-            let dtype = stream.dtype().clone();
-            while let Some(chunk) = stream.next().await {
-                let (sequence_id, chunk) = chunk?;
-                row_count += chunk.len() as u64;
-                let layout = chunk_strategy
-                    .write_stream(
-                        &ctx,
-                        sequence_writer.clone(),
-                        SequentialStreamAdapter::new(
-                            dtype.clone(),
-                            once(async { Ok((sequence_id, chunk)) }),
-                        )
-                        .sendable(),
+        let mut child_layouts = Vec::new();
+        let mut row_count = 0;
+        let dtype = stream.dtype().clone();
+        while let Some(chunk) = stream.next().await {
+            let (sequence_id, chunk) = chunk?;
+            row_count += chunk.len() as u64;
+            let layout = self
+                .chunk_strategy
+                .write_stream(
+                    &ctx,
+                    sequence_writer.clone(),
+                    SequentialStreamAdapter::new(
+                        dtype.clone(),
+                        once(async { Ok((sequence_id, chunk)) }),
                     )
-                    .await?;
-                child_layouts.push(layout);
-            }
-
-            if child_layouts.len() == 1 {
-                Ok(child_layouts.pop().vortex_expect("must have one child"))
-            } else {
-                Ok(ChunkedLayout::new(
-                    row_count,
-                    dtype,
-                    OwnedLayoutChildren::layout_children(child_layouts),
+                    .sendable(),
                 )
-                .into_layout())
-            }
-        })
+                .await?;
+            child_layouts.push(layout);
+        }
+
+        if child_layouts.len() == 1 {
+            Ok(child_layouts.pop().vortex_expect("must have one child"))
+        } else {
+            Ok(ChunkedLayout::new(
+                row_count,
+                dtype,
+                OwnedLayoutChildren::layout_children(child_layouts),
+            )
+            .into_layout())
+        }
     }
 }

@@ -18,7 +18,7 @@ pub struct TestSegments {
 }
 
 impl SegmentSource for TestSegments {
-    fn request(&self, id: SegmentId, _for_whom: &Arc<str>) -> SegmentFuture {
+    fn request(&self, id: SegmentId) -> SegmentFuture {
         let buffer = self.segments.lock().get(*id as usize).cloned();
         async move { buffer.ok_or_else(|| vortex_err!("Segment not found")) }.boxed()
     }

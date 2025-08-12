@@ -8,6 +8,8 @@
 pub use array::*;
 
 mod array;
+#[cfg(feature = "arrow")]
+mod arrow;
 pub mod builders;
 mod compute;
 mod display;

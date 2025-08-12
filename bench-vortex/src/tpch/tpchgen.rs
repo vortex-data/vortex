@@ -88,7 +88,7 @@ impl TpchGenOptions {
 }
 
 /// Generate all TPC-H tables for a single scale factor
-pub async fn generate_tpch_tables(options: &TpchGenOptions) -> Result<()> {
+pub async fn generate_tpch_tables(options: TpchGenOptions) -> Result<()> {
     fs::create_dir_all(&options.output_dir)?;
 
     let tables = [

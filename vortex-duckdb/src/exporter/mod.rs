@@ -6,6 +6,7 @@ mod cache;
 mod constant;
 mod decimal;
 mod dict;
+mod list;
 mod primitive;
 mod run_end;
 mod sequence;
@@ -167,10 +168,7 @@ fn new_array_exporter(
             // The Arrow exporter does not support struct arrays yet, so we bail out.
             vortex_bail!("Struct arrays are not supported in DuckDB export yet");
         }
-        Canonical::List(_) => {
-            // The Arrow exporter does not support list arrays yet, so we bail out.
-            vortex_bail!("List arrays are not supported in DuckDB export yet");
-        }
+        Canonical::List(array) => list::new_exporter(&array, cache),
         Canonical::VarBinView(array) => varbinview::new_exporter(&array),
         Canonical::Extension(ext) => {
             if is_temporal_ext_type(ext.id()) {
@@ -186,27 +184,34 @@ fn new_array_exporter(
 pub(crate) trait VectorExt {
     /// Returns true if *all* values within the offset -> len slice are null.
     /// Since we're iterating these values anyway, then it's cheaper for us to check it inline.
-    fn set_validity(&mut self, mask: &Mask, offset: usize, len: usize) -> bool;
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `len` is less than or equal to the capacity of this vector.
+    unsafe fn set_validity(&mut self, mask: &Mask, offset: usize, len: usize) -> bool;
 }
 
 impl VectorExt for Vector {
-    fn set_validity(&mut self, mask: &Mask, offset: usize, len: usize) -> bool {
+    unsafe fn set_validity(&mut self, mask: &Mask, offset: usize, len: usize) -> bool {
         match mask {
             Mask::AllTrue(_) => {
                 // We only need to blank out validity if there is already a slice allocated.
-                if let Some(validity) = self.validity_slice_mut() {
+                // SAFETY: Caller guaranteees this.
+                if let Some(validity) = unsafe { self.validity_slice_mut(len) } {
                     validity.fill(true);
                 }
                 false
             }
             Mask::AllFalse(_) => {
-                self.ensure_validity_slice().fill(false);
+                // SAFETY: Caller guaranteees this.
+                unsafe { self.ensure_validity_slice(len) }.fill(false);
                 true
             }
             Mask::Values(arr) => {
                 // TODO(joe): do this MUCH better, with a shifted u64 copy
                 let mut null_count = 0;
-                let validity = self.ensure_validity_slice();
+                // SAFETY: Caller guaranteees this.
+                let validity = unsafe { self.ensure_validity_slice(len) };
                 for (idx, v) in arr.boolean_buffer().slice(offset, len).iter().enumerate() {
                     if !v {
                         validity.set(idx, false);

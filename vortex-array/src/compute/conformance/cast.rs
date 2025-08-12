@@ -206,54 +206,54 @@ fn test_cast_allvalid_to_nonnullable_and_back(array: &dyn Array) {
     }
 
     // Only test if array has no nulls
-    if let Ok(null_count) = array.invalid_count() {
-        if null_count == 0 {
-            // Test casting to NonNullable if currently Nullable
-            if array.dtype().nullability() == Nullability::Nullable {
-                let non_nullable_dtype = array.dtype().with_nullability(Nullability::NonNullable);
+    if let Ok(null_count) = array.invalid_count()
+        && null_count == 0
+    {
+        // Test casting to NonNullable if currently Nullable
+        if array.dtype().nullability() == Nullability::Nullable {
+            let non_nullable_dtype = array.dtype().with_nullability(Nullability::NonNullable);
 
-                // Cast to NonNullable
-                if let Ok(non_nullable) = cast(array, &non_nullable_dtype) {
-                    assert_eq!(non_nullable.dtype(), &non_nullable_dtype);
-                    assert_eq!(non_nullable.len(), array.len());
+            // Cast to NonNullable
+            if let Ok(non_nullable) = cast(array, &non_nullable_dtype) {
+                assert_eq!(non_nullable.dtype(), &non_nullable_dtype);
+                assert_eq!(non_nullable.len(), array.len());
 
-                    // Cast back to Nullable
-                    let nullable_dtype = array.dtype().with_nullability(Nullability::Nullable);
-                    let back_to_nullable = cast(&non_nullable, &nullable_dtype).vortex_unwrap();
-                    assert_eq!(back_to_nullable.dtype(), &nullable_dtype);
-                    assert_eq!(back_to_nullable.len(), array.len());
-
-                    // Verify values are unchanged
-                    for i in 0..array.len().min(10) {
-                        assert_eq!(
-                            array.scalar_at(i).vortex_unwrap(),
-                            back_to_nullable.scalar_at(i).vortex_unwrap()
-                        );
-                    }
-                }
-            }
-            // Test casting to Nullable if currently NonNullable
-            else if array.dtype().nullability() == Nullability::NonNullable {
+                // Cast back to Nullable
                 let nullable_dtype = array.dtype().with_nullability(Nullability::Nullable);
-
-                // Cast to Nullable
-                let nullable = cast(array, &nullable_dtype).vortex_unwrap();
-                assert_eq!(nullable.dtype(), &nullable_dtype);
-                assert_eq!(nullable.len(), array.len());
-
-                // Cast back to NonNullable
-                let non_nullable_dtype = array.dtype().with_nullability(Nullability::NonNullable);
-                let back_to_non_nullable = cast(&nullable, &non_nullable_dtype).vortex_unwrap();
-                assert_eq!(back_to_non_nullable.dtype(), &non_nullable_dtype);
-                assert_eq!(back_to_non_nullable.len(), array.len());
+                let back_to_nullable = cast(&non_nullable, &nullable_dtype).vortex_unwrap();
+                assert_eq!(back_to_nullable.dtype(), &nullable_dtype);
+                assert_eq!(back_to_nullable.len(), array.len());
 
                 // Verify values are unchanged
                 for i in 0..array.len().min(10) {
                     assert_eq!(
                         array.scalar_at(i).vortex_unwrap(),
-                        back_to_non_nullable.scalar_at(i).vortex_unwrap()
+                        back_to_nullable.scalar_at(i).vortex_unwrap()
                     );
                 }
+            }
+        }
+        // Test casting to Nullable if currently NonNullable
+        else if array.dtype().nullability() == Nullability::NonNullable {
+            let nullable_dtype = array.dtype().with_nullability(Nullability::Nullable);
+
+            // Cast to Nullable
+            let nullable = cast(array, &nullable_dtype).vortex_unwrap();
+            assert_eq!(nullable.dtype(), &nullable_dtype);
+            assert_eq!(nullable.len(), array.len());
+
+            // Cast back to NonNullable
+            let non_nullable_dtype = array.dtype().with_nullability(Nullability::NonNullable);
+            let back_to_non_nullable = cast(&nullable, &non_nullable_dtype).vortex_unwrap();
+            assert_eq!(back_to_non_nullable.dtype(), &non_nullable_dtype);
+            assert_eq!(back_to_non_nullable.len(), array.len());
+
+            // Verify values are unchanged
+            for i in 0..array.len().min(10) {
+                assert_eq!(
+                    array.scalar_at(i).vortex_unwrap(),
+                    back_to_non_nullable.scalar_at(i).vortex_unwrap()
+                );
             }
         }
     }

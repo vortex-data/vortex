@@ -4,52 +4,61 @@
 use std::collections::VecDeque;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll, Waker};
+use std::task::{Context, Poll, Waker, ready};
 
-use arcref::ArcRef;
+use async_trait::async_trait;
 use futures::future::try_join_all;
-use futures::{Stream, StreamExt, TryStreamExt};
+use futures::task::{ArcWake, waker_ref};
+use futures::{FutureExt, Stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use parking_lot::Mutex;
 use vortex_array::{Array, ArrayContext, ToCanonical};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 use vortex_utils::aliases::DefaultHashBuilder;
+use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SequenceWriter;
 use crate::{
-    IntoLayout as _, LayoutStrategy, SendableLayoutFuture, SendableSequentialStream,
-    SequentialStreamAdapter, SequentialStreamExt,
+    IntoLayout as _, LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
+    SequentialStreamExt,
 };
 
-pub struct StructStrategy {
-    child: ArcRef<dyn LayoutStrategy>,
+pub struct StructStrategy<S> {
+    child: S,
 }
 
 /// A [`LayoutStrategy`] that splits a StructArray batch into child layout writers
-impl StructStrategy {
-    pub fn new(child: ArcRef<dyn LayoutStrategy>) -> Self {
+impl<S> StructStrategy<S>
+where
+    S: LayoutStrategy,
+{
+    pub fn new(child: S) -> Self {
         Self { child }
     }
 }
 
-impl LayoutStrategy for StructStrategy {
-    fn write_stream(
+#[async_trait]
+impl<S> LayoutStrategy for StructStrategy<S>
+where
+    S: LayoutStrategy,
+{
+    async fn write_stream(
         &self,
         ctx: &ArrayContext,
         sequence_writer: SequenceWriter,
         stream: SendableSequentialStream,
-    ) -> SendableLayoutFuture {
+    ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         let Some(struct_dtype) = stream.dtype().as_struct().cloned() else {
             // nothing we can do if dtype is not struct
-            return self.child.write_stream(ctx, sequence_writer, stream);
+            return self.child.write_stream(ctx, sequence_writer, stream).await;
         };
         if HashSet::<_, DefaultHashBuilder>::from_iter(struct_dtype.names().iter()).len()
             != struct_dtype.names().len()
         {
-            return Box::pin(async { vortex_bail!("StructLayout must have unique field names") });
+            vortex_bail!("StructLayout must have unique field names");
         }
 
         let stream = stream.map(|chunk| {
@@ -62,15 +71,13 @@ impl LayoutStrategy for StructStrategy {
 
         // There are now fields so this is the layout leaf
         if struct_dtype.nfields() == 0 {
-            return Box::pin(async move {
-                let row_count = stream
-                    .try_fold(
-                        0u64,
-                        |acc, (_, arr)| async move { Ok(acc + arr.len() as u64) },
-                    )
-                    .await?;
-                Ok(StructLayout::new(row_count, dtype, vec![]).into_layout())
-            });
+            let row_count = stream
+                .try_fold(
+                    0u64,
+                    |acc, (_, arr)| async move { Ok(acc + arr.len() as u64) },
+                )
+                .await?;
+            return Ok(StructLayout::new(row_count, dtype, vec![]).into_layout());
         }
 
         // stream<struct_chunk> -> stream<vec<column_chunk>>
@@ -97,22 +104,22 @@ impl LayoutStrategy for StructStrategy {
                 .field_by_index(idx)
                 .vortex_expect("bound checked")
         });
-        let child = self.child.clone();
-        let ctx = ctx.clone();
-        let layout_futures = column_dtypes
+
+        let layout_futures: Vec<_> = column_dtypes
             .zip_eq(column_streams)
             .map(move |(dtype, stream)| {
                 let column_stream = SequentialStreamAdapter::new(dtype, stream).sendable();
-                child.write_stream(&ctx, sequence_writer.clone(), column_stream)
-            });
+                self.child
+                    .write_stream(ctx, sequence_writer.clone(), column_stream)
+                    .boxed()
+            })
+            .collect();
 
-        Box::pin(async move {
-            let column_layouts = try_join_all(layout_futures).await?;
-            // TODO(os): transposed stream could count row counts as well,
-            // This must hold though, all columns must have the same row count of the struct layout
-            let row_count = column_layouts.first().map(|l| l.row_count()).unwrap_or(0);
-            Ok(StructLayout::new(row_count, dtype, column_layouts).into_layout())
-        })
+        let column_layouts = try_join_all(layout_futures).await?;
+        // TODO(os): transposed stream could count row counts as well,
+        // This must hold though, all columns must have the same row count of the struct layout
+        let row_count = column_layouts.first().map(|l| l.row_count()).unwrap_or(0);
+        Ok(StructLayout::new(row_count, dtype, column_layouts).into_layout())
     }
 }
 
@@ -124,13 +131,18 @@ where
     let state = Arc::new(Mutex::new(TransposeState {
         upstream: stream,
         buffers: (0..elements).map(|_| VecDeque::new()).collect(),
-        wakers: Vec::new(),
         exhausted: false,
     }));
+
+    let shared_waker = Arc::new(SharedWaker {
+        wakers: Default::default(),
+    });
+
     (0..elements)
         .map(|index| TransposedStream {
             index,
             state: state.clone(),
+            shared_waker: shared_waker.clone(),
         })
         .collect()
 }
@@ -143,8 +155,25 @@ where
     upstream: S,
     // TODO(os): make these buffers bounded so transposed streams can not run ahead unbounded
     buffers: Vec<VecDeque<VortexResult<T>>>,
-    wakers: Vec<Waker>,
     exhausted: bool,
+}
+
+struct SharedWaker {
+    wakers: Arc<Mutex<HashMap<usize, Waker>>>,
+}
+
+impl SharedWaker {
+    pub fn add(self: Arc<Self>, index: usize, waker: Waker) {
+        self.wakers.lock().insert(index, waker);
+    }
+}
+
+impl ArcWake for SharedWaker {
+    fn wake_by_ref(arc_self: &Arc<Self>) {
+        for (_, waker) in arc_self.wakers.lock().drain() {
+            waker.wake();
+        }
+    }
 }
 
 struct TransposedStream<T, S>
@@ -154,6 +183,7 @@ where
 {
     index: usize,
     state: Arc<Mutex<TransposeState<T, S>>>,
+    shared_waker: Arc<SharedWaker>,
 }
 
 impl<T, S> Stream for TransposedStream<T, S>
@@ -173,16 +203,18 @@ where
             return Poll::Ready(None);
         }
 
-        let poll_result = match Pin::new(&mut guard.upstream).poll_next(cx) {
-            Poll::Pending => {
-                guard.wakers.push(cx.waker().clone());
-                Poll::Pending
-            }
-            Poll::Ready(None) => {
+        self.shared_waker
+            .clone()
+            .add(self.index, cx.waker().clone());
+
+        let shared_waker_ref = waker_ref(&self.shared_waker);
+        let mut upstream_cx = Context::from_waker(&shared_waker_ref);
+        match ready!(Pin::new(&mut guard.upstream).poll_next(&mut upstream_cx)) {
+            None => {
                 guard.exhausted = true;
                 Poll::Ready(None)
             }
-            Poll::Ready(Some(Ok(vec_t))) => {
+            Some(Ok(vec_t)) => {
                 for (t, buffer) in vec_t.into_iter().zip_eq(guard.buffers.iter_mut()) {
                     buffer.push_back(Ok(t));
                 }
@@ -191,32 +223,19 @@ where
                     .vortex_expect("just pushed");
                 Poll::Ready(Some(item))
             }
-            Poll::Ready(Some(Err(err))) => {
+            Some(Err(err)) => {
                 let shared_err = Arc::new(err);
                 for buffer in guard.buffers.iter_mut() {
                     buffer.push_back(Err(shared_err.clone().into()));
                 }
                 Poll::Ready(Some(Err(shared_err.into())))
             }
-        };
-
-        if matches!(poll_result, Poll::Ready(_)) {
-            let wakers = std::mem::take(&mut guard.wakers);
-
-            drop(guard);
-            for waker in wakers {
-                waker.wake();
-            }
         }
-        poll_result
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
-    use arcref::ArcRef;
     use futures::executor::block_on;
     use futures::stream;
     use vortex_array::arrays::{BoolArray, StructArray};
@@ -234,8 +253,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn fails_on_duplicate_field() {
-        let strategy =
-            StructStrategy::new(ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())));
+        let strategy = StructStrategy::new(FlatLayoutStrategy::default());
         block_on(
             strategy.write_stream(
                 &ArrayContext::empty(),
@@ -260,8 +278,7 @@ mod tests {
 
     #[test]
     fn fails_on_top_level_nulls() {
-        let strategy =
-            StructStrategy::new(ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())));
+        let strategy = StructStrategy::new(FlatLayoutStrategy::default());
         let res = block_on(
             strategy.write_stream(
                 &ArrayContext::empty(),
@@ -300,8 +317,7 @@ mod tests {
 
     #[test]
     fn write_empty_field_struct_array() {
-        let strategy =
-            StructStrategy::new(ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())));
+        let strategy = StructStrategy::new(FlatLayoutStrategy::default());
         let res = block_on(
             strategy.write_stream(
                 &ArrayContext::empty(),

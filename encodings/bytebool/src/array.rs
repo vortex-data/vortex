@@ -55,14 +55,14 @@ pub struct ByteBoolEncoding;
 impl ByteBoolArray {
     pub fn new(buffer: ByteBuffer, validity: Validity) -> Self {
         let length = buffer.len();
-        if let Some(vlen) = validity.maybe_len() {
-            if length != vlen {
-                vortex_panic!(
-                    "Buffer length ({}) does not match validity length ({})",
-                    length,
-                    vlen
-                );
-            }
+        if let Some(vlen) = validity.maybe_len()
+            && length != vlen
+        {
+            vortex_panic!(
+                "Buffer length ({}) does not match validity length ({})",
+                length,
+                vlen
+            );
         }
         Self {
             dtype: DType::Bool(validity.nullability()),

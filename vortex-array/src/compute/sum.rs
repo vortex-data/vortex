@@ -50,7 +50,7 @@ impl ComputeFnVTable for Sum {
 
         // Short-circuit using array statistics.
         if let Some(Precision::Exact(sum)) = array.statistics().get(Stat::Sum) {
-            return Ok(Scalar::new(sum_dtype, sum).into());
+            return Ok(sum.into());
         }
 
         let sum_scalar = sum_impl(array, sum_dtype, kernels)?;

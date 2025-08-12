@@ -19,9 +19,9 @@ on:
             {
               "id": "tpch-nvme",
               "subcommand": "tpch",
-              "name": "TPC-H on NVME",
+              "name": "TPC-H SF=1 on NVME",
               "targets": "datafusion:arrow,datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb",
-              "scale_factor": "--scale-factor 1"
+              "scale_factor": "--scale-factor 1.0"
             },
             {
               "id": "clickbench-nvme",
@@ -32,12 +32,19 @@ on:
             {
               "id": "tpch-s3",
               "subcommand": "tpch",
-              "name": "TPC-H on S3",
+              "name": "TPC-H SF=1 on S3",
               "local_dir": "bench-vortex/data/tpch/1.0",
               "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/tpch/1.0/",
               "targets": "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex",
               "scale_factor": "--scale-factor 1.0"
-            }
+            },
+            {
+              "id": "tpcds-nvme",
+              "subcommand": "tpcds",
+              "name": "TPC-DS SF=1 on NVME",
+              "targets": "duckdb:parquet,duckdb:vortex,duckdb:duckdb",
+              "scale_factor": "--scale-factor 1.0"
+            },
           ]
 
 jobs:
@@ -59,12 +66,12 @@ jobs:
       - uses: runs-on/action@v2
         with:
           sccache: s3
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         if: inputs.mode == 'pr'
         with:
           ref: ${{ github.event.pull_request.head.sha }}
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         if: inputs.mode != 'pr'
       - uses: ./.github/actions/setup-rust
 

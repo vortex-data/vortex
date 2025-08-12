@@ -61,8 +61,8 @@ impl TryFromArrowType<&DataType> for PType {
 impl TryFromArrowType<&DataType> for DecimalDType {
     fn try_from_arrow(value: &DataType) -> VortexResult<Self> {
         match value {
-            DataType::Decimal128(precision, scale) => Ok(Self::new(*precision, *scale)),
-            DataType::Decimal256(precision, scale) => Ok(Self::new(*precision, *scale)),
+            DataType::Decimal128(precision, scale) => Self::try_new(*precision, *scale),
+            DataType::Decimal256(precision, scale) => Self::try_new(*precision, *scale),
             _ => Err(vortex_err!(
                 "Arrow datatype {:?} cannot be converted to DecimalDType",
                 value

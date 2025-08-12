@@ -100,15 +100,16 @@ pub struct PrimitiveEncoding;
 impl PrimitiveArray {
     pub fn new<T: NativePType>(buffer: impl Into<Buffer<T>>, validity: Validity) -> Self {
         let buffer = buffer.into();
-        if let Some(len) = validity.maybe_len() {
-            if buffer.len() != len {
-                vortex_panic!(
-                    "Buffer and validity length mismatch: buffer={}, validity={}",
-                    buffer.len(),
-                    len
-                );
-            }
+        if let Some(len) = validity.maybe_len()
+            && buffer.len() != len
+        {
+            vortex_panic!(
+                "Buffer and validity length mismatch: buffer={}, validity={}",
+                buffer.len(),
+                len
+            );
         }
+
         Self {
             dtype: DType::Primitive(T::PTYPE, validity.nullability()),
             buffer: buffer.into_byte_buffer(),

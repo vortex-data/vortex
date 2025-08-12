@@ -66,14 +66,14 @@ pub fn to_arrow_opts(array: &dyn Array, options: &ToArrowOptions) -> VortexResul
         .inner()
         .clone();
 
-    if let Some(arrow_type) = &options.arrow_type {
-        if arrow.data_type() != arrow_type {
-            vortex_bail!(
-                "Arrow array type mismatch: expected {:?}, got {:?}",
-                &options.arrow_type,
-                arrow.data_type()
-            );
-        }
+    if let Some(arrow_type) = &options.arrow_type
+        && arrow.data_type() != arrow_type
+    {
+        vortex_bail!(
+            "Arrow array type mismatch: expected {:?}, got {:?}",
+            &options.arrow_type,
+            arrow.data_type()
+        );
     }
 
     Ok(arrow)

@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use vortex_array::ArrayRef;
 use vortex_array::arrays::{ConstantArray, StructArray};
-use vortex_array::stats::{Stat, StatsProvider, StatsSet};
+use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::validity::Validity;
 use vortex_dtype::{Field, FieldName, FieldNames, FieldPath, StructFields};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};

@@ -39,7 +39,7 @@ impl ColumnExporter for VarBinViewExporter {
         }
 
         // Update the validity mask.
-        vector.set_validity(&self.validity, offset, len);
+        unsafe { vector.set_validity(&self.validity, offset, len) };
 
         // We register our buffers zero-copy with DuckDB and re-use them in each vector.
         for buffer in &self.buffers {

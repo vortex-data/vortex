@@ -17,6 +17,7 @@ use vortex_dtype::{DType, NativePType, PType, match_each_unsigned_integer_ptype}
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 
 mod compress;
+mod compute;
 mod ops;
 mod serde;
 
@@ -148,14 +149,14 @@ impl DeltaArray {
             vortex_bail!("DeltaArray: dtype must be an integer, got {}", dtype);
         }
 
-        if let Some(vlen) = validity.maybe_len() {
-            if vlen != logical_len {
-                vortex_bail!(
-                    "DeltaArray: validity length ({}) must match logical_len ({})",
-                    vlen,
-                    logical_len
-                );
-            }
+        if let Some(vlen) = validity.maybe_len()
+            && vlen != logical_len
+        {
+            vortex_bail!(
+                "DeltaArray: validity length ({}) must match logical_len ({})",
+                vlen,
+                logical_len
+            );
         }
 
         let delta = Self {

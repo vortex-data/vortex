@@ -26,7 +26,7 @@ pub async fn register_parquet_files(
     dataset: &BenchmarkDataset,
 ) -> Result<()> {
     match dataset {
-        BenchmarkDataset::TpcH { .. } => {
+        BenchmarkDataset::TpcH { .. } | BenchmarkDataset::TpcDS { .. } => {
             info!(
                 "Registering table from {}, with glob {:?}",
                 &file_url,

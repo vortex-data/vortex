@@ -13,15 +13,8 @@ impl OperationsVTable<RunEndVTable> for RunEndVTable {
     fn slice(array: &RunEndArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         let new_length = stop - start;
 
-        let (slice_begin, slice_end) = if new_length == 0 {
-            let values_len = array.values().len();
-            (values_len, values_len)
-        } else {
-            let physical_start = array.find_physical_index(start)?;
-            let physical_stop = array.find_physical_index(stop)?;
-
-            (physical_start, physical_stop + 1)
-        };
+        let slice_begin = array.find_physical_index(start)?;
+        let slice_end = array.find_physical_index(stop)? + 1;
 
         // If the sliced range contains only a single run, opt to return a ConstantArray.
         if slice_begin + 1 == slice_end {
@@ -32,11 +25,7 @@ impl OperationsVTable<RunEndVTable> for RunEndVTable {
         Ok(RunEndArray::with_offset_and_length(
             array.ends().slice(slice_begin, slice_end)?,
             array.values().slice(slice_begin, slice_end)?,
-            if new_length == 0 {
-                0
-            } else {
-                start + array.offset()
-            },
+            start + array.offset(),
             new_length,
         )?
         .into_array())

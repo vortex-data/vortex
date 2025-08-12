@@ -51,7 +51,7 @@ pub struct BoolArray {
 }
 
 impl BoolArray {
-    /// Create a new BoolArray from a set of indices and a length.
+    /// Create a new [`BoolArray`] from a set of indices, a length and a [`Validity`].
     /// All indices must be less than the length.
     pub fn from_indices<I: IntoIterator<Item = usize>>(
         length: usize,
@@ -59,9 +59,10 @@ impl BoolArray {
         validity: Validity,
     ) -> Self {
         let mut buffer = MutableBuffer::new_null(length);
+        let buffer_slice = buffer.as_slice_mut();
         indices
             .into_iter()
-            .for_each(|idx| arrow_buffer::bit_util::set_bit(&mut buffer, idx));
+            .for_each(|idx| arrow_buffer::bit_util::set_bit(buffer_slice, idx));
         Self::new(
             BooleanBufferBuilder::new_from_buffer(buffer, length).finish(),
             validity,
@@ -71,14 +72,14 @@ impl BoolArray {
     /// Creates a new [`BoolArray`] from a [`BooleanBuffer`] and [`Validity`], without checking
     /// any invariants.
     pub fn new(buffer: BooleanBuffer, validity: Validity) -> Self {
-        if let Some(len) = validity.maybe_len() {
-            if buffer.len() != len {
-                vortex_panic!(
-                    "Buffer and validity length mismatch: buffer={}, validity={}",
-                    buffer.len(),
-                    len
-                );
-            }
+        if let Some(len) = validity.maybe_len()
+            && buffer.len() != len
+        {
+            vortex_panic!(
+                "Buffer and validity length mismatch: buffer={}, validity={}",
+                buffer.len(),
+                len
+            );
         }
 
         // Shrink the buffer to remove any whole bytes.

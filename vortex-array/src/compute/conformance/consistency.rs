@@ -880,16 +880,15 @@ fn test_slice_aggregate_consistency(array: &dyn Array) {
     }
 
     // Test nan_count for floating point types
-    if array.dtype().is_float() {
-        if let (Ok(slice_nan_count), Ok(canonical_nan_count)) =
+    if array.dtype().is_float()
+        && let (Ok(slice_nan_count), Ok(canonical_nan_count)) =
             (nan_count(&sliced), nan_count(&canonical_sliced))
-        {
-            assert_eq!(
-                slice_nan_count, canonical_nan_count,
-                "nan_count on sliced array should match canonical. \
+    {
+        assert_eq!(
+            slice_nan_count, canonical_nan_count,
+            "nan_count on sliced array should match canonical. \
                  Sliced: {slice_nan_count}, Canonical: {canonical_nan_count}"
-            );
-        }
+        );
     }
 }
 

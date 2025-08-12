@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexExpect, vortex_panic};
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_error::{VortexError, vortex_panic};
+use vortex_scalar::Scalar;
 
 use super::{Precision, Stat, StatType};
 
 pub trait StatsProvider {
-    fn get(&self, stat: Stat) -> Option<Precision<ScalarValue>>;
+    fn get(&self, stat: Stat) -> Option<Precision<Scalar>>;
 
     /// Count of stored stats with known values.
     fn len(&self) -> usize;
@@ -22,18 +21,11 @@ pub trait StatsProvider {
 impl<S> StatsProviderExt for S where S: StatsProvider {}
 
 pub trait StatsProviderExt: StatsProvider {
-    fn get_scalar(&self, stat: Stat, dtype: &DType) -> Option<Precision<Scalar>> {
-        let stat_dtype = stat
-            .dtype(dtype)
-            .vortex_expect("getting scalar for stat dtype");
-        self.get(stat).map(|v| v.into_scalar(stat_dtype))
+    fn get_scalar_bound<S: StatType<Scalar>>(&self) -> Option<S::Bound> {
+        self.get(S::STAT).map(|v| v.bound::<S>())
     }
 
-    fn get_scalar_bound<S: StatType<Scalar>>(&self, dtype: &DType) -> Option<S::Bound> {
-        self.get_scalar(S::STAT, dtype).map(|v| v.bound::<S>())
-    }
-
-    fn get_as<T: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
+    fn get_as<T: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(
         &self,
         stat: Stat,
     ) -> Option<Precision<T>> {
@@ -54,7 +46,7 @@ pub trait StatsProviderExt: StatsProvider {
     fn get_as_bound<S, U>(&self) -> Option<S::Bound>
     where
         S: StatType<U>,
-        U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>,
+        U: for<'a> TryFrom<&'a Scalar, Error = VortexError>,
     {
         self.get_as::<U>(S::STAT).map(|v| v.bound::<S>())
     }

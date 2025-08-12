@@ -120,10 +120,10 @@ mod s3 {
             .map(|object_meta| async move {
                 if let Ok(object_meta) = object_meta {
                     let url_string = format!("s3://{}/{}", bucket, object_meta.location);
-                    if glob_pattern.matches(&url_string) {
-                        if let Ok(parsed_url) = Url::parse(&url_string) {
-                            return Some((parsed_url, object_meta));
-                        }
+                    if glob_pattern.matches(&url_string)
+                        && let Ok(parsed_url) = Url::parse(&url_string)
+                    {
+                        return Some((parsed_url, object_meta));
                     }
                 }
                 None

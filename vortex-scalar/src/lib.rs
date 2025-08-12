@@ -16,7 +16,7 @@ use std::sync::Arc;
 pub use scalar_type::ScalarType;
 use vortex_buffer::{Buffer, BufferString, ByteBuffer};
 use vortex_dtype::half::f16;
-use vortex_dtype::{DECIMAL128_MAX_PRECISION, DType, Nullability, PType};
+use vortex_dtype::{DECIMAL128_MAX_PRECISION, DType, Nullability};
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
 mod arrow;
@@ -34,6 +34,8 @@ mod pvalue;
 mod scalar_type;
 mod scalar_value;
 mod struct_;
+#[cfg(test)]
+mod tests;
 mod utf8;
 
 pub use bigint::*;
@@ -47,7 +49,7 @@ pub use pvalue::*;
 pub use scalar_value::*;
 pub use struct_::*;
 pub use utf8::*;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 /// A single logical item, composed of both a [`ScalarValue`] and a logical [`DType`].
 ///
@@ -65,73 +67,8 @@ pub struct Scalar {
 
 impl Scalar {
     /// Creates a new scalar with the given data type and value.
-    ///
-    /// This function performs type coercion when necessary to ensure the value matches
-    /// the expected data type. This is particularly important for backwards compatibility
-    /// with serialized scalars where floating point values may have been stored as integers.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the value cannot be coerced to the expected data type.
     pub fn new(dtype: DType, value: ScalarValue) -> Self {
-        let value = Self::coerce_value(&dtype, value).vortex_expect("Failed to coerce value");
         Self { dtype, value }
-    }
-
-    /// Coerces a scalar value to match the expected data type.
-    ///
-    /// This handles cases where:
-    /// - Floating point values were serialized as their bit representation
-    /// - Struct fields need recursive coercion
-    /// - List elements need recursive coercion
-    fn coerce_value(dtype: &DType, value: ScalarValue) -> VortexResult<ScalarValue> {
-        match (dtype, &value.0) {
-            // Handle primitive type coercion
-            (DType::Primitive(ptype, _), InnerScalarValue::Primitive(pvalue)) => {
-                match (ptype, pvalue) {
-                    // F16 coercion from integer types (backwards compatibility)
-                    (PType::F16, PValue::U64(v)) if *v <= u16::MAX as u64 => {
-                        Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F16(
-                            f16::from_bits(u16::try_from(*v).map_err(|_| {
-                                vortex_err!(
-                                    "bit representation of f16 has more than 16 bits: {}",
-                                    v
-                                )
-                            })?),
-                        ))))
-                    }
-                    // No coercion needed
-                    _ => Ok(value),
-                }
-            }
-            // Handle struct coercion - recursively coerce fields
-            (DType::Struct(struct_fields, _), InnerScalarValue::List(field_values)) => {
-                let coerced_fields: Result<Vec<ScalarValue>, _> = struct_fields
-                    .fields()
-                    .zip(field_values.iter())
-                    .map(|(field_dtype, field_value)| {
-                        Self::coerce_value(&field_dtype, field_value.clone())
-                    })
-                    .collect();
-                Ok(ScalarValue(InnerScalarValue::List(coerced_fields?.into())))
-            }
-            // Handle list coercion - recursively coerce elements
-            (DType::List(elem_dtype, _), InnerScalarValue::List(elements)) => {
-                let coerced_elements: Result<Vec<ScalarValue>, _> = elements
-                    .iter()
-                    .map(|elem| Self::coerce_value(elem_dtype, elem.clone()))
-                    .collect();
-                Ok(ScalarValue(InnerScalarValue::List(
-                    coerced_elements?.into(),
-                )))
-            }
-            // Handle extension type coercion - recursively coerce the storage scalar
-            (DType::Extension(ext_dtype), _) => {
-                Self::coerce_value(ext_dtype.storage_dtype(), value)
-            }
-            // No coercion needed for other types
-            _ => Ok(value),
-        }
     }
 
     /// Returns a reference to the scalar's data type.
@@ -213,7 +150,10 @@ impl Scalar {
             if target.is_nullable() {
                 return Ok(Scalar::new(target.clone(), self.value.clone()));
             } else {
-                vortex_bail!("Can't cast null scalar to non-nullable type {}", target)
+                vortex_bail!(
+                    "Cannot cast null to {}: target type is non-nullable",
+                    target
+                )
             }
         }
 
@@ -225,7 +165,7 @@ impl Scalar {
             DType::Null => unreachable!(), // handled by if is_null case
             DType::Bool(_) => self.as_bool().cast(target),
             DType::Primitive(..) => self.as_primitive().cast(target),
-            DType::Decimal(..) => todo!("(aduffy): implement DecimalScalar casting"),
+            DType::Decimal(..) => self.as_decimal().cast(target),
             DType::Utf8(_) => self.as_utf8().cast(target),
             DType::Binary(_) => self.as_binary().cast(target),
             DType::Struct(..) => self.as_struct().cast(target),
@@ -249,7 +189,7 @@ impl Scalar {
             DType::Bool(_) => 1,
             DType::Primitive(ptype, _) => ptype.byte_width(),
             DType::Decimal(dt, _) => {
-                if dt.precision() >= DECIMAL128_MAX_PRECISION {
+                if dt.precision() <= DECIMAL128_MAX_PRECISION {
                     size_of::<i128>()
                 } else {
                     size_of::<i256>()
@@ -445,6 +385,34 @@ impl PartialEq for Scalar {
 impl Eq for Scalar {}
 
 impl PartialOrd for Scalar {
+    /// Compares two scalar values for ordering.
+    ///
+    /// # Returns
+    /// - `Some(Ordering)` if both scalars have the same data type (ignoring nullability)
+    /// - `None` if the scalars have different data types
+    ///
+    /// # Ordering Rules
+    /// When types match, the ordering follows these rules:
+    /// - Null values are considered less than all non-null values
+    /// - Non-null values are compared according to their natural ordering
+    ///
+    /// # Examples
+    /// ```ignore
+    /// // Same types compare successfully
+    /// let a = Scalar::primitive(10i32, Nullability::NonNullable);
+    /// let b = Scalar::primitive(20i32, Nullability::NonNullable);
+    /// assert_eq!(a.partial_cmp(&b), Some(Ordering::Less));
+    ///
+    /// // Different types return None
+    /// let int_scalar = Scalar::primitive(10i32, Nullability::NonNullable);
+    /// let str_scalar = Scalar::utf8("hello", Nullability::NonNullable);
+    /// assert_eq!(int_scalar.partial_cmp(&str_scalar), None);
+    ///
+    /// // Nulls are less than non-nulls
+    /// let null = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
+    /// let value = Scalar::primitive(0i32, Nullability::Nullable);
+    /// assert_eq!(null.partial_cmp(&value), Some(Ordering::Less));
+    /// ```
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         if !self.dtype().eq_ignore_nullability(other.dtype()) {
             return None;
@@ -557,562 +525,3 @@ from_vec_for_scalar!(f64);
 from_vec_for_scalar!(String);
 from_vec_for_scalar!(BufferString);
 from_vec_for_scalar!(ByteBuffer);
-
-#[cfg(test)]
-#[allow(clippy::panic)]
-mod tests {
-    use std::sync::Arc;
-
-    use rstest::rstest;
-    use vortex_dtype::half::f16;
-    use vortex_dtype::{DType, ExtDType, ExtID, FieldDType, Nullability, PType, StructFields};
-
-    use crate::{InnerScalarValue, PValue, Scalar, ScalarValue};
-
-    #[rstest]
-    fn null_can_cast_to_anything_nullable(
-        #[values(
-            DType::Null,
-            DType::Bool(Nullability::Nullable),
-            DType::Primitive(PType::I32, Nullability::Nullable),
-            DType::Extension(Arc::from(ExtDType::new(
-                ExtID::from("a"),
-                Arc::from(DType::Primitive(PType::U32, Nullability::Nullable)),
-                None,
-            ))),
-            DType::Extension(Arc::from(ExtDType::new(
-                ExtID::from("b"),
-                Arc::from(DType::Utf8(Nullability::Nullable)),
-                None,
-            )))
-        )]
-        source_dtype: DType,
-        #[values(
-            DType::Null,
-            DType::Bool(Nullability::Nullable),
-            DType::Primitive(PType::I32, Nullability::Nullable),
-            DType::Extension(Arc::from(ExtDType::new(
-                ExtID::from("a"),
-                Arc::from(DType::Primitive(PType::U32, Nullability::Nullable)),
-                None,
-            ))),
-            DType::Extension(Arc::from(ExtDType::new(
-                ExtID::from("b"),
-                Arc::from(DType::Utf8(Nullability::Nullable)),
-                None,
-            )))
-        )]
-        target_dtype: DType,
-    ) {
-        assert_eq!(
-            Scalar::null(source_dtype)
-                .cast(&target_dtype)
-                .unwrap()
-                .dtype(),
-            &target_dtype
-        );
-    }
-
-    #[test]
-    fn list_casts() {
-        let list = Scalar::new(
-            DType::List(
-                Arc::from(DType::Primitive(PType::U16, Nullability::Nullable)),
-                Nullability::Nullable,
-            ),
-            ScalarValue(InnerScalarValue::List(Arc::from([ScalarValue(
-                InnerScalarValue::Primitive(PValue::U16(6)),
-            )]))),
-        );
-
-        let target_u32 = DType::List(
-            Arc::from(DType::Primitive(PType::U32, Nullability::Nullable)),
-            Nullability::Nullable,
-        );
-        assert_eq!(list.cast(&target_u32).unwrap().dtype(), &target_u32);
-
-        let target_u32_nonnull = DType::List(
-            Arc::from(DType::Primitive(PType::U32, Nullability::NonNullable)),
-            Nullability::Nullable,
-        );
-        assert_eq!(
-            list.cast(&target_u32_nonnull).unwrap().dtype(),
-            &target_u32_nonnull
-        );
-
-        let target_nonnull = DType::List(
-            Arc::from(DType::Primitive(PType::U32, Nullability::Nullable)),
-            Nullability::NonNullable,
-        );
-        assert_eq!(list.cast(&target_nonnull).unwrap().dtype(), &target_nonnull);
-
-        let target_u8 = DType::List(
-            Arc::from(DType::Primitive(PType::U8, Nullability::Nullable)),
-            Nullability::Nullable,
-        );
-        assert_eq!(list.cast(&target_u8).unwrap().dtype(), &target_u8);
-
-        let list_with_null = Scalar::new(
-            DType::List(
-                Arc::from(DType::Primitive(PType::U16, Nullability::Nullable)),
-                Nullability::Nullable,
-            ),
-            ScalarValue(InnerScalarValue::List(Arc::from([
-                ScalarValue(InnerScalarValue::Primitive(PValue::U16(6))),
-                ScalarValue(InnerScalarValue::Null),
-            ]))),
-        );
-        let target_u8 = DType::List(
-            Arc::from(DType::Primitive(PType::U8, Nullability::Nullable)),
-            Nullability::Nullable,
-        );
-        assert_eq!(list_with_null.cast(&target_u8).unwrap().dtype(), &target_u8);
-
-        let target_u32_nonnull = DType::List(
-            Arc::from(DType::Primitive(PType::U32, Nullability::NonNullable)),
-            Nullability::Nullable,
-        );
-        assert!(list_with_null.cast(&target_u32_nonnull).is_err());
-    }
-
-    #[test]
-    fn cast_to_from_extension_types() {
-        let apples = ExtDType::new(
-            ExtID::new(Arc::from("apples")),
-            Arc::from(DType::Primitive(PType::U16, Nullability::NonNullable)),
-            None,
-        );
-        let ext_dtype = DType::Extension(Arc::from(apples.clone()));
-        let ext_scalar = Scalar::new(ext_dtype.clone(), ScalarValue(InnerScalarValue::Bool(true)));
-        let storage_scalar = Scalar::new(
-            DType::clone(apples.storage_dtype()),
-            ScalarValue(InnerScalarValue::Primitive(PValue::U16(1000))),
-        );
-
-        // to self
-        let expected_dtype = &ext_dtype;
-        let actual = ext_scalar.cast(expected_dtype).unwrap();
-        assert_eq!(actual.dtype(), expected_dtype);
-
-        // to nullable self
-        let expected_dtype = &ext_dtype.as_nullable();
-        let actual = ext_scalar.cast(expected_dtype).unwrap();
-        assert_eq!(actual.dtype(), expected_dtype);
-
-        // cast to the storage type
-        let expected_dtype = apples.storage_dtype();
-        let actual = ext_scalar.cast(expected_dtype).unwrap();
-        assert_eq!(actual.dtype(), expected_dtype);
-
-        // cast to the storage type, nullable
-        let expected_dtype = &apples.storage_dtype().as_nullable();
-        let actual = ext_scalar.cast(expected_dtype).unwrap();
-        assert_eq!(actual.dtype(), expected_dtype);
-
-        // cast from storage type to extension
-        let expected_dtype = &ext_dtype;
-        let actual = storage_scalar.cast(expected_dtype).unwrap();
-        assert_eq!(actual.dtype(), expected_dtype);
-
-        // cast from storage type to extension, nullable
-        let expected_dtype = &ext_dtype.as_nullable();
-        let actual = storage_scalar.cast(expected_dtype).unwrap();
-        assert_eq!(actual.dtype(), expected_dtype);
-
-        // cast from *compatible* storage type to extension
-        let storage_scalar_u64 = Scalar::new(
-            DType::clone(apples.storage_dtype()),
-            ScalarValue(InnerScalarValue::Primitive(PValue::U64(1000))),
-        );
-        let expected_dtype = &ext_dtype;
-        let actual = storage_scalar_u64.cast(expected_dtype).unwrap();
-        assert_eq!(actual.dtype(), expected_dtype);
-
-        // cast from *incompatible* storage type to extension
-        let apples_u8 = ExtDType::new(
-            ExtID::new(Arc::from("apples")),
-            Arc::from(DType::Primitive(PType::U8, Nullability::NonNullable)),
-            None,
-        );
-        let expected_dtype = &DType::Extension(Arc::from(apples_u8));
-        let result = storage_scalar.cast(expected_dtype);
-        assert!(
-            result.as_ref().is_err_and(|err| {
-                err
-                    .to_string()
-                    .contains("Can't cast u16 scalar 1000u16 to u8 (cause: Cannot read primitive value U16(1000) as u8")
-            }),
-            "{result:?}"
-        );
-    }
-
-    #[test]
-    fn default_value_for_complex_dtype() {
-        let struct_dtype = DType::struct_(
-            [
-                ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
-                (
-                    "b",
-                    DType::list(
-                        DType::Primitive(PType::I8, Nullability::Nullable),
-                        Nullability::NonNullable,
-                    ),
-                ),
-                ("c", DType::Primitive(PType::I32, Nullability::Nullable)),
-            ],
-            Nullability::NonNullable,
-        );
-
-        let scalar = Scalar::default_value(struct_dtype.clone());
-        assert_eq!(scalar.dtype(), &struct_dtype);
-
-        let scalar = scalar.as_struct();
-
-        let a_field = scalar.field("a").unwrap();
-        assert_eq!(a_field.as_primitive().pvalue().unwrap(), PValue::I32(0));
-
-        let b_field = scalar.field("b").unwrap();
-        assert!(b_field.as_list().is_empty());
-
-        let c_field = scalar.field("c").unwrap();
-        assert!(c_field.is_null());
-    }
-
-    #[test]
-    fn test_f16_coercion_from_u64() {
-        let f16_value = f16::from_f32(5.722046e-6);
-        let u64_bits = f16_value.to_bits() as u64;
-
-        let scalar = Scalar::new(
-            DType::Primitive(PType::F16, Nullability::NonNullable),
-            ScalarValue(InnerScalarValue::Primitive(PValue::U64(u64_bits))),
-        );
-
-        match scalar.value() {
-            ScalarValue(InnerScalarValue::Primitive(PValue::F16(v))) => {
-                assert_eq!(*v, f16_value);
-            }
-            _ => panic!("Expected F16 value after coercion"),
-        }
-    }
-
-    #[test]
-    fn test_f16_no_coercion_from_u32() {
-        let f16_value = f16::from_f32(0.42);
-        let u32_bits = f16_value.to_bits() as u32;
-
-        let scalar = Scalar::new(
-            DType::Primitive(PType::F16, Nullability::NonNullable),
-            ScalarValue(InnerScalarValue::Primitive(PValue::U32(u32_bits))),
-        );
-
-        // No coercion expected from u32
-        match scalar.value() {
-            ScalarValue(InnerScalarValue::Primitive(PValue::U32(v))) => {
-                assert_eq!(*v, u32_bits);
-            }
-            _ => panic!("Expected U32 value (no coercion)"),
-        }
-    }
-
-    #[test]
-    fn test_f16_no_coercion_from_u16() {
-        let f16_value = f16::from_f32(1.5);
-        let u16_bits = f16_value.to_bits();
-
-        let scalar = Scalar::new(
-            DType::Primitive(PType::F16, Nullability::NonNullable),
-            ScalarValue(InnerScalarValue::Primitive(PValue::U16(u16_bits))),
-        );
-
-        // No coercion expected from u16
-        match scalar.value() {
-            ScalarValue(InnerScalarValue::Primitive(PValue::U16(v))) => {
-                assert_eq!(*v, u16_bits);
-            }
-            _ => panic!("Expected U16 value (no coercion)"),
-        }
-    }
-
-    #[test]
-    fn test_f32_no_coercion_from_u32() {
-        let f32_value = std::f32::consts::PI;
-        let u32_bits = f32_value.to_bits();
-
-        let scalar = Scalar::new(
-            DType::Primitive(PType::F32, Nullability::NonNullable),
-            ScalarValue(InnerScalarValue::Primitive(PValue::U32(u32_bits))),
-        );
-
-        // No coercion expected from u32
-        match scalar.value() {
-            ScalarValue(InnerScalarValue::Primitive(PValue::U32(v))) => {
-                assert_eq!(*v, u32_bits);
-            }
-            _ => panic!("Expected U32 value (no coercion)"),
-        }
-    }
-
-    #[test]
-    fn test_f64_no_coercion_from_u64() {
-        let f64_value = std::f64::consts::E;
-        let u64_bits = f64_value.to_bits();
-
-        let scalar = Scalar::new(
-            DType::Primitive(PType::F64, Nullability::NonNullable),
-            ScalarValue(InnerScalarValue::Primitive(PValue::U64(u64_bits))),
-        );
-
-        // No coercion expected from u64
-        match scalar.value() {
-            ScalarValue(InnerScalarValue::Primitive(PValue::U64(v))) => {
-                assert_eq!(*v, u64_bits);
-            }
-            _ => panic!("Expected U64 value (no coercion)"),
-        }
-    }
-
-    #[test]
-    fn test_struct_field_coercion() {
-        let f16_value = f16::from_f32(0.42);
-        let f32_value = std::f32::consts::PI;
-
-        let struct_dtype = DType::Struct(
-            StructFields::from_iter([
-                (
-                    "a",
-                    FieldDType::from(DType::Primitive(PType::U32, Nullability::NonNullable)),
-                ),
-                (
-                    "b",
-                    FieldDType::from(DType::Primitive(PType::F16, Nullability::NonNullable)),
-                ),
-                (
-                    "c",
-                    FieldDType::from(DType::Primitive(PType::F32, Nullability::NonNullable)),
-                ),
-            ]),
-            Nullability::NonNullable,
-        );
-
-        let field_values = vec![
-            ScalarValue(InnerScalarValue::Primitive(PValue::U32(42))),
-            ScalarValue(InnerScalarValue::Primitive(PValue::U64(
-                f16_value.to_bits() as u64,
-            ))),
-            ScalarValue(InnerScalarValue::Primitive(PValue::F32(f32_value))),
-        ];
-
-        let scalar = Scalar::new(
-            struct_dtype,
-            ScalarValue(InnerScalarValue::List(field_values.into())),
-        );
-
-        let struct_scalar = scalar.as_struct();
-        let fields = struct_scalar.fields().unwrap();
-
-        // Check first field (no coercion needed)
-        match fields[0].value() {
-            ScalarValue(InnerScalarValue::Primitive(PValue::U32(v))) => {
-                assert_eq!(*v, 42);
-            }
-            _ => panic!("Expected U32 value for field 'a'"),
-        }
-
-        // Check second field (f16 coerced from u64)
-        match fields[1].value() {
-            ScalarValue(InnerScalarValue::Primitive(PValue::F16(v))) => {
-                assert_eq!(*v, f16_value);
-            }
-            _ => panic!("Expected F16 value for field 'b' after coercion"),
-        }
-
-        // Check third field (no coercion needed)
-        match fields[2].value() {
-            ScalarValue(InnerScalarValue::Primitive(PValue::F32(v))) => {
-                assert_eq!(*v, f32_value);
-            }
-            _ => panic!("Expected F32 value for field 'c'"),
-        }
-    }
-
-    #[test]
-    fn test_no_coercion_for_matching_types() {
-        // Test that when types already match, no coercion happens
-        let i32_value = 42i32;
-        let scalar = Scalar::new(
-            DType::Primitive(PType::I32, Nullability::NonNullable),
-            ScalarValue(InnerScalarValue::Primitive(PValue::I32(i32_value))),
-        );
-
-        match scalar.value() {
-            ScalarValue(InnerScalarValue::Primitive(PValue::I32(v))) => {
-                assert_eq!(*v, i32_value);
-            }
-            _ => panic!("Expected I32 value"),
-        }
-    }
-
-    #[test]
-    fn test_list_element_coercion() {
-        let f16_value1 = f16::from_f32(1.0);
-        let f16_value2 = f16::from_f32(2.0);
-
-        let list_dtype = DType::List(
-            Arc::new(DType::Primitive(PType::F16, Nullability::NonNullable)),
-            Nullability::NonNullable,
-        );
-
-        let elements = vec![
-            ScalarValue(InnerScalarValue::Primitive(PValue::U64(
-                f16_value1.to_bits() as u64,
-            ))),
-            ScalarValue(InnerScalarValue::Primitive(PValue::U64(
-                f16_value2.to_bits() as u64,
-            ))),
-        ];
-
-        let scalar = Scalar::new(
-            list_dtype,
-            ScalarValue(InnerScalarValue::List(elements.into())),
-        );
-
-        let list_scalar = scalar.as_list();
-        let elements = list_scalar.elements().unwrap();
-
-        for (i, expected) in [f16_value1, f16_value2].iter().enumerate() {
-            match elements[i].value() {
-                ScalarValue(InnerScalarValue::Primitive(PValue::F16(v))) => {
-                    assert_eq!(v, expected, "Element {i} mismatch");
-                }
-                _ => panic!("Expected F16 value for element {i} after coercion"),
-            }
-        }
-    }
-
-    #[test]
-    fn test_coercion_with_overflow_protection() {
-        // Test that values too large for target type are not coerced
-        let large_u64 = u64::MAX;
-
-        // This should NOT be coerced to F16 because it's too large
-        let scalar = Scalar::new(
-            DType::Primitive(PType::F16, Nullability::NonNullable),
-            ScalarValue(InnerScalarValue::Primitive(PValue::U64(large_u64))),
-        );
-
-        match scalar.value() {
-            ScalarValue(InnerScalarValue::Primitive(PValue::U64(v))) => {
-                assert_eq!(*v, large_u64);
-            }
-            _ => panic!("Expected U64 value to remain unchanged when too large for F16"),
-        }
-    }
-
-    #[test]
-    fn test_extension_dtype_coercion() {
-        // Create an extension type with f16 storage
-        let ext_id = ExtID::new("test_f16_ext".into());
-        let storage_dtype = Arc::new(DType::Primitive(PType::F16, Nullability::NonNullable));
-        let ext_dtype = Arc::new(ExtDType::new(ext_id, storage_dtype, None));
-
-        // Test f16 value stored as u64 gets coerced through extension type
-        let f16_value = f16::from_f32(0.42);
-        let u64_bits = f16_value.to_bits() as u64;
-
-        let scalar = Scalar::new(
-            DType::Extension(ext_dtype),
-            ScalarValue(InnerScalarValue::Primitive(PValue::U64(u64_bits))),
-        );
-
-        // Verify the value was coerced to f16
-        match scalar.value() {
-            ScalarValue(InnerScalarValue::Primitive(PValue::F16(v))) => {
-                assert_eq!(*v, f16_value);
-            }
-            _ => panic!("Expected F16 value after extension type coercion"),
-        }
-    }
-
-    #[test]
-    fn test_extension_dtype_no_coercion() {
-        // Create an extension type with u32 storage
-        let ext_id = ExtID::new("test_u32_ext".into());
-        let storage_dtype = Arc::new(DType::Primitive(PType::U32, Nullability::NonNullable));
-        let ext_dtype = Arc::new(ExtDType::new(ext_id, storage_dtype, None));
-
-        // Test u32 value is not coerced
-        let u32_value = 42u32;
-
-        let scalar = Scalar::new(
-            DType::Extension(ext_dtype),
-            ScalarValue(InnerScalarValue::Primitive(PValue::U32(u32_value))),
-        );
-
-        // Verify the value remains u32
-        match scalar.value() {
-            ScalarValue(InnerScalarValue::Primitive(PValue::U32(v))) => {
-                assert_eq!(*v, u32_value);
-            }
-            _ => panic!("Expected U32 value to remain unchanged"),
-        }
-    }
-
-    #[test]
-    fn test_extension_dtype_nested_struct_coercion() {
-        // Create an extension type with struct storage that contains f16 field
-        let ext_id = ExtID::new("test_struct_ext".into());
-        let struct_dtype = Arc::new(DType::Struct(
-            StructFields::from_iter([
-                (
-                    "id",
-                    FieldDType::from(DType::Primitive(PType::U32, Nullability::NonNullable)),
-                ),
-                (
-                    "value",
-                    FieldDType::from(DType::Primitive(PType::F16, Nullability::NonNullable)),
-                ),
-            ]),
-            Nullability::NonNullable,
-        ));
-        let ext_dtype = Arc::new(ExtDType::new(ext_id, struct_dtype, None));
-
-        // Create struct value with f16 stored as u64
-        let f16_value = f16::from_f32(1.5);
-        let field_values = vec![
-            ScalarValue(InnerScalarValue::Primitive(PValue::U32(123))),
-            ScalarValue(InnerScalarValue::Primitive(PValue::U64(
-                f16_value.to_bits() as u64,
-            ))),
-        ];
-
-        let scalar = Scalar::new(
-            DType::Extension(ext_dtype),
-            ScalarValue(InnerScalarValue::List(field_values.into())),
-        );
-
-        // Verify the struct field was coerced
-        match scalar.value() {
-            ScalarValue(InnerScalarValue::List(fields)) => {
-                assert_eq!(fields.len(), 2);
-
-                // Check ID field (no coercion)
-                match &fields[0].0 {
-                    InnerScalarValue::Primitive(PValue::U32(v)) => {
-                        assert_eq!(*v, 123);
-                    }
-                    _ => panic!("Expected U32 value for ID field"),
-                }
-
-                // Check value field (f16 coerced from u64)
-                match &fields[1].0 {
-                    InnerScalarValue::Primitive(PValue::F16(v)) => {
-                        assert_eq!(*v, f16_value);
-                    }
-                    _ => panic!("Expected F16 value for value field after coercion"),
-                }
-            }
-            _ => panic!("Expected List value for struct storage in extension type"),
-        }
-    }
-}

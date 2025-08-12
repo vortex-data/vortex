@@ -30,7 +30,7 @@ pub(crate) fn new_exporter(array: &PrimitiveArray) -> VortexResult<Box<dyn Colum
 impl<T: NativePType> ColumnExporter for PrimitiveExporter<T> {
     fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
         // Set validity if necessary.
-        if vector.set_validity(&self.validity, offset, len) {
+        if unsafe { vector.set_validity(&self.validity, offset, len) } {
             // All values are null, so no point copying the data.
             return Ok(());
         }

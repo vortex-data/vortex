@@ -7,9 +7,20 @@ use std::path::PathBuf;
 use std::{env, fs};
 
 use bindgen::Abi;
+use once_cell::sync::Lazy;
 
-const DUCKDB_VERSION: &str = "1.3.2";
 const DUCKDB_BASE_URL: &str = "https://github.com/duckdb/duckdb/releases/download";
+static DUCKDB_VERSION: Lazy<String> = Lazy::new(|| {
+    // Override the DuckDB version via environment variable in case of an extension build.
+    // `DUCKDB_VERSION` is set by the extension build in the `duckdb-vortex` repo.
+    //
+    // This is to ensure that we don't implicitly build against a different DuckDB version during
+    // an extension build which might lead to subtle ABI breaks, e.g. reordering fields in C++ structs.
+    env::var("DUCKDB_VERSION")
+        .unwrap_or_else(|_| "1.3.2".to_owned())
+        .trim_start_matches("v")
+        .to_owned()
+});
 
 fn download_duckdb_lib_archive() -> Result<PathBuf, Box<dyn std::error::Error>> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
@@ -26,7 +37,10 @@ fn download_duckdb_lib_archive() -> Result<PathBuf, Box<dyn std::error::Error>> 
     };
 
     let archive_name = format!("libduckdb-{platform}-{arch}.zip");
-    let url = format!("{DUCKDB_BASE_URL}/v{DUCKDB_VERSION}/{archive_name}");
+    let url = format!(
+        "{DUCKDB_BASE_URL}/v{}/{archive_name}",
+        DUCKDB_VERSION.as_str()
+    );
     let archive_path = duckdb_dir.join(&archive_name);
 
     // Recreate the duckdb directory
@@ -73,9 +87,12 @@ fn extract_duckdb_libraries(archive_path: PathBuf) -> Result<PathBuf, Box<dyn st
 fn download_duckdb_source_archive() -> Result<PathBuf, Box<dyn std::error::Error>> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
     let target_dir = manifest_dir.parent().unwrap().join("target");
-    let duckdb_source_dir = target_dir.join(format!("duckdb-source-v{DUCKDB_VERSION}"));
-    let archive_name = format!("duckdb-source-v{DUCKDB_VERSION}.zip");
-    let url = format!("https://github.com/duckdb/duckdb/archive/refs/tags/v{DUCKDB_VERSION}.zip");
+    let duckdb_source_dir = target_dir.join(format!("duckdb-source-v{}", DUCKDB_VERSION.as_str()));
+    let archive_name = format!("duckdb-source-v{}.zip", DUCKDB_VERSION.as_str());
+    let url = format!(
+        "https://github.com/duckdb/duckdb/archive/refs/tags/v{}.zip",
+        DUCKDB_VERSION.as_str()
+    );
     let archive_path = duckdb_source_dir.join(&archive_name);
 
     // Create directory if it doesn't exist.
@@ -101,7 +118,7 @@ fn extract_duckdb_source(archive_path: PathBuf) -> Result<PathBuf, Box<dyn std::
 
     // Check if the source is already extracted.
     if duckdb_source_dir
-        .join(format!("duckdb-{DUCKDB_VERSION}/CMakeLists.txt"))
+        .join(format!("duckdb-{}/CMakeLists.txt", DUCKDB_VERSION.as_str()))
         .exists()
     {
         println!("DuckDB source already extracted, skipping extraction");
@@ -170,7 +187,7 @@ fn main() {
         .clang_arg(format!(
             "-I{}",
             duckdb_repo
-                .join(format!("duckdb-{DUCKDB_VERSION}/src/include"))
+                .join(format!("duckdb-{}/src/include", DUCKDB_VERSION.as_str()))
                 .to_str()
                 .unwrap()
         ))
@@ -199,12 +216,6 @@ fn main() {
         extraced_lib_path.display()
     );
 
-    if env::var("TARGET").unwrap().contains("linux") {
-        println!("cargo:rustc-link-lib=stdc++");
-    } else {
-        println!("cargo:rustc-link-lib=c++");
-    }
-
     // Compile our C++ code that exposes additional DuckDB functionality.
     cc::Build::new()
         .std("c++17")
@@ -219,8 +230,9 @@ fn main() {
         // Unused parameter warnings are disabled as we include DuckDB
         // headers with implementations that have unused parameters.
         .flag("-Wno-unused-parameter")
+        .cpp(true)
         // We include DuckDB headers from the DuckDB extension submodule.
-        .include(duckdb_repo.join(format!("duckdb-{DUCKDB_VERSION}/src/include")))
+        .include(duckdb_repo.join(format!("duckdb-{}/src/include", DUCKDB_VERSION.as_str())))
         .include("cpp/include")
         .file("cpp/client_context.cpp")
         .file("cpp/copy_function.cpp")

@@ -1,25 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
-use arcref::ArcRef;
-use futures::{FutureExt as _, StreamExt as _};
 use vortex_array::arrays::{ExtensionArray, ListArray, StructArray};
-use vortex_array::stats::Stat;
 use vortex_array::vtable::ValidityHelper;
-use vortex_array::{Array, ArrayContext, ArrayRef, Canonical, IntoArray};
+use vortex_array::{Array, ArrayRef, Canonical, IntoArray};
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_pco::PcoArray;
 use vortex_zstd::ZstdArray;
-
-use crate::executor::{TaskExecutor, TaskExecutorExt as _};
-use crate::segments::SequenceWriter;
-use crate::{
-    LayoutStrategy, SendableLayoutFuture, SendableSequentialStream, SequentialStreamAdapter,
-    SequentialStreamExt as _,
-};
 
 fn is_pco_number_type(ptype: PType) -> bool {
     matches!(
@@ -154,67 +142,6 @@ impl Default for CompactCompressor {
             // (but nothing enforces this).
             values_per_page: 8192,
         }
-    }
-}
-
-/// A layout writer that compresses chunks using the "compact" strategy:
-/// - Pco for supported numeric types (16, 32, and 64-bit floats and ints)
-/// - Zstd for everything else (primitive arrays only)
-pub struct CompactCompressedStrategy {
-    child: ArcRef<dyn LayoutStrategy>,
-    executor: Arc<dyn TaskExecutor>,
-    parallelism: usize,
-    compressor: CompactCompressor,
-}
-
-impl CompactCompressedStrategy {
-    pub fn new(
-        child: ArcRef<dyn LayoutStrategy>,
-        executor: Arc<dyn TaskExecutor>,
-        parallelism: usize,
-        compressor: CompactCompressor,
-    ) -> Self {
-        Self {
-            child,
-            executor,
-            parallelism,
-            compressor,
-        }
-    }
-}
-
-impl LayoutStrategy for CompactCompressedStrategy {
-    fn write_stream(
-        &self,
-        ctx: &ArrayContext,
-        sequence_writer: SequenceWriter,
-        stream: SendableSequentialStream,
-    ) -> SendableLayoutFuture {
-        let executor = self.executor.clone();
-
-        let dtype = stream.dtype().clone();
-        let compressor = self.compressor.clone();
-        let stream = stream
-            .map(move |chunk| {
-                let compressor = compressor.clone();
-                async move {
-                    let (sequence_id, chunk) = chunk?;
-                    // Compute the stats for the chunk prior to compression
-                    chunk
-                        .statistics()
-                        .compute_all(&Stat::all().collect::<Vec<_>>())?;
-                    Ok((sequence_id, compressor.compress(&chunk)?))
-                }
-                .boxed()
-            })
-            .map(move |compress_future| executor.spawn(compress_future))
-            .buffered(self.parallelism);
-
-        self.child.write_stream(
-            ctx,
-            sequence_writer,
-            SequentialStreamAdapter::new(dtype, stream).sendable(),
-        )
     }
 }
 
