@@ -6997,6 +6997,7 @@ dependencies = [
  "crossbeam-channel",
  "crossbeam-deque",
  "crossbeam-queue",
+ "dashmap",
  "futures",
  "itertools 0.14.0",
  "log",
