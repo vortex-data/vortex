@@ -288,21 +288,23 @@ impl Scheduler {
         // Now we can look to launch new splits based on the total working set size and
         // in-flight request sizes. We don't currently know the in-flight segment sizes, so we
         // will just do it based on segment count instead.
-        while self.active_splits.end < self.splits.len() - 1
+        while self.active_splits.end < self.splits.len()
             && self.shared.working_set.len() + self.segment_futures.len()
                 < self.target_segment_count
         {
-            self.active_splits.end += 1;
             while self.make_progress_on_split(self.active_splits.end) {}
+            self.active_splits.end += 1;
+            made_progress = true;
         }
 
         // If our range of active splits is empty, we should always attempt to make progress.
-        if self.active_splits.end < self.splits.len() - 1 && self.active_splits.is_empty() {
-            self.active_splits.end += 1;
+        if self.active_splits.end < self.splits.len() && self.active_splits.is_empty() {
             while self.make_progress_on_split(self.active_splits.end) {}
+            self.active_splits.end += 1;
+            made_progress = true;
         }
 
-        Ok(true)
+        Ok(made_progress)
     }
 
     /// Block waiting for some more I/O to complete.
