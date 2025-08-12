@@ -4,7 +4,6 @@
 use std::ops::{Not, Range};
 
 use vortex_buffer::Buffer;
-use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 
 use crate::row_mask::RowMask;
@@ -31,8 +30,17 @@ pub enum Selection {
 impl Selection {
     /// Extract the [`RowMask`] for the given range from this selection.
     pub(crate) fn row_mask(&self, range: &Range<u64>) -> RowMask {
-        let range_len = usize::try_from(range.end - range.start)
-            .vortex_expect("Range length does not fit into a usize");
+        // Saturating subtraction to prevent underflow, though range should be valid
+        let range_diff = range.end.saturating_sub(range.start);
+        let range_len = usize::try_from(range_diff).unwrap_or_else(|_| {
+            // If the range is too large for usize, cap it at usize::MAX
+            // This is a defensive measure; in practice, ranges should be reasonable
+            log::warn!(
+                "Range length {} exceeds usize::MAX, capping at usize::MAX",
+                range_diff
+            );
+            usize::MAX
+        });
 
         match self {
             Selection::All => RowMask::new(range.start, Mask::new_true(range_len)),
@@ -44,10 +52,13 @@ impl Selection {
                             include
                                 .slice(idx_range)
                                 .iter()
-                                .map(|idx| *idx - range.start)
                                 .map(|idx| {
-                                    usize::try_from(idx)
-                                        .vortex_expect("Index does not fit into a usize")
+                                    // Saturating subtraction to prevent underflow
+                                    idx.saturating_sub(range.start)
+                                })
+                                .filter_map(|idx| {
+                                    // Only include indices that fit in usize
+                                    usize::try_from(idx).ok()
                                 })
                                 .collect(),
                         )

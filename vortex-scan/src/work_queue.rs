@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering::{Relaxed, SeqCst};
+use std::sync::atomic::Ordering::{Acquire, Relaxed, SeqCst};
 use std::{iter, thread};
 
 use crossbeam_deque::{Steal, Stealer, Worker};
@@ -188,7 +188,8 @@ impl<T> Iterator for WorkStealingIterator<T> {
                 // `steal_work` does have the side effect of stealing work, and we only want to loop
                 // again if the result of an attempt of stealing results with `Retry`, for other cases
                 // `Empty` and `Success` there is no point in trying again
-                while self.state.num_factories_constructed.load(Relaxed) < self.state.num_factories
+                // Use Acquire ordering to ensure we see all writes from other threads
+                while self.state.num_factories_constructed.load(Acquire) < self.state.num_factories
                     || self.state.stealers_have_work()
                 {
                     if self.state.steal_work(&self.worker).is_success() {

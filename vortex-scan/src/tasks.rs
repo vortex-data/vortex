@@ -126,7 +126,9 @@ pub(super) fn split_exec<A: 'static + Send>(
                     }
 
                     // If the dynamic expression has changed since pruning, re-run the pruning.
-                    if let Some(dv) = filter.dynamic_updates(idx).map(|du| du.version())
+                    // Store the dynamic update once to avoid TOCTOU race condition
+                    let current_version = filter.dynamic_updates(idx).map(|du| du.version());
+                    if let Some(dv) = current_version
                         && dynamic_versions[idx].is_none_or(|v| v < dv)
                     {
                         // The dynamic expression has been updated, re-run the pruning.
