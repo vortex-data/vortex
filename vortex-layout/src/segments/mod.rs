@@ -6,12 +6,12 @@ mod sink;
 mod source;
 mod test;
 
-use std::fmt::Display;
-use std::ops::Deref;
-
+use dashmap::DashMap;
 pub use events::*;
 pub use sink::*;
 pub use source::*;
+use std::fmt::Display;
+use std::ops::Deref;
 pub use test::*;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexError, VortexExpect};
@@ -53,6 +53,14 @@ impl Display for SegmentId {
 /// Blocking accessor for segments.
 pub trait Segments: Send + Sync {
     fn get(&self, segment_id: SegmentId) -> ByteBuffer;
+}
+
+impl Segments for DashMap<SegmentId, ByteBuffer> {
+    fn get(&self, segment_id: SegmentId) -> ByteBuffer {
+        DashMap::get(self, &segment_id)
+            .vortex_expect("Segment not found")
+            .clone()
+    }
 }
 
 impl Segments for HashMap<SegmentId, ByteBuffer> {

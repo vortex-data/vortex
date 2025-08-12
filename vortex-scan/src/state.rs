@@ -3,6 +3,7 @@
 
 use crate::filter::FilterExpr;
 use crate::tasks::TaskContext;
+use crossbeam_channel::{Receiver, Sender};
 use crossbeam_deque::{Injector, Stealer, Worker};
 use dashmap::DashMap;
 use futures::executor::block_on;
@@ -17,9 +18,10 @@ use std::sync::{Arc, LazyLock};
 use std::task::{Context, Poll, Wake, Waker};
 use vortex_array::ArrayRef;
 use vortex_buffer::ByteBuffer;
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::{VortexResult, vortex_err, vortex_panic};
 use vortex_layout::segments::{SegmentId, SegmentSource};
 use vortex_layout::{ArrayEvaluation, MaskEvaluation};
+use vortex_mask::Mask;
 use vortex_utils::aliases::hash_set::HashSet;
 
 pub struct Scan2 {
@@ -34,17 +36,27 @@ impl Scan2 {
 
 struct GlobalState {
     scheduler: Mutex<Scheduler>,
+    shared: Arc<SharedState>,
+    cpu_events: Sender<CpuEvent>,
+    stealers: RwLock<Vec<Stealer<WorkItem>>>,
+}
 
+/// State that is shared across workers and the scheduler
+struct SharedState {
     /// Information about each split in the scan.
     splits: Vec<Split>,
-
+    /// Injector for launching CPU tasks.
+    injector: Injector<WorkItem>,
     /// The working set of segments.
-    segments: Arc<DashMap<SegmentId, ByteBuffer>>,
+    working_set: Arc<DashMap<SegmentId, ByteBuffer>>,
     /// The filter expression for the scan.
     filter_expr: Option<Arc<FilterExpr>>,
+}
 
-    injector: Injector<WorkItem>,
-    stealers: RwLock<Vec<Stealer<WorkItem>>>,
+impl SharedState {
+    fn num_conjuncts(&self) -> usize {
+        self.filter_expr.as_ref().map_or(0, |f| f.conjuncts().len())
+    }
 }
 
 struct Split {
@@ -57,13 +69,32 @@ struct Split {
     projection_segments: HashSet<SegmentId>,
 }
 
-enum WorkItem {
-    MakeProgress { split_idx: usize },
+type SplitIdx = usize;
+
+struct IoEvent {
+    segment_id: SegmentId,
+    buffer: ByteBuffer,
+}
+enum CpuEvent {
+    Filter {
+        split_idx: SplitIdx,
+        conjunct_idx: usize,
+        mask: Mask,
+    },
+    Project {
+        split_idx: SplitIdx,
+        array: ArrayRef,
+    },
 }
 
 struct Scheduler {
+    shared: Arc<SharedState>,
+
     source: Arc<dyn SegmentSource>,
     segment_futures: FuturesUnordered<BoxFuture<'static, VortexResult<IoEvent>>>,
+
+    /// Results for CPU tasks.
+    cpu_events: Receiver<CpuEvent>,
 
     /// If all splits have been processed, we can stop.
     finished: bool,
@@ -75,32 +106,40 @@ struct Scheduler {
     active_splits: Range<usize>,
     splits: Vec<SplitState>,
 
-    /// The working set of segments.
-    working_set: Arc<DashMap<SegmentId, ByteBuffer>>,
     /// The total size of bytes in the working set of segments.
     working_set_size: u64,
     /// The target size of bytes in the working set of segments.
     target_working_set_size: u64,
 
-    /// The filter expression for the scan.
-    filter: Option<Arc<FilterExpr>>,
+    /// Track which work items are waiting for segments.
+    waiting_for_segments: Arc<DashMap<SegmentId, Vec<SplitIdx>>>,
 }
 
+#[derive(Debug)]
 enum SplitState {
     Pending,
     Filtering {
         conjunct_idx: usize,
+        mask: Mask,
         waiting_for: HashSet<SegmentId>,
     },
     Projecting {
+        mask: Mask,
         waiting_for: HashSet<SegmentId>,
     },
     Finished,
 }
 
-struct IoEvent {
-    segment_id: SegmentId,
-    buffer: ByteBuffer,
+enum WorkItem {
+    Filter {
+        split_idx: SplitIdx,
+        conjunct_idx: usize,
+        mask: Mask,
+    },
+    Project {
+        split_idx: SplitIdx,
+        mask: Mask,
+    },
 }
 
 impl Scheduler {
@@ -125,7 +164,10 @@ impl Scheduler {
             }
         }
 
-        // Spawn any split tasks that are ready to run.
+        // Next we handle CPU completions.
+        while let Ok(event) = self.cpu_events.try_recv() {
+            self.handle_cpu_event(event)
+        }
 
         // NOTE(ngates): for worker affinity, we can create a channel per worker to send tasks
         //  down. Workers should then pull tasks from this channel and push them into their worker
@@ -169,7 +211,86 @@ impl Scheduler {
         Ok(())
     }
 
-    fn handle_io_event(&mut self, event: IoEvent) {}
+    fn handle_io_event(&mut self, event: IoEvent) {
+        // Insert the segment buffer into the working set.
+        self.working_set_size += event.buffer.len() as u64;
+        self.shared
+            .working_set
+            .insert(event.segment_id, event.buffer);
+
+        // Check which splits are waiting for this segment.
+        if let Some(items) = self.waiting_for_segments.get(&event.segment_id) {
+            for split_idx in items.value() {
+                let split_state = &mut self.splits[*split_idx];
+                match split_state {
+                    SplitState::Filtering {
+                        conjunct_idx,
+                        mask,
+                        waiting_for,
+                    } => {
+                        waiting_for.remove(&event.segment_id);
+                        if waiting_for.is_empty() {
+                            self.shared.injector.push(WorkItem::Filter {
+                                split_idx: *split_idx,
+                                mask: mask.clone(),
+                                conjunct_idx: *conjunct_idx,
+                            })
+                        }
+                    }
+                    SplitState::Projecting { mask, waiting_for } => {
+                        waiting_for.remove(&event.segment_id);
+                        if waiting_for.is_empty() {
+                            self.shared.injector.push(WorkItem::Project {
+                                split_idx: *split_idx,
+                                mask: mask.clone(),
+                            })
+                        }
+                    }
+                    _ => {
+                        vortex_panic!("unexpected split state {:?}", split_state)
+                    }
+                }
+            }
+        }
+    }
+
+    fn handle_cpu_event(&mut self, event: CpuEvent) {
+        match event {
+            CpuEvent::Filter {
+                split_idx,
+                conjunct_idx,
+                mask,
+            } => {
+                let split_state = &mut self.splits[split_idx];
+
+                // Check if we can terminate the split early.
+                if mask.all_false() {
+                    *split_state = SplitState::Finished;
+                    return;
+                }
+
+                if conjunct_idx == self.shared.num_conjuncts() - 1 {
+                    // We have completed filtering, perform projection.
+                    *split_state = SplitState::Projecting {
+                        mask,
+                        waiting_for: self.shared.splits[split_idx].projection_segments.clone(),
+                    }
+                } else {
+                    // Otherwise, move to the next conjunct.
+                    *split_state = SplitState::Filtering {
+                        conjunct_idx: conjunct_idx + 1,
+                        mask,
+                        waiting_for: self.shared.splits[split_idx].filter_segments
+                            [conjunct_idx + 1]
+                            .clone(),
+                    }
+                }
+            }
+            CpuEvent::Project { .. } => {
+                vortex_panic!("unexpected project event")
+            }
+        }
+    }
 }
 
 struct ScanWorker {
@@ -206,7 +327,7 @@ impl Iterator for ScanWorker {
 
             // If we failed to make progress, we look to process our pending work.
             if let Some(task) = self.find_task() {
-                if let Err(e) = self.handle_task(task) {
+                if let Err(e) = self.handle_work_item(task) {
                     return Some(Err(e));
                 }
                 // Otherwise, continue to the next iteration of the loop.
@@ -237,10 +358,47 @@ impl Iterator for ScanWorker {
 }
 
 impl ScanWorker {
-    fn handle_task(&mut self, work_item: WorkItem) -> VortexResult<()> {
-        // TODO(ngates): should we push completed arrays into a BTree such that workers can emit
-        //  the arrays in order? Possibly.
-        todo!()
+    fn handle_work_item(&mut self, work_item: WorkItem) -> VortexResult<()> {
+        match work_item {
+            WorkItem::Filter {
+                split_idx,
+                mask,
+                conjunct_idx,
+            } => {
+                let cpu_event = self.do_filter(split_idx, conjunct_idx, mask)?;
+                self.global
+                    .cpu_events
+                    .send(cpu_event)
+                    .map_err(|e| vortex_err!("failed to send CPU event: {}", e))?;
+                Ok(())
+            }
+            WorkItem::Project { split_idx, mask } => self.do_project(split_idx, mask),
+        }
+    }
+
+    fn do_filter(
+        &mut self,
+        split_idx: usize,
+        conjunct_idx: usize,
+        mask: Mask,
+    ) -> VortexResult<CpuEvent> {
+        let split = &self.global.shared.splits[split_idx];
+        let mask =
+            split.filters[conjunct_idx].invoke(mask, self.global.shared.working_set.as_ref())?;
+        Ok(CpuEvent::Filter {
+            split_idx,
+            conjunct_idx,
+            mask,
+        })
+    }
+
+    fn do_project(&mut self, split_idx: usize, mask: Mask) -> VortexResult<()> {
+        let split = &self.global.shared.splits[split_idx];
+        let array = split
+            .projection
+            .invoke(mask, self.global.shared.working_set.as_ref())?;
+        self.completed.push_back(array);
+        Ok(())
     }
 
     /// Find the next CPU task.
@@ -251,6 +409,7 @@ impl ScanWorker {
             iter::repeat_with(|| {
                 // Try stealing a batch of tasks from the global queue.
                 self.global
+                    .shared
                     .injector
                     .steal_batch_and_pop(&self.worker)
                     // Or try stealing a task from one of the other threads.

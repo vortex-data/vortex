@@ -26,7 +26,7 @@ pub use vortex_layout::{TaskExecutor, TaskExecutorExt};
 use vortex_metrics::VortexMetrics;
 
 use crate::filter::FilterExpr;
-use crate::state::{GlobalState, Scan2};
+use crate::state::Scan2;
 use crate::work_queue::{TaskFactory, WorkStealingQueue};
 use crate::work_stealing_iter::{ArrayTask, WorkStealingArrayIterator};
 
