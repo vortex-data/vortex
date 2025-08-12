@@ -26,7 +26,9 @@ vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
 vortex-utils = { workspace = true }
 
+async-stream = { workspace = true }
 bit-vec = { workspace = true }
+crossbeam-channel = { workspace = true }
 crossbeam-deque = { workspace = true }
 crossbeam-queue = { workspace = true }
 futures = { workspace = true }
@@ -36,6 +38,8 @@ parking_lot = { workspace = true }
 roaring = { workspace = true, optional = true }
 sketches-ddsketch = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"], optional = true }
+
+takeaway = "0.1.0"
 
 [features]
 default = []
