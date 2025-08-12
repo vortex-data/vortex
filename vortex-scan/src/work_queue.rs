@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering::{Acquire, Relaxed, SeqCst};
+use std::sync::atomic::Ordering;
 use std::{iter, thread};
 
 use crossbeam_deque::{Steal, Stealer, Worker};
@@ -100,7 +100,8 @@ impl<T> State<T> {
                 let tasks = factory_fn().inspect_err(|_| {
                     // In case of an error, increment the counter such that all other workers are able to terminate.
                     // `num_factories_constructed` is part of the loop condition when workers attempt to steal work.
-                    self.num_factories_constructed.fetch_add(1, SeqCst);
+                    self.num_factories_constructed
+                        .fetch_add(1, Ordering::SeqCst);
                 })?;
                 let is_empty = tasks.is_empty();
 
@@ -109,7 +110,8 @@ impl<T> State<T> {
                     worker.push(task);
                 }
 
-                self.num_factories_constructed.fetch_add(1, SeqCst);
+                self.num_factories_constructed
+                    .fetch_add(1, Ordering::SeqCst);
 
                 // Keep looping until we find a factory that has pushed tasks.
                 if !is_empty {
@@ -140,7 +142,7 @@ impl<T> State<T> {
             guard
                 .iter()
                 .cycle()
-                .skip(self.stealer_offset.fetch_add(1, Relaxed) % num_stealers)
+                .skip(self.stealer_offset.fetch_add(1, Ordering::SeqCst) % num_stealers)
                 .take(num_stealers)
                 .map(|stealer| stealer.steal_batch(worker))
                 .collect::<Steal<()>>()
@@ -189,7 +191,8 @@ impl<T> Iterator for WorkStealingIterator<T> {
                 // again if the result of an attempt of stealing results with `Retry`, for other cases
                 // `Empty` and `Success` there is no point in trying again
                 // Use Acquire ordering to ensure we see all writes from other threads
-                while self.state.num_factories_constructed.load(Acquire) < self.state.num_factories
+                while self.state.num_factories_constructed.load(Ordering::SeqCst)
+                    < self.state.num_factories
                     || self.state.stealers_have_work()
                 {
                     if self.state.steal_work(&self.worker).is_success() {
