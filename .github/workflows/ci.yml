@@ -344,7 +344,7 @@ jobs:
       - extras=s3-cache
       - tag=rust-test-sanitizer
     env:
-      RUSTFLAGS: "-A warnings -Zsanitizer=address"
+      RUSTFLAGS: "-A warnings -Zsanitizer=address --cfg disable_loom"
     steps:
       - uses: runs-on/action@v2
         with:

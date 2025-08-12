@@ -328,7 +328,8 @@ fn to_field_mask(field: FieldName) -> FieldMask {
     FieldMask::Prefix(FieldPath::from(Field::Name(field)))
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(disable_loom)))]
+#[allow(clippy::tests_outside_test_module)]  // False positive due to complex cfg
 mod loom_tests {
     use bit_vec::BitVec;
     use futures::future;
@@ -362,12 +363,10 @@ mod loom_tests {
             // Collect results from both workers
             let handle1 = thread::spawn(move || {
                 let mut results = Vec::new();
-                for item in iter1 {
-                    if let Ok(val) = item {
-                        results.push(val);
-                        if results.len() >= 3 {
-                            break;
-                        }
+                for val in iter1.flatten() {
+                    results.push(val);
+                    if results.len() >= 3 {
+                        break;
                     }
                 }
                 results
@@ -375,12 +374,10 @@ mod loom_tests {
 
             let handle2 = thread::spawn(move || {
                 let mut results = Vec::new();
-                for item in iter2 {
-                    if let Ok(val) = item {
-                        results.push(val);
-                        if results.len() >= 3 {
-                            break;
-                        }
+                for val in iter2.flatten() {
+                    results.push(val);
+                    if results.len() >= 3 {
+                        break;
                     }
                 }
                 results
@@ -395,7 +392,7 @@ mod loom_tests {
             }
 
             // Verify no duplicates between workers
-            let mut all_results = results1.clone();
+            let mut all_results = results1;
             all_results.extend(results2);
             all_results.sort();
             for i in 1..all_results.len() {
@@ -415,12 +412,12 @@ mod loom_tests {
             ];
 
             let queue = WorkStealingQueue::new(factories);
-            let mut iter = queue.new_iterator();
+            let iter = queue.new_iterator();
 
             let mut has_error = false;
             let mut values = Vec::new();
 
-            while let Some(result) = iter.next() {
+            for result in iter {
                 match result {
                     Ok(val) => values.push(val),
                     Err(_) => {
@@ -431,7 +428,7 @@ mod loom_tests {
             }
 
             // Should encounter the error
-            assert!(has_error || values.len() > 0);
+            assert!(has_error || !values.is_empty());
         });
     }
 
@@ -501,7 +498,7 @@ mod loom_tests {
 
             let filter1 = filter.clone();
             let filter2 = filter.clone();
-            let filter3 = filter.clone();
+            let filter3 = filter;
 
             // Multiple threads reporting selectivity
             let handle1 = thread::spawn(move || {
@@ -544,7 +541,7 @@ mod loom_tests {
             let filter = Arc::new(FilterExpr::new(expr));
 
             let filter1 = filter.clone();
-            let filter2 = filter.clone();
+            let filter2 = filter;
 
             // Thread 1 reports selectivity for conjunct 0
             let handle1 = thread::spawn(move || {
@@ -595,12 +592,10 @@ mod loom_tests {
             // Collect from both iterators concurrently
             let handle1 = thread::spawn(move || {
                 let mut results = Vec::new();
-                for item in iter1 {
-                    if let Ok(val) = item {
-                        results.push(val);
-                        if results.len() >= 2 {
-                            break;
-                        }
+                for val in iter1.flatten() {
+                    results.push(val);
+                    if results.len() >= 2 {
+                        break;
                     }
                 }
                 results
@@ -608,12 +603,10 @@ mod loom_tests {
 
             let handle2 = thread::spawn(move || {
                 let mut results = Vec::new();
-                for item in iter2 {
-                    if let Ok(val) = item {
-                        results.push(val);
-                        if results.len() >= 2 {
-                            break;
-                        }
+                for val in iter2.flatten() {
+                    results.push(val);
+                    if results.len() >= 2 {
+                        break;
                     }
                 }
                 results
