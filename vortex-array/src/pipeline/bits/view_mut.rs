@@ -95,7 +95,7 @@ impl<'a> BitViewMut<'a> {
                 .as_raw_slice()
                 .iter()
                 .map(|&word| word.count_ones() as usize)
-                .sum()
+                .sum::<usize>()
         );
     }
 }

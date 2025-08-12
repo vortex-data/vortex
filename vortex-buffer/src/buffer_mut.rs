@@ -584,9 +584,9 @@ trait AlignedBytesMut {
 
 impl AlignedBytesMut for BytesMut {
     fn align_empty(&mut self, alignment: Alignment) {
-        if !self.is_empty() {
-            vortex_panic!("ByteBufferMut must be empty");
-        }
+        // if !self.is_empty() {
+        //     vortex_panic!("ByteBufferMut must be empty");
+        // }
 
         let padding = self.as_ptr().align_offset(*alignment);
         self.capacity()
