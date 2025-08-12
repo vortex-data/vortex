@@ -305,15 +305,6 @@ extern "C"
 #endif // __cplusplus
 
   /**
-   * Explicitly shut down the tokio runtime to prevent cleanup races with mimalloc.
-   *
-   * This function forces an immediate shutdown regardless of active references.
-   * It should only be called when all FFI operations are complete and the process
-   * is about to exit.
-   */
-  bool vx_runtime_shutdown(void);
-
-  /**
    * Clone a borrowed [`vx_array`], returning an owned [`vx_array`].
    *
    *
