@@ -38,14 +38,14 @@ impl Vector {
         unsafe { Self::own(cpp::duckdb_create_vector(logical_type.as_ptr(), len as _)) }
     }
 
-    /// Converts the vector to a constant value.
+    /// Append value to the vector.
     pub fn reference_value(&mut self, value: &Value) {
         unsafe {
             cpp::duckdb_vector_reference_value(self.as_ptr(), value.as_ptr());
         }
     }
 
-    /// Populates this vector by reference to another.
+    /// Copy values from other vector to this vector.
     pub fn reference(&mut self, other: &Vector) {
         unsafe { cpp::duckdb_vector_reference_vector(self.as_ptr(), other.as_ptr()) }
     }

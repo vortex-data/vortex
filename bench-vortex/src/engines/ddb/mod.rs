@@ -71,7 +71,7 @@ impl DuckDBCtx {
         let query_time = time_instant.elapsed();
         trace!("query completed in {:.3}s", query_time.as_secs_f64());
 
-        Ok((query_time, result.row_count()?))
+        Ok((query_time, result.row_count()))
     }
 
     /// Register tables for benchmarks using the internal connection

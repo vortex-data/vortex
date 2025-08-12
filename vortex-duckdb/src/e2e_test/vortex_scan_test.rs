@@ -5,9 +5,13 @@
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::CStr;
     use std::path::Path;
+    use std::str::FromStr;
 
     use anyhow::Result;
+    use jiff::tz::TimeZone;
+    use jiff::{Span, Timestamp, Zoned, tz};
     use tempfile::NamedTempFile;
     use vortex::IntoArray;
     use vortex::arrays::{BoolArray, ConstantArray, PrimitiveArray, StructArray, VarBinArray};
@@ -15,7 +19,9 @@ mod tests {
     use vortex::scalar::Scalar;
     use vortex::validity::Validity;
 
-    use crate::duckdb::{Connection, Database, QueryResultCell};
+    use crate::cpp;
+    use crate::cpp::{duckdb_string_t, duckdb_timestamp};
+    use crate::duckdb::{Connection, Database};
 
     fn database_connection() -> Connection {
         let db = Database::open_in_memory().unwrap();
@@ -50,22 +56,26 @@ mod tests {
         temp_file_path
     }
 
-    fn scan_vortex_file_single_row<T>(tmp_file: NamedTempFile, query: &str, col_idx: usize) -> T
-    where
-        T: TryFrom<QueryResultCell, Error = vortex::error::VortexError>,
-    {
+    fn scan_vortex_file_single_row<T: Copy>(
+        tmp_file: NamedTempFile,
+        query: &str,
+        col_idx: usize,
+    ) -> T {
         let conn = database_connection();
         let file_path = tmp_file.path().to_string_lossy();
         let formatted_query = query.replace('?', &format!("'{file_path}'"));
 
         let result = conn.query(&formatted_query).unwrap();
-        result.get::<T>(col_idx, 0).unwrap()
+        let chunk = result.into_iter().next().unwrap();
+        let vec = chunk.get_vector(col_idx);
+        vec.as_slice_with_len::<T>(chunk.len_usize())[0]
     }
 
-    fn scan_vortex_file<T>(tmp_file: NamedTempFile, query: &str, col_idx: usize) -> Result<Vec<T>>
-    where
-        T: TryFrom<QueryResultCell, Error = vortex::error::VortexError>,
-    {
+    fn scan_vortex_file<T: Copy>(
+        tmp_file: NamedTempFile,
+        query: &str,
+        col_idx: usize,
+    ) -> Result<Vec<T>> {
         let conn = database_connection();
         let file_path = tmp_file.path().to_string_lossy();
         let formatted_query = query.replace('?', &format!("'{file_path}'"));
@@ -73,9 +83,9 @@ mod tests {
         let result = conn.query(&formatted_query)?;
 
         let mut values = Vec::new();
-        for row_idx in 0..result.row_count()? {
-            let value = result.get::<T>(col_idx, row_idx)?;
-            values.push(value);
+        for chunk in result {
+            let vec = chunk.get_vector(col_idx);
+            values.extend(vec.as_slice_with_len::<T>(chunk.len_usize()));
         }
 
         Ok(values)
@@ -109,7 +119,13 @@ mod tests {
                 "SELECT function_name FROM duckdb_functions() WHERE function_name = 'vortex_scan'",
             )
             .unwrap();
-        assert_eq!(&result.get::<String>(0, 0).unwrap(), "vortex_scan");
+        let chunk = result.into_iter().next().unwrap();
+        let vec = chunk.get_vector(0);
+        let mut result = vec.as_slice_with_len::<duckdb_string_t>(chunk.len_usize())[0];
+        let string =
+            unsafe { CStr::from_ptr(cpp::duckdb_string_t_data(&raw mut result)).to_string_lossy() };
+
+        assert_eq!(string, "vortex_scan");
     }
 
     #[test]
@@ -120,13 +136,15 @@ mod tests {
             write_single_column_vortex_file("strings", strings).await
         });
 
-        let result: String = scan_vortex_file_single_row(
+        let mut result: duckdb_string_t = scan_vortex_file_single_row(
             file,
             "SELECT string_agg(strings, ',') FROM vortex_scan(?)",
             0,
         );
+        let string =
+            unsafe { CStr::from_ptr(cpp::duckdb_string_t_data(&raw mut result)).to_string_lossy() };
 
-        assert_eq!(result, "Hello,Hi,Hey");
+        assert_eq!(string, "Hello,Hi,Hey");
     }
 
     #[test]
@@ -136,12 +154,15 @@ mod tests {
             let strings = VarBinArray::from(vec!["Hello", "Hi", "Hey"]);
             write_single_column_vortex_file("strings", strings).await
         });
-        let result: String = scan_vortex_file_single_row(
+        let mut result: duckdb_string_t = scan_vortex_file_single_row(
             file,
             "SELECT string_agg(strings, ',') FROM vortex_scan(?) WHERE strings LIKE '%He%'",
             0,
         );
-        assert_eq!(result, "Hello,Hey");
+        let string =
+            unsafe { CStr::from_ptr(cpp::duckdb_string_t_data(&raw mut result)).to_string_lossy() };
+
+        assert_eq!(string, "Hello,Hey");
     }
 
     #[test]
@@ -286,8 +307,9 @@ mod tests {
                 "SELECT SUM(numbers) FROM vortex_scan('{glob_pattern}')",
             ))
             .unwrap();
-
-        let total_sum: i64 = result.get(0, 0).unwrap();
+        let chunk = result.into_iter().next().unwrap();
+        let vec = chunk.get_vector(0);
+        let total_sum = vec.as_slice_with_len::<i64>(chunk.len_usize())[0];
 
         assert_eq!(total_sum, 21);
     }
@@ -308,8 +330,37 @@ mod tests {
                 "SELECT SUM(number) FROM vortex_scan('{file_path}')",
             ))
             .unwrap();
-        let total_sum: i64 = result.get(0, 0).unwrap();
+        let chunk = result.into_iter().next().unwrap();
+        let vec = chunk.get_vector(0);
+        let total_sum = vec.as_slice_with_len::<i64>(chunk.len_usize())[0];
 
         assert_eq!(total_sum, 55);
+    }
+
+    #[test]
+    fn test_write_timestamps() {
+        let conn = database_connection();
+        let tempdir = tempfile::tempdir().unwrap();
+        let file_path = format!("{}/test.vortex", tempdir.path().to_string_lossy());
+
+        conn.query(&format!(
+            "COPY (SELECT '2025-05-03 16:19:14.338895-07'::timestamptz as TSTZ) TO '{file_path}' (FORMAT VORTEX);",
+        ))
+            .unwrap();
+
+        let result = conn
+            .query(&format!("SELECT TSTZ FROM vortex_scan('{file_path}')",))
+            .unwrap();
+        let chunk = result.into_iter().next().unwrap();
+        let vec = chunk.get_vector(0);
+        let timestamp = vec.as_slice_with_len::<duckdb_timestamp>(chunk.len_usize())[0];
+
+        assert_eq!(
+            Timestamp::UNIX_EPOCH
+                .checked_add(Span::new().try_microseconds(timestamp.micros).unwrap())
+                .unwrap()
+                .to_zoned(TimeZone::fixed(tz::offset(-7))),
+            Zoned::from_str("2025-05-03 16:19:14.338895-07[-07]").unwrap()
+        );
     }
 }

@@ -70,6 +70,7 @@ impl Connection {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cpp::duckdb_string_t;
 
     fn test_connection() -> VortexResult<Connection> {
         let db = Database::open_in_memory()?;
@@ -111,7 +112,7 @@ mod tests {
     fn test_query_and_get_row_count_select() {
         let conn = test_connection().unwrap();
         let result = conn.query("SELECT 1, 2, 3").unwrap();
-        assert_eq!(result.row_count().unwrap(), 1);
+        assert_eq!(result.row_count(), 1);
     }
 
     #[test]
@@ -122,7 +123,7 @@ mod tests {
         let result = conn
             .query("CREATE TABLE test (id INTEGER, name VARCHAR)")
             .unwrap();
-        assert_eq!(result.row_count().unwrap(), 0);
+        assert_eq!(result.row_count(), 0);
     }
 
     #[test]
@@ -135,7 +136,7 @@ mod tests {
             .query("INSERT INTO test VALUES (1, 'Alice'), (2, 'Bob')")
             .unwrap();
 
-        assert_eq!(result.row_count().unwrap(), 2);
+        assert_eq!(result.row_count(), 2);
     }
 
     #[test]
@@ -149,10 +150,13 @@ mod tests {
     fn test_query_single_value() {
         let conn = test_connection().unwrap();
         let result = conn.query("SELECT 42").unwrap();
+        let chunk = result.into_iter().next().unwrap();
+        let vec = chunk.get_vector(0);
+        let slice = vec.as_slice_with_len::<i64>(chunk.len_usize());
 
-        assert_eq!(result.column_count().unwrap(), 1);
-        assert_eq!(result.row_count().unwrap(), 1);
-        assert_eq!(result.get::<i64>(0, 0).unwrap(), 42);
+        assert_eq!(chunk.column_count(), 1);
+        assert_eq!(chunk.len(), 1);
+        assert_eq!(slice[0], 42);
     }
 
     #[test]
@@ -162,12 +166,13 @@ mod tests {
         conn.query("INSERT INTO test VALUES (1), (2), (3)").unwrap();
 
         let result = conn.query("SELECT id FROM test ORDER BY id").unwrap();
+        let chunk = result.into_iter().next().unwrap();
+        let vec = chunk.get_vector(0);
+        let slice = vec.as_slice_with_len::<i32>(chunk.len_usize());
 
-        assert_eq!(result.column_count().unwrap(), 1);
-        assert_eq!(result.row_count().unwrap(), 3);
-        assert_eq!(result.get::<i64>(0, 0).unwrap(), 1);
-        assert_eq!(result.get::<i64>(0, 1).unwrap(), 2);
-        assert_eq!(result.get::<i64>(0, 2).unwrap(), 3);
+        assert_eq!(chunk.column_count(), 1);
+        assert_eq!(chunk.len(), 3);
+        assert_eq!(slice, [1, 2, 3]);
     }
 
     #[test]
@@ -175,24 +180,25 @@ mod tests {
         let conn = test_connection().unwrap();
         let result = conn.query("SELECT 1 as num, 'hello' as text").unwrap();
 
-        assert_eq!(result.column_count().unwrap(), 2);
-        assert_eq!(result.row_count().unwrap(), 1);
+        assert_eq!(result.column_count(), 2);
         assert_eq!(result.column_name(0).unwrap(), "num");
         assert_eq!(result.column_name(1).unwrap(), "text");
-        assert_eq!(result.get::<i64>(0, 0).unwrap(), 1);
-        assert_eq!(result.get::<String>(1, 0).unwrap(), "hello");
-    }
 
-    #[test]
-    fn test_query_bounds_checking() {
-        let conn = test_connection().unwrap();
-        let result = conn.query("SELECT 1").unwrap();
+        let chunk = result.into_iter().next().unwrap();
+        let vec = chunk.get_vector(0);
+        let slice = vec.as_slice_with_len::<i64>(chunk.len_usize());
 
-        // Test row bounds
-        assert!(result.get::<i64>(0, 1).is_err());
+        let mut vec_str = chunk.get_vector(1);
+        let slice_str = unsafe { vec_str.as_slice_mut::<duckdb_string_t>(chunk.len_usize()) };
 
-        // Test column bounds
-        assert!(result.get::<i64>(1, 0).is_err());
+        assert_eq!(chunk.len(), 1);
+        assert_eq!(slice[0], 1);
+        assert_eq!(
+            unsafe {
+                CStr::from_ptr(cpp::duckdb_string_t_data(&raw mut slice_str[0])).to_string_lossy()
+            },
+            "hello"
+        );
     }
 
     #[test]
@@ -212,9 +218,12 @@ mod tests {
         let result = conn
             .query("SELECT NULL as null_col, 1 as not_null_col")
             .unwrap();
+        let chunk = result.into_iter().next().unwrap();
+        let col0 = chunk.get_vector(0);
+        let col1 = chunk.get_vector(1);
 
-        assert!(result.is_null(0, 0).unwrap());
-        assert!(!result.is_null(1, 0).unwrap());
+        assert!(col0.row_is_null(0));
+        assert!(!col1.row_is_null(0));
     }
 
     #[test]
@@ -223,11 +232,20 @@ mod tests {
         let result = conn
             .query("SELECT 42::TINYINT, 42::SMALLINT, 42::INTEGER, 42::BIGINT")
             .unwrap();
+        let chunk = result.into_iter().next().unwrap();
+        let vec0 = chunk.get_vector(0);
+        let vec1 = chunk.get_vector(1);
+        let vec2 = chunk.get_vector(2);
+        let vec3 = chunk.get_vector(3);
+        let slice0 = vec0.as_slice_with_len::<i8>(chunk.len_usize());
+        let slice1 = vec1.as_slice_with_len::<i16>(chunk.len_usize());
+        let slice2 = vec2.as_slice_with_len::<i32>(chunk.len_usize());
+        let slice3 = vec3.as_slice_with_len::<i64>(chunk.len_usize());
 
-        assert_eq!(result.get::<i64>(0, 0).unwrap(), 42); // TINYINT -> i64
-        assert_eq!(result.get::<i64>(1, 0).unwrap(), 42); // SMALLINT -> i64
-        assert_eq!(result.get::<i64>(2, 0).unwrap(), 42); // INTEGER -> i64
-        assert_eq!(result.get::<i64>(3, 0).unwrap(), 42); // BIGINT -> i64
+        assert_eq!(slice0[0], 42); // TINYINT -> i64
+        assert_eq!(slice1[0], 42); // SMALLINT -> i64
+        assert_eq!(slice2[0], 42); // INTEGER -> i64
+        assert_eq!(slice3[0], 42); // BIGINT -> i64
     }
 
     #[test]
@@ -241,7 +259,7 @@ mod tests {
         let result = conn
             .query("UPDATE test SET name = 'Updated' WHERE id <= 2")
             .unwrap();
-        assert_eq!(result.row_count().unwrap(), 2);
+        assert_eq!(result.row_count(), 2);
     }
 
     #[test]
@@ -251,7 +269,7 @@ mod tests {
         conn.query("INSERT INTO test VALUES (1), (2), (3)").unwrap();
 
         let result = conn.query("DELETE FROM test WHERE id > 1").unwrap();
-        assert_eq!(result.row_count().unwrap(), 2);
+        assert_eq!(result.row_count(), 2);
     }
 
     #[derive(Debug, PartialEq)]
