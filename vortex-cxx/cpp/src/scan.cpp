@@ -24,6 +24,14 @@ ScanBuilder &ScanBuilder::operator=(ScanBuilder &&other) noexcept {
 
 ScanBuilder::~ScanBuilder() = default;
 
+ScanBuilder &&ScanBuilder::WithFilter(Expr expr) && {
+    try {
+        ffi::scan_builder_with_filter(*impl_->rust_impl, *expr.impl_);
+    } catch (const rust::cxxbridge1::Error &e) {
+        throw VortexException(e.what());
+    }
+    return std::move(*this);
+}
 ScanBuilder &&ScanBuilder::WithRowRange(uint64_t row_range_start, uint64_t row_range_end) && {
     try {
         ffi::scan_builder_with_row_range(*impl_->rust_impl, row_range_start, row_range_end);

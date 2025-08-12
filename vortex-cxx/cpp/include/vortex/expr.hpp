@@ -3,9 +3,9 @@
 
 #pragma once
 
+#include "vortex/scalar.hpp"
 #include <memory>
-#include <string>
-#include <vector>
+#include "vortex_cxx_bridge/dtype_scalar_expr.h"
 
 namespace vortex {
 
@@ -19,7 +19,7 @@ public:
     Expr(const Expr &) = delete;
     Expr &operator=(const Expr &) = delete;
 
-    // static Expr literal(std::string value, std::string dtype);
+    static Expr literal(Scalar scalar);
     static Expr root();
     static Expr column(std::string_view name);
     static Expr get_item(std::string_view field, Expr expr);
@@ -36,9 +36,9 @@ public:
     static Expr checked_add(Expr lhs, Expr rhs);
 
 private:
-    struct Impl;
-    explicit Expr(std::unique_ptr<Impl> impl);
-    std::unique_ptr<Impl> impl_;
+    friend class ScanBuilder;
+    explicit Expr(rust::Box<ffi::Expr> impl);
+    rust::Box<ffi::Expr> impl_;
 };
 
 } // namespace vortex

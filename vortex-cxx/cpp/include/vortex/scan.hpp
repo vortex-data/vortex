@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "vortex/expr.hpp"
 #include <nanoarrow/common/inline_types.h>
 
 #include <cstdint>
@@ -52,6 +53,9 @@ public:
 
     ScanBuilder(const ScanBuilder &) = delete;
     ScanBuilder &operator=(const ScanBuilder &) = delete;
+
+    /// Only include rows that match the filter expressions.
+    ScanBuilder &&WithFilter(Expr expr) &&;
 
     /// Only include rows in the range [row_range_start, row_range_end).
     ScanBuilder &&WithRowRange(uint64_t row_range_start, uint64_t row_range_end) &&;

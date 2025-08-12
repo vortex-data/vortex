@@ -12,65 +12,31 @@ use vortex::buffer::Buffer;
 use vortex::file::VortexOpenOptions;
 use vortex::scan::ScanBuilder;
 
-#[cxx::bridge(namespace = "vortex::ffi")]
-mod ffi {
-    extern "Rust" {
-        type VortexFile;
-        fn open_file(path: &str) -> Result<Box<VortexFile>>;
-        fn file_row_count(file: &VortexFile) -> u64;
-        fn file_scan_builder(file: &VortexFile) -> Result<Box<VortexScanBuilder>>;
+use crate::expr::Expr;
 
-        type VortexScanBuilder;
-        fn scan_builder_with_row_range(
-            builder: &mut VortexScanBuilder,
-            row_range_start: u64,
-            row_range_end: u64,
-        ) -> Result<()>;
-        fn scan_builder_with_include_by_index(
-            builder: &mut VortexScanBuilder,
-            include_by_index: &[u64],
-        ) -> Result<()>;
-        fn scan_builder_with_limit(builder: &mut VortexScanBuilder, limit: usize);
-        unsafe fn scan_builder_with_output_schema(
-            builder: &mut VortexScanBuilder,
-            output_schema: *mut u8,
-        ) -> Result<()>;
-        unsafe fn scan_builder_into_stream(
-            builder: Box<VortexScanBuilder>,
-            out_stream: *mut u8,
-        ) -> Result<()>;
-        type ThreadsafeCloneableReader;
-        fn scan_builder_into_threadsafe_cloneable_reader(
-            builder: Box<VortexScanBuilder>,
-        ) -> Result<Box<ThreadsafeCloneableReader>>;
-        unsafe fn threadsafe_cloneable_reader_clone_a_stream(
-            reader: &ThreadsafeCloneableReader,
-            out_stream: *mut u8,
-        );
-    }
-}
-
-struct VortexFile {
+pub(crate) struct VortexFile {
     inner: vortex::file::VortexFile,
 }
 
 /// File operations - using blocking operations for simplicity
 /// TODO(xinyu): object store (see vortex-ffi)
-fn open_file(path: &str) -> Result<Box<VortexFile>, Box<dyn std::error::Error + Send + Sync>> {
+pub(crate) fn open_file(
+    path: &str,
+) -> Result<Box<VortexFile>, Box<dyn std::error::Error + Send + Sync>> {
     let file = VortexOpenOptions::file().open_blocking(std::path::Path::new(path))?;
     Ok(Box::new(VortexFile { inner: file }))
 }
 
-fn file_row_count(file: &VortexFile) -> u64 {
+pub(crate) fn file_row_count(file: &VortexFile) -> u64 {
     file.inner.row_count()
 }
 
-struct VortexScanBuilder {
+pub(crate) struct VortexScanBuilder {
     inner: ScanBuilder<ArrayRef>,
     output_schema: Option<SchemaRef>,
 }
 
-fn file_scan_builder(
+pub(crate) fn file_scan_builder(
     file: &VortexFile,
 ) -> Result<Box<VortexScanBuilder>, Box<dyn std::error::Error + Send + Sync>> {
     Ok(Box::new(VortexScanBuilder {
@@ -79,7 +45,17 @@ fn file_scan_builder(
     }))
 }
 
-fn scan_builder_with_row_range(
+pub(crate) fn scan_builder_with_filter(
+    builder: &mut VortexScanBuilder,
+    filter: &Expr,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    take_mut::take(&mut builder.inner, |inner| {
+        inner.with_filter(filter.inner.clone())
+    });
+    Ok(())
+}
+
+pub(crate) fn scan_builder_with_row_range(
     builder: &mut VortexScanBuilder,
     row_range_start: u64,
     row_range_end: u64,
@@ -90,7 +66,7 @@ fn scan_builder_with_row_range(
     Ok(())
 }
 
-fn scan_builder_with_include_by_index(
+pub(crate) fn scan_builder_with_include_by_index(
     builder: &mut VortexScanBuilder,
     include_by_index: &[u64],
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -99,12 +75,12 @@ fn scan_builder_with_include_by_index(
     Ok(())
 }
 
-fn scan_builder_with_limit(builder: &mut VortexScanBuilder, limit: usize) {
+pub(crate) fn scan_builder_with_limit(builder: &mut VortexScanBuilder, limit: usize) {
     // Overwrite inner without dropping it.
     take_mut::take(&mut builder.inner, |inner| inner.with_limit(limit));
 }
 
-unsafe fn scan_builder_with_output_schema(
+pub(crate) unsafe fn scan_builder_with_output_schema(
     builder: &mut VortexScanBuilder,
     output_schema: *mut u8,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -116,7 +92,7 @@ unsafe fn scan_builder_with_output_schema(
 /// # Safety
 ///
 /// out_stream should be properly aligned according to the Arrow C stream interface and valid for write.
-unsafe fn scan_builder_into_stream(
+pub(crate) unsafe fn scan_builder_into_stream(
     builder: Box<VortexScanBuilder>,
     out_stream: *mut u8,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -150,11 +126,11 @@ where
     }
 }
 
-struct ThreadsafeCloneableReader {
+pub(crate) struct ThreadsafeCloneableReader {
     inner: Box<dyn ThreadsafeCloneableReaderTrait>,
 }
 
-fn scan_builder_into_threadsafe_cloneable_reader(
+pub(crate) fn scan_builder_into_threadsafe_cloneable_reader(
     builder: Box<VortexScanBuilder>,
 ) -> Result<Box<ThreadsafeCloneableReader>, Box<dyn std::error::Error + Send + Sync>> {
     let schema = match builder.output_schema {
@@ -171,7 +147,7 @@ fn scan_builder_into_threadsafe_cloneable_reader(
     }))
 }
 
-fn threadsafe_cloneable_reader_clone_a_stream(
+pub(crate) fn threadsafe_cloneable_reader_clone_a_stream(
     reader: &ThreadsafeCloneableReader,
     out_stream: *mut u8,
 ) {

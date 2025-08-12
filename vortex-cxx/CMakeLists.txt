@@ -27,7 +27,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(Corrosion)
 
-set(RUST_SOURCE_FILE lib.rs read.rs write.rs expr.rs)
+set(RUST_SOURCE_FILE lib.rs)
 
 # Import Rust crate using Corrosion
 corrosion_import_crate(
@@ -43,12 +43,8 @@ FetchContent_Declare(nanoarrow
     URL "https://www.apache.org/dyn/closer.lua?action=download&filename=arrow/apache-arrow-nanoarrow-0.7.0/apache-arrow-nanoarrow-0.7.0.tar.gz")
 FetchContent_MakeAvailable(nanoarrow)
 
-# C++ source files
-set(CPP_SOURCE_FILE
-    cpp/src/write_options.cpp
-    cpp/src/file.cpp
-    cpp/src/scan.cpp
-    cpp/src/expr.cpp
+file(GLOB_RECURSE CPP_SOURCE_FILE CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/cpp/src/*.cpp"
 )
 
 # Public headers

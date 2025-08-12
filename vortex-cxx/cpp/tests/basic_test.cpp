@@ -10,6 +10,7 @@
 #include "vortex/file.hpp"
 #include "vortex/scan.hpp"
 #include "vortex/write_options.hpp"
+#include "vortex/scalar.hpp"
 #include "test_data_generator.hpp"
 #include "vortex_cxx_bridge/write.h"
 
@@ -163,11 +164,11 @@ protected:
     void
     RunScanBuilderTest(const std::function<ArrowArrayStream(vortex::ScanBuilder &&)> &configureScanBuilder,
                        ArrowArrayStream expected_stream,
-                       const std::vector<int64_t> &expected_row_indices = {}) {
+                       const std::vector<int64_t> &expected_row_indices = {}, bool selection = false) {
 
         auto [array, schema] = ScanFirstArrayFromTestData(configureScanBuilder);
         auto [ref_array, ref_schema] = ReadFirstArrayFromStream(expected_stream);
-        expected_row_indices.empty()
+        selection == false
             ? ValidateArray(array, schema, ref_array, ref_schema)
             : ValidateArrayWithSelection(array, schema, ref_array, ref_schema, expected_row_indices);
     }
@@ -175,7 +176,7 @@ protected:
 
 TEST_F(VortexTest, ScanToStream) {
     RunScanBuilderTest([](vortex::ScanBuilder &&builder) { return std::move(builder).IntoStream(); },
-                       vortex::testing::CreateTestDataStream(), {});
+                       vortex::testing::CreateTestDataStream());
 }
 
 TEST_F(VortexTest, ScanBuilderWithLimitWithRowRange) {
@@ -185,7 +186,7 @@ TEST_F(VortexTest, ScanBuilderWithLimitWithRowRange) {
         [](vortex::ScanBuilder &&scan_builder) {
             return std::move(scan_builder).WithLimit(2).WithRowRange(1, 4).IntoStream();
         },
-        vortex::testing::CreateTestDataStream(), {1, 2});
+        vortex::testing::CreateTestDataStream(), {1, 2}, true);
 }
 
 TEST_F(VortexTest, ScanBuilderWithIncludeByIndex) {
@@ -197,7 +198,7 @@ TEST_F(VortexTest, ScanBuilderWithIncludeByIndex) {
                 .WithIncludeByIndex(include_by_index.data(), include_by_index.size())
                 .IntoStream();
         },
-        vortex::testing::CreateTestDataStream(), {1, 3});
+        vortex::testing::CreateTestDataStream(), {1, 3}, true);
 }
 
 TEST_F(VortexTest, ScanBuilderWithRowRangeWithIncludeByIndex) {
@@ -210,7 +211,7 @@ TEST_F(VortexTest, ScanBuilderWithRowRangeWithIncludeByIndex) {
                 .WithIncludeByIndex(include_by_index.data(), include_by_index.size())
                 .IntoStream();
         },
-        vortex::testing::CreateTestDataStream(), {3, 4});
+        vortex::testing::CreateTestDataStream(), {3, 4}, true);
 }
 
 TEST_F(VortexTest, WriteArrayStream) {
@@ -342,4 +343,59 @@ TEST_F(VortexTest, ConcurrentMultiStreamRead) {
     ASSERT_EQ(reference_offset, EXPECTED_ROWS) << "Reference validation didn't cover all rows";
 
     ASSERT_GT(all_batches.size(), 1) << "Expected multiple batches, but got " << all_batches.size();
+}
+
+TEST_F(VortexTest, ScalarCreation) {
+    // Test basic scalar creation functions
+    ASSERT_NO_THROW(vortex::Scalar bool_scalar = vortex::Scalar::bool_(true));
+    ASSERT_NO_THROW(vortex::Scalar int8_scalar = vortex::Scalar::int8(42));
+    ASSERT_NO_THROW(vortex::Scalar int16_scalar = vortex::Scalar::int16(12345));
+    ASSERT_NO_THROW(vortex::Scalar int32_scalar = vortex::Scalar::int32(123456789));
+    ASSERT_NO_THROW(vortex::Scalar int64_scalar = vortex::Scalar::int64(123456789012LL));
+    ASSERT_NO_THROW(vortex::Scalar uint8_scalar = vortex::Scalar::uint8(200));
+    ASSERT_NO_THROW(vortex::Scalar uint16_scalar = vortex::Scalar::uint16(50000));
+    ASSERT_NO_THROW(vortex::Scalar uint32_scalar = vortex::Scalar::uint32(3000000000ULL));
+    ASSERT_NO_THROW(vortex::Scalar uint64_scalar = vortex::Scalar::uint64(123456789012ULL));
+    ASSERT_NO_THROW(vortex::Scalar float32_scalar = vortex::Scalar::float32(3.14f));
+    ASSERT_NO_THROW(vortex::Scalar float64_scalar = vortex::Scalar::float64(3.14159265359));
+    ASSERT_NO_THROW(vortex::Scalar string_scalar = vortex::Scalar::string("hello world"));
+
+    // Test binary scalar with raw data
+    const uint8_t raw_data[] = {0x01, 0x02, 0x03, 0x04, 0x05};
+    ASSERT_NO_THROW(vortex::Scalar binary_raw = vortex::Scalar::binary(raw_data, sizeof(raw_data)));
+}
+
+TEST_F(VortexTest, ScanBuilderWithFilter) {
+    // Test filtering with eq(column("a"), val) - should return only rows where column "a" equals 30
+    RunScanBuilderTest(
+        [](vortex::ScanBuilder &&scan_builder) {
+            vortex::Expr filter =
+                vortex::Expr::eq(vortex::Expr::column("a"), vortex::Expr::literal(vortex::Scalar::int32(30)));
+            return std::move(scan_builder).WithFilter(std::move(filter)).IntoStream();
+        },
+        vortex::testing::CreateTestDataStream(), {2}, true); // Row index 2 corresponds to value 30
+}
+
+TEST_F(VortexTest, ScanBuilderWithFilterNoMatches) {
+    // Test filtering with eq(column("a"), val) where no rows match - should return empty result
+    RunScanBuilderTest(
+        [](vortex::ScanBuilder &&scan_builder) {
+            vortex::Expr filter = vortex::Expr::eq(
+                vortex::Expr::column("a"),
+                vortex::Expr::literal(vortex::Scalar::int32(999)) // Value that doesn't exist in test data
+            );
+            return std::move(scan_builder).WithFilter(std::move(filter)).IntoStream();
+        },
+        vortex::testing::CreateTestDataStream(), {}, true); // No matching rows
+}
+
+TEST_F(VortexTest, ScanBuilderWithFilterMultipleMatches) {
+    // Test filtering with eq(column("b"), 20) - should return rows where column "b" equals 20
+    RunScanBuilderTest(
+        [](vortex::ScanBuilder &&scan_builder) {
+            vortex::Expr filter =
+                vortex::Expr::eq(vortex::Expr::column("b"), vortex::Expr::literal(vortex::Scalar::int32(20)));
+            return std::move(scan_builder).WithFilter(std::move(filter)).IntoStream();
+        },
+        vortex::testing::CreateTestDataStream(), {1}, true); // Row index 1 corresponds to value 20
 }

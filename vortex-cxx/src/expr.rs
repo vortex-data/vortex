@@ -3,57 +3,33 @@
 
 use vortex_expr::*;
 
-#[cxx::bridge(namespace = "vortex::ffi")]
-mod ffi {
-    extern "Rust" {
-        type Expr;
-        // fn literal(value: String, dtype: String) -> Result<Box<Expr>>;
-        fn root() -> Box<Expr>;
-        fn column(name: String) -> Box<Expr>;
-        fn get_item(field: String, child: Box<Expr>) -> Result<Box<Expr>>;
-        fn not_(child: Box<Expr>) -> Result<Box<Expr>>;
-        fn is_null(child: Box<Expr>) -> Result<Box<Expr>>;
-        // binary op
-        fn eq(lhs: Box<Expr>, rhs: Box<Expr>) -> Result<Box<Expr>>;
-        fn not_eq_(lhs: Box<Expr>, rhs: Box<Expr>) -> Result<Box<Expr>>;
-        fn gt(lhs: Box<Expr>, rhs: Box<Expr>) -> Result<Box<Expr>>;
-        fn gt_eq(lhs: Box<Expr>, rhs: Box<Expr>) -> Result<Box<Expr>>;
-        fn lt(lhs: Box<Expr>, rhs: Box<Expr>) -> Result<Box<Expr>>;
-        fn lt_eq(lhs: Box<Expr>, rhs: Box<Expr>) -> Result<Box<Expr>>;
-        fn and_(lhs: Box<Expr>, rhs: Box<Expr>) -> Result<Box<Expr>>;
-        fn or_(lhs: Box<Expr>, rhs: Box<Expr>) -> Result<Box<Expr>>;
-        fn checked_add(lhs: Box<Expr>, rhs: Box<Expr>) -> Result<Box<Expr>>;
-    }
+use crate::scalar::Scalar;
+
+pub(crate) struct Expr {
+    pub(crate) inner: ExprRef,
 }
 
-struct Expr {
-    inner: ExprRef,
+pub(crate) fn literal(
+    scalar: Box<Scalar>,
+) -> Result<Box<Expr>, Box<dyn std::error::Error + Send + Sync>> {
+    Ok(Box::new(Expr {
+        inner: LiteralExpr::new(scalar.inner).into_expr(),
+    }))
 }
 
-// fn literal(
-//     value: String,
-//     dtype: String,
-// ) -> Result<Box<Expr>, Box<dyn std::error::Error + Send + Sync>> {
-//     let dtype: DType = serde_json::from_str(&dtype)?;
-//     let scalar: Scalar = serde_json::from_str(&value)?;
-//     Ok(Box::new(Expr {
-//         inner: LiteralExpr::new(scalar).into_expr(),
-//     }))
-// }
-
-fn root() -> Box<Expr> {
+pub(crate) fn root() -> Box<Expr> {
     Box::new(Expr {
         inner: vortex_expr::root(),
     })
 }
 
-fn column(name: String) -> Box<Expr> {
+pub(crate) fn column(name: String) -> Box<Expr> {
     Box::new(Expr {
         inner: vortex_expr::get_item(name, vortex_expr::root()),
     })
 }
 
-fn get_item(
+pub(crate) fn get_item(
     field: String,
     child: Box<Expr>,
 ) -> Result<Box<Expr>, Box<dyn std::error::Error + Send + Sync>> {
@@ -62,13 +38,17 @@ fn get_item(
     }))
 }
 
-fn not_(child: Box<Expr>) -> Result<Box<Expr>, Box<dyn std::error::Error + Send + Sync>> {
+pub(crate) fn not_(
+    child: Box<Expr>,
+) -> Result<Box<Expr>, Box<dyn std::error::Error + Send + Sync>> {
     Ok(Box::new(Expr {
         inner: NotExpr::new(child.inner).into_expr(),
     }))
 }
 
-fn is_null(child: Box<Expr>) -> Result<Box<Expr>, Box<dyn std::error::Error + Send + Sync>> {
+pub(crate) fn is_null(
+    child: Box<Expr>,
+) -> Result<Box<Expr>, Box<dyn std::error::Error + Send + Sync>> {
     Ok(Box::new(Expr {
         inner: IsNullExpr::new(child.inner).into_expr(),
     }))
@@ -77,7 +57,7 @@ fn is_null(child: Box<Expr>) -> Result<Box<Expr>, Box<dyn std::error::Error + Se
 macro_rules! binary_op {
     ($fn_name:ident $(, $suffix:tt)?) => {
         paste::paste! {
-            fn [<$fn_name $($suffix)?>](
+            pub(crate) fn [<$fn_name $($suffix)?>](
                 lhs: Box<Expr>,
                 rhs: Box<Expr>,
             ) -> Result<Box<Expr>, Box<dyn std::error::Error + Send + Sync>> {

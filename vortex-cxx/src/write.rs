@@ -22,24 +22,11 @@ static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
         .vortex_expect("Failed to create tokio runtime")
 });
 
-#[cxx::bridge(namespace = "vortex::ffi")]
-mod ffi {
-    extern "Rust" {
-        type VortexWriteOptions;
-        fn write_options_new() -> Box<VortexWriteOptions>;
-        unsafe fn write_array_stream(
-            options: Box<VortexWriteOptions>,
-            input_stream: *mut u8,
-            path: &str,
-        ) -> Result<()>;
-    }
-}
-
-struct VortexWriteOptions {
+pub(crate) struct VortexWriteOptions {
     inner: WriteOptions,
 }
 
-fn write_options_new() -> Box<VortexWriteOptions> {
+pub(crate) fn write_options_new() -> Box<VortexWriteOptions> {
     Box::new(VortexWriteOptions {
         inner: WriteOptions::default(),
     })
@@ -65,7 +52,7 @@ fn arrow_stream_to_vortex_stream(
 ///
 /// input_stream should be valid FFI_ArrowArrayStream.
 /// See [`FFI_ArrowArrayStream::from_raw`]
-unsafe fn write_array_stream(
+pub(crate) unsafe fn write_array_stream(
     options: Box<VortexWriteOptions>,
     input_stream: *mut u8,
     path: &str,
