@@ -294,17 +294,20 @@ impl<T> BufferMut<T> {
     where
         T: Copy,
     {
-        let mut dst: *mut T = self.bytes.spare_capacity_mut().as_mut_ptr().cast();
-        // SAFETY: we checked the capacity in the reserve call
-        unsafe {
-            let end = dst.add(n);
-            while dst < end {
-                dst.write(item);
-                dst = dst.add(1);
+        #[cfg(target_feature = "avx2")]
+        {
+            // Ensure a minimum of 2048 bytes to write for AVX streaming stores.
+            if n >= 32 {
+                unsafe { avx2::push_n_unchecked(self, item, n) }
+            } else {
+                unsafe { scalar::push_n_unchecked(self, item, n) }
             }
-            self.bytes.set_len(self.bytes.len() + (n * size_of::<T>()));
         }
-        self.length += n;
+
+        #[cfg(not(all(target_arch = "x86_64", target_feature = "avx2")))]
+        unsafe {
+            scalar::push_n_unchecked(self, item, n)
+        }
     }
 
     /// Appends a slice of type `T`, growing the internal buffer as needed.
@@ -471,6 +474,117 @@ impl<T> BufferMut<T> {
         // TODO(joe): replace with ptr_sub when stable
         let length = self.len() + unsafe { dst.byte_offset_from(begin) as usize / size_of::<T>() };
         unsafe { self.set_len(length) };
+    }
+}
+
+mod scalar {
+    use std::mem::size_of;
+
+    use super::*;
+
+    /// Appends n scalars to the buffer using scalar (non-SIMD) implementation.
+    ///
+    /// ## Safety
+    ///
+    /// The caller must ensure there is sufficient capacity in the buffer.
+    #[inline]
+    pub(super) unsafe fn push_n_unchecked<T>(buffer: &mut BufferMut<T>, item: T, n: usize)
+    where
+        T: Copy,
+    {
+        let mut dst: *mut T = buffer.bytes.spare_capacity_mut().as_mut_ptr().cast();
+
+        // Safety: Sufficient capacity is a precondition.
+        unsafe {
+            let end = dst.add(n);
+            while dst < end {
+                dst.write(item);
+                dst = dst.add(1);
+            }
+            buffer
+                .bytes
+                .set_len(buffer.bytes.len() + (n * size_of::<T>()));
+        }
+        buffer.length += n;
+    }
+}
+
+#[cfg(target_feature = "avx2")]
+mod avx2 {
+    use std::arch::x86_64::{
+        __m256i, _mm_sfence, _mm256_set1_epi8, _mm256_set1_epi16, _mm256_set1_epi32,
+        _mm256_set1_epi64x, _mm256_store_si256, _mm256_storeu_si256,
+    };
+    use std::mem::size_of;
+
+    use super::*;
+
+    /// Appends n copies of item using `_mm256_stream_si256` streaming stores.
+    ///
+    /// ## Safety
+    ///
+    /// Caller must ensure sufficient capacity.
+    #[inline]
+    pub(super) unsafe fn push_n_unchecked<T>(buffer: &mut BufferMut<T>, item: T, n: usize)
+    where
+        T: Copy,
+    {
+        let size = size_of::<T>();
+
+        // Splat `item` into a vector register.
+        let pattern = unsafe {
+            match size {
+                1 => _mm256_set1_epi8(std::ptr::read(&raw const item as *const i8)),
+                2 => _mm256_set1_epi16(std::ptr::read(&raw const item as *const i16)),
+                4 => _mm256_set1_epi32(std::ptr::read(&raw const item as *const i32)),
+                8 => _mm256_set1_epi64x(std::ptr::read(&raw const item as *const i64)),
+                _ => {
+                    scalar::push_n_unchecked(buffer, item, n);
+                    return;
+                }
+            }
+        };
+
+        let total_bytes = n * size;
+        let mut ptr = buffer.bytes.spare_capacity_mut().as_mut_ptr() as *mut u8;
+        let end = unsafe { ptr.add(total_bytes) };
+
+        if buffer
+            .bytes
+            .spare_capacity_mut()
+            .as_mut_ptr()
+            .align_offset(align_of::<__m256i>())
+            == 0
+        {
+            // Safety: Sufficient capacity is a precondition.
+            for _ in 0..(total_bytes / 32) {
+                unsafe {
+                    // Use AVX aligned stores if the buffer is aligned to 32 bytes.
+                    _mm256_store_si256(ptr as *mut __m256i, pattern);
+                }
+                ptr = unsafe { ptr.add(32) };
+            }
+        } else {
+            // Safety: Sufficient capacity is a precondition.
+            for _ in 0..(total_bytes / 32) {
+                unsafe {
+                    // Use unaligned stores if the buffer is not aligned to 32 bytes.
+                    _mm256_storeu_si256(ptr as *mut __m256i, pattern);
+                }
+                ptr = unsafe { ptr.add(32) };
+            }
+        }
+
+        // Safety: Sufficient capacity is a precondition.
+        unsafe {
+            while ptr < end {
+                (ptr as *mut T).write(item);
+                ptr = ptr.add(size);
+            }
+        }
+
+        unsafe { buffer.bytes.set_len(buffer.bytes.len() + total_bytes) };
+        buffer.length += n;
     }
 }
 
@@ -699,5 +813,37 @@ mod test {
 
         BufMut::put_slice(&mut buf, b"world");
         assert_eq!(buf.as_slice(), b"helloworld");
+    }
+
+    #[test]
+    fn push_n_u8_large() {
+        let mut buf = BufferMut::<u8>::with_capacity_aligned(512, Alignment::new(32));
+        buf.push_n(42u8, 512);
+        assert_eq!(buf.len(), 512);
+        assert!(buf.as_slice().iter().all(|&x| x == 42));
+    }
+
+    #[test]
+    fn push_n_u16_large() {
+        let mut buf = BufferMut::<u16>::with_capacity_aligned(1026, Alignment::new(32));
+        buf.push_n(0x1234, 513);
+        assert_eq!(buf.len(), 513);
+        assert!(buf.as_slice().iter().all(|&x| x == 0x1234));
+    }
+
+    #[test]
+    fn push_n_u32_large() {
+        let mut buf = BufferMut::<u32>::with_capacity_aligned(2056, Alignment::new(32));
+        buf.push_n(0x12345678, 514);
+        assert_eq!(buf.len(), 514);
+        assert!(buf.as_slice().iter().all(|&x| x == 0x12345678));
+    }
+
+    #[test]
+    fn push_n_u64_large() {
+        let mut buf = BufferMut::<u64>::with_capacity_aligned(4120, Alignment::new(32));
+        buf.push_n(0x123456789ABCDEF, 515);
+        assert_eq!(buf.len(), 515);
+        assert!(buf.as_slice().iter().all(|&x| x == 0x123456789ABCDEFu64));
     }
 }

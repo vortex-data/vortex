@@ -8,7 +8,7 @@ use std::iter::Iterator;
 use arrow_buffer::{ArrowNativeType, MutableBuffer, ScalarBuffer};
 use divan::Bencher;
 use num_traits::PrimInt;
-use vortex_buffer::{Buffer, BufferMut};
+use vortex_buffer::{Alignment, Buffer, BufferMut};
 use vortex_error::{VortexExpect, vortex_err};
 
 fn main() {
@@ -116,7 +116,7 @@ fn push_arrow_buffer(bencher: Bencher, length: i32) {
 #[divan::bench(types = [u8, u16, u32, u64], args = [100, 1_000, 10_000, 100_000, 1_000_000])]
 fn push_n_vortex_buffer<T: PrimInt>(bencher: Bencher, length: usize) {
     bencher
-        .with_inputs(|| BufferMut::<T>::with_capacity(length))
+        .with_inputs(|| BufferMut::<T>::with_capacity_aligned(length, Alignment::new(32)))
         .bench_refs(|buffer| {
             for _ in 0..100 {
                 unsafe {
@@ -124,7 +124,7 @@ fn push_n_vortex_buffer<T: PrimInt>(bencher: Bencher, length: usize) {
                         divan::black_box(T::one()),
                         divan::black_box(length / 100),
                     )
-                };
+                }
             }
         });
 }
