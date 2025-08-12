@@ -279,7 +279,7 @@ pub fn flat_vector_to_arrow_array(
         DUCKDB_TYPE::DUCKDB_TYPE_DECIMAL => {
             let logical_type = vector.logical_type();
             let (precision, scale) = logical_type.as_decimal();
-            let decimal_dtype = DecimalDType::new(precision, scale.try_into()?);
+            let decimal_dtype = DecimalDType::try_new(precision, scale.try_into()?)?;
 
             // https://duckdb.org/docs/stable/sql/data_types/numeric.html#fixed-point-decimals
             let decimal_values: Vec<i128> = match precision_to_duckdb_storage_size(&decimal_dtype)?

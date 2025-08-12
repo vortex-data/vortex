@@ -100,7 +100,7 @@ impl TryFrom<ViewedDType> for DType {
                     .type__as_decimal()
                     .ok_or_else(|| vortex_err!("failed to parse decimal dtype from flatbuffer"))?;
                 Ok(Self::Decimal(
-                    DecimalDType::new(fb_decimal.precision(), fb_decimal.scale()),
+                    DecimalDType::try_new(fb_decimal.precision(), fb_decimal.scale())?,
                     fb_decimal.nullable().into(),
                 ))
             }

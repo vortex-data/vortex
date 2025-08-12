@@ -70,3 +70,221 @@ impl FieldMask {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Field, FieldPath};
+
+    // Test helper functions
+    fn all() -> FieldMask {
+        FieldMask::All
+    }
+
+    fn from_prefix<I: IntoIterator<Item = Field>>(fields: I) -> FieldMask {
+        FieldMask::Prefix(FieldPath::from(fields.into_iter().collect::<Vec<_>>()))
+    }
+
+    fn from_exact<I: IntoIterator<Item = Field>>(fields: I) -> FieldMask {
+        FieldMask::Exact(FieldPath::from(fields.into_iter().collect::<Vec<_>>()))
+    }
+
+    fn prefix_from_str(path: &str) -> FieldMask {
+        if path.is_empty() {
+            return FieldMask::All;
+        }
+        let fields: Vec<Field> = path.split('.').map(Field::from).collect();
+        from_prefix(fields)
+    }
+
+    fn exact_from_str(path: &str) -> FieldMask {
+        if path.is_empty() {
+            return FieldMask::Exact(FieldPath::root());
+        }
+        let fields: Vec<Field> = path.split('.').map(Field::from).collect();
+        from_exact(fields)
+    }
+
+    #[test]
+    fn test_field_mask_all() {
+        let mask = FieldMask::All;
+        assert!(mask.matches_all());
+        assert!(mask.matches_root());
+
+        // Test builder method
+        let mask2 = all();
+        assert_eq!(mask, mask2);
+    }
+
+    #[test]
+    fn test_field_mask_builders() {
+        // Test from_prefix
+        let mask = from_prefix(vec![Field::from("user")]);
+        assert!(!mask.matches_all());
+        assert!(!mask.matches_root());
+
+        // Test from_exact
+        let mask = from_exact(vec![Field::from("user"), Field::from("name")]);
+        assert!(!mask.matches_all());
+        assert!(!mask.matches_root());
+    }
+
+    #[test]
+    fn test_field_mask_from_string() {
+        // Test prefix_from_str
+        let mask = prefix_from_str("user.profile");
+        if let FieldMask::Prefix(path) = mask {
+            assert_eq!(path.parts().len(), 2);
+            assert_eq!(path.parts()[0], Field::from("user"));
+            assert_eq!(path.parts()[1], Field::from("profile"));
+        } else {
+            unreachable!("Expected Prefix mask");
+        }
+
+        // Test exact_from_str
+        let mask = exact_from_str("user.profile.name");
+        if let FieldMask::Exact(path) = mask {
+            assert_eq!(path.parts().len(), 3);
+            assert_eq!(path.parts()[0], Field::from("user"));
+            assert_eq!(path.parts()[1], Field::from("profile"));
+            assert_eq!(path.parts()[2], Field::from("name"));
+        } else {
+            unreachable!("Expected Exact mask");
+        }
+
+        // Test empty string
+        let mask = prefix_from_str("");
+        assert_eq!(mask, FieldMask::All);
+
+        let mask = exact_from_str("");
+        assert_eq!(mask, FieldMask::Exact(FieldPath::root()));
+    }
+
+    #[test]
+    fn test_field_mask_prefix_root() {
+        let path = FieldPath::root();
+        let mask = FieldMask::Prefix(path);
+        assert!(mask.matches_all());
+        assert!(mask.matches_root());
+    }
+
+    #[test]
+    fn test_field_mask_prefix_non_root() {
+        let path = FieldPath::from(vec![Field::from("field1")]);
+        let mask = FieldMask::Prefix(path);
+        assert!(!mask.matches_all());
+        assert!(!mask.matches_root());
+    }
+
+    #[test]
+    fn test_field_mask_exact_root() {
+        let path = FieldPath::root();
+        let mask = FieldMask::Exact(path);
+        assert!(!mask.matches_all());
+        assert!(mask.matches_root());
+    }
+
+    #[test]
+    fn test_field_mask_exact_non_root() {
+        let path = FieldPath::from(vec![Field::from("field1")]);
+        let mask = FieldMask::Exact(path);
+        assert!(!mask.matches_all());
+        assert!(!mask.matches_root());
+    }
+
+    #[test]
+    fn test_step_into_all() {
+        let mask = FieldMask::All;
+        let stepped = mask.step_into().unwrap();
+        assert_eq!(stepped, FieldMask::All);
+    }
+
+    #[test]
+    fn test_step_into_prefix_becomes_all() {
+        let path = FieldPath::from(vec![Field::from("field1")]);
+        let mask = FieldMask::Prefix(path);
+        let stepped = mask.step_into().unwrap();
+        assert_eq!(stepped, FieldMask::All);
+    }
+
+    #[test]
+    fn test_step_into_prefix_nested() {
+        let path = FieldPath::from(vec![Field::from("field1"), Field::from("field2")]);
+        let mask = FieldMask::Prefix(path);
+        let stepped = mask.step_into().unwrap();
+
+        if let FieldMask::Prefix(stepped_path) = stepped {
+            assert_eq!(stepped_path.parts().len(), 1);
+            assert_eq!(stepped_path.parts()[0], Field::from("field2"));
+        } else {
+            unreachable!("Expected Prefix mask after stepping into nested path");
+        }
+    }
+
+    #[test]
+    fn test_step_into_exact_root_fails() {
+        let path = FieldPath::root();
+        let mask = FieldMask::Exact(path);
+        let result = mask.step_into();
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Cannot step into exact root field path")
+        );
+    }
+
+    #[test]
+    fn test_step_into_exact_nested() {
+        let path = FieldPath::from(vec![Field::from("field1"), Field::from("field2")]);
+        let mask = FieldMask::Exact(path);
+        let stepped = mask.step_into().unwrap();
+
+        if let FieldMask::Exact(stepped_path) = stepped {
+            assert_eq!(stepped_path.parts().len(), 1);
+            assert_eq!(stepped_path.parts()[0], Field::from("field2"));
+        } else {
+            unreachable!("Expected Exact mask after stepping into nested path");
+        }
+    }
+
+    #[test]
+    fn test_starting_field_all_fails() {
+        let mask = FieldMask::All;
+        let result = mask.starting_field();
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Cannot get starting field from All mask")
+        );
+    }
+
+    #[test]
+    fn test_starting_field_prefix() {
+        let field = Field::from("field1");
+        let path = FieldPath::from(vec![field.clone()]);
+        let mask = FieldMask::Prefix(path);
+        let starting = mask.starting_field().unwrap();
+        assert_eq!(starting, Some(&field));
+    }
+
+    #[test]
+    fn test_starting_field_exact() {
+        let field = Field::from("field1");
+        let path = FieldPath::from(vec![field.clone(), Field::from("field2")]);
+        let mask = FieldMask::Exact(path);
+        let starting = mask.starting_field().unwrap();
+        assert_eq!(starting, Some(&field));
+    }
+
+    #[test]
+    fn test_starting_field_empty_path() {
+        let path = FieldPath::root();
+        let mask = FieldMask::Prefix(path);
+        let starting = mask.starting_field().unwrap();
+        assert_eq!(starting, None);
+    }
+}

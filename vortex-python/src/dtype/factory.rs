@@ -233,7 +233,7 @@ pub(super) fn dtype_decimal(
     scale: i8,
     nullable: bool,
 ) -> PyResult<Bound<'_, PyDType>> {
-    let decimal_type = DType::Decimal(DecimalDType::new(precision, scale), nullable.into());
+    let decimal_type = DType::Decimal(DecimalDType::try_new(precision, scale)?, nullable.into());
     PyDType::init(py, decimal_type)
 }
 
