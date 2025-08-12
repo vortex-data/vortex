@@ -8,7 +8,7 @@ use vortex_array::compress::downscale_integer_array;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
-use vortex_buffer::{Buffer, BufferMut, buffer};
+use vortex_buffer::{Alignment, Buffer, BufferMut, buffer};
 use vortex_dtype::{
     NativePType, Nullability, match_each_native_ptype, match_each_unsigned_integer_ptype,
 };
@@ -192,7 +192,8 @@ pub fn runend_decode_typed_primitive<T: NativePType>(
 ) -> VortexResult<PrimitiveArray> {
     Ok(match values_validity {
         Mask::AllTrue(_) => {
-            let mut decoded: BufferMut<T> = BufferMut::with_capacity(length);
+            let mut decoded: BufferMut<T> =
+                BufferMut::with_capacity_aligned(length, Alignment::new(32));
             for (end, value) in run_ends.zip_eq(values) {
                 assert!(end <= length, "Runend end must be less than overall length");
                 // SAFETY:
@@ -203,7 +204,7 @@ pub fn runend_decode_typed_primitive<T: NativePType>(
         }
         Mask::AllFalse(_) => PrimitiveArray::new(Buffer::<T>::zeroed(length), Validity::AllInvalid),
         Mask::Values(mask) => {
-            let mut decoded = BufferMut::with_capacity(length);
+            let mut decoded = BufferMut::with_capacity_aligned(length, Alignment::new(32));
             let mut decoded_validity = BooleanBufferBuilder::new(length);
             for (end, value) in run_ends.zip_eq(
                 values
