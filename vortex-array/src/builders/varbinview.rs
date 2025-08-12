@@ -114,8 +114,8 @@ impl VarBinViewBuilder {
         );
     }
 
-    pub fn completed_block_count(&self) -> usize {
-        self.completed.len() as usize
+    pub fn completed_block_count(&self) -> u32 {
+        self.completed.len()
     }
 
     // Pushes an array of values into the buffer, where the buffers are sections of a

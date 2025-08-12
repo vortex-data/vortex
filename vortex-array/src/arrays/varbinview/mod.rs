@@ -408,23 +408,24 @@ impl VarBinViewArray {
     where
         F: Fn(&[u8]) -> bool,
     {
-        // Check all views
         for (idx, &view) in views.iter().enumerate() {
             if validity.is_null(idx)? {
                 continue;
             }
 
             if view.is_inlined() {
+                // Validate the inline bytestring
                 let bytes = &unsafe { view.inlined }.data[..view.len() as usize];
                 vortex_ensure!(
                     validator(bytes),
                     "view at index {idx}: inlined bytes failed utf-8 validation"
                 );
             } else {
+                // Validate the view pointer
                 let view = view.as_view();
                 let buf_index = view.buffer_index as usize;
                 let start_offset = view.offset as usize;
-                let end_offset = start_offset + view.size as usize;
+                let end_offset = start_offset.saturating_add(view.size as usize);
 
                 let buf = buffers.get(buf_index).ok_or_else(||
                     vortex_err!("view at index {idx} references invalid buffer: {buf_index} out of bounds for VarBinViewArray with {} buffers",
@@ -432,12 +433,14 @@ impl VarBinViewArray {
 
                 vortex_ensure!(
                     start_offset < buf.len(),
-                    "start offset {start_offset} out of bounds for buffer {buf_index}",
+                    "start offset {start_offset} out of bounds for buffer {buf_index} with size {}",
+                    buf.len(),
                 );
 
                 vortex_ensure!(
-                    end_offset < buf.len(),
-                    "end offset {end_offset} out of bounds for buffer {buf_index}",
+                    end_offset <= buf.len(),
+                    "end offset {end_offset} out of bounds for buffer {buf_index} with size {}",
+                    buf.len(),
                 );
 
                 // Make sure the prefix data matches the buffer data.
@@ -446,6 +449,8 @@ impl VarBinViewArray {
                     view.prefix == bytes[..4],
                     "VarBinView prefix does not match full string"
                 );
+
+                // Validate the full string
                 vortex_ensure!(
                     validator(bytes),
                     "view at index {idx}: outlined bytes fails utf-8 validation"
