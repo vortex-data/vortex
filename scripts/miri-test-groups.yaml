@@ -1,0 +1,69 @@
+# Miri test groups for CI matrix strategy
+# Based on runtime analysis, we group crates to balance test time
+
+groups:
+  # Group 1: Fast crates (~15s total)
+  fast:
+    - vortex-buffer       # ~2s
+    - vortex-mask        # ~6s
+    - vortex-flatbuffers # ~5s (estimated)
+    - vortex-ffi         # ~5s (partial tests)
+    
+  # Group 2: Medium crates (~30s total)  
+  medium:
+    - vortex-dtype       # ~8s (with 2 f16 failures)
+    - vortex-expr        # ~11s
+    - vortex-io          # ~10s (estimated)
+    - vortex-layout      # ~10s (estimated)
+    
+  # Group 3: Encoding crates (~40s total)
+  encodings1:
+    - vortex-alp         # ~15s (estimated)
+    - vortex-bytebool    # ~10s (estimated)
+    - vortex-dict        # ~15s (estimated)
+    
+  # Group 4: More encoding crates (~40s total)
+  encodings2:
+    - vortex-fastlanes   # ~20s (estimated)
+    - vortex-fsst        # ~20s (estimated)
+    
+  # Group 5: Complex encoding crates (~40s total)
+  encodings3:
+    - vortex-pco         # ~20s (estimated)
+    - vortex-runend      # ~10s (estimated)
+    - vortex-zstd        # ~10s (estimated)
+    
+  # Group 6: Large crates (need test filtering)
+  large:
+    - vortex-scalar      # ~78s (needs filtering)
+    
+  # Group 7: Very large crates (need significant filtering)
+  extra-large:
+    - vortex-array       # 747 tests (needs heavy filtering)
+    
+  # Group 8: Integration crates
+  integration:
+    - vortex             # Main crate
+    - vortex-datafusion  # DataFusion integration
+    - vortex-file        # File I/O
+    - vortex-ipc         # IPC
+    
+  # Excluded from miri (in MIRI_ALLOWLIST):
+  # - vortex-jni (JNI/FFI)
+  # - vortex-cxx (C++ interop)
+  # - vortex-duckdb (DuckDB FFI)
+  # - vortex-fuzz (fuzzing harness)
+
+# Tests to mark with #[cfg_attr(miri, ignore)]
+slow_tests:
+  vortex-dtype:
+    - "ptype::tests::max_value_u64"  # f16 issue
+    - "ptype::tests::to_bytes_rt"    # f16 issue
+    
+  vortex-scalar:
+    # Need to identify specific slow tests
+    - "TBD - need profiling"
+    
+  vortex-array:
+    # Too many tests - need to identify subset to run
+    - "TBD - need profiling"

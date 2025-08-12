@@ -13,8 +13,8 @@ on:
 permissions:
   actions: read
   contents: read
-  checks: write  # audit-check creates checks
-  issues: write  # audit-check creates issues
+  checks: write # audit-check creates checks
+  issues: write # audit-check creates issues
 
 env:
   CARGO_TERM_COLOR: always
@@ -173,7 +173,7 @@ jobs:
             command: "build"
             target: wasm32-unknown-unknown
             env:
-              rustflags: "RUSTFLAGS='-A warnings --cfg getrandom_backend=\"wasm_js\"'"
+              rustflags: 'RUSTFLAGS=''-A warnings --cfg getrandom_backend="wasm_js"'''
             args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-datafusion --exclude vortex-duckdb --exclude vortex-tui --exclude vortex-zstd"
     steps:
       - uses: runs-on/action@v2
@@ -282,7 +282,7 @@ jobs:
       - tag=suite-${{ matrix.suite }}
     env:
       RUSTFLAGS: "-Cinstrument-coverage -A warnings"
-      CARGO_INCREMENTAL: 0  # Disable incremental compilation to get accurate coverage
+      CARGO_INCREMENTAL: 0 # Disable incremental compilation to get accurate coverage
       LLVM_PROFILE_FILE: "target/coverage/vortex-%p-%m.profraw"
       GRCOV_OUTPUT_FILE: "target/coverage/vortex.lcov"
     steps:
@@ -495,9 +495,33 @@ jobs:
         working-directory: ./wasm-test
 
   miri:
-    name: "Rust tests (miri)"
+    name: "Rust tests (miri ${{ matrix.group.name }})"
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        group:
+          # ~100 tests each for balanced runtime
+          - name: "small-crates"
+            crates: "-p vortex-buffer -p vortex-bytebool -p vortex-fsst -p vortex-pco -p vortex-zstd"
+          - name: "core-and-io"
+            crates: "-p vortex -p vortex-btrblocks -p vortex-ipc -p vortex-io"
+          - name: "mask-and-layout"
+            crates: "-p vortex-mask -p vortex-layout"
+          - name: "dtype-and-dict"
+            crates: "-p vortex-dtype -p vortex-dict -p vortex-ffi"
+          - name: "expr-and-alp"
+            crates: "-p vortex-expr -p vortex-alp"
+          - name: "fastlanes-and-runend"
+            crates: "-p vortex-fastlanes -p vortex-runend"
+          - name: "file"
+            crates: "-p vortex-file -p vortex-flatbuffers"
+          # vortex-array with conformance tests disabled for miri
+          - name: "array"
+            crates: "-p vortex-array"
+          - name: "scalar"
+            crates: "-p vortex-scalar"
     env:
       MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-symbolic-alignment-check -Zmiri-disable-isolation -Zmiri-env-forward=RUST_BACKTRACE
       RUSTFLAGS: "-A warnings"
@@ -511,8 +535,17 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: nextest@0.9.98
-      - name: Run Miri
-        run: cargo +nightly miri nextest run --no-fail-fast -p vortex-buffer -p vortex-ffi
+      - name: Check miri coverage for unsafe crates
+        if: matrix.group.name == 'fast' # Only run once
+        run: python3 scripts/check-miri-coverage.py
+      - name: Run Miri tests
+        run: |
+          # Set additional rustflags if specified
+          if [ -n "${{ matrix.group.rustflags_extra }}" ]; then
+            export RUSTFLAGS="${RUSTFLAGS} ${{ matrix.group.rustflags_extra }}"
+          fi
+          # Run all tests for the crate group
+          cargo +nightly miri nextest run --no-fail-fast ${{ matrix.group.crates }}
 
   generated-files:
     name: "Check generated proto/fbs files are up to date"
