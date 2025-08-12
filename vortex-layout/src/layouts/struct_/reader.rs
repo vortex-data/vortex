@@ -11,9 +11,9 @@ use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::immediate_access::annotate_scope_access;
-use vortex_expr::transform::partition::{PartitionedExpr, partition};
-use vortex_expr::transform::replace::{replace, replace_root_fields};
-use vortex_expr::transform::simplify_typed::simplify_typed;
+use vortex_expr::transform::{
+    PartitionedExpr, partition, replace, replace_root_fields, simplify_typed,
+};
 use vortex_expr::{ExactExpr, ExprRef, col, root};
 use vortex_utils::aliases::hash_map::HashMap;
 
