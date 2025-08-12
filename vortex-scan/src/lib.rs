@@ -17,7 +17,7 @@ use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
-use vortex_expr::transform::simplify_typed::simplify_typed;
+use vortex_expr::transform::simplify_typed;
 use vortex_expr::{ExprRef, root};
 use vortex_layout::layouts::row_idx::RowIdxLayoutReader;
 use vortex_layout::{LayoutReader, LayoutReaderRef};

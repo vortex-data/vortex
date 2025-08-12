@@ -14,7 +14,7 @@ use vortex_array::validity::Validity;
 use vortex_array::{ArrayRef, IntoArray};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexError, VortexResult};
-use vortex_expr::transform::partition::PartitionedExpr;
+use vortex_expr::transform::PartitionedExpr;
 use vortex_expr::{ExprRef, Scope};
 use vortex_mask::Mask;
 
