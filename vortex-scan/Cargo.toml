@@ -39,9 +39,6 @@ tokio = { workspace = true, features = ["rt-multi-thread"], optional = true }
 [dev-dependencies]
 vortex-layout = { workspace = true, features = ["test-harness"] }
 
-[target.'cfg(loom)'.dependencies]
-loom = { workspace = true }
-
 [target.'cfg(loom)'.dev-dependencies]
 loom = { workspace = true }
 

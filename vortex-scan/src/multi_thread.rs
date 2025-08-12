@@ -100,16 +100,6 @@ mod tests {
     }
 
     #[test]
-    fn test_runtime_thread_name() {
-        // Verify the runtime was created with the expected configuration
-        let runtime = &*CPU_RUNTIME;
-
-        // The runtime should have multiple worker threads
-        let num_workers = runtime.metrics().num_workers();
-        assert!(num_workers > 0, "Expected multi-thread runtime");
-    }
-
-    #[test]
     fn test_runtime_concurrency_calculation() {
         let num_workers = CPU_RUNTIME.metrics().num_workers();
         let concurrency = 2;

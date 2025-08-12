@@ -249,7 +249,7 @@ mod tests {
             Ok(vec![
                 Box::pin(async { Ok(Some("success".to_string())) }),
                 Box::pin(async { Err(vortex_err!("async error")) }),
-                Box::pin(async { Ok(Some("after_error".to_string())) }),
+                Box::pin(async { Ok(Some("after_errors".to_string())) }),
             ])
         }];
 
@@ -268,7 +268,7 @@ mod tests {
 
         // Should get both successful results and the error
         assert!(results.contains(&"success".to_string()));
-        assert!(results.contains(&"after_error".to_string()));
+        assert!(results.contains(&"after_errors".to_string()));
         assert_eq!(errors.len(), 1);
     }
 

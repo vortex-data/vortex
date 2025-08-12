@@ -104,15 +104,19 @@ pub(super) fn split_exec<A: 'static + Send>(
 
                 // Debug assertion to ensure the pruning_conjuncts and conjuncts have the same length
                 // as filter.conjuncts() to prevent index out of bounds
-                debug_assert_eq!(
+                assert_eq!(
                     pruning_conjuncts.len(),
                     filter.conjuncts().len(),
-                    "pruning_conjuncts length mismatch"
+                    "pruning_conjuncts length ({}) != filter.conjuncts().len() ({})",
+                    pruning_conjuncts.len(),
+                    filter.conjuncts().len()
                 );
-                debug_assert_eq!(
+                assert_eq!(
                     conjuncts.len(),
                     filter.conjuncts().len(),
-                    "conjuncts length mismatch"
+                    "conjuncts length ({}) != filter.conjuncts().len() ({})",
+                    conjuncts.len(),
+                    filter.conjuncts().len()
                 );
 
                 // TODO(ngates): we could use FuturedUnordered to intersect the masks in parallel.
