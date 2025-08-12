@@ -329,7 +329,7 @@ fn to_field_mask(field: FieldName) -> FieldMask {
 }
 
 #[cfg(all(test, not(disable_loom)))]
-#[allow(clippy::tests_outside_test_module)]  // False positive due to complex cfg
+#[allow(clippy::tests_outside_test_module)] // False positive due to complex cfg
 mod loom_tests {
     use bit_vec::BitVec;
     use futures::future;
@@ -690,6 +690,339 @@ mod loom_tests {
 
             // Both should get some work
             assert!(count1 + count2 <= 4);
+        });
+    }
+
+    #[test]
+    fn test_work_stealing_memory_ordering() {
+        // Test memory ordering between num_factories_constructed and task pushing
+        // This is critical: tasks MUST be visible before num_factories_constructed is incremented
+        loom::model(|| {
+            let seen_values = Arc::new(loom::sync::Mutex::new(Vec::new()));
+            let seen_clone = seen_values.clone();
+
+            let factories: Vec<TaskFactory<usize>> = vec![
+                Box::new(move || {
+                    // Simulate work that produces values
+                    Ok(vec![100, 101, 102])
+                }),
+                Box::new(|| Ok(vec![200, 201])),
+                Box::new(|| Ok(vec![300])),
+            ];
+
+            let queue = WorkStealingQueue::new(factories);
+
+            // Create multiple workers that will race to construct factories
+            let iter1 = queue.clone().new_iterator();
+            let iter2 = queue.clone().new_iterator();
+            let iter3 = queue.new_iterator();
+
+            let seen1 = seen_values.clone();
+            let handle1 = thread::spawn(move || {
+                for result in iter1 {
+                    if let Ok(val) = result {
+                        seen1.lock().unwrap().push(val);
+                    }
+                }
+            });
+
+            let seen2 = seen_values.clone();
+            let handle2 = thread::spawn(move || {
+                for result in iter2 {
+                    if let Ok(val) = result {
+                        seen2.lock().unwrap().push(val);
+                    }
+                }
+            });
+
+            let seen3 = seen_values.clone();
+            let handle3 = thread::spawn(move || {
+                for result in iter3 {
+                    if let Ok(val) = result {
+                        seen3.lock().unwrap().push(val);
+                    }
+                }
+            });
+
+            handle1.join().unwrap();
+            handle2.join().unwrap();
+            handle3.join().unwrap();
+
+            // Verify all values were seen exactly once
+            let mut final_values = seen_clone.lock().unwrap().clone();
+            final_values.sort();
+            assert_eq!(final_values, vec![100, 101, 102, 200, 201, 300]);
+        });
+    }
+
+    #[test]
+    fn test_concurrent_filter_ordering_updates() {
+        // Test race conditions in filter ordering updates
+        // Multiple threads reading ordering while one updates it
+        loom::model(|| {
+            let expr = and(
+                gt(get_item("a", root()), lit(5)),
+                and(
+                    lt(get_item("b", root()), lit(10)),
+                    gt(get_item("c", root()), lit(0)),
+                ),
+            );
+            let filter = Arc::new(FilterExpr::new(expr));
+
+            // Create multiple reader threads and one writer thread
+            let filter_reader1 = filter.clone();
+            let filter_reader2 = filter.clone();
+            let filter_writer = filter.clone();
+
+            // Writer thread continuously updates selectivity
+            let writer = thread::spawn(move || {
+                // Report different selectivities to trigger reordering
+                filter_writer.report_selectivity(0, 0.9); // Low selectivity
+                filter_writer.report_selectivity(1, 0.1); // High selectivity
+                filter_writer.report_selectivity(2, 0.5); // Medium selectivity
+
+                // Report more to potentially trigger reordering
+                filter_writer.report_selectivity(0, 0.8);
+                filter_writer.report_selectivity(1, 0.2);
+            });
+
+            // Reader threads continuously read the ordering
+            let reader1 = thread::spawn(move || {
+                let mut remaining = BitVec::from_elem(3, true);
+                let mut seen = Vec::new();
+
+                while let Some(idx) = filter_reader1.next_conjunct(&remaining) {
+                    seen.push(idx);
+                    remaining.set(idx, false);
+                }
+                seen
+            });
+
+            let reader2 = thread::spawn(move || {
+                let mut remaining = BitVec::from_elem(3, true);
+                let mut seen = Vec::new();
+
+                while let Some(idx) = filter_reader2.next_conjunct(&remaining) {
+                    seen.push(idx);
+                    remaining.set(idx, false);
+                }
+                seen
+            });
+
+            writer.join().unwrap();
+            let order1 = reader1.join().unwrap();
+            let order2 = reader2.join().unwrap();
+
+            // Both readers should see a valid ordering (all indices present)
+            assert_eq!(order1.len(), 3);
+            assert_eq!(order2.len(), 3);
+
+            // Check all indices are present
+            let mut sorted1 = order1.clone();
+            sorted1.sort();
+            assert_eq!(sorted1, vec![0, 1, 2]);
+
+            let mut sorted2 = order2.clone();
+            sorted2.sort();
+            assert_eq!(sorted2, vec![0, 1, 2]);
+        });
+    }
+
+    #[test]
+    fn test_steal_work_retry_semantics() {
+        // Test the retry logic in steal_work with multiple concurrent stealers
+        loom::model(|| {
+            let counter = Arc::new(AtomicUsize::new(0));
+
+            // Create factories that produce work in batches
+            let factories: Vec<TaskFactory<usize>> = vec![
+                Box::new(|| Ok(vec![1, 2, 3])),
+                Box::new(|| Ok(vec![4, 5, 6])),
+            ];
+
+            let queue = WorkStealingQueue::new(factories);
+
+            // Create 3 workers to stress the stealing logic (reduced from 4)
+            let workers: Vec<_> = (0..3)
+                .map(|_| {
+                    let iter = queue.clone().new_iterator();
+                    let counter_clone = counter.clone();
+                    thread::spawn(move || {
+                        let mut local_sum = 0;
+                        for result in iter {
+                            if let Ok(val) = result {
+                                local_sum += val;
+                                // Simulate some work to increase chances of stealing
+                                thread::yield_now();
+                            }
+                        }
+                        counter_clone.fetch_add(local_sum, Ordering::SeqCst);
+                    })
+                })
+                .collect();
+
+            for worker in workers {
+                worker.join().unwrap();
+            }
+
+            // All values should be processed exactly once
+            assert_eq!(counter.load(Ordering::SeqCst), 21); // Sum of 1..=6
+        });
+    }
+
+    #[test]
+    fn test_factory_error_recovery_race() {
+        // Test that factory errors are handled correctly with concurrent workers
+        // Particularly testing the increment of num_factories_constructed on error
+        loom::model(|| {
+            let error_seen = Arc::new(loom::sync::Mutex::new(false));
+            let values_seen = Arc::new(loom::sync::Mutex::new(Vec::new()));
+
+            let factories: Vec<TaskFactory<i32>> = vec![
+                Box::new(|| Ok(vec![1, 2])),
+                Box::new(|| Err(vortex_err!("Factory error"))),
+                Box::new(|| Ok(vec![3, 4])),
+                Box::new(|| Ok(vec![5])),
+            ];
+
+            let queue = WorkStealingQueue::new(factories);
+
+            // Create multiple workers
+            let iter1 = queue.clone().new_iterator();
+            let iter2 = queue.clone().new_iterator();
+            let iter3 = queue.new_iterator();
+
+            let error_seen1 = error_seen.clone();
+            let values_seen1 = values_seen.clone();
+            let handle1 = thread::spawn(move || {
+                for result in iter1 {
+                    match result {
+                        Ok(val) => values_seen1.lock().unwrap().push(val),
+                        Err(_) => {
+                            *error_seen1.lock().unwrap() = true;
+                            break;
+                        }
+                    }
+                }
+            });
+
+            let error_seen2 = error_seen.clone();
+            let values_seen2 = values_seen.clone();
+            let handle2 = thread::spawn(move || {
+                for result in iter2 {
+                    match result {
+                        Ok(val) => values_seen2.lock().unwrap().push(val),
+                        Err(_) => {
+                            *error_seen2.lock().unwrap() = true;
+                            break;
+                        }
+                    }
+                }
+            });
+
+            let error_seen3 = error_seen.clone();
+            let values_seen3 = values_seen.clone();
+            let handle3 = thread::spawn(move || {
+                for result in iter3 {
+                    match result {
+                        Ok(val) => values_seen3.lock().unwrap().push(val),
+                        Err(_) => {
+                            *error_seen3.lock().unwrap() = true;
+                            break;
+                        }
+                    }
+                }
+            });
+
+            handle1.join().unwrap();
+            handle2.join().unwrap();
+            handle3.join().unwrap();
+
+            // At least one worker should have seen the error
+            assert!(*error_seen.lock().unwrap());
+
+            // Values from successful factories should still be processed
+            let final_values = values_seen.lock().unwrap();
+            assert!(!final_values.is_empty());
+        });
+    }
+
+    #[test]
+    fn test_worker_termination_conditions() {
+        // Test the complex termination condition in WorkStealingIterator::next()
+        // Workers should terminate when:
+        // 1. All factories are constructed AND
+        // 2. No stealer has work
+        loom::model(|| {
+            let termination_flag = Arc::new(AtomicUsize::new(0));
+
+            // Create factories with delays to test termination logic
+            let factories: Vec<TaskFactory<usize>> = vec![
+                Box::new(|| {
+                    // First factory produces work immediately
+                    Ok(vec![1, 2, 3])
+                }),
+                Box::new(|| {
+                    // Second factory also produces work
+                    Ok(vec![4, 5, 6])
+                }),
+            ];
+
+            let queue = WorkStealingQueue::new(factories);
+
+            // Create workers that track when they terminate
+            let term_flag1 = termination_flag.clone();
+            let iter1 = queue.clone().new_iterator();
+            let handle1 = thread::spawn(move || {
+                let mut count = 0;
+                for result in iter1 {
+                    if result.is_ok() {
+                        count += 1;
+                        // Yield to allow other threads to run
+                        thread::yield_now();
+                    }
+                }
+                term_flag1.fetch_add(1, Ordering::SeqCst);
+                count
+            });
+
+            let term_flag2 = termination_flag.clone();
+            let iter2 = queue.clone().new_iterator();
+            let handle2 = thread::spawn(move || {
+                let mut count = 0;
+                for result in iter2 {
+                    if result.is_ok() {
+                        count += 1;
+                        thread::yield_now();
+                    }
+                }
+                term_flag2.fetch_add(1, Ordering::SeqCst);
+                count
+            });
+
+            let term_flag3 = termination_flag.clone();
+            let iter3 = queue.new_iterator();
+            let handle3 = thread::spawn(move || {
+                let mut count = 0;
+                for result in iter3 {
+                    if result.is_ok() {
+                        count += 1;
+                        thread::yield_now();
+                    }
+                }
+                term_flag3.fetch_add(1, Ordering::SeqCst);
+                count
+            });
+
+            let count1 = handle1.join().unwrap();
+            let count2 = handle2.join().unwrap();
+            let count3 = handle3.join().unwrap();
+
+            // All workers should terminate
+            assert_eq!(termination_flag.load(Ordering::SeqCst), 3);
+
+            // Total work processed should be 6
+            assert_eq!(count1 + count2 + count3, 6);
         });
     }
 }
