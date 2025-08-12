@@ -1,12 +1,10 @@
 "use strict";
 
 import { dataProcessor } from './data-processor.js';
-import { utils } from './utils.js';
 
 // Worker manager for handling web worker communication and fallbacks
 export const workerManager = {
   dataWorker: null,
-  chartWorker: null,
   supportsWorkers: typeof Worker !== 'undefined',
   isProcessing: false,
   
@@ -15,7 +13,6 @@ export const workerManager = {
     if (this.supportsWorkers) {
       try {
         this.dataWorker = new Worker('./data-worker.js');
-        this.chartWorker = new Worker('./chart-worker.js');
         return true;
       } catch (error) {
         this.supportsWorkers = false;
@@ -120,125 +117,6 @@ export const workerManager = {
     return result;
   },
 
-  // Prepare chart data using worker or fallback
-  async prepareChart(chartConfig, onProgress) {
-    if (this.supportsWorkers && this.chartWorker) {
-      return this.prepareChartWithWorker(chartConfig, onProgress);
-    } else {
-      return this.prepareChartFallback(chartConfig, onProgress);
-    }
-  },
-
-  // Prepare chart using web worker
-  prepareChartWithWorker(chartConfig, onProgress) {
-    return new Promise((resolve, reject) => {
-      const handleMessage = (e) => {
-        const { type, result, progress, message, error, stack } = e.data;
-        
-        switch (type) {
-          case 'progress':
-            if (onProgress) {
-              onProgress(progress, message);
-            }
-            break;
-            
-          case 'chartPrepared':
-            this.chartWorker.removeEventListener('message', handleMessage);
-            resolve(result);
-            break;
-            
-          case 'error':
-            this.chartWorker.removeEventListener('message', handleMessage);
-            reject(new Error(`Worker error: ${error}\n${stack}`));
-            break;
-        }
-      };
-
-      this.chartWorker.addEventListener('message', handleMessage);
-      
-      this.chartWorker.postMessage({
-        type: 'prepareChart',
-        data: {
-          ...chartConfig,
-          isMobile: utils.isMobile()
-        }
-      });
-    });
-  },
-
-  // Prepare multiple charts in batch
-  async prepareBatchCharts(chartConfigs, onProgress) {
-    if (this.supportsWorkers && this.chartWorker) {
-      return this.prepareBatchChartsWithWorker(chartConfigs, onProgress);
-    } else {
-      return this.prepareBatchChartsFallback(chartConfigs, onProgress);
-    }
-  },
-
-  // Prepare batch charts using web worker
-  prepareBatchChartsWithWorker(chartConfigs, onProgress) {
-    return new Promise((resolve, reject) => {
-      const handleMessage = (e) => {
-        const { type, results, progress, message, error, stack } = e.data;
-        
-        switch (type) {
-          case 'progress':
-            if (onProgress) {
-              onProgress(progress, message);
-            }
-            break;
-            
-          case 'chartsBatchPrepared':
-            if (onProgress) {
-              onProgress(progress, message);
-            }
-            this.chartWorker.removeEventListener('message', handleMessage);
-            resolve(results);
-            break;
-            
-          case 'error':
-            this.chartWorker.removeEventListener('message', handleMessage);
-            reject(new Error(`Worker error: ${error}\n${stack}`));
-            break;
-        }
-      };
-
-      this.chartWorker.addEventListener('message', handleMessage);
-      
-      this.chartWorker.postMessage({
-        type: 'prepareBatchCharts',  
-        data: {
-          charts: chartConfigs,
-          isMobile: utils.isMobile()
-        }
-      });
-    });
-  },
-
-  // Fallback chart preparation on main thread
-  async prepareChartFallback(chartConfig, onProgress) {
-    // This would use the existing chart manager logic
-    // For now, return the config as-is to maintain compatibility
-    if (onProgress) onProgress(100, 'Chart prepared (fallback)');
-    return chartConfig;
-  },
-
-  // Fallback batch chart preparation on main thread
-  async prepareBatchChartsFallback(chartConfigs, onProgress) {
-    const results = [];
-    for (let i = 0; i < chartConfigs.length; i++) {
-      const config = chartConfigs[i];
-      results.push(await this.prepareChartFallback(config));
-      
-      if (onProgress && i % 10 === 0) {
-        onProgress((i / chartConfigs.length) * 100, `Preparing charts: ${i}/${chartConfigs.length}`);
-      }
-    }
-    
-    if (onProgress) onProgress(100, 'Chart preparation complete!');
-    return results;
-  },
-
   // Utility function to parse JSONL
   parseJsonl(jsonl) {
     return jsonl
@@ -282,10 +160,6 @@ export const workerManager = {
     if (this.dataWorker) {
       this.dataWorker.terminate();
       this.dataWorker = null;
-    }
-    if (this.chartWorker) {
-      this.chartWorker.terminate();
-      this.chartWorker = null;
     }
   }
 };

@@ -1,9 +1,8 @@
 "use strict";
 
 // Import modules
-import { CONFIG, SERIES_COLOR_MAP, VORTEX_COLORS, FALLBACK_PALETTE, BENCHMARK_DESCRIPTIONS, CATEGORY_TAGS, SCALE_FACTOR_DESCRIPTIONS, QUERY_NAME_MAP, ENGINE_LABELS, BENCHMARK_GROUPS } from './config.js';
+import { CONFIG, BENCHMARK_DESCRIPTIONS, CATEGORY_TAGS, SCALE_FACTOR_DESCRIPTIONS, ENGINE_LABELS } from './config.js';
 import { utils } from './utils.js';
-import { dataProcessor } from './data-processor.js';
 import { chartManager } from './chart-manager.js';
 import { scoring } from './scoring.js';
 import { zoomSync } from './zoom-sync.js';
@@ -45,11 +44,6 @@ window.initAndRender = (function () {
   // DOM element cache
   const domElements = {};
   let chartObserver = null;
-
-
-
-
-
 
   // UI module
   const ui = {
@@ -205,11 +199,11 @@ window.initAndRender = (function () {
 
       const header = document.createElement("div");
       header.className = "benchmark-header";
-      
+
       // Check if the parent section has the no-data class
       const section = document.querySelector(`[data-category="${name}"]`);
       const hasNoData = section && section.classList.contains("no-data");
-      
+
       if (!hasNoData) {
         header.onclick = (e) => {
           // Don't toggle if clicking on info icon
@@ -254,7 +248,7 @@ window.initAndRender = (function () {
       const meta = document.createElement("div");
       meta.className = "benchmark-meta";
       const chartCount = keptCharts ? keptCharts.length : benchSet?.size || 0;
-      
+
       // Check if the parent section has the no-data class
       const sectionHasNoData = section && section.classList.contains("no-data");
       if (sectionHasNoData) {
@@ -316,7 +310,7 @@ window.initAndRender = (function () {
     toggleSection(name) {
       const section = document.querySelector(`[data-category="${name}"]`);
       if (!section) return;
-      
+
       // Don't toggle if section has no data
       if (section.classList.contains("no-data")) return;
 
@@ -590,7 +584,7 @@ window.initAndRender = (function () {
       sections.forEach((section) => {
         // Skip sections with no data
         if (section.classList.contains("no-data")) return;
-        
+
         const category = section.getAttribute("data-category");
         state.expandedSections.add(category);
         if (section.classList.contains("collapsed")) {
@@ -694,9 +688,9 @@ window.initAndRender = (function () {
       ]);
 
       // Return raw text data for worker processing
-      return { 
-        benchmarkData: dataResponse, 
-        commitsData: commitsResponse 
+      return {
+        benchmarkData: dataResponse,
+        commitsData: commitsResponse
       };
     },
 
@@ -729,7 +723,7 @@ window.initAndRender = (function () {
     updateLoadingProgress(progress, message) {
       const main = domElements.main || document.getElementById("main");
       const loadingIndicator = main.querySelector('.loading-indicator');
-      
+
       if (loadingIndicator) {
         const progressText = loadingIndicator.querySelector('p');
         if (progressText) {
@@ -770,11 +764,11 @@ window.initAndRender = (function () {
       if (window.innerWidth >= 1200) {
         const sidebarPref = localStorage.getItem("sidebarCollapsed");
         if (domElements.sidebar) {
-          // Set default to collapsed (true) on first visit  
+          // Set default to collapsed (true) on first visit
           if (sidebarPref === null) {
             localStorage.setItem("sidebarCollapsed", "true");
           }
-          
+
           // Apply saved preference
           if (sidebarPref === "false") {
             // User previously opened sidebar via toggle
@@ -842,7 +836,7 @@ window.initAndRender = (function () {
 
       // Make chartObserver globally available for modules
       window.chartObserver = chartObserver;
-      
+
       // Initialize zoom sync
       zoomSync.init(state, utils);
 
@@ -975,11 +969,11 @@ window.initAndRender = (function () {
           domElements.sidebar.classList.remove("active");
           // Restore saved collapsed state
           const sidebarPref = localStorage.getItem("sidebarCollapsed");
-          // Set default to collapsed (true) on first visit  
+          // Set default to collapsed (true) on first visit
           if (sidebarPref === null) {
             localStorage.setItem("sidebarCollapsed", "true");
           }
-          
+
           // Apply saved preference
           if (sidebarPref === "false") {
             domElements.sidebar.classList.remove("collapsed");
@@ -1003,7 +997,7 @@ window.initAndRender = (function () {
     const batchSize = 1; // Render 1 benchmark set at a time for maximum responsiveness
     let currentBatch = 0;
     let totalSets = 0;
-    
+
     // Determine what we're rendering
     let renderQueue = [];
     if (keptGroups === undefined) {
@@ -1018,13 +1012,13 @@ window.initAndRender = (function () {
         groupFilterSettings
       }));
     }
-    
+
     totalSets = renderQueue.length;
-    
+
     // Process in batches
     for (let i = 0; i < renderQueue.length; i += batchSize) {
       const batch = renderQueue.slice(i, i + batchSize);
-      
+
       // Render this batch
       for (const { name, dataSet, groupFilterSettings } of batch) {
         // Add placeholder while rendering
@@ -1043,24 +1037,24 @@ window.initAndRender = (function () {
           </div>
         `;
         main.appendChild(placeholder);
-        
+
         await renderBenchmarkSet(name, dataSet, main, toc, groupFilterSettings);
-        
+
         // Remove placeholder after rendering
         if (placeholder.parentNode) {
           placeholder.remove();
         }
-        
+
         currentBatch++;
       }
-      
+
       // Update progress and yield control after each batch
       const progress = (currentBatch / totalSets) * 100;
       const progressElement = document.getElementById('rendering-progress');
       if (progressElement) {
         progressElement.textContent = `${getRandomRenderingMessage()} ${currentBatch}/${totalSets} (${Math.round(progress)}%)`;
       }
-      
+
       if (i + batchSize < renderQueue.length) {
         // Yield control to prevent UI freezing
         await new Promise(resolve => setTimeout(resolve, 0));
@@ -1081,14 +1075,14 @@ window.initAndRender = (function () {
       benchSet,
       groupFilterSettings
     );
-    
+
     // Add fade-in animation effect
     section.style.opacity = '0';
     section.style.transform = 'translateY(20px)';
     section.style.transition = 'opacity 0.3s ease-out, transform 0.3s ease-out';
-    
+
     main.appendChild(section);
-    
+
     // Trigger fade-in animation
     requestAnimationFrame(() => {
       section.style.opacity = '1';
@@ -1150,7 +1144,7 @@ window.initAndRender = (function () {
       renamedDatasets,
       chartIndex
     );
-    
+
     // Update zoom sync cache for this category
     window.zoomSync.updateCacheForCategory(name);
   }
@@ -1168,7 +1162,7 @@ window.initAndRender = (function () {
   ) {
     let chartIndex = startIndex;
     const chartsToRender = [];
-    
+
     // Collect all charts to render
     if (keptCharts === undefined) {
       if (benchSet !== undefined) {
@@ -1191,11 +1185,11 @@ window.initAndRender = (function () {
         }
       }
     }
-    
+
     // Render charts with yielding between each one
     for (let i = 0; i < chartsToRender.length; i++) {
       const { benchName, benches } = chartsToRender[i];
-      
+
       state.charts.push(
         chartManager.renderChart(
           chartsContainer,
@@ -1208,7 +1202,7 @@ window.initAndRender = (function () {
           chartIndex++
         )
       );
-      
+
       // Yield control after each chart to prevent blocking
       // Only yield if there are more charts to render
       if (i < chartsToRender.length - 1) {
@@ -1225,12 +1219,12 @@ window.initAndRender = (function () {
       window.domElements = domElements;
       window.zoomSync = zoomSync;
       window.utils = utils;
-      
+
       // Initialize workers
       workerManager.init();
-      
+
       const { benchmarkData, commitsData } = await initializer.loadData();
-      
+
       // Process data using worker or fallback
       const grouped = await workerManager.processData(
         benchmarkData,
@@ -1252,7 +1246,7 @@ window.initAndRender = (function () {
 
       // Render all charts with batching to prevent UI freezing
       await renderBenchmarkSetsAsync(grouped, main, toc, keptGroups);
-      
+
       // Remove rendering progress indicator
       const loadingIndicator = main.querySelector('.loading-indicator');
       if (loadingIndicator) {
@@ -1261,12 +1255,12 @@ window.initAndRender = (function () {
 
       initializer.initializeControls();
       urlManager.initializeFromParams();
-      
+
       // Clean up workers after initialization (give more time for any pending operations)
       setTimeout(() => {
         workerManager.terminate();
       }, 5000);
-      
+
       // Ensure workers and zoom sync are cleaned up on page unload
       window.addEventListener('beforeunload', () => {
         workerManager.terminate();
