@@ -61,6 +61,7 @@ impl SharedState {
 
 struct Split {
     row_range: Range<u64>,
+    len: usize,
 
     filters: Vec<Box<dyn MaskEvaluation>>,
     filter_segments: Vec<HashSet<SegmentId>>, // FIXME(ngates): BTreeSet?
@@ -125,12 +126,15 @@ enum SplitState {
     },
     Filter {
         conjunct_idx: usize,
+        result: Option<Mask>,
     },
     PendingProject {
         mask: Mask,
         waiting_for: HashSet<SegmentId>,
     },
-    Project,
+    Project {
+        result: Option<ArrayRef>,
+    },
     Finished,
 }
 
@@ -151,14 +155,11 @@ impl Scheduler {
     ///
     /// Returns true if progress was made.
     fn make_progress(&mut self) -> VortexResult<bool> {
-        let mut made_progress = false;
-
-        // First we attempt to handle I/O completions
+        // First we handle I/O events
         while let Poll::Ready(Some(result)) = self
             .segment_futures
             .poll_next_unpin(&mut Context::from_waker(&DUMMY_WAKER))
         {
-            made_progress = true;
             match result {
                 Ok(io_event) => self.handle_io_event(io_event),
                 Err(e) => {
@@ -168,10 +169,30 @@ impl Scheduler {
             }
         }
 
-        // Next we handle CPU completions.
+        // Next we handle CPU events.
         while let Ok(event) = self.cpu_events.try_recv() {
             self.handle_cpu_event(event)
         }
+
+        // Now we drive forwards the split state machines.
+        let mut made_progress = false;
+        for split_idx in self.active_splits.clone() {
+            if self.make_progress_on_split(split_idx) {
+                made_progress = true;
+            }
+        }
+
+        // We bring forward the start of the active splits if any splits are finished.
+        for split_idx in self.active_splits.clone() {
+            if matches!(self.splits[split_idx], SplitState::Finished) {
+                self.active_splits.start += 1;
+            } else {
+                break;
+            }
+        }
+
+        // Now we can look to launch new splits based on the total working set size and
+        // in-flight request sizes.
 
         // NOTE(ngates): for worker affinity, we can create a channel per worker to send tasks
         //  down. Workers should then pull tasks from this channel and push them into their worker
@@ -227,37 +248,17 @@ impl Scheduler {
             for split_idx in items {
                 let split_state = &mut self.splits[split_idx];
                 match split_state {
-                    SplitState::PendingFilter {
-                        conjunct_idx,
-                        mask,
-                        waiting_for,
-                    } => {
+                    SplitState::PendingFilter { waiting_for, .. } => {
                         waiting_for.remove(&event.segment_id);
-                        if waiting_for.is_empty() {
-                            self.shared.injector.push(WorkItem::Filter {
-                                split_idx,
-                                mask: mask.clone(),
-                                conjunct_idx: *conjunct_idx,
-                            });
-                            *split_state = SplitState::Filter {
-                                conjunct_idx: *conjunct_idx,
-                            };
-                        }
                     }
-                    SplitState::PendingProject { mask, waiting_for } => {
+                    SplitState::PendingProject { waiting_for, .. } => {
                         waiting_for.remove(&event.segment_id);
-                        if waiting_for.is_empty() {
-                            self.shared.injector.push(WorkItem::Project {
-                                split_idx,
-                                mask: mask.clone(),
-                            });
-                            *split_state = SplitState::Project;
-                        }
                     }
                     _ => {
-                        vortex_panic!("unexpected split state {:?}", split_state)
+                        vortex_panic!("Unexpected split state {:?}", split_state)
                     }
                 }
+                while self.make_progress_on_split(split_idx) {}
             }
         }
     }
@@ -265,37 +266,119 @@ impl Scheduler {
     fn handle_cpu_event(&mut self, event: CpuEvent) {
         match event {
             CpuEvent::Filter {
-                split_idx,
-                conjunct_idx,
-                mask,
+                split_idx, mask, ..
             } => {
-                let split_state = &mut self.splits[split_idx];
+                let SplitState::Filter { result, .. } = &mut self.splits[split_idx] else {
+                    vortex_panic!("unexpected split state {:?}", self.splits[split_idx])
+                };
+                *result = Some(mask);
+                while self.make_progress_on_split(split_idx) {}
+            }
+            CpuEvent::Project { split_idx, array } => {
+                let SplitState::Project { result, .. } = &mut self.splits[split_idx] else {
+                    vortex_panic!("unexpected split state {:?}", self.splits[split_idx])
+                };
+                *result = Some(array);
+                while self.make_progress_on_split(split_idx) {}
+            }
+        }
+    }
 
-                // Check if we can terminate the split early.
-                if mask.all_false() {
-                    *split_state = SplitState::Finished;
-                    return;
-                }
-
-                if conjunct_idx == self.shared.num_conjuncts() - 1 {
-                    // We have completed filtering, perform projection.
-                    *split_state = SplitState::PendingProject {
+    fn make_progress_on_split(&mut self, split_idx: SplitIdx) -> bool {
+        let split = &self.shared.splits[split_idx];
+        let state = &mut self.splits[split_idx];
+        match state {
+            SplitState::NotStarted => {
+                // We need to launch a filter task if there is one, else a project.
+                let mask = Mask::new_true(split.len);
+                if self.shared.filter_expr.is_some() {
+                    *state = SplitState::PendingFilter {
+                        conjunct_idx: 0,
                         mask,
-                        waiting_for: self.shared.splits[split_idx].projection_segments.clone(),
+                        waiting_for: split.filter_segments[0].clone(),
                     }
                 } else {
-                    // Otherwise, move to the next conjunct.
-                    *split_state = SplitState::PendingFilter {
-                        conjunct_idx: conjunct_idx + 1,
+                    *state = SplitState::PendingProject {
                         mask,
-                        waiting_for: self.shared.splits[split_idx].filter_segments
-                            [conjunct_idx + 1]
-                            .clone(),
-                    }
+                        waiting_for: split.projection_segments.clone(),
+                    };
+                }
+                true
+            }
+            SplitState::PendingFilter {
+                conjunct_idx,
+                mask,
+                waiting_for,
+            } => {
+                if waiting_for.is_empty() {
+                    // If we have all our segments, we can launch the filter task.
+                    self.shared.injector.push(WorkItem::Filter {
+                        split_idx,
+                        conjunct_idx: *conjunct_idx,
+                        mask: mask.clone(),
+                    });
+                    *state = SplitState::Filter {
+                        conjunct_idx: *conjunct_idx,
+                        result: None,
+                    };
+                    true
+                } else {
+                    false
                 }
             }
-            CpuEvent::Project { .. } => {
-                vortex_panic!("unexpected project event")
+            SplitState::Filter {
+                conjunct_idx,
+                result,
+            } => {
+                if let Some(mask) = result {
+                    if mask.all_false() {
+                        // If the mask is all false, we can terminate the split early.
+                        *state = SplitState::Finished;
+                        return true;
+                    }
+
+                    if *conjunct_idx == self.shared.num_conjuncts() - 1 {
+                        // It was the last conjunct, so move onto projection.
+                        *state = SplitState::PendingProject {
+                            mask: mask.clone(),
+                            waiting_for: split.projection_segments.clone(),
+                        }
+                    } else {
+                        *state = SplitState::PendingFilter {
+                            conjunct_idx: *conjunct_idx + 1,
+                            mask: mask.clone(),
+                            waiting_for: split.filter_segments[*conjunct_idx + 1].clone(),
+                        }
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
+            SplitState::PendingProject { mask, waiting_for } => {
+                if waiting_for.is_empty() {
+                    // If we have all our segments, we can launch the project task.
+                    self.shared.injector.push(WorkItem::Project {
+                        split_idx,
+                        mask: mask.clone(),
+                    });
+                    *state = SplitState::Project { result: None };
+                    true
+                } else {
+                    false
+                }
+            }
+            SplitState::Project { result } => {
+                if result.is_some() {
+                    *state = SplitState::Finished;
+                    true
+                } else {
+                    false
+                }
+            }
+            SplitState::Finished => {
+                // We're already finished, no progress to make
+                false
             }
         }
     }
