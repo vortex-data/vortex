@@ -174,6 +174,17 @@ typedef struct vx_array_iterator vx_array_iterator;
 /**
  * The `sink` interface is used to collect array chunks and place them into a resource
  * (e.g. an array stream or file (`vx_array_sink_open_file`)).
+ *
+ * ## Thread Safety
+ *
+ * This struct is **not** thread-safe for concurrent operations. While the underlying
+ * `Sender` is thread-safe, the FFI wrapper should only be accessed from a single thread
+ * to avoid race conditions between `push` and `close` operations. The `close` operation
+ * consumes the sink, making any subsequent operations undefined behavior.
+ *
+ * Multiple threads may safely hold pointers to the same sink, but only one thread should
+ * perform operations on it at a time, and coordination is required to ensure `close` is
+ * called exactly once after all `push` operations are complete.
  */
 typedef struct vx_array_sink vx_array_sink;
 
@@ -644,6 +655,8 @@ uint64_t vx_struct_fields_nfields(const vx_struct_fields *dtype);
 
 /**
  * Return a borrowed reference to the name of the field at the given index.
+ *
+ * Returns null if the index is out of bounds.
  */
 const vx_string *vx_struct_fields_field_name(const vx_struct_fields *dtype, size_t idx);
 
@@ -652,6 +665,8 @@ const vx_string *vx_struct_fields_field_name(const vx_struct_fields *dtype, size
  *
  * The return type is owned since struct dtypes can be lazily parsed from a binary format, in
  * which case it's not possible to return a borrowed reference to the field dtype.
+ *
+ * Returns null if the index is out of bounds or if the field dtype cannot be parsed.
  */
 const vx_dtype *vx_struct_fields_field_dtype(const vx_struct_fields *dtype, uint64_t idx);
 

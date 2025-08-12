@@ -176,7 +176,6 @@ mod tests {
     use vortex::IntoArray;
     use vortex::arrays::{PrimitiveArray, StructArray, VarBinViewArray};
     use vortex::buffer::buffer;
-    use vortex::dtype::half::f16;
     use vortex::validity::Validity;
 
     use crate::array::*;
@@ -323,15 +322,19 @@ mod tests {
             assert!(vx_array_get_f64(ffi_f64, 2).is_nan());
             vx_array_free(ffi_f64);
 
-            // Test f16 (special half-precision type)
-            let f16_array = PrimitiveArray::new(
-                buffer![f16::from_f32(1.0), f16::from_f32(-0.5)],
-                Validity::NonNullable,
-            );
-            let ffi_f16 = vx_array::new(f16_array.into_array());
-            assert_eq!(vx_array_get_f16(ffi_f16, 0), f16::from_f32(1.0));
-            assert_eq!(vx_array_get_f16(ffi_f16, 1), f16::from_f32(-0.5));
-            vx_array_free(ffi_f16);
+            // Test f16 (special half-precision type) - skip in Miri due to inline assembly
+            #[cfg(not(miri))]
+            {
+                use vortex::dtype::half::f16;
+                let f16_array = PrimitiveArray::new(
+                    buffer![f16::from_f32(1.0), f16::from_f32(-0.5)],
+                    Validity::NonNullable,
+                );
+                let ffi_f16 = vx_array::new(f16_array.into_array());
+                assert_eq!(vx_array_get_f16(ffi_f16, 0), f16::from_f32(1.0));
+                assert_eq!(vx_array_get_f16(ffi_f16, 1), f16::from_f32(-0.5));
+                vx_array_free(ffi_f16);
+            }
         }
     }
 

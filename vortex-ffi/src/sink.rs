@@ -9,7 +9,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
 use vortex::ArrayRef;
-use vortex::error::{VortexExpect, VortexResult, vortex_err};
+use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::file::VortexWriteOptions;
 use vortex::stream::ArrayStreamAdapter;
 
@@ -46,7 +46,9 @@ pub unsafe extern "C-unwind" fn vx_array_sink_open_file(
     error_out: *mut *mut vx_error,
 ) -> *mut vx_array_sink {
     try_or_default(error_out, || {
-        let path = unsafe { path.as_ref() }.vortex_expect("null path");
+        if path.is_null() {
+            vortex_bail!("null path");
+        }
         let path = unsafe { CStr::from_ptr(path) }
             .to_string_lossy()
             .to_string();
@@ -122,6 +124,7 @@ mod tests {
     use crate::error::vx_error_free;
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn test_sink_basic_workflow() {
         unsafe {
             let temp_file = NamedTempFile::new().unwrap();
@@ -153,6 +156,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn test_sink_multiple_arrays() {
         unsafe {
             let temp_file = NamedTempFile::new().unwrap();
@@ -188,6 +192,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn test_sink_invalid_path() {
         unsafe {
             // Use a path that will fail during file creation (read-only directory on most systems)
@@ -224,16 +229,20 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "null path")]
+    #[cfg_attr(miri, ignore)]
     fn test_sink_null_path() {
         unsafe {
             let dtype = DType::Primitive(vortex::dtype::PType::I32, false.into());
             let vx_dtype_ptr = vx_dtype::new(Arc::new(dtype));
 
             let mut error = std::ptr::null_mut();
-            // This should panic due to vortex_expect("null path") in the implementation
-            let _sink = vx_array_sink_open_file(std::ptr::null(), vx_dtype_ptr, &raw mut error);
+            // This should return null and set error due to null path
+            let sink = vx_array_sink_open_file(std::ptr::null(), vx_dtype_ptr, &raw mut error);
 
+            assert!(sink.is_null());
+            assert!(!error.is_null());
+
+            vx_error_free(error);
             vx_dtype_free(vx_dtype_ptr);
         }
     }
