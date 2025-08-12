@@ -503,7 +503,11 @@ mod tests {
         #[case] value: Option<&str>,
         #[case] expected: BoolArray,
     ) {
-        let element_nullability = list_array.dtype().as_list_element().unwrap().nullability();
+        let element_nullability = list_array
+            .dtype()
+            .as_list_element_opt()
+            .unwrap()
+            .nullability();
         let scalar = match value {
             None => Scalar::null(DType::Utf8(Nullability::Nullable)),
             Some(v) => Scalar::utf8(v, element_nullability),

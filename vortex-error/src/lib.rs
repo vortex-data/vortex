@@ -430,6 +430,20 @@ macro_rules! vortex_bail {
     };
 }
 
+/// A macro that mirrors `assert!` but instead of panicking on a failed condition,
+/// it will immediately return an erroneous `VortexResult` to the calling context.
+#[macro_export]
+macro_rules! vortex_ensure {
+    ($cond:expr) => {
+        vortex_ensure!($cond, stringify!($cond));
+    };
+    ($cond:expr, $($tt:tt)*) => {
+        if !$cond {
+            $crate::vortex_bail!($($tt)*);
+        }
+    };
+}
+
 /// A convenient macro for panicking with a VortexError in the presence of a programmer error
 /// (e.g., an invariant has been violated).
 #[macro_export]

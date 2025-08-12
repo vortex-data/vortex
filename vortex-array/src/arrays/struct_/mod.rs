@@ -202,7 +202,7 @@ impl StructArray {
     }
 
     pub fn struct_fields(&self) -> &StructFields {
-        let Some(struct_dtype) = &self.dtype.as_struct() else {
+        let Some(struct_dtype) = &self.dtype.as_struct_opt() else {
             unreachable!(
                 "struct arrays must have be a DType::Struct, this is likely an internal bug."
             )

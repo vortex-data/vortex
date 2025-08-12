@@ -51,7 +51,7 @@ where
         stream: SendableSequentialStream,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
-        let Some(struct_dtype) = stream.dtype().as_struct().cloned() else {
+        let Some(struct_dtype) = stream.dtype().as_struct_opt().cloned() else {
             // nothing we can do if dtype is not struct
             return self.child.write_stream(ctx, sequence_writer, stream).await;
         };

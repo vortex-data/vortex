@@ -132,7 +132,7 @@ impl VTable for MergeVTable {
             }
 
             let struct_dtype = dtype
-                .as_struct()
+                .as_struct_opt()
                 .vortex_expect("merge expects struct input");
 
             for i in 0..struct_dtype.nfields() {

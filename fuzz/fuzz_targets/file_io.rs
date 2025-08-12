@@ -133,19 +133,19 @@ fn compare_struct(expected: ArrayRef, actual: ArrayRef) {
 fn has_nullable_struct(dtype: &DType) -> bool {
     dtype.is_struct() && dtype.is_nullable()
         || dtype
-            .as_struct()
+            .as_struct_opt()
             .map(|sdt| sdt.fields().any(|dtype| has_nullable_struct(&dtype)))
             .unwrap_or(false)
         || dtype
-            .as_list_element()
+            .as_list_element_opt()
             .map(|e| has_nullable_struct(e.as_ref()))
             .unwrap_or(false)
 }
 
 fn has_duplicate_field_names(dtype: &DType) -> bool {
-    if let Some(struct_dtype) = dtype.as_struct() {
+    if let Some(struct_dtype) = dtype.as_struct_opt() {
         struct_has_duplicate_names(struct_dtype)
-    } else if let Some(list_elem) = dtype.as_list_element() {
+    } else if let Some(list_elem) = dtype.as_list_element_opt() {
         has_duplicate_field_names(list_elem)
     } else {
         false

@@ -82,7 +82,7 @@ impl DecimalBytePartsArray {
 
     pub fn decimal_dtype(&self) -> &DecimalDType {
         self.dtype
-            .as_decimal()
+            .as_decimal_opt()
             .vortex_expect("must be a decimal dtype")
     }
 

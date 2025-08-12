@@ -218,7 +218,7 @@ impl FileFormat for VortexFormat {
 
             let struct_dtype = vxf
                 .dtype()
-                .as_struct()
+                .as_struct_opt()
                 .vortex_expect("dtype is not a struct");
 
             // Evaluate the statistics for each column that we are able to return to DataFusion.

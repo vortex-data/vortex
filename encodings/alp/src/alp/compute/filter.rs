@@ -16,7 +16,14 @@ impl FilterKernel for ALPVTable {
             .transpose()?
             .flatten();
 
-        Ok(ALPArray::new(filter(array.encoded(), mask)?, array.exponents(), patches).to_array())
+        // All ALPArray invariants are held when filtering the values
+        Ok(ALPArray::new_unchecked(
+            filter(array.encoded(), mask)?,
+            array.exponents(),
+            patches,
+            array.dtype().clone(),
+        )
+        .to_array())
     }
 }
 

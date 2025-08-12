@@ -11,7 +11,7 @@ use crate::{ArrayRef, register_kernel};
 
 impl CastKernel for ListVTable {
     fn cast(&self, array: &Self::Array, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        let Some(target_element_type) = dtype.as_list_element() else {
+        let Some(target_element_type) = dtype.as_list_element_opt() else {
             return Ok(None);
         };
 

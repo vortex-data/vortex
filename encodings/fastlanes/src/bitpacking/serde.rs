@@ -8,7 +8,7 @@ use vortex_array::vtable::{EncodeVTable, SerdeVTable, ValidityHelper, VisitorVTa
 use vortex_array::{ArrayBufferVisitor, ArrayChildVisitor, Canonical, ProstMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 
 use super::{BitPackedEncoding, bit_width_histogram, find_best_bit_width};
 use crate::{BitPackedArray, BitPackedVTable, bitpack_encode};
@@ -87,9 +87,19 @@ impl SerdeVTable<BitPackedVTable> for BitPackedVTable {
             PType::try_from(dtype)?,
             validity,
             patches,
-            u8::try_from(metadata.bit_width).vortex_expect("Bit width out of range"),
+            u8::try_from(metadata.bit_width).map_err(|_| {
+                vortex_err!(
+                    "BitPackedMetadata bit_width {} does not fit in u8",
+                    metadata.bit_width
+                )
+            })?,
             len,
-            u16::try_from(metadata.offset).vortex_expect("Offset out of range"),
+            u16::try_from(metadata.offset).map_err(|_| {
+                vortex_err!(
+                    "BitPackedMetadata offset {} does not fit in u16",
+                    metadata.offset
+                )
+            })?,
         )
     }
 }
