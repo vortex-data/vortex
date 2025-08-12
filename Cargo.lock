@@ -6703,6 +6703,7 @@ dependencies = [
  "mimalloc",
  "moka",
  "object_store",
+ "parking_lot",
  "paste",
  "prost 0.14.1",
  "simplelog",

@@ -206,15 +206,6 @@ typedef struct vx_error vx_error;
  */
 typedef struct vx_file vx_file;
 
-/**
- * A Vortex session stores registries of extensible types, various caches, and other
- * top-level configuration.
- *
- * Extensible types include array encodings, layouts, extension dtypes, compute functions, etc.
- *
- * Multiple sessions may be created in a single process, and individual arrays are not tied to a
- * specific session.
- */
 typedef struct vx_session vx_session;
 
 /**
@@ -299,6 +290,15 @@ typedef struct {
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
+
+/**
+ * Explicitly shut down the tokio runtime to prevent cleanup races with mimalloc.
+ *
+ * This function forces an immediate shutdown regardless of active references.
+ * It should only be called when all FFI operations are complete and the process
+ * is about to exit.
+ */
+bool vx_runtime_shutdown(void);
 
 /**
  * Clone a borrowed [`vx_array`], returning an owned [`vx_array`].
@@ -572,7 +572,7 @@ vx_array_iterator *vx_file_scan(const vx_file *file,
 void vx_set_log_level(vx_log_level level);
 
 /**
- * Free an owned [`vx_session`] object.
+ * Free an owned [`vx_session`] object and handle runtime lifecycle.
  */
 void vx_session_free(vx_session *ptr);
 

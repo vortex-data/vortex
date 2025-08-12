@@ -11,19 +11,53 @@ use vortex::scalar::ScalarValue;
 use vortex::stats::{Precision, Stat};
 use vortex::utils::aliases::DefaultHashBuilder;
 
-use crate::box_wrapper;
+// Custom session wrapper to handle runtime lifecycle
+#[allow(non_camel_case_types)]
+pub(crate) struct vx_session(VortexSession);
 
-box_wrapper!(
-    /// A Vortex session stores registries of extensible types, various caches, and other
-    /// top-level configuration.
-    ///
-    /// Extensible types include array encodings, layouts, extension dtypes, compute functions, etc.
-    ///
-    /// Multiple sessions may be created in a single process, and individual arrays are not tied to a
-    /// specific session.
-    VortexSession,
-    vx_session
-);
+#[allow(dead_code)]
+impl vx_session {
+    /// Wrap an owned object into a raw pointer.
+    pub(crate) fn new(obj: Box<VortexSession>) -> *mut vx_session {
+        Box::into_raw(obj).cast()
+    }
+
+    /// Wrap a borrowed object into a raw pointer.
+    pub(crate) fn new_ref(obj: &VortexSession) -> *const vx_session {
+        obj as *const VortexSession as *const vx_session
+    }
+
+    /// Extract a borrowed reference from a const pointer.
+    pub(crate) fn as_ref<'a>(ptr: *const vx_session) -> &'a VortexSession {
+        use vortex::error::VortexExpect;
+        &unsafe { ptr.as_ref() }.vortex_expect("null pointer").0
+    }
+
+    /// Extract a borrowed mutable reference from a mut pointer.
+    pub(crate) fn as_mut<'a>(ptr: *mut vx_session) -> &'a mut VortexSession {
+        use vortex::error::VortexExpect;
+        &mut unsafe { ptr.as_mut() }.vortex_expect("null pointer").0
+    }
+
+    /// Extract an owned reference.
+    pub(crate) fn into_box(ptr: *mut vx_session) -> Box<VortexSession> {
+        if ptr.is_null() {
+            vortex::error::vortex_panic!("null pointer");
+        }
+        unsafe { Box::from_raw(ptr.cast::<VortexSession>()) }
+    }
+}
+
+/// Free an owned [`vx_session`] object and handle runtime lifecycle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_session_free(ptr: *mut vx_session) {
+    if ptr.is_null() {
+        vortex::error::vortex_panic!("null pointer");
+    }
+
+    // Free the session - the Drop trait will handle runtime lifecycle automatically
+    drop(unsafe { Box::from_raw(ptr.cast::<VortexSession>()) });
+}
 
 /// Create a new Vortex session.
 ///
@@ -35,6 +69,7 @@ pub unsafe extern "C-unwind" fn vx_session_new() -> *mut vx_session {
 
 pub struct VortexSession {
     file_cache: Cache<FileKey, Footer, DefaultHashBuilder>,
+    _runtime: Arc<tokio::runtime::Runtime>,
 }
 
 /// Cache key for a [`VortexFile`].
@@ -54,7 +89,13 @@ impl VortexSession {
             .weigher(|_k, footer| u32::try_from(estimate_layout_size(footer)).unwrap_or(u32::MAX))
             .build_with_hasher(DefaultHashBuilder::default());
 
-        Self { file_cache }
+        // Get a runtime reference that will be held for the lifetime of this session
+        let runtime = crate::get_session_runtime();
+
+        Self {
+            file_cache,
+            _runtime: runtime,
+        }
     }
 
     pub fn get_footer(&self, file_key: &FileKey) -> Option<Footer> {
@@ -63,6 +104,13 @@ impl VortexSession {
 
     pub fn put_footer(&self, file_key: FileKey, footer: Footer) {
         self.file_cache.insert(file_key, footer)
+    }
+}
+
+impl Drop for VortexSession {
+    fn drop(&mut self) {
+        // When the session is dropped, try to shutdown the runtime if no other sessions hold references
+        crate::try_shutdown_runtime();
     }
 }
 
