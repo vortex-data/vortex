@@ -163,6 +163,9 @@ pub(super) fn split_exec<A: 'static + Send>(
     let mapper = ctx.mapper.clone();
     let array_fut = async move {
         let filtered_mask = filter.await?;
+        if filtered_mask.all_false() {
+            return Ok(None);
+        }
         let array_ref = exec.invoke(filtered_mask).await?;
         mapper(array_ref).map(Some)
     };
