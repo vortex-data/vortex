@@ -117,16 +117,20 @@ struct Scheduler {
 
 #[derive(Debug)]
 enum SplitState {
-    Pending,
-    Filtering {
+    NotStarted,
+    PendingFilter {
         conjunct_idx: usize,
         mask: Mask,
         waiting_for: HashSet<SegmentId>,
     },
-    Projecting {
+    Filter {
+        conjunct_idx: usize,
+    },
+    PendingProject {
         mask: Mask,
         waiting_for: HashSet<SegmentId>,
     },
+    Project,
     Finished,
 }
 
@@ -219,11 +223,11 @@ impl Scheduler {
             .insert(event.segment_id, event.buffer);
 
         // Check which splits are waiting for this segment.
-        if let Some(items) = self.waiting_for_segments.get(&event.segment_id) {
-            for split_idx in items.value() {
-                let split_state = &mut self.splits[*split_idx];
+        if let Some((_id, items)) = self.waiting_for_segments.remove(&event.segment_id) {
+            for split_idx in items {
+                let split_state = &mut self.splits[split_idx];
                 match split_state {
-                    SplitState::Filtering {
+                    SplitState::PendingFilter {
                         conjunct_idx,
                         mask,
                         waiting_for,
@@ -231,19 +235,23 @@ impl Scheduler {
                         waiting_for.remove(&event.segment_id);
                         if waiting_for.is_empty() {
                             self.shared.injector.push(WorkItem::Filter {
-                                split_idx: *split_idx,
+                                split_idx,
                                 mask: mask.clone(),
                                 conjunct_idx: *conjunct_idx,
-                            })
+                            });
+                            *split_state = SplitState::Filter {
+                                conjunct_idx: *conjunct_idx,
+                            };
                         }
                     }
-                    SplitState::Projecting { mask, waiting_for } => {
+                    SplitState::PendingProject { mask, waiting_for } => {
                         waiting_for.remove(&event.segment_id);
                         if waiting_for.is_empty() {
                             self.shared.injector.push(WorkItem::Project {
-                                split_idx: *split_idx,
+                                split_idx,
                                 mask: mask.clone(),
-                            })
+                            });
+                            *split_state = SplitState::Project;
                         }
                     }
                     _ => {
@@ -271,13 +279,13 @@ impl Scheduler {
 
                 if conjunct_idx == self.shared.num_conjuncts() - 1 {
                     // We have completed filtering, perform projection.
-                    *split_state = SplitState::Projecting {
+                    *split_state = SplitState::PendingProject {
                         mask,
                         waiting_for: self.shared.splits[split_idx].projection_segments.clone(),
                     }
                 } else {
                     // Otherwise, move to the next conjunct.
-                    *split_state = SplitState::Filtering {
+                    *split_state = SplitState::PendingFilter {
                         conjunct_idx: conjunct_idx + 1,
                         mask,
                         waiting_for: self.shared.splits[split_idx].filter_segments
