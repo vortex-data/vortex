@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #include "vortex/expr.hpp"
+#include "vortex_cxx_bridge/lib.h"
+#include "rust/cxx.h"
 
 namespace vortex {
 
@@ -63,5 +65,13 @@ DEFINE_BINARY_OP(or_)
 DEFINE_BINARY_OP(checked_add)
 
 #undef DEFINE_BINARY_OP
+
+Expr Expr::select(const std::vector<std::string_view> &fields, Expr child) {
+    ::rust::Vec<::rust::String> rs_fields;
+    for (auto f : fields) {
+        rs_fields.emplace_back(f.data(), f.length());
+    }
+    return Expr(ffi::select(rs_fields, std::move(child.impl_)));
+}
 
 } // namespace vortex

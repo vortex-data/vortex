@@ -5,6 +5,7 @@
 
 #include "vortex/scalar.hpp"
 #include "vortex_cxx_bridge/lib.h"
+#include <vector>
 
 namespace vortex {
 
@@ -33,6 +34,7 @@ public:
     static Expr and_(Expr lhs, Expr rhs);
     static Expr or_(Expr lhs, Expr rhs);
     static Expr checked_add(Expr lhs, Expr rhs);
+    static Expr select(const std::vector<std::string_view> &fields, Expr child);
 
 private:
     friend class ScanBuilder;

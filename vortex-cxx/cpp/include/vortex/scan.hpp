@@ -57,6 +57,9 @@ public:
     /// Only include rows that match the filter expressions.
     ScanBuilder &&WithFilter(Expr expr) &&;
 
+    /// Only include columns that match the projection expressions.
+    ScanBuilder &&WithProjection(Expr expr) &&;
+
     /// Only include rows in the range [row_range_start, row_range_end).
     ScanBuilder &&WithRowRange(uint64_t row_range_start, uint64_t row_range_end) &&;
 

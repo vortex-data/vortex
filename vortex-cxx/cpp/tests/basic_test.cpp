@@ -160,6 +160,30 @@ protected:
         return {std::move(array), std::move(schema)};
     }
 
+    /// Validate array with projection - only checks specified field indices
+    void ValidateArrayWithProjection(const nanoarrow::UniqueArray &actual_array,
+                                     const nanoarrow::UniqueSchema &actual_schema,
+                                     const nanoarrow::UniqueArray &ref_array,
+                                     const nanoarrow::UniqueSchema &ref_schema,
+                                     const std::vector<int64_t> &field_idxs) {
+        ASSERT_EQ(actual_schema->n_children, field_idxs.size());
+
+        auto actual_view = CreateArrayView(actual_array, actual_schema);
+        auto ref_view = CreateArrayView(ref_array, ref_schema);
+
+        ASSERT_EQ(actual_array->length, ref_array->length);
+
+        // Compare only the specified fields
+        for (int64_t i = 0; i < actual_array->length; ++i) {
+            for (size_t proj_idx = 0; proj_idx < field_idxs.size(); ++proj_idx) {
+                int64_t ref_field_idx = field_idxs[proj_idx];
+                int64_t actual_val = ArrowArrayViewGetIntUnsafe(actual_view->children[proj_idx], i);
+                int64_t expected_val = ArrowArrayViewGetIntUnsafe(ref_view->children[ref_field_idx], i);
+                ASSERT_EQ(actual_val, expected_val);
+            }
+        }
+    }
+
     // Top-level test helper that all tests can use
     void
     RunScanBuilderTest(const std::function<ArrowArrayStream(vortex::ScanBuilder &&)> &configureScanBuilder,
@@ -171,6 +195,17 @@ protected:
         selection == false
             ? ValidateArray(array, schema, ref_array, ref_schema)
             : ValidateArrayWithSelection(array, schema, ref_array, ref_schema, expected_row_indices);
+    }
+
+    // New helper for projection tests
+    void RunScanBuilderProjectionTest(
+        const std::function<ArrowArrayStream(vortex::ScanBuilder &&)> &configureScanBuilder,
+        ArrowArrayStream expected_stream, const std::vector<int64_t> &field_idxs) {
+
+        auto [array, schema] = ScanFirstArrayFromTestData(configureScanBuilder);
+        auto [ref_array, ref_schema] = ReadFirstArrayFromStream(expected_stream);
+
+        ValidateArrayWithProjection(array, schema, ref_array, ref_schema, field_idxs);
     }
 };
 
@@ -398,4 +433,14 @@ TEST_F(VortexTest, ScanBuilderWithFilterMultipleMatches) {
             return std::move(scan_builder).WithFilter(std::move(filter)).IntoStream();
         },
         vortex::testing::CreateTestDataStream(), {1}, true); // Row index 1 corresponds to value 20
+}
+
+TEST_F(VortexTest, ScanBuilderWithProjectionSingleColumn) {
+    // Test projection selecting only column "a" (field index 0)
+    RunScanBuilderProjectionTest(
+        [](vortex::ScanBuilder &&scan_builder) {
+            vortex::Expr projection = vortex::Expr::select({"a"}, vortex::Expr::root());
+            return std::move(scan_builder).WithProjection(std::move(projection)).IntoStream();
+        },
+        vortex::testing::CreateTestDataStream(), {0});
 }

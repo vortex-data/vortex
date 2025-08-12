@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_dtype::FieldName;
 use vortex_expr::*;
 
 use crate::scalar::Scalar;
@@ -78,3 +79,15 @@ binary_op!(lt_eq);
 binary_op!(and, _);
 binary_op!(or, _);
 binary_op!(checked_add);
+
+pub(crate) fn select(fields: Vec<String>, child: Box<Expr>) -> Box<Expr> {
+    Box::new(Expr {
+        inner: vortex_expr::select(
+            fields
+                .into_iter()
+                .map(|s| FieldName::from(s))
+                .collect::<Vec<_>>(),
+            child.inner,
+        ),
+    })
+}

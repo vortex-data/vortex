@@ -27,6 +27,12 @@ ScanBuilder &&ScanBuilder::WithFilter(Expr expr) && {
     impl_->with_filter(*expr.impl_);
     return std::move(*this);
 }
+
+ScanBuilder &&ScanBuilder::WithProjection(Expr expr) && {
+    impl_->with_projection(*expr.impl_);
+    return std::move(*this);
+}
+
 ScanBuilder &&ScanBuilder::WithRowRange(uint64_t row_range_start, uint64_t row_range_end) && {
     impl_->with_row_range(row_range_start, row_range_end);
     return std::move(*this);
