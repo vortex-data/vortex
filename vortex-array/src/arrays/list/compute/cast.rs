@@ -88,7 +88,7 @@ mod tests {
         let list = ListArray::try_new(
             PrimitiveArray::from_iter([0i32, 2, 3, 4]).to_array(),
             PrimitiveArray::from_iter([0, 2, 3]).to_array(),
-            Validity::Array(BoolArray::from_iter(vec![false, true, true]).to_array()),
+            Validity::Array(BoolArray::from_iter(vec![false, true]).to_array()),
         )
         .unwrap();
 
