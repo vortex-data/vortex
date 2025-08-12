@@ -100,6 +100,7 @@ mod tests {
         PrimitiveArray::from_iter([0, 1]).into_array(),
         Validity::NonNullable,
     ).unwrap())]
+    #[cfg_attr(miri, ignore)] // Too slow for miri: 132+ seconds
     #[case::list_large(ListArray::try_new(
         PrimitiveArray::from_iter(0..1000i32).into_array(),
         PrimitiveArray::from_iter((0..=100).map(|i| i * 10)).into_array(),

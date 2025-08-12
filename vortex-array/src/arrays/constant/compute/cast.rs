@@ -31,6 +31,7 @@ mod tests {
     #[rstest]
     #[case(ConstantArray::new(Scalar::from(42u32), 5).into_array())]
     #[case(ConstantArray::new(Scalar::from(-100i32), 10).into_array())]
+    #[cfg_attr(miri, ignore)] // f32 may trigger f16 conversion not supported by miri
     #[case(ConstantArray::new(Scalar::from(3.5f32), 3).into_array())]
     #[case(ConstantArray::new(Scalar::from(true), 7).into_array())]
     #[case(ConstantArray::new(Scalar::null_typed::<i32>(), 4).into_array())]

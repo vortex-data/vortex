@@ -564,6 +564,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // f32 may trigger f16 conversion not supported by miri
     fn test_cast_conformance_f32() {
         let array = buffer![0.0f32, 1.5, -2.5, 100.0, 1e6].into_array();
         test_cast_conformance(array.as_ref());

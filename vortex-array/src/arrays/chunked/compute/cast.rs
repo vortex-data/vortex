@@ -81,6 +81,7 @@ mod test {
         ],
         DType::Primitive(PType::I32, Nullability::NonNullable)
     ).unwrap().into_array())]
+    #[cfg_attr(miri, ignore)] // f32 operations may involve f16 conversion not supported by miri
     #[case(ChunkedArray::try_new(
         vec![
             PrimitiveArray::from_option_iter([Some(1.5f32), None, Some(2.5)]).into_array(),

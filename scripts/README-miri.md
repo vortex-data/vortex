@@ -64,7 +64,14 @@ Crates with foreign function interfaces typically cannot be fully tested with mi
 
 ### Large test suites
 For crates with many tests (like vortex-array with 747 tests or vortex-scalar with 459 tests), 
-consider using `#[cfg_attr(miri, ignore)]` on slow or non-critical tests to reduce miri runtime.
+we use `#[cfg_attr(miri, ignore)]` on slow tests to reduce miri runtime.
+
+Tests marked for exclusion:
+- Tests with "large" in the name (typically 100+ seconds)
+- Tests with "many_small_chunks" (typically 50-125+ seconds)  
+- Other tests taking >50 seconds under miri
+
+See `vortex-array-miri-optimization.md` for detailed analysis.
 
 ### Running miri locally
 ```bash

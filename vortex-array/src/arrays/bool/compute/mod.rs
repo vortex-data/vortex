@@ -30,8 +30,11 @@ mod tests {
     #[case::all_true(BoolArray::from_iter([true, true, true, true, true]))]
     #[case::all_false(BoolArray::from_iter([false, false, false, false, false]))]
     // Large arrays
+    #[cfg_attr(miri, ignore)] // Too slow for miri: 86+ seconds
     #[case::large_alternating(BoolArray::from_iter((0..2000).map(|i| i % 2 == 0)))]
+    #[cfg_attr(miri, ignore)] // Too slow for miri: 84+ seconds
     #[case::large_sparse_true(BoolArray::from_iter((0..2000).map(|i| i % 100 == 0)))]
+    #[cfg_attr(miri, ignore)] // Too slow for miri: 119+ seconds
     #[case::large_nullable(BoolArray::from_iter((0..2000).map(|i| (i % 10 == 0).then_some(i % 3 == 0))))]
     // Patterns
     #[case::runs_pattern(BoolArray::from_iter(

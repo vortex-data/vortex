@@ -151,6 +151,7 @@ mod test {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // Too slow for miri: 41+ seconds
     fn test_take_chunked_conformance() {
         let a = buffer![1i32, 2, 3].into_array();
         let b = buffer![4i32, 5].into_array();

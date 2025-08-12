@@ -34,6 +34,7 @@ mod tests {
         ],
         DType::Primitive(PType::I32, Nullability::NonNullable),
     ).unwrap())]
+    #[cfg_attr(miri, ignore)] // Too slow for miri: 53+ seconds
     #[case::chunked_nullable(ChunkedArray::try_new(
         vec![
             PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array(),
@@ -42,6 +43,7 @@ mod tests {
         DType::Primitive(PType::I32, Nullability::Nullable),
     ).unwrap())]
     // Many chunks
+    #[cfg_attr(miri, ignore)] // Too slow for miri: 125+ seconds
     #[case::many_small_chunks(ChunkedArray::try_new(
         (0..10).map(|i| buffer![i as i64, i as i64 + 10, i as i64 + 20].into_array()).collect(),
         DType::Primitive(PType::I64, Nullability::NonNullable),
@@ -60,6 +62,7 @@ mod tests {
         DType::Primitive(PType::U64, Nullability::NonNullable),
     ).unwrap())]
     // Large chunks
+    #[cfg_attr(miri, ignore)] // Too slow for miri: 192+ seconds
     #[case::large_chunks(ChunkedArray::try_new(
         vec![
             PrimitiveArray::from_iter(0..1000i32).into_array(),
@@ -82,6 +85,7 @@ mod tests {
     }
 
     #[rstest]
+    #[cfg_attr(miri, ignore)] // Too slow for miri: 55+ seconds
     #[case::chunked_i32_basic(ChunkedArray::try_new(
         vec![
             buffer![10i32, 20, 30].into_array(),
@@ -105,6 +109,7 @@ mod tests {
         ],
         DType::Primitive(PType::I64, Nullability::NonNullable),
     ).unwrap())]
+    #[cfg_attr(miri, ignore)] // NaN comparison issues in test under miri
     #[case::chunked_f32_basic(ChunkedArray::try_new(
         vec![
             PrimitiveArray::from_iter([1.5f32, 2.5, 3.5]).into_array(),
@@ -112,6 +117,7 @@ mod tests {
         ],
         DType::Primitive(PType::F32, Nullability::NonNullable),
     ).unwrap())]
+    #[cfg_attr(miri, ignore)] // NaN comparison issues in test under miri  
     #[case::chunked_f64_basic(ChunkedArray::try_new(
         vec![
             PrimitiveArray::from_iter([10.1f64, 20.2]).into_array(),
@@ -125,10 +131,12 @@ mod tests {
         ],
         DType::Primitive(PType::I32, Nullability::NonNullable),
     ).unwrap())]
+    #[cfg_attr(miri, ignore)] // Too slow for miri: 126+ seconds
     #[case::chunked_many_small_chunks(ChunkedArray::try_new(
         (0..10).map(|i| buffer![i * 10, i * 10 + 1].into_array()).collect(),
         DType::Primitive(PType::I32, Nullability::NonNullable),
     ).unwrap())]
+    #[cfg_attr(miri, ignore)] // Too slow for miri: 50+ seconds
     #[case::chunked_nullable(ChunkedArray::try_new(
         vec![
             PrimitiveArray::from_option_iter([Some(100i32), None, Some(300)]).into_array(),
@@ -136,6 +144,7 @@ mod tests {
         ],
         DType::Primitive(PType::I32, Nullability::Nullable),
     ).unwrap())]
+    #[cfg_attr(miri, ignore)] // Too slow for miri: 59+ seconds
     #[case::chunked_mixed_chunk_sizes(ChunkedArray::try_new(
         vec![
             buffer![1i64].into_array(),
@@ -145,6 +154,7 @@ mod tests {
         ],
         DType::Primitive(PType::I64, Nullability::NonNullable),
     ).unwrap())]
+    #[cfg_attr(miri, ignore)] // Too slow for miri: 300+ seconds
     #[case::chunked_large(ChunkedArray::try_new(
         vec![
             PrimitiveArray::from_iter(0..500).into_array(),

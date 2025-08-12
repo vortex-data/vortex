@@ -288,6 +288,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // f16 uses inline assembly not supported by miri
     fn test_canonicalize_scalar_values() {
         let f16_value = f16::from_f32(5.722046e-6);
         let f16_scalar = Scalar::primitive(f16_value, Nullability::NonNullable);

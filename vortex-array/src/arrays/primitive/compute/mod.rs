@@ -48,7 +48,9 @@ mod tests {
     #[case::i32(PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]))]
     #[case::nullable_i32(PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4), Some(5)]))]
     #[case::i64(PrimitiveArray::from_iter([10i64, 20, 30, 40, 50]))]
+    #[cfg_attr(miri, ignore)] // NaN comparison issues in test under miri
     #[case::f32(PrimitiveArray::from_iter([1.5f32, 2.5, 3.5, 4.5, 5.5]))]
+    #[cfg_attr(miri, ignore)] // NaN comparison issues in test under miri
     #[case::f64(PrimitiveArray::from_iter([10.1f64, 20.2, 30.3, 40.4, 50.5]))]
     fn test_primitive_binary_numeric(#[case] array: PrimitiveArray) {
         use crate::compute::conformance::binary_numeric::test_binary_numeric_array;

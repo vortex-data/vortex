@@ -185,7 +185,9 @@ mod test {
     #[case(buffer![-1000i16, -1, 0, 1, 1000].into_array())]
     #[case(buffer![-1000000i32, -1, 0, 1, 1000000].into_array())]
     #[case(buffer![-1000000000i64, -1, 0, 1, 1000000000].into_array())]
+    #[cfg_attr(miri, ignore)] // f32 may trigger f16 conversion not supported by miri
     #[case(buffer![0.0f32, 1.5, -2.5, 100.0, 1e6].into_array())]
+    #[cfg_attr(miri, ignore)] // f64 may trigger f16 conversion not supported by miri
     #[case(buffer![0.0f64, 1.5, -2.5, 100.0, 1e12].into_array())]
     #[case(PrimitiveArray::from_option_iter([Some(1u8), None, Some(255), Some(0), None]).into_array())]
     #[case(PrimitiveArray::from_option_iter([Some(1i32), None, Some(-100), Some(0), None]).into_array())]

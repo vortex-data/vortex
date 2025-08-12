@@ -619,6 +619,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // f16 uses inline assembly not supported by miri
     fn test_float16_array_conversion() {
         let values = vec![
             Some(<Float16Type as ArrowPrimitiveType>::Native::from_f32(1.5)),

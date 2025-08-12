@@ -21,6 +21,7 @@ mod test {
     use crate::compute::conformance::mask::test_mask_conformance;
 
     #[test]
+    #[cfg_attr(miri, ignore)] // f16/f32 operations not supported by miri
     fn test_mask_constant() {
         test_mask_conformance(&ConstantArray::new(Scalar::null_typed::<i32>(), 5).into_array());
         test_mask_conformance(&ConstantArray::new(Scalar::from(3u16), 5).into_array());
@@ -31,6 +32,7 @@ mod test {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // f16/f32 operations not supported by miri
     fn test_filter_constant() {
         test_filter_conformance(&ConstantArray::new(Scalar::null_typed::<i32>(), 5).into_array());
         test_filter_conformance(&ConstantArray::new(Scalar::from(3u16), 5).into_array());
@@ -64,6 +66,7 @@ mod tests {
     #[case::constant_f64(ConstantArray::new(Scalar::from(std::f64::consts::PI), 10))]
     #[case::constant_bool(ConstantArray::new(Scalar::from(true), 7))]
     #[case::constant_single(ConstantArray::new(Scalar::from(99u64), 1))]
+    #[cfg_attr(miri, ignore)] // Too slow for miri: 49+ seconds
     #[case::constant_large(ConstantArray::new(Scalar::from("hello"), 1000))]
     fn test_constant_consistency(#[case] array: ConstantArray) {
         test_array_consistency(array.as_ref());

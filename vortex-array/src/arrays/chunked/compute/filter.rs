@@ -205,6 +205,7 @@ mod test {
     use crate::compute::filter;
 
     #[test]
+    #[cfg_attr(miri, ignore)] // f16 uses inline assembly not supported by miri
     fn filter_chunked_floats() {
         let chunked = ChunkedArray::try_new(
             vec![
