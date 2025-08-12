@@ -272,7 +272,6 @@ jobs:
         suite:
           - tests
           - tpc-h
-          - loom
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
@@ -306,12 +305,6 @@ jobs:
         if: ${{ matrix.suite == 'tpc-h' }}
         run: |
           cargo run --bin query_bench -- tpch -i1 --scale-factor 0.1
-      - name: Run Loom Tests
-        if: ${{ matrix.suite == 'loom' }}
-        env:
-          RUSTFLAGS: "--cfg loom -Cinstrument-coverage -A warnings"
-        run: |
-          cargo +nightly test --release -p vortex-scan --test loom_concurrency
       - name: Generate coverage report
         run: |
           rustup component add llvm-tools-preview
@@ -338,11 +331,16 @@ jobs:
         uses: coverallsapp/github-action@v2
         with:
           parallel-finished: true
-          carryforward: "run-tests,run-tpc-h,run-loom"
+          carryforward: "run-tests,run-tpc-h"
 
   rust-test:
     name: "Rust tests (sanitizer)"
     timeout-minutes: 120
+    strategy:
+      matrix:
+        suite:
+          - unit-tests
+          - loom
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
@@ -350,8 +348,7 @@ jobs:
       - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=rust-test-sanitizer
-    env:
-      RUSTFLAGS: "-A warnings -Zsanitizer=address"
+      - tag=suite-${{ matrix.suite }}
     steps:
       - uses: runs-on/action@v2
         with:
@@ -362,13 +359,23 @@ jobs:
           toolchain: nightly
           components: "rust-src, rustfmt, clippy, llvm-tools-preview"
       - name: Install nextest
+        if: ${{ matrix.suite == 'unit-tests' }}
         uses: taiki-e/install-action@v2
         with:
           tool: nextest@0.9.98
-      - name: Rust Tests
+      - name: Unit Tests with Address Sanitizer
+        if: ${{ matrix.suite == 'unit-tests' }}
+        env:
+          RUSTFLAGS: "-A warnings -Zsanitizer=address"
         # vortex-duckdb-ext currently fails linking for cargo test targets.
         run: |
           cargo +nightly nextest run --locked --workspace --all-features --no-fail-fast --target x86_64-unknown-linux-gnu
+      - name: Loom Concurrency Tests with Address Sanitizer
+        if: ${{ matrix.suite == 'loom' }}
+        env:
+          RUSTFLAGS: "--cfg loom -A warnings -Zsanitizer=address"
+        run: |
+          cargo +nightly test --release -p vortex-scan --test loom_concurrency --target x86_64-unknown-linux-gnu
 
   build-java:
     name: "Java"

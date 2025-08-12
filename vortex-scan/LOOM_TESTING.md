@@ -108,15 +108,16 @@ fn test_my_concurrent_feature() {
 ## Continuous Integration
 
 Loom tests are integrated into the CI pipeline:
-- Run as a separate matrix entry in the `rust-coverage` job
+- Run as a separate matrix entry in the `rust-test` (sanitizer) job
 - Execute in release mode for optimal performance (~16 seconds total)
-- Coverage is collected and reported to Coveralls
+- Run alongside address sanitizer tests for comprehensive correctness verification
 - Run on every PR and push to develop branch
 
 The CI configuration:
-- Uses `RUSTFLAGS="--cfg loom"` to enable loom tests
-- Runs with `cargo +nightly test --release -p vortex-scan --test loom_concurrency`
-- Has a dedicated `loom` suite in the test matrix
+- Uses `RUSTFLAGS="--cfg loom -A warnings -Zsanitizer=address"` to enable loom tests with address sanitizer
+- Runs with `cargo +nightly test --release -p vortex-scan --test loom_concurrency --target x86_64-unknown-linux-gnu`
+- Has a dedicated `loom` suite in the sanitizer test matrix
+- Combines loom's exhaustive concurrency checking with address sanitizer's memory safety verification
 - Timeout set to 120 minutes (though tests typically complete in under 20 seconds)
 
 ## References
