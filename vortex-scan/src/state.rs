@@ -16,7 +16,7 @@ use parking_lot::{Mutex, RwLock};
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 use std::sync::Arc;
-use std::task::{Context, Poll, Waker};
+use std::task::{Context, Poll};
 use std::{iter, mem};
 use vortex_array::ArrayRef;
 use vortex_array::iter::ArrayIterator;
@@ -37,8 +37,12 @@ struct GlobalState {
     /// The DType of the projection
     dtype: DType,
     scheduler: Mutex<Scheduler>,
-    shared: Arc<SharedState>,
+    injector: Arc<Injector<Box<dyn ScanTask>>>,
     stealers: RwLock<Vec<Stealer<Box<dyn ScanTask>>>>,
+}
+
+trait TaskSpawner {
+    fn spawn_task(&self, task: Box<dyn ScanTask>);
 }
 
 impl Scan2 {
@@ -80,15 +84,13 @@ impl Scan2 {
             });
         }
 
-        let shared = Arc::new(SharedState {
-            injector: Injector::new(),
-            filter_expr: ctx.filter.clone(),
-        });
+        let injector = Arc::new(Injector::new());
 
         let (cpu_send, cpu_recv) = crossbeam_channel::unbounded();
 
         let scheduler = Mutex::new(Scheduler {
-            shared: shared.clone(),
+            task_spawner: injector.clone() as _,
+            filter: ctx.filter.clone(),
             source: ctx.segment_source.clone(),
             segment_futures: Default::default(),
             result_send: cpu_send,
@@ -109,7 +111,7 @@ impl Scan2 {
         let global = Arc::new(GlobalState {
             dtype,
             scheduler,
-            shared,
+            injector,
             stealers: Default::default(),
         });
 
@@ -128,17 +130,9 @@ impl Scan2 {
     }
 }
 
-/// State that is shared across workers and the scheduler
-struct SharedState {
-    /// Injector for launching CPU tasks.
-    injector: Injector<Box<dyn ScanTask>>,
-    /// The filter expression for the scan.
-    filter_expr: Option<Arc<FilterExpr>>,
-}
-
-impl SharedState {
-    fn num_conjuncts(&self) -> usize {
-        self.filter_expr.as_ref().map_or(0, |f| f.conjuncts().len())
+impl TaskSpawner for Injector<Box<dyn ScanTask>> {
+    fn spawn_task(&self, task: Box<dyn ScanTask>) {
+        self.push(task);
     }
 }
 
@@ -187,8 +181,8 @@ enum ScanTaskResult {
 }
 
 struct Scheduler {
-    shared: Arc<SharedState>,
-
+    task_spawner: Arc<dyn TaskSpawner>,
+    filter: Option<Arc<FilterExpr>>,
     source: Arc<dyn SegmentSource>,
     segment_futures: FuturesUnordered<BoxFuture<'static, VortexResult<IoEvent>>>,
 
@@ -435,7 +429,7 @@ impl Scheduler {
             SplitState::NotStarted => {
                 // We need to launch a filter task if there is one, else a project.
                 let mask = Mask::new_true(split.len);
-                if self.shared.filter_expr.is_some() {
+                if self.filter.is_some() {
                     Some(SplitState::PendingFilter {
                         conjunct_idx: 0,
                         mask,
@@ -455,7 +449,7 @@ impl Scheduler {
             } => {
                 if waiting_for.is_empty() {
                     // If we have all our segments, we can launch the filter task.
-                    self.shared.injector.push(Box::new(FilterTask {
+                    self.task_spawner.spawn_task(Box::new(FilterTask {
                         split_idx,
                         eval: self.splits[split_idx].filters[*conjunct_idx]
                             .take()
@@ -480,7 +474,9 @@ impl Scheduler {
                     if mask.all_false() {
                         // If the mask is all false, we can terminate the split early.
                         Some(SplitState::Finished)
-                    } else if *conjunct_idx == self.shared.num_conjuncts() - 1 {
+                    } else if *conjunct_idx
+                        == self.filter.as_ref().map_or(0, |f| f.conjuncts().len()) - 1
+                    {
                         // It was the last conjunct, so move onto projection.
                         Some(SplitState::PendingProject {
                             mask: mask.clone(),
@@ -501,7 +497,7 @@ impl Scheduler {
             SplitState::PendingProject { mask, waiting_for } => {
                 if waiting_for.is_empty() {
                     // If we have all our segments, we can launch the project task.
-                    self.shared.injector.push(Box::new(ProjectTask {
+                    self.task_spawner.spawn_task(Box::new(ProjectTask {
                         split_idx,
                         eval: self.splits[split_idx]
                             .projection
@@ -653,7 +649,6 @@ impl ScanWorker {
             iter::repeat_with(|| {
                 // Try stealing a batch of tasks from the global queue.
                 self.global
-                    .shared
                     .injector
                     .steal_batch_and_pop(&self.worker)
                     // Or try stealing a task from one of the other threads.
