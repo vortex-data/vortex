@@ -463,6 +463,27 @@ impl VarBinViewArray {
 }
 
 impl VarBinViewArray {
+    /// Build a new `VarBinViewArray` from components with validation.
+    ///
+    /// This should only be used when you know for certain that all components are already
+    /// validated, for example during array operations that preserve the invariants of the encoding.
+    ///
+    /// See [`VarBinViewArray::try_new`] for a safe constructor that does validation.
+    pub unsafe fn new_unchecked(
+        views: Buffer<BinaryView>,
+        buffers: Arc<[ByteBuffer]>,
+        dtype: DType,
+        validity: Validity,
+    ) -> Self {
+        Self {
+            dtype,
+            buffers,
+            views,
+            validity,
+            stats_set: Default::default(),
+        }
+    }
+
     pub fn new(
         views: Buffer<BinaryView>,
         buffers: Arc<[ByteBuffer]>,

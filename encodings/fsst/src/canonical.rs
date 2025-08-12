@@ -16,13 +16,16 @@ use crate::{FSSTArray, FSSTVTable};
 impl CanonicalVTable<FSSTVTable> for FSSTVTable {
     fn canonicalize(array: &FSSTArray) -> VortexResult<Canonical> {
         let (buffer, views) = fsst_decode_views(array, 0);
-        VarBinViewArray::try_new(
-            views,
-            Arc::new([buffer]),
-            array.dtype().clone(),
-            array.codes().validity().clone(),
-        )
-        .map(Canonical::VarBinView)
+        // SAFETY: FSST already validates the bytes for binary/UTF-8. We build views directly on
+        //  top of them, so the view pointers will all be valid.
+        unsafe {
+            Ok(Canonical::VarBinView(VarBinViewArray::new_unchecked(
+                views,
+                Arc::new([buffer]),
+                array.dtype().clone(),
+                array.codes().validity().clone(),
+            )))
+        }
     }
 
     fn append_to_builder(array: &FSSTArray, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
