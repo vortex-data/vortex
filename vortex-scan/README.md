@@ -146,7 +146,7 @@ The crate includes comprehensive loom tests that exhaustively verify concurrent 
 To run loom tests locally:
 
 ```bash
-cargo test --release -p vortex-scan loom_tests
+cargo test -p vortex-scan loom_tests
 ```
 
 ## Performance Considerations

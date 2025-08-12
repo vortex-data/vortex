@@ -37,8 +37,8 @@ sketches-ddsketch = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"], optional = true }
 
 [dev-dependencies]
-vortex-layout = { workspace = true, features = ["test-harness"] }
 loom = { workspace = true }
+vortex-layout = { workspace = true, features = ["test-harness"] }
 
 [features]
 default = []
