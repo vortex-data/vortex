@@ -323,7 +323,7 @@ impl StructFields {
     ///
     /// ## Errors
     /// Returns an error if the index is out of bounds for the struct fields.
-    pub fn try_without_field(&self, index: usize) -> VortexResult<Self> {
+    pub fn without_field(&self, index: usize) -> VortexResult<Self> {
         if index >= self.nfields() {
             vortex_bail!(
                 "index {} out of bounds for struct with {} fields",
@@ -351,16 +351,6 @@ impl StructFields {
             .collect::<Vec<_>>();
 
         Ok(StructFields::from_fields(names, dtypes))
-    }
-
-    /// Returns a new [`StructFields`] without the field at the given index.
-    ///
-    /// ## Panics
-    /// Panics if the index is out of bounds for the struct fields.
-    /// Prefer using `try_without_field` for fallible removal.
-    pub fn without_field(&self, index: usize) -> Self {
-        self.try_without_field(index)
-            .unwrap_or_else(|e| vortex_panic!("Failed to remove field: {}", e))
     }
 
     /// Merge two [`StructFields`] instances into a new one.
@@ -461,7 +451,7 @@ mod test {
         assert_eq!(sdt.find("B").unwrap(), 1);
         assert!(sdt.find("C").is_none());
 
-        let without_a = sdt.try_without_field(0).unwrap();
+        let without_a = sdt.without_field(0).unwrap();
         assert_eq!(without_a.names()[0], "B".into());
         assert_eq!(without_a.field_by_index(0).unwrap(), b_type);
         assert_eq!(without_a.nfields(), 1);
@@ -473,22 +463,21 @@ mod test {
         let b_type = DType::Bool(Nullability::NonNullable);
         let sdt = StructFields::from_iter([("A", a_type), ("B", b_type)]);
 
-        let result = sdt.try_without_field(2);
+        let result = sdt.without_field(2);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("out of bounds"));
 
-        let result = sdt.try_without_field(100);
+        let result = sdt.without_field(100);
         assert!(result.is_err());
     }
 
     #[test]
-    #[allow(deprecated)]
     fn test_without_field_deprecated() {
         let a_type = DType::Primitive(PType::I32, Nullability::Nullable);
         let b_type = DType::Bool(Nullability::NonNullable);
         let sdt = StructFields::from_iter([("A", a_type), ("B", b_type.clone())]);
 
-        let without_a = sdt.without_field(0);
+        let without_a = sdt.without_field(0).unwrap();
         assert_eq!(without_a.names()[0], "B".into());
         assert_eq!(without_a.field_by_index(0).unwrap(), b_type);
         assert_eq!(without_a.nfields(), 1);

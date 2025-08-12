@@ -140,7 +140,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(deprecated)]
     fn test_decimal_new_deprecated() {
         let decimal = DecimalDType::try_new(10, 2).unwrap();
         assert_eq!(decimal.precision(), 10);
