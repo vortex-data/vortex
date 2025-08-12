@@ -4,6 +4,7 @@
 use std::ops::{Not, Range};
 
 use vortex_buffer::Buffer;
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::row_mask::RowMask;
@@ -53,8 +54,13 @@ impl Selection {
                                 .slice(idx_range)
                                 .iter()
                                 .map(|idx| {
-                                    // Saturating subtraction to prevent underflow
-                                    idx.saturating_sub(range.start)
+                                    idx.checked_sub(range.start).unwrap_or_else(|| {
+                                        vortex_panic!(
+                                            "index underflow, range: {:?}, idx: {:?}",
+                                            range,
+                                            idx
+                                        )
+                                    })
                                 })
                                 .filter_map(|idx| {
                                     // Only include indices that fit in usize
@@ -92,7 +98,11 @@ impl Selection {
                     range_len,
                     roaring
                         .iter()
-                        .map(|idx| idx.saturating_sub(range.start))
+                        .map(|idx| {
+                            idx.checked_sub(range.start).unwrap_or_else(|| {
+                                vortex_panic!("index underflow, range: {:?}, idx: {:?}", range, idx)
+                            })
+                        })
                         .filter_map(|idx| {
                             // Only include indices that fit in usize
                             usize::try_from(idx).ok()
@@ -120,7 +130,11 @@ impl Selection {
                     range_len,
                     roaring
                         .iter()
-                        .map(|idx| idx.saturating_sub(range.start))
+                        .map(|idx| {
+                            idx.checked_sub(range.start).unwrap_or_else(|| {
+                                vortex_panic!("index underflow, range: {:?}, idx: {:?}", range, idx)
+                            })
+                        })
                         .filter_map(|idx| usize::try_from(idx).ok()),
                 );
 
