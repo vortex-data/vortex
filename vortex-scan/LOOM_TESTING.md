@@ -107,10 +107,17 @@ fn test_my_concurrent_feature() {
 
 ## Continuous Integration
 
-Consider adding loom tests to CI with:
-- Timeout limits (loom tests can hang on complex scenarios)
-- Selective test running (not all tests on every commit)
-- Release mode compilation for performance
+Loom tests are integrated into the CI pipeline:
+- Run as a separate matrix entry in the `rust-coverage` job
+- Execute in release mode for optimal performance (~16 seconds total)
+- Coverage is collected and reported to Coveralls
+- Run on every PR and push to develop branch
+
+The CI configuration:
+- Uses `RUSTFLAGS="--cfg loom"` to enable loom tests
+- Runs with `cargo +nightly test --release -p vortex-scan --test loom_concurrency`
+- Has a dedicated `loom` suite in the test matrix
+- Timeout set to 120 minutes (though tests typically complete in under 20 seconds)
 
 ## References
 

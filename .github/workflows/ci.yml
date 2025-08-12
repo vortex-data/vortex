@@ -272,6 +272,7 @@ jobs:
         suite:
           - tests
           - tpc-h
+          - loom
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
@@ -305,6 +306,12 @@ jobs:
         if: ${{ matrix.suite == 'tpc-h' }}
         run: |
           cargo run --bin query_bench -- tpch -i1 --scale-factor 0.1
+      - name: Run Loom Tests
+        if: ${{ matrix.suite == 'loom' }}
+        env:
+          RUSTFLAGS: "--cfg loom -Cinstrument-coverage -A warnings"
+        run: |
+          cargo +nightly test --release -p vortex-scan --test loom_concurrency
       - name: Generate coverage report
         run: |
           rustup component add llvm-tools-preview
@@ -331,7 +338,7 @@ jobs:
         uses: coverallsapp/github-action@v2
         with:
           parallel-finished: true
-          carryforward: "run-tests,run-tpc-h"
+          carryforward: "run-tests,run-tpc-h,run-loom"
 
   rust-test:
     name: "Rust tests (sanitizer)"
