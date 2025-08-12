@@ -76,7 +76,7 @@ Scalar Scalar::binary(const uint8_t *data, size_t length) {
 }
 
 Scalar Scalar::cast(Scalar scalar, DType dtype) {
-    return Scalar(ffi::cast_scalar(std::move(scalar.impl_), *dtype.impl_));
+    return Scalar(scalar.impl_->cast_scalar(*dtype.impl_));
 }
 
 } // namespace vortex

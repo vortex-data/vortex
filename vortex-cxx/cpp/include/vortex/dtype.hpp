@@ -55,8 +55,6 @@ public:
 
     // Methods
     std::string to_string() const;
-    bool equals(const DType &other) const;
-    bool operator==(const DType &other) const;
 
 private:
     friend class Scalar;

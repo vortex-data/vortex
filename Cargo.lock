@@ -6439,11 +6439,14 @@ dependencies = [
  "cxx",
  "cxx-build",
  "futures",
+ "paste",
  "prost 0.14.1",
  "take_mut",
  "tokio",
  "vortex",
+ "vortex-dtype",
  "vortex-expr",
+ "vortex-scalar",
 ]
 
 [[package]]

@@ -41,11 +41,13 @@ pub(crate) fn binary_scalar_new(value: &[u8]) -> Box<Scalar> {
     })
 }
 
-pub(crate) fn cast_scalar(
-    scalar: Box<Scalar>,
-    dtype: &DType,
-) -> Result<Box<Scalar>, Box<dyn std::error::Error + Send + Sync>> {
-    Ok(Box::new(Scalar {
-        inner: scalar.inner.cast(&dtype.inner)?,
-    }))
+impl Scalar {
+    pub(crate) fn cast_scalar(
+        &self,
+        dtype: &DType,
+    ) -> Result<Box<Scalar>, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(Box::new(Scalar {
+            inner: self.inner.cast(&dtype.inner)?,
+        }))
+    }
 }

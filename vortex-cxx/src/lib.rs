@@ -26,8 +26,7 @@ mod ffi {
         fn dtype_binary(nullable: bool) -> Box<DType>;
         unsafe fn from_arrow(ffi_schema: *mut u8, non_nullable: bool) -> Result<Box<DType>>;
         // Methods for DType
-        fn to_string(dtype: &DType) -> String;
-        fn equals(lhs: &DType, rhs: &DType) -> bool;
+        fn to_string(self: &DType) -> String;
 
         type Scalar;
         fn bool_scalar_new(value: bool) -> Box<Scalar>;
@@ -43,7 +42,7 @@ mod ffi {
         fn f64_scalar_new(value: f64) -> Box<Scalar>;
         fn string_scalar_new(value: &str) -> Box<Scalar>;
         fn binary_scalar_new(value: &[u8]) -> Box<Scalar>;
-        fn cast_scalar(scalar: Box<Scalar>, dtype: &DType) -> Result<Box<Scalar>>;
+        fn cast_scalar(self: &Scalar, dtype: &DType) -> Result<Box<Scalar>>;
 
         type Expr;
         fn literal(scalar: Box<Scalar>) -> Result<Box<Expr>>;
@@ -69,33 +68,24 @@ mod ffi {
         fn file_scan_builder(file: &VortexFile) -> Result<Box<VortexScanBuilder>>;
 
         type VortexScanBuilder;
-        fn scan_builder_with_filter(builder: &mut VortexScanBuilder, filter: &Expr) -> Result<()>;
-        fn scan_builder_with_row_range(
-            builder: &mut VortexScanBuilder,
-            row_range_start: u64,
-            row_range_end: u64,
-        ) -> Result<()>;
-        fn scan_builder_with_include_by_index(
-            builder: &mut VortexScanBuilder,
-            include_by_index: &[u64],
-        ) -> Result<()>;
-        fn scan_builder_with_limit(builder: &mut VortexScanBuilder, limit: usize);
-        unsafe fn scan_builder_with_output_schema(
-            builder: &mut VortexScanBuilder,
+        fn with_filter(self: &mut VortexScanBuilder, filter: &Expr);
+        fn with_row_range(self: &mut VortexScanBuilder, row_range_start: u64, row_range_end: u64);
+        fn with_include_by_index(self: &mut VortexScanBuilder, include_by_index: &[u64]);
+        fn with_limit(self: &mut VortexScanBuilder, limit: usize);
+        unsafe fn with_output_schema(
+            self: &mut VortexScanBuilder,
             output_schema: *mut u8,
         ) -> Result<()>;
         unsafe fn scan_builder_into_stream(
             builder: Box<VortexScanBuilder>,
             out_stream: *mut u8,
         ) -> Result<()>;
-        type ThreadsafeCloneableReader;
         fn scan_builder_into_threadsafe_cloneable_reader(
             builder: Box<VortexScanBuilder>,
         ) -> Result<Box<ThreadsafeCloneableReader>>;
-        unsafe fn threadsafe_cloneable_reader_clone_a_stream(
-            reader: &ThreadsafeCloneableReader,
-            out_stream: *mut u8,
-        );
+
+        type ThreadsafeCloneableReader;
+        unsafe fn clone_a_stream(self: &ThreadsafeCloneableReader, out_stream: *mut u8);
 
         type VortexWriteOptions;
         fn write_options_new() -> Box<VortexWriteOptions>;

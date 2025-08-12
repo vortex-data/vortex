@@ -45,48 +45,38 @@ pub(crate) fn file_scan_builder(
     }))
 }
 
-pub(crate) fn scan_builder_with_filter(
-    builder: &mut VortexScanBuilder,
-    filter: &Expr,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    take_mut::take(&mut builder.inner, |inner| {
-        inner.with_filter(filter.inner.clone())
-    });
-    Ok(())
-}
+impl VortexScanBuilder {
+    pub(crate) fn with_filter(&mut self, filter: &Expr) {
+        take_mut::take(&mut self.inner, |inner| {
+            inner.with_filter(filter.inner.clone())
+        });
+    }
 
-pub(crate) fn scan_builder_with_row_range(
-    builder: &mut VortexScanBuilder,
-    row_range_start: u64,
-    row_range_end: u64,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    take_mut::take(&mut builder.inner, |inner| {
-        inner.with_row_range(row_range_start..row_range_end)
-    });
-    Ok(())
-}
+    pub(crate) fn with_row_range(&mut self, row_range_start: u64, row_range_end: u64) {
+        take_mut::take(&mut self.inner, |inner| {
+            inner.with_row_range(row_range_start..row_range_end)
+        });
+    }
 
-pub(crate) fn scan_builder_with_include_by_index(
-    builder: &mut VortexScanBuilder,
-    include_by_index: &[u64],
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let selection = vortex::scan::Selection::IncludeByIndex(Buffer::copy_from(include_by_index));
-    take_mut::take(&mut builder.inner, |inner| inner.with_selection(selection));
-    Ok(())
-}
+    pub(crate) fn with_include_by_index(&mut self, include_by_index: &[u64]) {
+        let selection =
+            vortex::scan::Selection::IncludeByIndex(Buffer::copy_from(include_by_index));
+        take_mut::take(&mut self.inner, |inner| inner.with_selection(selection));
+    }
 
-pub(crate) fn scan_builder_with_limit(builder: &mut VortexScanBuilder, limit: usize) {
-    // Overwrite inner without dropping it.
-    take_mut::take(&mut builder.inner, |inner| inner.with_limit(limit));
-}
+    pub(crate) fn with_limit(&mut self, limit: usize) {
+        take_mut::take(&mut self.inner, |inner| inner.with_limit(limit));
+    }
 
-pub(crate) unsafe fn scan_builder_with_output_schema(
-    builder: &mut VortexScanBuilder,
-    output_schema: *mut u8,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let ffi_schema = unsafe { FFI_ArrowSchema::from_raw(output_schema as *mut FFI_ArrowSchema) };
-    builder.output_schema = Some(Arc::new(Schema::try_from(&ffi_schema)?));
-    Ok(())
+    pub(crate) unsafe fn with_output_schema(
+        &mut self,
+        output_schema: *mut u8,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let ffi_schema =
+            unsafe { FFI_ArrowSchema::from_raw(output_schema as *mut FFI_ArrowSchema) };
+        self.output_schema = Some(Arc::new(Schema::try_from(&ffi_schema)?));
+        Ok(())
+    }
 }
 
 /// # Safety
@@ -147,14 +137,13 @@ pub(crate) fn scan_builder_into_threadsafe_cloneable_reader(
     }))
 }
 
-pub(crate) fn threadsafe_cloneable_reader_clone_a_stream(
-    reader: &ThreadsafeCloneableReader,
-    out_stream: *mut u8,
-) {
-    let cloned_reader = reader.inner.clone_boxed();
-    let stream = FFI_ArrowArrayStream::new(cloned_reader);
-    let out_stream = out_stream as *mut FFI_ArrowArrayStream;
-    // # Safety
-    // Arrow C stream interface
-    unsafe { std::ptr::write(out_stream, stream) };
+impl ThreadsafeCloneableReader {
+    pub(crate) fn clone_a_stream(&self, out_stream: *mut u8) {
+        let cloned_reader = self.inner.clone_boxed();
+        let stream = FFI_ArrowArrayStream::new(cloned_reader);
+        let out_stream = out_stream as *mut FFI_ArrowArrayStream;
+        // # Safety
+        // Arrow C stream interface
+        unsafe { std::ptr::write(out_stream, stream) };
+    }
 }

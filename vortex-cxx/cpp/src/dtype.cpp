@@ -93,16 +93,8 @@ DType DType::binary(bool nullable) {
 
 // Methods
 std::string DType::to_string() const {
-    auto rust_str = ffi::to_string(*impl_);
+    auto rust_str = impl_->to_string();
     return std::string(rust_str.data(), rust_str.length());
-}
-
-bool DType::equals(const DType &other) const {
-    return ffi::equals(*impl_, *other.impl_);
-}
-
-bool DType::operator==(const DType &other) const {
-    return equals(other);
 }
 
 DType DType::from_arrow(struct ArrowSchema &schema, bool non_nullable) {

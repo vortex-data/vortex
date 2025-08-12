@@ -24,39 +24,27 @@ ScanBuilder &ScanBuilder::operator=(ScanBuilder &&other) noexcept {
 ScanBuilder::~ScanBuilder() = default;
 
 ScanBuilder &&ScanBuilder::WithFilter(Expr expr) && {
-    try {
-        ffi::scan_builder_with_filter(*impl_, *expr.impl_);
-    } catch (const rust::cxxbridge1::Error &e) {
-        throw VortexException(e.what());
-    }
+    impl_->with_filter(*expr.impl_);
     return std::move(*this);
 }
 ScanBuilder &&ScanBuilder::WithRowRange(uint64_t row_range_start, uint64_t row_range_end) && {
-    try {
-        ffi::scan_builder_with_row_range(*impl_, row_range_start, row_range_end);
-    } catch (const rust::cxxbridge1::Error &e) {
-        throw VortexException(e.what());
-    }
+    impl_->with_row_range(row_range_start, row_range_end);
     return std::move(*this);
 }
 
 ScanBuilder &&ScanBuilder::WithLimit(uint64_t limit) && {
-    ffi::scan_builder_with_limit(*impl_, limit);
+    impl_->with_limit(limit);
     return std::move(*this);
 }
 
 ScanBuilder &&ScanBuilder::WithIncludeByIndex(const uint64_t *indices, std::size_t size) && {
-    try {
-        ffi::scan_builder_with_include_by_index(*impl_, rust::Slice<const uint64_t>(indices, size));
-    } catch (const rust::cxxbridge1::Error &e) {
-        throw VortexException(e.what());
-    }
+    impl_->with_include_by_index(rust::Slice<const uint64_t>(indices, size));
     return std::move(*this);
 }
 
 ScanBuilder &&ScanBuilder::WithOutputSchema(ArrowSchema &output_schema) && {
     try {
-        ffi::scan_builder_with_output_schema(*impl_, reinterpret_cast<uint8_t *>(&output_schema));
+        impl_->with_output_schema(reinterpret_cast<uint8_t *>(&output_schema));
     } catch (const rust::cxxbridge1::Error &e) {
         throw VortexException(e.what());
     }
@@ -107,7 +95,7 @@ struct StreamDriver::Impl {
 
 ArrowArrayStream StreamDriver::CreateArrayStream() const {
     ArrowArrayStream stream;
-    ffi::threadsafe_cloneable_reader_clone_a_stream(*impl_, reinterpret_cast<uint8_t *>(&stream));
+    impl_->clone_a_stream(reinterpret_cast<uint8_t *>(&stream));
     return stream;
 }
 } // namespace vortex

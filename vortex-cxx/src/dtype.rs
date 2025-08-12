@@ -65,12 +65,10 @@ pub(crate) fn dtype_binary(nullable: bool) -> Box<DType> {
     })
 }
 
-pub(crate) fn to_string(dtype: &DType) -> String {
-    dtype.inner.to_string()
-}
-
-pub(crate) fn equals(lhs: &DType, rhs: &DType) -> bool {
-    lhs.inner == rhs.inner
+impl DType {
+    pub(crate) fn to_string(&self) -> String {
+        self.inner.to_string()
+    }
 }
 
 pub(crate) fn nullability_from_bool(nullable: bool) -> Nullability {
