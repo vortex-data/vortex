@@ -4,8 +4,7 @@
 #pragma once
 
 #include <nanoarrow/common/inline_types.h>
-
-#include <memory>
+#include "vortex_cxx_bridge/lib.h"
 
 namespace vortex {
 class ScanBuilder;
@@ -29,10 +28,9 @@ public:
     ScanBuilder CreateScanBuilder() const;
 
 private:
-    struct Impl;
-    explicit VortexFile(std::unique_ptr<Impl> impl);
+    explicit VortexFile(rust::Box<ffi::VortexFile> impl);
 
-    std::unique_ptr<Impl> impl_;
+    rust::Box<ffi::VortexFile> impl_;
 };
 
 } // namespace vortex

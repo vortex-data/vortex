@@ -3,7 +3,6 @@
 
 #pragma once
 
-#include <memory>
 #include <string>
 #include <nanoarrow/common/inline_types.h>
 #include "vortex_cxx_bridge/dtype_scalar_expr.h"
@@ -61,7 +60,6 @@ public:
 
 private:
     friend class Scalar;
-    struct Impl;
     explicit DType(rust::Box<ffi::DType> impl);
     rust::Box<ffi::DType> impl_;
 };

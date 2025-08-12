@@ -4,7 +4,6 @@
 #pragma once
 
 #include "vortex/scalar.hpp"
-#include <memory>
 #include "vortex_cxx_bridge/dtype_scalar_expr.h"
 
 namespace vortex {

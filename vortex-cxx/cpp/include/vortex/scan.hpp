@@ -5,6 +5,7 @@
 
 #include "vortex/expr.hpp"
 #include <nanoarrow/common/inline_types.h>
+#include "vortex_cxx_bridge/lib.h"
 
 #include <cstdint>
 #include <memory>
@@ -40,9 +41,9 @@ private:
     friend class ScanBuilder;
 
     struct Impl;
-    explicit StreamDriver(std::unique_ptr<Impl> impl);
+    explicit StreamDriver(rust::Box<ffi::ThreadsafeCloneableReader> impl);
 
-    std::unique_ptr<Impl> impl_;
+    rust::Box<ffi::ThreadsafeCloneableReader> impl_;
 };
 
 class ScanBuilder {
@@ -81,9 +82,8 @@ public:
 private:
     friend class VortexFile;
 
-    struct Impl;
-    explicit ScanBuilder(std::unique_ptr<Impl> impl);
+    explicit ScanBuilder(rust::Box<ffi::VortexScanBuilder> impl);
 
-    std::unique_ptr<Impl> impl_;
+    rust::Box<ffi::VortexScanBuilder> impl_;
 };
 } // namespace vortex

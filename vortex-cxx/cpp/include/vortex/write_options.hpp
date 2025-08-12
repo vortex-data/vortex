@@ -5,6 +5,7 @@
 
 #include <nanoarrow/common/inline_types.h>
 #include <memory>
+#include "vortex_cxx_bridge/lib.h"
 
 namespace vortex {
 
@@ -22,8 +23,7 @@ public:
     void WriteArrayStream(ArrowArrayStream &stream, const std::string &path);
 
 private:
-    struct Impl;
-    std::unique_ptr<Impl> impl_;
+    rust::Box<ffi::VortexWriteOptions> impl_;
 };
 
 } // namespace vortex
