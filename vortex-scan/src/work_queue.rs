@@ -4,8 +4,7 @@
 //! A work-stealing iterator that supports dynamically adding tasks from task factories.
 
 use std::sync::Arc;
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{iter, thread};
 
 use crossbeam_deque::{Steal, Stealer, Worker};
