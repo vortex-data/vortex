@@ -32,7 +32,7 @@ pub struct FilterExpr {
 }
 
 impl FilterExpr {
-    pub(crate) fn new(expr: ExprRef) -> Self {
+    pub fn new(expr: ExprRef) -> Self {
         let conjuncts = conjuncts(&expr);
         let num_conjuncts = conjuncts.len();
 
@@ -84,6 +84,12 @@ impl FilterExpr {
             histogram.add(selectivity);
         }
 
+        // Note: We read from multiple RwLocks here without coordination. This means we might
+        // see an inconsistent snapshot where some histograms have been updated more recently
+        // than others. This is acceptable because:
+        // 1. The ordering is a heuristic optimization, not a correctness requirement
+        // 2. The selectivity values are statistical estimates that change gradually
+        // 3. Any ordering will produce correct results, just with different performance
         let all_selectivity = self
             .conjunct_selectivity
             .iter()

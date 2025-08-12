@@ -272,6 +272,7 @@ jobs:
         suite:
           - tests
           - tpc-h
+          - ffi
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
@@ -305,6 +306,11 @@ jobs:
         if: ${{ matrix.suite == 'tpc-h' }}
         run: |
           cargo run --bin query_bench -- tpch -i1 --scale-factor 0.1
+      - name: Run FFI Example
+        if: ${{ matrix.suite == 'ffi' }}
+        run: |
+          cargo build -p vortex-ffi
+          cargo run -p vortex-ffi --example hello_vortex
       - name: Generate coverage report
         run: |
           rustup component add llvm-tools-preview
@@ -331,7 +337,7 @@ jobs:
         uses: coverallsapp/github-action@v2
         with:
           parallel-finished: true
-          carryforward: "run-tests,run-tpc-h"
+          carryforward: "run-tests,run-tpc-h,run-ffi"
 
   rust-test:
     name: "Rust tests (sanitizer)"
@@ -344,7 +350,7 @@ jobs:
       - extras=s3-cache
       - tag=rust-test-sanitizer
     env:
-      RUSTFLAGS: "-A warnings -Zsanitizer=address"
+      RUSTFLAGS: "-A warnings -Zsanitizer=address --cfg disable_loom"
     steps:
       - uses: runs-on/action@v2
         with:
@@ -436,15 +442,6 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check ${{ matrix.checks }}
-
-  ffi-test:
-    name: "FFI example test"
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: ./.github/actions/setup-rust
-      - run: cargo build -p vortex-ffi
-      - run: cargo run -p vortex-ffi --example hello_vortex
 
   cxx-test:
     name: "C++ build"

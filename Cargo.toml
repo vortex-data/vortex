@@ -114,6 +114,7 @@ lending-iterator = "0.1.7"
 libfuzzer-sys = "0.4"
 linked_hash_set = "0.1.5"
 log = { version = "0.4.21" }
+loom = { version = "0.7", features = ["checkpoint"] }
 memmap2 = "0.9.5"
 mimalloc = "0.1.42"
 moka = { version = "0.12.10", default-features = false }
@@ -245,6 +246,7 @@ unused_lifetimes = "deny"
 unused_qualifications = "deny"
 unexpected_cfgs = { level = "deny", check-cfg = [
     "cfg(codspeed)",
+    "cfg(disable_loom)",
     "cfg(vortex_nightly)",
 ] }
 warnings = "warn"

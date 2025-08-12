@@ -28,6 +28,8 @@ export const CONFIG = {
 
 // Color mappings for series
 export const SERIES_COLOR_MAP = {
+  "vortex-nvme": "#19a508",
+  "parquet-nvme": "#ef7f1d",
   "datafusion:arrow": "#7a27b1",
   "datafusion:in-memory-arrow": "#7a27b1",
   "datafusion:parquet": "#ef7f1d",

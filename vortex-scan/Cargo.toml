@@ -8,7 +8,7 @@ categories = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
-readme = { workspace = true }
+readme = "README.md"
 repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
@@ -37,6 +37,7 @@ sketches-ddsketch = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"], optional = true }
 
 [dev-dependencies]
+loom = { workspace = true }
 vortex-layout = { workspace = true, features = ["test-harness"] }
 
 [features]
