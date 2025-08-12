@@ -180,6 +180,10 @@ enum ScanTaskResult {
     },
 }
 
+/// Scheduler for a Vortex scan.
+///
+/// Decides which segments to request and when, as well as spawning CPU work when available.
+/// This scheduler is wrapped up for various threading models.
 struct Scheduler {
     task_spawner: Arc<dyn TaskSpawner>,
     filter: Option<Arc<FilterExpr>>,
