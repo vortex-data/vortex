@@ -58,9 +58,17 @@ impl<T: Send + Sync + 'static> Iterator for MultiScanIterator<T> {
     type Item = VortexResult<T>;
 
     fn next(&mut self) -> Option<VortexResult<T>> {
-        match self.inner.next()? {
-            Ok(task) => self.local_pool.run_until(task).transpose(),
-            Err(e) => Some(Err(e)),
+        loop {
+            match self.inner.next()? {
+                Ok(task) => match self.local_pool.run_until(task) {
+                    // If the underlying future returns Ok(None) we have to keep going
+                    // until we find the next present element or end of iterator.
+                    Ok(Some(value)) => return Some(Ok(value)),
+                    Ok(None) => continue,
+                    Err(e) => return Some(Err(e)),
+                },
+                Err(e) => return Some(Err(e)),
+            }
         }
     }
 }
