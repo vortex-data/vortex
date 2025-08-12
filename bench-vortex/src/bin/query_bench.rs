@@ -336,7 +336,6 @@ fn run_statpopgen(args: StatPopGenArgs) -> anyhow::Result<()> {
         track_memory: args.common.track_memory,
     };
 
-    // Determine data URL
     // Run benchmark using the trait system
     run_benchmark(benchmark, config)
 }
