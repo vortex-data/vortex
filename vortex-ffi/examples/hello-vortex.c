@@ -6,7 +6,7 @@
 #include <string.h>
 #include "vortex.h"
 
-// Function declaration for runtime shutdown
+// Function declaration for runtime shutdowns
 extern bool vx_runtime_shutdown();
 
 int main(int argc, char *argv[])
@@ -40,9 +40,9 @@ int main(int argc, char *argv[])
     if (error != NULL)
     {
         fprintf(stderr, "Error opening file\n");
-        vx_runtime_shutdown();
         vx_session_free(session);
         vx_error_free(error);
+        vx_runtime_shutdown();
         return -1;
     }
 
@@ -63,16 +63,16 @@ int main(int argc, char *argv[])
     {
         fprintf(stderr, "Error creating scan\n");
         vx_file_free(file);
-        vx_runtime_shutdown();
-        vx_session_free(session);
         vx_error_free(error);
+        vx_session_free(session);
+        vx_runtime_shutdown();
         return -1;
     }
 
     int chunk_count = 0;
     int max_chunks_to_show = 3; // Limit detailed output to first 3 chunks
     const vx_array *batch = vx_array_iterator_next(scan, &error);
-    
+
     while (batch != NULL && error == NULL)
     {
         size_t batch_len = vx_array_len(batch);
@@ -83,7 +83,7 @@ int main(int argc, char *argv[])
         {
             const vx_dtype *dtype = vx_array_dtype(batch);
             vx_dtype_variant batch_variant = vx_dtype_get_variant(dtype);
-            
+
             // Check null count (may fail for some array types)
             uint32_t null_count = vx_array_null_count(batch, &error);
             if (error == NULL)
@@ -103,16 +103,16 @@ int main(int argc, char *argv[])
                 const vx_struct_fields *fields = vx_dtype_struct_dtype(dtype);
                 size_t n_fields = vx_struct_fields_nfields(fields);
                 printf("  Struct with %zu fields:\n", n_fields);
-                
+
                 for (size_t i = 0; i < n_fields && i < 5; i++) // Show up to 5 fields
                 {
                     const vx_string *field_name = vx_struct_fields_field_name(fields, i);
                     const vx_dtype *field_dtype = vx_struct_fields_field_dtype(fields, i);
-                    
+
                     size_t name_len = vx_string_len(field_name);
                     const char *name_ptr = vx_string_ptr(field_name);
                     printf("    Field %zu: %.*s", i, (int)name_len, name_ptr);
-                    
+
                     vx_dtype_variant field_variant = vx_dtype_get_variant(field_dtype);
                     if (field_variant == DTYPE_PRIMITIVE)
                     {
@@ -123,7 +123,7 @@ int main(int argc, char *argv[])
                     {
                         printf(" (Type variant %d)\n", field_variant);
                     }
-                    
+
                     // For first chunk, also test field array access
                     if (chunk_count == 0 && i == 0)
                     {
@@ -132,7 +132,7 @@ int main(int argc, char *argv[])
                         {
                             size_t field_len = vx_array_len(field_array);
                             printf("      Field array length: %zu\n", field_len);
-                            
+
                             // Try to slice the field array (first 5 elements)
                             if (field_len > 5)
                             {
@@ -148,7 +148,7 @@ int main(int argc, char *argv[])
                                     error = NULL;
                                 }
                             }
-                            
+
                             vx_array_free(field_array);
                         }
                         else if (error != NULL)
@@ -157,7 +157,7 @@ int main(int argc, char *argv[])
                             error = NULL;
                         }
                     }
-                    
+
                     vx_string_free(field_name);
                     vx_dtype_free(field_dtype);
                 }
@@ -182,21 +182,25 @@ int main(int argc, char *argv[])
     if (error != NULL)
     {
         fprintf(stderr, "Error during scan operation\n");
-        vx_runtime_shutdown();
-        vx_session_free(session);
         vx_error_free(error);
+        vx_session_free(session);
+        vx_runtime_shutdown();
         return -1;
     }
 
     printf("Scanning completed successfully\n");
-    
+
+    vx_session_free(session);
+
     // Explicitly shutdown the runtime to prevent cleanup race with mimalloc
-    if (vx_runtime_shutdown()) {
+    if (vx_runtime_shutdown())
+    {
         printf("Runtime shutdown successfully\n");
-    } else {
+    }
+    else
+    {
         printf("Runtime shutdown failed (may still have active references)\n");
     }
-    
-    vx_session_free(session);
+
     return 0;
 }

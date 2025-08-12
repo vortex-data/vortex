@@ -99,7 +99,7 @@ pub fn main() -> VortexResult<()> {
         cmd.env("LD_LIBRARY_PATH", &lib_path);
     }
 
-    println!("Running: {:?} with file: {}", cmd, uri);
+    println!("Running: {cmd:?} with file: {uri}");
     let output = cmd.output()?;
 
     // Print the output regardless of exit status since the FFI functionality works
