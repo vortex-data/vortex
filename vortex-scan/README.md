@@ -136,18 +136,20 @@ cargo test -p vortex-scan --all-features
 
 ### Loom Concurrency Tests
 
-The crate includes comprehensive loom tests that exhaustively verify concurrent code correctness. These tests check all possible thread interleavings to ensure there are no:
+The crate includes comprehensive Loom tests that exhaustively verify concurrent behavior.
+These tests run by default but can be disabled if need be:
 
-- Data races
-- Deadlocks  
-- Use-after-free bugs
-- Ordering violations
-
-To run loom tests locally:
-
-```bash
-cargo test -p vortex-scan loom_tests
+```rust
+# Skip Loom tests when using incompatible tools like address sanitizer
+RUSTFLAGS="--cfg disable_loom" cargo test -p vortex-scan 
 ```
+
+Loom tests verify:
+
+- Memory ordering correctness in the work-stealing queue
+- Absence of data races in filter expression evaluation
+- Proper synchronization in concurrent task factories
+- Thread termination conditions and cleanup
 
 ## Performance Considerations
 
