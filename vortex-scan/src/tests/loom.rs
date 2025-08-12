@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::filter::FilterExpr;
-use crate::multi_scan::{ArrayFuture, MultiScan};
-use crate::work_queue::{TaskFactory, WorkStealingQueue};
 use bit_vec::BitVec;
 use futures::future;
 use loom::sync::atomic::{AtomicUsize, Ordering};
@@ -11,6 +8,10 @@ use loom::sync::{Arc, Mutex};
 use loom::thread;
 use vortex_error::{VortexResult, vortex_err};
 use vortex_expr::{and, get_item, gt, lit, lt, root};
+
+use crate::filter::FilterExpr;
+use crate::multi_scan::{ArrayFuture, MultiScan};
+use crate::work_queue::{TaskFactory, WorkStealingQueue};
 
 #[test]
 fn test_work_stealing_queue_basic() {
@@ -388,28 +389,22 @@ fn test_work_stealing_memory_ordering() {
 
         let seen1 = seen_values.clone();
         let handle1 = thread::spawn(move || {
-            for result in iter1 {
-                if let Ok(val) = result {
-                    seen1.lock().unwrap().push(val);
-                }
+            for val in iter1.flatten() {
+                seen1.lock().unwrap().push(val);
             }
         });
 
         let seen2 = seen_values.clone();
         let handle2 = thread::spawn(move || {
-            for result in iter2 {
-                if let Ok(val) = result {
-                    seen2.lock().unwrap().push(val);
-                }
+            for val in iter2.flatten() {
+                seen2.lock().unwrap().push(val);
             }
         });
 
-        let seen3 = seen_values.clone();
+        let seen3 = seen_values;
         let handle3 = thread::spawn(move || {
-            for result in iter3 {
-                if let Ok(val) = result {
-                    seen3.lock().unwrap().push(val);
-                }
+            for val in iter3.flatten() {
+                seen3.lock().unwrap().push(val);
             }
         });
 
@@ -441,7 +436,7 @@ fn test_concurrent_filter_ordering_updates() {
         // Create multiple reader threads and one writer thread
         let filter_reader1 = filter.clone();
         let filter_reader2 = filter.clone();
-        let filter_writer = filter.clone();
+        let filter_writer = filter;
 
         // Writer thread continuously updates selectivity
         let writer = thread::spawn(move || {
@@ -487,11 +482,11 @@ fn test_concurrent_filter_ordering_updates() {
         assert_eq!(order2.len(), 3);
 
         // Check all indices are present
-        let mut sorted1 = order1.clone();
+        let mut sorted1 = order1;
         sorted1.sort();
         assert_eq!(sorted1, vec![0, 1, 2]);
 
-        let mut sorted2 = order2.clone();
+        let mut sorted2 = order2;
         sorted2.sort();
         assert_eq!(sorted2, vec![0, 1, 2]);
     });
@@ -518,12 +513,10 @@ fn test_steal_work_retry_semantics() {
                 let counter_clone = counter.clone();
                 thread::spawn(move || {
                     let mut local_sum = 0;
-                    for result in iter {
-                        if let Ok(val) = result {
-                            local_sum += val;
-                            // Simulate some work to increase chances of stealing
-                            thread::yield_now();
-                        }
+                    for val in iter.flatten() {
+                        local_sum += val;
+                        // Simulate some work to increase chances of stealing
+                        thread::yield_now();
                     }
                     counter_clone.fetch_add(local_sum, Ordering::SeqCst);
                 })
