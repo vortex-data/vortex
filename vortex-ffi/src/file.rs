@@ -17,7 +17,7 @@ use object_store::local::LocalFileSystem;
 use object_store::{ObjectStore, ObjectStoreScheme};
 use prost::Message;
 use url::Url;
-use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex::error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::proto::deserialize_expr_proto;
 use vortex::expr::{ExprRef, ExprRegistryExt};
 use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
@@ -149,7 +149,9 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
             vortex_bail!("null uri")
         }
         let uri_str = unsafe { CStr::from_ptr(options.uri) }.to_string_lossy();
-        let uri: Url = uri_str.parse().vortex_expect("File_open: parse uri");
+        let uri: Url = uri_str
+            .parse()
+            .map_err(|e| vortex_err!("Failed to parse URI '{}': {}", uri_str, e))?;
 
         let prop_keys = unsafe { to_string_vec(options.property_keys, options.property_len) };
         let prop_vals = unsafe { to_string_vec(options.property_vals, options.property_len) };
