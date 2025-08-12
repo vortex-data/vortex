@@ -1188,7 +1188,7 @@ async fn test_into_tokio_array_stream() -> VortexResult<()> {
     Ok(())
 }
 
-#[test]
+#[test_log::test]
 fn basic_file_roundtrip2() -> VortexResult<()> {
     let vxf = chunked_file()?;
     let result = vxf

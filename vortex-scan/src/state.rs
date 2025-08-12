@@ -6,10 +6,11 @@ use crate::tasks::TaskContext;
 use crossbeam_channel::{Receiver, Sender};
 use crossbeam_deque::{Injector, Stealer, Worker};
 use dashmap::DashMap;
-use futures::StreamExt;
 use futures::executor::block_on;
 use futures::future::BoxFuture;
 use futures::stream::FuturesUnordered;
+use futures::{FutureExt, StreamExt};
+use log::info;
 use parking_lot::{Mutex, RwLock};
 use std::collections::VecDeque;
 use std::iter;
@@ -24,7 +25,6 @@ use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_layout::segments::{SegmentId, SegmentSource};
 use vortex_layout::{ArrayEvaluation, MaskEvaluation};
 use vortex_mask::Mask;
-use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 
 pub struct Scan2 {
@@ -162,6 +162,7 @@ struct IoEvent {
     segment_id: SegmentId,
     buffer: ByteBuffer,
 }
+#[derive(Debug)]
 enum CpuEvent {
     Filter {
         split_idx: SplitIdx,
@@ -201,7 +202,7 @@ struct Scheduler {
     target_segment_count: usize,
 
     /// Track which work items are waiting for segments.
-    waiting_for_segments: HashMap<SegmentId, Vec<SplitIdx>>,
+    waiting_for_segments: DashMap<SegmentId, Vec<SplitIdx>>,
 }
 
 #[derive(Debug)]
@@ -243,13 +244,16 @@ impl Scheduler {
     ///
     /// Returns true if progress was made.
     fn make_progress(&mut self) -> VortexResult<bool> {
-        // First we handle I/O events
+        // First, we handle I/O events
         while let Poll::Ready(Some(result)) = self
             .segment_futures
             .poll_next_unpin(&mut Context::from_waker(&DUMMY_WAKER))
         {
             match result {
-                Ok(io_event) => self.handle_io_event(io_event),
+                Ok(event) => {
+                    info!("Handling I/O event for segment {:?}", event.segment_id);
+                    self.handle_io_event(event)
+                }
                 Err(e) => {
                     self.errored = true;
                     return Err(e);
@@ -259,6 +263,7 @@ impl Scheduler {
 
         // Next we handle CPU events.
         while let Ok(event) = self.cpu_events.try_recv() {
+            info!("Handling CPU event for segment {:?}", event);
             self.handle_cpu_event(event)
         }
 
@@ -273,6 +278,7 @@ impl Scheduler {
         // We bring forward the start of the active splits if any splits are finished.
         for split_idx in self.active_splits.clone() {
             if matches!(self.splits[split_idx], SplitState::Finished) {
+                info!("Completed up to split {}", split_idx);
                 self.active_splits.start += 1;
             } else {
                 break;
@@ -280,7 +286,8 @@ impl Scheduler {
         }
 
         // Check for termination.
-        if self.active_splits.end == self.splits.len() {
+        if self.active_splits.start == self.splits.len() {
+            info!("Completed all splits, terminating");
             self.finished = true;
             return Ok(made_progress);
         }
@@ -288,17 +295,12 @@ impl Scheduler {
         // Now we can look to launch new splits based on the total working set size and
         // in-flight request sizes. We don't currently know the in-flight segment sizes, so we
         // will just do it based on segment count instead.
-        while self.active_splits.end < self.splits.len()
+        while (self.active_splits.end < self.splits.len()
             && self.shared.working_set.len() + self.segment_futures.len()
-                < self.target_segment_count
+                < self.target_segment_count)
+            || self.active_splits.is_empty()
         {
-            while self.make_progress_on_split(self.active_splits.end) {}
-            self.active_splits.end += 1;
-            made_progress = true;
-        }
-
-        // If our range of active splits is empty, we should always attempt to make progress.
-        if self.active_splits.end < self.splits.len() && self.active_splits.is_empty() {
+            info!("Launching split {}", self.active_splits.end);
             while self.make_progress_on_split(self.active_splits.end) {}
             self.active_splits.end += 1;
             made_progress = true;
@@ -330,7 +332,7 @@ impl Scheduler {
             .insert(event.segment_id, event.buffer);
 
         // Check which splits are waiting for this segment.
-        if let Some(items) = self.waiting_for_segments.remove(&event.segment_id) {
+        if let Some((_, items)) = self.waiting_for_segments.remove(&event.segment_id) {
             for split_idx in items {
                 let split_state = &mut self.splits[split_idx];
                 match split_state {
@@ -344,12 +346,13 @@ impl Scheduler {
                         vortex_panic!("Unexpected split state {:?}", split_state)
                     }
                 }
-                while self.make_progress_on_split(split_idx) {}
             }
         }
     }
 
     fn handle_cpu_event(&mut self, event: CpuEvent) {
+        info!("Handling CPU event {:?}", event);
+
         match event {
             CpuEvent::Filter {
                 split_idx, mask, ..
@@ -358,35 +361,34 @@ impl Scheduler {
                     vortex_panic!("unexpected split state {:?}", self.splits[split_idx])
                 };
                 *result = Some(mask);
-                while self.make_progress_on_split(split_idx) {}
             }
             CpuEvent::Project { split_idx, array } => {
                 let SplitState::Project { result, .. } = &mut self.splits[split_idx] else {
                     vortex_panic!("unexpected split state {:?}", self.splits[split_idx])
                 };
                 *result = Some(array);
-                while self.make_progress_on_split(split_idx) {}
             }
         }
     }
 
     fn make_progress_on_split(&mut self, split_idx: SplitIdx) -> bool {
         let split = &self.shared.splits[split_idx];
-        let state = &mut self.splits[split_idx];
-        match state {
+        let made_progress = match &self.splits[split_idx] {
             SplitState::NotStarted => {
                 // We need to launch a filter task if there is one, else a project.
                 let mask = Mask::new_true(split.len);
                 if self.shared.filter_expr.is_some() {
-                    *state = SplitState::PendingFilter {
+                    self.splits[split_idx] = SplitState::PendingFilter {
                         conjunct_idx: 0,
                         mask,
-                        waiting_for: split.filter_segments[0].clone(),
-                    }
+                        waiting_for: self
+                            .launch_segment_requests(split_idx, &split.filter_segments[0]),
+                    };
                 } else {
-                    *state = SplitState::PendingProject {
+                    self.splits[split_idx] = SplitState::PendingProject {
                         mask,
-                        waiting_for: split.projection_segments.clone(),
+                        waiting_for: self
+                            .launch_segment_requests(split_idx, &split.projection_segments),
                     };
                 }
                 true
@@ -403,7 +405,7 @@ impl Scheduler {
                         conjunct_idx: *conjunct_idx,
                         mask: mask.clone(),
                     });
-                    *state = SplitState::Filter {
+                    self.splits[split_idx] = SplitState::Filter {
                         conjunct_idx: *conjunct_idx,
                         result: None,
                     };
@@ -419,21 +421,23 @@ impl Scheduler {
                 if let Some(mask) = result {
                     if mask.all_false() {
                         // If the mask is all false, we can terminate the split early.
-                        *state = SplitState::Finished;
-                        return true;
-                    }
-
-                    if *conjunct_idx == self.shared.num_conjuncts() - 1 {
+                        self.splits[split_idx] = SplitState::Finished;
+                        true;
+                    } else if *conjunct_idx == self.shared.num_conjuncts() - 1 {
                         // It was the last conjunct, so move onto projection.
-                        *state = SplitState::PendingProject {
+                        self.splits[split_idx] = SplitState::PendingProject {
                             mask: mask.clone(),
-                            waiting_for: split.projection_segments.clone(),
+                            waiting_for: self
+                                .launch_segment_requests(split_idx, &split.projection_segments),
                         }
                     } else {
-                        *state = SplitState::PendingFilter {
+                        self.splits[split_idx] = SplitState::PendingFilter {
                             conjunct_idx: *conjunct_idx + 1,
                             mask: mask.clone(),
-                            waiting_for: split.filter_segments[*conjunct_idx + 1].clone(),
+                            waiting_for: self.launch_segment_requests(
+                                split_idx,
+                                &split.filter_segments[*conjunct_idx + 1],
+                            ),
                         }
                     }
                     true
@@ -448,7 +452,7 @@ impl Scheduler {
                         split_idx,
                         mask: mask.clone(),
                     });
-                    *state = SplitState::Project { result: None };
+                    self.splits[split_idx] = SplitState::Project { result: None };
                     true
                 } else {
                     false
@@ -456,7 +460,7 @@ impl Scheduler {
             }
             SplitState::Project { result } => {
                 if result.is_some() {
-                    *state = SplitState::Finished;
+                    self.splits[split_idx] = SplitState::Finished;
                     true
                 } else {
                     false
@@ -466,7 +470,39 @@ impl Scheduler {
                 // We're already finished, no progress to make
                 false
             }
+        };
+
+        info!("Moved split {} to {:?}", split_idx, &self.splits[split_idx]);
+        made_progress
+    }
+
+    /// Launch requests for the given segments, returning the pending segments.
+    fn launch_segment_requests(
+        &self,
+        split_idx: SplitIdx,
+        segment_ids: &HashSet<SegmentId>,
+    ) -> HashSet<SegmentId> {
+        let mut pending = HashSet::new();
+        for segment_id in segment_ids.iter().copied() {
+            if self.shared.working_set.contains_key(&segment_id) {
+                continue;
+            }
+            let fut = self.source.request(segment_id);
+            self.segment_futures.push(
+                async move {
+                    let buffer = fut.await?;
+                    Ok(IoEvent { segment_id, buffer })
+                }
+                .boxed(),
+            );
+            pending.insert(segment_id);
+            self.waiting_for_segments
+                .entry(segment_id)
+                .or_default()
+                .push(split_idx)
         }
+
+        pending
     }
 }
 
@@ -542,21 +578,19 @@ impl ArrayIterator for ScanWorker {
 
 impl ScanWorker {
     fn handle_work_item(&mut self, work_item: WorkItem) -> VortexResult<()> {
-        match work_item {
+        let cpu_event = match work_item {
             WorkItem::Filter {
                 split_idx,
                 mask,
                 conjunct_idx,
-            } => {
-                let cpu_event = self.do_filter(split_idx, conjunct_idx, mask)?;
-                self.global
-                    .cpu_events
-                    .send(cpu_event)
-                    .map_err(|e| vortex_err!("failed to send CPU event: {}", e))?;
-                Ok(())
-            }
+            } => self.do_filter(split_idx, conjunct_idx, mask),
             WorkItem::Project { split_idx, mask } => self.do_project(split_idx, mask),
-        }
+        }?;
+        self.global
+            .cpu_events
+            .send(cpu_event)
+            .map_err(|e| vortex_err!("failed to send CPU event: {}", e))?;
+        Ok(())
     }
 
     fn do_filter(
@@ -575,13 +609,13 @@ impl ScanWorker {
         })
     }
 
-    fn do_project(&mut self, split_idx: usize, mask: Mask) -> VortexResult<()> {
+    fn do_project(&mut self, split_idx: usize, mask: Mask) -> VortexResult<CpuEvent> {
         let split = &self.global.shared.splits[split_idx];
         let array = split
             .projection
             .invoke(mask, self.global.shared.working_set.as_ref())?;
-        self.completed.push_back(array);
-        Ok(())
+        self.completed.push_back(array.clone());
+        Ok(CpuEvent::Project { split_idx, array })
     }
 
     /// Find the next CPU task.

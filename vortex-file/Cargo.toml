@@ -57,8 +57,10 @@ vortex-sparse = { workspace = true }
 vortex-utils = { workspace = true }
 vortex-zigzag = { workspace = true }
 vortex-zstd = { workspace = true, optional = true }
+env_logger = "0.11.8"
 
 [dev-dependencies]
+test-log = "0.2.18"
 tokio = { workspace = true, features = ["full"] }
 vortex-array = { workspace = true, features = ["test-harness"] }
 vortex-io = { workspace = true, features = ["tokio"] }
