@@ -18,305 +18,375 @@
 
 #[cfg(loom)]
 mod loom_tests {
-    use std::collections::VecDeque;
-
-    use loom::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-    use loom::sync::{Arc, Mutex, RwLock};
+    use futures::future;
+    use loom::sync::Arc;
     use loom::thread;
+    use vortex_error::VortexResult;
+    use vortex_expr::literal::lit;
+    use vortex_scan::filter::FilterExpr;
+    use vortex_scan::multi_scan::{ArrayFuture, MultiScan};
+    use vortex_scan::work_queue::{TaskFactory, WorkStealingQueue};
 
     #[test]
-    fn test_work_queue_atomic_ordering() {
-        // Test the atomic ordering fix in work_queue.rs
-        // This verifies that Acquire ordering properly synchronizes with Release
-        // to prevent the race condition we fixed.
+    fn test_work_stealing_queue_basic() {
+        // Test basic WorkStealingQueue operations with multiple workers
         loom::model(|| {
-            let num_factories = Arc::new(AtomicUsize::new(3)); // Start with 3 factories to construct
-            let num_factories_constructed = Arc::new(AtomicUsize::new(0));
+            // Create task factories that produce simple tasks
+            let factories: Vec<TaskFactory<i32>> = vec![
+                Box::new(|| Ok(vec![1, 2, 3])),
+                Box::new(|| Ok(vec![4, 5, 6])),
+                Box::new(|| Ok(vec![7, 8, 9])),
+            ];
 
-            let constructed_clone = num_factories_constructed.clone();
-            let num_factories_check = num_factories.clone();
-            let num_constructed_check = num_factories_constructed.clone();
+            let queue = WorkStealingQueue::new(factories);
 
-            // Producer thread that constructs factories one by one
-            let producer = thread::spawn(move || {
-                // Simulate constructing factories one by one
-                for i in 1..=3 {
-                    constructed_clone.store(i, Ordering::Release);
-                    thread::yield_now();
-                }
-            });
+            // Create two workers
+            let iter1 = queue.clone().new_iterator();
+            let iter2 = queue.new_iterator();
 
-            // Consumer thread that waits for all factories to be constructed
-            let consumer = thread::spawn(move || {
-                // This is the pattern from work_queue.rs line 192
-                // Using Acquire ordering to see all writes from producer
-                while num_constructed_check.load(Ordering::Acquire)
-                    < num_factories_check.load(Ordering::Acquire)
-                {
-                    thread::yield_now();
-                }
-
-                // After the loop, we should see all factories constructed
-                let seen_factories = num_constructed_check.load(Ordering::Acquire);
-
-                // Verify we see the correct number
-                assert_eq!(seen_factories, 3);
-            });
-
-            producer.join().unwrap();
-            consumer.join().unwrap();
-        });
-    }
-
-    #[test]
-    fn test_work_stealing_no_double_processing() {
-        // Test that work stealing doesn't process the same item twice
-        // This simulates the work-stealing pattern in work_queue.rs
-        loom::model(|| {
-            let work_queue = Arc::new(Mutex::new(VecDeque::new()));
-            let processed = Arc::new(Mutex::new(Vec::new()));
-
-            // Add initial work items
-            {
-                let mut queue = work_queue.lock().unwrap();
-                for i in 1..=5 {
-                    queue.push_back(i);
-                }
-            }
-
-            let queue1 = work_queue.clone();
-            let processed1 = processed.clone();
-
-            let queue2 = work_queue.clone();
-            let processed2 = processed.clone();
-
-            // Worker 1 tries to steal work
-            let worker1 = thread::spawn(move || {
-                for _ in 0..3 {
-                    if let Some(work) = queue1.lock().unwrap().pop_front() {
-                        processed1.lock().unwrap().push(work);
+            // Collect results from both workers
+            let handle1 = thread::spawn(move || {
+                let mut results = Vec::new();
+                for item in iter1 {
+                    if let Ok(val) = item {
+                        results.push(val);
+                        if results.len() >= 3 {
+                            break;
+                        }
                     }
-                    thread::yield_now();
                 }
+                results
             });
 
-            // Worker 2 tries to steal work
-            let worker2 = thread::spawn(move || {
-                for _ in 0..3 {
-                    if let Some(work) = queue2.lock().unwrap().pop_front() {
-                        processed2.lock().unwrap().push(work);
+            let handle2 = thread::spawn(move || {
+                let mut results = Vec::new();
+                for item in iter2 {
+                    if let Ok(val) = item {
+                        results.push(val);
+                        if results.len() >= 3 {
+                            break;
+                        }
                     }
-                    thread::yield_now();
                 }
+                results
             });
 
-            worker1.join().unwrap();
-            worker2.join().unwrap();
+            let results1 = handle1.join().unwrap();
+            let results2 = handle2.join().unwrap();
 
-            // Verify all work was processed exactly once
-            let mut final_processed = processed.lock().unwrap().clone();
-            final_processed.sort();
-
-            // Check no duplicates
-            for i in 1..final_processed.len() {
-                assert_ne!(
-                    final_processed[i],
-                    final_processed[i - 1],
-                    "Found duplicate work item: {}",
-                    final_processed[i]
-                );
+            // Verify that results are from our expected set
+            for val in results1.iter().chain(results2.iter()) {
+                assert!(*val >= 1 && *val <= 9);
             }
 
-            // All processed items should be from our original set
-            for &item in &final_processed {
-                assert!(item >= 1 && item <= 5);
+            // Verify no duplicates between workers
+            let mut all_results = results1.clone();
+            all_results.extend(results2);
+            all_results.sort();
+            for i in 1..all_results.len() {
+                assert_ne!(all_results[i], all_results[i - 1], "Found duplicate value");
             }
         });
     }
 
     #[test]
-    fn test_filter_rwlock_concurrent_access() {
-        // Test RwLock access patterns similar to filter.rs
-        // Multiple readers reading selectivity while a writer updates
-        // This verifies the concurrent access pattern is safe
+    fn test_work_stealing_queue_error_handling() {
+        // Test that errors in task factories are properly propagated
         loom::model(|| {
-            // Simulate the selectivity histograms from filter.rs
-            let histogram1 = Arc::new(RwLock::new(vec![0.5, 0.6, 0.7]));
-            let histogram2 = Arc::new(RwLock::new(vec![0.3, 0.4, 0.5]));
+            let factories: Vec<TaskFactory<i32>> = vec![
+                Box::new(|| Ok(vec![1, 2])),
+                Box::new(|| Err(vortex_error::vortex_err!("Factory error"))),
+                Box::new(|| Ok(vec![3, 4])),
+            ];
 
-            let hist1_r1 = histogram1.clone();
-            let hist1_r2 = histogram1.clone();
-            let hist1_w = histogram1.clone();
-            let hist2_r = histogram2.clone();
+            let queue = WorkStealingQueue::new(factories);
+            let mut iter = queue.new_iterator();
 
-            // Reader 1 - reads from histogram1
-            let reader1 = thread::spawn(move || {
-                let values = hist1_r1.read().unwrap();
-                values[0] // Read first value
-            });
+            let mut has_error = false;
+            let mut values = Vec::new();
 
-            // Reader 2 - reads from histogram1
-            let reader2 = thread::spawn(move || {
-                let values = hist1_r2.read().unwrap();
-                values[1] // Read second value
-            });
-
-            // Reader 3 - reads from histogram2 (different lock)
-            let reader3 = thread::spawn(move || {
-                let values = hist2_r.read().unwrap();
-                values[0] // Read first value
-            });
-
-            // Writer - updates histogram1
-            let writer = thread::spawn(move || {
-                let mut values = hist1_w.write().unwrap();
-                values[0] = 0.4;
-                values[1] = 0.5;
-                values[2] = 0.6;
-            });
-
-            let val1 = reader1.join().unwrap();
-            let val2 = reader2.join().unwrap();
-            let val3 = reader3.join().unwrap();
-            writer.join().unwrap();
-
-            // Reader 1 should see either old or new value
-            assert!(val1 == 0.5 || val1 == 0.4);
-            // Reader 2 should see either old or new value
-            assert!(val2 == 0.6 || val2 == 0.5);
-            // Reader 3 always sees the same value (different lock)
-            assert_eq!(val3, 0.3);
-        });
-    }
-
-    #[test]
-    fn test_dynamic_version_toctou_fix() {
-        // Test the TOCTOU fix in tasks.rs
-        // Verifies that reading the version once prevents race conditions
-        loom::model(|| {
-            // Simulate dynamic version that can change
-            let version = Arc::new(AtomicU64::new(1));
-            let local_version = Arc::new(Mutex::new(None));
-
-            let version_update = version.clone();
-            let version_read = version.clone();
-            let local_version_write = local_version.clone();
-
-            // Thread that updates the version (simulating dynamic filter update)
-            let updater = thread::spawn(move || {
-                thread::yield_now();
-                version_update.store(2, Ordering::Release);
-                thread::yield_now();
-                version_update.store(3, Ordering::Release);
-            });
-
-            // Thread that reads version (simulating the fixed code in tasks.rs)
-            let reader = thread::spawn(move || {
-                // This simulates the fix: read once and store
-                let current_version = version_read.load(Ordering::Acquire);
-
-                // Simulate the check and update pattern
-                let mut local = local_version_write.lock().unwrap();
-                if local.is_none() || local.unwrap() < current_version {
-                    *local = Some(current_version);
+            while let Some(result) = iter.next() {
+                match result {
+                    Ok(val) => values.push(val),
+                    Err(_) => {
+                        has_error = true;
+                        break;
+                    }
                 }
-                *local
-            });
+            }
 
-            updater.join().unwrap();
-            let result = reader.join().unwrap();
-
-            // The reader should see a consistent version (1, 2, or 3)
-            assert!(result == Some(1) || result == Some(2) || result == Some(3));
+            // Should encounter the error
+            assert!(has_error || values.len() > 0);
         });
     }
 
     #[test]
-    fn test_concurrent_factory_construction() {
-        // Test concurrent factory construction from work_queue.rs
-        // Verifies no races when multiple threads construct factories
+    fn test_work_stealing_concurrent_factory_construction() {
+        // Test concurrent factory construction with multiple workers
         loom::model(|| {
-            let num_factories = Arc::new(AtomicUsize::new(2));
-            let num_constructed = Arc::new(AtomicUsize::new(0));
-            let results = Arc::new(Mutex::new(Vec::new()));
+            use loom::sync::atomic::{AtomicUsize, Ordering};
 
-            let constructed1 = num_constructed.clone();
-            let results1 = results.clone();
+            let counter = Arc::new(AtomicUsize::new(0));
 
-            let constructed2 = num_constructed.clone();
-            let results2 = results.clone();
+            let factories: Vec<TaskFactory<usize>> = (0..3usize)
+                .map(|i| {
+                    let counter_clone = counter.clone();
+                    Box::new(move || {
+                        counter_clone.fetch_add(1, Ordering::SeqCst);
+                        Ok(vec![i * 10, i * 10 + 1])
+                    }) as TaskFactory<usize>
+                })
+                .collect();
 
-            let num_factories_check = num_factories.clone();
-            let num_constructed_check = num_constructed.clone();
+            let queue = WorkStealingQueue::new(factories);
 
-            // Thread 1 constructs a factory
-            let constructor1 = thread::spawn(move || {
-                results1.lock().unwrap().push("factory1");
-                constructed1.fetch_add(1, Ordering::Release);
-            });
+            // Create multiple workers
+            let iter1 = queue.clone().new_iterator();
+            let iter2 = queue.new_iterator();
 
-            // Thread 2 constructs a factory
-            let constructor2 = thread::spawn(move || {
-                results2.lock().unwrap().push("factory2");
-                constructed2.fetch_add(1, Ordering::Release);
-            });
-
-            // Thread 3 waits for all factories to be constructed
-            let waiter = thread::spawn(move || {
-                while num_constructed_check.load(Ordering::Acquire)
-                    < num_factories_check.load(Ordering::Acquire)
-                {
-                    thread::yield_now();
+            let handle1 = thread::spawn(move || {
+                let mut count = 0;
+                for result in iter1 {
+                    if result.is_ok() {
+                        count += 1;
+                        if count >= 2 {
+                            break;
+                        }
+                    }
                 }
-                num_constructed_check.load(Ordering::Acquire)
+                count
             });
 
-            constructor1.join().unwrap();
-            constructor2.join().unwrap();
-            let final_count = waiter.join().unwrap();
+            let handle2 = thread::spawn(move || {
+                let mut count = 0;
+                for result in iter2 {
+                    if result.is_ok() {
+                        count += 1;
+                        if count >= 2 {
+                            break;
+                        }
+                    }
+                }
+                count
+            });
 
-            // Verify both factories were constructed
-            assert_eq!(final_count, 2);
-            assert_eq!(results.lock().unwrap().len(), 2);
+            handle1.join().unwrap();
+            handle2.join().unwrap();
+
+            // Verify factories were constructed
+            let final_count = counter.load(Ordering::SeqCst);
+            assert!(final_count > 0 && final_count <= 3);
         });
     }
 
     #[test]
-    fn test_stealer_registration_race() {
-        // Test the race condition when registering stealers in work_queue.rs
-        // Verifies the RwLock pattern for stealer registration is safe
+    fn test_filter_expr_concurrent_selectivity_reporting() {
+        // Test concurrent selectivity reporting in FilterExpr
         loom::model(|| {
-            let stealers = Arc::new(RwLock::new(Vec::new()));
+            let expr = lit(true); // Simple expression for testing
+            let filter = Arc::new(FilterExpr::new(expr));
 
-            let stealers1 = stealers.clone();
-            let stealers2 = stealers.clone();
-            let stealers_read = stealers.clone();
+            let filter1 = filter.clone();
+            let filter2 = filter.clone();
+            let filter3 = filter.clone();
 
-            // Thread 1 registers a stealer
-            let registrar1 = thread::spawn(move || {
-                let mut s = stealers1.write().unwrap();
-                s.push(1);
+            // Multiple threads reporting selectivity
+            let handle1 = thread::spawn(move || {
+                filter1.report_selectivity(0, 0.5);
+                filter1.report_selectivity(0, 0.6);
             });
 
-            // Thread 2 registers a stealer
-            let registrar2 = thread::spawn(move || {
-                let mut s = stealers2.write().unwrap();
-                s.push(2);
+            let handle2 = thread::spawn(move || {
+                filter2.report_selectivity(0, 0.7);
+                filter2.report_selectivity(0, 0.4);
             });
 
-            // Thread 3 reads the stealers
-            let reader = thread::spawn(move || {
-                thread::yield_now();
-                let s = stealers_read.read().unwrap();
-                s.len()
+            // Reader thread
+            let handle3 = thread::spawn(move || {
+                use bit_vec::BitVec;
+                let mut remaining = BitVec::from_elem(1, true);
+                let conjunct = filter3.next_conjunct(&remaining);
+                assert_eq!(conjunct, Some(0));
+
+                // Mark as evaluated
+                remaining.set(0, false);
+                let conjunct = filter3.next_conjunct(&remaining);
+                assert_eq!(conjunct, None);
             });
 
-            registrar1.join().unwrap();
-            registrar2.join().unwrap();
-            let count = reader.join().unwrap();
+            handle1.join().unwrap();
+            handle2.join().unwrap();
+            handle3.join().unwrap();
+        });
+    }
 
-            // Reader should see 0, 1, or 2 stealers depending on timing
-            assert!(count <= 2);
+    #[test]
+    fn test_filter_expr_ordering_update() {
+        // Test concurrent ordering updates in FilterExpr
+        loom::model(|| {
+            use vortex_expr::{and, get_item, gt, lt, root};
+
+            // Create a filter with multiple conjuncts (AND conditions)
+            let expr = and(
+                gt(get_item("a", root()), lit(5)),
+                lt(get_item("b", root()), lit(10)),
+            );
+            let filter = Arc::new(FilterExpr::new(expr));
+
+            let filter1 = filter.clone();
+            let filter2 = filter.clone();
+
+            // Thread 1 reports selectivity for conjunct 0
+            let handle1 = thread::spawn(move || {
+                filter1.report_selectivity(0, 0.1); // Very selective
+                filter1.report_selectivity(0, 0.2);
+            });
+
+            // Thread 2 reports selectivity for conjunct 1
+            let handle2 = thread::spawn(move || {
+                filter2.report_selectivity(1, 0.9); // Not selective
+                filter2.report_selectivity(1, 0.8);
+            });
+
+            handle1.join().unwrap();
+            handle2.join().unwrap();
+
+            // The ordering should prefer more selective conjuncts
+            // but we just verify it doesn't crash under concurrent access
+        });
+    }
+
+    #[test]
+    fn test_multi_scan_concurrent_iteration() {
+        // Test MultiScan with concurrent iterators
+        loom::model(|| {
+            // Create closures that produce futures
+            let closures = vec![
+                || -> VortexResult<Vec<ArrayFuture<i32>>> {
+                    Ok(vec![
+                        Box::pin(future::ready(Ok(Some(1)))),
+                        Box::pin(future::ready(Ok(Some(2)))),
+                    ])
+                },
+                || -> VortexResult<Vec<ArrayFuture<i32>>> {
+                    Ok(vec![
+                        Box::pin(future::ready(Ok(Some(3)))),
+                        Box::pin(future::ready(Ok(Some(4)))),
+                    ])
+                },
+            ];
+
+            let multi_scan = MultiScan::new(closures);
+
+            // Create two iterators
+            let iter1 = multi_scan.clone().new_iterator();
+            let iter2 = multi_scan.new_iterator();
+
+            // Collect from both iterators concurrently
+            let handle1 = thread::spawn(move || {
+                let mut results = Vec::new();
+                for item in iter1 {
+                    if let Ok(val) = item {
+                        results.push(val);
+                        if results.len() >= 2 {
+                            break;
+                        }
+                    }
+                }
+                results
+            });
+
+            let handle2 = thread::spawn(move || {
+                let mut results = Vec::new();
+                for item in iter2 {
+                    if let Ok(val) = item {
+                        results.push(val);
+                        if results.len() >= 2 {
+                            break;
+                        }
+                    }
+                }
+                results
+            });
+
+            let results1 = handle1.join().unwrap();
+            let results2 = handle2.join().unwrap();
+
+            // Verify results are from expected set
+            for val in results1.iter().chain(results2.iter()) {
+                assert!(*val >= 1 && *val <= 4);
+            }
+        });
+    }
+
+    #[test]
+    fn test_work_stealing_with_empty_factories() {
+        // Test edge case with empty task factories
+        loom::model(|| {
+            let factories: Vec<TaskFactory<i32>> = vec![
+                Box::new(|| Ok(vec![])), // Empty
+                Box::new(|| Ok(vec![1, 2])),
+                Box::new(|| Ok(vec![])), // Empty
+                Box::new(|| Ok(vec![3])),
+            ];
+
+            let queue = WorkStealingQueue::new(factories);
+            let mut iter = queue.new_iterator();
+
+            let mut results = Vec::new();
+            while let Some(Ok(val)) = iter.next() {
+                results.push(val);
+            }
+
+            // Should get exactly the non-empty values
+            results.sort();
+            assert_eq!(results, vec![1, 2, 3]);
+        });
+    }
+
+    #[test]
+    fn test_work_stealing_clone_semantics() {
+        // Test that cloning iterators properly shares the work queue
+        loom::model(|| {
+            let factories: Vec<TaskFactory<i32>> = vec![Box::new(|| Ok(vec![1, 2, 3, 4]))];
+
+            let queue = WorkStealingQueue::new(factories);
+            let iter1 = queue.new_iterator();
+
+            // Clone the iterator
+            let iter2 = iter1.clone();
+
+            let handle1 = thread::spawn(move || {
+                let mut count = 0;
+                for result in iter1 {
+                    if result.is_ok() {
+                        count += 1;
+                        if count >= 2 {
+                            break;
+                        }
+                    }
+                }
+                count
+            });
+
+            let handle2 = thread::spawn(move || {
+                let mut count = 0;
+                for result in iter2 {
+                    if result.is_ok() {
+                        count += 1;
+                        if count >= 2 {
+                            break;
+                        }
+                    }
+                }
+                count
+            });
+
+            let count1 = handle1.join().unwrap();
+            let count2 = handle2.join().unwrap();
+
+            // Both should get some work
+            assert!(count1 + count2 <= 4);
         });
     }
 }

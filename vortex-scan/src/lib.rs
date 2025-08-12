@@ -29,15 +29,24 @@ use crate::work_queue::{TaskFactory, WorkStealingQueue};
 use crate::work_stealing_iter::{ArrayTask, WorkStealingArrayIterator};
 
 mod arrow;
+#[cfg(not(feature = "test-harness"))]
 mod filter;
+#[cfg(feature = "test-harness")]
+pub mod filter;
+#[cfg(not(feature = "test-harness"))]
 mod multi_scan;
+#[cfg(feature = "test-harness")]
+pub mod multi_scan;
 #[cfg(feature = "tokio")]
 mod multi_thread;
 pub mod row_mask;
 mod selection;
 mod split_by;
 mod tasks;
+#[cfg(not(feature = "test-harness"))]
 mod work_queue;
+#[cfg(feature = "test-harness")]
+pub mod work_queue;
 mod work_stealing_iter;
 
 /// A struct for building a scan operation.

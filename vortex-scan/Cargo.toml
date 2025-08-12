@@ -38,6 +38,7 @@ tokio = { workspace = true, features = ["rt-multi-thread"], optional = true }
 
 [dev-dependencies]
 vortex-layout = { workspace = true, features = ["test-harness"] }
+vortex-scan = { path = ".", features = ["test-harness"] }
 
 [target.'cfg(loom)'.dev-dependencies]
 loom = { workspace = true }
@@ -45,6 +46,7 @@ loom = { workspace = true }
 [features]
 default = []
 roaring = ["dep:roaring", "vortex-layout/roaring"]
+test-harness = []
 tokio = ["dep:tokio"]
 
 [lints]

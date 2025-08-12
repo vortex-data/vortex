@@ -32,7 +32,7 @@ pub struct FilterExpr {
 }
 
 impl FilterExpr {
-    pub(crate) fn new(expr: ExprRef) -> Self {
+    pub fn new(expr: ExprRef) -> Self {
         let conjuncts = conjuncts(&expr);
         let num_conjuncts = conjuncts.len();
 
