@@ -81,7 +81,7 @@ mod tests {
 
     #[test]
     fn test_log_level_enum_values() {
-        // Ensure enum values match expected constants
+        // Important: These values are part of the FFI ABI contract
         assert_eq!(vx_log_level::LOG_LEVEL_OFF as i32, 0);
         assert_eq!(vx_log_level::LOG_LEVEL_ERROR as i32, 1);
         assert_eq!(vx_log_level::LOG_LEVEL_WARN as i32, 2);

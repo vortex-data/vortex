@@ -422,6 +422,8 @@ mod tests {
 
     #[test]
     fn test_dtype_variant_conversion() {
+        // Important: Verifies the From trait implementation for FFI variant enum
+        // These mappings are part of the ABI contract
         use vortex::dtype::{DType, DecimalDType};
 
         let dtypes = vec![

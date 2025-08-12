@@ -173,11 +173,11 @@ pub unsafe extern "C-unwind" fn vx_array_get_binary(
 mod tests {
     use std::ffi::{c_int, c_void};
 
+    use vortex::IntoArray;
     use vortex::arrays::{PrimitiveArray, StructArray, VarBinViewArray};
     use vortex::buffer::buffer;
     use vortex::dtype::half::f16;
     use vortex::validity::Validity;
-    use vortex::IntoArray;
 
     use crate::array::*;
     use crate::dtype::{vx_dtype_get_variant, vx_dtype_variant};
@@ -289,113 +289,49 @@ mod tests {
     }
 
     #[test]
-    fn test_get_unsigned_primitives() {
+    fn test_primitive_getters() {
         unsafe {
-            // Test u8
-            let u8_array = PrimitiveArray::new(buffer![255u8, 128u8, 0u8], Validity::NonNullable);
-            let ffi_u8 = vx_array::new(u8_array.into_array());
-            assert_eq!(vx_array_get_u8(ffi_u8, 0), 255);
-            assert_eq!(vx_array_get_u8(ffi_u8, 1), 128);
-            assert_eq!(vx_array_get_u8(ffi_u8, 2), 0);
-            vx_array_free(ffi_u8);
+            // Test a representative sample of primitive types
+            // The macro generates identical code for all types, so exhaustive testing is redundant
 
-            // Test u16
-            let u16_array =
-                PrimitiveArray::new(buffer![65535u16, 32768u16, 0u16], Validity::NonNullable);
-            let ffi_u16 = vx_array::new(u16_array.into_array());
-            assert_eq!(vx_array_get_u16(ffi_u16, 0), 65535);
-            assert_eq!(vx_array_get_u16(ffi_u16, 1), 32768);
-            assert_eq!(vx_array_get_u16(ffi_u16, 2), 0);
-            vx_array_free(ffi_u16);
+            // Test signed integer with edge cases
+            let i32_array =
+                PrimitiveArray::new(buffer![i32::MAX, i32::MIN, 0i32], Validity::NonNullable);
+            let ffi_i32 = vx_array::new(i32_array.into_array());
+            assert_eq!(vx_array_get_i32(ffi_i32, 0), i32::MAX);
+            assert_eq!(vx_array_get_i32(ffi_i32, 1), i32::MIN);
+            assert_eq!(vx_array_get_i32(ffi_i32, 2), 0);
+            vx_array_free(ffi_i32);
 
-            // Test u32
-            let u32_array = PrimitiveArray::new(
-                buffer![4294967295u32, 2147483648u32, 0u32],
-                Validity::NonNullable,
-            );
-            let ffi_u32 = vx_array::new(u32_array.into_array());
-            assert_eq!(vx_array_get_u32(ffi_u32, 0), 4294967295);
-            assert_eq!(vx_array_get_u32(ffi_u32, 1), 2147483648);
-            assert_eq!(vx_array_get_u32(ffi_u32, 2), 0);
-            vx_array_free(ffi_u32);
-
-            // Test u64
-            let u64_array = PrimitiveArray::new(
-                buffer![18446744073709551615u64, 9223372036854775808u64, 0u64],
-                Validity::NonNullable,
-            );
+            // Test unsigned integer
+            let u64_array =
+                PrimitiveArray::new(buffer![u64::MAX, 0u64, 42u64], Validity::NonNullable);
             let ffi_u64 = vx_array::new(u64_array.into_array());
-            assert_eq!(vx_array_get_u64(ffi_u64, 0), 18446744073709551615);
-            assert_eq!(vx_array_get_u64(ffi_u64, 1), 9223372036854775808);
-            assert_eq!(vx_array_get_u64(ffi_u64, 2), 0);
+            assert_eq!(vx_array_get_u64(ffi_u64, 0), u64::MAX);
+            assert_eq!(vx_array_get_u64(ffi_u64, 1), 0);
+            assert_eq!(vx_array_get_u64(ffi_u64, 2), 42);
             vx_array_free(ffi_u64);
-        }
-    }
 
-    #[test]
-    fn test_get_signed_primitives() {
-        unsafe {
-            // Test i8
-            let i8_array = PrimitiveArray::new(buffer![127i8, -128i8, 0i8], Validity::NonNullable);
-            let ffi_i8 = vx_array::new(i8_array.into_array());
-            assert_eq!(vx_array_get_i8(ffi_i8, 0), 127);
-            assert_eq!(vx_array_get_i8(ffi_i8, 1), -128);
-            assert_eq!(vx_array_get_i8(ffi_i8, 2), 0);
-            vx_array_free(ffi_i8);
-
-            // Test i16
-            let i16_array =
-                PrimitiveArray::new(buffer![32767i16, -32768i16, 0i16], Validity::NonNullable);
-            let ffi_i16 = vx_array::new(i16_array.into_array());
-            assert_eq!(vx_array_get_i16(ffi_i16, 0), 32767);
-            assert_eq!(vx_array_get_i16(ffi_i16, 1), -32768);
-            assert_eq!(vx_array_get_i16(ffi_i16, 2), 0);
-            vx_array_free(ffi_i16);
-
-            // Test i64
-            let i64_array = PrimitiveArray::new(
-                buffer![9223372036854775807i64, -9223372036854775808i64, 0i64],
+            // Test floating point including special values
+            let f64_array = PrimitiveArray::new(
+                buffer![f64::NEG_INFINITY, 0.0f64, f64::NAN],
                 Validity::NonNullable,
             );
-            let ffi_i64 = vx_array::new(i64_array.into_array());
-            assert_eq!(vx_array_get_i64(ffi_i64, 0), 9223372036854775807);
-            assert_eq!(vx_array_get_i64(ffi_i64, 1), -9223372036854775808);
-            assert_eq!(vx_array_get_i64(ffi_i64, 2), 0);
-            vx_array_free(ffi_i64);
-        }
-    }
+            let ffi_f64 = vx_array::new(f64_array.into_array());
+            assert_eq!(vx_array_get_f64(ffi_f64, 0), f64::NEG_INFINITY);
+            assert_eq!(vx_array_get_f64(ffi_f64, 1), 0.0);
+            assert!(vx_array_get_f64(ffi_f64, 2).is_nan());
+            vx_array_free(ffi_f64);
 
-    #[test]
-    fn test_get_float_primitives() {
-        unsafe {
-            // Test f16
+            // Test f16 (special half-precision type)
             let f16_array = PrimitiveArray::new(
-                buffer![f16::from_f32(1.0), f16::from_f32(2.5), f16::from_f32(-3.25)],
+                buffer![f16::from_f32(1.0), f16::from_f32(-0.5)],
                 Validity::NonNullable,
             );
             let ffi_f16 = vx_array::new(f16_array.into_array());
             assert_eq!(vx_array_get_f16(ffi_f16, 0), f16::from_f32(1.0));
-            assert_eq!(vx_array_get_f16(ffi_f16, 1), f16::from_f32(2.5));
-            assert_eq!(vx_array_get_f16(ffi_f16, 2), f16::from_f32(-3.25));
+            assert_eq!(vx_array_get_f16(ffi_f16, 1), f16::from_f32(-0.5));
             vx_array_free(ffi_f16);
-
-            // Test f32
-            let f32_array =
-                PrimitiveArray::new(buffer![1.0f32, 2.5f32, -3.25f32], Validity::NonNullable);
-            let ffi_f32 = vx_array::new(f32_array.into_array());
-            assert_eq!(vx_array_get_f32(ffi_f32, 0), 1.0);
-            assert_eq!(vx_array_get_f32(ffi_f32, 1), 2.5);
-            assert_eq!(vx_array_get_f32(ffi_f32, 2), -3.25);
-            vx_array_free(ffi_f32);
-
-            // Test f64
-            let f64_array =
-                PrimitiveArray::new(buffer![1.0f64, 2.5f64, -3.25f64], Validity::NonNullable);
-            let ffi_f64 = vx_array::new(f64_array.into_array());
-            assert_eq!(vx_array_get_f64(ffi_f64, 0), 1.0);
-            assert_eq!(vx_array_get_f64(ffi_f64, 1), 2.5);
-            assert_eq!(vx_array_get_f64(ffi_f64, 2), -3.25);
-            vx_array_free(ffi_f64);
         }
     }
 

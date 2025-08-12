@@ -128,7 +128,8 @@ mod tests {
 
     #[test]
     fn test_vx_ptype_enum_values() {
-        // Ensure enum values match expected constants
+        // Important: These values are part of the FFI ABI contract and must not change
+        // as they may be used in serialization or by C clients
         assert_eq!(vx_ptype::PTYPE_U8 as i32, 0);
         assert_eq!(vx_ptype::PTYPE_U16 as i32, 1);
         assert_eq!(vx_ptype::PTYPE_U32 as i32, 2);
