@@ -500,24 +500,23 @@ jobs:
       matrix:
         group:
           # ~100 tests each for balanced runtime
-          - name: "small-crates"
+          - name: "group-1"
             crates: "-p vortex-buffer -p vortex-bytebool -p vortex-fsst -p vortex-pco -p vortex-zstd"
-          - name: "core-and-io"
+          - name: "group-2"
             crates: "-p vortex -p vortex-btrblocks -p vortex-ipc -p vortex-io"
-          - name: "mask-and-layout"
+          - name: "group-3"
             crates: "-p vortex-mask -p vortex-layout"
-          - name: "dtype-and-dict"
+          - name: "group-4"
             crates: "-p vortex-dtype -p vortex-dict -p vortex-ffi"
-          - name: "expr-and-alp"
+          - name: "group-5"
             crates: "-p vortex-expr -p vortex-alp"
-          - name: "fastlanes-and-runend"
+          - name: "group-6"
             crates: "-p vortex-fastlanes -p vortex-runend"
-          - name: "file"
+          - name: "group-7"
             crates: "-p vortex-file -p vortex-flatbuffers"
-          # vortex-array with conformance tests disabled for miri
-          - name: "array"
+          - name: "group-8"
             crates: "-p vortex-array"
-          - name: "scalar"
+          - name: "group-9"
             crates: "-p vortex-scalar"
     env:
       MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-symbolic-alignment-check -Zmiri-disable-isolation -Zmiri-env-forward=RUST_BACKTRACE
