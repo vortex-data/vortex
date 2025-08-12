@@ -152,3 +152,85 @@ where
         Poll::Ready(Ok(()))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use arrow_buffer::BooleanBuffer;
+    use rand::prelude::StdRng;
+    use rand::{Rng, SeedableRng};
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::compute::filter;
+    use vortex_array::display::{DisplayArrayAs, DisplayOptions};
+    use vortex_array::pipeline::canonical::export_canonical_pipeline;
+    use vortex_array::{IntoArray, ToCanonical};
+    use vortex_buffer::BufferMut;
+    use vortex_mask::Mask;
+
+    use crate::bitpack_to_best_bit_width;
+
+    #[test]
+    fn test_bitpacking_pipeline() {
+        for frac in [0.99] {
+            let len = 100;
+            let mut rng = StdRng::seed_from_u64(0);
+            let values = (0i16..len)
+                .map(|_| rng.random_range(0..100))
+                .collect::<BufferMut<_>>();
+
+            let primitive_array = values.clone().into_array().to_primitive().unwrap();
+            let bitpacked = bitpack_to_best_bit_width(&primitive_array).unwrap();
+
+            println!("values at 64: {}", values[64]);
+            println!("bitpacked at 64: {}", bitpacked.scalar_at(64).unwrap());
+            println!("bitpacked len: {}", bitpacked.len());
+            println!("bitpacked bit_width: {}", bitpacked.bit_width());
+
+            let mask = (0..len)
+                .map(|_| rng.random_bool(frac))
+                .collect::<BooleanBuffer>();
+            let mask = Mask::from_buffer(mask);
+
+            let result = export_canonical_pipeline(
+                bitpacked.dtype(),
+                bitpacked.len(),
+                bitpacked.to_pipeline_plan().unwrap().as_ref(),
+                &mask,
+            )
+            .unwrap()
+            .into_array();
+
+            let expect = filter(bitpacked.to_canonical().unwrap().as_ref(), &mask).unwrap();
+
+            println!("mask true_count: {}, total: {}", mask.true_count(), len);
+
+            println!(
+                "\nresult: {}",
+                DisplayArrayAs(
+                    result.as_ref(),
+                    DisplayOptions::CommaSeparatedScalars {
+                        omit_comma_after_space: false
+                    }
+                )
+            );
+            println!(
+                "\nexpect: {}",
+                DisplayArrayAs(
+                    &expect,
+                    DisplayOptions::CommaSeparatedScalars {
+                        omit_comma_after_space: false
+                    }
+                )
+            );
+
+            for i in 0..mask.true_count() {
+                assert_eq!(
+                    result.scalar_at(i).unwrap(),
+                    expect.scalar_at(i).unwrap(),
+                    "mismatch at index {}, fraction {}",
+                    i,
+                    frac
+                );
+            }
+        }
+    }
+}

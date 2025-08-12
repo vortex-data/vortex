@@ -89,29 +89,19 @@ where
     E: NativePType + Element + Unsigned,
 {
     fn seek(&mut self, _chunk_idx: usize) -> VortexResult<()> {
-        println!("seek {}", _chunk_idx);
         Ok(())
     }
 
     fn step(
         &mut self,
         ctx: &dyn KernelContext,
-        _selected: BitView,
+        selected: BitView,
         out: &mut ViewMut,
     ) -> Poll<VortexResult<()>> {
         let vec = ctx.vector(self.child);
         let values = unsafe { std::mem::transmute::<&[E], &[T]>(vec.as_slice::<E>()) };
-        println!("step {}", values.len());
-        println!("step {}", _selected.true_count());
         let out = out.as_slice_mut::<T>();
-        for i in 0.._selected.true_count() {
-            if i == 64 {
-                let v = vec.as_slice::<E>();
-                println!(
-                    "i {}, value {} + ref {}, v {}",
-                    i, values[i], self.reference, v[i]
-                );
-            }
+        for i in 0..selected.true_count() {
             out[i] = values[i].wrapping_add(&self.reference);
         }
         Poll::Ready(Ok(()))
@@ -128,7 +118,7 @@ mod tests {
     use vortex_array::compute::filter;
     use vortex_array::display::{DisplayArrayAs, DisplayOptions};
     use vortex_array::pipeline::canonical::export_canonical_pipeline;
-    use vortex_array::{ArrayRef, IntoArray, ToCanonical};
+    use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::BufferMut;
     use vortex_mask::Mask;
 
@@ -208,17 +198,12 @@ mod tests {
     fn test_for_pipeline2() {
         // for frac in [0.001, 0.01, 0.1, 0.5, 0.9, 0.99, 0.999] {
         for frac in [0.99] {
-            let len = 100;
+            let len = 1024;
             let mut rng = StdRng::seed_from_u64(0);
             let values = (0i16..len)
                 .map(|_| rng.random_range(50..150))
                 .collect::<BufferMut<_>>();
             let array = create_for_bitpacked_array(values.clone()).unwrap();
-
-            println!("values: {}", values[64]);
-            println!("for: {}", array.as_ref().scalar_at(64).unwrap());
-            println!("bitpack: {}", array.encoded.as_ref().scalar_at(64).unwrap());
-            // println!("values: {}", array.display_tree());
 
             let mask = (0..len)
                 .map(|_| rng.random_bool(frac))
