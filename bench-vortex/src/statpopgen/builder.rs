@@ -25,24 +25,140 @@ use crate::statpopgen::schema::SCHEMA;
 #[allow(non_snake_case)]
 #[derive(Default)]
 pub struct GnomADBuilder<'a> {
+    /// The contig on which this variant was found.
+    ///
+    /// Contig is short for contiguous. For VCFs containing Human data, it is an identifier for some
+    /// contiguous segment of genetic material which may be a chromosome (1-22, X, or Y),
+    /// mitchondrial circular DNA ("chrMT"), or a synthetic contig used for technical reasons.
+    ///
+    /// # Examples
+    ///
+    /// - `chr21`
+    /// - `21`
+    /// - `chrX`
+    /// - `chrMT`
     pub CHROM_builder: StringBuilder,
+    /// The 1-indexed position on the contig at which this variant was found.
+    ///
+    /// Typically the first 100,000 and last 100,000 positions are not recorded in a VCF because
+    /// they are difficult to sequence. In particular, they contain long repetitive runs that are
+    /// difficult to capture with "short read sequencing".
     pub POS_builder: UInt64Builder,
+    /// A unique identifier for this variant.
+    ///
+    /// While contig, position, reference allele, and alternate alele uniquely identify a variant,
+    /// the "reference" contig may change. A variant ID is, by definition, invariant to the
+    /// reference "build".
     pub ID_builder: StringBuilder,
+    /// The reference allele of this variant.
+    ///
+    /// # Examples
+    ///
+    /// - `A`
+    /// - `ATG`
     pub REF_builder: StringBuilder,
+    /// The list of alternate alleles of this variant.
+    ///
+    /// An empty list of alternate alleles is unusual in an analysis-ready, jointly-called VCF.
+    ///
+    /// If every alternate allele list in the VCF is length one, the dataset is called "biallelic"
+    /// and/or "split".
+    ///
+    /// Variants with more than one alternate allele are called "multi-allelic variants".
+    ///
+    /// # Examples
+    ///
+    /// - `["A"]`
+    /// - `["AA", "G", "ATG"]`
     pub ALT_builder: ListBuilder<StringBuilder>,
+    /// The quality score of this variant.
     pub QUAL_builder: Float32Builder,
+    /// A list of "filter" values of this variant.
+    ///
+    /// The header of the VCF lists possible FILTER values other than the string "PASS".
     pub FILTER_builder: ListBuilder<StringBuilder>,
 
+    /// Metadata about the variant.
+    ///
+    /// The INFO field is effectively an arbitrary, per-variant key-value dictionary. The set of
+    /// possible keys and their types are declared in the header, but each variant may have any
+    /// possible subset of that dictionary.
+    ///
+    /// The VCF header may define certain variable-length INFO fields as having "A", "R", or "G"
+    /// length. These indicate that the length of the field is, respectively, equal to the number of
+    /// alternate alleles, the number of alternate alleles plus one, or the number of possible
+    /// genotypes (which is [triangular number](https://en.wikipedia.org/wiki/Triangular_number) of
+    /// R). We ignore this information.
     pub info_builder: HashMap<&'a str, InfoArrayBuilder>,
 
+    /// The list of genotypes at this variant.
+    ///
+    /// Ignoring the sex chromosomes, human beings typically have two copies of each
+    /// chromosome. Each copy may have a different allele. An individual with two copies of the
+    /// reference allele at a given variant is encoded in the genotype array as the string `0/0`. An
+    /// individual with one reference and one of the first alternate alleles is encoded as `0/1`. If
+    /// one allele is the first alternate and the other is the third alternate, the encoding is:
+    /// `1/3`.
+    ///
+    /// We do not use this string representation because our dataset is biallelic and admits a
+    /// simpler, numeric representation.
+    ///
+    /// ```
+    /// 0/0  0/1
+    ///      1/1
+    /// ```
+    /// ```
+    ///   0    1
+    ///        2
+    /// ```
+    ///
+    /// When one copy of the chromsome can be distinguished from the other, the genotype is called
+    /// "phased". Such a genotype has four possible configurations: `0|0`, `0|1`, `1|0`, and
+    /// `1|1`. We do not support these in the GT field.
+    ///
+    /// Every list is the same length; however, individual positions may be missing.
     pub GT_builder: ListBuilder<UInt64Builder>,
+    /// The genotype quality.
+    ///
+    /// A small non-negative integer indicating our confidence in this genotype. It is usually the
+    /// difference between the lowest and second lowest PL. Larger values indicate higher confidence.
     pub GQ_builder: ListBuilder<Int32Builder>,
+    /// The genotype depth.
+    ///
+    /// Varies by sequencing technology and service provider, but typically the number of reads
+    /// which influenced this genotype call.
     pub DP_builder: ListBuilder<Int32Builder>,
+    /// The allele depth.
+    ///
+    /// For each alternate allele, how many reads contained this allele.
+    ///
+    /// The outer list is always equal to the number of samples and does not vary. The inner list is
+    /// equal to the number of alternate alleles at this variant.
     pub AD_builder: ListBuilder<ListBuilder<Int32Builder>>,
+    /// The minimum depth.
+    ///
+    /// From the VCF header: "Minimum DP observed within the GVCF block". I believe this is mostly
+    /// relevant for homozygous reference calls.
     pub MIN_DP_builder: ListBuilder<Int32Builder>,
+    /// A phased genotype.
+    ///
+    /// We encode them as `0|0`: 0, `0|1`: 1, `1|0`: 2, and `1|1`: 3. Almost all these values are
+    /// null.
     pub PGT_builder: ListBuilder<Int32Builder>,
+    /// The phase ID.
+    ///
+    /// An identifier used to reconstruct the two distinguished copies of the contig.
     pub PID_builder: ListBuilder<StringBuilder>,
+    /// The phred-scaled (log) likelihood of each possible genotype call.
+    ///
+    /// Smaller is better. Has length equal to the number of possible unphased genotypes. For
+    /// biallelic variants, that number is three: 0/0, 0/1, 1/1.
     pub PL_builder: ListBuilder<ListBuilder<Int32Builder>>,
+    /// Per-sample component statistics which comprise the Fisher's Exact Test to detect strand bias.
+    ///
+    /// A single copy of a chromosome is a double-helix. Opposing positions on that double-helix are
+    /// complementary. Sometimes when you're sequencing one of the two helices is preferred, for
+    /// complicated chemical reasons. This is a test of how biased we were towards one or the other strand.
     pub SB_builder: ListBuilder<ListBuilder<Int32Builder>>,
 }
 
