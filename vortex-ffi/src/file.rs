@@ -29,7 +29,7 @@ use crate::array_iterator::vx_array_iterator;
 use crate::dtype::vx_dtype;
 use crate::error::{try_or_default, vx_error};
 use crate::session::{FileKey, vx_session};
-use crate::{RUNTIME, arc_wrapper, to_string_vec};
+use crate::{arc_wrapper, get_runtime, to_string_vec};
 
 arc_wrapper!(
     /// A handle to a Vortex file encapsulating ther footer and logic for instantiating a reader.
@@ -167,7 +167,7 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
             cache_hit = true;
         }
 
-        let vxf = RUNTIME
+        let vxf = get_runtime()
             .block_on(async move { file.open_object_store(&object_store, uri.path()).await })?;
 
         if !cache_hit {
@@ -193,7 +193,7 @@ pub unsafe extern "C-unwind" fn vx_file_write_array(
     try_or_default(error_out, || {
         let path = unsafe { CStr::from_ptr(path).to_str()? };
 
-        RUNTIME.block_on(async {
+        get_runtime().block_on(async {
             VortexWriteOptions::default()
                 .write(
                     &mut tokio::fs::File::create(path).await?,

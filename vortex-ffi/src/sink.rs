@@ -13,10 +13,10 @@ use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::file::VortexWriteOptions;
 use vortex::stream::ArrayStreamAdapter;
 
-use crate::RUNTIME;
 use crate::array::vx_array;
 use crate::dtype::vx_dtype;
 use crate::error::{try_or_default, vx_error};
+use crate::get_runtime;
 
 #[allow(non_camel_case_types)]
 /// The `sink` interface is used to collect array chunks and place them into a resource
@@ -58,7 +58,7 @@ pub unsafe extern "C-unwind" fn vx_array_sink_open_file(
         let (sink, rx) = mpsc::channel(32);
         let array_stream = ArrayStreamAdapter::new(file_dtype.clone(), ReceiverStream::new(rx));
 
-        let writer = RUNTIME.spawn(async move {
+        let writer = get_runtime().spawn(async move {
             let file = File::create(path).await?;
             VortexWriteOptions::default()
                 .write(file, array_stream)
@@ -96,7 +96,7 @@ pub unsafe extern "C-unwind" fn vx_array_sink_close(
         let vx_array_sink { sink, writer } = *unsafe { Box::from_raw(sink) };
         drop(sink);
 
-        RUNTIME.block_on(async {
+        get_runtime().block_on(async {
             let file = writer.await??;
             file.sync_all().await?;
             VortexResult::Ok(())
