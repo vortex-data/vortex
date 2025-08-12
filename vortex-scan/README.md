@@ -146,36 +146,8 @@ The crate includes comprehensive loom tests that exhaustively verify concurrent 
 To run loom tests locally:
 
 ```bash
-RUSTFLAGS="--cfg loom" cargo test --release -p vortex-scan --test loom_concurrency
+RUSTFLAGS="--cfg loom" cargo test --release -p vortex-scan loom_tests::
 ```
-
-#### Loom Test Coverage
-
-The loom test suite covers:
-
-1. **Work Queue Atomic Ordering** - Verifies memory ordering for factory construction
-2. **Work Stealing Safety** - Ensures no duplicate processing of work items
-3. **RwLock Access Patterns** - Tests concurrent reader/writer safety
-4. **TOCTOU Fix Verification** - Confirms time-of-check-time-of-use races are prevented
-5. **Factory Construction** - Tests concurrent initialization patterns
-6. **Stealer Registration** - Verifies thread-safe worker registration
-
-#### Performance
-
-Loom tests complete in approximately 16 seconds in release mode. Debug builds are significantly slower (60+ seconds) and should be avoided.
-
-#### Known Issues
-
-When running with address sanitizer, loom reports small memory leaks (256 bytes per test) in its internal state management. This is not a concern for production code and is why loom tests run in a separate CI job.
-
-## CI Integration
-
-The vortex-scan crate is tested in CI through multiple jobs:
-
-- **Unit Tests**: Part of the main test suite with coverage reporting
-- **Loom Tests**: Separate job for exhaustive concurrency verification
-- **Address Sanitizer**: Memory safety checks (separate from loom)
-- **Clippy**: Comprehensive linting with all features enabled
 
 ## Performance Considerations
 
@@ -221,17 +193,3 @@ Core dependencies:
 - `default`: Standard features for most use cases
 - `tokio`: Enable multi-threaded execution with Tokio runtime
 - `roaring`: Support for Roaring bitmap selections
-
-## Contributing
-
-When contributing to vortex-scan:
-
-1. Ensure all tests pass: `cargo test -p vortex-scan --all-features`
-2. Run clippy: `cargo clippy -p vortex-scan --all-features`
-3. Format code: `cargo +nightly fmt -p vortex-scan`
-4. Add loom tests for any new concurrent code
-5. Update this README for significant changes
-
-## License
-
-Apache-2.0
