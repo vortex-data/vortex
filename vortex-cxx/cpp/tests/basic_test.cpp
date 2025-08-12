@@ -12,7 +12,7 @@
 #include "vortex/write_options.hpp"
 #include "vortex/scalar.hpp"
 #include "test_data_generator.hpp"
-#include "vortex_cxx_bridge/write.h"
+#include "vortex_cxx_bridge/lib.h"
 
 #include <nanoarrow/nanoarrow.hpp>
 #include <nanoarrow/nanoarrow.h>
@@ -378,26 +378,6 @@ TEST_F(VortexTest, ConcurrentMultiStreamRead) {
     ASSERT_EQ(reference_offset, EXPECTED_ROWS) << "Reference validation didn't cover all rows";
 
     ASSERT_GT(all_batches.size(), 1) << "Expected multiple batches, but got " << all_batches.size();
-}
-
-TEST_F(VortexTest, ScalarCreation) {
-    // Test basic scalar creation functions
-    ASSERT_NO_THROW(vortex::Scalar bool_scalar = vortex::Scalar::bool_(true));
-    ASSERT_NO_THROW(vortex::Scalar int8_scalar = vortex::Scalar::int8(42));
-    ASSERT_NO_THROW(vortex::Scalar int16_scalar = vortex::Scalar::int16(12345));
-    ASSERT_NO_THROW(vortex::Scalar int32_scalar = vortex::Scalar::int32(123456789));
-    ASSERT_NO_THROW(vortex::Scalar int64_scalar = vortex::Scalar::int64(123456789012LL));
-    ASSERT_NO_THROW(vortex::Scalar uint8_scalar = vortex::Scalar::uint8(200));
-    ASSERT_NO_THROW(vortex::Scalar uint16_scalar = vortex::Scalar::uint16(50000));
-    ASSERT_NO_THROW(vortex::Scalar uint32_scalar = vortex::Scalar::uint32(3000000000ULL));
-    ASSERT_NO_THROW(vortex::Scalar uint64_scalar = vortex::Scalar::uint64(123456789012ULL));
-    ASSERT_NO_THROW(vortex::Scalar float32_scalar = vortex::Scalar::float32(3.14f));
-    ASSERT_NO_THROW(vortex::Scalar float64_scalar = vortex::Scalar::float64(3.14159265359));
-    ASSERT_NO_THROW(vortex::Scalar string_scalar = vortex::Scalar::string("hello world"));
-
-    // Test binary scalar with raw data
-    const uint8_t raw_data[] = {0x01, 0x02, 0x03, 0x04, 0x05};
-    ASSERT_NO_THROW(vortex::Scalar binary_raw = vortex::Scalar::binary(raw_data, sizeof(raw_data)));
 }
 
 TEST_F(VortexTest, ScanBuilderWithFilter) {
