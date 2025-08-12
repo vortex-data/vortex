@@ -205,7 +205,7 @@ mod tests {
                 let vx_array_ptr = vx_array::new(array.into_array());
                 vx_array_sink_push(sink, vx_array_ptr, &raw mut error);
                 vx_array_free(vx_array_ptr);
-                
+
                 // Close should fail due to invalid path
                 vx_array_sink_close(sink, &raw mut error);
                 // Either error is set or operation succeeds (depends on filesystem)
