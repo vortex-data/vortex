@@ -52,7 +52,7 @@ impl VortexSession {
         // Get a runtime reference that will be held for the lifetime of this session
         let runtime = crate::get_session_runtime();
 
-        Self { 
+        Self {
             file_cache,
             _runtime: runtime,
         }
