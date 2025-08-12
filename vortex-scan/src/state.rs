@@ -9,13 +9,14 @@ use dashmap::DashMap;
 use futures::executor::block_on;
 use futures::future::BoxFuture;
 use futures::stream::FuturesUnordered;
+use futures::task::noop_waker;
 use futures::{FutureExt, StreamExt};
 use log::info;
 use parking_lot::{Mutex, RwLock};
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
-use std::sync::{Arc, LazyLock};
-use std::task::{Context, Poll, Wake, Waker};
+use std::sync::Arc;
+use std::task::{Context, Poll, Waker};
 use std::{iter, mem};
 use vortex_array::ArrayRef;
 use vortex_array::iter::ArrayIterator;
@@ -33,6 +34,8 @@ pub struct Scan2 {
 }
 
 struct GlobalState {
+    /// The DType of the projection
+    dtype: DType,
     scheduler: Mutex<Scheduler>,
     shared: Arc<SharedState>,
     stealers: RwLock<Vec<Stealer<Box<dyn ScanTask>>>>,
@@ -78,10 +81,7 @@ impl Scan2 {
         }
 
         let shared = Arc::new(SharedState {
-            dtype,
-            splits: vec![],
             injector: Injector::new(),
-            working_set: Default::default(),
             filter_expr: ctx.filter.clone(),
         });
 
@@ -91,8 +91,8 @@ impl Scan2 {
             shared: shared.clone(),
             source: ctx.segment_source.clone(),
             segment_futures: Default::default(),
-            cpu_send,
-            cpu_recv,
+            result_send: cpu_send,
+            result_recv: cpu_recv,
             finished: false,
             errored: false,
             active_splits: 0..0,
@@ -100,12 +100,14 @@ impl Scan2 {
                 .take(nsplits)
                 .collect(),
             splits,
+            working_set: Default::default(),
             working_set_size: 0,
             target_segment_count: 1000,
             waiting_for_segments: Default::default(),
         });
 
         let global = Arc::new(GlobalState {
+            dtype,
             scheduler,
             shared,
             stealers: Default::default(),
@@ -128,14 +130,8 @@ impl Scan2 {
 
 /// State that is shared across workers and the scheduler
 struct SharedState {
-    /// The DType of the projection
-    dtype: DType,
-    /// Information about each split in the scan.
-    splits: Vec<Split>,
     /// Injector for launching CPU tasks.
     injector: Injector<Box<dyn ScanTask>>,
-    /// The working set of segments.
-    working_set: Arc<DashMap<SegmentId, ByteBuffer>>,
     /// The filter expression for the scan.
     filter_expr: Option<Arc<FilterExpr>>,
 }
@@ -179,10 +175,9 @@ struct IoEvent {
 }
 
 #[derive(Debug)]
-enum CpuEvent {
+enum ScanTaskResult {
     Filter {
         split_idx: SplitIdx,
-        conjunct_idx: usize,
         mask: Mask,
     },
     Project {
@@ -197,9 +192,9 @@ struct Scheduler {
     source: Arc<dyn SegmentSource>,
     segment_futures: FuturesUnordered<BoxFuture<'static, VortexResult<IoEvent>>>,
 
-    /// Results for CPU tasks.
-    cpu_send: Sender<CpuEvent>,
-    cpu_recv: Receiver<CpuEvent>,
+    /// Results for scan tasks.
+    result_send: Sender<ScanTaskResult>,
+    result_recv: Receiver<ScanTaskResult>,
 
     /// If all splits have been processed, we can stop.
     finished: bool,
@@ -212,6 +207,8 @@ struct Scheduler {
     split_state: Vec<SplitState>,
     splits: Vec<Split>,
 
+    /// The working set of segments.
+    working_set: Arc<DashMap<SegmentId, ByteBuffer>>,
     /// The total size of bytes in the working set of segments.
     working_set_size: u64,
 
@@ -256,11 +253,10 @@ pub trait ScanTask {
 
 struct FilterTask {
     split_idx: SplitIdx,
-    conjunct_idx: usize,
     eval: Box<dyn MaskEvaluation>,
     mask: Mask,
     segments: Arc<DashMap<SegmentId, ByteBuffer>>,
-    cpu_events: Sender<CpuEvent>,
+    cpu_events: Sender<ScanTaskResult>,
 }
 
 impl ScanTask for FilterTask {
@@ -269,9 +265,8 @@ impl ScanTask for FilterTask {
             .eval
             .invoke(self.mask.clone(), self.segments.as_ref())?;
         self.cpu_events
-            .send(CpuEvent::Filter {
+            .send(ScanTaskResult::Filter {
                 split_idx: self.split_idx,
-                conjunct_idx: self.conjunct_idx,
                 mask,
             })
             .map_err(|e| vortex_err!("failed to send project event: {}", e))?;
@@ -284,7 +279,7 @@ struct ProjectTask {
     eval: Box<dyn ArrayEvaluation>,
     mask: Mask,
     segments: Arc<DashMap<SegmentId, ByteBuffer>>,
-    cpu_events: Sender<CpuEvent>,
+    cpu_events: Sender<ScanTaskResult>,
 }
 
 impl ScanTask for ProjectTask {
@@ -293,7 +288,7 @@ impl ScanTask for ProjectTask {
             .eval
             .invoke(self.mask.clone(), self.segments.as_ref())?;
         self.cpu_events
-            .send(CpuEvent::Project {
+            .send(ScanTaskResult::Project {
                 split_idx: self.split_idx,
                 array: array.clone(),
             })
@@ -308,10 +303,9 @@ impl Scheduler {
     /// Returns true if progress was made.
     fn make_progress(&mut self) -> VortexResult<bool> {
         // First, we handle I/O events
-        while let Poll::Ready(Some(result)) = self
-            .segment_futures
-            .poll_next_unpin(&mut Context::from_waker(&DUMMY_WAKER))
-        {
+        let waker = noop_waker();
+        let mut ctx = Context::from_waker(&waker);
+        while let Poll::Ready(Some(result)) = self.segment_futures.poll_next_unpin(&mut ctx) {
             match result {
                 Ok(event) => {
                     info!("Handling I/O event for segment {:?}", event.segment_id);
@@ -325,7 +319,7 @@ impl Scheduler {
         }
 
         // Next we handle CPU events.
-        while let Ok(event) = self.cpu_recv.try_recv() {
+        while let Ok(event) = self.result_recv.try_recv() {
             info!("Handling CPU event for segment {:?}", event);
             self.handle_cpu_event(event)
         }
@@ -359,8 +353,7 @@ impl Scheduler {
         // in-flight request sizes. We don't currently know the in-flight segment sizes, so we
         // will just do it based on segment count instead.
         while (self.active_splits.end < self.split_state.len()
-            && self.shared.working_set.len() + self.segment_futures.len()
-                < self.target_segment_count)
+            && self.working_set.len() + self.segment_futures.len() < self.target_segment_count)
             || self.active_splits.is_empty()
         {
             info!("Launching split {}", self.active_splits.end);
@@ -390,9 +383,7 @@ impl Scheduler {
     fn handle_io_event(&mut self, event: IoEvent) {
         // Insert the segment buffer into the working set.
         self.working_set_size += event.buffer.len() as u64;
-        self.shared
-            .working_set
-            .insert(event.segment_id, event.buffer);
+        self.working_set.insert(event.segment_id, event.buffer);
 
         // Check which splits are waiting for this segment.
         if let Some(items) = self.waiting_for_segments.remove(&event.segment_id) {
@@ -413,11 +404,11 @@ impl Scheduler {
         }
     }
 
-    fn handle_cpu_event(&mut self, event: CpuEvent) {
+    fn handle_cpu_event(&mut self, event: ScanTaskResult) {
         info!("Handling CPU event {:?}", event);
 
         match event {
-            CpuEvent::Filter {
+            ScanTaskResult::Filter {
                 split_idx, mask, ..
             } => {
                 let SplitState::Filter { result, .. } = &mut self.split_state[split_idx] else {
@@ -425,7 +416,7 @@ impl Scheduler {
                 };
                 *result = Some(mask);
             }
-            CpuEvent::Project { split_idx, array } => {
+            ScanTaskResult::Project { split_idx, array } => {
                 let SplitState::Project { result, .. } = &mut self.split_state[split_idx] else {
                     vortex_panic!("unexpected split state {:?}", self.split_state[split_idx])
                 };
@@ -435,28 +426,27 @@ impl Scheduler {
     }
 
     fn make_progress_on_split(&mut self, split_idx: SplitIdx) -> bool {
-        let split = &self.shared.splits[split_idx];
+        let split = &self.splits[split_idx];
 
         // Take the state temporarily, we will restore it later.
         let state = mem::replace(&mut self.split_state[split_idx], SplitState::NotStarted);
 
-        let made_progress = match state {
+        let new_state = match &state {
             SplitState::NotStarted => {
                 // We need to launch a filter task if there is one, else a project.
                 let mask = Mask::new_true(split.len);
                 if self.shared.filter_expr.is_some() {
-                    self.split_state[split_idx] = SplitState::PendingFilter {
+                    Some(SplitState::PendingFilter {
                         conjunct_idx: 0,
                         mask,
                         waiting_for: self.launch_segment_requests(split_idx, Atom::Filter(0)),
-                    };
+                    })
                 } else {
-                    self.split_state[split_idx] = SplitState::PendingProject {
+                    Some(SplitState::PendingProject {
                         mask,
                         waiting_for: self.launch_segment_requests(split_idx, Atom::Project),
-                    };
+                    })
                 }
-                true
             }
             SplitState::PendingFilter {
                 conjunct_idx,
@@ -467,21 +457,19 @@ impl Scheduler {
                     // If we have all our segments, we can launch the filter task.
                     self.shared.injector.push(Box::new(FilterTask {
                         split_idx,
-                        eval: self.splits[split_idx].filters[conjunct_idx]
+                        eval: self.splits[split_idx].filters[*conjunct_idx]
                             .take()
                             .vortex_expect("filter evaluation already taken"),
-                        conjunct_idx,
                         mask: mask.clone(),
-                        segments: self.shared.working_set.clone(),
-                        cpu_events: self.cpu_send.clone(),
+                        segments: self.working_set.clone(),
+                        cpu_events: self.result_send.clone(),
                     }));
-                    self.split_state[split_idx] = SplitState::Filter {
-                        conjunct_idx,
+                    Some(SplitState::Filter {
+                        conjunct_idx: *conjunct_idx,
                         result: None,
-                    };
-                    true
+                    })
                 } else {
-                    false
+                    None
                 }
             }
             SplitState::Filter {
@@ -491,25 +479,23 @@ impl Scheduler {
                 if let Some(mask) = result {
                     if mask.all_false() {
                         // If the mask is all false, we can terminate the split early.
-                        self.split_state[split_idx] = SplitState::Finished;
-                        true;
-                    } else if conjunct_idx == self.shared.num_conjuncts() - 1 {
+                        Some(SplitState::Finished)
+                    } else if *conjunct_idx == self.shared.num_conjuncts() - 1 {
                         // It was the last conjunct, so move onto projection.
-                        self.split_state[split_idx] = SplitState::PendingProject {
+                        Some(SplitState::PendingProject {
                             mask: mask.clone(),
                             waiting_for: self.launch_segment_requests(split_idx, Atom::Project),
-                        }
+                        })
                     } else {
-                        self.split_state[split_idx] = SplitState::PendingFilter {
+                        Some(SplitState::PendingFilter {
                             conjunct_idx: conjunct_idx + 1,
                             mask: mask.clone(),
                             waiting_for: self
                                 .launch_segment_requests(split_idx, Atom::Filter(conjunct_idx + 1)),
-                        }
+                        })
                     }
-                    true
                 } else {
-                    false
+                    None
                 }
             }
             SplitState::PendingProject { mask, waiting_for } => {
@@ -522,33 +508,35 @@ impl Scheduler {
                             .take()
                             .vortex_expect("projection evaluation already taken"),
                         mask: mask.clone(),
-                        segments: self.shared.working_set.clone(),
-                        cpu_events: self.cpu_send.clone(),
+                        segments: self.working_set.clone(),
+                        cpu_events: self.result_send.clone(),
                     }));
-                    self.split_state[split_idx] = SplitState::Project { result: None };
-                    true
+                    Some(SplitState::Project { result: None })
                 } else {
-                    false
+                    None
                 }
             }
             SplitState::Project { result } => {
                 if result.is_some() {
-                    self.split_state[split_idx] = SplitState::Finished;
-                    true
+                    Some(SplitState::Finished)
                 } else {
-                    false
+                    None
                 }
             }
             SplitState::Finished => {
                 // We're already finished, no progress to make
-                false
+                None
             }
         };
 
-        info!(
-            "Moved split {} to {:?}",
-            split_idx, &self.split_state[split_idx]
-        );
+        let made_progress = new_state.is_some();
+        if made_progress {
+            info!(
+                "Moved split {} to {:?}",
+                split_idx, &self.split_state[split_idx]
+            );
+        }
+        self.split_state[split_idx] = new_state.unwrap_or(state);
         made_progress
     }
 
@@ -557,14 +545,12 @@ impl Scheduler {
         let mut pending = HashSet::new();
 
         let segment_ids = match atom {
-            Atom::Filter(conjunct_idx) => {
-                &self.shared.splits[split_idx].filter_segments[conjunct_idx]
-            }
-            Atom::Project => &self.shared.splits[split_idx].projection_segments,
+            Atom::Filter(conjunct_idx) => &self.splits[split_idx].filter_segments[conjunct_idx],
+            Atom::Project => &self.splits[split_idx].projection_segments,
         };
 
         for segment_id in segment_ids.iter().copied() {
-            if self.shared.working_set.contains_key(&segment_id) {
+            if self.working_set.contains_key(&segment_id) {
                 continue;
             }
             let fut = self.source.request(segment_id);
@@ -654,7 +640,7 @@ impl Iterator for ScanWorker {
 
 impl ArrayIterator for ScanWorker {
     fn dtype(&self) -> &DType {
-        &self.global.shared.dtype
+        &self.global.dtype
     }
 }
 
@@ -685,14 +671,5 @@ impl ScanWorker {
             // Extract the stolen task if there is one.
             .and_then(|s| s.success())
         })
-    }
-}
-
-static DUMMY_WAKER: LazyLock<Waker> = LazyLock::new(|| Waker::from(Arc::new(DummyWaker)));
-
-struct DummyWaker;
-impl Wake for DummyWaker {
-    fn wake(self: Arc<Self>) {
-        // Do nothing!
     }
 }
