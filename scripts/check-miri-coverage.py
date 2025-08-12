@@ -29,10 +29,7 @@ MIRI_ALLOWLIST: Set[str] = {
     "vortex-fuzz",        # Fuzzing harness may not work with miri
     "vortex-datafusion",  # DataFusion integration - complex and not critical for unsafe validation
     # Note: vortex-ffi is partially tested with miri (some tests work)
-    
-    # TODO: vortex-scalar has too many tests for miri to run in reasonable time
-    # It needs selective test marking with #[cfg_attr(miri, ignore)]
-    "vortex-scalar",   # 459 tests, takes ~78s
+    # Note: vortex-scalar and vortex-array are now tested in groups 8 and 9
 }
 
 def find_crates_with_unsafe() -> Set[str]:
