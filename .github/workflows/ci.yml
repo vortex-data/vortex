@@ -336,11 +336,6 @@ jobs:
   rust-test:
     name: "Rust tests (sanitizer)"
     timeout-minutes: 120
-    strategy:
-      matrix:
-        suite:
-          - unit-tests
-          - loom
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
@@ -348,7 +343,8 @@ jobs:
       - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=rust-test-sanitizer
-      - tag=suite-${{ matrix.suite }}
+    env:
+      RUSTFLAGS: "-A warnings -Zsanitizer=address"
     steps:
       - uses: runs-on/action@v2
         with:
@@ -359,23 +355,37 @@ jobs:
           toolchain: nightly
           components: "rust-src, rustfmt, clippy, llvm-tools-preview"
       - name: Install nextest
-        if: ${{ matrix.suite == 'unit-tests' }}
         uses: taiki-e/install-action@v2
         with:
           tool: nextest@0.9.98
-      - name: Unit Tests with Address Sanitizer
-        if: ${{ matrix.suite == 'unit-tests' }}
-        env:
-          RUSTFLAGS: "-A warnings -Zsanitizer=address"
+      - name: Rust Tests
         # vortex-duckdb-ext currently fails linking for cargo test targets.
         run: |
           cargo +nightly nextest run --locked --workspace --all-features --no-fail-fast --target x86_64-unknown-linux-gnu
-      - name: Loom Concurrency Tests with Address Sanitizer
-        if: ${{ matrix.suite == 'loom' }}
-        env:
-          RUSTFLAGS: "--cfg loom -A warnings -Zsanitizer=address"
-        run: |
-          cargo +nightly test --release -p vortex-scan --test loom_concurrency --target x86_64-unknown-linux-gnu
+
+  loom:
+    name: "Loom concurrency tests"
+    timeout-minutes: 120
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m7i+m7i-flex+m7a
+      - cpu=4
+      - image=ubuntu24-full-x64
+      - extras=s3-cache
+      - tag=loom
+    env:
+      RUSTFLAGS: "--cfg loom -A warnings"
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-rust
+        with:
+          toolchain: nightly
+          components: "rust-src, rustfmt, clippy"
+      - name: Run Loom Tests
+        run: cargo +nightly test --release -p vortex-scan --test loom_concurrency
 
   build-java:
     name: "Java"
