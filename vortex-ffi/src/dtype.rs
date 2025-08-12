@@ -264,6 +264,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_time_zone(
 mod tests {
     use vortex::dtype::DType;
 
+    use super::*;
     use crate::dtype::{
         vx_dtype, vx_dtype_free, vx_dtype_get_variant, vx_dtype_new_bool, vx_dtype_new_primitive,
         vx_dtype_new_utf8, vx_dtype_variant,
@@ -328,6 +329,121 @@ mod tests {
             vx_dtype_free(dtype1);
 
             vx_struct_fields_free(person);
+        }
+    }
+
+    #[test]
+    fn test_dtype_null() {
+        unsafe {
+            let null_dtype = vx_dtype_new_null();
+            assert_eq!(
+                vx_dtype_get_variant(null_dtype),
+                vx_dtype_variant::DTYPE_NULL
+            );
+            // Null dtype is always nullable
+            assert!(vx_dtype_is_nullable(null_dtype));
+            vx_dtype_free(null_dtype);
+        }
+    }
+
+    #[test]
+    fn test_dtype_binary() {
+        unsafe {
+            let binary_dtype = vx_dtype_new_binary(true);
+            assert_eq!(
+                vx_dtype_get_variant(binary_dtype),
+                vx_dtype_variant::DTYPE_BINARY
+            );
+            assert!(vx_dtype_is_nullable(binary_dtype));
+            vx_dtype_free(binary_dtype);
+
+            let non_nullable = vx_dtype_new_binary(false);
+            assert!(!vx_dtype_is_nullable(non_nullable));
+            vx_dtype_free(non_nullable);
+        }
+    }
+
+    #[test]
+    fn test_dtype_list() {
+        unsafe {
+            let element_dtype = vx_dtype_new_primitive(vx_ptype::PTYPE_I32, false);
+            let list_dtype = vx_dtype_new_list(element_dtype, true);
+
+            assert_eq!(
+                vx_dtype_get_variant(list_dtype),
+                vx_dtype_variant::DTYPE_LIST
+            );
+            assert!(vx_dtype_is_nullable(list_dtype));
+
+            let element = vx_dtype_list_element(list_dtype);
+            assert_eq!(
+                vx_dtype_get_variant(element),
+                vx_dtype_variant::DTYPE_PRIMITIVE
+            );
+            assert_eq!(vx_dtype_primitive_ptype(element), vx_ptype::PTYPE_I32);
+
+            vx_dtype_free(list_dtype);
+        }
+    }
+
+    #[test]
+    fn test_dtype_decimal() {
+        unsafe {
+            let decimal_dtype = vx_dtype_new_decimal(10, 2, true);
+            assert_eq!(
+                vx_dtype_get_variant(decimal_dtype),
+                vx_dtype_variant::DTYPE_DECIMAL
+            );
+            assert!(vx_dtype_is_nullable(decimal_dtype));
+            assert_eq!(vx_dtype_decimal_precision(decimal_dtype), 10);
+            assert_eq!(vx_dtype_decimal_scale(decimal_dtype), 2);
+            vx_dtype_free(decimal_dtype);
+
+            let non_nullable = vx_dtype_new_decimal(18, -3, false);
+            assert!(!vx_dtype_is_nullable(non_nullable));
+            assert_eq!(vx_dtype_decimal_precision(non_nullable), 18);
+            assert_eq!(vx_dtype_decimal_scale(non_nullable), -3);
+            vx_dtype_free(non_nullable);
+        }
+    }
+
+    #[test]
+    fn test_dtype_primitive_ptype() {
+        unsafe {
+            let u8_dtype = vx_dtype_new_primitive(vx_ptype::PTYPE_U8, false);
+            assert_eq!(vx_dtype_primitive_ptype(u8_dtype), vx_ptype::PTYPE_U8);
+            vx_dtype_free(u8_dtype);
+
+            let f64_dtype = vx_dtype_new_primitive(vx_ptype::PTYPE_F64, true);
+            assert_eq!(vx_dtype_primitive_ptype(f64_dtype), vx_ptype::PTYPE_F64);
+            vx_dtype_free(f64_dtype);
+        }
+    }
+
+    #[test]
+    fn test_dtype_variant_conversion() {
+        use vortex::dtype::{DType, DecimalDType};
+
+        let dtypes = vec![
+            DType::Null,
+            DType::Bool(true.into()),
+            DType::Primitive(vortex::dtype::PType::I32, false.into()),
+            DType::Decimal(DecimalDType::new(10, 2), true.into()),
+            DType::Utf8(false.into()),
+            DType::Binary(true.into()),
+        ];
+
+        for dtype in dtypes {
+            let variant: vx_dtype_variant = (&dtype).into();
+            match dtype {
+                DType::Null => assert_eq!(variant, vx_dtype_variant::DTYPE_NULL),
+                DType::Bool(_) => assert_eq!(variant, vx_dtype_variant::DTYPE_BOOL),
+                DType::Primitive(..) => assert_eq!(variant, vx_dtype_variant::DTYPE_PRIMITIVE),
+                DType::Decimal(..) => assert_eq!(variant, vx_dtype_variant::DTYPE_DECIMAL),
+                DType::Utf8(_) => assert_eq!(variant, vx_dtype_variant::DTYPE_UTF8),
+                DType::Binary(_) => assert_eq!(variant, vx_dtype_variant::DTYPE_BINARY),
+                _ => {}
+            }
         }
     }
 }
