@@ -61,6 +61,8 @@ impl<T: Send + Sync + 'static> Iterator for MultiScanIterator<T> {
         loop {
             match self.inner.next()? {
                 Ok(task) => match self.local_pool.run_until(task) {
+                    // If the underlying future returns Ok(None) we have to keep going
+                    // until we find the next present element or end of iterator.
                     Ok(Some(value)) => return Some(Ok(value)),
                     Ok(None) => continue,
                     Err(e) => return Some(Err(e)),
