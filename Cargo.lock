@@ -3591,6 +3591,8 @@ dependencies = [
  "cfg-if",
  "generator",
  "scoped-tls",
+ "serde",
+ "serde_json",
  "tracing",
  "tracing-subscriber",
 ]
@@ -6972,6 +6974,7 @@ dependencies = [
  "futures",
  "itertools 0.14.0",
  "log",
+ "loom",
  "parking_lot",
  "roaring",
  "sketches-ddsketch",
