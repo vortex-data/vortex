@@ -5,7 +5,7 @@
 
 #include <string>
 #include <nanoarrow/common/inline_types.h>
-#include "vortex_cxx_bridge/dtype_scalar_expr.h"
+#include "vortex_cxx_bridge/lib.h"
 
 namespace vortex {
 

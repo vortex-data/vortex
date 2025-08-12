@@ -8,7 +8,6 @@
 #include "vortex_cxx_bridge/lib.h"
 
 #include <cstdint>
-#include <memory>
 
 namespace vortex {
 /// The StreamDriver internally holds a `RecordBatchIteratorAdapter` from the Rust side, which is thread-safe

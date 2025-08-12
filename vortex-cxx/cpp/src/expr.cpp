@@ -3,11 +3,6 @@
 
 #include "vortex/expr.hpp"
 
-#include "rust/cxx.h"
-#include "vortex_cxx_bridge/lib.h"
-
-#include <stdexcept>
-
 namespace vortex {
 
 Expr::Expr(rust::Box<ffi::Expr> impl) : impl_(std::move(impl)) {

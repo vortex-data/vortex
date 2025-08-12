@@ -5,7 +5,7 @@
 
 #include <string_view>
 #include "dtype.hpp"
-#include "vortex_cxx_bridge/dtype_scalar_expr.h"
+#include "vortex_cxx_bridge/lib.h"
 
 namespace vortex {
 
