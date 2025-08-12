@@ -247,10 +247,7 @@ mod tests {
         let error = ArrowError::ComputeError("test error".to_string());
 
         let iter = vec![Ok(batch.clone()), Err(error), Ok(batch)].into_iter();
-        let mut adapter = RecordBatchIteratorAdapter {
-            iter,
-            schema,
-        };
+        let mut adapter = RecordBatchIteratorAdapter { iter, schema };
 
         // First batch succeeds
         let first = adapter.next().unwrap();

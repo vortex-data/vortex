@@ -4,6 +4,7 @@
 use std::ops::{Not, Range};
 
 use vortex_buffer::Buffer;
+use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 
 use crate::row_mask::RowMask;
