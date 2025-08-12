@@ -109,9 +109,9 @@ impl Selection {
                 let mut range_treemap = roaring::RoaringTreemap::new();
                 range_treemap.insert_range(range.clone());
 
-                // If there are no deletions in the intersection, then we have an all true mask.
+                // If all indices in range are excluded, return all false mask
                 if roaring.intersection_len(&range_treemap) == range_len as u64 {
-                    return RowMask::new(range.start, Mask::new_true(range_len));
+                    return RowMask::new(range.start, Mask::new_false(range_len));
                 }
 
                 // Otherwise, intersect with the selected range and shift to relativize.
@@ -203,5 +203,258 @@ mod tests {
         let row_mask = selection.row_mask(&range);
 
         assert_eq!(row_mask.mask().values().unwrap().indices(), &[0]);
+    }
+
+    #[cfg(feature = "roaring")]
+    mod roaring_tests {
+        use roaring::RoaringTreemap;
+
+        use super::*;
+
+        #[test]
+        fn test_roaring_include_basic() {
+            let mut roaring = RoaringTreemap::new();
+            roaring.insert(1);
+            roaring.insert(3);
+            roaring.insert(5);
+            roaring.insert(7);
+
+            let selection = super::super::Selection::IncludeRoaring(roaring);
+            let range = 1..8;
+            let row_mask = selection.row_mask(&range);
+
+            assert_eq!(row_mask.mask().values().unwrap().indices(), &[0, 2, 4, 6]);
+        }
+
+        #[test]
+        fn test_roaring_include_slice() {
+            let mut roaring = RoaringTreemap::new();
+            roaring.insert(1);
+            roaring.insert(3);
+            roaring.insert(5);
+            roaring.insert(7);
+
+            let selection = super::super::Selection::IncludeRoaring(roaring);
+            let range = 3..6;
+            let row_mask = selection.row_mask(&range);
+
+            assert_eq!(row_mask.mask().values().unwrap().indices(), &[0, 2]);
+        }
+
+        #[test]
+        fn test_roaring_include_disjoint() {
+            let mut roaring = RoaringTreemap::new();
+            roaring.insert(1);
+            roaring.insert(3);
+            roaring.insert(5);
+            roaring.insert(7);
+
+            let selection = super::super::Selection::IncludeRoaring(roaring);
+            let range = 8..10;
+            let row_mask = selection.row_mask(&range);
+
+            assert!(row_mask.mask().all_false());
+        }
+
+        #[test]
+        fn test_roaring_include_large_range() {
+            let mut roaring = RoaringTreemap::new();
+            // Insert a large number of indices
+            for i in (0..1000000).step_by(2) {
+                roaring.insert(i);
+            }
+
+            let selection = super::super::Selection::IncludeRoaring(roaring);
+            let range = 1000..2000;
+            let row_mask = selection.row_mask(&range);
+
+            // Should have 500 selected indices (every even number)
+            assert_eq!(row_mask.mask().true_count(), 500);
+        }
+
+        #[test]
+        fn test_roaring_exclude_basic() {
+            let mut roaring = RoaringTreemap::new();
+            roaring.insert(1);
+            roaring.insert(3);
+            roaring.insert(5);
+
+            let selection = super::super::Selection::ExcludeRoaring(roaring);
+            let range = 0..7;
+            let row_mask = selection.row_mask(&range);
+
+            // Should exclude indices 1, 3, 5, so we get 0, 2, 4, 6
+            assert_eq!(row_mask.mask().values().unwrap().indices(), &[0, 2, 4, 6]);
+        }
+
+        #[test]
+        fn test_roaring_exclude_all() {
+            let mut roaring = RoaringTreemap::new();
+            // Exclude all indices in range
+            for i in 10..20 {
+                roaring.insert(i);
+            }
+
+            let selection = super::super::Selection::ExcludeRoaring(roaring);
+            let range = 10..20;
+            let row_mask = selection.row_mask(&range);
+
+            assert!(row_mask.mask().all_false());
+        }
+
+        #[test]
+        fn test_roaring_exclude_none() {
+            let mut roaring = RoaringTreemap::new();
+            roaring.insert(100);
+            roaring.insert(101);
+
+            let selection = super::super::Selection::ExcludeRoaring(roaring);
+            let range = 0..10;
+            let row_mask = selection.row_mask(&range);
+
+            // Nothing to exclude in this range
+            assert!(row_mask.mask().all_true());
+        }
+
+        #[test]
+        fn test_roaring_exclude_partial() {
+            let mut roaring = RoaringTreemap::new();
+            roaring.insert(5);
+            roaring.insert(6);
+            roaring.insert(7);
+            roaring.insert(15); // Outside range
+
+            let selection = super::super::Selection::ExcludeRoaring(roaring);
+            let range = 5..10;
+            let row_mask = selection.row_mask(&range);
+
+            // Should exclude 5, 6, 7 (mapped to 0, 1, 2), keep 8, 9 (mapped to 3, 4)
+            assert_eq!(row_mask.mask().values().unwrap().indices(), &[3, 4]);
+        }
+
+        #[test]
+        fn test_roaring_include_empty() {
+            let roaring = RoaringTreemap::new();
+            let selection = super::super::Selection::IncludeRoaring(roaring);
+            let range = 0..100;
+            let row_mask = selection.row_mask(&range);
+
+            assert!(row_mask.mask().all_false());
+        }
+
+        #[test]
+        fn test_roaring_exclude_empty() {
+            let roaring = RoaringTreemap::new();
+            let selection = super::super::Selection::ExcludeRoaring(roaring);
+            let range = 0..100;
+            let row_mask = selection.row_mask(&range);
+
+            assert!(row_mask.mask().all_true());
+        }
+
+        #[test]
+        fn test_roaring_include_boundary() {
+            let mut roaring = RoaringTreemap::new();
+            roaring.insert(0);
+            roaring.insert(99);
+
+            let selection = super::super::Selection::IncludeRoaring(roaring);
+            let range = 0..100;
+            let row_mask = selection.row_mask(&range);
+
+            assert_eq!(row_mask.mask().values().unwrap().indices(), &[0, 99]);
+        }
+
+        #[test]
+        fn test_roaring_include_range_insertion() {
+            let mut roaring = RoaringTreemap::new();
+            // Use insert_range for efficiency
+            roaring.insert_range(10..20);
+            roaring.insert_range(30..40);
+
+            let selection = super::super::Selection::IncludeRoaring(roaring);
+            let range = 15..35;
+            let row_mask = selection.row_mask(&range);
+
+            // Should include 15-19 (mapped to 0-4) and 30-34 (mapped to 15-19)
+            let expected: Vec<usize> = (0..5).chain(15..20).collect();
+            assert_eq!(row_mask.mask().values().unwrap().indices(), &expected);
+        }
+
+        #[test]
+        fn test_roaring_overflow_protection() {
+            let mut roaring = RoaringTreemap::new();
+            // Insert very large indices
+            roaring.insert(u64::MAX - 1);
+            roaring.insert(u64::MAX);
+
+            let selection = super::super::Selection::IncludeRoaring(roaring);
+            let range = u64::MAX - 10..u64::MAX;
+            let row_mask = selection.row_mask(&range);
+
+            // Should handle overflow gracefully
+            assert_eq!(row_mask.mask().true_count(), 1); // Only u64::MAX - 1 is in range
+        }
+
+        #[test]
+        fn test_roaring_exclude_overflow_protection() {
+            let mut roaring = RoaringTreemap::new();
+            roaring.insert(u64::MAX - 1);
+
+            let selection = super::super::Selection::ExcludeRoaring(roaring);
+            let range = u64::MAX - 10..u64::MAX;
+            let row_mask = selection.row_mask(&range);
+
+            // Should handle overflow gracefully, excluding index u64::MAX - 1
+            assert_eq!(row_mask.mask().true_count(), 9); // All except one
+        }
+
+        #[test]
+        fn test_roaring_include_vs_buffer_equivalence() {
+            // Test that RoaringTreemap and Buffer produce same results
+            let indices = vec![1, 3, 5, 7, 9];
+
+            let buffer_selection =
+                super::super::Selection::IncludeByIndex(Buffer::from_iter(indices.clone()));
+
+            let mut roaring = RoaringTreemap::new();
+            for idx in &indices {
+                roaring.insert(*idx);
+            }
+            let roaring_selection = super::super::Selection::IncludeRoaring(roaring);
+
+            let range = 0..12;
+            let buffer_mask = buffer_selection.row_mask(&range);
+            let roaring_mask = roaring_selection.row_mask(&range);
+
+            assert_eq!(
+                buffer_mask.mask().values().unwrap().indices(),
+                roaring_mask.mask().values().unwrap().indices()
+            );
+        }
+
+        #[test]
+        fn test_roaring_exclude_vs_buffer_equivalence() {
+            // Test that ExcludeRoaring and ExcludeByIndex produce same results
+            let indices = vec![2, 4, 6, 8];
+
+            let buffer_selection =
+                super::super::Selection::ExcludeByIndex(Buffer::from_iter(indices.clone()));
+
+            let mut roaring = RoaringTreemap::new();
+            for idx in &indices {
+                roaring.insert(*idx);
+            }
+            let roaring_selection = super::super::Selection::ExcludeRoaring(roaring);
+
+            let range = 0..10;
+            let buffer_mask = buffer_selection.row_mask(&range);
+            let roaring_mask = roaring_selection.row_mask(&range);
+
+            assert_eq!(
+                buffer_mask.mask().values().unwrap().indices(),
+                roaring_mask.mask().values().unwrap().indices()
+            );
+        }
     }
 }
