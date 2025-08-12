@@ -4,7 +4,6 @@
 use std::ops::{Not, Range};
 
 use vortex_buffer::Buffer;
-use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 
 use crate::row_mask::RowMask;
@@ -93,9 +92,10 @@ impl Selection {
                     range_len,
                     roaring
                         .iter()
-                        .map(|idx| idx - range.start)
-                        .map(|idx| {
-                            usize::try_from(idx).vortex_expect("Index does not fit into a usize")
+                        .map(|idx| idx.saturating_sub(range.start))
+                        .filter_map(|idx| {
+                            // Only include indices that fit in usize
+                            usize::try_from(idx).ok()
                         })
                         .collect(),
                 );
@@ -118,9 +118,10 @@ impl Selection {
                 let roaring = roaring.bitand(range_treemap);
                 let mask = Mask::from_excluded_indices(
                     range_len,
-                    roaring.iter().map(|idx| idx - range.start).map(|idx| {
-                        usize::try_from(idx).vortex_expect("Index does not fit into a usize")
-                    }),
+                    roaring
+                        .iter()
+                        .map(|idx| idx.saturating_sub(range.start))
+                        .filter_map(|idx| usize::try_from(idx).ok()),
                 );
 
                 RowMask::new(range.start, mask)
