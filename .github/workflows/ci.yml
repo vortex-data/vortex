@@ -499,7 +499,8 @@ jobs:
       fail-fast: false
       matrix:
         group:
-          # ~100 tests each for balanced runtime
+          - name: "meta"
+            crates: ""
           - name: "group-1"
             crates: "-p vortex-buffer -p vortex-bytebool -p vortex-fsst -p vortex-pco -p vortex-zstd"
           - name: "group-2"
@@ -518,6 +519,7 @@ jobs:
             crates: "-p vortex-array"
           - name: "group-9"
             crates: "-p vortex-scalar"
+
     env:
       MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-symbolic-alignment-check -Zmiri-disable-isolation -Zmiri-env-forward=RUST_BACKTRACE
       RUSTFLAGS: "-A warnings"
@@ -532,9 +534,10 @@ jobs:
         with:
           tool: nextest@0.9.98
       - name: Check miri coverage for unsafe crates
-        if: matrix.group.name == 'fast' # Only run once
+        if: matrix.group.name == 'meta' # Only run once
         run: python3 scripts/check-miri-coverage.py
       - name: Run Miri tests
+        if: matrix.group.name != 'meta'
         run: |
           # Set additional rustflags if specified
           if [ -n "${{ matrix.group.rustflags_extra }}" ]; then
