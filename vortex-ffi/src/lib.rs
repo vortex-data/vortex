@@ -77,32 +77,6 @@ pub(crate) fn try_shutdown_runtime() {
     }
 }
 
-/// Explicitly shut down the tokio runtime to prevent cleanup races with mimalloc.
-///
-/// This function forces an immediate shutdown regardless of active references.
-/// It should only be called when all FFI operations are complete and the process
-/// is about to exit.
-#[unsafe(no_mangle)]
-pub extern "C" fn vx_runtime_shutdown() -> bool {
-    let mut state = RUNTIME_STATE.lock();
-
-    if let Some(runtime) = state.take() {
-        // Force shutdown regardless of reference count
-        std::thread::spawn(move || {
-            if let Ok(runtime) = Arc::try_unwrap(runtime) {
-                runtime.shutdown_background();
-            }
-        });
-
-        // Give a moment for the shutdown to start
-        std::thread::sleep(std::time::Duration::from_millis(10));
-        true
-    } else {
-        // No runtime to shut down
-        true
-    }
-}
-
 pub(crate) unsafe fn to_string(ptr: *const c_char) -> String {
     let c_str = unsafe { CStr::from_ptr(ptr) };
     c_str.to_string_lossy().into_owned()

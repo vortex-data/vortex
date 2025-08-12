@@ -6,8 +6,6 @@
 #include <string.h>
 #include "vortex.h"
 
-// Function declaration for runtime shutdowns
-extern bool vx_runtime_shutdown();
 
 int main(int argc, char *argv[])
 {
@@ -42,7 +40,6 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Error opening file\n");
         vx_session_free(session);
         vx_error_free(error);
-        vx_runtime_shutdown();
         return -1;
     }
 
@@ -65,7 +62,6 @@ int main(int argc, char *argv[])
         vx_file_free(file);
         vx_error_free(error);
         vx_session_free(session);
-        vx_runtime_shutdown();
         return -1;
     }
 
@@ -184,23 +180,12 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Error during scan operation\n");
         vx_error_free(error);
         vx_session_free(session);
-        vx_runtime_shutdown();
         return -1;
     }
 
     printf("Scanning completed successfully\n");
 
     vx_session_free(session);
-
-    // Explicitly shutdown the runtime to prevent cleanup race with mimalloc
-    if (vx_runtime_shutdown())
-    {
-        printf("Runtime shutdown successfully\n");
-    }
-    else
-    {
-        printf("Runtime shutdown failed (may still have active references)\n");
-    }
 
     return 0;
 }
