@@ -52,7 +52,7 @@ fn decompress<T: NativePType + PrimInt>(bencher: Bencher, (length, run_step): (u
         .into_array();
 
     let values = (0..ends.len())
-        .map(|x| x as u64)
+        .map(|x| T::from(x).unwrap())
         .collect::<Buffer<_>>()
         .into_array();
 
