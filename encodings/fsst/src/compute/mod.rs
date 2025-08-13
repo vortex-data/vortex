@@ -93,6 +93,7 @@ mod tests {
 
     #[rstest]
     // Basic string arrays
+    #[cfg_attr(miri, ignore)] // Too slow for miri in CI: 180+ seconds
     #[case::fsst_simple({
         let varbin = VarBinArray::from_iter(
             ["hello world", "testing fsst", "compression test", "data array", "vortex encoding"].map(Some),
@@ -102,6 +103,7 @@ mod tests {
         fsst_compress(varbin.as_ref(), &compressor).unwrap()
     })]
     // Nullable strings
+    #[cfg_attr(miri, ignore)] // Too slow for miri in CI: 180+ seconds
     #[case::fsst_nullable({
         let varbin = VarBinArray::from_iter(
             [Some("hello"), None, Some("world"), Some("test"), None],
@@ -111,6 +113,7 @@ mod tests {
         fsst_compress(varbin.as_ref(), &compressor).unwrap()
     })]
     // Repetitive patterns (good for FSST compression)
+    #[cfg_attr(miri, ignore)] // Too slow for miri in CI: 60+ seconds
     #[case::fsst_repetitive({
         let varbin = VarBinArray::from_iter(
             ["http://example.com", "http://test.com", "http://vortex.dev", "http://data.org"].map(Some),

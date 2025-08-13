@@ -4,13 +4,12 @@ Based on partial miri test run analysis (457 out of 747 tests completed), this d
 
 ## Summary
 
-The vortex-array miri optimization has been successfully completed:
-- **Total tests**: 747 (719 passing, 28 excluded)
-- **Runtime**: Reduced from 30+ minutes to ~6-7 minutes
-- **Exclusion categories**:
-  - Large dataset tests (100-300+ seconds)
-  - f16 tests (inline assembly not supported)
-  - f32/f64 tests with NaN comparison issues
+**UPDATE**: vortex-array has been removed from miri testing in CI due to fundamental incompatibilities:
+- **f16 inline assembly**: Not supported by miri on ARM
+- **NaN bit patterns**: Miri produces different NaN bit patterns than hardware for arithmetic operations
+- **Test count**: 747 tests with many requiring exclusions
+
+The optimizations documented below were attempted but ultimately the crate was allowlisted from miri testing.
 
 ## Tests to Mark with `#[cfg_attr(miri, ignore)]`
 

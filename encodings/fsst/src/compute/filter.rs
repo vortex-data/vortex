@@ -36,6 +36,7 @@ mod test {
     use crate::{fsst_compress, fsst_train_compressor};
 
     #[test]
+    #[cfg_attr(miri, ignore)] // Too slow for miri in CI: 240+ seconds
     fn test_filter_fsst_array() {
         // Test with small strings
         let mut builder = VarBinBuilder::<i32>::with_capacity(5);

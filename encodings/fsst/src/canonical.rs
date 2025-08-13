@@ -168,6 +168,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // Too slow for miri in CI: 360+ seconds
     fn test_to_canonical() {
         let (chunked_arr, data) = make_data_chunked();
 

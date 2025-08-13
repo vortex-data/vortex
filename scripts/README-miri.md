@@ -44,6 +44,7 @@ Some crates are allowlisted from miri testing due to:
 - **FFI/JNI bindings**: `vortex-jni`, `vortex-cxx`, `vortex-duckdb`
 - **Fuzzing harness**: `vortex-fuzz`
 - **Complex integration**: `vortex-datafusion`
+- **Miri limitations**: `vortex-array` (f16 inline assembly not supported, NaN bit pattern differences)
 
 To add a crate to the allowlist, edit `MIRI_ALLOWLIST` in `check-miri-coverage.py`.
 

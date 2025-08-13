@@ -49,6 +49,7 @@ mod tests {
     use crate::{fsst_compress, fsst_train_compressor};
 
     #[test]
+    #[cfg_attr(miri, ignore)] // Too slow for miri in CI: 60+ seconds
     fn test_cast_fsst_nullability() {
         let strings = VarBinArray::from_iter(
             vec![Some("hello"), Some("world"), Some("hello world")],
@@ -64,6 +65,7 @@ mod tests {
     }
 
     #[rstest]
+    #[cfg_attr(miri, ignore)] // Too slow for miri in CI: 60+ seconds per case
     #[case(VarBinArray::from_iter(
         vec![Some("hello"), Some("world"), Some("hello world")],
         DType::Utf8(Nullability::NonNullable)

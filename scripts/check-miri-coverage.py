@@ -28,8 +28,9 @@ MIRI_ALLOWLIST: Set[str] = {
     "vortex-duckdb",      # DuckDB integration with FFI
     "vortex-fuzz",        # Fuzzing harness may not work with miri
     "vortex-datafusion",  # DataFusion integration - complex and not critical for unsafe validation
+    "vortex-array",       # Too many f16 inline assembly and NaN bit pattern issues with miri
     # Note: vortex-ffi is partially tested with miri (some tests work)
-    # Note: vortex-scalar and vortex-array are now tested in groups 8 and 9
+    # Note: vortex-scalar is tested in group 8
 }
 
 def find_crates_with_unsafe() -> Set[str]:
