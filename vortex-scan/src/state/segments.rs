@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
 use std::sync::Arc;
 
 use dashmap::DashMap;
 use vortex_buffer::ByteBuffer;
-use vortex_error::VortexExpect;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_layout::segments::{SegmentId, Segments};
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -72,4 +73,29 @@ impl SegmentCache {
             }
         }
     }
+}
+
+/// An opaque segment request returned from a `SegmentSource`.
+pub trait SegmentRequest {
+    fn as_any(&self) -> &dyn Any;
+    fn as_any_mut(&mut self) -> &mut dyn Any;
+    fn size(&mut self) -> usize;
+}
+
+pub trait SegmentSource2 {
+    /// Return the byte size of the given segment.
+    fn size(&self, segment_id: &SegmentId) -> usize;
+
+    /// Return an empty segment request.
+    fn empty_request(&self) -> Box<dyn SegmentRequest>;
+
+    /// Request to add the given segment into the request object.
+    fn request_segment(&self, segment_id: &SegmentId, request: &mut dyn SegmentRequest) -> bool;
+
+    /// Request the given segments.
+    fn submit(&self, request: Box<dyn SegmentRequest>, callback: Arc<dyn SegmentCallback>);
+}
+
+pub trait SegmentCallback {
+    fn on_segment(&self, segment_id: &SegmentId, buffer: VortexResult<ByteBuffer>);
 }
