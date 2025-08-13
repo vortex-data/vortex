@@ -63,17 +63,14 @@ protected:
     StreamToUniqueStreamSchema(ArrowArrayStream &stream) {
         nanoarrow::UniqueArrayStream array_stream;
         ArrowArrayStreamMove(&stream, array_stream.get());
-        return {std::move(array_stream), GetSchemaFromArrayStream(array_stream.get())};
-    }
-
-    nanoarrow::UniqueSchema GetSchemaFromArrayStream(ArrowArrayStream *array_stream) {
+        ArrowError error;
         nanoarrow::UniqueSchema schema;
-        int get_schema_result = array_stream->get_schema(array_stream, schema.get());
-        if (get_schema_result != NANOARROW_OK) {
-            std::cerr << "Error: " << array_stream->get_last_error(array_stream) << '\n';
+        ArrowErrorCode set_result = ArrowArrayStreamGetSchema(array_stream.get(), schema.get(), &error);
+        if (set_result != NANOARROW_OK) {
+            std::cerr << "Error: " << error.message << '\n';
             std::abort();
         }
-        return schema;
+        return {std::move(array_stream), std::move(schema)};
     }
 
     nanoarrow::UniqueArray ReadFirstArrayFromUniqueStream(nanoarrow::UniqueArrayStream &array_stream) {
@@ -126,7 +123,10 @@ protected:
                                     const std::vector<int64_t> &row_indices) {
         // Basic properties validation
         ASSERT_EQ(actual_schema->n_children, ref_schema->n_children);
-
+        if (row_indices.empty()) {
+            ASSERT_EQ(actual_array->length, 0);
+            return;
+        }
         auto actual_view = CreateArrayView(actual_array, actual_schema);
         auto ref_view = CreateArrayView(ref_array, ref_schema);
 
@@ -291,14 +291,12 @@ TEST_F(VortexTest, ConcurrentMultiStreamRead) {
 
     std::vector<BatchData> thread1_batches;
     std::vector<BatchData> thread2_batches;
-    auto stream_for_schema = stream_driver.CreateArrayStream();
-    auto schema = GetSchemaFromArrayStream(&stream_for_schema);
 
     // Helper function to read from a stream and collect batches
     auto read_stream = [&](std::vector<BatchData> &batches) {
         // Each thread creates its own stream
         auto stream = stream_driver.CreateArrayStream();
-        auto [array_stream, _] = StreamToUniqueStreamSchema(stream);
+        auto [array_stream, schema] = StreamToUniqueStreamSchema(stream);
 
         std::vector<BatchData> local_batches;
 
@@ -352,6 +350,8 @@ TEST_F(VortexTest, ConcurrentMultiStreamRead) {
     size_t total_rows_read = 0;
     int64_t reference_offset = 0;
 
+    auto stream_for_schema = stream_driver.CreateArrayStream();
+    auto [_, schema] = StreamToUniqueStreamSchema(stream_for_schema);
     for (const auto &batch : all_batches) {
         auto array_view = CreateArrayView(batch.array, schema);
 
