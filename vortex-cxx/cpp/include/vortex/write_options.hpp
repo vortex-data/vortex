@@ -12,14 +12,8 @@ class VortexWriteOptions {
 public:
     VortexWriteOptions() : impl_(ffi::write_options_new()) {
     }
-    VortexWriteOptions(VortexWriteOptions &&other) noexcept : impl_(std::move(other.impl_)) {
-    }
-    VortexWriteOptions &operator=(VortexWriteOptions &&other) noexcept {
-        if (this != &other) {
-            impl_ = std::move(other.impl_);
-        }
-        return *this;
-    }
+    VortexWriteOptions(VortexWriteOptions &&other) noexcept = default;
+    VortexWriteOptions &operator=(VortexWriteOptions &&other) noexcept = default;
     ~VortexWriteOptions() = default;
 
     VortexWriteOptions(const VortexWriteOptions &) = delete;

@@ -12,14 +12,8 @@ namespace vortex {
 class Scalar {
 public:
     Scalar() = delete;
-    Scalar(Scalar &&other) noexcept : impl_(std::move(other.impl_)) {
-    }
-    Scalar &operator=(Scalar &&other) noexcept {
-        if (this != &other) {
-            impl_ = std::move(other.impl_);
-        }
-        return *this;
-    }
+    Scalar(Scalar &&other) noexcept = default;
+    Scalar &operator=(Scalar &&other) noexcept = default;
     ~Scalar() = default;
 
     Scalar(const Scalar &) = delete;

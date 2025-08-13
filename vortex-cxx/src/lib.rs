@@ -64,9 +64,9 @@ mod ffi {
         fn select(fields: Vec<String>, child: Box<Expr>) -> Box<Expr>;
 
         type VortexFile;
+        fn row_count(self: &VortexFile) -> u64;
+        fn scan_builder(self: &VortexFile) -> Result<Box<VortexScanBuilder>>;
         fn open_file(path: &str) -> Result<Box<VortexFile>>;
-        fn file_row_count(file: &VortexFile) -> u64;
-        fn file_scan_builder(file: &VortexFile) -> Result<Box<VortexScanBuilder>>;
 
         type VortexScanBuilder;
         fn with_filter(self: &mut VortexScanBuilder, filter: &Expr);

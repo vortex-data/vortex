@@ -14,14 +14,8 @@ namespace vortex {
 /// and cloneable. The `RecordBatchIteratorAdapter` internally holds a `WorkStealingArrayIterator`.
 class StreamDriver {
 public:
-    StreamDriver(StreamDriver &&other) noexcept : impl_(std::move(other.impl_)) {
-    }
-    StreamDriver &operator=(StreamDriver &&other) noexcept {
-        if (this != &other) {
-            impl_ = std::move(other.impl_);
-        }
-        return *this;
-    }
+    StreamDriver(StreamDriver &&other) noexcept = default;
+    StreamDriver &operator=(StreamDriver &&other) noexcept = default;
     ~StreamDriver() = default;
 
     StreamDriver(const StreamDriver &) = delete;

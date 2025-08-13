@@ -12,14 +12,8 @@ namespace vortex {
 class Expr {
 public:
     Expr() = delete;
-    Expr(Expr &&other) noexcept : impl_(std::move(other.impl_)) {
-    }
-    Expr &operator=(Expr &&other) noexcept {
-        if (this != &other) {
-            impl_ = std::move(other.impl_);
-        }
-        return *this;
-    }
+    Expr(Expr &&other) noexcept = default;
+    Expr &operator=(Expr &&other) noexcept = default;
     ~Expr() = default;
 
     Expr(const Expr &) = delete;

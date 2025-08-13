@@ -13,14 +13,8 @@ class VortexFile {
 public:
     static VortexFile Open(const std::string &path);
 
-    VortexFile(VortexFile &&other) noexcept : impl_(std::move(other.impl_)) {
-    }
-    VortexFile &operator=(VortexFile &&other) noexcept {
-        if (this != &other) {
-            impl_ = std::move(other.impl_);
-        }
-        return *this;
-    }
+    VortexFile(VortexFile &&other) noexcept = default;
+    VortexFile &operator=(VortexFile &&other) noexcept = default;
     ~VortexFile() = default;
 
     VortexFile(const VortexFile &) = delete;

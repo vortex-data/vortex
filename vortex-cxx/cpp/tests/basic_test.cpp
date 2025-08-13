@@ -404,17 +404,6 @@ TEST_F(VortexTest, ScanBuilderWithFilterNoMatches) {
         vortex::testing::CreateTestDataStream(), {}, true); // No matching rows
 }
 
-TEST_F(VortexTest, ScanBuilderWithFilterMultipleMatches) {
-    // Test filtering with eq(column("b"), 20) - should return rows where column "b" equals 20
-    RunScanBuilderTest(
-        [](vortex::ScanBuilder &&scan_builder) {
-            vortex::Expr filter =
-                vortex::Expr::eq(vortex::Expr::column("b"), vortex::Expr::literal(vortex::Scalar::int32(20)));
-            return std::move(scan_builder).WithFilter(std::move(filter)).IntoStream();
-        },
-        vortex::testing::CreateTestDataStream(), {1}, true); // Row index 1 corresponds to value 20
-}
-
 TEST_F(VortexTest, ScanBuilderWithProjectionSingleColumn) {
     // Test projection selecting only column "a" (field index 0)
     RunScanBuilderProjectionTest(

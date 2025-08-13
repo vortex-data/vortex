@@ -18,6 +18,21 @@ pub(crate) struct VortexFile {
     inner: vortex::file::VortexFile,
 }
 
+impl VortexFile {
+    pub(crate) fn row_count(&self) -> u64 {
+        self.inner.row_count()
+    }
+
+    pub(crate) fn scan_builder(
+        &self,
+    ) -> Result<Box<VortexScanBuilder>, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(Box::new(VortexScanBuilder {
+            inner: self.inner.scan()?,
+            output_schema: None,
+        }))
+    }
+}
+
 /// File operations - using blocking operations for simplicity
 /// TODO(xinyu): object store (see vortex-ffi)
 pub(crate) fn open_file(
@@ -26,23 +41,9 @@ pub(crate) fn open_file(
     let file = VortexOpenOptions::file().open_blocking(std::path::Path::new(path))?;
     Ok(Box::new(VortexFile { inner: file }))
 }
-
-pub(crate) fn file_row_count(file: &VortexFile) -> u64 {
-    file.inner.row_count()
-}
-
 pub(crate) struct VortexScanBuilder {
     inner: ScanBuilder<ArrayRef>,
     output_schema: Option<SchemaRef>,
-}
-
-pub(crate) fn file_scan_builder(
-    file: &VortexFile,
-) -> Result<Box<VortexScanBuilder>, Box<dyn std::error::Error + Send + Sync>> {
-    Ok(Box::new(VortexScanBuilder {
-        inner: file.inner.scan()?,
-        output_schema: None,
-    }))
 }
 
 impl VortexScanBuilder {

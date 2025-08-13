@@ -26,14 +26,8 @@ enum class PType : uint8_t {
 class DType {
 public:
     DType() = delete;
-    DType(DType &&other) noexcept : impl_(std::move(other.impl_)) {
-    }
-    DType &operator=(DType &&other) noexcept {
-        if (this != &other) {
-            impl_ = std::move(other.impl_);
-        }
-        return *this;
-    }
+    DType(DType &&other) noexcept = default;
+    DType &operator=(DType &&other) = default;
     ~DType() = default;
 
     DType(const DType &) = delete;
