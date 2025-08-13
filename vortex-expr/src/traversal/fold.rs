@@ -3,9 +3,9 @@
 
 use vortex_error::VortexResult;
 
-use crate::traversal::{FoldDown, FoldUp, Node};
+use crate::traversal::{FoldDown, FoldDownContext, FoldUp, Node};
 
-pub trait NodeFolder {
+pub trait NodeFolderContext {
     type NodeTy: Node;
     type Result;
     type Context;
@@ -18,7 +18,7 @@ pub trait NodeFolder {
         &mut self,
         _ctx: &Self::Context,
         _node: &Self::NodeTy,
-    ) -> VortexResult<FoldDown<Self::Context, Self::Result>>;
+    ) -> VortexResult<FoldDownContext<Self::Context, Self::Result>>;
 
     /// visit_up is called when a node is last encountered, in a pre-order traversal.
     /// If the node should stop traversal, return Stop.
@@ -31,12 +31,65 @@ pub trait NodeFolder {
     ) -> VortexResult<FoldUp<Self::Result>>;
 }
 
+pub trait NodeFolder {
+    type NodeTy: Node;
+    type Result;
+
+    /// visit_down is called when a node is first encountered, in a pre-order traversal.
+    /// If the node's children are to be skipped, return Skip.
+    /// If the node should stop traversal, return Stop.
+    /// Otherwise, return Continue.
+    fn visit_down(&mut self, _node: &Self::NodeTy) -> VortexResult<FoldDown<Self::Result>>;
+
+    /// visit_up is called when a node is last encountered, in a pre-order traversal.
+    /// If the node should stop traversal, return Stop.
+    /// Otherwise, return Continue.
+    fn visit_up(
+        &mut self,
+        _node: Self::NodeTy,
+        _children: Vec<Self::Result>,
+    ) -> VortexResult<FoldUp<Self::Result>>;
+}
+
+pub struct NodeFolderContextWrapper<'a, T>
+where
+    T: NodeFolder,
+{
+    pub inner: &'a mut T,
+}
+
+impl<T: NodeFolder> NodeFolderContext for NodeFolderContextWrapper<'_, T> {
+    type NodeTy = T::NodeTy;
+    type Result = T::Result;
+    type Context = ();
+
+    fn visit_down(
+        &mut self,
+        _ctx: &Self::Context,
+        _node: &Self::NodeTy,
+    ) -> VortexResult<FoldDownContext<Self::Context, Self::Result>> {
+        match self.inner.visit_down(_node)? {
+            FoldDown::Continue => Ok(FoldDownContext::Continue(())),
+            FoldDown::Stop(r) => Ok(FoldDownContext::Stop(r)),
+            FoldDown::Skip(r) => Ok(FoldDownContext::Skip(r)),
+        }
+    }
+
+    fn visit_up(
+        &mut self,
+        _node: Self::NodeTy,
+        _context: &Self::Context,
+        _children: Vec<Self::Result>,
+    ) -> VortexResult<FoldUp<Self::Result>> {
+        self.inner.visit_up(_node, _children)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use vortex_error::VortexExpect;
 
     use super::*;
-    use crate::traversal::FoldDown::Skip;
     use crate::traversal::NodeExt;
     use crate::{
         BinaryVTable, ExprRef, LiteralVTable, Operator, checked_add, gt, lit, vortex_bail,
@@ -46,13 +99,8 @@ mod tests {
     impl NodeFolder for AddFold {
         type NodeTy = ExprRef;
         type Result = i32;
-        type Context = ();
 
-        fn visit_down(
-            &mut self,
-            _: &Self::Context,
-            node: &'_ Self::NodeTy,
-        ) -> VortexResult<FoldDown<Self::Context, Self::Result>> {
+        fn visit_down(&mut self, node: &'_ Self::NodeTy) -> VortexResult<FoldDown<Self::Result>> {
             if let Some(lit) = node.as_opt::<LiteralVTable>() {
                 let v = lit
                     .value()
@@ -66,17 +114,17 @@ mod tests {
             }
 
             if let Some(binary) = node.as_opt::<BinaryVTable>()
-                && binary.op() == Operator::Gt {
-                    return Ok(Skip(0));
-                }
+                && binary.op() == Operator::Gt
+            {
+                return Ok(FoldDown::Skip(0));
+            }
 
-            Ok(FoldDown::Continue(()))
+            Ok(FoldDown::Continue)
         }
 
         fn visit_up(
             &mut self,
             node: Self::NodeTy,
-            (): &Self::Context,
             children: Vec<Self::Result>,
         ) -> VortexResult<FoldUp<Self::Result>> {
             if let Some(lit) = node.as_opt::<LiteralVTable>() {
@@ -103,7 +151,7 @@ mod tests {
         let expr = checked_add(checked_add(lit(1), lit(2)), lit(3));
 
         let mut folder = AddFold;
-        let result = expr.fold(&(), &mut folder).unwrap().value();
+        let result = expr.fold(&mut folder).unwrap().value();
         assert_eq!(result, 6);
     }
 
@@ -112,7 +160,7 @@ mod tests {
         let expr = checked_add(checked_add(lit(1), lit(5)), lit(3));
 
         let mut folder = AddFold;
-        let result = expr.fold(&(), &mut folder).unwrap().value();
+        let result = expr.fold(&mut folder).unwrap().value();
         assert_eq!(result, 5);
     }
 
@@ -121,7 +169,7 @@ mod tests {
         let expr = checked_add(gt(lit(1), lit(2)), lit(3));
 
         let mut folder = AddFold;
-        let result = expr.fold(&(), &mut folder).unwrap().value();
+        let result = expr.fold(&mut folder).unwrap().value();
         assert_eq!(result, 3);
     }
 
@@ -130,7 +178,7 @@ mod tests {
         let expr = checked_add(gt(lit(1), lit(5)), lit(3));
 
         let mut folder = AddFold;
-        let result = expr.fold(&(), &mut folder).unwrap().value();
+        let result = expr.fold(&mut folder).unwrap().value();
         assert_eq!(result, 3);
     }
 }
