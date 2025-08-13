@@ -58,13 +58,13 @@ impl TraversalOrder {
     }
 }
 
-enum FoldDown<R> {
+pub enum FoldDown<R> {
     Continue,
     Stop(R),
     Skip(R),
 }
 
-enum FoldUp<R> {
+pub enum FoldUp<R> {
     Continue(R),
     Stop(R),
 }
@@ -498,7 +498,6 @@ impl Node for ExprRef {
             .children()
             .into_iter()
             .cloned()
-            // this is annoying
             .collect_vec()
             .map_elements(f)?;
 
