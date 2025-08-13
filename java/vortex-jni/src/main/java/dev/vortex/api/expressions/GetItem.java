@@ -42,7 +42,7 @@ public final class GetItem implements Expression {
      * @param metadata the serialized metadata containing the field path information
      * @param children the child expressions, must contain exactly one element
      * @return a new GetItem expression parsed from the provided data
-     * @throws IllegalArgumentException if the number of children is not exactly one,
+     * @throws RuntimeException if the number of children is not exactly one,
      *                                  or if the metadata cannot be parsed
      */
     public static GetItem parse(byte[] metadata, List<Expression> children) {

@@ -78,7 +78,7 @@ public interface File extends AutoCloseable {
      * @param options the {@link ScanOptions} configuring the scan behavior,
      *                including column selection, filtering, and row selection
      * @return a new {@link ArrayIterator} for scanning the file data
-     * @throws IllegalArgumentException if the scan options contain invalid
+     * @throws RuntimeException if the scan options contain invalid
      *                                  column names or conflicting row selection criteria
      * @see ScanOptions
      * @see ArrayIterator

@@ -145,7 +145,7 @@ public interface DType extends AutoCloseable {
          *
          * @param unit the byte value representing the time unit (0-4)
          * @return the corresponding {@link TimeUnit} enum value
-         * @throws IllegalArgumentException if the unit value is not recognized
+         * @throws RuntimeException if the unit value is not recognized
          */
         public static TimeUnit from(byte unit) {
             switch (unit) {
@@ -236,7 +236,7 @@ public interface DType extends AutoCloseable {
          *
          * @param variant the byte value representing the variant (0-18)
          * @return the corresponding {@link Variant} enum value
-         * @throws IllegalArgumentException if the variant value is not recognized
+         * @throws RuntimeException if the variant value is not recognized
          */
         public static Variant from(byte variant) {
             switch (variant) {

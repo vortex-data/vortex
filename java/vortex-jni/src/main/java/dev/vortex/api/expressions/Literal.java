@@ -47,7 +47,7 @@ public abstract class Literal<T> implements Expression {
      * @param metadata the serialized literal metadata as bytes
      * @param children the list of child expressions (must be empty for literals)
      * @return the parsed literal expression
-     * @throws IllegalArgumentException if children is not empty or if metadata cannot be parsed
+     * @throws RuntimeException if children is not empty or if metadata cannot be parsed
      */
     public static Literal<?> parse(byte[] metadata, List<Expression> children) {
         if (!children.isEmpty()) {
@@ -186,7 +186,7 @@ public abstract class Literal<T> implements Expression {
      * @param precision the total number of digits
      * @param scale the number of digits after the decimal point
      * @return a decimal literal
-     * @throws IllegalArgumentException if the value's scale doesn't match the specified scale
+     * @throws RuntimeException if the value's scale doesn't match the specified scale
      */
     public static Literal<BigDecimal> decimal(BigDecimal value, int precision, int scale) {
         return new DecimalLiteral(value, precision, scale);

@@ -26,7 +26,7 @@ public final class Not implements Expression {
      * @param metadata the serialized metadata, must be empty for Not expressions
      * @param children the child expressions, must contain exactly one element
      * @return a new Not expression parsed from the provided data
-     * @throws IllegalArgumentException if the number of children is not exactly one,
+     * @throws RuntimeException if the number of children is not exactly one,
      *                                  or if metadata is not empty
      */
     public static Not parse(byte[] metadata, List<Expression> children) {

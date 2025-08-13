@@ -28,7 +28,7 @@ public final class Root implements Expression {
      * @param _metadata the serialized metadata (ignored for Root expressions)
      * @param children the child expressions, must be empty for Root expressions
      * @return the singleton Root instance
-     * @throws IllegalArgumentException if any children are provided
+     * @throws RuntimeException if any children are provided
      */
     public static Root parse(byte[] _metadata, List<Expression> children) {
         if (!children.isEmpty()) {

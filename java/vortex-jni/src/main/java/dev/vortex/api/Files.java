@@ -42,7 +42,7 @@ public final class Files {
      * @param path the path to the Vortex file, either as an absolute file system path
      *             (starting with "/") or as a URI string
      * @return a {@link File} instance representing the opened Vortex file
-     * @throws IllegalArgumentException if the file cannot be opened or the path is invalid
+     * @throws RuntimeException if the file cannot be opened or the path is invalid
      * @throws NullPointerException if path is null
      *
      * @see #open(URI, Map)
@@ -70,7 +70,7 @@ public final class Files {
      * @param properties a map of configuration properties for opening the file;
      *                   may be empty but must not be null
      * @return a {@link File} instance representing the opened Vortex file
-     * @throws IllegalArgumentException if the file cannot be opened, the URI is invalid,
+     * @throws RuntimeException if the file cannot be opened, the URI is invalid,
      *                                  or the returned native pointer is invalid
      * @throws NullPointerException if uri or properties is null
      *

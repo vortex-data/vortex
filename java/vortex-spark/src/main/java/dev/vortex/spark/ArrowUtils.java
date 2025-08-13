@@ -63,7 +63,7 @@ public final class ArrowUtils {
      * @param dt the Arrow type to convert
      * @return the corresponding Spark SQL DataType
      * @throws UnsupportedOperationException if the Arrow type configuration is not supported
-     * @throws IllegalArgumentException if the Arrow type is not recognized
+     * @throws RuntimeException if the Arrow type is not recognized
      */
     public static DataType fromArrowType(ArrowType dt) {
         switch (dt.getTypeID()) {

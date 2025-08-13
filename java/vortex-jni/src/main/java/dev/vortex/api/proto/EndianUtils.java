@@ -34,7 +34,7 @@ public final class EndianUtils {
      *
      * @param decimal the BigDecimal value to convert
      * @return a little-endian byte array representation of the decimal's unscaled value
-     * @throws IllegalArgumentException if the decimal requires more than 32 bytes to represent
+     * @throws RuntimeException if the BigDecimal is too large for Arrow
      */
     public static byte[] littleEndianDecimal(BigDecimal decimal) {
         BigInteger unscaled = decimal.unscaledValue();

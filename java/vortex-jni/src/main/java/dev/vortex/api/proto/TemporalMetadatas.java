@@ -51,7 +51,7 @@ public final class TemporalMetadatas {
      * @param timeUnit the time unit for the timestamp, must be between TIME_UNIT_NANOS and TIME_UNIT_SECONDS (exclusive of TIME_UNIT_DAYS)
      * @param timeZone optional time zone identifier string
      * @return serialized timestamp metadata as a byte array
-     * @throws IllegalArgumentException if timeUnit is invalid for timestamps
+     * @throws RuntimeException if timeUnit is invalid for timestamps
      */
     public static byte[] timestamp(byte timeUnit, Optional<String> timeZone) {
         Preconditions.checkArgument(
@@ -80,7 +80,7 @@ public final class TemporalMetadatas {
      *
      * @param serializedMetadata the serialized temporal metadata byte array
      * @return the time unit byte from the first position of the metadata
-     * @throws IllegalArgumentException if the time unit byte is invalid
+     * @throws RuntimeException if the time unit byte is invalid
      */
     public static byte getTimeUnit(byte[] serializedMetadata) {
         byte timeUnit = serializedMetadata[0];

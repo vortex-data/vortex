@@ -48,7 +48,7 @@ public final class Binary implements Expression {
      * @param metadata the serialized protobuf metadata containing the binary operator
      * @param children the list of child expressions, must contain exactly 2 expressions
      * @return a new Binary expression instance
-     * @throws IllegalArgumentException if children size is not 2 or if metadata parsing fails
+     * @throws RuntimeException if children size is not 2 or if metadata parsing fails
      */
     public static Binary parse(byte[] metadata, List<Expression> children) {
         if (children.size() != 2) {

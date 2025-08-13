@@ -47,7 +47,7 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
      *
      * @param options the data source options containing file paths
      * @return the inferred Spark SQL schema
-     * @throws IllegalArgumentException if required path options are missing
+     * @throws RuntimeException if required path options are missing
      * @throws RuntimeException if there's an error reading the file or converting the schema
      */
     @Override
@@ -72,7 +72,7 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
      * @param _partitioning table partitioning transforms (currently ignored)
      * @param properties the table properties containing file paths and other options
      * @return a VortexTable instance for reading the data
-     * @throws IllegalArgumentException if required path properties are missing
+     * @throws RuntimeException if required path properties are missing
      */
     @Override
     public Table getTable(StructType schema, Transform[] _partitioning, Map<String, String> properties) {
