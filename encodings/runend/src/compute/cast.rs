@@ -13,15 +13,18 @@ impl CastKernel for RunEndVTable {
         // Cast the values array to the target type
         let casted_values = cast(array.values(), dtype)?;
 
-        Ok(Some(
-            RunEndArray::try_new_offset_length(
-                array.ends().clone(),
-                casted_values,
-                array.offset(),
-                array.len(),
-            )?
-            .into_array(),
-        ))
+        // SAFETY: casting does not affect the ends being valid
+        unsafe {
+            Ok(Some(
+                RunEndArray::new_unchecked(
+                    array.ends().clone(),
+                    casted_values,
+                    array.offset(),
+                    array.len(),
+                )
+                .into_array(),
+            ))
+        }
     }
 }
 

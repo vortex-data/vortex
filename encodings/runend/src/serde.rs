@@ -66,7 +66,16 @@ impl EncodeVTable<RunEndVTable> for RunEndVTable {
     ) -> VortexResult<Option<RunEndArray>> {
         let parray = canonical.clone().into_primitive()?;
         let (ends, values) = runend_encode(&parray)?;
-        Ok(Some(RunEndArray::try_new(ends.to_array(), values)?))
+        // SAFETY: runend_decode implementation must return valid RunEndArray
+        //  components.
+        unsafe {
+            Ok(Some(RunEndArray::new_unchecked(
+                ends.to_array(),
+                values,
+                0,
+                parray.len(),
+            )))
+        }
     }
 }
 

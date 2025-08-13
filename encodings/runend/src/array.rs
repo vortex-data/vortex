@@ -194,7 +194,14 @@ impl RunEndArray {
         length: usize,
     ) -> VortexResult<Self> {
         Self::validate(&ends, &values, offset, length)?;
-        Ok(Self::new_unchecked(ends, values, offset, length))
+
+        Ok(Self {
+            ends,
+            values,
+            offset,
+            length,
+            stats_set: Default::default(),
+        })
     }
 
     /// Build a new `RunEndArray` without validation.
@@ -205,7 +212,7 @@ impl RunEndArray {
     /// satisfied before calling this function.
     ///
     /// See [`RunEndArray::try_new`] for the preconditions needed to build a new array.
-    pub(crate) fn new_unchecked(
+    pub unsafe fn new_unchecked(
         ends: ArrayRef,
         values: ArrayRef,
         offset: usize,
@@ -235,7 +242,15 @@ impl RunEndArray {
     pub fn encode(array: ArrayRef) -> VortexResult<Self> {
         if let Some(parray) = array.as_opt::<PrimitiveVTable>() {
             let (ends, values) = runend_encode(parray)?;
-            Self::try_new(ends.into_array(), values)
+            // SAFETY: runend_encode handles this
+            unsafe {
+                Ok(Self::new_unchecked(
+                    ends.into_array(),
+                    values,
+                    0,
+                    array.len(),
+                ))
+            }
         } else {
             vortex_bail!("REE can only encode primitive arrays")
         }
@@ -301,14 +316,17 @@ impl ValidityVTable<RunEndVTable> for RunEndVTable {
             Mask::AllTrue(_) => Mask::AllTrue(array.len()),
             Mask::AllFalse(_) => Mask::AllFalse(array.len()),
             Mask::Values(values) => {
-                let ree_validity = RunEndArray::try_new_offset_length(
-                    array.ends().clone(),
-                    values.into_array(),
-                    array.offset(),
-                    array.len(),
-                )
-                .vortex_expect("invalid array")
-                .into_array();
+                // SAFETY: we preserve ends from an existing validated RunEndArray.
+                //  Validity is checked on construction to have the correct len.
+                let ree_validity = unsafe {
+                    RunEndArray::new_unchecked(
+                        array.ends().clone(),
+                        values.into_array(),
+                        array.offset(),
+                        array.len(),
+                    )
+                    .into_array()
+                };
                 Mask::from_buffer(ree_validity.to_bool()?.boolean_buffer().clone())
             }
         })
