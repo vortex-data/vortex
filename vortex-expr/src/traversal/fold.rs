@@ -3,7 +3,33 @@
 
 use vortex_error::VortexResult;
 
-use crate::traversal::{FoldDown, FoldDownContext, FoldUp, Node};
+use crate::traversal::Node;
+
+pub enum FoldDownContext<C, R> {
+    Continue(C),
+    Stop(R),
+    Skip(R),
+}
+
+pub enum FoldDown<R> {
+    Continue,
+    Stop(R),
+    Skip(R),
+}
+
+pub enum FoldUp<R> {
+    Continue(R),
+    Stop(R),
+}
+
+impl<R> FoldUp<R> {
+    pub fn value(self) -> R {
+        match self {
+            Self::Continue(r) => r,
+            Self::Stop(r) => r,
+        }
+    }
+}
 
 pub trait NodeFolderContext {
     type NodeTy: Node;

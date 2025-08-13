@@ -18,7 +18,9 @@ pub use visitor::{pre_order_visit_down, pre_order_visit_up};
 use vortex_error::VortexResult;
 
 use crate::ExprRef;
-use crate::traversal::fold::{NodeFolder, NodeFolderContext, NodeFolderContextWrapper};
+use crate::traversal::fold::{
+    FoldDownContext, FoldUp, NodeFolder, NodeFolderContext, NodeFolderContextWrapper,
+};
 
 /// Signal to control a traversal's flow
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,32 +56,6 @@ impl TraversalOrder {
         match self {
             Self::Continue => f(),
             Self::Skip | Self::Stop => Ok(self),
-        }
-    }
-}
-
-pub enum FoldDownContext<C, R> {
-    Continue(C),
-    Stop(R),
-    Skip(R),
-}
-
-pub enum FoldDown<R> {
-    Continue,
-    Stop(R),
-    Skip(R),
-}
-
-pub enum FoldUp<R> {
-    Continue(R),
-    Stop(R),
-}
-
-impl<R> FoldUp<R> {
-    pub fn value(self) -> R {
-        match self {
-            Self::Continue(r) => r,
-            Self::Stop(r) => r,
         }
     }
 }
@@ -176,51 +152,6 @@ pub trait Node: Sized + Clone {
 }
 
 pub trait NodeExt: Node {
-    fn fold_context<R, F: NodeFolderContext<NodeTy = Self, Result = R>>(
-        self,
-        ctx: &F::Context,
-        folder: &mut F,
-    ) -> VortexResult<FoldUp<R>> {
-        let transformed = folder.visit_down(ctx, &self)?;
-        let ctx = match transformed {
-            FoldDownContext::Continue(ctx) => ctx,
-            FoldDownContext::Skip(r) => return Ok(FoldUp::Continue(r)),
-            FoldDownContext::Stop(r) => return Ok(FoldUp::Stop(r)),
-        };
-
-        let mut children = Vec::with_capacity(self.children_count());
-        let mut stop_result = None;
-        self.iter_children(|children_iter| -> VortexResult<()> {
-            for c in children_iter {
-                let t = c.clone().fold_context(&ctx, folder)?;
-                match t {
-                    FoldUp::Stop(r) => {
-                        stop_result = Some(r);
-                        return Ok(());
-                    }
-                    FoldUp::Continue(r) => {
-                        children.push(r);
-                    }
-                }
-            }
-            Ok(())
-        })?;
-
-        if let Some(result) = stop_result {
-            return Ok(FoldUp::Stop(result));
-        }
-
-        folder.visit_up(self, &ctx, children)
-    }
-
-    fn fold<R, F: NodeFolder<NodeTy = Self, Result = R>>(
-        self,
-        folder: &mut F,
-    ) -> VortexResult<FoldUp<R>> {
-        let mut folder = NodeFolderContextWrapper { inner: folder };
-        self.fold_context(&(), &mut folder)
-    }
-
     /// Walk the tree in pre-order (top-down) way, rewriting it as it goes.
     fn rewrite<R: NodeRewriter<NodeTy = Self>>(
         self,
@@ -290,6 +221,53 @@ pub trait NodeExt: Node {
         };
 
         self.rewrite(&mut rewriter)
+    }
+
+    /// applies the `NodeFolderContext` to the Node tree, with an initial `Context`.
+    fn fold_context<R, F: NodeFolderContext<NodeTy = Self, Result = R>>(
+        self,
+        ctx: &F::Context,
+        folder: &mut F,
+    ) -> VortexResult<FoldUp<R>> {
+        let transformed = folder.visit_down(ctx, &self)?;
+        let ctx = match transformed {
+            FoldDownContext::Continue(ctx) => ctx,
+            FoldDownContext::Skip(r) => return Ok(FoldUp::Continue(r)),
+            FoldDownContext::Stop(r) => return Ok(FoldUp::Stop(r)),
+        };
+
+        let mut children = Vec::with_capacity(self.children_count());
+        let mut stop_result = None;
+        self.iter_children(|children_iter| -> VortexResult<()> {
+            for c in children_iter {
+                let t = c.clone().fold_context(&ctx, folder)?;
+                match t {
+                    FoldUp::Stop(r) => {
+                        stop_result = Some(r);
+                        return Ok(());
+                    }
+                    FoldUp::Continue(r) => {
+                        children.push(r);
+                    }
+                }
+            }
+            Ok(())
+        })?;
+
+        if let Some(result) = stop_result {
+            return Ok(FoldUp::Stop(result));
+        }
+
+        folder.visit_up(self, &ctx, children)
+    }
+
+    /// applies the `NodeFolder` to the Node tree
+    fn fold<R, F: NodeFolder<NodeTy = Self, Result = R>>(
+        self,
+        folder: &mut F,
+    ) -> VortexResult<FoldUp<R>> {
+        let mut folder = NodeFolderContextWrapper { inner: folder };
+        self.fold_context(&(), &mut folder)
     }
 }
 
