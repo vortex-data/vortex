@@ -18,6 +18,7 @@ endif()
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall -Wextra -Wpedantic -Wno-dollar-in-identifier-extension")
 
 option(VORTEX_ENABLE_TESTING "Enable building test binary for vortex-cxx" OFF)
+option(VORTEX_ENABLE_ASAN "Enable address sanitizer" OFF)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -69,6 +70,11 @@ target_link_libraries(vortex
     PRIVATE vortex_cxx_bridge
 )
 
+if (VORTEX_ENABLE_ASAN) 
+    target_compile_options(vortex PRIVATE -fsanitize=leak,address,undefined -fno-omit-frame-pointer -fno-common -O1)
+    target_link_options(vortex PRIVATE -fsanitize=leak,address,undefined)
+endif()
+
 # Tests
 if (VORTEX_ENABLE_TESTING)
     FetchContent_Declare(
@@ -92,6 +98,10 @@ if (VORTEX_ENABLE_TESTING)
         set(APPLE_LINK_FLAGS "-framework CoreFoundation -framework Security")
     endif()
     target_link_libraries(vortex_cxx_test PRIVATE vortex_cxx_bridge ${APPLE_LINK_FLAGS})
+    if (VORTEX_ENABLE_ASAN) 
+        target_compile_options(vortex_cxx_test PRIVATE -fsanitize=leak,address,undefined -fno-omit-frame-pointer -fno-common -O1)
+        target_link_options(vortex_cxx_test PRIVATE -fsanitize=leak,address,undefined)
+    endif()
     include(GoogleTest)
     gtest_discover_tests(vortex_cxx_test)
 endif()
