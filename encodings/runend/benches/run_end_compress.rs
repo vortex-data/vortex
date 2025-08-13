@@ -32,9 +32,7 @@ const BENCH_ARGS: &[(usize, usize)] = &[
 fn compress(bencher: Bencher, (length, run_step): (usize, usize)) {
     let values = PrimitiveArray::new(
         (0..length)
-            .step_by(run_step)
-            .enumerate()
-            .flat_map(|(idx, x)| repeat_n(idx as u64, x))
+            .flat_map(|idx| repeat_n(idx as u64, run_step))
             .collect::<Buffer<_>>(),
         Validity::NonNullable,
     );
@@ -48,12 +46,10 @@ fn compress(bencher: Bencher, (length, run_step): (usize, usize)) {
 fn decompress<T: NativePType + PrimInt>(bencher: Bencher, (length, run_step): (usize, usize)) {
     let values = PrimitiveArray::new(
         (0..length)
-            .step_by(run_step)
-            .enumerate()
-            .flat_map(|(idx, x)| {
+            .flat_map(|idx| {
                 repeat_n(
                     T::from(idx % T::max_value().to_usize().unwrap()).unwrap(),
-                    x,
+                    run_step,
                 )
             })
             .collect::<Buffer<_>>(),
@@ -72,9 +68,7 @@ fn decompress<T: NativePType + PrimInt>(bencher: Bencher, (length, run_step): (u
 fn take_indices(bencher: Bencher, (length, run_step): (usize, usize)) {
     let values = PrimitiveArray::new(
         (0..length)
-            .step_by(run_step)
-            .enumerate()
-            .flat_map(|(idx, x)| repeat_n(idx as u64, x))
+            .flat_map(|idx| repeat_n(idx as u64, run_step))
             .collect::<Buffer<_>>(),
         Validity::NonNullable,
     );
