@@ -69,7 +69,7 @@ impl FilterExpr {
         self.dynamic_conjuncts[conjunct_idx].as_ref()
     }
 
-    /// Returns the next preferred conjunct to evaluate.
+    /// Returns the next preferred conjunct to evaluate, or None if finished.
     pub fn next_conjunct(&self, remaining: &BitVec) -> Option<usize> {
         let read = self.ordering.read();
         // Take the first remaining conjunct in the ordered list.

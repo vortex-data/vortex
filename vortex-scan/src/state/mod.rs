@@ -7,6 +7,7 @@ mod tokio;
 
 use crate::filter::FilterExpr;
 use crate::tasks::TaskContext;
+use bit_vec::BitVec;
 use dashmap::DashMap;
 use futures::channel::mpsc;
 use futures::future::BoxFuture;
@@ -44,8 +45,11 @@ impl Scan2 {
         let nsplits = ranges.len();
         let mut splits = Vec::with_capacity(nsplits);
         for row_range in ranges.into_iter() {
-            let len = usize::try_from(row_range.end - row_range.start)
-                .vortex_expect("Split row range is larger than usize");
+            let mask = ctx.selection.row_mask(&row_range).into_mask();
+            if mask.all_false() {
+                // The selection has pruned this split.
+                continue;
+            }
 
             let mut pruning = None;
             let mut pruning_segments = HashSet::new();
@@ -66,6 +70,7 @@ impl Scan2 {
                     filter_segments.push(segments);
                 }
             }
+            let remaining_filters = BitVec::from_elem(filters.len(), true);
 
             let projection = ctx
                 .reader
@@ -74,11 +79,12 @@ impl Scan2 {
             projection.required_segments(&mut projection_segments);
 
             splits.push(Split {
-                len,
+                initial_mask: Some(mask),
                 pruning,
                 pruning_segments,
                 filters,
                 filter_segments,
+                remaining_filters,
                 projection: Some(projection),
                 projection_segments,
             });
@@ -118,13 +124,14 @@ impl Scan2 {
 }
 
 struct Split {
-    len: usize,
+    initial_mask: Option<Mask>,
 
     pruning: Option<Box<dyn PruningEvaluation>>,
     pruning_segments: HashSet<SegmentId>,
 
     filters: Vec<Option<Box<dyn MaskEvaluation>>>,
-    filter_segments: Vec<HashSet<SegmentId>>, // TODo(ngates): BTreeSet?
+    filter_segments: Vec<HashSet<SegmentId>>, // TODO(ngates): BTreeSet?
+    remaining_filters: BitVec,
 
     projection: Option<Box<dyn ArrayEvaluation>>,
     projection_segments: HashSet<SegmentId>,
@@ -227,12 +234,18 @@ pub(crate) struct Scheduler {
 #[derive(Debug)]
 enum SplitState {
     NotStarted,
+    StartPrune {
+        mask: Mask,
+    },
     PendingPrune {
         mask: Mask,
         waiting_for: HashSet<SegmentId>,
     },
     Prune {
         result: Option<Mask>,
+    },
+    StartFilter {
+        mask: Mask,
     },
     PendingFilter {
         conjunct_idx: usize,
@@ -242,6 +255,9 @@ enum SplitState {
     Filter {
         conjunct_idx: usize,
         result: Option<Mask>,
+    },
+    StartProject {
+        mask: Mask,
     },
     PendingProject {
         mask: Mask,
@@ -496,27 +512,26 @@ impl Scheduler {
         // another state transition immediately. It simplifies the logic to keep these transitions
         // separate and run in a loop.
         loop {
-            let split = &self.splits[split_idx];
-
             // Take the state temporarily, we will restore it later.
             let state = mem::replace(&mut self.split_state[split_idx], SplitState::NotStarted);
 
             let new_state = match &state {
                 SplitState::NotStarted => {
                     // We need to launch a filter task if there is one, else a project.
-                    let mask = Mask::new_true(split.len);
+                    let mask = self.splits[split_idx]
+                        .initial_mask
+                        .take()
+                        .vortex_expect("Initial mask already taken");
                     if self.filter.is_some() {
-                        Some(SplitState::PendingPrune {
-                            mask,
-                            waiting_for: self.launch_segment_requests(split_idx, Atom::Prune),
-                        })
+                        Some(SplitState::StartPrune { mask })
                     } else {
-                        Some(SplitState::PendingProject {
-                            mask,
-                            waiting_for: self.launch_segment_requests(split_idx, Atom::Project),
-                        })
+                        Some(SplitState::StartProject { mask })
                     }
                 }
+                SplitState::StartPrune { mask } => Some(SplitState::PendingPrune {
+                    mask: mask.clone(),
+                    waiting_for: self.launch_segment_requests(split_idx, Atom::Prune),
+                }),
                 SplitState::PendingPrune { mask, waiting_for } => {
                     if waiting_for.is_empty() {
                         // If we have all our segments, we can launch the filter task.
@@ -542,20 +557,32 @@ impl Scheduler {
                             // If the mask is all false, we can terminate the split early.
                             Some(SplitState::Finished)
                         } else if self.filter.is_some() {
-                            Some(SplitState::PendingFilter {
-                                conjunct_idx: 0,
-                                mask: mask.clone(),
-                                waiting_for: self
-                                    .launch_segment_requests(split_idx, Atom::Filter(0)),
-                            })
+                            Some(SplitState::StartFilter { mask: mask.clone() })
                         } else {
-                            Some(SplitState::PendingProject {
-                                mask: mask.clone(),
-                                waiting_for: self.launch_segment_requests(split_idx, Atom::Project),
-                            })
+                            Some(SplitState::StartProject { mask: mask.clone() })
                         }
                     } else {
                         None
+                    }
+                }
+                SplitState::StartFilter { mask } => {
+                    match self.filter.as_ref().and_then(|filter| {
+                        filter.next_conjunct(&self.splits[split_idx].remaining_filters)
+                    }) {
+                        Some(conjunct_idx) => {
+                            // Mark the conjunct as used.
+                            self.splits[split_idx]
+                                .remaining_filters
+                                .set(conjunct_idx, false);
+
+                            Some(SplitState::PendingFilter {
+                                conjunct_idx,
+                                mask: mask.clone(),
+                                waiting_for: self
+                                    .launch_segment_requests(split_idx, Atom::Filter(conjunct_idx)),
+                            })
+                        }
+                        None => Some(SplitState::StartProject { mask: mask.clone() }),
                     }
                 }
                 SplitState::PendingFilter {
@@ -594,28 +621,17 @@ impl Scheduler {
                         if mask.all_false() {
                             // If the mask is all false, we can terminate the split early.
                             Some(SplitState::Finished)
-                        } else if *conjunct_idx
-                            == self.filter.as_ref().map_or(0, |f| f.conjuncts().len()) - 1
-                        {
-                            // It was the last conjunct, so move onto projection.
-                            Some(SplitState::PendingProject {
-                                mask: mask.clone(),
-                                waiting_for: self.launch_segment_requests(split_idx, Atom::Project),
-                            })
                         } else {
-                            Some(SplitState::PendingFilter {
-                                conjunct_idx: conjunct_idx + 1,
-                                mask: mask.clone(),
-                                waiting_for: self.launch_segment_requests(
-                                    split_idx,
-                                    Atom::Filter(conjunct_idx + 1),
-                                ),
-                            })
+                            Some(SplitState::StartFilter { mask: mask.clone() })
                         }
                     } else {
                         None
                     }
                 }
+                SplitState::StartProject { mask } => Some(SplitState::PendingProject {
+                    mask: mask.clone(),
+                    waiting_for: self.launch_segment_requests(split_idx, Atom::Project),
+                }),
                 SplitState::PendingProject { mask, waiting_for } => {
                     if waiting_for.is_empty() {
                         // If we have all our segments, we can launch the project task.
