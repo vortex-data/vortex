@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::FieldName;
-use vortex_expr::ExprRef;
+use vortex::dtype::FieldName;
+use vortex::expr::ExprRef;
 
 use crate::scalar::Scalar;
 
@@ -12,37 +12,37 @@ pub(crate) struct Expr {
 
 pub(crate) fn literal(scalar: Box<Scalar>) -> Box<Expr> {
     Box::new(Expr {
-        inner: vortex_expr::literal::lit(scalar.inner),
+        inner: vortex::expr::literal::lit(scalar.inner),
     })
 }
 
 pub(crate) fn root() -> Box<Expr> {
     Box::new(Expr {
-        inner: vortex_expr::root(),
+        inner: vortex::expr::root(),
     })
 }
 
 pub(crate) fn column(name: String) -> Box<Expr> {
     Box::new(Expr {
-        inner: vortex_expr::get_item(name, vortex_expr::root()),
+        inner: vortex::expr::get_item(name, vortex::expr::root()),
     })
 }
 
 pub(crate) fn get_item(field: String, child: Box<Expr>) -> Box<Expr> {
     Box::new(Expr {
-        inner: vortex_expr::get_item(field, child.inner),
+        inner: vortex::expr::get_item(field, child.inner),
     })
 }
 
 pub(crate) fn not_(child: Box<Expr>) -> Box<Expr> {
     Box::new(Expr {
-        inner: vortex_expr::not(child.inner),
+        inner: vortex::expr::not(child.inner),
     })
 }
 
 pub(crate) fn is_null(child: Box<Expr>) -> Box<Expr> {
     Box::new(Expr {
-        inner: vortex_expr::is_null(child.inner),
+        inner: vortex::expr::is_null(child.inner),
     })
 }
 
@@ -54,7 +54,7 @@ macro_rules! binary_op {
                 rhs: Box<Expr>,
             ) -> Box<Expr> {
                 Box::new(Expr {
-                    inner: vortex_expr::$fn_name(lhs.inner, rhs.inner),
+                    inner: vortex::expr::$fn_name(lhs.inner, rhs.inner),
                 })
             }
         }
@@ -73,7 +73,7 @@ binary_op!(checked_add);
 
 pub(crate) fn select(fields: Vec<String>, child: Box<Expr>) -> Box<Expr> {
     Box::new(Expr {
-        inner: vortex_expr::select(
+        inner: vortex::expr::select(
             fields.into_iter().map(FieldName::from).collect::<Vec<_>>(),
             child.inner,
         ),

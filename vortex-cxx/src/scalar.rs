@@ -6,14 +6,14 @@ use anyhow::Result;
 use crate::dtype::DType;
 
 pub(crate) struct Scalar {
-    pub(crate) inner: vortex_scalar::Scalar,
+    pub(crate) inner: vortex::scalar::Scalar,
 }
 
 macro_rules! primitive_scalar_new {
     ($name:ident, $type:ty) => {
         pub(crate) fn $name(value: $type) -> Box<Scalar> {
             Box::new(Scalar {
-                inner: vortex_scalar::Scalar::from(value),
+                inner: vortex::scalar::Scalar::from(value),
             })
         }
     };
@@ -33,13 +33,13 @@ primitive_scalar_new!(f64_scalar_new, f64);
 
 pub(crate) fn string_scalar_new(value: &str) -> Box<Scalar> {
     Box::new(Scalar {
-        inner: vortex_scalar::Scalar::from(value),
+        inner: vortex::scalar::Scalar::from(value),
     })
 }
 
 pub(crate) fn binary_scalar_new(value: &[u8]) -> Box<Scalar> {
     Box::new(Scalar {
-        inner: vortex_scalar::Scalar::from(value),
+        inner: vortex::scalar::Scalar::from(value),
     })
 }
 

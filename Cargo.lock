@@ -6445,9 +6445,6 @@ dependencies = [
  "take_mut",
  "tokio",
  "vortex",
- "vortex-dtype",
- "vortex-expr",
- "vortex-scalar",
 ]
 
 [[package]]
