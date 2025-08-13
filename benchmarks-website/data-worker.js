@@ -117,7 +117,9 @@ const QUERY_NAME_MAP = {
   "TPCH Q19": "TPC-H Q19",
   "TPCH Q20": "TPC-H Q20",
   "TPCH Q21": "TPC-H Q21",
-  "TPCH Q22": "TPC-H Q22"
+  "TPCH Q22": "TPC-H Q22",
+  "VORTEX:RAW SIZE": "VORTEX COMPRESSION RATIO",
+  "VORTEX:PARQUET-ZSTD SIZE": "VORTEX:PARQUET-ZSTD SIZE RATIO"
 };
 
 // Data processor implementation for worker context
