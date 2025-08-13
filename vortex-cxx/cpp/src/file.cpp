@@ -7,20 +7,6 @@
 #include "rust/cxx.h"
 
 namespace vortex {
-VortexFile::VortexFile(rust::Box<ffi::VortexFile> impl) : impl_(std::move(impl)) {
-}
-
-VortexFile::VortexFile(VortexFile &&other) noexcept : impl_(std::move(other.impl_)) {
-}
-
-VortexFile &VortexFile::operator=(VortexFile &&other) noexcept {
-    if (this != &other) {
-        impl_ = std::move(other.impl_);
-    }
-    return *this;
-}
-
-VortexFile::~VortexFile() = default;
 
 VortexFile VortexFile::Open(const std::string &path) {
     try {

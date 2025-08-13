@@ -7,21 +7,6 @@
 
 namespace vortex {
 
-Scalar::Scalar(rust::Box<ffi::Scalar> impl) : impl_(std::move(impl)) {
-}
-
-Scalar::Scalar(Scalar &&other) noexcept : impl_(std::move(other.impl_)) {
-}
-
-Scalar &Scalar::operator=(Scalar &&other) noexcept {
-    if (this != &other) {
-        impl_ = std::move(other.impl_);
-    }
-    return *this;
-}
-
-Scalar::~Scalar() = default;
-
 // Factory functions
 Scalar Scalar::bool_(bool value) {
     return Scalar(ffi::bool_scalar_new(value));

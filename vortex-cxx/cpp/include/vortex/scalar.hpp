@@ -12,9 +12,15 @@ namespace vortex {
 class Scalar {
 public:
     Scalar() = delete;
-    Scalar(Scalar &&other) noexcept;
-    Scalar &operator=(Scalar &&other) noexcept;
-    ~Scalar();
+    Scalar(Scalar &&other) noexcept : impl_(std::move(other.impl_)) {
+    }
+    Scalar &operator=(Scalar &&other) noexcept {
+        if (this != &other) {
+            impl_ = std::move(other.impl_);
+        }
+        return *this;
+    }
+    ~Scalar() = default;
 
     Scalar(const Scalar &) = delete;
     Scalar &operator=(const Scalar &) = delete;
@@ -37,7 +43,8 @@ public:
 
 private:
     friend class Expr;
-    explicit Scalar(rust::Box<ffi::Scalar> impl);
+    explicit Scalar(rust::Box<ffi::Scalar> impl) : impl_(std::move(impl)) {
+    }
     rust::Box<ffi::Scalar> impl_;
 };
 

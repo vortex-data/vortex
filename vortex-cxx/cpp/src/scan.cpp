@@ -6,23 +6,6 @@
 #include "rust/cxx.h"
 
 namespace vortex {
-
-// ScanBuilder implementation
-ScanBuilder::ScanBuilder(rust::Box<ffi::VortexScanBuilder> impl) : impl_(std::move(impl)) {
-}
-
-ScanBuilder::ScanBuilder(ScanBuilder &&other) noexcept : impl_(std::move(other.impl_)) {
-}
-
-ScanBuilder &ScanBuilder::operator=(ScanBuilder &&other) noexcept {
-    if (this != &other) {
-        impl_ = std::move(other.impl_);
-    }
-    return *this;
-}
-
-ScanBuilder::~ScanBuilder() = default;
-
 ScanBuilder &&ScanBuilder::WithFilter(Expr expr) && {
     impl_->with_filter(*expr.impl_);
     return std::move(*this);
@@ -76,28 +59,6 @@ StreamDriver ScanBuilder::IntoStreamDriver() && {
         throw VortexException(e.what());
     }
 }
-
-StreamDriver::StreamDriver(rust::Box<ffi::ThreadsafeCloneableReader> impl) : impl_(std::move(impl)) {
-}
-
-StreamDriver::StreamDriver(StreamDriver &&other) noexcept : impl_(std::move(other.impl_)) {
-}
-
-StreamDriver &StreamDriver::operator=(StreamDriver &&other) noexcept {
-    if (this != &other) {
-        impl_ = std::move(other.impl_);
-    }
-    return *this;
-}
-
-StreamDriver::~StreamDriver() = default;
-
-struct StreamDriver::Impl {
-    rust::Box<ffi::ThreadsafeCloneableReader> rust_impl;
-
-    explicit Impl(rust::Box<ffi::ThreadsafeCloneableReader> impl) : rust_impl(std::move(impl)) {
-    }
-};
 
 ArrowArrayStream StreamDriver::CreateArrayStream() const {
     ArrowArrayStream stream;

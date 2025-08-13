@@ -7,20 +7,6 @@
 #include "rust/cxx.h"
 
 namespace vortex {
-DType::DType(rust::Box<ffi::DType> impl) : impl_(std::move(impl)) {
-}
-
-DType::DType(DType &&other) noexcept : impl_(std::move(other.impl_)) {
-}
-
-DType &DType::operator=(DType &&other) noexcept {
-    if (this != &other) {
-        impl_ = std::move(other.impl_);
-    }
-    return *this;
-}
-
-DType::~DType() = default;
 
 // Factory functions
 DType DType::null() {
@@ -91,18 +77,18 @@ DType DType::binary(bool nullable) {
     return DType(ffi::dtype_binary(nullable));
 }
 
-// Methods
-std::string DType::to_string() const {
-    auto rust_str = impl_->to_string();
-    return std::string(rust_str.data(), rust_str.length());
-}
-
 DType DType::from_arrow(struct ArrowSchema &schema, bool non_nullable) {
     try {
         return DType(ffi::from_arrow(reinterpret_cast<uint8_t *>(&schema), non_nullable));
     } catch (const rust::cxxbridge1::Error &e) {
         throw VortexException(e.what());
     }
+}
+
+// Methods
+std::string DType::to_string() const {
+    auto rust_str = impl_->to_string();
+    return std::string(rust_str.data(), rust_str.length());
 }
 
 } // namespace vortex

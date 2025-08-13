@@ -14,9 +14,15 @@ namespace vortex {
 /// and cloneable. The `RecordBatchIteratorAdapter` internally holds a `WorkStealingArrayIterator`.
 class StreamDriver {
 public:
-    StreamDriver(StreamDriver &&other) noexcept;
-    StreamDriver &operator=(StreamDriver &&other) noexcept;
-    ~StreamDriver();
+    StreamDriver(StreamDriver &&other) noexcept : impl_(std::move(other.impl_)) {
+    }
+    StreamDriver &operator=(StreamDriver &&other) noexcept {
+        if (this != &other) {
+            impl_ = std::move(other.impl_);
+        }
+        return *this;
+    }
+    ~StreamDriver() = default;
 
     StreamDriver(const StreamDriver &) = delete;
     StreamDriver &operator=(const StreamDriver &) = delete;
@@ -39,17 +45,23 @@ public:
 private:
     friend class ScanBuilder;
 
-    struct Impl;
-    explicit StreamDriver(rust::Box<ffi::ThreadsafeCloneableReader> impl);
+    explicit StreamDriver(rust::Box<ffi::ThreadsafeCloneableReader> impl) : impl_(std::move(impl)) {
+    }
 
     rust::Box<ffi::ThreadsafeCloneableReader> impl_;
 };
 
 class ScanBuilder {
 public:
-    ScanBuilder(ScanBuilder &&other) noexcept;
-    ScanBuilder &operator=(ScanBuilder &&other) noexcept;
-    ~ScanBuilder();
+    ScanBuilder(ScanBuilder &&other) noexcept : impl_(std::move(other.impl_)) {
+    }
+    ScanBuilder &operator=(ScanBuilder &&other) noexcept {
+        if (this != &other) {
+            impl_ = std::move(other.impl_);
+        }
+        return *this;
+    }
+    ~ScanBuilder() = default;
 
     ScanBuilder(const ScanBuilder &) = delete;
     ScanBuilder &operator=(const ScanBuilder &) = delete;
@@ -84,7 +96,8 @@ public:
 private:
     friend class VortexFile;
 
-    explicit ScanBuilder(rust::Box<ffi::VortexScanBuilder> impl);
+    explicit ScanBuilder(rust::Box<ffi::VortexScanBuilder> impl) : impl_(std::move(impl)) {
+    }
 
     rust::Box<ffi::VortexScanBuilder> impl_;
 };

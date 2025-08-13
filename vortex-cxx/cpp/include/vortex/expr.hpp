@@ -12,9 +12,15 @@ namespace vortex {
 class Expr {
 public:
     Expr() = delete;
-    Expr(Expr &&other) noexcept;
-    Expr &operator=(Expr &&other) noexcept;
-    ~Expr();
+    Expr(Expr &&other) noexcept : impl_(std::move(other.impl_)) {
+    }
+    Expr &operator=(Expr &&other) noexcept {
+        if (this != &other) {
+            impl_ = std::move(other.impl_);
+        }
+        return *this;
+    }
+    ~Expr() = default;
 
     Expr(const Expr &) = delete;
     Expr &operator=(const Expr &) = delete;
@@ -38,7 +44,8 @@ public:
 
 private:
     friend class ScanBuilder;
-    explicit Expr(rust::Box<ffi::Expr> impl);
+    explicit Expr(rust::Box<ffi::Expr> impl) : impl_(std::move(impl)) {
+    }
     rust::Box<ffi::Expr> impl_;
 };
 

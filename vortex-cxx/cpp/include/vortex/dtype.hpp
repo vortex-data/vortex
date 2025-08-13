@@ -26,9 +26,15 @@ enum class PType : uint8_t {
 class DType {
 public:
     DType() = delete;
-    DType(DType &&other) noexcept;
-    DType &operator=(DType &&other) noexcept;
-    ~DType();
+    DType(DType &&other) noexcept : impl_(std::move(other.impl_)) {
+    }
+    DType &operator=(DType &&other) noexcept {
+        if (this != &other) {
+            impl_ = std::move(other.impl_);
+        }
+        return *this;
+    }
+    ~DType() = default;
 
     DType(const DType &) = delete;
     DType &operator=(const DType &) = delete;
@@ -58,7 +64,8 @@ public:
 
 private:
     friend class Scalar;
-    explicit DType(rust::Box<ffi::DType> impl);
+    explicit DType(rust::Box<ffi::DType> impl) : impl_(std::move(impl)) {
+    }
     rust::Box<ffi::DType> impl_;
 };
 

@@ -10,10 +10,17 @@ namespace vortex {
 
 class VortexWriteOptions {
 public:
-    VortexWriteOptions();
-    VortexWriteOptions(VortexWriteOptions &&other) noexcept;
-    VortexWriteOptions &operator=(VortexWriteOptions &&other) noexcept;
-    ~VortexWriteOptions();
+    VortexWriteOptions() : impl_(ffi::write_options_new()) {
+    }
+    VortexWriteOptions(VortexWriteOptions &&other) noexcept : impl_(std::move(other.impl_)) {
+    }
+    VortexWriteOptions &operator=(VortexWriteOptions &&other) noexcept {
+        if (this != &other) {
+            impl_ = std::move(other.impl_);
+        }
+        return *this;
+    }
+    ~VortexWriteOptions() = default;
 
     VortexWriteOptions(const VortexWriteOptions &) = delete;
     VortexWriteOptions &operator=(const VortexWriteOptions &) = delete;

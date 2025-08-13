@@ -13,9 +13,15 @@ class VortexFile {
 public:
     static VortexFile Open(const std::string &path);
 
-    VortexFile(VortexFile &&other) noexcept;
-    VortexFile &operator=(VortexFile &&other) noexcept;
-    ~VortexFile();
+    VortexFile(VortexFile &&other) noexcept : impl_(std::move(other.impl_)) {
+    }
+    VortexFile &operator=(VortexFile &&other) noexcept {
+        if (this != &other) {
+            impl_ = std::move(other.impl_);
+        }
+        return *this;
+    }
+    ~VortexFile() = default;
 
     VortexFile(const VortexFile &) = delete;
     VortexFile &operator=(const VortexFile &) = delete;
@@ -28,7 +34,8 @@ public:
     ScanBuilder CreateScanBuilder() const;
 
 private:
-    explicit VortexFile(rust::Box<ffi::VortexFile> impl);
+    explicit VortexFile(rust::Box<ffi::VortexFile> impl) : impl_(std::move(impl)) {
+    }
 
     rust::Box<ffi::VortexFile> impl_;
 };

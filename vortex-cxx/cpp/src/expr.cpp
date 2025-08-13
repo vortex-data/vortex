@@ -3,24 +3,8 @@
 
 #include "vortex/expr.hpp"
 #include "vortex_cxx_bridge/lib.h"
-#include "rust/cxx.h"
 
 namespace vortex {
-
-Expr::Expr(rust::Box<ffi::Expr> impl) : impl_(std::move(impl)) {
-}
-
-Expr::Expr(Expr &&other) noexcept : impl_(std::move(other.impl_)) {
-}
-
-Expr &Expr::operator=(Expr &&other) noexcept {
-    if (this != &other) {
-        impl_ = std::move(other.impl_);
-    }
-    return *this;
-}
-
-Expr::~Expr() = default;
 
 Expr Expr::literal(Scalar scalar) {
     auto rust_expr = ffi::literal(std::move(scalar.impl_));
