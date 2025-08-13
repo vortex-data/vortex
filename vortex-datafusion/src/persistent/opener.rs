@@ -130,7 +130,6 @@ impl FileOpener for VortexFileOpener {
                 })?
                 .into_tokio_steam(Handle::current())
                 .map(move |chunk| {
-                    // FIXME(ngates): this logic may need to happen inside the task?
                     let st = chunk?.to_struct()?;
                     st.into_record_batch_with_schema(projected_arrow_schema.as_ref())
                 })

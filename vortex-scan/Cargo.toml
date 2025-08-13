@@ -27,7 +27,6 @@ vortex-metrics = { workspace = true }
 vortex-utils = { workspace = true }
 
 bit-vec = { workspace = true }
-crossbeam-channel = { workspace = true }
 crossbeam-deque = { workspace = true }
 crossbeam-queue = { workspace = true }
 dashmap = { workspace = true }
@@ -40,7 +39,6 @@ sketches-ddsketch = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"], optional = true }
 
 [dev-dependencies]
-loom = { workspace = true }
 vortex-layout = { workspace = true, features = ["test-harness"] }
 
 [features]

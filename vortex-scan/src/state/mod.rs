@@ -4,6 +4,7 @@
 mod multithread;
 mod pool;
 mod segments;
+#[cfg(feature = "tokio")]
 mod tokio;
 
 use std::collections::VecDeque;
@@ -264,7 +265,8 @@ pub(crate) struct Scheduler {
     /// a total ordering over the splits of the scan.
     output_buffer: VecDeque<VortexResult<ArrayRef>>,
 
-    /// Results for scan tasks.
+    /// Results for scan tasks. We allow unbounded channels since the scheduler controls how many
+    /// CPU tasks have been spawned.
     result_send: mpsc::UnboundedSender<ScanTaskResult>,
     result_recv: mpsc::UnboundedReceiver<ScanTaskResult>,
 
@@ -406,9 +408,6 @@ impl ScanTask for ProjectTask {
 }
 
 impl Scheduler {
-    /// Try to make progress scheduling I/O and CPU tasks in a non-blocking way.
-    ///
-    /// Returns true if progress was made.
     fn make_progress(&mut self) -> Poll<VortexResult<()>> {
         let waker = noop_waker();
         let mut ctx = Context::from_waker(&waker);
