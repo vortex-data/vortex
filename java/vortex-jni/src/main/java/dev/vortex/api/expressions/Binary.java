@@ -24,7 +24,7 @@ import java.util.stream.Stream;
  * // Create equality comparison: left == right
  * Binary equalExpr = Binary.eq(leftExpr, rightExpr);
  *
- * // Create logical AND: expr1 && expr2 && expr3
+ * // Create logical AND: expr1 &amp;&amp; expr2 &amp;&amp; expr3
  * Binary andExpr = Binary.and(expr1, expr2, expr3);
  *
  * // Create greater than comparison: left > right
@@ -149,22 +149,22 @@ public final class Binary implements Expression {
     }
 
     /**
-     * Creates a less-than comparison expression (<).
+     * Creates a less-than comparison expression (&lt;).
      *
      * @param left the left operand expression
      * @param right the right operand expression
-     * @return a new Binary expression representing left < right
+     * @return a new Binary expression representing left &lt; right
      */
     public static Binary lt(Expression left, Expression right) {
         return new Binary(BinaryOp.LT, left, right);
     }
 
     /**
-     * Creates a less-than-or-equal comparison expression (<=).
+     * Creates a less-than-or-equal comparison expression (&lt;=).
      *
      * @param left the left operand expression
      * @param right the right operand expression
-     * @return a new Binary expression representing left <= right
+     * @return a new Binary expression representing left &lt;= right
      */
     public static Binary ltEq(Expression left, Expression right) {
         return new Binary(BinaryOp.LT_EQ, left, right);
@@ -250,11 +250,11 @@ public final class Binary implements Expression {
         GT,
         /** Greater-than-or-equal comparison operator (>=) */
         GT_EQ,
-        /** Less-than comparison operator (<) */
+        /** Less-than comparison operator (&lt;) */
         LT,
-        /** Less-than-or-equal comparison operator (<=) */
+        /** Less-than-or-equal comparison operator (&lt;=) */
         LT_EQ,
-        /** Logical AND operator (&&) */
+        /** Logical AND operator (&amp;&amp;) */
         AND,
         /** Logical OR operator (||) */
         OR,
