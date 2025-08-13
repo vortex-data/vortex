@@ -26,13 +26,12 @@ vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
 vortex-utils = { workspace = true }
 
-async-stream = { workspace = true }
 bit-vec = { workspace = true }
 crossbeam-channel = { workspace = true }
 crossbeam-deque = { workspace = true }
 crossbeam-queue = { workspace = true }
 dashmap = { workspace = true }
-futures = { workspace = true }
+futures = { workspace = true, features = ["thread-pool"] }
 itertools = { workspace = true }
 log = { workspace = true }
 parking_lot = { workspace = true }

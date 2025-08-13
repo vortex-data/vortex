@@ -1194,6 +1194,7 @@ fn basic_file_roundtrip2() -> VortexResult<()> {
     let result = vxf
         .scan()?
         .build2()?
+        .into_worker_pool()
         .new_worker()
         .read_all()?
         .to_primitive()?;

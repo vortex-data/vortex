@@ -191,7 +191,10 @@ impl<A: 'static + Send> ScanBuilder<A> {
         let field_mask: Vec<_> = [filter_mask, projection_mask].concat();
         let splits = self.split_by.splits(layout_reader.as_ref(), &field_mask)?;
 
+        let dtype = projection.return_dtype(layout_reader.dtype())?;
+
         let ctx = Arc::new(TaskContext {
+            dtype,
             segment_source: self.segment_source,
             row_range: self.row_range,
             selection: self.selection,
@@ -326,7 +329,10 @@ impl ScanBuilder<ArrayRef> {
         let field_mask: Vec<_> = [filter_mask, projection_mask].concat();
         let splits = self.split_by.splits(layout_reader.as_ref(), &field_mask)?;
 
+        let dtype = projection.return_dtype(layout_reader.dtype())?;
+
         let ctx = TaskContext {
+            dtype,
             segment_source: self.segment_source,
             row_range: self.row_range,
             selection: self.selection,

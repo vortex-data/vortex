@@ -7016,7 +7016,6 @@ version = "0.1.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
- "async-stream",
  "bit-vec",
  "crossbeam-channel",
  "crossbeam-deque",

@@ -11,6 +11,7 @@ use futures::FutureExt;
 use futures::future::{BoxFuture, ok};
 use itertools::Itertools;
 use vortex_array::ArrayRef;
+use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_layout::LayoutReader;
@@ -207,6 +208,9 @@ pub(super) fn split_exec<A: 'static + Send>(
 
 /// Information needed to execute a single split task.
 pub struct TaskContext<A> {
+    /// The result DType of the scan.
+    pub(super) dtype: DType,
+    /// The segment source.
     pub(super) segment_source: Arc<dyn SegmentSource>,
     /// A caller-provided range of the file to read. All tasks should intersect their reads
     /// with this range to ensure that they are split as well.
