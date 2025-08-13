@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::TOKIO_RUNTIME;
-use crate::browse::app::{AppState, LayoutCursor};
 use humansize::{DECIMAL, make_format};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -19,6 +17,9 @@ use vortex::layout::segments::SegmentSourceExt;
 use vortex::mask::Mask;
 use vortex::utils::aliases::hash_set::HashSet;
 use vortex::{Array, ArrayRef, ToCanonical};
+
+use crate::TOKIO_RUNTIME;
+use crate::browse::app::{AppState, LayoutCursor};
 
 /// Render the Layouts tab.
 pub fn render_layouts(app_state: &mut AppState, area: Rect, buf: &mut Buffer) {

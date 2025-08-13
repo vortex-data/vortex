@@ -6,9 +6,13 @@ mod pool;
 mod segments;
 mod tokio;
 
-use crate::filter::FilterExpr;
-use crate::state::segments::SegmentCache;
-use crate::tasks::TaskContext;
+use std::collections::VecDeque;
+use std::fmt::{Debug, Formatter};
+use std::ops::Range;
+use std::sync::Arc;
+use std::task::{Context, Poll};
+use std::{iter, mem};
+
 use bit_vec::BitVec;
 use futures::channel::mpsc;
 use futures::future::BoxFuture;
@@ -16,12 +20,6 @@ use futures::stream::FuturesUnordered;
 use futures::task::noop_waker;
 use futures::{FutureExt, StreamExt};
 use log::debug;
-use std::collections::VecDeque;
-use std::fmt::{Debug, Formatter};
-use std::ops::Range;
-use std::sync::Arc;
-use std::task::{Context, Poll};
-use std::{iter, mem};
 use vortex_array::ArrayRef;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_panic};
@@ -30,6 +28,10 @@ use vortex_layout::{ArrayEvaluation, MaskEvaluation, PruningEvaluation};
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
+
+use crate::filter::FilterExpr;
+use crate::state::segments::SegmentCache;
+use crate::tasks::TaskContext;
 
 pub struct Scan2 {
     ctx: TaskContext<ArrayRef>,

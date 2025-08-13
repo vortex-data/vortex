@@ -15,8 +15,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_layout::LayoutReader;
-use vortex_layout::segments::SegmentSource;
-use vortex_layout::segments::SegmentSourceExt;
+use vortex_layout::segments::{SegmentSource, SegmentSourceExt};
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_set::HashSet;
 

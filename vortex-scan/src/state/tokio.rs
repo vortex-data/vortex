@@ -4,14 +4,16 @@
 //! A scan driver designed for engines that use a Tokio runtime for orchestrating work, including
 //! CPU-bound tasks. Let's not beat around the bush, this is targeted at DataFusion :)
 
-use crate::state::{Scan2, ScanTask, Scheduler, TaskSpawner};
-use futures::Stream;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+
+use futures::Stream;
 use tokio::runtime::Handle;
 use vortex_array::ArrayRef;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_error::VortexResult;
+
+use crate::state::{Scan2, ScanTask, Scheduler, TaskSpawner};
 
 impl Scan2 {
     pub fn into_tokio_steam(self, handle: Handle) -> impl ArrayStream + Send {

@@ -4,16 +4,18 @@
 //! A scan driver for performing an ordered but multithreaded scan. This driver produces a single
 //! blocking [`ArrayIterator`] that internally uses a thread pool to parallelize work.
 
-use crate::state::{Scan2, ScanTask, Scheduler, TaskSpawner};
-use futures::executor::{ThreadPool, ThreadPoolBuilder, block_on};
-use futures::task::SpawnExt;
 use std::future::poll_fn;
 use std::sync::LazyLock;
 use std::task::Poll;
+
+use futures::executor::{ThreadPool, ThreadPoolBuilder, block_on};
+use futures::task::SpawnExt;
 use vortex_array::ArrayRef;
 use vortex_array::iter::ArrayIterator;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
+
+use crate::state::{Scan2, ScanTask, Scheduler, TaskSpawner};
 
 static POOL: LazyLock<ThreadPool> = LazyLock::new(|| {
     ThreadPoolBuilder::new()

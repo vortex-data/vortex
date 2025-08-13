@@ -10,18 +10,20 @@
 //!
 //! NOTE: the results emitted from a worker pool scan have no ordering guarantees.
 
-use crate::state::{Scan2, ScanTask, Scheduler, TaskSpawner};
-use crossbeam_deque::{Injector, Stealer, Worker};
-use futures::executor::block_on;
-use parking_lot::{Mutex, RwLock};
 use std::future::poll_fn;
 use std::iter;
 use std::sync::Arc;
 use std::task::Poll;
+
+use crossbeam_deque::{Injector, Stealer, Worker};
+use futures::executor::block_on;
+use parking_lot::{Mutex, RwLock};
 use vortex_array::ArrayRef;
 use vortex_array::iter::ArrayIterator;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
+
+use crate::state::{Scan2, ScanTask, Scheduler, TaskSpawner};
 
 impl Scan2 {
     pub fn into_worker_pool(self) -> WorkerPool {

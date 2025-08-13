@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::segments::SegmentId;
-use futures::future::{BoxFuture, try_join_all};
 use std::sync::Arc;
+
+use futures::future::{BoxFuture, try_join_all};
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexError, VortexResult};
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
+
+use crate::segments::SegmentId;
 
 /// Static future resolving to a segment byte buffer.
 pub type SegmentFuture = BoxFuture<'static, VortexResult<ByteBuffer>>;

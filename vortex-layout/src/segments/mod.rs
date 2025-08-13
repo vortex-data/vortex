@@ -6,12 +6,13 @@ mod sink;
 mod source;
 mod test;
 
+use std::fmt::Display;
+use std::ops::Deref;
+
 use dashmap::DashMap;
 pub use events::*;
 pub use sink::*;
 pub use source::*;
-use std::fmt::Display;
-use std::ops::Deref;
 pub use test::*;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexError, VortexExpect};

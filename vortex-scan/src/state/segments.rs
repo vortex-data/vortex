@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use dashmap::DashMap;
 use std::sync::Arc;
+
+use dashmap::DashMap;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_layout::segments::{SegmentId, Segments};
