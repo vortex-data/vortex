@@ -121,6 +121,23 @@ pub(super) fn split_exec<A: 'static + Send>(
                 // First, we fetch all the pruning segments.
                 let pruning_segments = src.clone().request_all(&pruning_segment_ids).await?;
 
+                // Debug assertion to ensure the pruning_conjuncts and conjuncts have the same length
+                // as filter.conjuncts() to prevent index out of bounds
+                assert_eq!(
+                    pruning_conjuncts.len(),
+                    filter.conjuncts().len(),
+                    "pruning_conjuncts length ({}) != filter.conjuncts().len() ({})",
+                    pruning_conjuncts.len(),
+                    filter.conjuncts().len()
+                );
+                assert_eq!(
+                    conjuncts.len(),
+                    filter.conjuncts().len(),
+                    "conjuncts length ({}) != filter.conjuncts().len() ({})",
+                    conjuncts.len(),
+                    filter.conjuncts().len()
+                );
+
                 // TODO(ngates): we could use FuturedUnordered to intersect the masks in parallel.
                 for (idx, conjunct) in pruning_conjuncts.iter().enumerate() {
                     if mask.all_false() {
@@ -145,7 +162,9 @@ pub(super) fn split_exec<A: 'static + Send>(
                     }
 
                     // If the dynamic expression has changed since pruning, re-run the pruning.
-                    if let Some(dv) = filter.dynamic_updates(idx).map(|du| du.version())
+                    // Store the dynamic update once to avoid TOCTOU race condition
+                    let current_version = filter.dynamic_updates(idx).map(|du| du.version());
+                    if let Some(dv) = current_version
                         && dynamic_versions[idx].is_none_or(|v| v < dv)
                     {
                         // The dynamic expression has been updated, re-run the pruning.
@@ -191,6 +210,9 @@ pub(super) fn split_exec<A: 'static + Send>(
 
     let array_fut = async move {
         let filtered_mask = filter.await?;
+        if filtered_mask.all_false() {
+            return Ok(None);
+        }
 
         let pruning_segments = ctx
             .segment_source

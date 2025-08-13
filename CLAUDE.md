@@ -31,6 +31,13 @@
 * Use `vortex_err!` to create a `VortexError` with a format string and `vortex_bail!` to do the same but immediately
   return it as a `VortexResult<T>` to the surrounding context.
 * When writing tests, strongly consider using `rstest` cases to parameterize repetitive test logic.
+* If you want to create a large number of tests to an existing file module called `foo.rs`, and if you think doing so would
+  be too many to inline in a `tests` submodule within `foo.rs`, then first promote `foo` to a directory module. You can do
+  this by running `mkdir foo && mv foo.rs foo/mod.rs`. Then, you can create a test file `foo/tests.rs` that you include
+  in `foo/mod.rs` with the appropriate test config flag.
+* If you encounter clippy errors in tests that should only pertain to production code (e.g., prohibiting panic/unwrap,
+  possible numerical truncation, etc.), then consider allowing those lints at the test module level.
+* Prefer naming test modules `tests`, not `test`.
 
 ## Other
 

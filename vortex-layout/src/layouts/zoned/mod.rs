@@ -121,6 +121,9 @@ impl ZonedLayout {
         zone_len: usize,
         present_stats: Arc<[Stat]>,
     ) -> Self {
+        if zone_len == 0 {
+            vortex_panic!("Zone length must be greater than 0");
+        }
         let expected_dtype = ZoneMap::dtype_for_stats_table(data.dtype(), &present_stats);
         if zones.dtype() != &expected_dtype {
             vortex_panic!("Invalid zone map layout: zones dtype does not match expected dtype");

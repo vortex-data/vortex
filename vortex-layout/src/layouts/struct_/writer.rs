@@ -4,16 +4,18 @@
 use std::collections::VecDeque;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll, Waker};
+use std::task::{Context, Poll, Waker, ready};
 
 use async_trait::async_trait;
 use futures::future::try_join_all;
+use futures::task::{ArcWake, waker_ref};
 use futures::{FutureExt, Stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use parking_lot::Mutex;
 use vortex_array::{Array, ArrayContext, ToCanonical};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 use vortex_utils::aliases::DefaultHashBuilder;
+use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::layouts::struct_::StructLayout;
@@ -129,13 +131,18 @@ where
     let state = Arc::new(Mutex::new(TransposeState {
         upstream: stream,
         buffers: (0..elements).map(|_| VecDeque::new()).collect(),
-        wakers: Vec::new(),
         exhausted: false,
     }));
+
+    let shared_waker = Arc::new(SharedWaker {
+        wakers: Default::default(),
+    });
+
     (0..elements)
         .map(|index| TransposedStream {
             index,
             state: state.clone(),
+            shared_waker: shared_waker.clone(),
         })
         .collect()
 }
@@ -148,8 +155,25 @@ where
     upstream: S,
     // TODO(os): make these buffers bounded so transposed streams can not run ahead unbounded
     buffers: Vec<VecDeque<VortexResult<T>>>,
-    wakers: Vec<Waker>,
     exhausted: bool,
+}
+
+struct SharedWaker {
+    wakers: Arc<Mutex<HashMap<usize, Waker>>>,
+}
+
+impl SharedWaker {
+    pub fn add(self: Arc<Self>, index: usize, waker: Waker) {
+        self.wakers.lock().insert(index, waker);
+    }
+}
+
+impl ArcWake for SharedWaker {
+    fn wake_by_ref(arc_self: &Arc<Self>) {
+        for (_, waker) in arc_self.wakers.lock().drain() {
+            waker.wake();
+        }
+    }
 }
 
 struct TransposedStream<T, S>
@@ -159,6 +183,7 @@ where
 {
     index: usize,
     state: Arc<Mutex<TransposeState<T, S>>>,
+    shared_waker: Arc<SharedWaker>,
 }
 
 impl<T, S> Stream for TransposedStream<T, S>
@@ -178,16 +203,18 @@ where
             return Poll::Ready(None);
         }
 
-        let poll_result = match Pin::new(&mut guard.upstream).poll_next(cx) {
-            Poll::Pending => {
-                guard.wakers.push(cx.waker().clone());
-                Poll::Pending
-            }
-            Poll::Ready(None) => {
+        self.shared_waker
+            .clone()
+            .add(self.index, cx.waker().clone());
+
+        let shared_waker_ref = waker_ref(&self.shared_waker);
+        let mut upstream_cx = Context::from_waker(&shared_waker_ref);
+        match ready!(Pin::new(&mut guard.upstream).poll_next(&mut upstream_cx)) {
+            None => {
                 guard.exhausted = true;
                 Poll::Ready(None)
             }
-            Poll::Ready(Some(Ok(vec_t))) => {
+            Some(Ok(vec_t)) => {
                 for (t, buffer) in vec_t.into_iter().zip_eq(guard.buffers.iter_mut()) {
                     buffer.push_back(Ok(t));
                 }
@@ -196,24 +223,14 @@ where
                     .vortex_expect("just pushed");
                 Poll::Ready(Some(item))
             }
-            Poll::Ready(Some(Err(err))) => {
+            Some(Err(err)) => {
                 let shared_err = Arc::new(err);
                 for buffer in guard.buffers.iter_mut() {
                     buffer.push_back(Err(shared_err.clone().into()));
                 }
                 Poll::Ready(Some(Err(shared_err.into())))
             }
-        };
-
-        if matches!(poll_result, Poll::Ready(_)) {
-            let wakers = std::mem::take(&mut guard.wakers);
-
-            drop(guard);
-            for waker in wakers {
-                waker.wake();
-            }
         }
-        poll_result
     }
 }
 

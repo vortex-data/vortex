@@ -162,9 +162,9 @@ where
     )
     .into_array();
 
-    match T::DATA_TYPE {
+    match value.data_type() {
         DataType::Timestamp(time_unit, tz) => {
-            let tz = tz.map(|s| s.to_string());
+            let tz = tz.as_ref().map(|s| s.to_string());
             TemporalArray::new_timestamp(arr, time_unit.into(), tz).into()
         }
         DataType::Time32(time_unit) => TemporalArray::new_time(arr, time_unit.into()).into(),
@@ -173,7 +173,7 @@ where
         DataType::Date64 => TemporalArray::new_date(arr, TimeUnit::Ms).into(),
         DataType::Duration(_) => unimplemented!(),
         DataType::Interval(_) => unimplemented!(),
-        _ => vortex_panic!("Invalid temporal type: {}", T::DATA_TYPE),
+        _ => vortex_panic!("Invalid temporal type: {}", value.data_type()),
     }
 }
 
@@ -455,8 +455,8 @@ mod tests {
     };
     use arrow_buffer::{BooleanBuffer, Buffer as ArrowBuffer, OffsetBuffer, ScalarBuffer};
     use arrow_schema::{DataType, Field, Fields, Schema};
-    use vortex_dtype::datetime::TimeUnit;
-    use vortex_dtype::{DType, PType};
+    use vortex_dtype::datetime::{TIMESTAMP_ID, TemporalMetadata, TimeUnit};
+    use vortex_dtype::{DType, ExtDType, Nullability, PType};
 
     use crate::arrays::{
         DecimalVTable, ListVTable, PrimitiveVTable, StructVTable, TemporalArray, VarBinVTable,
@@ -811,6 +811,37 @@ mod tests {
 
         assert_eq!(vortex_array.len(), 4);
         assert_eq!(vortex_array_non_null.len(), 4);
+    }
+
+    #[test]
+    fn test_timestamp_timezone_microsecond_array_conversion() {
+        let arrow_array =
+            TimestampMicrosecondArray::from(vec![Some(1000), None, Some(3000), Some(4000)])
+                .with_timezone("UTC");
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, true);
+
+        let arrow_array_non_null =
+            TimestampMicrosecondArray::from(vec![1000_i64, 2000, 3000, 4000]).with_timezone("UTC");
+        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false);
+
+        assert_eq!(vortex_array.len(), 4);
+        assert_eq!(
+            vortex_array.dtype(),
+            &DType::Extension(Arc::new(ExtDType::new(
+                TIMESTAMP_ID.clone(),
+                Arc::new(DType::Primitive(PType::I64, Nullability::Nullable)),
+                Some(TemporalMetadata::Timestamp(TimeUnit::Us, Some("UTC".to_string())).into())
+            )))
+        );
+        assert_eq!(vortex_array_non_null.len(), 4);
+        assert_eq!(
+            vortex_array_non_null.dtype(),
+            &DType::Extension(Arc::new(ExtDType::new(
+                TIMESTAMP_ID.clone(),
+                Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
+                Some(TemporalMetadata::Timestamp(TimeUnit::Us, Some("UTC".to_string())).into())
+            )))
+        );
     }
 
     #[test]

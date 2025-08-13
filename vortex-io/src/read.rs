@@ -166,3 +166,68 @@ impl<T: VortexReadAt> VortexReadAt for InstrumentedReadAt<T> {
         self.read.performance_hint()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use vortex_buffer::{Alignment, ByteBuffer};
+
+    use super::*;
+
+    #[test]
+    fn test_performance_hint_local() {
+        let hint = PerformanceHint::local();
+        assert_eq!(hint.coalescing_window(), 8192);
+        assert_eq!(hint.max_read(), Some(8192));
+    }
+
+    #[test]
+    fn test_performance_hint_object_storage() {
+        let hint = PerformanceHint::object_storage();
+        assert_eq!(hint.coalescing_window(), 1 << 20); // 1MB
+        assert_eq!(hint.max_read(), Some(8 << 20)); // 8MB
+    }
+
+    #[test]
+    fn test_performance_hint_custom() {
+        let hint = PerformanceHint::new(4096, Some(16384));
+        assert_eq!(hint.coalescing_window(), 4096);
+        assert_eq!(hint.max_read(), Some(16384));
+    }
+
+    #[test]
+    fn test_performance_hint_no_max() {
+        let hint = PerformanceHint::new(2048, None);
+        assert_eq!(hint.coalescing_window(), 2048);
+        assert_eq!(hint.max_read(), None);
+    }
+
+    #[tokio::test]
+    async fn test_byte_buffer_read_at() {
+        let data = ByteBuffer::from(vec![1, 2, 3, 4, 5]);
+
+        let result = data.read_byte_range(1..4, Alignment::none()).await.unwrap();
+        assert_eq!(result.as_ref(), &[2, 3, 4]);
+    }
+
+    #[tokio::test]
+    async fn test_byte_buffer_read_out_of_bounds() {
+        let data = ByteBuffer::from(vec![1, 2, 3]);
+
+        let result = data.read_byte_range(1..10, Alignment::none()).await;
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::UnexpectedEof);
+    }
+
+    #[tokio::test]
+    async fn test_arc_read_at() {
+        let data = Arc::new(ByteBuffer::from(vec![1, 2, 3, 4, 5]));
+
+        let result = data.read_byte_range(2..5, Alignment::none()).await.unwrap();
+        assert_eq!(result.as_ref(), &[3, 4, 5]);
+
+        let size = data.size().await.unwrap();
+        assert_eq!(size, 5);
+    }
+}

@@ -79,8 +79,11 @@ impl SegmentRequest {
         self.events.submit_event(SegmentEvent::Resolved(self.id));
         if self.callback.send(buffer).is_err() {
             // The callback may fail if the caller was dropped while the request was in-flight, as
-            // may be the case with pre-fetched segments.
-            log::debug!("Segment {} dropped while request in-flight", self.id);
+            // may be the case with pre-fetched segments. This is expected behavior and not an error.
+            log::trace!(
+                "Segment {} receiver dropped while request in-flight (expected for pre-fetched segments)",
+                self.id
+            );
         }
     }
 }

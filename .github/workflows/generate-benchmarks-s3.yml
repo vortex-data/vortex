@@ -25,7 +25,7 @@ jobs:
       - extras=s3-cache
     steps:
       - uses: runs-on/action@v2
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v4
         with:

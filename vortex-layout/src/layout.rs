@@ -152,8 +152,10 @@ impl dyn Layout + '_ {
             .map_err(|_| vortex_err!("Invalid layout type"))
             .vortex_expect("Invalid layout type");
 
-        // Now we can perform a cheeky transmute since we know the adapter is transparent.
-        // SAFETY: The adapter is transparent and we know the underlying type is correct.
+        // SAFETY: LayoutAdapter<V> is #[repr(transparent)] (see line 192) which guarantees
+        // it has the same memory layout as V::Layout. The downcast above ensures we have
+        // the correct type. This transmute is safe because both Arc types point to data
+        // with identical layout and alignment.
         unsafe { std::mem::transmute::<Arc<LayoutAdapter<V>>, Arc<V::Layout>>(layout_adapter) }
     }
 
@@ -250,4 +252,150 @@ mod private {
     pub trait Sealed {}
 
     impl<V: VTable> Sealed for LayoutAdapter<V> {}
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    #[test]
+    fn test_layout_child_type_name() {
+        // Test Chunk variant
+        let chunk = LayoutChildType::Chunk((5, 100));
+        assert_eq!(chunk.name().as_ref(), "[5]");
+
+        // Test Field variant
+        let field = LayoutChildType::Field(Arc::from("customer_id"));
+        assert_eq!(field.name().as_ref(), "customer_id");
+
+        // Test Auxiliary variant
+        let aux = LayoutChildType::Auxiliary(Arc::from("zone_map"));
+        assert_eq!(aux.name().as_ref(), "zone_map");
+
+        // Test Transparent variant
+        let transparent = LayoutChildType::Transparent(Arc::from("compressed"));
+        assert_eq!(transparent.name().as_ref(), "compressed");
+    }
+
+    #[test]
+    fn test_layout_child_type_row_offset() {
+        // Chunk should return the offset
+        let chunk = LayoutChildType::Chunk((0, 42));
+        assert_eq!(chunk.row_offset(), Some(42));
+
+        // Field should return 0
+        let field = LayoutChildType::Field(Arc::from("field1"));
+        assert_eq!(field.row_offset(), Some(0));
+
+        // Auxiliary should return None
+        let aux = LayoutChildType::Auxiliary(Arc::from("metadata"));
+        assert_eq!(aux.row_offset(), None);
+
+        // Transparent should return 0
+        let transparent = LayoutChildType::Transparent(Arc::from("wrapper"));
+        assert_eq!(transparent.row_offset(), Some(0));
+    }
+
+    #[test]
+    fn test_layout_child_type_equality() {
+        // Test Chunk equality
+        let chunk1 = LayoutChildType::Chunk((1, 100));
+        let chunk2 = LayoutChildType::Chunk((1, 100));
+        let chunk3 = LayoutChildType::Chunk((2, 100));
+        let chunk4 = LayoutChildType::Chunk((1, 200));
+
+        assert_eq!(chunk1, chunk2);
+        assert_ne!(chunk1, chunk3);
+        assert_ne!(chunk1, chunk4);
+
+        // Test Field equality
+        let field1 = LayoutChildType::Field(Arc::from("name"));
+        let field2 = LayoutChildType::Field(Arc::from("name"));
+        let field3 = LayoutChildType::Field(Arc::from("age"));
+
+        assert_eq!(field1, field2);
+        assert_ne!(field1, field3);
+
+        // Test Auxiliary equality
+        let aux1 = LayoutChildType::Auxiliary(Arc::from("stats"));
+        let aux2 = LayoutChildType::Auxiliary(Arc::from("stats"));
+        let aux3 = LayoutChildType::Auxiliary(Arc::from("index"));
+
+        assert_eq!(aux1, aux2);
+        assert_ne!(aux1, aux3);
+
+        // Test Transparent equality
+        let trans1 = LayoutChildType::Transparent(Arc::from("enc"));
+        let trans2 = LayoutChildType::Transparent(Arc::from("enc"));
+        let trans3 = LayoutChildType::Transparent(Arc::from("dec"));
+
+        assert_eq!(trans1, trans2);
+        assert_ne!(trans1, trans3);
+
+        // Test cross-variant inequality
+        assert_ne!(chunk1, field1);
+        assert_ne!(field1, aux1);
+        assert_ne!(aux1, trans1);
+    }
+
+    #[rstest]
+    #[case(LayoutChildType::Chunk((0, 0)), "[0]", Some(0))]
+    #[case(LayoutChildType::Chunk((999, 1000000)), "[999]", Some(1000000))]
+    #[case(LayoutChildType::Field(Arc::from("")), "", Some(0))]
+    #[case(
+        LayoutChildType::Field(Arc::from("very_long_field_name_that_is_quite_lengthy")),
+        "very_long_field_name_that_is_quite_lengthy",
+        Some(0)
+    )]
+    #[case(LayoutChildType::Auxiliary(Arc::from("aux")), "aux", None)]
+    #[case(LayoutChildType::Transparent(Arc::from("t")), "t", Some(0))]
+    fn test_layout_child_type_parameterized(
+        #[case] child_type: LayoutChildType,
+        #[case] expected_name: &str,
+        #[case] expected_offset: Option<u64>,
+    ) {
+        assert_eq!(child_type.name().as_ref(), expected_name);
+        assert_eq!(child_type.row_offset(), expected_offset);
+    }
+
+    #[test]
+    fn test_chunk_with_different_indices_and_offsets() {
+        let chunks = [
+            LayoutChildType::Chunk((0, 0)),
+            LayoutChildType::Chunk((1, 100)),
+            LayoutChildType::Chunk((2, 200)),
+            LayoutChildType::Chunk((100, 10000)),
+        ];
+
+        for chunk in chunks.iter() {
+            let name = chunk.name();
+            assert!(name.starts_with('['));
+            assert!(name.ends_with(']'));
+
+            if let LayoutChildType::Chunk((idx, offset)) = chunk {
+                assert_eq!(name.as_ref(), format!("[{}]", idx));
+                assert_eq!(chunk.row_offset(), Some(*offset));
+            }
+        }
+    }
+
+    #[test]
+    fn test_field_names_with_special_characters() {
+        let special_fields: Vec<Arc<str>> = vec![
+            Arc::from("field-with-dashes"),
+            Arc::from("field_with_underscores"),
+            Arc::from("field.with.dots"),
+            Arc::from("field::with::colons"),
+            Arc::from("field/with/slashes"),
+            Arc::from("field@with#symbols"),
+        ];
+
+        for field_name in special_fields {
+            let field = LayoutChildType::Field(field_name.clone());
+            assert_eq!(field.name(), field_name);
+            assert_eq!(field.row_offset(), Some(0));
+        }
+    }
 }

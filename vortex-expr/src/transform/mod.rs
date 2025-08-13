@@ -5,9 +5,14 @@
 pub mod annotations;
 pub mod immediate_access;
 pub(crate) mod match_between;
-pub mod partition;
+mod partition;
 mod remove_merge;
 mod remove_select;
-pub mod replace;
-pub mod simplify;
-pub mod simplify_typed;
+mod replace;
+mod simplify;
+mod simplify_typed;
+
+pub use partition::*;
+pub use replace::*;
+pub use simplify::*;
+pub use simplify_typed::*;

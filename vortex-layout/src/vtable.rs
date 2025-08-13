@@ -72,7 +72,9 @@ macro_rules! vtable {
 
             impl AsRef<dyn $crate::Layout> for [<$V Layout>] {
                 fn as_ref(&self) -> &dyn $crate::Layout {
-                    // We can unsafe cast ourselves to a LayoutAdapter.
+                    // SAFETY: LayoutAdapter is #[repr(transparent)] over the Layout type,
+                    // which guarantees identical memory layout. This cast is safe because
+                    // we're only changing the type metadata, not the actual data.
                     unsafe { &*(self as *const [<$V Layout>] as *const $crate::LayoutAdapter<[<$V VTable>]>) }
                 }
             }
@@ -81,14 +83,18 @@ macro_rules! vtable {
                 type Target = dyn $crate::Layout;
 
                 fn deref(&self) -> &Self::Target {
-                    // We can unsafe cast ourselves to an LayoutAdapter.
+                    // SAFETY: LayoutAdapter is #[repr(transparent)] over the Layout type,
+                    // which guarantees identical memory layout. This cast is safe because
+                    // we're only changing the type metadata, not the actual data.
                     unsafe { &*(self as *const [<$V Layout>] as *const $crate::LayoutAdapter<[<$V VTable>]>) }
                 }
             }
 
             impl $crate::IntoLayout for [<$V Layout>] {
                 fn into_layout(self) -> $crate::LayoutRef {
-                    // We can unsafe transmute ourselves to an LayoutAdapter.
+                    // SAFETY: LayoutAdapter is #[repr(transparent)] over the Layout type,
+                    // guaranteeing identical memory layout and alignment. The transmute is safe
+                    // because both types have the same size and representation.
                     std::sync::Arc::new(unsafe { std::mem::transmute::<[<$V Layout>], $crate::LayoutAdapter::<[<$V VTable>]>>(self) })
                 }
             }
@@ -102,7 +108,9 @@ macro_rules! vtable {
 
             impl AsRef<dyn $crate::LayoutEncoding> for [<$V LayoutEncoding>] {
                 fn as_ref(&self) -> &dyn $crate::LayoutEncoding {
-                    // We can unsafe cast ourselves to an LayoutEncodingAdapter.
+                    // SAFETY: LayoutEncodingAdapter is #[repr(transparent)] over the LayoutEncoding type,
+                    // which guarantees identical memory layout. This cast is safe because
+                    // we're only changing the type metadata, not the actual data.
                     unsafe { &*(self as *const [<$V LayoutEncoding>] as *const $crate::LayoutEncodingAdapter<[<$V VTable>]>) }
                 }
             }
@@ -111,7 +119,9 @@ macro_rules! vtable {
                 type Target = dyn $crate::LayoutEncoding;
 
                 fn deref(&self) -> &Self::Target {
-                    // We can unsafe cast ourselves to an LayoutEncodingAdapter.
+                    // SAFETY: LayoutEncodingAdapter is #[repr(transparent)] over the LayoutEncoding type,
+                    // which guarantees identical memory layout. This cast is safe because
+                    // we're only changing the type metadata, not the actual data.
                     unsafe { &*(self as *const [<$V LayoutEncoding>] as *const $crate::LayoutEncodingAdapter<[<$V VTable>]>) }
                 }
             }

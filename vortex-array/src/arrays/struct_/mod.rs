@@ -371,10 +371,11 @@ impl StructArray {
 
         let field = self.fields.remove(position);
 
-        let new_dtype = struct_dtype.without_field(position);
-        self.dtype = DType::Struct(new_dtype, self.dtype.nullability());
-
-        Some(field)
+        if let Ok(new_dtype) = struct_dtype.without_field(position) {
+            self.dtype = DType::Struct(new_dtype, self.dtype.nullability());
+            return Some(field);
+        }
+        None
     }
 
     /// Create a new StructArray by appending a new column onto the existing array.

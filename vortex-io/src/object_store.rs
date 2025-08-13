@@ -68,6 +68,9 @@ impl VortexReadAt for ObjectStoreReadAt {
 
         let buffer = match response.payload {
             GetResultPayload::File(file, _) => {
+                // SAFETY: We're setting the length to the exact size we're about to read.
+                // The read_exact_at call will either fill the entire buffer or return an error,
+                // ensuring no uninitialized memory is exposed.
                 unsafe { buffer.set_len(len) };
                 #[cfg(feature = "tokio")]
                 {
@@ -119,6 +122,7 @@ pub struct ObjectStoreWriter {
 }
 
 const CHUNKS_SIZE: usize = 25 * 1024 * 1024;
+const MAX_BUFFER_SIZE: usize = 100 * 1024 * 1024; // 100MB max buffer
 
 impl ObjectStoreWriter {
     pub async fn new(object_store: Arc<dyn ObjectStore>, location: &Path) -> VortexResult<Self> {
@@ -132,19 +136,27 @@ impl ObjectStoreWriter {
 
 impl VortexWrite for ObjectStoreWriter {
     async fn write_all<B: IoBuf>(&mut self, buffer: B) -> io::Result<B> {
+        // Check if adding this data would exceed max buffer size
+        let new_size = self.buffer.len() + buffer.as_slice().len();
+        if new_size > MAX_BUFFER_SIZE {
+            return Err(io::Error::other(format!(
+                "Buffer size would exceed maximum of {} bytes",
+                MAX_BUFFER_SIZE
+            )));
+        }
+
         self.buffer.extend_from_slice(buffer.as_slice());
 
         if self.buffer.len() > CHUNKS_SIZE {
-            let mut buffer =
-                std::mem::replace(&mut self.buffer, BytesMut::with_capacity(CHUNKS_SIZE)).freeze();
             let mut parts = vec![];
 
-            while buffer.len() > CHUNKS_SIZE {
-                let payload = buffer.split_to(CHUNKS_SIZE);
+            // Split off chunks while buffer is larger than CHUNKS_SIZE
+            while self.buffer.len() > CHUNKS_SIZE {
+                let chunk = self.buffer.split_to(CHUNKS_SIZE);
                 let part_fut = self
                     .upload
                     .as_mut()
-                    .put_part(PutPayload::from_bytes(payload));
+                    .put_part(PutPayload::from_bytes(chunk.freeze()));
 
                 parts.push(part_fut);
             }
@@ -178,5 +190,59 @@ impl VortexWrite for ObjectStoreWriter {
 
     async fn shutdown(&mut self) -> io::Result<()> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use object_store::ObjectStore;
+    use object_store::path::Path;
+
+    use super::*;
+
+    async fn create_test_store() -> (Arc<object_store::memory::InMemory>, Path) {
+        let store = Arc::new(object_store::memory::InMemory::new());
+        let location = Path::from("test.bin");
+        (store, location)
+    }
+
+    // Note: Concurrent writes test removed because &mut self in write_all already ensures
+    // exclusive access. Multiple writers would need to be created with separate buffers,
+    // which is not the intended use case.
+
+    #[tokio::test]
+    async fn test_object_store_writer_max_buffer_size() {
+        let (store, location) = create_test_store().await;
+        let mut writer = ObjectStoreWriter::new(store, &location).await.unwrap();
+
+        // Try to write more than MAX_BUFFER_SIZE
+        let huge_data = vec![0u8; MAX_BUFFER_SIZE + 1];
+        let result = writer.write_all(huge_data).await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("exceed maximum"));
+    }
+
+    #[tokio::test]
+    async fn test_object_store_writer_multiple_flushes() {
+        let (store, location) = create_test_store().await;
+        let mut writer = ObjectStoreWriter::new(store.clone(), &location)
+            .await
+            .unwrap();
+
+        // Write and flush multiple times
+        for i in 0..3 {
+            #[allow(clippy::cast_possible_truncation)]
+            let data = vec![i as u8; 100];
+            writer.write_all(data).await.unwrap();
+            writer.flush().await.unwrap();
+        }
+
+        // Verify all data was written
+        let result = store.get(&location).await.unwrap();
+        let bytes = result.bytes().await.unwrap();
+        assert_eq!(bytes.len(), 300);
     }
 }

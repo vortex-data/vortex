@@ -64,3 +64,70 @@ impl Display for Nullability {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_nullability_default() {
+        let default = Nullability::default();
+        assert_eq!(default, Nullability::NonNullable);
+    }
+
+    #[test]
+    fn test_nullability_bitor() {
+        use Nullability::*;
+
+        // NonNullable | NonNullable = NonNullable
+        assert_eq!(NonNullable | NonNullable, NonNullable);
+
+        // NonNullable | Nullable = Nullable
+        assert_eq!(NonNullable | Nullable, Nullable);
+
+        // Nullable | NonNullable = Nullable
+        assert_eq!(Nullable | NonNullable, Nullable);
+
+        // Nullable | Nullable = Nullable
+        assert_eq!(Nullable | Nullable, Nullable);
+    }
+
+    #[test]
+    fn test_nullability_from_bool() {
+        assert_eq!(Nullability::from(false), Nullability::NonNullable);
+        assert_eq!(Nullability::from(true), Nullability::Nullable);
+    }
+
+    #[test]
+    fn test_bool_from_nullability() {
+        assert!(!bool::from(Nullability::NonNullable));
+        assert!(bool::from(Nullability::Nullable));
+    }
+
+    #[test]
+    fn test_nullability_roundtrip() {
+        // Test roundtrip conversion bool -> Nullability -> bool
+        assert!(!bool::from(Nullability::from(false)));
+        assert!(bool::from(Nullability::from(true)));
+
+        // Test roundtrip conversion Nullability -> bool -> Nullability
+        assert_eq!(
+            Nullability::from(bool::from(Nullability::NonNullable)),
+            Nullability::NonNullable
+        );
+        assert_eq!(
+            Nullability::from(bool::from(Nullability::Nullable)),
+            Nullability::Nullable
+        );
+    }
+
+    #[test]
+    fn test_nullability_chained_bitor() {
+        // Test chaining multiple BitOr operations
+        let result = Nullability::NonNullable | Nullability::NonNullable | Nullability::NonNullable;
+        assert_eq!(result, Nullability::NonNullable);
+
+        let result = Nullability::NonNullable | Nullability::Nullable | Nullability::NonNullable;
+        assert_eq!(result, Nullability::Nullable);
+    }
+}
