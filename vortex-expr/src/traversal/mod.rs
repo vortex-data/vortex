@@ -58,6 +58,17 @@ impl TraversalOrder {
     }
 }
 
+enum FoldDown<R> {
+    Continue,
+    Stop(R),
+    Skip(R),
+}
+
+enum FoldUp<R> {
+    Continue(R),
+    Stop(R),
+}
+
 #[derive(Debug, Clone)]
 pub struct Transformed<T> {
     /// Value that was being rewritten.
@@ -147,48 +158,49 @@ pub trait Node: Sized + Clone {
         f: F,
     ) -> VortexResult<Vec<Transformed<R>>>;
 
-    fn iter_children<'a, I: Iterator<Item = &'a Self>, T>(&self, f: impl FnMut(I) -> T) -> T
-    where
-        Self: 'a;
+    fn iter_children<T>(&self, f: impl FnOnce(&mut dyn Iterator<Item = &Self>) -> T) -> T;
+
+    fn children_count(&self) -> usize;
 }
 
 pub trait NodeExt: Node {
-    fn fold<R, F: NodeFolder<NodeTy = Self, Result = R>>(
+    fn fold<'a, R, F: NodeFolder<'a, NodeTy = Self, Result = R>>(
         self,
         folder: &mut F,
-    ) -> VortexResult<Transformed<R>> {
-        // let mut transformed = folder.visit_down(self.clone())?;
-        //
-        // let transformed = match transformed {
-        //     TraversalOrder::Skip => {
-        //         transformed.order = TraversalOrder::Continue;
-        //         Ok(transformed)
-        //     }
-        //     TraversalOrder::Continue => transformed
-        //         .value
-        //         .map_children(|c| c.rewrite(rewriter))
-        //         .map(|mut t| {
-        //             t.changed |= transformed.changed;
-        //             t
-        //         }),
-        //     TraversalOrder::Stop => panic!("stop"),
-        // }?;
-        let mut children = Vec::with_capacity(10);
-        let mut changed = false;
-        self.iter_children(|children_iter| {
+    ) -> VortexResult<FoldUp<R>>
+    where
+        Self: 'a,
+    {
+        let mut transformed = folder.visit_down(&self)?;
+        let transformed = match transformed {
+            FoldDown::Continue => None,
+            FoldDown::Skip(r) => Some(r),
+            FoldDown::Stop(r) => return Ok(FoldUp::Stop(r)),
+        };
+
+        assert!(transformed.is_none());
+
+        let mut children = Vec::with_capacity(self.children_count());
+        let mut stop_result = None;
+        self.iter_children(|children_iter| -> VortexResult<()> {
             for c in children_iter {
-                let c = c as &ExprRef;
                 let t = c.clone().fold(folder)?;
-                match t.order {
-                    TraversalOrder::Stop => return Ok(t),
-                    TraversalOrder::Skip => unreachable!("cannot return a skip"),
-                    TraversalOrder::Continue => (),
+                match t {
+                    FoldUp::Stop(r) => {
+                        stop_result = Some(r);
+                        return Ok(());
+                    }
+                    FoldUp::Continue(r) => {
+                        children.push(r);
+                    }
                 }
-                children.push(t.value);
-                changed |= t.changed;
             }
             Ok(())
         })?;
+
+        if let Some(result) = stop_result {
+            return Ok(FoldUp::Stop(result));
+        }
 
         // let transformed = self.transform_children(|c| c.fold(folder))?;
         //
@@ -530,11 +542,12 @@ impl Node for ExprRef {
             .collect::<VortexResult<Vec<_>>>()
     }
 
-    fn iter_children<'a, I: Iterator<Item = &'a Self>, T>(&self, f: impl FnMut(I) -> T) -> T
-    where
-        Self: 'a,
-    {
-        self.children().iter()
+    fn iter_children<T>(&self, f: impl FnOnce(&mut dyn Iterator<Item = &Self>) -> T) -> T {
+        f(&mut self.children().into_iter())
+    }
+
+    fn children_count(&self) -> usize {
+        self.children().len()
     }
 }
 
