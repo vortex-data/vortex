@@ -19,25 +19,59 @@ import org.apache.spark.sql.vectorized.ColumnarArray;
 import org.apache.spark.sql.vectorized.ColumnarMap;
 import org.apache.spark.unsafe.types.UTF8String;
 
+/**
+ * Spark ColumnVector implementation that wraps Apache Arrow vectors from Vortex data.
+ * <p>
+ * This class provides a bridge between Vortex's Arrow-based data representation and Spark's
+ * ColumnVector interface. It supports all major Arrow data types including primitives, strings,
+ * binary data, decimals, dates, timestamps, arrays, maps, and structs.
+ * <p>
+ * The implementation uses type-specific accessors to efficiently retrieve values from the
+ * underlying Arrow vectors while maintaining Spark's expected API contract.
+ * 
+ * @see ColumnVector
+ * @see ValueVector
+ */
 @Open
 public class VortexArrowColumnVector extends ColumnVector {
     VortexArrowColumnVector.ArrowVectorAccessor accessor;
     VortexArrowColumnVector[] childColumns;
 
+    /**
+     * Returns the underlying Apache Arrow ValueVector wrapped by this column vector.
+     * 
+     * @return the Arrow ValueVector containing the actual data
+     */
     public ValueVector getValueVector() {
         return accessor.vector;
     }
 
+    /**
+     * Returns whether this column contains any null values.
+     * 
+     * @return true if the column contains at least one null value, false otherwise
+     */
     @Override
     public boolean hasNull() {
         return accessor.getNullCount() > 0;
     }
 
+    /**
+     * Returns the total number of null values in this column.
+     * 
+     * @return the count of null values
+     */
     @Override
     public int numNulls() {
         return accessor.getNullCount();
     }
 
+    /**
+     * Closes this column vector and releases any associated resources.
+     * <p>
+     * This method recursively closes any child columns (for complex types like structs)
+     * and then closes the underlying Arrow vector accessor.
+     */
     @Override
     public void close() {
         if (childColumns != null) {
@@ -50,85 +84,204 @@ public class VortexArrowColumnVector extends ColumnVector {
         accessor.close();
     }
 
+    /**
+     * Returns whether the value at the specified row is null.
+     * 
+     * @param rowId the row index to check
+     * @return true if the value at rowId is null, false otherwise
+     */
     @Override
     public boolean isNullAt(int rowId) {
         return accessor.isNullAt(rowId);
     }
 
+    /**
+     * Returns the boolean value at the specified row.
+     * 
+     * @param rowId the row index
+     * @return the boolean value at rowId
+     * @throws UnsupportedOperationException if this column is not of boolean type
+     */
     @Override
     public boolean getBoolean(int rowId) {
         return accessor.getBoolean(rowId);
     }
 
+    /**
+     * Returns the byte value at the specified row.
+     * 
+     * @param rowId the row index
+     * @return the byte value at rowId
+     * @throws UnsupportedOperationException if this column is not of byte type
+     */
     @Override
     public byte getByte(int rowId) {
         return accessor.getByte(rowId);
     }
 
+    /**
+     * Returns the short value at the specified row.
+     * 
+     * @param rowId the row index
+     * @return the short value at rowId
+     * @throws UnsupportedOperationException if this column is not of short type
+     */
     @Override
     public short getShort(int rowId) {
         return accessor.getShort(rowId);
     }
 
+    /**
+     * Returns the int value at the specified row.
+     * 
+     * @param rowId the row index
+     * @return the int value at rowId
+     * @throws UnsupportedOperationException if this column is not of int type
+     */
     @Override
     public int getInt(int rowId) {
         return accessor.getInt(rowId);
     }
 
+    /**
+     * Returns the long value at the specified row.
+     * 
+     * @param rowId the row index
+     * @return the long value at rowId
+     * @throws UnsupportedOperationException if this column is not of long type
+     */
     @Override
     public long getLong(int rowId) {
         return accessor.getLong(rowId);
     }
 
+    /**
+     * Returns the float value at the specified row.
+     * 
+     * @param rowId the row index
+     * @return the float value at rowId
+     * @throws UnsupportedOperationException if this column is not of float type
+     */
     @Override
     public float getFloat(int rowId) {
         return accessor.getFloat(rowId);
     }
 
+    /**
+     * Returns the double value at the specified row.
+     * 
+     * @param rowId the row index
+     * @return the double value at rowId
+     * @throws UnsupportedOperationException if this column is not of double type
+     */
     @Override
     public double getDouble(int rowId) {
         return accessor.getDouble(rowId);
     }
 
+    /**
+     * Returns the decimal value at the specified row with the given precision and scale.
+     * 
+     * @param rowId the row index
+     * @param precision the precision of the decimal
+     * @param scale the scale of the decimal
+     * @return the Decimal value at rowId, or null if the value is null
+     * @throws UnsupportedOperationException if this column is not of decimal type
+     */
     @Override
     public Decimal getDecimal(int rowId, int precision, int scale) {
         if (isNullAt(rowId)) return null;
         return accessor.getDecimal(rowId, precision, scale);
     }
 
+    /**
+     * Returns the UTF8String value at the specified row.
+     * 
+     * @param rowId the row index
+     * @return the UTF8String value at rowId, or null if the value is null
+     * @throws UnsupportedOperationException if this column is not of string type
+     */
     @Override
     public UTF8String getUTF8String(int rowId) {
         if (isNullAt(rowId)) return null;
         return accessor.getUTF8String(rowId);
     }
 
+    /**
+     * Returns the binary data (byte array) at the specified row.
+     * 
+     * @param rowId the row index
+     * @return the byte array at rowId, or null if the value is null
+     * @throws UnsupportedOperationException if this column is not of binary type
+     */
     @Override
     public byte[] getBinary(int rowId) {
         if (isNullAt(rowId)) return null;
         return accessor.getBinary(rowId);
     }
 
+    /**
+     * Returns the array value at the specified row.
+     * 
+     * @param rowId the row index
+     * @return the ColumnarArray at rowId, or null if the value is null
+     * @throws UnsupportedOperationException if this column is not of array type
+     */
     @Override
     public ColumnarArray getArray(int rowId) {
         if (isNullAt(rowId)) return null;
         return accessor.getArray(rowId);
     }
 
+    /**
+     * Returns the map value at the specified row.
+     * 
+     * @param rowId the row index
+     * @return the ColumnarMap at rowId, or null if the value is null
+     * @throws UnsupportedOperationException if this column is not of map type
+     */
     @Override
     public ColumnarMap getMap(int rowId) {
         if (isNullAt(rowId)) return null;
         return accessor.getMap(rowId);
     }
 
+    /**
+     * Returns the child column at the specified ordinal.
+     * <p>
+     * This is used for complex types like structs where each field is represented
+     * as a child column.
+     * 
+     * @param ordinal the index of the child column
+     * @return the child VortexArrowColumnVector at the specified ordinal
+     * @throws ArrayIndexOutOfBoundsException if ordinal is out of bounds
+     */
     @Override
     public VortexArrowColumnVector getChild(int ordinal) {
         return childColumns[ordinal];
     }
 
+    /**
+     * Creates a new VortexArrowColumnVector with the specified Spark DataType.
+     * <p>
+     * This constructor is used internally for creating column vectors before
+     * the underlying Arrow vector is available.
+     * 
+     * @param type the Spark DataType for this column
+     */
     VortexArrowColumnVector(DataType type) {
         super(type);
     }
 
+    /**
+     * Creates a new VortexArrowColumnVector wrapping the specified Arrow ValueVector.
+     * <p>
+     * This constructor automatically determines the appropriate Spark DataType from
+     * the Arrow field and initializes the type-specific accessor.
+     * 
+     * @param vector the Arrow ValueVector to wrap
+     * @throws UnsupportedOperationException if the vector type is not supported
+     */
     public VortexArrowColumnVector(ValueVector vector) {
         this(ArrowUtils.fromArrowField(vector.getField()));
         initAccessor(vector);
