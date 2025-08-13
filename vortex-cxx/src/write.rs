@@ -3,6 +3,7 @@
 
 use std::sync::LazyLock;
 
+use anyhow::Result;
 use arrow_array::RecordBatchReader;
 use arrow_array::ffi_stream::{ArrowArrayStreamReader, FFI_ArrowArrayStream};
 use tokio::runtime::Runtime;
@@ -33,9 +34,7 @@ pub(crate) fn write_options_new() -> Box<VortexWriteOptions> {
 }
 
 /// Convert an ArrowArrayStreamReader to a Vortex ArrayStream
-fn arrow_stream_to_vortex_stream(
-    reader: ArrowArrayStreamReader,
-) -> Result<impl ArrayStream, Box<dyn std::error::Error + Send + Sync>> {
+fn arrow_stream_to_vortex_stream(reader: ArrowArrayStreamReader) -> Result<impl ArrayStream> {
     let array_iter = ArrayIteratorAdapter::new(
         DType::from_arrow(reader.schema()),
         reader.map(|result| {
@@ -56,7 +55,7 @@ pub(crate) unsafe fn write_array_stream(
     options: Box<VortexWriteOptions>,
     input_stream: *mut u8,
     path: &str,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<()> {
     let path = path.to_string();
 
     let stream_reader =
@@ -68,6 +67,6 @@ pub(crate) unsafe fn write_array_stream(
         let file = tokio::fs::File::create(path).await?;
 
         options.inner.write(file, vortex_stream).await?;
-        Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+        Ok(())
     })
 }

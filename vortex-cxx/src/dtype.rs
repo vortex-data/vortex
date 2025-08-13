@@ -3,6 +3,7 @@
 
 use std::fmt::{Display, Formatter};
 
+use anyhow::Result;
 use arrow_array::ffi::FFI_ArrowSchema;
 use arrow_schema::Field;
 use vortex_dtype::arrow::FromArrowType;
@@ -80,10 +81,7 @@ pub(crate) fn nullability_from_bool(nullable: bool) -> Nullability {
     }
 }
 
-pub(crate) unsafe fn from_arrow(
-    ffi_schema: *mut u8,
-    non_nullable: bool,
-) -> Result<Box<DType>, Box<dyn std::error::Error + Send + Sync>> {
+pub(crate) unsafe fn from_arrow(ffi_schema: *mut u8, non_nullable: bool) -> Result<Box<DType>> {
     let arrow_schema = unsafe { FFI_ArrowSchema::from_raw(ffi_schema as *mut FFI_ArrowSchema) };
     let arrow_dtype = arrow_schema::DataType::try_from(&arrow_schema)?;
     Ok(Box::new(DType {

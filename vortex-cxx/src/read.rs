@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use anyhow::Result;
 use arrow_array::RecordBatchReader;
 use arrow_array::ffi::FFI_ArrowSchema;
 use arrow_array::ffi_stream::FFI_ArrowArrayStream;
@@ -23,9 +24,7 @@ impl VortexFile {
         self.inner.row_count()
     }
 
-    pub(crate) fn scan_builder(
-        &self,
-    ) -> Result<Box<VortexScanBuilder>, Box<dyn std::error::Error + Send + Sync>> {
+    pub(crate) fn scan_builder(&self) -> Result<Box<VortexScanBuilder>> {
         Ok(Box::new(VortexScanBuilder {
             inner: self.inner.scan()?,
             output_schema: None,
@@ -35,9 +34,7 @@ impl VortexFile {
 
 /// File operations - using blocking operations for simplicity
 /// TODO(xinyu): object store (see vortex-ffi)
-pub(crate) fn open_file(
-    path: &str,
-) -> Result<Box<VortexFile>, Box<dyn std::error::Error + Send + Sync>> {
+pub(crate) fn open_file(path: &str) -> Result<Box<VortexFile>> {
     let file = VortexOpenOptions::file().open_blocking(std::path::Path::new(path))?;
     Ok(Box::new(VortexFile { inner: file }))
 }
@@ -75,10 +72,7 @@ impl VortexScanBuilder {
         take_mut::take(&mut self.inner, |inner| inner.with_limit(limit));
     }
 
-    pub(crate) unsafe fn with_output_schema(
-        &mut self,
-        output_schema: *mut u8,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub(crate) unsafe fn with_output_schema(&mut self, output_schema: *mut u8) -> Result<()> {
         let ffi_schema =
             unsafe { FFI_ArrowSchema::from_raw(output_schema as *mut FFI_ArrowSchema) };
         self.output_schema = Some(Arc::new(Schema::try_from(&ffi_schema)?));
@@ -92,7 +86,7 @@ impl VortexScanBuilder {
 pub(crate) unsafe fn scan_builder_into_stream(
     builder: Box<VortexScanBuilder>,
     out_stream: *mut u8,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<()> {
     let schema = match builder.output_schema {
         Some(schema) => schema,
         None => {

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use anyhow::Result;
+
 use crate::dtype::DType;
 
 pub(crate) struct Scalar {
@@ -42,10 +44,7 @@ pub(crate) fn binary_scalar_new(value: &[u8]) -> Box<Scalar> {
 }
 
 impl Scalar {
-    pub(crate) fn cast_scalar(
-        &self,
-        dtype: &DType,
-    ) -> Result<Box<Scalar>, Box<dyn std::error::Error + Send + Sync>> {
+    pub(crate) fn cast_scalar(&self, dtype: &DType) -> Result<Box<Scalar>> {
         Ok(Box::new(Scalar {
             inner: self.inner.cast(&dtype.inner)?,
         }))
