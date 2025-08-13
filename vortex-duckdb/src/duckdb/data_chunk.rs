@@ -49,10 +49,6 @@ impl DataChunk {
         unsafe { cpp::duckdb_data_chunk_get_size(self.ptr) }
     }
 
-    pub fn len_usize(&self) -> usize {
-        usize::try_from(self.len()).vortex_expect("Data chunk length exceeds usize")
-    }
-
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }

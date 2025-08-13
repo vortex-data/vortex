@@ -69,6 +69,8 @@ impl Connection {
 
 #[cfg(test)]
 mod tests {
+    use num_traits::AsPrimitive;
+
     use super::*;
     use crate::cpp::duckdb_string_t;
 
@@ -152,7 +154,7 @@ mod tests {
         let result = conn.query("SELECT 42").unwrap();
         let chunk = result.into_iter().next().unwrap();
         let vec = chunk.get_vector(0);
-        let slice = vec.as_slice_with_len::<i64>(chunk.len_usize());
+        let slice = vec.as_slice_with_len::<i64>(chunk.len().as_());
 
         assert_eq!(chunk.column_count(), 1);
         assert_eq!(chunk.len(), 1);
@@ -168,7 +170,7 @@ mod tests {
         let result = conn.query("SELECT id FROM test ORDER BY id").unwrap();
         let chunk = result.into_iter().next().unwrap();
         let vec = chunk.get_vector(0);
-        let slice = vec.as_slice_with_len::<i32>(chunk.len_usize());
+        let slice = vec.as_slice_with_len::<i32>(chunk.len().as_());
 
         assert_eq!(chunk.column_count(), 1);
         assert_eq!(chunk.len(), 3);
@@ -186,10 +188,10 @@ mod tests {
 
         let chunk = result.into_iter().next().unwrap();
         let vec = chunk.get_vector(0);
-        let slice = vec.as_slice_with_len::<i64>(chunk.len_usize());
+        let slice = vec.as_slice_with_len::<i64>(chunk.len().as_());
 
         let mut vec_str = chunk.get_vector(1);
-        let slice_str = unsafe { vec_str.as_slice_mut::<duckdb_string_t>(chunk.len_usize()) };
+        let slice_str = unsafe { vec_str.as_slice_mut::<duckdb_string_t>(chunk.len().as_()) };
 
         assert_eq!(chunk.len(), 1);
         assert_eq!(slice[0], 1);
@@ -237,10 +239,10 @@ mod tests {
         let vec1 = chunk.get_vector(1);
         let vec2 = chunk.get_vector(2);
         let vec3 = chunk.get_vector(3);
-        let slice0 = vec0.as_slice_with_len::<i8>(chunk.len_usize());
-        let slice1 = vec1.as_slice_with_len::<i16>(chunk.len_usize());
-        let slice2 = vec2.as_slice_with_len::<i32>(chunk.len_usize());
-        let slice3 = vec3.as_slice_with_len::<i64>(chunk.len_usize());
+        let slice0 = vec0.as_slice_with_len::<i8>(chunk.len().as_());
+        let slice1 = vec1.as_slice_with_len::<i16>(chunk.len().as_());
+        let slice2 = vec2.as_slice_with_len::<i32>(chunk.len().as_());
+        let slice3 = vec3.as_slice_with_len::<i64>(chunk.len().as_());
 
         assert_eq!(slice0[0], 42); // TINYINT -> i64
         assert_eq!(slice1[0], 42); // SMALLINT -> i64

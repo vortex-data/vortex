@@ -12,6 +12,7 @@ mod tests {
     use anyhow::Result;
     use jiff::tz::TimeZone;
     use jiff::{Span, Timestamp, Zoned, tz};
+    use num_traits::AsPrimitive;
     use tempfile::NamedTempFile;
     use vortex::IntoArray;
     use vortex::arrays::{BoolArray, ConstantArray, PrimitiveArray, StructArray, VarBinArray};
@@ -68,7 +69,7 @@ mod tests {
         let result = conn.query(&formatted_query).unwrap();
         let chunk = result.into_iter().next().unwrap();
         let vec = chunk.get_vector(col_idx);
-        vec.as_slice_with_len::<T>(chunk.len_usize())[0]
+        vec.as_slice_with_len::<T>(chunk.len().as_())[0]
     }
 
     fn scan_vortex_file<T: Copy>(
@@ -85,7 +86,7 @@ mod tests {
         let mut values = Vec::new();
         for chunk in result {
             let vec = chunk.get_vector(col_idx);
-            values.extend(vec.as_slice_with_len::<T>(chunk.len_usize()));
+            values.extend(vec.as_slice_with_len::<T>(chunk.len().as_()));
         }
 
         Ok(values)
@@ -121,7 +122,7 @@ mod tests {
             .unwrap();
         let chunk = result.into_iter().next().unwrap();
         let vec = chunk.get_vector(0);
-        let mut result = vec.as_slice_with_len::<duckdb_string_t>(chunk.len_usize())[0];
+        let mut result = vec.as_slice_with_len::<duckdb_string_t>(chunk.len().as_())[0];
         let string =
             unsafe { CStr::from_ptr(cpp::duckdb_string_t_data(&raw mut result)).to_string_lossy() };
 
@@ -309,7 +310,7 @@ mod tests {
             .unwrap();
         let chunk = result.into_iter().next().unwrap();
         let vec = chunk.get_vector(0);
-        let total_sum = vec.as_slice_with_len::<i64>(chunk.len_usize())[0];
+        let total_sum = vec.as_slice_with_len::<i64>(chunk.len().as_())[0];
 
         assert_eq!(total_sum, 21);
     }
@@ -332,7 +333,7 @@ mod tests {
             .unwrap();
         let chunk = result.into_iter().next().unwrap();
         let vec = chunk.get_vector(0);
-        let total_sum = vec.as_slice_with_len::<i64>(chunk.len_usize())[0];
+        let total_sum = vec.as_slice_with_len::<i64>(chunk.len().as_())[0];
 
         assert_eq!(total_sum, 55);
     }
@@ -353,7 +354,7 @@ mod tests {
             .unwrap();
         let chunk = result.into_iter().next().unwrap();
         let vec = chunk.get_vector(0);
-        let timestamp = vec.as_slice_with_len::<duckdb_timestamp>(chunk.len_usize())[0];
+        let timestamp = vec.as_slice_with_len::<duckdb_timestamp>(chunk.len().as_())[0];
 
         assert_eq!(
             Timestamp::UNIX_EPOCH

@@ -4,7 +4,7 @@
 use std::ffi::CStr;
 use std::fmt::{Debug, Formatter};
 
-use arrow_buffer::ArrowNativeType;
+use num_traits::AsPrimitive;
 use vortex::buffer::{BufferString, ByteBuffer};
 use vortex::error::{VortexExpect, vortex_err, vortex_panic};
 
@@ -280,9 +280,8 @@ impl Value {
                 //  get the values by reference, avoiding a double copy since these C functions
                 //  also copy on the CPP side.
                 let blob = unsafe { cpp::duckdb_get_blob(self.as_ptr()) };
-                let slice = unsafe {
-                    std::slice::from_raw_parts(blob.data.cast::<u8>(), blob.size.as_usize())
-                };
+                let slice =
+                    unsafe { std::slice::from_raw_parts(blob.data.cast::<u8>(), blob.size.as_()) };
                 let bytes = ByteBuffer::copy_from(slice);
                 unsafe { cpp::duckdb_free(blob.data) };
                 Val::Blob(bytes)

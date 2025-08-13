@@ -15,7 +15,7 @@ use arrow_array::{
     TimestampNanosecondArray, TimestampSecondArray,
 };
 use arrow_buffer::buffer::BooleanBuffer;
-use bitvec::macros::internal::funty::Fundamental;
+use num_traits::AsPrimitive;
 use vortex::ArrayRef;
 use vortex::arrays::StructArray;
 use vortex::arrow::FromArrowArray;
@@ -332,12 +332,13 @@ pub fn data_chunk_to_arrow(field_names: &FieldNames, chunk: &DataChunk) -> Vorte
         .map(|(i, name)| {
             let mut vector = chunk.get_vector(i);
             vector.flatten(len);
-            flat_vector_to_arrow_array(&mut vector, len.as_usize())
+            flat_vector_to_arrow_array(&mut vector, len.as_())
                 .map(|array_data| {
-                    assert_eq!(array_data.len(), chunk.len().as_usize());
+                    let chunk_len: usize = chunk.len().as_();
+                    assert_eq!(array_data.len(), chunk_len);
                     (name, ArrayRef::from_arrow(array_data.as_ref(), true))
                 })
-                .map_err(|e| vortex_err!("duckdb to arrow conversion failure {}", e.to_string()))
+                .map_err(|e| vortex_err!("duckdb to arrow conversion failure {e}"))
         })
         .collect::<VortexResult<Vec<_>>>()?;
     StructArray::try_from_iter(columns).map(|a| a.to_array())
