@@ -30,7 +30,7 @@ jobs:
       - name: Generate Javadoc for Java projects
         run: |
           cd java
-          ./gradlew javadoc -x makeTestFiles -x shadowJar
+          ./gradlew javadoc -x makeTestFiles
       - name: Copy Javadoc to docs directory
         run: |
           mkdir -p docs/_static/vortex-jni
