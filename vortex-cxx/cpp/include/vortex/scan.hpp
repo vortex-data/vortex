@@ -70,7 +70,7 @@ public:
     ScanBuilder &&WithLimit(uint64_t limit) &&;
 
     /// Set the output schema on the scan builder.
-    /// TODO: should decide whether to pass in full schema or schema after adding projection.
+    /// TODO: currently if pass in this option, the schema needs to be the schema after adding projection.
     ScanBuilder &&WithOutputSchema(ArrowSchema &output_schema) &&;
 
     /// Take ownership and consume the scan builder to a stream of record batches.

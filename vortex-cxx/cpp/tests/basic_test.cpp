@@ -428,3 +428,13 @@ TEST_F(VortexTest, ScanBuilderWithFilterUsingDTypeFromArrowAndScalarCast) {
         },
         vortex::testing::CreateTestDataStream(), {2}, true); // Row index 2 corresponds to value 30
 }
+
+TEST_F(VortexTest, ScanBuilderWithProjectionSingleColumn) {
+    // Test projection selecting only column "a" (field index 0)
+    RunScanBuilderProjectionTest(
+        [](vortex::ScanBuilder &&scan_builder) {
+            vortex::Expr projection = vortex::Expr::select({"a"}, vortex::Expr::root());
+            return std::move(scan_builder).WithProjection(std::move(projection)).IntoStream();
+        },
+        vortex::testing::CreateTestDataStream(), {0});
+}
