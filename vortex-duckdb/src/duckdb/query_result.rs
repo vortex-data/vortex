@@ -3,7 +3,7 @@
 
 use std::ffi::CStr;
 
-use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex::error::{VortexResult, vortex_bail, vortex_err};
 
 use crate::duckdb::DataChunk;
 use crate::{cpp, wrapper};
@@ -33,27 +33,20 @@ impl QueryResult {
     }
 
     /// Get the number of columns in the result.
-    pub fn column_count(&self) -> usize {
-        unsafe {
-            usize::try_from(cpp::duckdb_column_count(self.as_ptr()))
-                .vortex_expect("Column count too large to fit in usize")
-        }
+    pub fn column_count(&self) -> u64 {
+        unsafe { cpp::duckdb_column_count(self.as_ptr()) }
     }
 
     /// Get the number of rows in the result for SELECT operations,
     /// or the number of affected rows for (INSERT/UPDATE/DELETE) operations.
-    pub fn row_count(&self) -> usize {
-        unsafe {
-            let rows_changed = cpp::duckdb_rows_changed(self.as_ptr());
-            if rows_changed > 0 {
-                // (INSERT, UPDATE, DELETE) - return affected rows
-                usize::try_from(rows_changed)
-                    .vortex_expect("Rows changed count too large to fit in usize")
-            } else {
-                // SELECT - return result row count
-                usize::try_from(cpp::duckdb_row_count(self.as_ptr()))
-                    .vortex_expect("Row count too large to fit in usize")
-            }
+    pub fn row_count(&self) -> u64 {
+        let rows_changed = unsafe { cpp::duckdb_rows_changed(self.as_ptr()) };
+        if rows_changed > 0 {
+            // (INSERT, UPDATE, DELETE) - return affected rows
+            rows_changed
+        } else {
+            // SELECT - return result row count
+            unsafe { cpp::duckdb_row_count(self.as_ptr()) }
         }
     }
 
