@@ -33,6 +33,7 @@ public:
     static Scalar float64(double value);
     static Scalar string(std::string_view value);
     static Scalar binary(const uint8_t *data, size_t length);
+    /// TODO: Other Scalars are only supported by casting for now.
     static Scalar cast(Scalar scalar, DType dtype);
 
 private:

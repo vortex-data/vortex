@@ -51,9 +51,9 @@ public:
     static DType decimal(uint8_t precision = 10, int8_t scale = 0, bool nullable = false);
     static DType utf8(bool nullable = false);
     static DType binary(bool nullable = false);
+    /// TODO: Other DTypes are only supported by creating from Arrow for now.
     static DType from_arrow(struct ArrowSchema &schema, bool non_nullable = false);
 
-    // Methods
     std::string to_string() const;
 
 private:

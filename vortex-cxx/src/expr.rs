@@ -74,10 +74,7 @@ binary_op!(checked_add);
 pub(crate) fn select(fields: Vec<String>, child: Box<Expr>) -> Box<Expr> {
     Box::new(Expr {
         inner: vortex_expr::select(
-            fields
-                .into_iter()
-                .map(|s| FieldName::from(s))
-                .collect::<Vec<_>>(),
+            fields.into_iter().map(FieldName::from).collect::<Vec<_>>(),
             child.inner,
         ),
     })

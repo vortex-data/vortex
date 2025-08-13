@@ -404,12 +404,27 @@ TEST_F(VortexTest, ScanBuilderWithFilterNoMatches) {
         vortex::testing::CreateTestDataStream(), {}, true); // No matching rows
 }
 
-TEST_F(VortexTest, ScanBuilderWithProjectionSingleColumn) {
-    // Test projection selecting only column "a" (field index 0)
-    RunScanBuilderProjectionTest(
-        [](vortex::ScanBuilder &&scan_builder) {
-            vortex::Expr projection = vortex::Expr::select({"a"}, vortex::Expr::root());
-            return std::move(scan_builder).WithProjection(std::move(projection)).IntoStream();
+TEST_F(VortexTest, ScanBuilderWithFilterUsingDTypeFromArrowAndScalarCast) {
+    // Test filtering using DType::from_arrow and Scalar::cast functionality
+    // This test creates a filter expression by casting a scalar to match the column type
+
+    // Test DType::from_arrow with int32 schema
+    nanoarrow::UniqueSchema int32_schema;
+    ArrowSchemaInit(int32_schema.get());
+    ArrowErrorCode result = ArrowSchemaSetType(int32_schema.get(), NANOARROW_TYPE_INT32);
+    EXPECT_EQ(result, NANOARROW_OK);
+    result = ArrowSchemaSetName(int32_schema.get(), "test_field");
+    EXPECT_EQ(result, NANOARROW_OK);
+
+    vortex::DType dtype = vortex::DType::from_arrow(*int32_schema.get());
+
+    // Use the casted scalar in filter expression - create a new scalar for lambda
+    RunScanBuilderTest(
+        [&](vortex::ScanBuilder &&scan_builder) {
+            vortex::Scalar test_scalar = vortex::Scalar::cast(vortex::Scalar::int64(30), std::move(dtype));
+            vortex::Expr filter =
+                vortex::Expr::eq(vortex::Expr::column("a"), vortex::Expr::literal(std::move(test_scalar)));
+            return std::move(scan_builder).WithFilter(std::move(filter)).IntoStream();
         },
-        vortex::testing::CreateTestDataStream(), {0});
+        vortex::testing::CreateTestDataStream(), {2}, true); // Row index 2 corresponds to value 30
 }

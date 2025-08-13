@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::{Display, Formatter};
+
 use arrow_array::ffi::FFI_ArrowSchema;
 use arrow_schema::Field;
 use vortex_dtype::arrow::FromArrowType;
 use vortex_dtype::{DType as RustDType, DecimalDType, Nullability, PType as RustPType};
 
 use crate::ffi;
-#[derive(Debug)]
 pub(crate) struct DType {
     pub(crate) inner: RustDType,
 }
@@ -65,9 +66,9 @@ pub(crate) fn dtype_binary(nullable: bool) -> Box<DType> {
     })
 }
 
-impl DType {
-    pub(crate) fn to_string(&self) -> String {
-        self.inner.to_string()
+impl Display for DType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{0}", self.inner)
     }
 }
 

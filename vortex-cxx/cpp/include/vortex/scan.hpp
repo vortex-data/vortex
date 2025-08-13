@@ -47,14 +47,8 @@ private:
 
 class ScanBuilder {
 public:
-    ScanBuilder(ScanBuilder &&other) noexcept : impl_(std::move(other.impl_)) {
-    }
-    ScanBuilder &operator=(ScanBuilder &&other) noexcept {
-        if (this != &other) {
-            impl_ = std::move(other.impl_);
-        }
-        return *this;
-    }
+    ScanBuilder(ScanBuilder &&other) noexcept = default;
+    ScanBuilder &operator=(ScanBuilder &&other) noexcept = default;
     ~ScanBuilder() = default;
 
     ScanBuilder(const ScanBuilder &) = delete;
