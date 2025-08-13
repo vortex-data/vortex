@@ -59,11 +59,10 @@ set(CPP_PRIVATE_INCLUDE_DIRS
 
 # Create the main library combining C++ and Rust code
 add_library(vortex STATIC ${CPP_SOURCE_FILE})
-target_include_directories(vortex PUBLIC ${CPP_INCLUDE_DIRS})
+target_include_directories(vortex PUBLIC ${CPP_INCLUDE_DIRS} 
+    ${CMAKE_CURRENT_BINARY_DIR}/corrosion_generated/cxxbridge/vortex_cxx_bridge/include)
 target_include_directories(vortex PRIVATE 
     ${CPP_PRIVATE_INCLUDE_DIRS}
-    ${CMAKE_CURRENT_BINARY_DIR}/corrosion_generated/cxxbridge/vortex_cxx_bridge/include
-    ${CMAKE_CURRENT_BINARY_DIR}/corrosion_generated/cxxbridge/vortex_cxx_bridge/src
 )
 target_link_libraries(vortex 
     PUBLIC nanoarrow_static
