@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_buffer::ArrowNativeType;
+use num_traits::AsPrimitive;
 use vortex_dtype::{NativePType, match_each_integer_ptype, match_each_native_ptype};
 use vortex_error::VortexResult;
 
@@ -43,15 +43,15 @@ impl PrimitiveArray {
         patched_validity: Validity,
     ) -> VortexResult<Self>
     where
-        T: NativePType + ArrowNativeType,
-        I: NativePType + ArrowNativeType,
+        T: NativePType,
+        I: NativePType + AsPrimitive<usize>,
     {
         let mut own_values = self.into_buffer_mut::<T>();
 
         let patch_indices = patch_indices.as_slice::<I>();
         let patch_values = patch_values.as_slice::<T>();
         for (idx, value) in itertools::zip_eq(patch_indices, patch_values) {
-            own_values[idx.as_usize() - patch_indices_offset] = *value;
+            own_values[idx.as_() - patch_indices_offset] = *value;
         }
         Ok(Self::new(own_values, patched_validity))
     }
