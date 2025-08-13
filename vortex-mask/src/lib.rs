@@ -102,7 +102,6 @@ pub enum Mask {
 }
 
 /// Represents the values of a [`Mask`] that contains some true and some false elements.
-#[derive(Debug)]
 pub struct MaskValues {
     buffer: BooleanBuffer,
 
@@ -115,6 +114,15 @@ pub struct MaskValues {
     true_count: usize,
     // i.e., the fraction of values that are true
     density: f64,
+}
+
+impl Debug for MaskValues {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MaskValues")
+            .field("true_count", &self.true_count)
+            .field("density", &self.density)
+            .finish()
+    }
 }
 
 impl MaskValues {

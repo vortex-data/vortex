@@ -9,7 +9,7 @@ use tokio::runtime::Handle;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 
 impl Scan2 {
-    pub fn into_tokio_steam(self, handle: Handle) -> impl ArrayStream {
+    pub fn into_tokio_steam(self, handle: Handle) -> impl ArrayStream + Send {
         let spawner: Box<dyn TaskSpawner> = Box::new(handle);
         let dtype = self.ctx.dtype.clone();
         ArrayStreamAdapter::new(dtype, self.into_scheduler(spawner))

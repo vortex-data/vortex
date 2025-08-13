@@ -13,7 +13,6 @@
 use crate::state::{Scan2, ScanTask, Scheduler, TaskSpawner};
 use crossbeam_deque::{Injector, Stealer, Worker};
 use futures::executor::block_on;
-use log::info;
 use parking_lot::{Mutex, RwLock};
 use std::future::poll_fn;
 use std::iter;

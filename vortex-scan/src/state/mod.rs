@@ -35,7 +35,7 @@ pub struct Scan2 {
     splits: Vec<Split>,
 }
 
-pub(crate) trait TaskSpawner {
+pub(crate) trait TaskSpawner: Send {
     fn spawn_task(&self, task: Box<dyn ScanTask>);
 }
 
@@ -141,7 +141,6 @@ struct IoEvent {
     buffer: ByteBuffer,
 }
 
-#[derive(Debug)]
 enum ScanTaskResult {
     Filter {
         split_idx: SplitIdx,
@@ -151,6 +150,27 @@ enum ScanTaskResult {
         split_idx: SplitIdx,
         array: VortexResult<ArrayRef>,
     },
+}
+
+impl Debug for ScanTaskResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ScanTaskResult")
+            .field(
+                "type",
+                &match self {
+                    ScanTaskResult::Filter { .. } => "Filter",
+                    ScanTaskResult::Project { .. } => "Project",
+                },
+            )
+            .field(
+                "split_idx",
+                &match self {
+                    ScanTaskResult::Filter { split_idx, .. } => *split_idx,
+                    ScanTaskResult::Project { split_idx, .. } => *split_idx,
+                },
+            )
+            .finish()
+    }
 }
 
 /// Scheduler for a Vortex scan.
@@ -589,6 +609,7 @@ impl Scheduler {
             if self.working_set.contains_key(&segment_id) {
                 continue;
             }
+            info!("Requesting segment {:?}", segment_id);
             let fut = self.source.request(segment_id);
             self.segment_futures.push(
                 async move {
@@ -612,21 +633,26 @@ impl Stream for Scheduler {
     type Item = VortexResult<ArrayRef>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        // We attempt to drive the scheduler before returning any results to keep things moving.
-        // If we returned results first, a big batch of splits could prevent us from spawning
-        // new I/O work while our caller spends time processing them.
-        if let Poll::Ready(Err(e)) = self.make_progress_with_cx(cx) {
-            return Poll::Ready(Some(Err(e)));
-        };
+        loop {
+            let pending = match self.make_progress_with_cx(cx) {
+                Poll::Ready(Ok(())) => false,
+                Poll::Ready(Err(e)) => {
+                    return Poll::Ready(Some(Err(e)));
+                }
+                Poll::Pending => true,
+            };
 
-        if let Some(array) = self.output_buffer.pop_front() {
-            return Poll::Ready(Some(array));
+            if let Some(array) = self.output_buffer.pop_front() {
+                return Poll::Ready(Some(array));
+            }
+
+            if self.finished {
+                return Poll::Ready(None);
+            }
+
+            if pending {
+                return Poll::Pending;
+            }
         }
-
-        if self.finished {
-            return Poll::Ready(None);
-        }
-
-        Poll::Pending
     }
 }

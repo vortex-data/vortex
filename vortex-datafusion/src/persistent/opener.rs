@@ -13,6 +13,7 @@ use datafusion::datasource::physical_plan::{FileMeta, FileOpenFuture, FileOpener
 use futures::{FutureExt as _, StreamExt, TryStreamExt, stream};
 use object_store::ObjectStore;
 use object_store::path::Path;
+use tokio::runtime::Handle;
 use vortex::error::VortexError;
 use vortex::expr::{ExprRef, VortexExpr};
 use vortex::layout::LayoutReader;
@@ -123,14 +124,16 @@ impl FileOpener for VortexFileOpener {
                 .with_metrics(metrics)
                 .with_projection(projection)
                 .with_some_filter(filter)
-                .map(move |chunk| {
-                    let st = chunk.to_struct()?;
-                    st.into_record_batch_with_schema(projected_arrow_schema.as_ref())
-                })
-                .into_tokio_stream()
+                .build2()
                 .map_err(|e| {
                     DataFusionError::Execution(format!("Failed to create Vortex stream: {e}"))
                 })?
+                .into_tokio_steam(Handle::current())
+                .map(move |chunk| {
+                    // FIXME(ngates): this logic may need to happen inside the task?
+                    let st = chunk?.to_struct()?;
+                    st.into_record_batch_with_schema(projected_arrow_schema.as_ref())
+                })
                 .map_ok(move |rb| {
                     // We try and slice the stream into respecting datafusion's configured batch size.
                     stream::iter(
