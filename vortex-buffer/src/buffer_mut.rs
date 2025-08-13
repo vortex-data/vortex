@@ -3,11 +3,6 @@
 
 use core::mem::MaybeUninit;
 use std::any::type_name;
-#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-use std::arch::x86_64::{
-    __m256i, _mm_sfence, _mm256_set1_epi8, _mm256_set1_epi16, _mm256_set1_epi32,
-    _mm256_set1_epi64x, _mm256_stream_si256,
-};
 use std::fmt::{Debug, Formatter};
 use std::io::Write;
 use std::ops::{Deref, DerefMut};
@@ -299,11 +294,11 @@ impl<T> BufferMut<T> {
     where
         T: Copy,
     {
-        #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+        #[cfg(target_feature = "avx2")]
         {
             // Ensure a minimum of 128 bytes to write for AVX streaming stores.
             if size_of::<T>() * n >= 128 {
-                unsafe { avx::push_n_unchecked(self, item, n) }
+                unsafe { avx2::push_n_unchecked(self, item, n) }
             } else {
                 unsafe { scalar::push_n_unchecked(self, item, n) }
             }
@@ -514,8 +509,12 @@ mod scalar {
     }
 }
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-mod avx {
+#[cfg(target_feature = "avx2")]
+mod avx2 {
+    use std::arch::x86_64::{
+        __m256i, _mm_sfence, _mm256_set1_epi8, _mm256_set1_epi16, _mm256_set1_epi32,
+        _mm256_set1_epi64x, _mm256_storeu_si256, _mm256_stream_si256,
+    };
     use std::mem::size_of;
 
     use super::*;
@@ -530,20 +529,6 @@ mod avx {
     where
         T: Copy,
     {
-        // Only use AVX streaming stores if the buffer is aligned to 32 bytes.
-        if buffer
-            .bytes
-            .spare_capacity_mut()
-            .as_mut_ptr()
-            .align_offset(align_of::<__m256i>())
-            != 0
-        {
-            unsafe {
-                scalar::push_n_unchecked(buffer, item, n);
-            }
-            return;
-        }
-
         let size = size_of::<T>();
 
         // Splat `item` into a vector register.
@@ -564,16 +549,33 @@ mod avx {
         let mut ptr = buffer.bytes.spare_capacity_mut().as_mut_ptr() as *mut u8;
         let end = unsafe { ptr.add(total_bytes) };
 
-        // Safety: Sufficient capacity is a precondition.
-        for _ in 0..(total_bytes / 32) {
-            unsafe {
-                _mm256_stream_si256(ptr as *mut __m256i, pattern);
+        if buffer
+            .bytes
+            .spare_capacity_mut()
+            .as_mut_ptr()
+            .align_offset(align_of::<__m256i>())
+            == 0
+        {
+            // Safety: Sufficient capacity is a precondition.
+            for _ in 0..(total_bytes / 32) {
+                unsafe {
+                    // Use AVX streaming stores if the buffer is aligned to 32 bytes.
+                    _mm256_stream_si256(ptr as *mut __m256i, pattern);
+                }
+                ptr = unsafe { ptr.add(32) };
             }
-            ptr = unsafe { ptr.add(32) };
+            // Ensure all writes become visible.
+            unsafe { _mm_sfence() };
+        } else {
+            // Safety: Sufficient capacity is a precondition.
+            for _ in 0..(total_bytes / 32) {
+                unsafe {
+                    // Use unaligned stores if the buffer is not aligned to 32 bytes.
+                    _mm256_storeu_si256(ptr as *mut __m256i, pattern);
+                }
+                ptr = unsafe { ptr.add(32) };
+            }
         }
-
-        // Ensure all writes are visible before updating buffer state.
-        unsafe { _mm_sfence() };
 
         // Safety: Sufficient capacity is a precondition.
         unsafe {
