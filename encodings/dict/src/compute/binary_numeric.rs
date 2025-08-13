@@ -26,13 +26,16 @@ impl NumericKernel for DictVTable {
         };
         let rhs_const_array = ConstantArray::new(rhs_scalar, array.values().len()).into_array();
 
-        Ok(Some(
-            DictArray::try_new(
-                array.codes().clone(),
-                numeric(array.values(), &rhs_const_array, op)?,
-            )?
-            .into_array(),
-        ))
+        // SAFETY: applying numeric fn to values does not change codes validity
+        unsafe {
+            Ok(Some(
+                DictArray::new_unchecked(
+                    array.codes().clone(),
+                    numeric(array.values(), &rhs_const_array, op)?,
+                )
+                .into_array(),
+            ))
+        }
     }
 }
 

@@ -41,7 +41,8 @@ impl FillNullKernel for DictVTable {
         // And fill nulls in the values
         let values = fill_null(array.values(), fill_value)?;
 
-        Ok(DictArray::try_new(codes, values)?.into_array())
+        // SAFETY: invariants are still satisfied after patching nulls
+        unsafe { Ok(DictArray::new_unchecked(codes, values).into_array()) }
     }
 }
 

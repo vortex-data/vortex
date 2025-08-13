@@ -586,7 +586,7 @@ impl Scheme for DictScheme {
         // TODO(aduffy): we can be more prescriptive: we know that codes will EITHER be
         //    RLE or FOR + BP. Cascading probably wastes some time here.
 
-        let dict = dictionary_encode(stats)?;
+        let dict = dictionary_encode(stats);
 
         // Cascade the codes child
         // Don't allow SequenceArray as the codes child as it merely adds extra indirection without actually compressing data.

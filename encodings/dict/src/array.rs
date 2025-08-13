@@ -51,6 +51,7 @@ pub struct DictEncoding;
 impl DictArray {
     /// Build a new `DictArray` without validating the codes or values.
     ///
+    /// # Safety
     /// This should be called only when you can guarantee the invariants checked
     /// by the safe [`DictArray::try_new`] constructor are valid, for example when
     /// you are filtering or slicing an existing valid `DictArray`.
