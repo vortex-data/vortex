@@ -80,19 +80,23 @@ impl Scan2 {
 
             let mut pruning = vec![];
             let mut pruning_segments = vec![];
+            let mut all_pruning_segments = HashSet::new();
             let mut filters = vec![];
             let mut filter_segments = vec![];
+            let mut all_filter_segments = HashSet::new();
             if let Some(filter) = ctx.filter.as_ref() {
                 for conjunct in filter.conjuncts() {
                     let prune_eval = ctx.reader.pruning_evaluation(&row_range, conjunct)?;
                     let mut p_segments = HashSet::new();
                     prune_eval.required_segments(&mut p_segments);
+                    all_pruning_segments.extend(&p_segments);
                     pruning.push(Some(prune_eval));
                     pruning_segments.push(p_segments);
 
                     let filter_eval = ctx.reader.filter_evaluation(&row_range, conjunct)?;
                     let mut f_segments = HashSet::new();
                     filter_eval.required_segments(&mut f_segments);
+                    all_filter_segments.extend(&f_segments);
                     filters.push(Some(filter_eval));
                     filter_segments.push(f_segments);
                 }
@@ -109,8 +113,10 @@ impl Scan2 {
                 initial_mask: Some(mask),
                 pruning,
                 pruning_segments,
+                all_pruning_segments,
                 filters,
                 filter_segments,
+                all_filter_segments,
                 remaining_filters,
                 projection: Some(projection),
                 projection_segments,
@@ -163,9 +169,11 @@ struct Split {
 
     pruning: Vec<Option<Box<dyn PruningEvaluation>>>,
     pruning_segments: Vec<HashSet<SegmentId>>,
+    all_pruning_segments: HashSet<SegmentId>,
 
     filters: Vec<Option<Box<dyn MaskEvaluation>>>,
     filter_segments: Vec<HashSet<SegmentId>>, // TODO(ngates): BTreeSet?
+    all_filter_segments: HashSet<SegmentId>,
     remaining_filters: BitVec,
 
     projection: Option<Box<dyn ArrayEvaluation>>,
@@ -226,12 +234,6 @@ impl Split {
 }
 
 type SplitIdx = usize;
-
-enum Atom {
-    Prune(usize),
-    Filter(usize),
-    Project,
-}
 
 struct IoEvent {
     segment_id: SegmentId,
@@ -635,7 +637,7 @@ impl Scheduler {
                             conjunct_idx,
                             mask: mask.clone(),
                             waiting_for: self
-                                .launch_segment_requests(split_idx, Atom::Prune(conjunct_idx)),
+                                .launch_segment_requests(split_idx, SegmentSelection::AllPrune),
                         })
                     } else {
                         Some(SplitState::StartFilter { mask: mask.clone() })
@@ -706,7 +708,8 @@ impl Scheduler {
                                     mask: mask.clone(),
                                     waiting_for: self.launch_segment_requests(
                                         split_idx,
-                                        Atom::Filter(conjunct_idx),
+                                        // We launch all filter segments for now.
+                                        SegmentSelection::AllFilter,
                                     ),
                                 })
                             }
@@ -770,7 +773,8 @@ impl Scheduler {
                     } else {
                         Some(SplitState::PendingProject {
                             mask: mask.clone(),
-                            waiting_for: self.launch_segment_requests(split_idx, Atom::Project),
+                            waiting_for: self
+                                .launch_segment_requests(split_idx, SegmentSelection::Project),
                         })
                     }
                 }
@@ -831,13 +835,20 @@ impl Scheduler {
     }
 
     /// Launch requests for the given segments, returning the pending segments.
-    fn launch_segment_requests(&mut self, split_idx: SplitIdx, atom: Atom) -> HashSet<SegmentId> {
+    fn launch_segment_requests(
+        &mut self,
+        split_idx: SplitIdx,
+        segments: SegmentSelection,
+    ) -> HashSet<SegmentId> {
         let mut pending = HashSet::new();
 
-        let segment_ids = match atom {
-            Atom::Prune(conjunct_idx) => &self.splits[split_idx].pruning_segments[conjunct_idx],
-            Atom::Filter(conjunct_idx) => &self.splits[split_idx].filter_segments[conjunct_idx],
-            Atom::Project => &self.splits[split_idx].projection_segments,
+        let split = &self.splits[split_idx];
+        let segment_ids = match segments {
+            SegmentSelection::Prune(idx) => &split.pruning_segments[idx],
+            SegmentSelection::AllPrune => &split.all_pruning_segments,
+            SegmentSelection::Filter(idx) => &split.filter_segments[idx],
+            SegmentSelection::AllFilter => &split.all_filter_segments,
+            SegmentSelection::Project => &split.projection_segments,
         };
 
         for segment_id in segment_ids.iter().copied() {
@@ -871,4 +882,12 @@ impl Scheduler {
 
         pending
     }
+}
+
+enum SegmentSelection {
+    Prune(usize),
+    AllPrune,
+    Filter(usize),
+    AllFilter,
+    Project,
 }
