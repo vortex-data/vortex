@@ -13,6 +13,7 @@
 use crate::state::{Scan2, ScanTask, Scheduler, TaskSpawner};
 use crossbeam_deque::{Injector, Stealer, Worker};
 use futures::executor::block_on;
+use log::info;
 use parking_lot::{Mutex, RwLock};
 use std::future::poll_fn;
 use std::iter;
@@ -34,7 +35,7 @@ impl Scan2 {
         let shared = Arc::new(Shared {
             dtype: self.ctx.dtype.clone(),
             scheduler: Mutex::new(self.into_scheduler(task_spawner)),
-            injector: Default::default(),
+            injector,
             stealers: Default::default(),
         });
 
@@ -69,7 +70,6 @@ impl WorkerPool {
         ScanWorker {
             shared: self.shared.clone(),
             worker,
-            finished: false,
         }
     }
 }
@@ -77,8 +77,6 @@ impl WorkerPool {
 pub struct ScanWorker {
     shared: Arc<Shared>,
     worker: Worker<Box<dyn ScanTask>>,
-
-    finished: bool,
 }
 
 impl Iterator for ScanWorker {
@@ -106,11 +104,15 @@ impl Iterator for ScanWorker {
                 // Otherwise, we drive the scheduler.
                 loop {
                     match scheduler.make_progress() {
-                        Poll::Ready(Ok(())) => continue,
+                        Poll::Ready(Ok(())) => {
+                            continue;
+                        }
                         Poll::Ready(Err(e)) => {
                             return Some(Err(e));
                         }
-                        Poll::Pending => break,
+                        Poll::Pending => {
+                            break;
+                        }
                     };
                 }
             }

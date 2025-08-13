@@ -7,9 +7,8 @@ mod tokio;
 
 use crate::filter::FilterExpr;
 use crate::tasks::TaskContext;
-use crossbeam_channel::{Receiver, Sender};
 use dashmap::DashMap;
-use futures::executor::block_on;
+use futures::channel::mpsc;
 use futures::future::BoxFuture;
 use futures::stream::FuturesUnordered;
 use futures::task::noop_waker;
@@ -82,7 +81,10 @@ impl Scan2 {
 
     pub(crate) fn into_scheduler(self, task_spawner: Box<dyn TaskSpawner>) -> Scheduler {
         let nsplits = self.splits.len();
-        let (cpu_send, cpu_recv) = crossbeam_channel::unbounded();
+
+        // We're ok with an un-bounded channel since the scheduler controls how many cpu tasks
+        // are in-flight.
+        let (cpu_send, cpu_recv) = mpsc::unbounded();
 
         Scheduler {
             task_spawner,
@@ -167,8 +169,8 @@ pub(crate) struct Scheduler {
     output_buffer: VecDeque<VortexResult<ArrayRef>>,
 
     /// Results for scan tasks.
-    result_send: Sender<ScanTaskResult>,
-    result_recv: Receiver<ScanTaskResult>,
+    result_send: mpsc::UnboundedSender<ScanTaskResult>,
+    result_recv: mpsc::UnboundedReceiver<ScanTaskResult>,
 
     /// If all splits have been processed, we can stop.
     finished: bool,
@@ -235,13 +237,14 @@ struct FilterTask {
     eval: Box<dyn MaskEvaluation>,
     mask: Mask,
     segments: Arc<DashMap<SegmentId, ByteBuffer>>,
-    cpu_events: Sender<ScanTaskResult>,
+    cpu_events: mpsc::UnboundedSender<ScanTaskResult>,
 }
 
 impl ScanTask for FilterTask {
     fn execute(&self) -> Option<ArrayRef> {
         let mask = self.eval.invoke(self.mask.clone(), self.segments.as_ref());
-        if let Err(e) = self.cpu_events.send(ScanTaskResult::Filter {
+        info!("Posting back filter result");
+        if let Err(e) = self.cpu_events.unbounded_send(ScanTaskResult::Filter {
             split_idx: self.split_idx,
             mask,
         }) {
@@ -256,7 +259,7 @@ struct ProjectTask {
     eval: Box<dyn ArrayEvaluation>,
     mask: Mask,
     segments: Arc<DashMap<SegmentId, ByteBuffer>>,
-    cpu_events: Sender<ScanTaskResult>,
+    cpu_events: mpsc::UnboundedSender<ScanTaskResult>,
 }
 
 impl ScanTask for ProjectTask {
@@ -267,7 +270,8 @@ impl ScanTask for ProjectTask {
         // out-of-order results.
         let result = array.as_ref().ok().cloned();
 
-        if let Err(e) = self.cpu_events.send(ScanTaskResult::Project {
+        info!("Posting back project result");
+        if let Err(e) = self.cpu_events.unbounded_send(ScanTaskResult::Project {
             split_idx: self.split_idx,
             array,
         }) {
@@ -308,7 +312,7 @@ impl Scheduler {
         }
 
         // Next we handle CPU events.
-        while let Ok(event) = self.result_recv.try_recv() {
+        while let Poll::Ready(Some(event)) = self.result_recv.poll_next_unpin(cx) {
             info!("Handling CPU event for segment {:?}", event);
             made_progress = true;
             self.handle_cpu_event(event);
@@ -327,11 +331,12 @@ impl Scheduler {
         // Now we can look to launch new splits based on the total working set size and
         // in-flight request sizes. We don't currently know the in-flight segment sizes, so we
         // will just do it based on segment count instead.
-        while (self.active_splits.end < self.split_state.len()
-            && self.working_set.len() + self.segment_futures.len() < self.target_segment_count)
-            || self.active_splits.is_empty()
+        while self.active_splits.end < self.split_state.len()
+            && ((self.working_set.len() + self.segment_futures.len() < self.target_segment_count)
+                || self.active_splits.is_empty())
         {
             info!("Launching split {}", self.active_splits.end);
+            made_progress = true;
             self.make_progress_on_split(self.active_splits.end);
             self.active_splits.end += 1;
         }
@@ -354,21 +359,6 @@ impl Scheduler {
         } else {
             Poll::Pending
         }
-    }
-
-    /// Block waiting for some more I/O to complete.
-    fn wait_for_io(&mut self) -> VortexResult<()> {
-        assert!(!self.segment_futures.is_empty(), "no in-flight I/O");
-        if let Some(result) = block_on(self.segment_futures.next()) {
-            match result {
-                Ok(io_event) => self.handle_io_event(io_event),
-                Err(e) => {
-                    self.errored = true;
-                    return Err(e);
-                }
-            }
-        }
-        Ok(())
     }
 
     /// Handles an I/O event by updating the splits that are waiting for this particular segment.
@@ -481,6 +471,10 @@ impl Scheduler {
                 } => {
                     if waiting_for.is_empty() {
                         // If we have all our segments, we can launch the filter task.
+                        info!(
+                            "Spawning filter task split: {}, conjunct: {}",
+                            split_idx, conjunct_idx
+                        );
                         self.task_spawner.spawn_task(Box::new(FilterTask {
                             split_idx,
                             eval: self.splits[split_idx].filters[*conjunct_idx]
@@ -531,6 +525,7 @@ impl Scheduler {
                 SplitState::PendingProject { mask, waiting_for } => {
                     if waiting_for.is_empty() {
                         // If we have all our segments, we can launch the project task.
+                        info!("Spawning projection task split: {}", split_idx);
                         self.task_spawner.spawn_task(Box::new(ProjectTask {
                             split_idx,
                             eval: self.splits[split_idx]
