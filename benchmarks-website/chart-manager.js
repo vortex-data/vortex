@@ -193,9 +193,7 @@ export const chartManager = {
           radius: isMobile ? 0 : 3,
         },
       },
-      animation: {
-        duration: isMobile ? 0 : CONFIG.ANIMATION_DURATION,
-      },
+      animation: false,
       scales: {
         x: {
           title: {
@@ -500,7 +498,6 @@ export const chartManager = {
           }
 
           // Update all options directly
-          chart.options.animation.duration = 0;
           chart.options.aspectRatio = currentIsMobile ? 1.5 : 2;
           chart.options.pointStyle = currentIsMobile ? false : "crossRot";
           chart.options.elements.point.radius = currentIsMobile ? 0 : 3;
