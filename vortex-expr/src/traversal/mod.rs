@@ -148,7 +148,7 @@ pub trait NodeRewriter: Sized {
 pub trait Node: Sized + Clone {
     /// Walk the node's children by applying `f` to them.
     ///
-    /// This is a lower level API that other functions rely on for correctness.
+    /// This is a lower level API that other functions rely on for their implementation.
     fn apply_children<'a, F: FnMut(&'a Self) -> VortexResult<TraversalOrder>>(
         &'a self,
         f: F,
@@ -156,19 +156,16 @@ pub trait Node: Sized + Clone {
 
     /// Rewrite the node's children by applying `f` to them.
     ///
-    /// This is a lower level API that other functions rely on for correctness.
+    /// This is a lower level API that other functions rely on for their implementation.
     fn map_children<F: FnMut(Self) -> VortexResult<Transformed<Self>>>(
         self,
         f: F,
     ) -> VortexResult<Transformed<Self>>;
 
-    fn transform_children<R, F: FnMut(Self) -> VortexResult<Transformed<R>>>(
-        &self,
-        f: F,
-    ) -> VortexResult<Vec<Transformed<R>>>;
-
+    /// This is a lower level API that other functions rely on for their implementation.
     fn iter_children<T>(&self, f: impl FnOnce(&mut dyn Iterator<Item = &Self>) -> T) -> T;
 
+    /// This is a lower level API that other functions rely on for their implementation.
     fn children_count(&self) -> usize;
 }
 
@@ -205,20 +202,6 @@ pub trait NodeExt: Node {
         if let Some(result) = stop_result {
             return Ok(FoldUp::Stop(result));
         }
-
-        // let transformed = self.transform_children(|c| c.fold(folder))?;
-        //
-        // let mut children = Vec::with_capacity(transformed.len());
-        // let mut changed = false;
-        // for t in transformed {
-        //     match t.order {
-        //         TraversalOrder::Stop => return Ok(t),
-        //         TraversalOrder::Skip => unreachable!("cannot return a skip"),
-        //         TraversalOrder::Continue => (),
-        //     }
-        //     children.push(t.value);
-        //     changed |= t.changed;
-        // }
 
         folder.visit_up(self, children)
     }
@@ -528,22 +511,6 @@ impl Node for ExprRef {
         } else {
             Ok(Transformed::no(self))
         }
-    }
-
-    fn transform_children<R, F: FnMut(Self) -> VortexResult<Transformed<R>>>(
-        &self,
-        f: F,
-    ) -> VortexResult<Vec<Transformed<R>>> {
-        // self.children()
-        //     .into_iter()
-        //     .cloned()
-        //     .map(f)
-        //     .collect::<VortexResult<Transformed<Vec<R>>>>()
-        self.children()
-            .into_iter()
-            .cloned()
-            .map(f)
-            .collect::<VortexResult<Vec<_>>>()
     }
 
     fn iter_children<T>(&self, f: impl FnOnce(&mut dyn Iterator<Item = &Self>) -> T) -> T {
