@@ -598,8 +598,7 @@ impl Scheduler {
                     waiting_for: self.launch_segment_requests(split_idx, Atom::Prune),
                 }),
                 SplitState::PendingPrune { mask, waiting_for } => {
-                    if waiting_for.is_empty() {
-                        // If we have all our segments, we can launch the filter task.
+                    waiting_for.is_empty().then(|| {
                         debug!("Spawning pruning for split: {}", split_idx);
                         self.task_spawner.spawn_task(Box::new(PruneTask {
                             split_idx,
@@ -611,10 +610,8 @@ impl Scheduler {
                             segments: self.segments.segments(),
                             cpu_events: self.result_send.clone(),
                         }));
-                        Some(SplitState::Prune { result: None })
-                    } else {
-                        None
-                    }
+                        SplitState::Prune { result: None }
+                    })
                 }
                 SplitState::Prune { result } => {
                     if let Some(mask) = result {
@@ -663,31 +660,26 @@ impl Scheduler {
                     conjunct_idx,
                     mask,
                     waiting_for,
-                } => {
-                    if waiting_for.is_empty() {
-                        // If we have all our segments, we can launch the filter task.
-                        debug!(
-                            "Spawning filter for split: {}, conjunct: {}",
-                            split_idx, conjunct_idx
-                        );
-                        self.task_spawner.spawn_task(Box::new(FilterTask {
-                            split_idx,
-                            eval: self.splits[split_idx].filters[*conjunct_idx]
-                                .take()
-                                .vortex_expect("filter evaluation already taken"),
-                            mask: mask.clone(),
-                            segments: self.segments.segments(),
-                            cpu_events: self.result_send.clone(),
-                        }));
-                        Some(SplitState::Filter {
-                            conjunct_idx: *conjunct_idx,
-                            input_mask: mask.clone(),
-                            result: None,
-                        })
-                    } else {
-                        None
+                } => waiting_for.is_empty().then(|| {
+                    debug!(
+                        "Spawning filter for split: {}, conjunct: {}",
+                        split_idx, conjunct_idx
+                    );
+                    self.task_spawner.spawn_task(Box::new(FilterTask {
+                        split_idx,
+                        eval: self.splits[split_idx].filters[*conjunct_idx]
+                            .take()
+                            .vortex_expect("filter evaluation already taken"),
+                        mask: mask.clone(),
+                        segments: self.segments.segments(),
+                        cpu_events: self.result_send.clone(),
+                    }));
+                    SplitState::Filter {
+                        conjunct_idx: *conjunct_idx,
+                        input_mask: mask.clone(),
+                        result: None,
                     }
-                }
+                }),
                 SplitState::Filter {
                     conjunct_idx,
                     input_mask,
@@ -700,7 +692,7 @@ impl Scheduler {
                         // Report the selectivity of this conjunct.
                         // TODO(ngates): what selectivity should we report?
                         let selectivity = mask.true_count() as f64 / input_mask.len() as f64;
-                        //let selectivity = mask.true_count() as f64 / input_mask.true_count() as f64;
+                        // let selectivity = mask.true_count() as f64 / input_mask.true_count() as f64;
                         self.filter
                             .as_ref()
                             .vortex_expect("missing filter")
@@ -716,8 +708,7 @@ impl Scheduler {
                     waiting_for: self.launch_segment_requests(split_idx, Atom::Project),
                 }),
                 SplitState::PendingProject { mask, waiting_for } => {
-                    if waiting_for.is_empty() {
-                        // If we have all our segments, we can launch the project task.
+                    waiting_for.is_empty().then(|| {
                         debug!("Spawning projection for split: {}", split_idx);
                         self.task_spawner.spawn_task(Box::new(ProjectTask {
                             split_idx,
@@ -729,10 +720,8 @@ impl Scheduler {
                             segments: self.segments.segments(),
                             cpu_events: self.result_send.clone(),
                         }));
-                        Some(SplitState::Project { result: None })
-                    } else {
-                        None
-                    }
+                        SplitState::Project { result: None }
+                    })
                 }
                 SplitState::Project { result } => {
                     if let Some(array) = result {

@@ -113,7 +113,7 @@ impl ZonedReader {
 
                     Some(
                         LazyWithSegments::new(move |segments| {
-                            let zone_map = zone_map.get(segments)?.clone();
+                            let zone_map = zone_map.get(segments)?;
                             let initial_mask = zone_map.prune(&predicate)?;
                             Ok(Arc::new(PruningResult {
                                 zone_map,

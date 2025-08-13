@@ -23,7 +23,7 @@ pub trait SegmentSourceExt: SegmentSource {
         self: Arc<Self>,
         segment_ids: &'a HashSet<SegmentId>,
     ) -> impl Future<Output = VortexResult<HashMap<SegmentId, ByteBuffer>>> + Send + 'a {
-        let src = self.clone();
+        let src = self;
         async move {
             Ok(HashMap::from_iter(
                 try_join_all(segment_ids.iter().map(move |id| {

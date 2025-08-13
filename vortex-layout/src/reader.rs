@@ -126,10 +126,11 @@ pub trait ArrayEvaluation: 'static + Send + Sync {
 /// Provides semantics equivalent to `LazyLock`, except where segments are bound late.
 #[derive(Clone)]
 pub struct LazyWithSegments<T>(Arc<RwLock<LazyWithSegmentsInner<T>>>);
+pub type LazyWithSegmentsCtor = Box<dyn FnOnce(&dyn Segments) -> VortexResult<T> + Send + Sync>;
 
 struct LazyWithSegmentsInner<T> {
     result: Option<SharedVortexResult<T>>,
-    ctor: Option<Box<dyn FnOnce(&dyn Segments) -> VortexResult<T> + Send + Sync>>,
+    ctor: Option<LazyWithSegmentsCtor>,
     required_segments: HashSet<SegmentId>,
 }
 
@@ -145,10 +146,7 @@ impl<T: Send + Clone> LazyWithSegments<T> {
     }
 
     pub fn with_required_segments(self, segment_ids: impl IntoIterator<Item = SegmentId>) -> Self {
-        self.0
-            .write()
-            .required_segments
-            .extend(segment_ids.into_iter());
+        self.0.write().required_segments.extend(segment_ids);
         self
     }
 
@@ -183,9 +181,13 @@ impl<T: Send + Clone> LazyWithSegments<T> {
             return result.clone();
         }
 
-        let ctor = write.ctor.take().expect("Constructor already consumed");
-        write.result = Some(ctor(segments).map_err(Arc::new));
-        write.result.as_ref().cloned().vortex_expect("infallible")
+        let ctor = write
+            .ctor
+            .take()
+            .vortex_expect("Constructor already consumed");
+        let result = ctor(segments).map_err(Arc::new);
+        write.result = Some(result.clone());
+        result
     }
 
     pub fn required_segments(&self, segments: &mut HashSet<SegmentId>) {

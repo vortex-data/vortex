@@ -72,7 +72,7 @@ impl<P: 'static + Send + Sync> MaskEvaluation for PartitionedMaskEvaluation<P> {
                 let mask = mask.clone();
                 match eval {
                     PartitionEval::Mask(eval) => {
-                        Ok(eval.invoke(mask.clone(), segments)?.into_array())
+                        Ok(eval.invoke(mask, segments)?.into_array())
                     }
                     PartitionEval::Array(eval) => eval.invoke(Mask::new_true(mask.len()), segments),
                 }
