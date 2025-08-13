@@ -19,6 +19,8 @@ const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;
 /// statistics about selectivity, and uses this information to reorder the evaluation of the
 /// conjunctions in an attempt to minimize the work done.
 pub struct FilterExpr {
+    /// The original filter expression.
+    expr: ExprRef,
     /// The conjuncts involved in the filter expression.
     conjuncts: Vec<ExprRef>,
     /// A histogram for the selectivity of each conjunct.
@@ -39,6 +41,7 @@ impl FilterExpr {
         let dynamic_conjuncts = conjuncts.iter().map(DynamicExprUpdates::new).collect_vec();
 
         Self {
+            expr,
             conjuncts,
             conjunct_selectivity: iter::repeat_with(|| RwLock::new(DDSketch::default()))
                 .take(num_conjuncts)
@@ -49,6 +52,11 @@ impl FilterExpr {
             ordering: RwLock::new((0..num_conjuncts).collect()),
             selectivity_quantile: DEFAULT_SELECTIVITY_QUANTILE,
         }
+    }
+
+    /// The original filter expression.
+    pub fn expr(&self) -> &ExprRef {
+        &self.expr
     }
 
     /// The conjuncts that make up this filter expression.

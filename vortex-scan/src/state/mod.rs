@@ -13,7 +13,7 @@ use futures::future::BoxFuture;
 use futures::stream::FuturesUnordered;
 use futures::task::noop_waker;
 use futures::{FutureExt, Stream, StreamExt};
-use log::{debug, info};
+use log::debug;
 use std::collections::VecDeque;
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
@@ -25,7 +25,7 @@ use vortex_array::ArrayRef;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_panic};
 use vortex_layout::segments::{SegmentId, SegmentSource};
-use vortex_layout::{ArrayEvaluation, MaskEvaluation};
+use vortex_layout::{ArrayEvaluation, MaskEvaluation, PruningEvaluation};
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
@@ -47,9 +47,15 @@ impl Scan2 {
             let len = usize::try_from(row_range.end - row_range.start)
                 .vortex_expect("Split row range is larger than usize");
 
+            let mut pruning = None;
+            let mut pruning_segments = HashSet::new();
             let mut filters = vec![];
             let mut filter_segments = vec![];
             if let Some(filter) = ctx.filter.as_ref() {
+                let eval = ctx.reader.pruning_evaluation(&row_range, filter.expr())?;
+                eval.required_segments(&mut pruning_segments);
+                pruning = Some(eval);
+
                 for conjunct in filter.conjuncts() {
                     let eval = ctx.reader.filter_evaluation(&row_range, conjunct)?;
 
@@ -69,6 +75,8 @@ impl Scan2 {
 
             splits.push(Split {
                 len,
+                pruning,
+                pruning_segments,
                 filters,
                 filter_segments,
                 projection: Some(projection),
@@ -82,7 +90,7 @@ impl Scan2 {
     pub(crate) fn into_scheduler(self, task_spawner: Box<dyn TaskSpawner>) -> Scheduler {
         let nsplits = self.splits.len();
 
-        // We're ok with an un-bounded channel since the scheduler controls how many cpu tasks
+        // We're ok with an unbounded channel since the scheduler controls how many cpu tasks
         // are in-flight.
         let (cpu_send, cpu_recv) = mpsc::unbounded();
 
@@ -112,26 +120,20 @@ impl Scan2 {
 struct Split {
     len: usize,
 
+    pruning: Option<Box<dyn PruningEvaluation>>,
+    pruning_segments: HashSet<SegmentId>,
+
     filters: Vec<Option<Box<dyn MaskEvaluation>>>,
-    filter_segments: Vec<HashSet<SegmentId>>, // FIXME(ngates): BTreeSet?
+    filter_segments: Vec<HashSet<SegmentId>>, // TODo(ngates): BTreeSet?
 
     projection: Option<Box<dyn ArrayEvaluation>>,
     projection_segments: HashSet<SegmentId>,
 }
 
-impl Debug for Split {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Split")
-            .field("len", &self.len)
-            .field("filter_segments", &self.filter_segments.len())
-            .field("projection_segments", &self.projection_segments.len())
-            .finish()
-    }
-}
-
 type SplitIdx = usize;
 
 enum Atom {
+    Prune,
     Filter(usize),
     Project,
 }
@@ -142,6 +144,10 @@ struct IoEvent {
 }
 
 enum ScanTaskResult {
+    Prune {
+        split_idx: SplitIdx,
+        mask: VortexResult<Mask>,
+    },
     Filter {
         split_idx: SplitIdx,
         mask: VortexResult<Mask>,
@@ -158,6 +164,7 @@ impl Debug for ScanTaskResult {
             .field(
                 "type",
                 &match self {
+                    ScanTaskResult::Prune { .. } => "Prune",
                     ScanTaskResult::Filter { .. } => "Filter",
                     ScanTaskResult::Project { .. } => "Project",
                 },
@@ -165,6 +172,7 @@ impl Debug for ScanTaskResult {
             .field(
                 "split_idx",
                 &match self {
+                    ScanTaskResult::Prune { split_idx, .. } => *split_idx,
                     ScanTaskResult::Filter { split_idx, .. } => *split_idx,
                     ScanTaskResult::Project { split_idx, .. } => *split_idx,
                 },
@@ -219,6 +227,13 @@ pub(crate) struct Scheduler {
 #[derive(Debug)]
 enum SplitState {
     NotStarted,
+    PendingPrune {
+        mask: Mask,
+        waiting_for: HashSet<SegmentId>,
+    },
+    Prune {
+        result: Option<Mask>,
+    },
     PendingFilter {
         conjunct_idx: usize,
         mask: Mask,
@@ -245,10 +260,27 @@ pub trait ScanTask: Send {
     /// If this is a projection task, the result array is returned to allow for out-of-order
     /// results for systems that are able to accept them. Otherwise, in-order results are available
     /// from the scheduler.
-    ///
-    // FIXME(ngates): this cannot return a result, since the worker pools have no way of handling
-    //  the error.
     fn execute(&self) -> Option<ArrayRef>;
+}
+
+struct PruneTask {
+    split_idx: SplitIdx,
+    eval: Box<dyn PruningEvaluation>,
+    mask: Mask,
+    segments: Arc<DashMap<SegmentId, ByteBuffer>>,
+    cpu_events: mpsc::UnboundedSender<ScanTaskResult>,
+}
+
+impl ScanTask for PruneTask {
+    fn execute(&self) -> Option<ArrayRef> {
+        let mask = self.eval.invoke(self.mask.clone(), self.segments.as_ref());
+        // Ignore the error, since it means the scan has terminated early.
+        let _ = self.cpu_events.unbounded_send(ScanTaskResult::Prune {
+            split_idx: self.split_idx,
+            mask,
+        });
+        None
+    }
 }
 
 struct FilterTask {
@@ -263,13 +295,11 @@ struct FilterTask {
 impl ScanTask for FilterTask {
     fn execute(&self) -> Option<ArrayRef> {
         let mask = self.eval.invoke(self.mask.clone(), self.segments.as_ref());
-        info!("Posting back filter result");
-        if let Err(e) = self.cpu_events.unbounded_send(ScanTaskResult::Filter {
+        // Ignore the error, since it means the scan has terminated early.
+        let _ = self.cpu_events.unbounded_send(ScanTaskResult::Filter {
             split_idx: self.split_idx,
             mask,
-        }) {
-            debug!("Failed to send scan task result, scan terminated: {}", e);
-        }
+        });
         None
     }
 }
@@ -290,14 +320,11 @@ impl ScanTask for ProjectTask {
         // out-of-order results.
         let result = array.as_ref().ok().cloned();
 
-        info!("Posting back project result");
-        if let Err(e) = self.cpu_events.unbounded_send(ScanTaskResult::Project {
+        // Ignore the error, since it means the scan has terminated early.
+        let _ = self.cpu_events.unbounded_send(ScanTaskResult::Project {
             split_idx: self.split_idx,
             array,
-        }) {
-            debug!("Failed to send scan task result, scan terminated: {}", e);
-        }
-
+        });
         result
     }
 }
@@ -319,12 +346,8 @@ impl Scheduler {
         while let Poll::Ready(Some(result)) = self.segment_futures.poll_next_unpin(cx) {
             made_progress = true;
             match result {
-                Ok(event) => {
-                    info!("Handling I/O event for segment {:?}", event.segment_id);
-                    self.handle_io_event(event)
-                }
+                Ok(event) => self.handle_io_event(event),
                 Err(e) => {
-                    info!("I/O error {:?}", e);
                     self.errored = true;
                     return Poll::Ready(Err(e));
                 }
@@ -333,7 +356,6 @@ impl Scheduler {
 
         // Next we handle CPU events.
         while let Poll::Ready(Some(event)) = self.result_recv.poll_next_unpin(cx) {
-            info!("Handling CPU event for segment {:?}", event);
             made_progress = true;
             self.handle_cpu_event(event);
         }
@@ -341,7 +363,7 @@ impl Scheduler {
         // We bring forward the start of the active splits if any splits are finished.
         for split_idx in self.active_splits.clone() {
             if matches!(self.split_state[split_idx], SplitState::Finished) {
-                info!("Completed up to split {}", split_idx);
+                debug!("Completed splits {}/{}", split_idx, self.split_state.len());
                 self.active_splits.start += 1;
             } else {
                 break;
@@ -355,22 +377,14 @@ impl Scheduler {
             && ((self.working_set.len() + self.segment_futures.len() < self.target_segment_count)
                 || self.active_splits.is_empty())
         {
-            info!("Launching split {}", self.active_splits.end);
+            debug!("Initializing split {}", self.active_splits.end);
             made_progress = true;
             self.make_progress_on_split(self.active_splits.end);
             self.active_splits.end += 1;
         }
-        //
-        // // Finally, after making sure we've driven the scheduler, we can emit any buffered array
-        // // results. We do it in this order to ensure that we always have in-flight I/O and CPU
-        // // work before allowing the caller to process a result.
-        // if let Some(array) = self.output_buffer.pop_front() {
-        //     return Poll::Ready(Some(array));
-        // }
 
         // Check for termination.
         if self.active_splits.start == self.split_state.len() {
-            info!("Completed all splits, terminating");
             self.finished = true;
         }
 
@@ -393,6 +407,9 @@ impl Scheduler {
             for split_idx in items {
                 let split_state = &mut self.split_state[split_idx];
                 match split_state {
+                    SplitState::PendingPrune { waiting_for, .. } => {
+                        waiting_for.remove(&event.segment_id);
+                    }
                     SplitState::PendingFilter { waiting_for, .. } => {
                         waiting_for.remove(&event.segment_id);
                     }
@@ -413,8 +430,25 @@ impl Scheduler {
     ///
     /// Finishes by driving the state machines of any impacted splits.
     fn handle_cpu_event(&mut self, event: ScanTaskResult) {
-        info!("Handling CPU event {:?}", event);
         match event {
+            ScanTaskResult::Prune { split_idx, mask } => {
+                match mask {
+                    Ok(mask) => {
+                        let SplitState::Prune { result, .. } = &mut self.split_state[split_idx]
+                        else {
+                            vortex_panic!(
+                                "unexpected split state {:?}",
+                                self.split_state[split_idx]
+                            )
+                        };
+                        *result = Some(mask);
+                    }
+                    Err(e) => {
+                        self.split_state[split_idx] = SplitState::Errored(Arc::new(e));
+                    }
+                }
+                self.make_progress_on_split(split_idx);
+            }
             ScanTaskResult::Filter {
                 split_idx, mask, ..
             } => {
@@ -472,16 +506,56 @@ impl Scheduler {
                     // We need to launch a filter task if there is one, else a project.
                     let mask = Mask::new_true(split.len);
                     if self.filter.is_some() {
-                        Some(SplitState::PendingFilter {
-                            conjunct_idx: 0,
+                        Some(SplitState::PendingPrune {
                             mask,
-                            waiting_for: self.launch_segment_requests(split_idx, Atom::Filter(0)),
+                            waiting_for: self.launch_segment_requests(split_idx, Atom::Prune),
                         })
                     } else {
                         Some(SplitState::PendingProject {
                             mask,
                             waiting_for: self.launch_segment_requests(split_idx, Atom::Project),
                         })
+                    }
+                }
+                SplitState::PendingPrune { mask, waiting_for } => {
+                    if waiting_for.is_empty() {
+                        // If we have all our segments, we can launch the filter task.
+                        debug!("Spawning pruning for split: {}", split_idx);
+                        self.task_spawner.spawn_task(Box::new(PruneTask {
+                            split_idx,
+                            eval: self.splits[split_idx]
+                                .pruning
+                                .take()
+                                .vortex_expect("pruning evaluation already taken"),
+                            mask: mask.clone(),
+                            segments: self.working_set.clone(),
+                            cpu_events: self.result_send.clone(),
+                        }));
+                        Some(SplitState::Prune { result: None })
+                    } else {
+                        None
+                    }
+                }
+                SplitState::Prune { result } => {
+                    if let Some(mask) = result {
+                        if mask.all_false() {
+                            // If the mask is all false, we can terminate the split early.
+                            Some(SplitState::Finished)
+                        } else if self.filter.is_some() {
+                            Some(SplitState::PendingFilter {
+                                conjunct_idx: 0,
+                                mask: mask.clone(),
+                                waiting_for: self
+                                    .launch_segment_requests(split_idx, Atom::Filter(0)),
+                            })
+                        } else {
+                            Some(SplitState::PendingProject {
+                                mask: mask.clone(),
+                                waiting_for: self.launch_segment_requests(split_idx, Atom::Project),
+                            })
+                        }
+                    } else {
+                        None
                     }
                 }
                 SplitState::PendingFilter {
@@ -491,8 +565,8 @@ impl Scheduler {
                 } => {
                     if waiting_for.is_empty() {
                         // If we have all our segments, we can launch the filter task.
-                        info!(
-                            "Spawning filter task split: {}, conjunct: {}",
+                        debug!(
+                            "Spawning filter for split: {}, conjunct: {}",
                             split_idx, conjunct_idx
                         );
                         self.task_spawner.spawn_task(Box::new(FilterTask {
@@ -545,7 +619,7 @@ impl Scheduler {
                 SplitState::PendingProject { mask, waiting_for } => {
                     if waiting_for.is_empty() {
                         // If we have all our segments, we can launch the project task.
-                        info!("Spawning projection task split: {}", split_idx);
+                        debug!("Spawning projection for split: {}", split_idx);
                         self.task_spawner.spawn_task(Box::new(ProjectTask {
                             split_idx,
                             eval: self.splits[split_idx]
@@ -582,8 +656,8 @@ impl Scheduler {
 
             let made_progress = new_state.is_some();
             if let Some(new_state) = &new_state {
-                info!(
-                    "Moved split {} from {:?} to {:?}",
+                debug!(
+                    "Updated split {} from {:?} to {:?}",
                     split_idx, &state, &new_state
                 );
             }
@@ -601,6 +675,7 @@ impl Scheduler {
         let mut pending = HashSet::new();
 
         let segment_ids = match atom {
+            Atom::Prune => &self.splits[split_idx].pruning_segments,
             Atom::Filter(conjunct_idx) => &self.splits[split_idx].filter_segments[conjunct_idx],
             Atom::Project => &self.splits[split_idx].projection_segments,
         };
@@ -609,7 +684,7 @@ impl Scheduler {
             if self.working_set.contains_key(&segment_id) {
                 continue;
             }
-            info!("Requesting segment {:?}", segment_id);
+            debug!("Requesting segment {:?}", segment_id);
             let fut = self.source.request(segment_id);
             self.segment_futures.push(
                 async move {
