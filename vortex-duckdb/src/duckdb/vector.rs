@@ -104,23 +104,21 @@ impl Vector {
     }
 
     pub fn row_is_null(&self, row: u64) -> bool {
-        unsafe {
-            let validity = cpp::duckdb_vector_get_validity(self.ptr);
+        let validity = unsafe { cpp::duckdb_vector_get_validity(self.ptr) };
 
-            // validity can return a NULL pointer if the entire vector is valid
-            if validity.is_null() {
-                return false;
-            }
-
-            // Direct bit manipulation for better performance
-            let entry_idx = row / 64;
-            let idx_in_entry = row % 64;
-            let validity_u64_ptr = validity as *const u64;
-            let validity_entry = *validity_u64_ptr.add(entry_idx as usize);
-            let is_valid = (validity_entry & (1u64 << idx_in_entry)) != 0;
-
-            !is_valid
+        // validity can return a NULL pointer if the entire vector is valid
+        if validity.is_null() {
+            return false;
         }
+
+        // Direct bit manipulation for better performance
+        let entry_idx = row / 64;
+        let idx_in_entry = row % 64;
+        let validity_u64_ptr = validity as *const u64;
+        let validity_entry = unsafe { *validity_u64_ptr.add(entry_idx as usize) };
+        let is_valid = (validity_entry & (1u64 << idx_in_entry)) != 0;
+
+        !is_valid
     }
 
     pub fn add_string_buffer<T>(&self, buffer: T) {

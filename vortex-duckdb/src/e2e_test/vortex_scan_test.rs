@@ -3,365 +3,390 @@
 
 //! This module contains tests for the `vortex_scan` table function.
 
-#[cfg(test)]
-mod tests {
-    use std::ffi::CStr;
-    use std::path::Path;
-    use std::str::FromStr;
+use std::ffi::CStr;
+use std::path::Path;
+use std::str::FromStr;
 
-    use anyhow::Result;
-    use jiff::tz::TimeZone;
-    use jiff::{Span, Timestamp, Zoned, tz};
-    use num_traits::AsPrimitive;
-    use tempfile::NamedTempFile;
-    use vortex::IntoArray;
-    use vortex::arrays::{BoolArray, ConstantArray, PrimitiveArray, StructArray, VarBinArray};
-    use vortex::file::VortexWriteOptions;
-    use vortex::scalar::Scalar;
-    use vortex::validity::Validity;
+use anyhow::Result;
+use jiff::tz::TimeZone;
+use jiff::{Span, Timestamp, Zoned, tz};
+use num_traits::AsPrimitive;
+use tempfile::NamedTempFile;
+use vortex::IntoArray;
+use vortex::arrays::{BoolArray, ConstantArray, PrimitiveArray, StructArray, VarBinArray};
+use vortex::file::VortexWriteOptions;
+use vortex::scalar::Scalar;
+use vortex::validity::Validity;
 
-    use crate::cpp;
-    use crate::cpp::{duckdb_string_t, duckdb_timestamp};
-    use crate::duckdb::{Connection, Database};
+use crate::cpp;
+use crate::cpp::{duckdb_string_t, duckdb_timestamp};
+use crate::duckdb::{Connection, Database};
 
-    fn database_connection() -> Connection {
-        let db = Database::open_in_memory().unwrap();
-        let connection = db.connect().unwrap();
-        crate::register_table_functions(&connection).unwrap();
-        connection
+fn database_connection() -> Connection {
+    let db = Database::open_in_memory().unwrap();
+    let connection = db.connect().unwrap();
+    crate::register_table_functions(&connection).unwrap();
+    connection
+}
+
+fn create_temp_file() -> NamedTempFile {
+    NamedTempFile::new().unwrap()
+}
+
+async fn write_single_column_vortex_file(field_name: &str, array: impl IntoArray) -> NamedTempFile {
+    write_vortex_file([(field_name, array)].into_iter()).await
+}
+
+async fn write_vortex_file(
+    iter: impl Iterator<Item = (impl AsRef<str>, impl IntoArray)>,
+) -> NamedTempFile {
+    let temp_file_path = create_temp_file();
+
+    let struct_array = StructArray::try_from_iter(iter).unwrap();
+    let file = tokio::fs::File::create(&temp_file_path).await.unwrap();
+    VortexWriteOptions::default()
+        .write(file, struct_array.to_array_stream())
+        .await
+        .unwrap();
+
+    temp_file_path
+}
+
+trait FromDuckDBValue<T> {
+    fn from_duckdb_value(value: &mut T) -> Self;
+}
+
+impl FromDuckDBValue<duckdb_string_t> for String {
+    fn from_duckdb_value(value: &mut duckdb_string_t) -> Self {
+        unsafe { CStr::from_ptr(cpp::duckdb_string_t_data(&raw mut *value)) }
+            .to_string_lossy()
+            .to_string()
     }
+}
 
-    fn create_temp_file() -> NamedTempFile {
-        NamedTempFile::new().unwrap()
+impl FromDuckDBValue<i32> for i32 {
+    fn from_duckdb_value(value: &mut i32) -> Self {
+        *value
     }
+}
 
-    async fn write_single_column_vortex_file(
-        field_name: &str,
-        array: impl IntoArray,
-    ) -> NamedTempFile {
-        write_vortex_file([(field_name, array)].into_iter()).await
+impl FromDuckDBValue<i32> for i64 {
+    fn from_duckdb_value(value: &mut i32) -> Self {
+        *value as i64
     }
+}
 
-    async fn write_vortex_file(
-        iter: impl Iterator<Item = (impl AsRef<str>, impl IntoArray)>,
-    ) -> NamedTempFile {
-        let temp_file_path = create_temp_file();
-
-        let struct_array = StructArray::try_from_iter(iter).unwrap();
-        let file = tokio::fs::File::create(&temp_file_path).await.unwrap();
-        VortexWriteOptions::default()
-            .write(file, struct_array.to_array_stream())
-            .await
-            .unwrap();
-
-        temp_file_path
+impl FromDuckDBValue<i64> for i64 {
+    fn from_duckdb_value(value: &mut i64) -> Self {
+        *value
     }
+}
 
-    fn scan_vortex_file_single_row<T: Copy>(
-        tmp_file: NamedTempFile,
-        query: &str,
-        col_idx: usize,
-    ) -> T {
-        let conn = database_connection();
-        let file_path = tmp_file.path().to_string_lossy();
-        let formatted_query = query.replace('?', &format!("'{file_path}'"));
+fn scan_vortex_file_single_row<D, T: FromDuckDBValue<D>>(
+    tmp_file: NamedTempFile,
+    query: &str,
+    col_idx: usize,
+) -> T {
+    let conn = database_connection();
+    let file_path = tmp_file.path().to_string_lossy();
+    let formatted_query = query.replace('?', &format!("'{file_path}'"));
 
-        let result = conn.query(&formatted_query).unwrap();
-        let chunk = result.into_iter().next().unwrap();
-        let vec = chunk.get_vector(col_idx);
-        vec.as_slice_with_len::<T>(chunk.len().as_())[0]
-    }
+    let result = conn.query(&formatted_query).unwrap();
+    let chunk = result.into_iter().next().unwrap();
+    let mut vec = chunk.get_vector(col_idx);
+    T::from_duckdb_value(&mut unsafe { vec.as_slice_mut::<D>(chunk.len().as_()) }[0])
+}
 
-    fn scan_vortex_file<T: Copy>(
-        tmp_file: NamedTempFile,
-        query: &str,
-        col_idx: usize,
-    ) -> Result<Vec<T>> {
-        let conn = database_connection();
-        let file_path = tmp_file.path().to_string_lossy();
-        let formatted_query = query.replace('?', &format!("'{file_path}'"));
+fn scan_vortex_file<D, T: FromDuckDBValue<D>>(
+    tmp_file: NamedTempFile,
+    query: &str,
+    col_idx: usize,
+) -> Result<Vec<T>> {
+    let conn = database_connection();
+    let file_path = tmp_file.path().to_string_lossy();
+    let formatted_query = query.replace('?', &format!("'{file_path}'"));
 
-        let result = conn.query(&formatted_query)?;
+    let result = conn.query(&formatted_query)?;
 
-        let mut values = Vec::new();
-        for chunk in result {
-            let vec = chunk.get_vector(col_idx);
-            values.extend(vec.as_slice_with_len::<T>(chunk.len().as_()));
-        }
-
-        Ok(values)
-    }
-
-    async fn write_vortex_file_to_dir(
-        dir: &Path,
-        field_name: &str,
-        array: impl IntoArray,
-    ) -> NamedTempFile {
-        let struct_array = StructArray::from_fields(&[(field_name, array.into_array())]).unwrap();
-        let temp_file_path = tempfile::Builder::new()
-            .suffix(".vortex")
-            .tempfile_in(dir)
-            .unwrap();
-
-        let file = tokio::fs::File::create(&temp_file_path).await.unwrap();
-        VortexWriteOptions::default()
-            .write(file, struct_array.to_array_stream())
-            .await
-            .unwrap();
-
-        temp_file_path
-    }
-
-    #[test]
-    fn test_scan_function_registration() {
-        let conn = database_connection();
-        let result = conn
-            .query(
-                "SELECT function_name FROM duckdb_functions() WHERE function_name = 'vortex_scan'",
-            )
-            .unwrap();
-        let chunk = result.into_iter().next().unwrap();
-        let vec = chunk.get_vector(0);
-        let mut result = vec.as_slice_with_len::<duckdb_string_t>(chunk.len().as_())[0];
-        let string =
-            unsafe { CStr::from_ptr(cpp::duckdb_string_t_data(&raw mut result)).to_string_lossy() };
-
-        assert_eq!(string, "vortex_scan");
-    }
-
-    #[test]
-    fn test_vortex_scan_strings() {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        let file = runtime.block_on(async {
-            let strings = VarBinArray::from(vec!["Hello", "Hi", "Hey"]);
-            write_single_column_vortex_file("strings", strings).await
-        });
-
-        let mut result: duckdb_string_t = scan_vortex_file_single_row(
-            file,
-            "SELECT string_agg(strings, ',') FROM vortex_scan(?)",
-            0,
+    let mut values = Vec::new();
+    for chunk in result {
+        let mut vec = chunk.get_vector(col_idx);
+        values.extend(
+            unsafe { vec.as_slice_mut::<D>(chunk.len().as_()) }
+                .iter_mut()
+                .map(T::from_duckdb_value),
         );
-        let string =
-            unsafe { CStr::from_ptr(cpp::duckdb_string_t_data(&raw mut result)).to_string_lossy() };
-
-        assert_eq!(string, "Hello,Hi,Hey");
     }
 
-    #[test]
-    fn test_vortex_scan_strings_contains() {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        let file = runtime.block_on(async {
-            let strings = VarBinArray::from(vec!["Hello", "Hi", "Hey"]);
-            write_single_column_vortex_file("strings", strings).await
-        });
-        let mut result: duckdb_string_t = scan_vortex_file_single_row(
-            file,
-            "SELECT string_agg(strings, ',') FROM vortex_scan(?) WHERE strings LIKE '%He%'",
-            0,
-        );
-        let string =
-            unsafe { CStr::from_ptr(cpp::duckdb_string_t_data(&raw mut result)).to_string_lossy() };
+    Ok(values)
+}
 
-        assert_eq!(string, "Hello,Hey");
-    }
+async fn write_vortex_file_to_dir(
+    dir: &Path,
+    field_name: &str,
+    array: impl IntoArray,
+) -> NamedTempFile {
+    let struct_array = StructArray::from_fields(&[(field_name, array.into_array())]).unwrap();
+    let temp_file_path = tempfile::Builder::new()
+        .suffix(".vortex")
+        .tempfile_in(dir)
+        .unwrap();
 
-    #[test]
-    fn test_vortex_scan_integers() {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        let file = runtime.block_on(async {
-            let numbers = PrimitiveArray::from_iter([1i32, 42, 100, -5, 0]);
-            write_single_column_vortex_file("number", numbers).await
-        });
-        let sum: i64 =
-            scan_vortex_file_single_row(file, "SELECT SUM(number) FROM vortex_scan(?)", 0);
-        assert_eq!(sum, 138);
-    }
+    let file = tokio::fs::File::create(&temp_file_path).await.unwrap();
+    VortexWriteOptions::default()
+        .write(file, struct_array.to_array_stream())
+        .await
+        .unwrap();
 
-    #[test]
-    fn test_vortex_scan_integers_in_list() {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        let file = runtime.block_on(async {
-            let numbers = PrimitiveArray::from_iter([1i32, 42, 100, -5, 0]);
-            write_single_column_vortex_file("number", numbers).await
-        });
-        let sum: i64 = scan_vortex_file_single_row(
-            file,
-            "SELECT SUM(number) FROM vortex_scan(?) WHERE number in (1, 42, -5)",
-            0,
-        );
-        assert_eq!(sum, 38);
-    }
+    temp_file_path
+}
 
-    #[test]
-    fn test_vortex_scan_integers_between() {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        let file = runtime.block_on(async {
-            let numbers = PrimitiveArray::from_iter([1i32, 42, 100, -5, 0]);
-            write_single_column_vortex_file("number", numbers).await
-        });
-        let sum: i64 = scan_vortex_file_single_row(
-            file,
-            "SELECT SUM(number) FROM vortex_scan(?) WHERE number > 0 and number < 100",
-            0,
-        );
-        assert_eq!(sum, 43);
-    }
+#[test]
+fn test_scan_function_registration() {
+    let conn = database_connection();
+    let result = conn
+        .query("SELECT function_name FROM duckdb_functions() WHERE function_name = 'vortex_scan'")
+        .unwrap();
+    let chunk = result.into_iter().next().unwrap();
+    let vec = chunk.get_vector(0);
+    let mut result = vec.as_slice_with_len::<duckdb_string_t>(chunk.len().as_())[0];
+    let string =
+        unsafe { CStr::from_ptr(cpp::duckdb_string_t_data(&raw mut result)).to_string_lossy() };
 
-    #[test]
-    fn test_vortex_scan_floats() {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        let file = runtime.block_on(async {
-            let values = PrimitiveArray::from_iter([1.5f64, -2.5, 0.0, 42.42]);
-            write_single_column_vortex_file("value", values).await
-        });
-        let count: i64 = scan_vortex_file_single_row(
-            file,
-            "SELECT COUNT(*) FROM vortex_scan(?) WHERE value > 0",
-            0,
-        );
-        assert_eq!(count, 2);
-    }
+    assert_eq!(string, "vortex_scan");
+}
 
-    #[test]
-    fn test_vortex_scan_constant() {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        let file = runtime.block_on(async {
-            let constant = ConstantArray::new(Scalar::from(42i32), 100);
-            write_single_column_vortex_file("constant", constant).await
-        });
-        let value: i32 =
-            scan_vortex_file_single_row(file, "SELECT constant FROM vortex_scan(?) LIMIT 1", 0);
-        assert_eq!(value, 42);
-    }
+#[test]
+fn test_vortex_scan_strings() {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let file = runtime.block_on(async {
+        let strings = VarBinArray::from(vec!["Hello", "Hi", "Hey"]);
+        write_single_column_vortex_file("strings", strings).await
+    });
 
-    #[test]
-    fn test_vortex_scan_booleans() {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        let file = runtime.block_on(async {
-            let flags = vec![true, false, true, true, false];
-            let flags_array = BoolArray::new(flags.into(), Validity::NonNullable);
-            write_single_column_vortex_file("flag", flags_array).await
-        });
-        let true_count: i64 = scan_vortex_file_single_row(
-            file,
-            "SELECT COUNT(*) FROM vortex_scan(?) WHERE flag = true",
-            0,
-        );
-        assert_eq!(true_count, 3);
-    }
+    let result: String = scan_vortex_file_single_row(
+        file,
+        "SELECT string_agg(strings, ',') FROM vortex_scan(?)",
+        0,
+    );
 
-    #[test]
-    fn test_vortex_multi_column() {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        let file = runtime.block_on(async {
-            let f1 = BoolArray::new(
-                vec![true, false, true, true, false].into(),
-                Validity::NonNullable,
-            )
-            .to_array();
-            let f2 = (0..5).collect::<PrimitiveArray>().to_array();
-            let f3 = (100..105).collect::<PrimitiveArray>().to_array();
-            write_vortex_file([("f1", f1), ("f2", f2), ("f3", f3)].into_iter()).await
-        });
+    assert_eq!(result, "Hello,Hi,Hey");
+}
 
-        let result: Vec<i32> = scan_vortex_file(
-            file,
-            "SELECT f2 FROM vortex_scan(?) WHERE f1 = true and f2 >= 2",
-            0,
+#[test]
+fn test_vortex_scan_strings_contains() {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let file = runtime.block_on(async {
+        let strings = VarBinArray::from(vec!["Hello", "Hi", "Hey"]);
+        write_single_column_vortex_file("strings", strings).await
+    });
+    let result: String = scan_vortex_file_single_row(
+        file,
+        "SELECT string_agg(strings, ',') FROM vortex_scan(?) WHERE strings LIKE '%He%'",
+        0,
+    );
+
+    assert_eq!(result, "Hello,Hey");
+}
+
+#[test]
+fn test_vortex_scan_integers() {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let file = runtime.block_on(async {
+        let numbers = PrimitiveArray::from_iter([1i32, 42, 100, -5, 0]);
+        write_single_column_vortex_file("number", numbers).await
+    });
+    let sum: i64 =
+        scan_vortex_file_single_row::<i64, _>(file, "SELECT SUM(number) FROM vortex_scan(?)", 0);
+    assert_eq!(sum, 138);
+}
+
+#[test]
+fn test_vortex_scan_integers_in_list() {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let file = runtime.block_on(async {
+        let numbers = PrimitiveArray::from_iter([1i32, 42, 100, -5, 0]);
+        write_single_column_vortex_file("number", numbers).await
+    });
+    let sum: i64 = scan_vortex_file_single_row::<i64, _>(
+        file,
+        "SELECT SUM(number) FROM vortex_scan(?) WHERE number in (1, 42, -5)",
+        0,
+    );
+    assert_eq!(sum, 38);
+}
+
+#[test]
+fn test_vortex_scan_integers_between() {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let file = runtime.block_on(async {
+        let numbers = PrimitiveArray::from_iter([1i32, 42, 100, -5, 0]);
+        write_single_column_vortex_file("number", numbers).await
+    });
+    let sum: i64 = scan_vortex_file_single_row::<i64, _>(
+        file,
+        "SELECT SUM(number) FROM vortex_scan(?) WHERE number > 0 and number < 100",
+        0,
+    );
+    assert_eq!(sum, 43);
+}
+
+#[test]
+fn test_vortex_scan_floats() {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let file = runtime.block_on(async {
+        let values = PrimitiveArray::from_iter([1.5f64, -2.5, 0.0, 42.42]);
+        write_single_column_vortex_file("value", values).await
+    });
+    let count: i64 = scan_vortex_file_single_row::<i64, _>(
+        file,
+        "SELECT COUNT(*) FROM vortex_scan(?) WHERE value > 0",
+        0,
+    );
+    assert_eq!(count, 2);
+}
+
+#[test]
+fn test_vortex_scan_constant() {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let file = runtime.block_on(async {
+        let constant = ConstantArray::new(Scalar::from(42i32), 100);
+        write_single_column_vortex_file("constant", constant).await
+    });
+    let value: i32 = scan_vortex_file_single_row::<i32, _>(
+        file,
+        "SELECT constant FROM vortex_scan(?) LIMIT 1",
+        0,
+    );
+    assert_eq!(value, 42);
+}
+
+#[test]
+fn test_vortex_scan_booleans() {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let file = runtime.block_on(async {
+        let flags = vec![true, false, true, true, false];
+        let flags_array = BoolArray::new(flags.into(), Validity::NonNullable);
+        write_single_column_vortex_file("flag", flags_array).await
+    });
+    let true_count: i64 = scan_vortex_file_single_row::<i64, _>(
+        file,
+        "SELECT COUNT(*) FROM vortex_scan(?) WHERE flag = true",
+        0,
+    );
+    assert_eq!(true_count, 3);
+}
+
+#[test]
+fn test_vortex_multi_column() {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let file = runtime.block_on(async {
+        let f1 = BoolArray::new(
+            vec![true, false, true, true, false].into(),
+            Validity::NonNullable,
         )
-        .unwrap();
+        .to_array();
+        let f2 = (0..5).collect::<PrimitiveArray>().to_array();
+        let f3 = (100..105).collect::<PrimitiveArray>().to_array();
+        write_vortex_file([("f1", f1), ("f2", f2), ("f3", f3)].into_iter()).await
+    });
 
-        assert_eq!(result, vec![2, 3]);
-    }
+    let result: Vec<i32> = scan_vortex_file::<i32, _>(
+        file,
+        "SELECT f2 FROM vortex_scan(?) WHERE f1 = true and f2 >= 2",
+        0,
+    )
+    .unwrap();
 
-    #[test]
-    fn test_vortex_scan_multiple_files() {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        let (tempdir, _file1, _file2) = runtime.block_on(async {
-            let tempdir = tempfile::tempdir().unwrap();
+    assert_eq!(result, vec![2, 3]);
+}
 
-            let file1 = write_vortex_file_to_dir(
-                tempdir.path(),
-                "numbers",
-                PrimitiveArray::from_iter([1i32, 2, 3]),
-            )
-            .await;
-
-            let file2 = write_vortex_file_to_dir(
-                tempdir.path(),
-                "numbers",
-                PrimitiveArray::from_iter([4i32, 5, 6]),
-            )
-            .await;
-
-            (tempdir, file1, file2)
-        });
-
-        // Create glob pattern to match all .vortex files in the temp directory.
-        let glob_pattern = format!("{}/*.vortex", tempdir.path().display());
-
-        // Scan both Vortex files.
-        let conn = database_connection();
-        let result = conn
-            .query(&format!(
-                "SELECT SUM(numbers) FROM vortex_scan('{glob_pattern}')",
-            ))
-            .unwrap();
-        let chunk = result.into_iter().next().unwrap();
-        let vec = chunk.get_vector(0);
-        let total_sum = vec.as_slice_with_len::<i64>(chunk.len().as_())[0];
-
-        assert_eq!(total_sum, 21);
-    }
-
-    #[test]
-    fn test_write_file() {
-        let conn = database_connection();
+#[test]
+fn test_vortex_scan_multiple_files() {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let (tempdir, _file1, _file2) = runtime.block_on(async {
         let tempdir = tempfile::tempdir().unwrap();
-        let file_path = format!("{}/test.vortex", tempdir.path().to_string_lossy());
 
-        conn.query(&format!(
-            "copy (select * as number from generate_series(10)) to '{file_path}' (FORMAT VORTEX);",
+        let file1 = write_vortex_file_to_dir(
+            tempdir.path(),
+            "numbers",
+            PrimitiveArray::from_iter([1i32, 2, 3]),
+        )
+        .await;
+
+        let file2 = write_vortex_file_to_dir(
+            tempdir.path(),
+            "numbers",
+            PrimitiveArray::from_iter([4i32, 5, 6]),
+        )
+        .await;
+
+        (tempdir, file1, file2)
+    });
+
+    // Create glob pattern to match all .vortex files in the temp directory.
+    let glob_pattern = format!("{}/*.vortex", tempdir.path().display());
+
+    // Scan both Vortex files.
+    let conn = database_connection();
+    let result = conn
+        .query(&format!(
+            "SELECT SUM(numbers) FROM vortex_scan('{glob_pattern}')",
         ))
         .unwrap();
+    let chunk = result.into_iter().next().unwrap();
+    let vec = chunk.get_vector(0);
+    let total_sum = vec.as_slice_with_len::<i64>(chunk.len().as_())[0];
 
-        let result = conn
-            .query(&format!(
-                "SELECT SUM(number) FROM vortex_scan('{file_path}')",
-            ))
-            .unwrap();
-        let chunk = result.into_iter().next().unwrap();
-        let vec = chunk.get_vector(0);
-        let total_sum = vec.as_slice_with_len::<i64>(chunk.len().as_())[0];
+    assert_eq!(total_sum, 21);
+}
 
-        assert_eq!(total_sum, 55);
-    }
+#[test]
+fn test_write_file() {
+    let conn = database_connection();
+    let tempdir = tempfile::tempdir().unwrap();
+    let file_path = format!("{}/test.vortex", tempdir.path().to_string_lossy());
 
-    #[test]
-    fn test_write_timestamps() {
-        let conn = database_connection();
-        let tempdir = tempfile::tempdir().unwrap();
-        let file_path = format!("{}/test.vortex", tempdir.path().to_string_lossy());
+    conn.query(&format!(
+        "copy (select * as number from generate_series(10)) to '{file_path}' (FORMAT VORTEX);",
+    ))
+    .unwrap();
 
-        conn.query(&format!(
-            "COPY (SELECT '2025-05-03 16:19:14.338895-07'::timestamptz as TSTZ) TO '{file_path}' (FORMAT VORTEX);",
+    let result = conn
+        .query(&format!(
+            "SELECT SUM(number) FROM vortex_scan('{file_path}')",
         ))
-            .unwrap();
+        .unwrap();
+    let chunk = result.into_iter().next().unwrap();
+    let vec = chunk.get_vector(0);
+    let total_sum = vec.as_slice_with_len::<i64>(chunk.len().as_())[0];
 
-        let result = conn
-            .query(&format!("SELECT TSTZ FROM vortex_scan('{file_path}')",))
-            .unwrap();
-        let chunk = result.into_iter().next().unwrap();
-        let vec = chunk.get_vector(0);
-        let timestamp = vec.as_slice_with_len::<duckdb_timestamp>(chunk.len().as_())[0];
+    assert_eq!(total_sum, 55);
+}
 
-        assert_eq!(
-            Timestamp::UNIX_EPOCH
-                .checked_add(Span::new().try_microseconds(timestamp.micros).unwrap())
-                .unwrap()
-                .to_zoned(TimeZone::fixed(tz::offset(-7))),
-            Zoned::from_str("2025-05-03 16:19:14.338895-07[-07]").unwrap()
-        );
-    }
+#[test]
+fn test_write_timestamps() {
+    let conn = database_connection();
+    let tempdir = tempfile::tempdir().unwrap();
+    let file_path = format!("{}/test.vortex", tempdir.path().to_string_lossy());
+
+    conn.query(&format!(
+        "COPY (SELECT '2025-05-03 16:19:14.338895-07'::timestamptz as TSTZ) TO '{file_path}' (FORMAT VORTEX);",
+    ))
+        .unwrap();
+
+    let result = conn
+        .query(&format!("SELECT TSTZ FROM vortex_scan('{file_path}')",))
+        .unwrap();
+    let chunk = result.into_iter().next().unwrap();
+    let vec = chunk.get_vector(0);
+    let timestamp = vec.as_slice_with_len::<duckdb_timestamp>(chunk.len().as_())[0];
+
+    assert_eq!(
+        Timestamp::UNIX_EPOCH
+            .checked_add(Span::new().try_microseconds(timestamp.micros).unwrap())
+            .unwrap()
+            .to_zoned(TimeZone::fixed(tz::offset(-7))),
+        Zoned::from_str("2025-05-03 16:19:14.338895-07[-07]").unwrap()
+    );
 }
