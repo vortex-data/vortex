@@ -45,22 +45,22 @@ mod ffi {
         fn cast_scalar(self: &Scalar, dtype: &DType) -> Result<Box<Scalar>>;
 
         type Expr;
-        fn literal(scalar: Box<Scalar>) -> Result<Box<Expr>>;
+        fn literal(scalar: Box<Scalar>) -> Box<Expr>;
         fn root() -> Box<Expr>;
         fn column(name: String) -> Box<Expr>;
-        fn get_item(field: String, child: Box<Expr>) -> Result<Box<Expr>>;
-        fn not_(child: Box<Expr>) -> Result<Box<Expr>>;
-        fn is_null(child: Box<Expr>) -> Result<Box<Expr>>;
+        fn get_item(field: String, child: Box<Expr>) -> Box<Expr>;
+        fn not_(child: Box<Expr>) -> Box<Expr>;
+        fn is_null(child: Box<Expr>) -> Box<Expr>;
         // binary op
-        fn eq(lhs: Box<Expr>, rhs: Box<Expr>) -> Result<Box<Expr>>;
-        fn not_eq_(lhs: Box<Expr>, rhs: Box<Expr>) -> Result<Box<Expr>>;
-        fn gt(lhs: Box<Expr>, rhs: Box<Expr>) -> Result<Box<Expr>>;
-        fn gt_eq(lhs: Box<Expr>, rhs: Box<Expr>) -> Result<Box<Expr>>;
-        fn lt(lhs: Box<Expr>, rhs: Box<Expr>) -> Result<Box<Expr>>;
-        fn lt_eq(lhs: Box<Expr>, rhs: Box<Expr>) -> Result<Box<Expr>>;
-        fn and_(lhs: Box<Expr>, rhs: Box<Expr>) -> Result<Box<Expr>>;
-        fn or_(lhs: Box<Expr>, rhs: Box<Expr>) -> Result<Box<Expr>>;
-        fn checked_add(lhs: Box<Expr>, rhs: Box<Expr>) -> Result<Box<Expr>>;
+        fn eq(lhs: Box<Expr>, rhs: Box<Expr>) -> Box<Expr>;
+        fn not_eq_(lhs: Box<Expr>, rhs: Box<Expr>) -> Box<Expr>;
+        fn gt(lhs: Box<Expr>, rhs: Box<Expr>) -> Box<Expr>;
+        fn gt_eq(lhs: Box<Expr>, rhs: Box<Expr>) -> Box<Expr>;
+        fn lt(lhs: Box<Expr>, rhs: Box<Expr>) -> Box<Expr>;
+        fn lt_eq(lhs: Box<Expr>, rhs: Box<Expr>) -> Box<Expr>;
+        fn and_(lhs: Box<Expr>, rhs: Box<Expr>) -> Box<Expr>;
+        fn or_(lhs: Box<Expr>, rhs: Box<Expr>) -> Box<Expr>;
+        fn checked_add(lhs: Box<Expr>, rhs: Box<Expr>) -> Box<Expr>;
         fn select(fields: Vec<String>, child: Box<Expr>) -> Box<Expr>;
 
         type VortexFile;

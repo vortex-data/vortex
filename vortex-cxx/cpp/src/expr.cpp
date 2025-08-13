@@ -7,8 +7,7 @@
 namespace vortex {
 
 Expr Expr::literal(Scalar scalar) {
-    auto rust_expr = ffi::literal(std::move(scalar.impl_));
-    return Expr(std::move(rust_expr));
+    return Expr(ffi::literal(std::move(scalar.impl_)));
 }
 
 Expr Expr::root() {
@@ -34,8 +33,7 @@ Expr Expr::is_null(Expr child) {
 // Macro to define binary operator functions
 #define DEFINE_BINARY_OP(name)                                                                               \
     Expr Expr::name(Expr lhs, Expr rhs) {                                                                    \
-        auto rust_expr = ffi::name(std::move(lhs.impl_), std::move(rhs.impl_));                              \
-        return Expr(std::move(rust_expr));                                                                   \
+        return Expr(ffi::name(std::move(lhs.impl_), std::move(rhs.impl_)));                                  \
     }
 
 DEFINE_BINARY_OP(eq)

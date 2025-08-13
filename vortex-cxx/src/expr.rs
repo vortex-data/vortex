@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_dtype::FieldName;
-use vortex_expr::*;
+use vortex_expr::ExprRef;
 
 use crate::scalar::Scalar;
 
@@ -10,12 +10,10 @@ pub(crate) struct Expr {
     pub(crate) inner: ExprRef,
 }
 
-pub(crate) fn literal(
-    scalar: Box<Scalar>,
-) -> Result<Box<Expr>, Box<dyn std::error::Error + Send + Sync>> {
-    Ok(Box::new(Expr {
-        inner: LiteralExpr::new(scalar.inner).into_expr(),
-    }))
+pub(crate) fn literal(scalar: Box<Scalar>) -> Box<Expr> {
+    Box::new(Expr {
+        inner: vortex_expr::literal::lit(scalar.inner),
+    })
 }
 
 pub(crate) fn root() -> Box<Expr> {
@@ -30,29 +28,22 @@ pub(crate) fn column(name: String) -> Box<Expr> {
     })
 }
 
-pub(crate) fn get_item(
-    field: String,
-    child: Box<Expr>,
-) -> Result<Box<Expr>, Box<dyn std::error::Error + Send + Sync>> {
-    Ok(Box::new(Expr {
+pub(crate) fn get_item(field: String, child: Box<Expr>) -> Box<Expr> {
+    Box::new(Expr {
         inner: vortex_expr::get_item(field, child.inner),
-    }))
+    })
 }
 
-pub(crate) fn not_(
-    child: Box<Expr>,
-) -> Result<Box<Expr>, Box<dyn std::error::Error + Send + Sync>> {
-    Ok(Box::new(Expr {
-        inner: NotExpr::new(child.inner).into_expr(),
-    }))
+pub(crate) fn not_(child: Box<Expr>) -> Box<Expr> {
+    Box::new(Expr {
+        inner: vortex_expr::not(child.inner),
+    })
 }
 
-pub(crate) fn is_null(
-    child: Box<Expr>,
-) -> Result<Box<Expr>, Box<dyn std::error::Error + Send + Sync>> {
-    Ok(Box::new(Expr {
-        inner: IsNullExpr::new(child.inner).into_expr(),
-    }))
+pub(crate) fn is_null(child: Box<Expr>) -> Box<Expr> {
+    Box::new(Expr {
+        inner: vortex_expr::is_null(child.inner),
+    })
 }
 
 macro_rules! binary_op {
@@ -61,10 +52,10 @@ macro_rules! binary_op {
             pub(crate) fn [<$fn_name $($suffix)?>](
                 lhs: Box<Expr>,
                 rhs: Box<Expr>,
-            ) -> Result<Box<Expr>, Box<dyn std::error::Error + Send + Sync>> {
-                Ok(Box::new(Expr {
+            ) -> Box<Expr> {
+                Box::new(Expr {
                     inner: vortex_expr::$fn_name(lhs.inner, rhs.inner),
-                }))
+                })
             }
         }
     };
