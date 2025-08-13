@@ -51,7 +51,7 @@ use vortex_utils::aliases::hash_set::HashSet;
 pub use vtable::*;
 
 use crate::dyn_traits::DynEq;
-use crate::traversal::{Node, ReferenceCollector};
+use crate::traversal::{NodeExt, ReferenceCollector};
 
 pub trait IntoExpr {
     /// Convert this type into an expression reference.

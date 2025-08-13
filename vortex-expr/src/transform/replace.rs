@@ -4,7 +4,7 @@
 use vortex_dtype::{Nullability, StructFields};
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::traversal::{Node, Transformed};
+use crate::traversal::{NodeExt, Transformed};
 use crate::{ExprRef, col, pack, root};
 
 /// Replaces all occurrences of `needle` in the expression `expr` with `replacement`.

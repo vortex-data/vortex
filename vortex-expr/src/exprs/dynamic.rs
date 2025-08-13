@@ -14,7 +14,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_proto::expr as pb;
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::traversal::{Node, NodeVisitor, TraversalOrder};
+use crate::traversal::{NodeExt, NodeVisitor, TraversalOrder};
 use crate::{
     AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog, VTable, vtable,
 };

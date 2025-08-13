@@ -5,6 +5,7 @@
 //!
 //! Users should want to implement [`Node`] and potentially [`NodeContainer`].
 
+mod fold;
 mod references;
 mod visitor;
 
@@ -17,6 +18,7 @@ pub use visitor::{pre_order_visit_down, pre_order_visit_up};
 use vortex_error::VortexResult;
 
 use crate::ExprRef;
+use crate::traversal::fold::NodeFolder;
 
 /// Signal to control a traversal's flow
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -140,6 +142,71 @@ pub trait Node: Sized + Clone {
         f: F,
     ) -> VortexResult<Transformed<Self>>;
 
+    fn transform_children<R, F: FnMut(Self) -> VortexResult<Transformed<R>>>(
+        &self,
+        f: F,
+    ) -> VortexResult<Vec<Transformed<R>>>;
+
+    fn iter_children<'a, I: Iterator<Item = &'a Self>, T>(&self, f: impl FnMut(I) -> T) -> T
+    where
+        Self: 'a;
+}
+
+pub trait NodeExt: Node {
+    fn fold<R, F: NodeFolder<NodeTy = Self, Result = R>>(
+        self,
+        folder: &mut F,
+    ) -> VortexResult<Transformed<R>> {
+        // let mut transformed = folder.visit_down(self.clone())?;
+        //
+        // let transformed = match transformed {
+        //     TraversalOrder::Skip => {
+        //         transformed.order = TraversalOrder::Continue;
+        //         Ok(transformed)
+        //     }
+        //     TraversalOrder::Continue => transformed
+        //         .value
+        //         .map_children(|c| c.rewrite(rewriter))
+        //         .map(|mut t| {
+        //             t.changed |= transformed.changed;
+        //             t
+        //         }),
+        //     TraversalOrder::Stop => panic!("stop"),
+        // }?;
+        let mut children = Vec::with_capacity(10);
+        let mut changed = false;
+        self.iter_children(|children_iter| {
+            for c in children_iter {
+                let c = c as &ExprRef;
+                let t = c.clone().fold(folder)?;
+                match t.order {
+                    TraversalOrder::Stop => return Ok(t),
+                    TraversalOrder::Skip => unreachable!("cannot return a skip"),
+                    TraversalOrder::Continue => (),
+                }
+                children.push(t.value);
+                changed |= t.changed;
+            }
+            Ok(())
+        })?;
+
+        // let transformed = self.transform_children(|c| c.fold(folder))?;
+        //
+        // let mut children = Vec::with_capacity(transformed.len());
+        // let mut changed = false;
+        // for t in transformed {
+        //     match t.order {
+        //         TraversalOrder::Stop => return Ok(t),
+        //         TraversalOrder::Skip => unreachable!("cannot return a skip"),
+        //         TraversalOrder::Continue => (),
+        //     }
+        //     children.push(t.value);
+        //     changed |= t.changed;
+        // }
+
+        folder.visit_up(self, children)
+    }
+
     /// Walk the tree in pre-order (top-down) way, rewriting it as it goes.
     fn rewrite<R: NodeRewriter<NodeTy = Self>>(
         self,
@@ -211,6 +278,8 @@ pub trait Node: Sized + Clone {
         self.rewrite(&mut rewriter)
     }
 }
+
+impl<T: Node> NodeExt for T {}
 
 struct FnRewriter<F, T> {
     f_down: Option<F>,
@@ -430,6 +499,7 @@ impl Node for ExprRef {
             .children()
             .into_iter()
             .cloned()
+            // this is annoying
             .collect_vec()
             .map_elements(f)?;
 
@@ -443,6 +513,29 @@ impl Node for ExprRef {
             Ok(Transformed::no(self))
         }
     }
+
+    fn transform_children<R, F: FnMut(Self) -> VortexResult<Transformed<R>>>(
+        &self,
+        f: F,
+    ) -> VortexResult<Vec<Transformed<R>>> {
+        // self.children()
+        //     .into_iter()
+        //     .cloned()
+        //     .map(f)
+        //     .collect::<VortexResult<Transformed<Vec<R>>>>()
+        self.children()
+            .into_iter()
+            .cloned()
+            .map(f)
+            .collect::<VortexResult<Vec<_>>>()
+    }
+
+    fn iter_children<'a, I: Iterator<Item = &'a Self>, T>(&self, f: impl FnMut(I) -> T) -> T
+    where
+        Self: 'a,
+    {
+        self.children().iter()
+    }
 }
 
 #[cfg(test)]
@@ -453,7 +546,7 @@ mod tests {
     use vortex_utils::aliases::hash_set::HashSet;
 
     use crate::traversal::visitor::pre_order_visit_down;
-    use crate::traversal::{Node, NodeRewriter, NodeVisitor, Transformed, TraversalOrder};
+    use crate::traversal::{NodeExt, NodeRewriter, NodeVisitor, Transformed, TraversalOrder};
     use crate::{
         BinaryExpr, BinaryVTable, ExprRef, GetItemVTable, IntoExpr, LiteralExpr, LiteralVTable,
         Operator, VortexExpr, col, is_root, root,
