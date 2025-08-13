@@ -126,11 +126,11 @@ pub trait ArrayEvaluation: 'static + Send + Sync {
 /// Provides semantics equivalent to `LazyLock`, except where segments are bound late.
 #[derive(Clone)]
 pub struct LazyWithSegments<T>(Arc<RwLock<LazyWithSegmentsInner<T>>>);
-pub type LazyWithSegmentsCtor = Box<dyn FnOnce(&dyn Segments) -> VortexResult<T> + Send + Sync>;
+pub type LazyWithSegmentsCtor<T> = Box<dyn FnOnce(&dyn Segments) -> VortexResult<T> + Send + Sync>;
 
 struct LazyWithSegmentsInner<T> {
     result: Option<SharedVortexResult<T>>,
-    ctor: Option<LazyWithSegmentsCtor>,
+    ctor: Option<LazyWithSegmentsCtor<T>>,
     required_segments: HashSet<SegmentId>,
 }
 
