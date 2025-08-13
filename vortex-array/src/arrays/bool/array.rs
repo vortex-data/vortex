@@ -5,14 +5,14 @@ use arrow_array::BooleanArray;
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, MutableBuffer};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{vortex_ensure, VortexResult};
+use vortex_error::{VortexResult, vortex_ensure};
 
-use crate::arrays::{bool, BoolVTable};
+use crate::Canonical;
+use crate::arrays::{BoolVTable, bool};
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::vtable::{ArrayVTable, CanonicalVTable, ValidityHelper};
-use crate::Canonical;
 
 /// A boolean array that stores true/false values in a compact bit-packed format.
 ///

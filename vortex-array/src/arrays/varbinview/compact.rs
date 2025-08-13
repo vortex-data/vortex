@@ -28,12 +28,15 @@ impl VarBinViewArray {
         // Compaction pathways, depend on the validity
         match self.validity() {
             // The array contains no values, all buffers can be dropped.
-            Validity::AllInvalid => Ok(VarBinViewArray::try_new(
-                self.views().clone(),
-                Default::default(),
-                self.dtype().clone(),
-                self.validity().clone(),
-            )?),
+            // SAFETY: for all-invalid array, zeroed views and buffer because they are never accessed.
+            Validity::AllInvalid => unsafe {
+                Ok(VarBinViewArray::new_unchecked(
+                    self.views().clone(),
+                    Default::default(),
+                    self.dtype().clone(),
+                    self.validity().clone(),
+                ))
+            },
             // Non-null pathway
             Validity::NonNullable | Validity::AllValid => rebuild_nonnull(self),
             // Nullable pathway, requires null-checks for each value

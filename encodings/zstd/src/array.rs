@@ -460,19 +460,22 @@ impl ZstdArray {
             }
             DType::Binary(_) | DType::Utf8(_) => {
                 // The decompressed buffer is a bunch of interleaved u32 lengths
-                // and strings of those lengths, we we need to reconstruct the
+                // and strings of those lengths, we need to reconstruct the
                 // views into those strings by passing through the buffer.
                 let views = reconstruct_views(decompressed.clone())?.slice(
                     slice_value_idx_start - n_skipped_values
                         ..slice_value_idx_stop - n_skipped_values,
                 );
 
-                let vbv = VarBinViewArray::try_new(
-                    views,
-                    Arc::from([decompressed]),
-                    self.dtype.clone(),
-                    slice_validity,
-                )?;
+                // SAFETY: we properly construct the views inside `reconstruct_views`
+                let vbv = unsafe {
+                    VarBinViewArray::new_unchecked(
+                        views,
+                        Arc::from([decompressed]),
+                        self.dtype.clone(),
+                        slice_validity,
+                    )
+                };
                 Ok(vbv.into_array())
             }
             _ => Err(vortex_err!(
