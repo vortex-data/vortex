@@ -58,8 +58,8 @@ impl TraversalOrder {
     }
 }
 
-pub enum FoldDown<R> {
-    Continue,
+pub enum FoldDown<C, R> {
+    Continue(C),
     Stop(R),
     Skip(R),
 }
@@ -172,11 +172,12 @@ pub trait Node: Sized + Clone {
 pub trait NodeExt: Node {
     fn fold<R, F: NodeFolder<NodeTy = Self, Result = R>>(
         self,
+        ctx: &F::Context,
         folder: &mut F,
     ) -> VortexResult<FoldUp<R>> {
-        let mut transformed = folder.visit_down(&self)?;
-        match transformed {
-            FoldDown::Continue => (),
+        let transformed = folder.visit_down(ctx, &self)?;
+        let ctx = match transformed {
+            FoldDown::Continue(ctx) => ctx,
             FoldDown::Skip(r) => return Ok(FoldUp::Continue(r)),
             FoldDown::Stop(r) => return Ok(FoldUp::Stop(r)),
         };
@@ -185,7 +186,7 @@ pub trait NodeExt: Node {
         let mut stop_result = None;
         self.iter_children(|children_iter| -> VortexResult<()> {
             for c in children_iter {
-                let t = c.clone().fold(folder)?;
+                let t = c.clone().fold(&ctx, folder)?;
                 match t {
                     FoldUp::Stop(r) => {
                         stop_result = Some(r);
@@ -203,7 +204,7 @@ pub trait NodeExt: Node {
             return Ok(FoldUp::Stop(result));
         }
 
-        folder.visit_up(self, children)
+        folder.visit_up(self, &ctx, children)
     }
 
     /// Walk the tree in pre-order (top-down) way, rewriting it as it goes.
