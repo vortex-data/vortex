@@ -538,6 +538,26 @@ mod tests {
     }
 
     #[test]
+    fn test_timestamp_with_timezone() {
+        use std::sync::Arc;
+
+        use vortex::dtype::datetime::{TIMESTAMP_ID, TemporalMetadata, TimeUnit};
+        use vortex::dtype::{ExtDType, PType};
+
+        let ext_dtype = ExtDType::new(
+            TIMESTAMP_ID.clone(),
+            Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
+            Some(TemporalMetadata::Timestamp(TimeUnit::Us, Some("UTC".to_string())).into()),
+        );
+        let dtype = DType::Extension(Arc::new(ext_dtype));
+
+        assert_eq!(
+            LogicalType::try_from(&dtype).unwrap().as_ptr(),
+            LogicalType::new(cpp::DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ).as_ptr()
+        );
+    }
+
+    #[test]
     fn test_temporal_extension_invalid_time_units() {
         use std::sync::Arc;
 
@@ -560,23 +580,6 @@ mod tests {
             Some(TemporalMetadata::Time(TimeUnit::Ms).into()),
         );
         let dtype = DType::Extension(Arc::new(ext_dtype));
-        assert!(LogicalType::try_from(&dtype).is_err());
-    }
-
-    #[test]
-    fn test_timestamp_with_timezone_unsupported() {
-        use std::sync::Arc;
-
-        use vortex::dtype::datetime::{TIMESTAMP_ID, TemporalMetadata, TimeUnit};
-        use vortex::dtype::{ExtDType, PType};
-
-        let ext_dtype = ExtDType::new(
-            TIMESTAMP_ID.clone(),
-            Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
-            Some(TemporalMetadata::Timestamp(TimeUnit::Us, Some("UTC".to_string())).into()),
-        );
-        let dtype = DType::Extension(Arc::new(ext_dtype));
-
         assert!(LogicalType::try_from(&dtype).is_err());
     }
 
