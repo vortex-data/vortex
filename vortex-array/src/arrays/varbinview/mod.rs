@@ -465,6 +465,7 @@ impl VarBinViewArray {
 impl VarBinViewArray {
     /// Build a new `VarBinViewArray` from components with validation.
     ///
+    /// # Safety
     /// This should only be used when you know for certain that all components are already
     /// validated, for example during array operations that preserve the invariants of the encoding.
     ///

@@ -23,7 +23,8 @@ impl OperationsVTable<DictVTable> for DictVTable {
                 ConstantArray::new(Scalar::null(dtype), sliced_code.len()).to_array()
             };
         }
-        DictArray::new(sliced_code, array.values().clone()).into_array()
+        // SAFETY: slicing the codes preserves invariants
+        unsafe { DictArray::new_unchecked(sliced_code, array.values().clone()).into_array() }
     }
 
     fn scalar_at(array: &DictArray, index: usize) -> Scalar {

@@ -213,7 +213,8 @@ impl Scheme for DictScheme {
             &[DictScheme.code()],
         )?;
 
-        Ok(DictArray::try_new(compressed_codes, compressed_values)?.into_array())
+        // SAFETY: compressing codes does not change their values
+        unsafe { Ok(DictArray::try_new(compressed_codes, compressed_values)?.into_array()) }
     }
 }
 

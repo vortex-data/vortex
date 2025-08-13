@@ -49,6 +49,19 @@ pub struct DictArray {
 pub struct DictEncoding;
 
 impl DictArray {
+    /// Build a new `DictArray` without validating the codes or values.
+    ///
+    /// This should be called only when you can guarantee the invariants checked
+    /// by the safe [`DictArray::try_new`] constructor are valid, for example when
+    /// you are filtering or slicing an existing valid `DictArray`.
+    pub unsafe fn new_unchecked(codes: ArrayRef, values: ArrayRef) -> Self {
+        Self {
+            codes,
+            values,
+            stats_set: Default::default(),
+        }
+    }
+
     /// Build a new `DictArray` from its components, `codes` and `values`.
     ///
     /// This constructor will panic if `codes` or `values` do not pass validation for building
