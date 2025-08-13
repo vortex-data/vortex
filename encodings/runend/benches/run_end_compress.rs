@@ -33,8 +33,7 @@ fn compress(bencher: Bencher, (length, run_step): (usize, usize)) {
     let values = PrimitiveArray::new(
         (0..length)
             .step_by(run_step)
-            .enumerate()
-            .flat_map(|(idx, x)| repeat_n(idx as u64, x))
+            .flat_map(|idx| repeat_n(idx as u64, run_step))
             .collect::<Buffer<_>>(),
         Validity::NonNullable,
     );
@@ -46,24 +45,21 @@ fn compress(bencher: Bencher, (length, run_step): (usize, usize)) {
 
 #[divan::bench(types = [u8, u16, u32, u64], args = BENCH_ARGS)]
 fn decompress<T: NativePType + PrimInt>(bencher: Bencher, (length, run_step): (usize, usize)) {
-    let values = PrimitiveArray::new(
-        (0..length)
-            .step_by(run_step)
-            .enumerate()
-            .flat_map(|(idx, x)| {
-                repeat_n(
-                    T::from(idx % T::max_value().to_usize().unwrap()).unwrap(),
-                    x,
-                )
-            })
-            .collect::<Buffer<_>>(),
-        Validity::NonNullable,
-    );
-    let (ends, values) = runend_encode(&values).unwrap();
-    let runend_array = RunEndArray::try_new(ends.into_array(), values).unwrap();
+    let ends = (0..=length)
+        .step_by(run_step)
+        .map(|x| x as u64)
+        .collect::<Buffer<_>>()
+        .into_array();
+
+    let values = (0..ends.len())
+        .map(|x| T::from(x % T::max_value().to_usize().unwrap()).unwrap())
+        .collect::<Buffer<_>>()
+        .into_array();
+
+    let run_end_array = RunEndArray::try_new(ends, values).unwrap();
 
     bencher
-        .with_inputs(|| runend_array.to_array())
+        .with_inputs(|| run_end_array.to_array())
         .bench_values(|array| array.to_canonical().unwrap());
 }
 
@@ -73,8 +69,7 @@ fn take_indices(bencher: Bencher, (length, run_step): (usize, usize)) {
     let values = PrimitiveArray::new(
         (0..length)
             .step_by(run_step)
-            .enumerate()
-            .flat_map(|(idx, x)| repeat_n(idx as u64, x))
+            .flat_map(|idx| repeat_n(idx as u64, run_step))
             .collect::<Buffer<_>>(),
         Validity::NonNullable,
     );
