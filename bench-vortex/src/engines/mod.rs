@@ -4,6 +4,7 @@
 pub mod ddb;
 pub mod df;
 
+use std::fmt::{Display, Formatter};
 use std::future::Future;
 use std::time::Duration;
 
@@ -16,6 +17,15 @@ use crate::{BenchmarkDataset, Engine, vortex_panic};
 pub enum EngineCtx {
     DataFusion(df::DataFusionCtx),
     DuckDB(ddb::DuckDBCtx),
+}
+
+impl Display for EngineCtx {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EngineCtx::DataFusion(_) => write!(f, "datafusion"),
+            EngineCtx::DuckDB(_) => write!(f, "duckdb"),
+        }
+    }
 }
 
 impl EngineCtx {

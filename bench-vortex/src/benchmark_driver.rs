@@ -223,7 +223,7 @@ fn execute_queries<B: Benchmark>(
         {
             assert_eq!(
                 row_count, expected_counts[query_idx],
-                "Row count mismatch for query {query_idx} - duckdb:{format}",
+                "Row count mismatch for query {query_idx} - {engine_ctx}:{format}",
             );
         }
 

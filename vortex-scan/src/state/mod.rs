@@ -9,7 +9,7 @@ mod tokio;
 
 use std::collections::VecDeque;
 use std::fmt::{Debug, Formatter};
-use std::ops::Range;
+use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::{iter, mem};
@@ -20,6 +20,7 @@ use futures::future::BoxFuture;
 use futures::stream::FuturesUnordered;
 use futures::task::noop_waker;
 use futures::{FutureExt, StreamExt};
+use itertools::Itertools;
 use log::debug;
 use vortex_array::ArrayRef;
 use vortex_buffer::ByteBuffer;
@@ -27,7 +28,7 @@ use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_panic};
 use vortex_layout::segments::{SegmentId, SegmentSource, Segments};
 use vortex_layout::{ArrayEvaluation, MaskEvaluation, PruningEvaluation};
 use vortex_mask::Mask;
-use vortex_utils::aliases::hash_map::HashMap;
+use vortex_utils::aliases::hash_map::{Entry, HashMap};
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::filter::FilterExpr;
@@ -50,29 +51,50 @@ impl Scan2 {
         let mut splits = Vec::with_capacity(nsplits);
         let mut segments = SegmentCache::default();
         for row_range in ranges.into_iter() {
-            let mask = ctx.selection.row_mask(&row_range).into_mask();
+            // TODO(ngates): we really must clean up this selection logic and push it all inside
+            //  the selection object.
+            // Step 1: using the caller-provided row range and selection, attempt to disregard this split.
+            let row_range = match &ctx.row_range {
+                None => row_range,
+                Some(scan_row_range) => {
+                    if scan_row_range.start >= row_range.end || scan_row_range.end < row_range.start
+                    {
+                        // No overlap for this task
+                        continue;
+                    }
+
+                    let intersect_start = scan_row_range.start.max(row_range.start);
+                    let intersect_end = scan_row_range.end.min(row_range.end);
+                    intersect_start..intersect_end
+                }
+            };
+
+            let read_mask = ctx.selection.row_mask(&row_range);
+            let row_range = read_mask.row_range();
+            let mask = read_mask.into_mask();
+
             if mask.all_false() {
                 // The selection has pruned this split.
                 continue;
             }
 
-            let mut pruning = None;
-            let mut pruning_segments = HashSet::new();
+            let mut pruning = vec![];
+            let mut pruning_segments = vec![];
             let mut filters = vec![];
             let mut filter_segments = vec![];
             if let Some(filter) = ctx.filter.as_ref() {
-                let eval = ctx.reader.pruning_evaluation(&row_range, filter.expr())?;
-                eval.required_segments(&mut pruning_segments);
-                pruning = Some(eval);
-
                 for conjunct in filter.conjuncts() {
-                    let eval = ctx.reader.filter_evaluation(&row_range, conjunct)?;
+                    let prune_eval = ctx.reader.pruning_evaluation(&row_range, conjunct)?;
+                    let mut p_segments = HashSet::new();
+                    prune_eval.required_segments(&mut p_segments);
+                    pruning.push(Some(prune_eval));
+                    pruning_segments.push(p_segments);
 
-                    let mut segments = HashSet::new();
-                    eval.required_segments(&mut segments);
-
-                    filters.push(Some(eval));
-                    filter_segments.push(segments);
+                    let filter_eval = ctx.reader.filter_evaluation(&row_range, conjunct)?;
+                    let mut f_segments = HashSet::new();
+                    filter_eval.required_segments(&mut f_segments);
+                    filters.push(Some(filter_eval));
+                    filter_segments.push(f_segments);
                 }
             }
             let remaining_filters = BitVec::from_elem(filters.len(), true);
@@ -128,7 +150,9 @@ impl Scan2 {
                 .collect(),
             splits: self.splits,
             segments: self.segments,
-            target_segment_count: 1000,
+            // TODO(ngates): this should really be target segment size and we control the max
+            //  memory consumption.
+            target_segment_count: 128,
             waiting_for_segments: Default::default(),
         }
     }
@@ -137,8 +161,8 @@ impl Scan2 {
 struct Split {
     initial_mask: Option<Mask>,
 
-    pruning: Option<Box<dyn PruningEvaluation>>,
-    pruning_segments: HashSet<SegmentId>,
+    pruning: Vec<Option<Box<dyn PruningEvaluation>>>,
+    pruning_segments: Vec<HashSet<SegmentId>>,
 
     filters: Vec<Option<Box<dyn MaskEvaluation>>>,
     filter_segments: Vec<HashSet<SegmentId>>, // TODO(ngates): BTreeSet?
@@ -162,38 +186,40 @@ impl Debug for Split {
 
 impl Split {
     fn all_segments(&self) -> impl Iterator<Item = &SegmentId> + '_ {
-        self.pruning_segments
+        self.projection_segments
             .iter()
+            .chain(self.pruning_segments.iter().flat_map(|s| s.iter()))
             .chain(self.filter_segments.iter().flat_map(|s| s.iter()))
-            .chain(self.projection_segments.iter())
     }
 
     /// Returns an iterator over the remaining segments in the split.
     fn remaining_segments(&self) -> impl Iterator<Item = &SegmentId> + '_ {
         // Chain together the segments for the remaining evaluations.
-        self.pruning
+        self.projection
             .is_some()
-            .then(|| self.pruning_segments.iter())
+            .then(|| self.projection_segments.iter())
             .into_iter()
             .flatten()
             .chain(
-                (0..self.filters.len())
-                    .filter(|idx| self.remaining_filters[*idx])
-                    .flat_map(|i| self.filter_segments[i].iter()),
+                self.pruning
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, eval)| eval.is_some().then_some(i))
+                    .flat_map(|i| self.pruning_segments[i].iter()),
             )
             .chain(
-                self.projection
-                    .is_some()
-                    .then(|| self.projection_segments.iter())
-                    .into_iter()
-                    .flatten(),
+                self.filters
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, eval)| eval.is_some().then_some(i))
+                    .flat_map(|i| self.filter_segments[i].iter()),
             )
     }
 
     /// Evaluations hold onto shared segment memory, so when we split is finished, we really need
     /// to drop its state.
     fn drop_evaluations(&mut self) {
-        self.pruning = None;
+        self.pruning.clear();
         self.filters.clear();
         self.projection = None;
     }
@@ -202,7 +228,7 @@ impl Split {
 type SplitIdx = usize;
 
 enum Atom {
-    Prune,
+    Prune(usize),
     Filter(usize),
     Project,
 }
@@ -299,10 +325,13 @@ enum SplitState {
         mask: Mask,
     },
     PendingPrune {
+        conjunct_idx: usize,
         mask: Mask,
         waiting_for: HashSet<SegmentId>,
     },
     Prune {
+        conjunct_idx: usize,
+        input_mask: Mask,
         result: Option<Mask>,
     },
     StartFilter {
@@ -594,32 +623,59 @@ impl Scheduler {
                         Some(SplitState::StartProject { mask })
                     }
                 }
-                SplitState::StartPrune { mask } => Some(SplitState::PendingPrune {
-                    mask: mask.clone(),
-                    waiting_for: self.launch_segment_requests(split_idx, Atom::Prune),
-                }),
-                SplitState::PendingPrune { mask, waiting_for } => {
-                    waiting_for.is_empty().then(|| {
-                        debug!("Spawning pruning for split: {}", split_idx);
-                        self.task_spawner.spawn_task(Box::new(PruneTask {
-                            split_idx,
-                            eval: self.splits[split_idx]
-                                .pruning
-                                .take()
-                                .vortex_expect("pruning evaluation already taken"),
+                SplitState::StartPrune { mask } => {
+                    // If we have any pruning evaluations left, then launch those.
+                    // Otherwise, we move on to filtering.
+                    if let Some((conjunct_idx, _)) = self.splits[split_idx]
+                        .pruning
+                        .iter()
+                        .find_position(|e| e.is_some())
+                    {
+                        Some(SplitState::PendingPrune {
+                            conjunct_idx,
                             mask: mask.clone(),
-                            segments: self.segments.segments(),
-                            cpu_events: self.result_send.clone(),
-                        }));
-                        SplitState::Prune { result: None }
-                    })
+                            waiting_for: self
+                                .launch_segment_requests(split_idx, Atom::Prune(conjunct_idx)),
+                        })
+                    } else {
+                        Some(SplitState::StartFilter { mask: mask.clone() })
+                    }
                 }
-                SplitState::Prune { result } => {
+                SplitState::PendingPrune {
+                    conjunct_idx,
+                    mask,
+                    waiting_for,
+                } => waiting_for.is_empty().then(|| {
+                    debug!("Spawning pruning for split: {}", split_idx);
+                    self.task_spawner.spawn_task(Box::new(PruneTask {
+                        split_idx,
+                        eval: self.splits[split_idx].pruning[*conjunct_idx]
+                            .take()
+                            .vortex_expect("pruning evaluation already taken"),
+                        mask: mask.clone(),
+                        segments: self.segments.segments(),
+                        cpu_events: self.result_send.clone(),
+                    }));
+                    SplitState::Prune {
+                        conjunct_idx: *conjunct_idx,
+                        input_mask: mask.clone(),
+                        result: None,
+                    }
+                }),
+                SplitState::Prune {
+                    conjunct_idx,
+                    input_mask,
+                    result,
+                } => {
                     if let Some(mask) = result {
                         // Release the pruning segments.
                         self.segments
-                            .release(self.splits[split_idx].pruning_segments.iter());
-                        Some(SplitState::StartFilter { mask: mask.clone() })
+                            .release(self.splits[split_idx].pruning_segments[*conjunct_idx].iter());
+
+                        // For pruning, we must intersect the mask with the input mask.
+                        let mask = input_mask.bitand(mask);
+
+                        Some(SplitState::StartPrune { mask })
                     } else {
                         None
                     }
@@ -704,10 +760,20 @@ impl Scheduler {
                         None
                     }
                 }
-                SplitState::StartProject { mask } => Some(SplitState::PendingProject {
-                    mask: mask.clone(),
-                    waiting_for: self.launch_segment_requests(split_idx, Atom::Project),
-                }),
+                SplitState::StartProject { mask } => {
+                    if mask.all_false() {
+                        // If we have an all-false mask, we can finish the split without projecting.
+                        self.segments
+                            .release(self.splits[split_idx].remaining_segments());
+                        self.splits[split_idx].drop_evaluations();
+                        Some(SplitState::Finished)
+                    } else {
+                        Some(SplitState::PendingProject {
+                            mask: mask.clone(),
+                            waiting_for: self.launch_segment_requests(split_idx, Atom::Project),
+                        })
+                    }
+                }
                 SplitState::PendingProject { mask, waiting_for } => {
                     waiting_for.is_empty().then(|| {
                         debug!("Spawning projection for split: {}", split_idx);
@@ -769,29 +835,38 @@ impl Scheduler {
         let mut pending = HashSet::new();
 
         let segment_ids = match atom {
-            Atom::Prune => &self.splits[split_idx].pruning_segments,
+            Atom::Prune(conjunct_idx) => &self.splits[split_idx].pruning_segments[conjunct_idx],
             Atom::Filter(conjunct_idx) => &self.splits[split_idx].filter_segments[conjunct_idx],
             Atom::Project => &self.splits[split_idx].projection_segments,
         };
 
         for segment_id in segment_ids.iter().copied() {
             if self.segments.contains(&segment_id) {
+                // We've already fetched this segment.
                 continue;
             }
-            debug!("Requesting segment {:?}", segment_id);
-            let fut = self.source.request(segment_id);
-            self.segment_futures.push(
-                async move {
-                    let buffer = fut.await?;
-                    Ok(IoEvent { segment_id, buffer })
-                }
-                .boxed(),
-            );
+
             pending.insert(segment_id);
-            self.waiting_for_segments
-                .entry(segment_id)
-                .or_default()
-                .push(split_idx)
+            match self.waiting_for_segments.entry(segment_id) {
+                Entry::Occupied(mut e) => {
+                    // This segment is already in-flight.
+                    e.get_mut().push(split_idx);
+                }
+                Entry::Vacant(e) => {
+                    // Or we're the first to request this segment.
+                    debug!("Requesting segment {:?}", segment_id);
+                    let fut = self.source.request(segment_id);
+                    self.segment_futures.push(
+                        async move {
+                            let buffer = fut.await?;
+                            Ok(IoEvent { segment_id, buffer })
+                        }
+                        .boxed(),
+                    );
+
+                    e.insert(vec![split_idx]);
+                }
+            }
         }
 
         pending
