@@ -20,29 +20,36 @@ use crate::{Array, Canonical};
 pub fn export_canonical_pipeline(
     dtype: &DType,
     len: usize,
-    expression: &dyn Operator,
+    pipeline: &mut dyn Kernel,
     mask: &Mask,
 ) -> VortexResult<Canonical> {
-    let mut pipeline = Pipeline::new(expression)?;
-
     match dtype {
         DType::Bool(Nullability::NonNullable) => {
-            export_bool_nonnull_masked(mask, &mut pipeline).map(Canonical::Bool)
+            export_bool_nonnull_masked(mask, pipeline).map(Canonical::Bool)
         }
         DType::Primitive(ptype, Nullability::NonNullable) => {
             if mask.all_true() {
                 match_each_native_ptype!(ptype, |T| {
-                    export_primitive_nonnull::<T>(len, &mut pipeline).map(Canonical::Primitive)
+                    export_primitive_nonnull::<T>(len, pipeline).map(Canonical::Primitive)
                 })
             } else {
                 match_each_native_ptype!(ptype, |T| {
-                    export_primitive_nonnull_masked::<T>(mask, &mut pipeline)
-                        .map(Canonical::Primitive)
+                    export_primitive_nonnull_masked::<T>(mask, pipeline).map(Canonical::Primitive)
                 })
             }
         }
         _ => vortex_bail!("Expected a primitive array, got: {}", dtype),
     }
+}
+
+pub fn export_canonical_pipeline_expr(
+    dtype: &DType,
+    len: usize,
+    expression: &dyn Operator,
+    mask: &Mask,
+) -> VortexResult<Canonical> {
+    let mut pipeline = Pipeline::new(expression)?;
+    export_canonical_pipeline(dtype, len, &mut pipeline, mask)
 }
 
 pub fn export_canonical(array: &dyn Array, mask: &Mask) -> VortexResult<Canonical> {

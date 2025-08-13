@@ -15,6 +15,21 @@ use crate::pipeline::Kernel;
 use crate::pipeline::types::VType;
 use crate::pipeline::vector::VectorId;
 
+// compare(_, _) <-  for <- bitpacked
+//               <- 12
+
+// !--> reduce_child(compare(_, _), for <- bitpacked) -->
+// --> reduce_child(compare(_, _), 12) -->
+
+// compare_single[12](_) <- for(10) <- bitpacked
+
+// compare_single[2](_) <- bitpacked
+
+enum Transformed<'a, T> {
+    Keep(&'a T),
+    Replace(T),
+}
+
 /// An operator represents a node in a logical query plan.
 pub trait Operator: Debug + DynHash {
     /// The output [`VType`] of this operator.
@@ -33,6 +48,18 @@ pub trait Operator: Debug + DynHash {
 
     /// Create a kernel for this operator
     fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>>;
+
+    /// Given a set of reduced children, try and reduce the current node.
+    /// If Keep is returned then the children of this node as still updated.
+    fn reduce_children(&self, children: &[Box<dyn Operator>]) -> Transformed<Box<dyn Operator>> {
+        Transformed::Keep(self)
+    }
+
+    /// Given a reduced parent, try and reduce the current node.
+    /// If `Replace` is returned then  the parent node and this node and replaced by the returned node.
+    fn reduce_parent(&self, parent: Box<dyn Operator>) -> Transformed<Box<dyn Operator>> {
+        Transformed::Keep(self)
+    }
 }
 
 dyn_hash::hash_trait_object!(Operator);

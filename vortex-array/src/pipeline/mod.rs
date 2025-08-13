@@ -168,7 +168,7 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::canonical::ToCanonical;
     use crate::compute::Operator;
-    use crate::pipeline::canonical::export_canonical_pipeline;
+    use crate::pipeline::canonical::export_canonical_pipeline_expr;
     use crate::pipeline::operators::compare::CompareOperator;
     use crate::{Array, IntoArray};
 
@@ -184,9 +184,7 @@ mod tests {
             .unwrap();
 
         // Create a mask that selects ~50% of elements
-        let mask_bools: Vec<bool> = (0..1000)
-            .map(|_| rng.random_bool(0.5))
-            .collect();
+        let mask_bools: Vec<bool> = (0..1000).map(|_| rng.random_bool(0.5)).collect();
         let mask = Mask::from_buffer(BooleanBuffer::from_iter(mask_bools));
 
         // Create a pipeline with comparison: array > array (self-comparison)
@@ -195,12 +193,13 @@ mod tests {
         let compare_expr = CompareOperator::new(expr1, expr2, Operator::Gt);
 
         // Execute the pipeline
-        let result = export_canonical_pipeline(
+        let result = export_canonical_pipeline_expr(
             &DType::Bool(Nullability::NonNullable),
             values.len(),
             &compare_expr,
             &mask,
-        ).unwrap();
+        )
+        .unwrap();
 
         // Verify the result
         assert!(matches!(result, crate::Canonical::Bool(_)));
@@ -208,14 +207,18 @@ mod tests {
             // Since we're comparing array > array (same values), all results should be false
             let expected_len = mask.true_count();
             assert_eq!(bool_array.len(), expected_len);
-            
+
             // All values should be false since we're comparing identical values
             let bool_buffer = bool_array.boolean_buffer();
-            assert_eq!(bool_buffer.count_set_bits(), 0, "All comparisons should be false");
+            assert_eq!(
+                bool_buffer.count_set_bits(),
+                0,
+                "All comparisons should be false"
+            );
         }
     }
 
-    #[test] 
+    #[test]
     fn test_pipeline_with_different_arrays_comparison() {
         // Create test data with known pattern
         let values1 = (0..1000)
@@ -240,25 +243,33 @@ mod tests {
         let compare_expr = CompareOperator::new(expr1, expr2, Operator::Lt);
 
         // Execute the pipeline
-        let result = export_canonical_pipeline(
+        let result = export_canonical_pipeline_expr(
             &DType::Bool(Nullability::NonNullable),
             1000,
             &compare_expr,
             &mask,
-        ).unwrap();
+        )
+        .unwrap();
 
         // Verify the result
         assert!(matches!(result, crate::Canonical::Bool(_)));
         if let crate::Canonical::Bool(bool_array) = result {
             assert_eq!(bool_array.len(), 1000);
-            
+
             // Most comparisons should be true (except when values wrap around)
             let bool_buffer = bool_array.boolean_buffer();
             let true_count = bool_buffer.count_set_bits();
-            
+
             // Should be approximately 990 true values (10 false when wrapping from 99 to 0)
-            assert!(true_count > 980, "Expected most comparisons to be true, got {}", true_count);
-            assert!(true_count < 1000, "Expected some comparisons to be false due to wraparound");
+            assert!(
+                true_count > 980,
+                "Expected most comparisons to be true, got {}",
+                true_count
+            );
+            assert!(
+                true_count < 1000,
+                "Expected some comparisons to be false due to wraparound"
+            );
         }
     }
 }

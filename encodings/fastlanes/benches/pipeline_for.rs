@@ -11,7 +11,10 @@ use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex_array::compute::{filter, mask};
 use vortex_array::display::{DisplayArrayAs, DisplayOptions};
-use vortex_array::pipeline::canonical::{export_canonical, export_canonical_pipeline};
+use vortex_array::pipeline::canonical::{
+    export_canonical, export_canonical_pipeline, export_canonical_pipeline_expr,
+};
+use vortex_array::pipeline::query::Pipeline;
 use vortex_array::pipeline::types::Element;
 use vortex_array::{IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
@@ -127,6 +130,64 @@ pub fn decompress_for_early_filter<T: NativePType>(bencher: Bencher, fraction_ke
 // Pipeline filter is commented out because FoR::to_pipeline is not yet implemented
 #[divan::bench(types = [i64], args = [0.001, 0.01, 0.1, 0.5, 0.9, 0.99, 0.999])]
 #[allow(dead_code)]
+pub fn decompress_for_pipeline_plan_filter<T: Element + NativePType>(
+    bencher: Bencher,
+    fraction_kept: f64,
+) {
+    let len = 102_400;
+    let mut rng = StdRng::seed_from_u64(0);
+    let values = (0..len)
+        .map(|_| T::from(rng.random_range(50..150)).unwrap())
+        .collect::<BufferMut<T>>();
+
+    let array = create_for_bitpacked_array(values).unwrap();
+    // let mask = generate_mask_with_runs(100, fraction_kept, &mut rng);
+    let mask = (0..len)
+        .map(|_| rng.random_bool(fraction_kept))
+        .collect::<BooleanBuffer>();
+
+    let expect = filter(
+        array.to_canonical().unwrap().as_ref(),
+        &Mask::from_buffer(mask.clone()),
+    )
+    .unwrap();
+
+    bencher
+        .with_inputs(|| Mask::from_buffer(mask.clone()))
+        .bench_local_values(|mask| {
+            export_canonical_pipeline_expr(
+                array.dtype(),
+                array.len(),
+                array.to_pipeline_plan().unwrap().as_ref(),
+                &mask,
+            )
+            .unwrap()
+        });
+
+    let result = export_canonical_pipeline_expr(
+        array.dtype(),
+        array.len(),
+        array.to_pipeline_plan().unwrap().as_ref(),
+        &Mask::from_buffer(mask.clone()),
+    )
+    .unwrap()
+    .into_primitive()
+    .unwrap();
+    assert_eq!(result.len(), mask.count_set_bits());
+
+    for i in 0..mask.count_set_bits() {
+        assert_eq!(
+            result.scalar_at(i).unwrap(),
+            expect.scalar_at(i).unwrap(),
+            "{}, {}",
+            i,
+            fraction_kept
+        );
+    }
+}
+
+#[divan::bench(types = [i64], args = [0.001, 0.01, 0.1, 0.5, 0.9, 0.99, 0.999])]
+#[allow(dead_code)]
 pub fn decompress_for_pipeline_filter<T: Element + NativePType>(
     bencher: Bencher,
     fraction_kept: f64,
@@ -142,7 +203,6 @@ pub fn decompress_for_pipeline_filter<T: Element + NativePType>(
     let mask = (0..len)
         .map(|_| rng.random_bool(fraction_kept))
         .collect::<BooleanBuffer>();
-    // println!("{}", array.display_tree());
 
     let expect = filter(
         array.to_canonical().unwrap().as_ref(),
@@ -150,19 +210,20 @@ pub fn decompress_for_pipeline_filter<T: Element + NativePType>(
     )
     .unwrap();
 
+    let plan = array.to_pipeline_plan().unwrap();
+
     bencher
-        .with_inputs(|| Mask::from_buffer(mask.clone()))
-        .bench_local_values(|mask| {
-            export_canonical_pipeline(
-                array.dtype(),
-                array.len(),
-                array.to_pipeline_plan().unwrap().as_ref(),
-                &mask,
+        .with_inputs(|| {
+            (
+                Mask::from_buffer(mask.clone()),
+                Pipeline::new(plan.as_ref()).unwrap(),
             )
-            .unwrap()
+        })
+        .bench_local_values(|(mask, mut pipeline)| {
+            export_canonical_pipeline(array.dtype(), array.len(), &mut pipeline, &mask).unwrap()
         });
 
-    let result = export_canonical_pipeline(
+    let result = export_canonical_pipeline_expr(
         array.dtype(),
         array.len(),
         array.to_pipeline_plan().unwrap().as_ref(),
@@ -172,28 +233,6 @@ pub fn decompress_for_pipeline_filter<T: Element + NativePType>(
     .into_primitive()
     .unwrap();
     assert_eq!(result.len(), mask.count_set_bits());
-
-    // println!("mask: {:?}", mask.count_set_bits());
-    // println!("mask: {:?}", mask.iter().collect_vec());
-    //
-    // println!(
-    //     "\nresult: {}",
-    //     DisplayArrayAs(
-    //         result.as_ref(),
-    //         DisplayOptions::CommaSeparatedScalars {
-    //             omit_comma_after_space: false
-    //         }
-    //     )
-    // );
-    // println!(
-    //     "\nexpect: {}",
-    //     DisplayArrayAs(
-    //         &expect,
-    //         DisplayOptions::CommaSeparatedScalars {
-    //             omit_comma_after_space: false
-    //         }
-    //     )
-    // );
 
     for i in 0..mask.count_set_bits() {
         assert_eq!(

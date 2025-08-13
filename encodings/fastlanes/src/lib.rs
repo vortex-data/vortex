@@ -16,7 +16,7 @@ mod test {
     use arrow_buffer::BooleanBuffer;
     use rand::prelude::StdRng;
     use rand::{Rng, SeedableRng};
-    use vortex_array::pipeline::canonical::export_canonical_pipeline;
+    use vortex_array::pipeline::canonical::export_canonical_pipeline_expr;
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::BufferMut;
     use vortex_mask::Mask;
@@ -40,7 +40,7 @@ mod test {
             .map(|_| rng.random_bool(fraction_kept))
             .collect::<BooleanBuffer>();
 
-        let array = export_canonical_pipeline(
+        let array = export_canonical_pipeline_expr(
             array.dtype(),
             array.len(),
             &array,

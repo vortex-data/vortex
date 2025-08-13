@@ -10,7 +10,7 @@ use mimalloc::MiMalloc;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex_array::compute::filter;
-use vortex_array::pipeline::canonical::{export_canonical, export_canonical_pipeline};
+use vortex_array::pipeline::canonical::{export_canonical, export_canonical_pipeline_expr};
 use vortex_array::pipeline::types::Element;
 use vortex_array::{IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
@@ -132,7 +132,7 @@ pub fn decompress_bitpacking_pipeline_filter<T: Element + NativePType>(
     bencher
         .with_inputs(|| Mask::from_buffer(mask.clone()))
         .bench_local_values(|mask| {
-            export_canonical_pipeline(
+            export_canonical_pipeline_expr(
                 array.dtype(),
                 array.len(),
                 array.to_pipeline_plan().unwrap().as_ref(),
@@ -141,7 +141,7 @@ pub fn decompress_bitpacking_pipeline_filter<T: Element + NativePType>(
             .unwrap()
         });
 
-    let array = export_canonical_pipeline(
+    let array = export_canonical_pipeline_expr(
         array.dtype(),
         array.len(),
         array.to_pipeline_plan().unwrap().as_ref(),

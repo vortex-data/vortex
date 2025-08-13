@@ -158,10 +158,9 @@ mod tests {
     use arrow_buffer::BooleanBuffer;
     use rand::prelude::StdRng;
     use rand::{Rng, SeedableRng};
-    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::filter;
     use vortex_array::display::{DisplayArrayAs, DisplayOptions};
-    use vortex_array::pipeline::canonical::export_canonical_pipeline;
+    use vortex_array::pipeline::canonical::export_canonical_pipeline_expr;
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::BufferMut;
     use vortex_mask::Mask;
@@ -180,17 +179,12 @@ mod tests {
             let primitive_array = values.clone().into_array().to_primitive().unwrap();
             let bitpacked = bitpack_to_best_bit_width(&primitive_array).unwrap();
 
-            println!("values at 64: {}", values[64]);
-            println!("bitpacked at 64: {}", bitpacked.scalar_at(64).unwrap());
-            println!("bitpacked len: {}", bitpacked.len());
-            println!("bitpacked bit_width: {}", bitpacked.bit_width());
-
             let mask = (0..len)
                 .map(|_| rng.random_bool(frac))
                 .collect::<BooleanBuffer>();
             let mask = Mask::from_buffer(mask);
 
-            let result = export_canonical_pipeline(
+            let result = export_canonical_pipeline_expr(
                 bitpacked.dtype(),
                 bitpacked.len(),
                 bitpacked.to_pipeline_plan().unwrap().as_ref(),

@@ -10,7 +10,7 @@ use mimalloc::MiMalloc;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex_array::compute::{Operator, compare, filter};
-use vortex_array::pipeline::canonical::{export_canonical, export_canonical_pipeline};
+use vortex_array::pipeline::canonical::{export_canonical, export_canonical_pipeline_expr};
 use vortex_array::pipeline::operators::compare::CompareOperator;
 use vortex_array::pipeline::types::Element;
 use vortex_array::{Array, IntoArray, ToCanonical};
@@ -140,6 +140,7 @@ pub fn pipeline<T: Element + NativePType>(bencher: Bencher, fraction_kept: f64) 
     bencher
         .with_inputs(|| Mask::from_buffer(mask.clone()))
         .bench_local_values(|mask| {
-            export_canonical_pipeline(&DType::Bool(NonNullable), array.len(), &expr, &mask).unwrap()
+            export_canonical_pipeline_expr(&DType::Bool(NonNullable), array.len(), &expr, &mask)
+                .unwrap()
         });
 }

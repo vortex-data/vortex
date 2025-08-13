@@ -54,6 +54,10 @@ impl Operator for FoROperator {
         &self.child
     }
 
+    fn in_place(&self) -> bool {
+        true
+    }
+
     fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {
         let VType::Primitive(ptype) = self.vtype() else {
             vortex_bail!("FoROperator only supports primitive types");
@@ -117,7 +121,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::filter;
     use vortex_array::display::{DisplayArrayAs, DisplayOptions};
-    use vortex_array::pipeline::canonical::export_canonical_pipeline;
+    use vortex_array::pipeline::canonical::export_canonical_pipeline_expr;
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::BufferMut;
     use vortex_mask::Mask;
@@ -154,7 +158,7 @@ mod tests {
         let bitpack = bitpack_to_best_bit_width(&prim).unwrap();
         let array = FoRArray::try_new(bitpack.to_array(), Scalar::from(100i32)).unwrap();
 
-        let res = export_canonical_pipeline(
+        let res = export_canonical_pipeline_expr(
             array.dtype(),
             array.len(),
             array.to_pipeline_plan().unwrap().as_ref(),
@@ -210,7 +214,7 @@ mod tests {
                 .collect::<BooleanBuffer>();
             let mask = Mask::from_buffer(mask);
 
-            let result = export_canonical_pipeline(
+            let result = export_canonical_pipeline_expr(
                 array.dtype(),
                 array.len(),
                 array.to_pipeline_plan().unwrap().as_ref(),
