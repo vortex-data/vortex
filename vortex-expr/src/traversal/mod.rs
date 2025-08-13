@@ -69,6 +69,15 @@ enum FoldUp<R> {
     Stop(R),
 }
 
+impl<R> FoldUp<R> {
+    pub fn value(self) -> R {
+        match self {
+            Self::Continue(r) => r,
+            Self::Stop(r) => r,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Transformed<T> {
     /// Value that was being rewritten.
@@ -164,21 +173,16 @@ pub trait Node: Sized + Clone {
 }
 
 pub trait NodeExt: Node {
-    fn fold<'a, R, F: NodeFolder<'a, NodeTy = Self, Result = R>>(
+    fn fold<R, F: NodeFolder<NodeTy = Self, Result = R>>(
         self,
         folder: &mut F,
-    ) -> VortexResult<FoldUp<R>>
-    where
-        Self: 'a,
-    {
+    ) -> VortexResult<FoldUp<R>> {
         let mut transformed = folder.visit_down(&self)?;
-        let transformed = match transformed {
-            FoldDown::Continue => None,
-            FoldDown::Skip(r) => Some(r),
+        match transformed {
+            FoldDown::Continue => (),
+            FoldDown::Skip(r) => return Ok(FoldUp::Continue(r)),
             FoldDown::Stop(r) => return Ok(FoldUp::Stop(r)),
         };
-
-        assert!(transformed.is_none());
 
         let mut children = Vec::with_capacity(self.children_count());
         let mut stop_result = None;

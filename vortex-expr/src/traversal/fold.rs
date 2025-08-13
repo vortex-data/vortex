@@ -2,12 +2,12 @@ use vortex_error::VortexResult;
 
 use crate::traversal::{FoldDown, FoldUp, Node, Transformed};
 
-pub trait NodeFolder<'a> {
+pub trait NodeFolder {
     type NodeTy: Node;
     type Result;
     // type Ctx;
 
-    fn visit_down(&mut self, _node: &'a Self::NodeTy) -> VortexResult<(FoldDown<Self::Result>)> {
+    fn visit_down(&mut self, _node: &Self::NodeTy) -> VortexResult<(FoldDown<Self::Result>)> {
         Ok(FoldDown::Continue)
     }
 
@@ -30,7 +30,7 @@ mod tests {
     };
 
     struct AddFold;
-    impl NodeFolder<'_> for AddFold {
+    impl NodeFolder for AddFold {
         type NodeTy = ExprRef;
         type Result = i32;
 
@@ -60,17 +60,17 @@ mod tests {
             &mut self,
             node: Self::NodeTy,
             children: Vec<Self::Result>,
-        ) -> VortexResult<Transformed<Self::Result>> {
+        ) -> VortexResult<FoldUp<Self::Result>> {
             if let Some(lit) = node.as_opt::<LiteralVTable>() {
                 let v = lit
                     .value()
                     .as_primitive()
                     .typed_value::<i32>()
                     .vortex_expect("i32");
-                Ok(Transformed::yes(v))
+                Ok(FoldUp::Continue(v))
             } else if let Some(binary) = node.as_opt::<BinaryVTable>() {
                 if binary.op() == Operator::Add {
-                    Ok(Transformed::yes(children[0] + children[1]))
+                    Ok(FoldUp::Continue(children[0] + children[1]))
                 } else {
                     vortex_bail!("not a valid operator")
                 }
@@ -85,8 +85,8 @@ mod tests {
         let expr = checked_add(checked_add(lit(1), lit(2)), lit(3));
 
         let mut folder = AddFold;
-        let result = expr.fold(&mut folder).unwrap();
-        assert_eq!(result.value, 6);
+        let result = expr.fold(&mut folder).unwrap().value();
+        assert_eq!(result, 6);
     }
 
     #[test]
@@ -94,8 +94,8 @@ mod tests {
         let expr = checked_add(checked_add(lit(1), lit(5)), lit(3));
 
         let mut folder = AddFold;
-        let result = expr.fold(&mut folder).unwrap();
-        assert_eq!(result.value, 5);
+        let result = expr.fold(&mut folder).unwrap().value();
+        assert_eq!(result, 5);
     }
 
     #[test]
@@ -103,8 +103,8 @@ mod tests {
         let expr = checked_add(gt(lit(1), lit(2)), lit(3));
 
         let mut folder = AddFold;
-        let result = expr.fold(&mut folder).unwrap();
-        assert_eq!(result.value, 3);
+        let result = expr.fold(&mut folder).unwrap().value();
+        assert_eq!(result, 3);
     }
 
     #[test]
@@ -112,7 +112,7 @@ mod tests {
         let expr = checked_add(gt(lit(1), lit(5)), lit(3));
 
         let mut folder = AddFold;
-        let result = expr.fold(&mut folder).unwrap();
-        assert_eq!(result.value, 3);
+        let result = expr.fold(&mut folder).unwrap().value();
+        assert_eq!(result, 3);
     }
 }
