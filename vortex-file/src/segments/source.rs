@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::SegmentSpec;
-use futures::FutureExt;
 use std::sync::Arc;
+
+use futures::FutureExt;
 use vortex_error::vortex_err;
 use vortex_io::{Dispatch, IoDispatcher, VortexReadAt};
 use vortex_layout::segments::{SegmentFuture, SegmentId, SegmentSource};
+
+use crate::SegmentSpec;
 
 pub struct FileSegmentSource<R> {
     read: Arc<R>,
