@@ -45,6 +45,7 @@ private:
     rust::Box<ffi::ThreadsafeCloneableReader> impl_;
 };
 
+using expr::Expr;
 class ScanBuilder {
 public:
     ScanBuilder(ScanBuilder &&other) noexcept = default;

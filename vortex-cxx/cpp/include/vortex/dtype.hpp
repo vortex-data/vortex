@@ -23,44 +23,49 @@ enum class PType : uint8_t {
     F64,
 };
 
-class DType {
-public:
-    DType() = delete;
-    DType(DType &&other) noexcept = default;
-    DType &operator=(DType &&other) = default;
-    ~DType() = default;
+namespace dtype {
+    class DType {
+    public:
+        DType() = delete;
+        explicit DType(rust::Box<ffi::DType> impl) : impl_(std::move(impl)) {
+        }
+        DType(DType &&other) noexcept = default;
+        DType &operator=(DType &&other) = default;
+        ~DType() = default;
 
-    DType(const DType &) = delete;
-    DType &operator=(const DType &) = delete;
+        DType(const DType &) = delete;
+        DType &operator=(const DType &) = delete;
+
+        std::string ToString() const;
+
+        const rust::Box<ffi::DType> &GetImpl() {
+            return impl_;
+        }
+
+    private:
+        rust::Box<ffi::DType> impl_;
+    };
 
     // Factory functions
-    static DType null();
-    static DType bool_(bool nullable = false);
-    static DType primitive(PType ptype, bool nullable = false);
-    static DType int8(bool nullable = false);
-    static DType int16(bool nullable = false);
-    static DType int32(bool nullable = false);
-    static DType int64(bool nullable = false);
-    static DType uint8(bool nullable = false);
-    static DType uint16(bool nullable = false);
-    static DType uint32(bool nullable = false);
-    static DType uint64(bool nullable = false);
-    static DType float16(bool nullable = false);
-    static DType float32(bool nullable = false);
-    static DType float64(bool nullable = false);
-    static DType decimal(uint8_t precision = 10, int8_t scale = 0, bool nullable = false);
-    static DType utf8(bool nullable = false);
-    static DType binary(bool nullable = false);
+    DType null();
+    DType bool_(bool nullable = false);
+    DType primitive(PType ptype, bool nullable = false);
+    DType int8(bool nullable = false);
+    DType int16(bool nullable = false);
+    DType int32(bool nullable = false);
+    DType int64(bool nullable = false);
+    DType uint8(bool nullable = false);
+    DType uint16(bool nullable = false);
+    DType uint32(bool nullable = false);
+    DType uint64(bool nullable = false);
+    DType float16(bool nullable = false);
+    DType float32(bool nullable = false);
+    DType float64(bool nullable = false);
+    DType decimal(uint8_t precision = 10, int8_t scale = 0, bool nullable = false);
+    DType utf8(bool nullable = false);
+    DType binary(bool nullable = false);
     /// TODO: Other DTypes are only supported by creating from Arrow for now.
-    static DType from_arrow(struct ArrowSchema &schema, bool non_nullable = false);
-
-    std::string to_string() const;
-
-private:
-    friend class Scalar;
-    explicit DType(rust::Box<ffi::DType> impl) : impl_(std::move(impl)) {
-    }
-    rust::Box<ffi::DType> impl_;
-};
+    DType from_arrow(struct ArrowSchema &schema, bool non_nullable = false);
+} // namespace dtype
 
 } // namespace vortex

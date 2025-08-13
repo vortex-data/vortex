@@ -7,12 +7,12 @@
 
 namespace vortex {
 ScanBuilder &&ScanBuilder::WithFilter(Expr expr) && {
-    impl_->with_filter(*expr.impl_);
+    impl_->with_filter(std::move(expr).IntoImpl());
     return std::move(*this);
 }
 
 ScanBuilder &&ScanBuilder::WithProjection(Expr expr) && {
-    impl_->with_projection(*expr.impl_);
+    impl_->with_projection(std::move(expr).IntoImpl());
     return std::move(*this);
 }
 
