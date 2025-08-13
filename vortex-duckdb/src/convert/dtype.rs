@@ -552,8 +552,8 @@ mod tests {
         let dtype = DType::Extension(Arc::new(ext_dtype));
 
         assert_eq!(
-            LogicalType::try_from(&dtype).unwrap().as_ptr(),
-            LogicalType::new(cpp::DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ).as_ptr()
+            LogicalType::try_from(&dtype).unwrap().as_type_id(),
+            cpp::DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ
         );
     }
 
