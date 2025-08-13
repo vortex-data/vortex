@@ -118,13 +118,8 @@ fn push_n_vortex_buffer<T: PrimInt>(bencher: Bencher, length: usize) {
     bencher
         .with_inputs(|| BufferMut::<T>::with_capacity_aligned(length, Alignment::new(32)))
         .bench_refs(|buffer| {
-            for _ in 0..100 {
-                unsafe {
-                    buffer.push_n_unchecked(
-                        divan::black_box(T::one()),
-                        divan::black_box(length / 100),
-                    )
-                };
-            }
+            unsafe {
+                buffer.push_n_unchecked(divan::black_box(T::one()), divan::black_box(length))
+            };
         });
 }
