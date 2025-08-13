@@ -13,7 +13,7 @@ import java.util.Optional;
 /**
  * Represents a "get item" expression that extracts a field or property from a parent expression.
  * This expression is used to access nested fields in complex data structures such as structs,
- * maps, or other composite types by specifying a path to the desired field.
+ * lists, or other composite types by specifying a path to the desired field.
  */
 public final class GetItem implements Expression {
     private final String path;
