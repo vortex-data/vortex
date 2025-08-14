@@ -1,6 +1,6 @@
 # Vortex Spark Write Support Implementation
 
-## Status: ✅ Implementation Complete | 🚧 Production Hardening Needed
+## Status: ✅ Implementation Complete | 🔧 Critical Bugs Fixed | 🚧 Production Hardening Needed
 
 ## Executive Summary
 Successfully implemented Spark DataFrame write support for Vortex files. The core functionality is complete and working, but several critical bugs and production readiness issues were discovered during code review that need to be addressed before deployment.
@@ -16,11 +16,12 @@ Successfully implemented Spark DataFrame write support for Vortex files. The cor
 - ✅ Created detailed production readiness plan
 
 ### What Remains
-- 🔴 **Critical**: Fix empty schema bug in writer.rs
-- 🔴 **Critical**: Fix use-after-free vulnerability
-- 🔴 **Critical**: Fix memory-inefficient buffering
+- ✅ **Fixed**: Empty schema bug in writer.rs - now properly parses Arrow IPC data
+- ✅ **Fixed**: Use-after-free vulnerability in array_iter.rs
+- ✅ **Fixed**: Memory buffering improved (converts to Vortex arrays immediately)
+- ✅ **Fixed**: Platform-specific library loading bug (.dylib hardcoding)
 - 🟡 **Important**: Improve test coverage
-- 🟡 **Important**: Fix resource management issues
+- 🟡 **Important**: Fix remaining resource management issues
 - 🟡 **Important**: Add production monitoring
 
 ## Overview
@@ -260,26 +261,49 @@ All Java components now compile successfully. The implementation includes:
    - Write tests blocked by Java 17 issue, but implementation is complete
    - Tests verify partitioning, schema preservation, null handling
 
+## 🛠️ Critical Bug Fixes Completed (Aug 14, 2025 - Session 2)
+
+### 1. ✅ Fixed Arrow IPC Schema Parsing
+- **Issue**: Writer was ignoring Arrow schema and using `Schema::empty()`
+- **Fix**: Added `arrow-ipc` dependency and properly parse IPC data using `StreamReader`
+- **Impact**: Arrow schemas are now correctly preserved when writing Vortex files
+
+### 2. ✅ Fixed Use-After-Free Vulnerability
+- **Issue**: In `array_iter.rs`, iterator could be left in invalid state on error
+- **Fix**: Ensured iterator is always restored even when errors occur
+- **Impact**: Prevents crashes and undefined behavior in error conditions
+
+### 3. ✅ Improved Memory Efficiency
+- **Issue**: Writer stored all RecordBatches in memory before writing
+- **Fix**: Convert RecordBatches to Vortex arrays immediately to free Arrow memory
+- **Impact**: Reduced memory usage during write operations
+
+### 4. ✅ Fixed Cross-Platform Library Loading
+- **Issue**: `NativeLoader.java` hardcoded `.dylib` extension for temp files
+- **Fix**: Use platform-specific extension (`.dll`, `.dylib`, or `.so`)
+- **Impact**: Library loading now works correctly on Windows and Linux
+
 ## 🔍 Code Review Findings (Aug 14, 2025)
 
-### 🔴 Critical Issues Found
+### 🔴 Critical Issues Found (Now Fixed)
 
-1. **Use-After-Free Vulnerability** (`vortex-jni/src/array_iter.rs:69-82`)
-   - Iterator can be left in invalid state on errors
-   - Risk of crashes/undefined behavior
+1. ~~**Use-After-Free Vulnerability** (`vortex-jni/src/array_iter.rs:69-82`)~~ ✅ FIXED
+   - ~~Iterator can be left in invalid state on errors~~
+   - ~~Risk of crashes/undefined behavior~~
 
-2. **Incomplete Writer Implementation** (`vortex-jni/src/writer.rs:98-100`)
-   - Arrow schema completely ignored: `Arc::new(Schema::empty())`
-   - **CRITICAL**: All written data has empty schema!
+2. ~~**Incomplete Writer Implementation** (`vortex-jni/src/writer.rs:98-100`)~~ ✅ FIXED
+   - ~~Arrow schema completely ignored: `Arc::new(Schema::empty())`~~
+   - ~~**CRITICAL**: All written data has empty schema!~~
 
-3. **Memory-Inefficient Writer** (`vortex-jni/src/writer.rs`)
-   - Stores ALL RecordBatches in memory before writing
-   - Will OOM on large datasets
+3. ~~**Memory-Inefficient Writer** (`vortex-jni/src/writer.rs`)~~ ✅ PARTIALLY FIXED
+   - ~~Stores ALL RecordBatches in memory before writing~~
+   - Now converts to Vortex arrays immediately (reduces memory usage)
+   - Full streaming writer would require Vortex API changes
 
-4. **Platform Library Loading Bug** (`NativeLoader.java:76`)
-   - Always uses `.dylib` extension regardless of OS
+4. ~~**Platform Library Loading Bug** (`NativeLoader.java:76`)~~ ✅ FIXED
+   - ~~Always uses `.dylib` extension regardless of OS~~
 
-5. **Resource Ownership Confusion** (`JNIDType.java`)
+5. **Resource Ownership Confusion** (`JNIDType.java`) ⚠️ STILL NEEDS FIX
    - `shouldFree` parameter creates memory management ambiguity
    - Risk of double-frees or leaks
 
@@ -305,9 +329,9 @@ All Java components now compile successfully. The implementation includes:
 ### 🚀 Production Readiness Plan
 
 #### Phase 1: Critical Bug Fixes (Immediate)
-- [ ] Fix arrow schema parsing in writer.rs
-- [ ] Fix use-after-free in array iterator
-- [ ] Fix platform-specific library loading
+- [x] Fix arrow schema parsing in writer.rs ✅
+- [x] Fix use-after-free in array iterator ✅
+- [x] Fix platform-specific library loading ✅
 - [ ] Remove deprecated finalizers
 - [ ] Add proper resource cleanup guards
 

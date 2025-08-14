@@ -18,6 +18,7 @@ categories = { workspace = true }
 
 [dependencies]
 arrow-array = { workspace = true, features = ["ffi"] }
+arrow-ipc = { workspace = true }
 arrow-schema = { workspace = true }
 jni = "0.21.1"
 log = { workspace = true }
