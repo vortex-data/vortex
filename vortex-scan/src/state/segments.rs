@@ -1,45 +1,80 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::any::Any;
-use std::sync::Arc;
-
 use dashmap::DashMap;
+use futures::future::BoxFuture;
+use futures::stream::FuturesUnordered;
+use futures::{FutureExt, Stream, StreamExt};
+use std::any::Any;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::task::{Context, Poll, ready};
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_layout::segments::{SegmentId, Segments};
+use vortex_layout::segments::{SegmentId, SegmentSource, Segments};
 use vortex_utils::aliases::hash_map::HashMap;
+use vortex_utils::aliases::hash_set::HashSet;
 
 /// The working set of segments used by the scan.
-#[derive(Default)]
 pub(super) struct SegmentCache {
+    source: Arc<dyn SegmentSource>,
+
+    futures: FuturesUnordered<BoxFuture<'static, VortexResult<(SegmentId, ByteBuffer)>>>,
+    in_flight: HashSet<SegmentId>,
+
     ref_counts: HashMap<SegmentId, usize>,
     working_set: Arc<DashMap<SegmentId, ByteBuffer>>,
     working_set_size: u64,
 }
 
 impl SegmentCache {
+    pub(super) fn new(source: Arc<dyn SegmentSource>) -> Self {
+        Self {
+            source,
+            futures: FuturesUnordered::new(),
+            in_flight: HashSet::new(),
+            ref_counts: HashMap::new(),
+            working_set: Arc::new(DashMap::new()),
+            working_set_size: 0,
+        }
+    }
+
     pub(super) fn segments(&self) -> Arc<dyn Segments> {
         self.working_set.clone()
     }
 
-    pub(super) fn insert(&mut self, segment_id: SegmentId, buffer: ByteBuffer) {
-        if self.ref_counts.contains_key(&segment_id) {
-            self.working_set_size += buffer.len() as u64;
-            self.working_set.insert(segment_id, buffer);
+    /// Launch requests for the given segments, returning the pending segments.
+    pub(super) fn request<'a>(&mut self, segment_ids: impl IntoIterator<Item = &'a SegmentId>) {
+        for segment_id in segment_ids.into_iter().copied() {
+            if self.working_set.contains_key(&segment_id) {
+                // We've already fetched this segment.
+                continue;
+            }
+
+            if self.in_flight.contains(&segment_id) {
+                // We're already in-flight.
+                continue;
+            }
+
+            // Otherwise, we need to fetch this segment.
+            let fut = self.source.request(segment_id);
+            self.in_flight.insert(segment_id);
+            self.futures.push(
+                async move {
+                    let buffer = fut.await?;
+                    Ok((segment_id, buffer))
+                }
+                .boxed(),
+            );
         }
     }
 
-    pub(super) fn contains(&self, segment_id: &SegmentId) -> bool {
-        self.working_set.contains_key(segment_id)
+    pub(super) fn inflight_count(&self) -> usize {
+        self.in_flight.len()
     }
 
-    pub(super) fn len(&self) -> usize {
-        self.working_set.len()
-    }
-
-    pub(super) fn is_empty(&self) -> bool {
-        self.working_set.is_empty()
+    pub(super) fn segment_count(&self) -> usize {
+        self.working_set.len() + self.in_flight.len()
     }
 
     pub(super) fn ref_counts(&self) -> &HashMap<SegmentId, usize> {
@@ -71,6 +106,30 @@ impl SegmentCache {
                     .vortex_expect("unknown segment");
                 *ref_count -= 1;
             }
+        }
+    }
+}
+
+impl Stream for SegmentCache {
+    type Item = VortexResult<SegmentId>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let Some(next) = ready!(self.futures.poll_next_unpin(cx)) else {
+            return Poll::Ready(None);
+        };
+
+        match next {
+            Ok((segment_id, buffer)) => {
+                assert!(
+                    self.in_flight.remove(&segment_id),
+                    "Unrecognized segment ID {}",
+                    segment_id
+                );
+                self.working_set_size += buffer.len() as u64;
+                self.working_set.insert(segment_id, buffer);
+                Poll::Ready(Some(Ok(segment_id)))
+            }
+            Err(e) => Poll::Ready(Some(Err(e))),
         }
     }
 }

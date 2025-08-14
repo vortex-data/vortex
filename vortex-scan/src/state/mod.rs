@@ -9,26 +9,20 @@ mod tokio;
 
 use std::collections::VecDeque;
 use std::fmt::{Debug, Formatter};
-use std::ops::{BitAnd, Range};
+use std::iter;
+use std::ops::Range;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use std::{iter, mem};
 
-use bit_vec::BitVec;
 use futures::channel::mpsc;
-use futures::future::BoxFuture;
-use futures::stream::FuturesUnordered;
 use futures::task::noop_waker;
 use futures::{FutureExt, StreamExt};
-use itertools::Itertools;
-use log::debug;
 use vortex_array::ArrayRef;
-use vortex_buffer::ByteBuffer;
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_panic};
-use vortex_layout::segments::{SegmentId, SegmentSource, Segments};
+use vortex_error::{VortexError, VortexExpect, VortexResult};
+use vortex_layout::segments::{SegmentId, Segments};
 use vortex_layout::{ArrayEvaluation, MaskEvaluation, PruningEvaluation};
 use vortex_mask::Mask;
-use vortex_utils::aliases::hash_map::{Entry, HashMap};
+use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::filter::FilterExpr;
@@ -38,6 +32,7 @@ use crate::tasks::TaskContext;
 pub struct Scan2 {
     ctx: TaskContext<ArrayRef>,
     splits: Vec<Split>,
+    evaluations: Vec<Option<Evaluation>>,
     segments: SegmentCache,
 }
 
@@ -48,9 +43,14 @@ pub(crate) trait TaskSpawner: Send {
 impl Scan2 {
     pub fn try_new(ranges: Vec<Range<u64>>, ctx: TaskContext<ArrayRef>) -> VortexResult<Self> {
         let nsplits = ranges.len();
+
         let mut splits = Vec::with_capacity(nsplits);
-        let mut segments = SegmentCache::default();
-        for row_range in ranges.into_iter() {
+        let mut evaluations = Vec::with_capacity(
+            (nsplits * 2 * ctx.filter.as_ref().map_or(0, |f| f.conjuncts().len())) + nsplits,
+        );
+        let mut segments = SegmentCache::new(ctx.segment_source.clone());
+
+        for (split_idx, row_range) in ranges.into_iter().enumerate() {
             // TODO(ngates): we really must clean up this selection logic and push it all inside
             //  the selection object.
             // Step 1: using the caller-provided row range and selection, attempt to disregard this split.
@@ -78,57 +78,44 @@ impl Scan2 {
                 continue;
             }
 
-            let mut pruning = vec![];
-            let mut pruning_segments = vec![];
-            let mut all_pruning_segments = HashSet::new();
-            let mut filters = vec![];
-            let mut filter_segments = vec![];
-            let mut all_filter_segments = HashSet::new();
+            let mut pruning_idx = vec![];
+            let mut filter_idx = vec![];
             if let Some(filter) = ctx.filter.as_ref() {
-                for conjunct in filter.conjuncts() {
+                for (conjunct_idx, conjunct) in filter.conjuncts().iter().enumerate() {
                     let prune_eval = ctx.reader.pruning_evaluation(&row_range, conjunct)?;
-                    let mut p_segments = HashSet::new();
-                    prune_eval.required_segments(&mut p_segments);
-                    all_pruning_segments.extend(&p_segments);
-                    pruning.push(Some(prune_eval));
-                    pruning_segments.push(p_segments);
+                    let prune_eval = Evaluation::new_pruning(split_idx, conjunct_idx, prune_eval);
+                    pruning_idx.push(evaluations.len());
+                    evaluations.push(Some(prune_eval));
 
                     let filter_eval = ctx.reader.filter_evaluation(&row_range, conjunct)?;
-                    let mut f_segments = HashSet::new();
-                    filter_eval.required_segments(&mut f_segments);
-                    all_filter_segments.extend(&f_segments);
-                    filters.push(Some(filter_eval));
-                    filter_segments.push(f_segments);
+                    let filter_eval = Evaluation::new_filter(split_idx, conjunct_idx, filter_eval);
+                    filter_idx.push(evaluations.len());
+                    evaluations.push(Some(filter_eval));
                 }
             }
-            let remaining_filters = BitVec::from_elem(filters.len(), true);
 
             let projection = ctx
                 .reader
                 .projection_evaluation(&row_range, &ctx.projection)?;
-            let mut projection_segments = HashSet::new();
-            projection.required_segments(&mut projection_segments);
+            let projection = Evaluation::new_project(split_idx, projection);
+            let projection_idx = evaluations.len();
+            evaluations.push(Some(projection));
 
             let split = Split {
-                initial_mask: Some(mask),
-                pruning,
-                pruning_segments,
-                all_pruning_segments,
-                filters,
-                filter_segments,
-                all_filter_segments,
-                remaining_filters,
-                projection: Some(projection),
-                projection_segments,
+                mask,
+                pruning: pruning_idx,
+                filters: filter_idx,
+                projection: projection_idx,
             };
 
-            segments.acquire(split.all_segments());
+            // segments.acquire(split.all_segments());
             splits.push(split);
         }
 
         Ok(Self {
             ctx,
             splits,
+            evaluations,
             segments,
         })
     }
@@ -140,105 +127,191 @@ impl Scan2 {
         // are in-flight.
         let (cpu_send, cpu_recv) = mpsc::unbounded();
 
+        // Build the inverse map of evaluation segments.
+        let mut evaluation_segments: HashMap<SegmentId, Vec<EvaluationIdx>> = HashMap::default();
+        for (eval_idx, evaluation) in self.evaluations.iter().flatten().enumerate() {
+            for segment_id in &evaluation.waiting_for {
+                evaluation_segments
+                    .entry(*segment_id)
+                    .or_default()
+                    .push(eval_idx)
+            }
+        }
+
+        let nconjuncts = self.ctx.filter.as_ref().map_or(0, |f| f.conjuncts().len());
+
         Scheduler {
             task_spawner,
-            filter: self.ctx.filter.clone(),
-            source: self.ctx.segment_source.clone(),
-            segment_futures: Default::default(),
             output_buffer: Default::default(),
             result_send: cpu_send,
             result_recv: cpu_recv,
             finished: false,
             errored: false,
-            active_splits: 0..0,
+
             split_state: iter::repeat_with(|| SplitState::NotStarted)
                 .take(nsplits)
                 .collect(),
             splits: self.splits,
             segments: self.segments,
+
+            // State used to drive the scheduler.
+            active_splits: 0..0,
+
+            next_pruning_io_split: 0,
+            next_filter_io_splits: vec![0; nconjuncts],
+            next_projection_io_split: 0,
+            io_finished: false,
+
+            evaluations: self.evaluations,
+            evaluation_segments,
+            pending_prunings: (0..nconjuncts).map(|_| VecDeque::new()).collect(),
+            pending_filters: (0..nconjuncts).map(|_| VecDeque::new()).collect(),
+            pending_projections: VecDeque::new(),
+            inflight_tasks: 0,
+
+            filter: self.ctx.filter.clone(),
             // TODO(ngates): this should really be target segment size and we control the max
             //  memory consumption.
             target_segment_count: 128,
-            waiting_for_segments: Default::default(),
+            target_inflight_tasks: 16,
         }
     }
 }
 
-struct Split {
-    initial_mask: Option<Mask>,
+/// Scheduler for a Vortex scan.
+///
+/// Decides which segments to request and when, as well as spawning CPU work when available.
+/// This scheduler is wrapped up for various threading models.
+pub(crate) struct Scheduler {
+    task_spawner: Box<dyn TaskSpawner>,
+    filter: Option<Arc<FilterExpr>>,
 
-    pruning: Vec<Option<Box<dyn PruningEvaluation>>>,
-    pruning_segments: Vec<HashSet<SegmentId>>,
-    all_pruning_segments: HashSet<SegmentId>,
+    /// A buffer for the arrays emitted by the scan. This buffer is used to return arrays with
+    /// a total ordering over the splits of the scan.
+    output_buffer: VecDeque<VortexResult<ArrayRef>>,
 
-    filters: Vec<Option<Box<dyn MaskEvaluation>>>,
-    filter_segments: Vec<HashSet<SegmentId>>, // TODO(ngates): BTreeSet?
-    all_filter_segments: HashSet<SegmentId>,
-    remaining_filters: BitVec,
+    /// Results for scan tasks. We allow unbounded channels since the scheduler controls how many
+    /// CPU tasks have been spawned.
+    result_send: mpsc::UnboundedSender<ScanTaskResult>,
+    result_recv: mpsc::UnboundedReceiver<ScanTaskResult>,
 
-    projection: Option<Box<dyn ArrayEvaluation>>,
-    projection_segments: HashSet<SegmentId>,
+    /// If all splits have been processed, we can stop.
+    finished: bool,
+    /// If any I/O request errors, we want all workers to stop with error.
+    errored: bool,
+
+    /// The range of splits that we are currently processing. All splits before should be
+    /// finished, and all splits after are pending.
+    active_splits: Range<usize>,
+
+    /// The next split for which we will launch I/O.
+    next_pruning_io_split: SplitIdx,
+    next_filter_io_splits: Vec<SplitIdx>, // By conjunct
+    next_projection_io_split: SplitIdx,
+    io_finished: bool,
+
+    evaluations: Vec<Option<Evaluation>>,
+    evaluation_segments: HashMap<SegmentId, Vec<EvaluationIdx>>,
+
+    pending_prunings: Vec<VecDeque<Evaluation>>, // By conjunct.
+    pending_filters: Vec<VecDeque<Evaluation>>,  // By conjunct.
+    pending_projections: VecDeque<Evaluation>,
+
+    inflight_tasks: usize,
+    target_inflight_tasks: usize,
+
+    split_state: Vec<SplitState>,
+    splits: Vec<Split>,
+
+    // The segment cache used to power the scan.
+    segments: SegmentCache,
+
+    /// The target number of segments to hold in memory.
+    /// TODO(ngates): use segment size once the segment source reports it.
+    target_segment_count: usize,
 }
 
-impl Debug for Split {
+/// Index into the `Scheduler::evaluations` vector.
+type EvaluationIdx = usize;
+
+/// Represents the current state of a single evaluation, i.e., pruning, filter, or projection.
+struct Evaluation {
+    split_idx: SplitIdx,
+    eval: Eval,
+    waiting_for: HashSet<SegmentId>,
+}
+
+impl Debug for Evaluation {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Split")
-            .field("initial_mask", &self.initial_mask.is_some())
-            .field("pruning_segments", &self.pruning_segments)
-            .field("filter_segments", &self.filter_segments)
-            .field("remaining_filters", &self.remaining_filters)
-            .field("projection_segments", &self.projection_segments)
-            .finish()
+        let mut ds = f.debug_struct("Evaluation");
+        ds.field("split_idx", &self.split_idx);
+
+        match &self.eval {
+            Eval::Prune(conjunct, _) => {
+                ds.field("eval", &"Prune").field("conjunct", conjunct);
+            }
+            Eval::Filter(conjunct, _) => {
+                ds.field("eval", &"Filter").field("conjunct", conjunct);
+            }
+            Eval::Project(_) => {
+                ds.field("eval", &"Project");
+            }
+        }
+
+        ds.finish()
     }
 }
 
-impl Split {
-    fn all_segments(&self) -> impl Iterator<Item = &SegmentId> + '_ {
-        self.projection_segments
-            .iter()
-            .chain(self.pruning_segments.iter().flat_map(|s| s.iter()))
-            .chain(self.filter_segments.iter().flat_map(|s| s.iter()))
+impl Evaluation {
+    fn new_pruning(
+        split_idx: SplitIdx,
+        conjunct_idx: usize,
+        eval: Box<dyn PruningEvaluation>,
+    ) -> Self {
+        let mut waiting_for = HashSet::new();
+        eval.required_segments(&mut waiting_for);
+        Self {
+            split_idx,
+            eval: Eval::Prune(conjunct_idx, eval),
+            waiting_for,
+        }
     }
 
-    /// Returns an iterator over the remaining segments in the split.
-    fn remaining_segments(&self) -> impl Iterator<Item = &SegmentId> + '_ {
-        // Chain together the segments for the remaining evaluations.
-        self.projection
-            .is_some()
-            .then(|| self.projection_segments.iter())
-            .into_iter()
-            .flatten()
-            .chain(
-                self.pruning
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(i, eval)| eval.is_some().then_some(i))
-                    .flat_map(|i| self.pruning_segments[i].iter()),
-            )
-            .chain(
-                self.filters
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(i, eval)| eval.is_some().then_some(i))
-                    .flat_map(|i| self.filter_segments[i].iter()),
-            )
+    fn new_filter(split_idx: SplitIdx, conjunct_idx: usize, eval: Box<dyn MaskEvaluation>) -> Self {
+        let mut waiting_for = HashSet::new();
+        eval.required_segments(&mut waiting_for);
+        Self {
+            split_idx,
+            eval: Eval::Filter(conjunct_idx, eval),
+            waiting_for,
+        }
     }
 
-    /// Evaluations hold onto shared segment memory, so when we split is finished, we really need
-    /// to drop its state.
-    fn drop_evaluations(&mut self) {
-        self.pruning.clear();
-        self.filters.clear();
-        self.projection = None;
+    fn new_project(split_idx: SplitIdx, eval: Box<dyn ArrayEvaluation>) -> Self {
+        let mut waiting_for = HashSet::new();
+        eval.required_segments(&mut waiting_for);
+        Self {
+            split_idx,
+            eval: Eval::Project(eval),
+            waiting_for,
+        }
     }
+}
+
+enum Eval {
+    Prune(usize, Box<dyn PruningEvaluation>),
+    Filter(usize, Box<dyn MaskEvaluation>),
+    Project(Box<dyn ArrayEvaluation>),
+}
+
+struct Split {
+    mask: Mask,
+    pruning: Vec<EvaluationIdx>,
+    filters: Vec<EvaluationIdx>,
+    projection: EvaluationIdx,
 }
 
 type SplitIdx = usize;
-
-struct IoEvent {
-    segment_id: SegmentId,
-    buffer: ByteBuffer,
-}
 
 enum ScanTaskResult {
     Prune {
@@ -276,48 +349,6 @@ impl Debug for ScanTaskResult {
             )
             .finish()
     }
-}
-
-/// Scheduler for a Vortex scan.
-///
-/// Decides which segments to request and when, as well as spawning CPU work when available.
-/// This scheduler is wrapped up for various threading models.
-pub(crate) struct Scheduler {
-    task_spawner: Box<dyn TaskSpawner>,
-    filter: Option<Arc<FilterExpr>>,
-
-    source: Arc<dyn SegmentSource>,
-    segment_futures: FuturesUnordered<BoxFuture<'static, VortexResult<IoEvent>>>,
-
-    /// A buffer for the arrays emitted by the scan. This buffer is used to return arrays with
-    /// a total ordering over the splits of the scan.
-    output_buffer: VecDeque<VortexResult<ArrayRef>>,
-
-    /// Results for scan tasks. We allow unbounded channels since the scheduler controls how many
-    /// CPU tasks have been spawned.
-    result_send: mpsc::UnboundedSender<ScanTaskResult>,
-    result_recv: mpsc::UnboundedReceiver<ScanTaskResult>,
-
-    /// If all splits have been processed, we can stop.
-    finished: bool,
-    /// If any I/O request errors, we want all workers to stop with error.
-    errored: bool,
-
-    /// The range of splits that we are currently processing. All splits before should be
-    /// finished, and all splits after are pending.
-    active_splits: Range<usize>,
-    split_state: Vec<SplitState>,
-    splits: Vec<Split>,
-
-    // The segment cache used to power the scan.
-    segments: SegmentCache,
-
-    /// The target number of segments to hold in memory.
-    /// TODO(ngates): use segment size once the segment source reports it.
-    target_segment_count: usize,
-
-    /// Track which work items are waiting for segments.
-    waiting_for_segments: HashMap<SegmentId, Vec<SplitIdx>>,
 }
 
 #[derive(Debug)]
@@ -448,11 +479,11 @@ impl Scheduler {
     fn make_progress_with_cx(&mut self, cx: &mut Context) -> Poll<VortexResult<()>> {
         let mut made_progress = false;
 
-        // First, we handle I/O events
-        while let Poll::Ready(Some(result)) = self.segment_futures.poll_next_unpin(cx) {
+        // 1. handle I/O events
+        while let Poll::Ready(Some(result)) = self.segments.poll_next_unpin(cx) {
             made_progress = true;
             match result {
-                Ok(event) => self.handle_io_event(event),
+                Ok(segment_id) => self.handle_io_event(segment_id),
                 Err(e) => {
                     self.errored = true;
                     return Poll::Ready(Err(e));
@@ -460,45 +491,155 @@ impl Scheduler {
             }
         }
 
-        // Next we handle CPU events.
+        // 2. handle CPU events.
         while let Poll::Ready(Some(event)) = self.result_recv.poll_next_unpin(cx) {
             made_progress = true;
+            self.inflight_tasks -= 1;
             self.handle_cpu_event(event);
         }
 
-        // We bring forward the start of the active splits if any splits are finished.
-        for split_idx in self.active_splits.clone() {
-            if matches!(self.split_state[split_idx], SplitState::Finished) {
-                debug!("Completed splits {}/{}", split_idx, self.split_state.len());
-                self.active_splits.start += 1;
-            } else {
-                break;
+        // 3. Spawn any pending CPU tasks.
+        'outer: while self.inflight_tasks < self.target_inflight_tasks {
+            // The top priority is projection tasks, since they can actually emit data.
+            if let Some(eval) = self.pending_projections.pop_front() {
+                let mask = self.splits[eval.split_idx].mask.clone();
+                self.spawn_task(eval, mask);
+                made_progress = true;
+                self.inflight_tasks += 1;
+                continue 'outer;
             }
+
+            // We look across each of the pending task queues and launch work based on some
+            // priority function. Each pending queue is internally sorted by the row offset.
+            // FIXME(ngates): we need to make that true.
+            for pending in &mut self.pending_prunings {
+                if let Some(eval) = pending.pop_front() {
+                    let mask = self.splits[eval.split_idx].mask.clone();
+                    self.spawn_task(eval, mask);
+                    made_progress = true;
+                    self.inflight_tasks += 1;
+                    continue 'outer;
+                }
+            }
+
+            // Now we spawn tasks from each conjunct
+            // FIXME(ngates): the order of this is weird.
+            for filter in &mut self.pending_filters {
+                if let Some(eval) = filter.pop_front() {
+                    let mask = self.splits[eval.split_idx].mask.clone();
+                    self.spawn_task(eval, mask);
+                    made_progress = true;
+                    self.inflight_tasks += 1;
+                    continue 'outer;
+                }
+            }
+
+            break;
         }
+
+        // 4. Spawn I/O tasks.
+        'outer: while self.segments.inflight_count() < self.target_segment_count {
+            // TODO(ngates): we try to make sure the number of in-flight requests (ideally the
+            //  batched count) is reasonable. Although if we get here and we have a big back-log
+            //  of CPU work, then we know we're CPU bound and not I/O bound and perhaps we should
+            //  hold off on I/O for a bit.
+
+            // 1. We try to spawn I/O for pruning.
+            if self.next_pruning_io_split < self.splits.len() {
+                let split_idx = self.next_pruning_io_split;
+                let split = &self.splits[split_idx];
+                for eval_idx in &split.pruning {
+                    if let Some(eval) = &self.evaluations[*eval_idx] {
+                        made_progress = true;
+                        self.segments.request(&eval.waiting_for);
+                    }
+                }
+                self.next_pruning_io_split += 1;
+                continue 'outer;
+            }
+
+            // 2. We try to spawn I/O based on conjunct selectivity?
+            if let Some(filter) = self.filter.as_ref() {
+                let filter_run_ahead = 16; // Run ahead 16 splits.
+
+                // TODO(ngates): for now, we just launch all filter I/O.
+                for conjunct_idx in 0..filter.conjuncts().len() {
+                    if self.next_filter_io_splits[conjunct_idx] < self.splits.len() {
+                        let split_idx = self.next_filter_io_splits[conjunct_idx];
+
+                        // Only keep going if we haven't reached the end of the filter run ahead.
+                        if split_idx <= self.next_projection_io_split + filter_run_ahead {
+                            let split = &self.splits[split_idx];
+                            let eval_idx = split.filters[conjunct_idx];
+                            if let Some(eval) = &self.evaluations[eval_idx] {
+                                made_progress = true;
+                                self.segments.request(&eval.waiting_for);
+                            }
+                            self.next_filter_io_splits[conjunct_idx] += 1;
+                            continue 'outer;
+                        }
+                    }
+                }
+            }
+
+            // 3. Try to spawn I/O for projection.
+            if self.next_projection_io_split < self.splits.len() {
+                let split_idx = self.next_projection_io_split;
+                let split = &self.splits[split_idx];
+                if let Some(eval) = &self.evaluations[split.projection] {
+                    made_progress = true;
+                    self.segments.request(&eval.waiting_for);
+                }
+                self.next_projection_io_split += 1;
+                continue 'outer;
+            }
+
+            // 4. If we got here, then we've finished the loop for this iteration.
+            break;
+        }
+
+        // // We bring forward the start of the active splits if any splits are finished.
+        // for split_idx in self.active_splits.clone() {
+        //     if matches!(self.split_state[split_idx], SplitState::Finished) {
+        //         debug!("Completed splits {}/{}", split_idx, self.split_state.len());
+        //         self.active_splits.start += 1;
+        //     } else {
+        //         break;
+        //     }
+        // }
 
         // Now we can look to launch new splits based on the total working set size and
         // in-flight request sizes. We don't currently know the in-flight segment sizes, so we
         // will just do it based on segment count instead.
-        while self.active_splits.end < self.split_state.len()
-            && ((self.segments.len() + self.segment_futures.len() < self.target_segment_count)
-                || self.active_splits.is_empty())
-        {
-            debug!("Initializing split {}", self.active_splits.end);
-            made_progress = true;
-            self.make_progress_on_split(self.active_splits.end);
-            self.active_splits.end += 1;
-        }
 
         // Check for termination.
-        if self.active_splits.start == self.split_state.len() {
-            self.finished = true;
-            if !self.segments.is_empty() {
-                log::warn!(
-                    "Unreleased segments: {:?}\n{:?}",
-                    self.segments.ref_counts(),
-                    self.splits
-                );
-                vortex_panic!("Unreleased segments. Bug in reference counting.")
+        if !self.io_finished {
+            if self.segments.inflight_count() == 0
+                && self.next_projection_io_split == self.splits.len()
+                && self.next_pruning_io_split == self.splits.len()
+                && self
+                    .next_filter_io_splits
+                    .iter()
+                    .all(|&x| x == self.splits.len())
+            {
+                self.io_finished = true;
+            }
+        }
+        if self.io_finished && !self.finished {
+            if self.inflight_tasks == 0
+                && self.pending_projections.is_empty()
+                && self.pending_prunings.iter().all(|x| x.is_empty())
+                && self.pending_filters.iter().all(|x| x.is_empty())
+            {
+                self.finished = true;
+                // if !self.segments.is_empty() {
+                //     log::warn!(
+                //     "Unreleased segments: {:?}\n{:?}",
+                //     self.segments.ref_counts(),
+                //     self.splits
+                // );
+                //     vortex_panic!("Unreleased segments. Bug in reference counting.")
+                // }
             }
         }
 
@@ -511,29 +652,34 @@ impl Scheduler {
 
     /// Handles an I/O event by updating the splits that are waiting for this particular segment.
     /// Finishes by driving the state machines of any impacted splits.
-    fn handle_io_event(&mut self, event: IoEvent) {
-        // Insert the segment buffer into the working set.
-        self.segments.insert(event.segment_id, event.buffer);
+    fn handle_io_event(&mut self, segment_id: SegmentId) {
+        // Check which evaluations are waiting for this segment.
+        if let Some(eval_idxs) = self.evaluation_segments.remove(&segment_id) {
+            for eval_idx in eval_idxs {
+                let mut eval = self.evaluations[eval_idx].take().vortex_expect(
+                    "Evaluation cannot have been consumed since it depends on this segment",
+                );
+                eval.waiting_for.remove(&segment_id);
 
-        // Check which splits are waiting for this segment.
-        if let Some(items) = self.waiting_for_segments.remove(&event.segment_id) {
-            for split_idx in items {
-                let split_state = &mut self.split_state[split_idx];
-                match split_state {
-                    SplitState::PendingPrune { waiting_for, .. } => {
-                        waiting_for.remove(&event.segment_id);
+                // If the evaluation is ready to run, we insert it into the appropriate queue.
+                if eval.waiting_for.is_empty() {
+                    log::info!("Segment {} released evaluation {:?}", segment_id, eval);
+                    match &eval.eval {
+                        Eval::Prune(conjunct, _) => {
+                            self.pending_prunings[*conjunct].push_back(eval);
+                        }
+                        Eval::Filter(conjunct, _) => {
+                            self.pending_filters[*conjunct].push_back(eval);
+                        }
+                        Eval::Project(_) => {
+                            self.pending_projections.push_back(eval);
+                        }
                     }
-                    SplitState::PendingFilter { waiting_for, .. } => {
-                        waiting_for.remove(&event.segment_id);
-                    }
-                    SplitState::PendingProject { waiting_for, .. } => {
-                        waiting_for.remove(&event.segment_id);
-                    }
-                    _ => {
-                        vortex_panic!("Unexpected split state {:?}", split_state)
-                    }
+                } else {
+                    // Otherwise, we put it back.
+                    self.evaluations[eval_idx] = Some(eval);
+                    continue;
                 }
-                self.make_progress_on_split(split_idx);
             }
         }
     }
@@ -543,344 +689,35 @@ impl Scheduler {
     ///
     /// Finishes by driving the state machines of any impacted splits.
     fn handle_cpu_event(&mut self, event: ScanTaskResult) {
-        match event {
-            ScanTaskResult::Prune { split_idx, mask } => {
-                match mask {
-                    Ok(mask) => {
-                        let SplitState::Prune { result, .. } = &mut self.split_state[split_idx]
-                        else {
-                            vortex_panic!(
-                                "unexpected split state {:?}",
-                                self.split_state[split_idx]
-                            )
-                        };
-                        *result = Some(mask);
-                    }
-                    Err(e) => {
-                        self.split_state[split_idx] = SplitState::Errored(Arc::new(e));
-                    }
-                }
-                self.make_progress_on_split(split_idx);
-            }
-            ScanTaskResult::Filter {
-                split_idx, mask, ..
-            } => {
-                match mask {
-                    Ok(mask) => {
-                        let SplitState::Filter { result, .. } = &mut self.split_state[split_idx]
-                        else {
-                            vortex_panic!(
-                                "unexpected split state {:?}",
-                                self.split_state[split_idx]
-                            )
-                        };
-                        *result = Some(mask);
-                    }
-                    Err(e) => {
-                        self.split_state[split_idx] = SplitState::Errored(Arc::new(e));
-                    }
-                }
-                self.make_progress_on_split(split_idx);
-            }
-            ScanTaskResult::Project { split_idx, array } => {
-                match array {
-                    Ok(array) => {
-                        let SplitState::Project { result, .. } = &mut self.split_state[split_idx]
-                        else {
-                            vortex_panic!(
-                                "unexpected split state {:?}",
-                                self.split_state[split_idx]
-                            )
-                        };
-                        *result = Some(array);
-                    }
-                    Err(e) => {
-                        self.split_state[split_idx] = SplitState::Errored(Arc::new(e));
-                    }
-                }
-                self.make_progress_on_split(split_idx);
-            }
-        }
+        log::info!("HANDLING CPU EVENT {:?}", event);
     }
 
-    fn make_progress_on_split(&mut self, split_idx: SplitIdx) {
-        // We sit in a loop so that we drive the split as far as possible. For example, if we
-        // enter the PendingFilter state, but all segments are already resolved, we can perform
-        // another state transition immediately. It simplifies the logic to keep these transitions
-        // separate and run in a loop.
-        loop {
-            // Take the state temporarily, we will restore it later.
-            let state = mem::replace(&mut self.split_state[split_idx], SplitState::NotStarted);
-
-            let new_state = match &state {
-                SplitState::NotStarted => {
-                    // We need to launch a filter task if there is one, else a project.
-                    let mask = self.splits[split_idx]
-                        .initial_mask
-                        .take()
-                        .vortex_expect("Initial mask already taken");
-                    if self.filter.is_some() {
-                        Some(SplitState::StartPrune { mask })
-                    } else {
-                        Some(SplitState::StartProject { mask })
-                    }
-                }
-                SplitState::StartPrune { mask } => {
-                    // If we have any pruning evaluations left, then launch those.
-                    // Otherwise, we move on to filtering.
-                    if let Some((conjunct_idx, _)) = self.splits[split_idx]
-                        .pruning
-                        .iter()
-                        .find_position(|e| e.is_some())
-                    {
-                        Some(SplitState::PendingPrune {
-                            conjunct_idx,
-                            mask: mask.clone(),
-                            waiting_for: self
-                                .launch_segment_requests(split_idx, SegmentSelection::AllPrune),
-                        })
-                    } else {
-                        Some(SplitState::StartFilter { mask: mask.clone() })
-                    }
-                }
-                SplitState::PendingPrune {
-                    conjunct_idx,
-                    mask,
-                    waiting_for,
-                } => waiting_for.is_empty().then(|| {
-                    debug!("Spawning pruning for split: {}", split_idx);
-                    self.task_spawner.spawn_task(Box::new(PruneTask {
-                        split_idx,
-                        eval: self.splits[split_idx].pruning[*conjunct_idx]
-                            .take()
-                            .vortex_expect("pruning evaluation already taken"),
-                        mask: mask.clone(),
-                        segments: self.segments.segments(),
-                        cpu_events: self.result_send.clone(),
-                    }));
-                    SplitState::Prune {
-                        conjunct_idx: *conjunct_idx,
-                        input_mask: mask.clone(),
-                        result: None,
-                    }
-                }),
-                SplitState::Prune {
-                    conjunct_idx,
-                    input_mask,
-                    result,
-                } => {
-                    if let Some(mask) = result {
-                        // Release the pruning segments.
-                        self.segments
-                            .release(self.splits[split_idx].pruning_segments[*conjunct_idx].iter());
-
-                        // For pruning, we must intersect the mask with the input mask.
-                        let mask = input_mask.bitand(mask);
-
-                        Some(SplitState::StartPrune { mask })
-                    } else {
-                        None
-                    }
-                }
-                SplitState::StartFilter { mask } => {
-                    if mask.all_false() {
-                        // If we have an all-false mask, we can finish the split without projecting.
-                        self.segments
-                            .release(self.splits[split_idx].remaining_segments());
-                        self.splits[split_idx].drop_evaluations();
-                        Some(SplitState::Finished)
-                    } else {
-                        match self.filter.as_ref().and_then(|f| {
-                            f.next_conjunct(&self.splits[split_idx].remaining_filters)
-                        }) {
-                            None => {
-                                // No more conjuncts to invoke.
-                                Some(SplitState::StartProject { mask: mask.clone() })
-                            }
-                            Some(conjunct_idx) => {
-                                // Mark the conjunct as used.
-                                self.splits[split_idx]
-                                    .remaining_filters
-                                    .set(conjunct_idx, false);
-
-                                Some(SplitState::PendingFilter {
-                                    conjunct_idx,
-                                    mask: mask.clone(),
-                                    waiting_for: self.launch_segment_requests(
-                                        split_idx,
-                                        // We launch all filter segments for now.
-                                        SegmentSelection::AllFilter,
-                                    ),
-                                })
-                            }
-                        }
-                    }
-                }
-                SplitState::PendingFilter {
-                    conjunct_idx,
-                    mask,
-                    waiting_for,
-                } => waiting_for.is_empty().then(|| {
-                    debug!(
-                        "Spawning filter for split: {}, conjunct: {}",
-                        split_idx, conjunct_idx
-                    );
-                    self.task_spawner.spawn_task(Box::new(FilterTask {
-                        split_idx,
-                        eval: self.splits[split_idx].filters[*conjunct_idx]
-                            .take()
-                            .vortex_expect("filter evaluation already taken"),
-                        mask: mask.clone(),
-                        segments: self.segments.segments(),
-                        cpu_events: self.result_send.clone(),
-                    }));
-                    SplitState::Filter {
-                        conjunct_idx: *conjunct_idx,
-                        input_mask: mask.clone(),
-                        result: None,
-                    }
-                }),
-                SplitState::Filter {
-                    conjunct_idx,
-                    input_mask,
-                    result,
-                } => {
-                    if let Some(mask) = result {
-                        self.segments
-                            .release(self.splits[split_idx].filter_segments[*conjunct_idx].iter());
-
-                        // Report the selectivity of this conjunct.
-                        // TODO(ngates): what selectivity should we report?
-                        let selectivity = mask.true_count() as f64 / input_mask.len() as f64;
-                        // let selectivity = mask.true_count() as f64 / input_mask.true_count() as f64;
-                        self.filter
-                            .as_ref()
-                            .vortex_expect("missing filter")
-                            .report_selectivity(*conjunct_idx, selectivity);
-
-                        Some(SplitState::StartFilter { mask: mask.clone() })
-                    } else {
-                        None
-                    }
-                }
-                SplitState::StartProject { mask } => {
-                    if mask.all_false() {
-                        // If we have an all-false mask, we can finish the split without projecting.
-                        self.segments
-                            .release(self.splits[split_idx].remaining_segments());
-                        self.splits[split_idx].drop_evaluations();
-                        Some(SplitState::Finished)
-                    } else {
-                        Some(SplitState::PendingProject {
-                            mask: mask.clone(),
-                            waiting_for: self
-                                .launch_segment_requests(split_idx, SegmentSelection::Project),
-                        })
-                    }
-                }
-                SplitState::PendingProject { mask, waiting_for } => {
-                    waiting_for.is_empty().then(|| {
-                        debug!("Spawning projection for split: {}", split_idx);
-                        self.task_spawner.spawn_task(Box::new(ProjectTask {
-                            split_idx,
-                            eval: self.splits[split_idx]
-                                .projection
-                                .take()
-                                .vortex_expect("projection evaluation already taken"),
-                            mask: mask.clone(),
-                            segments: self.segments.segments(),
-                            cpu_events: self.result_send.clone(),
-                        }));
-                        SplitState::Project { result: None }
-                    })
-                }
-                SplitState::Project { result } => {
-                    if let Some(array) = result {
-                        self.segments
-                            .release(self.splits[split_idx].projection_segments.iter());
-                        self.output_buffer.push_back(Ok(array.clone()));
-                        Some(SplitState::Finished)
-                    } else {
-                        None
-                    }
-                }
-                SplitState::Errored(e) => {
-                    self.output_buffer
-                        .push_back(Err(VortexError::from(e.clone())));
-                    self.segments
-                        .release(self.splits[split_idx].remaining_segments());
-                    self.splits[split_idx].drop_evaluations();
-                    Some(SplitState::Finished)
-                }
-                SplitState::Finished => {
-                    // We're already finished, no progress to make
-                    None
-                }
-            };
-
-            let made_progress = new_state.is_some();
-            if let Some(new_state) = &new_state {
-                debug!(
-                    "Updated split {} from {:?} to {:?}",
-                    split_idx, &state, &new_state
-                );
-            }
-            self.split_state[split_idx] = new_state.unwrap_or(state);
-
-            if !made_progress {
-                // If we did not make progress, we can stop processing this split.
-                break;
-            }
-        }
-    }
-
-    /// Launch requests for the given segments, returning the pending segments.
-    fn launch_segment_requests(
-        &mut self,
-        split_idx: SplitIdx,
-        segments: SegmentSelection,
-    ) -> HashSet<SegmentId> {
-        let mut pending = HashSet::new();
-
-        let split = &self.splits[split_idx];
-        let segment_ids = match segments {
-            SegmentSelection::Prune(idx) => &split.pruning_segments[idx],
-            SegmentSelection::AllPrune => &split.all_pruning_segments,
-            SegmentSelection::Filter(idx) => &split.filter_segments[idx],
-            SegmentSelection::AllFilter => &split.all_filter_segments,
-            SegmentSelection::Project => &split.projection_segments,
+    fn spawn_task(&mut self, evaluation: Evaluation, mask: Mask) {
+        let task: Box<dyn ScanTask> = match evaluation.eval {
+            Eval::Prune(_conjunct, eval) => Box::new(PruneTask {
+                split_idx: evaluation.split_idx,
+                eval,
+                mask,
+                segments: self.segments.segments(),
+                cpu_events: self.result_send.clone(),
+            }),
+            Eval::Filter(_conjunct, eval) => Box::new(FilterTask {
+                split_idx: evaluation.split_idx,
+                eval,
+                mask,
+                segments: self.segments.segments(),
+                cpu_events: self.result_send.clone(),
+            }),
+            Eval::Project(eval) => Box::new(ProjectTask {
+                split_idx: evaluation.split_idx,
+                eval,
+                mask,
+                segments: self.segments.segments(),
+                cpu_events: self.result_send.clone(),
+            }),
         };
 
-        for segment_id in segment_ids.iter().copied() {
-            if self.segments.contains(&segment_id) {
-                // We've already fetched this segment.
-                continue;
-            }
-
-            pending.insert(segment_id);
-            match self.waiting_for_segments.entry(segment_id) {
-                Entry::Occupied(mut e) => {
-                    // This segment is already in-flight.
-                    e.get_mut().push(split_idx);
-                }
-                Entry::Vacant(e) => {
-                    // Or we're the first to request this segment.
-                    debug!("Requesting segment {:?}", segment_id);
-                    let fut = self.source.request(segment_id);
-                    self.segment_futures.push(
-                        async move {
-                            let buffer = fut.await?;
-                            Ok(IoEvent { segment_id, buffer })
-                        }
-                        .boxed(),
-                    );
-
-                    e.insert(vec![split_idx]);
-                }
-            }
-        }
-
-        pending
+        self.task_spawner.spawn_task(task);
     }
 }
 
