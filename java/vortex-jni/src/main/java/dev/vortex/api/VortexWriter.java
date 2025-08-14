@@ -30,8 +30,6 @@ public interface VortexWriter extends AutoCloseable {
         if (ptr <= 0) {
             throw new IOException("Failed to create Vortex writer for: " + filePath + " (got ptr=" + ptr + ")");
         }
-        // Debug: Log the pointer value
-        System.err.println("DEBUG: Created VortexWriter with ptr=" + ptr);
         return new JNIWriter(ptr);
     }
 

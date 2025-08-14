@@ -34,7 +34,7 @@ public final class JNIArrayIterator implements ArrayIterator {
 
     @Override
     public DType getDataType() {
-        return new JNIDType(NativeArrayIteratorMethods.getDType(pointer.getAsLong()), false);
+        return new JNIDType(NativeArrayIteratorMethods.getDType(pointer.getAsLong()));
     }
 
     @Override

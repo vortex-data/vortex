@@ -24,6 +24,8 @@ import org.apache.spark.sql.connector.write.WriterCommitMessage;
 import org.apache.spark.sql.types.*;
 import org.apache.spark.sql.util.CaseInsensitiveStringMap;
 import org.apache.spark.unsafe.types.UTF8String;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Writes Spark InternalRow data to a Vortex file.
@@ -31,8 +33,9 @@ import org.apache.spark.unsafe.types.UTF8String;
  * This writer converts Spark's internal row format to Arrow vectors
  * and writes them to a Vortex file using the Vortex writer API.
  */
-public final class VortexDataWriter implements DataWriter<InternalRow> {
-
+public final class VortexDataWriter implements DataWriter<InternalRow>, AutoCloseable {
+    private static final Logger logger = LoggerFactory.getLogger(VortexDataWriter.class);
+    
     private static final int DEFAULT_BATCH_SIZE = 4096;
 
     private final String filePath;
@@ -75,8 +78,11 @@ public final class VortexDataWriter implements DataWriter<InternalRow> {
 
             // Create VectorSchemaRoot for batching rows
             this.vectorSchemaRoot = VectorSchemaRoot.create(arrowSchema, allocator);
+            
+            logger.debug("Initialized VortexDataWriter for {}", filePath);
 
         } catch (IOException e) {
+            logger.error("Failed to initialize VortexDataWriter for {}", filePath, e);
             throw new RuntimeException("Failed to initialize VortexDataWriter", e);
         }
     }
@@ -205,7 +211,6 @@ public final class VortexDataWriter implements DataWriter<InternalRow> {
      */
     @Override
     public WriterCommitMessage commit() throws IOException {
-        System.err.println("DEBUG: VortexDataWriter.commit() called, closed=" + closed);
         if (!closed) {
             // Write any remaining rows
             if (!batchRows.isEmpty()) {
@@ -247,15 +252,13 @@ public final class VortexDataWriter implements DataWriter<InternalRow> {
      */
     @Override
     public void abort() throws IOException {
-        System.err.println("DEBUG: VortexDataWriter.abort() called, closed=" + closed);
         if (!closed) {
             // Close resources
             if (vortexWriter != null) {
                 try {
                     vortexWriter.close();
                 } catch (Exception e) {
-                    // Log but don't throw
-                    System.err.println("Error closing writer during abort: " + e.getMessage());
+                    // Ignore errors during abort
                 } finally {
                     vortexWriter = null; // Always null out the reference
                 }
@@ -275,8 +278,7 @@ public final class VortexDataWriter implements DataWriter<InternalRow> {
             try {
                 Files.deleteIfExists(Paths.get(filePath));
             } catch (IOException e) {
-                // Log but don't throw - we're already aborting
-                System.err.println("Failed to delete partial file: " + filePath);
+                // Ignore - we're already aborting
             }
 
             closed = true;
@@ -285,11 +287,20 @@ public final class VortexDataWriter implements DataWriter<InternalRow> {
 
     /**
      * Closes the writer and releases resources.
+     * 
+     * This method ensures resources are cleaned up even if commit() or abort()
+     * were not called, making the class safe for use with try-with-resources.
      */
     @Override
     public void close() throws IOException {
-        System.err.println("DEBUG: VortexDataWriter.close() called, closed=" + closed);
-        // Don't do anything - Spark will call either commit() or abort() explicitly
-        // Calling commit() here causes double-close issues
+        if (!closed) {
+            logger.warn("VortexDataWriter.close() called without commit() or abort() - cleaning up");
+            try {
+                abort();
+            } catch (IOException e) {
+                logger.error("Error during cleanup in close()", e);
+                // Suppress the exception as we're already in close()
+            }
+        }
     }
 }

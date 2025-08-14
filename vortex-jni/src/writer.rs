@@ -38,10 +38,6 @@ impl WriterWrapper {
     }
 
     pub fn close(self) -> Result<(), JNIError> {
-        eprintln!(
-            "WriterWrapper::close() called, arrays.len()={}",
-            self.arrays.len()
-        );
         // Write all accumulated Vortex arrays to file
         if !self.arrays.is_empty() {
             // Arrays are already converted, no need to convert again
@@ -60,14 +56,10 @@ impl WriterWrapper {
             // Write the final array to file
             let path = self.path.clone();
 
-            eprintln!("About to write Vortex file to: {}", path);
-            eprintln!("Array has {} rows", final_array.len());
-
             // Write using VortexWriteOptions with the array's stream
             crate::block_on("write_vortex", async move {
                 // Create parent directories if they don't exist
                 if let Some(parent) = std::path::Path::new(&path).parent() {
-                    eprintln!("Creating parent directories: {:?}", parent);
                     tokio::fs::create_dir_all(parent).await.map_err(|e| {
                         JNIError::Vortex(vortex::error::vortex_err!(
                             "Failed to create directories: {}",
@@ -76,63 +68,55 @@ impl WriterWrapper {
                     })?;
                 }
 
-                eprintln!("Creating file: {}", path);
                 let file = tokio::fs::File::create(&path).await.map_err(|e| {
                     JNIError::Vortex(vortex::error::vortex_err!("Failed to create file: {}", e))
                 })?;
 
-                eprintln!("Writing Vortex data to file...");
                 let result = VortexWriteOptions::default()
                     .write(file, final_array.to_array_stream())
                     .await
                     .map_err(JNIError::Vortex);
 
                 // Ensure file is fully written to disk
-                if result.is_ok() {
-                    eprintln!("Syncing file to disk...");
-                    if let Ok(f) = tokio::fs::File::open(&path).await {
-                        if let Err(e) = f.sync_all().await {
-                            eprintln!("Warning: Failed to sync file: {}", e);
-                        }
-                    }
-                }
-
-                match &result {
-                    Ok(_) => {
-                        eprintln!("Successfully wrote Vortex data to: {}", path);
-                        // Verify file exists and check its size
-                        match tokio::fs::metadata(&path).await {
-                            Ok(metadata) => {
-                                eprintln!("File exists with size: {} bytes", metadata.len())
-                            }
-                            Err(e) => eprintln!("ERROR: File doesn't exist after writing: {}", e),
-                        }
-                    }
-                    Err(e) => eprintln!("Failed to write Vortex data: {:?}", e),
+                if result.is_ok() && let Ok(f) = tokio::fs::File::open(&path).await {
+                    let _ = f.sync_all().await;
                 }
 
                 result
             })?;
         } else {
-            // Create empty file if no data
-            eprintln!("Creating empty file at: {}", self.path);
+            // Write an empty Vortex file with proper format
+            // We need to write at least a valid empty array to ensure the file is readable
+            
+            // Create an empty struct array with no fields (represents empty rows)
+            use vortex::arrays::StructArray;
+            
+            let empty_struct = StructArray::new_with_len(0).into_array();
+            
+            // Write the empty array to file
+            let path = self.path.clone();
+            crate::block_on("write_empty_vortex", async move {
+                // Create parent directories if they don't exist
+                if let Some(parent) = std::path::Path::new(&path).parent() {
+                    tokio::fs::create_dir_all(parent).await.map_err(|e| {
+                        JNIError::Vortex(vortex::error::vortex_err!(
+                            "Failed to create directories: {}",
+                            e
+                        ))
+                    })?;
+                }
 
-            // Create parent directories if they don't exist
-            if let Some(parent) = std::path::Path::new(&self.path).parent() {
-                std::fs::create_dir_all(parent).map_err(|e| {
-                    JNIError::Vortex(vortex::error::vortex_err!(
-                        "Failed to create directories: {}",
-                        e
-                    ))
+                let file = tokio::fs::File::create(&path).await.map_err(|e| {
+                    JNIError::Vortex(vortex::error::vortex_err!("Failed to create file: {}", e))
                 })?;
-            }
 
-            std::fs::File::create(&self.path).map_err(|e| {
-                JNIError::Vortex(vortex::error::vortex_err!("Failed to create file: {}", e))
+                VortexWriteOptions::default()
+                    .write(file, empty_struct.to_array_stream())
+                    .await
+                    .map_err(JNIError::Vortex)
             })?;
         }
 
-        eprintln!("WriterWrapper::close() completed successfully");
         Ok(())
     }
 }
@@ -146,13 +130,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriterMethods_create<'local>(
     _schema_json: JString<'local>,
     _options: JObject<'local>,
 ) -> jlong {
-    // Add debug logging
-    eprintln!("Native create() called");
-
     try_or_throw(&mut env, |env| {
         // Get the file path
         let path: String = env.get_string(&file_path)?.into();
-        eprintln!("Creating writer for path: {}", path);
 
         // Note: schema_json parameter is kept for API compatibility but not used
         // The schema will be extracted from the IPC data itself
@@ -162,7 +142,6 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriterMethods_create<'local>(
 
         // Return the pointer
         let ptr = Box::into_raw(Box::new(wrapper)) as jlong;
-        eprintln!("Created writer with ptr: {:#x}", ptr);
         Ok(ptr)
     })
 }
@@ -175,11 +154,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriterMethods_writeBatch<'local
     writer_ptr: jlong,
     arrow_data: JByteArray<'local>,
 ) -> jboolean {
-    eprintln!("Native writeBatch() called with ptr: {:#x}", writer_ptr);
-
     // Validate pointer before using it
     if writer_ptr <= 0 {
-        eprintln!("ERROR: Invalid writer pointer: {}", writer_ptr);
         return JNI_FALSE;
     }
 
@@ -221,23 +197,14 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriterMethods_close<'local>(
     _class: JClass<'local>,
     writer_ptr: jlong,
 ) -> jboolean {
-    eprintln!("Native close() called with ptr: {:#x}", writer_ptr);
-
     // Validate pointer before using it
     if writer_ptr <= 0 {
-        eprintln!(
-            "WARNING: Invalid or null writer pointer in close: {}",
-            writer_ptr
-        );
         return JNI_TRUE; // Return success for null/invalid pointers (already closed)
     }
 
     // Check if the pointer looks valid (aligned and in reasonable range)
+    #[allow(clippy::cast_possible_truncation)]
     if (writer_ptr as usize) % 8 != 0 {
-        eprintln!(
-            "ERROR: Misaligned writer pointer in close: {:#x}",
-            writer_ptr
-        );
         return JNI_FALSE;
     }
 
