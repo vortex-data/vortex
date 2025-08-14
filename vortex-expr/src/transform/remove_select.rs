@@ -3,7 +3,7 @@
 
 use vortex_error::{VortexResult, vortex_err};
 
-use crate::traversal::{Node, Transformed};
+use crate::traversal::{NodeExt, Transformed};
 use crate::{DType, ExprRef, SelectVTable, get_item, pack};
 
 /// Replaces [crate::SelectExpr] with combination of [crate::GetItem] and [crate::Pack] expressions.

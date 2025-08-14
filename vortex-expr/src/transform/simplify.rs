@@ -5,7 +5,7 @@ use vortex_error::VortexResult;
 
 use crate::transform::match_between::find_between;
 // use crate::transform::match_between::find_between;
-use crate::traversal::{Node, Transformed};
+use crate::traversal::{NodeExt, Transformed};
 use crate::{ExprRef, GetItemVTable, PackVTable};
 
 /// Simplifies an expression into an equivalent expression which is faster and easier to analyze.

@@ -5,6 +5,7 @@
 //!
 //! Users should want to implement [`Node`] and potentially [`NodeContainer`].
 
+mod fold;
 mod references;
 mod visitor;
 
@@ -17,6 +18,9 @@ pub use visitor::{pre_order_visit_down, pre_order_visit_up};
 use vortex_error::VortexResult;
 
 use crate::ExprRef;
+use crate::traversal::fold::{
+    FoldDownContext, FoldUp, NodeFolder, NodeFolderContext, NodeFolderContextWrapper,
+};
 
 /// Signal to control a traversal's flow
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -126,7 +130,7 @@ pub trait NodeRewriter: Sized {
 pub trait Node: Sized + Clone {
     /// Walk the node's children by applying `f` to them.
     ///
-    /// This is a lower level API that other functions rely on for correctness.
+    /// This is a lower level API that other functions rely on for their implementation.
     fn apply_children<'a, F: FnMut(&'a Self) -> VortexResult<TraversalOrder>>(
         &'a self,
         f: F,
@@ -134,12 +138,20 @@ pub trait Node: Sized + Clone {
 
     /// Rewrite the node's children by applying `f` to them.
     ///
-    /// This is a lower level API that other functions rely on for correctness.
+    /// This is a lower level API that other functions rely on for their implementation.
     fn map_children<F: FnMut(Self) -> VortexResult<Transformed<Self>>>(
         self,
         f: F,
     ) -> VortexResult<Transformed<Self>>;
 
+    /// This is a lower level API that other functions rely on for their implementation.
+    fn iter_children<T>(&self, f: impl FnOnce(&mut dyn Iterator<Item = &Self>) -> T) -> T;
+
+    /// This is a lower level API that other functions rely on for their implementation.
+    fn children_count(&self) -> usize;
+}
+
+pub trait NodeExt: Node {
     /// Walk the tree in pre-order (top-down) way, rewriting it as it goes.
     fn rewrite<R: NodeRewriter<NodeTy = Self>>(
         self,
@@ -210,7 +222,56 @@ pub trait Node: Sized + Clone {
 
         self.rewrite(&mut rewriter)
     }
+
+    /// applies the `NodeFolderContext` to the Node tree, with an initial `Context`.
+    fn fold_context<R, F: NodeFolderContext<NodeTy = Self, Result = R>>(
+        self,
+        ctx: &F::Context,
+        folder: &mut F,
+    ) -> VortexResult<FoldUp<R>> {
+        let transformed = folder.visit_down(ctx, &self)?;
+        let ctx = match transformed {
+            FoldDownContext::Continue(ctx) => ctx,
+            FoldDownContext::Skip(r) => return Ok(FoldUp::Continue(r)),
+            FoldDownContext::Stop(r) => return Ok(FoldUp::Stop(r)),
+        };
+
+        let mut children = Vec::with_capacity(self.children_count());
+        let mut stop_result = None;
+        self.iter_children(|children_iter| -> VortexResult<()> {
+            for c in children_iter {
+                let t = c.clone().fold_context(&ctx, folder)?;
+                match t {
+                    FoldUp::Stop(r) => {
+                        stop_result = Some(r);
+                        return Ok(());
+                    }
+                    FoldUp::Continue(r) => {
+                        children.push(r);
+                    }
+                }
+            }
+            Ok(())
+        })?;
+
+        if let Some(result) = stop_result {
+            return Ok(FoldUp::Stop(result));
+        }
+
+        folder.visit_up(self, &ctx, children)
+    }
+
+    /// applies the `NodeFolder` to the Node tree
+    fn fold<R, F: NodeFolder<NodeTy = Self, Result = R>>(
+        self,
+        folder: &mut F,
+    ) -> VortexResult<FoldUp<R>> {
+        let mut folder = NodeFolderContextWrapper { inner: folder };
+        self.fold_context(&(), &mut folder)
+    }
 }
+
+impl<T: Node> NodeExt for T {}
 
 struct FnRewriter<F, T> {
     f_down: Option<F>,
@@ -443,6 +504,14 @@ impl Node for ExprRef {
             Ok(Transformed::no(self))
         }
     }
+
+    fn iter_children<T>(&self, f: impl FnOnce(&mut dyn Iterator<Item = &Self>) -> T) -> T {
+        f(&mut self.children().into_iter())
+    }
+
+    fn children_count(&self) -> usize {
+        self.children().len()
+    }
 }
 
 #[cfg(test)]
@@ -453,7 +522,7 @@ mod tests {
     use vortex_utils::aliases::hash_set::HashSet;
 
     use crate::traversal::visitor::pre_order_visit_down;
-    use crate::traversal::{Node, NodeRewriter, NodeVisitor, Transformed, TraversalOrder};
+    use crate::traversal::{NodeExt, NodeRewriter, NodeVisitor, Transformed, TraversalOrder};
     use crate::{
         BinaryExpr, BinaryVTable, ExprRef, GetItemVTable, IntoExpr, LiteralExpr, LiteralVTable,
         Operator, VortexExpr, col, is_root, root,

@@ -12,7 +12,7 @@ use crate::transform::annotations::{
     Annotation, AnnotationFn, Annotations, descendent_annotations,
 };
 use crate::transform::simplify_typed::simplify_typed;
-use crate::traversal::{Node, NodeRewriter, Transformed, TraversalOrder};
+use crate::traversal::{NodeExt, NodeRewriter, Transformed, TraversalOrder};
 use crate::{ExprRef, get_item, pack, root};
 
 /// Partition an expression into sub-expressions that are uniquely associated with an annotation.

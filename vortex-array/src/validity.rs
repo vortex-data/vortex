@@ -91,10 +91,13 @@ impl Validity {
         Ok(match self {
             Validity::NonNullable | Validity::AllValid => true,
             Validity::AllInvalid => false,
-            Validity::Array(array) => {
-                // TODO(ngates): replace with SUM compute function
-                array.to_bool()?.boolean_buffer().count_set_bits() == array.len()
-            }
+            Validity::Array(array) => sum(array)
+                .map(|v| {
+                    v.as_primitive()
+                        .typed_value::<u64>()
+                        .map(|count| count == array.len() as u64)
+                })?
+                .ok_or_else(|| vortex_err!("Failed to compute sum for validity array"))?,
         })
     }
 
@@ -102,10 +105,13 @@ impl Validity {
         Ok(match self {
             Validity::NonNullable | Validity::AllValid => false,
             Validity::AllInvalid => true,
-            Validity::Array(array) => {
-                // TODO(ngates): replace with SUM compute function
-                array.to_bool()?.boolean_buffer().count_set_bits() == 0
-            }
+            Validity::Array(array) => sum(array)
+                .map(|v| {
+                    v.as_primitive()
+                        .typed_value::<u64>()
+                        .map(|count| count == 0u64)
+                })?
+                .ok_or_else(|| vortex_err!("Failed to compute sum for validity array"))?,
         })
     }
 

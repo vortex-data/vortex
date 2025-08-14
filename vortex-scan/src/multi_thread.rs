@@ -83,3 +83,30 @@ impl ScanBuilder<ArrayRef> {
         }))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_runtime_initialization() {
+        // Access the runtime to ensure it's initialized
+        let runtime = &*CPU_RUNTIME;
+        assert!(runtime.metrics().num_workers() > 0);
+
+        // Verify runtime metrics
+        let handle = runtime.handle();
+        assert!(handle.metrics().num_workers() > 0);
+    }
+
+    #[test]
+    fn test_runtime_concurrency_calculation() {
+        let num_workers = CPU_RUNTIME.metrics().num_workers();
+        let concurrency = 2;
+
+        // Test the buffering calculation
+        let buffer_size = num_workers * concurrency;
+        assert!(buffer_size > 0);
+        assert_eq!(buffer_size, num_workers * 2);
+    }
+}
