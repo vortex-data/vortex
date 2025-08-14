@@ -35,6 +35,9 @@ public final class JNIWriter implements VortexWriter {
             throw new IOException("Writer is already closed");
         }
         
+        // Debug: Log the pointer and data size
+        System.err.println("DEBUG: writeBatch called with ptr=" + ptr + ", data size=" + arrowData.length);
+        
         // Write the Arrow data to Vortex through JNI
         boolean success = NativeWriterMethods.writeBatch(ptr, arrowData);
         if (!success) {
@@ -59,12 +62,5 @@ public final class JNIWriter implements VortexWriter {
         }
     }
     
-    @Override
-    protected void finalize() throws Throwable {
-        if (ptr != 0) {
-            // Attempt to close if not already closed
-            NativeWriterMethods.close(ptr);
-        }
-        super.finalize();
-    }
+    // Removed deprecated finalize() method - proper cleanup should be done via close()
 }

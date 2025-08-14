@@ -6,6 +6,7 @@ package dev.vortex.spark.write;
 import dev.vortex.api.VortexWriter;
 import dev.vortex.relocated.org.apache.arrow.memory.BufferAllocator;
 import dev.vortex.relocated.org.apache.arrow.memory.RootAllocator;
+import dev.vortex.relocated.org.apache.arrow.vector.*;
 import dev.vortex.relocated.org.apache.arrow.vector.VectorSchemaRoot;
 import dev.vortex.relocated.org.apache.arrow.vector.ipc.ArrowStreamWriter;
 import java.io.ByteArrayOutputStream;
@@ -21,8 +22,9 @@ import java.util.Map;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.connector.write.DataWriter;
 import org.apache.spark.sql.connector.write.WriterCommitMessage;
-import org.apache.spark.sql.types.StructType;
+import org.apache.spark.sql.types.*;
 import org.apache.spark.sql.util.CaseInsensitiveStringMap;
+import org.apache.spark.unsafe.types.UTF8String;
 
 /**
  * Writes Spark InternalRow data to a Vortex file.
@@ -112,20 +114,36 @@ public final class VortexDataWriter implements DataWriter<InternalRow> {
             return;
         }
         
-        // For now, we'll write a simplified placeholder
-        // TODO: Implement actual InternalRow to Arrow conversion
-        // This would involve:
-        // 1. Allocating vectors in VectorSchemaRoot
-        // 2. Copying data from InternalRows to vectors
-        // 3. Serializing to Arrow IPC format
-        // 4. Writing to Vortex
+        // Allocate vectors and populate with data from InternalRows
+        vectorSchemaRoot.allocateNew();
         
-        // Placeholder: Create minimal Arrow batch
-        try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
-            // Write empty Arrow batch for now
-            vectorSchemaRoot.allocateNew();
-            vectorSchemaRoot.setRowCount(batchRows.size());
+        // Populate each field in the schema
+        StructField[] fields = schema.fields();
+        for (int fieldIndex = 0; fieldIndex < fields.length; fieldIndex++) {
+            FieldVector vector = vectorSchemaRoot.getVector(fieldIndex);
+            DataType dataType = fields[fieldIndex].dataType();
+            boolean nullable = fields[fieldIndex].nullable();
             
+            // Populate this vector with data from all rows
+            for (int rowIndex = 0; rowIndex < batchRows.size(); rowIndex++) {
+                InternalRow row = batchRows.get(rowIndex);
+                
+                if (nullable && row.isNullAt(fieldIndex)) {
+                    // Set null value
+                    vector.setNull(rowIndex);
+                } else {
+                    // Set actual value based on data type
+                    populateVector(vector, dataType, row, fieldIndex, rowIndex);
+                }
+            }
+            
+            vector.setValueCount(batchRows.size());
+        }
+        
+        vectorSchemaRoot.setRowCount(batchRows.size());
+        
+        // Serialize to Arrow IPC format and write to Vortex
+        try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
             try (ArrowStreamWriter writer = new ArrowStreamWriter(
                     vectorSchemaRoot, null, Channels.newChannel(baos))) {
                 writer.start();
@@ -138,6 +156,48 @@ public final class VortexDataWriter implements DataWriter<InternalRow> {
             
             vectorSchemaRoot.clear();
             batchRows.clear();
+        }
+    }
+    
+    /**
+     * Populates an Arrow vector with a value from an InternalRow.
+     */
+    private void populateVector(FieldVector vector, DataType dataType, 
+                                InternalRow row, int fieldIndex, int rowIndex) {
+        if (dataType instanceof BooleanType) {
+            ((BitVector) vector).set(rowIndex, row.getBoolean(fieldIndex) ? 1 : 0);
+        } else if (dataType instanceof ByteType) {
+            ((TinyIntVector) vector).set(rowIndex, row.getByte(fieldIndex));
+        } else if (dataType instanceof ShortType) {
+            ((SmallIntVector) vector).set(rowIndex, row.getShort(fieldIndex));
+        } else if (dataType instanceof IntegerType) {
+            ((IntVector) vector).set(rowIndex, row.getInt(fieldIndex));
+        } else if (dataType instanceof LongType) {
+            ((BigIntVector) vector).set(rowIndex, row.getLong(fieldIndex));
+        } else if (dataType instanceof FloatType) {
+            ((Float4Vector) vector).set(rowIndex, row.getFloat(fieldIndex));
+        } else if (dataType instanceof DoubleType) {
+            ((Float8Vector) vector).set(rowIndex, row.getDouble(fieldIndex));
+        } else if (dataType instanceof StringType) {
+            UTF8String str = row.getUTF8String(fieldIndex);
+            if (str != null) {
+                ((VarCharVector) vector).set(rowIndex, str.getBytes());
+            }
+        } else if (dataType instanceof BinaryType) {
+            byte[] bytes = row.getBinary(fieldIndex);
+            if (bytes != null) {
+                ((VarBinaryVector) vector).set(rowIndex, bytes);
+            }
+        } else if (dataType instanceof DecimalType) {
+            DecimalType decType = (DecimalType) dataType;
+            if (decType.precision() <= 38) {
+                // Use Decimal type from InternalRow
+                java.math.BigDecimal decimal = row.getDecimal(fieldIndex, decType.precision(), decType.scale()).toJavaBigDecimal();
+                ((DecimalVector) vector).set(rowIndex, decimal);
+            }
+        } else {
+            // For unsupported types, set null
+            vector.setNull(rowIndex);
         }
     }
     
