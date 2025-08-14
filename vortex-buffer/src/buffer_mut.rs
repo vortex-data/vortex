@@ -296,8 +296,8 @@ impl<T> BufferMut<T> {
     {
         #[cfg(target_feature = "avx2")]
         {
-            // Ensure a minimum of 128 bytes to write for AVX streaming stores.
-            if size_of::<T>() * n >= 128 {
+            // Ensure a minimum of 1024 bytes to write for AVX streaming stores.
+            if size_of::<T>() == 1 && n >= 1024 {
                 unsafe { avx2::push_n_unchecked(self, item, n) }
             } else {
                 unsafe { scalar::push_n_unchecked(self, item, n) }
