@@ -103,11 +103,11 @@ pub struct GnomADBuilder<'a> {
     /// We do not use this string representation because our dataset is biallelic and admits a
     /// simpler, numeric representation.
     ///
-    /// ```
+    /// ```text
     /// 0/0  0/1
     ///      1/1
     /// ```
-    /// ```
+    /// ```text
     ///   0    1
     ///        2
     /// ```
