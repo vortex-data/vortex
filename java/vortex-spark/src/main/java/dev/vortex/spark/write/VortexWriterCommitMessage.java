@@ -3,6 +3,7 @@
 
 package dev.vortex.spark.write;
 
+import java.io.Serializable;
 import org.apache.spark.sql.connector.write.WriterCommitMessage;
 
 /**
@@ -11,7 +12,7 @@ import org.apache.spark.sql.connector.write.WriterCommitMessage;
  * This message is passed from executors back to the driver to coordinate
  * the commit phase of the write operation.
  */
-public final class VortexWriterCommitMessage implements WriterCommitMessage {
+public final class VortexWriterCommitMessage implements WriterCommitMessage, Serializable {
     
     private final String filePath;
     private final long recordCount;

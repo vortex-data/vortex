@@ -4,6 +4,7 @@
 package dev.vortex.spark.write;
 
 import java.io.IOException;
+import java.io.Serializable;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -21,7 +22,7 @@ import org.apache.spark.sql.util.CaseInsensitiveStringMap;
  * This class coordinates the distributed write operation across Spark executors,
  * handling the creation of data writers and managing commits/aborts.
  */
-public final class VortexBatchWrite implements Write, BatchWrite {
+public final class VortexBatchWrite implements Write, BatchWrite, Serializable {
     
     private final String outputPath;
     private final StructType schema;

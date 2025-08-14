@@ -24,6 +24,7 @@ public final class VortexTable implements Table, SupportsRead, SupportsWrite {
     private final ImmutableList<Column> readColumns;
     private final String outputPath;
     private final CaseInsensitiveStringMap writeOptions;
+    private final StructType writeSchema;
 
     /**
      * Creates a new VortexTable for the specified file paths and columns.
@@ -32,7 +33,7 @@ public final class VortexTable implements Table, SupportsRead, SupportsWrite {
      * @param readColumns the list of columns available for reading from this table
      */
     public VortexTable(ImmutableList<String> paths, ImmutableList<Column> readColumns) {
-        this(paths, readColumns, null, new CaseInsensitiveStringMap(java.util.Collections.emptyMap()));
+        this(paths, readColumns, null, new CaseInsensitiveStringMap(java.util.Collections.emptyMap()), null);
     }
     
     /**
@@ -45,10 +46,25 @@ public final class VortexTable implements Table, SupportsRead, SupportsWrite {
      */
     public VortexTable(ImmutableList<String> paths, ImmutableList<Column> readColumns,
                        String outputPath, CaseInsensitiveStringMap writeOptions) {
+        this(paths, readColumns, outputPath, writeOptions, null);
+    }
+    
+    /**
+     * Creates a new VortexTable with write support and explicit write schema.
+     *
+     * @param paths the list of Vortex file paths that make up this table
+     * @param readColumns the list of columns available for reading from this table
+     * @param outputPath the path where new Vortex files will be written (optional)
+     * @param writeOptions additional options for writing (optional)
+     * @param writeSchema the schema to use for write operations (optional)
+     */
+    public VortexTable(ImmutableList<String> paths, ImmutableList<Column> readColumns,
+                       String outputPath, CaseInsensitiveStringMap writeOptions, StructType writeSchema) {
         this.paths = paths;
         this.readColumns = readColumns;
         this.outputPath = outputPath;
         this.writeOptions = writeOptions;
+        this.writeSchema = writeSchema;
     }
 
     /**
@@ -84,12 +100,18 @@ public final class VortexTable implements Table, SupportsRead, SupportsWrite {
     /**
      * Returns the schema of this table.
      * <p>
-     * The schema is derived from the columns available for reading.
+     * The schema is derived from the columns available for reading, or from
+     * the explicit write schema if this table is being used for writing.
      *
      * @return the StructType representing the table schema
      */
     @Override
     public StructType schema() {
+        // For write operations where we have an explicit schema, use it
+        if (writeSchema != null) {
+            return writeSchema;
+        }
+        // Otherwise derive from read columns
         return CatalogV2Util$.MODULE$.v2ColumnsToStructType(columns());
     }
 
@@ -122,12 +144,17 @@ public final class VortexTable implements Table, SupportsRead, SupportsWrite {
     /**
      * Returns the capabilities supported by this table.
      * <p>
-     * Vortex tables support both batch reading and batch writing.
+     * Vortex tables support batch reading, batch writing, and truncation.
+     * The TRUNCATE capability is needed for overwrite mode in Spark V2 API.
      *
-     * @return a set containing TableCapability.BATCH_READ and BATCH_WRITE
+     * @return a set containing TableCapability.BATCH_READ, BATCH_WRITE, and TRUNCATE
      */
     @Override
     public Set<TableCapability> capabilities() {
-        return ImmutableSet.of(TableCapability.BATCH_READ, TableCapability.BATCH_WRITE);
+        return ImmutableSet.of(
+            TableCapability.BATCH_READ,
+            TableCapability.BATCH_WRITE, 
+            TableCapability.TRUNCATE
+        );
     }
 }

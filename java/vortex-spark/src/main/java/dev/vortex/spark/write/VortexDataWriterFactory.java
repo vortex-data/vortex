@@ -3,6 +3,7 @@
 
 package dev.vortex.spark.write;
 
+import java.io.Serializable;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.connector.write.DataWriter;
 import org.apache.spark.sql.connector.write.DataWriterFactory;
@@ -15,7 +16,7 @@ import org.apache.spark.sql.util.CaseInsensitiveStringMap;
  * This factory is serialized and sent to executors where it creates
  * data writers for each task.
  */
-public final class VortexDataWriterFactory implements DataWriterFactory {
+public final class VortexDataWriterFactory implements DataWriterFactory, Serializable {
     
     private final String outputPath;
     private final StructType schema;

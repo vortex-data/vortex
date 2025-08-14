@@ -16,17 +16,9 @@ import org.apache.spark.sql.connector.catalog.Column;
 import org.apache.spark.sql.connector.catalog.Table;
 import org.apache.spark.sql.connector.catalog.TableProvider;
 import org.apache.spark.sql.connector.expressions.Transform;
-import org.apache.spark.sql.sources.BaseRelation;
-import org.apache.spark.sql.sources.CreatableRelationProvider;
 import org.apache.spark.sql.sources.DataSourceRegister;
-import org.apache.spark.sql.sources.RelationProvider;
-import scala.collection.JavaConverters;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.util.CaseInsensitiveStringMap;
-import org.apache.spark.sql.Dataset;
-import org.apache.spark.sql.Row;
-import org.apache.spark.sql.SQLContext;
-import org.apache.spark.sql.SaveMode;
 
 /**
  * Spark V2 data source for reading and writing Vortex files.
@@ -35,7 +27,7 @@ import org.apache.spark.sql.SaveMode;
  * For reading: {@link org.apache.spark.sql.SparkSession#read} and specify the format as "vortex".
  * For writing: {@link DataFrame#write} and specify the format as "vortex".
  */
-public final class VortexDataSourceV2 implements TableProvider, DataSourceRegister, CreatableRelationProvider {
+public final class VortexDataSourceV2 implements TableProvider, DataSourceRegister {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private static final String PATH_KEY = "path";
@@ -119,95 +111,40 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
 
         var paths = getPaths(uncased);
         
-        // Handle case where schema is null or empty (for write operations on non-existent paths)
+        // Convert schema to columns
         ImmutableList<Column> columns;
         if (schema != null && schema.fields().length > 0) {
             columns = ImmutableList.<Column>builder()
                     .add(CatalogV2Util.structTypeToV2Columns(schema))
                     .build();
         } else {
-            // For write operations where file doesn't exist yet, use empty columns
-            // Spark will provide the actual schema during write
+            // For write operations where the path doesn't exist, inferSchema returns empty
+            // But Spark still needs a valid schema for write operations
+            // The actual write schema will come from LogicalWriteInfo in newWriteBuilder
             columns = ImmutableList.of();
         }
         
         // Support both read and write operations
         String outputPath = uncased.get(PATH_KEY);
         if (outputPath != null) {
-            return new VortexTable(paths, columns, outputPath, uncased);
+            // This is a write operation - pass the schema along
+            return new VortexTable(paths, columns, outputPath, uncased, schema);
         } else {
             return new VortexTable(paths, columns);
         }
     }
 
     /**
-     * Creates a relation for writing data to Vortex files.
+     * Indicates whether this data source supports external metadata (schemas).
      * <p>
-     * This method is called by Spark when using DataFrame.write() operations.
-     * It handles the actual write operation based on the SaveMode.
+     * Returns true to indicate that this data source accepts external schemas,
+     * which is necessary for write operations where the DataFrame provides the schema.
      *
-     * @param sqlContext the SQL context
-     * @param mode the save mode (Append, Overwrite, ErrorIfExists, Ignore)
-     * @param parameters the write parameters including the output path
-     * @param data the DataFrame to write
-     * @return BaseRelation for the written data (null for write-only operation)
+     * @return true to accept external schemas
      */
     @Override
-    public BaseRelation createRelation(
-            SQLContext sqlContext,
-            SaveMode mode,
-            scala.collection.immutable.Map<String, String> parameters,
-            Dataset<Row> data) {
-        
-        // Convert Scala Map to Java Map
-        Map<String, String> javaParams = JavaConverters.mapAsJavaMapConverter(parameters).asJava();
-        String outputPath = javaParams.get(PATH_KEY);
-        if (outputPath == null) {
-            throw new IllegalArgumentException("Missing required option: \"path\"");
-        }
-        
-        // Handle SaveMode
-        Path outputDir = java.nio.file.Paths.get(outputPath);
-        
-        switch (mode) {
-            case Append:
-                // Default behavior - just write new files
-                break;
-            case Overwrite:
-                // Delete existing files if directory exists
-                if (java.nio.file.Files.exists(outputDir)) {
-                    try {
-                        java.nio.file.Files.walk(outputDir)
-                            .sorted(java.util.Comparator.reverseOrder())
-                            .forEach(path -> {
-                                try {
-                                    java.nio.file.Files.delete(path);
-                                } catch (Exception e) {
-                                    // Ignore errors during cleanup
-                                }
-                            });
-                    } catch (Exception e) {
-                        throw new RuntimeException("Failed to clean output directory", e);
-                    }
-                }
-                break;
-            case ErrorIfExists:
-                // Check if path exists and throw error if it does
-                if (java.nio.file.Files.exists(outputDir)) {
-                    throw new RuntimeException("Output path already exists: " + outputPath);
-                }
-                break;
-            case Ignore:
-                // Check if path exists and skip write if it does
-                if (java.nio.file.Files.exists(outputDir)) {
-                    return null;
-                }
-                break;
-        }
-        
-        // The actual write will be handled by the V2 write path
-        // We don't need to create dummy files anymore
-        return null;
+    public boolean supportsExternalMetadata() {
+        return true;
     }
     
     /**
