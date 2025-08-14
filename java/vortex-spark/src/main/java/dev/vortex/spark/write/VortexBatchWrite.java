@@ -62,12 +62,44 @@ public final class VortexBatchWrite implements Write, BatchWrite, Serializable {
     
     /**
      * Creates a DataWriterFactory for producing data writers on executors.
+     * 
+     * This method is called once at the start of the write operation,
+     * making it the right place to handle overwrite cleanup.
      *
      * @return a new VortexDataWriterFactory
      */
     @Override
     public DataWriterFactory createBatchWriterFactory(PhysicalWriteInfo info) {
+        // Handle overwrite cleanup BEFORE writing starts
+        if (overwrite) {
+            cleanupExistingFiles();
+        }
+        
         return new VortexDataWriterFactory(outputPath, schema, options);
+    }
+    
+    /**
+     * Cleans up existing Vortex files when overwrite mode is enabled.
+     */
+    private void cleanupExistingFiles() {
+        try {
+            Path path = Paths.get(outputPath);
+            if (Files.exists(path)) {
+                try (Stream<Path> walk = Files.walk(path)) {
+                    walk.filter(Files::isRegularFile)
+                        .filter(p -> p.toString().endsWith(".vortex"))
+                        .forEach(p -> {
+                            try {
+                                Files.delete(p);
+                            } catch (IOException e) {
+                                throw new RuntimeException("Failed to delete file: " + p, e);
+                            }
+                        });
+                }
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to clean up output directory: " + outputPath, e);
+        }
     }
     
     /**
@@ -94,27 +126,8 @@ public final class VortexBatchWrite implements Write, BatchWrite, Serializable {
      */
     @Override
     public void commit(WriterCommitMessage[] messages) {
-        // If overwrite was requested, clean up old files first
-        if (overwrite) {
-            try {
-                Path path = Paths.get(outputPath);
-                if (Files.exists(path)) {
-                    try (Stream<Path> walk = Files.walk(path)) {
-                        walk.filter(Files::isRegularFile)
-                            .filter(p -> p.toString().endsWith(".vortex"))
-                            .forEach(p -> {
-                                try {
-                                    Files.delete(p);
-                                } catch (IOException e) {
-                                    throw new RuntimeException("Failed to delete file: " + p, e);
-                                }
-                            });
-                    }
-                }
-            } catch (IOException e) {
-                throw new RuntimeException("Failed to clean up output directory: " + outputPath, e);
-            }
-        }
+        // Overwrite cleanup should happen BEFORE writing, not after
+        // The commit method is called AFTER files are written, so we don't delete them here
         
         // Extract file paths from commit messages for logging
         String[] writtenFiles = Arrays.stream(messages)

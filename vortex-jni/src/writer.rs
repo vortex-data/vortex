@@ -55,25 +55,55 @@ impl WriterWrapper {
             };
 
             // Write the final array to file
-            let path = self.path;
+            let path = self.path.clone();
+            
+            eprintln!("About to write Vortex file to: {}", path);
+            eprintln!("Array has {} rows", final_array.len());
 
             // Write using VortexWriteOptions with the array's stream
             crate::block_on("write_vortex", async move {
                 // Create parent directories if they don't exist
                 if let Some(parent) = std::path::Path::new(&path).parent() {
+                    eprintln!("Creating parent directories: {:?}", parent);
                     tokio::fs::create_dir_all(parent).await.map_err(|e| {
                         JNIError::Vortex(vortex::error::vortex_err!("Failed to create directories: {}", e))
                     })?;
                 }
                 
+                eprintln!("Creating file: {}", path);
                 let file = tokio::fs::File::create(&path).await.map_err(|e| {
                     JNIError::Vortex(vortex::error::vortex_err!("Failed to create file: {}", e))
                 })?;
 
-                VortexWriteOptions::default()
+                eprintln!("Writing Vortex data to file...");
+                let result = VortexWriteOptions::default()
                     .write(file, final_array.to_array_stream())
                     .await
-                    .map_err(JNIError::Vortex)
+                    .map_err(JNIError::Vortex);
+                
+                // Ensure file is fully written to disk
+                if result.is_ok() {
+                    eprintln!("Syncing file to disk...");
+                    if let Ok(f) = tokio::fs::File::open(&path).await {
+                        if let Err(e) = f.sync_all().await {
+                            eprintln!("Warning: Failed to sync file: {}", e);
+                        }
+                    }
+                }
+                
+                match &result {
+                    Ok(_) => {
+                        eprintln!("Successfully wrote Vortex data to: {}", path);
+                        // Verify file exists and check its size
+                        match tokio::fs::metadata(&path).await {
+                            Ok(metadata) => eprintln!("File exists with size: {} bytes", metadata.len()),
+                            Err(e) => eprintln!("ERROR: File doesn't exist after writing: {}", e),
+                        }
+                    },
+                    Err(e) => eprintln!("Failed to write Vortex data: {:?}", e),
+                }
+                
+                result
             })?;
         } else {
             // Create empty file if no data
