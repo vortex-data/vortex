@@ -4,6 +4,7 @@
 use std::io;
 use std::sync::Arc;
 
+use indicatif::ProgressStyle;
 use futures::StreamExt;
 use indicatif::ProgressBar;
 use noodles_vcf::Record;
@@ -64,6 +65,7 @@ impl StatPopGenBenchmark {
             // Read and print the first 100,000 records
             let header = vcf_reader.read_header().await?;
             let progress = ProgressBar::new(self.n_rows);
+            progress.set_style(ProgressStyle::with_template("[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} {per_sec}").expect("style is ok"));
             let mut record = Record::default();
             let mut builder = GnomADBuilder::new(&header);
             let file = File::create(parquet_output_path).await?;

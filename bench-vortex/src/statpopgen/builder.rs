@@ -294,17 +294,62 @@ impl<'a> GnomADBuilder<'a> {
 
         self.consume_info(header, record.info())?;
 
-        let samples = &record.samples();
-        parse_genotype_format_field(samples, header, &mut self.GT_builder)?;
-
-        parse_int32_format_field(samples, header, &mut self.GQ_builder, "GQ")?;
-        parse_int32_format_field(samples, header, &mut self.DP_builder, "DP")?;
-        parse_list_int32_format_field(samples, header, &mut self.AD_builder, "AD")?;
-        parse_int32_format_field(samples, header, &mut self.MIN_DP_builder, "MIN_DP")?;
-        parse_pgt_format_field(samples, header, &mut self.PGT_builder, "PGT")?;
-        parse_string_format_field(samples, header, &mut self.PID_builder, "PID")?;
-        parse_list_int32_format_field(samples, header, &mut self.PL_builder, "PL")?;
-        parse_list_int32_format_field(samples, header, &mut self.SB_builder, "SB")?;
+        for sample in record.samples().iter() {
+            for result in sample.iter(header) {
+                let (field, value) = result?;
+                match field {
+                    "GT" => self
+                        .GT_builder
+                        .values()
+                        .append_option(parse_genotype(value)?),
+                    "GQ" => self
+                        .GQ_builder
+                        .values()
+                        .append_option(parse_int32_format(value)?),
+                    "DP" => self
+                        .DP_builder
+                        .values()
+                        .append_option(parse_int32_format(value)?),
+                    "AD" => self
+                        .AD_builder
+                        .values()
+                        .append_option(parse_list_int32_format(value)?),
+                    "MIN_DP" => self
+                        .MIN_DP_builder
+                        .values()
+                        .append_option(parse_int32_format(value)?),
+                    "PGT" => self
+                        .PGT_builder
+                        .values()
+                        .append_option(parse_pgt_format(value)?),
+                    "PID" => self
+                        .PID_builder
+                        .values()
+                        .append_option(parse_string_format(value)?),
+                    "PL" => self
+                        .PL_builder
+                        .values()
+                        .append_option(parse_list_int32_format(value)?),
+                    "SB" => self
+                        .SB_builder
+                        .values()
+                        .append_option(parse_list_int32_format(value)?),
+                    _ => {
+                        println!("{}", field);
+                        panic!("unknown field")
+                    }
+                }
+            }
+        }
+        self.GT_builder.append(true);
+        self.GQ_builder.append(true);
+        self.DP_builder.append(true);
+        self.AD_builder.append(true);
+        self.MIN_DP_builder.append(true);
+        self.PGT_builder.append(true);
+        self.PID_builder.append(true);
+        self.PL_builder.append(true);
+        self.SB_builder.append(true);
 
         Ok(())
     }
