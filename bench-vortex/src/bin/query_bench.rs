@@ -174,8 +174,16 @@ struct StatPopGenArgs {
               "duckdb:parquet",
               "duckdb:vortex",
               // DuckDB vortex-compact files trigger an assertion in pcodec.
+              //
               // "duckdb:vortex-compact",
-              "duckdb:duckdb"
+              //
+              // DuckDB native has a fixed parallelism row group size of 122,880
+              // rows. Unfortunately, this kind of list-heavy dataset is almost perfectly
+              // adversarial to that limitation.
+              //
+              // https://duckdb.org/docs/stable/guides/performance/how_to_tune_workloads.html#the-effect-of-row-groups-on-parallelism
+              //
+              // "duckdb:duckdb"
           ]
     )]
     targets: Vec<Target>,
