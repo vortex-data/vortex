@@ -14,7 +14,7 @@ use noodles_vcf::header::record::value::map::info::{Number, Type};
 use noodles_vcf::record::Info;
 use noodles_vcf::variant::record::info::field::Value;
 use noodles_vcf::{Header, Record};
-use vortex::error::{VortexExpect as _, VortexResult, vortex_err};
+use vortex::error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex::utils::aliases::hash_set::HashSet;
 
