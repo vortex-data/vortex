@@ -68,26 +68,42 @@
 7. **✅ Error Handling** - Robust error handling with proper logging at all levels
 8. **✅ File Management** - Overwrite cleanup, directory creation, and file discovery
 
-### 🚀 Optional Future Enhancements (Not Blockers):
+### 📋 Next Steps (Priority Order)
+
+#### Immediate (Required for Full Test Success):
+1. **Fix Empty DataFrame Schema Preservation**
+   - Implement Arrow C Data Interface for schema passing
+   - Ensures all tests pass (currently 3/4 passing)
+   - Critical for production readiness
+
+2. **Fix Javadoc Warnings**
+   - Simple parameter name fixes
+   - Eliminates build warnings
+
+#### Short-term Improvements:
 1. **Performance Optimization**
-   - Profile the InternalRow to Arrow conversion for optimization opportunities
-   - Benchmark against other formats (Parquet, etc.)
-   - Consider streaming writes for extremely large datasets
+   - Profile the InternalRow to Arrow conversion
+   - Implement buffer reuse for VectorSchemaRoot
+   - Dynamic batch sizing based on memory pressure
 
 2. **Enhanced Test Coverage**
-   - Add stress tests with very large datasets
+   - Add stress tests with very large datasets (>1GB)
    - Add concurrent read/write tests
    - Add schema evolution tests
+   - Test with all Spark data types
 
-3. **Production Features**
+#### Long-term Enhancements:
+1. **Production Features**
    - Add comprehensive metrics and monitoring
-   - Implement AutoCloseable pattern for resource management
-   - Add configuration options for batch sizes and compression
+   - Add configuration options for compression
+   - Implement write statistics collection
+   - Add support for column statistics
 
-4. **Documentation**
+2. **Documentation**
    - Create user guide with examples
    - Document performance characteristics
    - Add troubleshooting guide
+   - Document configuration options
 
 ## Overview
 Add support for writing Spark Datasets as Vortex files in the VortexDataSourceV2.
@@ -924,7 +940,36 @@ try (VortexDataWriter writer = new VortexDataWriter(...)) {
 - **Issue**: Empty DataFrames lose their schema when written/read
 - **Root Cause**: WriterWrapper creates schema-less empty struct instead of preserving original schema
 - **Impact**: Test failure in testWriteEmptyDataFrame
-- **Fix Needed**: Pass schema through JNI and create empty array with correct schema
+- **Current Approach**: Passing schema as JSON string (inefficient, requires parsing)
+- **Better Solution**: Use Arrow C Data Interface for zero-copy schema passing
+
+##### Proposed Fix Using Arrow C Data Interface:
+```java
+// Java side - pass schema through C Data Interface
+ArrowSchema arrowSchema = ...; // Already have this
+long schemaPtr = arrowSchema.memoryAddress(); // Pass pointer instead of JSON
+
+// Rust side - receive schema directly
+pub extern "system" fn create(
+    file_path: JString,
+    schema_ptr: jlong,  // FFI_ArrowSchema pointer
+    options: JObject,
+) -> jlong
+```
+
+**Benefits**:
+- Zero-copy schema transfer (no serialization/deserialization)
+- More efficient than JSON parsing
+- Consistent with how we pass arrays (already using FFI_ArrowArray)
+- Standard Arrow pattern for cross-language interop
+
+**Implementation Steps**:
+1. Change NativeWriterMethods.create() to accept schema pointer instead of JSON
+2. Update Rust to receive FFI_ArrowSchema and convert to arrow_schema::Schema
+3. Store schema in WriterWrapper for empty file creation
+4. Create empty RecordBatch with correct schema when no data written
+
+**Technical Note**: The Arrow C Data Interface is the recommended approach for passing Arrow data structures between languages. It avoids the overhead of serialization/deserialization and potential version compatibility issues with JSON schema format. This is already how we pass array data between Java and Rust (using FFI_ArrowArray), so using FFI_ArrowSchema for schemas maintains consistency.
 
 #### 2. **Javadoc Parameter Warnings**
 - **Issue**: Minor javadoc warnings about invalid parameter names

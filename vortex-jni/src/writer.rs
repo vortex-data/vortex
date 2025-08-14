@@ -2,9 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::io::Cursor;
+use std::sync::Arc;
 
 use arrow_array::RecordBatch;
 use arrow_ipc::reader::StreamReader;
+use arrow_schema::Schema;
 use jni::JNIEnv;
 use jni::objects::{JByteArray, JClass, JObject, JString};
 use jni::sys::{JNI_FALSE, JNI_TRUE, jboolean, jlong};
@@ -19,17 +21,24 @@ use crate::errors::{JNIError, try_or_throw};
 pub struct WriterWrapper {
     path: String,
     arrays: Vec<ArrayRef>,
+    schema: Option<Arc<Schema>>,
 }
 
 impl WriterWrapper {
-    pub fn new(path: String) -> Result<Self, JNIError> {
+    pub fn new(path: String, schema: Option<Arc<Schema>>) -> Result<Self, JNIError> {
         Ok(WriterWrapper {
             path,
             arrays: Vec::new(),
+            schema,
         })
     }
 
     pub fn write_batch(&mut self, batch: RecordBatch) -> Result<(), JNIError> {
+        // Store the schema from the first batch if we don't have one
+        if self.schema.is_none() {
+            self.schema = Some(batch.schema());
+        }
+        
         // Convert RecordBatch to Vortex array immediately to free Arrow memory
         // Use false for nullable since top-level structs representing rows should not be nullable
         let array = ArrayRef::from_arrow(batch, false);
@@ -85,13 +94,18 @@ impl WriterWrapper {
                 result
             })?;
         } else {
-            // Write an empty Vortex file with proper format
-            // We need to write at least a valid empty array to ensure the file is readable
+            // Write an empty Vortex file with proper format, preserving the schema
             
-            // Create an empty struct array with no fields (represents empty rows)
-            use vortex::arrays::StructArray;
-            
-            let empty_struct = StructArray::new_with_len(0).into_array();
+            // Create an empty array with the correct schema
+            let empty_array = if let Some(schema) = self.schema {
+                // Create an empty RecordBatch with the schema and convert to Vortex
+                let empty_batch = RecordBatch::new_empty(schema);
+                ArrayRef::from_arrow(empty_batch, false)
+            } else {
+                // No schema available, create a simple empty struct
+                use vortex::arrays::StructArray;
+                StructArray::new_with_len(0).into_array()
+            };
             
             // Write the empty array to file
             let path = self.path.clone();
@@ -111,7 +125,7 @@ impl WriterWrapper {
                 })?;
 
                 VortexWriteOptions::default()
-                    .write(file, empty_struct.to_array_stream())
+                    .write(file, empty_array.to_array_stream())
                     .await
                     .map_err(JNIError::Vortex)
             })?;
@@ -127,18 +141,31 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriterMethods_create<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
     file_path: JString<'local>,
-    _schema_json: JString<'local>,
+    schema_json: JString<'local>,
     _options: JObject<'local>,
 ) -> jlong {
     try_or_throw(&mut env, |env| {
         // Get the file path
         let path: String = env.get_string(&file_path)?.into();
 
-        // Note: schema_json parameter is kept for API compatibility but not used
-        // The schema will be extracted from the IPC data itself
+        // Parse the Arrow schema JSON if provided
+        let schema = if !schema_json.is_null() {
+            let json_str: String = env.get_string(&schema_json)?.into();
+            if !json_str.is_empty() {
+                // Parse the JSON schema using Arrow's built-in parser
+                match Schema::parse(&json_str) {
+                    Ok(s) => Some(Arc::new(s)),
+                    Err(_) => None, // Ignore parse errors, schema will come from first batch
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
-        // Create the writer
-        let wrapper = WriterWrapper::new(path)?;
+        // Create the writer with the schema
+        let wrapper = WriterWrapper::new(path, schema)?;
 
         // Return the pointer
         let ptr = Box::into_raw(Box::new(wrapper)) as jlong;
