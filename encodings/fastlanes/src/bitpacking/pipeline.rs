@@ -194,11 +194,6 @@ mod tests {
                 .collect::<BooleanBuffer>();
             let mask = Mask::from_buffer(mask);
 
-            println!(
-                "pipeline {:?}",
-                bitpacked.to_pipeline_plan().unwrap().vtype()
-            );
-
             let result = export_canonical_pipeline_expr(
                 bitpacked.dtype(),
                 bitpacked.len(),
@@ -209,29 +204,6 @@ mod tests {
             .into_array();
 
             let expect = filter(bitpacked.to_canonical().unwrap().as_ref(), &mask).unwrap();
-
-            println!("mask true_count: {}, total: {}", mask.true_count(), len);
-
-            println!("\nresult: {}", result.display_tree(),);
-
-            println!(
-                "\nresult: {}",
-                DisplayArrayAs(
-                    result.as_ref(),
-                    DisplayOptions::CommaSeparatedScalars {
-                        omit_comma_after_space: false
-                    }
-                )
-            );
-            println!(
-                "\nexpect: {}",
-                DisplayArrayAs(
-                    &expect,
-                    DisplayOptions::CommaSeparatedScalars {
-                        omit_comma_after_space: false
-                    }
-                )
-            );
 
             for i in 0..mask.true_count() {
                 assert_eq!(
