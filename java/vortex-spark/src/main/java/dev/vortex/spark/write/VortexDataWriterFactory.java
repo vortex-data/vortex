@@ -46,7 +46,6 @@ public final class VortexDataWriterFactory implements DataWriterFactory, Seriali
      *
      * @param partitionId the partition ID
      * @param taskId the task ID
-     * @param epochId the epoch ID (for streaming, always 0 for batch)
      * @return a new VortexDataWriter instance
      */
     @Override

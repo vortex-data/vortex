@@ -141,21 +141,29 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriterMethods_create<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
     file_path: JString<'local>,
-    schema_json: JString<'local>,
+    schema_ipc: JByteArray<'local>,
     _options: JObject<'local>,
 ) -> jlong {
     try_or_throw(&mut env, |env| {
         // Get the file path
         let path: String = env.get_string(&file_path)?.into();
 
-        // Parse the Arrow schema JSON if provided
-        let schema = if !schema_json.is_null() {
-            let json_str: String = env.get_string(&schema_json)?.into();
-            if !json_str.is_empty() {
-                // Parse the JSON schema using Arrow's built-in parser
-                match Schema::parse(&json_str) {
-                    Ok(s) => Some(Arc::new(s)),
-                    Err(_) => None, // Ignore parse errors, schema will come from first batch
+        // Parse the Arrow schema from IPC format if provided
+        let schema = if !schema_ipc.is_null() {
+            let data = env.convert_byte_array(&schema_ipc)?;
+            if !data.is_empty() {
+                // Parse the Arrow IPC stream to extract the schema
+                let cursor = Cursor::new(data);
+                match StreamReader::try_new(cursor, None) {
+                    Ok(reader) => {
+                        // Extract the schema from the reader
+                        Some(reader.schema())
+                    }
+                    Err(e) => {
+                        // Log the error but continue - schema will come from first batch
+                        eprintln!("Warning: Failed to parse Arrow IPC schema: {}", e);
+                        None
+                    }
                 }
             } else {
                 None

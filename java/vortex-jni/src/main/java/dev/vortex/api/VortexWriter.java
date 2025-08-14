@@ -20,13 +20,13 @@ public interface VortexWriter extends AutoCloseable {
      * Creates a new VortexWriter for writing to the specified file path.
      *
      * @param filePath the path where the Vortex file will be written
-     * @param schemaJson the Arrow schema in JSON format
+     * @param schemaIpc the Arrow schema in IPC format (or null if no schema)
      * @param options additional writer options
      * @return a new VortexWriter instance
      * @throws IOException if the writer cannot be created
      */
-    static VortexWriter create(String filePath, String schemaJson, Map<String, String> options) throws IOException {
-        long ptr = NativeWriterMethods.create(filePath, schemaJson, options);
+    static VortexWriter create(String filePath, byte[] schemaIpc, Map<String, String> options) throws IOException {
+        long ptr = NativeWriterMethods.create(filePath, schemaIpc, options);
         if (ptr <= 0) {
             throw new IOException("Failed to create Vortex writer for: " + filePath + " (got ptr=" + ptr + ")");
         }

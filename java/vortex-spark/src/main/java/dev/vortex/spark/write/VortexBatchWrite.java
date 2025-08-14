@@ -97,12 +97,12 @@ public final class VortexBatchWrite implements Write, BatchWrite, Serializable {
     }
 
     /**
-     * Called when the write job is being prepared.
+     * Called when a single data writer task completes successfully.
      *
-     * If overwrite is enabled, this method will clean up existing files
-     * at the output path.
+     * This is called for each successful task but individual file commits
+     * are handled in the data writer itself.
      *
-     * @param messages commit messages from the write preparation phase
+     * @param message commit message from a successful data writer task
      */
     @Override
     public void onDataWriterCommit(WriterCommitMessage message) {

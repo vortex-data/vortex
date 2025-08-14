@@ -20,11 +20,11 @@ public final class NativeWriterMethods {
      * Creates a new native Vortex writer.
      *
      * @param filePath the path where the Vortex file will be written
-     * @param schemaJson the Arrow schema in JSON format
+     * @param schemaIpc the Arrow schema in IPC format (or null if no schema)
      * @param options additional writer options
      * @return a native pointer to the writer, or 0 on failure
      */
-    public static native long create(String filePath, String schemaJson, Map<String, String> options);
+    public static native long create(String filePath, byte[] schemaIpc, Map<String, String> options);
 
     /**
      * Writes a batch of Arrow data to the Vortex file.
