@@ -5,18 +5,27 @@ use vortex_error::VortexResult;
 
 use crate::traversal::Node;
 
-pub enum FoldDownContext<C, R> {
-    Continue(C),
-    Stop(R),
-    Skip(R),
-}
-
+/// Use to indicate the control flow of the fold on the downwards pass.
+/// `Stop` indicates that the fold should stop.
+/// `Skip` indicates that the fold should skip the children of the current node.
+/// `Continue` indicates that the fold should continue.
 pub enum FoldDown<R> {
     Continue,
     Stop(R),
     Skip(R),
 }
 
+/// Use to indicate the control flow of the fold on the downwards pass.
+/// In the case of Continue, the context is passed on to the children nodes.
+/// Other cases are the same as `FoldDown`.
+pub enum FoldDownContext<C, R> {
+    Continue(C),
+    Stop(R),
+    Skip(R),
+}
+
+/// Use to indicate the control flow of the fold on the upwards pass.
+/// `Stop` indicates that the fold should stop at the current position and return the result.
 pub enum FoldUp<R> {
     Continue(R),
     Stop(R),
@@ -31,6 +40,18 @@ impl<R> FoldUp<R> {
     }
 }
 
+/// Use to implement the folding a tree like structure in a pre-order traversal.
+///
+/// At each point on the way down, the `visit_down` method is called. If it returns `Skip`,
+/// the children of the current node are skipped. If it returns `Stop`, the fold is stopped.
+/// If it returns `Continue`, the children of the current node are visited.
+///
+/// At each point on the way up, the `visit_up` method is called. If it returns `Stop`,
+/// the fold stops.
+///
+/// On the way up the folded children are passed to the `visit_up` method along with the current node.
+///
+/// Note: this trait is not safe to use for graphs with a cycle.
 pub trait NodeFolderContext {
     type NodeTy: Node;
     type Result;
@@ -57,6 +78,7 @@ pub trait NodeFolderContext {
     ) -> VortexResult<FoldUp<Self::Result>>;
 }
 
+/// This trait is used to implemet a fold (see `NodeFolderContext`), but without a context.
 pub trait NodeFolder {
     type NodeTy: Node;
     type Result;
