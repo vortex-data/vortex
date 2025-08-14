@@ -16,7 +16,6 @@ use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_io::{Dispatch, InstrumentedReadAt, IoDispatcher, VortexReadAt};
 use vortex_layout::segments::{SegmentEvents, SegmentId};
-use vortex_scan::{SegmentCallback, SegmentSource2};
 
 #[cfg(feature = "tokio")]
 static TOKIO_DISPATCHER: std::sync::LazyLock<IoDispatcher> =
@@ -120,13 +119,14 @@ impl VortexOpenOptions<GenericVortexFile> {
 
         // Spawn an I/O driver onto the dispatcher.
         let io_concurrency = self.options.io_concurrency;
+        let read2 = read.clone();
         self.options
             .io_dispatcher
             .dispatch(move || {
                 async move {
                     // Drive the segment event stream.
                     let stream = driver
-                        .map(|coalesced_req| coalesced_req.launch(&read))
+                        .map(|coalesced_req| coalesced_req.launch(&read2))
                         .buffer_unordered(io_concurrency);
                     pin_mut!(stream);
 
