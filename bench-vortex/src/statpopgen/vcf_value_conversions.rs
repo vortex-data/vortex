@@ -6,7 +6,6 @@ use std::borrow::Cow;
 use itertools::Itertools as _;
 use noodles_vcf::variant::record::info::field::value::array::Values;
 use noodles_vcf::variant::record::info::field::value::{Array, Value};
-use noodles_vcf::variant::record::samples::Series;
 use noodles_vcf::variant::record::samples::series::value::{
     Array as EntryArray, Value as EntryValue,
 };

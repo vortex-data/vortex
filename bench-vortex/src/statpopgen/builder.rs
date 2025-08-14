@@ -334,10 +334,7 @@ impl<'a> GnomADBuilder<'a> {
                         .SB_builder
                         .values()
                         .append_option(parse_list_int32_format(value)?),
-                    _ => {
-                        println!("{}", field);
-                        panic!("unknown field")
-                    }
+                    _ => vortex_bail!("unknown field {field}"),
                 }
             }
         }
