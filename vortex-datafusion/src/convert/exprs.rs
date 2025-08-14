@@ -6,7 +6,7 @@ use std::sync::Arc;
 use datafusion::arrow::datatypes::{DataType, Schema};
 use datafusion::logical_expr::Operator as DFOperator;
 use datafusion::physical_expr::{PhysicalExpr, PhysicalExprRef, expressions};
-use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex::error::{VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{ExprRef, Operator, and};
 use vortex::scalar::Scalar;
 
@@ -21,22 +21,23 @@ const SUPPORTED_BINARY_OPS: &[DFOperator] = &[
     DFOperator::LtEq,
 ];
 
-// If we cannot convert an expr to a vortex expr, we run no filter, since datafusion
-// will rerun the filter expression anyway.
-pub(crate) fn make_vortex_predicate(predicate: &[&Arc<dyn PhysicalExpr>]) -> Option<ExprRef> {
-    // This splits expressions into conjunctions and converts them to vortex expressions.
-    // Any inconvertible expressions are dropped since true /\ a == a.
-    predicate
+/// Tries to convert the expressions into a vortex conjunction. Will return Ok(None) iff the input conjunction is empty.
+pub(crate) fn make_vortex_predicate(
+    predicate: &[&Arc<dyn PhysicalExpr>],
+) -> VortexResult<Option<ExprRef>> {
+    let exprs = predicate
         .iter()
-        .filter_map(|e| ExprRef::try_from_df(e.as_ref()).ok())
-        .reduce(and)
+        .map(|e| ExprRef::try_from_df(e.as_ref()))
+        .collect::<VortexResult<Vec<_>>>()?;
+
+    Ok(exprs.into_iter().reduce(and))
 }
 
 // TODO(joe): Don't return an error when we have an unsupported node, bubble up "TRUE" as in keep
 //  for that node, up to any `and` or `or` node.
 impl TryFromDataFusion<dyn PhysicalExpr> for ExprRef {
     fn try_from_df(df: &dyn PhysicalExpr) -> VortexResult<Self> {
-        use vortex::expr::{BinaryExpr, ExprRef, IntoExpr, LikeExpr, get_item, lit, root};
+        use vortex::expr::{BinaryExpr, ExprRef, LikeExpr, get_item, lit, root};
 
         if let Some(binary_expr) = df.as_any().downcast_ref::<expressions::BinaryExpr>() {
             let left = ExprRef::try_from_df(binary_expr.left().as_ref())?;
@@ -53,9 +54,12 @@ impl TryFromDataFusion<dyn PhysicalExpr> for ExprRef {
         if let Some(like) = df.as_any().downcast_ref::<expressions::LikeExpr>() {
             let child = ExprRef::try_from_df(like.expr().as_ref())?;
             let pattern = ExprRef::try_from_df(like.pattern().as_ref())?;
-            return Ok(
-                LikeExpr::new(child, pattern, like.negated(), like.case_insensitive()).into_expr(),
-            );
+            return Ok(LikeExpr::new_expr(
+                child,
+                pattern,
+                like.negated(),
+                like.case_insensitive(),
+            ));
         }
 
         if let Some(literal) = df.as_any().downcast_ref::<expressions::Literal>() {
@@ -123,19 +127,7 @@ pub(crate) fn can_be_pushed_down(expr: &PhysicalExprRef, schema: &Schema) -> boo
 
     let expr = expr.as_any();
     if let Some(binary) = expr.downcast_ref::<BinaryExpr>() {
-        (binary.op().is_logic_operator() || SUPPORTED_BINARY_OPS.contains(binary.op()))
-            && can_be_pushed_down(binary.left(), schema)
-            && can_be_pushed_down(binary.right(), schema)
-            && binary
-                .left()
-                .data_type(schema)
-                .ok()
-                .vortex_expect("never fails")
-                == binary
-                    .right()
-                    .data_type(schema)
-                    .ok()
-                    .vortex_expect("never fails")
+        can_binary_be_pushed_down(binary, schema)
     } else if let Some(col) = expr.downcast_ref::<Column>() {
         schema
             .field_with_name(col.name())
@@ -149,6 +141,14 @@ pub(crate) fn can_be_pushed_down(expr: &PhysicalExprRef, schema: &Schema) -> boo
         log::debug!("DataFusion expression can't be pushed down: {expr:?}");
         false
     }
+}
+
+fn can_binary_be_pushed_down(binary: &expressions::BinaryExpr, schema: &Schema) -> bool {
+    let is_op_supported =
+        binary.op().is_logic_operator() || SUPPORTED_BINARY_OPS.contains(binary.op());
+    is_op_supported
+        && can_be_pushed_down(binary.left(), schema)
+        && can_be_pushed_down(binary.right(), schema)
 }
 
 fn supported_data_types(dt: &DataType) -> bool {

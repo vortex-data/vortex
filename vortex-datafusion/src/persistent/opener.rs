@@ -18,7 +18,7 @@ use futures::{FutureExt, StreamExt, TryStreamExt, stream};
 use object_store::ObjectStore;
 use object_store::path::Path;
 use vortex::dtype::FieldName;
-use vortex::error::{VortexError, VortexExpect as _};
+use vortex::error::VortexError;
 use vortex::expr::root;
 use vortex::layout::LayoutReader;
 use vortex::metrics::VortexMetrics;
@@ -67,6 +67,8 @@ impl FileOpener for VortexFileOpener {
             Some(indices) => Arc::new(logical_schema.project(indices)?),
         };
 
+        let mut predicate_file_schema = logical_schema.clone();
+
         let schema_adapter = self
             .schema_adapter_factory
             .create(projected_schema, logical_schema.clone());
@@ -104,6 +106,8 @@ impl FileOpener for VortexFileOpener {
                         PhysicalExprSimplifier::new(&physical_file_schema).simplify(expr)
                     })
                     .transpose()?;
+
+                predicate_file_schema = physical_file_schema.clone();
             }
 
             let (schema_mapping, adapted_projections) =
@@ -150,21 +154,17 @@ impl FileOpener for VortexFileOpener {
             let mut scan_builder = ScanBuilder::new(layout_reader);
             scan_builder = apply_byte_range(file_meta, vxf.row_count(), scan_builder);
 
-            let filter = filter.and_then(|f| {
-                let exprs = split_conjunction(&f)
-                    .into_iter()
-                    .filter(|expr| can_be_pushed_down(expr, &physical_file_schema))
-                    .collect::<Vec<_>>();
-                // If we don't support any filters here
-                if exprs.is_empty() {
-                    None
-                } else {
-                    Some(
-                        make_vortex_predicate(&exprs)
-                            .vortex_expect("Should always return some expression"),
-                    )
-                }
-            });
+            let filter = filter
+                .and_then(|f| {
+                    let exprs = split_conjunction(&f)
+                        .into_iter()
+                        .filter(|expr| can_be_pushed_down(expr, &predicate_file_schema))
+                        .collect::<Vec<_>>();
+
+                    make_vortex_predicate(&exprs).transpose()
+                })
+                .transpose()
+                .map_err(|e| DataFusionError::External(e.into()))?;
 
             if let Some(limit) = limit
                 && filter.is_none()
@@ -433,8 +433,11 @@ mod tests {
 
     #[rstest]
     #[case(Some(Arc::new(DefaultPhysicalExprAdapterFactory) as _))]
-    // If we don't have a physical expr adapter, we just drop filters on partition values
-    #[case(None)]
+    // If we don't have a physical expr adapter, we just drop filters on partition values.
+    // This is currently not supported, the work to support it requires to rewrite the predicate with appropriate casts.
+    // Seems like datafusion is moving towards having DefaultPhysicalExprAdapterFactory be always provided, which would make it work OOTB.
+    // See: https://github.com/apache/datafusion/issues/16800
+    //#[case(None)]
     #[tokio::test]
     async fn test_open_files_different_table_schema(
         #[case] expr_adapter_factory: Option<Arc<dyn PhysicalExprAdapterFactory>>,

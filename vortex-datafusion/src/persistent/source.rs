@@ -11,7 +11,9 @@ use datafusion::common::{Result as DFResult, Statistics};
 use datafusion::config::ConfigOptions;
 use datafusion::datasource::physical_plan::{FileOpener, FileScanConfig, FileSource};
 use datafusion::datasource::schema_adapter::{DefaultSchemaAdapterFactory, SchemaAdapterFactory};
-use datafusion::physical_expr::schema_rewriter::DefaultPhysicalExprAdapterFactory;
+use datafusion::physical_expr::schema_rewriter::{
+    DefaultPhysicalExprAdapterFactory, PhysicalExprAdapterFactory,
+};
 use datafusion::physical_expr::{PhysicalExprRef, conjunction};
 use datafusion::physical_plan::filter_pushdown::{
     FilterPushdownPropagation, PushedDown, PushedDownPredicate,
@@ -32,7 +34,7 @@ use crate::convert::exprs::can_be_pushed_down;
 
 /// A config for [`VortexFileOpener`]. Used to create [`DataSourceExec`] based physical plans.
 ///
-/// [`DataSourceExec`]: datafusion_physical_plan::source::DataSourceExec
+/// [`DataSourceExec`]: datafusion::datasource::source::DataSourceExec
 #[derive(Clone)]
 pub struct VortexSource {
     pub(crate) file_cache: VortexFileCache,
@@ -42,6 +44,7 @@ pub struct VortexSource {
     /// This is the file schema the table expects, which is the table's schema without partition columns, and **not** the file's physical schema.
     pub(crate) arrow_file_schema: Option<SchemaRef>,
     pub(crate) schema_adapter_factory: Option<Arc<dyn SchemaAdapterFactory>>,
+    pub(crate) expr_adapter_factory: Option<Arc<dyn PhysicalExprAdapterFactory>>,
     pub(crate) metrics: VortexMetrics,
     _unused_df_metrics: ExecutionPlanMetricsSet,
     /// Shared layout readers, the source only lives as long as one scan.
@@ -60,9 +63,23 @@ impl VortexSource {
             projected_statistics: None,
             arrow_file_schema: None,
             schema_adapter_factory: None,
+            expr_adapter_factory: None,
             _unused_df_metrics: Default::default(),
             layout_readers: Arc::new(DashMap::default()),
         }
+    }
+
+    /// Sets a [`PhysicalExprAdapterFactory`] for the [`VortexSource`].
+    /// Currently, this must be provided in order to filter columns in files that have a different data type from the unified table schema.
+    ///
+    /// This factory will take precedence when opening files over instances provided by the [`FileScanConfig`].
+    pub fn with_expr_adapter_factory(
+        &self,
+        expr_adapter_factory: Arc<dyn PhysicalExprAdapterFactory>,
+    ) -> Arc<dyn FileSource> {
+        let mut source = self.clone();
+        source.expr_adapter_factory = Some(expr_adapter_factory);
+        Arc::new(source)
     }
 }
 
@@ -81,7 +98,10 @@ impl FileSource for VortexSource {
             .batch_size
             .vortex_expect("batch_size must be supplied to VortexSource");
 
-        let expr_adapter = base_config.expr_adapter_factory.as_ref();
+        let expr_adapter = self
+            .expr_adapter_factory
+            .as_ref()
+            .or(base_config.expr_adapter_factory.as_ref());
         let schema_adapter = self.schema_adapter_factory.as_ref();
 
         // This match is here to support the behavior defined by [`ListingTable`], see https://github.com/apache/datafusion/issues/16800 for more details.
