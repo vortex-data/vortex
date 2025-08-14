@@ -1193,6 +1193,7 @@ fn basic_file_roundtrip2() -> VortexResult<()> {
     let vxf = chunked_file()?;
     let result = vxf
         .scan()?
+        // .with_filter(gt(root(), lit(5i32)))
         .build2()?
         .into_worker_pool()
         .new_worker()

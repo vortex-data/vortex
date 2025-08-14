@@ -76,11 +76,6 @@ impl FilterExpr {
         read.iter().find(|&idx| remaining[*idx]).copied()
     }
 
-    pub fn most_selective_conjunct(&self) -> Option<usize> {
-        let read = self.ordering.read();
-        read.first().copied()
-    }
-
     /// Report the selectivity of a conjunct, i.e. 0 means no rows matched the predicate.
     #[allow(clippy::cast_possible_truncation)]
     pub fn report_selectivity(&self, conjunct_idx: usize, selectivity: f64) {

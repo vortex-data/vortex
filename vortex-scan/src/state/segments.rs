@@ -57,6 +57,7 @@ impl SegmentCache {
             }
 
             // Otherwise, we need to fetch this segment.
+            log::debug!("Requesting segment {}", segment_id);
             let fut = self.source.request(segment_id);
             self.in_flight.insert(segment_id);
             self.futures.push(
