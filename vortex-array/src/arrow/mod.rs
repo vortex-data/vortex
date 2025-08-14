@@ -14,6 +14,7 @@ mod datum;
 mod iter;
 mod record_batch;
 
+pub use array::*;
 pub use datum::*;
 pub use iter::*;
 

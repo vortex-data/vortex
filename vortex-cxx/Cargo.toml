@@ -21,10 +21,12 @@ workspace = true
 crate-type = ["staticlib"]
 
 [dependencies]
+anyhow = { workspace = true }
 arrow-array = { workspace = true, features = ["ffi"] }
 arrow-schema = { workspace = true }
 cxx = "1.0"
 futures = { workspace = true, features = ["thread-pool"] }
+paste = { workspace = true }
 prost = { workspace = true }
 take_mut = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }

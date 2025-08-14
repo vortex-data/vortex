@@ -323,6 +323,7 @@ jobs:
             -o ${{ env.GRCOV_OUTPUT_FILE }}
       - name: Coveralls
         uses: coverallsapp/github-action@v2
+        continue-on-error: true
         with:
           parallel: true
           flag-name: run-${{ matrix.suite }}
@@ -335,6 +336,7 @@ jobs:
     steps:
       - name: Close parallel build
         uses: coverallsapp/github-action@v2
+        continue-on-error: true
         with:
           parallel-finished: true
           carryforward: "run-tests,run-tpc-h,run-ffi"
@@ -461,7 +463,7 @@ jobs:
         run: |
           mkdir -p build
           cd build
-          cmake -DVORTEX_ENABLE_TESTING=ON ..
+          cmake -DVORTEX_ENABLE_TESTING=ON -DVORTEX_ENABLE_ASAN=ON ..
           cmake --build . --parallel $(nproc)
           ctest -V
       - name: Build and run the example in release mode

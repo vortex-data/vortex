@@ -10,8 +10,9 @@
 #include "vortex/file.hpp"
 #include "vortex/scan.hpp"
 #include "vortex/write_options.hpp"
+#include "vortex/scalar.hpp"
 #include "test_data_generator.hpp"
-#include "vortex_cxx_bridge/write.h"
+#include "vortex_cxx_bridge/lib.h"
 
 #include <nanoarrow/nanoarrow.hpp>
 #include <nanoarrow/nanoarrow.h>
@@ -62,17 +63,14 @@ protected:
     StreamToUniqueStreamSchema(ArrowArrayStream &stream) {
         nanoarrow::UniqueArrayStream array_stream;
         ArrowArrayStreamMove(&stream, array_stream.get());
-        return {std::move(array_stream), GetSchemaFromArrayStream(array_stream.get())};
-    }
-
-    nanoarrow::UniqueSchema GetSchemaFromArrayStream(ArrowArrayStream *array_stream) {
+        ArrowError error;
         nanoarrow::UniqueSchema schema;
-        int get_schema_result = array_stream->get_schema(array_stream, schema.get());
-        if (get_schema_result != NANOARROW_OK) {
-            std::cerr << "Error: " << array_stream->get_last_error(array_stream) << '\n';
+        ArrowErrorCode set_result = ArrowArrayStreamGetSchema(array_stream.get(), schema.get(), &error);
+        if (set_result != NANOARROW_OK) {
+            std::cerr << "Error: " << error.message << '\n';
             std::abort();
         }
-        return schema;
+        return {std::move(array_stream), std::move(schema)};
     }
 
     nanoarrow::UniqueArray ReadFirstArrayFromUniqueStream(nanoarrow::UniqueArrayStream &array_stream) {
@@ -125,7 +123,10 @@ protected:
                                     const std::vector<int64_t> &row_indices) {
         // Basic properties validation
         ASSERT_EQ(actual_schema->n_children, ref_schema->n_children);
-
+        if (row_indices.empty()) {
+            ASSERT_EQ(actual_array->length, 0);
+            return;
+        }
         auto actual_view = CreateArrayView(actual_array, actual_schema);
         auto ref_view = CreateArrayView(ref_array, ref_schema);
 
@@ -159,23 +160,58 @@ protected:
         return {std::move(array), std::move(schema)};
     }
 
+    /// Validate array with projection - only checks specified field indices
+    void ValidateArrayWithProjection(const nanoarrow::UniqueArray &actual_array,
+                                     const nanoarrow::UniqueSchema &actual_schema,
+                                     const nanoarrow::UniqueArray &ref_array,
+                                     const nanoarrow::UniqueSchema &ref_schema,
+                                     const std::vector<int64_t> &field_idxs) {
+        ASSERT_EQ(actual_schema->n_children, field_idxs.size());
+
+        auto actual_view = CreateArrayView(actual_array, actual_schema);
+        auto ref_view = CreateArrayView(ref_array, ref_schema);
+
+        ASSERT_EQ(actual_array->length, ref_array->length);
+
+        // Compare only the specified fields
+        for (int64_t i = 0; i < actual_array->length; ++i) {
+            for (size_t proj_idx = 0; proj_idx < field_idxs.size(); ++proj_idx) {
+                int64_t ref_field_idx = field_idxs[proj_idx];
+                int64_t actual_val = ArrowArrayViewGetIntUnsafe(actual_view->children[proj_idx], i);
+                int64_t expected_val = ArrowArrayViewGetIntUnsafe(ref_view->children[ref_field_idx], i);
+                ASSERT_EQ(actual_val, expected_val);
+            }
+        }
+    }
+
     // Top-level test helper that all tests can use
     void
     RunScanBuilderTest(const std::function<ArrowArrayStream(vortex::ScanBuilder &&)> &configureScanBuilder,
                        ArrowArrayStream expected_stream,
-                       const std::vector<int64_t> &expected_row_indices = {}) {
+                       const std::vector<int64_t> &expected_row_indices = {}, bool selection = false) {
 
         auto [array, schema] = ScanFirstArrayFromTestData(configureScanBuilder);
         auto [ref_array, ref_schema] = ReadFirstArrayFromStream(expected_stream);
-        expected_row_indices.empty()
+        selection == false
             ? ValidateArray(array, schema, ref_array, ref_schema)
             : ValidateArrayWithSelection(array, schema, ref_array, ref_schema, expected_row_indices);
+    }
+
+    // New helper for projection tests
+    void RunScanBuilderProjectionTest(
+        const std::function<ArrowArrayStream(vortex::ScanBuilder &&)> &configureScanBuilder,
+        ArrowArrayStream expected_stream, const std::vector<int64_t> &field_idxs) {
+
+        auto [array, schema] = ScanFirstArrayFromTestData(configureScanBuilder);
+        auto [ref_array, ref_schema] = ReadFirstArrayFromStream(expected_stream);
+
+        ValidateArrayWithProjection(array, schema, ref_array, ref_schema, field_idxs);
     }
 };
 
 TEST_F(VortexTest, ScanToStream) {
     RunScanBuilderTest([](vortex::ScanBuilder &&builder) { return std::move(builder).IntoStream(); },
-                       vortex::testing::CreateTestDataStream(), {});
+                       vortex::testing::CreateTestDataStream());
 }
 
 TEST_F(VortexTest, ScanBuilderWithLimitWithRowRange) {
@@ -185,7 +221,7 @@ TEST_F(VortexTest, ScanBuilderWithLimitWithRowRange) {
         [](vortex::ScanBuilder &&scan_builder) {
             return std::move(scan_builder).WithLimit(2).WithRowRange(1, 4).IntoStream();
         },
-        vortex::testing::CreateTestDataStream(), {1, 2});
+        vortex::testing::CreateTestDataStream(), {1, 2}, true);
 }
 
 TEST_F(VortexTest, ScanBuilderWithIncludeByIndex) {
@@ -197,7 +233,7 @@ TEST_F(VortexTest, ScanBuilderWithIncludeByIndex) {
                 .WithIncludeByIndex(include_by_index.data(), include_by_index.size())
                 .IntoStream();
         },
-        vortex::testing::CreateTestDataStream(), {1, 3});
+        vortex::testing::CreateTestDataStream(), {1, 3}, true);
 }
 
 TEST_F(VortexTest, ScanBuilderWithRowRangeWithIncludeByIndex) {
@@ -210,7 +246,7 @@ TEST_F(VortexTest, ScanBuilderWithRowRangeWithIncludeByIndex) {
                 .WithIncludeByIndex(include_by_index.data(), include_by_index.size())
                 .IntoStream();
         },
-        vortex::testing::CreateTestDataStream(), {3, 4});
+        vortex::testing::CreateTestDataStream(), {3, 4}, true);
 }
 
 TEST_F(VortexTest, WriteArrayStream) {
@@ -255,14 +291,12 @@ TEST_F(VortexTest, ConcurrentMultiStreamRead) {
 
     std::vector<BatchData> thread1_batches;
     std::vector<BatchData> thread2_batches;
-    auto stream_for_schema = stream_driver.CreateArrayStream();
-    auto schema = GetSchemaFromArrayStream(&stream_for_schema);
 
     // Helper function to read from a stream and collect batches
     auto read_stream = [&](std::vector<BatchData> &batches) {
         // Each thread creates its own stream
         auto stream = stream_driver.CreateArrayStream();
-        auto [array_stream, _] = StreamToUniqueStreamSchema(stream);
+        auto [array_stream, schema] = StreamToUniqueStreamSchema(stream);
 
         std::vector<BatchData> local_batches;
 
@@ -316,6 +350,8 @@ TEST_F(VortexTest, ConcurrentMultiStreamRead) {
     size_t total_rows_read = 0;
     int64_t reference_offset = 0;
 
+    auto stream_for_schema = stream_driver.CreateArrayStream();
+    auto [_, schema] = StreamToUniqueStreamSchema(stream_for_schema);
     for (const auto &batch : all_batches) {
         auto array_view = CreateArrayView(batch.array, schema);
 
@@ -342,4 +378,63 @@ TEST_F(VortexTest, ConcurrentMultiStreamRead) {
     ASSERT_EQ(reference_offset, EXPECTED_ROWS) << "Reference validation didn't cover all rows";
 
     ASSERT_GT(all_batches.size(), 1) << "Expected multiple batches, but got " << all_batches.size();
+}
+
+namespace ve = vortex::expr;
+namespace vs = vortex::scalar;
+
+TEST_F(VortexTest, ScanBuilderWithFilter) {
+    // Test filtering with eq(column("a"), val) - should return only rows where column "a" equals 30
+    RunScanBuilderTest(
+        [](vortex::ScanBuilder &&scan_builder) {
+            auto filter = ve::eq(ve::column("a"), ve::literal(vs::int32(30)));
+            return std::move(scan_builder).WithFilter(std::move(filter)).IntoStream();
+        },
+        vortex::testing::CreateTestDataStream(), {2}, true); // Row index 2 corresponds to value 30
+}
+
+TEST_F(VortexTest, ScanBuilderWithFilterNoMatches) {
+    // Test filtering with eq(column("a"), val) where no rows match - should return empty result
+    RunScanBuilderTest(
+        [](vortex::ScanBuilder &&scan_builder) {
+            auto filter = ve::eq(ve::column("a"),
+                                 ve::literal(vs::int32(999)) // Value that doesn't exist in test data
+            );
+            return std::move(scan_builder).WithFilter(std::move(filter)).IntoStream();
+        },
+        vortex::testing::CreateTestDataStream(), {}, true); // No matching rows
+}
+
+TEST_F(VortexTest, ScanBuilderWithFilterUsingDTypeFromArrowAndScalarCast) {
+    // Test filtering using DType::from_arrow and Scalar::cast functionality
+    // This test creates a filter expression by casting a scalar to match the column type
+
+    // Test DType::from_arrow with int32 schema
+    nanoarrow::UniqueSchema int32_schema;
+    ArrowSchemaInit(int32_schema.get());
+    ArrowErrorCode result = ArrowSchemaSetType(int32_schema.get(), NANOARROW_TYPE_INT32);
+    EXPECT_EQ(result, NANOARROW_OK);
+    result = ArrowSchemaSetName(int32_schema.get(), "test_field");
+    EXPECT_EQ(result, NANOARROW_OK);
+
+    auto dtype = vortex::dtype::from_arrow(*int32_schema.get());
+
+    // Use the casted scalar in filter expression - create a new scalar for lambda
+    RunScanBuilderTest(
+        [&](vortex::ScanBuilder &&scan_builder) {
+            auto test_scalar = vs::cast(vs::int64(30), std::move(dtype));
+            auto filter = ve::eq(ve::column("a"), ve::literal(std::move(test_scalar)));
+            return std::move(scan_builder).WithFilter(std::move(filter)).IntoStream();
+        },
+        vortex::testing::CreateTestDataStream(), {2}, true); // Row index 2 corresponds to value 30
+}
+
+TEST_F(VortexTest, ScanBuilderWithProjectionSingleColumn) {
+    // Test projection selecting only column "a" (field index 0)
+    RunScanBuilderProjectionTest(
+        [](vortex::ScanBuilder &&scan_builder) {
+            auto projection = ve::select({"a"}, ve::root());
+            return std::move(scan_builder).WithProjection(std::move(projection)).IntoStream();
+        },
+        vortex::testing::CreateTestDataStream(), {0});
 }

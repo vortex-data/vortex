@@ -436,15 +436,13 @@ mod test {
         let sdt = dtype.as_struct().unwrap();
         assert_eq!(sdt.names().len(), 2);
         assert_eq!(sdt.fields().len(), 2);
-        assert_eq!(sdt.names()[0], "A".into());
-        assert_eq!(sdt.names()[1], "B".into());
+        assert_eq!(sdt.names(), ["A", "B"]);
         assert_eq!(sdt.field_by_index(0).unwrap(), a_type);
         assert_eq!(sdt.field_by_index(1).unwrap(), b_type);
 
         let proj = sdt.project(&["B".into(), "A".into()]).unwrap();
-        assert_eq!(proj.names()[0], "B".into());
+        assert_eq!(proj.names(), ["B", "A"]);
         assert_eq!(proj.field_by_index(0).unwrap(), b_type);
-        assert_eq!(proj.names()[1], "A".into());
         assert_eq!(proj.field_by_index(1).unwrap(), a_type);
 
         assert_eq!(sdt.find("A").unwrap(), 0);
@@ -452,7 +450,7 @@ mod test {
         assert!(sdt.find("C").is_none());
 
         let without_a = sdt.without_field(0).unwrap();
-        assert_eq!(without_a.names()[0], "B".into());
+        assert_eq!(without_a.names(), ["B"]);
         assert_eq!(without_a.field_by_index(0).unwrap(), b_type);
         assert_eq!(without_a.nfields(), 1);
     }
@@ -478,7 +476,7 @@ mod test {
         let sdt = StructFields::from_iter([("A", a_type), ("B", b_type.clone())]);
 
         let without_a = sdt.without_field(0).unwrap();
-        assert_eq!(without_a.names()[0], "B".into());
+        assert_eq!(without_a.names(), ["B"]);
         assert_eq!(without_a.field_by_index(0).unwrap(), b_type);
         assert_eq!(without_a.nfields(), 1);
     }
@@ -494,7 +492,7 @@ mod test {
         let sf2 = StructFields::from_iter([("C", child_c.clone())]);
 
         let merged = StructFields::disjoint_merge(&sf1, &sf2).unwrap();
-        assert_eq!(merged.names(), &FieldNames::from_iter(["A", "B", "C"]));
+        assert_eq!(merged.names(), ["A", "B", "C"]);
         assert_eq!(
             merged.fields().collect_vec(),
             vec![child_a, child_b, child_c]
