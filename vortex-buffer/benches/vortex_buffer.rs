@@ -126,5 +126,13 @@ fn push_n_vortex_buffer<T: PrimInt>(bencher: Bencher, length: usize) {
                     )
                 }
             }
+
+            #[cfg(target_feature = "avx2")]
+            {
+                // Ensure all writes become visible.
+                unsafe {
+                    std::arch::x86_64::_mm_sfence();
+                }
+            }
         });
 }

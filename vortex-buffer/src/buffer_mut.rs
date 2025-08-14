@@ -297,7 +297,7 @@ impl<T> BufferMut<T> {
         #[cfg(target_feature = "avx2")]
         {
             // Ensure a minimum of 2048 bytes to write for AVX streaming stores.
-            if size_of::<T>() == 1 && n >= 2048 {
+            if true {
                 unsafe { avx2::push_n_unchecked(self, item, n) }
             } else {
                 unsafe { scalar::push_n_unchecked(self, item, n) }
@@ -564,8 +564,6 @@ mod avx2 {
                 }
                 ptr = unsafe { ptr.add(32) };
             }
-            // Ensure all writes become visible.
-            unsafe { _mm_sfence() };
         } else {
             // Safety: Sufficient capacity is a precondition.
             for _ in 0..(total_bytes / 32) {
