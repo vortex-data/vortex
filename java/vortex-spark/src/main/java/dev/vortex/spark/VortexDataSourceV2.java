@@ -63,7 +63,7 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
     @Override
     public StructType inferSchema(CaseInsensitiveStringMap options) {
         // For write operations, the path might not exist yet
-        // In that case, return null and let Spark use the DataFrame's schema
+        // In that case, return an empty schema to signal Spark to use the DataFrame's schema
         var paths = getPaths(options);
         var pathToInfer = Iterables.getLast(paths);
         
@@ -71,8 +71,9 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
         
         // Check if the path exists
         if (!java.nio.file.Files.exists(path)) {
-            // For write operations, we'll use the DataFrame's schema
-            return null;
+            // For write operations, return empty schema (Spark will use DataFrame's schema)
+            // We can't return null as that causes issues in getTable
+            return new StructType();
         }
         
         // If it's a directory, look for Vortex files inside
@@ -86,11 +87,11 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
                 if (vortexFile.isPresent()) {
                     pathToInfer = vortexFile.get().toString();
                 } else {
-                    // No vortex files found, return null
-                    return null;
+                    // No vortex files found, return empty schema
+                    return new StructType();
                 }
             } catch (Exception e) {
-                return null;
+                return new StructType();
             }
         }
 
@@ -118,14 +119,15 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
 
         var paths = getPaths(uncased);
         
-        // Handle case where schema is null (for write operations on non-existent paths)
+        // Handle case where schema is null or empty (for write operations on non-existent paths)
         ImmutableList<Column> columns;
-        if (schema != null) {
+        if (schema != null && schema.fields().length > 0) {
             columns = ImmutableList.<Column>builder()
                     .add(CatalogV2Util.structTypeToV2Columns(schema))
                     .build();
         } else {
             // For write operations where file doesn't exist yet, use empty columns
+            // Spark will provide the actual schema during write
             columns = ImmutableList.of();
         }
         
@@ -203,24 +205,8 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
                 break;
         }
         
-        // Create the directory
-        try {
-            java.nio.file.Files.createDirectories(outputDir);
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to create output directory", e);
-        }
-        
-        // For now, create a dummy file to make tests pass
-        // The real implementation would write actual Vortex files through the data writers
-        try {
-            // Write a simple placeholder file for each partition
-            // In production, this would be done by the DataWriter instances
-            Path dummyFile = outputDir.resolve("part-00000.vortex");
-            java.nio.file.Files.write(dummyFile, new byte[]{0x56, 0x4F, 0x52, 0x54}); // "VORT" magic bytes
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to write dummy file", e);
-        }
-        
+        // The actual write will be handled by the V2 write path
+        // We don't need to create dummy files anymore
         return null;
     }
     

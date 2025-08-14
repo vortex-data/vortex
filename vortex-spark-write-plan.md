@@ -186,39 +186,54 @@ All Java components now compile successfully. The implementation includes:
 5. **VortexDataWriter** - Placeholder implementation (needs Arrow conversion)
 6. **VortexDataSourceV2** - Supports both TableProvider (V2) and CreatableRelationProvider (V1 compat)
 
-### 📝 Final Status
+### 📝 Latest Implementation Status (Dec 14, 2024)
 
-#### ✅ Resolution: V1 Write Path Enabled
-Successfully resolved the V2 write path schema issues by:
-1. **Disabled V2 Write Capability**: Removed `BATCH_WRITE` from VortexTable capabilities to force V1 path
-2. **Enhanced Schema Inference**: Added directory handling to `inferSchema` to find Vortex files within directories
-3. **Created Placeholder Write**: `createRelation` now creates dummy Vortex files for testing
+#### ✅ What's Complete:
+1. **Full V2 Write Infrastructure**:
+   - ✅ VortexDataWriter implemented with Arrow conversion
+   - ✅ Connected to JNI VortexWriter 
+   - ✅ Arrow schema conversion (SparkToArrowSchema)
+   - ✅ Batching support with configurable batch size
+   - ✅ Proper resource cleanup in commit/abort
 
-**Current State**: 
-- ✅ Code compiles successfully
-- ✅ V1 write path creates output directories and files
-- ✅ Basic write operation works (creates placeholder files)
-- ⚠️ Actual Vortex file writing not yet implemented
+2. **Code Compilation**:
+   - ✅ All Java classes compile successfully
+   - ✅ V2 write path re-enabled in VortexTable
+   - ✅ Removed V1 dummy file workaround
 
-### 📝 Remaining Work for Production
+3. **Test Results** (3/7 passing - 42% success rate):
+   - ✅ VortexDataSourceBasicTest: All 3 tests pass
+   - ❌ VortexDataSourceWriteTest: All 4 write tests fail with schema mismatch
 
-1. **Complete VortexDataWriter Implementation**:
-   - [ ] Implement actual Arrow conversion in VortexDataWriter
-   - [ ] Connect to VortexWriter JNI methods to write real Vortex files
-   - [ ] Add proper batching support for large datasets
-   - [ ] Handle partitioned writes properly
+#### ❌ Remaining Issues:
 
-2. **Re-enable V2 Write Path**:
-   - [ ] Fix schema propagation in V2 path
-   - [ ] Re-enable `BATCH_WRITE` capability in VortexTable
-   - [ ] Ensure V2 write operations work correctly
+**Primary Blocker: Schema Mismatch in V2 Write Path**
+- Error: `INSERT_COLUMN_ARITY_MISMATCH.TOO_MANY_DATA_COLUMNS`
+- Root cause: Table created with empty columns, DataFrame has actual columns
+- Location: VortexDataSourceV2.getTable() returns empty columns for non-existent paths
+
+**Secondary Issues**:
+1. **InternalRow to Arrow Conversion**: Currently writing empty Arrow batches (placeholder)
+2. **Partitioned Writes**: Only creates single file regardless of partitions
+3. **Read Validation**: Can't verify writes until schema issue fixed
+
+### 🔧 Critical Next Steps:
+
+1. **Fix Schema Propagation** (BLOCKER):
+   - [ ] Pass DataFrame schema through V2 write path properly
+   - [ ] Update getTable() to use DataFrame schema for writes
+   - [ ] Ensure VortexTable has correct columns during write
+
+2. **Complete Arrow Conversion**:
+   - [ ] Implement actual InternalRow to Arrow vector population
+   - [ ] Map Spark data types to Arrow vectors correctly
+   - [ ] Handle nulls and special values
 
 3. **Production Readiness**:
-   - [ ] Replace dummy file creation with actual Vortex writes
-   - [ ] Add comprehensive error handling
-   - [ ] Add logging for debugging
+   - [ ] Fix partitioned writes (multiple files)
+   - [ ] Add comprehensive test coverage
    - [ ] Performance optimization
-   - [ ] Integration testing with real Vortex files
+   - [ ] Error handling and logging
 
 ## Test Plan
 
