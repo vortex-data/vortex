@@ -22,26 +22,53 @@ public final class VortexScanBuilder implements ScanBuilder, SupportsPushDownReq
     private final ImmutableList.Builder<String> paths;
     private final List<Column> columns;
 
+    /**
+     * Creates a new VortexScanBuilder with empty paths and columns.
+     */
     public VortexScanBuilder() {
         this.paths = ImmutableList.builder();
         this.columns = new ArrayList<>();
     }
 
+    /**
+     * Adds a file path to scan.
+     *
+     * @param path the file path to add
+     * @return this builder for method chaining
+     */
     public VortexScanBuilder addPath(String path) {
         this.paths.add(path);
         return this;
     }
 
+    /**
+     * Adds a column to read.
+     *
+     * @param column the column to add
+     * @return this builder for method chaining
+     */
     public VortexScanBuilder addColumn(Column column) {
         this.columns.add(column);
         return this;
     }
 
+    /**
+     * Adds multiple file paths to scan.
+     *
+     * @param paths the iterable of file paths to add
+     * @return this builder for method chaining
+     */
     public VortexScanBuilder addAllPaths(Iterable<String> paths) {
         this.paths.addAll(paths);
         return this;
     }
 
+    /**
+     * Adds multiple columns to read.
+     *
+     * @param columns the iterable of columns to add
+     * @return this builder for method chaining
+     */
     public VortexScanBuilder addAllColumns(Iterable<Column> columns) {
         for (Column column : columns) {
             this.columns.add(column);
@@ -49,6 +76,12 @@ public final class VortexScanBuilder implements ScanBuilder, SupportsPushDownReq
         return this;
     }
 
+    /**
+     * Builds a VortexScan with the configured paths and columns.
+     *
+     * @return a new VortexScan instance
+     * @throws IllegalStateException if no paths or columns have been added
+     */
     @Override
     public Scan build() {
         var paths = this.paths.build();
@@ -60,6 +93,15 @@ public final class VortexScanBuilder implements ScanBuilder, SupportsPushDownReq
         return new VortexScan(paths, columns);
     }
 
+    /**
+     * Prunes the columns to only include those specified in the required schema.
+     * <p>
+     * This method clears the current column list and replaces it with columns
+     * derived from the required schema. Currently only supports top-level schema
+     * pruning - deeply nested schema pruning is not yet implemented.
+     *
+     * @param requiredSchema the schema specifying which columns are required
+     */
     @Override
     public void pruneColumns(StructType requiredSchema) {
         // TODO(aduffy): support deeply nested schema prunes

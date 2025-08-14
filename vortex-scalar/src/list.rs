@@ -214,7 +214,10 @@ impl<'a> TryFrom<&'a Scalar> for ListScalar<'a> {
     }
 }
 
-impl<'a, T: for<'b> TryFrom<&'b Scalar, Error = VortexError>> TryFrom<&'a Scalar> for Vec<T> {
+impl<'a, T> TryFrom<&'a Scalar> for Vec<T>
+where
+    T: for<'b> TryFrom<&'b Scalar, Error = VortexError>,
+{
     type Error = VortexError;
 
     fn try_from(value: &'a Scalar) -> Result<Self, Self::Error> {
@@ -225,6 +228,25 @@ impl<'a, T: for<'b> TryFrom<&'b Scalar, Error = VortexError>> TryFrom<&'a Scalar
             .ok_or_else(|| vortex_err!("Expected non-null list"))?
         {
             elems.push(T::try_from(&e)?);
+        }
+        Ok(elems)
+    }
+}
+
+impl<T> TryFrom<Scalar> for Vec<T>
+where
+    T: TryFrom<Scalar, Error = VortexError>,
+{
+    type Error = VortexError;
+
+    fn try_from(value: Scalar) -> Result<Self, Self::Error> {
+        let value = ListScalar::try_from(&value)?;
+        let mut elems = vec![];
+        for e in value
+            .elements()
+            .ok_or_else(|| vortex_err!("Expected non-null list"))?
+        {
+            elems.push(T::try_from(e)?);
         }
         Ok(elems)
     }
