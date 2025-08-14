@@ -10,12 +10,12 @@ import java.util.Map;
 
 /**
  * Writer for creating Vortex files from Arrow data.
- * 
+ *
  * This class provides methods to write Arrow VectorSchemaRoot batches
  * to Vortex format files.
  */
 public interface VortexWriter extends AutoCloseable {
-    
+
     /**
      * Creates a new VortexWriter for writing to the specified file path.
      *
@@ -25,8 +25,7 @@ public interface VortexWriter extends AutoCloseable {
      * @return a new VortexWriter instance
      * @throws IOException if the writer cannot be created
      */
-    static VortexWriter create(String filePath, String schemaJson, Map<String, String> options) 
-            throws IOException {
+    static VortexWriter create(String filePath, String schemaJson, Map<String, String> options) throws IOException {
         long ptr = NativeWriterMethods.create(filePath, schemaJson, options);
         if (ptr <= 0) {
             throw new IOException("Failed to create Vortex writer for: " + filePath + " (got ptr=" + ptr + ")");
@@ -35,7 +34,7 @@ public interface VortexWriter extends AutoCloseable {
         System.err.println("DEBUG: Created VortexWriter with ptr=" + ptr);
         return new JNIWriter(ptr);
     }
-    
+
     /**
      * Writes a batch of Arrow data to the Vortex file.
      *
@@ -43,10 +42,10 @@ public interface VortexWriter extends AutoCloseable {
      * @throws IOException if writing fails
      */
     void writeBatch(byte[] arrowData) throws IOException;
-    
+
     /**
      * Closes the writer and finalizes the Vortex file.
-     * 
+     *
      * This method must be called to ensure the file is properly written
      * with all necessary metadata and footers.
      *

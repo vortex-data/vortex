@@ -10,10 +10,10 @@ import java.io.IOException;
  * JNI implementation of VortexWriter.
  */
 public final class JNIWriter implements VortexWriter {
-    
+
     private long ptr;
     private boolean closed = false;
-    
+
     /**
      * Creates a new JNIWriter with the given native pointer.
      *
@@ -22,7 +22,7 @@ public final class JNIWriter implements VortexWriter {
     public JNIWriter(long ptr) {
         this.ptr = ptr;
     }
-    
+
     /**
      * Writes a batch of Arrow data to the Vortex file.
      *
@@ -34,17 +34,17 @@ public final class JNIWriter implements VortexWriter {
         if (closed) {
             throw new IOException("Writer is already closed");
         }
-        
+
         // Debug: Log the pointer and data size
         System.err.println("DEBUG: writeBatch called with ptr=" + ptr + ", data size=" + arrowData.length);
-        
+
         // Write the Arrow data to Vortex through JNI
         boolean success = NativeWriterMethods.writeBatch(ptr, arrowData);
         if (!success) {
             throw new IOException("Failed to write batch to Vortex file");
         }
     }
-    
+
     /**
      * Closes the writer and finalizes the Vortex file.
      *
@@ -64,6 +64,6 @@ public final class JNIWriter implements VortexWriter {
             System.err.println("DEBUG: JNIWriter already closed, skipping close()");
         }
     }
-    
+
     // Removed deprecated finalize() method - proper cleanup should be done via close()
 }

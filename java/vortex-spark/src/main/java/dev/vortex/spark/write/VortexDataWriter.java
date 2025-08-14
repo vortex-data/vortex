@@ -13,7 +13,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.channels.Channels;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -28,19 +27,19 @@ import org.apache.spark.unsafe.types.UTF8String;
 
 /**
  * Writes Spark InternalRow data to a Vortex file.
- * 
+ *
  * This writer converts Spark's internal row format to Arrow vectors
  * and writes them to a Vortex file using the Vortex writer API.
  */
 public final class VortexDataWriter implements DataWriter<InternalRow> {
-    
+
     private static final int DEFAULT_BATCH_SIZE = 4096;
-    
+
     private final String filePath;
     private final StructType schema;
     private final CaseInsensitiveStringMap options;
     private final int batchSize;
-    
+
     private VortexWriter vortexWriter;
     private BufferAllocator allocator;
     private VectorSchemaRoot vectorSchemaRoot;
@@ -48,7 +47,7 @@ public final class VortexDataWriter implements DataWriter<InternalRow> {
     private long recordCount = 0;
     private long bytesWritten = 0;
     private boolean closed = false;
-    
+
     /**
      * Creates a new VortexDataWriter.
      *
@@ -56,39 +55,35 @@ public final class VortexDataWriter implements DataWriter<InternalRow> {
      * @param schema the schema of the data to write
      * @param options additional write options
      */
-    public VortexDataWriter(
-            String filePath,
-            StructType schema,
-            CaseInsensitiveStringMap options) {
+    public VortexDataWriter(String filePath, StructType schema, CaseInsensitiveStringMap options) {
         this.filePath = filePath;
         this.schema = schema;
         this.options = options;
         this.batchSize = options.getInt("batch.size", DEFAULT_BATCH_SIZE);
-        
+
         try {
             // Initialize Arrow components
             this.allocator = new RootAllocator();
-            
+
             // Convert Spark schema to Arrow schema
             var arrowSchema = SparkToArrowSchema.convert(schema);
             String schemaJson = arrowSchema.toJson();
-            
+
             // Create Vortex writer
             Map<String, String> writerOptions = new HashMap<>();
             this.vortexWriter = VortexWriter.create(filePath, schemaJson, writerOptions);
-            
+
             // Create VectorSchemaRoot for batching rows
             this.vectorSchemaRoot = VectorSchemaRoot.create(arrowSchema, allocator);
-            
+
         } catch (IOException e) {
             throw new RuntimeException("Failed to initialize VortexDataWriter", e);
         }
     }
-    
-    
+
     /**
      * Writes a single row to the Vortex file.
-     * 
+     *
      * Rows are batched and converted to Arrow format before writing.
      *
      * @param row the row to write
@@ -99,13 +94,13 @@ public final class VortexDataWriter implements DataWriter<InternalRow> {
         // Add row to current batch
         batchRows.add(row.copy());
         recordCount++;
-        
+
         // Write batch if it's full
         if (batchRows.size() >= batchSize) {
             writeBatch();
         }
     }
-    
+
     /**
      * Writes the current batch of rows to the Vortex file.
      */
@@ -113,21 +108,21 @@ public final class VortexDataWriter implements DataWriter<InternalRow> {
         if (batchRows.isEmpty()) {
             return;
         }
-        
+
         // Allocate vectors and populate with data from InternalRows
         vectorSchemaRoot.allocateNew();
-        
+
         // Populate each field in the schema
         StructField[] fields = schema.fields();
         for (int fieldIndex = 0; fieldIndex < fields.length; fieldIndex++) {
             FieldVector vector = vectorSchemaRoot.getVector(fieldIndex);
             DataType dataType = fields[fieldIndex].dataType();
             boolean nullable = fields[fieldIndex].nullable();
-            
+
             // Populate this vector with data from all rows
             for (int rowIndex = 0; rowIndex < batchRows.size(); rowIndex++) {
                 InternalRow row = batchRows.get(rowIndex);
-                
+
                 if (nullable && row.isNullAt(fieldIndex)) {
                     // Set null value
                     vector.setNull(rowIndex);
@@ -136,34 +131,32 @@ public final class VortexDataWriter implements DataWriter<InternalRow> {
                     populateVector(vector, dataType, row, fieldIndex, rowIndex);
                 }
             }
-            
+
             vector.setValueCount(batchRows.size());
         }
-        
+
         vectorSchemaRoot.setRowCount(batchRows.size());
-        
+
         // Serialize to Arrow IPC format and write to Vortex
         try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
-            try (ArrowStreamWriter writer = new ArrowStreamWriter(
-                    vectorSchemaRoot, null, Channels.newChannel(baos))) {
+            try (ArrowStreamWriter writer = new ArrowStreamWriter(vectorSchemaRoot, null, Channels.newChannel(baos))) {
                 writer.start();
                 writer.writeBatch();
             }
-            
+
             byte[] arrowData = baos.toByteArray();
             vortexWriter.writeBatch(arrowData);
             bytesWritten += arrowData.length;
-            
+
             vectorSchemaRoot.clear();
             batchRows.clear();
         }
     }
-    
+
     /**
      * Populates an Arrow vector with a value from an InternalRow.
      */
-    private void populateVector(FieldVector vector, DataType dataType, 
-                                InternalRow row, int fieldIndex, int rowIndex) {
+    private void populateVector(FieldVector vector, DataType dataType, InternalRow row, int fieldIndex, int rowIndex) {
         if (dataType instanceof BooleanType) {
             ((BitVector) vector).set(rowIndex, row.getBoolean(fieldIndex) ? 1 : 0);
         } else if (dataType instanceof ByteType) {
@@ -192,7 +185,8 @@ public final class VortexDataWriter implements DataWriter<InternalRow> {
             DecimalType decType = (DecimalType) dataType;
             if (decType.precision() <= 38) {
                 // Use Decimal type from InternalRow
-                java.math.BigDecimal decimal = row.getDecimal(fieldIndex, decType.precision(), decType.scale()).toJavaBigDecimal();
+                java.math.BigDecimal decimal = row.getDecimal(fieldIndex, decType.precision(), decType.scale())
+                        .toJavaBigDecimal();
                 ((DecimalVector) vector).set(rowIndex, decimal);
             }
         } else {
@@ -200,10 +194,10 @@ public final class VortexDataWriter implements DataWriter<InternalRow> {
             vector.setNull(rowIndex);
         }
     }
-    
+
     /**
      * Commits the write operation and returns a commit message.
-     * 
+     *
      * This flushes any remaining rows and closes the Vortex writer.
      *
      * @return a commit message with file information
@@ -217,36 +211,36 @@ public final class VortexDataWriter implements DataWriter<InternalRow> {
             if (!batchRows.isEmpty()) {
                 writeBatch();
             }
-            
+
             // Close the Vortex writer to finalize the file
             if (vortexWriter != null) {
                 try {
                     vortexWriter.close();
                 } finally {
-                    vortexWriter = null;  // Always null out the reference
+                    vortexWriter = null; // Always null out the reference
                 }
             }
-            
+
             // Clean up Arrow resources
             if (vectorSchemaRoot != null) {
                 vectorSchemaRoot.close();
                 vectorSchemaRoot = null;
             }
-            
+
             if (allocator != null) {
                 allocator.close();
                 allocator = null;
             }
-            
+
             closed = true;
         }
-        
+
         return new VortexWriterCommitMessage(filePath, recordCount, bytesWritten);
     }
-    
+
     /**
      * Aborts the write operation and cleans up resources.
-     * 
+     *
      * This deletes any partially written file.
      *
      * @throws IOException if abort fails
@@ -263,20 +257,20 @@ public final class VortexDataWriter implements DataWriter<InternalRow> {
                     // Log but don't throw
                     System.err.println("Error closing writer during abort: " + e.getMessage());
                 } finally {
-                    vortexWriter = null;  // Always null out the reference
+                    vortexWriter = null; // Always null out the reference
                 }
             }
-            
+
             if (vectorSchemaRoot != null) {
                 vectorSchemaRoot.close();
                 vectorSchemaRoot = null;
             }
-            
+
             if (allocator != null) {
                 allocator.close();
                 allocator = null;
             }
-            
+
             // Delete the partial file if it exists
             try {
                 Files.deleteIfExists(Paths.get(filePath));
@@ -284,11 +278,11 @@ public final class VortexDataWriter implements DataWriter<InternalRow> {
                 // Log but don't throw - we're already aborting
                 System.err.println("Failed to delete partial file: " + filePath);
             }
-            
+
             closed = true;
         }
     }
-    
+
     /**
      * Closes the writer and releases resources.
      */

@@ -9,13 +9,13 @@ import java.util.Map;
  * Native JNI methods for Vortex file writing.
  */
 public final class NativeWriterMethods {
-    
+
     static {
         NativeLoader.loadJni();
     }
-    
+
     private NativeWriterMethods() {}
-    
+
     /**
      * Creates a new native Vortex writer.
      *
@@ -25,7 +25,7 @@ public final class NativeWriterMethods {
      * @return a native pointer to the writer, or 0 on failure
      */
     public static native long create(String filePath, String schemaJson, Map<String, String> options);
-    
+
     /**
      * Writes a batch of Arrow data to the Vortex file.
      *
@@ -34,7 +34,7 @@ public final class NativeWriterMethods {
      * @return true if successful, false otherwise
      */
     public static native boolean writeBatch(long writerPtr, byte[] arrowData);
-    
+
     /**
      * Closes the native writer and finalizes the file.
      *

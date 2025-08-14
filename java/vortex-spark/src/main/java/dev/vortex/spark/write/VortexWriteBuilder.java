@@ -3,27 +3,26 @@
 
 package dev.vortex.spark.write;
 
+import org.apache.spark.sql.connector.write.LogicalWriteInfo;
+import org.apache.spark.sql.connector.write.SupportsTruncate;
 import org.apache.spark.sql.connector.write.Write;
 import org.apache.spark.sql.connector.write.WriteBuilder;
-import org.apache.spark.sql.connector.write.SupportsTruncate;
-import org.apache.spark.sql.connector.write.LogicalWriteInfo;
-import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.util.CaseInsensitiveStringMap;
 
 /**
  * Builder for configuring Vortex write operations.
- * 
+ *
  * This class is responsible for creating BatchWrite instances that execute
  * the actual write operations to create Vortex files from Spark DataFrames.
  */
 public final class VortexWriteBuilder implements WriteBuilder, SupportsTruncate {
-    
+
     private final String outputPath;
     private final LogicalWriteInfo writeInfo;
     private final CaseInsensitiveStringMap options;
     private boolean truncate = false;
     private boolean overwrite = false;
-    
+
     /**
      * Creates a new VortexWriteBuilder.
      *
@@ -31,15 +30,12 @@ public final class VortexWriteBuilder implements WriteBuilder, SupportsTruncate 
      * @param writeInfo logical information about the write operation
      * @param options additional write options
      */
-    public VortexWriteBuilder(
-            String outputPath,
-            LogicalWriteInfo writeInfo,
-            CaseInsensitiveStringMap options) {
+    public VortexWriteBuilder(String outputPath, LogicalWriteInfo writeInfo, CaseInsensitiveStringMap options) {
         this.outputPath = outputPath;
         this.writeInfo = writeInfo;
         this.options = options;
     }
-    
+
     /**
      * Builds a Write for executing the write operation.
      *
@@ -47,17 +43,12 @@ public final class VortexWriteBuilder implements WriteBuilder, SupportsTruncate 
      */
     @Override
     public Write build() {
-        return new VortexBatchWrite(
-            outputPath,
-            writeInfo.schema(),
-            options,
-            truncate || overwrite
-        );
+        return new VortexBatchWrite(outputPath, writeInfo.schema(), options, truncate || overwrite);
     }
-    
+
     /**
      * Configures the write operation to truncate existing data.
-     * 
+     *
      * When truncate is enabled, existing Vortex files at the output path
      * will be removed before writing new data.
      *
@@ -68,10 +59,10 @@ public final class VortexWriteBuilder implements WriteBuilder, SupportsTruncate 
         this.truncate = true;
         return this;
     }
-    
+
     /**
      * Configures the write operation to overwrite existing data.
-     * 
+     *
      * Similar to truncate, this will remove existing files before writing.
      *
      * @return this builder for method chaining

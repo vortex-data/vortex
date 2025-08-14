@@ -35,7 +35,7 @@ public final class VortexTable implements Table, SupportsRead, SupportsWrite {
     public VortexTable(ImmutableList<String> paths, ImmutableList<Column> readColumns) {
         this(paths, readColumns, null, new CaseInsensitiveStringMap(java.util.Collections.emptyMap()), null);
     }
-    
+
     /**
      * Creates a new VortexTable with write support.
      *
@@ -44,11 +44,14 @@ public final class VortexTable implements Table, SupportsRead, SupportsWrite {
      * @param outputPath the path where new Vortex files will be written (optional)
      * @param writeOptions additional options for writing (optional)
      */
-    public VortexTable(ImmutableList<String> paths, ImmutableList<Column> readColumns,
-                       String outputPath, CaseInsensitiveStringMap writeOptions) {
+    public VortexTable(
+            ImmutableList<String> paths,
+            ImmutableList<Column> readColumns,
+            String outputPath,
+            CaseInsensitiveStringMap writeOptions) {
         this(paths, readColumns, outputPath, writeOptions, null);
     }
-    
+
     /**
      * Creates a new VortexTable with write support and explicit write schema.
      *
@@ -58,8 +61,12 @@ public final class VortexTable implements Table, SupportsRead, SupportsWrite {
      * @param writeOptions additional options for writing (optional)
      * @param writeSchema the schema to use for write operations (optional)
      */
-    public VortexTable(ImmutableList<String> paths, ImmutableList<Column> readColumns,
-                       String outputPath, CaseInsensitiveStringMap writeOptions, StructType writeSchema) {
+    public VortexTable(
+            ImmutableList<String> paths,
+            ImmutableList<Column> readColumns,
+            String outputPath,
+            CaseInsensitiveStringMap writeOptions,
+            StructType writeSchema) {
         this.paths = paths;
         this.readColumns = readColumns;
         this.outputPath = outputPath;
@@ -127,7 +134,7 @@ public final class VortexTable implements Table, SupportsRead, SupportsWrite {
 
     /**
      * Creates a new WriteBuilder for writing data to this table.
-     * 
+     *
      * The WriteBuilder is responsible for configuring and executing write operations
      * to create new Vortex files.
      *
@@ -136,11 +143,14 @@ public final class VortexTable implements Table, SupportsRead, SupportsWrite {
      */
     @Override
     public WriteBuilder newWriteBuilder(LogicalWriteInfo info) {
-        String path = outputPath != null ? outputPath : 
-            (paths.isEmpty() ? "." : paths.get(0).substring(0, paths.get(0).lastIndexOf('/')));
+        String path = outputPath != null
+                ? outputPath
+                : (paths.isEmpty()
+                        ? "."
+                        : paths.get(0).substring(0, paths.get(0).lastIndexOf('/')));
         return new VortexWriteBuilder(path, info, writeOptions);
     }
-    
+
     /**
      * Returns the capabilities supported by this table.
      * <p>
@@ -151,10 +161,6 @@ public final class VortexTable implements Table, SupportsRead, SupportsWrite {
      */
     @Override
     public Set<TableCapability> capabilities() {
-        return ImmutableSet.of(
-            TableCapability.BATCH_READ,
-            TableCapability.BATCH_WRITE, 
-            TableCapability.TRUNCATE
-        );
+        return ImmutableSet.of(TableCapability.BATCH_READ, TableCapability.BATCH_WRITE, TableCapability.TRUNCATE);
     }
 }

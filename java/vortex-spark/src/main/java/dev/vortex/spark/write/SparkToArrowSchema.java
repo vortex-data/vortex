@@ -16,14 +16,14 @@ import org.apache.spark.sql.types.*;
 
 /**
  * Utility class for converting Spark SQL schemas to Arrow schemas.
- * 
+ *
  * This enables the conversion of Spark DataFrames to Arrow format
  * for writing to Vortex files.
  */
 public final class SparkToArrowSchema {
-    
+
     private SparkToArrowSchema() {}
-    
+
     /**
      * Converts a Spark StructType schema to an Arrow Schema.
      *
@@ -37,7 +37,7 @@ public final class SparkToArrowSchema {
         }
         return new Schema(fields);
     }
-    
+
     /**
      * Converts a Spark StructField to an Arrow Field.
      *
@@ -47,7 +47,7 @@ public final class SparkToArrowSchema {
     private static Field convertField(StructField sparkField) {
         ArrowType arrowType = convertType(sparkField.dataType());
         FieldType fieldType = new FieldType(sparkField.nullable(), arrowType, null);
-        
+
         if (sparkField.dataType() instanceof StructType) {
             // Handle nested struct
             StructType structType = (StructType) sparkField.dataType();
@@ -60,17 +60,16 @@ public final class SparkToArrowSchema {
             // Handle array type
             ArrayType arrayType = (ArrayType) sparkField.dataType();
             Field elementField = new Field(
-                "element",
-                new FieldType(arrayType.containsNull(), convertType(arrayType.elementType()), null),
-                null
-            );
+                    "element",
+                    new FieldType(arrayType.containsNull(), convertType(arrayType.elementType()), null),
+                    null);
             return new Field(sparkField.name(), fieldType, List.of(elementField));
         } else {
             // Primitive type
             return new Field(sparkField.name(), fieldType, null);
         }
     }
-    
+
     /**
      * Converts a Spark DataType to an Arrow ArrowType.
      *
@@ -112,9 +111,8 @@ public final class SparkToArrowSchema {
             // Map is represented as List<Struct<key, value>> in Arrow
             return new ArrowType.List();
         } else {
-            throw new UnsupportedOperationException(
-                "Unsupported Spark type for Arrow conversion: " + sparkType.getClass().getName()
-            );
+            throw new UnsupportedOperationException("Unsupported Spark type for Arrow conversion: "
+                    + sparkType.getClass().getName());
         }
     }
 }

@@ -8,16 +8,16 @@ import org.apache.spark.sql.connector.write.WriterCommitMessage;
 
 /**
  * Commit message containing information about a successfully written Vortex file.
- * 
+ *
  * This message is passed from executors back to the driver to coordinate
  * the commit phase of the write operation.
  */
 public final class VortexWriterCommitMessage implements WriterCommitMessage, Serializable {
-    
+
     private final String filePath;
     private final long recordCount;
     private final long bytesWritten;
-    
+
     /**
      * Creates a new commit message for a written Vortex file.
      *
@@ -30,7 +30,7 @@ public final class VortexWriterCommitMessage implements WriterCommitMessage, Ser
         this.recordCount = recordCount;
         this.bytesWritten = bytesWritten;
     }
-    
+
     /**
      * Gets the path to the written Vortex file.
      *
@@ -39,7 +39,7 @@ public final class VortexWriterCommitMessage implements WriterCommitMessage, Ser
     public String getFilePath() {
         return filePath;
     }
-    
+
     /**
      * Gets the number of records written to the file.
      *
@@ -48,7 +48,7 @@ public final class VortexWriterCommitMessage implements WriterCommitMessage, Ser
     public long getRecordCount() {
         return recordCount;
     }
-    
+
     /**
      * Gets the number of bytes written to the file.
      *

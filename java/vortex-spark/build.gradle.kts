@@ -23,7 +23,7 @@ testing {
     suites {
         val test by getting(JvmTestSuite::class) {
             useJUnitJupiter()
-            
+
             dependencies {
                 implementation("org.junit.jupiter:junit-jupiter:5.10.0")
                 implementation("org.apache.spark:spark-core_2.12")
