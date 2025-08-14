@@ -44,8 +44,8 @@ impl Scan2 {
     }
 }
 
-impl TaskSpawner for Arc<Injector<Box<dyn ScanTask>>> {
-    fn spawn_task(&self, task: Box<dyn ScanTask>) {
+impl TaskSpawner for Arc<Injector<Box<ScanTask>>> {
+    fn spawn_task(&self, task: Box<ScanTask>) {
         self.push(task);
     }
 }
@@ -58,8 +58,8 @@ struct Shared {
     /// The DType of the projection
     dtype: DType,
     scheduler: Mutex<Scheduler>,
-    injector: Arc<Injector<Box<dyn ScanTask>>>,
-    stealers: RwLock<Vec<Stealer<Box<dyn ScanTask>>>>,
+    injector: Arc<Injector<Box<ScanTask>>>,
+    stealers: RwLock<Vec<Stealer<Box<ScanTask>>>>,
 }
 
 impl WorkerPool {
@@ -77,7 +77,7 @@ impl WorkerPool {
 
 pub struct ScanWorker {
     shared: Arc<Shared>,
-    worker: Worker<Box<dyn ScanTask>>,
+    worker: Worker<Box<ScanTask>>,
 }
 
 impl Iterator for ScanWorker {
@@ -157,7 +157,7 @@ impl Iterator for ScanWorker {
 
 impl ScanWorker {
     /// Find the next CPU task.
-    fn find_task(&mut self) -> Option<Box<dyn ScanTask>> {
+    fn find_task(&mut self) -> Option<Box<ScanTask>> {
         // Pop a task from the local queue, if not empty.
         self.worker.pop().or_else(|| {
             // Otherwise, we need to look for a task elsewhere.

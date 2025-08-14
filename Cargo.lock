@@ -6993,6 +6993,7 @@ version = "0.1.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
+ "async-trait",
  "bit-vec",
  "crossbeam-deque",
  "crossbeam-queue",
@@ -7001,6 +7002,7 @@ dependencies = [
  "itertools 0.14.0",
  "log",
  "loom",
+ "num_cpus",
  "parking_lot",
  "roaring",
  "sketches-ddsketch",

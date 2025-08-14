@@ -15,7 +15,7 @@ use vortex_array::iter::ArrayIterator;
 use vortex_array::stats::StatsSet;
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed;
 use vortex_expr::{ExprRef, root};
@@ -43,10 +43,13 @@ mod tasks;
 mod work_queue;
 mod work_stealing_iter;
 
+pub use state::*;
+
 /// A struct for building a scan operation.
 pub struct ScanBuilder<A> {
     layout_reader: LayoutReaderRef,
     segment_source: Arc<dyn SegmentSource>,
+    segment_source2: Option<Arc<dyn SegmentSource2>>,
     projection: ExprRef,
     filter: Option<ExprRef>,
     /// Optionally read a subset of the rows in the file.
@@ -129,6 +132,11 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
+    pub fn with_segment_source2(mut self, segment_source2: Arc<dyn SegmentSource2>) -> Self {
+        self.segment_source2 = Some(segment_source2);
+        self
+    }
+
     /// The [`DType`] returned by the scan, after applying the projection.
     pub fn dtype(&self) -> VortexResult<DType> {
         self.projection.return_dtype(self.layout_reader.dtype())
@@ -143,6 +151,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
         ScanBuilder {
             layout_reader: self.layout_reader,
             segment_source: self.segment_source,
+            segment_source2: self.segment_source2,
             projection: self.projection,
             filter: self.filter,
             row_range: self.row_range,
@@ -255,6 +264,7 @@ impl ScanBuilder<ArrayRef> {
         Self {
             layout_reader,
             segment_source,
+            segment_source2: None,
             projection: root(),
             filter: None,
             row_range: None,
@@ -342,7 +352,11 @@ impl ScanBuilder<ArrayRef> {
             mapper: self.map_fn,
         };
 
-        Scan2::try_new(splits, ctx)
+        Scan2::try_new(
+            splits,
+            ctx,
+            self.segment_source2.vortex_expect("Missing SegmentSource2"),
+        )
     }
 }
 

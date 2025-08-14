@@ -11,7 +11,7 @@ use bit_vec::BitVec;
 use futures::StreamExt;
 use futures::channel::mpsc;
 use futures::task::noop_waker;
-use itertools::Itertools;
+pub use segments::*;
 use std::collections::VecDeque;
 use std::fmt::{Debug, Formatter};
 use std::ops::{BitAnd, Range};
@@ -38,13 +38,17 @@ pub struct Scan2 {
 }
 
 pub(crate) trait TaskSpawner: Send {
-    fn spawn_task(&self, task: Box<dyn ScanTask>);
+    fn spawn_task(&self, task: Box<ScanTask>);
 }
 
 static ID: AtomicUsize = AtomicUsize::new(0);
 
 impl Scan2 {
-    pub fn try_new(ranges: Vec<Range<u64>>, ctx: TaskContext<ArrayRef>) -> VortexResult<Self> {
+    pub fn try_new(
+        ranges: Vec<Range<u64>>,
+        ctx: TaskContext<ArrayRef>,
+        source: Arc<dyn SegmentSource2>,
+    ) -> VortexResult<Self> {
         let nsplits = ranges.len();
         let nconjuncts = ctx.filter.as_ref().map_or(0, |f| f.conjuncts().len());
 
@@ -131,9 +135,15 @@ impl Scan2 {
                 completed_filter_conjuncts: BitVec::from_elem(nconjuncts, false),
                 projection: projection_idx,
                 ready_projection,
+                completed_projection: false,
             };
 
-            // segments.acquire(split.all_segments());
+            segments.acquire(split.evaluations().into_iter().flat_map(|idx| {
+                evaluations[idx]
+                    .as_ref()
+                    .map(|e| e.waiting_for.iter())
+                    .unwrap_or_default()
+            }));
             splits.push(split);
         }
 
@@ -176,7 +186,6 @@ impl Scan2 {
             segments: self.segments,
 
             completed_splits: 0,
-
             next_pruning_io_split: 0,
             next_filter_io_splits: vec![0; nconjuncts],
             next_projection_io_split: 0,
@@ -192,7 +201,7 @@ impl Scan2 {
             // TODO(ngates): this should really be target segment size and we control the max
             //  memory consumption.
             target_segment_count: 128,
-            target_inflight_tasks: 16,
+            target_inflight_tasks: 2 * num_cpus::get(),
         }
     }
 }
@@ -258,7 +267,9 @@ type EvaluationIdx = usize;
 struct Evaluation {
     split_idx: SplitIdx,
     eval: Eval,
+    // TODO(ngates): I think we can just use a counter here.
     waiting_for: HashSet<SegmentId>,
+    segments: HashSet<SegmentId>,
 }
 
 impl Debug for Evaluation {
@@ -293,7 +304,8 @@ impl Evaluation {
         Self {
             split_idx,
             eval: Eval::Prune(conjunct_idx, eval),
-            waiting_for,
+            waiting_for: waiting_for.clone(),
+            segments: waiting_for,
         }
     }
 
@@ -303,7 +315,8 @@ impl Evaluation {
         Self {
             split_idx,
             eval: Eval::Filter(conjunct_idx, eval),
-            waiting_for,
+            waiting_for: waiting_for.clone(),
+            segments: waiting_for,
         }
     }
 
@@ -313,7 +326,8 @@ impl Evaluation {
         Self {
             split_idx,
             eval: Eval::Project(eval),
-            waiting_for,
+            waiting_for: waiting_for.clone(),
+            segments: waiting_for,
         }
     }
 }
@@ -338,6 +352,7 @@ struct Split {
 
     projection: EvaluationIdx,
     ready_projection: bool,
+    completed_projection: bool,
 }
 
 #[derive(Debug)]
@@ -347,21 +362,34 @@ enum State {
     Finished(Option<VortexResult<ArrayRef>>),
 }
 
+impl Split {
+    fn evaluations(&self) -> impl Iterator<Item = EvaluationIdx> {
+        self.pruning
+            .iter()
+            .copied()
+            .chain(self.filters.iter().copied())
+            .chain([self.projection])
+    }
+}
+
 type SplitIdx = usize;
 
 enum ScanTaskResult {
     Prune {
         split_idx: SplitIdx,
         conjunct_idx: usize,
+        used_segments: HashSet<SegmentId>,
         result: VortexResult<Mask>,
     },
     Filter {
         split_idx: SplitIdx,
         conjunct_idx: usize,
+        used_segments: HashSet<SegmentId>,
         result: VortexResult<Mask>,
     },
     Project {
         split_idx: SplitIdx,
+        used_segments: HashSet<SegmentId>,
         result: VortexResult<ArrayRef>,
     },
 }
@@ -398,85 +426,6 @@ impl Debug for ScanTaskResult {
         }
 
         ds.finish()
-    }
-}
-
-pub trait ScanTask: Send {
-    /// Execute the scan task on the current thread.
-    ///
-    /// If this is a projection task, the result array is returned to allow for out-of-order
-    /// results for systems that are able to accept them. Otherwise, in-order results are available
-    /// from the scheduler.
-    fn execute(&self) -> Option<ArrayRef>;
-}
-
-struct PruneTask {
-    split_idx: SplitIdx,
-    conjunct_idx: usize,
-    eval: Box<dyn PruningEvaluation>,
-    mask: Mask,
-    segments: Arc<dyn Segments>,
-    cpu_events: mpsc::UnboundedSender<ScanTaskResult>,
-}
-
-impl ScanTask for PruneTask {
-    fn execute(&self) -> Option<ArrayRef> {
-        let result = self.eval.invoke(self.mask.clone(), self.segments.as_ref());
-        // Ignore the error, since it means the scan has terminated early.
-        let _ = self.cpu_events.unbounded_send(ScanTaskResult::Prune {
-            split_idx: self.split_idx,
-            conjunct_idx: self.conjunct_idx,
-            result,
-        });
-        None
-    }
-}
-
-struct FilterTask {
-    // TODO(ngates): we may wish to plumb through an is_canceled: Arc<AtomicBool>.
-    split_idx: SplitIdx,
-    conjunct_idx: usize,
-    eval: Box<dyn MaskEvaluation>,
-    mask: Mask,
-    segments: Arc<dyn Segments>,
-    cpu_events: mpsc::UnboundedSender<ScanTaskResult>,
-}
-
-impl ScanTask for FilterTask {
-    fn execute(&self) -> Option<ArrayRef> {
-        let result = self.eval.invoke(self.mask.clone(), self.segments.as_ref());
-        // Ignore the error, since it means the scan has terminated early.
-        let _ = self.cpu_events.unbounded_send(ScanTaskResult::Filter {
-            split_idx: self.split_idx,
-            conjunct_idx: self.conjunct_idx,
-            result,
-        });
-        None
-    }
-}
-
-struct ProjectTask {
-    split_idx: SplitIdx,
-    eval: Box<dyn ArrayEvaluation>,
-    mask: Mask,
-    segments: Arc<dyn Segments>,
-    cpu_events: mpsc::UnboundedSender<ScanTaskResult>,
-}
-
-impl ScanTask for ProjectTask {
-    fn execute(&self) -> Option<ArrayRef> {
-        let result = self.eval.invoke(self.mask.clone(), self.segments.as_ref());
-
-        // We take a (zero-)copy of the array for scan drivers that are able to immediately return
-        // out-of-order results.
-        let array = result.as_ref().ok().cloned();
-
-        // Ignore the error, since it means the scan has terminated early.
-        let _ = self.cpu_events.unbounded_send(ScanTaskResult::Project {
-            split_idx: self.split_idx,
-            result,
-        });
-        array
     }
 }
 
@@ -528,6 +477,14 @@ impl Scheduler {
         }
         // Mark ourselves as done.
         if self.completed_splits == self.splits.len() {
+            // assert!(
+            //     self.segments.is_empty(),
+            //     "Segments not empty at end of scan, accounting error {:?} {:?} {:?} {}",
+            //     self.segments.ref_counts(),
+            //     self.segments.working_set,
+            //     self.segments.working_set_size,
+            //     self.segments.inflight_count(),
+            // );
             self.finished = true;
         }
 
@@ -646,9 +603,13 @@ impl Scheduler {
         log::debug!("[{}] Handle IO event: {:?}", self.id, segment_id);
         if let Some(eval_idxs) = self.evaluation_segments.remove(&segment_id) {
             for eval_idx in eval_idxs {
-                let eval = self.evaluations[eval_idx].as_mut().vortex_expect(
-                    "Evaluation cannot have been consumed since it depends on this segment",
-                );
+                let Some(eval) = self.evaluations[eval_idx].as_mut() else {
+                    log::debug!(
+                        "Evaluation dropped while waiting for segment {}",
+                        segment_id
+                    );
+                    continue;
+                };
                 eval.waiting_for.remove(&segment_id);
 
                 if eval.waiting_for.is_empty() {
@@ -680,8 +641,11 @@ impl Scheduler {
             ScanTaskResult::Prune {
                 split_idx,
                 conjunct_idx,
+                used_segments,
                 result,
             } => {
+                self.segments.release(&used_segments);
+
                 let split = &mut self.splits[split_idx];
 
                 match result {
@@ -691,8 +655,8 @@ impl Scheduler {
                         split.completed_pruning_conjuncts.set(conjunct_idx, true);
                     }
                     Err(e) => {
-                        // FIXME(ngates): drop the remaining evaluations.
                         split.state = State::Finished(Some(Err(e)));
+                        self.drop_evaluations(split_idx);
                         self.errored = true;
                     }
                 }
@@ -702,8 +666,11 @@ impl Scheduler {
             ScanTaskResult::Filter {
                 split_idx,
                 conjunct_idx,
+                used_segments,
                 result,
             } => {
+                self.segments.release(&used_segments);
+
                 let split = &mut self.splits[split_idx];
 
                 match result {
@@ -713,23 +680,31 @@ impl Scheduler {
                         split.completed_filter_conjuncts.set(conjunct_idx, true);
                     }
                     Err(e) => {
-                        // FIXME(ngates): drop the remaining evaluations.
                         split.state = State::Finished(Some(Err(e)));
+                        self.drop_evaluations(split_idx);
                         self.errored = true;
                     }
                 }
                 self.make_progress_on_split(split_idx);
             }
-            ScanTaskResult::Project { split_idx, result } => {
+            ScanTaskResult::Project {
+                split_idx,
+                used_segments,
+                result,
+            } => {
+                self.segments.release(&used_segments);
+
                 let split = &mut self.splits[split_idx];
 
                 match result {
                     Ok(result) => {
+                        split.completed_projection = true;
                         split.state = State::Finished(Some(Ok(result)));
+                        self.drop_evaluations(split_idx);
                     }
                     Err(e) => {
-                        // FIXME(ngates): drop the remaining evaluations.
                         split.state = State::Finished(Some(Err(e)));
+                        self.drop_evaluations(split_idx);
                         self.errored = true;
                     }
                 }
@@ -751,8 +726,7 @@ impl Scheduler {
                 // If the mask is all false, we can prune the segment.
                 if split.mask.all_false() {
                     split.state = State::Pruned;
-                    // self.segments.release(split.remaining_segments().iter());
-                    // split.drop_evaluations();
+                    self.drop_evaluations(split_idx);
                     return;
                 }
 
@@ -801,32 +775,65 @@ impl Scheduler {
     }
 
     fn spawn_task(&mut self, evaluation: Evaluation, mask: Mask) {
-        let task: Box<dyn ScanTask> = match evaluation.eval {
-            Eval::Prune(conjunct_idx, eval) => Box::new(PruneTask {
-                split_idx: evaluation.split_idx,
-                conjunct_idx,
-                eval,
-                mask,
-                segments: self.segments.segments(),
-                cpu_events: self.result_send.clone(),
-            }),
-            Eval::Filter(conjunct_idx, eval) => Box::new(FilterTask {
-                split_idx: evaluation.split_idx,
-                conjunct_idx,
-                eval,
-                mask,
-                segments: self.segments.segments(),
-                cpu_events: self.result_send.clone(),
-            }),
-            Eval::Project(eval) => Box::new(ProjectTask {
-                split_idx: evaluation.split_idx,
-                eval,
-                mask,
-                segments: self.segments.segments(),
-                cpu_events: self.result_send.clone(),
-            }),
-        };
+        self.task_spawner.spawn_task(Box::new(ScanTask {
+            evaluation,
+            mask,
+            segments: self.segments.segments(),
+            cpu_events: self.result_send.clone(),
+        }));
+    }
 
-        self.task_spawner.spawn_task(task);
+    /// Drop the given evaluations and release their segment references.
+    fn drop_evaluations(&mut self, split_idx: SplitIdx) {
+        for eval_idx in self.splits[split_idx].evaluations() {
+            if let Some(eval) = self.evaluations[eval_idx].take() {
+                self.segments.release(eval.waiting_for.iter());
+                drop(eval);
+            }
+        }
+    }
+}
+
+pub(crate) struct ScanTask {
+    evaluation: Evaluation,
+    mask: Mask,
+    segments: Arc<dyn Segments>,
+    cpu_events: mpsc::UnboundedSender<ScanTaskResult>,
+}
+
+impl ScanTask {
+    pub fn execute(self) -> Option<ArrayRef> {
+        match self.evaluation.eval {
+            Eval::Prune(conjunct_idx, eval) => {
+                let result = eval.invoke(self.mask, self.segments.as_ref());
+                let _ = self.cpu_events.unbounded_send(ScanTaskResult::Prune {
+                    split_idx: self.evaluation.split_idx,
+                    conjunct_idx,
+                    used_segments: self.evaluation.segments,
+                    result,
+                });
+                None
+            }
+            Eval::Filter(conjunct_idx, eval) => {
+                let result = eval.invoke(self.mask, self.segments.as_ref());
+                let _ = self.cpu_events.unbounded_send(ScanTaskResult::Filter {
+                    split_idx: self.evaluation.split_idx,
+                    conjunct_idx,
+                    used_segments: self.evaluation.segments,
+                    result,
+                });
+                None
+            }
+            Eval::Project(eval) => {
+                let result = eval.invoke(self.mask, self.segments.as_ref());
+                let array = result.as_ref().ok().cloned();
+                let _ = self.cpu_events.unbounded_send(ScanTaskResult::Project {
+                    split_idx: self.evaluation.split_idx,
+                    used_segments: self.evaluation.segments,
+                    result,
+                });
+                array
+            }
+        }
     }
 }

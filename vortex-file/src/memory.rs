@@ -3,12 +3,12 @@
 
 use std::sync::Arc;
 
+use crate::{FileType, Footer, VortexFile, VortexOpenOptions};
 use futures::FutureExt;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_layout::segments::{SegmentFuture, SegmentId, SegmentSource};
-
-use crate::{FileType, Footer, VortexFile, VortexOpenOptions};
+use vortex_scan::{SegmentCallback, SegmentSource2};
 
 /// A Vortex file that is backed by an in-memory buffer.
 ///
@@ -58,6 +58,10 @@ impl VortexOpenOptions<InMemoryFileType> {
         )?;
 
         let segment_source = Arc::new(InMemorySegmentReader {
+            buffer: buffer.clone(),
+            footer: footer.clone(),
+        });
+        let segment_source2 = Arc::new(InMemorySegmentReader {
             buffer,
             footer: footer.clone(),
         });
@@ -65,6 +69,7 @@ impl VortexOpenOptions<InMemoryFileType> {
         Ok(VortexFile {
             footer,
             segment_source,
+            segment_source2,
             metrics: self.metrics,
         })
     }
@@ -87,5 +92,23 @@ impl SegmentSource for InMemorySegmentReader {
         let buffer = self.buffer.slice(start..end);
 
         async move { Ok(buffer) }.boxed()
+    }
+}
+
+impl SegmentSource2 for InMemorySegmentReader {
+    fn size(&self, segment_id: SegmentId) -> usize {
+        self.footer.segment_map()[*segment_id as usize].length as usize
+    }
+
+    fn request_many(&self, segment_ids: &[SegmentId], callback: Arc<dyn SegmentCallback>) {
+        let segments = self.footer.segment_map();
+        for id in segment_ids {
+            let spec = &segments[*(*id) as usize];
+            let start =
+                usize::try_from(spec.offset).vortex_expect("segment offset larger than usize");
+            let end = start + spec.length as usize;
+            let buffer = self.buffer.slice(start..end);
+            callback.on_segment(*id, Ok(buffer))
+        }
     }
 }

@@ -33,7 +33,7 @@ impl Scan2 {
 }
 
 impl TaskSpawner for ThreadPool {
-    fn spawn_task(&self, task: Box<dyn ScanTask>) {
+    fn spawn_task(&self, task: Box<ScanTask>) {
         self.spawn(async move {
             // FIXME(ngates): this result will disappear.
             let _ = task.execute().vortex_expect("Failed to execute scan task");

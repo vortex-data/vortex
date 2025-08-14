@@ -17,7 +17,7 @@ use vortex_expr::{ExprRef, Scope};
 use vortex_layout::LayoutReader;
 use vortex_layout::segments::SegmentSource;
 use vortex_metrics::VortexMetrics;
-use vortex_scan::ScanBuilder;
+use vortex_scan::{ScanBuilder, SegmentSource2};
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::footer::Footer;
@@ -34,6 +34,7 @@ pub struct VortexFile {
     pub(crate) footer: Footer,
     /// The segment source used to read segments from this file.
     pub(crate) segment_source: Arc<dyn SegmentSource>,
+    pub(crate) segment_source2: Arc<dyn SegmentSource2>,
     /// Metrics tied to the file.
     pub(crate) metrics: VortexMetrics,
 }
@@ -72,6 +73,9 @@ impl VortexFile {
     /// is dropped.
     pub fn segment_source(&self) -> Arc<dyn SegmentSource> {
         self.segment_source.clone()
+    }
+    pub fn segment_source2(&self) -> Arc<dyn SegmentSource2> {
+        self.segment_source2.clone()
     }
 
     /// Create a new layout reader for the file.

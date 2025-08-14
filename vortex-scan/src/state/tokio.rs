@@ -24,7 +24,7 @@ impl Scan2 {
 }
 
 impl TaskSpawner for Handle {
-    fn spawn_task(&self, task: Box<dyn ScanTask>) {
+    fn spawn_task(&self, task: Box<ScanTask>) {
         // NOTE(ngates): we make an explicit choice not to spawn_blocking here as this is the
         //  compute model for DataFusion.
         // NOTE(ngates): we can safely drop the join handle since we don't use its result, the

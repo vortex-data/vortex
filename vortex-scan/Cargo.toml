@@ -26,6 +26,7 @@ vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
 vortex-utils = { workspace = true }
 
+async-trait = { workspace = true }
 bit-vec = { workspace = true }
 crossbeam-deque = { workspace = true }
 crossbeam-queue = { workspace = true }
@@ -33,6 +34,7 @@ dashmap = { workspace = true }
 futures = { workspace = true, features = ["thread-pool"] }
 itertools = { workspace = true }
 log = { workspace = true }
+num_cpus = { workspace = true }
 parking_lot = { workspace = true }
 roaring = { workspace = true, optional = true }
 sketches-ddsketch = { workspace = true }

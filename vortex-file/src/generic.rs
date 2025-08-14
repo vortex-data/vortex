@@ -4,19 +4,19 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use dashmap::DashMap;
-use futures::{StreamExt, pin_mut};
-use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
-use vortex_io::{Dispatch, InstrumentedReadAt, IoDispatcher, VortexReadAt};
-use vortex_layout::segments::{SegmentEvents, SegmentId};
-
 use crate::driver::CoalescedDriver;
 use crate::segments::{
     InitialReadSegmentCache, MokaSegmentCache, NoOpSegmentCache, SegmentCache, SegmentCacheMetrics,
     SegmentCacheSourceAdapter,
 };
 use crate::{EOF_SIZE, FileType, Footer, MAX_FOOTER_SIZE, VortexFile, VortexOpenOptions};
+use dashmap::DashMap;
+use futures::{StreamExt, pin_mut};
+use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_io::{Dispatch, InstrumentedReadAt, IoDispatcher, VortexReadAt};
+use vortex_layout::segments::{SegmentEvents, SegmentId};
+use vortex_scan::{SegmentCallback, SegmentSource2};
 
 #[cfg(feature = "tokio")]
 static TOKIO_DISPATCHER: std::sync::LazyLock<IoDispatcher> =
