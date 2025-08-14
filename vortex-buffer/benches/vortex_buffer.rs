@@ -30,7 +30,8 @@ impl<T: ArrowNativeType> FromIterator<T> for Arrow<MutableBuffer> {
     }
 }
 
-const INPUT_SIZE: &[usize] = &[128, 1024, 2048, 16_384, 65_536];
+const INPUT_SIZE: &[i32] = &[128, 1024, 2048, 16_384, 65_536];
+const INPUT_SIZE_USIZE: &[usize] = &[128, 1024, 2048, 16_384, 65_536];
 
 #[divan::bench(
     types = [Arrow<ScalarBuffer<i32>>,Buffer<i32>],
@@ -115,7 +116,7 @@ fn push_arrow_buffer(bencher: Bencher, length: i32) {
         });
 }
 
-#[divan::bench(types = [u8, u16, u32, u64], args = INPUT_SIZE)]
+#[divan::bench(types = [u8, u16, u32, u64], args = INPUT_SIZE_USIZE)]
 fn push_n_vortex_buffer<T: PrimInt>(bencher: Bencher, length: usize) {
     bencher
         .with_inputs(|| BufferMut::<T>::with_capacity(length))
