@@ -11,7 +11,7 @@ import java.util.Map;
 public final class NativeWriterMethods {
     
     static {
-        NativeLoader.load();
+        NativeLoader.loadJni();
     }
     
     private NativeWriterMethods() {}

@@ -5,8 +5,6 @@ package dev.vortex.api;
 
 import dev.vortex.jni.JNIWriter;
 import dev.vortex.jni.NativeWriterMethods;
-import dev.vortex.relocated.org.apache.arrow.vector.VectorSchemaRoot;
-import dev.vortex.relocated.org.apache.arrow.vector.types.pojo.Schema;
 import java.io.IOException;
 import java.util.Map;
 
@@ -22,14 +20,14 @@ public interface VortexWriter extends AutoCloseable {
      * Creates a new VortexWriter for writing to the specified file path.
      *
      * @param filePath the path where the Vortex file will be written
-     * @param schema the Arrow schema for the data to be written
+     * @param schemaJson the Arrow schema in JSON format
      * @param options additional writer options
      * @return a new VortexWriter instance
      * @throws IOException if the writer cannot be created
      */
-    static VortexWriter create(String filePath, Schema schema, Map<String, String> options) 
+    static VortexWriter create(String filePath, String schemaJson, Map<String, String> options) 
             throws IOException {
-        long ptr = NativeWriterMethods.create(filePath, schema.toJson(), options);
+        long ptr = NativeWriterMethods.create(filePath, schemaJson, options);
         if (ptr <= 0) {
             throw new IOException("Failed to create Vortex writer for: " + filePath);
         }
@@ -39,10 +37,10 @@ public interface VortexWriter extends AutoCloseable {
     /**
      * Writes a batch of Arrow data to the Vortex file.
      *
-     * @param batch the Arrow VectorSchemaRoot containing the data batch
+     * @param arrowData the Arrow data in IPC format as byte array
      * @throws IOException if writing fails
      */
-    void writeBatch(VectorSchemaRoot batch) throws IOException;
+    void writeBatch(byte[] arrowData) throws IOException;
     
     /**
      * Closes the writer and finalizes the Vortex file.

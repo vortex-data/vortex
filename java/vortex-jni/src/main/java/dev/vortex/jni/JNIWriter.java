@@ -4,14 +4,7 @@
 package dev.vortex.jni;
 
 import dev.vortex.api.VortexWriter;
-import dev.vortex.arrow.ArrowAllocation;
-import dev.vortex.relocated.org.apache.arrow.memory.ArrowBuf;
-import dev.vortex.relocated.org.apache.arrow.vector.VectorSchemaRoot;
-import dev.vortex.relocated.org.apache.arrow.vector.ipc.ArrowStreamWriter;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.nio.channels.Channels;
 
 /**
  * JNI implementation of VortexWriter.
@@ -33,25 +26,14 @@ public final class JNIWriter implements VortexWriter {
     /**
      * Writes a batch of Arrow data to the Vortex file.
      *
-     * @param batch the Arrow VectorSchemaRoot containing the data batch
+     * @param arrowData the Arrow data in IPC format as byte array
      * @throws IOException if writing fails
      */
     @Override
-    public void writeBatch(VectorSchemaRoot batch) throws IOException {
+    public void writeBatch(byte[] arrowData) throws IOException {
         if (closed) {
             throw new IOException("Writer is already closed");
         }
-        
-        // Serialize the VectorSchemaRoot to Arrow IPC format
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        try (ArrowStreamWriter writer = new ArrowStreamWriter(
-                batch, null, Channels.newChannel(baos))) {
-            writer.start();
-            writer.writeBatch();
-            writer.end();
-        }
-        
-        byte[] arrowData = baos.toByteArray();
         
         // Write the Arrow data to Vortex through JNI
         boolean success = NativeWriterMethods.writeBatch(ptr, arrowData);

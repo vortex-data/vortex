@@ -21,7 +21,7 @@ import org.apache.spark.sql.util.CaseInsensitiveStringMap;
  * This class coordinates the distributed write operation across Spark executors,
  * handling the creation of data writers and managing commits/aborts.
  */
-public final class VortexBatchWrite implements BatchWrite {
+public final class VortexBatchWrite implements Write, BatchWrite {
     
     private final String outputPath;
     private final StructType schema;
@@ -45,6 +45,18 @@ public final class VortexBatchWrite implements BatchWrite {
         this.schema = schema;
         this.options = options;
         this.overwrite = overwrite;
+    }
+    
+    /**
+     * Returns this object as a BatchWrite.
+     * 
+     * This method is required by the Write interface to support batch writes.
+     *
+     * @return this object
+     */
+    @Override
+    public BatchWrite toBatch() {
+        return this;
     }
     
     /**

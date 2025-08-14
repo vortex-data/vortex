@@ -55,3 +55,4 @@ public final class VortexDataWriterFactory implements DataWriterFactory {
         
         return new VortexDataWriter(filePath, schema, options);
     }
+}

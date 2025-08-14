@@ -3,7 +3,10 @@
 
 package dev.vortex.spark.write;
 
-import org.apache.spark.sql.connector.write.*;
+import org.apache.spark.sql.connector.write.Write;
+import org.apache.spark.sql.connector.write.WriteBuilder;
+import org.apache.spark.sql.connector.write.SupportsTruncate;
+import org.apache.spark.sql.connector.write.LogicalWriteInfo;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.util.CaseInsensitiveStringMap;
 
@@ -13,7 +16,7 @@ import org.apache.spark.sql.util.CaseInsensitiveStringMap;
  * This class is responsible for creating BatchWrite instances that execute
  * the actual write operations to create Vortex files from Spark DataFrames.
  */
-public final class VortexWriteBuilder implements WriteBuilder, SupportsTruncate, SupportsOverwrite {
+public final class VortexWriteBuilder implements WriteBuilder, SupportsTruncate {
     
     private final String outputPath;
     private final LogicalWriteInfo writeInfo;
@@ -38,12 +41,12 @@ public final class VortexWriteBuilder implements WriteBuilder, SupportsTruncate,
     }
     
     /**
-     * Builds a BatchWrite for executing the write operation.
+     * Builds a Write for executing the write operation.
      *
      * @return a new VortexBatchWrite configured with this builder's settings
      */
     @Override
-    public BatchWrite build() {
+    public Write build() {
         return new VortexBatchWrite(
             outputPath,
             writeInfo.schema(),
@@ -73,8 +76,7 @@ public final class VortexWriteBuilder implements WriteBuilder, SupportsTruncate,
      *
      * @return this builder for method chaining
      */
-    @Override
-    public WriteBuilder overwrite(SupportsTruncate.WriteContext context) {
+    public WriteBuilder overwrite() {
         this.overwrite = true;
         return this;
     }
