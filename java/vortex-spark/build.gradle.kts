@@ -83,6 +83,7 @@ tasks.withType<Test>().all {
         "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED",
         "--add-opens=java.base/java.nio=ALL-UNNAMED",
         "--add-opens=java.base/sun.util.calendar=ALL-UNNAMED",
+        "--add-opens=java.base/sun.security.action=ALL-UNNAMED",
     )
 }
 

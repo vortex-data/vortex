@@ -4,6 +4,8 @@
 package dev.vortex.spark.write;
 
 import java.io.Serializable;
+import java.util.HashMap;
+import java.util.Map;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.connector.write.DataWriter;
 import org.apache.spark.sql.connector.write.DataWriterFactory;
@@ -20,7 +22,8 @@ public final class VortexDataWriterFactory implements DataWriterFactory, Seriali
     
     private final String outputPath;
     private final StructType schema;
-    private final CaseInsensitiveStringMap options;
+    // Store options as a serializable Map instead of CaseInsensitiveStringMap
+    private final Map<String, String> options;
     
     /**
      * Creates a new VortexDataWriterFactory.
@@ -35,7 +38,8 @@ public final class VortexDataWriterFactory implements DataWriterFactory, Seriali
             CaseInsensitiveStringMap options) {
         this.outputPath = outputPath;
         this.schema = schema;
-        this.options = options;
+        // Convert CaseInsensitiveStringMap to a serializable HashMap
+        this.options = new HashMap<>(options);
     }
     
     /**
@@ -54,6 +58,8 @@ public final class VortexDataWriterFactory implements DataWriterFactory, Seriali
         String fileName = String.format("part-%05d-%d.vortex", partitionId, taskId);
         String filePath = outputPath + "/" + fileName;
         
-        return new VortexDataWriter(filePath, schema, options);
+        // Create a new CaseInsensitiveStringMap from our serializable Map
+        CaseInsensitiveStringMap optionsMap = new CaseInsensitiveStringMap(options);
+        return new VortexDataWriter(filePath, schema, optionsMap);
     }
 }
