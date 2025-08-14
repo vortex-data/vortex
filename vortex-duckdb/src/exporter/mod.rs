@@ -211,7 +211,6 @@ impl VectorExt for Vector {
             }
             Mask::Values(arr) => {
                 // SAFETY: Caller guaranteees this.
-                let validity = unsafe { self.ensure_validity_slice(len) };
                 let arr_bits: &[u64] = {
                     let byte_slice = arr.boolean_buffer().inner().as_slice();
                     unsafe {
@@ -222,7 +221,9 @@ impl VectorExt for Vector {
                     }
                 };
                 let sliced_bits = &arr_bits.view_bits::<Lsb0>()[offset..][0..len];
-                validity.copy_from_bitslice(sliced_bits);
+
+                let validity = unsafe { self.ensure_validity_slice(len) };
+                validity[offset..][0..len].copy_from_bitslice(sliced_bits);
                 sliced_bits.count_ones() == len
             }
         }
