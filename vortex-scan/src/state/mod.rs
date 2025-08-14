@@ -16,6 +16,7 @@ use std::collections::VecDeque;
 use std::fmt::{Debug, Formatter};
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::task::{Context, Poll};
 use vortex_array::ArrayRef;
 use vortex_error::{VortexExpect, VortexResult};
@@ -39,6 +40,8 @@ pub struct Scan2 {
 pub(crate) trait TaskSpawner: Send {
     fn spawn_task(&self, task: Box<dyn ScanTask>);
 }
+
+static ID: AtomicUsize = AtomicUsize::new(0);
 
 impl Scan2 {
     pub fn try_new(ranges: Vec<Range<u64>>, ctx: TaskContext<ArrayRef>) -> VortexResult<Self> {
@@ -79,26 +82,41 @@ impl Scan2 {
 
             let split_idx = splits.len();
 
+            // Some evaluations don't require segments! In this case, we need to mark them ready
+            // now, otherwise there will be no I/O event to trigger the state transition.
+
             let mut pruning_idx = vec![];
+            let mut ready_pruning_conjuncts = BitVec::from_elem(nconjuncts, false);
             let mut filter_idx = vec![];
+            let mut ready_filter_conjuncts = BitVec::from_elem(nconjuncts, false);
             if let Some(filter) = ctx.filter.as_ref() {
                 for (conjunct_idx, conjunct) in filter.conjuncts().iter().enumerate() {
                     let prune_eval = ctx.reader.pruning_evaluation(&row_range, conjunct)?;
                     let prune_eval = Evaluation::new_pruning(split_idx, conjunct_idx, prune_eval);
+                    if prune_eval.waiting_for.is_empty() {
+                        ready_pruning_conjuncts.set(conjunct_idx, true);
+                    }
                     pruning_idx.push(evaluations.len());
                     evaluations.push(Some(prune_eval));
 
                     let filter_eval = ctx.reader.filter_evaluation(&row_range, conjunct)?;
                     let filter_eval = Evaluation::new_filter(split_idx, conjunct_idx, filter_eval);
+                    if filter_eval.waiting_for.is_empty() {
+                        ready_filter_conjuncts.set(conjunct_idx, true);
+                    }
                     filter_idx.push(evaluations.len());
                     evaluations.push(Some(filter_eval));
                 }
             }
 
+            let mut ready_projection = false;
             let projection = ctx
                 .reader
                 .projection_evaluation(&row_range, &ctx.projection)?;
             let projection = Evaluation::new_project(split_idx, projection);
+            if projection.waiting_for.is_empty() {
+                ready_projection = true;
+            }
             let projection_idx = evaluations.len();
             evaluations.push(Some(projection));
 
@@ -106,13 +124,13 @@ impl Scan2 {
                 state: State::InProgress,
                 mask,
                 pruning: pruning_idx,
-                ready_pruning_conjuncts: BitVec::from_elem(nconjuncts, false),
+                ready_pruning_conjuncts,
                 completed_pruning_conjuncts: BitVec::from_elem(nconjuncts, false),
                 filters: filter_idx,
-                ready_filter_conjuncts: BitVec::from_elem(nconjuncts, false),
+                ready_filter_conjuncts,
                 completed_filter_conjuncts: BitVec::from_elem(nconjuncts, false),
                 projection: projection_idx,
-                ready_projection: false,
+                ready_projection,
             };
 
             // segments.acquire(split.all_segments());
@@ -146,6 +164,7 @@ impl Scan2 {
         let nconjuncts = self.ctx.filter.as_ref().map_or(0, |f| f.conjuncts().len());
 
         Scheduler {
+            id: ID.fetch_add(1, Ordering::Relaxed),
             task_spawner,
             output_buffer: Default::default(),
             result_send: cpu_send,
@@ -183,6 +202,9 @@ impl Scan2 {
 /// Decides which segments to request and when, as well as spawning CPU work when available.
 /// This scheduler is wrapped up for various threading models.
 pub(crate) struct Scheduler {
+    /// Unique ID for this scheduler to help with debug logs!
+    id: usize,
+
     task_spawner: Box<dyn TaskSpawner>,
     filter: Option<Arc<FilterExpr>>,
 
@@ -318,6 +340,7 @@ struct Split {
     ready_projection: bool,
 }
 
+#[derive(Debug)]
 enum State {
     InProgress,
     Pruned,
@@ -491,13 +514,13 @@ impl Scheduler {
             match &mut self.splits[self.completed_splits].state {
                 State::Finished(result) => {
                     if let Some(result) = result.take() {
-                        log::debug!("Split {} finished", self.completed_splits);
+                        log::debug!("[{}] Split {} finished", self.id, self.completed_splits);
                         self.output_buffer.push_back(result);
                     }
                     self.completed_splits += 1;
                 }
                 State::Pruned => {
-                    log::debug!("Split {} pruned", self.completed_splits);
+                    log::debug!("[{}] Split {} pruned", self.id, self.completed_splits);
                     self.completed_splits += 1;
                 }
                 _ => break,
@@ -513,7 +536,6 @@ impl Scheduler {
             // The top priority is projection tasks, since they can actually emit data.
             if let Some(eval) = self.pending_projections.pop_front() {
                 let mask = self.splits[eval.split_idx].mask.clone();
-                log::debug!("Spawning projection task for split {}", eval.split_idx);
                 self.spawn_task(eval, mask);
                 made_progress = true;
                 self.inflight_tasks += 1;
@@ -526,7 +548,6 @@ impl Scheduler {
             for pending in &mut self.pending_prunings {
                 if let Some(eval) = pending.pop_front() {
                     let mask = self.splits[eval.split_idx].mask.clone();
-                    log::debug!("Spawning pruning task for split {}", eval.split_idx);
                     self.spawn_task(eval, mask);
                     made_progress = true;
                     self.inflight_tasks += 1;
@@ -539,7 +560,6 @@ impl Scheduler {
             for filter in &mut self.pending_filters {
                 if let Some(eval) = filter.pop_front() {
                     let mask = self.splits[eval.split_idx].mask.clone();
-                    log::debug!("Spawning filter task for split {}", eval.split_idx);
                     self.spawn_task(eval, mask);
                     made_progress = true;
                     self.inflight_tasks += 1;
@@ -561,7 +581,7 @@ impl Scheduler {
             if self.next_pruning_io_split < self.splits.len() {
                 let split_idx = self.next_pruning_io_split;
                 let split = &self.splits[split_idx];
-                log::debug!("Requesting segments for pruning split {}", split_idx);
+
                 for eval_idx in &split.pruning {
                     if let Some(eval) = &self.evaluations[*eval_idx] {
                         made_progress = true;
@@ -623,7 +643,7 @@ impl Scheduler {
     /// Finishes by driving the state machines of any impacted splits.
     fn handle_io_event(&mut self, segment_id: SegmentId) {
         // Check which evaluations are waiting for this segment.
-        log::debug!("Handle IO event: {:?}", segment_id);
+        log::debug!("[{}] Handle IO event: {:?}", self.id, segment_id);
         if let Some(eval_idxs) = self.evaluation_segments.remove(&segment_id) {
             for eval_idx in eval_idxs {
                 let eval = self.evaluations[eval_idx].as_mut().vortex_expect(
@@ -655,7 +675,7 @@ impl Scheduler {
     ///
     /// Finishes by driving the state machines of any impacted splits.
     fn handle_cpu_event(&mut self, event: ScanTaskResult) {
-        log::debug!("Handle CPU event: {:?}", event);
+        log::debug!("[{}] Handle CPU event: {:?}", self.id, event);
         match event {
             ScanTaskResult::Prune {
                 split_idx,
@@ -698,7 +718,6 @@ impl Scheduler {
                         self.errored = true;
                     }
                 }
-
                 self.make_progress_on_split(split_idx);
             }
             ScanTaskResult::Project { split_idx, result } => {

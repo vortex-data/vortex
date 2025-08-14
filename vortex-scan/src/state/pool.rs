@@ -146,9 +146,11 @@ impl Iterator for ScanWorker {
 
             // Otherwise, we sit waiting for an event to unblock the scheduler. This avoids us
             // sitting in a busy loop.
+            log::debug!("[{}] Blocking on scheduler to make progress", scheduler.id);
             if let Err(e) = block_on(poll_fn(|cx| scheduler.make_progress_with_cx(cx))) {
                 return Some(Err(e));
             }
+            log::debug!("[{}] unblocked", scheduler.id);
         }
     }
 }
