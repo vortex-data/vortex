@@ -52,13 +52,16 @@ public final class JNIWriter implements VortexWriter {
      */
     @Override
     public void close() throws IOException {
-        if (!closed) {
+        if (!closed && ptr > 0) {
+            System.err.println("DEBUG: Closing JNIWriter with ptr=" + ptr);
             boolean success = NativeWriterMethods.close(ptr);
             if (!success) {
                 throw new IOException("Failed to close Vortex writer");
             }
             ptr = 0;
             closed = true;
+        } else if (closed) {
+            System.err.println("DEBUG: JNIWriter already closed, skipping close()");
         }
     }
     

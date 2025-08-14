@@ -6,8 +6,8 @@ use std::io::Cursor;
 use arrow_array::RecordBatch;
 use arrow_ipc::reader::StreamReader;
 use jni::JNIEnv;
-use jni::objects::{JByteArray, JClass, JMap, JString};
-use jni::sys::{JNI_TRUE, jboolean, jlong};
+use jni::objects::{JByteArray, JClass, JObject, JString};
+use jni::sys::{JNI_FALSE, JNI_TRUE, jboolean, jlong};
 use vortex::arrays::ChunkedArray;
 use vortex::arrow::FromArrowArray;
 use vortex::file::VortexWriteOptions;
@@ -37,6 +37,7 @@ impl WriterWrapper {
     }
 
     pub fn close(self) -> Result<(), JNIError> {
+        eprintln!("WriterWrapper::close() called, arrays.len()={}", self.arrays.len());
         // Write all accumulated Vortex arrays to file
         if !self.arrays.is_empty() {
             // Arrays are already converted, no need to convert again
@@ -57,6 +58,13 @@ impl WriterWrapper {
 
             // Write using VortexWriteOptions with the array's stream
             crate::block_on("write_vortex", async move {
+                // Create parent directories if they don't exist
+                if let Some(parent) = std::path::Path::new(&path).parent() {
+                    tokio::fs::create_dir_all(parent).await.map_err(|e| {
+                        JNIError::Vortex(vortex::error::vortex_err!("Failed to create directories: {}", e))
+                    })?;
+                }
+                
                 let file = tokio::fs::File::create(&path).await.map_err(|e| {
                     JNIError::Vortex(vortex::error::vortex_err!("Failed to create file: {}", e))
                 })?;
@@ -68,11 +76,21 @@ impl WriterWrapper {
             })?;
         } else {
             // Create empty file if no data
+            eprintln!("Creating empty file at: {}", self.path);
+            
+            // Create parent directories if they don't exist
+            if let Some(parent) = std::path::Path::new(&self.path).parent() {
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    JNIError::Vortex(vortex::error::vortex_err!("Failed to create directories: {}", e))
+                })?;
+            }
+            
             std::fs::File::create(&self.path).map_err(|e| {
                 JNIError::Vortex(vortex::error::vortex_err!("Failed to create file: {}", e))
             })?;
         }
 
+        eprintln!("WriterWrapper::close() completed successfully");
         Ok(())
     }
 }
@@ -84,11 +102,15 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriterMethods_create<'local>(
     _class: JClass<'local>,
     file_path: JString<'local>,
     _schema_json: JString<'local>,
-    _options: JMap<'local, 'local, 'local>,
+    _options: JObject<'local>,
 ) -> jlong {
+    // Add debug logging
+    eprintln!("Native create() called");
+    
     try_or_throw(&mut env, |env| {
         // Get the file path
         let path: String = env.get_string(&file_path)?.into();
+        eprintln!("Creating writer for path: {}", path);
 
         // Note: schema_json parameter is kept for API compatibility but not used
         // The schema will be extracted from the IPC data itself
@@ -97,7 +119,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriterMethods_create<'local>(
         let wrapper = WriterWrapper::new(path)?;
 
         // Return the pointer
-        Ok(Box::into_raw(Box::new(wrapper)) as jlong)
+        let ptr = Box::into_raw(Box::new(wrapper)) as jlong;
+        eprintln!("Created writer with ptr: {:#x}", ptr);
+        Ok(ptr)
     })
 }
 
@@ -109,6 +133,14 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriterMethods_writeBatch<'local
     writer_ptr: jlong,
     arrow_data: JByteArray<'local>,
 ) -> jboolean {
+    eprintln!("Native writeBatch() called with ptr: {:#x}", writer_ptr);
+    
+    // Validate pointer before using it
+    if writer_ptr <= 0 {
+        eprintln!("ERROR: Invalid writer pointer: {}", writer_ptr);
+        return JNI_FALSE;
+    }
+    
     try_or_throw(&mut env, |env| {
         // Get the writer
         let wrapper = unsafe { &mut *(writer_ptr as *mut WriterWrapper) };
@@ -147,6 +179,20 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriterMethods_close<'local>(
     _class: JClass<'local>,
     writer_ptr: jlong,
 ) -> jboolean {
+    eprintln!("Native close() called with ptr: {:#x}", writer_ptr);
+    
+    // Validate pointer before using it
+    if writer_ptr <= 0 {
+        eprintln!("WARNING: Invalid or null writer pointer in close: {}", writer_ptr);
+        return JNI_TRUE; // Return success for null/invalid pointers (already closed)
+    }
+    
+    // Check if the pointer looks valid (aligned and in reasonable range)
+    if (writer_ptr as usize) % 8 != 0 {
+        eprintln!("ERROR: Misaligned writer pointer in close: {:#x}", writer_ptr);
+        return JNI_FALSE;
+    }
+    
     try_or_throw(&mut env, |_env| {
         // Take ownership of the writer and close it
         let wrapper = unsafe { Box::from_raw(writer_ptr as *mut WriterWrapper) };

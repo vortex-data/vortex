@@ -211,6 +211,7 @@ public final class VortexDataWriter implements DataWriter<InternalRow> {
      */
     @Override
     public WriterCommitMessage commit() throws IOException {
+        System.err.println("DEBUG: VortexDataWriter.commit() called, closed=" + closed);
         if (!closed) {
             // Write any remaining rows
             if (!batchRows.isEmpty()) {
@@ -219,8 +220,11 @@ public final class VortexDataWriter implements DataWriter<InternalRow> {
             
             // Close the Vortex writer to finalize the file
             if (vortexWriter != null) {
-                vortexWriter.close();
-                vortexWriter = null;
+                try {
+                    vortexWriter.close();
+                } finally {
+                    vortexWriter = null;  // Always null out the reference
+                }
             }
             
             // Clean up Arrow resources
@@ -249,23 +253,28 @@ public final class VortexDataWriter implements DataWriter<InternalRow> {
      */
     @Override
     public void abort() throws IOException {
+        System.err.println("DEBUG: VortexDataWriter.abort() called, closed=" + closed);
         if (!closed) {
             // Close resources
-            try {
-                if (vortexWriter != null) {
+            if (vortexWriter != null) {
+                try {
                     vortexWriter.close();
+                } catch (Exception e) {
+                    // Log but don't throw
+                    System.err.println("Error closing writer during abort: " + e.getMessage());
+                } finally {
+                    vortexWriter = null;  // Always null out the reference
                 }
-            } catch (Exception e) {
-                // Log but don't throw
-                System.err.println("Error closing writer during abort: " + e.getMessage());
             }
             
             if (vectorSchemaRoot != null) {
                 vectorSchemaRoot.close();
+                vectorSchemaRoot = null;
             }
             
             if (allocator != null) {
                 allocator.close();
+                allocator = null;
             }
             
             // Delete the partial file if it exists
@@ -285,8 +294,8 @@ public final class VortexDataWriter implements DataWriter<InternalRow> {
      */
     @Override
     public void close() throws IOException {
-        if (!closed) {
-            commit();
-        }
+        System.err.println("DEBUG: VortexDataWriter.close() called, closed=" + closed);
+        // Don't do anything - Spark will call either commit() or abort() explicitly
+        // Calling commit() here causes double-close issues
     }
 }
