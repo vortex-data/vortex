@@ -10,14 +10,15 @@ use datafusion::arrow::error::ArrowError;
 use datafusion::common::{DataFusionError, Result as DFResult};
 use datafusion::datasource::listing::PartitionedFile;
 use datafusion::datasource::physical_plan::{FileMeta, FileOpenFuture, FileOpener};
-use datafusion::physical_expr::PhysicalExprRef;
+use datafusion::datasource::schema_adapter::SchemaAdapterFactory;
 use datafusion::physical_expr::schema_rewriter::PhysicalExprAdapterFactory;
 use datafusion::physical_expr::simplifier::PhysicalExprSimplifier;
+use datafusion::physical_expr::{PhysicalExprRef, split_conjunction};
 use futures::{FutureExt, StreamExt, TryStreamExt, stream};
 use object_store::ObjectStore;
 use object_store::path::Path;
 use vortex::dtype::FieldName;
-use vortex::error::VortexError;
+use vortex::error::{VortexError, VortexExpect as _};
 use vortex::expr::root;
 use vortex::layout::LayoutReader;
 use vortex::metrics::VortexMetrics;
@@ -25,7 +26,7 @@ use vortex::scan::ScanBuilder;
 use vortex::{ArrayRef, ToCanonical};
 
 use super::cache::VortexFileCache;
-use crate::convert::exprs::make_vortex_predicate;
+use crate::convert::exprs::{can_be_pushed_down, make_vortex_predicate};
 
 #[derive(Clone)]
 pub(crate) struct VortexFileOpener {
@@ -33,7 +34,8 @@ pub(crate) struct VortexFileOpener {
     /// Projection by index of the file's columns
     pub projection: Option<Arc<[usize]>>,
     pub filter: Option<PhysicalExprRef>,
-    pub expr_adapter_factory: Arc<dyn PhysicalExprAdapterFactory>,
+    pub expr_adapter_factory: Option<Arc<dyn PhysicalExprAdapterFactory>>,
+    pub schema_adapter_factory: Arc<dyn SchemaAdapterFactory>,
     /// Hive-style partitioning columns
     pub partition_fields: Vec<Arc<Field>>,
     pub file_cache: VortexFileCache,
@@ -60,6 +62,15 @@ impl FileOpener for VortexFileOpener {
         let metrics = self.metrics.clone();
         let layout_reader = self.layout_readers.clone();
 
+        let projected_schema = match projection.as_ref() {
+            None => logical_schema.clone(),
+            Some(indices) => Arc::new(logical_schema.project(indices)?),
+        };
+
+        let schema_adapter = self
+            .schema_adapter_factory
+            .create(projected_schema, logical_schema.clone());
+
         Ok(async move {
             let vxf = file_cache
                 .try_get(&file_meta.object_meta, object_store)
@@ -72,26 +83,41 @@ impl FileOpener for VortexFileOpener {
                 DataFusionError::Execution(format!("Failed to convert file schema to arrow: {e}"))
             })?);
 
-            let partition_values = partition_fields
+            if let Some(expr_adapter_factory) = expr_adapter_factory {
+                let partition_values = partition_fields
+                    .iter()
+                    .cloned()
+                    .zip(file.partition_values)
+                    .collect::<Vec<_>>();
+
+                // The adapter rewrites the expression to the local file schema, allowing
+                // for schema evolution and divergence between the table's schema and individual files.
+                filter = filter
+                    .map(|filter| {
+                        let expr = expr_adapter_factory
+                            .create(logical_schema.clone(), physical_file_schema.clone())
+                            .with_partition_values(partition_values)
+                            .rewrite(filter)?;
+
+                        // Expression might now reference columns that don't exist in the file, so we can give it
+                        // another simplification pass.
+                        PhysicalExprSimplifier::new(&physical_file_schema).simplify(expr)
+                    })
+                    .transpose()?;
+            }
+
+            let (schema_mapping, adapted_projections) =
+                schema_adapter.map_schema(&physical_file_schema)?;
+
+            let fields = adapted_projections
                 .iter()
-                .cloned()
-                .zip(file.partition_values)
-                .collect::<Vec<_>>();
-
-            // The adapter rewrites the expression to the local file schema, allowing
-            // for schema evolution and divergence between the table's schema and individual files.
-            filter = filter
-                .map(|filter| {
-                    let expr = expr_adapter_factory
-                        .create(logical_schema.clone(), physical_file_schema.clone())
-                        .with_partition_values(partition_values)
-                        .rewrite(filter)?;
-
-                    // Expression might now reference columns that don't exist in the file, so we can give it
-                    // another simplification pass.
-                    PhysicalExprSimplifier::new(&physical_file_schema).simplify(expr)
+                .map(|idx| {
+                    let field = logical_schema.field(*idx);
+                    FieldName::from(field.name().clone())
                 })
-                .transpose()?;
+                .collect::<Vec<_>>();
+            let projection_expr = vortex::expr::select(fields, root());
+            let projected_file_schema = physical_file_schema.project(&adapted_projections)?;
 
             // We share our layout readers with others partitions in the scan, so we can only need to read each layout in each file once.
             let layout_reader = match layout_reader.entry(file_meta.object_meta.location.clone()) {
@@ -124,7 +150,21 @@ impl FileOpener for VortexFileOpener {
             let mut scan_builder = ScanBuilder::new(layout_reader);
             scan_builder = apply_byte_range(file_meta, vxf.row_count(), scan_builder);
 
-            let filter = filter.and_then(|f| make_vortex_predicate(&[&f]));
+            let filter = filter.and_then(|f| {
+                let exprs = split_conjunction(&f)
+                    .into_iter()
+                    .filter(|expr| can_be_pushed_down(expr, &physical_file_schema))
+                    .collect::<Vec<_>>();
+                // If we don't support any filters here
+                if exprs.is_empty() {
+                    None
+                } else {
+                    Some(
+                        make_vortex_predicate(&exprs)
+                            .vortex_expect("Should always return some expression"),
+                    )
+                }
+            });
 
             if let Some(limit) = limit
                 && filter.is_none()
@@ -132,31 +172,13 @@ impl FileOpener for VortexFileOpener {
                 scan_builder = scan_builder.with_limit(limit);
             }
 
-            let (projection, stream_schema) = match projection {
-                None => (root(), logical_schema),
-                Some(indices) => {
-                    let fields = indices
-                        .iter()
-                        .map(|idx| {
-                            let field = logical_schema.field(*idx);
-                            FieldName::from(field.name().clone())
-                        })
-                        .collect::<Vec<_>>();
-
-                    (
-                        vortex::expr::select(fields, root()),
-                        Arc::new(logical_schema.project(&indices)?),
-                    )
-                }
-            };
-
             let stream = scan_builder
                 .with_metrics(metrics)
-                .with_projection(projection)
+                .with_projection(projection_expr)
                 .with_some_filter(filter)
                 .map(move |chunk| {
                     let st = chunk.to_struct()?;
-                    st.into_record_batch_with_schema(stream_schema.as_ref())
+                    st.into_record_batch_with_schema(&projected_file_schema)
                 })
                 .into_tokio_stream()
                 .map_err(|e| {
@@ -185,6 +207,9 @@ impl FileOpener for VortexFileOpener {
                 })
                 .map_err(|e: VortexError| ArrowError::ExternalError(Box::new(e)))
                 .try_flatten()
+                .map(move |batch| {
+                    batch.and_then(|b| schema_mapping.map_batch(b).map_err(Into::into))
+                })
                 .boxed();
 
             Ok(stream)
@@ -232,6 +257,7 @@ mod tests {
     use datafusion::arrow::datatypes::{DataType, Schema};
     use datafusion::arrow::util::pretty::print_batches;
     use datafusion::common::record_batch;
+    use datafusion::datasource::schema_adapter::DefaultSchemaAdapterFactory;
     use datafusion::logical_expr::{col, lit};
     use datafusion::physical_expr::planner::logical2physical;
     use datafusion::physical_expr::schema_rewriter::DefaultPhysicalExprAdapterFactory;
@@ -335,8 +361,16 @@ mod tests {
         }
     }
 
+    #[rstest]
+    #[case(Some(Arc::new(DefaultPhysicalExprAdapterFactory) as _), (1, 3), (0, 0))]
+    // If we don't have a physical expr adapter, we just drop filters on partition values
+    #[case(None, (1, 3), (1, 3))]
     #[tokio::test]
-    async fn test_adapter_optimization_partition_column() -> anyhow::Result<()> {
+    async fn test_adapter_optimization_partition_column(
+        #[case] expr_adapter_factory: Option<Arc<dyn PhysicalExprAdapterFactory>>,
+        #[case] expected_result1: (usize, usize),
+        #[case] expected_result2: (usize, usize),
+    ) -> anyhow::Result<()> {
         let vx_session = Arc::new(VortexSession::default());
         let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
         let file_path = "part=1/file.vortex";
@@ -357,7 +391,8 @@ mod tests {
             object_store: object_store.clone(),
             projection: Some([0].into()),
             filter: Some(filter),
-            expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
+            expr_adapter_factory: expr_adapter_factory.clone(),
+            schema_adapter_factory: Arc::new(DefaultSchemaAdapterFactory),
             partition_fields: vec![Arc::new(Field::new("part", DataType::Int32, false))],
             file_cache: VortexFileCache::new(1, 1, vx_session.clone()),
             logical_schema: file_schema.clone(),
@@ -378,8 +413,7 @@ mod tests {
             .await
             .unwrap();
         let (num_batches, num_rows) = count_data(stream).await?;
-        assert_eq!(num_batches, 1);
-        assert_eq!(num_rows, 3);
+        assert_eq!((num_batches, num_rows), expected_result1);
 
         // filter doesn't matches partition value
         let filter = col("part").eq(lit(2));
@@ -392,14 +426,19 @@ mod tests {
             .await
             .unwrap();
         let (num_batches, num_rows) = count_data(stream).await?;
-        assert_eq!(num_batches, 0);
-        assert_eq!(num_rows, 0);
+        assert_eq!((num_batches, num_rows), expected_result2);
 
         Ok(())
     }
 
+    #[rstest]
+    #[case(Some(Arc::new(DefaultPhysicalExprAdapterFactory) as _))]
+    // If we don't have a physical expr adapter, we just drop filters on partition values
+    #[case(None)]
     #[tokio::test]
-    async fn test_open_files_different_table_schema() -> anyhow::Result<()> {
+    async fn test_open_files_different_table_schema(
+        #[case] expr_adapter_factory: Option<Arc<dyn PhysicalExprAdapterFactory>>,
+    ) -> anyhow::Result<()> {
         let vx_session = Arc::new(VortexSession::default());
         let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
         let file1_path = "/path/file1.vortex";
@@ -419,7 +458,8 @@ mod tests {
             object_store: object_store.clone(),
             projection: Some([0].into()),
             filter: Some(filter),
-            expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
+            expr_adapter_factory: expr_adapter_factory.clone(),
+            schema_adapter_factory: Arc::new(DefaultSchemaAdapterFactory),
             partition_fields: vec![],
             file_cache: VortexFileCache::new(1, 1, vx_session.clone()),
             logical_schema: table_schema.clone(),

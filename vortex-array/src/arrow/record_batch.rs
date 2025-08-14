@@ -4,13 +4,10 @@
 use arrow_array::RecordBatch;
 use arrow_array::cast::AsArray;
 use arrow_schema::{DataType, Schema};
-use vortex_dtype::arrow::FromArrowType;
-use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexError, VortexResult, vortex_err};
 
 use crate::arrays::StructArray;
 use crate::arrow::compute::{to_arrow, to_arrow_preferred};
-use crate::compute::cast;
 use crate::{Array, ToCanonical};
 
 impl TryFrom<&dyn Array> for RecordBatch {
@@ -33,9 +30,7 @@ impl StructArray {
 
     pub fn into_record_batch_with_schema(self, schema: &Schema) -> VortexResult<RecordBatch> {
         let data_type = DataType::Struct(schema.fields.clone());
-        let dtype = DType::from_arrow((&data_type, Nullability::NonNullable));
-        let casted = cast(self.as_ref(), &dtype)?;
-        let array_ref = to_arrow(casted.as_ref(), &data_type)?;
+        let array_ref = to_arrow(self.as_ref(), &data_type)?;
         Ok(RecordBatch::from(array_ref.as_struct()))
     }
 }

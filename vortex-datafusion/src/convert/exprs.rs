@@ -6,7 +6,7 @@ use std::sync::Arc;
 use datafusion::arrow::datatypes::{DataType, Schema};
 use datafusion::logical_expr::Operator as DFOperator;
 use datafusion::physical_expr::{PhysicalExpr, PhysicalExprRef, expressions};
-use vortex::error::{VortexResult, vortex_bail, vortex_err};
+use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{ExprRef, Operator, and};
 use vortex::scalar::Scalar;
 
@@ -126,9 +126,21 @@ pub(crate) fn can_be_pushed_down(expr: &PhysicalExprRef, schema: &Schema) -> boo
         (binary.op().is_logic_operator() || SUPPORTED_BINARY_OPS.contains(binary.op()))
             && can_be_pushed_down(binary.left(), schema)
             && can_be_pushed_down(binary.right(), schema)
+            && binary
+                .left()
+                .data_type(schema)
+                .ok()
+                .vortex_expect("never fails")
+                == binary
+                    .right()
+                    .data_type(schema)
+                    .ok()
+                    .vortex_expect("never fails")
     } else if let Some(col) = expr.downcast_ref::<Column>() {
-        let field = schema.field(col.index());
-        supported_data_types(field.data_type())
+        schema
+            .field_with_name(col.name())
+            .ok()
+            .is_some_and(|field| supported_data_types(field.data_type()))
     } else if let Some(like) = expr.downcast_ref::<LikeExpr>() {
         can_be_pushed_down(like.expr(), schema) && can_be_pushed_down(like.pattern(), schema)
     } else if let Some(lit) = expr.downcast_ref::<Literal>() {

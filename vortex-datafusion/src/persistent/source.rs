@@ -10,6 +10,7 @@ use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::common::{Result as DFResult, Statistics};
 use datafusion::config::ConfigOptions;
 use datafusion::datasource::physical_plan::{FileOpener, FileScanConfig, FileSource};
+use datafusion::datasource::schema_adapter::{DefaultSchemaAdapterFactory, SchemaAdapterFactory};
 use datafusion::physical_expr::schema_rewriter::DefaultPhysicalExprAdapterFactory;
 use datafusion::physical_expr::{PhysicalExprRef, conjunction};
 use datafusion::physical_plan::filter_pushdown::{
@@ -38,9 +39,10 @@ pub struct VortexSource {
     pub(crate) predicate: Option<PhysicalExprRef>,
     pub(crate) batch_size: Option<usize>,
     pub(crate) projected_statistics: Option<Statistics>,
+    /// This is the file schema the table expects, which is the table's schema without partition columns, and **not** the file's physical schema.
     pub(crate) arrow_file_schema: Option<SchemaRef>,
+    pub(crate) schema_adapter_factory: Option<Arc<dyn SchemaAdapterFactory>>,
     pub(crate) metrics: VortexMetrics,
-
     _unused_df_metrics: ExecutionPlanMetricsSet,
     /// Shared layout readers, the source only lives as long as one scan.
     ///
@@ -57,6 +59,7 @@ impl VortexSource {
             batch_size: None,
             projected_statistics: None,
             arrow_file_schema: None,
+            schema_adapter_factory: None,
             _unused_df_metrics: Default::default(),
             layout_readers: Arc::new(DashMap::default()),
         }
@@ -78,10 +81,27 @@ impl FileSource for VortexSource {
             .batch_size
             .vortex_expect("batch_size must be supplied to VortexSource");
 
-        let expr_adapter_factory = base_config
-            .expr_adapter_factory
-            .clone()
-            .unwrap_or_else(|| Arc::new(DefaultPhysicalExprAdapterFactory));
+        let expr_adapter = base_config.expr_adapter_factory.as_ref();
+        let schema_adapter = self.schema_adapter_factory.as_ref();
+
+        // This match is here to support the behavior defined by [`ListingTable`], see https://github.com/apache/datafusion/issues/16800 for more details.
+        let (expr_adapter_factory, schema_adapter_factory) = match (expr_adapter, schema_adapter) {
+            (Some(expr_adapter), Some(schema_adapter)) => {
+                (Some(expr_adapter.clone()), schema_adapter.clone())
+            }
+            (Some(expr_adapter), None) => (
+                Some(expr_adapter.clone()),
+                Arc::new(DefaultSchemaAdapterFactory) as _,
+            ),
+            (None, Some(schema_adapter)) => {
+                // If no `PhysicalExprAdapterFactory` is specified, we only use the provided `SchemaAdapterFactory`
+                (None, schema_adapter.clone())
+            }
+            (None, None) => (
+                Some(Arc::new(DefaultPhysicalExprAdapterFactory) as _),
+                Arc::new(DefaultSchemaAdapterFactory) as _,
+            ),
+        };
 
         let projection = base_config.file_column_projection_indices().map(Arc::from);
 
@@ -90,6 +110,7 @@ impl FileSource for VortexSource {
             projection,
             filter: self.predicate.clone(),
             expr_adapter_factory,
+            schema_adapter_factory,
             partition_fields: base_config.table_partition_cols.clone(),
             logical_schema: base_config.file_schema.clone(),
             file_cache: self.file_cache.clone(),
@@ -226,5 +247,44 @@ impl FileSource for VortexSource {
         };
 
         Ok(pushdown_propagation)
+    }
+
+    fn repartitioned(
+        &self,
+        target_partitions: usize,
+        repartition_file_min_size: usize,
+        output_ordering: Option<datafusion::physical_expr::LexOrdering>,
+        config: &FileScanConfig,
+    ) -> DFResult<Option<FileScanConfig>> {
+        if config.file_compression_type.is_compressed() || config.new_lines_in_values {
+            return Ok(None);
+        }
+
+        let repartitioned_file_groups_option =
+            datafusion::datasource::physical_plan::FileGroupPartitioner::new()
+                .with_target_partitions(target_partitions)
+                .with_repartition_file_min_size(repartition_file_min_size)
+                .with_preserve_order_within_groups(output_ordering.is_some())
+                .repartition_file_groups(&config.file_groups);
+
+        if let Some(repartitioned_file_groups) = repartitioned_file_groups_option {
+            let mut source = config.clone();
+            source.file_groups = repartitioned_file_groups;
+            return Ok(Some(source));
+        }
+        Ok(None)
+    }
+
+    fn with_schema_adapter_factory(
+        &self,
+        factory: Arc<dyn SchemaAdapterFactory>,
+    ) -> DFResult<Arc<dyn FileSource>> {
+        let mut source = self.clone();
+        source.schema_adapter_factory = Some(factory);
+        Ok(Arc::new(source))
+    }
+
+    fn schema_adapter_factory(&self) -> Option<Arc<dyn SchemaAdapterFactory>> {
+        None
     }
 }
