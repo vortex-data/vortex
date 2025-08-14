@@ -9,23 +9,30 @@ import com.google.common.collect.Iterables;
 import dev.vortex.api.File;
 import dev.vortex.api.Files;
 import dev.vortex.spark.read.VortexTable;
+import dev.vortex.spark.write.VortexWritableTable;
 import java.util.Map;
 import org.apache.spark.sql.connector.catalog.CatalogV2Util;
 import org.apache.spark.sql.connector.catalog.Column;
 import org.apache.spark.sql.connector.catalog.Table;
 import org.apache.spark.sql.connector.catalog.TableProvider;
 import org.apache.spark.sql.connector.expressions.Transform;
+import org.apache.spark.sql.sources.CreatableRelationProvider;
 import org.apache.spark.sql.sources.DataSourceRegister;
+import org.apache.spark.sql.sources.RelationProvider;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.util.CaseInsensitiveStringMap;
+import org.apache.spark.sql.DataFrame;
+import org.apache.spark.sql.SQLContext;
+import org.apache.spark.sql.SaveMode;
 
 /**
- * Spark V2 data source for reading Vortex files.
+ * Spark V2 data source for reading and writing Vortex files.
  * <p>
- * This class is automatically registered so it can be discovered by the Spark runtime. The current way to
- * use it is to do {@link org.apache.spark.sql.SparkSession#read} and specify the format as "vortex".
+ * This class is automatically registered so it can be discovered by the Spark runtime. 
+ * For reading: {@link org.apache.spark.sql.SparkSession#read} and specify the format as "vortex".
+ * For writing: {@link DataFrame#write} and specify the format as "vortex".
  */
-public final class VortexDataSourceV2 implements TableProvider, DataSourceRegister {
+public final class VortexDataSourceV2 implements TableProvider, DataSourceRegister, CreatableRelationProvider {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private static final String PATH_KEY = "path";
@@ -65,13 +72,13 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
     /**
      * Creates a Vortex table instance with the given schema and properties.
      * <p>
-     * This method creates a VortexTable that can be used to read data from the specified
+     * This method creates a VortexWritableTable that can be used to both read from and write to
      * Vortex files. The partitioning parameter is currently ignored.
      *
      * @param schema the table schema
      * @param _partitioning table partitioning transforms (currently ignored)
      * @param properties the table properties containing file paths and other options
-     * @return a VortexTable instance for reading the data
+     * @return a VortexWritableTable instance for reading and writing data
      * @throws RuntimeException if required path properties are missing
      */
     @Override
@@ -82,9 +89,72 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
         var columns = ImmutableList.<Column>builder()
                 .add(CatalogV2Util.structTypeToV2Columns(schema))
                 .build();
-        return new VortexTable(paths, columns);
+        
+        // Support both read and write operations
+        String outputPath = uncased.get(PATH_KEY);
+        if (outputPath != null) {
+            return new VortexWritableTable(paths, columns, outputPath, uncased);
+        } else {
+            return new VortexTable(paths, columns);
+        }
     }
 
+    /**
+     * Creates a relation for writing data to Vortex files.
+     * <p>
+     * This method is called by Spark when using DataFrame.write() operations.
+     * It handles the actual write operation based on the SaveMode.
+     *
+     * @param sqlContext the SQL context
+     * @param mode the save mode (Append, Overwrite, ErrorIfExists, Ignore)
+     * @param parameters the write parameters including the output path
+     * @param data the DataFrame to write
+     * @return null (write-only operation)
+     */
+    @Override
+    public DataFrame createRelation(
+            SQLContext sqlContext,
+            SaveMode mode,
+            Map<String, String> parameters,
+            DataFrame data) {
+        
+        String outputPath = parameters.get(PATH_KEY);
+        if (outputPath == null) {
+            throw new IllegalArgumentException("Missing required option: \"path\"");
+        }
+        
+        // Convert SaveMode to appropriate write options
+        Map<String, String> writeOptions = new java.util.HashMap<>(parameters);
+        
+        switch (mode) {
+            case Append:
+                // Default behavior - just write new files
+                break;
+            case Overwrite:
+                writeOptions.put("overwrite", "true");
+                break;
+            case ErrorIfExists:
+                // Check if path exists and throw error if it does
+                if (java.nio.file.Files.exists(java.nio.file.Paths.get(outputPath))) {
+                    throw new RuntimeException("Output path already exists: " + outputPath);
+                }
+                break;
+            case Ignore:
+                // Check if path exists and skip write if it does
+                if (java.nio.file.Files.exists(java.nio.file.Paths.get(outputPath))) {
+                    return null;
+                }
+                break;
+        }
+        
+        // Use the V2 write API through the writable table
+        data.writeTo("vortex")
+            .options(writeOptions)
+            .save();
+        
+        return null;
+    }
+    
     /**
      * Returns the short name identifier for this data source.
      * <p>

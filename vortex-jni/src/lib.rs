@@ -19,6 +19,7 @@ mod dtype;
 mod errors;
 mod file;
 mod logging;
+mod writer;
 
 /// Shared Vortex session for the JNI instance.
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
