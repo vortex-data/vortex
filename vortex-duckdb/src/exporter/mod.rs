@@ -220,10 +220,10 @@ impl VectorExt for Vector {
                         )
                     }
                 };
-                let sliced_bits = &arr_bits.view_bits::<Lsb0>()[offset..][0..len];
+                let sliced_bits = &arr_bits.view_bits::<Lsb0>()[offset..][..len];
 
                 let validity = unsafe { self.ensure_validity_slice(len) };
-                validity[offset..][0..len].copy_from_bitslice(sliced_bits);
+                validity[offset..][..len].copy_from_bitslice(sliced_bits);
                 sliced_bits.count_ones() == len
             }
         }
