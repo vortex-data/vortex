@@ -16,6 +16,12 @@ static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct BufferId(usize);
 
+impl Default for BufferId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BufferId {
     /// Creates a new `BufferId` with a unique identifier.
     pub fn new() -> Self {

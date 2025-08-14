@@ -204,7 +204,6 @@ impl<'a> ViewMut<'a> {
         match mask.true_count() {
             0 => {
                 // If the mask has no true bits, we set the length to 0.
-                return;
             }
             N => {
                 // If the mask has N true bits, we copy all elements.

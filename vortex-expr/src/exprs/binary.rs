@@ -3,11 +3,14 @@
 
 use std::fmt::Display;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use vortex_array::compute::{Operator as ArrayOperator, add, and_kleene, compare, or_kleene};
+use vortex_array::pipeline::operators;
+use vortex_array::pipeline::operators::compare::CompareOperator;
 use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_proto::expr as pb;
 
 use crate::{
@@ -105,6 +108,19 @@ impl VTable for BinaryVTable {
         }
 
         Ok(DType::Bool((lhs.is_nullable() || rhs.is_nullable()).into()))
+    }
+
+    fn operator(
+        expr: &BinaryExpr,
+        children: Vec<Arc<dyn operators::Operator>>,
+    ) -> Option<Arc<dyn operators::Operator>> {
+        let [lhs, rhs] = children
+            .try_into()
+            .ok()
+            .vortex_expect("Expected 2 children");
+        let op = expr.operator.try_into().ok()?;
+
+        Some(Arc::new(CompareOperator::new(lhs, rhs, op)))
     }
 }
 

@@ -69,7 +69,7 @@ impl<'a> Pipeline<'a> {
             let dag_node = DagNode {
                 index,
                 plan_node: node,
-                children: child_indices.clone(),
+                children: child_indices,
                 parents: Vec::new(), // Will be filled in later
                 subtree_hash,
                 output_buffer: None, // Will be assigned later

@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 use std::task::{Poll, ready};
 
 use fastlanes::{BitPacking, FastLanes};
@@ -18,8 +20,8 @@ use vortex_error::{VortexResult, vortex_bail};
 use crate::{BitPackedArray, BitPackedVTable};
 
 impl PipelineVTable<BitPackedVTable> for BitPackedVTable {
-    fn to_operator(array: &BitPackedArray) -> VortexResult<Box<dyn Operator>> {
-        Ok(Box::new(array.clone()))
+    fn to_operator(array: &BitPackedArray) -> VortexResult<Arc<dyn Operator>> {
+        Ok(Arc::new(array.clone()))
     }
 
     fn to_pipeline(array: &BitPackedArray) -> VortexResult<Box<dyn Kernel>> {
@@ -45,12 +47,20 @@ impl PipelineVTable<BitPackedVTable> for BitPackedVTable {
 }
 
 impl Operator for BitPackedArray {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
     fn vtype(&self) -> VType {
         VType::Primitive(self.ptype())
     }
 
-    fn children(&self) -> &[Box<dyn Operator>] {
+    fn children(&self) -> &[Arc<dyn Operator>] {
         &[]
+    }
+
+    fn with_children(&self, _children: Vec<Arc<dyn Operator>>) -> Arc<dyn Operator> {
+        Arc::new(self.clone())
     }
 
     fn bind(&self, _ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {
@@ -170,7 +180,7 @@ mod tests {
     #[test]
     fn test_bitpacking_pipeline() {
         for frac in [0.99] {
-            let len = 100;
+            let len = 2048;
             let mut rng = StdRng::seed_from_u64(0);
             let values = (0i16..len)
                 .map(|_| rng.random_range(0..100))
@@ -184,6 +194,11 @@ mod tests {
                 .collect::<BooleanBuffer>();
             let mask = Mask::from_buffer(mask);
 
+            println!(
+                "pipeline {:?}",
+                bitpacked.to_pipeline_plan().unwrap().vtype()
+            );
+
             let result = export_canonical_pipeline_expr(
                 bitpacked.dtype(),
                 bitpacked.len(),
@@ -196,6 +211,8 @@ mod tests {
             let expect = filter(bitpacked.to_canonical().unwrap().as_ref(), &mask).unwrap();
 
             println!("mask true_count: {}, total: {}", mask.true_count(), len);
+
+            println!("\nresult: {}", result.display_tree(),);
 
             println!(
                 "\nresult: {}",

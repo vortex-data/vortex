@@ -9,10 +9,9 @@ use divan::Bencher;
 use mimalloc::MiMalloc;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
-use vortex_array::compute::{filter, mask};
-use vortex_array::display::{DisplayArrayAs, DisplayOptions};
+use vortex_array::compute::filter;
 use vortex_array::pipeline::canonical::{
-    export_canonical, export_canonical_pipeline, export_canonical_pipeline_expr,
+    export_canonical_pipeline, export_canonical_pipeline_expr,
 };
 use vortex_array::pipeline::query::Pipeline;
 use vortex_array::pipeline::types::Element;

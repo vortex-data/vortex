@@ -5,18 +5,21 @@ use vortex_error::VortexResult;
 
 use crate::traversal::Node;
 
+#[derive(Debug)]
 pub enum FoldDownContext<C, R> {
     Continue(C),
     Stop(R),
     Skip(R),
 }
 
+#[derive(Debug)]
 pub enum FoldDown<R> {
     Continue,
     Stop(R),
     Skip(R),
 }
 
+#[derive(Debug)]
 pub enum FoldUp<R> {
     Continue(R),
     Stop(R),
@@ -65,7 +68,9 @@ pub trait NodeFolder {
     /// If the node's children are to be skipped, return Skip.
     /// If the node should stop traversal, return Stop.
     /// Otherwise, return Continue.
-    fn visit_down(&mut self, _node: &Self::NodeTy) -> VortexResult<FoldDown<Self::Result>>;
+    fn visit_down(&mut self, _node: &Self::NodeTy) -> VortexResult<FoldDown<Self::Result>> {
+        Ok(FoldDown::Continue)
+    }
 
     /// visit_up is called when a node is last encountered, in a pre-order traversal.
     /// If the node should stop traversal, return Stop.

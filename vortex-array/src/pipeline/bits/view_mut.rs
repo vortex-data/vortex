@@ -79,7 +79,7 @@ impl<'a> BitViewMut<'a> {
     }
 
     pub fn as_view(&self) -> BitView<'_> {
-        unsafe { BitView::new_unchecked(&self.bits, self.true_count) }
+        unsafe { BitView::new_unchecked(self.bits, self.true_count) }
     }
 
     pub fn as_raw_mut(&mut self) -> &mut [u64; N / 64] {

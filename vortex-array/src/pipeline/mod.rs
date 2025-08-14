@@ -165,7 +165,6 @@ mod tests {
     use vortex_dtype::{DType, Nullability};
     use vortex_mask::Mask;
 
-    use crate::arrays::PrimitiveArray;
     use crate::canonical::ToCanonical;
     use crate::compute::Operator;
     use crate::pipeline::canonical::export_canonical_pipeline_expr;
@@ -222,13 +221,13 @@ mod tests {
     fn test_pipeline_with_different_arrays_comparison() {
         // Create test data with known pattern
         let values1 = (0..1000)
-            .map(|i| (i % 100) as i32)
+            .map(|i| (i % 100))
             .collect::<BufferMut<i32>>()
             .into_array()
             .to_primitive()
             .unwrap();
         let values2 = (0..1000)
-            .map(|i| ((i + 1) % 100) as i32)
+            .map(|i| ((i + 1) % 100))
             .collect::<BufferMut<i32>>()
             .into_array()
             .to_primitive()

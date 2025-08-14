@@ -45,7 +45,7 @@ impl VTable for PrimitiveVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
     type SerdeVTable = Self;
-    type PipelineVTable = NotSupported;
+    type PipelineVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.primitive")

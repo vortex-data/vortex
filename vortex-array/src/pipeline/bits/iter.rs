@@ -12,7 +12,7 @@ pub fn iter_boolean_buffer<'a>(buffer: &'a BooleanBuffer) -> ChunksExact<'a, u64
     assert_eq!(buffer.offset(), 0, "BooleanBuffer must have an offset of 0");
     let ptr = buffer.inner().as_ptr().cast::<u64>();
     assert!(ptr.is_aligned(), "BooleanBuffer must be aligned to 64 bits");
-    let data = unsafe { std::slice::from_raw_parts(ptr, buffer.len() + 63 / 64) };
+    let data = unsafe { std::slice::from_raw_parts(ptr, buffer.len()) };
     let slice = BitSlice::<u64, Msb0>::from_slice(data);
     slice.chunks_exact(N)
 }
@@ -62,10 +62,10 @@ impl Iterator for BooleanBufferChunksIter<'_> {
             }
         }
 
-        if words < W {
-            if let Some(remainder_bits) = self.remainder_bits.take() {
-                chunk[words] = remainder_bits;
-            }
+        if words < W
+            && let Some(remainder_bits) = self.remainder_bits.take()
+        {
+            chunk[words] = remainder_bits;
         }
 
         Some(chunk)

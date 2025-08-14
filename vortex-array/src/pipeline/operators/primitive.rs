@@ -1,27 +1,48 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 use std::task::{Poll, ready};
 
 use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::VortexResult;
 
-use crate::arrays::PrimitiveArray;
+use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::pipeline::bits::BitView;
 use crate::pipeline::buffers::BufferHandle;
 use crate::pipeline::operators::{BindContext, Operator};
 use crate::pipeline::types::{Element, VType};
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{Kernel, KernelContext, N};
+use crate::vtable::PipelineVTable;
+
+impl PipelineVTable<PrimitiveVTable> for PrimitiveVTable {
+    fn to_operator(array: &PrimitiveArray) -> VortexResult<Arc<dyn Operator>> {
+        Ok(Arc::new(array.clone()))
+    }
+
+    fn to_pipeline(array: &PrimitiveArray) -> VortexResult<Box<dyn Kernel>> {
+        todo!()
+    }
+}
 
 impl Operator for PrimitiveArray {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
     fn vtype(&self) -> VType {
         VType::Primitive(self.ptype())
     }
 
-    fn children(&self) -> &[Box<dyn Operator>] {
+    fn children(&self) -> &[Arc<dyn Operator>] {
         &[]
+    }
+
+    fn with_children(&self, children: Vec<Arc<dyn Operator>>) -> Arc<dyn Operator> {
+        Arc::new(self.clone())
     }
 
     fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {

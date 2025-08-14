@@ -285,7 +285,8 @@ impl<'a> Pipeline<'a> {
         };
 
         // FIXME(ngates): should we reset the output vector selection?
-        let result = match self.allocation_plan.output_targets[node_idx] {
+
+        match self.allocation_plan.output_targets[node_idx] {
             OutputTarget::ExternalOutput => operator.step(&ctx, selected, external_out),
             OutputTarget::IntermediateVector(vector_idx) | OutputTarget::InPlace(_, vector_idx) => {
                 let mut vector_ref = self.allocation_plan.vectors[vector_idx].borrow_mut();
@@ -296,8 +297,7 @@ impl<'a> Pipeline<'a> {
                 vector_ref.deref_mut().set_len(selected.true_count());
                 result
             }
-        };
-        result
+        }
     }
 
     /// Reset state for next pipeline step

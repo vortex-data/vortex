@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
 use std::hash::Hash;
 use std::marker::PhantomData;
+use std::sync::Arc;
 use std::task::Poll;
 
 use num_traits::{Unsigned, WrappingAdd};
 use vortex_array::Array;
 use vortex_array::pipeline::bits::BitView;
+use vortex_array::pipeline::operators::scalar_compare::ScalarCompareOperator;
 use vortex_array::pipeline::operators::{BindContext, Operator};
 use vortex_array::pipeline::types::{Element, VType};
 use vortex_array::pipeline::vector::VectorId;
@@ -15,7 +18,8 @@ use vortex_array::pipeline::view::ViewMut;
 use vortex_array::pipeline::{Kernel, KernelContext};
 use vortex_array::vtable::PipelineVTable;
 use vortex_dtype::{
-    NativePType, PType, match_each_integer_ptype, match_each_unsigned_integer_ptype,
+    NativePType, PType, match_each_integer_ptype, match_each_native_ptype,
+    match_each_unsigned_integer_ptype,
 };
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
@@ -23,8 +27,8 @@ use vortex_scalar::Scalar;
 use crate::{FoRArray, FoRVTable};
 
 impl PipelineVTable<FoRVTable> for FoRVTable {
-    fn to_operator(array: &FoRArray) -> VortexResult<Box<dyn Operator>> {
-        Ok(Box::new(FoROperator {
+    fn to_operator(array: &FoRArray) -> VortexResult<Arc<dyn Operator>> {
+        Ok(Arc::new(FoROperator {
             child: [array.encoded.to_pipeline_plan()?],
             reference: array.reference.clone(),
             ptype: array.ptype(),
@@ -39,19 +43,33 @@ impl PipelineVTable<FoRVTable> for FoRVTable {
 
 #[derive(Debug, Hash)]
 pub struct FoROperator {
-    child: [Box<dyn Operator>; 1],
+    child: [Arc<dyn Operator>; 1],
     reference: Scalar,
     ptype: PType,
     encoded_ptype: PType,
 }
 
 impl Operator for FoROperator {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
     fn vtype(&self) -> VType {
         VType::Primitive(self.ptype)
     }
 
-    fn children(&self) -> &[Box<dyn Operator>] {
+    fn children(&self) -> &[Arc<dyn Operator>] {
         &self.child
+    }
+
+    fn with_children(&self, mut children: Vec<Arc<dyn Operator>>) -> Arc<dyn Operator> {
+        assert_eq!(children.len(), 1);
+        Arc::new(FoROperator {
+            child: [children.remove(0)],
+            reference: self.reference.clone(),
+            ptype: self.ptype,
+            encoded_ptype: self.encoded_ptype,
+        })
     }
 
     fn in_place(&self) -> bool {
@@ -76,6 +94,31 @@ impl Operator for FoROperator {
                 }))
             })
         })
+    }
+
+    fn reduce_parent(&self, parent: Arc<dyn Operator>) -> Option<Arc<dyn Operator>> {
+        let compare = parent.as_any().downcast_ref::<ScalarCompareOperator>()?;
+
+        let new_ref = match_each_native_ptype!(self.reference.as_primitive().ptype(), |P| {
+            let compare = compare
+                .scalar
+                .as_primitive()
+                .typed_value::<P>()
+                .vortex_expect("must have ptype");
+            let reference = self
+                .reference
+                .as_primitive()
+                .typed_value::<P>()
+                .vortex_expect("must have ptype");
+            // TODO: handle overflow
+            Scalar::from(compare - reference)
+        });
+
+        Some(Arc::new(ScalarCompareOperator::new(
+            self.children()[0].clone(),
+            compare.op,
+            new_ref,
+        )))
     }
 }
 
@@ -123,31 +166,31 @@ mod tests {
     use vortex_array::display::{DisplayArrayAs, DisplayOptions};
     use vortex_array::pipeline::canonical::export_canonical_pipeline_expr;
     use vortex_array::{IntoArray, ToCanonical};
-    use vortex_buffer::BufferMut;
+    use vortex_buffer::{BufferMut, buffer_mut};
+    use vortex_expr::traversal::NodeExt;
+    use vortex_expr::{ExprOperatorConverter, gt, lit, reduce_operator, root};
     use vortex_mask::Mask;
 
     use super::*;
-    use crate::{FoRArray, bitpack_to_best_bit_width};
+    use crate::bitpack_to_best_bit_width;
 
     fn create_for_bitpacked_array<T: NativePType>(values: BufferMut<T>) -> VortexResult<FoRArray> {
         let primitive_array = values.into_array().to_primitive().unwrap();
 
-        println!("values: {}", primitive_array.display_tree());
-
         // First apply FoR encoding
-        let for_array = FoRArray::encode(primitive_array.clone())?;
-        println!("for_array: {}", for_array.display_tree());
+        let for_array = FoRArray::encode(primitive_array)?;
 
         // Then bitpack the residuals
         let residuals = for_array.encoded().to_primitive()?;
         let bitpacked = bitpack_to_best_bit_width(&residuals)?;
-        println!("bitpacked: {}", primitive_array.clone().display_tree());
+
+        println!(
+            "bitpacked: {}",
+            DisplayArrayAs(bitpacked.as_ref(), DisplayOptions::default())
+        );
 
         // Create a new FoR array with bitpacked residuals
-        Ok(FoRArray::try_new(
-            bitpacked.into_array(),
-            for_array.reference_scalar().clone(),
-        )?)
+        FoRArray::try_new(bitpacked.into_array(), for_array.reference_scalar().clone())
     }
 
     #[test]
@@ -191,8 +234,8 @@ mod tests {
 
         for i in 0..mask.true_count() {
             assert_eq!(
-                res.scalar_at(i as usize).unwrap(),
-                expect.scalar_at(i as usize).unwrap(),
+                res.scalar_at(i).unwrap(),
+                expect.scalar_at(i).unwrap(),
                 "{i}",
             );
         }
@@ -260,5 +303,27 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_expr_operator_converter() {
+        let for_ = create_for_bitpacked_array(buffer_mut![1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+            .unwrap()
+            .to_array();
+        let expr = gt(root(), lit(2));
+
+        println!("for: {}", for_.display_tree());
+        println!(
+            "for: {}",
+            DisplayArrayAs(for_.as_ref(), DisplayOptions::default())
+        );
+        println!("expr: {}", expr);
+
+        let mut converter = ExprOperatorConverter::new(for_);
+        let result = expr.fold(&mut converter).unwrap().value();
+
+        println!("{:?}", result);
+        let r2 = reduce_operator(result).unwrap();
+        println!("{:?}", r2);
     }
 }

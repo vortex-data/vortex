@@ -98,7 +98,7 @@ impl<'a> Pipeline<'a> {
                 // Root node - always writes to external output
                 OutputTarget::ExternalOutput
             } else if output_flow.contains(&node_idx)
-                && Self::can_pass_through_output(&dag, node_idx, &output_targets)
+                && Self::can_pass_through_output(dag, node_idx, &output_targets)
             {
                 // This node's output flows to the final output and all parents can pass it through
                 OutputTarget::ExternalOutput
@@ -269,19 +269,15 @@ impl<'a> Pipeline<'a> {
     ) -> Option<(usize, usize)> {
         // Check each child
         for (input_idx, &child_node_idx) in node.children.iter().enumerate() {
-            if let Some(target) = &output_targets[child_node_idx] {
-                match target {
-                    OutputTarget::IntermediateVector(alloc_id) => {
-                        // Check if this child's output is only used by us
-                        let child_lifetime = &lifetimes[&child_node_idx];
-                        if child_lifetime.consumers.len() == 1
-                            && child_lifetime.consumers[0] == node.index
-                        {
-                            // We're the only consumer - can reuse in-place
-                            return Some((input_idx, *alloc_id));
-                        }
-                    }
-                    _ => {}
+            if let Some(target) = &output_targets[child_node_idx]
+                && let OutputTarget::IntermediateVector(alloc_id) = target
+            {
+                // Check if this child's output is only used by us
+                let child_lifetime = &lifetimes[&child_node_idx];
+                if child_lifetime.consumers.len() == 1 && child_lifetime.consumers[0] == node.index
+                {
+                    // We're the only consumer - can reuse in-place
+                    return Some((input_idx, *alloc_id));
                 }
             }
         }

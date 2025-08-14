@@ -17,6 +17,7 @@ mod encoding;
 mod exprs;
 mod field;
 pub mod forms;
+mod operator;
 pub mod proto;
 pub mod pruning;
 mod registry;
@@ -38,13 +39,14 @@ pub use list_contains::*;
 pub use literal::*;
 pub use merge::*;
 pub use not::*;
+pub use operator::*;
 pub use operators::*;
 pub use pack::*;
 pub use registry::*;
 pub use root::*;
 pub use scope::*;
 pub use select::*;
-use vortex_array::{Array, ArrayRef, SerializeMetadata};
+use vortex_array::{Array, ArrayRef, SerializeMetadata, pipeline};
 use vortex_dtype::{DType, FieldName, FieldPath};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail};
 use vortex_utils::aliases::hash_set::HashSet;
@@ -97,6 +99,11 @@ pub trait VortexExpr:
     /// Compute the type of the array returned by
     /// [`VortexExpr::evaluate`](./trait.VortexExpr.html#method.evaluate).
     fn return_dtype(&self, scope: &DType) -> VortexResult<DType>;
+
+    fn operator(
+        &self,
+        _children: Vec<Arc<dyn pipeline::operators::Operator>>,
+    ) -> Option<Arc<dyn pipeline::operators::Operator>>;
 }
 
 dyn_hash::hash_trait_object!(VortexExpr);
@@ -200,6 +207,13 @@ impl<V: VTable> VortexExpr for ExprAdapter<V> {
 
     fn return_dtype(&self, scope: &DType) -> VortexResult<DType> {
         V::return_dtype(&self.0, scope)
+    }
+
+    fn operator(
+        &self,
+        children: Vec<Arc<dyn pipeline::operators::Operator>>,
+    ) -> Option<Arc<dyn pipeline::operators::Operator>> {
+        V::operator(&self.0, children)
     }
 }
 

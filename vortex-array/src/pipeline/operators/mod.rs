@@ -4,9 +4,13 @@
 //! Plan nodes represent the logical structure of a pipeline.
 
 pub mod compare;
+pub mod constant;
 pub mod primitive;
+pub mod scalar_compare;
 
+use std::any::Any;
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use dyn_hash::DynHash;
 use vortex_error::VortexResult;
@@ -15,6 +19,7 @@ use crate::pipeline::Kernel;
 use crate::pipeline::types::VType;
 use crate::pipeline::vector::VectorId;
 
+// TODO: clean up this diagram
 // compare(_, _) <-  for <- bitpacked
 //               <- 12
 
@@ -25,18 +30,17 @@ use crate::pipeline::vector::VectorId;
 
 // compare_single[2](_) <- bitpacked
 
-enum Transformed<'a, T> {
-    Keep(&'a T),
-    Replace(T),
-}
-
 /// An operator represents a node in a logical query plan.
-pub trait Operator: Debug + DynHash {
+pub trait Operator: Debug + DynHash + 'static {
+    fn as_any(&self) -> &dyn Any;
+
     /// The output [`VType`] of this operator.
     fn vtype(&self) -> VType;
 
     /// The children of this operator.
-    fn children(&self) -> &[Box<dyn Operator>];
+    fn children(&self) -> &[Arc<dyn Operator>];
+
+    fn with_children(&self, children: Vec<Arc<dyn Operator>>) -> Arc<dyn Operator>;
 
     /// Whether this operator works by mutating its first child in-place.
     ///
@@ -49,16 +53,17 @@ pub trait Operator: Debug + DynHash {
     /// Create a kernel for this operator
     fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>>;
 
+    //TODO: fixme
     /// Given a set of reduced children, try and reduce the current node.
     /// If Keep is returned then the children of this node as still updated.
-    fn reduce_children(&self, children: &[Box<dyn Operator>]) -> Transformed<Box<dyn Operator>> {
-        Transformed::Keep(self)
+    fn reduce_children(&self, children: &[Arc<dyn Operator>]) -> Option<Arc<dyn Operator>> {
+        None
     }
 
     /// Given a reduced parent, try and reduce the current node.
     /// If `Replace` is returned then  the parent node and this node and replaced by the returned node.
-    fn reduce_parent(&self, parent: Box<dyn Operator>) -> Transformed<Box<dyn Operator>> {
-        Transformed::Keep(self)
+    fn reduce_parent(&self, parent: Arc<dyn Operator>) -> Option<Arc<dyn Operator>> {
+        None
     }
 }
 
