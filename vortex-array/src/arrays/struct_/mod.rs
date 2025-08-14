@@ -531,7 +531,7 @@ mod test {
             [0i64, 1, 2, 3, 4]
         );
 
-        assert_eq!(struct_a.names(), &[FieldName::from("ys")].into());
+        assert_eq!(struct_a.names(), &["ys"]);
         assert_eq!(struct_a.fields.len(), 1);
         assert_eq!(struct_a.len(), 5);
         assert_eq!(
@@ -550,7 +550,7 @@ mod test {
             empty.is_none(),
             "Expected None when removing non-existent column"
         );
-        assert_eq!(struct_a.names(), &[FieldName::from("ys")].into());
+        assert_eq!(struct_a.names(), &["ys"]);
     }
 
     #[test]

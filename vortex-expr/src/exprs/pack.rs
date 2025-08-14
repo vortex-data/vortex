@@ -274,8 +274,8 @@ mod tests {
             .unwrap()
             .to_struct()
             .unwrap();
-        let expected_names: FieldNames = ["one", "two", "three"].into();
-        assert_eq!(actual_array.names(), &expected_names);
+
+        assert_eq!(actual_array.names(), ["one", "two", "three"]);
         assert_eq!(actual_array.validity(), &Validity::NonNullable);
 
         assert_eq!(
@@ -322,8 +322,8 @@ mod tests {
             .unwrap()
             .to_struct()
             .unwrap();
-        let expected_names = FieldNames::from(["one", "two", "three"]);
-        assert_eq!(actual_array.names(), &expected_names);
+
+        assert_eq!(actual_array.names(), ["one", "two", "three"]);
 
         assert_eq!(
             primitive_field(actual_array.as_ref(), &["one"])
@@ -365,8 +365,8 @@ mod tests {
             .unwrap()
             .to_struct()
             .unwrap();
-        let expected_names: FieldNames = ["one", "two", "three"].into();
-        assert_eq!(actual_array.names(), &expected_names);
+
+        assert_eq!(actual_array.names(), ["one", "two", "three"]);
         assert_eq!(actual_array.validity(), &Validity::AllValid);
     }
 }

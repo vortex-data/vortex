@@ -511,11 +511,11 @@ mod tests {
         let projected_struct = projected.as_struct();
 
         assert_eq!(projected_struct.names().len(), 1);
-        assert_eq!(projected_struct.names()[0], "b".into());
+        assert_eq!(projected_struct.names()[0].as_ref(), "b");
 
         let fields = projected_struct.fields().unwrap();
         assert_eq!(fields.len(), 1);
-        assert_eq!(fields[0].as_utf8().value().unwrap(), "hello".into());
+        assert_eq!(fields[0].as_utf8().value().unwrap().as_str(), "hello");
     }
 
     #[test]
