@@ -297,7 +297,7 @@ impl<T> BufferMut<T> {
         #[cfg(target_feature = "avx2")]
         {
             // Ensure a minimum of 1024 bytes to write for AVX streaming stores.
-            if size_of::<T>() == 1 && n >= 1024 {
+            if size_of::<T>() == 1 {
                 unsafe { avx2::push_n_unchecked(self, item, n) }
             } else {
                 unsafe { scalar::push_n_unchecked(self, item, n) }
@@ -488,7 +488,7 @@ mod scalar {
     ///
     /// The caller must ensure there is sufficient capacity in the buffer.
     #[inline]
-    pub unsafe fn push_n_unchecked<T>(buffer: &mut BufferMut<T>, item: T, n: usize)
+    pub(super) unsafe fn push_n_unchecked<T>(buffer: &mut BufferMut<T>, item: T, n: usize)
     where
         T: Copy,
     {
@@ -525,7 +525,7 @@ mod avx2 {
     ///
     /// Caller must ensure sufficient capacity.
     #[inline]
-    pub unsafe fn push_n_unchecked<T>(buffer: &mut BufferMut<T>, item: T, n: usize)
+    pub(super) unsafe fn push_n_unchecked<T>(buffer: &mut BufferMut<T>, item: T, n: usize)
     where
         T: Copy,
     {
