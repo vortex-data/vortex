@@ -123,11 +123,15 @@ public final class VortexTable implements Table, SupportsRead, SupportsWrite {
      * Returns the capabilities supported by this table.
      * <p>
      * Vortex tables support both batch reading and batch writing.
+     * Note: Write capability temporarily disabled to force V1 write path
+     * which handles schema inference better for non-existent files.
      *
-     * @return a set containing TableCapability.BATCH_READ and BATCH_WRITE
+     * @return a set containing TableCapability.BATCH_READ
      */
     @Override
     public Set<TableCapability> capabilities() {
-        return ImmutableSet.of(TableCapability.BATCH_READ, TableCapability.BATCH_WRITE);
+        // TODO: Re-enable BATCH_WRITE once schema inference is fixed for write operations
+        return ImmutableSet.of(TableCapability.BATCH_READ);
+        // return ImmutableSet.of(TableCapability.BATCH_READ, TableCapability.BATCH_WRITE);
     }
 }
