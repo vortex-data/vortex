@@ -15,6 +15,8 @@ mod varbinview;
 
 use std::sync::Arc;
 
+use bitvec::prelude::Lsb0;
+use bitvec::view::BitView;
 pub use cache::ConversionCache;
 pub use decimal::precision_to_duckdb_storage_size;
 use itertools::Itertools;
@@ -208,17 +210,20 @@ impl VectorExt for Vector {
                 true
             }
             Mask::Values(arr) => {
-                // TODO(joe): do this MUCH better, with a shifted u64 copy
-                let mut null_count = 0;
                 // SAFETY: Caller guaranteees this.
                 let validity = unsafe { self.ensure_validity_slice(len) };
-                for (idx, v) in arr.boolean_buffer().slice(offset, len).iter().enumerate() {
-                    if !v {
-                        validity.set(idx, false);
-                        null_count += 1;
+                let arr_bits: &[u64] = {
+                    let byte_slice = arr.boolean_buffer().inner().as_slice();
+                    unsafe {
+                        std::slice::from_raw_parts(
+                            byte_slice.as_ptr() as _,
+                            byte_slice.len().div_ceil(8),
+                        )
                     }
-                }
-                null_count == len
+                };
+                let sliced_bits = &arr_bits.view_bits::<Lsb0>()[offset..][0..len];
+                validity.copy_from_bitslice(sliced_bits);
+                sliced_bits.count_ones() == len
             }
         }
     }
