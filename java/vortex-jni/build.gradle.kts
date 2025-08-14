@@ -26,7 +26,7 @@ dependencies {
     implementation("com.google.protobuf:protobuf-java")
     compileOnly("com.google.errorprone:error_prone_annotations")
     compileOnly("com.jakewharton.nopen:nopen-annotations")
-    
+
     // Logging
     implementation("org.slf4j:slf4j-api:2.0.9")
     testRuntimeOnly("ch.qos.logback:logback-classic:1.4.14")

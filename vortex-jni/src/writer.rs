@@ -38,7 +38,7 @@ impl WriterWrapper {
         if self.schema.is_none() {
             self.schema = Some(batch.schema());
         }
-        
+
         // Convert RecordBatch to Vortex array immediately to free Arrow memory
         // Use false for nullable since top-level structs representing rows should not be nullable
         let array = ArrayRef::from_arrow(batch, false);
@@ -87,7 +87,9 @@ impl WriterWrapper {
                     .map_err(JNIError::Vortex);
 
                 // Ensure file is fully written to disk
-                if result.is_ok() && let Ok(f) = tokio::fs::File::open(&path).await {
+                if result.is_ok()
+                    && let Ok(f) = tokio::fs::File::open(&path).await
+                {
                     let _ = f.sync_all().await;
                 }
 
@@ -95,7 +97,7 @@ impl WriterWrapper {
             })?;
         } else {
             // Write an empty Vortex file with proper format, preserving the schema
-            
+
             // Create an empty array with the correct schema
             let empty_array = if let Some(schema) = self.schema {
                 // Create an empty RecordBatch with the schema and convert to Vortex
@@ -106,7 +108,7 @@ impl WriterWrapper {
                 use vortex::arrays::StructArray;
                 StructArray::new_with_len(0).into_array()
             };
-            
+
             // Write the empty array to file
             let path = self.path.clone();
             crate::block_on("write_empty_vortex", async move {

@@ -934,16 +934,15 @@ try (VortexDataWriter writer = new VortexDataWriter(...)) {
 - Many defensive null checks that are impossible to hit
 - Simplify code flow by removing impossible branches
 
-### 🐛 Remaining Known Issues
+### ✅ Previously Known Issues - Now Fixed
 
-#### 1. **Empty DataFrame Schema Preservation**
-- **Issue**: Empty DataFrames lose their schema when written/read
-- **Root Cause**: WriterWrapper creates schema-less empty struct instead of preserving original schema
+#### 1. **Empty DataFrame Schema Preservation** ✅ FIXED
+- **Issue**: Empty DataFrames were losing their schema when written/read
+- **Root Cause**: WriterWrapper was creating schema-less empty struct instead of preserving original schema
 - **Impact**: Test failure in testWriteEmptyDataFrame
-- **Current Approach**: Passing schema as JSON string (inefficient, requires parsing)
-- **Better Solution**: Use Arrow C Data Interface for zero-copy schema passing
+- **Solution Implemented**: Pass schema as Arrow IPC format instead of JSON
 
-##### Proposed Fix Using Arrow C Data Interface:
+##### How We Fixed It:
 ```java
 // Java side - pass schema through C Data Interface
 ArrowSchema arrowSchema = ...; // Already have this

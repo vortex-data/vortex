@@ -35,7 +35,7 @@ import org.slf4j.LoggerFactory;
  */
 public final class VortexDataWriter implements DataWriter<InternalRow>, AutoCloseable {
     private static final Logger logger = LoggerFactory.getLogger(VortexDataWriter.class);
-    
+
     private static final int DEFAULT_BATCH_SIZE = 4096;
 
     private final String filePath;
@@ -70,7 +70,7 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
 
             // Convert Spark schema to Arrow schema
             var arrowSchema = SparkToArrowSchema.convert(schema);
-            
+
             // Convert schema to Arrow IPC format for passing to native code
             // We create an empty Arrow IPC stream that contains just the schema
             byte[] schemaIpc = null;
@@ -79,7 +79,7 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
                 try (VectorSchemaRoot tempRoot = VectorSchemaRoot.create(arrowSchema, allocator)) {
                     tempRoot.allocateNew();
                     tempRoot.setRowCount(0);
-                    
+
                     try (ArrowStreamWriter writer = new ArrowStreamWriter(tempRoot, null, Channels.newChannel(baos))) {
                         writer.start();
                         // Write one empty batch to include the schema
@@ -90,13 +90,13 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
                 schemaIpc = baos.toByteArray();
             }
 
-            // Create Vortex writer  
+            // Create Vortex writer
             Map<String, String> writerOptions = new HashMap<>();
             this.vortexWriter = VortexWriter.create(filePath, schemaIpc, writerOptions);
 
             // Create VectorSchemaRoot for batching rows
             this.vectorSchemaRoot = VectorSchemaRoot.create(arrowSchema, allocator);
-            
+
             logger.debug("Initialized VortexDataWriter for {}", filePath);
 
         } catch (IOException e) {
@@ -305,7 +305,7 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
 
     /**
      * Closes the writer and releases resources.
-     * 
+     *
      * This method ensures resources are cleaned up even if commit() or abort()
      * were not called, making the class safe for use with try-with-resources.
      */

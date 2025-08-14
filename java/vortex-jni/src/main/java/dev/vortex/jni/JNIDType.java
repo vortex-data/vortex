@@ -50,8 +50,7 @@ public final class JNIDType implements DType {
 
     @Override
     public List<DType> getFieldTypes() {
-        return Lists.transform(
-                NativeDTypeMethods.getFieldTypes(pointer.getAsLong()), JNIDType::new);
+        return Lists.transform(NativeDTypeMethods.getFieldTypes(pointer.getAsLong()), JNIDType::new);
     }
 
     @Override

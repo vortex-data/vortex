@@ -10,7 +10,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * JNI implementation of VortexWriter.
- * 
+ *
  * This class implements AutoCloseable to ensure proper resource cleanup
  * when used with try-with-resources.
  */
@@ -43,7 +43,7 @@ public final class JNIWriter implements VortexWriter, AutoCloseable {
         }
 
         logger.trace("Writing batch with {} bytes", arrowData.length);
-        
+
         // Write the Arrow data to Vortex through JNI
         boolean success = NativeWriterMethods.writeBatch(ptr, arrowData);
         if (!success) {
