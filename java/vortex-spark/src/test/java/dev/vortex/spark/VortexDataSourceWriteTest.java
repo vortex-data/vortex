@@ -80,7 +80,16 @@ public final class VortexDataSourceWriteTest {
             .save();
         
         // Then: Verify two Vortex files were created
+        System.err.println("Looking for Vortex files in: " + outputPath);
+        System.err.println("Directory exists: " + Files.exists(outputPath));
+        if (Files.exists(outputPath)) {
+            try (Stream<Path> allFiles = Files.walk(outputPath)) {
+                allFiles.forEach(p -> System.err.println("Found: " + p));
+            }
+        }
+        
         List<Path> vortexFiles = findVortexFiles(outputPath);
+        System.err.println("Found " + vortexFiles.size() + " vortex files");
         assertEquals(2, vortexFiles.size(), 
             "Should have created 2 Vortex files (one per partition)");
         

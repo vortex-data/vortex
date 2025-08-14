@@ -58,6 +58,11 @@ public final class VortexDataWriterFactory implements DataWriterFactory, Seriali
         String fileName = String.format("part-%05d-%d.vortex", partitionId, taskId);
         String filePath = outputPath + "/" + fileName;
         
+        System.err.println("DEBUG: Creating writer for partition=" + partitionId + ", task=" + taskId);
+        System.err.println("DEBUG: Output path: " + outputPath);
+        System.err.println("DEBUG: File name: " + fileName);
+        System.err.println("DEBUG: Full file path: " + filePath);
+        
         // Create a new CaseInsensitiveStringMap from our serializable Map
         CaseInsensitiveStringMap optionsMap = new CaseInsensitiveStringMap(options);
         return new VortexDataWriter(filePath, schema, optionsMap);

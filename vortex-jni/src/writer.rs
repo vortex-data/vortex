@@ -31,7 +31,8 @@ impl WriterWrapper {
 
     pub fn write_batch(&mut self, batch: RecordBatch) -> Result<(), JNIError> {
         // Convert RecordBatch to Vortex array immediately to free Arrow memory
-        let array = ArrayRef::from_arrow(batch, true);
+        // Use false for nullable since top-level structs representing rows should not be nullable
+        let array = ArrayRef::from_arrow(batch, false);
         self.arrays.push(array);
         Ok(())
     }
