@@ -8,8 +8,8 @@ use arrow_schema::Schema;
 use jni::JNIEnv;
 use jni::objects::{JByteArray, JClass, JMap, JString};
 use jni::sys::{JNI_TRUE, jboolean, jlong};
-use vortex::arrow::FromArrowArray;
 use vortex::arrays::ChunkedArray;
+use vortex::arrow::FromArrowArray;
 use vortex::file::VortexWriteOptions;
 use vortex::{ArrayRef, IntoArray};
 
@@ -48,24 +48,27 @@ impl WriterWrapper {
 
             // If we have multiple arrays, combine them into a ChunkedArray
             let final_array = if arrays.len() == 1 {
-                arrays.into_iter().next().unwrap()
+                arrays.into_iter().next().ok_or_else(|| {
+                    JNIError::Vortex(vortex::error::vortex_err!("No arrays to write"))
+                })?
             } else {
                 // Create a ChunkedArray from multiple batches
                 ChunkedArray::from_iter(arrays).into_array()
             };
 
             // Write the final array to file
-            let path = self.path.clone();
-            
+            let path = self.path;
+
             // Write using VortexWriteOptions with the array's stream
             crate::block_on("write_vortex", async move {
-                let file = tokio::fs::File::create(&path).await
-                    .map_err(|e| JNIError::Vortex(vortex::error::vortex_err!("Failed to create file: {}", e)))?;
-                    
+                let file = tokio::fs::File::create(&path).await.map_err(|e| {
+                    JNIError::Vortex(vortex::error::vortex_err!("Failed to create file: {}", e))
+                })?;
+
                 VortexWriteOptions::default()
                     .write(file, final_array.to_array_stream())
                     .await
-                    .map_err(|e| JNIError::Vortex(e))
+                    .map_err(JNIError::Vortex)
             })?;
         } else {
             // Create empty file if no data
