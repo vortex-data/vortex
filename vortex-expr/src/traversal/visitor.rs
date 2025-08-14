@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 
 use vortex_error::VortexResult;
 
-use crate::traversal::{Node, NodeVisitor, TraversalOrder};
+use crate::traversal::{Node, NodeExt, NodeVisitor, TraversalOrder};
 
 struct FnVisitor<'a, F, T: 'a>
 where
@@ -19,7 +19,7 @@ where
 impl<'a, T, F> NodeVisitor<'a> for FnVisitor<'a, F, T>
 where
     F: FnMut(&'a T) -> VortexResult<TraversalOrder>,
-    T: Node,
+    T: NodeExt,
 {
     type NodeTy = T;
 

@@ -461,7 +461,7 @@ jobs:
         run: |
           mkdir -p build
           cd build
-          cmake -DVORTEX_ENABLE_TESTING=ON ..
+          cmake -DVORTEX_ENABLE_TESTING=ON -DVORTEX_ENABLE_ASAN=ON ..
           cmake --build . --parallel $(nproc)
           ctest -V
       - name: Build and run the example in release mode

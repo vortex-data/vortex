@@ -179,6 +179,21 @@ impl SelectExpr {
         &self.child
     }
 
+    /// Turn the select expression into an `include`, relative to a provided array of field names.
+    ///
+    /// For example:
+    /// ```rust
+    /// # use vortex_expr::root;
+    /// # use vortex_expr::select::{SelectExpr, SelectField};
+    /// # use vortex_dtype::FieldNames;
+    /// let field_names = FieldNames::from(["a", "b", "c"]);
+    /// let include = SelectExpr::new(SelectField::Include(["a"].into()), root());
+    /// let exclude = SelectExpr::new(SelectField::Exclude(["b", "c"].into()), root());
+    /// assert_eq!(
+    ///     &include.as_include(&field_names).unwrap(),
+    ///     &exclude.as_include(&field_names).unwrap()
+    /// );
+    /// ```
     pub fn as_include(&self, field_names: &FieldNames) -> VortexResult<ExprRef> {
         Ok(Self::new(
             SelectField::Include(self.fields.as_include_names(field_names)?),
@@ -229,7 +244,7 @@ impl SelectField {
             SelectField::Include(fields) => Ok(fields.clone()),
             SelectField::Exclude(exc_fields) => Ok(field_names
                 .iter()
-                .filter(|f| exc_fields.iter().contains(f))
+                .filter(|f| !exc_fields.iter().contains(f))
                 .cloned()
                 .collect()),
         }
@@ -259,9 +274,9 @@ mod tests {
     use vortex_array::arrays::StructArray;
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, FieldName, Nullability};
+    use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
 
-    use crate::{Scope, root, select, select_exclude, test_harness};
+    use crate::{Scope, SelectExpr, SelectField, root, select, select_exclude, test_harness};
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[
@@ -336,6 +351,17 @@ mod tests {
                     .unwrap(),
                 Nullability::NonNullable
             )
+        );
+    }
+
+    #[test]
+    fn test_as_include_names() {
+        let field_names = FieldNames::from(["a", "b", "c"]);
+        let include = SelectExpr::new(SelectField::Include(["a"].into()), root());
+        let exclude = SelectExpr::new(SelectField::Exclude(["b", "c"].into()), root());
+        assert_eq!(
+            &include.as_include(&field_names).unwrap(),
+            &exclude.as_include(&field_names).unwrap()
         );
     }
 }

@@ -4,8 +4,7 @@
 #pragma once
 
 #include <nanoarrow/common/inline_types.h>
-
-#include <memory>
+#include "vortex_cxx_bridge/lib.h"
 
 namespace vortex {
 class ScanBuilder;
@@ -14,9 +13,9 @@ class VortexFile {
 public:
     static VortexFile Open(const std::string &path);
 
-    VortexFile(VortexFile &&other) noexcept;
-    VortexFile &operator=(VortexFile &&other) noexcept;
-    ~VortexFile();
+    VortexFile(VortexFile &&other) noexcept = default;
+    VortexFile &operator=(VortexFile &&other) noexcept = default;
+    ~VortexFile() = default;
 
     VortexFile(const VortexFile &) = delete;
     VortexFile &operator=(const VortexFile &) = delete;
@@ -29,10 +28,10 @@ public:
     ScanBuilder CreateScanBuilder() const;
 
 private:
-    struct Impl;
-    explicit VortexFile(std::unique_ptr<Impl> impl);
+    explicit VortexFile(rust::Box<ffi::VortexFile> impl) : impl_(std::move(impl)) {
+    }
 
-    std::unique_ptr<Impl> impl_;
+    rust::Box<ffi::VortexFile> impl_;
 };
 
 } // namespace vortex

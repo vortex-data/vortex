@@ -6458,11 +6458,13 @@ dependencies = [
 name = "vortex-cxx"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "arrow-array",
  "arrow-schema",
  "cxx",
  "cxx-build",
  "futures",
+ "paste",
  "prost 0.14.1",
  "take_mut",
  "tokio",

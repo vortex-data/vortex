@@ -31,8 +31,25 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
     private static final String PATH_KEY = "path";
     private static final String PATHS_KEY = "paths";
 
+    /**
+     * Creates a new instance of the Vortex data source.
+     * <p>
+     * This no-argument constructor is required for Spark to instantiate the data source
+     * through reflection.
+     */
     public VortexDataSourceV2() {}
 
+    /**
+     * Infers the schema of the Vortex files specified in the options.
+     * <p>
+     * This method examines the last file in the provided paths to determine the schema.
+     * Currently, schema evolution and merging across multiple files is not supported.
+     *
+     * @param options the data source options containing file paths
+     * @return the inferred Spark SQL schema
+     * @throws RuntimeException if required path options are missing
+     * @throws RuntimeException if there's an error reading the file or converting the schema
+     */
     @Override
     public StructType inferSchema(CaseInsensitiveStringMap options) {
         // Look at the last file in the listing and dump its schema.
@@ -45,6 +62,18 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
         }
     }
 
+    /**
+     * Creates a Vortex table instance with the given schema and properties.
+     * <p>
+     * This method creates a VortexTable that can be used to read data from the specified
+     * Vortex files. The partitioning parameter is currently ignored.
+     *
+     * @param schema the table schema
+     * @param _partitioning table partitioning transforms (currently ignored)
+     * @param properties the table properties containing file paths and other options
+     * @return a VortexTable instance for reading the data
+     * @throws RuntimeException if required path properties are missing
+     */
     @Override
     public Table getTable(StructType schema, Transform[] _partitioning, Map<String, String> properties) {
         var uncased = new CaseInsensitiveStringMap(properties);
@@ -56,6 +85,14 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
         return new VortexTable(paths, columns);
     }
 
+    /**
+     * Returns the short name identifier for this data source.
+     * <p>
+     * This name is used by Spark when registering the data source and can be used
+     * in SQL queries and DataFrame read operations to specify this format.
+     *
+     * @return the short name "vortex"
+     */
     @Override
     public String shortName() {
         return "vortex";

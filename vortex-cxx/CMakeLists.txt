@@ -18,6 +18,7 @@ endif()
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall -Wextra -Wpedantic -Wno-dollar-in-identifier-extension")
 
 option(VORTEX_ENABLE_TESTING "Enable building test binary for vortex-cxx" OFF)
+option(VORTEX_ENABLE_ASAN "Enable address sanitizer" OFF)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -27,7 +28,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(Corrosion)
 
-set(RUST_SOURCE_FILE lib.rs read.rs write.rs)
+set(RUST_SOURCE_FILE lib.rs)
 
 # Import Rust crate using Corrosion
 corrosion_import_crate(
@@ -43,11 +44,8 @@ FetchContent_Declare(nanoarrow
     URL "https://www.apache.org/dyn/closer.lua?action=download&filename=arrow/apache-arrow-nanoarrow-0.7.0/apache-arrow-nanoarrow-0.7.0.tar.gz")
 FetchContent_MakeAvailable(nanoarrow)
 
-# C++ source files
-set(CPP_SOURCE_FILE
-    cpp/src/write_options.cpp
-    cpp/src/file.cpp
-    cpp/src/scan.cpp
+file(GLOB_RECURSE CPP_SOURCE_FILE CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/cpp/src/*.cpp"
 )
 
 # Public headers
@@ -62,16 +60,20 @@ set(CPP_PRIVATE_INCLUDE_DIRS
 
 # Create the main library combining C++ and Rust code
 add_library(vortex STATIC ${CPP_SOURCE_FILE})
-target_include_directories(vortex PUBLIC ${CPP_INCLUDE_DIRS})
+target_include_directories(vortex PUBLIC ${CPP_INCLUDE_DIRS} 
+    ${CMAKE_CURRENT_BINARY_DIR}/corrosion_generated/cxxbridge/vortex_cxx_bridge/include)
 target_include_directories(vortex PRIVATE 
     ${CPP_PRIVATE_INCLUDE_DIRS}
-    ${CMAKE_CURRENT_BINARY_DIR}/corrosion_generated/cxxbridge/vortex_cxx_bridge/include
-    ${CMAKE_CURRENT_BINARY_DIR}/corrosion_generated/cxxbridge/vortex_cxx_bridge/src
 )
 target_link_libraries(vortex 
     PUBLIC nanoarrow_static
     PRIVATE vortex_cxx_bridge
 )
+
+if (VORTEX_ENABLE_ASAN) 
+    target_compile_options(vortex PRIVATE -fsanitize=leak,address,undefined -fno-omit-frame-pointer -fno-common -O1)
+    target_link_options(vortex PRIVATE -fsanitize=leak,address,undefined)
+endif()
 
 # Tests
 if (VORTEX_ENABLE_TESTING)
@@ -96,6 +98,10 @@ if (VORTEX_ENABLE_TESTING)
         set(APPLE_LINK_FLAGS "-framework CoreFoundation -framework Security")
     endif()
     target_link_libraries(vortex_cxx_test PRIVATE vortex_cxx_bridge ${APPLE_LINK_FLAGS})
+    if (VORTEX_ENABLE_ASAN) 
+        target_compile_options(vortex_cxx_test PRIVATE -fsanitize=leak,address,undefined -fno-omit-frame-pointer -fno-common -O1)
+        target_link_options(vortex_cxx_test PRIVATE -fsanitize=leak,address,undefined)
+    endif()
     include(GoogleTest)
     gtest_discover_tests(vortex_cxx_test)
 endif()
