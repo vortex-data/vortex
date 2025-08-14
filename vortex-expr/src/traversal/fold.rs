@@ -99,7 +99,7 @@ pub trait NodeFolder {
     ) -> VortexResult<FoldUp<Self::Result>>;
 }
 
-pub struct NodeFolderContextWrapper<'a, T>
+pub(crate) struct NodeFolderContextWrapper<'a, T>
 where
     T: NodeFolder,
 {
