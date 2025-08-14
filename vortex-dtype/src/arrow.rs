@@ -127,6 +127,9 @@ impl FromArrowType<(&DataType, Nullability)> for DType {
                 List(Arc::new(Self::from_arrow(e.as_ref())), nullability)
             }
             DataType::Struct(f) => Struct(StructFields::from_arrow(f), nullability),
+            DataType::Dictionary(_, value_type) => {
+                Self::from_arrow((value_type.as_ref(), nullability))
+            }
             _ => unimplemented!("Arrow data type not yet supported: {:?}", data_type),
         }
     }
