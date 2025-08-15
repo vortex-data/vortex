@@ -3,18 +3,18 @@
 
 package dev.vortex.spark.write;
 
-import org.apache.spark.sql.connector.write.*;
-import org.apache.spark.sql.types.StructType;
-import org.apache.spark.sql.util.CaseInsensitiveStringMap;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
+import dev.vortex.jni.NativeFileMethods;
 import java.io.IOException;
 import java.io.Serializable;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
+import java.util.Map;
+import org.apache.spark.sql.connector.write.*;
+import org.apache.spark.sql.types.StructType;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Manages the batch write operation for creating Vortex files.
@@ -27,7 +27,7 @@ public final class VortexBatchWrite implements Write, BatchWrite, Serializable {
     private static final Logger log = LoggerFactory.getLogger(VortexBatchWrite.class);
     private final String outputPath;
     private final StructType schema;
-    private final CaseInsensitiveStringMap options;
+    private final Map<String, String> options;
     private final boolean overwrite;
 
     /**
@@ -38,7 +38,7 @@ public final class VortexBatchWrite implements Write, BatchWrite, Serializable {
      * @param options    additional write options
      * @param overwrite  whether to overwrite existing files
      */
-    public VortexBatchWrite(String outputPath, StructType schema, CaseInsensitiveStringMap options, boolean overwrite) {
+    public VortexBatchWrite(String outputPath, StructType schema, Map<String, String> options, boolean overwrite) {
         this.outputPath = outputPath;
         this.schema = schema;
         this.options = options;
@@ -69,8 +69,9 @@ public final class VortexBatchWrite implements Write, BatchWrite, Serializable {
     public DataWriterFactory createBatchWriterFactory(PhysicalWriteInfo info) {
         // Handle overwrite cleanup BEFORE writing starts
         if (overwrite) {
-            // TODO(aduffy): pass options to object_store. But I think we likely
-            //  do overwrite by default anyway?
+            var uris = NativeFileMethods.listVortexFiles(outputPath, options);
+            log.info("truncating table with {} files", uris.size());
+            NativeFileMethods.delete(uris.toArray(new String[0]), options);
             log.warn("overwrite currently does not do anything for vortex format");
         }
 
@@ -89,6 +90,7 @@ public final class VortexBatchWrite implements Write, BatchWrite, Serializable {
     public void onDataWriterCommit(WriterCommitMessage message) {
         // Individual file commits are handled in the data writer
         // This is called for each successful task
+        log.debug("Committing DataWriter");
     }
 
     /**

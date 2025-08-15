@@ -11,8 +11,7 @@ public final class NativeFileMethods {
         NativeLoader.loadJni();
     }
 
-    private NativeFileMethods() {
-    }
+    private NativeFileMethods() {}
 
     /**
      * List all Vortex files underneath the current file path.
@@ -22,6 +21,11 @@ public final class NativeFileMethods {
      * @return A list of URIs for the Vortex files below the provided path
      */
     public static native List<String> listVortexFiles(String uri, Map<String, String> options);
+
+    /**
+     * Delete the files at the provided URIs. Use the options to configure an object store client.
+     */
+    public static native void delete(String[] uris, Map<String, String> options);
 
     /**
      * Open a file using the native library with the provided URI and options.

@@ -9,17 +9,16 @@ import com.google.common.collect.Iterables;
 import dev.vortex.api.File;
 import dev.vortex.api.Files;
 import dev.vortex.jni.NativeFileMethods;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import org.apache.spark.sql.connector.catalog.CatalogV2Util;
-import org.apache.spark.sql.connector.catalog.Column;
 import org.apache.spark.sql.connector.catalog.Table;
 import org.apache.spark.sql.connector.catalog.TableProvider;
 import org.apache.spark.sql.connector.expressions.Transform;
 import org.apache.spark.sql.sources.DataSourceRegister;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.util.CaseInsensitiveStringMap;
-
-import java.util.Map;
-import java.util.Objects;
 
 /**
  * Spark V2 data source for reading and writing Vortex files.
@@ -40,8 +39,7 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
      * This no-argument constructor is required for Spark to instantiate the data source
      * through reflection.
      */
-    public VortexDataSourceV2() {
-    }
+    public VortexDataSourceV2() {}
 
     /**
      * Infers the schema of the Vortex files specified in the options.
@@ -67,6 +65,20 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
         }
 
         var pathToInfer = Objects.requireNonNull(Iterables.getLast(paths));
+        // If the path is a directory, scan the directory for a file and use that file
+        if (!pathToInfer.endsWith(".vortex")) {
+            Optional<String> firstFile =
+                    NativeFileMethods.listVortexFiles(pathToInfer, options.asCaseSensitiveMap()).stream()
+                            .findFirst();
+
+            if (firstFile.isEmpty()) {
+                // Return empty struct if no files found
+                // TODO(aduffy): how does Parquet handle this?
+                return new StructType();
+            } else {
+                pathToInfer = firstFile.get();
+            }
+        }
 
         try (File file = Files.open(pathToInfer)) {
             var columns = SparkTypes.toColumns(file.getDType());
@@ -90,28 +102,8 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
     public Table getTable(StructType schema, Transform[] _partitioning, Map<String, String> properties) {
         var uncased = new CaseInsensitiveStringMap(properties);
 
-        var paths = getPaths(uncased);
-        // Convert schema to columns
-        ImmutableList<Column> columns;
-        if (schema != null && schema.fields().length > 0) {
-            columns = ImmutableList.<Column>builder()
-                    .add(CatalogV2Util.structTypeToV2Columns(schema))
-                    .build();
-        } else {
-            // For write operations where the path doesn't exist, inferSchema returns empty
-            // But Spark still needs a valid schema for write operations
-            // The actual write schema will come from LogicalWriteInfo in newWriteBuilder
-            columns = ImmutableList.of();
-        }
-
-        // Support both read and write operations
-        String outputPath = uncased.get(PATH_KEY);
-        if (outputPath != null) {
-            // This is a write operation - pass the schema along
-            return new VortexTable(paths, schema, uncased);
-        } else {
-            return new VortexTable(paths, columns);
-        }
+        ImmutableList<String> paths = getPaths(uncased);
+        return new VortexTable(paths, schema, properties);
     }
 
     /**

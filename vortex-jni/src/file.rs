@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use futures::StreamExt;
 use jni::JNIEnv;
-use jni::objects::{JByteArray, JClass, JLongArray, JObject, JString, ReleaseMode};
+use jni::objects::{JByteArray, JClass, JLongArray, JObject, JObjectArray, JString, ReleaseMode};
 use jni::sys::{jlong, jobject};
 use object_store::ObjectStore;
 use object_store::path::Path;
@@ -113,6 +113,68 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_listVortexFiles<'lo
 
         Ok(paths_result.into_raw())
     })
+}
+
+/// Delete files from the target
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_delete<'local>(
+    mut env: JNIEnv,
+    _class: JClass,
+    uris: JObjectArray<'local>,
+    options: JObject<'local>,
+) {
+    try_or_throw(&mut env, |env| {
+        let mut delete_uris = Vec::new();
+
+        let num_uris = env.get_array_length(&uris)?;
+        for idx in 0..num_uris {
+            let uri = env.get_object_array_element(&uris, idx)?;
+            delete_uris.push(
+                env.get_string(&JString::from(uri))?
+                    .to_string_lossy()
+                    .to_string(),
+            );
+        }
+
+        // Nothing to delete
+        if delete_uris.is_empty() {
+            return Ok(());
+        }
+
+        // Pick the first URL to use for building the client
+        let store_url = Url::parse(&delete_uris[0]).map_err(VortexError::from)?;
+
+        let mut properties: HashMap<String, String> = HashMap::new();
+
+        if !options.is_null() {
+            let opts = env.get_map(&options)?;
+            let mut iterator = opts.iter(env)?;
+            while let Some((key, val)) = iterator.next(env)? {
+                let key = env.auto_local(key);
+                let val = env.auto_local(val);
+                let key_str = env.get_string(key.as_ref().into())?;
+                let val_str = env.get_string(val.as_ref().into())?;
+                properties.insert(key_str.into(), val_str.into());
+            }
+        }
+
+        let (store, _) = make_object_store(&store_url, &properties)?;
+
+        for uri in delete_uris {
+            let url = Url::parse(&uri).map_err(VortexError::from)?;
+            // TODO(aduffy): block on all of them
+            block_on(
+                "delete-file",
+                store.delete(
+                    &Path::from_url_path(url.path())
+                        .map_err(|_| vortex_err!("invalid path for url {url}"))?,
+                ),
+            )
+            .map_err(VortexError::from)?;
+        }
+
+        Ok(())
+    });
 }
 
 /// Open a file from a URL and options object. Returns a `long` representing a raw pointer

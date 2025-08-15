@@ -3,20 +3,19 @@
 
 package dev.vortex.jni;
 
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import dev.vortex.api.DType;
 import dev.vortex.api.VortexWriter;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
-
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
-
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Direct test of JNI writer to isolate pointer alignment issue.
@@ -39,8 +38,10 @@ public final class JNIWriterTest {
 
         // Make a new file writer with a very simple schema.
         var writeSchema = DType.newStruct(
-                new String[]{"name", "age",},
-                new DType[]{DType.newUtf8(false), DType.newInt(false)},
+                new String[] {
+                    "name", "age",
+                },
+                new DType[] {DType.newUtf8(false), DType.newInt(false)},
                 false);
 
         // Minimal Arrow schema

@@ -12,7 +12,7 @@ use object_store::local::LocalFileSystem;
 use object_store::{ClientOptions, ObjectStore, ObjectStoreScheme};
 use parking_lot::Mutex;
 use url::Url;
-use vortex::error::{vortex_bail, VortexError, VortexResult};
+use vortex::error::{VortexError, VortexResult, vortex_bail};
 use vortex::utils::aliases::hash_map::HashMap;
 
 pub(crate) fn make_object_store(

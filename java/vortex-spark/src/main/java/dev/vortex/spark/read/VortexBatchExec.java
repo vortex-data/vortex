@@ -6,13 +6,12 @@ package dev.vortex.spark.read;
 import com.google.common.collect.ImmutableList;
 import dev.vortex.jni.NativeFileMethods;
 import dev.vortex.spark.VortexFilePartition;
+import java.util.Map;
+import java.util.stream.Stream;
 import org.apache.spark.sql.connector.catalog.Column;
 import org.apache.spark.sql.connector.read.Batch;
 import org.apache.spark.sql.connector.read.InputPartition;
 import org.apache.spark.sql.connector.read.PartitionReaderFactory;
-
-import java.util.Map;
-import java.util.stream.Stream;
 
 /**
  * Execution source for batch scans of Vortex file tables.
@@ -28,7 +27,8 @@ public final class VortexBatchExec implements Batch {
      * @param paths   the list of file paths to scan
      * @param columns the list of columns to read from the files
      */
-    public VortexBatchExec(ImmutableList<String> paths, ImmutableList<Column> columns, Map<String, String> formatOptions) {
+    public VortexBatchExec(
+            ImmutableList<String> paths, ImmutableList<Column> columns, Map<String, String> formatOptions) {
         this.paths = paths;
         this.columns = columns;
         this.formatOptions = formatOptions;

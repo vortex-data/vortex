@@ -8,6 +8,7 @@ import static com.google.common.base.Preconditions.checkState;
 import com.google.common.collect.ImmutableList;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import org.apache.spark.sql.connector.catalog.Column;
 import org.apache.spark.sql.connector.read.Scan;
 import org.apache.spark.sql.connector.read.ScanBuilder;
@@ -21,13 +22,15 @@ import org.apache.spark.sql.types.StructType;
 public final class VortexScanBuilder implements ScanBuilder, SupportsPushDownRequiredColumns {
     private final ImmutableList.Builder<String> paths;
     private final List<Column> columns;
+    private final Map<String, String> formatOptions;
 
     /**
      * Creates a new VortexScanBuilder with empty paths and columns.
      */
-    public VortexScanBuilder(NaoMap<String, String> formatOptions) {
+    public VortexScanBuilder(Map<String, String> formatOptions) {
         this.paths = ImmutableList.builder();
         this.columns = new ArrayList<>();
+        this.formatOptions = formatOptions;
     }
 
     /**

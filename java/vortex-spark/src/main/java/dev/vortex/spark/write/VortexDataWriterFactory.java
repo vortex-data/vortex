@@ -4,8 +4,6 @@
 package dev.vortex.spark.write;
 
 import java.io.Serializable;
-import java.net.URI;
-import java.util.HashMap;
 import java.util.Map;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.connector.write.DataWriter;
@@ -37,11 +35,10 @@ public final class VortexDataWriterFactory implements DataWriterFactory, Seriali
      * @param schema    the schema of the data to write
      * @param options   additional write options
      */
-    public VortexDataWriterFactory(String outputUri, StructType schema, CaseInsensitiveStringMap options) {
+    public VortexDataWriterFactory(String outputUri, StructType schema, Map<String, String> options) {
         this.outputUri = outputUri;
         this.schema = schema;
-        // Convert CaseInsensitiveStringMap to a serializable HashMap
-        this.options = new HashMap<>(options);
+        this.options = options;
     }
 
     /**
@@ -57,7 +54,12 @@ public final class VortexDataWriterFactory implements DataWriterFactory, Seriali
     public DataWriter<InternalRow> createWriter(int partitionId, long taskId) {
         // Create a unique file name for this task
         String fileName = String.format("part-%05d-%d.vortex", partitionId, taskId);
-        String fileUri = URI.create(outputUri).resolve(fileName).toString();
+        String fileUri;
+        if (outputUri.endsWith("/")) {
+            fileUri = outputUri + fileName;
+        } else {
+            fileUri = outputUri + "/" + fileName;
+        }
 
         log.debug("Creating writer for partition={} task={}", partitionId, taskId);
         log.debug("Output path: {}", outputUri);

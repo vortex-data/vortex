@@ -3,14 +3,11 @@
 
 package dev.vortex.spark.write;
 
-import com.google.common.collect.Iterables;
+import java.util.Map;
 import org.apache.spark.sql.connector.write.LogicalWriteInfo;
 import org.apache.spark.sql.connector.write.SupportsTruncate;
 import org.apache.spark.sql.connector.write.Write;
 import org.apache.spark.sql.connector.write.WriteBuilder;
-import org.apache.spark.sql.util.CaseInsensitiveStringMap;
-
-import java.util.List;
 
 /**
  * Builder for configuring Vortex write operations.
@@ -22,9 +19,8 @@ public final class VortexWriteBuilder implements WriteBuilder, SupportsTruncate 
 
     private final String paths;
     private final LogicalWriteInfo writeInfo;
-    private final CaseInsensitiveStringMap options;
+    private final Map<String, String> options;
     private boolean truncate = false;
-    private boolean overwrite = false;
 
     /**
      * Creates a new VortexWriteBuilder.
@@ -33,7 +29,7 @@ public final class VortexWriteBuilder implements WriteBuilder, SupportsTruncate 
      * @param writeInfo logical information about the write operation
      * @param options   additional write options
      */
-    public VortexWriteBuilder(String paths, LogicalWriteInfo writeInfo, CaseInsensitiveStringMap options) {
+    public VortexWriteBuilder(String paths, LogicalWriteInfo writeInfo, Map<String, String> options) {
         this.paths = paths;
         this.writeInfo = writeInfo;
         this.options = options;
@@ -46,7 +42,7 @@ public final class VortexWriteBuilder implements WriteBuilder, SupportsTruncate 
      */
     @Override
     public Write build() {
-        return new VortexBatchWrite(paths, writeInfo.schema(), options, truncate || overwrite);
+        return new VortexBatchWrite(paths, writeInfo.schema(), options, truncate);
     }
 
     /**
@@ -60,18 +56,6 @@ public final class VortexWriteBuilder implements WriteBuilder, SupportsTruncate 
     @Override
     public WriteBuilder truncate() {
         this.truncate = true;
-        return this;
-    }
-
-    /**
-     * Configures the write operation to overwrite existing data.
-     * <p>
-     * Similar to truncate, this will remove existing files before writing.
-     *
-     * @return this builder for method chaining
-     */
-    public WriteBuilder overwrite() {
-        this.overwrite = true;
         return this;
     }
 }

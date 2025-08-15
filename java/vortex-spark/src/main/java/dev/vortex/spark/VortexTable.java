@@ -6,17 +6,16 @@ package dev.vortex.spark;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
-import dev.vortex.jni.NativeFileMethods;
 import dev.vortex.spark.read.VortexScanBuilder;
 import dev.vortex.spark.write.VortexWriteBuilder;
+import java.util.Map;
+import java.util.Set;
 import org.apache.spark.sql.connector.catalog.*;
 import org.apache.spark.sql.connector.read.ScanBuilder;
 import org.apache.spark.sql.connector.write.LogicalWriteInfo;
 import org.apache.spark.sql.connector.write.WriteBuilder;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.util.CaseInsensitiveStringMap;
-
-import java.util.Set;
 
 /**
  * Spark V2 {@link Table} of Vortex files that supports both reading and writing.
@@ -26,20 +25,16 @@ public final class VortexTable implements Table, SupportsRead, SupportsWrite {
 
     private final ImmutableList<String> paths;
     private final StructType schema;
-    private final CaseInsensitiveStringMap formatOptions;
+    private final Map<String, String> formatOptions;
 
     /**
      * Creates a new VortexTable with read/write support.
      */
-    public VortexTable(
-            ImmutableList<String> paths,
-            StructType schema,
-            CaseInsensitiveStringMap formatOptions) {
+    public VortexTable(ImmutableList<String> paths, StructType schema, Map<String, String> formatOptions) {
         this.paths = paths;
         this.schema = schema;
         this.formatOptions = formatOptions;
     }
-
 
     /**
      * Creates a new ScanBuilder for this table.
@@ -56,7 +51,7 @@ public final class VortexTable implements Table, SupportsRead, SupportsWrite {
         ImmutableList<Column> readColumns = ImmutableList.<Column>builder()
                 .add(CatalogV2Util.structTypeToV2Columns(schema))
                 .build();
-        return new VortexScanBuilder().addAllPaths(paths).addAllColumns(readColumns);
+        return new VortexScanBuilder(formatOptions).addAllPaths(paths).addAllColumns(readColumns);
     }
 
     /**
@@ -104,10 +99,9 @@ public final class VortexTable implements Table, SupportsRead, SupportsWrite {
     /**
      * Returns the capabilities supported by this table.
      * <p>
-     * Vortex tables support batch reading, batch writing, and truncation.
-     * The TRUNCATE capability is needed for overwrite mode in Spark V2 API.
+     * Vortex tables support batch reading and batch writing.
      *
-     * @return a set containing TableCapability.BATCH_READ, BATCH_WRITE, and TRUNCATE
+     * @return a set containing TableCapability.BATCH_READ and BATCH_WRITE
      */
     @Override
     public Set<TableCapability> capabilities() {
