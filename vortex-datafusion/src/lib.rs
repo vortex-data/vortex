@@ -5,7 +5,7 @@
 #![deny(missing_docs)]
 use std::fmt::Debug;
 
-use datafusion::common::stats::Precision as DFPrecision;
+use datafusion_common::stats::Precision as DFPrecision;
 use vortex::stats::Precision;
 
 mod convert;

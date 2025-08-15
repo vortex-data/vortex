@@ -4,16 +4,16 @@
 use std::ops::Range;
 use std::sync::{Arc, Weak};
 
+use arrow_schema::{ArrowError, Field, SchemaRef};
 use dashmap::{DashMap, Entry};
-use datafusion::arrow::datatypes::{Field, SchemaRef};
-use datafusion::arrow::error::ArrowError;
-use datafusion::common::{DataFusionError, Result as DFResult};
-use datafusion::datasource::listing::PartitionedFile;
-use datafusion::datasource::physical_plan::{FileMeta, FileOpenFuture, FileOpener};
-use datafusion::datasource::schema_adapter::SchemaAdapterFactory;
-use datafusion::physical_expr::schema_rewriter::PhysicalExprAdapterFactory;
-use datafusion::physical_expr::simplifier::PhysicalExprSimplifier;
-use datafusion::physical_expr::{PhysicalExprRef, split_conjunction};
+use datafusion_common::{DataFusionError, Result as DFResult};
+use datafusion_datasource::PartitionedFile;
+use datafusion_datasource::file_meta::FileMeta;
+use datafusion_datasource::file_stream::{FileOpenFuture, FileOpener};
+use datafusion_datasource::schema_adapter::SchemaAdapterFactory;
+use datafusion_physical_expr::schema_rewriter::PhysicalExprAdapterFactory;
+use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
+use datafusion_physical_expr::{PhysicalExprRef, split_conjunction};
 use futures::{FutureExt, StreamExt, TryStreamExt, stream};
 use object_store::ObjectStore;
 use object_store::path::Path;

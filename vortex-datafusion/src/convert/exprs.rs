@@ -3,11 +3,12 @@
 
 use std::sync::Arc;
 
-use datafusion::arrow::datatypes::{DataType, Schema};
-use datafusion::logical_expr::Operator as DFOperator;
-use datafusion::physical_expr::{PhysicalExpr, PhysicalExprRef, expressions};
+use arrow_schema::{DataType, Schema};
+use datafusion_expr::Operator as DFOperator;
+use datafusion_physical_expr::{PhysicalExpr, PhysicalExprRef};
+use datafusion_physical_plan::expressions as df_expr;
 use vortex::error::{VortexResult, vortex_bail, vortex_err};
-use vortex::expr::{ExprRef, Operator, and};
+use vortex::expr::{BinaryExpr, ExprRef, LikeExpr, Operator, and, get_item, lit, root};
 use vortex::scalar::Scalar;
 
 use crate::convert::{FromDataFusion, TryFromDataFusion};
@@ -37,9 +38,7 @@ pub(crate) fn make_vortex_predicate(
 //  for that node, up to any `and` or `or` node.
 impl TryFromDataFusion<dyn PhysicalExpr> for ExprRef {
     fn try_from_df(df: &dyn PhysicalExpr) -> VortexResult<Self> {
-        use vortex::expr::{BinaryExpr, ExprRef, LikeExpr, get_item, lit, root};
-
-        if let Some(binary_expr) = df.as_any().downcast_ref::<expressions::BinaryExpr>() {
+        if let Some(binary_expr) = df.as_any().downcast_ref::<df_expr::BinaryExpr>() {
             let left = ExprRef::try_from_df(binary_expr.left().as_ref())?;
             let right = ExprRef::try_from_df(binary_expr.right().as_ref())?;
             let operator = Operator::try_from_df(binary_expr.op())?;
@@ -47,11 +46,11 @@ impl TryFromDataFusion<dyn PhysicalExpr> for ExprRef {
             return Ok(BinaryExpr::new_expr(left, operator, right));
         }
 
-        if let Some(col_expr) = df.as_any().downcast_ref::<expressions::Column>() {
+        if let Some(col_expr) = df.as_any().downcast_ref::<df_expr::Column>() {
             return Ok(get_item(col_expr.name().to_owned(), root()));
         }
 
-        if let Some(like) = df.as_any().downcast_ref::<expressions::LikeExpr>() {
+        if let Some(like) = df.as_any().downcast_ref::<df_expr::LikeExpr>() {
             let child = ExprRef::try_from_df(like.expr().as_ref())?;
             let pattern = ExprRef::try_from_df(like.pattern().as_ref())?;
             return Ok(LikeExpr::new_expr(
@@ -62,7 +61,7 @@ impl TryFromDataFusion<dyn PhysicalExpr> for ExprRef {
             ));
         }
 
-        if let Some(literal) = df.as_any().downcast_ref::<expressions::Literal>() {
+        if let Some(literal) = df.as_any().downcast_ref::<df_expr::Literal>() {
             let value = Scalar::from_df(literal.value());
             return Ok(lit(value));
         }
@@ -123,19 +122,17 @@ impl TryFromDataFusion<DFOperator> for Operator {
 }
 
 pub(crate) fn can_be_pushed_down(expr: &PhysicalExprRef, schema: &Schema) -> bool {
-    use datafusion::physical_plan::expressions::{BinaryExpr, Column, LikeExpr, Literal};
-
     let expr = expr.as_any();
-    if let Some(binary) = expr.downcast_ref::<BinaryExpr>() {
+    if let Some(binary) = expr.downcast_ref::<df_expr::BinaryExpr>() {
         can_binary_be_pushed_down(binary, schema)
-    } else if let Some(col) = expr.downcast_ref::<Column>() {
+    } else if let Some(col) = expr.downcast_ref::<df_expr::Column>() {
         schema
             .field_with_name(col.name())
             .ok()
             .is_some_and(|field| supported_data_types(field.data_type()))
-    } else if let Some(like) = expr.downcast_ref::<LikeExpr>() {
+    } else if let Some(like) = expr.downcast_ref::<df_expr::LikeExpr>() {
         can_be_pushed_down(like.expr(), schema) && can_be_pushed_down(like.pattern(), schema)
-    } else if let Some(lit) = expr.downcast_ref::<Literal>() {
+    } else if let Some(lit) = expr.downcast_ref::<df_expr::Literal>() {
         supported_data_types(&lit.value().data_type())
     } else {
         log::debug!("DataFusion expression can't be pushed down: {expr:?}");
@@ -143,7 +140,7 @@ pub(crate) fn can_be_pushed_down(expr: &PhysicalExprRef, schema: &Schema) -> boo
     }
 }
 
-fn can_binary_be_pushed_down(binary: &expressions::BinaryExpr, schema: &Schema) -> bool {
+fn can_binary_be_pushed_down(binary: &df_expr::BinaryExpr, schema: &Schema) -> bool {
     let is_op_supported =
         binary.op().is_logic_operator() || SUPPORTED_BINARY_OPS.contains(binary.op());
     is_op_supported

@@ -5,21 +5,23 @@ use std::any::Any;
 use std::fmt::Formatter;
 use std::sync::{Arc, Weak};
 
+use arrow_schema::SchemaRef;
 use dashmap::DashMap;
-use datafusion::arrow::datatypes::SchemaRef;
-use datafusion::common::{Result as DFResult, Statistics};
-use datafusion::config::ConfigOptions;
-use datafusion::datasource::physical_plan::{FileOpener, FileScanConfig, FileSource};
-use datafusion::datasource::schema_adapter::{DefaultSchemaAdapterFactory, SchemaAdapterFactory};
-use datafusion::physical_expr::schema_rewriter::{
+use datafusion_common::config::ConfigOptions;
+use datafusion_common::{Result as DFResult, Statistics};
+use datafusion_datasource::file::FileSource;
+use datafusion_datasource::file_scan_config::FileScanConfig;
+use datafusion_datasource::file_stream::FileOpener;
+use datafusion_datasource::schema_adapter::{DefaultSchemaAdapterFactory, SchemaAdapterFactory};
+use datafusion_physical_expr::schema_rewriter::{
     DefaultPhysicalExprAdapterFactory, PhysicalExprAdapterFactory,
 };
-use datafusion::physical_expr::{PhysicalExprRef, conjunction};
-use datafusion::physical_plan::filter_pushdown::{
+use datafusion_physical_expr::{PhysicalExprRef, conjunction};
+use datafusion_physical_plan::filter_pushdown::{
     FilterPushdownPropagation, PushedDown, PushedDownPredicate,
 };
-use datafusion::physical_plan::metrics::ExecutionPlanMetricsSet;
-use datafusion::physical_plan::{DisplayFormatType, PhysicalExpr};
+use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
+use datafusion_physical_plan::{DisplayFormatType, PhysicalExpr};
 use object_store::ObjectStore;
 use object_store::path::Path;
 use vortex::error::VortexExpect as _;
@@ -267,32 +269,6 @@ impl FileSource for VortexSource {
         };
 
         Ok(pushdown_propagation)
-    }
-
-    fn repartitioned(
-        &self,
-        target_partitions: usize,
-        repartition_file_min_size: usize,
-        output_ordering: Option<datafusion::physical_expr::LexOrdering>,
-        config: &FileScanConfig,
-    ) -> DFResult<Option<FileScanConfig>> {
-        if config.file_compression_type.is_compressed() || config.new_lines_in_values {
-            return Ok(None);
-        }
-
-        let repartitioned_file_groups_option =
-            datafusion::datasource::physical_plan::FileGroupPartitioner::new()
-                .with_target_partitions(target_partitions)
-                .with_repartition_file_min_size(repartition_file_min_size)
-                .with_preserve_order_within_groups(output_ordering.is_some())
-                .repartition_file_groups(&config.file_groups);
-
-        if let Some(repartitioned_file_groups) = repartitioned_file_groups_option {
-            let mut source = config.clone();
-            source.file_groups = repartitioned_file_groups;
-            return Ok(Some(source));
-        }
-        Ok(None)
     }
 
     fn with_schema_adapter_factory(

@@ -87,7 +87,13 @@ crossbeam-queue = "0.3.12"
 crossterm = "0.29"
 dashmap = "6.1.0"
 datafusion = { version = "49", default-features = false }
+datafusion-catalog = { version = "49" }
 datafusion-common = { version = "49" }
+datafusion-common-runtime = { version = "49" }
+datafusion-datasource = { version = "49", default-features = false }
+datafusion-execution = { version = "49" }
+datafusion-expr = { version = "49" }
+datafusion-physical-expr = { version = "49" }
 datafusion-physical-plan = { version = "49" }
 dirs = "6.0.0"
 divan = { package = "codspeed-divan-compat", version = "3.0" }

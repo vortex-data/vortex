@@ -5,26 +5,26 @@ use std::any::Any;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
+use arrow_schema::{Schema, SchemaRef};
 use async_trait::async_trait;
-use datafusion::arrow::datatypes::{Schema, SchemaRef};
-use datafusion::catalog::Session;
-use datafusion::common::parsers::CompressionTypeVariant;
-use datafusion::common::runtime::SpawnedTask;
-use datafusion::common::stats::Precision;
-use datafusion::common::{
+use datafusion_catalog::Session;
+use datafusion_common::parsers::CompressionTypeVariant;
+use datafusion_common::stats::Precision;
+use datafusion_common::{
     ColumnStatistics, DataFusionError, GetExt, Result as DFResult, Statistics,
     config_datafusion_err, not_impl_err,
 };
-use datafusion::datasource::file_format::file_compression_type::FileCompressionType;
-use datafusion::datasource::file_format::{FileFormat, FileFormatFactory};
-use datafusion::datasource::physical_plan::{
-    FileScanConfig, FileScanConfigBuilder, FileSinkConfig, FileSource,
-};
-use datafusion::datasource::sink::DataSinkExec;
-use datafusion::datasource::source::DataSourceExec;
-use datafusion::logical_expr::dml::InsertOp;
-use datafusion::physical_expr::LexRequirement;
-use datafusion::physical_plan::ExecutionPlan;
+use datafusion_common_runtime::SpawnedTask;
+use datafusion_datasource::file::FileSource;
+use datafusion_datasource::file_compression_type::FileCompressionType;
+use datafusion_datasource::file_format::{FileFormat, FileFormatFactory};
+use datafusion_datasource::file_scan_config::{FileScanConfig, FileScanConfigBuilder};
+use datafusion_datasource::file_sink_config::FileSinkConfig;
+use datafusion_datasource::sink::DataSinkExec;
+use datafusion_datasource::source::DataSourceExec;
+use datafusion_expr::dml::InsertOp;
+use datafusion_physical_expr::LexRequirement;
+use datafusion_physical_plan::ExecutionPlan;
 use futures::{FutureExt, StreamExt as _, TryStreamExt as _, stream};
 use itertools::Itertools;
 use object_store::{ObjectMeta, ObjectStore};
