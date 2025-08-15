@@ -4,9 +4,9 @@
 use std::future;
 use std::sync::Arc;
 
+use futures::TryStreamExt;
 use futures::executor::block_on;
 use futures::future::try_join;
-use futures::{FutureExt, TryStreamExt};
 use vortex_array::ArrayContext;
 use vortex_array::stats::{PRUNING_STATS, Stat};
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
@@ -76,6 +76,7 @@ impl VortexWriteOptions {
         path: &object_store::path::Path,
         stream: S,
     ) -> VortexResult<()> {
+        use futures::future::FutureExt;
         use vortex_io::ObjectStoreWriter;
 
         self.write(

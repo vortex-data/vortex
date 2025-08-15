@@ -260,7 +260,7 @@ public interface DType extends AutoCloseable {
      * @return The new DType instance, allocated in native heap memory
      */
     static DType newTimestamp(TimeUnit unit, Optional<String> timeZone, boolean isNullable) {
-        byte timeUnit = (byte) unit.ordinal();
+        byte timeUnit = unit.asByte();
         return new JNIDType(NativeDTypeMethods.newTimestamp(timeUnit, timeZone.orElse(null), isNullable), true);
     }
 
@@ -272,7 +272,7 @@ public interface DType extends AutoCloseable {
      * @return The new DType instance, allocated in native heap memory
      */
     static DType newDate(TimeUnit unit, boolean isNullable) {
-        byte timeUnit = (byte) unit.ordinal();
+        byte timeUnit = unit.asByte();
         return new JNIDType(NativeDTypeMethods.newDate(timeUnit, isNullable), true);
     }
 
@@ -284,7 +284,7 @@ public interface DType extends AutoCloseable {
      * @return The new DType instance, allocated in native heap memory
      */
     static DType newTime(TimeUnit unit, boolean isNullable) {
-        byte timeUnit = (byte) unit.ordinal();
+        byte timeUnit = unit.asByte();
         return new JNIDType(NativeDTypeMethods.newTime(timeUnit, isNullable), true);
     }
 
