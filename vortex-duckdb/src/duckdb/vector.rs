@@ -38,14 +38,14 @@ impl Vector {
         unsafe { Self::own(cpp::duckdb_create_vector(logical_type.as_ptr(), len as _)) }
     }
 
-    /// Converts the vector to a constant value.
+    /// Append value to the vector.
     pub fn reference_value(&mut self, value: &Value) {
         unsafe {
             cpp::duckdb_vector_reference_value(self.as_ptr(), value.as_ptr());
         }
     }
 
-    /// Populates this vector by reference to another.
+    /// Copy values from other vector to this vector.
     pub fn reference(&mut self, other: &Vector) {
         unsafe { cpp::duckdb_vector_reference_vector(self.as_ptr(), other.as_ptr()) }
     }
@@ -104,23 +104,21 @@ impl Vector {
     }
 
     pub fn row_is_null(&self, row: u64) -> bool {
-        unsafe {
-            let validity = cpp::duckdb_vector_get_validity(self.ptr);
+        let validity = unsafe { cpp::duckdb_vector_get_validity(self.ptr) };
 
-            // validity can return a NULL pointer if the entire vector is valid
-            if validity.is_null() {
-                return false;
-            }
-
-            // Direct bit manipulation for better performance
-            let entry_idx = row / 64;
-            let idx_in_entry = row % 64;
-            let validity_u64_ptr = validity as *const u64;
-            let validity_entry = *validity_u64_ptr.add(entry_idx as usize);
-            let is_valid = (validity_entry & (1u64 << idx_in_entry)) != 0;
-
-            !is_valid
+        // validity can return a NULL pointer if the entire vector is valid
+        if validity.is_null() {
+            return false;
         }
+
+        // Direct bit manipulation for better performance
+        let entry_idx = row / 64;
+        let idx_in_entry = row % 64;
+        let validity_u64_ptr = validity as *const u64;
+        let validity_entry = unsafe { *validity_u64_ptr.add(entry_idx as usize) };
+        let is_valid = (validity_entry & (1u64 << idx_in_entry)) != 0;
+
+        !is_valid
     }
 
     pub fn add_string_buffer<T>(&self, buffer: T) {

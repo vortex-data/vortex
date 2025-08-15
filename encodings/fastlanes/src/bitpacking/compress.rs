@@ -3,7 +3,6 @@
 
 use std::mem::MaybeUninit;
 
-use arrow_buffer::ArrowNativeType;
 use fastlanes::BitPacking;
 use itertools::Itertools;
 use num_traits::{AsPrimitive, PrimInt};
@@ -133,10 +132,7 @@ pub unsafe fn bitpack_unchecked(
 /// Bitpack a slice of primitives down to the given width.
 ///
 /// See `bitpack` for more caller information.
-pub fn bitpack_primitive<T: NativePType + BitPacking + ArrowNativeType>(
-    array: &[T],
-    bit_width: u8,
-) -> Buffer<T> {
+pub fn bitpack_primitive<T: NativePType + BitPacking>(array: &[T], bit_width: u8) -> Buffer<T> {
     if bit_width == 0 {
         return Buffer::<T>::empty();
     }

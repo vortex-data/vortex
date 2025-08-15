@@ -6596,6 +6596,7 @@ dependencies = [
  "futures",
  "glob",
  "itertools 0.14.0",
+ "jiff",
  "log",
  "num-traits",
  "object_store",

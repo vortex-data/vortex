@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_buffer::ArrowNativeType;
 use itertools::Itertools as _;
+use num_traits::AsPrimitive;
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{DecimalDType, NativePType, match_each_integer_ptype};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
@@ -58,7 +58,7 @@ fn patch_typed<I, ValuesDVT, PatchDVT>(
     patched_validity: Validity,
 ) -> VortexResult<DecimalArray>
 where
-    I: NativePType + ArrowNativeType,
+    I: NativePType + AsPrimitive<usize>,
     PatchDVT: NativeDecimalType,
     ValuesDVT: NativeDecimalType,
 {
@@ -71,7 +71,7 @@ where
     }
 
     for (idx, value) in patch_indices.iter().zip_eq(patch_values.into_iter()) {
-        buffer[idx.as_usize() - patch_indices_offset] = <ValuesDVT as BigCast>::from(value).vortex_expect(
+        buffer[idx.as_() - patch_indices_offset] = <ValuesDVT as BigCast>::from(value).vortex_expect(
             "values of a given DecimalDType are representable in all compatible NativeDecimalType",
         );
     }

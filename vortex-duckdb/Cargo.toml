@@ -40,6 +40,7 @@ vortex = { workspace = true, features = ["files"] }
 vortex-file = { workspace = true, features = ["tokio", "object_store"] }
 
 [dev-dependencies]
+jiff = { workspace = true }
 rstest = { workspace = true }
 
 [lints]
