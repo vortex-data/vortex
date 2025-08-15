@@ -6260,6 +6260,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 name = "vortex"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "arrow-array",
  "codspeed-divan-compat",
  "itertools 0.14.0",
@@ -6589,7 +6590,6 @@ dependencies = [
  "flatbuffers",
  "jiff",
  "object_store",
- "parquet",
  "prost 0.14.1",
  "pyo3",
  "serde_json",

@@ -103,9 +103,6 @@ pub enum VortexError {
     IOError(io::Error, Box<Backtrace>),
     /// A wrapper for UTF-8 conversion errors.
     Utf8Error(std::str::Utf8Error, Box<Backtrace>),
-    /// A wrapper for errors from the Parquet library.
-    #[cfg(feature = "parquet")]
-    ParquetError(parquet::errors::ParquetError, Box<Backtrace>),
     /// A wrapper for errors from the standard library when converting a slice to an array.
     TryFromSliceError(std::array::TryFromSliceError, Box<Backtrace>),
     /// A wrapper for errors from the Object Store library.
@@ -138,6 +135,11 @@ impl VortexError {
     /// Adds additional context to an error.
     pub fn with_context<T: Into<ErrString>>(self, msg: T) -> Self {
         VortexError::Context(msg.into(), Box::new(self))
+    }
+
+    /// Wrap an a generic error into a Vortex error
+    pub fn generic(err: Box<dyn Error + Send + Sync + 'static>) -> Self {
+        Self::Generic(err, Box::new(Backtrace::capture()))
     }
 }
 
@@ -200,10 +202,6 @@ impl Display for VortexError {
             VortexError::Utf8Error(err, backtrace) => {
                 write!(f, "{err}\nBacktrace:\n{backtrace}")
             }
-            #[cfg(feature = "parquet")]
-            VortexError::ParquetError(err, backtrace) => {
-                write!(f, "{err}\nBacktrace:\n{backtrace}")
-            }
             VortexError::TryFromSliceError(err, backtrace) => {
                 write!(f, "{err}\nBacktrace:\n{backtrace}")
             }
@@ -253,19 +251,13 @@ impl Error for VortexError {
             VortexError::ArrowError(err, _) => Some(err),
             #[cfg(feature = "flatbuffers")]
             VortexError::FlatBuffersError(err, _) => Some(err),
-            VortexError::FmtError(err, _) => Some(err),
             VortexError::IOError(err, _) => Some(err),
-            VortexError::Utf8Error(err, _) => Some(err),
-            #[cfg(feature = "parquet")]
-            VortexError::ParquetError(err, _) => Some(err),
-            VortexError::TryFromSliceError(err, _) => Some(err),
             #[cfg(feature = "object_store")]
             VortexError::ObjectStore(err, _) => Some(err),
             VortexError::JiffError(err, _) => Some(err),
             #[cfg(feature = "tokio")]
             VortexError::JoinError(err, _) => Some(err),
             VortexError::UrlError(err, _) => Some(err),
-            VortexError::TryFromInt(err, _) => Some(err),
             #[cfg(feature = "serde")]
             VortexError::SerdeJsonError(err, _) => Some(err),
             #[cfg(feature = "prost")]
@@ -486,12 +478,6 @@ impl From<flatbuffers::InvalidFlatbuffer> for VortexError {
     }
 }
 
-impl From<fmt::Error> for VortexError {
-    fn from(value: fmt::Error) -> Self {
-        VortexError::FmtError(value, Box::new(Backtrace::capture()))
-    }
-}
-
 impl From<io::Error> for VortexError {
     fn from(value: io::Error) -> Self {
         VortexError::IOError(value, Box::new(Backtrace::capture()))
@@ -501,13 +487,6 @@ impl From<io::Error> for VortexError {
 impl From<std::str::Utf8Error> for VortexError {
     fn from(value: std::str::Utf8Error) -> Self {
         VortexError::Utf8Error(value, Box::new(Backtrace::capture()))
-    }
-}
-
-#[cfg(feature = "parquet")]
-impl From<parquet::errors::ParquetError> for VortexError {
-    fn from(value: parquet::errors::ParquetError) -> Self {
-        VortexError::ParquetError(value, Box::new(Backtrace::capture()))
     }
 }
 
