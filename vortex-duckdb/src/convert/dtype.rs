@@ -194,11 +194,6 @@ impl FromLogicalType for DType {
                 Arc::new(DType::Primitive(I64, nullability)),
                 Some(TemporalMetadata::Date(TimeUnit::Us).into()),
             ))),
-            DUCKDB_TYPE::DUCKDB_TYPE_TIME_TZ => DType::Extension(Arc::new(ExtDType::new(
-                TIME_ID.clone(),
-                Arc::new(DType::Primitive(I64, nullability)),
-                Some(TemporalMetadata::Time(TimeUnit::Us).into()),
-            ))),
             DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S => DType::Extension(Arc::new(ExtDType::new(
                 TIMESTAMP_ID.clone(),
                 Arc::new(DType::Primitive(I64, nullability)),
@@ -224,6 +219,7 @@ impl FromLogicalType for DType {
                 Arc::new(DType::Primitive(I64, nullability)),
                 Some(TemporalMetadata::Timestamp(TimeUnit::Ns, None).into()),
             ))),
+            DUCKDB_TYPE::DUCKDB_TYPE_TIME_TZ => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_INTERVAL => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_ENUM => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_LIST => todo!(),

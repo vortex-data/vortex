@@ -126,15 +126,6 @@ pub fn flat_vector_to_arrow_array(
 
             Ok(Arc::new(structs))
         }
-        DUCKDB_TYPE::DUCKDB_TYPE_TIME_TZ => {
-            let data = vector.as_slice_with_len::<duckdb_time>(len);
-            let structs = Time64MicrosecondArray::from_iter_values_with_nulls(
-                data.iter().map(|duckdb_time { micros }| *micros),
-                vector.validity_ref(data.len()).to_null_buffer(),
-            );
-
-            Ok(Arc::new(structs))
-        }
         DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR => {
             let data = vector.as_slice_with_len::<duckdb_string_t>(len);
             let validity = vector.validity_ref(len);
