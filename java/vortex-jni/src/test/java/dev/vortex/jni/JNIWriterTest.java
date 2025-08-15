@@ -39,12 +39,8 @@ public final class JNIWriterTest {
 
         // Make a new file writer with a very simple schema.
         var writeSchema = DType.newStruct(
-                new String[]{
-                        "name", "age",
-                },
-                new DType[]{
-                        DType.newUtf8(false), DType.newInt(false),
-                },
+                new String[]{"name", "age",},
+                new DType[]{DType.newUtf8(false), DType.newInt(false)},
                 false);
 
         // Minimal Arrow schema

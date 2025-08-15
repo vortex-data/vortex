@@ -3,25 +3,28 @@
 
 package dev.vortex.spark.write;
 
+import org.apache.spark.sql.connector.write.*;
+import org.apache.spark.sql.types.StructType;
+import org.apache.spark.sql.util.CaseInsensitiveStringMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.io.Serializable;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
-import java.util.stream.Stream;
-import org.apache.spark.sql.connector.write.*;
-import org.apache.spark.sql.types.StructType;
-import org.apache.spark.sql.util.CaseInsensitiveStringMap;
 
 /**
  * Manages the batch write operation for creating Vortex files.
- *
+ * <p>
  * This class coordinates the distributed write operation across Spark executors,
  * handling the creation of data writers and managing commits/aborts.
  */
 public final class VortexBatchWrite implements Write, BatchWrite, Serializable {
 
+    private static final Logger log = LoggerFactory.getLogger(VortexBatchWrite.class);
     private final String outputPath;
     private final StructType schema;
     private final CaseInsensitiveStringMap options;
@@ -31,9 +34,9 @@ public final class VortexBatchWrite implements Write, BatchWrite, Serializable {
      * Creates a new VortexBatchWrite.
      *
      * @param outputPath the base path where Vortex files will be written
-     * @param schema the schema of the data to write
-     * @param options additional write options
-     * @param overwrite whether to overwrite existing files
+     * @param schema     the schema of the data to write
+     * @param options    additional write options
+     * @param overwrite  whether to overwrite existing files
      */
     public VortexBatchWrite(String outputPath, StructType schema, CaseInsensitiveStringMap options, boolean overwrite) {
         this.outputPath = outputPath;
@@ -44,7 +47,7 @@ public final class VortexBatchWrite implements Write, BatchWrite, Serializable {
 
     /**
      * Returns this object as a BatchWrite.
-     *
+     * <p>
      * This method is required by the Write interface to support batch writes.
      *
      * @return this object
@@ -56,7 +59,7 @@ public final class VortexBatchWrite implements Write, BatchWrite, Serializable {
 
     /**
      * Creates a DataWriterFactory for producing data writers on executors.
-     *
+     * <p>
      * This method is called once at the start of the write operation,
      * making it the right place to handle overwrite cleanup.
      *
@@ -66,39 +69,17 @@ public final class VortexBatchWrite implements Write, BatchWrite, Serializable {
     public DataWriterFactory createBatchWriterFactory(PhysicalWriteInfo info) {
         // Handle overwrite cleanup BEFORE writing starts
         if (overwrite) {
-            cleanupExistingFiles();
+            // TODO(aduffy): pass options to object_store. But I think we likely
+            //  do overwrite by default anyway?
+            log.warn("overwrite currently does not do anything for vortex format");
         }
 
         return new VortexDataWriterFactory(outputPath, schema, options);
     }
 
     /**
-     * Cleans up existing Vortex files when overwrite mode is enabled.
-     */
-    private void cleanupExistingFiles() {
-        try {
-            Path path = Paths.get(outputPath);
-            if (Files.exists(path)) {
-                try (Stream<Path> walk = Files.walk(path)) {
-                    walk.filter(Files::isRegularFile)
-                            .filter(p -> p.toString().endsWith(".vortex"))
-                            .forEach(p -> {
-                                try {
-                                    Files.delete(p);
-                                } catch (IOException e) {
-                                    throw new RuntimeException("Failed to delete file: " + p, e);
-                                }
-                            });
-                }
-            }
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to clean up output directory: " + outputPath, e);
-        }
-    }
-
-    /**
      * Called when a single data writer task completes successfully.
-     *
+     * <p>
      * This is called for each successful task but individual file commits
      * are handled in the data writer itself.
      *
@@ -112,7 +93,7 @@ public final class VortexBatchWrite implements Write, BatchWrite, Serializable {
 
     /**
      * Commits the entire write job after all tasks complete successfully.
-     *
+     * <p>
      * This finalizes the write operation and ensures all Vortex files
      * are properly written.
      *
@@ -136,7 +117,7 @@ public final class VortexBatchWrite implements Write, BatchWrite, Serializable {
 
     /**
      * Aborts the write job due to failures.
-     *
+     * <p>
      * This method cleans up any partially written files.
      *
      * @param messages commit messages from write tasks (may include failures)

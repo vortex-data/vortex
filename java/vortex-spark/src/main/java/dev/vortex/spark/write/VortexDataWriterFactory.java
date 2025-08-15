@@ -3,6 +3,10 @@
 
 package dev.vortex.spark.write;
 
+import java.io.Serializable;
+import java.net.URI;
+import java.util.HashMap;
+import java.util.Map;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.connector.write.DataWriter;
 import org.apache.spark.sql.connector.write.DataWriterFactory;
@@ -10,11 +14,6 @@ import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.util.CaseInsensitiveStringMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.io.Serializable;
-import java.net.URI;
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * Factory for creating VortexDataWriter instances on Spark executors.

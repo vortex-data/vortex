@@ -100,6 +100,9 @@ impl NativeWriter {
     ///
     /// Flushes all external values
     pub fn close(mut self) -> VortexResult<()> {
+        // Drop the writer.
+        self.sender.disconnect();
+
         // Close the stream. This takes ownership of the inner and blocks on it.
         let handle = self.handle.take().ok_or_else(|| {
             vortex_err!("JoinHandle absent, closing an already closed NativeWriter")

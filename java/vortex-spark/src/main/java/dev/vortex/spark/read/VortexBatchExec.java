@@ -4,12 +4,15 @@
 package dev.vortex.spark.read;
 
 import com.google.common.collect.ImmutableList;
+import dev.vortex.jni.NativeFileMethods;
 import dev.vortex.spark.VortexFilePartition;
-import java.util.stream.IntStream;
 import org.apache.spark.sql.connector.catalog.Column;
 import org.apache.spark.sql.connector.read.Batch;
 import org.apache.spark.sql.connector.read.InputPartition;
 import org.apache.spark.sql.connector.read.PartitionReaderFactory;
+
+import java.util.Map;
+import java.util.stream.Stream;
 
 /**
  * Execution source for batch scans of Vortex file tables.
@@ -17,16 +20,18 @@ import org.apache.spark.sql.connector.read.PartitionReaderFactory;
 public final class VortexBatchExec implements Batch {
     private final ImmutableList<String> paths;
     private final ImmutableList<Column> columns;
+    private final Map<String, String> formatOptions;
 
     /**
      * Creates a new VortexBatchExec for scanning the specified Vortex files.
      *
-     * @param paths the list of file paths to scan
+     * @param paths   the list of file paths to scan
      * @param columns the list of columns to read from the files
      */
-    public VortexBatchExec(ImmutableList<String> paths, ImmutableList<Column> columns) {
+    public VortexBatchExec(ImmutableList<String> paths, ImmutableList<Column> columns, Map<String, String> formatOptions) {
         this.paths = paths;
         this.columns = columns;
+        this.formatOptions = formatOptions;
     }
 
     /**
@@ -39,8 +44,17 @@ public final class VortexBatchExec implements Batch {
      */
     @Override
     public InputPartition[] planInputPartitions() {
-        return IntStream.range(0, paths.size())
-                .mapToObj(partitionId -> new VortexFilePartition(paths.get(partitionId), columns))
+        // Scan all paths and assign each file its own partition
+        return paths.stream()
+                .flatMap(path -> {
+                    if (path.endsWith(".vortex")) {
+                        return Stream.of(path);
+                    } else {
+                        // Scan and return the paths
+                        return NativeFileMethods.listVortexFiles(path, formatOptions).stream();
+                    }
+                })
+                .map(path -> new VortexFilePartition(path, columns))
                 .toArray(InputPartition[]::new);
     }
 

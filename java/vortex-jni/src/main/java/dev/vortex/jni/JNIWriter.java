@@ -4,11 +4,10 @@
 package dev.vortex.jni;
 
 import dev.vortex.api.VortexWriter;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.io.IOException;
 import java.util.OptionalLong;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * JNI implementation of VortexWriter.

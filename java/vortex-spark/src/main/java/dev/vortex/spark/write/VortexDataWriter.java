@@ -9,15 +9,7 @@ import dev.vortex.relocated.org.apache.arrow.memory.RootAllocator;
 import dev.vortex.relocated.org.apache.arrow.vector.*;
 import dev.vortex.relocated.org.apache.arrow.vector.VectorSchemaRoot;
 import dev.vortex.relocated.org.apache.arrow.vector.ipc.ArrowStreamWriter;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.nio.channels.Channels;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import dev.vortex.spark.SparkTypes;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.connector.write.DataWriter;
 import org.apache.spark.sql.connector.write.WriterCommitMessage;
@@ -27,16 +19,26 @@ import org.apache.spark.unsafe.types.UTF8String;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.nio.channels.Channels;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
 /**
  * Writes Spark InternalRow data to a Vortex file.
- *
+ * <p>
  * This writer converts Spark's internal row format to Arrow vectors
  * and writes them to a Vortex file using the Vortex writer API.
  */
 public final class VortexDataWriter implements DataWriter<InternalRow>, AutoCloseable {
     private static final Logger logger = LoggerFactory.getLogger(VortexDataWriter.class);
 
-    private static final int DEFAULT_BATCH_SIZE = 4096;
+    private static final int DEFAULT_BATCH_SIZE = 2048;
 
     private final String filePath;
     private final StructType schema;
@@ -55,8 +57,8 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
      * Creates a new VortexDataWriter.
      *
      * @param filePath the path where the Vortex file will be written
-     * @param schema the schema of the data to write
-     * @param options additional write options
+     * @param schema   the schema of the data to write
+     * @param options  additional write options
      */
     public VortexDataWriter(String filePath, StructType schema, CaseInsensitiveStringMap options) {
         this.filePath = filePath;
@@ -68,31 +70,15 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
             // Initialize Arrow components
             this.allocator = new RootAllocator();
 
-            // Convert Spark schema to Arrow schema
+            // Convert Spark schema to Vortex and Arrow schemas.
+            var writeSchema = SparkTypes.toDType(schema);
             var arrowSchema = SparkToArrowSchema.convert(schema);
 
-            // Convert schema to Arrow IPC format for passing to native code
-            // We create an empty Arrow IPC stream that contains just the schema
-            byte[] schemaIpc = null;
-            try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
-                // Create a temporary VectorSchemaRoot just for schema serialization
-                try (VectorSchemaRoot tempRoot = VectorSchemaRoot.create(arrowSchema, allocator)) {
-                    tempRoot.allocateNew();
-                    tempRoot.setRowCount(0);
-
-                    try (ArrowStreamWriter writer = new ArrowStreamWriter(tempRoot, null, Channels.newChannel(baos))) {
-                        writer.start();
-                        // Write one empty batch to include the schema
-                        writer.writeBatch();
-                        writer.end();
-                    }
-                }
-                schemaIpc = baos.toByteArray();
-            }
+            // Convert the writer to a new schema type instead.
 
             // Create Vortex writer
             Map<String, String> writerOptions = new HashMap<>();
-            this.vortexWriter = VortexWriter.create(filePath, schemaIpc, writerOptions);
+            this.vortexWriter = VortexWriter.create(filePath, writeSchema, writerOptions);
 
             // Create VectorSchemaRoot for batching rows
             this.vectorSchemaRoot = VectorSchemaRoot.create(arrowSchema, allocator);
@@ -107,7 +93,7 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
 
     /**
      * Writes a single row to the Vortex file.
-     *
+     * <p>
      * Rows are batched and converted to Arrow format before writing.
      *
      * @param row the row to write
@@ -221,7 +207,7 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
 
     /**
      * Commits the write operation and returns a commit message.
-     *
+     * <p>
      * This flushes any remaining rows and closes the Vortex writer.
      *
      * @return a commit message with file information
@@ -263,7 +249,7 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
 
     /**
      * Aborts the write operation and cleans up resources.
-     *
+     * <p>
      * This deletes any partially written file.
      *
      * @throws IOException if abort fails
@@ -305,7 +291,7 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
 
     /**
      * Closes the writer and releases resources.
-     *
+     * <p>
      * This method ensures resources are cleaned up even if commit() or abort()
      * were not called, making the class safe for use with try-with-resources.
      */

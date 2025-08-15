@@ -25,7 +25,7 @@ public final class VortexScanBuilder implements ScanBuilder, SupportsPushDownReq
     /**
      * Creates a new VortexScanBuilder with empty paths and columns.
      */
-    public VortexScanBuilder() {
+    public VortexScanBuilder(NaoMap<String, String> formatOptions) {
         this.paths = ImmutableList.builder();
         this.columns = new ArrayList<>();
     }
@@ -91,7 +91,7 @@ public final class VortexScanBuilder implements ScanBuilder, SupportsPushDownReq
         // Allow empty columns for operations like count() that don't need actual column data
         // If no columns are specified, we'll read the minimal schema needed
 
-        return new VortexScan(paths, columns);
+        return new VortexScan(paths, columns, formatOptions);
     }
 
     /**

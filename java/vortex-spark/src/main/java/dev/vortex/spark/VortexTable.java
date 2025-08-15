@@ -1,18 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-package dev.vortex.spark.read;
+package dev.vortex.spark;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterables;
+import dev.vortex.jni.NativeFileMethods;
+import dev.vortex.spark.read.VortexScanBuilder;
 import dev.vortex.spark.write.VortexWriteBuilder;
-import java.util.Set;
 import org.apache.spark.sql.connector.catalog.*;
 import org.apache.spark.sql.connector.read.ScanBuilder;
 import org.apache.spark.sql.connector.write.LogicalWriteInfo;
 import org.apache.spark.sql.connector.write.WriteBuilder;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.util.CaseInsensitiveStringMap;
+
+import java.util.Set;
 
 /**
  * Spark V2 {@link Table} of Vortex files that supports both reading and writing.
@@ -21,58 +25,21 @@ public final class VortexTable implements Table, SupportsRead, SupportsWrite {
     private static final String SHORT_NAME = "vortex";
 
     private final ImmutableList<String> paths;
-    private final ImmutableList<Column> readColumns;
-    private final String outputPath;
-    private final CaseInsensitiveStringMap writeOptions;
-    private final StructType writeSchema;
+    private final StructType schema;
+    private final CaseInsensitiveStringMap formatOptions;
 
     /**
-     * Creates a new VortexTable for the specified file paths and columns.
-     *
-     * @param paths the list of Vortex file paths that make up this table
-     * @param readColumns the list of columns available for reading from this table
-     */
-    public VortexTable(ImmutableList<String> paths, ImmutableList<Column> readColumns) {
-        this(paths, readColumns, null, new CaseInsensitiveStringMap(java.util.Collections.emptyMap()), null);
-    }
-
-    /**
-     * Creates a new VortexTable with write support.
-     *
-     * @param paths the list of Vortex file paths that make up this table
-     * @param readColumns the list of columns available for reading from this table
-     * @param outputPath the path where new Vortex files will be written (optional)
-     * @param writeOptions additional options for writing (optional)
+     * Creates a new VortexTable with read/write support.
      */
     public VortexTable(
             ImmutableList<String> paths,
-            ImmutableList<Column> readColumns,
-            String outputPath,
-            CaseInsensitiveStringMap writeOptions) {
-        this(paths, readColumns, outputPath, writeOptions, null);
-    }
-
-    /**
-     * Creates a new VortexTable with write support and explicit write schema.
-     *
-     * @param paths the list of Vortex file paths that make up this table
-     * @param readColumns the list of columns available for reading from this table
-     * @param outputPath the path where new Vortex files will be written (optional)
-     * @param writeOptions additional options for writing (optional)
-     * @param writeSchema the schema to use for write operations (optional)
-     */
-    public VortexTable(
-            ImmutableList<String> paths,
-            ImmutableList<Column> readColumns,
-            String outputPath,
-            CaseInsensitiveStringMap writeOptions,
-            StructType writeSchema) {
+            StructType schema,
+            CaseInsensitiveStringMap formatOptions) {
         this.paths = paths;
-        this.readColumns = readColumns;
-        this.outputPath = outputPath;
-        this.writeOptions = writeOptions;
-        this.writeSchema = writeSchema;
+        this.schema = schema;
+        this.formatOptions = formatOptions;
     }
+
 
     /**
      * Creates a new ScanBuilder for this table.
@@ -86,8 +53,9 @@ public final class VortexTable implements Table, SupportsRead, SupportsWrite {
      */
     @Override
     public ScanBuilder newScanBuilder(CaseInsensitiveStringMap _options) {
-        // TODO(aduffy): pass any S3 creds from options down into the scan builder.
-        //  Or can those be pulled out in the task-side instead?
+        ImmutableList<Column> readColumns = ImmutableList.<Column>builder()
+                .add(CatalogV2Util.structTypeToV2Columns(schema))
+                .build();
         return new VortexScanBuilder().addAllPaths(paths).addAllColumns(readColumns);
     }
 
@@ -114,27 +82,12 @@ public final class VortexTable implements Table, SupportsRead, SupportsWrite {
      */
     @Override
     public StructType schema() {
-        // For write operations where we have an explicit schema, use it
-        if (writeSchema != null) {
-            return writeSchema;
-        }
-        // Otherwise derive from read columns
-        return CatalogV2Util$.MODULE$.v2ColumnsToStructType(columns());
-    }
-
-    /**
-     * Returns the columns available for reading from this table.
-     *
-     * @return an array of Column objects representing the available columns
-     */
-    @Override
-    public Column[] columns() {
-        return readColumns.toArray(new Column[0]);
+        return schema;
     }
 
     /**
      * Creates a new WriteBuilder for writing data to this table.
-     *
+     * <p>
      * The WriteBuilder is responsible for configuring and executing write operations
      * to create new Vortex files.
      *
@@ -143,12 +96,9 @@ public final class VortexTable implements Table, SupportsRead, SupportsWrite {
      */
     @Override
     public WriteBuilder newWriteBuilder(LogicalWriteInfo info) {
-        String path = outputPath != null
-                ? outputPath
-                : (paths.isEmpty()
-                        ? "."
-                        : paths.get(0).substring(0, paths.get(0).lastIndexOf('/')));
-        return new VortexWriteBuilder(path, info, writeOptions);
+        // Make sure only one write path was provided.
+        String writePath = Iterables.getOnlyElement(paths);
+        return new VortexWriteBuilder(writePath, info, formatOptions);
     }
 
     /**

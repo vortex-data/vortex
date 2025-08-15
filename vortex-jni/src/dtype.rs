@@ -496,8 +496,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_newStruct<'local>(
             throw_runtime!("fieldNames.length ≠ fieldTypes.length")
         }
 
-        let mut field_type_ptrs = Vec::with_capacity(field_types_count as usize);
-        env.get_long_array_region(&field_types, 0, &mut field_type_ptrs)?;
+        let mut field_type_ptrs = vec![0; field_types_count as usize];
+        env.get_long_array_region(&field_types, 0, &mut field_type_ptrs[..])?;
 
         let mut field_names_arc = Vec::with_capacity(field_count as usize);
         let mut dtypes = Vec::with_capacity(field_count as usize);

@@ -8,11 +8,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import dev.vortex.api.File;
 import dev.vortex.api.Files;
-import dev.vortex.spark.read.VortexTable;
-import java.nio.file.Path;
-import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
+import dev.vortex.jni.NativeFileMethods;
 import org.apache.spark.sql.connector.catalog.CatalogV2Util;
 import org.apache.spark.sql.connector.catalog.Column;
 import org.apache.spark.sql.connector.catalog.Table;
@@ -21,6 +17,9 @@ import org.apache.spark.sql.connector.expressions.Transform;
 import org.apache.spark.sql.sources.DataSourceRegister;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.util.CaseInsensitiveStringMap;
+
+import java.util.Map;
+import java.util.Objects;
 
 /**
  * Spark V2 data source for reading and writing Vortex files.
@@ -41,7 +40,8 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
      * This no-argument constructor is required for Spark to instantiate the data source
      * through reflection.
      */
-    public VortexDataSourceV2() {}
+    public VortexDataSourceV2() {
+    }
 
     /**
      * Infers the schema of the Vortex files specified in the options.
@@ -59,42 +59,14 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
         // For write operations, the path might not exist yet
         // In that case, return an empty schema to signal Spark to use the DataFrame's schema
         var paths = getPaths(options);
-        var pathToInfer = Iterables.getLast(paths);
 
-        Path path = java.nio.file.Paths.get(pathToInfer);
-
-        System.err.println("DEBUG: inferSchema called with path: " + pathToInfer);
-
-        // Check if the path exists
-        if (!java.nio.file.Files.exists(path)) {
-            // For write operations, return empty schema (Spark will use DataFrame's schema)
-            // We can't return null as that causes issues in getTable
-            System.err.println("DEBUG: Path does not exist, returning empty schema");
+        // If path is not found, we report empty schema.
+        // This will be replaced with whatever the DataFrame schema is
+        if (paths.isEmpty()) {
             return new StructType();
         }
 
-        System.err.println("DEBUG: Path exists, isDirectory=" + java.nio.file.Files.isDirectory(path));
-
-        // If it's a directory, look for Vortex files inside
-        if (java.nio.file.Files.isDirectory(path)) {
-            try (var stream = java.nio.file.Files.list(path)) {
-                // Find the first .vortex file in the directory
-                var vortexFile =
-                        stream.filter(p -> p.toString().endsWith(".vortex")).findFirst();
-
-                if (vortexFile.isPresent()) {
-                    pathToInfer = vortexFile.get().toString();
-                    System.err.println("DEBUG: Found vortex file for schema: " + pathToInfer);
-                } else {
-                    // No vortex files found, return empty schema
-                    System.err.println("DEBUG: No .vortex files found in directory");
-                    return new StructType();
-                }
-            } catch (Exception e) {
-                System.err.println("DEBUG: Exception listing directory: " + e.getMessage());
-                return new StructType();
-            }
-        }
+        var pathToInfer = Objects.requireNonNull(Iterables.getLast(paths));
 
         try (File file = Files.open(pathToInfer)) {
             var columns = SparkTypes.toColumns(file.getDType());
@@ -119,7 +91,6 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
         var uncased = new CaseInsensitiveStringMap(properties);
 
         var paths = getPaths(uncased);
-
         // Convert schema to columns
         ImmutableList<Column> columns;
         if (schema != null && schema.fields().length > 0) {
@@ -137,7 +108,7 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
         String outputPath = uncased.get(PATH_KEY);
         if (outputPath != null) {
             // This is a write operation - pass the schema along
-            return new VortexTable(paths, columns, outputPath, uncased, schema);
+            return new VortexTable(paths, schema, uncased);
         } else {
             return new VortexTable(paths, columns);
         }
@@ -171,8 +142,7 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
 
     private static ImmutableList<String> getPaths(CaseInsensitiveStringMap uncased) {
         if (uncased.containsKey(PATH_KEY)) {
-            String path = uncased.get(PATH_KEY);
-            return expandPathToFiles(path);
+            return ImmutableList.of(uncased.get(PATH_KEY));
         } else if (uncased.containsKey(PATHS_KEY)) {
             return decodePathsSafe(uncased.get(PATHS_KEY));
         } else {
@@ -185,34 +155,11 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
      * If the path is a directory, returns all .vortex files in the directory.
      * If the path is a file, returns the file itself.
      */
-    private static ImmutableList<String> expandPathToFiles(String pathStr) {
-        Path path = java.nio.file.Paths.get(pathStr);
-
-        if (!java.nio.file.Files.exists(path)) {
-            // For write operations, the path might not exist yet
+    private static ImmutableList<String> expandPathToFiles(String pathStr, Map<String, String> options) {
+        if (pathStr.endsWith(".vortex")) {
             return ImmutableList.of(pathStr);
-        }
-
-        if (java.nio.file.Files.isDirectory(path)) {
-            try (var stream = java.nio.file.Files.list(path)) {
-                List<String> vortexFiles = stream.filter(p -> p.toString().endsWith(".vortex"))
-                        .map(Path::toString)
-                        .sorted() // Sort for consistent ordering
-                        .collect(Collectors.toList());
-
-                if (vortexFiles.isEmpty()) {
-                    // No vortex files found, return the directory (for write operations)
-                    return ImmutableList.of(pathStr);
-                }
-
-                return ImmutableList.copyOf(vortexFiles);
-            } catch (Exception e) {
-                // Fall back to the original path
-                return ImmutableList.of(pathStr);
-            }
         } else {
-            // Single file
-            return ImmutableList.of(pathStr);
+            return ImmutableList.copyOf(NativeFileMethods.listVortexFiles(pathStr, options));
         }
     }
 

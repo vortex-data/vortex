@@ -3,17 +3,6 @@
 
 package dev.vortex.spark;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.List;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import org.apache.spark.sql.*;
 import org.apache.spark.sql.api.java.UDF1;
 import org.apache.spark.sql.types.DataTypes;
@@ -21,6 +10,20 @@ import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
+
+import java.io.IOException;
+import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Integration test for Vortex DataSource write and read functionality.
@@ -70,12 +73,12 @@ public final class VortexDataSourceWriteTest {
         assertEquals(2, originalDf.columns().length, "Original DataFrame should have 2 columns");
 
         // When: Repartition to 2 partitions and write as Vortex
-        String outputPath = tempDir.resolve("vortex_output").toUri().toString();
+        Path outputPath = tempDir.resolve("vortex_output");
         originalDf
                 .repartition(2) // Force 2 partitions
                 .write()
                 .format("vortex")
-                .option("path", outputPath)
+                .option("path", outputPath.toUri().toString())
                 .mode(SaveMode.Overwrite)
                 .save();
 
@@ -87,8 +90,6 @@ public final class VortexDataSourceWriteTest {
         }
 
         // Then: Verify two Vortex files were created
-        System.err.println("Looking for Vortex files in: " + outputPath);
-        System.err.println("Directory exists: " + Files.exists(outputPath));
         if (Files.exists(outputPath)) {
             try (Stream<Path> allFiles = Files.walk(outputPath)) {
                 allFiles.forEach(p -> System.err.println("Found: " + p));
@@ -109,7 +110,7 @@ public final class VortexDataSourceWriteTest {
         // When: Read the Vortex files back
         Dataset<Row> readDf = spark.read()
                 .format("vortex")
-                .option("path", outputPath.toString())
+                .option("path", outputPath.toUri().toString())
                 .load();
 
         // Then: Verify schema is preserved
@@ -136,14 +137,14 @@ public final class VortexDataSourceWriteTest {
         Path outputPath = tempDir.resolve("empty_vortex");
         emptyDf.write()
                 .format("vortex")
-                .option("path", outputPath.toString())
+                .option("path", outputPath.toUri().toString())
                 .mode(SaveMode.Overwrite)
                 .save();
 
         // Then: Read back and verify
         Dataset<Row> readDf = spark.read()
                 .format("vortex")
-                .option("path", outputPath.toString())
+                .option("path", outputPath.toUri().toString())
                 .load();
 
         assertEquals(0, readDf.count(), "Empty DataFrame should remain empty after write/read");
@@ -159,7 +160,7 @@ public final class VortexDataSourceWriteTest {
         Dataset<Row> df1 = createTestDataFrame(50);
         df1.write()
                 .format("vortex")
-                .option("path", outputPath.toString())
+                .option("path", outputPath.toUri().toString())
                 .mode(SaveMode.Overwrite)
                 .save();
 
@@ -167,14 +168,14 @@ public final class VortexDataSourceWriteTest {
         Dataset<Row> df2 = createTestDataFrame(75);
         df2.write()
                 .format("vortex")
-                .option("path", outputPath.toString())
+                .option("path", outputPath.toUri().toString())
                 .mode(SaveMode.Overwrite)
                 .save();
 
         // Read and verify we get the second dataset
         Dataset<Row> readDf = spark.read()
                 .format("vortex")
-                .option("path", outputPath.toString())
+                .option("path", outputPath.toUri().toString())
                 .load();
 
         assertEquals(75, readDf.count(), "Should have data from second write after overwrite");
@@ -204,13 +205,13 @@ public final class VortexDataSourceWriteTest {
         specialDf
                 .write()
                 .format("vortex")
-                .option("path", outputPath.toString())
+                .option("path", outputPath.toUri().toString())
                 .mode(SaveMode.Overwrite)
                 .save();
 
         Dataset<Row> readDf = spark.read()
                 .format("vortex")
-                .option("path", outputPath.toString())
+                .option("path", outputPath.toUri().toString())
                 .load();
 
         // Verify all special cases are preserved

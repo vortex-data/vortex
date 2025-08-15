@@ -12,7 +12,7 @@ use object_store::local::LocalFileSystem;
 use object_store::{ClientOptions, ObjectStore, ObjectStoreScheme};
 use parking_lot::Mutex;
 use url::Url;
-use vortex::error::{VortexError, VortexResult, vortex_bail};
+use vortex::error::{vortex_bail, VortexError, VortexResult};
 use vortex::utils::aliases::hash_map::HashMap;
 
 pub(crate) fn make_object_store(
@@ -21,6 +21,8 @@ pub(crate) fn make_object_store(
 ) -> VortexResult<(Arc<dyn ObjectStore>, ObjectStoreScheme)> {
     static OBJECT_STORES: LazyLock<Mutex<HashMap<String, Arc<dyn ObjectStore>>>> =
         LazyLock::new(|| Mutex::new(HashMap::new()));
+
+    let start = std::time::Instant::now();
 
     let (scheme, _) = ObjectStoreScheme::parse(url)
         .map_err(|error| VortexError::from(object_store::Error::from(error)))?;
@@ -96,6 +98,9 @@ pub(crate) fn make_object_store(
         OBJECT_STORES.lock().insert(cache_key, store.clone());
         // Guard dropped at close of scope.
     }
+
+    let duration = std::time::Instant::now().duration_since(start);
+    log::debug!("make_object_store latency = {duration:?}");
 
     Ok((store, scheme))
 }

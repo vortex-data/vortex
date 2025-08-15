@@ -3,14 +3,17 @@
 
 use std::sync::Arc;
 
+use futures::StreamExt;
 use jni::JNIEnv;
 use jni::objects::{JByteArray, JClass, JLongArray, JObject, JString, ReleaseMode};
-use jni::sys::jlong;
+use jni::sys::{jlong, jobject};
+use object_store::ObjectStore;
+use object_store::path::Path;
 use prost::Message;
 use url::Url;
 use vortex::buffer::Buffer;
 use vortex::dtype::DType;
-use vortex::error::{VortexError, VortexExpect, vortex_err};
+use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_err};
 use vortex::expr::proto::deserialize_expr_proto;
 use vortex::expr::{root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
@@ -49,14 +52,77 @@ impl NativeFile {
     }
 }
 
+/// List Vortex files underneath a root path.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_listVortexFiles<'local>(
+    mut env: JNIEnv,
+    _class: JClass,
+    path: JString<'local>,
+    options: JObject<'local>,
+) -> jobject {
+    try_or_throw(&mut env, |env| {
+        let root_path: String = env
+            .get_string(&path)
+            .map_err(|e| vortex_err!("get_string error: {e}"))?
+            .into();
+
+        let Ok(url) = Url::parse(&root_path) else {
+            throw_runtime!("Invalid URL: {root_path}");
+        };
+
+        let mut properties: HashMap<String, String> = HashMap::new();
+
+        if !options.is_null() {
+            let opts = env.get_map(&options)?;
+            let mut iterator = opts.iter(env)?;
+            while let Some((key, val)) = iterator.next(env)? {
+                let key = env.auto_local(key);
+                let val = env.auto_local(val);
+                let key_str = env.get_string(key.as_ref().into())?;
+                let val_str = env.get_string(val.as_ref().into())?;
+                properties.insert(key_str.into(), val_str.into());
+            }
+        }
+
+        let (store, _) = make_object_store(&url, &properties)?;
+        let prefix = Path::from_url_path(url.path())
+            .map_err(|_| vortex_err!("Cannot parse root_path as object_store Path"))?;
+
+        let mut stream = store.list(Some(&prefix));
+
+        let paths_vec = block_on("collect_paths", async move {
+            let mut paths = Vec::new();
+            while let Some(file) = stream.next().await {
+                let file = file.map_err(VortexError::from)?;
+                if file.location.as_ref().ends_with(".vortex") {
+                    let mut found = url.clone();
+                    found.set_path(file.location.as_ref());
+                    paths.push(found.to_string());
+                }
+            }
+
+            VortexResult::Ok(paths)
+        })?;
+
+        let paths_result = env.new_object("java/util/ArrayList", "()V", &[])?;
+        let paths_list = env.get_list(&paths_result)?;
+        for path in paths_vec.into_iter() {
+            let path_string = env.new_string(path)?;
+            paths_list.add(env, &path_string)?;
+        }
+
+        Ok(paths_result.into_raw())
+    })
+}
+
 /// Open a file from a URL and options object. Returns a `long` representing a raw pointer
 /// to a `NativeFile` object on the heap.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_open(
-    mut env: JNIEnv,
+pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_open<'local>(
+    mut env: JNIEnv<'local>,
     _class: JClass,
-    uri: JString,
-    options: JObject,
+    uri: JString<'local>,
+    options: JObject<'local>,
 ) -> jlong {
     try_or_throw(&mut env, |env| {
         let file_path: String = env.get_string(&uri)?.into();
@@ -79,10 +145,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_open(
             }
         }
 
-        let start = std::time::Instant::now();
         let (store, _scheme) = make_object_store(&url, &properties)?;
-        let duration = std::time::Instant::now().duration_since(start);
-        log::debug!("make_object_store latency = {duration:?}");
         let open_file = block_on(
             "VortexOpenOptions.open()",
             VortexOpenOptions::file()

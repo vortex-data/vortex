@@ -5,7 +5,6 @@ package dev.vortex.api;
 
 import dev.vortex.jni.JNIDType;
 import dev.vortex.jni.NativeDTypeMethods;
-
 import java.util.List;
 import java.util.Optional;
 
