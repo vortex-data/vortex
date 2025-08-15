@@ -14,7 +14,7 @@ use vortex_array::pipeline::canonical::{
 };
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
-use vortex_array::{Array, ArrayRef};
+use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
@@ -183,36 +183,42 @@ impl MaskEvaluation for FlatEvaluation {
                 // .map(|o| o.value())
                 .and_then(|o| reduce_operator(o.value()))
             {
-                let result = false
-                    && (if self.row_range.start % PIPELINE_STEP_COUNT != 0
-                        || self.row_range.end % PIPELINE_STEP_COUNT != 0)
-                    {
-                        let array = array.slice(self.row_range.start, self.row_range.end)?;
-                        export_canonical_pipeline_expr(
-                            &DType::Bool(NonNullable),
-                            array.len(),
-                            operator.as_ref(),
-                            &mask,
-                        )?
-                    } else {
-                        export_canonical_pipeline_expr_offset(
-                            &DType::Bool(NonNullable),
-                            self.row_range.start / PIPELINE_STEP_COUNT,
-                            self.row_range.end - self.row_range.start,
-                            operator.as_ref(),
-                            &mask,
-                        )?
-                    };
+                let result = if self.row_range.start % PIPELINE_STEP_COUNT != 0 {
+                    // If the start is not a multiple of PIPELINE_STEP_COUNT, then we need to slice
+                    // we could do mask offsets instead, but this case is rare, due to split building.
+                    let array = array.slice(self.row_range.start, self.row_range.end)?;
+                    let operator = self
+                        .expr
+                        .clone()
+                        .fold(&mut ExprOperatorConverter::new(array))
+                        .ok()
+                        .vortex_expect("already converted")
+                        .value();
+                    let operator = reduce_operator(operator)
+                        .ok()
+                        .vortex_expect("already converted");
+                    export_canonical_pipeline_expr(
+                        &DType::Bool(NonNullable),
+                        self.row_range.end - self.row_range.start,
+                        operator.as_ref(),
+                        &mask,
+                    )?
+                } else {
+                    export_canonical_pipeline_expr_offset(
+                        &DType::Bool(NonNullable),
+                        self.row_range.start / PIPELINE_STEP_COUNT,
+                        self.row_range.end - self.row_range.start,
+                        operator.as_ref(),
+                        &mask,
+                    )?
+                };
                 let array_mask = Mask::from(result.into_bool()?.boolean_buffer().clone());
-                // println!("array_mask: {:?}", array_mask);
-
                 return Ok(mask.intersect_by_rank(&array_mask));
             }
         }
 
         // Slice the array based on the row mask.
         if self.row_range.start > 0 || self.row_range.end < array.len() {
-            // println!("slice {:?}", self.row_range);
             array = array.slice(self.row_range.start, self.row_range.end)?;
         }
 
@@ -257,6 +263,48 @@ impl ArrayEvaluation for FlatEvaluation {
 
         // Now we await the array .
         let mut array = self.array.clone().await?;
+
+        if array.to_pipeline_plan().is_ok() {
+            let mut conv = ExprOperatorConverter::new(array.clone());
+            if let Ok(operator) = self
+                .expr
+                .clone()
+                .fold(&mut conv)
+                // .map(|o| o.value())
+                .and_then(|o| reduce_operator(o.value()))
+            {
+                let result = if self.row_range.start % PIPELINE_STEP_COUNT != 0 {
+                    // If the start is not a multiple of PIPELINE_STEP_COUNT, then we need to slice
+                    // we could do mask offsets instead, but this case is rare, due to split building.
+                    let array = array.slice(self.row_range.start, self.row_range.end)?;
+                    let operator = self
+                        .expr
+                        .clone()
+                        .fold(&mut ExprOperatorConverter::new(array))
+                        .ok()
+                        .vortex_expect("already converted")
+                        .value();
+                    let operator = reduce_operator(operator)
+                        .ok()
+                        .vortex_expect("already converted");
+                    export_canonical_pipeline_expr(
+                        &DType::Bool(NonNullable),
+                        self.row_range.end - self.row_range.start,
+                        operator.as_ref(),
+                        &mask,
+                    )?
+                } else {
+                    export_canonical_pipeline_expr_offset(
+                        &DType::Bool(NonNullable),
+                        self.row_range.start / PIPELINE_STEP_COUNT,
+                        self.row_range.end - self.row_range.start,
+                        operator.as_ref(),
+                        &mask,
+                    )?
+                };
+                return Ok(result.into_array());
+            }
+        }
 
         // Slice the array based on the row mask.
         if self.row_range.start > 0 || self.row_range.end < array.len() {
