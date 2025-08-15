@@ -30,7 +30,6 @@ paste = { workspace = true }
 pco = { workspace = true }
 pin-project-lite = { workspace = true }
 prost = { workspace = true }
-roaring = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
 tracing = { workspace = true }
 vortex-array = { workspace = true }
@@ -55,7 +54,6 @@ tokio = { workspace = true, features = ["rt", "macros"] }
 vortex-layout = { path = ".", features = ["tokio", "test-harness"] }
 
 [features]
-roaring = ["dep:roaring"]
 test-harness = []
 tokio = ["dep:tokio", "vortex-error/tokio"]
 zstd = ["dep:vortex-zstd"]

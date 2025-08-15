@@ -54,7 +54,7 @@ mod test {
     use crate as vortex;
 
     #[test]
-    fn convert() -> VortexResult<()> {
+    fn convert() -> anyhow::Result<()> {
         // [convert]
         use std::fs::File;
 

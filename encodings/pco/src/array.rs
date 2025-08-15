@@ -18,7 +18,7 @@ use vortex_array::vtable::{
 };
 use vortex_array::{ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable};
 use vortex_buffer::{BufferMut, ByteBuffer, ByteBufferMut};
-use vortex_dtype::{DType, PType};
+use vortex_dtype::{DType, PType, half};
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 

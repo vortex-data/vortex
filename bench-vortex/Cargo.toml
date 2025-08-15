@@ -72,7 +72,6 @@ url = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 vortex = { workspace = true, features = [
     "object_store",
-    "parquet",
     "files",
     "tokio",
     "zstd",

@@ -2605,7 +2605,6 @@ dependencies = [
  "futures-core",
  "futures-task",
  "futures-util",
- "num_cpus",
 ]
 
 [[package]]
@@ -3936,16 +3935,6 @@ checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
 dependencies = [
  "autocfg",
  "libm",
-]
-
-[[package]]
-name = "num_cpus"
-version = "1.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91df4bbde75afed763b708b7eee1e8e7651e02d97f6d5dd763e89367e957b23b"
-dependencies = [
- "hermit-abi",
- "libc",
 ]
 
 [[package]]
@@ -6307,6 +6296,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 name = "vortex"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "arrow-array",
  "codspeed-divan-compat",
  "itertools 0.14.0",
@@ -6488,9 +6478,7 @@ dependencies = [
  "arrow-schema",
  "cxx",
  "cxx-build",
- "futures",
  "paste",
- "prost 0.14.1",
  "take_mut",
  "tokio",
  "vortex",
@@ -6536,7 +6524,6 @@ dependencies = [
 name = "vortex-decimal-byte-parts"
 version = "0.1.0"
 dependencies = [
- "itertools 0.14.0",
  "num-traits",
  "prost 0.14.1",
  "rstest",
@@ -6601,12 +6588,10 @@ dependencies = [
  "anyhow",
  "arrow-array",
  "arrow-buffer",
- "arrow-schema",
  "bindgen",
  "bitvec",
  "cbindgen",
  "cc",
- "crossbeam-queue",
  "dashmap",
  "futures",
  "glob",
@@ -6636,7 +6621,6 @@ dependencies = [
  "flatbuffers",
  "jiff",
  "object_store",
- "parquet",
  "prost 0.14.1",
  "pyo3",
  "serde_json",
@@ -6717,7 +6701,6 @@ dependencies = [
 name = "vortex-file"
 version = "0.1.0"
 dependencies = [
- "arcref",
  "async-trait",
  "bytes",
  "dashmap",
@@ -6731,7 +6714,6 @@ dependencies = [
  "object_store",
  "rustc-hash",
  "tokio",
- "tracing",
  "uuid",
  "vortex-alp",
  "vortex-array",
@@ -6886,7 +6868,6 @@ dependencies = [
  "pco",
  "pin-project-lite",
  "prost 0.14.1",
- "roaring",
  "rstest",
  "tokio",
  "tracing",
@@ -6930,7 +6911,6 @@ dependencies = [
 name = "vortex-pco"
 version = "0.1.0"
 dependencies = [
- "half",
  "pco",
  "prost 0.14.1",
  "rstest",
@@ -7042,7 +7022,6 @@ dependencies = [
 name = "vortex-sequence"
 version = "0.1.0"
 dependencies = [
- "arcref",
  "num-traits",
  "prost 0.14.1",
  "rstest",
@@ -7067,7 +7046,6 @@ dependencies = [
  "num-traits",
  "prost 0.14.1",
  "rstest",
- "rstest_reuse",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
