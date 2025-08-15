@@ -178,8 +178,12 @@ impl MaskEvaluation for FlatEvaluation {
 
         if array.to_pipeline_plan().is_ok() {
             let mut conv = ExprOperatorConverter::new(array.clone());
-            if let Ok(operator) = self.expr.clone().fold(&mut conv).map(|o| o.value())
-            // .and_then(|o| reduce_operator(o.value()))
+            if let Ok(operator) = self
+                .expr
+                .clone()
+                .fold(&mut conv)
+                // .map(|o| o.value())
+                .and_then(|o| reduce_operator(o.value()))
             {
                 // println!("pipeline");
                 // {
