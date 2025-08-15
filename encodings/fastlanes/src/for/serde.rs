@@ -40,10 +40,7 @@ impl SerdeVTable<FoRVTable> for FoRVTable {
             )
         }
 
-        let ptype = PType::try_from(dtype)?;
-        let encoded_dtype = DType::Primitive(ptype, dtype.nullability());
-        let encoded = children.get(0, &encoded_dtype, len)?;
-
+        let encoded = children.get(0, dtype, len)?;
         let reference = Scalar::new(dtype.clone(), metadata.clone());
 
         FoRArray::try_new(encoded, reference)
