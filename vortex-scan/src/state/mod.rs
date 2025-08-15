@@ -27,14 +27,14 @@ use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::filter::FilterExpr;
-use crate::state::segments::SegmentCache;
+use crate::state::segments::SegmentsScan;
 use crate::tasks::TaskContext;
 
 pub struct Scan2 {
     ctx: TaskContext<ArrayRef>,
     splits: Vec<Split>,
     evaluations: Vec<Option<Evaluation>>,
-    segments: SegmentCache,
+    segments: SegmentsScan,
 }
 
 pub(crate) trait TaskSpawner: Send {
@@ -44,17 +44,13 @@ pub(crate) trait TaskSpawner: Send {
 static ID: AtomicUsize = AtomicUsize::new(0);
 
 impl Scan2 {
-    pub fn try_new(
-        ranges: Vec<Range<u64>>,
-        ctx: TaskContext<ArrayRef>,
-        source: Arc<dyn SegmentSource2>,
-    ) -> VortexResult<Self> {
+    pub fn try_new(ranges: Vec<Range<u64>>, ctx: TaskContext<ArrayRef>) -> VortexResult<Self> {
         let nsplits = ranges.len();
         let nconjuncts = ctx.filter.as_ref().map_or(0, |f| f.conjuncts().len());
 
         let mut splits = Vec::with_capacity(nsplits);
         let mut evaluations = Vec::with_capacity((nsplits * 2 * nconjuncts) + nsplits);
-        let mut segments = SegmentCache::new(ctx.segment_source.clone());
+        let mut segments = SegmentsScan::new(ctx.segment_source.clone());
 
         for row_range in ranges.into_iter() {
             // TODO(ngates): we really must clean up this selection logic and push it all inside
@@ -198,10 +194,8 @@ impl Scan2 {
             inflight_tasks: 0,
 
             filter: self.ctx.filter.clone(),
-            // TODO(ngates): this should really be target segment size and we control the max
-            //  memory consumption.
-            target_segment_count: 128,
             target_inflight_tasks: 2 * num_cpus::get(),
+            target_segments_in_flight: 64,
         }
     }
 }
@@ -210,6 +204,13 @@ impl Scan2 {
 ///
 /// Decides which segments to request and when, as well as spawning CPU work when available.
 /// This scheduler is wrapped up for various threading models.
+///
+/// ## Future Work
+///
+/// * Ideally, we can make this scheduler lock-free so we can drive it from multiple worker
+///   threads.
+/// * Add worker affinity to CPU tasks, such that we can hint that related tasks should be spawned
+///   onto the same worker.
 pub(crate) struct Scheduler {
     /// Unique ID for this scheduler to help with debug logs!
     id: usize,
@@ -253,11 +254,10 @@ pub(crate) struct Scheduler {
     splits: Vec<Split>,
 
     // The segment cache used to power the scan.
-    segments: SegmentCache,
+    segments: SegmentsScan,
 
-    /// The target number of segments to hold in memory.
-    /// TODO(ngates): use segment size once the segment source reports it.
-    target_segment_count: usize,
+    /// The target number of segments to have in-flight.
+    target_segments_in_flight: usize,
 }
 
 /// Index into the `Scheduler::evaluations` vector.
@@ -440,15 +440,9 @@ impl Scheduler {
         let mut made_progress = false;
 
         // 1. handle I/O events
-        while let Poll::Ready(Some(result)) = self.segments.poll_next_unpin(cx) {
+        while let Poll::Ready(Some(segment_id)) = self.segments.poll_next_unpin(cx) {
             made_progress = true;
-            match result {
-                Ok(segment_id) => self.handle_io_event(segment_id),
-                Err(e) => {
-                    self.errored = true;
-                    return Poll::Ready(Err(e));
-                }
-            }
+            self.handle_io_event(segment_id?);
         }
 
         // 2. handle CPU events.
@@ -477,14 +471,12 @@ impl Scheduler {
         }
         // Mark ourselves as done.
         if self.completed_splits == self.splits.len() {
-            // assert!(
-            //     self.segments.is_empty(),
-            //     "Segments not empty at end of scan, accounting error {:?} {:?} {:?} {}",
-            //     self.segments.ref_counts(),
-            //     self.segments.working_set,
-            //     self.segments.working_set_size,
-            //     self.segments.inflight_count(),
-            // );
+            assert!(
+                self.segments.is_empty(),
+                "Segments not empty at end of scan, accounting error {:?} {}",
+                self.segments.ref_counts(),
+                self.segments.inflight_count(),
+            );
             self.finished = true;
         }
 
@@ -528,7 +520,7 @@ impl Scheduler {
         }
 
         // 5. Spawn I/O tasks.
-        'io: while self.segments.inflight_count() < self.target_segment_count {
+        'io: while self.segments.inflight_count() < self.target_segments_in_flight {
             // TODO(ngates): we try to make sure the number of in-flight requests (ideally the
             //  batched count) is reasonable. Although if we get here and we have a big back-log
             //  of CPU work, then we know we're CPU bound and not I/O bound and perhaps we should
@@ -542,7 +534,7 @@ impl Scheduler {
                 for eval_idx in &split.pruning {
                     if let Some(eval) = &self.evaluations[*eval_idx] {
                         made_progress = true;
-                        self.segments.request(&eval.waiting_for);
+                        self.segments.request(&eval.waiting_for)?;
                     }
                 }
                 self.next_pruning_io_split += 1;
@@ -564,7 +556,7 @@ impl Scheduler {
                             let eval_idx = split.filters[conjunct_idx];
                             if let Some(eval) = &self.evaluations[eval_idx] {
                                 made_progress = true;
-                                self.segments.request(&eval.waiting_for);
+                                self.segments.request(&eval.waiting_for)?;
                             }
                             self.next_filter_io_splits[conjunct_idx] += 1;
                             continue 'io;
@@ -579,7 +571,7 @@ impl Scheduler {
                 let split = &self.splits[split_idx];
                 if let Some(eval) = &self.evaluations[split.projection] {
                     made_progress = true;
-                    self.segments.request(&eval.waiting_for);
+                    self.segments.request(&eval.waiting_for)?;
                 }
                 self.next_projection_io_split += 1;
                 continue 'io;
@@ -719,7 +711,7 @@ impl Scheduler {
         // enter the PendingFilter state, but all segments are already resolved, we can perform
         // another state transition immediately. It simplifies the logic to keep these transitions
         // separate and run in a loop.
-        let mut split = &mut self.splits[split_idx];
+        let split = &mut self.splits[split_idx];
         let nconjuncts = split.filters.len();
         match &split.state {
             State::InProgress => {
@@ -731,7 +723,7 @@ impl Scheduler {
                 }
 
                 // Attempt to launch any ready pruning tasks.
-                for idx in (0..nconjuncts) {
+                for idx in 0..nconjuncts {
                     if split.ready_pruning_conjuncts[idx] {
                         self.pending_prunings[idx].push_back(
                             self.evaluations[split.pruning[idx]]

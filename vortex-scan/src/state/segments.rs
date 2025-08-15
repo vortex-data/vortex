@@ -14,8 +14,8 @@ use vortex_layout::segments::{SegmentId, SegmentSource, Segments};
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 
-/// The working set of segments used by the scan.
-pub(super) struct SegmentCache {
+/// The logic for fetching and dealing with segments during the scan.
+pub(super) struct SegmentsScan {
     requests_send: mpsc::UnboundedSender<SegmentId>,
     results: BoxStream<'static, (SegmentId, VortexResult<ByteBuffer>)>,
     in_flight: HashSet<SegmentId>,
@@ -26,7 +26,7 @@ pub(super) struct SegmentCache {
     working_set_size: u64,
 }
 
-impl SegmentCache {
+impl SegmentsScan {
     pub(super) fn new(source: Arc<dyn SegmentSource>) -> Self {
         let (requests_send, requests_recv) = mpsc::unbounded();
         let results = SegmentSourceAdapter(source).drive(requests_recv.boxed());
@@ -113,7 +113,7 @@ impl SegmentCache {
     }
 }
 
-impl Stream for SegmentCache {
+impl Stream for SegmentsScan {
     type Item = VortexResult<SegmentId>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {

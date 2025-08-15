@@ -10,7 +10,6 @@ use bench_vortex::display::DisplayFormat;
 use bench_vortex::tpcds::TpcDsBenchmark;
 use bench_vortex::tpch::tpch_benchmark::TpcHBenchmark;
 use clap::{Parser, Subcommand, value_parser};
-use vortex::error::VortexExpect;
 
 #[derive(Parser, Debug)]
 #[command(version, about = "Vortex query benchmark runner", long_about = None)]

@@ -8,7 +8,6 @@ use futures::FutureExt;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_layout::segments::{SegmentFuture, SegmentId, SegmentSource};
-use vortex_scan::SegmentSourceAdapter;
 
 /// A Vortex file that is backed by an in-memory buffer.
 ///
@@ -61,12 +60,10 @@ impl VortexOpenOptions<InMemoryFileType> {
             buffer: buffer.clone(),
             footer: footer.clone(),
         });
-        let segment_source2 = Arc::new(SegmentSourceAdapter(segment_source.clone()));
 
         Ok(VortexFile {
             footer,
             segment_source,
-            segment_source2,
             metrics: self.metrics,
         })
     }
