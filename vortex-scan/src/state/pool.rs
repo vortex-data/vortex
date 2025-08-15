@@ -127,7 +127,7 @@ impl Iterator for ScanWorker {
 
             // Once we've performed our civic duty of driving the scheduler, we check if we have
             // any tasks of our own to execute.
-            if let Some(task) = self.find_task() {
+            while let Some(task) = self.find_task() {
                 if let Some(array) = task.execute() {
                     // We can immediately return the Array result since we don't care about
                     // ordering.

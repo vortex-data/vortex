@@ -533,6 +533,11 @@ impl Scheduler {
         }
 
         // 5. Spawn I/O tasks.
+        log::info!(
+            "Inflight segments: {}/{}",
+            self.segments.inflight_count(),
+            self.target_segments_in_flight
+        );
         'io: while self.segments.inflight_count() < self.target_segments_in_flight {
             // TODO(ngates): we try to make sure the number of in-flight requests (ideally the
             //  batched count) is reasonable. Although if we get here and we have a big back-log
@@ -556,15 +561,13 @@ impl Scheduler {
 
             // 2. We try to spawn I/O based on conjunct selectivity?
             if let Some(filter) = self.filter.as_ref() {
-                let filter_run_ahead = 16; // Run ahead 16 splits.
-
                 // TODO(ngates): for now, we just launch all filter I/O.
                 for conjunct_idx in 0..filter.conjuncts().len() {
                     if self.next_filter_io_splits[conjunct_idx] < self.splits.len() {
                         let split_idx = self.next_filter_io_splits[conjunct_idx];
 
                         // Only keep going if we haven't reached the end of the filter run ahead.
-                        if split_idx <= self.next_projection_io_split + filter_run_ahead {
+                        if split_idx <= self.next_projection_io_split {
                             let split = &self.splits[split_idx];
                             let eval_idx = split.filters[conjunct_idx];
                             if let Some(eval) = &self.evaluations[eval_idx] {
@@ -593,6 +596,13 @@ impl Scheduler {
             // 4. If we got here, then we've finished the loop for this iteration.
             break;
         }
+        log::info!(
+            "Inflight segments: {}/{}",
+            self.segments.inflight_count(),
+            self.target_segments_in_flight
+        );
+
+        log::info!("Made progress? {}", made_progress);
 
         if made_progress {
             Poll::Ready(Ok(()))

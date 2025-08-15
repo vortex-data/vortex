@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::future::ready;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use bitvec::macros::internal::funty::Fundamental;
+use futures::{FutureExt, StreamExt, stream};
 use tokio::task::block_in_place;
 use url::Url;
 use vortex::ToCanonical;
 use vortex::dtype::FieldNames;
-use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{ExprRef, and, and_collect, col, lit, root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::scan::{MultiScanPool, MultiScanWorker, ScanFactory};
@@ -20,7 +22,7 @@ use crate::convert::{try_from_bound_expression, try_from_table_filter};
 use crate::duckdb::footer_cache::FooterCache;
 use crate::duckdb::{
     BindInput, BindResult, Cardinality, ClientContext, DataChunk, Expression, LogicalType,
-    ObjectCache, TableFunction, TableInitInput,
+    TableFunction, TableInitInput,
 };
 use crate::exporter::{ArrayExporter, ConversionCache};
 use crate::utils::glob::expand_glob;
@@ -300,41 +302,44 @@ impl TableFunction for VortexTableFunction {
         );
 
         let object_cache = init_input.client_context()?.object_cache();
+        let cache = Arc::new(FooterCache::new(object_cache));
+
         let file_urls = bind_data.file_urls.clone();
         let first_file = bind_data.first_file.clone();
 
-        let closures = file_urls.into_iter().enumerate().map(move |(idx, path)| {
-            let first_file = first_file.clone();
+        // We spawn the opening of Vortex files onto the Tokio Runtime.
+        // TODO(ngates): ideally we manage this I/O work on the current worker threads, but tbd.
+        let vortex_files = stream::iter([ready(Ok(first_file)).boxed()])
+            .chain(stream::iter(file_urls.into_iter().skip(1).map(
+                move |path| {
+                    let cache = cache.clone();
+                    async move {
+                        let entry = cache.entry(path.as_ref());
+                        let options = entry.apply_to_file(VortexOpenOptions::file());
+                        let file = open_file(path.clone(), options).await?;
+                        entry.put_if_absent(|| file.footer().clone());
+                        Ok::<_, VortexError>(file)
+                    }
+                    .boxed()
+                },
+            )))
+            .map(|fut| RUNTIME.spawn(fut))
+            .buffered(16);
+
+        let closures = futures::executor::block_on_stream(vortex_files).map(move |vxf| {
             let filter_expr = filter_expr.clone();
             let projection_expr = projection_expr.clone();
-            let object_cache = unsafe { ObjectCache::borrow(object_cache.as_ptr()) };
-
             Box::new(move || {
-                let file = if idx == 0 {
-                    // The first path from `file_paths` is skipped as
-                    // the first file was already opened during bind.
-                    first_file
-                } else {
-                    let cache = FooterCache::new(object_cache);
-                    let entry = cache.entry(path.as_ref());
-                    block_in_place(|| {
-                        RUNTIME.block_on(async {
-                            let options = entry.apply_to_file(VortexOpenOptions::file());
-                            let file = open_file(path.clone(), options).await?;
-                            entry.put_if_absent(|| file.footer().clone());
-                            VortexResult::Ok(file)
-                        })
-                    })?
-                };
+                let vxf = vxf??; // Unwrap the spawn result.
 
                 if let Some(ref filter) = filter_expr
-                    && file.can_prune(filter)?
+                    && vxf.can_prune(filter)?
                 {
                     return Ok(None);
                 };
 
                 Ok(Some(
-                    file.scan()?
+                    vxf.scan()?
                         .with_some_filter(filter_expr)
                         .with_projection(projection_expr)
                         //.map(move |split| Ok((split, conversion_cache.clone())))
