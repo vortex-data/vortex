@@ -3,14 +3,13 @@
 
 //! Unified benchmark infrastructure
 
-use crate::display::{DisplayFormat, print_measurements_json, render_table};
-use crate::measurements::{MemoryMeasurement, QueryMeasurement};
-use crate::{Target, default_env_filter};
 use std::fs::File;
 use std::io::{Write, stdout};
 use std::path::PathBuf;
-use std::sync::Mutex;
-use tracing_perfetto::PerfettoLayer;
+
+use crate::display::{DisplayFormat, print_measurements_json, render_table};
+use crate::measurements::{MemoryMeasurement, QueryMeasurement};
+use crate::{Target, default_env_filter};
 
 /// Common benchmark configuration
 #[derive(Debug, Clone)]
@@ -33,7 +32,6 @@ pub fn setup_logging_and_tracing(verbose: bool, trace_file: &str) -> anyhow::Res
     {
         let _ = trace_file; // Suppress unused warning
         crate::setup_logger(filter);
-        Ok(None)
     }
 
     #[cfg(feature = "tracing")]
@@ -42,8 +40,8 @@ pub fn setup_logging_and_tracing(verbose: bool, trace_file: &str) -> anyhow::Res
 
         use tracing_subscriber::prelude::*;
 
-        let layer =
-            PerfettoLayer::new(Mutex::new(File::create(trace_file)?)).with_debug_annotations(true);
+        let layer = tracing_perfetto::PerfettoLayer::new(File::create(trace_file)?)
+            .with_debug_annotations(true);
 
         let fmt_layer = tracing_subscriber::fmt::layer()
             .with_writer(std::io::stderr)
@@ -56,9 +54,9 @@ pub fn setup_logging_and_tracing(verbose: bool, trace_file: &str) -> anyhow::Res
             .with(layer)
             .with(fmt_layer)
             .init();
-
-        Ok(())
     }
+
+    Ok(())
 }
 
 /// Print benchmark results
