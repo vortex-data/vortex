@@ -8,7 +8,7 @@ plugins {
     `java-library`
     `jvm-test-suite`
     id("com.google.protobuf")
-    id("com.gradleup.shadow") version "9.0.1"
+    id("com.gradleup.shadow") version "9.0.2"
 }
 
 dependencies {
@@ -86,7 +86,7 @@ tasks.withType<Test>().all {
 
 protobuf {
     protoc {
-        artifact = "com.google.protobuf:protoc:4.31.1"
+        artifact = "com.google.protobuf:protoc:4.32.0"
     }
 }
 

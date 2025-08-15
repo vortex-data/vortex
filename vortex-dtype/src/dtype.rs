@@ -23,6 +23,48 @@ pub type FieldName = Arc<str>;
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FieldNames(Arc<[FieldName]>);
 
+impl PartialEq<&FieldNames> for FieldNames {
+    fn eq(&self, other: &&FieldNames) -> bool {
+        self == *other
+    }
+}
+
+impl PartialEq<&[&str]> for FieldNames {
+    fn eq(&self, other: &&[&str]) -> bool {
+        self.len() == other.len() && self.iter().zip_eq(other.iter()).all(|(l, r)| &**l == *r)
+    }
+}
+
+impl PartialEq<&[&str]> for &FieldNames {
+    fn eq(&self, other: &&[&str]) -> bool {
+        *self == other
+    }
+}
+
+impl<const N: usize> PartialEq<[&str; N]> for FieldNames {
+    fn eq(&self, other: &[&str; N]) -> bool {
+        self == other.as_slice()
+    }
+}
+
+impl<const N: usize> PartialEq<[&str; N]> for &FieldNames {
+    fn eq(&self, other: &[&str; N]) -> bool {
+        *self == other.as_slice()
+    }
+}
+
+impl PartialEq<&[FieldName]> for FieldNames {
+    fn eq(&self, other: &&[FieldName]) -> bool {
+        self.0.as_ref() == *other
+    }
+}
+
+impl PartialEq<&[FieldName]> for &FieldNames {
+    fn eq(&self, other: &&[FieldName]) -> bool {
+        self.0.as_ref() == *other
+    }
+}
+
 impl FieldNames {
     /// Returns the number of elements.
     pub fn len(&self) -> usize {
@@ -456,5 +498,41 @@ mod tests {
         assert_eq!(iter.next(), Some("a".into()));
         assert_eq!(iter.next(), Some("b".into()));
         assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn test_field_names_equality() {
+        let field_names = FieldNames::from(["field1", "field2", "field3"]);
+
+        // FieldNames == &FieldNames
+        let field_names_ref = &field_names;
+        assert_eq!(field_names, field_names_ref);
+
+        // FieldNames == &[&str]
+        let str_slice = &["field1", "field2", "field3"][..];
+        assert_eq!(field_names, str_slice);
+
+        // &FieldNames == &[&str]
+        assert_eq!(&field_names, str_slice);
+
+        // FieldNames == [&str; N] (array)
+        assert_eq!(field_names, ["field1", "field2", "field3"]);
+
+        // &FieldNames == [&str; N] (array)
+        assert_eq!(&field_names, ["field1", "field2", "field3"]);
+
+        // FieldNames == &[FieldName]
+        let field_name_vec: Vec<FieldName> =
+            vec!["field1".into(), "field2".into(), "field3".into()];
+        let field_name_slice = field_name_vec.as_slice();
+        assert_eq!(field_names, field_name_slice);
+
+        // &FieldNames == &[FieldName]
+        assert_eq!(&field_names, field_name_slice);
+
+        // Test inequality cases
+        assert_ne!(field_names, &["field1", "field2"][..]);
+        assert_ne!(field_names, ["different", "fields", "here"]);
+        assert_ne!(field_names, &["field1", "field2", "field3", "extra"][..]);
     }
 }
