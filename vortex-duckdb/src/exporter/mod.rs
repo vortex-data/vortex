@@ -229,3 +229,162 @@ impl VectorExt for Vector {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use arrow_buffer::buffer::BooleanBuffer;
+    use vortex::mask::Mask;
+
+    use super::VectorExt;
+    use crate::cpp::DUCKDB_TYPE;
+    use crate::duckdb::{LogicalType, Vector};
+
+    #[test]
+    fn test_set_validity_all_true() {
+        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
+        let mut vector = Vector::with_capacity(logical_type, 100);
+
+        let mask = Mask::AllTrue(10);
+        let all_null = unsafe { vector.set_validity(&mask, 0, 10) };
+
+        assert!(!all_null);
+    }
+
+    #[test]
+    fn test_set_validity_all_false() {
+        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
+        let mut vector = Vector::with_capacity(logical_type, 100);
+
+        let mask = Mask::AllFalse(10);
+        let all_null = unsafe { vector.set_validity(&mask, 0, 10) };
+
+        assert!(all_null);
+
+        let validity = unsafe { vector.validity_slice_mut(10).unwrap() };
+        assert!(validity.iter().all(|v| !v));
+    }
+
+    #[test]
+    fn test_set_validity_values_all_true() {
+        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
+        let mut vector = Vector::with_capacity(logical_type, 100);
+
+        let bits = vec![true; 10];
+        let buffer = BooleanBuffer::from(bits.as_slice());
+        let mask = Mask::from(buffer);
+
+        let all_null = unsafe { vector.set_validity(&mask, 0, 10) };
+
+        assert!(!all_null);
+
+        // When all values are true, the mask may be optimized to AllTrue,
+        // so validity_slice_mut may return None (no validity allocated)
+        if let Some(validity) = unsafe { vector.validity_slice_mut(10) } {
+            assert!(validity.iter().all(|v| *v));
+        }
+    }
+
+    #[test]
+    fn test_set_validity_values_all_false() {
+        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
+        let mut vector = Vector::with_capacity(logical_type, 100);
+
+        let bits = vec![false; 10];
+        let buffer = BooleanBuffer::from(bits.as_slice());
+        let mask = Mask::from(buffer);
+
+        let all_null = unsafe { vector.set_validity(&mask, 0, 10) };
+
+        assert!(all_null);
+
+        let validity = unsafe { vector.validity_slice_mut(10).unwrap() };
+        assert!(validity.iter().all(|v| !v));
+    }
+
+    #[test]
+    fn test_set_validity_values_mixed() {
+        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
+        let mut vector = Vector::with_capacity(logical_type, 100);
+
+        let bits = vec![
+            true, false, true, true, false, false, true, true, false, true,
+        ];
+        let buffer = BooleanBuffer::from(bits.as_slice());
+        let mask = Mask::from(buffer);
+
+        let all_null = unsafe { vector.set_validity(&mask, 0, 10) };
+
+        assert!(!all_null);
+
+        let validity = unsafe { vector.validity_slice_mut(10).unwrap() };
+        for (i, bit) in bits.iter().enumerate() {
+            assert_eq!(validity[i], *bit);
+        }
+    }
+
+    #[test]
+    fn test_set_validity_values_with_offset() {
+        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
+        let mut vector = Vector::with_capacity(logical_type, 100);
+
+        let bits = vec![
+            false, false, true, true, false, true, false, true, true, false, true, true, false,
+        ];
+        let buffer = BooleanBuffer::from(bits.as_slice());
+        let mask = Mask::from(buffer);
+
+        let all_null = unsafe { vector.set_validity(&mask, 2, 8) };
+
+        assert!(!all_null);
+
+        let validity = unsafe { vector.validity_slice_mut(8).unwrap() };
+        for i in 0..8 {
+            assert_eq!(validity[i], bits[i + 2]);
+        }
+    }
+
+    #[test]
+    fn test_set_validity_values_with_offset_and_smaller_len() {
+        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
+        let mut vector = Vector::with_capacity(logical_type, 100);
+
+        let bits = vec![
+            true, false, true, true, false, false, true, true, false, true, true, true, false,
+            true, false,
+        ];
+        let buffer = BooleanBuffer::from(bits.as_slice());
+        let mask = Mask::from(buffer);
+
+        let all_null = unsafe { vector.set_validity(&mask, 3, 5) };
+
+        assert!(!all_null);
+
+        let validity = unsafe { vector.validity_slice_mut(5).unwrap() };
+        for i in 0..5 {
+            assert_eq!(validity[i], bits[i + 3]);
+        }
+    }
+
+    #[test]
+    fn test_set_validity_values_64bit_alignment() {
+        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
+        let mut vector = Vector::with_capacity(logical_type, 100);
+
+        let mut bits = vec![false; 70];
+        for i in 0..70 {
+            bits[i] = i % 3 == 0;
+        }
+
+        let buffer = BooleanBuffer::from(bits.as_slice());
+        let mask = Mask::from(buffer);
+
+        let all_null = unsafe { vector.set_validity(&mask, 5, 60) };
+
+        assert!(!all_null);
+
+        let validity = unsafe { vector.validity_slice_mut(60).unwrap() };
+        for i in 0..60 {
+            assert_eq!(validity[i], bits[i + 5]);
+        }
+    }
+}
