@@ -9,7 +9,6 @@ use crate::{Target, default_env_filter};
 use std::fs::File;
 use std::io::{Write, stdout};
 use std::path::PathBuf;
-use std::sync::Mutex;
 use tracing_perfetto::PerfettoLayer;
 
 /// Common benchmark configuration
@@ -45,13 +44,7 @@ pub fn setup_logging_and_tracing(
 
         use tracing_subscriber::prelude::*;
 
-        let layer = PerfettoLayer::new(Mutex::new(File::create(trace_file)?));
-        //
-        // let (layer, guard) = tracing_chrome::ChromeLayerBuilder::new()
-        //     .include_args(true)
-        //     .trace_style(tracing_chrome::TraceStyle::Async)
-        //     .file(trace_file)
-        //     .build();
+        let layer = PerfettoLayer::new(File::create(trace_file)?);
 
         let fmt_layer = tracing_subscriber::fmt::layer()
             .with_writer(std::io::stderr)

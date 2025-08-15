@@ -119,7 +119,7 @@ impl VortexOpenOptions<GenericVortexFile> {
 
         // Spawn an I/O driver onto the dispatcher.
         let io_concurrency = self.options.io_concurrency;
-        let read2 = read.clone();
+        let read2 = read;
         self.options
             .io_dispatcher
             .dispatch(move || {
@@ -138,7 +138,7 @@ impl VortexOpenOptions<GenericVortexFile> {
 
         Ok(VortexFile {
             footer,
-            segment_source: segment_source.clone(),
+            segment_source,
             metrics: self.metrics,
         })
     }

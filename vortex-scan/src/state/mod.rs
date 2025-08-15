@@ -134,7 +134,7 @@ impl Scan2 {
                 completed_projection: false,
             };
 
-            segments.acquire(split.evaluations().into_iter().flat_map(|idx| {
+            segments.acquire(split.evaluations().flat_map(|idx| {
                 evaluations[idx]
                     .as_ref()
                     .map(|e| e.waiting_for.iter())
@@ -193,7 +193,7 @@ impl Scan2 {
             pending_projections: VecDeque::new(),
             inflight_tasks: 0,
 
-            filter: self.ctx.filter.clone(),
+            filter: self.ctx.filter,
             target_inflight_tasks: 2 * num_cpus::get(),
             target_segments_in_flight: 64,
         }
@@ -436,6 +436,7 @@ impl Scheduler {
         self.make_progress_with_cx(&mut ctx)
     }
 
+    #[allow(clippy::cognitive_complexity)]
     fn make_progress_with_cx(&mut self, cx: &mut Context) -> Poll<VortexResult<()>> {
         let mut made_progress = false;
 

@@ -57,7 +57,7 @@ impl VortexOpenOptions<InMemoryFileType> {
         )?;
 
         let segment_source = Arc::new(InMemorySegmentReader {
-            buffer: buffer.clone(),
+            buffer,
             footer: footer.clone(),
         });
 
