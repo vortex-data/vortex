@@ -229,7 +229,8 @@ impl VectorExt for Vector {
                     unsafe { self.ensure_validity_slice(len) }.fill(false);
                 } else {
                     // SAFETY: Caller guaranteees this.
-                    (unsafe { self.ensure_validity_slice(len) }).copy_from_bitslice(sliced_bits);
+                    let validity = unsafe { self.ensure_validity_slice(len) };
+                    validity[..len].copy_from_bitslice(sliced_bits);
                 }
                 true_count == 0
             }
