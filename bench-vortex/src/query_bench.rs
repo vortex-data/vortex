@@ -3,13 +3,14 @@
 
 //! Unified benchmark infrastructure
 
-use std::fs::File;
-use std::io::{Write, stdout};
-use std::path::PathBuf;
-
 use crate::display::{DisplayFormat, print_measurements_json, render_table};
 use crate::measurements::{MemoryMeasurement, QueryMeasurement};
 use crate::{Target, default_env_filter};
+use std::fs::File;
+use std::io::{Write, stdout};
+use std::path::PathBuf;
+use std::sync::Mutex;
+use tracing_perfetto::PerfettoLayer;
 
 /// Common benchmark configuration
 #[derive(Debug, Clone)]
@@ -25,10 +26,7 @@ pub struct BenchmarkConfig {
 }
 
 /// Initialize logging/tracing for a benchmark
-pub fn setup_logging_and_tracing(
-    verbose: bool,
-    trace_file: &str,
-) -> anyhow::Result<Option<tracing_chrome::FlushGuard>> {
+pub fn setup_logging_and_tracing(verbose: bool, trace_file: &str) -> anyhow::Result<()> {
     let filter = default_env_filter(verbose);
 
     #[cfg(not(feature = "tracing"))]
@@ -44,11 +42,8 @@ pub fn setup_logging_and_tracing(
 
         use tracing_subscriber::prelude::*;
 
-        let (layer, guard) = tracing_chrome::ChromeLayerBuilder::new()
-            .include_args(true)
-            .trace_style(tracing_chrome::TraceStyle::Async)
-            .file(trace_file)
-            .build();
+        let layer =
+            PerfettoLayer::new(Mutex::new(File::create(trace_file)?)).with_debug_annotations(true);
 
         let fmt_layer = tracing_subscriber::fmt::layer()
             .with_writer(std::io::stderr)
@@ -62,7 +57,7 @@ pub fn setup_logging_and_tracing(
             .with(fmt_layer)
             .init();
 
-        Ok(Some(guard))
+        Ok(())
     }
 }
 

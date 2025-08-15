@@ -44,7 +44,7 @@ pub struct DriverConfig {
 
 /// Run a benchmark using the provided implementation and configuration
 pub fn run_benchmark<B: Benchmark>(benchmark: B, config: DriverConfig) -> Result<()> {
-    let _trace_guard = setup_logging_and_tracing(
+    setup_logging_and_tracing(
         config.verbose,
         &format!("{}.trace.json", benchmark.dataset_name()),
     )?;
