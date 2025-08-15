@@ -63,7 +63,7 @@ tokio-stream = { workspace = true }
 tpchgen = { workspace = true }
 tpchgen-arrow = { workspace = true }
 tracing = { workspace = true }
-tracing-chrome = { workspace = true }
+tracing-perfetto = { workspace = true }
 tracing-subscriber = { workspace = true, features = [
     "env-filter",
     "tracing-log",
@@ -72,7 +72,6 @@ url = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 vortex = { workspace = true, features = [
     "object_store",
-    "parquet",
     "files",
     "tokio",
     "zstd",
@@ -80,6 +79,3 @@ vortex = { workspace = true, features = [
 vortex-datafusion = { workspace = true }
 vortex-duckdb = { workspace = true }
 xshell = { workspace = true }
-
-[features]
-tracing = ["vortex-datafusion/tracing"]

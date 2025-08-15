@@ -79,6 +79,7 @@ mod test {
     use vortex_array::ToCanonical;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_dtype::PType;
     use vortex_scalar::Scalar;
 
     use super::*;
@@ -121,10 +122,10 @@ mod test {
         let compressed = FoRArray::encode(array).unwrap();
         assert_eq!(compressed.dtype(), &dtype);
         assert!(compressed.dtype().is_signed_int());
-        assert!(compressed.encoded().dtype().is_unsigned_int());
+        assert!(compressed.encoded().dtype().is_signed_int());
 
         let constant = compressed.encoded().as_constant().unwrap();
-        assert_eq!(constant, Scalar::from(0u32));
+        assert_eq!(constant, Scalar::from(0i32));
     }
 
     #[test]
@@ -149,7 +150,11 @@ mod test {
                 .unwrap()
         );
 
-        let encoded = compressed.encoded().to_primitive().unwrap();
+        let encoded = compressed
+            .encoded()
+            .to_primitive()
+            .unwrap()
+            .reinterpret_cast(PType::U8);
         let encoded_bytes: &[u8] = encoded.as_slice::<u8>();
         let unsigned: Vec<u8> = (0..=u8::MAX).collect_vec();
         assert_eq!(encoded_bytes, unsigned.as_slice());

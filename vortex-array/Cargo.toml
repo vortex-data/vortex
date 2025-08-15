@@ -22,7 +22,6 @@ arcref = { workspace = true }
 arrow-arith = { workspace = true }
 arrow-array = { workspace = true, features = ["ffi"] }
 arrow-buffer = { workspace = true }
-arrow-cast = { workspace = true }
 arrow-data = { workspace = true }
 arrow-ord = { workspace = true }
 arrow-schema = { workspace = true }
@@ -75,6 +74,7 @@ table-display = ["dep:tabled"]
 test-harness = ["dep:goldenfile", "dep:rstest", "dep:rstest_reuse"]
 
 [dev-dependencies]
+arrow-cast = { workspace = true }
 divan = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { path = ".", features = ["test-harness"] }

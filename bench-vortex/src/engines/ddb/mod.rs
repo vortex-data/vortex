@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use log::trace;
 use url::Url;
+use vortex::error::VortexExpect;
 use vortex_duckdb::duckdb::{Connection, Database};
 
 use crate::{BenchmarkDataset, Format, IdempotentPath};
@@ -71,7 +72,10 @@ impl DuckDBCtx {
         let query_time = time_instant.elapsed();
         trace!("query completed in {:.3}s", query_time.as_secs_f64());
 
-        Ok((query_time, result.row_count()?))
+        Ok((
+            query_time,
+            usize::try_from(result.row_count()).vortex_expect("row count overflow"),
+        ))
     }
 
     /// Register tables for benchmarks using the internal connection

@@ -30,9 +30,12 @@ impl<T: ArrowNativeType> FromIterator<T> for Arrow<MutableBuffer> {
     }
 }
 
+const INPUT_SIZE: &[i32] = &[128, 1024, 2048, 16_384, 65_536];
+const INPUT_SIZE_USIZE: &[usize] = &[128, 1024, 2048, 16_384, 65_536];
+
 #[divan::bench(
     types = [Arrow<ScalarBuffer<i32>>,Buffer<i32>],
-    args = [1, 100, 1_000, 100_000, 10_000_000],
+    args = INPUT_SIZE,
 )]
 fn from_iter<B: FromIterator<i32>>(n: i32) {
     B::from_iter((0..n).map(|i| i % i32::MAX));
@@ -79,7 +82,7 @@ impl<T: Copy, R> MapEach<T, R> for BufferMut<T> {
 
 #[divan::bench(
     types = [Arrow<ScalarBuffer<i32>>, BufferMut<i32>],
-    args = [1, 100, 1_000, 100_000, 10_000_000],
+    args = INPUT_SIZE,
 )]
 fn map_each<B: MapEach<i32, u32> + FromIterator<i32>>(bencher: Bencher, n: i32) {
     bencher
@@ -87,7 +90,7 @@ fn map_each<B: MapEach<i32, u32> + FromIterator<i32>>(bencher: Bencher, n: i32) 
         .bench_values(|buffer| B::map_each(buffer, |i| (i as u32) + 1));
 }
 
-#[divan::bench(args = [100, 1_000, 10_000, 100_000, 1_000_000])]
+#[divan::bench(args = INPUT_SIZE)]
 fn push_vortex_buffer(bencher: Bencher, length: i32) {
     bencher
         .with_inputs(|| BufferMut::<i32>::with_capacity(length as usize))
@@ -98,7 +101,7 @@ fn push_vortex_buffer(bencher: Bencher, length: i32) {
         });
 }
 
-#[divan::bench(args = [100, 1_000, 10_000, 100_000, 1_000_000])]
+#[divan::bench(args = INPUT_SIZE)]
 fn push_arrow_buffer(bencher: Bencher, length: i32) {
     bencher
         .with_inputs(|| {
@@ -113,7 +116,7 @@ fn push_arrow_buffer(bencher: Bencher, length: i32) {
         });
 }
 
-#[divan::bench(types = [u8, u16, u32, u64], args = [100, 1_000, 10_000, 100_000, 1_000_000])]
+#[divan::bench(types = [u8, u16, u32, u64], args = INPUT_SIZE_USIZE)]
 fn push_n_vortex_buffer<T: PrimInt>(bencher: Bencher, length: usize) {
     bencher
         .with_inputs(|| BufferMut::<T>::with_capacity(length))

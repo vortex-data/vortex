@@ -68,7 +68,7 @@ where
 
     // Wrap up the RHS into a scalar and cast to the encoded DType (this will be the equivalent
     // unsigned integer type).
-    let rhs = Scalar::primitive(rhs, nullability).reinterpret_cast(T::PTYPE.to_unsigned());
+    let rhs = Scalar::primitive(rhs, nullability);
 
     compare(
         lhs.encoded(),
@@ -94,7 +94,7 @@ mod tests {
         let reference = Scalar::from(10);
         // 10, 30, 12
         let lhs = FoRArray::try_new(
-            PrimitiveArray::new(buffer!(0u32, 20, 2), Validity::AllValid).into_array(),
+            PrimitiveArray::new(buffer!(0i32, 20, 2), Validity::AllValid).into_array(),
             reference,
         )
         .unwrap();
@@ -121,7 +121,7 @@ mod tests {
         let reference = Scalar::from(0);
         // 10, 30, 12
         let lhs = FoRArray::try_new(
-            PrimitiveArray::new(buffer!(0u32, 20, 2), Validity::NonNullable).into_array(),
+            PrimitiveArray::new(buffer!(0i32, 20, 2), Validity::NonNullable).into_array(),
             reference,
         )
         .unwrap();
@@ -147,7 +147,7 @@ mod tests {
         let reference = Scalar::from(10);
         // 10, 30, 12
         let lhs = FoRArray::try_new(
-            PrimitiveArray::new(buffer!(0u32, 10, 1), Validity::AllValid).into_array(),
+            PrimitiveArray::new(buffer!(0i32, 10, 1), Validity::AllValid).into_array(),
             reference,
         )
         .unwrap();
@@ -165,9 +165,13 @@ mod tests {
     #[test]
     fn compare_large_constant() {
         let reference = Scalar::from(-9219218377546224477i64);
+        #[allow(clippy::cast_possible_truncation)]
         let lhs = FoRArray::try_new(
-            PrimitiveArray::new(buffer![0u64, 9654309310445864926], Validity::AllValid)
-                .into_array(),
+            PrimitiveArray::new(
+                buffer![0i64, 9654309310445864926u64 as i64],
+                Validity::AllValid,
+            )
+            .into_array(),
             reference,
         )
         .unwrap();
@@ -176,7 +180,7 @@ mod tests {
             compare_constant(
                 &lhs,
                 435090932899640449i64,
-                Nullability::NonNullable,
+                Nullability::Nullable,
                 Operator::Eq,
             ),
             [false, true],
@@ -185,7 +189,7 @@ mod tests {
             compare_constant(
                 &lhs,
                 435090932899640449i64,
-                Nullability::NonNullable,
+                Nullability::Nullable,
                 Operator::NotEq,
             ),
             [true, false],

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_buffer::ArrowNativeType;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{BoolArray, DecimalArray, PrimitiveArray, StructArray, VarBinViewArray};
 use vortex_array::builders::{ArrayBuilderExt, builder_with_capacity};
@@ -131,7 +130,7 @@ pub fn take_canonical_array(
     }
 }
 
-fn take_primitive<T: NativePType + ArrowNativeType>(
+fn take_primitive<T: NativePType>(
     primitive_array: PrimitiveArray,
     validity: Validity,
     indices: &[usize],

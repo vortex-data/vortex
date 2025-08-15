@@ -196,8 +196,7 @@ impl FileFormat for VortexFormat {
         Ok(Arc::new(Schema::try_merge(file_schemas)?))
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip_all, fields(location = object.location.as_ref()
-    )))]
+    #[tracing::instrument(skip_all, fields(location = object.location.as_ref()))]
     async fn infer_stats(
         &self,
         _state: &dyn Session,

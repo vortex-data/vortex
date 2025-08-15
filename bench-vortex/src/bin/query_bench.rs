@@ -3,12 +3,12 @@
 
 use std::path::PathBuf;
 
-use bench_vortex::Target;
 use bench_vortex::benchmark_driver::{DriverConfig, run_benchmark};
 use bench_vortex::clickbench::{ClickBenchBenchmark, Flavor};
 use bench_vortex::display::DisplayFormat;
 use bench_vortex::tpcds::TpcDsBenchmark;
 use bench_vortex::tpch::tpch_benchmark::TpcHBenchmark;
+use bench_vortex::{Target, setup_logging_and_tracing};
 use clap::{Parser, Subcommand, value_parser};
 
 #[derive(Parser, Debug)]
@@ -44,6 +44,9 @@ struct CommonArgs {
 
     #[arg(short, long)]
     verbose: bool,
+
+    #[arg(long)]
+    tracing: bool,
 
     #[arg(long)]
     export_spans: bool,
@@ -170,7 +173,6 @@ fn validate_scale_factor(val: &str) -> Result<String, String> {
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-
     match args.command {
         Commands::ClickBench(clickbench_args) => run_clickbench(clickbench_args),
         Commands::TpcH(tpch_args) => run_tpch(tpch_args),
@@ -179,6 +181,8 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn run_clickbench(args: ClickBenchArgs) -> anyhow::Result<()> {
+    setup_logging_and_tracing(args.common.verbose, args.common.tracing)?;
+
     // Create benchmark instance
     let benchmark = ClickBenchBenchmark::new(
         args.flavor,
@@ -191,7 +195,6 @@ fn run_clickbench(args: ClickBenchArgs) -> anyhow::Result<()> {
         targets: args.targets,
         iterations: args.common.iterations,
         threads: args.common.threads,
-        verbose: args.common.verbose,
         display_format: args.common.display_format,
         disable_datafusion_cache: args.common.disable_datafusion_cache,
         delete_duckdb_database: args.common.delete_duckdb_database,
@@ -211,6 +214,8 @@ fn run_clickbench(args: ClickBenchArgs) -> anyhow::Result<()> {
 }
 
 fn run_tpch(args: TpcHArgs) -> anyhow::Result<()> {
+    setup_logging_and_tracing(args.common.verbose, args.common.tracing)?;
+
     // Create benchmark instance
     let benchmark = TpcHBenchmark::new(args.scale_factor, args.common.use_remote_data_dir)?;
 
@@ -219,7 +224,6 @@ fn run_tpch(args: TpcHArgs) -> anyhow::Result<()> {
         targets: args.targets,
         iterations: args.common.iterations,
         threads: args.common.threads,
-        verbose: args.common.verbose,
         display_format: args.common.display_format,
         disable_datafusion_cache: args.common.disable_datafusion_cache,
         delete_duckdb_database: args.common.delete_duckdb_database,
@@ -240,6 +244,8 @@ fn run_tpch(args: TpcHArgs) -> anyhow::Result<()> {
 }
 
 fn run_tpcds(args: TpcDSArgs) -> anyhow::Result<()> {
+    setup_logging_and_tracing(args.common.verbose, args.common.tracing)?;
+
     // Create benchmark instance
     let benchmark = TpcDsBenchmark::new(args.scale_factor, args.common.use_remote_data_dir)?;
 
@@ -248,7 +254,6 @@ fn run_tpcds(args: TpcDSArgs) -> anyhow::Result<()> {
         targets: args.targets,
         iterations: args.common.iterations,
         threads: args.common.threads,
-        verbose: args.common.verbose,
         display_format: args.common.display_format,
         disable_datafusion_cache: args.common.disable_datafusion_cache,
         delete_duckdb_database: args.common.delete_duckdb_database,

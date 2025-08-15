@@ -6,8 +6,8 @@ use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
 use std::ptr;
 
-use bitvec::macros::internal::funty::Fundamental;
 use cpp::duckdb_vx_table_filter;
+use num_traits::AsPrimitive;
 use vortex::error::VortexExpect;
 
 use crate::cpp::idx_t;
@@ -21,11 +21,7 @@ impl TableFilterSet {
         let mut filter_set: duckdb_vx_table_filter = ptr::null_mut();
 
         let column_index = unsafe {
-            cpp::duckdb_vx_table_filter_set_get(
-                self.as_ptr(),
-                index.as_usize(),
-                &raw mut filter_set,
-            )
+            cpp::duckdb_vx_table_filter_set_get(self.as_ptr(), index.as_(), &raw mut filter_set)
         };
 
         if filter_set.is_null() {

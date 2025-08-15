@@ -6,16 +6,16 @@ use std::sync::Arc;
 
 use arrow_array::builder::GenericBinaryBuilder;
 use arrow_array::types::{
-    Float32Type, Float64Type, Int8Type, Int16Type, Int32Type, Int64Type, Time64MicrosecondType,
-    UInt8Type, UInt16Type, UInt32Type, UInt64Type,
+    Float32Type, Float64Type, Int8Type, Int16Type, Int32Type, Int64Type, UInt8Type, UInt16Type,
+    UInt32Type, UInt64Type,
 };
 use arrow_array::{
     Array, BooleanArray, Date32Array, Decimal128Array, PrimitiveArray, StringArray,
-    TimestampMicrosecondArray, TimestampMillisecondArray, TimestampNanosecondArray,
-    TimestampSecondArray,
+    Time64MicrosecondArray, TimestampMicrosecondArray, TimestampMillisecondArray,
+    TimestampNanosecondArray, TimestampSecondArray,
 };
 use arrow_buffer::buffer::BooleanBuffer;
-use bitvec::macros::internal::funty::Fundamental;
+use num_traits::AsPrimitive;
 use vortex::ArrayRef;
 use vortex::arrays::StructArray;
 use vortex::arrow::FromArrowArray;
@@ -116,13 +116,13 @@ pub fn flat_vector_to_arrow_array(
 
             Ok(Arc::new(structs))
         }
-        DUCKDB_TYPE::DUCKDB_TYPE_TIME_TZ => {
+        DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ => {
             let data = vector.as_slice_with_len::<duckdb_timestamp>(len);
-            let micros = data.iter().map(|duckdb_timestamp { micros }| *micros);
             let structs = TimestampMicrosecondArray::from_iter_values_with_nulls(
-                micros,
+                data.iter().map(|duckdb_timestamp { micros }| *micros),
                 vector.validity_ref(data.len()).to_null_buffer(),
-            );
+            )
+            .with_timezone("UTC");
 
             Ok(Arc::new(structs))
         }
@@ -181,7 +181,7 @@ pub fn flat_vector_to_arrow_array(
             let data = vector.as_slice_with_len::<duckdb_time>(len);
 
             Ok(Arc::new(
-                PrimitiveArray::<Time64MicrosecondType>::from_iter_values_with_nulls(
+                Time64MicrosecondArray::from_iter_values_with_nulls(
                     data.iter().map(|duckdb_time { micros }| *micros),
                     vector.validity_ref(data.len()).to_null_buffer(),
                 ),
@@ -311,7 +311,7 @@ pub fn flat_vector_to_arrow_array(
 
             Ok(Arc::new(decimal_array))
         }
-        _ => todo!("missing impl for {:?}", type_id),
+        _ => todo!("missing impl for {type_id:?}"),
     }
 }
 
@@ -323,12 +323,13 @@ pub fn data_chunk_to_arrow(field_names: &FieldNames, chunk: &DataChunk) -> Vorte
         .map(|(i, name)| {
             let mut vector = chunk.get_vector(i);
             vector.flatten(len);
-            flat_vector_to_arrow_array(&mut vector, len.as_usize())
+            flat_vector_to_arrow_array(&mut vector, len.as_())
                 .map(|array_data| {
-                    assert_eq!(array_data.len(), chunk.len().as_usize());
+                    let chunk_len: usize = chunk.len().as_();
+                    assert_eq!(array_data.len(), chunk_len);
                     (name, ArrayRef::from_arrow(array_data.as_ref(), true))
                 })
-                .map_err(|e| vortex_err!("duckdb to arrow conversion failure {}", e.to_string()))
+                .map_err(|e| vortex_err!("duckdb to arrow conversion failure {e}"))
         })
         .collect::<VortexResult<Vec<_>>>()?;
     StructArray::try_from_iter(columns).map(|a| a.to_array())
