@@ -178,22 +178,20 @@ impl MaskEvaluation for FlatEvaluation {
 
         if array.to_pipeline_plan().is_ok() {
             let mut conv = ExprOperatorConverter::new(array.clone());
-            if let Ok(operator) = self
-                .expr
-                .clone()
-                .fold(&mut conv)
-                .and_then(|o| reduce_operator(o.value()))
+            if let Ok(operator) = self.expr.clone().fold(&mut conv).map(|o| o.value())
+            // .and_then(|o| reduce_operator(o.value()))
             {
-                {
-                    array = filter(&array, &mask)?;
-                    let array_mask =
-                        Mask::try_from(self.expr.evaluate(&Scope::new(array.clone()))?.as_ref())?;
-                    println!("expect array_mask: {:?}", array_mask);
-                }
-
-                println!("operator: {}", self.expr);
-                println!("operator: {}", array.display_tree());
-                println!("operator: {:?}", operator);
+                // println!("pipeline");
+                // {
+                //     array = filter(&array, &mask)?;
+                //     let array_mask =
+                //         Mask::try_from(self.expr.evaluate(&Scope::new(array.clone()))?.as_ref())?;
+                //     println!("expect array_mask: {:?}", array_mask);
+                // }
+                //
+                // println!("operator: {}", self.expr);
+                // println!("operator: {}", array.display_tree());
+                // println!("operator: {:?}", operator);
                 let array_mask = Mask::try_from(
                     export_canonical_pipeline_expr(
                         &DType::Bool(NonNullable),
@@ -205,7 +203,7 @@ impl MaskEvaluation for FlatEvaluation {
                     .boolean_buffer()
                     .clone(),
                 )?;
-                println!("array_mask: {:?}", array_mask);
+                // println!("array_mask: {:?}", array_mask);
 
                 return Ok(mask.intersect_by_rank(&array_mask));
             }
