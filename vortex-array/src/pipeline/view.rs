@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Debug;
-
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 
-use crate::pipeline::N;
+use crate::pipeline::PIPELINE_STEP_COUNT;
 use crate::pipeline::bits::{BitView, BitViewMut};
 use crate::pipeline::types::{Element, VType};
 
@@ -43,7 +41,7 @@ impl<'a> View<'a> {
     {
         debug_assert_eq!(self.vtype, T::vtype(), "Invalid type for canonical view");
         // SAFETY: We assume that the elements are of type T and that the view is valid.
-        unsafe { std::slice::from_raw_parts(self.elements.cast(), N) }
+        unsafe { std::slice::from_raw_parts(self.elements.cast(), PIPELINE_STEP_COUNT) }
     }
 
     /// Re-interpret cast the vector into a new type where the element has the same width.
@@ -132,7 +130,7 @@ pub struct ViewMut<'a> {
 
 impl<'a> ViewMut<'a> {
     pub fn new<E: Element>(elements: &'a mut [E], validity: Option<BitViewMut<'a>>) -> Self {
-        assert_eq!(elements.len(), N);
+        assert_eq!(elements.len(), PIPELINE_STEP_COUNT);
         Self {
             vtype: E::vtype(),
             elements: elements.as_mut_ptr().cast(),
@@ -165,7 +163,7 @@ impl<'a> ViewMut<'a> {
     #[inline(always)]
     pub fn as_slice<E: Element>(&self) -> &'a [E] {
         debug_assert_eq!(self.vtype, E::vtype(), "Invalid type for canonical view");
-        unsafe { std::slice::from_raw_parts(self.elements.cast::<E>(), N) }
+        unsafe { std::slice::from_raw_parts(self.elements.cast::<E>(), PIPELINE_STEP_COUNT) }
     }
 
     /// Returns a mutable slice of the elements in the vector, allowing for modification.
@@ -173,7 +171,7 @@ impl<'a> ViewMut<'a> {
     #[inline(always)]
     pub fn as_slice_mut<E: Element>(&mut self) -> &'a mut [E] {
         debug_assert_eq!(self.vtype, E::vtype(), "Invalid type for canonical view");
-        unsafe { std::slice::from_raw_parts_mut(self.elements.cast::<E>(), N) }
+        unsafe { std::slice::from_raw_parts_mut(self.elements.cast::<E>(), PIPELINE_STEP_COUNT) }
     }
 
     /// Access the validity mask of the vector.
@@ -196,7 +194,7 @@ impl<'a> ViewMut<'a> {
     /// the elements buffer.
     ///
     /// FIXME(ngates): also need to select validity bits.
-    pub fn select_mask<E: Element + Debug>(&mut self, mask: &BitView) {
+    pub fn select_mask<E: Element>(&mut self, mask: &BitView) {
         assert_eq!(
             self.vtype,
             E::vtype(),
@@ -207,10 +205,10 @@ impl<'a> ViewMut<'a> {
             0 => {
                 // If the mask has no true bits, we set the length to 0.
             }
-            N => {
+            PIPELINE_STEP_COUNT => {
                 // If the mask has N true bits, we copy all elements.
             }
-            n if n > 3 * N / 4 => {
+            n if n > 3 * PIPELINE_STEP_COUNT / 4 => {
                 // High density: use iter_zeros to compact by removing gaps
                 let slice = self.as_slice_mut::<E>();
                 let mut write_idx = 0;
@@ -237,7 +235,7 @@ impl<'a> ViewMut<'a> {
                     std::ptr::copy(
                         slice.as_ptr().add(read_idx),
                         slice.as_mut_ptr().add(write_idx),
-                        N - read_idx,
+                        PIPELINE_STEP_COUNT - read_idx,
                     );
                 }
             }

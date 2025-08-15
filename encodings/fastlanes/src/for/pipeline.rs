@@ -32,10 +32,6 @@ impl PipelineVTable<FoRVTable> for FoRVTable {
             encoded_ptype: array.encoded.dtype().as_ptype(),
         }))
     }
-
-    fn to_pipeline(_array: &FoRArray) -> VortexResult<Box<dyn Kernel>> {
-        todo!()
-    }
 }
 
 #[derive(Debug, Hash)]
@@ -314,7 +310,7 @@ mod tests {
 
         let mut m = vec![true; N];
         m[2] = false;
-        let mask = Mask::from_iter(m.into_iter());
+        let mask = Mask::from_iter(m);
         println!("mask: {}", mask.true_count());
 
         let expect = expr

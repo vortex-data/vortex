@@ -12,7 +12,7 @@ use vortex_array::pipeline::buffers::BufferHandle;
 use vortex_array::pipeline::operators::{BindContext, Operator};
 use vortex_array::pipeline::types::{Element, VType};
 use vortex_array::pipeline::view::ViewMut;
-use vortex_array::pipeline::{Kernel, KernelContext, N};
+use vortex_array::pipeline::{Kernel, KernelContext, PIPELINE_STEP_COUNT};
 use vortex_array::vtable::PipelineVTable;
 use vortex_dtype::{PhysicalPType, match_each_integer_ptype};
 use vortex_error::{VortexResult, vortex_bail};
@@ -21,10 +21,6 @@ use crate::{BitPackedArray, BitPackedVTable};
 
 impl PipelineVTable<BitPackedVTable> for BitPackedVTable {
     fn to_operator(array: &BitPackedArray) -> VortexResult<Arc<dyn Operator>> {
-        Ok(Arc::new(array.clone()))
-    }
-
-    fn to_pipeline(array: &BitPackedArray) -> VortexResult<Box<dyn Kernel>> {
         if array.dtype.is_nullable() {
             vortex_bail!("BitPackedVTable does not support nullable types");
         }
@@ -32,17 +28,7 @@ impl PipelineVTable<BitPackedVTable> for BitPackedVTable {
             vortex_bail!("BitPackedVTable does not support patched arrays");
         }
 
-        let ptype = array.dtype.as_ptype();
-        match_each_integer_ptype!(ptype, |T| {
-            Ok(Box::new(BitPackedKernel::<T> {
-                width: array.bit_width as usize,
-                packed_stride: array.bit_width as usize
-                    * <<T as PhysicalPType>::Physical as FastLanes>::LANES,
-                buffer: BufferHandle::new(array.packed.clone())
-                    .into_typed::<<T as PhysicalPType>::Physical>(),
-                packed_offset: 0,
-            }))
-        })
+        Ok(Arc::new(array.clone()))
     }
 }
 
@@ -64,6 +50,7 @@ impl Operator for BitPackedArray {
     }
 
     fn bind(&self, _ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {
+        assert!(self.bit_width > 0, "{}", self.as_ref().display_tree());
         match_each_integer_ptype!(self.ptype(), |T| {
             Ok(Box::new(BitPackedKernel::<T> {
                 width: self.bit_width as usize,
@@ -102,7 +89,7 @@ where
     <T as PhysicalPType>::Physical: Element,
 {
     fn seek(&mut self, chunk_idx: usize) -> VortexResult<()> {
-        let fls_chunk_idx = chunk_idx * (N / 1024);
+        let fls_chunk_idx = chunk_idx * (PIPELINE_STEP_COUNT / 1024);
         self.packed_offset = fls_chunk_idx * self.packed_stride;
         Ok(())
     }
@@ -122,7 +109,7 @@ where
         let packed = &buffer.as_slice()[self.packed_offset..];
 
         // We compute the number of FastLanes vectors that we have remaining.
-        let nvecs = (N / 1024).min(packed.len() / self.packed_stride);
+        let nvecs = (PIPELINE_STEP_COUNT / 1024).min(packed.len() / self.packed_stride);
 
         // We short-circuit full unpacking logic if the mask is sufficiently sparse.
         if selected.true_count() > 8 {

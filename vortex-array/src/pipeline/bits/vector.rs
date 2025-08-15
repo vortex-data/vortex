@@ -11,7 +11,7 @@ use std::sync::{Arc, LazyLock};
 use bitvec::array::BitArray;
 use bitvec::order::Msb0;
 
-use crate::pipeline::N;
+use crate::pipeline::PIPELINE_STEP_COUNT;
 use crate::pipeline::bits::{BitView, BitViewMut};
 
 static EMPTY: LazyLock<BitVector> = LazyLock::new(|| BitVector {
@@ -21,7 +21,7 @@ static EMPTY: LazyLock<BitVector> = LazyLock::new(|| BitVector {
 
 static FULL: LazyLock<BitVector> = LazyLock::new(|| BitVector {
     bits: Arc::new(BitArray::ZERO.not()),
-    true_count: N,
+    true_count: PIPELINE_STEP_COUNT,
 });
 
 /// An owned fixed-size bit vector of length `N` bits, represented as an array of 64-bit words.
@@ -31,7 +31,7 @@ static FULL: LazyLock<BitVector> = LazyLock::new(|| BitVector {
 /// it up for use within Vortex.
 #[derive(Clone)]
 pub struct BitVector {
-    pub(super) bits: Arc<BitArray<[u64; N / 64], Msb0>>,
+    pub(super) bits: Arc<BitArray<[u64; PIPELINE_STEP_COUNT / 64], Msb0>>,
     pub(super) true_count: usize,
 }
 
@@ -63,9 +63,12 @@ impl BitVector {
     }
 
     pub fn true_until(n: usize) -> Self {
-        assert!(n <= N, "Cannot create a BitVector with more than N bits");
+        assert!(
+            n <= PIPELINE_STEP_COUNT,
+            "Cannot create a BitVector with more than N bits"
+        );
 
-        let mut bits = Arc::new(BitArray::<[u64; N / 64], Msb0>::ZERO);
+        let mut bits = Arc::new(BitArray::<[u64; PIPELINE_STEP_COUNT / 64], Msb0>::ZERO);
         let bits_mut = Arc::make_mut(&mut bits);
 
         let mut word = 0;
@@ -90,16 +93,16 @@ impl BitVector {
         self.true_count
     }
 
-    pub fn as_raw(&self) -> &[u64; N / 64] {
+    pub fn as_raw(&self) -> &[u64; PIPELINE_STEP_COUNT / 64] {
         // It's actually remarkably hard to get a reference to the underlying array!
         let raw = self.bits.as_raw_slice();
-        unsafe { &*(raw.as_ptr() as *const [u64; N / 64]) }
+        unsafe { &*(raw.as_ptr() as *const [u64; PIPELINE_STEP_COUNT / 64]) }
     }
 
-    pub fn as_raw_mut(&mut self) -> &mut [u64; N / 64] {
+    pub fn as_raw_mut(&mut self) -> &mut [u64; PIPELINE_STEP_COUNT / 64] {
         // SAFETY: We assume that the bits are mutable and that the view is valid.
         let raw = Arc::make_mut(&mut self.bits).as_raw_mut_slice();
-        unsafe { &mut *(raw.as_mut_ptr() as *mut [u64; N / 64]) }
+        unsafe { &mut *(raw.as_mut_ptr() as *mut [u64; PIPELINE_STEP_COUNT / 64]) }
     }
 
     pub fn fill_from<I>(&mut self, iter: I)
@@ -126,7 +129,9 @@ impl BitVector {
 impl From<BitView<'_>> for BitVector {
     fn from(value: BitView<'_>) -> Self {
         let true_count = value.true_count();
-        let bits = Arc::new(BitArray::<[u64; N / 64], Msb0>::from(*value.as_raw()));
+        let bits = Arc::new(BitArray::<[u64; PIPELINE_STEP_COUNT / 64], Msb0>::from(
+            *value.as_raw(),
+        ));
         BitVector { bits, true_count }
     }
 }

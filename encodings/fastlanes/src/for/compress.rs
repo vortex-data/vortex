@@ -88,7 +88,7 @@ mod test {
     fn test_compress_non() {
         // Create a range offset by a million
         let array = PrimitiveArray::new(
-            (0i32..10).map(|v| v).collect::<Buffer<_>>(),
+            (0i32..10).collect::<Buffer<_>>(),
             Validity::NonNullable,
         );
         println!("{}", array.as_ref().display_tree());

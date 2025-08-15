@@ -41,11 +41,11 @@ macro_rules! match_each_compare_op {
                 $body
             }
             $crate::compute::Operator::Lt => {
-                type $enc = crate::pipeline::operators::compare::Lt;
+                type $enc = $crate::pipeline::operators::compare::Lt;
                 $body
             }
             $crate::compute::Operator::Lte => {
-                type $enc = crate::pipeline::operators::compare::Lte;
+                type $enc = $crate::pipeline::operators::compare::Lte;
                 $body
             }
         }

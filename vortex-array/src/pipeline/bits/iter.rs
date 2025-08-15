@@ -6,7 +6,7 @@ use arrow_buffer::bit_chunk_iterator::BitChunkIterator;
 use bitvec::order::Msb0;
 use bitvec::slice::{BitSlice, ChunksExact};
 
-use crate::pipeline::N;
+use crate::pipeline::PIPELINE_STEP_COUNT;
 
 pub fn iter_boolean_buffer<'a>(buffer: &'a BooleanBuffer) -> ChunksExact<'a, u64, Msb0> {
     assert_eq!(buffer.offset(), 0, "BooleanBuffer must have an offset of 0");
@@ -14,7 +14,7 @@ pub fn iter_boolean_buffer<'a>(buffer: &'a BooleanBuffer) -> ChunksExact<'a, u64
     assert!(ptr.is_aligned(), "BooleanBuffer must be aligned to 64 bits");
     let data = unsafe { std::slice::from_raw_parts(ptr, buffer.len()) };
     let slice = BitSlice::<u64, Msb0>::from_slice(data);
-    slice.chunks_exact(N)
+    slice.chunks_exact(PIPELINE_STEP_COUNT)
 }
 
 pub struct BooleanBufferChunksIter<'a> {
@@ -36,7 +36,7 @@ impl<'a> BooleanBufferChunksIter<'a> {
 }
 
 impl Iterator for BooleanBufferChunksIter<'_> {
-    type Item = [u64; N / 64];
+    type Item = [u64; PIPELINE_STEP_COUNT / 64];
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.finished && self.remainder_bits.is_none() {
@@ -44,7 +44,7 @@ impl Iterator for BooleanBufferChunksIter<'_> {
         }
 
         // Number of words in a BitVector.
-        const W: usize = N / 64;
+        const W: usize = PIPELINE_STEP_COUNT / 64;
         let mut chunk = [0u64; W];
 
         // We copy bit-chunks into our bitvector, until we reach the end of the chunks.

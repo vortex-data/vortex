@@ -6,7 +6,7 @@ use std::fmt::{Debug, Formatter};
 use bitvec::prelude::*;
 use vortex_error::{VortexError, vortex_err};
 
-use crate::pipeline::N;
+use crate::pipeline::PIPELINE_STEP_COUNT;
 
 /// A borrowed fixed-size bit vector of length `N` bits, represented as an array of 64-bit words.
 ///
@@ -15,7 +15,7 @@ use crate::pipeline::N;
 /// it up for use within Vortex.
 #[derive(Clone, Copy)]
 pub struct BitView<'a> {
-    bits: &'a BitArray<[u64; N / 64], Msb0>,
+    bits: &'a BitArray<[u64; PIPELINE_STEP_COUNT / 64], Msb0>,
     true_count: usize,
 }
 
@@ -30,23 +30,29 @@ impl Debug for BitView<'_> {
 
 impl BitView<'static> {
     pub fn all_true() -> Self {
-        unsafe { BitView::new_unchecked(std::mem::transmute(&[u64::MAX; N / 64]), N) }
+        unsafe {
+            BitView::new_unchecked(
+                std::mem::transmute(&[u64::MAX; PIPELINE_STEP_COUNT / 64]),
+                PIPELINE_STEP_COUNT,
+            )
+        }
     }
 
     pub fn all_false() -> Self {
-        unsafe { BitView::new_unchecked(std::mem::transmute(&[0; N / 64]), 0) }
+        unsafe { BitView::new_unchecked(std::mem::transmute(&[0; PIPELINE_STEP_COUNT / 64]), 0) }
     }
 }
 
 impl<'a> BitView<'a> {
-    pub fn new(bits: &[u64; N / 64]) -> Self {
+    pub fn new(bits: &[u64; PIPELINE_STEP_COUNT / 64]) -> Self {
         let true_count = bits.iter().map(|&word| word.count_ones() as usize).sum();
-        let bits: &BitArray<[u64; N / 64], Msb0> = unsafe { std::mem::transmute(bits) };
+        let bits: &BitArray<[u64; PIPELINE_STEP_COUNT / 64], Msb0> =
+            unsafe { std::mem::transmute(bits) };
         BitView { bits, true_count }
     }
 
     pub(crate) unsafe fn new_unchecked(
-        bits: &'a BitArray<[u64; N / 64], Msb0>,
+        bits: &'a BitArray<[u64; PIPELINE_STEP_COUNT / 64], Msb0>,
         true_count: usize,
     ) -> Self {
         BitView {
@@ -67,7 +73,7 @@ impl<'a> BitView<'a> {
     {
         match self.true_count {
             0 => {}
-            N => (0..N).for_each(&mut f),
+            PIPELINE_STEP_COUNT => (0..PIPELINE_STEP_COUNT).for_each(&mut f),
             _ => {
                 let mut bit_idx = 0;
                 for mut raw in self.bits.into_inner() {
@@ -88,8 +94,8 @@ impl<'a> BitView<'a> {
         F: FnMut(usize),
     {
         match self.true_count {
-            0 => (0..N).for_each(&mut f),
-            N => {}
+            0 => (0..PIPELINE_STEP_COUNT).for_each(&mut f),
+            PIPELINE_STEP_COUNT => {}
             _ => {
                 let mut bit_idx = 0;
                 for mut raw in self.bits.into_inner() {
@@ -114,7 +120,7 @@ impl<'a> BitView<'a> {
     {
         match self.true_count {
             0 => {}
-            N => f((0, N)),
+            PIPELINE_STEP_COUNT => f((0, PIPELINE_STEP_COUNT)),
             _ => {
                 let mut bit_idx = 0;
                 for mut raw in self.bits.into_inner() {
@@ -143,21 +149,21 @@ impl<'a> BitView<'a> {
         }
     }
 
-    pub fn as_raw(&self) -> &[u64; N / 64] {
+    pub fn as_raw(&self) -> &[u64; PIPELINE_STEP_COUNT / 64] {
         // It's actually remarkably hard to get a reference to the underlying array!
         let raw = self.bits.as_raw_slice();
-        unsafe { &*(raw.as_ptr() as *const [u64; N / 64]) }
+        unsafe { &*(raw.as_ptr() as *const [u64; PIPELINE_STEP_COUNT / 64]) }
     }
 }
 
-impl<'a> From<&'a [u64; N / 64]> for BitView<'a> {
-    fn from(value: &'a [u64; N / 64]) -> Self {
+impl<'a> From<&'a [u64; PIPELINE_STEP_COUNT / 64]> for BitView<'a> {
+    fn from(value: &'a [u64; PIPELINE_STEP_COUNT / 64]) -> Self {
         Self::new(value)
     }
 }
 
-impl<'a> From<&'a BitArray<[u64; N / 64], Msb0>> for BitView<'a> {
-    fn from(bits: &'a BitArray<[u64; N / 64], Msb0>) -> Self {
+impl<'a> From<&'a BitArray<[u64; PIPELINE_STEP_COUNT / 64], Msb0>> for BitView<'a> {
+    fn from(bits: &'a BitArray<[u64; PIPELINE_STEP_COUNT / 64], Msb0>) -> Self {
         BitView::new(unsafe { std::mem::transmute(bits) })
     }
 }
@@ -166,7 +172,7 @@ impl<'a> TryFrom<&'a BitSlice<u64, Msb0>> for BitView<'a> {
     type Error = VortexError;
 
     fn try_from(value: &'a BitSlice<u64, Msb0>) -> Result<Self, Self::Error> {
-        let bits: &BitArray<[u64; N / 64], Msb0> = value
+        let bits: &BitArray<[u64; PIPELINE_STEP_COUNT / 64], Msb0> = value
             .try_into()
             .map_err(|e| vortex_err!("Failed to convert BitSlice to BitArray: {}", e))?;
         Ok(BitView::new(unsafe { std::mem::transmute(bits) }))

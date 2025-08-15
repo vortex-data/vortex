@@ -4,7 +4,7 @@
 //! This module contains experiments into pipelined data processing within Vortex.
 //!
 //! Arrays (and eventually Layouts) will be convertible into a [`Kernel`] that can then be
-//! exported into a [`ViewMut`] one chunk of [`N`] elements at a time. This allows us to keep
+//! exported into a [`ViewMut`] one chunk of [`PIPELINE_STEP_COUNT`] elements at a time. This allows us to keep
 //! compute largely within the L1 cache, as well as to write out canonical data into externally
 //! provided buffers.
 //!
@@ -27,7 +27,7 @@ pub mod vector;
 pub mod view;
 
 /// The number of elements in each step of a Vortex evaluation pipeline.
-pub const N: usize = 1024;
+pub const PIPELINE_STEP_COUNT: usize = 1024;
 
 use std::ops::Range;
 use std::task::Poll;
@@ -165,11 +165,11 @@ mod tests {
     use vortex_dtype::{DType, Nullability};
     use vortex_mask::Mask;
 
+    use crate::IntoArray;
     use crate::canonical::ToCanonical;
     use crate::compute::Operator;
     use crate::pipeline::canonical::export_canonical_pipeline_expr;
     use crate::pipeline::operators::compare::CompareOperator;
-    use crate::{Array, IntoArray};
 
     #[test]
     fn test_pipeline_with_comparison() {

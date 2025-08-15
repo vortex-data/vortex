@@ -8,7 +8,10 @@ use std::sync::{Arc, OnceLock};
 use async_trait::async_trait;
 use futures::FutureExt;
 use vortex_array::compute::filter;
-use vortex_array::pipeline::canonical::export_canonical_pipeline_expr;
+use vortex_array::pipeline::PIPELINE_STEP_COUNT;
+use vortex_array::pipeline::canonical::{
+    export_canonical_pipeline_expr, export_canonical_pipeline_expr_offset,
+};
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
 use vortex_array::{Array, ArrayRef};
@@ -171,11 +174,6 @@ impl MaskEvaluation for FlatEvaluation {
         // Now we await the array .
         let mut array = self.array.clone().await?;
 
-        // Slice the array based on the row mask.
-        if self.row_range.start > 0 || self.row_range.end < array.len() {
-            array = array.slice(self.row_range.start, self.row_range.end)?;
-        }
-
         if array.to_pipeline_plan().is_ok() {
             let mut conv = ExprOperatorConverter::new(array.clone());
             if let Ok(operator) = self
@@ -185,32 +183,37 @@ impl MaskEvaluation for FlatEvaluation {
                 // .map(|o| o.value())
                 .and_then(|o| reduce_operator(o.value()))
             {
-                // println!("pipeline");
-                // {
-                //     array = filter(&array, &mask)?;
-                //     let array_mask =
-                //         Mask::try_from(self.expr.evaluate(&Scope::new(array.clone()))?.as_ref())?;
-                //     println!("expect array_mask: {:?}", array_mask);
-                // }
-                //
-                // println!("operator: {}", self.expr);
-                // println!("operator: {}", array.display_tree());
-                // println!("operator: {:?}", operator);
-                let array_mask = Mask::try_from(
-                    export_canonical_pipeline_expr(
-                        &DType::Bool(NonNullable),
-                        array.len(),
-                        operator.as_ref(),
-                        &mask,
-                    )?
-                    .into_bool()?
-                    .boolean_buffer()
-                    .clone(),
-                )?;
+                let result = false
+                    && (if self.row_range.start % PIPELINE_STEP_COUNT != 0
+                        || self.row_range.end % PIPELINE_STEP_COUNT != 0)
+                    {
+                        let array = array.slice(self.row_range.start, self.row_range.end)?;
+                        export_canonical_pipeline_expr(
+                            &DType::Bool(NonNullable),
+                            array.len(),
+                            operator.as_ref(),
+                            &mask,
+                        )?
+                    } else {
+                        export_canonical_pipeline_expr_offset(
+                            &DType::Bool(NonNullable),
+                            self.row_range.start / PIPELINE_STEP_COUNT,
+                            self.row_range.end - self.row_range.start,
+                            operator.as_ref(),
+                            &mask,
+                        )?
+                    };
+                let array_mask = Mask::from(result.into_bool()?.boolean_buffer().clone());
                 // println!("array_mask: {:?}", array_mask);
 
                 return Ok(mask.intersect_by_rank(&array_mask));
             }
+        }
+
+        // Slice the array based on the row mask.
+        if self.row_range.start > 0 || self.row_range.end < array.len() {
+            // println!("slice {:?}", self.row_range);
+            array = array.slice(self.row_range.start, self.row_range.end)?;
         }
 
         // TODO(ngates): the mask may actually be dense within a range, as is often the case when
