@@ -96,6 +96,14 @@ impl Display for IsNullExpr {
 
 impl AnalysisExpr for IsNullExpr {}
 
+/// Creates an expression that checks for null values.
+///
+/// Returns a boolean array indicating which positions contain null values.
+///
+/// ```rust
+/// # use vortex_expr::{is_null, root};
+/// let expr = is_null(root());
+/// ```
 pub fn is_null(child: ExprRef) -> ExprRef {
     IsNullExpr::new(child).into_expr()
 }

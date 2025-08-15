@@ -92,8 +92,10 @@ impl AnalysisExpr for RootExpr {
     }
 }
 
-/// Return a global pointer to the identity token.
-/// This is the name of the data found in a vortex array or file.
+/// Creates an expression that references the root scope.
+///
+/// Returns the entire input array as passed to the expression evaluator.
+/// This is commonly used as the starting point for field access and other operations.
 pub fn root() -> ExprRef {
     RootExpr.into_expr()
 }

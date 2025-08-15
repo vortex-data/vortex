@@ -10,10 +10,9 @@ use vortex_array::{ArrayRef, IntoArray};
 use crate::scope_vars::{ScopeVar, ScopeVars};
 
 /// Scope define the evaluation context/scope that an expression uses when being evaluated.
-/// There is a special `Identifier` (`Identity`) which is used to bind the initial array being evaluated
 ///
-/// Other identifier can be bound with variables either before execution or while executing (see `Let`).
-/// Values can be extracted from the scope using the `Var` expression.
+/// Other identifier can be bound with variables either before execution or while executing.
+/// Values can be extracted from the scope by type, see [`ScopeVar`](crate::ScopeVar) for more details.
 ///
 /// ```code
 /// <let x = lit(1) in var(Identifier::Identity) + var(x), { Identity -> Primitive[1,2,3]> ->

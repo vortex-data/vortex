@@ -1,6 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Vortex's expression language.
+//!
+//! All expressions are serializable, and own their own wire format.
+//!
+//! The implementation takes inspiration from [Postgres] and [Apache Datafusion].
+//!
+//! [Postgres]: https://www.postgresql.org/docs/current/sql-expressions.html
+//! [Apache Datafusion]: https://github.com/apache/datafusion/tree/5fac581efbaffd0e6a9edf931182517524526afd/datafusion/expr
+
 use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
@@ -43,6 +52,7 @@ pub use pack::*;
 pub use registry::*;
 pub use root::*;
 pub use scope::*;
+pub use scope_vars::*;
 pub use select::*;
 use vortex_array::{Array, ArrayRef, SerializeMetadata};
 use vortex_dtype::{DType, FieldName, FieldPath};
@@ -259,7 +269,7 @@ mod private {
     impl<V: VTable> Sealed for ExprAdapter<V> {}
 }
 
-/// Splits top level and operations into separate expressions
+/// Splits top level and operations into separate expressions.
 pub fn split_conjunction(expr: &ExprRef) -> Vec<ExprRef> {
     let mut conjunctions = vec![];
     split_inner(expr, &mut conjunctions);

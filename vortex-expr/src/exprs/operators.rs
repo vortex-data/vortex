@@ -10,27 +10,31 @@ use vortex_proto::expr::binary_opts::BinaryOp;
 
 /// Equalities, inequalities, and boolean operations over possibly null values.
 ///
-/// For the equalities and inequalities, if either side is null, the result is null. The Boolean
-/// operators obey [Kleene (three-valued) logic](https://en.wikipedia.org/wiki/Three-valued_logic#Kleene_and_Priest_logics).
+/// For most operations, if either side is null, the result is null.
+///
+/// The Boolean operators (And, Or) obey [Kleene (three-valued) logic](https://en.wikipedia.org/wiki/Three-valued_logic#Kleene_and_Priest_logics).
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Operator {
-    // comparison
+    /// Expressions are equal.
     Eq,
+    /// Expressions are not equal.
     NotEq,
+    /// Expression is greater than another
     Gt,
+    /// Expression is greater or equal to another
     Gte,
+    /// Expression is less than another
     Lt,
+    /// Expression is less or equal to another
     Lte,
-    // boolean algebra
+    /// Boolean AND (∧).
     And,
+    /// Boolean OR (∨).
     Or,
-    // arithmetic
     /// The sum of the arguments.
     ///
     /// Errs at runtime if the sum would overflow or underflow.
-    ///
-    /// The result is null at any index that either input is null.
     Add,
 }
 

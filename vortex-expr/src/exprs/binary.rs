@@ -267,17 +267,16 @@ impl AnalysisExpr for BinaryExpr {
     }
 }
 
-/// Create a new `BinaryExpr` using the `Eq` operator.
+/// Create a new [`BinaryExpr`] using the [`Eq`](crate::Operator::Eq) operator.
 ///
 /// ## Example usage
 ///
 /// ```
-/// use vortex_array::arrays::{BoolArray, PrimitiveArray };
-/// use vortex_array::{Array, IntoArray, ToCanonical};
-/// use vortex_array::validity::Validity;
-/// use vortex_buffer::buffer;
-/// use vortex_expr::{eq, root, lit, Scope};
-///
+/// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
+/// # use vortex_array::{Array, IntoArray, ToCanonical};
+/// # use vortex_array::validity::Validity;
+/// # use vortex_buffer::buffer;
+/// # use vortex_expr::{eq, root, lit, Scope};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
 /// let result = eq(root(), lit(3)).evaluate(&Scope::new(xs.to_array())).unwrap();
 ///
@@ -290,17 +289,16 @@ pub fn eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
     BinaryExpr::new(lhs, Operator::Eq, rhs).into_expr()
 }
 
-/// Create a new `BinaryExpr` using the `NotEq` operator.
+/// Create a new [`BinaryExpr`] using the [`NotEq`](crate::Operator::NotEq) operator.
 ///
 /// ## Example usage
 ///
 /// ```
-/// use vortex_array::arrays::{BoolArray, PrimitiveArray };
-/// use vortex_array::{IntoArray, ToCanonical};
-/// use vortex_array::validity::Validity;
-/// use vortex_buffer::buffer;
-/// use vortex_expr::{root, lit, not_eq, Scope};
-///
+/// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
+/// # use vortex_array::{IntoArray, ToCanonical};
+/// # use vortex_array::validity::Validity;
+/// # use vortex_buffer::buffer;
+/// # use vortex_expr::{root, lit, not_eq, Scope};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
 /// let result = not_eq(root(), lit(3)).evaluate(&Scope::new(xs.to_array())).unwrap();
 ///
@@ -313,17 +311,16 @@ pub fn not_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
     BinaryExpr::new(lhs, Operator::NotEq, rhs).into_expr()
 }
 
-/// Create a new `BinaryExpr` using the `Gte` operator.
+/// Create a new [`BinaryExpr`] using the [`Gte`](crate::Operator::Gte) operator.
 ///
 /// ## Example usage
 ///
 /// ```
-/// use vortex_array::arrays::{BoolArray, PrimitiveArray };
-/// use vortex_array::{IntoArray, ToCanonical};
-/// use vortex_array::validity::Validity;
-/// use vortex_buffer::buffer;
-/// use vortex_expr::{gt_eq, root, lit, Scope};
-///
+/// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
+/// # use vortex_array::{IntoArray, ToCanonical};
+/// # use vortex_array::validity::Validity;
+/// # use vortex_buffer::buffer;
+/// # use vortex_expr::{gt_eq, root, lit, Scope};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
 /// let result = gt_eq(root(), lit(3)).evaluate(&Scope::new(xs.to_array())).unwrap();
 ///
@@ -336,17 +333,16 @@ pub fn gt_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
     BinaryExpr::new(lhs, Operator::Gte, rhs).into_expr()
 }
 
-/// Create a new `BinaryExpr` using the `Gt` operator.
+/// Create a new [`BinaryExpr`] using the [`Gt`](crate::Operator::Gt) operator.
 ///
 /// ## Example usage
 ///
 /// ```
-/// use vortex_array::arrays::{BoolArray, PrimitiveArray };
-/// use vortex_array::{IntoArray, ToCanonical};
-/// use vortex_array::validity::Validity;
-/// use vortex_buffer::buffer;
-/// use vortex_expr::{gt, root, lit, Scope};
-///
+/// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
+/// # use vortex_array::{IntoArray, ToCanonical};
+/// # use vortex_array::validity::Validity;
+/// # use vortex_buffer::buffer;
+/// # use vortex_expr::{gt, root, lit, Scope};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
 /// let result = gt(root(), lit(2)).evaluate(&Scope::new(xs.to_array())).unwrap();
 ///
@@ -359,17 +355,16 @@ pub fn gt(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
     BinaryExpr::new(lhs, Operator::Gt, rhs).into_expr()
 }
 
-/// Create a new `BinaryExpr` using the `Lte` operator.
+/// Create a new [`BinaryExpr`] using the [`Lte`](crate::Operator::Lte) operator.
 ///
 /// ## Example usage
 ///
 /// ```
-/// use vortex_array::arrays::{BoolArray, PrimitiveArray };
-/// use vortex_array::{IntoArray, ToCanonical};
-/// use vortex_array::validity::Validity;
-/// use vortex_buffer::buffer;
-/// use vortex_expr::{root, lit, lt_eq, Scope};
-///
+/// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
+/// # use vortex_array::{IntoArray, ToCanonical};
+/// # use vortex_array::validity::Validity;
+/// # use vortex_buffer::buffer;
+/// # use vortex_expr::{root, lit, lt_eq, Scope};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
 /// let result = lt_eq(root(), lit(2)).evaluate(&Scope::new(xs.to_array())).unwrap();
 ///
@@ -382,17 +377,16 @@ pub fn lt_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
     BinaryExpr::new(lhs, Operator::Lte, rhs).into_expr()
 }
 
-/// Create a new `BinaryExpr` using the `Lt` operator.
+/// Create a new [`BinaryExpr`] using the [`Lt`](crate::Operator::Lt) operator.
 ///
 /// ## Example usage
 ///
 /// ```
-/// use vortex_array::arrays::{BoolArray, PrimitiveArray };
-/// use vortex_array::{IntoArray, ToCanonical};
-/// use vortex_array::validity::Validity;
-/// use vortex_buffer::buffer;
-/// use vortex_expr::{root, lit, lt, Scope};
-///
+/// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
+/// # use vortex_array::{IntoArray, ToCanonical};
+/// # use vortex_array::validity::Validity;
+/// # use vortex_buffer::buffer;
+/// # use vortex_expr::{root, lit, lt, Scope};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
 /// let result = lt(root(), lit(3)).evaluate(&Scope::new(xs.to_array())).unwrap();
 ///
@@ -405,15 +399,14 @@ pub fn lt(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
     BinaryExpr::new(lhs, Operator::Lt, rhs).into_expr()
 }
 
-/// Create a new `BinaryExpr` using the `Or` operator.
+/// Create a new [`BinaryExpr`] using the [`Or`](crate::Operator::Or) operator.
 ///
 /// ## Example usage
 ///
 /// ```
-/// use vortex_array::arrays::BoolArray;
-/// use vortex_array::{IntoArray, ToCanonical};
-/// use vortex_expr::{root, lit, or, Scope};
-///
+/// # use vortex_array::arrays::BoolArray;
+/// # use vortex_array::{IntoArray, ToCanonical};
+/// # use vortex_expr::{root, lit, or, Scope};
 /// let xs = BoolArray::from_iter(vec![true, false, true]);
 /// let result = or(root(), lit(false)).evaluate(&Scope::new(xs.to_array())).unwrap();
 ///
@@ -438,15 +431,14 @@ where
     Some(iter.rfold(first, |acc, elem| or(elem, acc)))
 }
 
-/// Create a new `BinaryExpr` using the `And` operator.
+/// Create a new [`BinaryExpr`] using the [`And`](crate::Operator::And) operator.
 ///
 /// ## Example usage
 ///
 /// ```
-/// use vortex_array::arrays::BoolArray;
-/// use vortex_array::{IntoArray, ToCanonical};
-/// use vortex_expr::{and, root, lit, Scope};
-///
+/// # use vortex_array::arrays::BoolArray;
+/// # use vortex_array::{IntoArray, ToCanonical};
+/// # use vortex_expr::{and, root, lit, Scope};
 /// let xs = BoolArray::from_iter(vec![true, false, true]);
 /// let result = and(root(), lit(true)).evaluate(&Scope::new(xs.to_array())).unwrap();
 ///
@@ -481,16 +473,15 @@ where
     iter.reduce(and)
 }
 
-/// Create a new `BinaryExpr` using the `CheckedAdd` operator.
+/// Create a new [`BinaryExpr`] using the [`Add`](crate::Operator::Add) operator.
 ///
 /// ## Example usage
 ///
 /// ```
-/// use vortex_array::IntoArray;
-/// use vortex_array::arrow::IntoArrowArray as _;
-/// use vortex_buffer::buffer;
-/// use vortex_expr::{Scope, checked_add, lit, root};
-///
+/// # use vortex_array::IntoArray;
+/// # use vortex_array::arrow::IntoArrowArray as _;
+/// # use vortex_buffer::buffer;
+/// # use vortex_expr::{Scope, checked_add, lit, root};
 /// let xs = buffer![1, 2, 3].into_array();
 /// let result = checked_add(root(), lit(5))
 ///     .evaluate(&Scope::new(xs.to_array()))
