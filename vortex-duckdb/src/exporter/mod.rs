@@ -370,10 +370,7 @@ mod tests {
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
         let mut vector = Vector::with_capacity(logical_type, 100);
 
-        let mut bits = vec![false; 70];
-        for i in 0..70 {
-            bits[i] = i % 3 == 0;
-        }
+        let bits = (0..70).map(|i| i % 3 == 0).collect::<Vec<_>>();
 
         let buffer = BooleanBuffer::from(bits.as_slice());
         let mask = Mask::from(buffer);
