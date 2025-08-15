@@ -210,21 +210,29 @@ impl VectorExt for Vector {
                 true
             }
             Mask::Values(arr) => {
-                // SAFETY: Caller guaranteees this.
                 let arr_bits: &[u64] = {
                     let byte_slice = arr.boolean_buffer().inner().as_slice();
                     unsafe {
                         std::slice::from_raw_parts(
                             byte_slice.as_ptr() as _,
-                            byte_slice.len().div_ceil(8),
+                            byte_slice.len().div_ceil(size_of::<u64>()),
                         )
                     }
                 };
                 let sliced_bits = &arr_bits.view_bits::<Lsb0>()[offset..][..len];
-
-                let validity = unsafe { self.ensure_validity_slice(len) };
-                validity[..len].copy_from_bitslice(sliced_bits);
-                sliced_bits.count_ones() == len
+                let true_count = sliced_bits.count_ones();
+                if true_count == len {
+                    if let Some(validity) = unsafe { self.validity_slice_mut(len) } {
+                        validity.fill(true);
+                    }
+                } else if true_count == 0 {
+                    unsafe { self.ensure_validity_slice(len) }.fill(false);
+                } else {
+                    // SAFETY: Caller guaranteees this.
+                    let validity = unsafe { self.ensure_validity_slice(len) };
+                    validity[..len].copy_from_bitslice(sliced_bits);
+                }
+                true_count == 0
             }
         }
     }
