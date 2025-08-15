@@ -9,7 +9,7 @@ use vortex_array::{
     ArrayBufferVisitor, ArrayChildVisitor, Canonical, DeserializeMetadata, SerializeMetadata,
 };
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, PType};
+use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::{Scalar, ScalarValue};
 
