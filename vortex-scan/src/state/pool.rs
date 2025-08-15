@@ -50,6 +50,7 @@ impl TaskSpawner for Arc<Injector<Box<ScanTask>>> {
     }
 }
 
+#[derive(Clone)]
 pub struct WorkerPool {
     shared: Arc<Shared>,
 }
@@ -72,6 +73,10 @@ impl WorkerPool {
             shared: self.shared.clone(),
             worker,
         }
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.shared.scheduler.lock().finished
     }
 }
 
