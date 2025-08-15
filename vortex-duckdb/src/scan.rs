@@ -12,7 +12,7 @@ use vortex::dtype::FieldNames;
 use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{ExprRef, and, and_collect, col, lit, root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
-use vortex::scan::{MultiScanPool, MultiScanWorker};
+use vortex::scan::{MultiScanPool, MultiScanWorker, ScanFactory};
 use vortex_file::GenericVortexFile;
 
 use crate::RUNTIME;
@@ -309,7 +309,7 @@ impl TableFunction for VortexTableFunction {
             let projection_expr = projection_expr.clone();
             let object_cache = unsafe { ObjectCache::borrow(object_cache.as_ptr()) };
 
-            move || {
+            Box::new(move || {
                 let file = if idx == 0 {
                     // The first path from `file_paths` is skipped as
                     // the first file was already opened during bind.
@@ -340,15 +340,11 @@ impl TableFunction for VortexTableFunction {
                         //.map(move |split| Ok((split, conversion_cache.clone())))
                         .build2()?,
                 ))
-            }
+            }) as ScanFactory
         });
 
-        let scans = closures
-            .into_iter()
-            .filter_map(|closure| closure().transpose());
-
         Ok(VortexGlobalData {
-            scan: MultiScanPool::try_new(scans)?,
+            scan: MultiScanPool::try_new(closures)?,
             batch_id: AtomicU64::new(0),
         })
     }
