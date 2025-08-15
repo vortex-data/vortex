@@ -15,7 +15,7 @@ use vortex::arrow::FromArrowArray;
 use vortex::compressor::CompactCompressor;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
-use vortex::error::{VortexError, VortexExpect, VortexResult};
+use vortex::error::{VortexError, VortexExpect};
 use vortex::file::{VortexWriteOptions, WriteStrategyBuilder};
 use vortex::stream::ArrayStreamAdapter;
 
@@ -41,7 +41,7 @@ pub struct Flags {
 const BATCH_SIZE: usize = 8192;
 
 /// Convert Parquet files to Vortex.
-pub async fn exec_convert(flags: Flags) -> VortexResult<()> {
+pub async fn exec_convert(flags: Flags) -> anyhow::Result<()> {
     let input_path = flags.file.clone();
     if !flags.quiet {
         eprintln!("Converting input Parquet file: {}", input_path.display());
@@ -60,7 +60,7 @@ pub async fn exec_convert(flags: Flags) -> VortexResult<()> {
         .build()?
         .map(|record_batch| {
             record_batch
-                .map_err(VortexError::from)
+                .map_err(|e| VortexError::generic(e.into()))
                 .map(|rb| ArrayRef::from_arrow(rb, false))
         })
         .boxed();

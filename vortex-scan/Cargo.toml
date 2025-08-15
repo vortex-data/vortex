@@ -42,7 +42,7 @@ vortex-layout = { workspace = true, features = ["test-harness"] }
 
 [features]
 default = []
-roaring = ["dep:roaring", "vortex-layout/roaring"]
+roaring = ["dep:roaring"]
 tokio = ["dep:tokio"]
 
 [lints]
