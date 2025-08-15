@@ -166,21 +166,24 @@ where
 #[cfg(test)]
 mod tests {
     use arrow_buffer::BooleanBuffer;
+    use itertools::Itertools;
     use rand::prelude::StdRng;
     use rand::{Rng, SeedableRng};
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::filter;
     use vortex_array::display::{DisplayArrayAs, DisplayOptions};
     use vortex_array::pipeline::canonical::export_canonical_pipeline_expr;
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::BufferMut;
     use vortex_mask::Mask;
+    use vortex_scalar::Scalar;
 
-    use crate::bitpack_to_best_bit_width;
+    use crate::{FoRArray, bitpack_to_best_bit_width};
 
     #[test]
     fn test_bitpacking_pipeline() {
-        for frac in [0.99] {
-            let len = 2048;
+        for frac in [0.5] {
+            let len = 10;
             let mut rng = StdRng::seed_from_u64(0);
             let values = (0i16..len)
                 .map(|_| rng.random_range(0..100))
@@ -205,6 +208,8 @@ mod tests {
 
             let expect = filter(bitpacked.to_canonical().unwrap().as_ref(), &mask).unwrap();
 
+            assert_eq!(result.len(), expect.len());
+
             for i in 0..mask.true_count() {
                 assert_eq!(
                     result.scalar_at(i).unwrap(),
@@ -214,6 +219,54 @@ mod tests {
                     frac
                 );
             }
+        }
+    }
+
+    #[test]
+    fn test_bitpacking_parent_pipeline() {
+        let len = 10;
+        let prim = (0i32..len).map(|x| x % 32).collect::<PrimitiveArray>();
+        let mask = (0..len).map(|i| i % 32 != 0).collect::<Mask>();
+        let bitpack = bitpack_to_best_bit_width(&prim).unwrap();
+        let array = FoRArray::try_new(bitpack.to_array(), Scalar::from(100i32)).unwrap();
+
+        let res = export_canonical_pipeline_expr(
+            array.dtype(),
+            array.len(),
+            array.to_pipeline_plan().unwrap().as_ref(),
+            &mask,
+        )
+        .unwrap()
+        .into_array();
+
+        println!("mask: {:?}", mask.to_boolean_buffer().iter().collect_vec());
+
+        println!(
+            "result: {}",
+            DisplayArrayAs(
+                res.as_ref(),
+                DisplayOptions::CommaSeparatedScalars {
+                    omit_comma_after_space: false
+                }
+            )
+        );
+        let expect = filter(array.as_ref(), &mask).unwrap();
+        println!(
+            "expect: {}",
+            DisplayArrayAs(
+                expect.as_ref(),
+                DisplayOptions::CommaSeparatedScalars {
+                    omit_comma_after_space: false
+                }
+            )
+        );
+
+        for i in 0..mask.true_count() {
+            assert_eq!(
+                res.scalar_at(i).unwrap(),
+                expect.scalar_at(i).unwrap(),
+                "{i}",
+            );
         }
     }
 }

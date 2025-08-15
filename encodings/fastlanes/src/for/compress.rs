@@ -20,10 +20,7 @@ impl FoRArray {
             .ok_or_else(|| vortex_err!("Min stat not found"))?;
 
         let encoded = match_each_integer_ptype!(array.ptype(), |T| {
-            let unsigned_ptype = array.ptype().to_unsigned();
-            compress_primitive::<T>(array, T::try_from(&min)?)?
-                .reinterpret_cast(unsigned_ptype)
-                .into_array()
+            compress_primitive::<T>(array, T::try_from(&min)?)?.into_array()
         });
         FoRArray::try_new(encoded, min)
     }
@@ -49,7 +46,7 @@ pub fn decompress(array: &FoRArray) -> VortexResult<PrimitiveArray> {
     let ptype = array.ptype();
 
     // TODO(ngates): do we need this to be into_encoded() somehow?
-    let encoded = array.encoded().to_primitive()?.reinterpret_cast(ptype);
+    let encoded = array.encoded().to_primitive()?;
     let validity = encoded.validity().clone();
 
     Ok(match_each_integer_ptype!(ptype, |T| {
@@ -85,6 +82,21 @@ mod test {
     use vortex_scalar::Scalar;
 
     use super::*;
+
+    #[test]
+    fn test_compress_non() {
+        // Create a range offset by a million
+        let array = PrimitiveArray::new(
+            (0i32..10).map(|v| v).collect::<Buffer<_>>(),
+            Validity::NonNullable,
+        );
+        println!("{}", array.as_ref().display_tree());
+        let compressed = FoRArray::encode(array).unwrap();
+        assert_eq!(i32::try_from(compressed.reference_scalar()).unwrap(), 0);
+
+        let decompressed = compressed.to_primitive().unwrap();
+        println!("{}", decompressed.as_ref().display_tree());
+    }
 
     #[test]
     fn test_compress() {

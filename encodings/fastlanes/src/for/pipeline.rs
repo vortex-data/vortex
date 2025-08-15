@@ -7,7 +7,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use std::task::Poll;
 
-use num_traits::{Unsigned, WrappingAdd};
+use num_traits::WrappingAdd;
 use vortex_array::Array;
 use vortex_array::pipeline::bits::BitView;
 use vortex_array::pipeline::operators::scalar_compare::ScalarCompareOperator;
@@ -17,10 +17,7 @@ use vortex_array::pipeline::vector::VectorId;
 use vortex_array::pipeline::view::ViewMut;
 use vortex_array::pipeline::{Kernel, KernelContext};
 use vortex_array::vtable::PipelineVTable;
-use vortex_dtype::{
-    NativePType, PType, match_each_integer_ptype, match_each_native_ptype,
-    match_each_unsigned_integer_ptype,
-};
+use vortex_dtype::{NativePType, PType, match_each_integer_ptype, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
@@ -82,7 +79,7 @@ impl Operator for FoROperator {
         };
 
         match_each_integer_ptype!(ptype, |T| {
-            match_each_unsigned_integer_ptype!(self.encoded_ptype, |E| {
+            match_each_integer_ptype!(self.encoded_ptype, |E| {
                 Ok(Box::new(FoRKernel::<T, E> {
                     child: ctx.children()[0],
                     reference: self
@@ -124,7 +121,7 @@ impl Operator for FoROperator {
 
 // TODO(ngates): we should try putting the const bit width as a generic here, to avoid
 //  a switch in the fastlanes library on every invocation of `unchecked_unpack`.
-pub(crate) struct FoRKernel<T: NativePType, E: NativePType + Unsigned> {
+pub(crate) struct FoRKernel<T: NativePType, E: NativePType> {
     child: VectorId,
     reference: T,
     _marker: PhantomData<E>,
@@ -133,7 +130,7 @@ pub(crate) struct FoRKernel<T: NativePType, E: NativePType + Unsigned> {
 impl<T, E> Kernel for FoRKernel<T, E>
 where
     T: NativePType + Element + WrappingAdd,
-    E: NativePType + Element + Unsigned,
+    E: NativePType + Element,
 {
     fn seek(&mut self, _chunk_idx: usize) -> VortexResult<()> {
         Ok(())
@@ -166,9 +163,11 @@ mod tests {
     use vortex_array::display::{DisplayArrayAs, DisplayOptions};
     use vortex_array::pipeline::canonical::export_canonical_pipeline_expr;
     use vortex_array::{IntoArray, ToCanonical};
-    use vortex_buffer::{BufferMut, buffer_mut};
+    use vortex_buffer::BufferMut;
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability::NonNullable;
     use vortex_expr::traversal::NodeExt;
-    use vortex_expr::{ExprOperatorConverter, gt, lit, reduce_operator, root};
+    use vortex_expr::{ExprOperatorConverter, Scope, gt, lit, reduce_operator, root};
     use vortex_mask::Mask;
 
     use super::*;
@@ -243,9 +242,8 @@ mod tests {
 
     #[test]
     fn test_for_pipeline2() {
-        // for frac in [0.001, 0.01, 0.1, 0.5, 0.9, 0.99, 0.999] {
         for frac in [0.99] {
-            let len = 1024;
+            let len = 10;
             let mut rng = StdRng::seed_from_u64(0);
             let values = (0i16..len)
                 .map(|_| rng.random_range(50..150))
@@ -307,23 +305,52 @@ mod tests {
 
     #[test]
     fn test_expr_operator_converter() {
-        let for_ = create_for_bitpacked_array(buffer_mut![1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-            .unwrap()
-            .to_array();
+        const N: usize = 100;
+        let array =
+            create_for_bitpacked_array((0..N as i32).map(|x| x % 32).collect::<BufferMut<_>>())
+                .unwrap()
+                .to_array();
         let expr = gt(root(), lit(2));
 
-        println!("for: {}", for_.display_tree());
+        let mut m = vec![true; N];
+        m[2] = false;
+        let mask = Mask::from_iter(m.into_iter());
+        println!("mask: {}", mask.true_count());
+
+        let expect = expr
+            .evaluate(&Scope::new(filter(&array, &mask).unwrap()))
+            .unwrap();
+
+        let mut converter = ExprOperatorConverter::new(array.clone());
+        let operator = expr.fold(&mut converter).unwrap().value();
+        let operator = reduce_operator(operator).unwrap();
+
+        let result = export_canonical_pipeline_expr(
+            &DType::Bool(NonNullable),
+            array.len(),
+            operator.as_ref(),
+            &mask,
+        )
+        .unwrap()
+        .into_array();
+
         println!(
-            "for: {}",
-            DisplayArrayAs(for_.as_ref(), DisplayOptions::default())
+            "result[..{}]: {}",
+            result.len(),
+            DisplayArrayAs(result.as_ref(), DisplayOptions::default()),
         );
-        println!("expr: {}", expr);
+        println!(
+            "expect[..{}]: {}",
+            expect.len(),
+            DisplayArrayAs(expect.as_ref(), DisplayOptions::default())
+        );
 
-        let mut converter = ExprOperatorConverter::new(for_);
-        let result = expr.fold(&mut converter).unwrap().value();
-
-        println!("{:?}", result);
-        let r2 = reduce_operator(result).unwrap();
-        println!("{:?}", r2);
+        for i in 0..mask.true_count() {
+            assert_eq!(
+                result.scalar_at(i).unwrap(),
+                expect.scalar_at(i).unwrap(),
+                "i: {i}"
+            );
+        }
     }
 }

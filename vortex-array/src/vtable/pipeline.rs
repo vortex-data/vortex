@@ -18,7 +18,10 @@ pub trait PipelineVTable<V: VTable> {
 
 impl<V: VTable> PipelineVTable<V> for NotSupported {
     fn to_operator(array: &V::Array) -> VortexResult<Arc<dyn Operator>> {
-        todo!()
+        vortex_bail!(
+            "PipelineVTable::to_operator is not supported for this array type: {}",
+            array.encoding_id()
+        );
     }
 
     fn to_pipeline(array: &V::Array) -> VortexResult<Box<dyn Kernel>> {

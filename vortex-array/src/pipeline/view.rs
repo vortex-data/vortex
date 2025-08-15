@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Debug;
+
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 
@@ -194,7 +196,7 @@ impl<'a> ViewMut<'a> {
     /// the elements buffer.
     ///
     /// FIXME(ngates): also need to select validity bits.
-    pub fn select_mask<E: Element>(&mut self, mask: &BitView) {
+    pub fn select_mask<E: Element + Debug>(&mut self, mask: &BitView) {
         assert_eq!(
             self.vtype,
             E::vtype(),
@@ -241,11 +243,14 @@ impl<'a> ViewMut<'a> {
             }
             _ => {
                 let mut offset = 0;
+                let slice = self.as_slice_mut::<E>();
                 mask.iter_ones(|idx| {
                     unsafe {
                         // SAFETY: We assume that the elements are of type E and that the view is valid.
-                        *self.as_slice_mut::<E>().get_unchecked_mut(offset) =
-                            *self.as_slice::<E>().get_unchecked(idx);
+                        let value = *slice.get_unchecked(idx);
+                        // TODO(joe): use ptr increment (not offset).
+                        *slice.get_unchecked_mut(offset) = value;
+
                         offset += 1;
                     }
                 });

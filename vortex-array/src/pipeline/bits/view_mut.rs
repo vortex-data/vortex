@@ -37,22 +37,24 @@ impl<'a> BitViewMut<'a> {
     pub fn intersect_prefix(&mut self, mut len: usize) {
         assert!(len <= N, "BitViewMut::truncate: length exceeds N");
 
+        let bit_slice = self.bits.as_raw_mut_slice();
+
         let mut word = 0;
         let mut true_count = 0;
         while len >= 64 {
-            true_count += self.bits.as_raw_mut_slice()[word].count_ones() as usize;
+            true_count += bit_slice[word].count_ones() as usize;
             len -= 64;
             word += 1;
         }
 
         if len > 0 {
-            self.bits.as_raw_mut_slice()[word] &= u64::MAX << (64 - len);
+            bit_slice[word] &= !(u64::MAX << len);
+            true_count += bit_slice[word].count_ones() as usize;
             word += 1;
-            true_count += self.bits.as_raw_mut_slice()[word - 1].count_ones() as usize;
         }
 
         while word < N / 64 {
-            self.bits.as_raw_mut_slice()[word] = 0;
+            bit_slice[word] = 0;
             word += 1;
         }
 
