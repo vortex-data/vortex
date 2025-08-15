@@ -6,23 +6,38 @@ use crate::state::pool::{ScanWorker, WorkerPool};
 use parking_lot::Mutex;
 use std::sync::Arc;
 use vortex_array::ArrayRef;
-use vortex_error::VortexResult;
+use vortex_array::iter::ArrayIterator;
+use vortex_dtype::DType;
+use vortex_error::{VortexResult, vortex_bail};
 
 /// A way of orchestrating multiple scans across a worker pool.
 #[derive(Clone)]
 pub struct MultiScanPool {
+    dtype: DType,
     shared: Arc<Mutex<Shared>>,
 }
 
 impl MultiScanPool {
-    pub fn new<I: IntoIterator<Item = VortexResult<Scan2>> + 'static>(pending: I) -> Self {
+    pub fn try_new<I: IntoIterator<Item = VortexResult<Scan2>> + 'static>(
+        pending: I,
+    ) -> VortexResult<Self>
+    where
+        <I as IntoIterator>::IntoIter: 'static + Send,
+    {
+        let mut pending = pending.into_iter().peekable();
+        let Some(Ok(first)) = pending.peek() else {
+            vortex_bail!("Must provide at least one scan")
+        };
+        let dtype = first.dtype().clone();
+
         let pending = Box::new(pending.into_iter());
-        MultiScanPool {
+        Ok(MultiScanPool {
+            dtype,
             shared: Arc::new(Mutex::new(Shared {
                 pending,
                 pools: vec![],
             })),
-        }
+        })
     }
 
     pub fn new_worker(&self) -> MultiScanWorker {
@@ -33,6 +48,7 @@ impl MultiScanPool {
 
         MultiScanWorker {
             worker_idx,
+            dtype: self.dtype.clone(),
             shared: self.shared.clone(),
             current_worker: None,
         }
@@ -41,7 +57,7 @@ impl MultiScanPool {
 
 struct Shared {
     /// A stream containing pending scans.
-    pending: Box<dyn Iterator<Item = VortexResult<Scan2>>>,
+    pending: Box<dyn Iterator<Item = VortexResult<Scan2>> + Send>,
     pools: Vec<Option<WorkerPool>>,
 }
 
@@ -75,8 +91,15 @@ impl Shared {
 
 pub struct MultiScanWorker {
     worker_idx: usize,
+    dtype: DType,
     shared: Arc<Mutex<Shared>>,
     current_worker: Option<ScanWorker>,
+}
+
+impl MultiScanWorker {
+    pub fn idx(&self) -> usize {
+        self.worker_idx
+    }
 }
 
 impl Iterator for MultiScanWorker {
@@ -106,5 +129,11 @@ impl Iterator for MultiScanWorker {
                 }
             }
         }
+    }
+}
+
+impl ArrayIterator for MultiScanWorker {
+    fn dtype(&self) -> &DType {
+        &self.dtype
     }
 }

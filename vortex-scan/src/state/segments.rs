@@ -117,22 +117,29 @@ impl Stream for SegmentsScan {
     type Item = VortexResult<SegmentId>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let Some((segment_id, result)) = ready!(self.results.poll_next_unpin(cx)) else {
-            return Poll::Ready(None);
-        };
+        loop {
+            let Some((segment_id, result)) = ready!(self.results.poll_next_unpin(cx)) else {
+                return Poll::Ready(None);
+            };
 
-        match result {
-            Ok(buffer) => {
-                assert!(
-                    self.in_flight.remove(&segment_id),
-                    "Unrecognized segment ID {}",
-                    segment_id
-                );
-                self.working_set_size += buffer.len() as u64;
-                self.working_set.insert(segment_id, buffer);
-                Poll::Ready(Some(Ok(segment_id)))
-            }
-            Err(e) => Poll::Ready(Some(Err(e))),
+            return match result {
+                Ok(buffer) => {
+                    assert!(
+                        self.in_flight.remove(&segment_id),
+                        "Unrecognized segment ID {}",
+                        segment_id
+                    );
+
+                    // Only add it to our working set if it is still required.
+                    if self.ref_counts.contains_key(&segment_id) {
+                        self.working_set_size += buffer.len() as u64;
+                        self.working_set.insert(segment_id, buffer);
+                    }
+
+                    Poll::Ready(Some(Ok(segment_id)))
+                }
+                Err(e) => Poll::Ready(Some(Err(e))),
+            };
         }
     }
 }

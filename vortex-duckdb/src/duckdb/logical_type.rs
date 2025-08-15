@@ -14,6 +14,7 @@ wrapper!(
 
 /// `LogicalType` is Send, as the wrapped pointer and bool are Send.
 unsafe impl Send for LogicalType {}
+unsafe impl Sync for LogicalType {}
 
 impl Clone for LogicalType {
     fn clone(&self) -> Self {

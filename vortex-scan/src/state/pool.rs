@@ -103,7 +103,9 @@ impl Iterator for ScanWorker {
                 // If the scheduler is finished, we return None since we know all CPU tasks have
                 // been completed.
                 if scheduler.finished {
-                    assert!(self.worker.is_empty());
+                    // FIXME(ngates): should this always be true? We can spawn conjuncts and then
+                    //  later figure out they can be pruned.
+                    // assert!(self.worker.is_empty());
                     return None;
                 }
 

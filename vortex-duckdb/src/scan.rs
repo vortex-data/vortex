@@ -7,12 +7,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use bitvec::macros::internal::funty::Fundamental;
 use tokio::task::block_in_place;
 use url::Url;
+use vortex::ToCanonical;
 use vortex::dtype::FieldNames;
 use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{ExprRef, and, and_collect, col, lit, root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
-use vortex::scan::{MultiScan, MultiScanIterator};
-use vortex::{ArrayRef, ToCanonical};
+use vortex::scan::{MultiScanPool, MultiScanWorker};
 use vortex_file::GenericVortexFile;
 
 use crate::RUNTIME;
@@ -60,15 +60,17 @@ impl std::fmt::Debug for VortexBindData {
 }
 
 pub struct VortexGlobalData {
-    scan: MultiScan<(ArrayRef, Arc<ConversionCache>)>,
+    scan: MultiScanPool,
     batch_id: AtomicU64,
 }
 
 pub struct VortexLocalData {
-    iterator: MultiScanIterator<(ArrayRef, Arc<ConversionCache>)>,
+    iterator: MultiScanWorker,
     exporter: Option<ArrayExporter>,
     // The unique batch id the of the last chunk exported via scan()
     batch_id: Option<u64>,
+
+    conversion_cache: ConversionCache,
 }
 
 #[derive(Debug)]
@@ -252,12 +254,12 @@ impl TableFunction for VortexTableFunction {
                 let Some(result) = local_state.iterator.next() else {
                     return Ok(());
                 };
-
-                let (array_result, conversion_cache) = result?;
+                let array_result = result?;
+                // let (array_result, conversion_cache) = result?;
 
                 local_state.exporter = Some(ArrayExporter::try_new(
                     &array_result.to_struct()?,
-                    &conversion_cache,
+                    &local_state.conversion_cache,
                 )?);
                 // Relaxed since there is no intra-instruction ordering required.
                 local_state.batch_id = Some(global_state.batch_id.fetch_add(1, Ordering::Relaxed));
@@ -298,54 +300,55 @@ impl TableFunction for VortexTableFunction {
         );
 
         let object_cache = init_input.client_context()?.object_cache();
+        let file_urls = bind_data.file_urls.clone();
+        let first_file = bind_data.first_file.clone();
 
-        let closures =
-            bind_data
-                .file_urls
-                .clone()
-                .into_iter()
-                .enumerate()
-                .map(move |(idx, path)| {
-                    let first_file = bind_data.first_file.clone();
-                    let filter_expr = filter_expr.clone();
-                    let projection_expr = projection_expr.clone();
-                    let conversion_cache = Arc::new(ConversionCache::new(idx as u64));
-                    let object_cache = unsafe { ObjectCache::borrow(object_cache.as_ptr()) };
+        let closures = file_urls.into_iter().enumerate().map(move |(idx, path)| {
+            let first_file = first_file.clone();
+            let filter_expr = filter_expr.clone();
+            let projection_expr = projection_expr.clone();
+            let object_cache = unsafe { ObjectCache::borrow(object_cache.as_ptr()) };
 
-                    move || {
-                        let file = if idx == 0 {
-                            // The first path from `file_paths` is skipped as
-                            // the first file was already opened during bind.
-                            first_file
-                        } else {
-                            let cache = FooterCache::new(object_cache);
-                            let entry = cache.entry(path.as_ref());
-                            block_in_place(|| {
-                                RUNTIME.block_on(async {
-                                    let options = entry.apply_to_file(VortexOpenOptions::file());
-                                    let file = open_file(path.clone(), options).await?;
-                                    entry.put_if_absent(|| file.footer().clone());
-                                    VortexResult::Ok(file)
-                                })
-                            })?
-                        };
+            move || {
+                let file = if idx == 0 {
+                    // The first path from `file_paths` is skipped as
+                    // the first file was already opened during bind.
+                    first_file
+                } else {
+                    let cache = FooterCache::new(object_cache);
+                    let entry = cache.entry(path.as_ref());
+                    block_in_place(|| {
+                        RUNTIME.block_on(async {
+                            let options = entry.apply_to_file(VortexOpenOptions::file());
+                            let file = open_file(path.clone(), options).await?;
+                            entry.put_if_absent(|| file.footer().clone());
+                            VortexResult::Ok(file)
+                        })
+                    })?
+                };
 
-                        if let Some(ref filter) = filter_expr
-                            && file.can_prune(filter)?
-                        {
-                            return Ok(vec![]);
-                        };
+                if let Some(ref filter) = filter_expr
+                    && file.can_prune(filter)?
+                {
+                    return Ok(None);
+                };
 
-                        file.scan()?
-                            .with_some_filter(filter_expr)
-                            .with_projection(projection_expr)
-                            .map(move |split| Ok((split, conversion_cache.clone())))
-                            .build()
-                    }
-                });
+                Ok(Some(
+                    file.scan()?
+                        .with_some_filter(filter_expr)
+                        .with_projection(projection_expr)
+                        //.map(move |split| Ok((split, conversion_cache.clone())))
+                        .build2()?,
+                ))
+            }
+        });
+
+        let scans = closures
+            .into_iter()
+            .filter_map(|closure| closure().transpose());
 
         Ok(VortexGlobalData {
-            scan: MultiScan::new(closures),
+            scan: MultiScanPool::try_new(scans)?,
             batch_id: AtomicU64::new(0),
         })
     }
@@ -354,10 +357,13 @@ impl TableFunction for VortexTableFunction {
         _init: &TableInitInput<Self>,
         global: &mut Self::GlobalState,
     ) -> VortexResult<Self::LocalState> {
+        let worker = global.scan.new_worker();
+        let conversion_cache = ConversionCache::new(worker.idx() as u64);
         Ok(VortexLocalData {
-            iterator: global.scan.clone().new_iterator(),
+            iterator: worker,
             exporter: None,
             batch_id: None,
+            conversion_cache,
         })
     }
 
