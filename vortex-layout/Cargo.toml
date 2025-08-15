@@ -31,7 +31,7 @@ pco = { workspace = true }
 pin-project-lite = { workspace = true }
 prost = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
-tracing = { workspace = true, optional = true }
+tracing = { workspace = true }
 vortex-array = { workspace = true }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
@@ -55,7 +55,7 @@ vortex-layout = { path = ".", features = ["tokio", "test-harness"] }
 
 [features]
 test-harness = []
-tokio = ["dep:tokio", "vortex-error/tokio", "tracing"]
+tokio = ["dep:tokio", "vortex-error/tokio"]
 zstd = ["dep:vortex-zstd"]
 
 [lints]

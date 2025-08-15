@@ -7,7 +7,6 @@ use std::thread::JoinHandle;
 
 use futures::channel::oneshot;
 use tokio::task::{JoinHandle as TokioJoinHandle, LocalSet};
-#[cfg(feature = "tracing")]
 use tracing::Instrument;
 use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 
@@ -68,7 +67,6 @@ impl TokioDispatcher {
 struct TokioTask<F, R> {
     task: F,
     result: oneshot::Sender<R>,
-    #[cfg(feature = "tracing")]
     span: tracing::Span,
 }
 
@@ -79,18 +77,9 @@ where
     R: Send + 'static,
 {
     fn spawn(self: Box<Self>) -> TokioJoinHandle<()> {
-        let TokioTask {
-            task,
-            result,
-            #[cfg(feature = "tracing")]
-            span,
-        } = *self;
+        let TokioTask { task, result, span } = *self;
         tokio::task::spawn_local(async move {
-            #[cfg(feature = "tracing")]
             let task_output = task().instrument(span).await;
-            #[cfg(not(feature = "tracing"))]
-            let task_output = task().await;
-
             result.send(task_output).ok();
         })
     }
@@ -108,7 +97,6 @@ impl Dispatch for TokioDispatcher {
         let task = TokioTask {
             result: tx,
             task,
-            #[cfg(feature = "tracing")]
             span: tracing::Span::current(),
         };
 
@@ -156,7 +144,6 @@ mod tests {
         assert_eq!(atomic_number.load(Ordering::SeqCst), 1u32);
     }
 
-    #[cfg(feature = "tracing")]
     #[tokio::test]
     async fn test_span_propagation() {
         use tracing::{Span, info_span};
