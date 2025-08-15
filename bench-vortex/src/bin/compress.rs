@@ -14,7 +14,7 @@ use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table
 use bench_vortex::public_bi::PBI_DATASETS;
 use bench_vortex::public_bi::PBIDataset::{Arade, Bimbo, CMSprovider, Euro2016, Food, HashTags};
 use bench_vortex::utils::new_tokio_runtime;
-use bench_vortex::{Engine, Format, Target, default_env_filter, setup_logger};
+use bench_vortex::{Engine, Format, Target, setup_logging_and_tracing};
 use clap::Parser;
 use indicatif::ProgressBar;
 use itertools::Itertools;
@@ -40,13 +40,14 @@ struct Args {
     display_format: DisplayFormat,
     #[arg(short)]
     output_path: Option<PathBuf>,
+    #[arg(long)]
+    tracing: bool,
 }
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    let filter = default_env_filter(args.verbose);
-    setup_logger(filter);
+    setup_logging_and_tracing(args.verbose, args.tracing)?;
 
     let runtime = new_tokio_runtime(args.threads);
 

@@ -65,7 +65,6 @@ object_store = ["vortex-file/object_store"]
 parquet = ["vortex-error/parquet"]
 python = ["vortex-error/python"]
 tokio = ["vortex-file/tokio", "vortex-scan/tokio"]
-tracing = ["vortex-file/tracing", "vortex-layout/tracing"]
 zstd = ["dep:vortex-zstd", "vortex-file/zstd", "vortex-layout/zstd"]
 pretty = ["vortex-array/table-display"]
 

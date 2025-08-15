@@ -7,9 +7,9 @@ use std::fs::File;
 use std::io::{Write, stdout};
 use std::path::PathBuf;
 
+use crate::Target;
 use crate::display::{DisplayFormat, print_measurements_json, render_table};
 use crate::measurements::{MemoryMeasurement, QueryMeasurement};
-use crate::{Target, default_env_filter};
 
 /// Common benchmark configuration
 #[derive(Debug, Clone)]
@@ -22,41 +22,6 @@ pub struct BenchmarkConfig {
     pub disable_datafusion_cache: bool,
     pub queries: Option<Vec<usize>>,
     pub output_path: Option<PathBuf>,
-}
-
-/// Initialize logging/tracing for a benchmark
-pub fn setup_logging_and_tracing(verbose: bool, trace_file: &str) -> anyhow::Result<()> {
-    let filter = default_env_filter(verbose);
-
-    #[cfg(not(feature = "tracing"))]
-    {
-        let _ = trace_file; // Suppress unused warning
-        crate::setup_logger(filter);
-    }
-
-    #[cfg(feature = "tracing")]
-    {
-        use std::io::IsTerminal;
-
-        use tracing_subscriber::prelude::*;
-
-        let layer = tracing_perfetto::PerfettoLayer::new(File::create(trace_file)?)
-            .with_debug_annotations(true);
-
-        let fmt_layer = tracing_subscriber::fmt::layer()
-            .with_writer(std::io::stderr)
-            .with_level(true)
-            .with_line_number(true)
-            .with_ansi(std::io::stderr().is_terminal());
-
-        tracing_subscriber::registry()
-            .with(filter)
-            .with(layer)
-            .with(fmt_layer)
-            .init();
-    }
-
-    Ok(())
 }
 
 /// Print benchmark results

@@ -80,6 +80,3 @@ vortex = { workspace = true, features = [
 vortex-datafusion = { workspace = true }
 vortex-duckdb = { workspace = true }
 xshell = { workspace = true }
-
-[features]
-tracing = ["vortex-datafusion/tracing"]
