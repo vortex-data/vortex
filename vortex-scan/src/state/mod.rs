@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-pub mod multi_scan;
+mod multi_scan;
 mod multithread;
 mod pool;
 mod segments;
@@ -12,6 +12,7 @@ use bit_vec::BitVec;
 use futures::StreamExt;
 use futures::channel::mpsc;
 use futures::task::noop_waker;
+pub use multi_scan::*;
 pub use segments::*;
 use std::collections::VecDeque;
 use std::fmt::{Debug, Formatter};
