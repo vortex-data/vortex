@@ -7,10 +7,10 @@ use std::sync::{Arc, Weak};
 use arrow_schema::{ArrowError, Field, SchemaRef};
 use dashmap::{DashMap, Entry};
 use datafusion_common::{DataFusionError, Result as DFResult};
-use datafusion_datasource::PartitionedFile;
 use datafusion_datasource::file_meta::FileMeta;
 use datafusion_datasource::file_stream::{FileOpenFuture, FileOpener};
 use datafusion_datasource::schema_adapter::SchemaAdapterFactory;
+use datafusion_datasource::{FileRange, PartitionedFile};
 use datafusion_physical_expr::schema_rewriter::PhysicalExprAdapterFactory;
 use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
 use datafusion_physical_expr::{PhysicalExprRef, split_conjunction};
@@ -19,7 +19,7 @@ use object_store::ObjectStore;
 use object_store::path::Path;
 use vortex::dtype::FieldName;
 use vortex::error::VortexError;
-use vortex::expr::root;
+use vortex::expr::{root, select};
 use vortex::layout::LayoutReader;
 use vortex::metrics::VortexMetrics;
 use vortex::scan::ScanBuilder;
@@ -29,7 +29,7 @@ use super::cache::VortexFileCache;
 use crate::convert::exprs::{can_be_pushed_down, make_vortex_predicate};
 
 #[derive(Clone)]
-pub(crate) struct VortexFileOpener {
+pub(crate) struct VortexOpener {
     pub object_store: Arc<dyn ObjectStore>,
     /// Projection by index of the file's columns
     pub projection: Option<Arc<[usize]>>,
@@ -48,7 +48,7 @@ pub(crate) struct VortexFileOpener {
     pub layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
 }
 
-impl FileOpener for VortexFileOpener {
+impl FileOpener for VortexOpener {
     fn open(&self, file_meta: FileMeta, file: PartitionedFile) -> DFResult<FileOpenFuture> {
         let object_store = self.object_store.clone();
         let projection = self.projection.clone();
@@ -117,14 +117,13 @@ impl FileOpener for VortexFileOpener {
                 .iter()
                 .map(|idx| {
                     let field = logical_schema.field(*idx);
-                    FieldName::from(field.name().clone())
+                    FieldName::from(field.name().as_str())
                 })
                 .collect::<Vec<_>>();
-            let projection_expr = vortex::expr::select(fields, root());
-            let projected_file_schema = physical_file_schema.project(&adapted_projections)?;
+            let projection_expr = select(fields, root());
 
             // We share our layout readers with others partitions in the scan, so we can only need to read each layout in each file once.
-            let layout_reader = match layout_reader.entry(file_meta.object_meta.location.clone()) {
+            let layout_reader = match layout_reader.entry(file_meta.object_meta.location) {
                 Entry::Occupied(mut occupied_entry) => {
                     if let Some(reader) = occupied_entry.get().upgrade() {
                         log::trace!("reusing layout reader for {}", occupied_entry.key());
@@ -152,7 +151,14 @@ impl FileOpener for VortexFileOpener {
             };
 
             let mut scan_builder = ScanBuilder::new(layout_reader);
-            scan_builder = apply_byte_range(file_meta, vxf.row_count(), scan_builder);
+            if let Some(file_range) = file_meta.range {
+                scan_builder = apply_byte_range(
+                    file_range,
+                    file_meta.object_meta.size,
+                    vxf.row_count(),
+                    scan_builder,
+                );
+            }
 
             let filter = filter
                 .and_then(|f| {
@@ -178,7 +184,7 @@ impl FileOpener for VortexFileOpener {
                 .with_some_filter(filter)
                 .map(move |chunk| {
                     let st = chunk.to_struct()?;
-                    st.into_record_batch_with_schema(&projected_file_schema)
+                    st.into_record_batch()
                 })
                 .into_tokio_stream()
                 .map_err(|e| {
@@ -220,21 +226,18 @@ impl FileOpener for VortexFileOpener {
 
 /// If the file has a [`FileRange`](datafusion::datasource::listing::FileRange), we translate it into a row range in the file for the scan.
 fn apply_byte_range(
-    file_meta: FileMeta,
+    file_range: FileRange,
+    total_size: u64,
     row_count: u64,
     scan_builder: ScanBuilder<ArrayRef>,
 ) -> ScanBuilder<ArrayRef> {
-    if let Some(byte_range) = file_meta.range {
-        let row_range = byte_range_to_row_range(
-            byte_range.start as u64..byte_range.end as u64,
-            row_count,
-            file_meta.object_meta.size,
-        );
+    let row_range = byte_range_to_row_range(
+        file_range.start as u64..file_range.end as u64,
+        row_count,
+        total_size,
+    );
 
-        scan_builder.with_row_range(row_range)
-    } else {
-        scan_builder
-    }
+    scan_builder.with_row_range(row_range)
 }
 
 fn byte_range_to_row_range(byte_range: Range<u64>, row_count: u64, total_size: u64) -> Range<u64> {
@@ -387,7 +390,7 @@ mod tests {
             Field::new("a", DataType::Int32, false),
         ]));
 
-        let make_opener = |filter| VortexFileOpener {
+        let make_opener = |filter| VortexOpener {
             object_store: object_store.clone(),
             projection: Some([0].into()),
             filter: Some(filter),
@@ -437,7 +440,7 @@ mod tests {
     // This is currently not supported, the work to support it requires to rewrite the predicate with appropriate casts.
     // Seems like datafusion is moving towards having DefaultPhysicalExprAdapterFactory be always provided, which would make it work OOTB.
     // See: https://github.com/apache/datafusion/issues/16800
-    //#[case(None)]
+    // #[case(None)]
     #[tokio::test]
     async fn test_open_files_different_table_schema(
         #[case] expr_adapter_factory: Option<Arc<dyn PhysicalExprAdapterFactory>>,
@@ -457,7 +460,7 @@ mod tests {
         // Table schema has can accommodate both files
         let table_schema = Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, true)]));
 
-        let make_opener = |filter| VortexFileOpener {
+        let make_opener = |filter| VortexOpener {
             object_store: object_store.clone(),
             projection: Some([0].into()),
             filter: Some(filter),

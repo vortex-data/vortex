@@ -31,7 +31,7 @@ use vortex::metrics::VortexMetrics;
 
 use super::cache::VortexFileCache;
 use super::metrics::PARTITION_LABEL;
-use super::opener::VortexFileOpener;
+use super::opener::VortexOpener;
 use crate::convert::exprs::can_be_pushed_down;
 
 /// A config for [`VortexFileOpener`]. Used to create [`DataSourceExec`] based physical plans.
@@ -127,7 +127,7 @@ impl FileSource for VortexSource {
 
         let projection = base_config.file_column_projection_indices().map(Arc::from);
 
-        let opener = VortexFileOpener {
+        let opener = VortexOpener {
             object_store,
             projection,
             filter: self.predicate.clone(),
