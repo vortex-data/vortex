@@ -801,7 +801,17 @@ pub(crate) struct ScanTask {
     cpu_events: mpsc::UnboundedSender<ScanTaskResult>,
 }
 
+impl Debug for ScanTask {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ScanTask")
+            .field("evaluation", &self.evaluation)
+            .field("mask", &self.mask)
+            .finish()
+    }
+}
+
 impl ScanTask {
+    #[tracing::instrument]
     pub fn execute(self) -> Option<ArrayRef> {
         match self.evaluation.eval {
             Eval::Prune(conjunct_idx, eval) => {

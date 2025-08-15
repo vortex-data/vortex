@@ -121,6 +121,7 @@ impl FileOpener for VortexFileOpener {
             }
 
             let stream = scan_builder
+                .with_segment_source2(vxf.segment_source2())
                 .with_metrics(metrics)
                 .with_projection(projection)
                 .with_some_filter(filter)

@@ -63,6 +63,7 @@ impl SegmentCache {
 
             // Otherwise, we need to fetch this segment.
             log::debug!("Requesting segment {}", segment_id);
+            self.in_flight.insert(segment_id);
             self.requests_send
                 .unbounded_send(segment_id)
                 .map_err(|e| vortex_err!("SegmentSource driver lost {e}"))?;
@@ -153,7 +154,7 @@ pub trait SegmentSource2: 'static + Send + Sync {
     ) -> BoxStream<'static, (SegmentId, VortexResult<ByteBuffer>)>;
 }
 
-pub struct SegmentSourceAdapter(Arc<dyn SegmentSource>);
+pub struct SegmentSourceAdapter(pub Arc<dyn SegmentSource>);
 
 impl SegmentSource2 for SegmentSourceAdapter {
     fn drive(

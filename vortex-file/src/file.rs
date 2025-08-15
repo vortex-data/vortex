@@ -90,7 +90,8 @@ impl VortexFile {
     pub fn scan(&self) -> VortexResult<ScanBuilder<ArrayRef>> {
         Ok(
             ScanBuilder::new(self.layout_reader()?, self.segment_source.clone())
-                .with_metrics(self.metrics.clone()),
+                .with_metrics(self.metrics.clone())
+                .with_segment_source2(self.segment_source2.clone()),
         )
     }
 

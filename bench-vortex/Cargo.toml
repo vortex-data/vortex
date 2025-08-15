@@ -81,5 +81,7 @@ vortex-datafusion = { workspace = true }
 vortex-duckdb = { workspace = true }
 xshell = { workspace = true }
 
+tracing-perfetto = "0.1.5"
+
 [features]
 tracing = ["vortex-datafusion/tracing"]

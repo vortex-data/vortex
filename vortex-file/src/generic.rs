@@ -16,6 +16,7 @@ use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_io::{Dispatch, InstrumentedReadAt, IoDispatcher, VortexReadAt};
 use vortex_layout::segments::{SegmentEvents, SegmentId};
+use vortex_scan::SegmentSourceAdapter;
 
 #[cfg(feature = "tokio")]
 static TOKIO_DISPATCHER: std::sync::LazyLock<IoDispatcher> =
@@ -138,7 +139,8 @@ impl VortexOpenOptions<GenericVortexFile> {
 
         Ok(VortexFile {
             footer,
-            segment_source,
+            segment_source: segment_source.clone(),
+            segment_source2: Arc::new(SegmentSourceAdapter(segment_source.clone())),
             metrics: self.metrics,
         })
     }
