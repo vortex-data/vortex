@@ -4,13 +4,11 @@
 use std::fmt::{Display, Formatter};
 
 use jiff::Span;
-use num_enum::{IntoPrimitive, TryFromPrimitive};
-use vortex_error::VortexResult;
+use num_enum::IntoPrimitive;
+use vortex_error::{VortexError, VortexResult, vortex_bail};
 
 /// Time units for temporal data.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd, IntoPrimitive, TryFromPrimitive,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd, IntoPrimitive)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[repr(u8)]
 pub enum TimeUnit {
@@ -24,6 +22,21 @@ pub enum TimeUnit {
     S = 3,
     /// Days
     D = 4,
+}
+
+impl TryFrom<u8> for TimeUnit {
+    type Error = VortexError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(TimeUnit::Ns),
+            1 => Ok(TimeUnit::Us),
+            2 => Ok(TimeUnit::Ms),
+            3 => Ok(TimeUnit::S),
+            4 => Ok(TimeUnit::D),
+            _ => vortex_bail!("invalid time unit: {value}u8"),
+        }
+    }
 }
 
 impl TimeUnit {

@@ -6,7 +6,7 @@ package dev.vortex.jni;
 import java.util.Map;
 
 /**
- * Native JNI methods for Vortex file writing.
+ * Native JNI methods for writing Vortex files.
  */
 public final class NativeWriterMethods {
 
@@ -19,12 +19,12 @@ public final class NativeWriterMethods {
     /**
      * Creates a new native Vortex writer.
      *
-     * @param filePath the path where the Vortex file will be written
-     * @param schemaIpc the Arrow schema in IPC format (or null if no schema)
-     * @param options additional writer options
+     * @param uri     the URI to the file,  e.g. "file://path/to/file".
+     * @param dtype   native pointer to a writer schema (Vortex DType)
+     * @param options additional writer options. For cloud storage this includes things like credentials.
      * @return a native pointer to the writer, or 0 on failure
      */
-    public static native long create(String filePath, byte[] schemaIpc, Map<String, String> options);
+    public static native long create(String uri, long dtype, Map<String, String> options);
 
     /**
      * Writes a batch of Arrow data to the Vortex file.
@@ -36,10 +36,10 @@ public final class NativeWriterMethods {
     public static native boolean writeBatch(long writerPtr, byte[] arrowData);
 
     /**
-     * Closes the native writer and finalizes the file.
+     * Close and flush the writer, finalizing it to the storage system.
      *
      * @param writerPtr the native writer pointer
-     * @return true if successful, false otherwise
+     * @throws RuntimeException if the writer fails to close
      */
-    public static native boolean close(long writerPtr);
+    public static native void close(long writerPtr);
 }

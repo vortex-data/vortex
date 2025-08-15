@@ -1,24 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::str::FromStr;
-use std::sync::{Arc, LazyLock};
-use std::time::Duration;
+use std::sync::Arc;
 
 use jni::JNIEnv;
 use jni::objects::{JByteArray, JClass, JLongArray, JObject, JString, ReleaseMode};
 use jni::sys::jlong;
-use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
-use object_store::azure::{AzureConfigKey, MicrosoftAzureBuilder};
-use object_store::gcp::{GoogleCloudStorageBuilder, GoogleConfigKey};
-use object_store::local::LocalFileSystem;
-use object_store::{ClientOptions, ObjectStore, ObjectStoreScheme};
-use parking_lot::Mutex;
 use prost::Message;
 use url::Url;
 use vortex::buffer::Buffer;
 use vortex::dtype::DType;
-use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex::error::{VortexError, VortexExpect, vortex_err};
 use vortex::expr::proto::deserialize_expr_proto;
 use vortex::expr::{root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
@@ -27,6 +19,7 @@ use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::array_iter::NativeArrayIterator;
 use crate::errors::try_or_throw;
+use crate::object_store::make_object_store;
 use crate::{SESSION, block_on};
 
 pub struct NativeFile {
@@ -198,97 +191,4 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_scan(
 
         Ok(NativeArrayIterator::new(Box::new(scan_builder.into_array_iter()?)).into_raw())
     })
-}
-
-fn make_object_store(
-    url: &Url,
-    properties: &HashMap<String, String>,
-) -> VortexResult<(Arc<dyn ObjectStore>, ObjectStoreScheme)> {
-    static OBJECT_STORES: LazyLock<Mutex<HashMap<String, Arc<dyn ObjectStore>>>> =
-        LazyLock::new(|| Mutex::new(HashMap::new()));
-
-    let (scheme, _) = ObjectStoreScheme::parse(url)
-        .map_err(|error| VortexError::from(object_store::Error::from(error)))?;
-
-    let cache_key = url_cache_key(url);
-
-    {
-        if let Some(cached) = OBJECT_STORES.lock().get(&cache_key) {
-            return Ok((cached.clone(), scheme));
-        }
-        // guard dropped at close of scope
-    }
-
-    // Configure extra properties on that scheme instead.
-    let store: Arc<dyn ObjectStore> = match scheme {
-        ObjectStoreScheme::Local => {
-            log::trace!("using LocalFileSystem object store");
-            Arc::new(LocalFileSystem::default())
-        }
-        ObjectStoreScheme::AmazonS3 => {
-            log::trace!("using AmazonS3 object store");
-            let mut builder = AmazonS3Builder::new().with_url(url.to_string());
-            for (key, val) in properties {
-                if let Ok(config_key) = AmazonS3ConfigKey::from_str(key.as_str()) {
-                    builder = builder.with_config(config_key, val);
-                } else {
-                    log::warn!("Skipping unknown Amazon S3 config key: {key}");
-                }
-            }
-
-            Arc::new(builder.build()?)
-        }
-        ObjectStoreScheme::MicrosoftAzure => {
-            log::trace!("using MicrosoftAzure object store");
-
-            // NOTE(aduffy): anecdotally Azure often times out after 30 seconds, this bumps us up
-            //  to avoid that.
-            let client_opts = ClientOptions::new().with_timeout(Duration::from_secs(120));
-            let mut builder = MicrosoftAzureBuilder::new()
-                .with_url(url.to_string())
-                .with_client_options(client_opts);
-            for (key, val) in properties {
-                if let Ok(config_key) = AzureConfigKey::from_str(key.as_str()) {
-                    log::warn!("setting azure config {key:?} = {val}");
-                    builder = builder.with_config(config_key, val);
-                } else {
-                    log::warn!("Skipping unknown Azure config key: {key}");
-                }
-            }
-
-            Arc::new(builder.build()?)
-        }
-        ObjectStoreScheme::GoogleCloudStorage => {
-            log::trace!("using GoogleCloudStorage object store");
-
-            let mut builder = GoogleCloudStorageBuilder::new().with_url(url.to_string());
-            for (key, val) in properties {
-                if let Ok(config_key) = GoogleConfigKey::from_str(key.as_str()) {
-                    builder = builder.with_config(config_key, val);
-                } else {
-                    log::warn!("Skipping unknown Google Cloud Storage config key: {key}");
-                }
-            }
-
-            Arc::new(builder.build()?)
-        }
-        store => {
-            vortex_bail!("Unsupported store scheme: {store:?}");
-        }
-    };
-
-    {
-        OBJECT_STORES.lock().insert(cache_key, store.clone());
-        // Guard dropped at close of scope.
-    }
-
-    Ok((store, scheme))
-}
-
-fn url_cache_key(url: &Url) -> String {
-    format!(
-        "{}://{}",
-        url.scheme(),
-        &url[url::Position::BeforeHost..url::Position::AfterPort],
-    )
 }

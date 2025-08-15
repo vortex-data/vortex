@@ -11,8 +11,8 @@ import java.util.Optional;
 import java.util.OptionalLong;
 
 public final class JNIDType implements DType {
-    private OptionalLong pointer;
-    private final boolean isOwned; // True if this object owns the native memory
+    OptionalLong pointer;
+    final boolean isOwned; // True if this object owns the native memory
 
     /**
      * Creates a JNIDType that borrows a native pointer.
@@ -22,12 +22,17 @@ public final class JNIDType implements DType {
         this(pointer, false);
     }
 
+    public long getPointer() {
+        return pointer.getAsLong();
+    }
+
     /**
      * Creates a JNIDType with explicit ownership.
+     *
      * @param pointer the native pointer
      * @param isOwned true if this object owns the native memory and should free it
      */
-    private JNIDType(long pointer, boolean isOwned) {
+    public JNIDType(long pointer, boolean isOwned) {
         Preconditions.checkArgument(pointer > 0, "Invalid pointer address: " + pointer);
         this.pointer = OptionalLong.of(pointer);
         this.isOwned = isOwned;

@@ -27,7 +27,7 @@ import org.apache.spark.sql.util.CaseInsensitiveStringMap;
  * <p>
  * This class is automatically registered so it can be discovered by the Spark runtime.
  * For reading: {@link org.apache.spark.sql.SparkSession#read} and specify the format as "vortex".
- * For writing: {@link DataFrame#write} and specify the format as "vortex".
+ * For writing: {@link org.apache.spark.sql.Dataset#write} and specify the format as "vortex".
  */
 public final class VortexDataSourceV2 implements TableProvider, DataSourceRegister {
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -108,10 +108,10 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
      * This method creates a VortexWritableTable that can be used to both read from and write to
      * Vortex files. The partitioning parameter is currently ignored.
      *
-     * @param schema the table schema
+     * @param schema        the table schema
      * @param _partitioning table partitioning transforms (currently ignored)
-     * @param properties the table properties containing file paths and other options
-     * @return a VortexWritableTable instance for reading and writing data
+     * @param properties    the table properties containing file paths and other options
+     * @return a VortexTable instance for reading and writing data
      * @throws RuntimeException if required path properties are missing
      */
     @Override

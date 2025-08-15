@@ -20,6 +20,7 @@ categories = { workspace = true }
 arrow-array = { workspace = true, features = ["ffi"] }
 arrow-ipc = { workspace = true }
 arrow-schema = { workspace = true }
+futures = { workspace = true }
 jni = "0.21.1"
 log = { workspace = true }
 object_store = { workspace = true, features = ["aws", "azure", "gcp"] }

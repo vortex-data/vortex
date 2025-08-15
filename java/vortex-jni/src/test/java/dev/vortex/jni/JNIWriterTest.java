@@ -3,8 +3,10 @@
 
 package dev.vortex.jni;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import dev.vortex.api.DType;
 import dev.vortex.api.VortexWriter;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -32,17 +34,24 @@ public final class JNIWriterTest {
     public void testCreateWriter() throws IOException {
         // Test just creating and closing a writer
         Path outputPath = tempDir.resolve("test_create.vortex");
-        String filePath = outputPath.toAbsolutePath().toString();
+        String writePath = outputPath.toAbsolutePath().toUri().toString();
+
+        // Make a new file writer with a very simple schema.
+        var writeSchema = DType.newStruct(
+                new String[] {
+                    "name", "age",
+                },
+                new DType[] {
+                    DType.newUtf8(false), DType.newInt(false),
+                },
+                false);
 
         // Minimal Arrow schema
-        String schemaJson =
-                "{\"fields\":[{\"name\":\"id\",\"type\":{\"name\":\"int\",\"bitWidth\":32,\"isSigned\":true}}]}";
         Map<String, String> options = new HashMap<>();
 
-        System.err.println("Creating writer for path: " + filePath);
-        System.err.println("Schema JSON: " + schemaJson);
+        System.err.println("Creating writer for path: " + writePath);
 
-        try (VortexWriter writer = VortexWriter.create(filePath, schemaJson, options)) {
+        try (VortexWriter writer = VortexWriter.create(writePath, writeSchema, options)) {
             assertNotNull(writer);
             System.err.println("Writer created successfully");
         }
@@ -79,12 +88,6 @@ public final class JNIWriterTest {
     }
 
     private byte[] createMinimalArrowIPC() {
-        // Create a minimal valid Arrow IPC stream
-        // This is the binary format for an empty Arrow stream with a simple schema
-        // Format: [continuation][metadata_size][metadata_flatbuffer][padding][body]
-
-        // For now, return a simple placeholder that should at least not crash
-        // We'll need to construct proper Arrow IPC format
         return new byte[] {
             // Arrow IPC magic number and empty stream markers
             (byte) 0xFF,

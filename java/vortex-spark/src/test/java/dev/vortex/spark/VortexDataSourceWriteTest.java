@@ -3,7 +3,8 @@
 
 package dev.vortex.spark;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -23,7 +24,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Integration test for Vortex DataSource write and read functionality.
- *
+ * <p>
  * This test verifies that:
  * 1. Spark DataFrames can be written as Vortex files
  * 2. Multiple partitions create multiple files
@@ -69,12 +70,12 @@ public final class VortexDataSourceWriteTest {
         assertEquals(2, originalDf.columns().length, "Original DataFrame should have 2 columns");
 
         // When: Repartition to 2 partitions and write as Vortex
-        Path outputPath = tempDir.resolve("vortex_output");
+        String outputPath = tempDir.resolve("vortex_output").toUri().toString();
         originalDf
                 .repartition(2) // Force 2 partitions
                 .write()
                 .format("vortex")
-                .option("path", outputPath.toString())
+                .option("path", outputPath)
                 .mode(SaveMode.Overwrite)
                 .save();
 

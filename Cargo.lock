@@ -6808,6 +6808,7 @@ dependencies = [
  "arrow-array",
  "arrow-ipc",
  "arrow-schema",
+ "futures",
  "jni",
  "log",
  "object_store",
