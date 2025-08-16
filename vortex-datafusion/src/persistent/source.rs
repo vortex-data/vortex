@@ -34,7 +34,7 @@ use super::metrics::PARTITION_LABEL;
 use super::opener::VortexOpener;
 use crate::convert::exprs::can_be_pushed_down;
 
-/// Execution plan for reading one or more Parquet files, intended to be consumed by [`DataSourceExec`].
+/// Execution plan for reading one or more Vortex files, intended to be consumed by [`DataSourceExec`].
 ///
 /// [`DataSourceExec`]: datafusion_datasource::source::DataSourceExec
 #[derive(Clone)]
