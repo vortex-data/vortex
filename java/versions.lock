@@ -148,15 +148,15 @@ org.scala-lang.modules:scala-parser-combinators_2.12:2.3.0 (1 constraints: 250e8
 org.scala-lang.modules:scala-xml_2.12:2.1.0 (1 constraints: 150dc936)
 org.slf4j:jcl-over-slf4j:2.0.7 (1 constraints: 591036c5)
 org.slf4j:jul-to-slf4j:2.0.7 (1 constraints: 591036c5)
-org.slf4j:slf4j-api:2.0.17 (27 constraints: 096c31b8)
+org.slf4j:slf4j-api:2.0.17 (27 constraints: 3a6c438f)
 org.threeten:threeten-extra:1.7.1 (1 constraints: 3f0aecbc)
 org.tukaani:xz:1.9 (1 constraints: 5d0a1eb6)
 org.xerial.snappy:snappy-java:1.1.10.5 (5 constraints: 3a48a9ee)
 oro:oro:2.0.8 (1 constraints: 1c0dce36)
 
 [Test dependencies]
-ch.qos.logback:logback-classic:1.4.14 (1 constraints: 3c05393b)
-ch.qos.logback:logback-core:1.4.14 (1 constraints: 3b0d3e2a)
+ch.qos.logback:logback-classic:1.5.18 (1 constraints: 4105413b)
+ch.qos.logback:logback-core:1.5.18 (1 constraints: 400d462a)
 org.junit:junit-bom:5.13.4 (7 constraints: e2752517)
 org.junit.jupiter:junit-jupiter:5.13.4 (2 constraints: bf10e8ee)
 org.junit.jupiter:junit-jupiter-api:5.13.4 (4 constraints: 4339e7e7)
