@@ -34,9 +34,9 @@ use super::metrics::PARTITION_LABEL;
 use super::opener::VortexOpener;
 use crate::convert::exprs::can_be_pushed_down;
 
-/// A config for [`VortexFileOpener`]. Used to create [`DataSourceExec`] based physical plans.
+/// Execution plan for reading one or more Vortex files, intended to be consumed by [`DataSourceExec`].
 ///
-/// [`DataSourceExec`]: datafusion::datasource::source::DataSourceExec
+/// [`DataSourceExec`]: datafusion_datasource::source::DataSourceExec
 #[derive(Clone)]
 pub struct VortexSource {
     pub(crate) file_cache: VortexFileCache,

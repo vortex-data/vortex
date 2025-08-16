@@ -81,6 +81,8 @@ impl<S: LayoutStrategy> CompressingStrategy<S> {
     /// This may create smaller files than the BtrBlocks writer, in exchange for some penalty
     /// to decoding performance. This is only recommended for datasets that make heavy use of
     /// floating point numbers.
+    ///
+    /// [`CompactCompressor`]: crate::layouts::compact::CompactCompressor
     #[cfg(feature = "zstd")]
     pub fn new_compact(
         child: S,

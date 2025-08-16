@@ -210,7 +210,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
         Ok(split_tasks)
     }
 
-    /// Returns a [`Stream`] with tasks spawned onto the current Tokio runtime.
+    /// Returns a [`Stream`](futures::Stream) with tasks spawned onto the current Tokio runtime.
     ///
     /// The stream performs CPU work on the polling thread, with I/O operations dispatched as
     /// per the Vortex I/O traits.
@@ -279,6 +279,8 @@ impl ScanBuilder<ArrayRef> {
     /// Returns an [`ArrayStream`] with tasks spawned onto the current Tokio runtime.
     ///
     /// See [`ScanBuilder::into_tokio_stream`] for more details.
+    ///
+    /// [`ArrayStream`]: vortex_array::stream::ArrayStreamAdapter
     #[cfg(feature = "tokio")]
     pub fn into_tokio_array_stream(
         self,

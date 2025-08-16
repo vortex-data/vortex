@@ -37,7 +37,7 @@ impl Default for WriteStrategyBuilder {
 
 impl WriteStrategyBuilder {
     /// Create a new empty builder. It can be further configured, and then finally built
-    /// yielding the [`WriteStrategy`].
+    /// yielding the [`LayoutStrategy`].
     pub const fn new() -> Self {
         Self {
             executor: None,
