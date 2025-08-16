@@ -10,17 +10,11 @@
 //! [Postgres]: https://www.postgresql.org/docs/current/sql-expressions.html
 //! [Apache Datafusion]: https://github.com/apache/datafusion/tree/5fac581efbaffd0e6a9edf931182517524526afd/datafusion/expr
 
-use std::any::Any;
-use std::fmt::{Debug, Display, Formatter};
-use std::hash::{Hash, Hasher};
-use std::sync::Arc;
+#[cfg(fuzzing)]
+pub mod arbitrary;
 
-use dyn_hash::DynHash;
-pub use exprs::*;
 pub mod aliases;
 mod analysis;
-#[cfg(feature = "arbitrary")]
-pub mod arbitrary;
 pub mod dyn_traits;
 mod encoding;
 mod exprs;
@@ -35,11 +29,18 @@ pub mod transform;
 pub mod traversal;
 mod vtable;
 
+use std::any::Any;
+use std::fmt::{Debug, Display, Formatter};
+use std::hash::{Hash, Hasher};
+use std::sync::Arc;
+
 pub use analysis::*;
 pub use between::*;
 pub use binary::*;
 pub use cast::*;
+use dyn_hash::DynHash;
 pub use encoding::*;
+pub use exprs::*;
 pub use get_item::*;
 pub use is_null::*;
 pub use like::*;

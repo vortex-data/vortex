@@ -17,7 +17,6 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
-arbitrary = { workspace = true, optional = true }
 arcref = { workspace = true }
 dyn-hash = { workspace = true }
 itertools = { workspace = true }
@@ -39,11 +38,11 @@ anyhow = { workspace = true }
 rstest = { workspace = true }
 vortex-expr = { path = ".", features = ["test-harness"] }
 
+[target.'cfg(fuzzing)'.dependencies]
+arbitrary = { workspace = true }
+vortex-dtype = { workspace = true, features = ["serde"] }
+vortex-error = { workspace = true, features = ["serde"] }
+
 [features]
-arbitrary = [
-    "dep:arbitrary",
-    "vortex-scalar/arbitrary",
-    "vortex-dtype/arbitrary",
-]
 serde = ["dep:serde", "vortex-dtype/serde", "vortex-error/serde"]
 test-harness = []

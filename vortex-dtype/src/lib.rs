@@ -19,8 +19,9 @@ pub use nullability::*;
 pub use ptype::*;
 pub use struct_::*;
 
-#[cfg(feature = "arbitrary")]
+#[cfg(fuzzing)]
 mod arbitrary;
+
 #[cfg(feature = "arrow")]
 pub mod arrow;
 pub mod datetime;

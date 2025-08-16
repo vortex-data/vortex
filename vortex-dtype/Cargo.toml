@@ -14,7 +14,6 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [dependencies]
-arbitrary = { workspace = true, optional = true }
 arrow-schema = { workspace = true, optional = true }
 flatbuffers = { workspace = true }
 half = { workspace = true, features = ["num-traits"] }
@@ -34,6 +33,9 @@ vortex-utils = { workspace = true }
 rstest = { workspace = true }
 serde_json = { workspace = true }
 serde_test = { workspace = true }
+
+[target.'cfg(fuzzing)'.dependencies]
+arbitrary = { workspace = true }
 
 [lints]
 workspace = true

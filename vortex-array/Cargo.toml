@@ -17,7 +17,6 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
-arbitrary = { workspace = true, optional = true }
 arcref = { workspace = true }
 arrow-arith = { workspace = true }
 arrow-array = { workspace = true, features = ["ffi"] }
@@ -62,11 +61,6 @@ vortex-scalar = { workspace = true }
 vortex-utils = { workspace = true }
 
 [features]
-arbitrary = [
-    "dep:arbitrary",
-    "vortex-dtype/arbitrary",
-    "vortex-scalar/arbitrary",
-]
 canonical_counter = []
 table-display = ["dep:tabled"]
 test-harness = ["dep:goldenfile", "dep:rstest", "dep:rstest_reuse"]
@@ -76,6 +70,10 @@ arrow-cast = { workspace = true }
 divan = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { path = ".", features = ["test-harness"] }
+
+[target.'cfg(fuzzing)'.dependencies]
+arbitrary = { workspace = true }
+vortex-dtype = { workspace = true }
 
 [[bench]]
 name = "search_sorted"

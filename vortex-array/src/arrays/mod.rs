@@ -18,8 +18,9 @@ mod struct_;
 mod varbin;
 mod varbinview;
 
-#[cfg(feature = "arbitrary")]
+#[cfg(fuzzing)]
 pub mod arbitrary;
+
 mod decimal;
 
 pub use self::bool::*;

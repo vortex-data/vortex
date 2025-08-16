@@ -101,6 +101,7 @@ mod ffi {
 
     #[repr(u8)]
     #[derive(Debug, Clone, Copy)]
+    #[cfg_attr(fuzzing, derive(Arbitrary))]
     enum PType {
         U8,
         U16,

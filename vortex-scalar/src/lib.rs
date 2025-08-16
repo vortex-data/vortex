@@ -13,12 +13,14 @@ use std::cmp::Ordering;
 use std::hash::Hash;
 use std::sync::Arc;
 
+#[cfg(fuzzing)]
+pub mod arbitrary;
+
 pub use scalar_type::ScalarType;
 use vortex_buffer::{Buffer, BufferString, ByteBuffer};
 use vortex_dtype::half::f16;
 use vortex_dtype::{DECIMAL128_MAX_PRECISION, DType, Nullability};
-#[cfg(feature = "arbitrary")]
-pub mod arbitrary;
+
 mod arrow;
 mod bigint;
 mod binary;

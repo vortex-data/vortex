@@ -41,8 +41,9 @@ pub use zip::*;
 use crate::builders::ArrayBuilder;
 use crate::{Array, ArrayRef};
 
-#[cfg(feature = "arbitrary")]
+#[cfg(fuzzing)]
 mod arbitrary;
+
 mod between;
 mod boolean;
 mod cast;
