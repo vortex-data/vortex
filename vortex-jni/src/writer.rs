@@ -221,12 +221,11 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriterMethods_close<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
     writer_ptr: jlong,
-) -> jboolean {
+) {
     let writer = unsafe { NativeWriter::from_raw(writer_ptr) };
 
     try_or_throw(&mut env, |_env| {
         writer.close()?;
-
-        Ok(JNI_FALSE)
-    })
+        Ok(())
+    });
 }

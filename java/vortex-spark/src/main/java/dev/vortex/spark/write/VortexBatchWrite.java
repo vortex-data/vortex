@@ -113,7 +113,7 @@ public final class VortexBatchWrite implements Write, BatchWrite, Serializable {
                 .toArray(String[]::new);
 
         if (writtenFiles.length > 0) {
-            System.out.println("Successfully wrote " + writtenFiles.length + " Vortex files to " + outputPath);
+            log.info("Successfully wrote {} Vortex files to {}", writtenFiles.length, outputPath);
         }
     }
 
@@ -138,7 +138,7 @@ public final class VortexBatchWrite implements Write, BatchWrite, Serializable {
                         }
                     } catch (IOException e) {
                         // Log but don't throw - we're already in an error state
-                        System.err.println("Failed to clean up file: " + filePath);
+                        log.error("Failed to clean up file: {}", filePath, e);
                     }
                 });
     }

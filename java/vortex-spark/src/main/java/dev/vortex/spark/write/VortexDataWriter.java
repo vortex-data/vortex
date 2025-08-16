@@ -38,6 +38,8 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
     private static final Logger logger = LoggerFactory.getLogger(VortexDataWriter.class);
 
     private static final int DEFAULT_BATCH_SIZE = 2048;
+    private static final int MIN_BATCH_SIZE = 1;
+    private static final int MAX_BATCH_SIZE = 65536; // 64K rows max per batch
 
     private final String filePath;
     private final StructType schema;
@@ -63,7 +65,25 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
         this.filePath = filePath;
         this.schema = schema;
         this.options = options;
-        this.batchSize = options.getInt("batch.size", DEFAULT_BATCH_SIZE);
+
+        // Get batch size from options with validation
+        // Users can set this with: .option("vortex.write.batch.size", "4096")
+        int configuredBatchSize =
+                options.getInt("vortex.write.batch.size", options.getInt("batch.size", DEFAULT_BATCH_SIZE));
+        if (configuredBatchSize < MIN_BATCH_SIZE || configuredBatchSize > MAX_BATCH_SIZE) {
+            logger.warn(
+                    "Batch size {} is out of valid range [{}, {}], using default: {}",
+                    configuredBatchSize,
+                    MIN_BATCH_SIZE,
+                    MAX_BATCH_SIZE,
+                    DEFAULT_BATCH_SIZE);
+            this.batchSize = DEFAULT_BATCH_SIZE;
+        } else {
+            this.batchSize = configuredBatchSize;
+            if (this.batchSize != DEFAULT_BATCH_SIZE) {
+                logger.debug("Using configured batch size: {}", this.batchSize);
+            }
+        }
 
         try {
             // Initialize Arrow components
@@ -215,32 +235,59 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
     @Override
     public WriterCommitMessage commit() throws IOException {
         if (!closed) {
-            // Write any remaining rows
-            if (!batchRows.isEmpty()) {
-                writeBatch();
+            IOException exception = null;
+
+            try {
+                // Write any remaining rows
+                if (!batchRows.isEmpty()) {
+                    writeBatch();
+                }
+
+                // Close the Vortex writer to finalize the file
+                if (vortexWriter != null) {
+                    try {
+                        vortexWriter.close();
+                    } finally {
+                        vortexWriter = null; // Always null out the reference
+                    }
+                }
+            } catch (IOException e) {
+                exception = e;
             }
 
-            // Close the Vortex writer to finalize the file
-            if (vortexWriter != null) {
-                try {
-                    vortexWriter.close();
-                } finally {
-                    vortexWriter = null; // Always null out the reference
+            // Clean up Arrow resources - always attempt cleanup even if there was an error
+            try {
+                if (vectorSchemaRoot != null) {
+                    vectorSchemaRoot.close();
+                    vectorSchemaRoot = null;
+                }
+            } catch (Exception e) {
+                if (exception == null) {
+                    exception = new IOException("Failed to close VectorSchemaRoot", e);
+                } else {
+                    exception.addSuppressed(e);
                 }
             }
 
-            // Clean up Arrow resources
-            if (vectorSchemaRoot != null) {
-                vectorSchemaRoot.close();
-                vectorSchemaRoot = null;
-            }
-
-            if (allocator != null) {
-                allocator.close();
-                allocator = null;
+            try {
+                if (allocator != null) {
+                    allocator.close();
+                    allocator = null;
+                }
+            } catch (Exception e) {
+                if (exception == null) {
+                    exception = new IOException("Failed to close allocator", e);
+                } else {
+                    exception.addSuppressed(e);
+                }
             }
 
             closed = true;
+
+            // Throw any exception that occurred during cleanup
+            if (exception != null) {
+                throw exception;
+            }
         }
 
         return new VortexWriterCommitMessage(filePath, recordCount, bytesWritten);
