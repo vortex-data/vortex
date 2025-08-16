@@ -4,7 +4,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use bitvec::macros::internal::funty::Fundamental;
+use num_traits::AsPrimitive;
 use tokio::task::block_in_place;
 use url::Url;
 use vortex::dtype::FieldNames;
@@ -102,16 +102,21 @@ fn extract_projection_expr(init: &TableInitInput<VortexTableFunction>) -> ExprRe
     let projection_ids = init.projection_ids().unwrap_or(&[]);
     let column_ids = init.column_ids();
 
-    let projected_ids = projection_ids.iter().map(|p| column_ids[p.as_usize()]);
     select(
-        projected_ids
+        projection_ids
+            .iter()
+            .map(|p| {
+                let idx: usize = p.as_();
+                let val: usize = column_ids[idx].as_();
+                val
+            })
             .map(|idx| {
                 init.bind_data()
                     .column_names
-                    .get(idx.as_usize())
+                    .get(idx)
                     .vortex_expect("prune idx in column names")
             })
-            .map(|s| Arc::from(s.clone()))
+            .map(|s| Arc::from(s.as_str()))
             .collect::<FieldNames>(),
         root(),
     )
@@ -128,10 +133,12 @@ fn extract_table_filter_expr(
             filter
                 .into_iter()
                 .map(|(idx, ex)| {
+                    let idx_u: usize = idx.as_();
+                    let col_idx: usize = column_ids[idx_u].as_();
                     let name = init
                         .bind_data()
                         .column_names
-                        .get(column_ids[idx.as_usize()].as_usize())
+                        .get(col_idx)
                         .vortex_expect("exists");
                     try_from_table_filter(
                         &ex,

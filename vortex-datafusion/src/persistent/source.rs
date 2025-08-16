@@ -5,42 +5,48 @@ use std::any::Any;
 use std::fmt::Formatter;
 use std::sync::{Arc, Weak};
 
+use arrow_schema::SchemaRef;
 use dashmap::DashMap;
-use datafusion::arrow::datatypes::SchemaRef;
-use datafusion::common::{Result as DFResult, Statistics};
-use datafusion::config::ConfigOptions;
-use datafusion::datasource::physical_plan::{FileOpener, FileScanConfig, FileSource};
-use datafusion::physical_plan::filter_pushdown::{
+use datafusion_common::config::ConfigOptions;
+use datafusion_common::{Result as DFResult, Statistics};
+use datafusion_datasource::file::FileSource;
+use datafusion_datasource::file_scan_config::FileScanConfig;
+use datafusion_datasource::file_stream::FileOpener;
+use datafusion_datasource::schema_adapter::{DefaultSchemaAdapterFactory, SchemaAdapterFactory};
+use datafusion_physical_expr::schema_rewriter::{
+    DefaultPhysicalExprAdapterFactory, PhysicalExprAdapterFactory,
+};
+use datafusion_physical_expr::{PhysicalExprRef, conjunction};
+use datafusion_physical_plan::filter_pushdown::{
     FilterPushdownPropagation, PushedDown, PushedDownPredicate,
 };
-use datafusion::physical_plan::metrics::ExecutionPlanMetricsSet;
-use datafusion::physical_plan::{DisplayFormatType, PhysicalExpr};
+use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
+use datafusion_physical_plan::{DisplayFormatType, PhysicalExpr};
 use object_store::ObjectStore;
 use object_store::path::Path;
 use vortex::error::VortexExpect as _;
-use vortex::expr::{ExprRef, VortexExpr, and, root};
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::layout::LayoutReader;
 use vortex::metrics::VortexMetrics;
 
 use super::cache::VortexFileCache;
-use super::config::{ConfigProjection, FileScanConfigExt};
 use super::metrics::PARTITION_LABEL;
-use super::opener::VortexFileOpener;
-use crate::can_be_pushed_down;
-use crate::convert::TryFromDataFusion as _;
+use super::opener::VortexOpener;
+use crate::convert::exprs::can_be_pushed_down;
 
 /// A config for [`VortexFileOpener`]. Used to create [`DataSourceExec`] based physical plans.
 ///
-/// [`DataSourceExec`]: datafusion_physical_plan::source::DataSourceExec
+/// [`DataSourceExec`]: datafusion::datasource::source::DataSourceExec
 #[derive(Clone)]
 pub struct VortexSource {
     pub(crate) file_cache: VortexFileCache,
-    pub(crate) predicate: Option<Arc<dyn VortexExpr>>,
-    pub(crate) projection: Option<Arc<dyn VortexExpr>>,
+    pub(crate) predicate: Option<PhysicalExprRef>,
     pub(crate) batch_size: Option<usize>,
     pub(crate) projected_statistics: Option<Statistics>,
-    pub(crate) arrow_schema: Option<SchemaRef>,
+    /// This is the file schema the table expects, which is the table's schema without partition columns, and **not** the file's physical schema.
+    pub(crate) arrow_file_schema: Option<SchemaRef>,
+    pub(crate) schema_adapter_factory: Option<Arc<dyn SchemaAdapterFactory>>,
+    pub(crate) expr_adapter_factory: Option<Arc<dyn PhysicalExprAdapterFactory>>,
     pub(crate) metrics: VortexMetrics,
     _unused_df_metrics: ExecutionPlanMetricsSet,
     /// Shared layout readers, the source only lives as long as one scan.
@@ -54,21 +60,28 @@ impl VortexSource {
         Self {
             file_cache,
             metrics,
-            projection: None,
+            predicate: None,
             batch_size: None,
             projected_statistics: None,
-            arrow_schema: None,
-            predicate: None,
+            arrow_file_schema: None,
+            schema_adapter_factory: None,
+            expr_adapter_factory: None,
             _unused_df_metrics: Default::default(),
             layout_readers: Arc::new(DashMap::default()),
         }
     }
 
-    /// Sets a [`VortexExpr`] as a predicate
-    pub fn with_predicate(&self, predicate: Arc<dyn VortexExpr>) -> Self {
+    /// Sets a [`PhysicalExprAdapterFactory`] for the [`VortexSource`].
+    /// Currently, this must be provided in order to filter columns in files that have a different data type from the unified table schema.
+    ///
+    /// This factory will take precedence when opening files over instances provided by the [`FileScanConfig`].
+    pub fn with_expr_adapter_factory(
+        &self,
+        expr_adapter_factory: Arc<dyn PhysicalExprAdapterFactory>,
+    ) -> Arc<dyn FileSource> {
         let mut source = self.clone();
-        source.predicate = Some(predicate);
-        source
+        source.expr_adapter_factory = Some(expr_adapter_factory);
+        Arc::new(source)
     }
 }
 
@@ -87,19 +100,47 @@ impl FileSource for VortexSource {
             .batch_size
             .vortex_expect("batch_size must be supplied to VortexSource");
 
-        let opener = VortexFileOpener::new(
+        let expr_adapter = self
+            .expr_adapter_factory
+            .as_ref()
+            .or(base_config.expr_adapter_factory.as_ref());
+        let schema_adapter = self.schema_adapter_factory.as_ref();
+
+        // This match is here to support the behavior defined by [`ListingTable`], see https://github.com/apache/datafusion/issues/16800 for more details.
+        let (expr_adapter_factory, schema_adapter_factory) = match (expr_adapter, schema_adapter) {
+            (Some(expr_adapter), Some(schema_adapter)) => {
+                (Some(expr_adapter.clone()), schema_adapter.clone())
+            }
+            (Some(expr_adapter), None) => (
+                Some(expr_adapter.clone()),
+                Arc::new(DefaultSchemaAdapterFactory) as _,
+            ),
+            (None, Some(schema_adapter)) => {
+                // If no `PhysicalExprAdapterFactory` is specified, we only use the provided `SchemaAdapterFactory`
+                (None, schema_adapter.clone())
+            }
+            (None, None) => (
+                Some(Arc::new(DefaultPhysicalExprAdapterFactory) as _),
+                Arc::new(DefaultSchemaAdapterFactory) as _,
+            ),
+        };
+
+        let projection = base_config.file_column_projection_indices().map(Arc::from);
+
+        let opener = VortexOpener {
             object_store,
-            self.projection.clone().unwrap_or_else(root),
-            self.predicate.clone(),
-            self.file_cache.clone(),
-            self.arrow_schema
-                .clone()
-                .vortex_expect("We should have a schema here"),
+            projection,
+            filter: self.predicate.clone(),
+            expr_adapter_factory,
+            schema_adapter_factory,
+            partition_fields: base_config.table_partition_cols.clone(),
+            logical_schema: base_config.file_schema.clone(),
+            file_cache: self.file_cache.clone(),
             batch_size,
-            base_config.limit,
-            partition_metrics,
-            self.layout_readers.clone(),
-        );
+            limit: base_config.limit,
+            metrics: partition_metrics,
+            layout_readers: self.layout_readers.clone(),
+        };
 
         Arc::new(opener)
     }
@@ -115,32 +156,13 @@ impl FileSource for VortexSource {
     }
 
     fn with_schema(&self, schema: SchemaRef) -> Arc<dyn FileSource> {
-        // todo(adam): does this need to the same as `with_projection`?
         let mut source = self.clone();
-        source.arrow_schema = Some(schema);
+        source.arrow_file_schema = Some(schema);
         Arc::new(source)
     }
 
-    fn with_projection(&self, config: &FileScanConfig) -> Arc<dyn FileSource> {
-        let ConfigProjection {
-            arrow_schema,
-            constraints: _constraints,
-            statistics,
-            projection_expr,
-        } = config.project_for_vortex();
-
-        let statistics = if self.predicate.is_some() {
-            statistics.to_inexact()
-        } else {
-            statistics
-        };
-
-        let mut source = self.clone();
-        source.projection = Some(projection_expr);
-        source.arrow_schema = Some(arrow_schema);
-        source.projected_statistics = Some(statistics);
-
-        Arc::new(source)
+    fn with_projection(&self, _config: &FileScanConfig) -> Arc<dyn FileSource> {
+        Arc::new(self.clone())
     }
 
     fn with_statistics(&self, statistics: Statistics) -> Arc<dyn FileSource> {
@@ -180,7 +202,7 @@ impl FileSource for VortexSource {
             // Use TreeRender style key=value formatting to display the predicate
             DisplayFormatType::TreeRender => {
                 if let Some(ref predicate) = self.predicate {
-                    write!(f, "predicate={predicate}")?;
+                    writeln!(f, "predicate={predicate}")?;
                 };
             }
         }
@@ -192,11 +214,13 @@ impl FileSource for VortexSource {
         filters: Vec<Arc<dyn PhysicalExpr>>,
         _config: &ConfigOptions,
     ) -> DFResult<FilterPushdownPropagation<Arc<dyn FileSource>>> {
-        let Some(schema) = self.arrow_schema.as_ref() else {
+        let Some(schema) = self.arrow_file_schema.as_ref() else {
             return Ok(FilterPushdownPropagation::with_parent_pushdown_result(
                 vec![PushedDown::No; filters.len()],
             ));
         };
+
+        let mut source = self.clone();
 
         let filters = filters
             .into_iter()
@@ -224,29 +248,39 @@ impl FileSource for VortexSource {
                 PushedDown::Yes => Some(&p.predicate),
                 PushedDown::No => None,
             })
-            .collect::<Vec<_>>();
+            .cloned();
 
-        match make_vortex_predicate(&supported) {
-            Some(predicate) => Ok(FilterPushdownPropagation::with_parent_pushdown_result(
+        let predicate = match source.predicate {
+            Some(predicate) => conjunction(std::iter::once(predicate).chain(supported)),
+            None => conjunction(supported),
+        };
+        source.predicate = Some(predicate);
+
+        let pushdown_propagation = if source.predicate.clone().is_some() {
+            FilterPushdownPropagation::with_parent_pushdown_result(
                 filters.iter().map(|f| f.discriminant).collect(),
             )
-            .with_updated_node(Arc::new(self.with_predicate(predicate)))),
-            _ => Ok(FilterPushdownPropagation::with_parent_pushdown_result(
-                vec![PushedDown::No; filters.len()],
-            )),
-        }
-    }
-}
+            .with_updated_node(Arc::new(source) as _)
+        } else {
+            FilterPushdownPropagation::with_parent_pushdown_result(vec![
+                PushedDown::No;
+                filters.len()
+            ])
+        };
 
-// If we cannot convert an expr to a vortex expr, we run no filter, since datafusion
-// will rerun the filter expression anyway.
-pub(crate) fn make_vortex_predicate(
-    predicate: &[&Arc<dyn PhysicalExpr>],
-) -> Option<Arc<dyn VortexExpr>> {
-    // This splits expressions into conjunctions and converts them to vortex expressions.
-    // Any inconvertible expressions are dropped since true /\ a == a.
-    predicate
-        .iter()
-        .filter_map(|e| ExprRef::try_from_df(e.as_ref()).ok())
-        .reduce(and)
+        Ok(pushdown_propagation)
+    }
+
+    fn with_schema_adapter_factory(
+        &self,
+        factory: Arc<dyn SchemaAdapterFactory>,
+    ) -> DFResult<Arc<dyn FileSource>> {
+        let mut source = self.clone();
+        source.schema_adapter_factory = Some(factory);
+        Ok(Arc::new(source))
+    }
+
+    fn schema_adapter_factory(&self) -> Option<Arc<dyn SchemaAdapterFactory>> {
+        None
+    }
 }

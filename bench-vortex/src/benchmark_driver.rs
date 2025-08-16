@@ -17,9 +17,7 @@ use crate::engines::{EngineCtx, benchmark_datafusion_query};
 use crate::measurements::{MemoryMeasurement, QueryMeasurement};
 use crate::memory::BenchmarkMemoryTracker;
 use crate::metrics::{MetricsSetExt, export_plan_spans};
-use crate::query_bench::{
-    filter_queries, print_memory_usage, print_results, setup_logging_and_tracing,
-};
+use crate::query_bench::{filter_queries, print_memory_usage, print_results};
 use crate::utils::{new_tokio_runtime, url_scheme_to_storage};
 use crate::{Engine, Format, Target, df, vortex_panic};
 
@@ -28,7 +26,6 @@ pub struct DriverConfig {
     pub targets: Vec<Target>,
     pub iterations: usize,
     pub threads: Option<usize>,
-    pub verbose: bool,
     pub display_format: DisplayFormat,
     pub disable_datafusion_cache: bool,
     pub delete_duckdb_database: bool,
@@ -44,11 +41,6 @@ pub struct DriverConfig {
 
 /// Run a benchmark using the provided implementation and configuration
 pub fn run_benchmark<B: Benchmark>(benchmark: B, config: DriverConfig) -> Result<()> {
-    let _trace_guard = setup_logging_and_tracing(
-        config.verbose,
-        &format!("{}.trace.json", benchmark.dataset_name()),
-    )?;
-
     // Generate data for each target (idempotent)
     for target in &config.targets {
         benchmark.generate_data(target)?;
@@ -222,8 +214,10 @@ fn execute_queries<B: Benchmark>(
             && query_idx < expected_counts.len()
         {
             assert_eq!(
-                row_count, expected_counts[query_idx],
-                "Row count mismatch for query {query_idx} - duckdb:{format}",
+                row_count,
+                expected_counts[query_idx],
+                "Row count mismatch for query {query_idx} - {}:{format}",
+                engine_ctx.to_engine()
             );
         }
 
@@ -233,10 +227,7 @@ fn execute_queries<B: Benchmark>(
         {
             memory_measurements.push(MemoryMeasurement {
                 query_idx,
-                target: match engine_ctx {
-                    EngineCtx::DataFusion(_) => Target::new(Engine::DataFusion, format),
-                    EngineCtx::DuckDB(_) => Target::new(Engine::DuckDB, format),
-                },
+                target: Target::new(engine_ctx.to_engine(), format),
                 benchmark_dataset: benchmark.dataset(),
                 storage: url_scheme_to_storage(benchmark.data_url())?,
                 physical_memory_delta: memory_result.physical_memory_delta,

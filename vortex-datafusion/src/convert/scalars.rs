@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use datafusion::common::ScalarValue;
+use datafusion_common::ScalarValue;
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::datetime::arrow::make_temporal_ext_dtype;
 use vortex::dtype::datetime::{TemporalMetadata, TimeUnit, is_temporal_ext_type};

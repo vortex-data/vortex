@@ -19,10 +19,7 @@ impl OperationsVTable<FoRVTable> for FoRVTable {
     }
 
     fn scalar_at(array: &FoRArray, index: usize) -> VortexResult<Scalar> {
-        let encoded_pvalue = array
-            .encoded()
-            .scalar_at(index)?
-            .reinterpret_cast(array.ptype());
+        let encoded_pvalue = array.encoded().scalar_at(index)?;
         let encoded_pvalue = encoded_pvalue.as_primitive();
         let reference = array.reference_scalar();
         let reference = reference.as_primitive();

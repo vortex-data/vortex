@@ -50,6 +50,7 @@ message BinaryOpts {
     And = 6;
     Or = 7;
     Add = 8;
+    Sub = 9;
   }
 }
 

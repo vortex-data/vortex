@@ -12,7 +12,7 @@ use bench_vortex::measurements::TimingMeasurement;
 use bench_vortex::random_access::take::{take_parquet, take_vortex_tokio};
 use bench_vortex::utils::constants::STORAGE_NVME;
 use bench_vortex::utils::new_tokio_runtime;
-use bench_vortex::{Engine, Format, Target, default_env_filter, setup_logger};
+use bench_vortex::{Engine, Format, Target, setup_logging_and_tracing};
 use clap::Parser;
 use indicatif::ProgressBar;
 use itertools::Itertools;
@@ -34,6 +34,8 @@ struct Args {
     formats: Vec<Format>,
     #[arg(short, long)]
     verbose: bool,
+    #[arg(long)]
+    tracing: bool,
     #[arg(short, long, default_value_t, value_enum)]
     display_format: DisplayFormat,
     #[arg(short)]
@@ -42,6 +44,9 @@ struct Args {
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+
+    setup_logging_and_tracing(args.verbose, args.tracing)?;
+
     let runtime = new_tokio_runtime(args.threads);
 
     let indices = buffer![10u64, 11, 12, 13, 100_000, 3_000_000];
@@ -50,7 +55,6 @@ fn main() -> anyhow::Result<()> {
         args.iterations,
         args.formats,
         args.display_format,
-        args.verbose,
         indices,
         &args.output_path,
     )
@@ -61,14 +65,9 @@ fn random_access(
     iterations: usize,
     formats: Vec<Format>,
     display_format: DisplayFormat,
-    verbose: bool,
     indices: Buffer<u64>,
     output_path: &Option<PathBuf>,
 ) -> anyhow::Result<()> {
-    // Capture `RUST_LOG` configuration
-    let filter = default_env_filter(verbose);
-    setup_logger(filter);
-
     let targets = formats
         .iter()
         .map(|f| Target::new(Engine::Vortex, *f))

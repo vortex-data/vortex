@@ -4,12 +4,12 @@
 //! Vortex table provider metrics.
 use std::sync::Arc;
 
-use datafusion::datasource::physical_plan::FileScanConfig;
-use datafusion::datasource::source::DataSourceExec;
-use datafusion::physical_plan::metrics::{
+use datafusion_datasource::file_scan_config::FileScanConfig;
+use datafusion_datasource::source::DataSourceExec;
+use datafusion_physical_plan::metrics::{
     Count, Gauge, Label as DatafusionLabel, MetricValue as DatafusionMetricValue, MetricsSet,
 };
-use datafusion::physical_plan::{
+use datafusion_physical_plan::{
     ExecutionPlan, ExecutionPlanVisitor, Metric as DatafusionMetric, accept,
 };
 use vortex::metrics::{Metric, MetricId, Tags};

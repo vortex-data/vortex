@@ -4,7 +4,6 @@
 use std::mem;
 use std::mem::MaybeUninit;
 
-use arrow_buffer::ArrowNativeType;
 use fastlanes::BitPacking;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::{FilterKernel, FilterKernelAdapter, filter};
@@ -43,12 +42,12 @@ register_kernel!(FilterKernelAdapter(BitPackedVTable).lift());
 /// FastLanes decompression is so fast and the bookkeepping necessary to decompress individual
 /// elements is relatively slow. If you prefer to never fully decompress, use
 /// [filter_primitive_no_decompression].
-fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
+fn filter_primitive<T: NativePType + BitPacking>(
     array: &BitPackedArray,
     mask: &Mask,
 ) -> VortexResult<PrimitiveArray> {
     // Short-circuit if the selectivity is high enough.
-    let full_decompression_threshold = match T::get_byte_width() {
+    let full_decompression_threshold = match size_of::<T>() {
         1 => 0.03,
         2 => 0.03,
         4 => 0.075,
@@ -67,7 +66,7 @@ fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
 /// Filter a bit-packed array, without using full decompression.
 ///
 /// You should probably use [filter_primitive].
-fn filter_primitive_no_decompression<T: NativePType + BitPacking + ArrowNativeType>(
+fn filter_primitive_no_decompression<T: NativePType + BitPacking>(
     array: &BitPackedArray,
     mask: &Mask,
 ) -> VortexResult<PrimitiveArray> {
@@ -96,7 +95,7 @@ fn filter_primitive_no_decompression<T: NativePType + BitPacking + ArrowNativeTy
     Ok(values)
 }
 
-fn filter_indices<T: NativePType + BitPacking + ArrowNativeType>(
+fn filter_indices<T: NativePType + BitPacking>(
     array: &BitPackedArray,
     indices_len: usize,
     indices: impl Iterator<Item = usize>,

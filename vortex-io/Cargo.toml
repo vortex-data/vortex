@@ -22,11 +22,11 @@ futures = { workspace = true, features = ["std"] }
 futures-util = { workspace = true }
 # Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration
 getrandom_v03 = { workspace = true }
-object_store = { workspace = true, optional = true }
+object_store = { workspace = true, optional = true, features = ["fs"] }
 pin-project = { workspace = true }
 # this is the maximum subset of fetaures that is safe for wasm32 targets
 tokio = { workspace = true, features = ["io-util", "rt", "sync"] }
-tracing = { workspace = true, optional = true }
+tracing = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 vortex-metrics = { workspace = true }
@@ -45,7 +45,6 @@ compio = ["dep:compio", "vortex-buffer/compio"]
 futures = ["futures-util/io"]
 object_store = ["dep:object_store", "vortex-error/object_store"]
 tokio = ["tokio/fs"]
-tracing = ["dep:tracing"]
 
 [lints]
 workspace = true
