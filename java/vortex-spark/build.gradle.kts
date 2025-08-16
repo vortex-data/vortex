@@ -17,7 +17,7 @@ dependencies {
     annotationProcessor("org.immutables:value")
 
     implementation("com.google.guava:guava")
-    implementation("org.slf4j:slf4j-api:2.0.9")
+    implementation("org.slf4j:slf4j-api:2.0.17")
 }
 
 testing {
@@ -29,7 +29,7 @@ testing {
                 implementation("org.junit.jupiter:junit-jupiter:5.10.0")
                 implementation("org.apache.spark:spark-core_2.12")
                 implementation("org.apache.spark:spark-sql_2.12")
-                runtimeOnly("org.slf4j:slf4j-simple:2.0.9")
+                runtimeOnly("org.slf4j:slf4j-simple:2.0.17")
             }
         }
     }
