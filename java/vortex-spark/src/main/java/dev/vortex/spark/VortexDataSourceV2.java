@@ -142,19 +142,6 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
         }
     }
 
-    /**
-     * Expands a path to individual Vortex files.
-     * If the path is a directory, returns all .vortex files in the directory.
-     * If the path is a file, returns the file itself.
-     */
-    private static ImmutableList<String> expandPathToFiles(String pathStr, Map<String, String> options) {
-        if (pathStr.endsWith(".vortex")) {
-            return ImmutableList.of(pathStr);
-        } else {
-            return ImmutableList.copyOf(NativeFileMethods.listVortexFiles(pathStr, options));
-        }
-    }
-
     private static ImmutableList<String> decodePathsSafe(String pathsJson) {
         try {
             return ImmutableList.copyOf(MAPPER.readValue(pathsJson, String[].class));
