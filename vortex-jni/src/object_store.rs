@@ -44,7 +44,29 @@ pub(crate) fn make_object_store(
         }
         ObjectStoreScheme::AmazonS3 => {
             log::trace!("using AmazonS3 object store");
-            let mut builder = AmazonS3Builder::new().with_url(url.to_string());
+            let mut builder = AmazonS3Builder::new()
+                .with_url(url.to_string())
+                // Use generic S3 endpoint to avoid DNS resolution issues with region-specific endpoints
+                .with_endpoint("https://s3.amazonaws.com")
+                .with_virtual_hosted_style_request(false); // Use path-style URLs
+
+            // Try to load credentials from environment if not provided in properties
+            if !properties.contains_key("access_key_id") {
+                if let Ok(access_key) = std::env::var("AWS_ACCESS_KEY_ID") {
+                    builder = builder.with_access_key_id(access_key);
+                }
+            }
+            if !properties.contains_key("secret_access_key") {
+                if let Ok(secret_key) = std::env::var("AWS_SECRET_ACCESS_KEY") {
+                    builder = builder.with_secret_access_key(secret_key);
+                }
+            }
+            if !properties.contains_key("region") {
+                if let Ok(region) = std::env::var("AWS_DEFAULT_REGION") {
+                    builder = builder.with_region(region);
+                }
+            }
+
             for (key, val) in properties {
                 if let Ok(config_key) = AmazonS3ConfigKey::from_str(key.as_str()) {
                     builder = builder.with_config(config_key, val);
