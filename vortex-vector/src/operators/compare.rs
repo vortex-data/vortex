@@ -56,27 +56,27 @@ macro_rules! match_each_compare_op {
     ($self:expr, | $enc:ident | $body:block) => {{
         match $self {
             BinaryOperator::Eq => {
-                type $enc = crate::operators::compare::Eq;
+                type $enc = $crate::operators::compare::Eq;
                 $body
             }
             BinaryOperator::NotEq => {
-                type $enc = crate::operators::compare::NotEq;
+                type $enc = $crate::operators::compare::NotEq;
                 $body
             }
             BinaryOperator::Gt => {
-                type $enc = crate::operators::compare::Gt;
+                type $enc = $crate::operators::compare::Gt;
                 $body
             }
             BinaryOperator::Gte => {
-                type $enc = crate::operators::compare::Gte;
+                type $enc = $crate::operators::compare::Gte;
                 $body
             }
             BinaryOperator::Lt => {
-                type $enc = crate::operators::compare::Lt;
+                type $enc = $crate::operators::compare::Lt;
                 $body
             }
             BinaryOperator::Lte => {
-                type $enc = crate::operators::compare::Lte;
+                type $enc = $crate::operators::compare::Lte;
                 $body
             }
         }

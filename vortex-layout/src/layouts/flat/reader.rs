@@ -334,8 +334,8 @@ impl ArrayEvaluation for FlatEvaluation {
                     // );
                     for i in 0..expected.len() {
                         assert_eq!(
-                            result.scalar_at(i).unwrap(),
-                            expected.scalar_at(i).unwrap(),
+                            result.scalar_at(i).vortex_expect("scalar_at"),
+                            expected.scalar_at(i).vortex_expect("scalar_at"),
                             "mask mismatch, at index {i}"
                         );
                     }

@@ -83,7 +83,7 @@ impl VTable for LiteralVTable {
     fn operator(expr: &LiteralExpr, children: Vec<Arc<dyn Operator>>) -> Option<Arc<dyn Operator>> {
         assert!(children.is_empty());
 
-        Some(Arc::new(ConstantOperator::new(expr.value().clone())))
+        Some(Arc::new(ConstantOperator::maybe_new(expr.value().clone())?))
     }
 }
 

@@ -10,7 +10,6 @@ use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex_array::compute::filter;
 use vortex_array::pipeline::canonical::export_canonical_pipeline_expr;
-use vortex_array::pipeline::types::Element;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
 use vortex_dtype::Nullability::NonNullable;
@@ -21,6 +20,7 @@ use vortex_expr::{ExprOperatorConverter, Scope, lit, lt, reduce_operator, reduce
 use vortex_fastlanes::{FoRArray, bitpack_to_best_bit_width};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
+use vortex_vector::types::Element;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -93,7 +93,7 @@ pub fn pipeline<T: Element + NativePType + Into<Scalar>>(bencher: Bencher, fract
     let expr = lt(root(), lit(T::from_i32(2).unwrap()));
 
     let mut converter = ExprOperatorConverter::new(array.clone());
-    let operator = expr.fold(&mut converter).unwrap().value();
+    let operator = expr.fold(&mut converter).unwrap().value().unwrap();
 
     bencher
         .with_inputs(|| Mask::from_buffer(mask.clone()))
@@ -123,7 +123,7 @@ pub fn pipeline_opt<T: Element + NativePType + Into<Scalar>>(bencher: Bencher, f
     let expr = lt(root(), lit(T::from_i32(2).unwrap()));
 
     let mut converter = ExprOperatorConverter::new(array.clone());
-    let operator = expr.fold(&mut converter).unwrap().value();
+    let operator = expr.fold(&mut converter).unwrap().value().unwrap();
     let operator = reduce_operator(operator).unwrap();
 
     bencher
@@ -158,7 +158,7 @@ pub fn pipeline_half<T: Element + NativePType + Into<Scalar>>(
     let expr = lt(root(), lit(T::from_i32(2).unwrap()));
 
     let mut converter = ExprOperatorConverter::new(array.clone());
-    let operator = expr.fold(&mut converter).unwrap().value();
+    let operator = expr.fold(&mut converter).unwrap().value().unwrap();
     let operator = reduce_up(operator).unwrap();
 
     bencher

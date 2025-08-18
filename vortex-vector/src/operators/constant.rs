@@ -16,21 +16,22 @@ use crate::types::{Element, VType};
 use crate::view::ViewMut;
 use crate::{Kernel, KernelContext};
 
-#[derive(Debug)]
+#[derive(Debug, Hash)]
 pub struct ConstantOperator {
     pub(crate) scalar: Scalar,
 }
 
 impl ConstantOperator {
-    pub fn new(scalar: Scalar) -> Self {
-        assert!(!scalar.is_null());
-        Self { scalar }
+    pub fn maybe_new(scalar: Scalar) -> Option<Self> {
+        if scalar.is_null() {
+            None
+        } else {
+            Some(Self { scalar })
+        }
     }
-}
 
-impl Hash for ConstantOperator {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.scalar.as_ref().hash(state);
+    pub fn new(scalar: Scalar) -> Self {
+        Self::maybe_new(scalar).vortex_expect("scalar cannot be null")
     }
 }
 
