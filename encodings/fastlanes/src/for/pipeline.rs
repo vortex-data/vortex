@@ -69,8 +69,9 @@ impl Operator for FoROperator {
         })
     }
 
+    // TODO(joe): support in-place, FoR is in-place, but this is not implemented.
     fn in_place(&self) -> bool {
-        true
+        false
     }
 
     fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {
@@ -119,8 +120,6 @@ impl Operator for FoROperator {
     }
 }
 
-// TODO(ngates): we should try putting the const bit width as a generic here, to avoid
-//  a switch in the fastlanes library on every invocation of `unchecked_unpack`.
 pub(crate) struct FoRKernel<T: NativePType, E: NativePType> {
     child: VectorId,
     reference: T,
@@ -183,7 +182,6 @@ mod tests {
         let residuals = for_array.encoded().to_primitive()?;
         let bitpacked = bitpack_to_best_bit_width(&residuals)?;
 
-
         // Create a new FoR array with bitpacked residuals
         FoRArray::try_new(bitpacked.into_array(), for_array.reference_scalar().clone())
     }
@@ -242,7 +240,6 @@ mod tests {
 
             let expect = filter(array.to_canonical().unwrap().as_ref(), &mask).unwrap();
 
-
             for i in 0..mask.true_count() {
                 assert_eq!(
                     result.scalar_at(i).unwrap(),
@@ -284,7 +281,6 @@ mod tests {
         )
         .unwrap()
         .into_array();
-
 
         for i in 0..mask.true_count() {
             assert_eq!(
