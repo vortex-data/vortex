@@ -402,15 +402,18 @@ impl TableFunction for VortexTableFunction {
             .ok_or_else(|| vortex_err!("batch id missing, no batches exported"))
     }
 
-    fn to_string(bind_data: &Self::BindData) -> Option<String> {
-        let mut result = String::new();
+    fn to_string(bind_data: &Self::BindData) -> Option<Vec<(String, String)>> {
+        let mut result = Vec::new();
 
         // Add function name
-        result.push_str("Function=Vortex Scan\n");
+        result.push(("Function".to_string(), "Vortex Scan".to_string()));
 
         // Add file information
         if !bind_data.file_urls.is_empty() {
-            result.push_str(&format!("Files={}\n", bind_data.file_urls.len()));
+            result.push(("Files".to_string(), bind_data.file_urls.len().to_string()));
+            if bind_data.file_urls.len() == 1 {
+                result.push(("File".to_string(), bind_data.file_urls[0].to_string()));
+            }
         }
 
         // Add filter information
@@ -420,8 +423,12 @@ impl TableFunction for VortexTableFunction {
                 .iter()
                 .map(|f| format!("{}", f))
                 .collect();
-            result.push_str(&format!("Filters={}\n", filters.join(" AND ")));
+            result.push((
+                "Filters".to_string(),
+                format!("[{}]", filters.join(" AND ")),
+            ));
         }
+        // NOTE: Projection is already printed by the planner.
 
         Some(result)
     }
