@@ -40,6 +40,7 @@ pub fn take(array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
         .unwrap_array()
 }
 
+#[doc(hidden)]
 pub struct Take;
 
 impl ComputeFnVTable for Take {
