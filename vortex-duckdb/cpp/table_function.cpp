@@ -5,6 +5,7 @@
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/main/connection.hpp"
 #include "duckdb/function/table_function.hpp"
+#include "duckdb/common/insertion_order_preserving_map.hpp"
 
 #include "duckdb_vx.h"
 #include "duckdb/parser/parsed_data/create_table_function_info.hpp"
@@ -261,6 +262,56 @@ OperatorPartitionData c_get_partition_data(ClientContext &context, TableFunction
     return OperatorPartitionData(index);
 }
 
+InsertionOrderPreservingMap<string> c_to_string(TableFunctionToStringInput &input) {
+    InsertionOrderPreservingMap<string> result;
+    
+    if (!input.bind_data) {
+        result["Function"] = "Vortex Scan";
+        return result;
+    }
+    
+    auto &bind = input.bind_data->Cast<CTableBindData>();
+    
+    // Default values
+    result["Function"] = "Vortex Scan";
+    
+    // Call the Rust side to get custom string representation if available
+    if (bind.info->vtab.to_string) {
+        duckdb_vx_error error_out = nullptr;
+        const char* custom_str = bind.info->vtab.to_string(bind.ffi_data->DataPtr(), &error_out);
+        if (!error_out && custom_str) {
+            // Parse the custom string which should be in format "key1=value1\nkey2=value2\n..."
+            string custom(custom_str);
+            
+            // Split by newlines and parse key=value pairs
+            size_t pos = 0;
+            while (pos < custom.length()) {
+                size_t end = custom.find('\n', pos);
+                if (end == string::npos) {
+                    end = custom.length();
+                }
+                
+                string line = custom.substr(pos, end - pos);
+                size_t eq_pos = line.find('=');
+                if (eq_pos != string::npos) {
+                    string key = line.substr(0, eq_pos);
+                    string value = line.substr(eq_pos + 1);
+                    result[key] = value;
+                }
+                
+                pos = end + 1;
+            }
+            
+            // Free the string allocated by Rust
+            if (bind.info->vtab.free_string) {
+                bind.info->vtab.free_string(custom_str);
+            }
+        }
+    }
+    
+    return result;
+}
+
 extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_connection ffi_conn,
                                                  const duckdb_vx_tfunc_vtab_t *vtab) {
     if (!ffi_conn || !vtab) {
@@ -279,6 +330,7 @@ extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_connection ffi_conn,
     tf.late_materialization = vtab->late_materialization;
     tf.cardinality = c_cardinality;
     tf.get_partition_data = c_get_partition_data;
+    tf.to_string = c_to_string;
 
     // Set up the parameters
     for (size_t i = 0; i < vtab->parameter_count; i++) {

@@ -117,6 +117,11 @@ pub trait TableFunction: Sized + Debug {
         _local_init_data: &mut Self::LocalState,
     ) -> VortexResult<u64>;
 
+    /// Returns a string representation for EXPLAIN output
+    fn to_string(_bind_data: &Self::BindData) -> Option<String> {
+        None
+    }
+
     // TODO(ngates): there are many more callbacks that can be configured.
 }
 
@@ -160,6 +165,8 @@ impl Connection {
             cardinality: Some(cardinality_callback::<T>),
             pushdown_complex_filter: Some(pushdown_complex_filter_callback::<T>),
             pushdown_expression: ptr::null_mut::<c_void>(),
+            to_string: Some(to_string_callback::<T>),
+            free_string: Some(free_string_callback),
             table_scan_progress: ptr::null_mut::<c_void>(),
             get_partition_data: Some(get_partition_data_callback::<T>),
             projection_pushdown: T::PROJECTION_PUSHDOWN,
@@ -176,6 +183,44 @@ impl Connection {
         );
 
         Ok(())
+    }
+}
+
+/// The to_string callback for a table function.
+unsafe extern "C-unwind" fn to_string_callback<T: TableFunction>(
+    bind_data: *mut c_void,
+    error_out: *mut cpp::duckdb_vx_error,
+) -> *const std::os::raw::c_char {
+    let bind_data = unsafe { &*(bind_data as *const T::BindData) };
+
+    match T::to_string(bind_data) {
+        Some(s) => {
+            // Convert to CString and leak it - the C++ side is responsible for freeing it
+            let c_str = match CString::new(s) {
+                Ok(c) => c,
+                Err(e) => {
+                    unsafe {
+                        error_out.write(cpp::duckdb_vx_error_create(
+                            e.to_string().as_ptr().cast(),
+                            e.to_string().len(),
+                        ));
+                    }
+                    return ptr::null();
+                }
+            };
+            c_str.into_raw()
+        }
+        None => ptr::null(),
+    }
+}
+
+/// Free a string allocated by Rust
+unsafe extern "C-unwind" fn free_string_callback(s: *const std::os::raw::c_char) {
+    if !s.is_null() {
+        // Reconstruct the CString and let it drop
+        unsafe {
+            let _ = CString::from_raw(s as *mut std::os::raw::c_char);
+        }
     }
 }
 

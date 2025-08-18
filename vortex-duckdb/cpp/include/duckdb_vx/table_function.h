@@ -99,7 +99,8 @@ typedef struct {
     bool (*pushdown_complex_filter)(void *bind_data, duckdb_vx_expr expr, duckdb_vx_error *error_out);
 
     void *pushdown_expression;
-    // void *to_string;
+    const char* (*to_string)(void *bind_data, duckdb_vx_error *error_out);
+    void (*free_string)(const char *str);
     // void *dynamic_to_string;
     void *table_scan_progress;
     idx_t (*get_partition_data)(const void *bind_data, void *init_global_data, void *init_local_data,

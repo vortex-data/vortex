@@ -401,4 +401,37 @@ impl TableFunction for VortexTableFunction {
             .batch_id
             .ok_or_else(|| vortex_err!("batch id missing, no batches exported"))
     }
+
+    fn to_string(bind_data: &Self::BindData) -> Option<String> {
+        let mut result = String::new();
+
+        // Add function name
+        result.push_str("Function=Vortex Scan\n");
+
+        // Add file information
+        if !bind_data.file_urls.is_empty() {
+            result.push_str(&format!("Files={}\n", bind_data.file_urls.len()));
+            if bind_data.file_urls.len() == 1 {
+                result.push_str(&format!("File={}\n", bind_data.file_urls[0]));
+            }
+        }
+
+        // Add projection information
+        if !bind_data.column_names.is_empty() {
+            let columns = bind_data.column_names.join(", ");
+            result.push_str(&format!("Projection=[{}]\n", columns));
+        }
+
+        // Add filter information
+        if !bind_data.filter_exprs.is_empty() {
+            let filters: Vec<String> = bind_data
+                .filter_exprs
+                .iter()
+                .map(|f| format!("{:?}", f))
+                .collect();
+            result.push_str(&format!("Filters=[{}]\n", filters.join(" AND ")));
+        }
+
+        Some(result)
+    }
 }
