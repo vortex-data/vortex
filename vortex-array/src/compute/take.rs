@@ -22,6 +22,12 @@ static TAKE_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     compute
 });
 
+/// Creates a new array using the elements from the input `array` indexed by `indices`.
+///
+/// For example, if we have an `array` `[1, 2, 3, 4, 5]` and `indices` `[4, 2]`, the resulting
+/// array would be `[5, 3]`.
+///
+/// The output array will have the same length as the `indices` array.
 pub fn take(array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
     if indices.is_empty() {
         return Ok(Canonical::empty(
