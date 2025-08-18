@@ -9,7 +9,7 @@ use parking_lot::RwLock;
 use vortex_error::{VortexError, VortexResult, vortex_panic};
 use vortex_scalar::{Scalar, ScalarValue};
 
-use super::{Precision, Stat, StatType, StatsProvider, StatsSet, StatsSetIntoIter};
+use super::{Precision, Stat, StatsProvider, StatsSet, StatsSetIntoIter, TypedStatsSetRef};
 use crate::Array;
 use crate::compute::{
     MinMaxResult, is_constant, is_sorted, is_strict_sorted, min_max, nan_count, sum,
@@ -75,19 +75,32 @@ impl StatsSetRef<'_> {
     }
 
     pub fn inherit_from(&self, stats: StatsSetRef<'_>) {
-        stats.with_iter(|iter| self.inherit(iter));
-    }
-
-    pub fn inherit<'a>(&self, iter: impl Iterator<Item = &'a (Stat, Precision<ScalarValue>)>) {
-        // TODO(ngates): depending on statistic, this should choose the more precise one
-        let mut guard = self.array_stats.inner.write();
-        for (stat, value) in iter {
-            guard.set(*stat, value.clone());
+        // Only inherit if the underlying stats are different
+        if !Arc::ptr_eq(&self.array_stats.inner, &stats.array_stats.inner) {
+            stats.with_iter(|iter| self.inherit(iter));
         }
     }
 
-    pub fn replace(&self, stats: StatsSet) {
-        *self.array_stats.inner.write() = stats;
+    pub fn inherit<'a>(&self, iter: impl Iterator<Item = &'a (Stat, Precision<ScalarValue>)>) {
+        let mut guard = self.array_stats.inner.write();
+        for (stat, value) in iter {
+            if !value.is_exact() {
+                if !guard.get(*stat).is_some_and(|v| v.is_exact()) {
+                    guard.set(*stat, value.clone());
+                }
+            } else {
+                guard.set(*stat, value.clone());
+            }
+        }
+    }
+
+    pub fn with_typed_stats_set<U, F: FnOnce(TypedStatsSetRef) -> U>(&self, apply: F) -> U {
+        apply(
+            self.array_stats
+                .inner
+                .read()
+                .as_typed_ref(self.dyn_array_ref.dtype()),
+        )
     }
 
     pub fn to_owned(&self) -> StatsSet {
@@ -165,32 +178,6 @@ impl StatsSetRef<'_> {
 }
 
 impl StatsSetRef<'_> {
-    pub fn get_as<U: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(
-        &self,
-        stat: Stat,
-    ) -> Option<Precision<U>> {
-        self.get(stat).map(|v| {
-            v.map(|v| {
-                U::try_from(&v).unwrap_or_else(|err| {
-                    vortex_panic!(
-                        err,
-                        "Failed to get stat {} as {}",
-                        stat,
-                        std::any::type_name::<U>()
-                    )
-                })
-            })
-        })
-    }
-
-    pub fn get_as_bound<S, U>(&self) -> Option<S::Bound>
-    where
-        S: StatType<U>,
-        U: for<'a> TryFrom<&'a Scalar, Error = VortexError>,
-    {
-        self.get_as::<U>(S::STAT).map(|v| v.bound::<S>())
-    }
-
     pub fn compute_as<U: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(
         &self,
         stat: Stat,

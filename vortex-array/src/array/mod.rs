@@ -22,7 +22,7 @@ use crate::arrays::{
 use crate::builders::ArrayBuilder;
 use crate::compute::{ComputeFn, Cost, InvocationArgs, IsConstantOpts, Output, is_constant_opts};
 use crate::serde::ArrayChildren;
-use crate::stats::{Precision, Stat, StatsSetRef};
+use crate::stats::{Precision, Stat, StatsProviderExt, StatsSetRef};
 use crate::vtable::{
     ArrayVTable, CanonicalVTable, ComputeVTable, OperationsVTable, SerdeVTable, VTable,
     ValidityVTable, VisitorVTable,
@@ -516,7 +516,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         canonical
             .as_ref()
             .statistics()
-            .replace(self.statistics().to_owned());
+            .inherit_from(self.statistics());
         Ok(canonical)
     }
 
