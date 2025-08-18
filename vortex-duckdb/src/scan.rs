@@ -420,10 +420,7 @@ impl TableFunction for VortexTableFunction {
                 .iter()
                 .map(|f| format!("{}", f))
                 .collect();
-            result.push((
-                "Filters".to_string(),
-                format!("[{}]", filters.join(" AND ")),
-            ));
+            result.push(("Filters".to_string(), filters.join(" /\\\n")));
         }
         // NOTE: Projection is already printed by the planner.
 
