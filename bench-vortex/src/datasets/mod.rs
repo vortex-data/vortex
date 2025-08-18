@@ -145,10 +145,10 @@ impl BenchmarkDataset {
                 anyhow::bail!("public bi unsupported for now")
             }
             (BenchmarkDataset::StatPopGen { .. }, Format::Parquet) => {
-                statpopgen::register_table(session, base_url, Format::Parquet)?
+                statpopgen::register_table(session, base_url, Format::Parquet).await?
             }
             (BenchmarkDataset::StatPopGen { .. }, Format::OnDiskVortex) => {
-                statpopgen::register_table(session, base_url, Format::OnDiskVortex)?
+                statpopgen::register_table(session, base_url, Format::OnDiskVortex).await?
             }
             (BenchmarkDataset::StatPopGen { .. }, format) => {
                 anyhow::bail!("StatPopGen in {format} unsupported in DataFusion")

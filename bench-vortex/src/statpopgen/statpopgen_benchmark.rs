@@ -18,7 +18,6 @@ use vortex_datafusion::VortexFormat;
 
 use crate::benchmark_trait::Benchmark;
 use crate::engines::EngineCtx;
-use crate::statpopgen::schema::SCHEMA;
 use crate::{BenchmarkDataset, Format, Target};
 
 /// Statistical population genetics benchmark implementation.
@@ -138,7 +137,11 @@ impl StatPopGenBenchmark {
 ///
 /// # Errors
 /// Returns an error if table registration fails or if the format is unsupported.
-pub fn register_table(session: &SessionContext, base_url: &Url, format: Format) -> Result<()> {
+pub async fn register_table(
+    session: &SessionContext,
+    base_url: &Url,
+    format: Format,
+) -> Result<()> {
     let table_path = base_url.join(&format!("{}/output4.{}", format.ext(), format.ext()))?;
     let table_url = ListingTableUrl::try_new(table_path, None)?;
     let config = ListingTableConfig::new(table_url)
@@ -165,7 +168,8 @@ pub fn register_table(session: &SessionContext, base_url: &Url, format: Format) 
             })
             .with_session_config_options(session.state().config()),
         )
-        .with_schema(SCHEMA.clone());
+        .infer_schema(&session.state())
+        .await?;
     let listing_table = Arc::new(ListingTable::try_new(config)?);
     session.register_table("statpopgen", listing_table)?;
     Ok(())

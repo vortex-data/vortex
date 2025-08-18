@@ -3,13 +3,55 @@
 
 use std::borrow::Cow;
 
+use crate::statpopgen::builder::InfoArrayBuilder;
+use arrow_schema::DataType;
+use arrow_schema::DataType::*;
+use arrow_schema::Field;
 use itertools::Itertools as _;
+use noodles_vcf::header::record::value::Map;
+use noodles_vcf::header::record::value::map::Info;
+use noodles_vcf::header::record::value::map::info::{Number, Type};
 use noodles_vcf::variant::record::info::field::value::array::Values;
 use noodles_vcf::variant::record::info::field::value::{Array, Value};
 use noodles_vcf::variant::record::samples::series::value::{
     Array as EntryArray, Value as EntryValue,
 };
+use std::sync::Arc;
 use vortex::error::{VortexResult, vortex_bail};
+
+pub fn builder_from_info(info: &Map<Info>) -> InfoArrayBuilder {
+    match (info.number(), info.ty()) {
+        (Number::Count(1), Type::Integer) => InfoArrayBuilder::Integer(Default::default()),
+        (Number::Count(1), Type::Float) => InfoArrayBuilder::Float(Default::default()),
+        (Number::Count(0), Type::Flag) => InfoArrayBuilder::Flag(Default::default()),
+        (Number::Count(1), Type::Character) => todo!(),
+        (Number::Count(1), Type::String) => InfoArrayBuilder::String(Default::default()),
+        (_, Type::Integer) => InfoArrayBuilder::ListInteger(Default::default()),
+        (_, Type::Float) => InfoArrayBuilder::ListFloat(Default::default()),
+        (_, Type::Flag) => todo!(),
+        (_, Type::Character) => todo!(),
+        (_, Type::String) => InfoArrayBuilder::ListString(Default::default()),
+    }
+}
+
+pub fn list(x: DataType) -> DataType {
+    List(Arc::new(Field::new("item", x, true)))
+}
+
+pub fn data_type_from_info(info: &Map<Info>) -> DataType {
+    match (info.number(), info.ty()) {
+        (Number::Count(1), Type::Integer) => Int32,
+        (Number::Count(1), Type::Float) => Float32,
+        (Number::Count(0), Type::Flag) => Boolean,
+        (Number::Count(1), Type::Character) => todo!(),
+        (Number::Count(1), Type::String) => Utf8,
+        (_, Type::Integer) => list(Int32),
+        (_, Type::Float) => list(Float32),
+        (_, Type::Flag) => todo!(),
+        (_, Type::Character) => todo!(),
+        (_, Type::String) => list(Utf8),
+    }
+}
 
 pub fn value_int32(v: Option<Value>) -> VortexResult<Option<i32>> {
     Ok(match v {

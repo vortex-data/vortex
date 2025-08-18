@@ -8,9 +8,8 @@ use arrow_array::builder::{
     UInt64Builder,
 };
 use arrow_array::{ArrayRef, RecordBatch};
-use arrow_schema::ArrowError;
+use arrow_schema::{ArrowError, SchemaRef};
 use itertools::Itertools as _;
-use noodles_vcf::header::record::value::map::info::{Number, Type};
 use noodles_vcf::record::Info;
 use noodles_vcf::variant::record::info::field::Value;
 use noodles_vcf::{Header, Record};
@@ -18,13 +17,14 @@ use vortex::error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex::utils::aliases::hash_set::HashSet;
 
-use super::vcf_value_conversions::*;
-use crate::statpopgen::schema::SCHEMA;
+use super::vcf_conversion::*;
 
 #[allow(dead_code)]
 #[allow(non_snake_case)]
-#[derive(Default)]
 pub struct GnomADBuilder<'a> {
+    /// The schema of the to-be-generated Parquet file.
+    schema: SchemaRef,
+
     /// The contig on which this variant was found.
     ///
     /// Contig is short for contiguous. For VCFs containing Human data, it is an identifier for some
@@ -232,34 +232,35 @@ impl InfoArrayBuilder {
 
 impl<'a> GnomADBuilder<'a> {
     #[allow(non_snake_case)]
-    pub fn new(header: &'a Header) -> Self {
+    pub fn new(header: &'a Header, schema: SchemaRef) -> Self {
         let info_builder: HashMap<&'a str, InfoArrayBuilder> = header
             .infos()
             .iter()
             .map(|(name, info)| {
-                let builder = match (info.number(), info.ty()) {
-                    (Number::Count(1), Type::Integer) => {
-                        InfoArrayBuilder::Integer(Default::default())
-                    }
-                    (Number::Count(1), Type::Float) => InfoArrayBuilder::Float(Default::default()),
-                    (Number::Count(0), Type::Flag) => InfoArrayBuilder::Flag(Default::default()),
-                    (Number::Count(1), Type::Character) => todo!(),
-                    (Number::Count(1), Type::String) => {
-                        InfoArrayBuilder::String(Default::default())
-                    }
-                    (_, Type::Integer) => InfoArrayBuilder::ListInteger(Default::default()),
-                    (_, Type::Float) => InfoArrayBuilder::ListFloat(Default::default()),
-                    (_, Type::Flag) => todo!(),
-                    (_, Type::Character) => todo!(),
-                    (_, Type::String) => InfoArrayBuilder::ListString(Default::default()),
-                };
+                let builder = builder_from_info(info);
                 (name.as_str(), builder)
             })
             .collect();
 
         Self {
+            schema,
             info_builder,
-            ..Default::default()
+            CHROM_builder: Default::default(),
+            POS_builder: Default::default(),
+            ID_builder: Default::default(),
+            REF_builder: Default::default(),
+            ALT_builder: Default::default(),
+            QUAL_builder: Default::default(),
+            FILTER_builder: Default::default(),
+            GT_builder: Default::default(),
+            GQ_builder: Default::default(),
+            DP_builder: Default::default(),
+            AD_builder: Default::default(),
+            MIN_DP_builder: Default::default(),
+            PGT_builder: Default::default(),
+            PID_builder: Default::default(),
+            PL_builder: Default::default(),
+            SB_builder: Default::default(),
         }
     }
 
@@ -419,8 +420,8 @@ impl<'a> GnomADBuilder<'a> {
             Arc::new(self.PL_builder.finish()),
             Arc::new(self.SB_builder.finish()),
         ];
-        let info_fields = SCHEMA.fields()
-            [variant_fields.len()..(SCHEMA.fields().len() - format_fields.len())]
+        let info_fields = self.schema.fields()
+            [variant_fields.len()..(self.schema.fields().len() - format_fields.len())]
             .iter()
             .map(|field| {
                 self.info_builder
@@ -430,7 +431,7 @@ impl<'a> GnomADBuilder<'a> {
             });
 
         RecordBatch::try_new(
-            SCHEMA.clone(),
+            self.schema.clone(),
             variant_fields
                 .into_iter()
                 .chain(info_fields)

@@ -25,7 +25,7 @@ use vortex::stream::ArrayStreamAdapter;
 
 use super::StatPopGenBenchmark;
 use crate::statpopgen::builder::GnomADBuilder;
-use crate::statpopgen::schema::SCHEMA;
+use crate::statpopgen::schema::schema_from_vcf_header;
 use crate::{Format, idempotent_async};
 
 // DuckDB parallelizes parquet at row-group granularity. Each of our rows are quite big (~4000
@@ -74,13 +74,14 @@ impl StatPopGenBenchmark {
                 .expect("style is ok"),
             );
             let mut record = Record::default();
-            let mut builder = GnomADBuilder::new(&header);
+            let schema = schema_from_vcf_header(&header);
+            let mut builder = GnomADBuilder::new(&header, schema.clone());
             let file = File::create(parquet_output_path).await?;
-            let mut writer = AsyncArrowWriter::try_new(file, SCHEMA.clone(), None)?;
+            let mut writer = AsyncArrowWriter::try_new(file, schema.clone(), None)?;
             for i in progress.wrap_iter(0..self.n_rows) {
                 if i % ROW_GROUP_SIZE_IN_VARIANTS == 0 {
                     let rb = builder.finish()?;
-                    builder = GnomADBuilder::new(&header);
+                    builder = GnomADBuilder::new(&header, schema.clone());
                     writer.write(&rb).await?;
                     writer.flush().await?;
                 }

@@ -24,6 +24,6 @@ mod builder;
 mod download_vcf;
 mod schema;
 mod statpopgen_benchmark;
-mod vcf_value_conversions;
+mod vcf_conversion;
 
 pub use statpopgen_benchmark::*;
