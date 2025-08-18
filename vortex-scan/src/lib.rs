@@ -50,7 +50,7 @@ pub struct ScanBuilder<A> {
     /// The selection mask to apply to the selected row range.
     // TODO(joe): replace this is usage of row_id selection, see
     selection: Selection,
-    /// How to split the file f§    or concurrent processing.
+    /// How to split the file for concurrent processing.
     split_by: SplitBy,
     /// The number of splits to make progress on concurrently **per-thread**.
     concurrency: usize,
