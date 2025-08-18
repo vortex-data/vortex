@@ -29,7 +29,7 @@ pub struct WriteStrategyBuilder {
     compressor: Option<Arc<dyn CompressorPlugin>>,
     /// The minimum size, in bytes, of a block of values which are compressed together.
     compression_block_min_bytesize: Option<u64>,
-    /// The size of zones, each of which carries statistics such as the minimum value.
+    /// The size, in rows, of zones. Zones carry statistics such as their minimum value.
     ///
     /// Smaller zones allow for finer-grained filter push down at the cost of more metadata.
     zone_size: Option<usize>,
@@ -77,7 +77,7 @@ impl WriteStrategyBuilder {
         self
     }
 
-    /// Override the size of zone-map zones.
+    /// Override the size, in rows, of zone-map zones.
     pub fn with_zone_size(mut self, zone_size: Option<usize>) -> Self {
         self.zone_size = zone_size;
         self

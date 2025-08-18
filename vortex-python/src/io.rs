@@ -100,7 +100,7 @@ pub fn read_url<'py>(
 ///     The minimum size, in bytes, of a block of values which are compressed together.
 ///
 /// zone_size : :class:`int`, optional
-///     The size of zones, each of which carries statistics such as the minimum value.
+///     The size, in rows, of zones. Zones carry statistics such as their minimum value.
 ///
 /// Examples
 /// --------
