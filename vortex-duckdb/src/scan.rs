@@ -411,15 +411,6 @@ impl TableFunction for VortexTableFunction {
         // Add file information
         if !bind_data.file_urls.is_empty() {
             result.push_str(&format!("Files={}\n", bind_data.file_urls.len()));
-            if bind_data.file_urls.len() == 1 {
-                result.push_str(&format!("File={}\n", bind_data.file_urls[0]));
-            }
-        }
-
-        // Add projection information
-        if !bind_data.column_names.is_empty() {
-            let columns = bind_data.column_names.join(", ");
-            result.push_str(&format!("Projection=[{}]\n", columns));
         }
 
         // Add filter information
@@ -427,7 +418,7 @@ impl TableFunction for VortexTableFunction {
             let filters: Vec<String> = bind_data
                 .filter_exprs
                 .iter()
-                .map(|f| format!("{:?}", f))
+                .map(|f| format!("{}", f))
                 .collect();
             result.push_str(&format!("Filters=[{}]\n", filters.join(" AND ")));
         }
