@@ -193,8 +193,6 @@ impl BitPackedArray {
     ///   up to the next multiple of 1024.
     ///
     /// Any violation of these preconditions will result in an error.
-    ///
-    /// See also [`new_unchecked`][Self::new_unchecked].
     pub fn try_new(
         packed: ByteBuffer,
         ptype: PType,

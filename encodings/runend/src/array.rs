@@ -208,7 +208,7 @@ impl RunEndArray {
     ///
     /// # Safety
     ///
-    /// The caller must ensure that all the validation performed in [`RunEndArray::validate`] is
+    /// The caller must ensure that all the validation performed in [`RunEndArray::try_new`] is
     /// satisfied before calling this function.
     ///
     /// See [`RunEndArray::try_new`] for the preconditions needed to build a new array.

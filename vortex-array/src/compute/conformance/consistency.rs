@@ -1117,7 +1117,7 @@ fn test_cast_slice_consistency(array: &dyn Array) {
 ///
 /// ## Large Arrays
 /// - **Performance**: Operations scale correctly to large arrays (1000+ elements)
-/// ```
+/// ```text
 pub fn test_array_consistency(array: &dyn Array) {
     // Core operation consistency
     test_filter_take_consistency(array);
