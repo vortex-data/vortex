@@ -5,6 +5,7 @@
 
 use std::ffi::CStr;
 use std::path::Path;
+use std::slice;
 use std::str::FromStr;
 
 use anyhow::Result;
@@ -58,9 +59,13 @@ trait FromDuckDBValue<T> {
 
 impl FromDuckDBValue<duckdb_string_t> for String {
     fn from_duckdb_value(value: &mut duckdb_string_t) -> Self {
-        unsafe { CStr::from_ptr(cpp::duckdb_string_t_data(&raw mut *value)) }
-            .to_string_lossy()
-            .to_string()
+        let slice: &[u8] = unsafe {
+            slice::from_raw_parts(
+                cpp::duckdb_string_t_data(&raw mut *value) as _,
+                cpp::duckdb_string_t_length(*value) as usize,
+            )
+        };
+        String::from_utf8_lossy(slice).to_string()
     }
 }
 
