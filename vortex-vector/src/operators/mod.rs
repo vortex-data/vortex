@@ -10,7 +10,7 @@ pub mod scalar_compare;
 
 use std::any::Any;
 use std::fmt::Debug;
-use std::sync::Arc;
+use std::rc::Rc;
 
 use dyn_hash::DynHash;
 use vortex_error::VortexResult;
@@ -38,9 +38,9 @@ pub trait Operator: Debug + DynHash + 'static {
     fn vtype(&self) -> VType;
 
     /// The children of this operator.
-    fn children(&self) -> &[Arc<dyn Operator>];
+    fn children(&self) -> &[Rc<dyn Operator>];
 
-    fn with_children(&self, children: Vec<Arc<dyn Operator>>) -> Arc<dyn Operator>;
+    fn with_children(&self, children: Vec<Rc<dyn Operator>>) -> Rc<dyn Operator>;
 
     /// Whether this operator works by mutating its first child in-place.
     ///
@@ -56,13 +56,13 @@ pub trait Operator: Debug + DynHash + 'static {
     //TODO: fixme
     /// Given a set of reduced children, try and reduce the current node.
     /// If Keep is returned then the children of this node as still updated.
-    fn reduce_children(&self, children: &[Arc<dyn Operator>]) -> Option<Arc<dyn Operator>> {
+    fn reduce_children(&self, children: &[Rc<dyn Operator>]) -> Option<Rc<dyn Operator>> {
         None
     }
 
     /// Given a reduced parent, try and reduce the current node.
     /// If `Replace` is returned then  the parent node and this node and replaced by the returned node.
-    fn reduce_parent(&self, parent: Arc<dyn Operator>) -> Option<Arc<dyn Operator>> {
+    fn reduce_parent(&self, parent: Rc<dyn Operator>) -> Option<Rc<dyn Operator>> {
         None
     }
 }

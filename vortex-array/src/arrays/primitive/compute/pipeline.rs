@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::rc::Rc;
 
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_vector::operators::Operator;
@@ -9,13 +9,13 @@ use crate::pipeline::PipelineVTable;
 use crate::vtable::ValidityHelper;
 
 impl PipelineVTable<PrimitiveVTable> for PrimitiveVTable {
-    fn to_operator(array: &PrimitiveArray) -> VortexResult<Option<Arc<dyn Operator>>> {
+    fn to_operator(array: &PrimitiveArray) -> VortexResult<Option<Rc<dyn Operator>>> {
         if !array.validity().all_valid()? {
             vortex_bail!(
                 "PipelineVTable::to_operator is not supported for arrays with invalid values"
             );
         }
-        Ok(Some(Arc::new(PrimitiveOperator::new(
+        Ok(Some(Rc::new(PrimitiveOperator::new(
             array.ptype(),
             array.byte_buffer().clone(),
         ))))

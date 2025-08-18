@@ -4,7 +4,7 @@
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::ops::Deref;
-use std::sync::Arc;
+use std::rc::Rc;
 
 use vortex_array::{ArrayRef, DeserializeMetadata, SerializeMetadata};
 use vortex_dtype::DType;
@@ -66,8 +66,8 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
 
     fn operator(
         _expr: &Self::Expr,
-        _children: Vec<Arc<dyn Operator>>,
-    ) -> Option<Arc<dyn Operator>> {
+        _children: Vec<Rc<dyn Operator>>,
+    ) -> Option<Rc<dyn Operator>> {
         None
     }
 }

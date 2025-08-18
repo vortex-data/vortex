@@ -3,7 +3,7 @@
 
 use std::any::Any;
 use std::hash::Hash;
-use std::sync::Arc;
+use std::rc::Rc;
 use std::task::Poll;
 
 use vortex_dtype::{DType, NativePType, match_each_native_ptype};
@@ -49,12 +49,12 @@ impl Operator for ConstantOperator {
         }
     }
 
-    fn children(&self) -> &[Arc<dyn Operator>] {
+    fn children(&self) -> &[Rc<dyn Operator>] {
         &[]
     }
 
-    fn with_children(&self, children: Vec<Arc<dyn Operator>>) -> Arc<dyn Operator> {
-        Arc::new(ConstantOperator::new(self.scalar.clone()))
+    fn with_children(&self, children: Vec<Rc<dyn Operator>>) -> Rc<dyn Operator> {
+        Rc::new(ConstantOperator::new(self.scalar.clone()))
     }
 
     fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {

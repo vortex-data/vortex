@@ -3,7 +3,7 @@
 
 use std::any::Any;
 use std::hash::Hash;
-use std::sync::Arc;
+use std::rc::Rc;
 use std::task::{Poll, ready};
 
 use vortex_buffer::{Buffer, ByteBuffer};
@@ -38,12 +38,12 @@ impl Operator for PrimitiveOperator {
         VType::Primitive(self.ptype)
     }
 
-    fn children(&self) -> &[Arc<dyn Operator>] {
+    fn children(&self) -> &[Rc<dyn Operator>] {
         &[]
     }
 
-    fn with_children(&self, children: Vec<Arc<dyn Operator>>) -> Arc<dyn Operator> {
-        Arc::new(self.clone())
+    fn with_children(&self, children: Vec<Rc<dyn Operator>>) -> Rc<dyn Operator> {
+        Rc::new(self.clone())
     }
 
     fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {

@@ -90,14 +90,14 @@ impl<'a> Pipeline<'a> {
         })
     }
 
-    pub fn seek(&mut self, chunk_idx: usize) -> VortexResult<()> {
+    fn _seek(&mut self, chunk_idx: usize) -> VortexResult<()> {
         self.operators
             .iter_mut()
             .try_for_each(|op| op.seek(chunk_idx))
     }
 
     /// Step the pipeline forward
-    pub fn step(&mut self, selected: BitView, out: &mut ViewMut) -> Poll<VortexResult<()>> {
+    fn _step(&mut self, selected: BitView, out: &mut ViewMut) -> Poll<VortexResult<()>> {
         self.work_stack.clear();
         self.pending_nodes_next.clear();
 
@@ -342,7 +342,7 @@ enum ExecutionResult {
 /// FIXME(ngates): this is a hack for testing
 impl Kernel for Pipeline<'_> {
     fn seek(&mut self, chunk_idx: usize) -> VortexResult<()> {
-        Pipeline::seek(self, chunk_idx)
+        self._seek(chunk_idx)
     }
 
     fn step(
@@ -351,7 +351,7 @@ impl Kernel for Pipeline<'_> {
         selected: BitView,
         out: &mut ViewMut,
     ) -> Poll<VortexResult<()>> {
-        Pipeline::step(self, selected, out)
+        self._step(selected, out)
     }
 }
 

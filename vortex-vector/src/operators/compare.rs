@@ -3,7 +3,7 @@
 
 use std::any::Any;
 use std::marker::PhantomData;
-use std::sync::Arc;
+use std::rc::Rc;
 use std::task::Poll;
 
 use itertools::Itertools;
@@ -85,12 +85,12 @@ macro_rules! match_each_compare_op {
 
 #[derive(Debug, Hash)]
 pub struct CompareOperator {
-    children: [Arc<dyn Operator>; 2],
+    children: [Rc<dyn Operator>; 2],
     op: BinaryOperator,
 }
 
 impl CompareOperator {
-    pub fn new(lhs: Arc<dyn Operator>, rhs: Arc<dyn Operator>, op: BinaryOperator) -> Self {
+    pub fn new(lhs: Rc<dyn Operator>, rhs: Rc<dyn Operator>, op: BinaryOperator) -> Self {
         assert_eq!(lhs.vtype(), rhs.vtype(), "Operands must have the same type");
         Self {
             children: [lhs, rhs],
@@ -108,16 +108,16 @@ impl Operator for CompareOperator {
         VType::Bool
     }
 
-    fn children(&self) -> &[Arc<dyn Operator>] {
+    fn children(&self) -> &[Rc<dyn Operator>] {
         &self.children
     }
 
-    fn with_children(&self, children: Vec<Arc<dyn Operator>>) -> Arc<dyn Operator> {
+    fn with_children(&self, children: Vec<Rc<dyn Operator>>) -> Rc<dyn Operator> {
         let [lhs, rhs] = children
             .try_into()
             .ok()
             .vortex_expect("Expected 2 children");
-        Arc::new(CompareOperator::new(lhs, rhs, self.op))
+        Rc::new(CompareOperator::new(lhs, rhs, self.op))
     }
 
     fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {
@@ -142,7 +142,7 @@ impl Operator for CompareOperator {
         }
     }
 
-    fn reduce_children(&self, children: &[Arc<dyn Operator>]) -> Option<Arc<dyn Operator>> {
+    fn reduce_children(&self, children: &[Rc<dyn Operator>]) -> Option<Rc<dyn Operator>> {
         let constants = children
             .iter()
             .enumerate()
@@ -162,13 +162,13 @@ impl Operator for CompareOperator {
             .vortex_expect("Expected 1 constant");
 
         if idx == 0 {
-            Some(Arc::new(ScalarCompareOperator::new(
+            Some(Rc::new(ScalarCompareOperator::new(
                 children[1].clone(),
                 self.op.inverse(),
                 lhs.scalar.clone(),
             )))
         } else {
-            Some(Arc::new(ScalarCompareOperator::new(
+            Some(Rc::new(ScalarCompareOperator::new(
                 children[0].clone(),
                 self.op,
                 lhs.scalar.clone(),

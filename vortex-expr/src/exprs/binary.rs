@@ -3,7 +3,7 @@
 
 use std::fmt::Display;
 use std::hash::Hash;
-use std::sync::Arc;
+use std::rc::Rc;
 
 use vortex_array::compute::{Operator as ArrayOperator, add, and_kleene, compare, or_kleene, sub};
 use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata};
@@ -113,15 +113,15 @@ impl VTable for BinaryVTable {
 
     fn operator(
         expr: &BinaryExpr,
-        children: Vec<Arc<dyn operators::Operator>>,
-    ) -> Option<Arc<dyn operators::Operator>> {
+        children: Vec<Rc<dyn operators::Operator>>,
+    ) -> Option<Rc<dyn operators::Operator>> {
         let [lhs, rhs] = children
             .try_into()
             .ok()
             .vortex_expect("Expected 2 children");
         let op = expr.operator.try_into().ok()?;
 
-        Some(Arc::new(CompareOperator::new(lhs, rhs, op)))
+        Some(Rc::new(CompareOperator::new(lhs, rhs, op)))
     }
 }
 

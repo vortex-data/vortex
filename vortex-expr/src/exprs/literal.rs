@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Display;
-use std::sync::Arc;
+use std::rc::Rc;
 
 use vortex_array::arrays::ConstantArray;
 use vortex_array::{ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata};
@@ -80,10 +80,10 @@ impl VTable for LiteralVTable {
         Ok(expr.value.dtype().clone())
     }
 
-    fn operator(expr: &LiteralExpr, children: Vec<Arc<dyn Operator>>) -> Option<Arc<dyn Operator>> {
+    fn operator(expr: &LiteralExpr, children: Vec<Rc<dyn Operator>>) -> Option<Rc<dyn Operator>> {
         assert!(children.is_empty());
 
-        Some(Arc::new(ConstantOperator::maybe_new(expr.value().clone())?))
+        Some(Rc::new(ConstantOperator::maybe_new(expr.value().clone())?))
     }
 }
 

@@ -6,6 +6,7 @@ mod visitor;
 
 use std::any::Any;
 use std::fmt::{Debug, Formatter};
+use std::rc::Rc;
 use std::sync::Arc;
 
 pub use visitor::*;
@@ -152,7 +153,7 @@ pub trait Array: 'static + private::Sealed + Send + Sync + Debug + ArrayVisitor 
     /// Convert the array to a pipeline operator if supported by the encoding.
     ///
     /// Returns `None` if the encoding does not support pipeline operations.
-    fn to_operator(&self) -> VortexResult<Option<Arc<dyn Operator>>>;
+    fn to_operator(&self) -> VortexResult<Option<Rc<dyn Operator>>>;
 }
 
 impl Array for Arc<dyn Array> {
@@ -240,7 +241,7 @@ impl Array for Arc<dyn Array> {
         self.as_ref().invoke(compute_fn, args)
     }
 
-    fn to_operator(&self) -> VortexResult<Option<Arc<dyn Operator>>> {
+    fn to_operator(&self) -> VortexResult<Option<Rc<dyn Operator>>> {
         self.as_ref().to_operator()
     }
 }
@@ -610,7 +611,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         <V::ComputeVTable as ComputeVTable<V>>::invoke(&self.0, compute_fn, args)
     }
 
-    fn to_operator(&self) -> VortexResult<Option<Arc<dyn Operator>>> {
+    fn to_operator(&self) -> VortexResult<Option<Rc<dyn Operator>>> {
         <V::PipelineVTable as PipelineVTable<V>>::to_operator(&self.0)
     }
 }

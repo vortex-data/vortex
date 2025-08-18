@@ -19,6 +19,8 @@ pub struct View<'a> {
     pub(super) elements: *const u8,
     /// The validity mask for the vector, indicating which elements in the buffer are valid.
     /// This value can be `None` if the expected DType is `NonNullable`.
+    // TODO: support validity
+    #[allow(dead_code)]
     pub(super) validity: Option<BitView<'a>>,
     // A selection mask over the elements and validity of the vector.
     pub(super) len: usize,

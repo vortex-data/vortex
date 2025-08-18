@@ -3,7 +3,7 @@
 
 mod reduce;
 
-use std::sync::Arc;
+use std::rc::Rc;
 
 pub use reduce::*;
 use vortex_array::Array;
@@ -27,13 +27,13 @@ impl<'a> ExprOperatorConverter<'a> {
 
 impl<'a> NodeFolder for ExprOperatorConverter<'a> {
     type NodeTy = ExprRef;
-    type Result = Option<Arc<dyn Operator>>;
+    type Result = Option<Rc<dyn Operator>>;
 
     fn visit_up(
         &mut self,
         node: ExprRef,
-        children: Vec<Option<Arc<dyn Operator>>>,
-    ) -> VortexResult<FoldUp<Option<Arc<dyn Operator>>>> {
+        children: Vec<Option<Rc<dyn Operator>>>,
+    ) -> VortexResult<FoldUp<Option<Rc<dyn Operator>>>> {
         let Some(children) = children.into_iter().collect::<Option<Vec<_>>>() else {
             return Ok(FoldUp::Stop(None));
         };

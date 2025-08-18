@@ -6,7 +6,7 @@
 //! This module provides a compatibility layer for existing code that expects
 //! pipeline functionality to be available through vortex-array.
 
-use std::sync::Arc;
+use std::rc::Rc;
 
 use vortex_error::VortexResult;
 use vortex_vector::*;
@@ -18,11 +18,11 @@ pub mod canonical;
 pub trait PipelineVTable<V: VTable> {
     /// Convert the current array into a [`Operator`].
     /// Returns `None` if the array cannot be converted to an operator.
-    fn to_operator(array: &V::Array) -> VortexResult<Option<Arc<dyn Operator>>>;
+    fn to_operator(array: &V::Array) -> VortexResult<Option<Rc<dyn Operator>>>;
 }
 
 impl<V: VTable> PipelineVTable<V> for NotSupported {
-    fn to_operator(_array: &V::Array) -> VortexResult<Option<Arc<dyn Operator>>> {
+    fn to_operator(_array: &V::Array) -> VortexResult<Option<Rc<dyn Operator>>> {
         Ok(None)
     }
 }

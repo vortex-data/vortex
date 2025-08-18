@@ -13,6 +13,7 @@
 use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
+use std::rc::Rc;
 use std::sync::Arc;
 
 use dyn_hash::DynHash;
@@ -113,8 +114,8 @@ pub trait VortexExpr:
 
     fn operator(
         &self,
-        _children: Vec<Arc<dyn pipeline::operators::Operator>>,
-    ) -> Option<Arc<dyn pipeline::operators::Operator>>;
+        _children: Vec<Rc<dyn pipeline::operators::Operator>>,
+    ) -> Option<Rc<dyn pipeline::operators::Operator>>;
 }
 
 dyn_hash::hash_trait_object!(VortexExpr);
@@ -169,7 +170,7 @@ pub trait VortexExprExt {
     fn to_operator(
         &self,
         root: &dyn Array,
-    ) -> VortexResult<Option<Arc<dyn pipeline::operators::Operator>>>;
+    ) -> VortexResult<Option<Rc<dyn pipeline::operators::Operator>>>;
 }
 
 impl VortexExprExt for ExprRef {
@@ -183,7 +184,7 @@ impl VortexExprExt for ExprRef {
     fn to_operator(
         &self,
         root: &dyn Array,
-    ) -> VortexResult<Option<Arc<dyn pipeline::operators::Operator>>> {
+    ) -> VortexResult<Option<Rc<dyn pipeline::operators::Operator>>> {
         let mut converter = ExprOperatorConverter::new(root);
         let Some(operator) = self.clone().fold(&mut converter)?.value() else {
             return Ok(None);
@@ -238,8 +239,8 @@ impl<V: VTable> VortexExpr for ExprAdapter<V> {
 
     fn operator(
         &self,
-        children: Vec<Arc<dyn pipeline::operators::Operator>>,
-    ) -> Option<Arc<dyn pipeline::operators::Operator>> {
+        children: Vec<Rc<dyn pipeline::operators::Operator>>,
+    ) -> Option<Rc<dyn pipeline::operators::Operator>> {
         V::operator(&self.0, children)
     }
 }

@@ -3,7 +3,7 @@
 
 use std::any::Any;
 use std::marker::PhantomData;
-use std::sync::Arc;
+use std::rc::Rc;
 use std::task::Poll;
 
 use vortex_dtype::{NativePType, match_each_native_ptype};
@@ -20,13 +20,13 @@ use crate::{Kernel, KernelContext, match_each_compare_op};
 
 #[derive(Debug, Hash)]
 pub struct ScalarCompareOperator {
-    children: [Arc<dyn Operator>; 1],
+    children: [Rc<dyn Operator>; 1],
     pub op: BinaryOperator,
     pub scalar: Scalar,
 }
 
 impl ScalarCompareOperator {
-    pub fn new(child: Arc<dyn Operator>, op: BinaryOperator, scalar: Scalar) -> Self {
+    pub fn new(child: Rc<dyn Operator>, op: BinaryOperator, scalar: Scalar) -> Self {
         assert_eq!(child.vtype(), VType::Primitive(scalar.dtype().as_ptype()));
         Self {
             children: [child],
@@ -41,7 +41,7 @@ impl Operator for ScalarCompareOperator {
         self
     }
 
-    fn children(&self) -> &[Arc<dyn Operator>] {
+    fn children(&self) -> &[Rc<dyn Operator>] {
         &self.children
     }
 
@@ -73,8 +73,8 @@ impl Operator for ScalarCompareOperator {
         }
     }
 
-    fn with_children(&self, mut children: Vec<Arc<dyn Operator>>) -> Arc<dyn Operator> {
-        Arc::new(ScalarCompareOperator::new(
+    fn with_children(&self, mut children: Vec<Rc<dyn Operator>>) -> Rc<dyn Operator> {
+        Rc::new(ScalarCompareOperator::new(
             children.remove(0),
             self.op,
             self.scalar.clone(),

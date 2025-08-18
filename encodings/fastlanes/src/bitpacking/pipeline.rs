@@ -3,7 +3,7 @@
 
 use std::any::Any;
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
+use std::rc::Rc;
 use std::task::{Poll, ready};
 
 use fastlanes::{BitPacking, FastLanes};
@@ -20,7 +20,7 @@ use vortex_vector::{Kernel, KernelContext, SC};
 use crate::{BitPackedArray, BitPackedVTable};
 
 impl PipelineVTable<BitPackedVTable> for BitPackedVTable {
-    fn to_operator(array: &BitPackedArray) -> VortexResult<Option<Arc<dyn Operator>>> {
+    fn to_operator(array: &BitPackedArray) -> VortexResult<Option<Rc<dyn Operator>>> {
         if array.dtype.is_nullable() {
             log::trace!("BitPackedVTable does not support nullable arrays");
             return Ok(None);
@@ -30,7 +30,7 @@ impl PipelineVTable<BitPackedVTable> for BitPackedVTable {
             return Ok(None);
         }
 
-        Ok(Some(Arc::new(array.clone())))
+        Ok(Some(Rc::new(array.clone())))
     }
 }
 
@@ -43,12 +43,12 @@ impl Operator for BitPackedArray {
         VType::Primitive(self.ptype())
     }
 
-    fn children(&self) -> &[Arc<dyn Operator>] {
+    fn children(&self) -> &[Rc<dyn Operator>] {
         &[]
     }
 
-    fn with_children(&self, _children: Vec<Arc<dyn Operator>>) -> Arc<dyn Operator> {
-        Arc::new(self.clone())
+    fn with_children(&self, _children: Vec<Rc<dyn Operator>>) -> Rc<dyn Operator> {
+        Rc::new(self.clone())
     }
 
     fn bind(&self, _ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {
