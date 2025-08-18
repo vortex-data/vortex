@@ -13,6 +13,7 @@ use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::{VortexError, VortexResult};
 use vortex::file::VortexWriteOptions;
+use vortex::file::WriteStrategyBuilder;
 use vortex::iter::{ArrayIterator, ArrayIteratorAdapter, ArrayIteratorExt};
 use vortex::{ArrayRef, Canonical, IntoArray};
 
@@ -95,6 +96,12 @@ pub fn read_url<'py>(
 /// path : :class:`str`
 ///     The file path.
 ///
+/// compression_block_min_bytesize : :class:`int`, optional
+///     The minimum size, in bytes, of a block of values which are compressed together.
+///
+/// zone_size : :class:`int`, optional
+///     The size of zones, each of which carries statistics such as the minimum value.
+///
 /// Examples
 /// --------
 ///
@@ -125,10 +132,21 @@ pub fn read_url<'py>(
 ///     >>> vx.io.write(reader, "streamed.vortex")  # doctest: +SKIP
 ///
 #[pyfunction]
-#[pyo3(signature = (iter, path))]
-pub fn write(iter: PyIntoArrayIterator, path: &str) -> PyResult<()> {
+#[pyo3(signature = (iter, path, *, compression_block_min_bytesize = None, zone_size = None))]
+pub fn write(
+    iter: PyIntoArrayIterator,
+    path: &str,
+    compression_block_min_bytesize: Option<u64>,
+    zone_size: Option<usize>,
+) -> PyResult<()> {
     TOKIO_RUNTIME.block_on(async move {
         VortexWriteOptions::default()
+            .with_strategy(
+                WriteStrategyBuilder::default()
+                    .with_compression_block_min_bytesize(compression_block_min_bytesize)
+                    .with_zone_size(zone_size)
+                    .build(),
+            )
             .write(
                 File::create(path).await?,
                 iter.into_inner().into_array_stream(),

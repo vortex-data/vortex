@@ -27,6 +27,12 @@ const ROW_BLOCK_SIZE: usize = 8192;
 pub struct WriteStrategyBuilder {
     executor: Option<Arc<dyn TaskExecutor>>,
     compressor: Option<Arc<dyn CompressorPlugin>>,
+    /// The minimum size, in bytes, of a block of values which are compressed together.
+    compression_block_min_bytesize: Option<u64>,
+    /// The size of zones, each of which carries statistics such as the minimum value.
+    ///
+    /// Smaller zones allow for finer-grained filter push down at the cost of more metadata.
+    zone_size: Option<usize>,
 }
 
 impl Default for WriteStrategyBuilder {
@@ -42,6 +48,8 @@ impl WriteStrategyBuilder {
         Self {
             executor: None,
             compressor: None,
+            compression_block_min_bytesize: None,
+            zone_size: None,
         }
     }
 
@@ -63,15 +71,30 @@ impl WriteStrategyBuilder {
         self
     }
 
+    /// Override the minimum bytesize of a block for compression.
+    pub fn with_compression_block_min_bytesize(mut self, min_bytesize: Option<u64>) -> Self {
+        self.compression_block_min_bytesize = min_bytesize;
+        self
+    }
+
+    /// Override the size of zone-map zones.
+    pub fn with_zone_size(mut self, zone_size: Option<usize>) -> Self {
+        self.zone_size = zone_size;
+        self
+    }
+
     /// Builds the canonical [`LayoutStrategy`] implementation, with the configured overrides
     /// applied.
     pub fn build(self) -> Arc<dyn LayoutStrategy> {
+        let compression_block_min_bytesize = self.compression_block_min_bytesize.unwrap_or(ONE_MEG);
+        let block_size = self.zone_size.unwrap_or(ROW_BLOCK_SIZE);
+
         let executor = self.executor.unwrap_or_else(|| Arc::new(LocalExecutor));
 
         // 7. for each chunk create a flat layout
         let chunked = ChunkedLayoutStrategy::new(FlatLayoutStrategy::default());
         // 6. buffer chunks so they end up with closer segment ids physically
-        let buffered = BufferedStrategy::new(chunked, 2 * ONE_MEG); // 2MB
+        let buffered = BufferedStrategy::new(chunked, 2 * compression_block_min_bytesize); // 2MB
         // 5. compress each chunk
         let compressing = if let Some(ref compressor) = self.compressor {
             CompressingStrategy::new_opaque(buffered, compressor.clone(), executor.clone(), 16)
@@ -83,8 +106,8 @@ impl WriteStrategyBuilder {
         let coalescing = RepartitionStrategy::new(
             compressing,
             RepartitionWriterOptions {
-                block_size_minimum: ONE_MEG,
-                block_len_multiple: ROW_BLOCK_SIZE,
+                block_size_minimum: compression_block_min_bytesize,
+                block_len_multiple: block_size,
             },
         );
 
@@ -114,7 +137,7 @@ impl WriteStrategyBuilder {
             dict,
             compress_then_flat,
             ZonedLayoutOptions {
-                block_size: ROW_BLOCK_SIZE,
+                block_size,
                 stats: PRUNING_STATS.into(),
                 max_variable_length_statistics_size: 64,
                 parallelism: 16,
@@ -129,7 +152,7 @@ impl WriteStrategyBuilder {
                 // No minimum block size in bytes
                 block_size_minimum: 0,
                 // Always repartition into 8K row blocks
-                block_len_multiple: ROW_BLOCK_SIZE,
+                block_len_multiple: block_size,
             },
         );
 
