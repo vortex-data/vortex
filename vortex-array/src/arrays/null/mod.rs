@@ -34,7 +34,6 @@ impl VTable for NullVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
     type SerdeVTable = Self;
-    type PipelineVTable = NotSupported;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.null")

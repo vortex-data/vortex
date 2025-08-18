@@ -5,11 +5,11 @@ use std::task::{Poll, ready};
 
 use fsst::{Compressor, Symbol};
 use vortex_array::arrays::BinaryView;
-use vortex_array::pipeline::bits::BitView;
-use vortex_array::pipeline::buffers::BufferHandle;
-use vortex_array::pipeline::vector::PrimitiveVector;
-use vortex_array::pipeline::view::ViewMut;
-use vortex_array::pipeline::{Kernel, KernelContext};
+use vortex_vector::bits::BitView;
+use vortex_vector::buffers::BufferHandle;
+use vortex_vector::vector::PrimitiveVector;
+use vortex_vector::view::ViewMut;
+use vortex_vector::{Kernel, KernelContext};
 use vortex_buffer::ByteBufferMut;
 use vortex_error::{VortexExpect, VortexResult};
 

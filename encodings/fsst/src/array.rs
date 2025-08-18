@@ -29,7 +29,6 @@ impl VTable for FSSTVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
     type SerdeVTable = Self;
-    type PipelineVTable = NotSupported;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.fsst")

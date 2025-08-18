@@ -3,15 +3,15 @@
 
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::pipeline::Kernel;
-use crate::pipeline::operators::BindContext;
-use crate::pipeline::query::Pipeline;
-use crate::pipeline::query::buffers::VectorAllocationPlan;
-use crate::pipeline::query::dag::DagNode;
-use crate::pipeline::vector::VectorId;
+use crate::Kernel;
+use crate::operators::BindContext;
+use crate::query::Pipeline;
+use crate::query::buffers::VectorAllocationPlan;
+use crate::query::dag::DagNode;
+use crate::vector::VectorId;
 
 impl Pipeline<'_> {
-    pub(in crate::pipeline) fn bind_operators(
+    pub(crate) fn bind_operators(
         dag: &[DagNode],
         allocation_plan: &VectorAllocationPlan,
     ) -> VortexResult<Vec<Box<dyn Kernel>>> {

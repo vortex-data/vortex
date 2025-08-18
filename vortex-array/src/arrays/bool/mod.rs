@@ -31,7 +31,6 @@ impl VTable for BoolVTable {
     type EncodeVTable = NotSupported;
     // Enable serde for this encoding
     type SerdeVTable = Self;
-    type PipelineVTable = NotSupported;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.bool")

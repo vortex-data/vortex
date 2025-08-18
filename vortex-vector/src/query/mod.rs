@@ -12,14 +12,14 @@ use std::task::Poll;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexError, VortexResult};
 
-use crate::pipeline::bits::BitView;
-use crate::pipeline::buffers::BufferId;
-use crate::pipeline::operators::Operator;
-use crate::pipeline::query::buffers::{OutputTarget, VectorAllocationPlan};
-use crate::pipeline::query::dag::DagNode;
-use crate::pipeline::vector::{VectorId, VectorRef};
-use crate::pipeline::view::ViewMut;
-use crate::pipeline::{Kernel, KernelContext};
+use crate::bits::BitView;
+use crate::buffers::BufferId;
+use crate::operators::Operator;
+use crate::query::buffers::{OutputTarget, VectorAllocationPlan};
+use crate::query::dag::DagNode;
+use crate::vector::{VectorId, VectorRef};
+use crate::view::ViewMut;
+use crate::{Kernel, KernelContext};
 
 /// The idea of a pipeline is to orchestrate driving a set of operators to completion with
 /// fully optimized resource usage.
@@ -321,7 +321,7 @@ impl<'a> Pipeline<'a> {
 
 /// Execution state for a node
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::pipeline) enum NodeState {
+pub(crate) enum NodeState {
     /// Node has not been executed yet
     NotStarted,
     /// Node is currently executing (may return Poll::Pending)

@@ -11,8 +11,8 @@ use std::sync::{Arc, LazyLock};
 use bitvec::array::BitArray;
 use bitvec::order::Lsb0;
 
-use crate::pipeline::PIPELINE_STEP_COUNT;
-use crate::pipeline::bits::{BitView, BitViewMut};
+use crate::PIPELINE_STEP_COUNT;
+use crate::bits::{BitView, BitViewMut};
 
 static EMPTY: LazyLock<BitVector> = LazyLock::new(|| BitVector {
     bits: Arc::new(BitArray::ZERO),

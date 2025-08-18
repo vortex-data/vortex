@@ -15,9 +15,9 @@ use std::sync::Arc;
 use dyn_hash::DynHash;
 use vortex_error::VortexResult;
 
-use crate::pipeline::Kernel;
-use crate::pipeline::types::VType;
-use crate::pipeline::vector::VectorId;
+use crate::Kernel;
+use crate::types::VType;
+use crate::vector::VectorId;
 
 // TODO: clean up this diagram
 // compare(_, _) <-  for <- bitpacked

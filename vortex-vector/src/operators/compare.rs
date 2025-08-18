@@ -10,42 +10,42 @@ use itertools::Itertools;
 use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
-use crate::compute;
-use crate::pipeline::bits::BitView;
-use crate::pipeline::operators::constant::ConstantOperator;
-use crate::pipeline::operators::scalar_compare::ScalarCompareOperator;
-use crate::pipeline::operators::{BindContext, Operator};
-use crate::pipeline::types::{Element, VType};
-use crate::pipeline::vector::VectorId;
-use crate::pipeline::view::ViewMut;
-use crate::pipeline::{Kernel, KernelContext};
+use vortex_array::compute;
+use crate::bits::BitView;
+use crate::operators::constant::ConstantOperator;
+use crate::operators::scalar_compare::ScalarCompareOperator;
+use crate::operators::{BindContext, Operator};
+use crate::types::{Element, VType};
+use crate::vector::VectorId;
+use crate::view::ViewMut;
+use crate::{Kernel, KernelContext};
 
 #[macro_export]
 macro_rules! match_each_compare_op {
     ($self:expr, | $enc:ident | $body:block) => {{
         match $self {
-            $crate::compute::Operator::Eq => {
-                type $enc = $crate::pipeline::operators::compare::Eq;
+            vortex_array::compute::Operator::Eq => {
+                type $enc = crate::operators::compare::Eq;
                 $body
             }
-            $crate::compute::Operator::NotEq => {
-                type $enc = $crate::pipeline::operators::compare::NotEq;
+            vortex_array::compute::Operator::NotEq => {
+                type $enc = crate::operators::compare::NotEq;
                 $body
             }
-            $crate::compute::Operator::Gt => {
-                type $enc = $crate::pipeline::operators::compare::Gt;
+            vortex_array::compute::Operator::Gt => {
+                type $enc = crate::operators::compare::Gt;
                 $body
             }
-            $crate::compute::Operator::Gte => {
-                type $enc = $crate::pipeline::operators::compare::Gte;
+            vortex_array::compute::Operator::Gte => {
+                type $enc = crate::operators::compare::Gte;
                 $body
             }
-            $crate::compute::Operator::Lt => {
-                type $enc = $crate::pipeline::operators::compare::Lt;
+            vortex_array::compute::Operator::Lt => {
+                type $enc = crate::operators::compare::Lt;
                 $body
             }
-            $crate::compute::Operator::Lte => {
-                type $enc = $crate::pipeline::operators::compare::Lte;
+            vortex_array::compute::Operator::Lte => {
+                type $enc = crate::operators::compare::Lte;
                 $body
             }
         }

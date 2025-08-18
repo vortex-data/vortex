@@ -4,8 +4,8 @@
 use bitvec::array::BitArray;
 use bitvec::order::Lsb0;
 
-use crate::pipeline::PIPELINE_STEP_COUNT;
-use crate::pipeline::bits::BitView;
+use crate::PIPELINE_STEP_COUNT;
+use crate::bits::BitView;
 
 /// A mutable borrowed fixed-size bit vector of length `N` bits, represented as an array of
 /// 64-bit words.
@@ -109,7 +109,7 @@ impl<'a> BitViewMut<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pipeline::bits::BitVector;
+    use crate::bits::BitVector;
 
     #[test]
     fn test_intersect_prefix() {

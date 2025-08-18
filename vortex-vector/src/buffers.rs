@@ -9,7 +9,7 @@ use std::task::{Poll, ready};
 use vortex_buffer::Buffer;
 use vortex_error::{VortexResult, vortex_panic};
 
-use crate::pipeline::KernelContext;
+use crate::KernelContext;
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
 

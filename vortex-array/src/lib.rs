@@ -35,7 +35,6 @@ pub mod iter;
 mod metadata;
 mod partial_ord;
 pub mod patches;
-pub mod pipeline;
 pub mod search_sorted;
 pub mod serde;
 pub mod stats;

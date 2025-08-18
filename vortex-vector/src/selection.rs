@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::pipeline::PIPELINE_STEP_COUNT;
-use crate::pipeline::bits::BitVector;
+use crate::PIPELINE_STEP_COUNT;
+use crate::bits::BitVector;
 
 /// Defines a selection of elements from a view or vector.
 #[derive(Clone, Debug)]

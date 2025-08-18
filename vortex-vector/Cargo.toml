@@ -1,14 +1,14 @@
 [package]
-name = "vortex-fsst"
+name = "vortex-vector"
 authors = { workspace = true }
 categories = { workspace = true }
-description = "Vortex FSST string array encoding"
+description = "Vortex vectorized pipeline processing"
 edition = { workspace = true }
 homepage = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
-readme = "README.md"
+readme = { workspace = true }
 repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
@@ -17,22 +17,23 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
-fsst-rs = { workspace = true }
-prost = { workspace = true }
+arrow-buffer = { workspace = true }
+bitvec = { workspace = true }
+dyn-hash = { workspace = true }
+futures-util = { workspace = true }
+itertools = { workspace = true }
+num-traits = { workspace = true }
+parking_lot = { workspace = true }
+rustc-hash = { workspace = true }
+vortex-utils = { workspace = true }
 vortex-array = { workspace = true }
-vortex-buffer = { workspace = true }
-vortex-dtype = { workspace = true }
+vortex-buffer = { workspace = true, features = ["arrow"] }
+vortex-dtype = { workspace = true, features = ["arrow"] }
 vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
-vortex-vector = { workspace = true }
 
 [dev-dependencies]
-divan = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["test-harness"] }
-
-[[bench]]
-name = "fsst_compress"
-harness = false

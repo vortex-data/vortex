@@ -31,7 +31,6 @@ impl VTable for ByteBoolVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
     type SerdeVTable = Self;
-    type PipelineVTable = NotSupported;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.bytebool")

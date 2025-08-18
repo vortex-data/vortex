@@ -10,11 +10,11 @@ use vortex_dtype::{DType, NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::pipeline::bits::BitView;
-use crate::pipeline::operators::{BindContext, Operator};
-use crate::pipeline::types::{Element, VType};
-use crate::pipeline::view::ViewMut;
-use crate::pipeline::{Kernel, KernelContext};
+use crate::bits::BitView;
+use crate::operators::{BindContext, Operator};
+use crate::types::{Element, VType};
+use crate::view::ViewMut;
+use crate::{Kernel, KernelContext};
 
 #[derive(Debug)]
 pub struct ConstantOperator {
@@ -23,6 +23,7 @@ pub struct ConstantOperator {
 
 impl ConstantOperator {
     pub fn new(scalar: Scalar) -> Self {
+        assert!(!scalar.is_null());
         Self { scalar }
     }
 }

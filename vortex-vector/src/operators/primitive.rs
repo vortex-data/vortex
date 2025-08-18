@@ -6,17 +6,36 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use std::task::{Poll, ready};
 
+use vortex_array::arrays::{PrimitiveArray, PrimitiveVTable};
+use vortex_array::vtable::ValidityHelper;
 use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::{VortexResult, vortex_bail};
 
-use crate::arrays::{PrimitiveArray, PrimitiveVTable};
-use crate::pipeline::bits::BitView;
-use crate::pipeline::buffers::BufferHandle;
-use crate::pipeline::operators::{BindContext, Operator};
-use crate::pipeline::types::{Element, VType};
-use crate::pipeline::view::ViewMut;
-use crate::pipeline::{Kernel, KernelContext, PIPELINE_STEP_COUNT};
-use crate::vtable::{PipelineVTable, ValidityHelper};
+use crate::bits::BitView;
+use crate::buffers::BufferHandle;
+use crate::operators::{BindContext, Operator};
+use crate::types::{Element, VType};
+use crate::view::ViewMut;
+use crate::vtable::PipelineVTable;
+use crate::{Kernel, KernelContext, PIPELINE_STEP_COUNT};
+
+#[derive(Debug, Clone)]
+pub struct PrimitiveOperator {
+    array: PrimitiveArray,
+}
+
+impl Hash for PrimitiveOperator {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.array.byte_buffer().as_ptr().hash(state);
+        self.array.ptype().hash(state);
+    }
+}
+
+impl PrimitiveOperator {
+    pub fn new(array: PrimitiveArray) -> Self {
+        Self { array }
+    }
+}
 
 impl PipelineVTable<PrimitiveVTable> for PrimitiveVTable {
     fn to_operator(array: &PrimitiveArray) -> VortexResult<Option<Arc<dyn Operator>>> {
@@ -25,17 +44,17 @@ impl PipelineVTable<PrimitiveVTable> for PrimitiveVTable {
                 "PipelineVTable::to_operator is not supported for arrays with invalid values"
             );
         }
-        Ok(Some(Arc::new(array.clone())))
+        Ok(Some(Arc::new(PrimitiveOperator::new(array.clone()))))
     }
 }
 
-impl Operator for PrimitiveArray {
+impl Operator for PrimitiveOperator {
     fn as_any(&self) -> &dyn Any {
         self
     }
 
     fn vtype(&self) -> VType {
-        VType::Primitive(self.ptype())
+        VType::Primitive(self.array.ptype())
     }
 
     fn children(&self) -> &[Arc<dyn Operator>] {
@@ -47,19 +66,12 @@ impl Operator for PrimitiveArray {
     }
 
     fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {
-        match_each_native_ptype!(self.ptype(), |T| {
+        match_each_native_ptype!(self.array.ptype(), |T| {
             Ok(Box::new(PrimitiveKernel::<T> {
-                buffer: BufferHandle::new(self.buffer()),
+                buffer: BufferHandle::new(self.array.buffer()),
                 offset: 0,
             }) as Box<dyn Kernel>)
         })
-    }
-}
-
-impl Hash for PrimitiveArray {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.byte_buffer().as_ptr().hash(state);
-        self.ptype().hash(state);
     }
 }
 
@@ -108,12 +120,12 @@ impl<T: Element + NativePType> Kernel for PrimitiveKernel<T> {
 mod tests {
     use std::task::Poll;
 
+    use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::{BufferMut, ByteBuffer};
 
     use super::*;
-    use crate::pipeline::bits::BitView;
-    use crate::pipeline::{BufferId, VectorId, VectorRef};
-    use crate::{IntoArray, ToCanonical};
+    use crate::bits::BitView;
+    use crate::{BufferId, VectorId, VectorRef};
 
     struct MockContext;
 

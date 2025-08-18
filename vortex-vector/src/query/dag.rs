@@ -6,36 +6,36 @@ use std::hash::BuildHasher;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::{HashMap, RandomState};
 
-use crate::pipeline::operators::Operator;
-use crate::pipeline::query::Pipeline;
+use crate::operators::Operator;
+use crate::query::Pipeline;
 
 /// A node in our execution DAG
 #[derive(Clone, Debug)]
-pub(in crate::pipeline) struct DagNode<'a> {
+pub(crate) struct DagNode<'a> {
     /// Index of this node in the DAG
-    pub(in crate::pipeline) index: usize,
+    pub(crate) index: usize,
     /// The original plan node
-    pub(in crate::pipeline) plan_node: &'a dyn Operator,
+    pub(crate) plan_node: &'a dyn Operator,
     /// Indices of children in the DAG
-    pub(in crate::pipeline) children: Vec<usize>,
+    pub(crate) children: Vec<usize>,
     /// Indices of parents in the DAG (for dependency tracking)
-    pub(in crate::pipeline) parents: Vec<usize>,
+    pub(crate) parents: Vec<usize>,
     /// Hash of this subtree (for deduplication)
-    pub(in crate::pipeline) subtree_hash: u64,
+    pub(crate) subtree_hash: u64,
     /// Output buffer assignment (if not writing to final output)
-    pub(in crate::pipeline) output_buffer: Option<BufferSlot>,
+    pub(crate) output_buffer: Option<BufferSlot>,
 }
 
 /// A reusable buffer slot
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::pipeline) struct BufferSlot {
+pub(crate) struct BufferSlot {
     index: usize,
     size_bytes: usize,
 }
 
 impl<'a> Pipeline<'a> {
     /// Build DAG from a tree, eliminating common sub-expressions
-    pub(in crate::pipeline) fn build_dag(
+    pub(crate) fn build_dag(
         root: &'a dyn Operator,
     ) -> VortexResult<(usize, Vec<DagNode<'a>>)> {
         let mut dag = Vec::new();

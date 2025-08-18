@@ -21,11 +21,10 @@ use crate::arrays::{
 };
 use crate::builders::ArrayBuilder;
 use crate::compute::{ComputeFn, Cost, InvocationArgs, IsConstantOpts, Output, is_constant_opts};
-use crate::pipeline::operators::Operator;
 use crate::serde::ArrayChildren;
 use crate::stats::{Precision, Stat, StatsSetRef};
 use crate::vtable::{
-    ArrayVTable, CanonicalVTable, ComputeVTable, OperationsVTable, PipelineVTable, SerdeVTable,
+    ArrayVTable, CanonicalVTable, ComputeVTable, OperationsVTable, SerdeVTable,
     VTable, ValidityVTable, VisitorVTable,
 };
 use crate::{Canonical, EncodingId, EncodingRef, SerializeMetadata};
@@ -122,10 +121,6 @@ pub trait Array: 'static + private::Sealed + Send + Sync + Debug + ArrayVisitor 
     /// The [`DType`] of the builder must match that of the array.
     fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()>;
 
-    /// Returns a pipeline for the array.
-    /// Returns `None` if the array cannot be converted to an operator.
-    fn to_operator(&self) -> VortexResult<Option<Arc<dyn Operator>>>;
-
     /// Returns the statistics of the array.
     // TODO(ngates): change how this works. It's weird.
     fn statistics(&self) -> StatsSetRef<'_>;
@@ -220,10 +215,6 @@ impl Array for Arc<dyn Array> {
 
     fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         self.as_ref().append_to_builder(builder)
-    }
-
-    fn to_operator(&self) -> VortexResult<Option<Arc<dyn Operator>>> {
-        self.as_ref().to_operator()
     }
 
     fn statistics(&self) -> StatsSetRef<'_> {
@@ -547,10 +538,6 @@ impl<V: VTable> Array for ArrayAdapter<V> {
             self.encoding_id(),
         );
         Ok(())
-    }
-
-    fn to_operator(&self) -> VortexResult<Option<Arc<dyn Operator>>> {
-        <V::PipelineVTable as PipelineVTable<V>>::to_operator(&self.0)
     }
 
     fn statistics(&self) -> StatsSetRef<'_> {

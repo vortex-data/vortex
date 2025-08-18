@@ -5,12 +5,12 @@ use std::collections::VecDeque;
 
 use vortex_error::{VortexResult, vortex_bail};
 
-use crate::pipeline::query::Pipeline;
-use crate::pipeline::query::dag::DagNode;
+use crate::query::Pipeline;
+use crate::query::dag::DagNode;
 
 impl Pipeline<'_> {
     /// Returns the nodes of the DAG with no children.
-    pub(in crate::pipeline) fn leaf_nodes(dag: &[DagNode]) -> Vec<usize> {
+    pub(crate) fn leaf_nodes(dag: &[DagNode]) -> Vec<usize> {
         dag.iter()
             .enumerate()
             .filter(|(_, node)| node.children.is_empty())
@@ -19,7 +19,7 @@ impl Pipeline<'_> {
     }
 
     /// Topological sort for execution order
-    pub(in crate::pipeline) fn topological_sort(dag: &[DagNode]) -> VortexResult<Vec<usize>> {
+    pub(crate) fn topological_sort(dag: &[DagNode]) -> VortexResult<Vec<usize>> {
         let mut in_degree = vec![0; dag.len()];
         let mut queue = VecDeque::new();
         let mut result = Vec::new();

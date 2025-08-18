@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use vortex_error::VortexResult;
 
-use crate::pipeline::operators::Operator;
-use crate::vtable::{NotSupported, VTable};
+use crate::operators::Operator;
+use vortex_array::vtable::{NotSupported, VTable};
 
 pub trait PipelineVTable<V: VTable> {
     /// Convert the current array into a [`Operator`].

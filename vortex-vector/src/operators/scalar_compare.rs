@@ -10,14 +10,15 @@ use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
-use crate::pipeline::bits::BitView;
-use crate::pipeline::operators::compare::CompareOp;
-use crate::pipeline::operators::{BindContext, Operator};
-use crate::pipeline::types::{Element, VType};
-use crate::pipeline::vector::VectorId;
-use crate::pipeline::view::ViewMut;
-use crate::pipeline::{Kernel, KernelContext};
-use crate::{compute, match_each_compare_op};
+use crate::bits::BitView;
+use crate::operators::compare::CompareOp;
+use crate::operators::{BindContext, Operator};
+use crate::types::{Element, VType};
+use crate::vector::VectorId;
+use crate::view::ViewMut;
+use crate::{Kernel, KernelContext};
+use vortex_array::compute;
+use crate::match_each_compare_op;
 
 #[derive(Debug, Hash)]
 pub struct ScalarCompareOperator {

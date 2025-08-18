@@ -6,7 +6,7 @@ use arrow_buffer::bit_chunk_iterator::BitChunkIterator;
 use bitvec::order::Lsb0;
 use bitvec::slice::{BitSlice, ChunksExact};
 
-use crate::pipeline::PIPELINE_STEP_COUNT;
+use crate::PIPELINE_STEP_COUNT;
 
 pub fn iter_boolean_buffer<'a>(buffer: &'a BooleanBuffer) -> ChunksExact<'a, u64, Lsb0> {
     assert_eq!(buffer.offset(), 0, "BooleanBuffer must have an offset of 0");
