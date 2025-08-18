@@ -6,12 +6,12 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use vortex_array::compute::{Operator as ArrayOperator, add, and_kleene, compare, or_kleene};
-use vortex_array::pipeline::operators;
-use vortex_array::pipeline::operators::compare::CompareOperator;
 use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_proto::expr as pb;
+use vortex_vector::operators;
+use vortex_vector::operators::compare::CompareOperator;
 
 use crate::{
     AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Operator, Scope, StatsCatalog,

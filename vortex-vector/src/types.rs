@@ -6,7 +6,7 @@ use std::fmt::{Debug, Display, Formatter};
 use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PType};
 
-use vortex_array::arrays::BinaryView;
+pub const BINARY_VIEW_BYTE_WIDTH: usize = 16;
 
 /// Defines the "vector type", a physical type describing the data that's held in the vector.
 ///
@@ -37,7 +37,7 @@ impl VType {
         match self {
             VType::Bool => 1,
             VType::Primitive(ptype) => ptype.byte_width(),
-            VType::Binary => size_of::<BinaryView>(),
+            VType::Binary => BINARY_VIEW_BYTE_WIDTH,
         }
     }
 }
@@ -77,9 +77,3 @@ canonical_ptype!(i64);
 canonical_ptype!(f16);
 canonical_ptype!(f32);
 canonical_ptype!(f64);
-
-impl Element for BinaryView {
-    fn vtype() -> VType {
-        VType::Binary
-    }
-}

@@ -26,7 +26,6 @@ num-traits = { workspace = true }
 parking_lot = { workspace = true }
 rustc-hash = { workspace = true }
 vortex-utils = { workspace = true }
-vortex-array = { workspace = true }
 vortex-buffer = { workspace = true, features = ["arrow"] }
 vortex-dtype = { workspace = true, features = ["arrow"] }
 vortex-error = { workspace = true }

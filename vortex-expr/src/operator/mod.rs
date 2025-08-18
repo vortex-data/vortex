@@ -6,9 +6,9 @@ mod reduce;
 use std::sync::Arc;
 
 pub use reduce::*;
-use vortex_array::pipeline::operators::Operator;
 use vortex_array::{Array, ArrayRef};
 use vortex_error::{VortexResult, vortex_err};
+use vortex_vector::operators::Operator;
 
 use crate::traversal::{FoldUp, NodeFolder};
 use crate::{ExprRef, RootVTable};
@@ -38,11 +38,10 @@ impl NodeFolder for ExprOperatorConverter {
             return Ok(FoldUp::Stop(None));
         };
         if node.as_opt::<RootVTable>().is_some() {
-            let pipeline = self
-                .root
-                .to_operator()?
-                .ok_or_else(|| vortex_err!("Array cannot be converted to operator"))?;
-            return Ok(FoldUp::Continue(Some(pipeline)));
+            let Some(operator) = self.root.to_operator()? else {
+                return Ok(FoldUp::Stop(None));
+            };
+            return Ok(FoldUp::Continue(Some(operator)));
         }
         node.operator(children)
             .ok_or_else(|| vortex_err!("Failed to convert operator: {:?}", node))

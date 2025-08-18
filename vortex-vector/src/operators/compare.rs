@@ -10,7 +10,6 @@ use itertools::Itertools;
 use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
-use vortex_array::compute;
 use crate::bits::BitView;
 use crate::operators::constant::ConstantOperator;
 use crate::operators::scalar_compare::ScalarCompareOperator;
@@ -20,31 +19,63 @@ use crate::vector::VectorId;
 use crate::view::ViewMut;
 use crate::{Kernel, KernelContext};
 
+// TODO(joe): dedup.
+// This duplicates the Operator from vortex_array,
+// make we can merge them into here, or another package
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Hash)]
+pub enum BinaryOperator {
+    /// Equality (`=`)
+    Eq,
+    /// Inequality (`!=`)
+    NotEq,
+    /// Greater than (`>`)
+    Gt,
+    /// Greater than or equal (`>=`)
+    Gte,
+    /// Less than (`<`)
+    Lt,
+    /// Less than or equal (`<=`)
+    Lte,
+}
+
+impl BinaryOperator {
+    pub fn inverse(self) -> Self {
+        match self {
+            BinaryOperator::Eq => BinaryOperator::NotEq,
+            BinaryOperator::NotEq => BinaryOperator::Eq,
+            BinaryOperator::Gt => BinaryOperator::Lte,
+            BinaryOperator::Gte => BinaryOperator::Lt,
+            BinaryOperator::Lt => BinaryOperator::Gte,
+            BinaryOperator::Lte => BinaryOperator::Gt,
+        }
+    }
+}
+
 #[macro_export]
 macro_rules! match_each_compare_op {
     ($self:expr, | $enc:ident | $body:block) => {{
         match $self {
-            vortex_array::compute::Operator::Eq => {
+            BinaryOperator::Eq => {
                 type $enc = crate::operators::compare::Eq;
                 $body
             }
-            vortex_array::compute::Operator::NotEq => {
+            BinaryOperator::NotEq => {
                 type $enc = crate::operators::compare::NotEq;
                 $body
             }
-            vortex_array::compute::Operator::Gt => {
+            BinaryOperator::Gt => {
                 type $enc = crate::operators::compare::Gt;
                 $body
             }
-            vortex_array::compute::Operator::Gte => {
+            BinaryOperator::Gte => {
                 type $enc = crate::operators::compare::Gte;
                 $body
             }
-            vortex_array::compute::Operator::Lt => {
+            BinaryOperator::Lt => {
                 type $enc = crate::operators::compare::Lt;
                 $body
             }
-            vortex_array::compute::Operator::Lte => {
+            BinaryOperator::Lte => {
                 type $enc = crate::operators::compare::Lte;
                 $body
             }
@@ -55,11 +86,11 @@ macro_rules! match_each_compare_op {
 #[derive(Debug, Hash)]
 pub struct CompareOperator {
     children: [Arc<dyn Operator>; 2],
-    op: compute::Operator,
+    op: BinaryOperator,
 }
 
 impl CompareOperator {
-    pub fn new(lhs: Arc<dyn Operator>, rhs: Arc<dyn Operator>, op: compute::Operator) -> Self {
+    pub fn new(lhs: Arc<dyn Operator>, rhs: Arc<dyn Operator>, op: BinaryOperator) -> Self {
         assert_eq!(lhs.vtype(), rhs.vtype(), "Operands must have the same type");
         Self {
             children: [lhs, rhs],

@@ -46,10 +46,11 @@ pub use registry::*;
 pub use root::*;
 pub use scope::*;
 pub use select::*;
-use vortex_array::{Array, ArrayRef, SerializeMetadata, pipeline};
+use vortex_array::{Array, ArrayRef, SerializeMetadata};
 use vortex_dtype::{DType, FieldName, FieldPath};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail};
 use vortex_utils::aliases::hash_set::HashSet;
+use vortex_vector as pipeline;
 pub use vtable::*;
 
 use crate::dyn_traits::DynEq;

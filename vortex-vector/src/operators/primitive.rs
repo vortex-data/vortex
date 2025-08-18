@@ -2,49 +2,30 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 use std::sync::Arc;
 use std::task::{Poll, ready};
 
-use vortex_array::arrays::{PrimitiveArray, PrimitiveVTable};
-use vortex_array::vtable::ValidityHelper;
-use vortex_dtype::{NativePType, match_each_native_ptype};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_buffer::{Buffer, ByteBuffer};
+use vortex_dtype::{NativePType, PType, match_each_native_ptype};
+use vortex_error::VortexResult;
 
 use crate::bits::BitView;
 use crate::buffers::BufferHandle;
 use crate::operators::{BindContext, Operator};
 use crate::types::{Element, VType};
 use crate::view::ViewMut;
-use crate::vtable::PipelineVTable;
 use crate::{Kernel, KernelContext, PIPELINE_STEP_COUNT};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash)]
 pub struct PrimitiveOperator {
-    array: PrimitiveArray,
-}
-
-impl Hash for PrimitiveOperator {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.array.byte_buffer().as_ptr().hash(state);
-        self.array.ptype().hash(state);
-    }
+    ptype: PType,
+    byte_buffer: ByteBuffer,
 }
 
 impl PrimitiveOperator {
-    pub fn new(array: PrimitiveArray) -> Self {
-        Self { array }
-    }
-}
-
-impl PipelineVTable<PrimitiveVTable> for PrimitiveVTable {
-    fn to_operator(array: &PrimitiveArray) -> VortexResult<Option<Arc<dyn Operator>>> {
-        if !array.validity().all_valid()? {
-            vortex_bail!(
-                "PipelineVTable::to_operator is not supported for arrays with invalid values"
-            );
-        }
-        Ok(Some(Arc::new(PrimitiveOperator::new(array.clone()))))
+    pub fn new(ptype: PType, byte_buffer: ByteBuffer) -> Self {
+        Self { ptype, byte_buffer }
     }
 }
 
@@ -54,7 +35,7 @@ impl Operator for PrimitiveOperator {
     }
 
     fn vtype(&self) -> VType {
-        VType::Primitive(self.array.ptype())
+        VType::Primitive(self.ptype)
     }
 
     fn children(&self) -> &[Arc<dyn Operator>] {
@@ -66,9 +47,9 @@ impl Operator for PrimitiveOperator {
     }
 
     fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {
-        match_each_native_ptype!(self.array.ptype(), |T| {
+        match_each_native_ptype!(self.ptype, |T| {
             Ok(Box::new(PrimitiveKernel::<T> {
-                buffer: BufferHandle::new(self.array.buffer()),
+                buffer: BufferHandle::new(Buffer::from_byte_buffer(self.byte_buffer.clone())),
                 offset: 0,
             }) as Box<dyn Kernel>)
         })

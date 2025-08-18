@@ -7,15 +7,15 @@ use std::sync::Arc;
 use std::task::{Poll, ready};
 
 use fastlanes::{BitPacking, FastLanes};
+use vortex_array::pipeline::PipelineVTable;
+use vortex_dtype::{PhysicalPType, match_each_integer_ptype};
+use vortex_error::VortexResult;
 use vortex_vector::bits::BitView;
 use vortex_vector::buffers::BufferHandle;
 use vortex_vector::operators::{BindContext, Operator};
 use vortex_vector::types::{Element, VType};
 use vortex_vector::view::ViewMut;
 use vortex_vector::{Kernel, KernelContext, PIPELINE_STEP_COUNT};
-use vortex_vector::vtable::PipelineVTable;
-use vortex_dtype::{PhysicalPType, match_each_integer_ptype};
-use vortex_error::VortexResult;
 
 use crate::{BitPackedArray, BitPackedVTable};
 

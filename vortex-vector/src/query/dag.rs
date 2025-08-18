@@ -35,9 +35,7 @@ pub(crate) struct BufferSlot {
 
 impl<'a> Pipeline<'a> {
     /// Build DAG from a tree, eliminating common sub-expressions
-    pub(crate) fn build_dag(
-        root: &'a dyn Operator,
-    ) -> VortexResult<(usize, Vec<DagNode<'a>>)> {
+    pub(crate) fn build_dag(root: &'a dyn Operator) -> VortexResult<(usize, Vec<DagNode<'a>>)> {
         let mut dag = Vec::new();
         let mut hash_to_index = HashMap::new();
 

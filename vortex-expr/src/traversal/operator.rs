@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use pipeline::operators::Operator;
-use vortex_array::pipeline;
 use vortex_error::VortexResult;
+use vortex_vector as pipeline;
 
 use crate::traversal::{Node, NodeContainer, Transformed, TraversalOrder};
 

@@ -45,6 +45,7 @@ vortex-pco = { workspace = true }
 vortex-scalar = { workspace = true }
 vortex-sequence = { workspace = true }
 vortex-utils = { workspace = true }
+vortex-vector = { workspace = true }
 vortex-zstd = { workspace = true, optional = true }
 
 [dev-dependencies]

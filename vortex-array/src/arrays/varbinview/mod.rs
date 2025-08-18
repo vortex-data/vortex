@@ -297,6 +297,7 @@ impl VTable for VarBinViewVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
+    type PipelineVTable = NotSupported;
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
@@ -612,6 +613,7 @@ impl<'a> FromIterator<Option<&'a str>> for VarBinViewArray {
 #[cfg(test)]
 mod test {
     use vortex_scalar::Scalar;
+    use vortex_vector::types::BINARY_VIEW_BYTE_WIDTH;
 
     use crate::arrays::varbinview::{BinaryView, VarBinViewArray};
     use crate::{Array, Canonical, IntoArray};
@@ -659,5 +661,10 @@ mod test {
     pub fn binary_view_size_and_alignment() {
         assert_eq!(size_of::<BinaryView>(), 16);
         assert_eq!(align_of::<BinaryView>(), 16);
+    }
+
+    #[test]
+    pub fn binary_view_size() {
+        assert_eq!(size_of::<BinaryView>(), BINARY_VIEW_BYTE_WIDTH);
     }
 }

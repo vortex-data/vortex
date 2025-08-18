@@ -5,13 +5,13 @@ use std::fmt::Display;
 use std::sync::Arc;
 
 use vortex_array::arrays::ConstantArray;
-use vortex_array::pipeline::operators::Operator;
-use vortex_array::pipeline::operators::constant::ConstantOperator;
 use vortex_array::{ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata};
 use vortex_dtype::{DType, match_each_float_ptype};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
 use vortex_scalar::Scalar;
+use vortex_vector::operators::Operator;
+use vortex_vector::operators::constant::ConstantOperator;
 
 use crate::{
     AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog, VTable, vtable,

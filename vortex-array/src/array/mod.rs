@@ -14,6 +14,7 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
+use vortex_vector::operators::Operator;
 
 use crate::arrays::{
     BoolEncoding, ConstantVTable, DecimalEncoding, ExtensionEncoding, ListEncoding, NullEncoding,
@@ -21,11 +22,12 @@ use crate::arrays::{
 };
 use crate::builders::ArrayBuilder;
 use crate::compute::{ComputeFn, Cost, InvocationArgs, IsConstantOpts, Output, is_constant_opts};
+use crate::pipeline::PipelineVTable;
 use crate::serde::ArrayChildren;
 use crate::stats::{Precision, Stat, StatsSetRef};
 use crate::vtable::{
-    ArrayVTable, CanonicalVTable, ComputeVTable, OperationsVTable, SerdeVTable,
-    VTable, ValidityVTable, VisitorVTable,
+    ArrayVTable, CanonicalVTable, ComputeVTable, OperationsVTable, SerdeVTable, VTable,
+    ValidityVTable, VisitorVTable,
 };
 use crate::{Canonical, EncodingId, EncodingRef, SerializeMetadata};
 
@@ -146,6 +148,11 @@ pub trait Array: 'static + private::Sealed + Send + Sync + Debug + ArrayVisitor 
     /// call.
     fn invoke(&self, compute_fn: &ComputeFn, args: &InvocationArgs)
     -> VortexResult<Option<Output>>;
+
+    /// Convert the array to a pipeline operator if supported by the encoding.
+    ///
+    /// Returns `None` if the encoding does not support pipeline operations.
+    fn to_operator(&self) -> VortexResult<Option<Arc<dyn Operator>>>;
 }
 
 impl Array for Arc<dyn Array> {
@@ -231,6 +238,10 @@ impl Array for Arc<dyn Array> {
         args: &InvocationArgs,
     ) -> VortexResult<Option<Output>> {
         self.as_ref().invoke(compute_fn, args)
+    }
+
+    fn to_operator(&self) -> VortexResult<Option<Arc<dyn Operator>>> {
+        self.as_ref().to_operator()
     }
 }
 
@@ -597,6 +608,10 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         args: &InvocationArgs,
     ) -> VortexResult<Option<Output>> {
         <V::ComputeVTable as ComputeVTable<V>>::invoke(&self.0, compute_fn, args)
+    }
+
+    fn to_operator(&self) -> VortexResult<Option<Arc<dyn Operator>>> {
+        <V::PipelineVTable as PipelineVTable<V>>::to_operator(&self.0)
     }
 }
 

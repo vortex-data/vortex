@@ -22,14 +22,12 @@
 
 pub mod bits;
 pub mod buffers;
-pub mod canonical;
 pub mod operators;
 pub mod query;
 pub mod selection;
 pub mod types;
 pub mod vector;
 pub mod view;
-pub mod vtable;
 
 /// The number of elements in each step of a Vortex evaluation pipeline.
 pub const PIPELINE_STEP_COUNT: usize = 1024;
@@ -37,6 +35,7 @@ pub const PIPELINE_STEP_COUNT: usize = 1024;
 use std::ops::Range;
 use std::task::Poll;
 
+pub use operators::Operator;
 use vector::{VectorId, VectorRef};
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexResult, vortex_err, vortex_panic};
@@ -44,21 +43,6 @@ use vortex_error::{VortexResult, vortex_err, vortex_panic};
 use crate::bits::BitView;
 use crate::buffers::BufferId;
 use crate::view::ViewMut;
-use crate::operators::Operator;
-
-pub use vtable::PipelineVTable;
-
-/// Convert an array to an operator if supported by the encoding
-pub fn array_to_operator(array: &vortex_array::ArrayRef) -> VortexResult<Option<Arc<dyn Operator>>> {
-    match array.encoding().id() {
-        vortex_array::arrays::PrimitiveEncoding::ID => {
-            use vortex_array::arrays::{PrimitiveArray, PrimitiveVTable};
-            let prim_array = PrimitiveArray::try_from(array.clone())?;
-            crate::vtable::PipelineVTable::<PrimitiveVTable>::to_operator(&prim_array)
-        }
-        _ => Ok(None),
-    }
-}
 
 /// A pipeline provides a push-based way to emit a stream of canonical data.
 ///

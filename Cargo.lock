@@ -6407,6 +6407,7 @@ dependencies = [
  "vortex-mask",
  "vortex-scalar",
  "vortex-utils",
+ "vortex-vector",
 ]
 
 [[package]]
@@ -6655,6 +6656,7 @@ dependencies = [
  "vortex-proto",
  "vortex-scalar",
  "vortex-utils",
+ "vortex-vector",
 ]
 
 [[package]]
@@ -6894,6 +6896,7 @@ dependencies = [
  "vortex-scalar",
  "vortex-sequence",
  "vortex-utils",
+ "vortex-vector",
  "vortex-zstd",
 ]
 

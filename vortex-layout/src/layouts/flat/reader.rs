@@ -8,7 +8,6 @@ use std::sync::{Arc, OnceLock};
 use async_trait::async_trait;
 use futures::FutureExt;
 use vortex_array::compute::filter;
-use vortex_array::pipeline::PIPELINE_STEP_COUNT;
 use vortex_array::pipeline::canonical::{
     export_canonical_pipeline_expr, export_canonical_pipeline_expr_offset,
 };
@@ -21,6 +20,7 @@ use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _, vortex_err};
 use vortex_expr::traversal::NodeExt;
 use vortex_expr::{ExprOperatorConverter, ExprRef, Scope, is_root, reduce_operator};
 use vortex_mask::Mask;
+use vortex_vector::PIPELINE_STEP_COUNT;
 
 use crate::layouts::SharedArrayFuture;
 use crate::layouts::flat::FlatLayout;
@@ -181,7 +181,11 @@ impl MaskEvaluation for FlatEvaluation {
                 .clone()
                 .fold(&mut conv)
                 // .map(|o| o.value())
-                .and_then(|o| o.value().ok_or_else(|| vortex_err!("Operator conversion failed")).and_then(reduce_operator))
+                .and_then(|o| {
+                    o.value()
+                        .ok_or_else(|| vortex_err!("Operator conversion failed"))
+                        .and_then(reduce_operator)
+                })
             {
                 let result = if self.row_range.start % PIPELINE_STEP_COUNT != 0 {
                     // If the start is not a multiple of PIPELINE_STEP_COUNT, then we need to slice
@@ -265,18 +269,19 @@ impl ArrayEvaluation for FlatEvaluation {
 
         let rt = self.expr.return_dtype(array.dtype())?;
 
+        // Check if the array can be converted to an operator, to skip trying to convert the whole
+        // expression this can be removed once lots of arrays are convertable.
         if matches!(
             rt,
             DType::Bool(NonNullable) | DType::Primitive(_, NonNullable)
         ) && array.to_operator()?.is_some()
         {
             let mut conv = ExprOperatorConverter::new(array.clone());
-            if let Ok(operator) = self
-                .expr
-                .clone()
-                .fold(&mut conv)
-                .and_then(|o| o.value().ok_or_else(|| vortex_err!("Operator conversion failed")).and_then(reduce_operator))
-            {
+            if let Ok(operator) = self.expr.clone().fold(&mut conv).and_then(|o| {
+                o.value()
+                    .ok_or_else(|| vortex_err!("Operator conversion failed"))
+                    .and_then(reduce_operator)
+            }) {
                 let result = if self.row_range.start % PIPELINE_STEP_COUNT != 0 {
                     // If the start is not a multiple of PIPELINE_STEP_COUNT, then we need to slice
                     // we could do mask offsets instead, but this case is rare, due to split building.
@@ -285,7 +290,11 @@ impl ArrayEvaluation for FlatEvaluation {
                         .expr
                         .clone()
                         .fold(&mut ExprOperatorConverter::new(array))
-                        .and_then(|o| o.value().ok_or_else(|| vortex_err!("Operator conversion failed")).and_then(reduce_operator))
+                        .and_then(|o| {
+                            o.value()
+                                .ok_or_else(|| vortex_err!("Operator conversion failed"))
+                                .and_then(reduce_operator)
+                        })
                         .ok()
                         .vortex_expect("already converted");
                     export_canonical_pipeline_expr(

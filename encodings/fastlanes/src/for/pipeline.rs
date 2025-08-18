@@ -9,6 +9,10 @@ use std::task::Poll;
 
 use num_traits::WrappingAdd;
 use vortex_array::Array;
+use vortex_array::pipeline::PipelineVTable;
+use vortex_dtype::{NativePType, PType, match_each_integer_ptype, match_each_native_ptype};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_scalar::Scalar;
 use vortex_vector::bits::BitView;
 use vortex_vector::operators::scalar_compare::ScalarCompareOperator;
 use vortex_vector::operators::{BindContext, Operator};
@@ -16,25 +20,20 @@ use vortex_vector::types::{Element, VType};
 use vortex_vector::vector::VectorId;
 use vortex_vector::view::ViewMut;
 use vortex_vector::{Kernel, KernelContext};
-use vortex_vector::vtable::PipelineVTable;
-use vortex_dtype::{NativePType, PType, match_each_integer_ptype, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
-use vortex_scalar::Scalar;
 
 use crate::{FoRArray, FoRVTable};
 
 impl PipelineVTable<FoRVTable> for FoRVTable {
     fn to_operator(array: &FoRArray) -> VortexResult<Option<Arc<dyn Operator>>> {
-        let child_op = vortex_vector::array_to_operator(&array.encoded)?;
-        match child_op {
-            Some(op) => Ok(Some(Arc::new(FoROperator {
-                child: [op],
-                reference: array.reference.clone(),
-                ptype: array.ptype(),
-                encoded_ptype: array.encoded.dtype().as_ptype(),
-            }))),
-            None => Ok(None),
-        }
+        let Some(op) = array.encoded.to_operator()? else {
+            return Ok(None);
+        };
+        Ok(Some(Arc::new(FoROperator {
+            child: [op],
+            reference: array.reference.clone(),
+            ptype: array.ptype(),
+            encoded_ptype: array.encoded.dtype().as_ptype(),
+        })))
     }
 }
 

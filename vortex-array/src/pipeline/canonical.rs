@@ -5,17 +5,17 @@ use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, NativePType, Nullability, match_each_native_ptype};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
+use vortex_vector::bits::{BitVector, BitView, BitViewMut};
+use vortex_vector::operators::Operator;
+use vortex_vector::query::Pipeline;
+use vortex_vector::types::Element;
+use vortex_vector::vector::Vector;
+use vortex_vector::view::ViewMut;
+use vortex_vector::{Kernel, KernelExt, PIPELINE_STEP_COUNT};
 
-use vortex_array::Canonical;
-use vortex_array::arrays::{BoolArray, PrimitiveArray};
-use vortex_array::validity::Validity;
-use crate::bits::{BitVector, BitView, BitViewMut};
-use crate::operators::Operator;
-use crate::query::Pipeline;
-use crate::types::Element;
-use crate::vector::Vector;
-use crate::view::ViewMut;
-use crate::{Kernel, KernelExt, PIPELINE_STEP_COUNT};
+use crate::Canonical;
+use crate::arrays::{BoolArray, PrimitiveArray};
+use crate::validity::Validity;
 
 pub fn export_canonical_pipeline(
     dtype: &DType,

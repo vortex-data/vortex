@@ -1,12 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Pipeline module re-exports from vortex-vector
+//!
+//! This module provides a compatibility layer for existing code that expects
+//! pipeline functionality to be available through vortex-array.
+
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
+use vortex_vector::*;
 
-use crate::operators::Operator;
-use vortex_array::vtable::{NotSupported, VTable};
+use crate::vtable::{NotSupported, VTable};
+
+pub mod canonical;
 
 pub trait PipelineVTable<V: VTable> {
     /// Convert the current array into a [`Operator`].
