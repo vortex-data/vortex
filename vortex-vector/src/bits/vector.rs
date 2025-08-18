@@ -146,7 +146,7 @@ mod tests {
         let mut vec = BitVector::empty().clone();
 
         // Fill with a pattern
-        let pattern = vec![0b1010101010101010u64, 0b1111000011110000u64, u64::MAX, 0];
+        let pattern = [0b1010101010101010u64, 0b1111000011110000u64, u64::MAX, 0];
 
         vec.fill_from(pattern.iter().copied());
 

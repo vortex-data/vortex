@@ -155,6 +155,11 @@ impl dyn VortexExpr + '_ {
 pub trait VortexExprExt {
     /// Accumulate all field references from this expression and its children in a set
     fn field_references(&self) -> HashSet<FieldName>;
+
+    fn to_operator(
+        &self,
+        root: &dyn Array,
+    ) -> VortexResult<Option<Arc<dyn pipeline::operators::Operator>>>;
 }
 
 impl VortexExprExt for ExprRef {
@@ -163,6 +168,17 @@ impl VortexExprExt for ExprRef {
         // The collector is infallible, so we can unwrap the result
         self.accept(&mut collector).vortex_unwrap();
         collector.into_fields()
+    }
+
+    fn to_operator(
+        &self,
+        root: &dyn Array,
+    ) -> VortexResult<Option<Arc<dyn pipeline::operators::Operator>>> {
+        let mut converter = ExprOperatorConverter::new(root);
+        let Some(operator) = self.clone().fold(&mut converter)?.value() else {
+            return Ok(None);
+        };
+        reduce_up(operator).map(Some)
     }
 }
 

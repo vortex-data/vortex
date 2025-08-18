@@ -4,9 +4,9 @@
 //! Vector allocation strategy for pipelines
 
 use std::cell::RefCell;
-use std::collections::HashMap;
 
 use vortex_error::{VortexExpect, VortexResult};
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::query::Pipeline;
 use crate::query::dag::DagNode;

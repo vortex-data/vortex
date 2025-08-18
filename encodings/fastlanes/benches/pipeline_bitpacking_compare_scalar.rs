@@ -16,7 +16,9 @@ use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, NativePType};
 use vortex_error::VortexResult;
 use vortex_expr::traversal::NodeExt;
-use vortex_expr::{ExprOperatorConverter, Scope, lit, lt, reduce_operator, reduce_up, root};
+use vortex_expr::{
+    ExprOperatorConverter, Scope, VortexExprExt, lit, lt, reduce_up, root,
+};
 use vortex_fastlanes::{FoRArray, bitpack_to_best_bit_width};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
@@ -50,7 +52,7 @@ fn create_for_bitpacked_array<T: NativePType>(values: BufferMut<T>) -> VortexRes
     )
 }
 
-#[divan::bench(types = [u32], args = TRUE_COUNT)]
+#[divan::bench(types = [u8, u16, u32, u64], args = TRUE_COUNT)]
 pub fn eval<T: NativePType + Into<Scalar>>(bencher: Bencher, fraction_kept: f64) {
     let mut rng = StdRng::seed_from_u64(0);
     let values = (0..100_000)
@@ -77,8 +79,7 @@ pub fn eval<T: NativePType + Into<Scalar>>(bencher: Bencher, fraction_kept: f64)
         });
 }
 
-// #[divan::bench(types = [u8, u16, u32, u64], args = TRUE_COUNT)]
-#[divan::bench(types = [u32], args = TRUE_COUNT)]
+#[divan::bench(types = [u8, u16, u32, u64], args = TRUE_COUNT)]
 pub fn pipeline<T: Element + NativePType + Into<Scalar>>(bencher: Bencher, fraction_kept: f64) {
     let mut rng = StdRng::seed_from_u64(0);
     let values = (0..100_000)
@@ -92,7 +93,8 @@ pub fn pipeline<T: Element + NativePType + Into<Scalar>>(bencher: Bencher, fract
 
     let expr = lt(root(), lit(T::from_i32(2).unwrap()));
 
-    let mut converter = ExprOperatorConverter::new(array.clone());
+    // No operator reduction/optimization applied.
+    let mut converter = ExprOperatorConverter::new(array.as_ref());
     let operator = expr.fold(&mut converter).unwrap().value().unwrap();
 
     bencher
@@ -108,7 +110,7 @@ pub fn pipeline<T: Element + NativePType + Into<Scalar>>(bencher: Bencher, fract
         });
 }
 
-#[divan::bench(types = [u32], args = TRUE_COUNT)]
+#[divan::bench(types = [u8, u16, u32, u64], args = TRUE_COUNT)]
 pub fn pipeline_opt<T: Element + NativePType + Into<Scalar>>(bencher: Bencher, fraction_kept: f64) {
     let mut rng = StdRng::seed_from_u64(0);
     let values = (0..100_000)
@@ -121,10 +123,7 @@ pub fn pipeline_opt<T: Element + NativePType + Into<Scalar>>(bencher: Bencher, f
         .collect::<BooleanBuffer>();
 
     let expr = lt(root(), lit(T::from_i32(2).unwrap()));
-
-    let mut converter = ExprOperatorConverter::new(array.clone());
-    let operator = expr.fold(&mut converter).unwrap().value().unwrap();
-    let operator = reduce_operator(operator).unwrap();
+    let operator = expr.to_operator(array.as_ref()).unwrap().unwrap();
 
     bencher
         .with_inputs(|| Mask::from_buffer(mask.clone()))
@@ -139,9 +138,8 @@ pub fn pipeline_opt<T: Element + NativePType + Into<Scalar>>(bencher: Bencher, f
         });
 }
 
-// #[divan::bench(types = [u32], args = TRUE_COUNT)]
-#[divan::bench(types = [u32], args = TRUE_COUNT)]
-pub fn pipeline_half<T: Element + NativePType + Into<Scalar>>(
+#[divan::bench(types = [u8, u16, u32, u64], args = TRUE_COUNT)]
+pub fn pipeline_partial_opt<T: Element + NativePType + Into<Scalar>>(
     bencher: Bencher,
     fraction_kept: f64,
 ) {
@@ -157,7 +155,7 @@ pub fn pipeline_half<T: Element + NativePType + Into<Scalar>>(
 
     let expr = lt(root(), lit(T::from_i32(2).unwrap()));
 
-    let mut converter = ExprOperatorConverter::new(array.clone());
+    let mut converter = ExprOperatorConverter::new(array.as_ref());
     let operator = expr.fold(&mut converter).unwrap().value().unwrap();
     let operator = reduce_up(operator).unwrap();
 

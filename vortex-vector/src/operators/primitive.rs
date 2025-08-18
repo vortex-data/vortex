@@ -124,7 +124,7 @@ mod tests {
     fn test_primitive_kernel_basic_operation() {
         // Create a primitive array with values 0..16
         let size = 16;
-        let values = (0..size as i32).collect::<BufferMut<_>>();
+        let values = (0..i32::try_from(size).unwrap()).collect::<BufferMut<_>>();
         let primitive_array = values.into_array().to_primitive().unwrap();
 
         // Create the kernel
@@ -152,9 +152,12 @@ mod tests {
         // Verify the first elements contain our values
         for i in 0..size {
             assert_eq!(
-                output[i], i as i32,
+                output[i],
+                i32::try_from(i).unwrap(),
                 "Mismatch at position {}: expected {}, got {}",
-                i, i, output[i]
+                i,
+                i,
+                output[i]
             );
         }
     }
@@ -221,7 +224,7 @@ mod tests {
     fn test_primitive_kernel_offset_tracking() {
         // Create a primitive array with more than N values
         let total_size = PIPELINE_STEP_COUNT + 100;
-        let values = (0..total_size as i32).collect::<BufferMut<_>>();
+        let values = (0..i32::try_from(total_size).unwrap()).collect::<BufferMut<_>>();
         let primitive_array = values.into_array().to_primitive().unwrap();
 
         // Create the kernel
@@ -247,7 +250,7 @@ mod tests {
 
             // Verify first chunk
             for i in 0..PIPELINE_STEP_COUNT {
-                assert_eq!(output[i], i as i32);
+                assert_eq!(output[i], i32::try_from(i).unwrap(), "{i}");
             }
         }
 
@@ -263,7 +266,7 @@ mod tests {
 
             // Verify remaining elements (first 100 should be valid)
             for i in 0..100 {
-                assert_eq!(output[i], (PIPELINE_STEP_COUNT + i) as i32);
+                assert_eq!(output[i], i32::try_from(PIPELINE_STEP_COUNT + i).unwrap());
             }
         }
     }

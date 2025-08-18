@@ -84,7 +84,7 @@ impl Vector {
         self.len = len;
     }
 
-    pub fn as_mut<T: Element>(&mut self) -> &mut [T; PIPELINE_STEP_COUNT] {
+    pub fn as_mut_array<T: Element>(&mut self) -> &mut [T; PIPELINE_STEP_COUNT] {
         assert_eq!(self.vtype, T::vtype());
         unsafe {
             &mut *(self
@@ -120,6 +120,8 @@ impl Vector {
 /// A [`VectorRef`] provides a small wrapper to allow accessing a [`View`] with the same lifetime
 /// as the borrowed vector, rather than the lifetime of the [`Ref`].
 pub struct VectorRef<'a> {
+    // Use to ensure that view and borrow have the same lifetime.
+    #[allow(dead_code)]
     borrow: Ref<'a, Vector>,
     view: View<'a>,
 }
@@ -148,6 +150,8 @@ impl<'a> Deref for VectorRef<'a> {
 /// A [`VectorRefMut`] provides a small wrapper to allow accessing a [`ViewMut`] with the same
 /// lifetime as the borrowed vector, rather than the lifetime of the [`RefMut`].
 pub struct VectorRefMut<'a> {
+    // Use to ensure that view and borrow have the same lifetime.
+    #[allow(dead_code)]
     borrow: RefMut<'a, Vector>,
     view: ViewMut<'a>,
 }

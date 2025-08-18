@@ -37,6 +37,10 @@ impl<'a> View<'a> {
         self.len
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
     pub fn as_slice<T>(&self) -> &'a [T]
     where
         T: Element,

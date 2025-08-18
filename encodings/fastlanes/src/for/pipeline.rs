@@ -153,12 +153,10 @@ where
 #[cfg(test)]
 mod tests {
     use arrow_buffer::BooleanBuffer;
-    
     use rand::prelude::StdRng;
     use rand::{Rng, SeedableRng};
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::filter;
-    
     use vortex_array::pipeline::canonical::export_canonical_pipeline_expr;
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::BufferMut;
@@ -268,7 +266,7 @@ mod tests {
             .evaluate(&Scope::new(filter(&array, &mask).unwrap()))
             .unwrap();
 
-        let mut converter = ExprOperatorConverter::new(array.clone());
+        let mut converter = ExprOperatorConverter::new(array.as_ref());
         let operator = expr.fold(&mut converter).unwrap().value();
         let operator = reduce_operator(operator.unwrap()).unwrap();
 

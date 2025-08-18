@@ -101,10 +101,13 @@ impl<T: Element + NativePType, Op: CompareOp<T>> Kernel for ScalarComparePrimiti
     ) -> Poll<VortexResult<()>> {
         let lhs_vec = ctx.vector(self.lhs);
         let lhs = lhs_vec.as_slice::<T>();
+
         let bools = out.as_slice_mut::<bool>();
 
+        assert!(selected.true_count() <= lhs.len());
+        assert!(selected.true_count() <= bools.len());
         for i in 0..selected.true_count() {
-            bools[i] = unsafe { Op::compare(lhs.get_unchecked(i), &self.rhs) };
+            unsafe { *bools.get_unchecked_mut(i) = Op::compare(lhs.get_unchecked(i), &self.rhs) };
         }
 
         Poll::Ready(Ok(()))

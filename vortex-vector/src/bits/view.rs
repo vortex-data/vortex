@@ -522,8 +522,8 @@ mod tests {
         view.iter_zeros(|idx| bitview_zeros.push(idx));
 
         // Create masks for ones and zeros
-        let ones_mask = Mask::from_indices(PIPELINE_STEP_COUNT, bitview_ones.clone());
-        let zeros_mask = Mask::from_indices(PIPELINE_STEP_COUNT, bitview_zeros.clone());
+        let ones_mask = Mask::from_indices(PIPELINE_STEP_COUNT, bitview_ones);
+        let zeros_mask = Mask::from_indices(PIPELINE_STEP_COUNT, bitview_zeros);
 
         // Verify they are complements
         ones_mask.iter_bools(|ones_iter| {
