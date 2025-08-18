@@ -1,0 +1,45 @@
+name: Doc Coverage PR Comment
+
+on:
+  pull_request: {}
+
+jobs:
+  pr-comment:
+    name: Doc Coverage PR Comment
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Install rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+      - name: Fetch base
+        run: git fetch origin ${{ github.event.pull_request.base.sha }}
+      - name: Checkout base
+        run: git checkout ${{ github.event.pull_request.base.sha }}
+      - name: Calculate base doc coverage
+        uses: bewee/rustdoc-coverage-action@v1
+      - name: Fetch head
+        run: git fetch origin ${{ github.event.pull_request.head.sha }}
+      - name: Checkout head
+        run: git checkout ${{ github.event.pull_request.head.sha }}
+      - name: Calculate doc coverage
+        id: coverage
+        uses: bewee/rustdoc-coverage-action@v1
+      - name: Find Comment
+        uses: peter-evans/find-comment@v1
+        id: fc
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: "github-actions[bot]"
+          body-includes: "## Documentation Coverage:"
+      - name: Create or update comment
+        uses: peter-evans/create-or-update-comment@v1
+        with:
+          comment-id: ${{ steps.fc.outputs.comment-id }}
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            ## Documentation Coverage:
+            ${{ steps.coverage.outputs.table }}
+          edit-mode: replace
