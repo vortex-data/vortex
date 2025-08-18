@@ -87,16 +87,20 @@ impl<T: Element + NativePType> Kernel for PrimitiveKernel<T> {
         let buffer = ready!(self.buffer.get_or_load(ctx))?;
         let remaining = buffer.len() - self.offset;
 
+        let out_slice = out.as_slice_mut::<T>();
+
         if remaining > PIPELINE_STEP_COUNT {
-            out.as_slice_mut::<T>()
-                .copy_from_slice(&buffer[self.offset..][..PIPELINE_STEP_COUNT]);
+            out_slice.copy_from_slice(&buffer[self.offset..][..PIPELINE_STEP_COUNT]);
             self.offset += PIPELINE_STEP_COUNT;
         } else {
-            out.as_slice_mut::<T>()[..remaining].copy_from_slice(&buffer[self.offset..]);
+            out_slice[..remaining].copy_from_slice(&buffer[self.offset..]);
             self.offset += remaining;
         }
+        println!("out_slice: {out_slice:?}");
+
         // TODO(joe): use mask in copy_from_slice, if faster.
         out.select_mask::<T>(&mask);
+        println!("out_slice: {out_slice:?}");
 
         Poll::Ready(Ok(()))
     }

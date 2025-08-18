@@ -187,8 +187,8 @@ mod tests {
         let mask = Mask::from_buffer(BooleanBuffer::from_iter(mask_bools));
 
         // Create a pipeline with comparison: array > array (self-comparison)
-        let expr1 = values.to_pipeline_plan().unwrap();
-        let expr2 = values.to_pipeline_plan().unwrap();
+        let expr1 = values.to_operator().unwrap();
+        let expr2 = values.to_operator().unwrap();
         let compare_expr = CompareOperator::new(expr1, expr2, Operator::Gt);
 
         // Execute the pipeline
@@ -237,8 +237,8 @@ mod tests {
         let mask = Mask::from_buffer(BooleanBuffer::new_set(1000));
 
         // Create pipeline: array1 < array2
-        let expr1 = values1.to_pipeline_plan().unwrap();
-        let expr2 = values2.to_pipeline_plan().unwrap();
+        let expr1 = values1.to_operator().unwrap();
+        let expr2 = values2.to_operator().unwrap();
         let compare_expr = CompareOperator::new(expr1, expr2, Operator::Lt);
 
         // Execute the pipeline

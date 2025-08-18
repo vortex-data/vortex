@@ -9,7 +9,7 @@ use std::ops::Not;
 use std::sync::{Arc, LazyLock};
 
 use bitvec::array::BitArray;
-use bitvec::order::Msb0;
+use bitvec::order::Lsb0;
 
 use crate::pipeline::PIPELINE_STEP_COUNT;
 use crate::pipeline::bits::{BitView, BitViewMut};
@@ -31,7 +31,7 @@ static FULL: LazyLock<BitVector> = LazyLock::new(|| BitVector {
 /// it up for use within Vortex.
 #[derive(Clone)]
 pub struct BitVector {
-    pub(super) bits: Arc<BitArray<[u64; PIPELINE_STEP_COUNT / 64], Msb0>>,
+    pub(super) bits: Arc<BitArray<[u64; PIPELINE_STEP_COUNT / 64], Lsb0>>,
     pub(super) true_count: usize,
 }
 
@@ -68,7 +68,7 @@ impl BitVector {
             "Cannot create a BitVector with more than N bits"
         );
 
-        let mut bits = Arc::new(BitArray::<[u64; PIPELINE_STEP_COUNT / 64], Msb0>::ZERO);
+        let mut bits = Arc::new(BitArray::<[u64; PIPELINE_STEP_COUNT / 64], Lsb0>::ZERO);
         let bits_mut = Arc::make_mut(&mut bits);
 
         let mut word = 0;
@@ -129,9 +129,32 @@ impl BitVector {
 impl From<BitView<'_>> for BitVector {
     fn from(value: BitView<'_>) -> Self {
         let true_count = value.true_count();
-        let bits = Arc::new(BitArray::<[u64; PIPELINE_STEP_COUNT / 64], Msb0>::from(
+        let bits = Arc::new(BitArray::<[u64; PIPELINE_STEP_COUNT / 64], Lsb0>::from(
             *value.as_raw(),
         ));
         BitVector { bits, true_count }
     }
 }
+
+//     #[test]
+//     fn test_mask_and_bitview_all_true() {
+//         let mask = Mask::AllTrue(5);
+//
+//         let vector = BitVector::true_until(5);
+//
+//         let view = vector.as_view();
+//
+//         // Collect indices from BitView
+//         let mut bitview_ones = Vec::new();
+//         view.iter_ones(|idx| bitview_ones.push(idx));
+//
+//         // Collect indices from BitView
+//         let mask_ones = mask.iter_bools(|iter| {
+//             iter.enumerate()
+//                 .filter(|(_, b)| *b)
+//                 .map(|(i, _)| i)
+//                 .collect::<Vec<_>>()
+//         });
+//
+//         assert_eq!(bitview_ones, mask_ones);
+//     }

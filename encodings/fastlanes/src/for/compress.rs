@@ -87,10 +87,7 @@ mod test {
     #[test]
     fn test_compress_non() {
         // Create a range offset by a million
-        let array = PrimitiveArray::new(
-            (0i32..10).collect::<Buffer<_>>(),
-            Validity::NonNullable,
-        );
+        let array = PrimitiveArray::new((0i32..10).collect::<Buffer<_>>(), Validity::NonNullable);
         println!("{}", array.as_ref().display_tree());
         let compressed = FoRArray::encode(array).unwrap();
         assert_eq!(i32::try_from(compressed.reference_scalar()).unwrap(), 0);

@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use bitvec::array::BitArray;
-use bitvec::order::Msb0;
+use bitvec::order::Lsb0;
 
 use crate::pipeline::PIPELINE_STEP_COUNT;
 use crate::pipeline::bits::BitView;
@@ -11,20 +11,20 @@ use crate::pipeline::bits::BitView;
 /// 64-bit words.
 #[derive(Debug)]
 pub struct BitViewMut<'a> {
-    bits: &'a mut BitArray<[u64; PIPELINE_STEP_COUNT / 64], Msb0>,
+    bits: &'a mut BitArray<[u64; PIPELINE_STEP_COUNT / 64], Lsb0>,
     true_count: usize,
 }
 
 impl<'a> BitViewMut<'a> {
     pub fn new(bits: &'a mut [u64; PIPELINE_STEP_COUNT / 64]) -> Self {
         let true_count = bits.iter().map(|&word| word.count_ones() as usize).sum();
-        let bits: &mut BitArray<[u64; PIPELINE_STEP_COUNT / 64], Msb0> =
+        let bits: &mut BitArray<[u64; PIPELINE_STEP_COUNT / 64], Lsb0> =
             unsafe { std::mem::transmute(bits) };
         BitViewMut { bits, true_count }
     }
 
     pub(crate) unsafe fn new_unchecked(
-        bits: &'a mut BitArray<[u64; PIPELINE_STEP_COUNT / 64], Msb0>,
+        bits: &'a mut BitArray<[u64; PIPELINE_STEP_COUNT / 64], Lsb0>,
         true_count: usize,
     ) -> Self {
         BitViewMut { bits, true_count }

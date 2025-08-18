@@ -35,7 +35,7 @@ impl NodeFolder for ExprOperatorConverter {
         children: Vec<Arc<dyn Operator>>,
     ) -> VortexResult<FoldUp<Arc<dyn Operator>>> {
         if node.as_opt::<RootVTable>().is_some() {
-            let pipeline = self.root.to_pipeline_plan()?;
+            let pipeline = self.root.to_operator()?;
             return Ok(FoldUp::Continue(pipeline));
         }
         node.operator(children)

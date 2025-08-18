@@ -8,6 +8,7 @@ use std::sync::{Arc, OnceLock};
 use async_trait::async_trait;
 use futures::FutureExt;
 use vortex_array::compute::filter;
+use vortex_array::display::DisplayArrayAs;
 use vortex_array::pipeline::PIPELINE_STEP_COUNT;
 use vortex_array::pipeline::canonical::{
     export_canonical_pipeline_expr, export_canonical_pipeline_expr_offset,
@@ -174,7 +175,7 @@ impl MaskEvaluation for FlatEvaluation {
         // Now we await the array .
         let mut array = self.array.clone().await?;
 
-        if array.to_pipeline_plan().is_ok() {
+        if array.to_operator().is_ok() {
             let mut conv = ExprOperatorConverter::new(array.clone());
             if let Ok(operator) = self
                 .expr
@@ -264,7 +265,13 @@ impl ArrayEvaluation for FlatEvaluation {
         // Now we await the array .
         let mut array = self.array.clone().await?;
 
-        if array.to_pipeline_plan().is_ok() {
+        let rt = self.expr.return_dtype(array.dtype())?;
+
+        if matches!(
+            rt,
+            DType::Bool(NonNullable) | DType::Primitive(_, NonNullable)
+        ) && array.to_operator().is_ok()
+        {
             let mut conv = ExprOperatorConverter::new(array.clone());
             if let Ok(operator) = self
                 .expr
@@ -281,10 +288,7 @@ impl ArrayEvaluation for FlatEvaluation {
                         .expr
                         .clone()
                         .fold(&mut ExprOperatorConverter::new(array))
-                        .ok()
-                        .vortex_expect("already converted")
-                        .value();
-                    let operator = reduce_operator(operator)
+                        .and_then(|o| reduce_operator(o.value()))
                         .ok()
                         .vortex_expect("already converted");
                     export_canonical_pipeline_expr(
@@ -293,16 +297,46 @@ impl ArrayEvaluation for FlatEvaluation {
                         operator.as_ref(),
                         &mask,
                     )?
+                    .into_array()
                 } else {
-                    export_canonical_pipeline_expr_offset(
-                        &DType::Bool(NonNullable),
+                    let expected = {
+                        // Filter the array based on the row mask.
+                        if !mask.all_true() {
+                            array = filter(&array, &mask)?;
+                        }
+
+                        self.expr.evaluate(&Scope::new(array.clone()))?
+                    };
+
+                    println!("array: {}", array.display_tree());
+                    println!("expr {}", self.expr);
+                    println!("operator: {operator:?}");
+                    println!("mask: {mask:?}");
+                    let result = export_canonical_pipeline_expr_offset(
+                        &rt,
                         self.row_range.start / PIPELINE_STEP_COUNT,
                         self.row_range.end - self.row_range.start,
                         operator.as_ref(),
                         &mask,
                     )?
+                    .into_array();
+                    assert_eq!(result.len(), expected.len(), "mask count mismatch");
+                    println!("result: {}", DisplayArrayAs(&result, Default::default()));
+                    println!(
+                        "expected: {}",
+                        DisplayArrayAs(&expected, Default::default())
+                    );
+                    for i in 0..expected.len() {
+                        assert_eq!(
+                            result.scalar_at(i).unwrap(),
+                            expected.scalar_at(i).unwrap(),
+                            "mask mismatch, at index {i}"
+                        );
+                    }
+
+                    result
                 };
-                return Ok(result.into_array());
+                return Ok(result);
             }
         }
 
@@ -320,6 +354,8 @@ impl ArrayEvaluation for FlatEvaluation {
         if !is_root(&self.expr) {
             array = self.expr.evaluate(&Scope::new(array))?;
         }
+
+        println!("array: {}", array.len());
 
         Ok(array)
     }

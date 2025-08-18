@@ -126,7 +126,9 @@ where
             self.packed_offset += nvecs * self.packed_stride;
 
             // Set the selection to the given mask, which is a bit array of length N.
+            println!("out: {:?}", elements);
             physical_out.select_mask::<<T as PhysicalPType>::Physical>(&selected);
+            println!("out: {:?}", elements);
         } else {
             let mut offset = 0;
             selected.iter_ones(|idx| {
@@ -142,6 +144,8 @@ where
                 }
                 offset += 1;
             });
+
+            println!("iter_ones: {:?}", elements);
 
             self.packed_offset += nvecs * self.packed_stride;
         }
@@ -187,7 +191,7 @@ mod tests {
             let result = export_canonical_pipeline_expr(
                 bitpacked.dtype(),
                 bitpacked.len(),
-                bitpacked.to_pipeline_plan().unwrap().as_ref(),
+                bitpacked.to_operator().unwrap().as_ref(),
                 &mask,
             )
             .unwrap()
@@ -220,7 +224,7 @@ mod tests {
         let res = export_canonical_pipeline_expr(
             array.dtype(),
             array.len(),
-            array.to_pipeline_plan().unwrap().as_ref(),
+            array.to_operator().unwrap().as_ref(),
             &mask,
         )
         .unwrap()

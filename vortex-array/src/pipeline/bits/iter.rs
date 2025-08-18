@@ -3,17 +3,17 @@
 
 use arrow_buffer::BooleanBuffer;
 use arrow_buffer::bit_chunk_iterator::BitChunkIterator;
-use bitvec::order::Msb0;
+use bitvec::order::Lsb0;
 use bitvec::slice::{BitSlice, ChunksExact};
 
 use crate::pipeline::PIPELINE_STEP_COUNT;
 
-pub fn iter_boolean_buffer<'a>(buffer: &'a BooleanBuffer) -> ChunksExact<'a, u64, Msb0> {
+pub fn iter_boolean_buffer<'a>(buffer: &'a BooleanBuffer) -> ChunksExact<'a, u64, Lsb0> {
     assert_eq!(buffer.offset(), 0, "BooleanBuffer must have an offset of 0");
     let ptr = buffer.inner().as_ptr().cast::<u64>();
     assert!(ptr.is_aligned(), "BooleanBuffer must be aligned to 64 bits");
     let data = unsafe { std::slice::from_raw_parts(ptr, buffer.len()) };
-    let slice = BitSlice::<u64, Msb0>::from_slice(data);
+    let slice = BitSlice::<u64, Lsb0>::from_slice(data);
     slice.chunks_exact(PIPELINE_STEP_COUNT)
 }
 

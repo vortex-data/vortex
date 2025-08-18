@@ -133,8 +133,8 @@ pub fn pipeline<T: Element + NativePType>(bencher: Bencher, fraction_kept: f64) 
         .map(|_| rng.random_bool(fraction_kept))
         .collect::<BooleanBuffer>();
 
-    let expr1 = array.to_pipeline_plan().unwrap();
-    let expr2 = array.to_pipeline_plan().unwrap();
+    let expr1 = array.to_operator().unwrap();
+    let expr2 = array.to_operator().unwrap();
     let expr = CompareOperator::new(expr1, expr2, Operator::Gt);
 
     bencher
