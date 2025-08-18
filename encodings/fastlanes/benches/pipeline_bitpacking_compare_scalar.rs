@@ -16,9 +16,7 @@ use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, NativePType};
 use vortex_error::VortexResult;
 use vortex_expr::traversal::NodeExt;
-use vortex_expr::{
-    ExprOperatorConverter, Scope, VortexExprExt, lit, lt, reduce_up, root,
-};
+use vortex_expr::{ExprOperatorConverter, Scope, VortexExprExt, lit, lt, reduce_up, root};
 use vortex_fastlanes::{FoRArray, bitpack_to_best_bit_width};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
