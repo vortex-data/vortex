@@ -31,7 +31,7 @@ def ds(tmpdir_factory) -> vortex.dataset.VortexDataset:
         a = pa.array([record(x) for x in range(1_000_000)])
         arr = vx.compress(vx.array(a))
         vortex.io.write(arr, str(fname))
-    return vortex.dataset.VortexDataset.from_path(str(fname))
+        return vortex.dataset.VortexDataset.from_path(str(fname))
 
 
 def test_schema(ds):
@@ -69,6 +69,19 @@ def test_to_batches(ds):
     assert chunk0.to_struct_array() == pa.array(
         [record(x, columns=["string", "bool"]) for x in range(len(chunk0))], type=schema
     )
+
+
+@pytest.mark.parametrize("batch_size", [1234, 8192, 1 << 31])
+def test_to_batch_size(ds, batch_size):
+    batch_sizes = [len(x) for x in ds.to_batches(batch_size=batch_size)]
+    n_rows = ds.count_rows()
+    if n_rows < batch_size:
+        assert batch_sizes == [n_rows]
+    if n_rows % batch_size == 0:
+        assert batch_sizes == [batch_size for _ in batch_sizes]
+    else:
+        assert batch_sizes[:-1] == [batch_size for _ in batch_sizes[:-1]]
+        assert batch_sizes[-1] == n_rows % batch_size
 
 
 def test_to_table(ds):

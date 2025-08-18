@@ -47,8 +47,17 @@ class VortexDataset(pyarrow.dataset.Dataset):
         use_threads: bool | None = None,
         memory_pool: pa.MemoryPool = None,
     ) -> int:
-        """Not implemented."""
-        raise NotImplementedError("count_rows")
+        """Count the number of rows in this dataset."""
+        if batch_readahead is not None:
+            raise ValueError("batch_readahead not supported")
+        if fragment_readahead is not None:
+            raise ValueError("fragment_readahead not supported")
+        if fragment_scan_options is not None:
+            raise ValueError("fragment_scan_options not supported")
+        if use_threads is True:
+            warnings.warn("Vortex does not support threading. Ignoring use_threads=True")
+        del memory_pool
+        return self._dataset.count_rows(row_filter=filter, split_by=batch_size)
 
     def filter(self, expression: pc.Expression) -> "VortexDataset":
         """Not implemented."""
@@ -275,8 +284,6 @@ class VortexDataset(pyarrow.dataset.Dataset):
         table : :class:`.pyarrow.Table`
 
         """
-        if batch_size is not None:
-            raise ValueError("batch_size is not supported")
         if batch_readahead is not None:
             raise ValueError("batch_readahead not supported")
         if fragment_readahead is not None:
@@ -290,7 +297,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
         del memory_pool
         if filter is not None:
             filter = arrow_to_vortex_expr(filter, self.schema)
-        return self._dataset.to_record_batch_reader(columns=columns, row_filter=filter)
+        return self._dataset.to_record_batch_reader(columns=columns, row_filter=filter, split_by=batch_size)
 
     def to_batches(
         self,
