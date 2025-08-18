@@ -34,7 +34,7 @@ const ROW_GROUP_SIZE_IN_VARIANTS: u64 = 1024;
 
 impl StatPopGenBenchmark {
     pub async fn download_parquet(&self) -> VortexResult<()> {
-        let url = "https://gnomad-public-us-east-1.s3.amazonaws.com/release/3.1.2/vcf/genomes/gnomad.genomes.v3.1.2.hgdp_tgp.chr21.vcf.bgz";
+        let url = format!("https://gnomad-public-us-east-1.s3.amazonaws.com/release/3.1.2/vcf/genomes/{}.vcf.bgz", , StatPopGenBenchmark::FILE_NAME);
         let parquet_output_path = self.parquet_path()?;
         idempotent_async(&parquet_output_path, async |parquet_output_path| {
             info!(

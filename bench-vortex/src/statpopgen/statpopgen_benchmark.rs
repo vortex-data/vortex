@@ -42,6 +42,8 @@ pub struct StatPopGenBenchmark {
 }
 
 impl StatPopGenBenchmark {
+    pub const FILE_NAME: &str = "gnomad.genomes.v3.1.2.hgdp_tgp.chr21";
+
     /// Creates a new StatPopGenBenchmark instance.
     ///
     /// # Arguments
@@ -94,7 +96,7 @@ impl StatPopGenBenchmark {
     pub fn parquet_path(&self) -> VortexResult<PathBuf> {
         self.data_url
             .join(&(self.n_rows.to_string() + "/parquet/"))?
-            .join("gnomad.genomes.v3.1.2.hgdp_tgp.chr21.parquet")?
+            .join(&format!("{}.parquet", StatPopGenBenchmark::FILE_NAME))?
             .to_file_path()
             .map_err(|_| vortex_err!("Failed to convert data URL to filesystem path - ensure data_url uses 'file://' scheme"))
     }
@@ -106,7 +108,7 @@ impl StatPopGenBenchmark {
     pub fn vortex_path(&self) -> VortexResult<PathBuf> {
         self.data_url
             .join(&(self.n_rows.to_string() + "/vortex-file-compressed/"))?
-            .join("gnomad.genomes.v3.1.2.hgdp_tgp.chr21.vortex")?
+            .join(&format!("{}.vortex", StatPopGenBenchmark::FILE_NAME))?
             .to_file_path()
             .map_err(|_| vortex_err!("Failed to convert data URL to filesystem path - ensure data_url uses 'file://' scheme"))
     }
@@ -114,11 +116,11 @@ impl StatPopGenBenchmark {
     /// Returns the filesystem path to the compacted Vortex dataset file.
     ///
     /// Constructs the path based on the configured data URL and number of rows.
-    /// The path follows the pattern: `{data_url}/{n_rows}/vortex-compact/gnomad.genomes.v3.1.2.hgdp_tgp.chr21.vortex`
+    /// The path follows the pattern: `{data_url}/{n_rows}/vortex-compact/{StatPopGenBenchmark::FILE_NAME}.vortex`
     pub fn vortex_compact_path(&self) -> VortexResult<PathBuf> {
         self.data_url
             .join(&(self.n_rows.to_string() + "/vortex-compact/"))?
-            .join("gnomad.genomes.v3.1.2.hgdp_tgp.chr21.vortex")?
+            .join(&format!("{}.vortex", StatPopGenBenchmark::FILE_NAME))?
             .to_file_path()
             .map_err(|_| vortex_err!("Failed to convert data URL to filesystem path - ensure data_url uses 'file://' scheme"))
     }

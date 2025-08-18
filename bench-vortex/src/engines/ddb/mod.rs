@@ -9,7 +9,7 @@ use url::Url;
 use vortex::error::VortexExpect;
 use vortex_duckdb::duckdb::{Connection, Database};
 
-use crate::{BenchmarkDataset, Format, IdempotentPath};
+use crate::{BenchmarkDataset, Format, IdempotentPath, statpopgen::StatPopGenBenchmark};
 
 #[derive(Debug, Clone)]
 enum DuckDBObject {
@@ -184,7 +184,7 @@ impl DuckDBCtx {
             }
             BenchmarkDataset::PublicBi { .. } => todo!(),
             BenchmarkDataset::StatPopGen { .. } => {
-                let path = format!("{base_dir}gnomad.genomes.v3.1.2.hgdp_tgp.chr21.{extension}");
+                let path = format!("{base_dir}{}.{extension}", StatPopGenBenchmark::FILE_NAME);
                 format!(
                     "CREATE {} IF NOT EXISTS statpopgen AS SELECT * FROM read_{extension}('{path}');",
                     duckdb_object.to_str()
