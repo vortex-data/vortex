@@ -42,7 +42,7 @@ on:
               "id": "tpcds-nvme",
               "subcommand": "tpcds",
               "name": "TPC-DS SF=1 on NVME",
-              "targets": "duckdb:parquet,duckdb:vortex,duckdb:duckdb",
+              "targets": "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb",
               "scale_factor": "--scale-factor 1.0"
             },
           ]
