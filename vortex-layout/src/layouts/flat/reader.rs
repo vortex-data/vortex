@@ -8,7 +8,6 @@ use std::sync::{Arc, OnceLock};
 use async_trait::async_trait;
 use futures::FutureExt;
 use vortex_array::compute::filter;
-use vortex_array::display::DisplayArrayAs;
 use vortex_array::pipeline::PIPELINE_STEP_COUNT;
 use vortex_array::pipeline::canonical::{
     export_canonical_pipeline_expr, export_canonical_pipeline_expr_offset,
@@ -18,7 +17,7 @@ use vortex_array::stats::Precision;
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, FieldMask};
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _, vortex_err};
 use vortex_expr::traversal::NodeExt;
 use vortex_expr::{ExprOperatorConverter, ExprRef, Scope, is_root, reduce_operator};
 use vortex_mask::Mask;
@@ -175,14 +174,14 @@ impl MaskEvaluation for FlatEvaluation {
         // Now we await the array .
         let mut array = self.array.clone().await?;
 
-        if array.to_operator().is_ok() {
+        if array.to_operator()?.is_some() {
             let mut conv = ExprOperatorConverter::new(array.clone());
             if let Ok(operator) = self
                 .expr
                 .clone()
                 .fold(&mut conv)
                 // .map(|o| o.value())
-                .and_then(|o| reduce_operator(o.value()))
+                .and_then(|o| o.value().ok_or_else(|| vortex_err!("Operator conversion failed")).and_then(reduce_operator))
             {
                 let result = if self.row_range.start % PIPELINE_STEP_COUNT != 0 {
                     // If the start is not a multiple of PIPELINE_STEP_COUNT, then we need to slice
@@ -194,10 +193,9 @@ impl MaskEvaluation for FlatEvaluation {
                         .fold(&mut ExprOperatorConverter::new(array))
                         .ok()
                         .vortex_expect("already converted")
-                        .value();
-                    let operator = reduce_operator(operator)
-                        .ok()
-                        .vortex_expect("already converted");
+                        .value()
+                        .ok_or_else(|| vortex_err!("Operator conversion failed"))
+                        .and_then(reduce_operator)?;
                     export_canonical_pipeline_expr(
                         &DType::Bool(NonNullable),
                         self.row_range.end - self.row_range.start,
@@ -270,15 +268,14 @@ impl ArrayEvaluation for FlatEvaluation {
         if matches!(
             rt,
             DType::Bool(NonNullable) | DType::Primitive(_, NonNullable)
-        ) && array.to_operator().is_ok()
+        ) && array.to_operator()?.is_some()
         {
             let mut conv = ExprOperatorConverter::new(array.clone());
             if let Ok(operator) = self
                 .expr
                 .clone()
                 .fold(&mut conv)
-                // .map(|o| o.value())
-                .and_then(|o| reduce_operator(o.value()))
+                .and_then(|o| o.value().ok_or_else(|| vortex_err!("Operator conversion failed")).and_then(reduce_operator))
             {
                 let result = if self.row_range.start % PIPELINE_STEP_COUNT != 0 {
                     // If the start is not a multiple of PIPELINE_STEP_COUNT, then we need to slice
@@ -288,7 +285,7 @@ impl ArrayEvaluation for FlatEvaluation {
                         .expr
                         .clone()
                         .fold(&mut ExprOperatorConverter::new(array))
-                        .and_then(|o| reduce_operator(o.value()))
+                        .and_then(|o| o.value().ok_or_else(|| vortex_err!("Operator conversion failed")).and_then(reduce_operator))
                         .ok()
                         .vortex_expect("already converted");
                     export_canonical_pipeline_expr(
@@ -308,10 +305,10 @@ impl ArrayEvaluation for FlatEvaluation {
                         self.expr.evaluate(&Scope::new(array.clone()))?
                     };
 
-                    println!("array: {}", array.display_tree());
-                    println!("expr {}", self.expr);
-                    println!("operator: {operator:?}");
-                    println!("mask: {mask:?}");
+                    // println!("array: {}", array.display_tree());
+                    // println!("expr {}", self.expr);
+                    // println!("operator: {operator:?}");
+                    // println!("mask: {mask:?}");
                     let result = export_canonical_pipeline_expr_offset(
                         &rt,
                         self.row_range.start / PIPELINE_STEP_COUNT,
@@ -321,11 +318,11 @@ impl ArrayEvaluation for FlatEvaluation {
                     )?
                     .into_array();
                     assert_eq!(result.len(), expected.len(), "mask count mismatch");
-                    println!("result: {}", DisplayArrayAs(&result, Default::default()));
-                    println!(
-                        "expected: {}",
-                        DisplayArrayAs(&expected, Default::default())
-                    );
+                    // println!("result: {}", DisplayArrayAs(&result, Default::default()));
+                    // println!(
+                    //     "expected: {}",
+                    //     DisplayArrayAs(&expected, Default::default())
+                    // );
                     for i in 0..expected.len() {
                         assert_eq!(
                             result.scalar_at(i).unwrap(),
@@ -355,7 +352,7 @@ impl ArrayEvaluation for FlatEvaluation {
             array = self.expr.evaluate(&Scope::new(array))?;
         }
 
-        println!("array: {}", array.len());
+        // println!("array: {}", array.len());
 
         Ok(array)
     }

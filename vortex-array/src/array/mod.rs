@@ -123,7 +123,8 @@ pub trait Array: 'static + private::Sealed + Send + Sync + Debug + ArrayVisitor 
     fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()>;
 
     /// Returns a pipeline for the array.
-    fn to_operator(&self) -> VortexResult<Arc<dyn Operator>>;
+    /// Returns `None` if the array cannot be converted to an operator.
+    fn to_operator(&self) -> VortexResult<Option<Arc<dyn Operator>>>;
 
     /// Returns the statistics of the array.
     // TODO(ngates): change how this works. It's weird.
@@ -221,7 +222,7 @@ impl Array for Arc<dyn Array> {
         self.as_ref().append_to_builder(builder)
     }
 
-    fn to_operator(&self) -> VortexResult<Arc<dyn Operator>> {
+    fn to_operator(&self) -> VortexResult<Option<Arc<dyn Operator>>> {
         self.as_ref().to_operator()
     }
 
@@ -548,7 +549,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         Ok(())
     }
 
-    fn to_operator(&self) -> VortexResult<Arc<dyn Operator>> {
+    fn to_operator(&self) -> VortexResult<Option<Arc<dyn Operator>>> {
         <V::PipelineVTable as PipelineVTable<V>>::to_operator(&self.0)
     }
 

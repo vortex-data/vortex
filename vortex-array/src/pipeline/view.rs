@@ -211,7 +211,6 @@ impl<'a> ViewMut<'a> {
                 // If the mask has N true bits, we copy all elements.
             }
             n if n > 3 * PIPELINE_STEP_COUNT / 4 => {
-                println!("iter_zero");
                 // High density: use iter_zeros to compact by removing gaps
                 let slice = self.as_slice_mut::<E>();
                 let mut write_idx = 0;

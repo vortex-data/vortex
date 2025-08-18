@@ -6667,6 +6667,7 @@ dependencies = [
  "fastlanes",
  "itertools 0.14.0",
  "lending-iterator",
+ "log",
  "mimalloc",
  "num-traits",
  "prost 0.14.1",

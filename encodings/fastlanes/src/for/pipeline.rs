@@ -24,13 +24,17 @@ use vortex_scalar::Scalar;
 use crate::{FoRArray, FoRVTable};
 
 impl PipelineVTable<FoRVTable> for FoRVTable {
-    fn to_operator(array: &FoRArray) -> VortexResult<Arc<dyn Operator>> {
-        Ok(Arc::new(FoROperator {
-            child: [array.encoded.to_operator()?],
-            reference: array.reference.clone(),
-            ptype: array.ptype(),
-            encoded_ptype: array.encoded.dtype().as_ptype(),
-        }))
+    fn to_operator(array: &FoRArray) -> VortexResult<Option<Arc<dyn Operator>>> {
+        let child_op = array.encoded.to_operator()?;
+        match child_op {
+            Some(op) => Ok(Some(Arc::new(FoROperator {
+                child: [op],
+                reference: array.reference.clone(),
+                ptype: array.ptype(),
+                encoded_ptype: array.encoded.dtype().as_ptype(),
+            }))),
+            None => Ok(None),
+        }
     }
 }
 
@@ -199,7 +203,7 @@ mod tests {
         let res = export_canonical_pipeline_expr(
             array.dtype(),
             array.len(),
-            array.to_operator().unwrap().as_ref(),
+            array.to_operator().unwrap().unwrap().as_ref(),
             &mask,
         )
         .unwrap()
@@ -254,7 +258,7 @@ mod tests {
             let result = export_canonical_pipeline_expr(
                 array.dtype(),
                 array.len(),
-                array.to_operator().unwrap().as_ref(),
+                array.to_operator().unwrap().unwrap().as_ref(),
                 &mask,
             )
             .unwrap()

@@ -19,13 +19,13 @@ use crate::pipeline::{Kernel, KernelContext, PIPELINE_STEP_COUNT};
 use crate::vtable::{PipelineVTable, ValidityHelper};
 
 impl PipelineVTable<PrimitiveVTable> for PrimitiveVTable {
-    fn to_operator(array: &PrimitiveArray) -> VortexResult<Arc<dyn Operator>> {
+    fn to_operator(array: &PrimitiveArray) -> VortexResult<Option<Arc<dyn Operator>>> {
         if !array.validity().all_valid()? {
             vortex_bail!(
                 "PipelineVTable::to_operator is not supported for arrays with invalid values"
             );
         }
-        Ok(Arc::new(array.clone()))
+        Ok(Some(Arc::new(array.clone())))
     }
 }
 
@@ -96,11 +96,9 @@ impl<T: Element + NativePType> Kernel for PrimitiveKernel<T> {
             out_slice[..remaining].copy_from_slice(&buffer[self.offset..]);
             self.offset += remaining;
         }
-        println!("out_slice: {out_slice:?}");
 
         // TODO(joe): use mask in copy_from_slice, if faster.
         out.select_mask::<T>(&mask);
-        println!("out_slice: {out_slice:?}");
 
         Poll::Ready(Ok(()))
     }

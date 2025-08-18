@@ -3,21 +3,19 @@
 
 use std::sync::Arc;
 
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::VortexResult;
 
 use crate::pipeline::operators::Operator;
 use crate::vtable::{NotSupported, VTable};
 
 pub trait PipelineVTable<V: VTable> {
     /// Convert the current array into a [`Operator`].
-    fn to_operator(array: &V::Array) -> VortexResult<Arc<dyn Operator>>;
+    /// Returns `None` if the array cannot be converted to an operator.
+    fn to_operator(array: &V::Array) -> VortexResult<Option<Arc<dyn Operator>>>;
 }
 
 impl<V: VTable> PipelineVTable<V> for NotSupported {
-    fn to_operator(array: &V::Array) -> VortexResult<Arc<dyn Operator>> {
-        vortex_bail!(
-            "PipelineVTable::to_operator is not supported for this array type: {}",
-            array.encoding_id()
-        );
+    fn to_operator(_array: &V::Array) -> VortexResult<Option<Arc<dyn Operator>>> {
+        Ok(None)
     }
 }

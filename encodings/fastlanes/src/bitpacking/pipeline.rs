@@ -15,20 +15,22 @@ use vortex_array::pipeline::view::ViewMut;
 use vortex_array::pipeline::{Kernel, KernelContext, PIPELINE_STEP_COUNT};
 use vortex_array::vtable::PipelineVTable;
 use vortex_dtype::{PhysicalPType, match_each_integer_ptype};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::VortexResult;
 
 use crate::{BitPackedArray, BitPackedVTable};
 
 impl PipelineVTable<BitPackedVTable> for BitPackedVTable {
-    fn to_operator(array: &BitPackedArray) -> VortexResult<Arc<dyn Operator>> {
+    fn to_operator(array: &BitPackedArray) -> VortexResult<Option<Arc<dyn Operator>>> {
         if array.dtype.is_nullable() {
-            vortex_bail!("BitPackedVTable does not support nullable types");
+            log::trace!("BitPackedVTable does not support nullable arrays");
+            return Ok(None);
         }
         if array.patches.is_some() {
-            vortex_bail!("BitPackedVTable does not support patched arrays");
+            log::trace!("BitPackedVTable does not support nullable arrays");
+            return Ok(None);
         }
 
-        Ok(Arc::new(array.clone()))
+        Ok(Some(Arc::new(array.clone())))
     }
 }
 
@@ -145,8 +147,6 @@ where
                 offset += 1;
             });
 
-            println!("iter_ones: {:?}", elements);
-
             self.packed_offset += nvecs * self.packed_stride;
         }
 
@@ -191,7 +191,7 @@ mod tests {
             let result = export_canonical_pipeline_expr(
                 bitpacked.dtype(),
                 bitpacked.len(),
-                bitpacked.to_operator().unwrap().as_ref(),
+                bitpacked.to_operator().unwrap().unwrap().as_ref(),
                 &mask,
             )
             .unwrap()
@@ -224,7 +224,7 @@ mod tests {
         let res = export_canonical_pipeline_expr(
             array.dtype(),
             array.len(),
-            array.to_operator().unwrap().as_ref(),
+            array.to_operator().unwrap().unwrap().as_ref(),
             &mask,
         )
         .unwrap()

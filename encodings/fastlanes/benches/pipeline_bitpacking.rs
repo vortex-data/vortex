@@ -105,7 +105,7 @@ pub fn decompress_bitpacking_pipeline_filter<T: Element + NativePType>(
             export_canonical_pipeline_expr(
                 array.dtype(),
                 array.len(),
-                array.to_operator().unwrap().as_ref(),
+                array.to_operator().unwrap().unwrap().as_ref(),
                 &mask,
             )
             .unwrap()
@@ -114,7 +114,7 @@ pub fn decompress_bitpacking_pipeline_filter<T: Element + NativePType>(
     let array = export_canonical_pipeline_expr(
         array.dtype(),
         array.len(),
-        array.to_operator().unwrap().as_ref(),
+        array.to_operator().unwrap().unwrap().as_ref(),
         &Mask::from_buffer(mask.clone()),
     )
     .unwrap()
