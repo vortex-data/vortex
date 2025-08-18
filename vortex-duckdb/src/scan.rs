@@ -420,7 +420,7 @@ impl TableFunction for VortexTableFunction {
                 .iter()
                 .map(|f| format!("{}", f))
                 .collect();
-            result.push_str(&format!("Filters=[{}]\n", filters.join(" AND ")));
+            result.push_str(&format!("Filters={}\n", filters.join(" AND ")));
         }
 
         Some(result)
