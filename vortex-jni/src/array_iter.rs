@@ -68,15 +68,29 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayIteratorMethods_take(
 
     try_or_throw(&mut env, |_| {
         if let Some(mut inner) = iter.inner.take() {
-            match inner.next() {
+            let result = match inner.next() {
                 Some(result) => {
-                    let array_ref = result?;
-                    iter.inner = Some(inner);
-                    // return the pointer to the next array element
-                    Ok(NativeArray::new(array_ref).into_raw())
+                    match result {
+                        Ok(array_ref) => {
+                            // Successfully got the next array
+                            let ptr = NativeArray::new(array_ref).into_raw();
+                            Ok(ptr)
+                        }
+                        Err(e) => {
+                            // Error occurred, but we still need to restore the iterator
+                            Err(e.into())
+                        }
+                    }
                 }
-                None => Ok(-1),
-            }
+                None => {
+                    // Iterator is exhausted
+                    Ok(-1)
+                }
+            };
+
+            // Always restore the iterator, even on error
+            iter.inner = Some(inner);
+            result
         } else {
             throw_runtime!("attempted to take() on a closed ArrayIter");
         }

@@ -12,7 +12,7 @@ pub(crate) struct Expr {
 
 pub(crate) fn literal(scalar: Box<Scalar>) -> Box<Expr> {
     Box::new(Expr {
-        inner: vortex::expr::literal::lit(scalar.inner),
+        inner: vortex::expr::lit(scalar.inner),
     })
 }
 

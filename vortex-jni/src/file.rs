@@ -1,24 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::str::FromStr;
-use std::sync::{Arc, LazyLock};
-use std::time::Duration;
+use std::sync::Arc;
 
+use futures::StreamExt;
 use jni::JNIEnv;
-use jni::objects::{JByteArray, JClass, JLongArray, JObject, JString, ReleaseMode};
-use jni::sys::jlong;
-use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
-use object_store::azure::{AzureConfigKey, MicrosoftAzureBuilder};
-use object_store::gcp::{GoogleCloudStorageBuilder, GoogleConfigKey};
-use object_store::local::LocalFileSystem;
-use object_store::{ClientOptions, ObjectStore, ObjectStoreScheme};
-use parking_lot::Mutex;
+use jni::objects::{JByteArray, JClass, JLongArray, JObject, JObjectArray, JString, ReleaseMode};
+use jni::sys::{jlong, jobject};
+use object_store::ObjectStore;
+use object_store::path::Path;
 use prost::Message;
 use url::Url;
 use vortex::buffer::Buffer;
 use vortex::dtype::DType;
-use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_err};
 use vortex::expr::proto::deserialize_expr_proto;
 use vortex::expr::{root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
@@ -27,6 +22,7 @@ use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::array_iter::NativeArrayIterator;
 use crate::errors::try_or_throw;
+use crate::object_store::make_object_store;
 use crate::{SESSION, block_on};
 
 pub struct NativeFile {
@@ -56,14 +52,139 @@ impl NativeFile {
     }
 }
 
+/// List Vortex files underneath a root path.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_listVortexFiles<'local>(
+    mut env: JNIEnv,
+    _class: JClass,
+    path: JString<'local>,
+    options: JObject<'local>,
+) -> jobject {
+    try_or_throw(&mut env, |env| {
+        let root_path: String = env
+            .get_string(&path)
+            .map_err(|e| vortex_err!("get_string error: {e}"))?
+            .into();
+
+        let Ok(url) = Url::parse(&root_path) else {
+            throw_runtime!("Invalid URL: {root_path}");
+        };
+
+        let mut properties: HashMap<String, String> = HashMap::new();
+
+        if !options.is_null() {
+            let opts = env.get_map(&options)?;
+            let mut iterator = opts.iter(env)?;
+            while let Some((key, val)) = iterator.next(env)? {
+                let key = env.auto_local(key);
+                let val = env.auto_local(val);
+                let key_str = env.get_string(key.as_ref().into())?;
+                let val_str = env.get_string(val.as_ref().into())?;
+                properties.insert(key_str.into(), val_str.into());
+            }
+        }
+
+        let (store, _) = make_object_store(&url, &properties)?;
+        let prefix = Path::from_url_path(url.path())
+            .map_err(|_| vortex_err!("Cannot parse root_path as object_store Path"))?;
+
+        let mut stream = store.list(Some(&prefix));
+
+        let paths_vec = block_on("collect_paths", async move {
+            let mut paths = Vec::new();
+            while let Some(file) = stream.next().await {
+                let file = file.map_err(VortexError::from)?;
+                if file.location.as_ref().ends_with(".vortex") {
+                    let mut found = url.clone();
+                    found.set_path(file.location.as_ref());
+                    paths.push(found.to_string());
+                }
+            }
+
+            VortexResult::Ok(paths)
+        })?;
+
+        let paths_result = env.new_object("java/util/ArrayList", "()V", &[])?;
+        let paths_list = env.get_list(&paths_result)?;
+        for path in paths_vec.into_iter() {
+            let path_string = env.new_string(path)?;
+            paths_list.add(env, &path_string)?;
+        }
+
+        Ok(paths_result.into_raw())
+    })
+}
+
+/// Delete files from the target
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_delete<'local>(
+    mut env: JNIEnv,
+    _class: JClass,
+    uris: JObjectArray<'local>,
+    options: JObject<'local>,
+) {
+    try_or_throw(&mut env, |env| {
+        let mut delete_uris = Vec::new();
+
+        let num_uris = env.get_array_length(&uris)?;
+        for idx in 0..num_uris {
+            let uri = env.get_object_array_element(&uris, idx)?;
+            delete_uris.push(
+                env.get_string(&JString::from(uri))?
+                    .to_string_lossy()
+                    .to_string(),
+            );
+        }
+
+        // Nothing to delete
+        if delete_uris.is_empty() {
+            return Ok(());
+        }
+
+        // Pick the first URL to use for building the client
+        let store_url = Url::parse(&delete_uris[0]).map_err(VortexError::from)?;
+
+        let mut properties: HashMap<String, String> = HashMap::new();
+
+        if !options.is_null() {
+            let opts = env.get_map(&options)?;
+            let mut iterator = opts.iter(env)?;
+            while let Some((key, val)) = iterator.next(env)? {
+                let key = env.auto_local(key);
+                let val = env.auto_local(val);
+                let key_str = env.get_string(key.as_ref().into())?;
+                let val_str = env.get_string(val.as_ref().into())?;
+                properties.insert(key_str.into(), val_str.into());
+            }
+        }
+
+        let (store, _) = make_object_store(&store_url, &properties)?;
+
+        for uri in delete_uris {
+            let url = Url::parse(&uri).map_err(VortexError::from)?;
+            // TODO(aduffy): block on all of them
+            block_on(
+                "delete-file",
+                store.delete(
+                    &Path::from_url_path(url.path())
+                        .map_err(|_| vortex_err!("invalid path for url {url}"))?,
+                ),
+            )
+            .map_err(VortexError::from)?;
+        }
+
+        Ok(())
+    });
+}
+
 /// Open a file from a URL and options object. Returns a `long` representing a raw pointer
 /// to a `NativeFile` object on the heap.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_open(
-    mut env: JNIEnv,
+pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_open<'local>(
+    mut env: JNIEnv<'local>,
     _class: JClass,
-    uri: JString,
-    options: JObject,
+    uri: JString<'local>,
+    options: JObject<'local>,
 ) -> jlong {
     try_or_throw(&mut env, |env| {
         let file_path: String = env.get_string(&uri)?.into();
@@ -86,10 +207,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_open(
             }
         }
 
-        let start = std::time::Instant::now();
         let (store, _scheme) = make_object_store(&url, &properties)?;
-        let duration = std::time::Instant::now().duration_since(start);
-        log::debug!("make_object_store latency = {duration:?}");
         let open_file = block_on(
             "VortexOpenOptions.open()",
             VortexOpenOptions::file()
@@ -198,97 +316,4 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_scan(
 
         Ok(NativeArrayIterator::new(Box::new(scan_builder.into_array_iter()?)).into_raw())
     })
-}
-
-fn make_object_store(
-    url: &Url,
-    properties: &HashMap<String, String>,
-) -> VortexResult<(Arc<dyn ObjectStore>, ObjectStoreScheme)> {
-    static OBJECT_STORES: LazyLock<Mutex<HashMap<String, Arc<dyn ObjectStore>>>> =
-        LazyLock::new(|| Mutex::new(HashMap::new()));
-
-    let (scheme, _) = ObjectStoreScheme::parse(url)
-        .map_err(|error| VortexError::from(object_store::Error::from(error)))?;
-
-    let cache_key = url_cache_key(url);
-
-    {
-        if let Some(cached) = OBJECT_STORES.lock().get(&cache_key) {
-            return Ok((cached.clone(), scheme));
-        }
-        // guard dropped at close of scope
-    }
-
-    // Configure extra properties on that scheme instead.
-    let store: Arc<dyn ObjectStore> = match scheme {
-        ObjectStoreScheme::Local => {
-            log::trace!("using LocalFileSystem object store");
-            Arc::new(LocalFileSystem::default())
-        }
-        ObjectStoreScheme::AmazonS3 => {
-            log::trace!("using AmazonS3 object store");
-            let mut builder = AmazonS3Builder::new().with_url(url.to_string());
-            for (key, val) in properties {
-                if let Ok(config_key) = AmazonS3ConfigKey::from_str(key.as_str()) {
-                    builder = builder.with_config(config_key, val);
-                } else {
-                    log::warn!("Skipping unknown Amazon S3 config key: {key}");
-                }
-            }
-
-            Arc::new(builder.build()?)
-        }
-        ObjectStoreScheme::MicrosoftAzure => {
-            log::trace!("using MicrosoftAzure object store");
-
-            // NOTE(aduffy): anecdotally Azure often times out after 30 seconds, this bumps us up
-            //  to avoid that.
-            let client_opts = ClientOptions::new().with_timeout(Duration::from_secs(120));
-            let mut builder = MicrosoftAzureBuilder::new()
-                .with_url(url.to_string())
-                .with_client_options(client_opts);
-            for (key, val) in properties {
-                if let Ok(config_key) = AzureConfigKey::from_str(key.as_str()) {
-                    log::warn!("setting azure config {key:?} = {val}");
-                    builder = builder.with_config(config_key, val);
-                } else {
-                    log::warn!("Skipping unknown Azure config key: {key}");
-                }
-            }
-
-            Arc::new(builder.build()?)
-        }
-        ObjectStoreScheme::GoogleCloudStorage => {
-            log::trace!("using GoogleCloudStorage object store");
-
-            let mut builder = GoogleCloudStorageBuilder::new().with_url(url.to_string());
-            for (key, val) in properties {
-                if let Ok(config_key) = GoogleConfigKey::from_str(key.as_str()) {
-                    builder = builder.with_config(config_key, val);
-                } else {
-                    log::warn!("Skipping unknown Google Cloud Storage config key: {key}");
-                }
-            }
-
-            Arc::new(builder.build()?)
-        }
-        store => {
-            vortex_bail!("Unsupported store scheme: {store:?}");
-        }
-    };
-
-    {
-        OBJECT_STORES.lock().insert(cache_key, store.clone());
-        // Guard dropped at close of scope.
-    }
-
-    Ok((store, scheme))
-}
-
-fn url_cache_key(url: &Url) -> String {
-    format!(
-        "{}://{}",
-        url.scheme(),
-        &url[url::Position::BeforeHost..url::Position::AfterPort],
-    )
 }

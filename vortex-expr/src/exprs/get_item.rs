@@ -128,10 +128,26 @@ impl GetItemExpr {
     }
 }
 
+/// Creates an expression that accesses a field from the root array.
+///
+/// Equivalent to `get_item(field, root())` - extracts a named field from the input array.
+///
+/// ```rust
+/// # use vortex_expr::col;
+/// let expr = col("name");
+/// ```
 pub fn col(field: impl Into<FieldName>) -> ExprRef {
     GetItemExpr::new(field, root()).into_expr()
 }
 
+/// Creates an expression that extracts a named field from a struct expression.
+///
+/// Accesses the specified field from the result of the child expression.
+///
+/// ```rust
+/// # use vortex_expr::{get_item, root};
+/// let expr = get_item("user_id", root());
+/// ```
 pub fn get_item(field: impl Into<FieldName>, child: ExprRef) -> ExprRef {
     GetItemExpr::new(field, child).into_expr()
 }

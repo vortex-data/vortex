@@ -8,10 +8,11 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import dev.vortex.api.File;
 import dev.vortex.api.Files;
-import dev.vortex.spark.read.VortexTable;
+import dev.vortex.jni.NativeFileMethods;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import org.apache.spark.sql.connector.catalog.CatalogV2Util;
-import org.apache.spark.sql.connector.catalog.Column;
 import org.apache.spark.sql.connector.catalog.Table;
 import org.apache.spark.sql.connector.catalog.TableProvider;
 import org.apache.spark.sql.connector.expressions.Transform;
@@ -20,10 +21,11 @@ import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.util.CaseInsensitiveStringMap;
 
 /**
- * Spark V2 data source for reading Vortex files.
+ * Spark V2 data source for reading and writing Vortex files.
  * <p>
- * This class is automatically registered so it can be discovered by the Spark runtime. The current way to
- * use it is to do {@link org.apache.spark.sql.SparkSession#read} and specify the format as "vortex".
+ * This class is automatically registered so it can be discovered by the Spark runtime.
+ * For reading: {@link org.apache.spark.sql.SparkSession#read} and specify the format as "vortex".
+ * For writing: {@link org.apache.spark.sql.Dataset#write} and specify the format as "vortex".
  */
 public final class VortexDataSourceV2 implements TableProvider, DataSourceRegister {
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -52,9 +54,31 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
      */
     @Override
     public StructType inferSchema(CaseInsensitiveStringMap options) {
-        // Look at the last file in the listing and dump its schema.
-        // TODO(aduffy): support schema evolution/merging?
-        var pathToInfer = Iterables.getLast(getPaths(options));
+        // For write operations, the path might not exist yet
+        // In that case, return an empty schema to signal Spark to use the DataFrame's schema
+        var paths = getPaths(options);
+
+        // If path is not found, we report empty schema.
+        // This will be replaced with whatever the DataFrame schema is
+        if (paths.isEmpty()) {
+            return new StructType();
+        }
+
+        var pathToInfer = Objects.requireNonNull(Iterables.getLast(paths));
+        // If the path is a directory, scan the directory for a file and use that file
+        if (!pathToInfer.endsWith(".vortex")) {
+            Optional<String> firstFile =
+                    NativeFileMethods.listVortexFiles(pathToInfer, options.asCaseSensitiveMap()).stream()
+                            .findFirst();
+
+            if (firstFile.isEmpty()) {
+                // Return empty struct if no files found
+                // TODO(aduffy): how does Parquet handle this?
+                return new StructType();
+            } else {
+                pathToInfer = firstFile.get();
+            }
+        }
 
         try (File file = Files.open(pathToInfer)) {
             var columns = SparkTypes.toColumns(file.getDType());
@@ -65,24 +89,34 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
     /**
      * Creates a Vortex table instance with the given schema and properties.
      * <p>
-     * This method creates a VortexTable that can be used to read data from the specified
+     * This method creates a VortexWritableTable that can be used to both read from and write to
      * Vortex files. The partitioning parameter is currently ignored.
      *
-     * @param schema the table schema
+     * @param schema        the table schema
      * @param _partitioning table partitioning transforms (currently ignored)
-     * @param properties the table properties containing file paths and other options
-     * @return a VortexTable instance for reading the data
+     * @param properties    the table properties containing file paths and other options
+     * @return a VortexTable instance for reading and writing data
      * @throws RuntimeException if required path properties are missing
      */
     @Override
     public Table getTable(StructType schema, Transform[] _partitioning, Map<String, String> properties) {
         var uncased = new CaseInsensitiveStringMap(properties);
 
-        var paths = getPaths(uncased);
-        var columns = ImmutableList.<Column>builder()
-                .add(CatalogV2Util.structTypeToV2Columns(schema))
-                .build();
-        return new VortexTable(paths, columns);
+        ImmutableList<String> paths = getPaths(uncased);
+        return new VortexTable(paths, schema, properties);
+    }
+
+    /**
+     * Indicates whether this data source supports external metadata (schemas).
+     * <p>
+     * Returns true to indicate that this data source accepts external schemas,
+     * which is necessary for write operations where the DataFrame provides the schema.
+     *
+     * @return true to accept external schemas
+     */
+    @Override
+    public boolean supportsExternalMetadata() {
+        return true;
     }
 
     /**

@@ -53,15 +53,19 @@ public final class NativeLoader {
         String libName = "libvortex_jni";
 
         String osShortName;
+        String libExt;
         if (osName.contains("win")) {
             osShortName = "win";
-            libName += ".dll";
+            libExt = ".dll";
+            libName += libExt;
         } else if (osName.contains("mac")) {
             osShortName = "darwin";
-            libName += ".dylib";
+            libExt = ".dylib";
+            libName += libExt;
         } else if (osName.contains("nix") || osName.contains("nux")) {
             osShortName = "linux";
-            libName += ".so";
+            libExt = ".so";
+            libName += libExt;
         } else {
             throw new UnsupportedOperationException("Unsupported OS: " + osName);
         }
@@ -73,7 +77,7 @@ public final class NativeLoader {
             if (in == null) {
                 throw new FileNotFoundException("Library not found: " + libPath);
             }
-            File tempFile = File.createTempFile("libvortex_jni", ".dylib");
+            File tempFile = File.createTempFile("libvortex_jni", libExt);
             tempFile.deleteOnExit();
 
             try (OutputStream out = new FileOutputStream(tempFile)) {

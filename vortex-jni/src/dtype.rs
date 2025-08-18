@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use jni::JNIEnv;
-use jni::objects::{JClass, JObject, JValue};
+use jni::objects::{JClass, JLongArray, JObject, JObjectArray, JString, JValue};
 use jni::sys::{JNI_FALSE, JNI_TRUE, jboolean, jbyte, jint, jlong, jobject, jstring};
 use vortex::dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
-use vortex::dtype::{DType, PType};
+use vortex::dtype::{DType, DecimalDType, ExtDType, Nullability, PType, StructFields};
+use vortex::error::vortex_err;
 
 use crate::errors::{JNIError, try_or_throw};
 
@@ -320,4 +323,302 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getDecimalScale(
 
         Ok(decimal_dtype.scale())
     })
+}
+
+// Constructors
+//
+// NOTE: Java only supports signed types, as does Spark and Iceberg, so we don't bother with
+//  constructors for unsigned types.
+
+/// I8 constructor
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_newByte(
+    _env: JNIEnv,
+    _class: JClass,
+    is_nullable: jboolean,
+) -> jlong {
+    Box::into_raw(Box::new(DType::Primitive(
+        PType::I8,
+        to_nullability(is_nullable),
+    ))) as jlong
+}
+
+/// I16 constructor
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_newShort(
+    _env: JNIEnv,
+    _class: JClass,
+    is_nullable: jboolean,
+) -> jlong {
+    Box::into_raw(Box::new(DType::Primitive(
+        PType::I16,
+        to_nullability(is_nullable),
+    ))) as jlong
+}
+
+/// I32 constructor
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_newInt(
+    _env: JNIEnv,
+    _class: JClass,
+    is_nullable: jboolean,
+) -> jlong {
+    Box::into_raw(Box::new(DType::Primitive(
+        PType::I32,
+        to_nullability(is_nullable),
+    ))) as jlong
+}
+
+/// I32 constructor
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_newLong(
+    _env: JNIEnv,
+    _class: JClass,
+    is_nullable: jboolean,
+) -> jlong {
+    Box::into_raw(Box::new(DType::Primitive(
+        PType::I64,
+        to_nullability(is_nullable),
+    ))) as jlong
+}
+
+/// F32 constructor
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_newFloat(
+    _env: JNIEnv,
+    _class: JClass,
+    is_nullable: jboolean,
+) -> jlong {
+    Box::into_raw(Box::new(DType::Primitive(
+        PType::F32,
+        to_nullability(is_nullable),
+    ))) as jlong
+}
+
+/// F64 constructor
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_newDouble(
+    _env: JNIEnv,
+    _class: JClass,
+    is_nullable: jboolean,
+) -> jlong {
+    Box::into_raw(Box::new(DType::Primitive(
+        PType::F64,
+        to_nullability(is_nullable),
+    ))) as jlong
+}
+
+/// Decimal constructor
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_newDecimal(
+    mut env: JNIEnv,
+    _class: JClass,
+    precision: jint,
+    scale: jint,
+    is_nullable: jboolean,
+) -> jlong {
+    try_or_throw(&mut env, |_| {
+        let precision = u8::try_from(precision)
+            .map_err(|_| vortex_err!("precision {precision} out of bounds for Decimal"))?;
+        let scale = i8::try_from(scale)
+            .map_err(|_| vortex_err!("scale {scale} out of bounds for Decimal"))?;
+        let decimal_type = DecimalDType::try_new(precision, scale).map_err(|_| {
+            vortex_err!("Invalid (precision, scale) for Vortex Decimal ({precision}, {scale})")
+        })?;
+
+        Ok(Box::into_raw(Box::new(DType::Decimal(
+            decimal_type,
+            to_nullability(is_nullable),
+        ))) as jlong)
+    })
+}
+
+/// UTF-8 constructor
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_newUtf8(
+    _env: JNIEnv,
+    _class: JClass,
+    is_nullable: jboolean,
+) -> jlong {
+    Box::into_raw(Box::new(DType::Utf8(to_nullability(is_nullable)))) as jlong
+}
+
+/// Binary constructor
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_newBinary(
+    _env: JNIEnv,
+    _class: JClass,
+    is_nullable: jboolean,
+) -> jlong {
+    Box::into_raw(Box::new(DType::Binary(to_nullability(is_nullable)))) as jlong
+}
+
+/// Bool constructor
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_newBool(
+    _env: JNIEnv,
+    _class: JClass,
+    is_nullable: jboolean,
+) -> jlong {
+    Box::into_raw(Box::new(DType::Bool(to_nullability(is_nullable)))) as jlong
+}
+
+/// List constructor
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_newList(
+    _env: JNIEnv,
+    _class: JClass,
+    element_ptr: jlong,
+    is_nullable: jboolean,
+) -> jlong {
+    let element_dtype = unsafe { *Box::from_raw(element_ptr as *mut DType) };
+    let element_dtype = Arc::new(element_dtype);
+
+    let list_type = DType::List(element_dtype, to_nullability(is_nullable));
+
+    Box::into_raw(Box::new(list_type)) as jlong
+}
+
+/// Struct constructor
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_newStruct<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass,
+    field_names: JObjectArray<'local>,
+    field_types: JLongArray<'local>,
+    is_nullable: jboolean,
+) -> jlong {
+    try_or_throw(&mut env, |env| {
+        let field_count = env.get_array_length(&field_names)?;
+        let field_types_count = env.get_array_length(&field_types)?;
+
+        if field_count != field_types_count {
+            throw_runtime!("fieldNames.length ≠ fieldTypes.length")
+        }
+
+        let mut field_type_ptrs = vec![0; field_types_count as usize];
+        env.get_long_array_region(&field_types, 0, &mut field_type_ptrs[..])?;
+
+        let mut field_names_arc = Vec::with_capacity(field_count as usize);
+        let mut dtypes = Vec::with_capacity(field_count as usize);
+
+        for field_idx in 0..field_count {
+            let field_name = JString::from(env.get_object_array_element(&field_names, field_idx)?);
+            // SAFETY: in Java this is a String[] not an Object[], so the type is checked in Java
+            //  at compile time.
+            let field_name = unsafe { env.get_string_unchecked(&field_name)? };
+            let field_name_str = field_name
+                .to_str()
+                .map_err(|_| vortex_err!("Invalid UTF-8 in field name"))?;
+            field_names_arc.push(Arc::<str>::from(field_name_str));
+
+            let field_type = field_type_ptrs[field_idx as usize];
+
+            let dtype = *unsafe { Box::from_raw(field_type as *mut DType) };
+            dtypes.push(dtype);
+        }
+
+        let fields = StructFields::new(field_names_arc.into(), dtypes);
+
+        let struct_type = DType::Struct(fields, to_nullability(is_nullable));
+        Ok(Box::into_raw(Box::new(struct_type)) as jlong)
+    })
+}
+
+/// Timestamp constructor
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_newTimestamp<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass,
+    time_unit: jbyte,
+    zone: JString<'local>,
+    is_nullable: jboolean,
+) -> jlong {
+    try_or_throw(&mut env, |env| {
+        let time_unit = TimeUnit::try_from(time_unit as u8).map_err(JNIError::Vortex)?;
+
+        let tz = if zone.is_null() {
+            None
+        } else {
+            Some(
+                env.get_string(&zone)?
+                    .to_str()
+                    .map_err(|_| JNIError::Vortex(vortex_err!("Invalid UTF-8 in zone")))?
+                    .to_string(),
+            )
+        };
+
+        let metadata = TemporalMetadata::Timestamp(time_unit, tz);
+        let timestamp_type = DType::Extension(Arc::new(ExtDType::new(
+            TIMESTAMP_ID.clone(),
+            Arc::new(DType::Primitive(PType::I64, to_nullability(is_nullable))),
+            Some(metadata.into()),
+        )));
+
+        Ok(Box::into_raw(Box::new(timestamp_type)) as jlong)
+    })
+}
+
+/// Date constructor
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_newDate(
+    mut env: JNIEnv,
+    _class: JClass,
+    time_unit: jbyte,
+    is_nullable: jboolean,
+) -> jlong {
+    try_or_throw(&mut env, |_| {
+        let time_unit = TimeUnit::try_from(time_unit as u8).map_err(JNIError::Vortex)?;
+
+        let ptype = match time_unit {
+            TimeUnit::D => PType::I32,
+            TimeUnit::Ms => PType::I64,
+            unit => throw_runtime!("invalid time_unit for Date type {unit}"),
+        };
+
+        let metadata = TemporalMetadata::Date(time_unit);
+        let timestamp_type = DType::Extension(Arc::new(ExtDType::new(
+            DATE_ID.clone(),
+            Arc::new(DType::Primitive(ptype, to_nullability(is_nullable))),
+            Some(metadata.into()),
+        )));
+
+        Ok(Box::into_raw(Box::new(timestamp_type)) as jlong)
+    })
+}
+
+/// Time constructor
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_newTime(
+    mut env: JNIEnv,
+    _class: JClass,
+    time_unit: jbyte,
+    is_nullable: jboolean,
+) -> jlong {
+    try_or_throw(&mut env, |_| {
+        let time_unit = TimeUnit::try_from(time_unit as u8).map_err(JNIError::Vortex)?;
+
+        let ptype = match time_unit {
+            TimeUnit::S | TimeUnit::Ms => PType::I32,
+            TimeUnit::Us | TimeUnit::Ns => PType::I64,
+            unit => throw_runtime!("invalid time_unit for Time type {unit}"),
+        };
+
+        let metadata = TemporalMetadata::Time(time_unit);
+        let timestamp_type = DType::Extension(Arc::new(ExtDType::new(
+            TIME_ID.clone(),
+            Arc::new(DType::Primitive(ptype, to_nullability(is_nullable))),
+            Some(metadata.into()),
+        )));
+
+        Ok(Box::into_raw(Box::new(timestamp_type)) as jlong)
+    })
+}
+
+fn to_nullability(is_nullable: jboolean) -> Nullability {
+    if is_nullable == JNI_FALSE {
+        Nullability::NonNullable
+    } else {
+        Nullability::Nullable
+    }
 }

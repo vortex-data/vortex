@@ -108,6 +108,15 @@ impl Display for CastExpr {
 
 impl AnalysisExpr for CastExpr {}
 
+/// Creates an expression that casts values to a target data type.
+///
+/// Converts the input expression's values to the specified target type.
+///
+/// ```rust
+/// # use vortex_dtype::{DType, Nullability, PType};
+/// # use vortex_expr::{cast, root};
+/// let expr = cast(root(), DType::Primitive(PType::I64, Nullability::NonNullable));
+/// ```
 pub fn cast(child: ExprRef, target: DType) -> ExprRef {
     CastExpr::new(child, target).into_expr()
 }

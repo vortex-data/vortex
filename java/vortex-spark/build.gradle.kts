@@ -17,12 +17,20 @@ dependencies {
     annotationProcessor("org.immutables:value")
 
     implementation("com.google.guava:guava")
+    implementation("org.slf4j:slf4j-api:2.0.17")
 }
 
 testing {
     suites {
         val test by getting(JvmTestSuite::class) {
             useJUnitJupiter()
+
+            dependencies {
+                implementation("org.junit.jupiter:junit-jupiter:5.13.4")
+                implementation("org.apache.spark:spark-core_2.12")
+                implementation("org.apache.spark:spark-sql_2.12")
+                runtimeOnly("org.slf4j:slf4j-simple:2.0.17")
+            }
         }
     }
 }
@@ -76,6 +84,7 @@ tasks.withType<Test>().all {
         "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED",
         "--add-opens=java.base/java.nio=ALL-UNNAMED",
         "--add-opens=java.base/sun.util.calendar=ALL-UNNAMED",
+        "--add-opens=java.base/sun.security.action=ALL-UNNAMED",
     )
 }
 

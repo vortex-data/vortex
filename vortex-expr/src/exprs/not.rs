@@ -102,6 +102,14 @@ impl Display for NotExpr {
 
 impl AnalysisExpr for NotExpr {}
 
+/// Creates an expression that logically inverts boolean values.
+///
+/// Returns the logical negation of the input boolean expression.
+///
+/// ```rust
+/// # use vortex_expr::{not, root};
+/// let expr = not(root());
+/// ```
 pub fn not(operand: ExprRef) -> ExprRef {
     NotExpr::new(operand).into_expr()
 }

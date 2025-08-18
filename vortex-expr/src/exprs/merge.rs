@@ -171,6 +171,16 @@ impl MergeExpr {
     }
 }
 
+/// Creates an expression that merges struct expressions into a single struct.
+///
+/// Combines fields from all input expressions. If field names are duplicated,
+/// later expressions win. Fields are not recursively merged.
+///
+/// ```rust
+/// # use vortex_dtype::Nullability;
+/// # use vortex_expr::{merge, get_item, root};
+/// let expr = merge([get_item("a", root()), get_item("b", root())], Nullability::NonNullable);
+/// ```
 pub fn merge(
     elements: impl IntoIterator<Item = impl Into<ExprRef>>,
     nullability: Nullability,

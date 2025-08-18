@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::{Display, Formatter};
 use std::hash::Hash;
 use std::sync::Arc;
 
@@ -134,7 +135,7 @@ struct FieldDTypeDeVisitor;
 impl<'de> serde::de::Visitor<'de> for FieldDTypeDeVisitor {
     type Value = FieldDTypeInner;
 
-    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn expecting(&self, f: &mut Formatter) -> std::fmt::Result {
         write!(f, "variant identifier")
     }
 
@@ -190,11 +191,25 @@ impl<'de> serde::de::Visitor<'de> for FieldDTypeDeVisitor {
 pub struct StructFields(Arc<StructFieldsInner>);
 
 impl std::fmt::Debug for StructFields {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("StructFields")
             .field("names", &self.0.names)
             .field("dtypes", &self.0.dtypes)
             .finish()
+    }
+}
+
+impl Display for StructFields {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{{{}}}",
+            self.names()
+                .iter()
+                .zip(self.fields())
+                .map(|(n, dt)| format!("{n}={dt}"))
+                .join(", ")
+        )
     }
 }
 
@@ -500,5 +515,30 @@ mod test {
 
         let err = StructFields::disjoint_merge(&sf1, &sf1).err().unwrap();
         assert!(err.to_string().contains("duplicate names"),);
+    }
+
+    #[test]
+    fn test_display() {
+        let fields = StructFields::from_iter([
+            ("name", DType::Utf8(Nullability::NonNullable)),
+            ("age", DType::Primitive(PType::I32, Nullability::Nullable)),
+            ("active", DType::Bool(Nullability::NonNullable)),
+        ]);
+
+        assert_eq!(fields.to_string(), "{name=utf8, age=i32?, active=bool}");
+
+        // Test empty struct
+        let empty = StructFields::empty();
+        assert_eq!(empty.to_string(), "{}");
+
+        // Test nested struct
+        let nested = StructFields::from_iter([
+            ("id", DType::Primitive(PType::U64, Nullability::NonNullable)),
+            ("data", DType::Struct(fields, Nullability::Nullable)),
+        ]);
+        assert_eq!(
+            nested.to_string(),
+            "{id=u64, data={name=utf8, age=i32?, active=bool}?}"
+        );
     }
 }

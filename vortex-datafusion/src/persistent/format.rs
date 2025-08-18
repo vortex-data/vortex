@@ -5,26 +5,26 @@ use std::any::Any;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
+use arrow_schema::{Schema, SchemaRef};
 use async_trait::async_trait;
-use datafusion::arrow::datatypes::{Schema, SchemaRef};
-use datafusion::catalog::Session;
-use datafusion::common::parsers::CompressionTypeVariant;
-use datafusion::common::runtime::SpawnedTask;
-use datafusion::common::stats::Precision;
-use datafusion::common::{
+use datafusion_catalog::Session;
+use datafusion_common::parsers::CompressionTypeVariant;
+use datafusion_common::stats::Precision;
+use datafusion_common::{
     ColumnStatistics, DataFusionError, GetExt, Result as DFResult, Statistics,
     config_datafusion_err, not_impl_err,
 };
-use datafusion::datasource::file_format::file_compression_type::FileCompressionType;
-use datafusion::datasource::file_format::{FileFormat, FileFormatFactory};
-use datafusion::datasource::physical_plan::{
-    FileScanConfig, FileScanConfigBuilder, FileSinkConfig, FileSource,
-};
-use datafusion::datasource::sink::DataSinkExec;
-use datafusion::datasource::source::DataSourceExec;
-use datafusion::logical_expr::dml::InsertOp;
-use datafusion::physical_expr::LexRequirement;
-use datafusion::physical_plan::ExecutionPlan;
+use datafusion_common_runtime::SpawnedTask;
+use datafusion_datasource::file::FileSource;
+use datafusion_datasource::file_compression_type::FileCompressionType;
+use datafusion_datasource::file_format::{FileFormat, FileFormatFactory};
+use datafusion_datasource::file_scan_config::{FileScanConfig, FileScanConfigBuilder};
+use datafusion_datasource::file_sink_config::FileSinkConfig;
+use datafusion_datasource::sink::DataSinkExec;
+use datafusion_datasource::source::DataSourceExec;
+use datafusion_expr::dml::InsertOp;
+use datafusion_physical_expr::LexRequirement;
+use datafusion_physical_plan::ExecutionPlan;
 use futures::{FutureExt, StreamExt as _, TryStreamExt as _, stream};
 use itertools::Itertools;
 use object_store::{ObjectMeta, ObjectStore};
@@ -207,6 +207,7 @@ impl FileFormat for VortexFormat {
         let object = object.clone();
         let store = store.clone();
         let cache = self.file_cache.clone();
+
         SpawnedTask::spawn(async move {
             let vxf = cache.try_get(&object, store.clone()).await.map_err(|e| {
                 DataFusionError::Execution(format!(
@@ -328,15 +329,6 @@ impl FileFormat for VortexFormat {
         _state: &dyn Session,
         file_scan_config: FileScanConfig,
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
-        if file_scan_config
-            .file_groups
-            .iter()
-            .flat_map(|fg| fg.files())
-            .any(|f| f.range.is_some())
-        {
-            return not_impl_err!("File level partitioning isn't implemented yet for Vortex");
-        }
-
         if !file_scan_config.table_partition_cols.is_empty() {
             return not_impl_err!("Hive style partitioning isn't implemented yet for Vortex");
         }
@@ -346,9 +338,11 @@ impl FileFormat for VortexFormat {
         }
 
         let source = VortexSource::new(self.file_cache.clone(), self.session.metrics().clone());
+        let source = Arc::new(source);
+
         Ok(DataSourceExec::from_data_source(
             FileScanConfigBuilder::from(file_scan_config)
-                .with_source(Arc::new(source))
+                .with_source(source)
                 .build(),
         ))
     }

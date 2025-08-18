@@ -3,6 +3,8 @@
 
 package dev.vortex.api;
 
+import dev.vortex.jni.JNIDType;
+import dev.vortex.jni.NativeDTypeMethods;
 import java.util.List;
 import java.util.Optional;
 
@@ -81,7 +83,7 @@ public interface DType extends AutoCloseable {
      * Returns the timezone for timestamp data types.
      *
      * @return an {@link Optional} containing the timezone string if present,
-     *         or empty if no timezone is specified
+     * or empty if no timezone is specified
      */
     Optional<String> getTimeZone();
 
@@ -118,25 +120,203 @@ public interface DType extends AutoCloseable {
     void close();
 
     /**
+     * Create a new signed INT8 data type.
+     *
+     * @param isNullable True if the values can be null
+     * @return The new DType instance, allocated in native heap memory
+     */
+    static DType newByte(boolean isNullable) {
+        return new JNIDType(NativeDTypeMethods.newInt(isNullable), true);
+    }
+
+    /**
+     * Create a new signed INT16 data type.
+     *
+     * @param isNullable True if the values can be null
+     * @return The new DType instance, allocated in native heap memory
+     */
+    static DType newShort(boolean isNullable) {
+        return new JNIDType(NativeDTypeMethods.newShort(isNullable), true);
+    }
+
+    /**
+     * Create a new signed INT32 data type.
+     *
+     * @param isNullable True if the values can be null
+     * @return The new DType instance, allocated in native heap memory
+     */
+    static DType newInt(boolean isNullable) {
+        return new JNIDType(NativeDTypeMethods.newInt(isNullable), true);
+    }
+
+    /**
+     * Create a new signed INT64 data type.
+     *
+     * @param isNullable True if the values can be null
+     * @return The new DType instance, allocated in native heap memory
+     */
+    static DType newLong(boolean isNullable) {
+        return new JNIDType(NativeDTypeMethods.newLong(isNullable), true);
+    }
+
+    /**
+     * Create a new signed FLOAT32 data type.
+     *
+     * @param isNullable True if the values can be null
+     * @return The new DType instance, allocated in native heap memory
+     */
+    static DType newFloat(boolean isNullable) {
+        return new JNIDType(NativeDTypeMethods.newFloat(isNullable), true);
+    }
+
+    /**
+     * Create a new signed FLOAT64 data type.
+     *
+     * @param isNullable True if the values can be null
+     * @return The new DType instance, allocated in native heap memory
+     */
+    static DType newDouble(boolean isNullable) {
+        return new JNIDType(NativeDTypeMethods.newDouble(isNullable), true);
+    }
+
+    /**
+     * Create a new Decimal data type.
+     *
+     * @param precision  Decimal values precision
+     * @param scale      Decimal values scale
+     * @param isNullable True if the values can be null
+     * @return The new DType instance, allocated in native heap memory
+     */
+    static DType newDecimal(int precision, int scale, boolean isNullable) {
+        return new JNIDType(NativeDTypeMethods.newDecimal(precision, scale, isNullable), true);
+    }
+
+    /**
+     * Create a new UTF-8 string data type.
+     *
+     * @param isNullable True if the values can be null
+     * @return The new DType instance, allocated in native heap memory
+     */
+    static DType newUtf8(boolean isNullable) {
+        return new JNIDType(NativeDTypeMethods.newUtf8(isNullable), true);
+    }
+
+    /**
+     * Create a new Binary data type.
+     *
+     * @param isNullable True if the values can be null
+     * @return The new DType instance, allocated in native heap memory
+     */
+    static DType newBinary(boolean isNullable) {
+        return new JNIDType(NativeDTypeMethods.newBinary(isNullable), true);
+    }
+
+    /**
+     * Create a new Binary data type.
+     *
+     * @param isNullable True if the values can be null
+     * @return The new DType instance, allocated in native heap memory
+     */
+    static DType newBool(boolean isNullable) {
+        return new JNIDType(NativeDTypeMethods.newBool(isNullable), true);
+    }
+
+    /**
+     * Create a new List data type.
+     *
+     * @param element    DType of the list elements
+     * @param isNullable True if the values can be null
+     * @return The new DType instance, allocated in native heap memory
+     */
+    static DType newList(DType element, boolean isNullable) {
+        // Get the pointer
+        JNIDType jniType = (JNIDType) element;
+        return new JNIDType(NativeDTypeMethods.newList(jniType.getPointer(), isNullable), true);
+    }
+
+    /**
+     * Create a new Struct data type.
+     *
+     * @param fieldNames Name of each of the fields
+     * @param fieldTypes DType for each field
+     * @param isNullable True if the values can be null
+     * @return The new DType instance, allocated in native heap memory
+     */
+    static DType newStruct(String[] fieldNames, DType[] fieldTypes, boolean isNullable) {
+        long[] ptrs = new long[fieldTypes.length];
+        for (int i = 0; i < fieldTypes.length; i++) {
+            ptrs[i] = ((JNIDType) fieldTypes[i]).getPointer();
+        }
+        return new JNIDType(NativeDTypeMethods.newStruct(fieldNames, ptrs, isNullable), true);
+    }
+
+    /**
+     * Create a new Timestamp data type.
+     *
+     * @param unit       Time unit for the timestamp values
+     * @param timeZone   Optional time zone for the timestamp values
+     * @param isNullable True if the values can be null
+     * @return The new DType instance, allocated in native heap memory
+     */
+    static DType newTimestamp(TimeUnit unit, Optional<String> timeZone, boolean isNullable) {
+        byte timeUnit = unit.asByte();
+        return new JNIDType(NativeDTypeMethods.newTimestamp(timeUnit, timeZone.orElse(null), isNullable), true);
+    }
+
+    /**
+     * Create a new Date data type.
+     *
+     * @param unit       Time unit for the value
+     * @param isNullable True if the values can be null
+     * @return The new DType instance, allocated in native heap memory
+     */
+    static DType newDate(TimeUnit unit, boolean isNullable) {
+        byte timeUnit = unit.asByte();
+        return new JNIDType(NativeDTypeMethods.newDate(timeUnit, isNullable), true);
+    }
+
+    /**
+     * Create a new Time data type.
+     *
+     * @param unit       Time unit for the value
+     * @param isNullable True if the values can be null
+     * @return The new DType instance, allocated in native heap memory
+     */
+    static DType newTime(TimeUnit unit, boolean isNullable) {
+        byte timeUnit = unit.asByte();
+        return new JNIDType(NativeDTypeMethods.newTime(timeUnit, isNullable), true);
+    }
+
+    /**
      * Enumeration of time units supported by Vortex temporal data types.
      *
      * <p>Time units define the granularity of temporal values and are used
      * by date, time, and timestamp data types to specify their precision.
      */
     enum TimeUnit {
-        /** Nanosecond precision (10^-9 seconds) */
+        /**
+         * Nanosecond precision (10^-9 seconds)
+         */
         NANOSECONDS,
 
-        /** Microsecond precision (10^-6 seconds) */
+        /**
+         * Microsecond precision (10^-6 seconds)
+         */
         MICROSECONDS,
 
-        /** Millisecond precision (10^-3 seconds) */
+        /**
+         * Millisecond precision (10^-3 seconds)
+         */
         MILLISECONDS,
 
-        /** Second precision */
+        /**
+         * Second precision
+         */
         SECONDS,
 
-        /** Day precision (24-hour periods) */
+        /**
+         * Day precision (24-hour periods)
+         */
         DAYS,
         ;
 
@@ -163,6 +343,26 @@ public interface DType extends AutoCloseable {
                     throw new IllegalArgumentException("Unknown TimeUnit: " + unit);
             }
         }
+
+        /**
+         * Get the byte value of this TimeUnit.
+         */
+        public byte asByte() {
+            switch (this) {
+                case NANOSECONDS:
+                    return 0;
+                case MICROSECONDS:
+                    return 1;
+                case MILLISECONDS:
+                    return 2;
+                case SECONDS:
+                    return 3;
+                case DAYS:
+                    return 4;
+                default:
+                    throw new IllegalArgumentException("Unknown TimeUnit: " + this);
+            }
+        }
     }
 
     /**
@@ -173,61 +373,99 @@ public interface DType extends AutoCloseable {
      * categorize and identify the specific type of data stored in a Vortex array.
      */
     enum Variant {
-        /** Null type representing absence of value */
+        /**
+         * Null type representing absence of value
+         */
         NULL,
 
-        /** Boolean type for true/false values */
+        /**
+         * Boolean type for true/false values
+         */
         BOOL,
 
-        /** Unsigned 8-bit integer type */
+        /**
+         * Unsigned 8-bit integer type
+         */
         PRIMITIVE_U8,
 
-        /** Unsigned 16-bit integer type */
+        /**
+         * Unsigned 16-bit integer type
+         */
         PRIMITIVE_U16,
 
-        /** Unsigned 32-bit integer type */
+        /**
+         * Unsigned 32-bit integer type
+         */
         PRIMITIVE_U32,
 
-        /** Unsigned 64-bit integer type */
+        /**
+         * Unsigned 64-bit integer type
+         */
         PRIMITIVE_U64,
 
-        /** Signed 8-bit integer type */
+        /**
+         * Signed 8-bit integer type
+         */
         PRIMITIVE_I8,
 
-        /** Signed 16-bit integer type */
+        /**
+         * Signed 16-bit integer type
+         */
         PRIMITIVE_I16,
 
-        /** Signed 32-bit integer type */
+        /**
+         * Signed 32-bit integer type
+         */
         PRIMITIVE_I32,
 
-        /** Signed 64-bit integer type */
+        /**
+         * Signed 64-bit integer type
+         */
         PRIMITIVE_I64,
 
-        /** 16-bit floating point type */
+        /**
+         * 16-bit floating point type
+         */
         PRIMITIVE_F16,
 
-        /** 32-bit floating point type */
+        /**
+         * 32-bit floating point type
+         */
         PRIMITIVE_F32,
 
-        /** 64-bit floating point type */
+        /**
+         * 64-bit floating point type
+         */
         PRIMITIVE_F64,
 
-        /** UTF-8 encoded string type */
+        /**
+         * UTF-8 encoded string type
+         */
         UTF8,
 
-        /** Binary data type for arbitrary byte sequences */
+        /**
+         * Binary data type for arbitrary byte sequences
+         */
         BINARY,
 
-        /** Structured type containing named fields */
+        /**
+         * Structured type containing named fields
+         */
         STRUCT,
 
-        /** List type containing elements of a single type */
+        /**
+         * List type containing elements of a single type
+         */
         LIST,
 
-        /** Extension type for custom or domain-specific types */
+        /**
+         * Extension type for custom or domain-specific types
+         */
         EXTENSION,
 
-        /** Decimal type for precise numeric values */
+        /**
+         * Decimal type for precise numeric values
+         */
         DECIMAL,
         ;
 

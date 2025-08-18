@@ -29,7 +29,7 @@ pub trait AnalysisExpr {
     /// necessarily true: even if the falsification evaluates to false, `e` need not evaluate to
     /// true on all records.
     ///
-    /// The `StatsCatalog` can be used to constrain or rename stats used in the final expr.
+    /// The [`StatsCatalog`] can be used to constrain or rename stats used in the final expr.
     ///
     /// # Examples
     ///

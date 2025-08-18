@@ -5,16 +5,16 @@ use std::any::Any;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use arrow_schema::SchemaRef;
 use async_trait::async_trait;
-use datafusion::arrow::datatypes::SchemaRef;
-use datafusion::common::runtime::SpawnedTask;
-use datafusion::common::{DataFusionError, Result as DFResult};
-use datafusion::datasource::file_format::write::demux::DemuxedStreamReceiver;
-use datafusion::datasource::physical_plan::{FileSink, FileSinkConfig};
-use datafusion::datasource::sink::DataSink;
-use datafusion::execution::{SendableRecordBatchStream, TaskContext};
-use datafusion::physical_plan::metrics::MetricsSet;
-use datafusion::physical_plan::{DisplayAs, DisplayFormatType};
+use datafusion_common::{DataFusionError, Result as DFResult};
+use datafusion_common_runtime::SpawnedTask;
+use datafusion_datasource::file_sink_config::{FileSink, FileSinkConfig};
+use datafusion_datasource::sink::DataSink;
+use datafusion_datasource::write::demux::DemuxedStreamReceiver;
+use datafusion_execution::{SendableRecordBatchStream, TaskContext};
+use datafusion_physical_plan::metrics::MetricsSet;
+use datafusion_physical_plan::{DisplayAs, DisplayFormatType};
 use futures::StreamExt;
 use object_store::ObjectStore;
 use tokio_stream::wrappers::ReceiverStream;
@@ -132,7 +132,7 @@ mod tests {
     use datafusion::execution::SessionStateBuilder;
     use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, Values};
     use datafusion::prelude::SessionContext;
-    use datafusion::scalar::ScalarValue;
+    use datafusion_common::ScalarValue;
     use tempfile::TempDir;
 
     use crate::persistent::{VortexFormatFactory, register_vortex_format_factory};

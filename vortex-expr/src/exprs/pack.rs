@@ -181,6 +181,13 @@ impl PackExpr {
     }
 }
 
+/// Creates an expression that packs values into a struct with named fields.
+///
+/// ```rust
+/// # use vortex_dtype::Nullability;
+/// # use vortex_expr::{pack, col, lit};
+/// let expr = pack([("id", col("user_id")), ("constant", lit(42))], Nullability::NonNullable);
+/// ```
 pub fn pack(
     elements: impl IntoIterator<Item = (impl Into<FieldName>, ExprRef)>,
     nullability: Nullability,

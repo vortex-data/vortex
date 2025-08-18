@@ -5,7 +5,7 @@ use std::any::Any;
 
 // TODO(adam): Look into having a similar setup as dyn-hash that will allow deriving `PartialEq` for structs
 // that have `Arc<dyn Trait>` fields.
-/// Allows comparing dyn-compatible objects, like [`ExprRef`].
+/// Allows comparing dyn-compatible objects, like [`ExprRef`](crate::ExprRef).
 pub trait DynEq {
     fn dyn_eq(&self, other: &dyn Any) -> bool;
 }

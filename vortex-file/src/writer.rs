@@ -76,12 +76,14 @@ impl VortexWriteOptions {
         path: &object_store::path::Path,
         stream: S,
     ) -> VortexResult<()> {
+        use futures::future::FutureExt;
         use vortex_io::ObjectStoreWriter;
 
         self.write(
             ObjectStoreWriter::new(object_store.clone(), path).await?,
             stream,
         )
+        .boxed()
         .await?
         .shutdown()
         .await?;

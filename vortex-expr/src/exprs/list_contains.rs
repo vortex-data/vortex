@@ -105,6 +105,14 @@ impl ListContainsExpr {
     }
 }
 
+/// Creates an expression that checks if a value is contained in a list.
+///
+/// Returns a boolean array indicating whether the value appears in each list.
+///
+/// ```rust
+/// # use vortex_expr::{list_contains, lit, root};
+/// let expr = list_contains(root(), lit(42));
+/// ```
 pub fn list_contains(list: ExprRef, value: ExprRef) -> ExprRef {
     ListContainsExpr::new(list, value).into_expr()
 }

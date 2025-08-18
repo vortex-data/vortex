@@ -146,10 +146,25 @@ impl VTable for SelectVTable {
     }
 }
 
+/// Creates an expression that selects (includes) specific fields from an array.
+///
+/// Projects only the specified fields from the child expression, which must be of DType struct.
+/// ```rust
+/// # use vortex_expr::{select, root};
+/// let expr = select(["name", "age"], root());
+/// ```
 pub fn select(fields: impl Into<FieldNames>, child: ExprRef) -> ExprRef {
     SelectExpr::include_expr(fields.into(), child)
 }
 
+/// Creates an expression that excludes specific fields from an array.
+///
+/// Projects all fields except the specified ones from the input struct expression.
+///
+/// ```rust
+/// # use vortex_expr::{select_exclude, root};
+/// let expr = select_exclude(["internal_id", "metadata"], root());
+/// ```
 pub fn select_exclude(fields: impl Into<FieldNames>, child: ExprRef) -> ExprRef {
     SelectExpr::exclude_expr(fields.into(), child)
 }
@@ -184,7 +199,7 @@ impl SelectExpr {
     /// For example:
     /// ```rust
     /// # use vortex_expr::root;
-    /// # use vortex_expr::select::{SelectExpr, SelectField};
+    /// # use vortex_expr::{SelectExpr, SelectField};
     /// # use vortex_dtype::FieldNames;
     /// let field_names = FieldNames::from(["a", "b", "c"]);
     /// let include = SelectExpr::new(SelectField::Include(["a"].into()), root());

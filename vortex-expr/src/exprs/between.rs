@@ -177,6 +177,21 @@ impl Display for BetweenExpr {
 
 impl AnalysisExpr for BetweenExpr {}
 
+/// Creates an expression that checks if values are between two bounds.
+///
+/// Returns a boolean array indicating which values fall within the specified range.
+/// The comparison strictness is controlled by the options parameter.
+///
+/// ```rust
+/// # use vortex_array::compute::BetweenOptions;
+/// # use vortex_array::compute::StrictComparison;
+/// # use vortex_expr::{between, lit, root};
+/// let opts = BetweenOptions {
+///     lower_strict: StrictComparison::NonStrict,
+///     upper_strict: StrictComparison::NonStrict,
+/// };
+/// let expr = between(root(), lit(10), lit(20), opts);
+/// ```
 pub fn between(arr: ExprRef, lower: ExprRef, upper: ExprRef, options: BetweenOptions) -> ExprRef {
     BetweenExpr::new(arr, lower, upper, options).into_expr()
 }

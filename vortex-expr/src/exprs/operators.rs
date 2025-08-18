@@ -11,28 +11,38 @@ use vortex_vector::operators::compare::BinaryOperator;
 
 /// Equalities, inequalities, and boolean operations over possibly null values.
 ///
-/// For the equalities and inequalities, if either side is null, the result is null. The Boolean
-/// operators obey [Kleene (three-valued) logic](https://en.wikipedia.org/wiki/Three-valued_logic#Kleene_and_Priest_logics).
+/// For most operations, if either side is null, the result is null.
+///
+/// The Boolean operators (And, Or) obey [Kleene (three-valued) logic](https://en.wikipedia.org/wiki/Three-valued_logic#Kleene_and_Priest_logics).
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Operator {
-    // comparison
+    /// Expressions are equal.
     Eq,
+    /// Expressions are not equal.
     NotEq,
+    /// Expression is greater than another
     Gt,
+    /// Expression is greater or equal to another
     Gte,
+    /// Expression is less than another
     Lt,
+    /// Expression is less or equal to another
     Lte,
-    // boolean algebra
+    /// Boolean AND (∧).
     And,
+    /// Boolean OR (∨).
     Or,
-    // arithmetic
     /// The sum of the arguments.
+    ///
+    /// Errs at runtime if the sum would overflow or underflow.
+    Add,
+    /// The difference between the arguments.
     ///
     /// Errs at runtime if the sum would overflow or underflow.
     ///
     /// The result is null at any index that either input is null.
-    Add,
+    Sub,
 }
 
 impl From<Operator> for i32 {
@@ -54,6 +64,7 @@ impl From<Operator> for BinaryOp {
             Operator::And => BinaryOp::And,
             Operator::Or => BinaryOp::Or,
             Operator::Add => BinaryOp::Add,
+            Operator::Sub => BinaryOp::Sub,
         }
     }
 }
@@ -78,6 +89,7 @@ impl From<BinaryOp> for Operator {
             BinaryOp::And => Operator::And,
             BinaryOp::Or => Operator::Or,
             BinaryOp::Add => Operator::Add,
+            BinaryOp::Sub => Operator::Sub,
         }
     }
 }
@@ -93,7 +105,8 @@ impl Display for Operator {
             Operator::Lte => "<=",
             Operator::And => "and",
             Operator::Or => "or",
-            Operator::Add => "+w",
+            Operator::Add => "+",
+            Operator::Sub => "-",
         };
         Display::fmt(display, f)
     }
@@ -108,7 +121,7 @@ impl Operator {
             Operator::Gte => Some(Operator::Lt),
             Operator::Lt => Some(Operator::Gte),
             Operator::Lte => Some(Operator::Gt),
-            Operator::And | Operator::Or | Operator::Add => None,
+            Operator::And | Operator::Or | Operator::Add | Operator::Sub => None,
         }
     }
 
@@ -132,6 +145,7 @@ impl Operator {
             Operator::And => Operator::And,
             Operator::Or => Operator::Or,
             Operator::Add => Operator::Add,
+            Operator::Sub => Operator::Sub,
         }
     }
 

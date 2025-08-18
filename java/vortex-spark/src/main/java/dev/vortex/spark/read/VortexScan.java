@@ -4,6 +4,7 @@
 package dev.vortex.spark.read;
 
 import com.google.common.collect.ImmutableList;
+import java.util.Map;
 import org.apache.spark.sql.connector.catalog.CatalogV2Util;
 import org.apache.spark.sql.connector.catalog.Column;
 import org.apache.spark.sql.connector.read.Batch;
@@ -17,6 +18,7 @@ public final class VortexScan implements Scan {
 
     private final ImmutableList<String> paths;
     private final ImmutableList<Column> readColumns;
+    private final Map<String, String> formatOptions;
 
     /**
      * Creates a new VortexScan for the specified file paths and columns.
@@ -24,9 +26,11 @@ public final class VortexScan implements Scan {
      * @param paths the list of Vortex file paths to scan
      * @param readColumns the list of columns to read from the files
      */
-    public VortexScan(ImmutableList<String> paths, ImmutableList<Column> readColumns) {
+    public VortexScan(
+            ImmutableList<String> paths, ImmutableList<Column> readColumns, Map<String, String> formatOptions) {
         this.paths = paths;
         this.readColumns = readColumns;
+        this.formatOptions = formatOptions;
     }
 
     /**
@@ -60,7 +64,7 @@ public final class VortexScan implements Scan {
      */
     @Override
     public Batch toBatch() {
-        return new VortexBatchExec(paths, readColumns);
+        return new VortexBatchExec(paths, readColumns, formatOptions);
     }
 
     /**

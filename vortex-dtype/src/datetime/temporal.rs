@@ -143,22 +143,19 @@ impl_temporal_metadata_try_from!(&Box<ExtDType>);
 
 fn decode_date_metadata(ext_meta: &ExtMetadata) -> VortexResult<TemporalMetadata> {
     let tag = ext_meta.as_ref()[0];
-    let time_unit =
-        TimeUnit::try_from(tag).map_err(|e| vortex_err!(ComputeError: "invalid unit tag: {e}"))?;
+    let time_unit = TimeUnit::try_from(tag)?;
     Ok(TemporalMetadata::Date(time_unit))
 }
 
 fn decode_time_metadata(ext_meta: &ExtMetadata) -> VortexResult<TemporalMetadata> {
     let tag = ext_meta.as_ref()[0];
-    let time_unit =
-        TimeUnit::try_from(tag).map_err(|e| vortex_err!(ComputeError: "invalid unit tag: {e}"))?;
+    let time_unit = TimeUnit::try_from(tag)?;
     Ok(TemporalMetadata::Time(time_unit))
 }
 
 fn decode_timestamp_metadata(ext_meta: &ExtMetadata) -> VortexResult<TemporalMetadata> {
     let tag = ext_meta.as_ref()[0];
-    let time_unit =
-        TimeUnit::try_from(tag).map_err(|e| vortex_err!(ComputeError: "invalid unit tag: {e}"))?;
+    let time_unit = TimeUnit::try_from(tag)?;
     let tz_len_bytes = &ext_meta.as_ref()[1..3];
     let tz_len = u16::from_le_bytes(tz_len_bytes.try_into()?);
     if tz_len == 0 {
