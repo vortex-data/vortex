@@ -9,7 +9,7 @@ use vortex_array::{
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexResult, vortex_bail};
 
 use crate::{DateTimePartsArray, DateTimePartsEncoding, DateTimePartsVTable};
 
@@ -31,12 +31,9 @@ impl SerdeVTable<DateTimePartsVTable> for DateTimePartsVTable {
 
     fn metadata(array: &DateTimePartsArray) -> VortexResult<Option<Self::Metadata>> {
         Ok(Some(ProstMetadata(DateTimePartsMetadata {
-            days_ptype: PType::try_from(array.days().dtype()).vortex_expect("Must be a valid PType")
-                as i32,
-            seconds_ptype: PType::try_from(array.seconds().dtype())
-                .vortex_expect("Must be a valid PType") as i32,
-            subseconds_ptype: PType::try_from(array.subseconds().dtype())
-                .vortex_expect("Must be a valid PType") as i32,
+            days_ptype: PType::try_from(array.days().dtype())? as i32,
+            seconds_ptype: PType::try_from(array.seconds().dtype())? as i32,
+            subseconds_ptype: PType::try_from(array.subseconds().dtype())? as i32,
         })))
     }
 

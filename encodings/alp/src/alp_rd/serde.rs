@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use itertools::Itertools;
 use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
-use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, Canonical, DeserializeMetadata, ProstMetadata,
-};
+use vortex_array::{Array, ArrayBufferVisitor, ArrayChildVisitor, Canonical, ProstMetadata};
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 use super::{ALPRDEncoding, RDEncoder};
 use crate::{ALPRDArray, ALPRDVTable};
@@ -55,7 +54,7 @@ impl SerdeVTable<ALPRDVTable> for ALPRDVTable {
         _encoding: &ALPRDEncoding,
         dtype: &DType,
         len: usize,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        metadata: &ALPRDMetadata,
         _buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ALPRDArray> {
@@ -68,11 +67,14 @@ impl SerdeVTable<ALPRDVTable> for ALPRDVTable {
 
         let left_parts_dtype = DType::Primitive(metadata.left_parts_ptype(), dtype.nullability());
         let left_parts = children.get(0, &left_parts_dtype, len)?;
-        let left_parts_dictionary = Buffer::from_iter(
-            metadata.dict.as_slice()[0..metadata.dict_len as usize]
-                .iter()
-                .map(|&i| u16::try_from(i).vortex_expect("Dictionary index out of range")),
-        );
+        let left_parts_dictionary: Buffer<u16> = metadata.dict.as_slice()
+            [0..metadata.dict_len as usize]
+            .iter()
+            .map(|&i| {
+                u16::try_from(i)
+                    .map_err(|_| vortex_err!("left_parts_dictionary code {i} does not fit in u16"))
+            })
+            .try_collect()?;
 
         let right_parts_dtype = match &dtype {
             DType::Primitive(PType::F32, _) => {
@@ -99,7 +101,12 @@ impl SerdeVTable<ALPRDVTable> for ALPRDVTable {
             left_parts,
             left_parts_dictionary,
             right_parts,
-            u8::try_from(metadata.right_bit_width).vortex_expect("Bit width out of range"),
+            u8::try_from(metadata.right_bit_width).map_err(|_| {
+                vortex_err!(
+                    "right_bit_width {} out of u8 range",
+                    metadata.right_bit_width
+                )
+            })?,
             left_parts_patches,
         )
     }

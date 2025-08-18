@@ -56,6 +56,7 @@ pub struct ALPRDArray {
 pub struct ALPRDEncoding;
 
 impl ALPRDArray {
+    /// Build a new `ALPRDArray` from components.
     pub fn try_new(
         dtype: DType,
         left_parts: ArrayRef,
@@ -114,6 +115,8 @@ impl ALPRDArray {
         ))
     }
 
+    /// Build a new `ALPRDArray` from components. This does not perform any validation, and instead
+    /// it constructs it from parts.
     pub(crate) fn new_unchecked(
         dtype: DType,
         left_parts: ArrayRef,

@@ -36,9 +36,12 @@ impl CompareKernel for DictVTable {
                     compare_result.dtype().nullability() | lhs.dtype().nullability();
                 dict_equal_to(compare_result, lhs.codes(), result_nullability).map(Some)
             } else {
-                DictArray::try_new(lhs.codes().clone(), compare_result)
-                    .map(|a| a.into_array())
-                    .map(Some)
+                // SAFETY: values len preserved, codes all still point to valid values
+                unsafe {
+                    Ok(Some(
+                        DictArray::new_unchecked(lhs.codes().clone(), compare_result).into_array(),
+                    ))
+                }
             };
         }
 
@@ -117,7 +120,9 @@ fn dict_equal_to(
             &DType::Bool(result_nullability),
         )?,
         // more than one value matches
-        _ => DictArray::try_new(codes.clone(), bool_result.into_array())?.into_array(),
+        _ => unsafe {
+            DictArray::new_unchecked(codes.clone(), bool_result.into_array()).into_array()
+        },
     })
 }
 

@@ -94,7 +94,7 @@ impl ToDuckDBScalar for DecimalScalar<'_> {
     fn try_to_duckdb_scalar(&self) -> VortexResult<Value> {
         let decimal_type = self
             .dtype()
-            .as_decimal()
+            .as_decimal_opt()
             .ok_or_else(|| vortex_err!("decimal scalar without decimal dtype"))?;
 
         let Some(decimal_value) = self.decimal_value() else {

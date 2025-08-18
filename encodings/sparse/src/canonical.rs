@@ -443,7 +443,10 @@ fn canonicalize_varbin_inner<I: NativePType>(
         views[patch_index_usize] = patch;
     }
 
-    let array = VarBinViewArray::try_new(views.freeze(), Arc::from(buffers), dtype, validity)?;
+    // SAFETY: views are constructed to maintain the invariants
+    let array = unsafe {
+        VarBinViewArray::new_unchecked(views.freeze(), Arc::from(buffers), dtype, validity)
+    };
 
     Ok(Canonical::VarBinView(array))
 }

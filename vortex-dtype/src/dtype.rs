@@ -402,7 +402,7 @@ impl DType {
     }
 
     /// Check returns the inner decimal type if the dtype is a decimal
-    pub fn as_decimal(&self) -> Option<&DecimalDType> {
+    pub fn as_decimal_opt(&self) -> Option<&DecimalDType> {
         match self {
             Decimal(decimal, _) => Some(decimal),
             _ => None,
@@ -410,7 +410,7 @@ impl DType {
     }
 
     /// Get the `StructDType` if `self` is a `StructDType`, otherwise `None`
-    pub fn as_struct(&self) -> Option<&StructFields> {
+    pub fn as_struct_opt(&self) -> Option<&StructFields> {
         match self {
             Struct(s, _) => Some(s),
             _ => None,
@@ -418,7 +418,7 @@ impl DType {
     }
 
     /// Get the inner dtype if `self` is a `ListDType`, otherwise `None`
-    pub fn as_list_element(&self) -> Option<&Arc<DType>> {
+    pub fn as_list_element_opt(&self) -> Option<&Arc<DType>> {
         match self {
             List(s, _) => Some(s),
             _ => None,

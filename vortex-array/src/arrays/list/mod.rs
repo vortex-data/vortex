@@ -6,16 +6,17 @@ mod serde;
 
 use std::sync::Arc;
 
+#[cfg(feature = "test-harness")]
 use itertools::Itertools;
-use num_traits::{AsPrimitive, PrimInt};
-use vortex_dtype::{DType, NativePType, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use num_traits::{AsPrimitive, NumCast, PrimInt};
+use vortex_dtype::{DType, NativePType, match_each_integer_ptype, match_each_native_ptype};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure};
 use vortex_scalar::Scalar;
 
 use crate::arrays::PrimitiveVTable;
 #[cfg(feature = "test-harness")]
 use crate::builders::{ArrayBuilder, ListBuilder};
-use crate::compute::sub_scalar;
+use crate::compute::{min_max, sub_scalar};
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::vtable::{
@@ -124,6 +125,73 @@ impl<T> OffsetPType for T where T: NativePType + PrimInt + AsPrimitive<usize> + 
 // - The size of the validity is the size-1 of the offset array
 
 impl ListArray {
+    fn validate(
+        elements: &dyn Array,
+        offsets: &dyn Array,
+        validity: &Validity,
+    ) -> VortexResult<()> {
+        // Offsets must be of integer type, and cannot go lower than 0.
+        vortex_ensure!(
+            offsets.dtype().is_int() && !offsets.dtype().is_nullable(),
+            "offsets have invalid type {}",
+            offsets.dtype()
+        );
+
+        // We can safely unwrap the DType as primitive now
+        let offsets_ptype = offsets.dtype().as_ptype();
+
+        // Offsets must be sorted (but not strictly sorted, zero-length lists are allowed)
+        if let Some(is_sorted) = offsets.statistics().compute_is_sorted() {
+            vortex_ensure!(is_sorted, "offsets must be sorted");
+        } else {
+            vortex_bail!("offsets must report is_sorted statistic");
+        }
+
+        // Validate that offsets min is non-negative, and max does not exceed the length of
+        // the elements array.
+        if let Some(min_max) = min_max(offsets)? {
+            match_each_integer_ptype!(offsets_ptype, |P| {
+                let max_offset = <P as NumCast>::from(elements.len()).unwrap_or(P::MAX);
+
+                #[allow(clippy::absurd_extreme_comparisons, unused_comparisons)]
+                {
+                    if let Some(min) = min_max.min.as_primitive().as_::<P>() {
+                        vortex_ensure!(
+                            min >= 0 && min <= max_offset,
+                            "offsets minimum {min} outside valid range [0, {max_offset}]"
+                        );
+                    }
+
+                    if let Some(max) = min_max.max.as_primitive().as_::<P>() {
+                        vortex_ensure!(
+                            max >= 0 && max <= max_offset,
+                            "offsets maximum {max} outside valid range [0, {max_offset}]"
+                        )
+                    }
+                }
+            })
+        } else {
+            // TODO(aduffy): fallback to slower validation pathway?
+            vortex_bail!(
+                "offsets array with encoding {} must support min_max compute function",
+                offsets.encoding_id()
+            );
+        };
+
+        // If a validity array is present, it must be the same length as the ListArray
+        if let Some(validity_len) = validity.maybe_len() {
+            vortex_ensure!(
+                validity_len == offsets.len() - 1,
+                "validity with size {validity_len} does not match array size {}",
+                offsets.len() - 1
+            );
+        }
+
+        Ok(())
+    }
+}
+
+impl ListArray {
     pub fn new(elements: ArrayRef, offsets: ArrayRef, validity: Validity) -> Self {
         Self::try_new(elements, offsets, validity).vortex_expect("ListArray new")
     }
@@ -145,6 +213,8 @@ impl ListArray {
         if offsets.is_empty() {
             vortex_bail!("Offsets must have at least one element, [0] for an empty list");
         }
+
+        Self::validate(&elements, &offsets, &validity)?;
 
         Ok(Self {
             dtype: DType::List(Arc::new(elements.dtype().clone()), nullability),

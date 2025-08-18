@@ -94,7 +94,7 @@ impl VTable for StructVTable {
         _ctx: ArrayContext,
     ) -> VortexResult<Self::Layout> {
         let struct_dt = dtype
-            .as_struct()
+            .as_struct_opt()
             .ok_or_else(|| vortex_err!("Expected struct dtype"))?;
         if children.nchildren() != struct_dt.nfields() {
             vortex_bail!(

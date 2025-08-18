@@ -3,8 +3,9 @@
 
 use arrow_array::BooleanArray;
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, MutableBuffer};
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_error::{VortexResult, vortex_ensure};
 
 use crate::Canonical;
 use crate::arrays::{BoolVTable, bool};
@@ -51,7 +52,87 @@ pub struct BoolArray {
 }
 
 impl BoolArray {
-    /// Create a new [`BoolArray`] from a set of indices, a length and a [`Validity`].
+    fn validate(
+        buffer: &ByteBuffer,
+        offset: usize,
+        len: usize,
+        validity: &Validity,
+    ) -> VortexResult<()> {
+        vortex_ensure!(
+            offset < 8,
+            "offset must be less than whole byte, was {offset} bits"
+        );
+
+        // Validate the buffer is large enough to hold all the bits
+        let required_bytes = offset.saturating_add(len).div_ceil(8);
+        vortex_ensure!(
+            buffer.len() >= required_bytes,
+            "BoolArray with offset={offset} len={len} cannot be built from buffer of size {}",
+            buffer.len()
+        );
+
+        // Validate validity
+        if let Some(validity_len) = validity.maybe_len() {
+            vortex_ensure!(
+                validity_len == len,
+                "BoolArray of size {len} cannot be built with validity of size {validity_len}"
+            );
+        }
+
+        Ok(())
+    }
+}
+
+impl BoolArray {
+    /// Construct a new `BoolArray` from its components:
+    ///
+    /// * `buffer` is a raw ByteBuffer holding the packed bits
+    /// * `offset` is the number of bits in the start of the buffer that should be skipped when
+    ///   looking up the i-th value.
+    /// * `len` is the length of the array, which should correspond to the number of bits
+    /// * `validity` holds the null values.
+    ///
+    /// # Validation
+    ///
+    /// Buffer must be at least large enough to hold `len` bits starting at `offset`.
+    ///
+    /// A provided validity array must be of size `len`.
+    ///
+    /// The offset must be less than a whole byte.
+    pub fn try_new(
+        buffer: ByteBuffer,
+        offset: usize,
+        len: usize,
+        validity: Validity,
+    ) -> VortexResult<Self> {
+        Self::validate(&buffer, offset, len, &validity)?;
+
+        Ok(Self::new(
+            BooleanBuffer::new(buffer.into_arrow_buffer(), offset, len),
+            validity,
+        ))
+    }
+
+    /// Creates a new [`BoolArray`] from a [`BooleanBuffer`] and [`Validity`] directly.
+    ///
+    /// Panics if the validity length differs from the buffer length.
+    pub fn new(buffer: BooleanBuffer, validity: Validity) -> Self {
+        if let Some(validity_len) = validity.maybe_len() {
+            assert_eq!(buffer.len(), validity_len);
+        }
+
+        // Shrink the buffer to remove any whole bytes.
+        let buffer = buffer.shrink_offset();
+        Self {
+            dtype: DType::Bool(validity.nullability()),
+            buffer,
+            validity,
+            stats_set: ArrayStats::default(),
+        }
+    }
+
+    /// Create a new BoolArray from a set of indices and a length.
+    ///
     /// All indices must be less than the length.
     pub fn from_indices<I: IntoIterator<Item = usize>>(
         length: usize,
@@ -67,29 +148,6 @@ impl BoolArray {
             BooleanBufferBuilder::new_from_buffer(buffer, length).finish(),
             validity,
         )
-    }
-
-    /// Creates a new [`BoolArray`] from a [`BooleanBuffer`] and [`Validity`], without checking
-    /// any invariants.
-    pub fn new(buffer: BooleanBuffer, validity: Validity) -> Self {
-        if let Some(len) = validity.maybe_len()
-            && buffer.len() != len
-        {
-            vortex_panic!(
-                "Buffer and validity length mismatch: buffer={}, validity={}",
-                buffer.len(),
-                len
-            );
-        }
-
-        // Shrink the buffer to remove any whole bytes.
-        let buffer = buffer.shrink_offset();
-        Self {
-            dtype: DType::Bool(validity.nullability()),
-            buffer,
-            validity,
-            stats_set: ArrayStats::default(),
-        }
     }
 
     /// Returns the underlying [`BooleanBuffer`] of the array.

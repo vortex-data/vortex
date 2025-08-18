@@ -155,7 +155,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_primitive_ptype(dtype: *const vx_dtype)
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_decimal_precision(dtype: *const vx_dtype) -> u8 {
     vx_dtype::as_ref(dtype)
-        .as_decimal()
+        .as_decimal_opt()
         .vortex_expect("not a decimal dtype")
         .precision()
 }
@@ -164,7 +164,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_decimal_precision(dtype: *const vx_dtyp
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_decimal_scale(dtype: *const vx_dtype) -> i8 {
     vx_dtype::as_ref(dtype)
-        .as_decimal()
+        .as_decimal_opt()
         .vortex_expect("not a decimal dtype")
         .scale()
 }
@@ -175,7 +175,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_struct_dtype(
     dtype: *const vx_dtype,
 ) -> *const vx_struct_fields {
     let struct_dtype = vx_dtype::as_ref(dtype)
-        .as_struct()
+        .as_struct_opt()
         .vortex_expect("not a struct dtype");
     vx_struct_fields::new_ref(struct_dtype)
 }
@@ -184,7 +184,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_struct_dtype(
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_list_element(dtype: *const vx_dtype) -> *const vx_dtype {
     let element_dtype = vx_dtype::as_ref(dtype)
-        .as_list_element()
+        .as_list_element_opt()
         .vortex_expect("not a list dtype");
     vx_dtype::new_ref(element_dtype)
 }

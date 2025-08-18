@@ -29,7 +29,7 @@ fn merge_transform(node: ExprRef, ctx: &DType) -> VortexResult<Transformed<ExprR
                 }
                 all_nullable = all_nullable && child_dtype.is_nullable();
 
-                let child_dtype = child_dtype.as_struct().vortex_expect("expected struct");
+                let child_dtype = child_dtype.as_struct_opt().vortex_expect("expected struct");
 
                 for name in child_dtype.names().iter() {
                     if let Some(idx) = names.iter().position(|n| n == name) {

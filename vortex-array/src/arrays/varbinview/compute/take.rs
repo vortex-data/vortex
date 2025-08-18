@@ -18,7 +18,7 @@ impl TakeKernel for VarBinViewVTable {
     fn take(&self, array: &VarBinViewArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         // Compute the new validity
 
-        // This is valid since all elements (of all arrays) even null values are inside must be the
+        // This is valid since all elements (of all arrays) even null values must be inside
         // min-max valid range.
         let validity = array.validity().take(indices)?;
         let indices = indices.to_primitive()?;
@@ -28,15 +28,18 @@ impl TakeKernel for VarBinViewVTable {
             take_views(array.views(), indices.as_slice::<I>())
         });
 
-        Ok(VarBinViewArray::try_new(
-            views_buffer,
-            array.buffers().clone(),
-            array
-                .dtype()
-                .union_nullability(indices.dtype().nullability()),
-            validity,
-        )?
-        .into_array())
+        // SAFETY: taking all components at same indices maintains invariants
+        unsafe {
+            Ok(VarBinViewArray::new_unchecked(
+                views_buffer,
+                array.buffers().clone(),
+                array
+                    .dtype()
+                    .union_nullability(indices.dtype().nullability()),
+                validity,
+            )
+            .into_array())
+        }
     }
 }
 

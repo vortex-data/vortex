@@ -68,7 +68,7 @@ fn decompress<T: NativePType + PrimInt>(bencher: Bencher, (length, run_step): (u
         .collect::<Buffer<_>>()
         .into_array();
 
-    let run_end_array = RunEndArray::try_new(ends, values).unwrap();
+    let run_end_array = RunEndArray::new(ends, values);
 
     bencher
         .with_inputs(|| run_end_array.to_array())

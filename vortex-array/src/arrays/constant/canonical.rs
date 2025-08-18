@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use arrow_buffer::BooleanBuffer;
-use vortex_buffer::{Buffer, BufferMut, buffer};
+use vortex_buffer::{Buffer, buffer};
 use vortex_dtype::{DType, Nullability, PType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::{
@@ -148,12 +148,15 @@ fn canonical_byte_view(
         None => {
             let views = buffer![BinaryView::from(0_u128); len];
 
-            VarBinViewArray::try_new(
-                views,
-                Default::default(),
-                dtype.clone(),
-                Validity::AllInvalid,
-            )
+            // SAFETY: for all-null the views and buffers are just zeroed, never accessed.
+            unsafe {
+                Ok(VarBinViewArray::new_unchecked(
+                    views,
+                    Default::default(),
+                    dtype.clone(),
+                    Validity::AllInvalid,
+                ))
+            }
         }
         Some(scalar_bytes) => {
             // Create a view to hold the scalar bytes.
@@ -165,19 +168,17 @@ fn canonical_byte_view(
             }
 
             // Clone our constant view `len` times.
-            // TODO(aduffy): switch this out for a ConstantArray once we
-            //   add u128 PType, see https://github.com/vortex-data/vortex/issues/1110
-            let mut views = BufferMut::with_capacity_aligned(len, align_of::<u128>().into());
-            for _ in 0..len {
-                views.push(view);
-            }
+            let views = buffer![view; len];
 
-            VarBinViewArray::try_new(
-                views.freeze(),
-                Arc::from(buffers),
-                dtype.clone(),
-                Validity::from(dtype.nullability()),
-            )
+            // SAFETY: all the views are identical and point to a constant value.
+            unsafe {
+                Ok(VarBinViewArray::new_unchecked(
+                    views,
+                    Arc::from(buffers),
+                    dtype.clone(),
+                    Validity::from(dtype.nullability()),
+                ))
+            }
         }
     }
 }

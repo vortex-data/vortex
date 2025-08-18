@@ -128,7 +128,7 @@ impl VTable for SelectVTable {
     fn return_dtype(expr: &Self::Expr, scope: &DType) -> VortexResult<DType> {
         let child_dtype = expr.child.return_dtype(scope)?;
         let child_struct_dtype = child_dtype
-            .as_struct()
+            .as_struct_opt()
             .ok_or_else(|| vortex_err!("Select child not a struct dtype"))?;
 
         let projected = match &expr.fields {
@@ -333,7 +333,11 @@ mod tests {
 
         let select_expr = select(vec![FieldName::from("a")], root());
         let expected_dtype = DType::Struct(
-            dtype.as_struct().unwrap().project(&["a".into()]).unwrap(),
+            dtype
+                .as_struct_opt()
+                .unwrap()
+                .project(&["a".into()])
+                .unwrap(),
             Nullability::NonNullable,
         );
         assert_eq!(select_expr.return_dtype(&dtype).unwrap(), expected_dtype);
@@ -360,7 +364,7 @@ mod tests {
             select_expr_exclude.return_dtype(&dtype).unwrap(),
             DType::Struct(
                 dtype
-                    .as_struct()
+                    .as_struct_opt()
                     .unwrap()
                     .project(&["a".into(), "bool1".into(), "bool2".into()])
                     .unwrap(),

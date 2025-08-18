@@ -18,15 +18,19 @@ impl CastKernel for VarBinViewVTable {
         let new_nullability = dtype.nullability();
         let new_validity = array.validity().clone().cast_nullability(new_nullability)?;
         let new_dtype = array.dtype().with_nullability(new_nullability);
-        Ok(Some(
-            VarBinViewArray::try_new(
-                array.views().clone(),
-                array.buffers().clone(),
-                new_dtype,
-                new_validity,
-            )?
-            .into_array(),
-        ))
+
+        // SAFETY: casting just changes the DType, does not affect invariants on views/buffers.
+        unsafe {
+            Ok(Some(
+                VarBinViewArray::new_unchecked(
+                    array.views().clone(),
+                    array.buffers().clone(),
+                    new_dtype,
+                    new_validity,
+                )
+                .into_array(),
+            ))
+        }
     }
 }
 

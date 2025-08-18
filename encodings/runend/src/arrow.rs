@@ -10,7 +10,6 @@ use vortex_array::validity::Validity;
 use vortex_array::{ArrayRef, IntoArray};
 use vortex_buffer::Buffer;
 use vortex_dtype::NativePType;
-use vortex_error::VortexUnwrap;
 use vortex_scalar::PValue;
 
 use crate::RunEndArray;
@@ -47,7 +46,8 @@ where
             )
         };
 
-        RunEndArray::try_new_offset_length(ends_slice, values_slice, offset, len).vortex_unwrap()
+        // SAFETY: arrow-rs enforces the RunEndArray invariants, we inherit their guarantees
+        unsafe { RunEndArray::new_unchecked(ends_slice, values_slice, offset, len) }
     }
 }
 

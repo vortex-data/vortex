@@ -114,8 +114,8 @@ impl VarBinViewBuilder {
         );
     }
 
-    pub fn completed_block_count(&self) -> usize {
-        self.completed.len() as usize
+    pub fn completed_block_count(&self) -> u32 {
+        self.completed.len()
     }
 
     // Pushes an array of values into the buffer, where the buffers are sections of a
@@ -161,13 +161,15 @@ impl VarBinViewBuilder {
             .null_buffer_builder
             .finish_with_nullability(self.nullability);
 
-        VarBinViewArray::try_new(
-            std::mem::take(&mut self.views_builder).freeze(),
-            buffers.finish(),
-            std::mem::replace(&mut self.dtype, DType::Null),
-            validity,
-        )
-        .vortex_expect("VarBinViewArray components should be valid.")
+        // SAFETY: the builder methods check safety at each step.
+        unsafe {
+            VarBinViewArray::new_unchecked(
+                std::mem::take(&mut self.views_builder).freeze(),
+                buffers.finish(),
+                std::mem::replace(&mut self.dtype, DType::Null),
+                validity,
+            )
+        }
     }
 }
 

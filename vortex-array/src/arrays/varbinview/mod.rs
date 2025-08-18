@@ -6,9 +6,11 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use static_assertions::{assert_eq_align, assert_eq_size};
-use vortex_buffer::{Alignment, Buffer, ByteBuffer};
+use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_panic};
+use vortex_error::{
+    VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_ensure, vortex_err, vortex_panic,
+};
 
 use crate::builders::{ArrayBuilder, VarBinViewBuilder};
 use crate::stats::{ArrayStats, StatsSetRef};
@@ -373,6 +375,116 @@ pub struct VarBinViewArray {
 pub struct VarBinViewEncoding;
 
 impl VarBinViewArray {
+    fn validate(
+        views: &Buffer<BinaryView>,
+        buffers: &Arc<[ByteBuffer]>,
+        dtype: &DType,
+        validity: &Validity,
+    ) -> VortexResult<()> {
+        vortex_ensure!(
+            validity.nullability() == dtype.nullability(),
+            "validity {:?} incompatible with nullability {:?}",
+            validity,
+            dtype.nullability()
+        );
+
+        match dtype {
+            DType::Utf8(_) => Self::validate_views(views, buffers, validity, |string| {
+                std::str::from_utf8(string).is_ok()
+            })?,
+            DType::Binary(_) => Self::validate_views(views, buffers, validity, |_| true)?,
+            _ => vortex_bail!("invalid DType {dtype}"),
+        }
+
+        Ok(())
+    }
+
+    fn validate_views<F>(
+        views: &Buffer<BinaryView>,
+        buffers: &Arc<[ByteBuffer]>,
+        validity: &Validity,
+        validator: F,
+    ) -> VortexResult<()>
+    where
+        F: Fn(&[u8]) -> bool,
+    {
+        for (idx, &view) in views.iter().enumerate() {
+            if validity.is_null(idx)? {
+                continue;
+            }
+
+            if view.is_inlined() {
+                // Validate the inline bytestring
+                let bytes = &unsafe { view.inlined }.data[..view.len() as usize];
+                vortex_ensure!(
+                    validator(bytes),
+                    "view at index {idx}: inlined bytes failed utf-8 validation"
+                );
+            } else {
+                // Validate the view pointer
+                let view = view.as_view();
+                let buf_index = view.buffer_index as usize;
+                let start_offset = view.offset as usize;
+                let end_offset = start_offset.saturating_add(view.size as usize);
+
+                let buf = buffers.get(buf_index).ok_or_else(||
+                    vortex_err!("view at index {idx} references invalid buffer: {buf_index} out of bounds for VarBinViewArray with {} buffers",
+                        buffers.len()))?;
+
+                vortex_ensure!(
+                    start_offset < buf.len(),
+                    "start offset {start_offset} out of bounds for buffer {buf_index} with size {}",
+                    buf.len(),
+                );
+
+                vortex_ensure!(
+                    end_offset <= buf.len(),
+                    "end offset {end_offset} out of bounds for buffer {buf_index} with size {}",
+                    buf.len(),
+                );
+
+                // Make sure the prefix data matches the buffer data.
+                let bytes = &buf[start_offset..end_offset];
+                vortex_ensure!(
+                    view.prefix == bytes[..4],
+                    "VarBinView prefix does not match full string"
+                );
+
+                // Validate the full string
+                vortex_ensure!(
+                    validator(bytes),
+                    "view at index {idx}: outlined bytes fails utf-8 validation"
+                );
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl VarBinViewArray {
+    /// Build a new `VarBinViewArray` from components with validation.
+    ///
+    /// # Safety
+    /// This should only be used when you know for certain that all components are already
+    /// validated, for example during array operations that preserve the invariants of the encoding.
+    ///
+    /// See [`VarBinViewArray::try_new`] for a safe constructor that does validation.
+    pub unsafe fn new_unchecked(
+        views: Buffer<BinaryView>,
+        buffers: Arc<[ByteBuffer]>,
+        dtype: DType,
+        validity: Validity,
+    ) -> Self {
+        Self {
+            dtype,
+            buffers,
+            views,
+            validity,
+            stats_set: Default::default(),
+        }
+    }
+
     pub fn new(
         views: Buffer<BinaryView>,
         buffers: Arc<[ByteBuffer]>,
@@ -388,17 +500,7 @@ impl VarBinViewArray {
         dtype: DType,
         validity: Validity,
     ) -> VortexResult<Self> {
-        if views.alignment() != Alignment::of::<BinaryView>() {
-            vortex_bail!("Views must be aligned to a 128 bits");
-        }
-
-        if !matches!(dtype, DType::Binary(_) | DType::Utf8(_)) {
-            vortex_bail!(MismatchedTypes: "utf8 or binary", dtype);
-        }
-
-        if dtype.is_nullable() == (validity == Validity::NonNullable) {
-            vortex_bail!("incorrect validity {:?}", validity);
-        }
+        Self::validate(&views, &buffers, &dtype, &validity)?;
 
         Ok(Self {
             dtype,
@@ -426,7 +528,7 @@ impl VarBinViewArray {
 
     /// Access value bytes at a given index
     ///
-    /// Will return a bytebuffer pointing to the underlying data without performing a copy
+    /// Will return a `ByteBuffer` containing the data without performing a copy.
     #[inline]
     pub fn bytes_at(&self, index: usize) -> ByteBuffer {
         let views = self.views();

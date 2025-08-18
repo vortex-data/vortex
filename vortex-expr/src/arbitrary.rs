@@ -10,7 +10,7 @@ use vortex_scalar::arbitrary::random_scalar;
 use crate::{BinaryExpr, ExprRef, Operator, and_collect, col, lit, pack};
 
 pub fn projection_expr(u: &mut Unstructured<'_>, dtype: &DType) -> AResult<Option<ExprRef>> {
-    let Some(struct_dtype) = dtype.as_struct() else {
+    let Some(struct_dtype) = dtype.as_struct_opt() else {
         return Ok(None);
     };
 
@@ -27,7 +27,7 @@ pub fn projection_expr(u: &mut Unstructured<'_>, dtype: &DType) -> AResult<Optio
 }
 
 pub fn filter_expr(u: &mut Unstructured<'_>, dtype: &DType) -> AResult<Option<ExprRef>> {
-    let Some(struct_dtype) = dtype.as_struct() else {
+    let Some(struct_dtype) = dtype.as_struct_opt() else {
         return Ok(None);
     };
 

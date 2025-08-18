@@ -22,10 +22,12 @@ impl CastKernel for DictVTable {
             array.codes().clone()
         };
 
-        // Create a new dictionary array with the same codes but casted values
-        Ok(Some(
-            DictArray::try_new(casted_codes, casted_values)?.into_array(),
-        ))
+        // SAFETY: casting does not alter invariants of the codes
+        unsafe {
+            Ok(Some(
+                DictArray::new_unchecked(casted_codes, casted_values).into_array(),
+            ))
+        }
     }
 }
 

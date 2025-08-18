@@ -82,7 +82,7 @@ fn extract_schema_from_vortex_file(
 
     // For now, we assume the top-level type to be a struct.
     let struct_dtype = dtype
-        .as_struct()
+        .as_struct_opt()
         .ok_or_else(|| vortex_err!("Vortex file must contain a struct array at the top level"))?;
 
     let mut column_names = Vec::new();

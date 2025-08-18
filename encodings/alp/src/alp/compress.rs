@@ -43,7 +43,12 @@ pub fn alp_encode(parray: &PrimitiveArray, exponents: Option<Exponents>) -> Vort
         _ => vortex_bail!("ALP can only encode f32 and f64"),
     };
 
-    Ok(ALPArray::new(encoded, exponents, patches))
+    Ok(ALPArray::new_unchecked(
+        encoded,
+        exponents,
+        patches,
+        parray.dtype().clone(),
+    ))
 }
 
 #[allow(clippy::cast_possible_truncation)]
@@ -65,7 +70,7 @@ where
 
     let validity = values.validity_mask()?;
     // exceptional_positions may contain exceptions at invalid positions (which contain garbage
-    // data). We remove invalid exceptional positions in order to keep the Patches small.
+    // data). We remove null exceptions in order to keep the Patches small.
     let (valid_exceptional_positions, valid_exceptional_values): (Buffer<u64>, Buffer<T>) =
         match validity {
             Mask::AllTrue(_) => (exceptional_positions, exceptional_values),

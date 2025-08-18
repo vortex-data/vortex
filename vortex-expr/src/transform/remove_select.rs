@@ -20,7 +20,7 @@ fn remove_select_transformer(node: ExprRef, ctx: &DType) -> VortexResult<Transfo
             let child_dtype = child.return_dtype(ctx)?;
             let child_nullability = child_dtype.nullability();
 
-            let child_dtype = child_dtype.as_struct().ok_or_else(|| {
+            let child_dtype = child_dtype.as_struct_opt().ok_or_else(|| {
                 vortex_err!(
                     "Select child must return a struct dtype, however it was a {}",
                     child_dtype

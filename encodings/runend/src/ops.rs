@@ -21,13 +21,16 @@ impl OperationsVTable<RunEndVTable> for RunEndVTable {
             return ConstantArray::new(value, new_length).into_array();
         }
 
-        RunEndArray::new_unchecked(
-            array.ends().slice(slice_begin, slice_end),
-            array.values().slice(slice_begin, slice_end),
-            start + array.offset(),
-            new_length,
-        )
-        .into_array()
+        // SAFETY: we maintain the ends invariant in our slice implementation
+        unsafe {
+            RunEndArray::new_unchecked(
+                array.ends().slice(slice_begin, slice_end),
+                array.values().slice(slice_begin, slice_end),
+                start + array.offset(),
+                new_length,
+            )
+            .into_array()
+        }
     }
 
     fn scalar_at(array: &RunEndArray, index: usize) -> Scalar {

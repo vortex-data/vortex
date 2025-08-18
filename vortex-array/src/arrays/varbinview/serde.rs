@@ -33,9 +33,9 @@ impl SerdeVTable<VarBinViewVTable> for VarBinViewVTable {
             vortex_bail!("Expected at least 1 buffer, got {}", buffers.len());
         }
         let mut buffers: Vec<ByteBuffer> = buffers.to_vec();
+        let views = buffers.pop().vortex_expect("buffers non-empty");
 
-        let views =
-            Buffer::<BinaryView>::from_byte_buffer(buffers.pop().vortex_expect("checked above"));
+        let views = Buffer::<BinaryView>::from_byte_buffer(views);
 
         if views.len() != len {
             vortex_bail!("Expected {} views, got {}", len, views.len());
