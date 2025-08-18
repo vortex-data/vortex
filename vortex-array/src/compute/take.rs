@@ -8,7 +8,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
-use crate::arrays::ConstantArray;
+use crate::arrays::{ConstantArray, ConstantVTable};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output};
 use crate::stats::{Precision, Stat, StatsSet};
 use crate::vtable::VTable;
@@ -71,21 +71,26 @@ impl ComputeFnVTable for Take {
             .into());
         }
 
+        let taken_array = take_impl(array, indices, kernels)?;
+
         // We know that constant array don't need stats propagation, so we can avoid the overhead of
         // computing derived stats and merging them in.
-        let derived_stats = (!array.is_constant()).then(|| derive_take_stats(array));
+        if !taken_array.is::<ConstantVTable>() {
+            let derived_stats = derive_take_stats(array);
 
-        let taken = take_impl(array, indices, kernels)?;
-
-        if let Some(derived_stats) = derived_stats {
-            let mut stats = taken.statistics().to_owned();
+            // TODO(robert): Ideally, we want to have a `combine_sets` method available on a
+            // `StatsSetRef` so we don't have to incur a clone here in `.to_owned()`.
+            let mut stats = taken_array.statistics().to_owned();
             stats.combine_sets(&derived_stats, array.dtype())?;
-            for (stat, val) in stats.into_iter() {
-                taken.statistics().set(stat, val)
+
+            for (stat, val) in stats {
+                // Alternatively, use a monadic reducer here to set `stat = val`, or if it already
+                // exists, combine the two stats (similar to how `combine_sets` does it).
+                taken_array.statistics().set(stat, val)
             }
         }
 
-        Ok(taken.into())
+        Ok(taken_array.into())
     }
 
     fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {
