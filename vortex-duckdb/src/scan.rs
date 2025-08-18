@@ -2,9 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::cmp::max;
+use std::fmt;
+use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use itertools::Itertools;
 use num_traits::AsPrimitive;
 use tokio::task::block_in_place;
 use url::Url;
@@ -49,8 +52,8 @@ impl Clone for VortexBindData {
     }
 }
 
-impl std::fmt::Debug for VortexBindData {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Debug for VortexBindData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("VortexBindData")
             .field("file_urls", &self.file_urls)
             .field("column_names", &self.column_names)
@@ -400,5 +403,26 @@ impl TableFunction for VortexTableFunction {
         _local_init_data
             .batch_id
             .ok_or_else(|| vortex_err!("batch id missing, no batches exported"))
+    }
+
+    fn to_string(bind_data: &Self::BindData) -> Option<Vec<(String, String)>> {
+        let mut result = Vec::new();
+
+        // Add function name
+        result.push(("Function".to_string(), "Vortex Scan".to_string()));
+
+        // Add file information
+        if !bind_data.file_urls.is_empty() {
+            result.push(("Files".to_string(), bind_data.file_urls.len().to_string()));
+        }
+
+        // Add filter information
+        if !bind_data.filter_exprs.is_empty() {
+            let mut filters = bind_data.filter_exprs.iter().map(|f| format!("{}", f));
+            result.push(("Filters".to_string(), filters.join(" /\\\n")));
+        }
+        // NOTE: Projection is already printed by the planner.
+
+        Some(result)
     }
 }
