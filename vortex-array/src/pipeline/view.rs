@@ -249,7 +249,6 @@ impl<'a> ViewMut<'a> {
                         // SAFETY: We assume that the elements are of type E and that the view is valid.
                         let value = *slice.get_unchecked(idx);
                         // TODO(joe): use ptr increment (not offset).
-                        println!("iter_ones {idx}, value {value}");
                         *slice.get_unchecked_mut(offset) = value;
 
                         offset += 1;

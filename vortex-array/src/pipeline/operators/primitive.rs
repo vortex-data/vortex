@@ -211,7 +211,6 @@ mod tests {
         // Note: element 0 is a valid selected value, so we need to count differently
         let non_zero_count = output.iter().filter(|&&x| x != 0).count();
 
-        println!("output: {output:?}");
         // Verify that element 0 was selected (first bit in mask is 1)
         assert_eq!(output[0], 0, "First element should be 0 since bit 0 is set");
 

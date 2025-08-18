@@ -183,10 +183,6 @@ mod tests {
         let residuals = for_array.encoded().to_primitive()?;
         let bitpacked = bitpack_to_best_bit_width(&residuals)?;
 
-        println!(
-            "bitpacked: {}",
-            DisplayArrayAs(bitpacked.as_ref(), DisplayOptions::default())
-        );
 
         // Create a new FoR array with bitpacked residuals
         FoRArray::try_new(bitpacked.into_array(), for_array.reference_scalar().clone())
@@ -209,27 +205,7 @@ mod tests {
         .unwrap()
         .into_array();
 
-        println!("mask: {:?}", mask.to_boolean_buffer().iter().collect_vec());
-
-        println!(
-            "result: {}",
-            DisplayArrayAs(
-                res.as_ref(),
-                DisplayOptions::CommaSeparatedScalars {
-                    omit_comma_after_space: false
-                }
-            )
-        );
         let expect = filter(array.as_ref(), &mask).unwrap();
-        println!(
-            "expect: {}",
-            DisplayArrayAs(
-                expect.as_ref(),
-                DisplayOptions::CommaSeparatedScalars {
-                    omit_comma_after_space: false
-                }
-            )
-        );
 
         for i in 0..mask.true_count() {
             assert_eq!(
@@ -266,30 +242,6 @@ mod tests {
 
             let expect = filter(array.to_canonical().unwrap().as_ref(), &mask).unwrap();
 
-            println!(
-                "mask: {:?}, tc {}",
-                mask.to_boolean_buffer().set_indices().collect::<Vec<_>>(),
-                mask.true_count()
-            );
-
-            println!(
-                "\nresult: {}",
-                DisplayArrayAs(
-                    result.as_ref(),
-                    DisplayOptions::CommaSeparatedScalars {
-                        omit_comma_after_space: false
-                    }
-                )
-            );
-            println!(
-                "\nexpect: {}",
-                DisplayArrayAs(
-                    &expect,
-                    DisplayOptions::CommaSeparatedScalars {
-                        omit_comma_after_space: false
-                    }
-                )
-            );
 
             for i in 0..mask.true_count() {
                 assert_eq!(
@@ -315,7 +267,6 @@ mod tests {
         let mut m = vec![true; N];
         m[2] = false;
         let mask = Mask::from_iter(m);
-        println!("mask: {}", mask.true_count());
 
         let expect = expr
             .evaluate(&Scope::new(filter(&array, &mask).unwrap()))
@@ -323,7 +274,7 @@ mod tests {
 
         let mut converter = ExprOperatorConverter::new(array.clone());
         let operator = expr.fold(&mut converter).unwrap().value();
-        let operator = reduce_operator(operator).unwrap();
+        let operator = reduce_operator(operator.unwrap()).unwrap();
 
         let result = export_canonical_pipeline_expr(
             &DType::Bool(NonNullable),
@@ -334,16 +285,6 @@ mod tests {
         .unwrap()
         .into_array();
 
-        println!(
-            "result[..{}]: {}",
-            result.len(),
-            DisplayArrayAs(result.as_ref(), DisplayOptions::default()),
-        );
-        println!(
-            "expect[..{}]: {}",
-            expect.len(),
-            DisplayArrayAs(expect.as_ref(), DisplayOptions::default())
-        );
 
         for i in 0..mask.true_count() {
             assert_eq!(

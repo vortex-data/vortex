@@ -84,19 +84,15 @@ fn export_primitive_nonnull<T: Element + NativePType>(
     }
 
     if remaining > 0 {
-        println!("remaining: {}", remaining);
         let mut elements_view = ViewMut::new(
             &mut elements[len - remaining..][..PIPELINE_STEP_COUNT],
             None,
         );
         let mask = BitVector::true_until(remaining);
-        println!("mask: {:?}", mask);
         pipeline.step_now(&(), mask.as_view(), &mut elements_view)?;
     }
 
-    println!("elements: {:?}", elements);
     unsafe { elements.set_len(len) };
-    println!("elements: {:?}", elements);
 
     Ok(PrimitiveArray::new(
         elements.freeze(),
@@ -135,9 +131,7 @@ fn export_primitive_nonnull_masked<T: Element + NativePType>(
         remaining = remaining.saturating_sub(PIPELINE_STEP_COUNT);
     }
 
-    println!("elements: {:?}", elements);
     unsafe { elements.set_len(offset) };
-    println!("elements: {:?}", elements);
 
     Ok(PrimitiveArray::new(
         elements.freeze(),

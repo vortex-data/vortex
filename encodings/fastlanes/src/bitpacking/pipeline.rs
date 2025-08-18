@@ -128,9 +128,7 @@ where
             self.packed_offset += nvecs * self.packed_stride;
 
             // Set the selection to the given mask, which is a bit array of length N.
-            println!("out: {:?}", elements);
             physical_out.select_mask::<<T as PhysicalPType>::Physical>(&selected);
-            println!("out: {:?}", elements);
         } else {
             let mut offset = 0;
             selected.iter_ones(|idx| {
@@ -230,27 +228,7 @@ mod tests {
         .unwrap()
         .into_array();
 
-        println!("mask: {:?}", mask.to_boolean_buffer().iter().collect_vec());
-
-        println!(
-            "result: {}",
-            DisplayArrayAs(
-                res.as_ref(),
-                DisplayOptions::CommaSeparatedScalars {
-                    omit_comma_after_space: false
-                }
-            )
-        );
         let expect = filter(array.as_ref(), &mask).unwrap();
-        println!(
-            "expect: {}",
-            DisplayArrayAs(
-                expect.as_ref(),
-                DisplayOptions::CommaSeparatedScalars {
-                    omit_comma_after_space: false
-                }
-            )
-        );
 
         for i in 0..mask.true_count() {
             assert_eq!(
