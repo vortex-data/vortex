@@ -264,16 +264,7 @@ OperatorPartitionData c_get_partition_data(ClientContext &context, TableFunction
 
 InsertionOrderPreservingMap<string> c_to_string(TableFunctionToStringInput &input) {
     InsertionOrderPreservingMap<string> result;
-    
-    if (!input.bind_data) {
-        result["Function"] = "Vortex Scan";
-        return result;
-    }
-    
     auto &bind = input.bind_data->Cast<CTableBindData>();
-    
-    // Default values
-    result["Function"] = "Vortex Scan";
     
     // Call the Rust side to get custom string representation if available
     if (bind.info->vtab.to_string) {

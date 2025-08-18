@@ -411,9 +411,6 @@ impl TableFunction for VortexTableFunction {
         // Add file information
         if !bind_data.file_urls.is_empty() {
             result.push(("Files".to_string(), bind_data.file_urls.len().to_string()));
-            if bind_data.file_urls.len() == 1 {
-                result.push(("File".to_string(), bind_data.file_urls[0].to_string()));
-            }
         }
 
         // Add filter information
