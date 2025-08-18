@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::cmp::max;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -385,7 +386,9 @@ impl TableFunction for VortexTableFunction {
         } else {
             // This is the same behavior as DuckDB's Parquet extension, although we could
             // test multiplying the row count by the number of files.
-            Cardinality::Estimate(bind_data.first_file.row_count())
+            Cardinality::Estimate(
+                max(bind_data.first_file.row_count(), 1) * bind_data.file_urls.len() as u64,
+            )
         }
     }
 

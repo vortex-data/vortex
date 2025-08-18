@@ -27,6 +27,8 @@ pub(crate) unsafe extern "C-unwind" fn cardinality_callback<T: TableFunction>(
         Cardinality::Maximum(c) => {
             node_stats.has_max_cardinality = true;
             node_stats.max_cardinality = c as _;
+            node_stats.has_estimated_cardinality = true;
+            node_stats.estimated_cardinality = c as _;
         }
     }
 }
