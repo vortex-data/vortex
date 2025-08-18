@@ -19,7 +19,7 @@ use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
 use vortex_expr::{ExprRef, Scope, VortexExprExt, is_root};
 use vortex_mask::Mask;
-use vortex_vector::PIPELINE_STEP_COUNT;
+use vortex_vector::SC;
 
 use crate::layouts::SharedArrayFuture;
 use crate::layouts::flat::FlatLayout;
@@ -175,7 +175,7 @@ impl MaskEvaluation for FlatEvaluation {
 
         if array.to_operator()?.is_some()
             && let Some(operator) = self.expr.to_operator(array.as_ref())? {
-                let result = if self.row_range.start % PIPELINE_STEP_COUNT != 0 {
+                let result = if self.row_range.start % SC != 0 {
                     // If the start is not a multiple of PIPELINE_STEP_COUNT, then we need to slice
                     // we could do mask offsets instead, but this case is rare, due to split building.
                     let array = array.slice(self.row_range.start, self.row_range.end)?;
@@ -196,7 +196,7 @@ impl MaskEvaluation for FlatEvaluation {
                     );
                     export_canonical_pipeline_expr_offset(
                         &DType::Bool(NonNullable),
-                        self.row_range.start / PIPELINE_STEP_COUNT,
+                        self.row_range.start / SC,
                         self.row_range.end - self.row_range.start,
                         operator.as_ref(),
                         &mask,
@@ -262,7 +262,7 @@ impl ArrayEvaluation for FlatEvaluation {
             DType::Bool(NonNullable) | DType::Primitive(_, NonNullable)
         ) && array.to_operator()?.is_some()
             && let Some(operator) = self.expr.to_operator(array.as_ref())? {
-                let result = if self.row_range.start % PIPELINE_STEP_COUNT != 0 {
+                let result = if self.row_range.start % SC != 0 {
                     // If the start is not a multiple of PIPELINE_STEP_COUNT, then we need to slice
                     // we could do mask offsets instead, but this case is rare, due to split building.
                     let array = array.slice(self.row_range.start, self.row_range.end)?;
@@ -284,7 +284,7 @@ impl ArrayEvaluation for FlatEvaluation {
                     );
                     export_canonical_pipeline_expr_offset(
                         &rt,
-                        self.row_range.start / PIPELINE_STEP_COUNT,
+                        self.row_range.start / SC,
                         self.row_range.end - self.row_range.start,
                         operator.as_ref(),
                         &mask,

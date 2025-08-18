@@ -15,7 +15,7 @@ use vortex_vector::buffers::BufferHandle;
 use vortex_vector::operators::{BindContext, Operator};
 use vortex_vector::types::{Element, VType};
 use vortex_vector::view::ViewMut;
-use vortex_vector::{Kernel, KernelContext, PIPELINE_STEP_COUNT};
+use vortex_vector::{Kernel, KernelContext, SC};
 
 use crate::{BitPackedArray, BitPackedVTable};
 
@@ -91,7 +91,7 @@ where
     <T as PhysicalPType>::Physical: Element,
 {
     fn seek(&mut self, chunk_idx: usize) -> VortexResult<()> {
-        let fls_chunk_idx = chunk_idx * (PIPELINE_STEP_COUNT / 1024);
+        let fls_chunk_idx = chunk_idx * (SC / 1024);
         self.packed_offset = fls_chunk_idx * self.packed_stride;
         Ok(())
     }
@@ -111,7 +111,7 @@ where
         let packed = &buffer.as_slice()[self.packed_offset..];
 
         // We compute the number of FastLanes vectors that we have remaining.
-        let nvecs = (PIPELINE_STEP_COUNT / 1024).min(packed.len() / self.packed_stride);
+        let nvecs = (SC / 1024).min(packed.len() / self.packed_stride);
 
         // We short-circuit full unpacking logic if the mask is sufficiently sparse.
         if selected.true_count() > 8 {
@@ -155,12 +155,10 @@ where
 #[cfg(test)]
 mod tests {
     use arrow_buffer::BooleanBuffer;
-    
     use rand::prelude::StdRng;
     use rand::{Rng, SeedableRng};
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::filter;
-    
     use vortex_array::pipeline::canonical::export_canonical_pipeline_expr;
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::BufferMut;

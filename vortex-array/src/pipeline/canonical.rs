@@ -11,7 +11,7 @@ use vortex_vector::query::Pipeline;
 use vortex_vector::types::Element;
 use vortex_vector::vector::Vector;
 use vortex_vector::view::ViewMut;
-use vortex_vector::{Kernel, KernelExt, PIPELINE_STEP_COUNT};
+use vortex_vector::{Kernel, KernelExt, SC};
 
 use crate::Canonical;
 use crate::arrays::{BoolArray, PrimitiveArray};
@@ -68,26 +68,20 @@ fn export_primitive_nonnull<T: Element + NativePType>(
     len: usize,
     pipeline: &mut dyn Kernel,
 ) -> VortexResult<PrimitiveArray> {
-    let capacity = len.next_multiple_of(PIPELINE_STEP_COUNT) + PIPELINE_STEP_COUNT;
+    let capacity = len.next_multiple_of(SC) + SC;
 
     let mut elements = BufferMut::<T>::with_capacity(capacity);
     unsafe { elements.set_len(capacity) };
 
     let mut remaining = len;
-    while remaining >= PIPELINE_STEP_COUNT {
-        let mut elements_view = ViewMut::new(
-            &mut elements[len - remaining..][..PIPELINE_STEP_COUNT],
-            None,
-        );
+    while remaining >= SC {
+        let mut elements_view = ViewMut::new(&mut elements[len - remaining..][..SC], None);
         pipeline.step_now(&(), BitView::all_true(), &mut elements_view)?;
-        remaining -= PIPELINE_STEP_COUNT;
+        remaining -= SC;
     }
 
     if remaining > 0 {
-        let mut elements_view = ViewMut::new(
-            &mut elements[len - remaining..][..PIPELINE_STEP_COUNT],
-            None,
-        );
+        let mut elements_view = ViewMut::new(&mut elements[len - remaining..][..SC], None);
         let mask = BitVector::true_until(remaining);
         pipeline.step_now(&(), mask.as_view(), &mut elements_view)?;
     }
@@ -105,7 +99,7 @@ fn export_primitive_nonnull_masked<T: Element + NativePType>(
     pipeline: &mut dyn Kernel,
 ) -> VortexResult<PrimitiveArray> {
     let len = mask.len();
-    let capacity = mask.true_count().next_multiple_of(PIPELINE_STEP_COUNT) + PIPELINE_STEP_COUNT;
+    let capacity = mask.true_count().next_multiple_of(SC) + SC;
 
     let mut elements = BufferMut::<T>::with_capacity(capacity);
     unsafe { elements.set_len(capacity) };
@@ -114,13 +108,13 @@ fn export_primitive_nonnull_masked<T: Element + NativePType>(
     let bit_chunks = mask_buffer.bit_chunks();
     let mut bit_chunks_iter = bit_chunks.iter_padded();
 
-    let mut mask = [0u64; PIPELINE_STEP_COUNT / 64];
+    let mut mask = [0u64; SC / 64];
     let mut mask_view = BitViewMut::new(&mut mask);
 
     let mut offset = 0;
     let mut remaining = len;
     while remaining > 0 {
-        let mut elements_view = ViewMut::new(&mut elements[offset..][..PIPELINE_STEP_COUNT], None);
+        let mut elements_view = ViewMut::new(&mut elements[offset..][..SC], None);
 
         mask_view.clear();
         mask_view.fill_with_words(&mut bit_chunks_iter);
@@ -128,7 +122,7 @@ fn export_primitive_nonnull_masked<T: Element + NativePType>(
         pipeline.step_now(&(), mask_view.as_view(), &mut elements_view)?;
         offset += mask_view.true_count();
 
-        remaining = remaining.saturating_sub(PIPELINE_STEP_COUNT);
+        remaining = remaining.saturating_sub(SC);
     }
 
     unsafe { elements.set_len(offset) };
@@ -150,7 +144,7 @@ fn export_bool_nonnull_masked(mask: &Mask, pipeline: &mut dyn Kernel) -> VortexR
     let bit_chunks = mask_buffer.bit_chunks();
     let mut bit_chunks_iter = bit_chunks.iter_padded();
 
-    let mut mask = [0u64; PIPELINE_STEP_COUNT / 64];
+    let mut mask = [0u64; SC / 64];
     let mut mask_view = BitViewMut::new(&mut mask);
 
     // Fast path: collect all bools first, then use collect_bool for optimal packing
@@ -162,8 +156,8 @@ fn export_bool_nonnull_masked(mask: &Mask, pipeline: &mut dyn Kernel) -> VortexR
         mask_view.fill_with_words(&mut bit_chunks_iter);
 
         // Handle partial iteration on the last chunk
-        let current_len = remaining.min(PIPELINE_STEP_COUNT);
-        if current_len < PIPELINE_STEP_COUNT {
+        let current_len = remaining.min(SC);
+        if current_len < SC {
             mask_view.intersect_prefix(current_len);
         }
 
@@ -184,7 +178,7 @@ fn export_bool_nonnull_masked(mask: &Mask, pipeline: &mut dyn Kernel) -> VortexR
             );
         }
 
-        remaining = remaining.saturating_sub(PIPELINE_STEP_COUNT);
+        remaining = remaining.saturating_sub(SC);
     }
 
     // Use collect_bool for optimal bit packing - avoid closure overhead

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::PIPELINE_STEP_COUNT;
+use crate::SC;
 use crate::bits::BitVector;
 
 /// Defines a selection of elements from a view or vector.
@@ -18,8 +18,6 @@ pub enum Selection {
 /// By default, select all `N` elements in the vector.
 impl Default for Selection {
     fn default() -> Self {
-        Selection::Prefix {
-            len: PIPELINE_STEP_COUNT,
-        }
+        Selection::Prefix { len: SC }
     }
 }

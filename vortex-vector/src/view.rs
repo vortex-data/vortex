@@ -6,7 +6,7 @@ use std::fmt::Display;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 
-use crate::PIPELINE_STEP_COUNT;
+use crate::SC;
 use crate::bits::{BitView, BitViewMut};
 use crate::types::{Element, VType};
 
@@ -47,7 +47,7 @@ impl<'a> View<'a> {
     {
         debug_assert_eq!(self.vtype, T::vtype(), "Invalid type for canonical view");
         // SAFETY: We assume that the elements are of type T and that the view is valid.
-        unsafe { std::slice::from_raw_parts(self.elements.cast(), PIPELINE_STEP_COUNT) }
+        unsafe { std::slice::from_raw_parts(self.elements.cast(), SC) }
     }
 
     /// Re-interpret cast the vector into a new type where the element has the same width.
@@ -102,7 +102,7 @@ impl<'a> View<'a> {
 /// possible to return a dictionary encoded thing, e.g. to DuckDB, we would have some sort of
 /// Vortex Array -> DuckDB function that would check for top-level dictionaries and handle the
 /// conversion at that layer.
-
+///
 /// ## Can we re-use parts of the pipeline to avoid common-subexpression elimination?
 ///
 /// This gets tricky... Suppose we start with a Vortex expression. We can then pass that naively
@@ -136,7 +136,7 @@ pub struct ViewMut<'a> {
 
 impl<'a> ViewMut<'a> {
     pub fn new<E: Element>(elements: &'a mut [E], validity: Option<BitViewMut<'a>>) -> Self {
-        assert_eq!(elements.len(), PIPELINE_STEP_COUNT);
+        assert_eq!(elements.len(), SC);
         Self {
             vtype: E::vtype(),
             elements: elements.as_mut_ptr().cast(),
@@ -169,7 +169,7 @@ impl<'a> ViewMut<'a> {
     #[inline(always)]
     pub fn as_slice<E: Element>(&self) -> &'a [E] {
         debug_assert_eq!(self.vtype, E::vtype(), "Invalid type for canonical view");
-        unsafe { std::slice::from_raw_parts(self.elements.cast::<E>(), PIPELINE_STEP_COUNT) }
+        unsafe { std::slice::from_raw_parts(self.elements.cast::<E>(), SC) }
     }
 
     /// Returns a mutable slice of the elements in the vector, allowing for modification.
@@ -177,7 +177,7 @@ impl<'a> ViewMut<'a> {
     #[inline(always)]
     pub fn as_slice_mut<E: Element>(&mut self) -> &'a mut [E] {
         debug_assert_eq!(self.vtype, E::vtype(), "Invalid type for canonical view");
-        unsafe { std::slice::from_raw_parts_mut(self.elements.cast::<E>(), PIPELINE_STEP_COUNT) }
+        unsafe { std::slice::from_raw_parts_mut(self.elements.cast::<E>(), SC) }
     }
 
     /// Access the validity mask of the vector.
@@ -211,10 +211,10 @@ impl<'a> ViewMut<'a> {
             0 => {
                 // If the mask has no true bits, we set the length to 0.
             }
-            PIPELINE_STEP_COUNT => {
+            SC => {
                 // If the mask has N true bits, we copy all elements.
             }
-            n if n > 3 * PIPELINE_STEP_COUNT / 4 => {
+            n if n > 3 * SC / 4 => {
                 // High density: use iter_zeros to compact by removing gaps
                 let slice = self.as_slice_mut::<E>();
                 let mut write_idx = 0;
@@ -241,7 +241,7 @@ impl<'a> ViewMut<'a> {
                     std::ptr::copy(
                         slice.as_ptr().add(read_idx),
                         slice.as_mut_ptr().add(write_idx),
-                        PIPELINE_STEP_COUNT - read_idx,
+                        SC - read_idx,
                     );
                 }
             }

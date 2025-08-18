@@ -15,7 +15,7 @@ use crate::buffers::BufferHandle;
 use crate::operators::{BindContext, Operator};
 use crate::types::{Element, VType};
 use crate::view::ViewMut;
-use crate::{Kernel, KernelContext, PIPELINE_STEP_COUNT};
+use crate::{Kernel, KernelContext, SC};
 
 #[derive(Debug, Clone, Hash)]
 pub struct PrimitiveOperator {
@@ -64,7 +64,7 @@ pub struct PrimitiveKernel<T: NativePType> {
 
 impl<T: Element + NativePType> Kernel for PrimitiveKernel<T> {
     fn seek(&mut self, chunk_idx: usize) -> VortexResult<()> {
-        self.offset = chunk_idx * PIPELINE_STEP_COUNT;
+        self.offset = chunk_idx * SC;
         Ok(())
     }
 
@@ -82,9 +82,9 @@ impl<T: Element + NativePType> Kernel for PrimitiveKernel<T> {
 
         let out_slice = out.as_slice_mut::<T>();
 
-        if remaining > PIPELINE_STEP_COUNT {
-            out_slice.copy_from_slice(&buffer[self.offset..][..PIPELINE_STEP_COUNT]);
-            self.offset += PIPELINE_STEP_COUNT;
+        if remaining > SC {
+            out_slice.copy_from_slice(&buffer[self.offset..][..SC]);
+            self.offset += SC;
         } else {
             out_slice[..remaining].copy_from_slice(&buffer[self.offset..]);
             self.offset += remaining;
@@ -134,12 +134,12 @@ mod tests {
         };
 
         // Create an all-true mask for simplicity
-        let mask_data = [u64::MAX; PIPELINE_STEP_COUNT / 64];
+        let mask_data = [u64::MAX; SC / 64];
         let mask_view = BitView::new(&mask_data);
 
         // Create output buffer
-        let mut output = BufferMut::<i32>::with_capacity(PIPELINE_STEP_COUNT);
-        unsafe { output.set_len(PIPELINE_STEP_COUNT) };
+        let mut output = BufferMut::<i32>::with_capacity(SC);
+        unsafe { output.set_len(SC) };
         let mut output_view = ViewMut::new(&mut output[..], None);
 
         // Create a mock context
@@ -176,7 +176,7 @@ mod tests {
         };
 
         // Create a mask with alternating bits (every other element selected)
-        let mut mask_data = [0u64; PIPELINE_STEP_COUNT / 64];
+        let mut mask_data = [0u64; SC / 64];
         // Set bits 0, 2, 4, 6, 8, 10, 12, 14 (first 8 even positions)
         for i in 0..8 {
             let bit_pos = i * 2;
@@ -188,8 +188,8 @@ mod tests {
         let mask_view = BitView::new(&mask_data);
 
         // Create output buffer
-        let mut output = BufferMut::<i32>::with_capacity(PIPELINE_STEP_COUNT);
-        unsafe { output.set_len(PIPELINE_STEP_COUNT) };
+        let mut output = BufferMut::<i32>::with_capacity(SC);
+        unsafe { output.set_len(SC) };
         let mut output_view = ViewMut::new(&mut output[..], None);
 
         // Create a mock context
@@ -223,7 +223,7 @@ mod tests {
     #[test]
     fn test_primitive_kernel_offset_tracking() {
         // Create a primitive array with more than N values
-        let total_size = PIPELINE_STEP_COUNT + 100;
+        let total_size = SC + 100;
         let values = (0..i32::try_from(total_size).unwrap()).collect::<BufferMut<_>>();
         let primitive_array = values.into_array().to_primitive().unwrap();
 
@@ -234,30 +234,30 @@ mod tests {
         };
 
         // All-true mask
-        let mask_data = [u64::MAX; PIPELINE_STEP_COUNT / 64];
+        let mask_data = [u64::MAX; SC / 64];
         let mask_view = BitView::new(&mask_data);
         let ctx = MockContext;
 
         // First step should process first N elements
         {
-            let mut output = BufferMut::<i32>::with_capacity(PIPELINE_STEP_COUNT);
-            unsafe { output.set_len(PIPELINE_STEP_COUNT) };
+            let mut output = BufferMut::<i32>::with_capacity(SC);
+            unsafe { output.set_len(SC) };
             let mut output_view = ViewMut::new(&mut output[..], None);
 
             let result = kernel.step(&ctx, mask_view, &mut output_view);
             assert!(matches!(result, Poll::Ready(Ok(()))));
-            assert_eq!(kernel.offset, PIPELINE_STEP_COUNT);
+            assert_eq!(kernel.offset, SC);
 
             // Verify first chunk
-            for i in 0..PIPELINE_STEP_COUNT {
+            for i in 0..SC {
                 assert_eq!(output[i], i32::try_from(i).unwrap(), "{i}");
             }
         }
 
         // Second step should process remaining elements (partial chunk)
         {
-            let mut output = BufferMut::<i32>::with_capacity(PIPELINE_STEP_COUNT);
-            unsafe { output.set_len(PIPELINE_STEP_COUNT) };
+            let mut output = BufferMut::<i32>::with_capacity(SC);
+            unsafe { output.set_len(SC) };
             let mut output_view = ViewMut::new(&mut output[..], None);
 
             let result = kernel.step(&ctx, mask_view, &mut output_view);
@@ -266,7 +266,7 @@ mod tests {
 
             // Verify remaining elements (first 100 should be valid)
             for i in 0..100 {
-                assert_eq!(output[i], i32::try_from(PIPELINE_STEP_COUNT + i).unwrap());
+                assert_eq!(output[i], i32::try_from(SC + i).unwrap());
             }
         }
     }

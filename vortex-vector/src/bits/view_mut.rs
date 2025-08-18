@@ -4,27 +4,26 @@
 use bitvec::array::BitArray;
 use bitvec::order::Lsb0;
 
-use crate::PIPELINE_STEP_COUNT;
+use crate::SC;
 use crate::bits::BitView;
 
 /// A mutable borrowed fixed-size bit vector of length `N` bits, represented as an array of
 /// 64-bit words.
 #[derive(Debug)]
 pub struct BitViewMut<'a> {
-    bits: &'a mut BitArray<[u64; PIPELINE_STEP_COUNT / 64], Lsb0>,
+    bits: &'a mut BitArray<[u64; SC / 64], Lsb0>,
     true_count: usize,
 }
 
 impl<'a> BitViewMut<'a> {
-    pub fn new(bits: &'a mut [u64; PIPELINE_STEP_COUNT / 64]) -> Self {
+    pub fn new(bits: &'a mut [u64; SC / 64]) -> Self {
         let true_count = bits.iter().map(|&word| word.count_ones() as usize).sum();
-        let bits: &mut BitArray<[u64; PIPELINE_STEP_COUNT / 64], Lsb0> =
-            unsafe { std::mem::transmute(bits) };
+        let bits: &mut BitArray<[u64; SC / 64], Lsb0> = unsafe { std::mem::transmute(bits) };
         BitViewMut { bits, true_count }
     }
 
     pub(crate) unsafe fn new_unchecked(
-        bits: &'a mut BitArray<[u64; PIPELINE_STEP_COUNT / 64], Lsb0>,
+        bits: &'a mut BitArray<[u64; SC / 64], Lsb0>,
         true_count: usize,
     ) -> Self {
         BitViewMut { bits, true_count }
@@ -36,10 +35,7 @@ impl<'a> BitViewMut<'a> {
 
     /// Mask the values in the mask up to the given length.
     pub fn intersect_prefix(&mut self, mut len: usize) {
-        assert!(
-            len <= PIPELINE_STEP_COUNT,
-            "BitViewMut::truncate: length exceeds N"
-        );
+        assert!(len <= SC, "BitViewMut::truncate: length exceeds N");
 
         let bit_slice = self.bits.as_raw_mut_slice();
 
@@ -57,7 +53,7 @@ impl<'a> BitViewMut<'a> {
             word += 1;
         }
 
-        while word < PIPELINE_STEP_COUNT / 64 {
+        while word < SC / 64 {
             bit_slice[word] = 0;
             word += 1;
         }
@@ -72,7 +68,7 @@ impl<'a> BitViewMut<'a> {
 
     pub fn fill_with_words(&mut self, mut iter: impl Iterator<Item = u64>) {
         let mut true_count = 0;
-        for word in 0..PIPELINE_STEP_COUNT / 64 {
+        for word in 0..SC / 64 {
             if let Some(value) = iter.next() {
                 self.bits.as_raw_mut_slice()[word] = value;
                 true_count += value.count_ones() as usize;
@@ -88,7 +84,7 @@ impl<'a> BitViewMut<'a> {
         unsafe { BitView::new_unchecked(self.bits, self.true_count) }
     }
 
-    pub fn as_raw_mut(&mut self) -> &mut [u64; PIPELINE_STEP_COUNT / 64] {
+    pub fn as_raw_mut(&mut self) -> &mut [u64; SC / 64] {
         unsafe { std::mem::transmute(&mut self.bits) }
     }
 
@@ -116,10 +112,10 @@ mod tests {
         let mut bit_vec = BitVector::full().clone();
 
         let mut view_mut = bit_vec.as_view_mut();
-        assert_eq!(view_mut.true_count(), PIPELINE_STEP_COUNT);
+        assert_eq!(view_mut.true_count(), SC);
 
-        view_mut.intersect_prefix(PIPELINE_STEP_COUNT - 1);
-        assert_eq!(view_mut.true_count(), PIPELINE_STEP_COUNT - 1);
+        view_mut.intersect_prefix(SC - 1);
+        assert_eq!(view_mut.true_count(), SC - 1);
 
         view_mut.intersect_prefix(64);
         assert_eq!(view_mut.true_count(), 64);

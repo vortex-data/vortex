@@ -6,7 +6,7 @@ use std::fmt::{Debug, Formatter};
 use bitvec::prelude::*;
 use vortex_error::{VortexError, vortex_err};
 
-use crate::PIPELINE_STEP_COUNT;
+use crate::SC;
 
 /// A borrowed fixed-size bit vector of length `N` bits, represented as an array of 64-bit words.
 ///
@@ -15,7 +15,7 @@ use crate::PIPELINE_STEP_COUNT;
 /// it up for use within Vortex.
 #[derive(Clone, Copy)]
 pub struct BitView<'a> {
-    bits: &'a BitArray<[u64; PIPELINE_STEP_COUNT / 64], Lsb0>,
+    bits: &'a BitArray<[u64; SC / 64], Lsb0>,
     true_count: usize,
 }
 
@@ -30,35 +30,40 @@ impl Debug for BitView<'_> {
 
 impl BitView<'static> {
     pub fn all_true() -> Self {
+        static ALL_TRUE: [u64; SC / 64] = [u64::MAX; SC / 64];
         unsafe {
             BitView::new_unchecked(
-                std::mem::transmute(&[u64::MAX; PIPELINE_STEP_COUNT / 64]),
-                PIPELINE_STEP_COUNT,
+                std::mem::transmute::<&[u64; SC / 64], &BitArray<[u64; SC / 64], Lsb0>>(&ALL_TRUE),
+                SC,
             )
         }
     }
 
     pub fn all_false() -> Self {
-        unsafe { BitView::new_unchecked(std::mem::transmute(&[0; PIPELINE_STEP_COUNT / 64]), 0) }
+        static ALL_FALSE: [u64; SC / 64] = [0; SC / 64];
+        unsafe {
+            BitView::new_unchecked(
+                std::mem::transmute::<&[u64; SC / 64], &BitArray<[u64; SC / 64], Lsb0>>(&ALL_FALSE),
+                0,
+            )
+        }
     }
 }
 
 impl<'a> BitView<'a> {
-    pub fn new(bits: &[u64; PIPELINE_STEP_COUNT / 64]) -> Self {
+    pub fn new(bits: &[u64; SC / 64]) -> Self {
         let true_count = bits.iter().map(|&word| word.count_ones() as usize).sum();
-        let bits: &BitArray<[u64; PIPELINE_STEP_COUNT / 64], Lsb0> =
-            unsafe { std::mem::transmute(bits) };
+        let bits: &BitArray<[u64; SC / 64], Lsb0> = unsafe {
+            std::mem::transmute::<&[u64; SC / 64], &BitArray<[u64; SC / 64], Lsb0>>(bits)
+        };
         BitView { bits, true_count }
     }
 
     pub(crate) unsafe fn new_unchecked(
-        bits: &'a BitArray<[u64; PIPELINE_STEP_COUNT / 64], Lsb0>,
+        bits: &'a BitArray<[u64; SC / 64], Lsb0>,
         true_count: usize,
     ) -> Self {
-        BitView {
-            bits: unsafe { std::mem::transmute(bits) },
-            true_count,
-        }
+        BitView { bits, true_count }
     }
 
     /// Returns the number of `true` bits in the view.
@@ -73,7 +78,7 @@ impl<'a> BitView<'a> {
     {
         match self.true_count {
             0 => {}
-            PIPELINE_STEP_COUNT => (0..PIPELINE_STEP_COUNT).for_each(&mut f),
+            SC => (0..SC).for_each(&mut f),
             _ => {
                 let mut bit_idx = 0;
                 for mut raw in self.bits.into_inner() {
@@ -94,8 +99,8 @@ impl<'a> BitView<'a> {
         F: FnMut(usize),
     {
         match self.true_count {
-            0 => (0..PIPELINE_STEP_COUNT).for_each(&mut f),
-            PIPELINE_STEP_COUNT => {}
+            0 => (0..SC).for_each(&mut f),
+            SC => {}
             _ => {
                 let mut bit_idx = 0;
                 for mut raw in self.bits.into_inner() {
@@ -120,7 +125,7 @@ impl<'a> BitView<'a> {
     {
         match self.true_count {
             0 => {}
-            PIPELINE_STEP_COUNT => f((0, PIPELINE_STEP_COUNT)),
+            SC => f((0, SC)),
             _ => {
                 let mut bit_idx = 0;
                 for mut raw in self.bits.into_inner() {
@@ -149,22 +154,22 @@ impl<'a> BitView<'a> {
         }
     }
 
-    pub fn as_raw(&self) -> &[u64; PIPELINE_STEP_COUNT / 64] {
+    pub fn as_raw(&self) -> &[u64; SC / 64] {
         // It's actually remarkably hard to get a reference to the underlying array!
         let raw = self.bits.as_raw_slice();
-        unsafe { &*(raw.as_ptr() as *const [u64; PIPELINE_STEP_COUNT / 64]) }
+        unsafe { &*(raw.as_ptr() as *const [u64; SC / 64]) }
     }
 }
 
-impl<'a> From<&'a [u64; PIPELINE_STEP_COUNT / 64]> for BitView<'a> {
-    fn from(value: &'a [u64; PIPELINE_STEP_COUNT / 64]) -> Self {
+impl<'a> From<&'a [u64; SC / 64]> for BitView<'a> {
+    fn from(value: &'a [u64; SC / 64]) -> Self {
         Self::new(value)
     }
 }
 
-impl<'a> From<&'a BitArray<[u64; PIPELINE_STEP_COUNT / 64], Lsb0>> for BitView<'a> {
-    fn from(bits: &'a BitArray<[u64; PIPELINE_STEP_COUNT / 64], Lsb0>) -> Self {
-        BitView::new(unsafe { std::mem::transmute(bits) })
+impl<'a> From<&'a BitArray<[u64; SC / 64], Lsb0>> for BitView<'a> {
+    fn from(bits: &'a BitArray<[u64; SC / 64], Lsb0>) -> Self {
+        BitView::new(unsafe { std::mem::transmute::<&BitArray<[u64; 16]>, &[u64; 16]>(bits) })
     }
 }
 
@@ -172,10 +177,12 @@ impl<'a> TryFrom<&'a BitSlice<u64, Lsb0>> for BitView<'a> {
     type Error = VortexError;
 
     fn try_from(value: &'a BitSlice<u64, Lsb0>) -> Result<Self, Self::Error> {
-        let bits: &BitArray<[u64; PIPELINE_STEP_COUNT / 64], Lsb0> = value
+        let bits: &BitArray<[u64; SC / 64], Lsb0> = value
             .try_into()
             .map_err(|e| vortex_err!("Failed to convert BitSlice to BitArray: {}", e))?;
-        Ok(BitView::new(unsafe { std::mem::transmute(bits) }))
+        Ok(BitView::new(unsafe {
+            std::mem::transmute::<&BitArray<[u64; 16]>, &[u64; 16]>(bits)
+        }))
     }
 }
 
@@ -188,7 +195,7 @@ mod tests {
 
     #[test]
     fn test_iter_ones_empty() {
-        let bits = [0u64; PIPELINE_STEP_COUNT / 64];
+        let bits = [0u64; SC / 64];
         let view = BitView::new(&bits);
 
         let mut ones = Vec::new();
@@ -205,21 +212,21 @@ mod tests {
         let mut ones = Vec::new();
         view.iter_ones(|idx| ones.push(idx));
 
-        assert_eq!(ones.len(), PIPELINE_STEP_COUNT);
-        assert_eq!(ones, (0..PIPELINE_STEP_COUNT).collect::<Vec<_>>());
-        assert_eq!(view.true_count(), PIPELINE_STEP_COUNT);
+        assert_eq!(ones.len(), SC);
+        assert_eq!(ones, (0..SC).collect::<Vec<_>>());
+        assert_eq!(view.true_count(), SC);
     }
 
     #[test]
     fn test_iter_zeros_empty() {
-        let bits = [0u64; PIPELINE_STEP_COUNT / 64];
+        let bits = [0u64; SC / 64];
         let view = BitView::new(&bits);
 
         let mut zeros = Vec::new();
         view.iter_zeros(|idx| zeros.push(idx));
 
-        assert_eq!(zeros.len(), PIPELINE_STEP_COUNT);
-        assert_eq!(zeros, (0..PIPELINE_STEP_COUNT).collect::<Vec<_>>());
+        assert_eq!(zeros.len(), SC);
+        assert_eq!(zeros, (0..SC).collect::<Vec<_>>());
     }
 
     #[test]
@@ -234,7 +241,7 @@ mod tests {
 
     #[test]
     fn test_iter_ones_single_bit() {
-        let mut bits = [0u64; PIPELINE_STEP_COUNT / 64];
+        let mut bits = [0u64; SC / 64];
         bits[0] = 1; // Set bit 0 (LSB)
         let view = BitView::new(&bits);
 
@@ -247,7 +254,7 @@ mod tests {
 
     #[test]
     fn test_iter_zeros_single_bit_unset() {
-        let mut bits = [u64::MAX; PIPELINE_STEP_COUNT / 64];
+        let mut bits = [u64::MAX; SC / 64];
         bits[0] = u64::MAX ^ 1; // Clear bit 0 (LSB)
         let view = BitView::new(&bits);
 
@@ -259,7 +266,7 @@ mod tests {
 
     #[test]
     fn test_iter_ones_multiple_bits_first_word() {
-        let mut bits = [0u64; PIPELINE_STEP_COUNT / 64];
+        let mut bits = [0u64; SC / 64];
         bits[0] = 0b1010101; // Set bits 0, 2, 4, 6
         let view = BitView::new(&bits);
 
@@ -272,7 +279,7 @@ mod tests {
 
     #[test]
     fn test_iter_zeros_multiple_bits_first_word() {
-        let mut bits = [u64::MAX; PIPELINE_STEP_COUNT / 64];
+        let mut bits = [u64::MAX; SC / 64];
         bits[0] = !0b1010101; // Clear bits 0, 2, 4, 6
         let view = BitView::new(&bits);
 
@@ -284,7 +291,7 @@ mod tests {
 
     #[test]
     fn test_iter_ones_across_words() {
-        let mut bits = [0u64; PIPELINE_STEP_COUNT / 64];
+        let mut bits = [0u64; SC / 64];
         bits[0] = 1 << 63; // Set bit 63 of first word
         bits[1] = 1; // Set bit 0 of second word (bit 64 overall)
         bits[2] = 1 << 31; // Set bit 31 of third word (bit 159 overall)
@@ -299,7 +306,7 @@ mod tests {
 
     #[test]
     fn test_iter_zeros_across_words() {
-        let mut bits = [u64::MAX; PIPELINE_STEP_COUNT / 64];
+        let mut bits = [u64::MAX; SC / 64];
         bits[0] = !(1 << 63); // Clear bit 63 of first word
         bits[1] = !1; // Clear bit 0 of second word (bit 64 overall)
         bits[2] = !(1 << 31); // Clear bit 31 of third word (bit 159 overall)
@@ -313,7 +320,7 @@ mod tests {
 
     #[test]
     fn test_lsb_bit_ordering() {
-        let mut bits = [0u64; PIPELINE_STEP_COUNT / 64];
+        let mut bits = [0u64; SC / 64];
         bits[0] = 0b11111111; // Set bits 0-7 (LSB ordering)
         let view = BitView::new(&bits);
 
@@ -326,7 +333,7 @@ mod tests {
 
     #[test]
     fn test_iter_ones_and_zeros_complement() {
-        let mut bits = [0u64; PIPELINE_STEP_COUNT / 64];
+        let mut bits = [0u64; SC / 64];
         bits[0] = 0xAAAAAAAAAAAAAAAA; // Alternating pattern
         let view = BitView::new(&bits);
 
@@ -340,7 +347,7 @@ mod tests {
         all_indices.extend(&zeros);
         all_indices.sort_unstable();
 
-        assert_eq!(all_indices, (0..PIPELINE_STEP_COUNT).collect::<Vec<_>>());
+        assert_eq!(all_indices, (0..SC).collect::<Vec<_>>());
 
         // Check they don't overlap
         for one_idx in &ones {
@@ -358,14 +365,14 @@ mod tests {
         view.iter_zeros(|idx| zeros.push(idx));
 
         assert_eq!(ones, Vec::<usize>::new());
-        assert_eq!(zeros, (0..PIPELINE_STEP_COUNT).collect::<Vec<_>>());
+        assert_eq!(zeros, (0..SC).collect::<Vec<_>>());
         assert_eq!(view.true_count(), 0);
     }
 
     #[test]
     fn test_compatibility_with_mask_all_true() {
         // Create a Mask with all bits set
-        let mask = Mask::new_true(PIPELINE_STEP_COUNT);
+        let mask = Mask::new_true(SC);
 
         // Create corresponding BitView
         let view = BitView::all_true();
@@ -375,16 +382,16 @@ mod tests {
         view.iter_ones(|idx| bitview_ones.push(idx));
 
         // Get indices from Mask (all indices for all_true mask)
-        let expected_indices: Vec<usize> = (0..PIPELINE_STEP_COUNT).collect();
+        let expected_indices: Vec<usize> = (0..SC).collect();
 
         assert_eq!(bitview_ones, expected_indices);
-        assert_eq!(view.true_count(), PIPELINE_STEP_COUNT);
+        assert_eq!(view.true_count(), SC);
     }
 
     #[test]
     fn test_compatibility_with_mask_all_false() {
         // Create a Mask with no bits set
-        let mask = Mask::new_false(PIPELINE_STEP_COUNT);
+        let mask = Mask::new_false(SC);
 
         // Create corresponding BitView
         let view = BitView::all_false();
@@ -398,7 +405,7 @@ mod tests {
         view.iter_zeros(|idx| bitview_zeros.push(idx));
 
         assert_eq!(bitview_ones, Vec::<usize>::new());
-        assert_eq!(bitview_zeros, (0..PIPELINE_STEP_COUNT).collect::<Vec<_>>());
+        assert_eq!(bitview_zeros, (0..SC).collect::<Vec<_>>());
         assert_eq!(view.true_count(), 0);
     }
 
@@ -406,10 +413,10 @@ mod tests {
     fn test_compatibility_with_mask_from_indices() {
         // Create a Mask from specific indices
         let indices = vec![0, 10, 20, 63, 64, 100, 500, 1023];
-        let mask = Mask::from_indices(PIPELINE_STEP_COUNT, indices.clone());
+        let mask = Mask::from_indices(SC, indices.clone());
 
         // Create corresponding BitView
-        let mut bits = [0u64; PIPELINE_STEP_COUNT / 64];
+        let mut bits = [0u64; SC / 64];
         for idx in &indices {
             let word_idx = idx / 64;
             let bit_idx = idx % 64;
@@ -429,10 +436,10 @@ mod tests {
     fn test_compatibility_with_mask_slices() {
         // Create a Mask from slices (ranges)
         let slices = vec![(0, 10), (100, 110), (500, 510)];
-        let mask = Mask::from_slices(PIPELINE_STEP_COUNT, slices.clone());
+        let mask = Mask::from_slices(SC, slices.clone());
 
         // Create corresponding BitView
-        let mut bits = [0u64; PIPELINE_STEP_COUNT / 64];
+        let mut bits = [0u64; SC / 64];
         for (start, end) in &slices {
             for idx in *start..*end {
                 let word_idx = idx / 64;
@@ -459,7 +466,7 @@ mod tests {
     #[test]
     fn test_mask_and_bitview_iter_match() {
         // Create a pattern with alternating bits in first word
-        let mut bits = [0u64; PIPELINE_STEP_COUNT / 64];
+        let mut bits = [0u64; SC / 64];
         bits[0] = 0xAAAAAAAAAAAAAAAA; // Alternating 1s and 0s
         bits[1] = 0xFF00FF00FF00FF00; // Alternating bytes
 
@@ -470,14 +477,14 @@ mod tests {
         view.iter_ones(|idx| bitview_ones.push(idx));
 
         // Create Mask from the same indices
-        let mask = Mask::from_indices(PIPELINE_STEP_COUNT, bitview_ones.clone());
+        let mask = Mask::from_indices(SC, bitview_ones.clone());
 
         // Verify the mask returns the same indices
         mask.iter_bools(|iter| {
             let mask_bools: Vec<bool> = iter.collect();
 
             // Check each bit matches
-            for i in 0..PIPELINE_STEP_COUNT {
+            for i in 0..SC {
                 let expected = bitview_ones.contains(&i);
                 assert_eq!(mask_bools[i], expected, "Mismatch at index {}", i);
             }
@@ -510,7 +517,7 @@ mod tests {
     #[test]
     fn test_bitview_zeros_complement_mask() {
         // Create a pattern
-        let mut bits = [0u64; PIPELINE_STEP_COUNT / 64];
+        let mut bits = [0u64; SC / 64];
         bits[0] = 0b11110000111100001111000011110000;
 
         let view = BitView::new(&bits);
@@ -522,8 +529,8 @@ mod tests {
         view.iter_zeros(|idx| bitview_zeros.push(idx));
 
         // Create masks for ones and zeros
-        let ones_mask = Mask::from_indices(PIPELINE_STEP_COUNT, bitview_ones);
-        let zeros_mask = Mask::from_indices(PIPELINE_STEP_COUNT, bitview_zeros);
+        let ones_mask = Mask::from_indices(SC, bitview_ones);
+        let zeros_mask = Mask::from_indices(SC, bitview_zeros);
 
         // Verify they are complements
         ones_mask.iter_bools(|ones_iter| {
@@ -531,7 +538,7 @@ mod tests {
                 let ones_bools: Vec<bool> = ones_iter.collect();
                 let zeros_bools: Vec<bool> = zeros_iter.collect();
 
-                for i in 0..PIPELINE_STEP_COUNT {
+                for i in 0..SC {
                     // Each index should be either in ones or zeros, but not both
                     assert_ne!(
                         ones_bools[i], zeros_bools[i],
