@@ -26,9 +26,9 @@ class PCodecArray(vx.PyArray):
         self,
         length: int,
         dtype: vx.DType,
-        file_header: memoryview[bytes],
-        chunk_header: memoryview[bytes],
-        data: memoryview[bytes],
+        file_header: memoryview,
+        chunk_header: memoryview,
+        data: memoryview,
     ):
         (fd, _bytes_read) = pco.FileDecompressor.new(file_header)
 

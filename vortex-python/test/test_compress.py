@@ -12,7 +12,6 @@ import pytest
 import vortex
 
 
-@pytest.mark.xfail(reason="Not yet implemented")
 def test_primitive_compress():
     a = pa.array([0, 0, 0, 0, 9, 9, 9, 9, 1, 5])
     arr_compressed = vortex.compress(vortex.array(a))
@@ -20,14 +19,12 @@ def test_primitive_compress():
     assert arr_compressed.nbytes < a.nbytes
 
 
-@pytest.mark.xfail(reason="Not yet implemented")
 def test_for_compress():
     a = pa.array(np.arange(10_000) + 10_000_000)
     arr_compressed = vortex.compress(vortex.array(a))
     assert not isinstance(arr_compressed, vortex.PrimitiveArray)
 
 
-@pytest.mark.xfail(reason="Not yet implemented")
 def test_arange_encode():
     a = vortex.array(pa.array(np.arange(10_000), type=pa.uint32()))
     compressed = vortex.compress(a)
@@ -35,7 +32,6 @@ def test_arange_encode():
     assert compressed.nbytes < a.nbytes
 
 
-@pytest.mark.xfail(reason="Not yet implemented")
 def test_zigzag_encode():
     a = vortex.array(pa.array([-1, -1, 0, -1, 1, -1]))
     zarr = vortex.ZigZagArray.encode(a)
@@ -69,7 +65,6 @@ def test_table_encode():
     )
 
 
-@pytest.mark.xfail(reason="Not yet implemented")
 def test_taxi():
     curdir = Path(os.path.dirname(__file__)).parent.parent
     table = pq.read_table(curdir / "bench-vortex/data/yellow-tripdata-2023-11.parquet")

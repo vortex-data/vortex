@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
+from __future__ import annotations
 
 import abc
 from typing import TYPE_CHECKING, Any
