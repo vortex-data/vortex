@@ -5,10 +5,10 @@ use std::collections::VecDeque;
 
 use vortex_error::{VortexResult, vortex_bail};
 
-use crate::query::Pipeline;
+use crate::query::QueryPlan;
 use crate::query::dag::DagNode;
 
-impl Pipeline<'_> {
+impl QueryPlan<'_> {
     /// Returns the nodes of the DAG with no children.
     pub(crate) fn leaf_nodes(dag: &[DagNode]) -> Vec<usize> {
         dag.iter()

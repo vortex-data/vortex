@@ -7,7 +7,7 @@ use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 use vortex_vector::bits::{BitVector, BitView, BitViewMut};
 use vortex_vector::operators::Operator;
-use vortex_vector::query::Pipeline;
+use vortex_vector::query::QueryPlan;
 use vortex_vector::types::Element;
 use vortex_vector::vector::Vector;
 use vortex_vector::view::ViewMut;
@@ -49,7 +49,7 @@ pub fn export_canonical_pipeline_expr_offset(
     expression: &dyn Operator,
     mask: &Mask,
 ) -> VortexResult<Canonical> {
-    let mut pipeline = Pipeline::new(expression)?;
+    let mut pipeline = QueryPlan::new(expression)?;
     pipeline.seek(offset)?;
     export_canonical_pipeline(dtype, len, &mut pipeline, mask)
 }
@@ -60,7 +60,7 @@ pub fn export_canonical_pipeline_expr(
     expression: &dyn Operator,
     mask: &Mask,
 ) -> VortexResult<Canonical> {
-    let mut pipeline = Pipeline::new(expression)?;
+    let mut pipeline = QueryPlan::new(expression)?;
     export_canonical_pipeline(dtype, len, &mut pipeline, mask)
 }
 

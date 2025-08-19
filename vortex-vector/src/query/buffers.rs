@@ -8,7 +8,7 @@ use std::cell::RefCell;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_utils::aliases::hash_map::HashMap;
 
-use crate::query::Pipeline;
+use crate::query::QueryPlan;
 use crate::query::dag::DagNode;
 use crate::types::VType;
 use crate::vector::{Vector, VectorId};
@@ -70,7 +70,7 @@ struct NodeLifetime {
 // Improved Pipeline with vector allocation
 // ============================================================================
 
-impl<'a> Pipeline<'a> {
+impl<'a> QueryPlan<'a> {
     /// Allocate vectors with lifetime analysis and zero-copy optimization
     pub(crate) fn allocate_vectors(
         dag_root: usize,

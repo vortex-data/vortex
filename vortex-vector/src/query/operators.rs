@@ -5,12 +5,12 @@ use vortex_error::{VortexExpect, VortexResult};
 
 use crate::Kernel;
 use crate::operators::BindContext;
-use crate::query::Pipeline;
+use crate::query::QueryPlan;
 use crate::query::buffers::VectorAllocationPlan;
 use crate::query::dag::DagNode;
 use crate::vector::VectorId;
 
-impl Pipeline<'_> {
+impl QueryPlan<'_> {
     pub(crate) fn bind_operators(
         dag: &[DagNode],
         allocation_plan: &VectorAllocationPlan,
@@ -45,3 +45,5 @@ impl BindContext for PipelineBindContext {
         &self.children
     }
 }
+
+// We have a step

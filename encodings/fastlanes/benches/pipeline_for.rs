@@ -18,7 +18,7 @@ use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
 use vortex_fastlanes::{FoRArray, bitpack_to_best_bit_width};
 use vortex_mask::Mask;
-use vortex_vector::query::Pipeline;
+use vortex_vector::query::QueryPlan;
 use vortex_vector::types::Element;
 
 #[global_allocator]
@@ -161,7 +161,7 @@ pub fn decompress_for_pipeline_filter<T: Element + NativePType>(
         .with_inputs(|| {
             (
                 Mask::from_buffer(mask.clone()),
-                Pipeline::new(plan.as_ref()).unwrap(),
+                QueryPlan::new(plan.as_ref()).unwrap(),
             )
         })
         .bench_local_values(|(mask, mut pipeline)| {

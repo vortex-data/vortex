@@ -7,7 +7,7 @@ use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::{HashMap, RandomState};
 
 use crate::operators::Operator;
-use crate::query::Pipeline;
+use crate::query::QueryPlan;
 
 /// A node in our execution DAG
 #[derive(Clone, Debug)]
@@ -33,7 +33,7 @@ pub(crate) struct BufferSlot {
     size_bytes: usize,
 }
 
-impl<'a> Pipeline<'a> {
+impl<'a> QueryPlan<'a> {
     /// Build DAG from a tree, eliminating common sub-expressions
     pub(crate) fn build_dag(root: &'a dyn Operator) -> VortexResult<(usize, Vec<DagNode<'a>>)> {
         let mut dag = Vec::new();
