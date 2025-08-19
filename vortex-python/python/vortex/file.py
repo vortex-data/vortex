@@ -6,10 +6,11 @@ from typing import TypeAlias
 
 import pyarrow as pa
 
-from .arrays import Array
+import vortex.expr as ve
+
 from ._lib import file as _file  # pyright: ignore[reportMissingModuleSource]
 from ._lib.iter import ArrayIterator  # pyright: ignore[reportMissingModuleSource]
-import vortex.expr as ve
+from .arrays import Array
 
 VortexFile = _file.VortexFile
 IntoProjection: TypeAlias = ve.Expr | list[str] | None

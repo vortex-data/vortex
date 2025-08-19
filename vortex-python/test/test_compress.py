@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pytest
 
 import vortex
 
@@ -64,6 +65,7 @@ def test_table_encode():
     )
 
 
+@pytest.mark.skip(reason="We have no way to guarantee that the bench-vortex data has been downloaded.")
 def test_taxi():
     curdir = Path(os.path.dirname(__file__)).parent.parent
     table = pq.read_table(curdir / "bench-vortex/data/yellow-tripdata-2023-11.parquet")
