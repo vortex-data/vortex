@@ -3,6 +3,7 @@
 
 use pyo3::prelude::*;
 use vortex::IntoArray;
+use vortex::ToCanonical;
 use vortex::encodings::alp::{ALPRDVTable, ALPVTable};
 use vortex::encodings::datetime_parts::DateTimePartsVTable;
 use vortex::encodings::dict::DictVTable;
@@ -10,7 +11,7 @@ use vortex::encodings::fsst::FSSTVTable;
 use vortex::encodings::runend::RunEndVTable;
 use vortex::encodings::sequence::SequenceVTable;
 use vortex::encodings::sparse::SparseVTable;
-use vortex::encodings::zigzag::{ZigZagArray, ZigZagVTable};
+use vortex::encodings::zigzag::{ZigZagVTable, zigzag_encode};
 
 use crate::PyVortex;
 use crate::arrays::PyArrayRef;
@@ -85,7 +86,7 @@ impl PyZigZagArray {
     #[staticmethod]
     pub fn encode(array: PyArrayRef) -> PyResult<PyArrayRef> {
         Ok(PyVortex(
-            ZigZagArray::try_new(array.inner().clone())?.into_array(),
+            zigzag_encode(array.inner().clone().to_primitive()?)?.into_array(),
         ))
     }
 }

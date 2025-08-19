@@ -83,6 +83,9 @@ class ChunkedArray(vx.Array):
 class ByteBoolArray(vx.Array): ...
 
 @final
+class SequenceArray(vx.Array): ...
+
+@final
 class SparseArray(vx.Array): ...
 
 @final

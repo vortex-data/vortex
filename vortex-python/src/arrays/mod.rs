@@ -59,6 +59,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<compressed::PyDictArray>()?;
     m.add_class::<compressed::PyFsstArray>()?;
     m.add_class::<compressed::PyRunEndArray>()?;
+    m.add_class::<compressed::PySequenceArray>()?;
     m.add_class::<compressed::PySparseArray>()?;
     m.add_class::<compressed::PyZigZagArray>()?;
 

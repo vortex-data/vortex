@@ -24,6 +24,7 @@ def test_struct():
         [pa.array(["1", "2", "3"]), pa.array([1.0, 2.0, 3.0]), pa.array(["one", "two", "three"])],
         names=["strings", "floats", "strings"],
     )
+    vxarray = vortex.array(array)
     assert isinstance(vxarray, vortex.ChunkedArray)
     struct_array = vxarray.chunks()[0]
     assert isinstance(struct_array, vortex.StructArray)

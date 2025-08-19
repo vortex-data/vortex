@@ -20,6 +20,7 @@ from ._lib.arrays import (  # pyright: ignore[reportMissingModuleSource]
     NullArray,
     PrimitiveArray,
     RunEndArray,
+    SequenceArray,
     SparseArray,
     StructArray,
     VarBinArray,
