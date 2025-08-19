@@ -9,3 +9,11 @@ rustflags = ['--cfg', 'getrandom_backend="wasm_js"', '-C', 'target-feature=+atom
 [alias]
 xtask = "run -p xtask --"
 vx = "run -p vortex-tui --"
+
+[publish]
+# NOTE(aduffy): we run into frequent issues auto-releasing our workspace
+# to crates.io, the default timeout = 60 seconds. Setting this to zero
+# means that it will block indefinitely and this config override is
+# necessary for using the -Zpublish-timeout setting.
+# See https://doc.rust-lang.org/beta/cargo/reference/unstable.html#publish-timeout
+timeout = 0
