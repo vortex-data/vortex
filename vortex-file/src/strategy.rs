@@ -7,17 +7,18 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::StreamExt;
-use vortex_array::arrays::NullArray;
+use vortex_array::arrays::{BinaryView, NullArray, VarBinViewArray};
 use vortex_array::stats::PRUNING_STATS;
 use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
+use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_layout::layouts::buffered::BufferedStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::compressed::{CompressingStrategy, CompressorPlugin};
 use vortex_layout::layouts::dict::writer::DictStrategy;
 use vortex_layout::layouts::flat::writer::{
-    write_flat_layout, FlatLayoutStrategy, FlatWriterOptions,
+    FlatLayoutStrategy, FlatWriterOptions, write_flat_layout,
 };
 use vortex_layout::layouts::repartition::{RepartitionStrategy, RepartitionWriterOptions};
 use vortex_layout::layouts::struct_::writer::StructStrategy;
@@ -25,8 +26,8 @@ use vortex_layout::layouts::view::writer::ViewStrategy;
 use vortex_layout::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
 use vortex_layout::segments::SequenceWriter;
 use vortex_layout::{
-    local_task_executor, LayoutRef, LayoutStrategy, LayoutStrategyExt, SendableSequentialStream,
-    TaskExecutor,
+    LayoutRef, LayoutStrategy, LayoutStrategyExt, SendableSequentialStream, TaskExecutor,
+    local_task_executor,
 };
 
 const ONE_MEG: u64 = 1 << 20;
@@ -47,6 +48,10 @@ pub struct WriteStrategyBuilder {
 }
 
 impl WriteStrategyBuilder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     pub fn with_executor(mut self, executor: Arc<dyn TaskExecutor>) -> Self {
         self.executor = Some(executor);
         self
@@ -415,20 +420,29 @@ where
     }
 }
 
-/// Variable-size data is usually really two distinct pieces of data: the variable-sized
-/// buffers, and some fixed-width index structures used to know how to seek into the data. We can
-/// take advantage of some of these fixed-width index structures to prune reading of some of the
-/// fixed-size datasets.
-pub struct VariableSizeStrategy;
+/// Variable-sized buffer data strategy.
+pub struct StringsStrategy;
 
 #[async_trait]
-impl LayoutStrategy for VariableSizeStrategy {
+impl LayoutStrategy for StringsStrategy {
     async fn write_stream(
         &self,
         ctx: &ArrayContext,
         sequence_writer: SequenceWriter,
         stream: SendableSequentialStream,
     ) -> VortexResult<LayoutRef> {
-        todo!()
+        // Dict-encode -> Codes, Values
     }
+}
+
+struct StringData {
+    finished_views: Vec<Buffer<BinaryView>>,
+    finished_buffers: Vec<ByteBuffer>,
+}
+
+impl StringData {
+    /// Push a new chunk of string data.
+    ///
+    /// It will either be buffered, or it will indicate that it needs to be flushed.
+    fn push_chunk(&mut self, chunk: &VarBinViewArray) -> VortexResult<()> {}
 }
