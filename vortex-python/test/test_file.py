@@ -8,8 +8,6 @@ import pyarrow as pa
 import pytest
 
 import vortex as vx
-import vortex.dataset
-import vortex.io
 
 
 def record(x: int, columns=None) -> dict:
@@ -21,14 +19,14 @@ def record(x: int, columns=None) -> dict:
 
 
 @pytest.fixture(scope="session")
-def vxf(tmpdir_factory) -> vortex.VortexFile:
+def vxf(tmpdir_factory) -> vx.VortexFile:
     fname = tmpdir_factory.mktemp("data") / "foo.vortex"
 
     if not os.path.exists(fname):
         a = pa.array([record(x) for x in range(1_000_000)])
         arr = vx.compress(vx.array(a))
-        vortex.io.write(arr, str(fname))
-    return vortex.open(str(fname))
+        vx.io.write(arr, str(fname))
+    return vx.open(str(fname))
 
 
 def test_dtype(vxf):
@@ -68,7 +66,7 @@ def test_empty_file(tmpdir_factory):
 
     # writing file should succeed
     empty_file = tmpdir_factory.mktemp("data") / "empty.vortex"
-    vortex.io.write(empty, str(empty_file))
+    vx.io.write(empty, str(empty_file))
 
 
 def test_stream_pyarrow(tmpdir_factory):
@@ -84,4 +82,4 @@ def test_stream_pyarrow(tmpdir_factory):
     pq.write_table(table, str(data_dir / "names.parquet"))
 
     df = pq.read_table(str(data_dir / "names.parquet"))
-    vortex.io.write(df, str(data_dir / "names.vortex"))
+    vx.io.write(df, str(data_dir / "names.vortex"))

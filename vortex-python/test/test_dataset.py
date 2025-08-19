@@ -11,8 +11,6 @@ import pyarrow.compute as pc
 import pytest
 
 import vortex as vx
-import vortex.dataset
-import vortex.io
 
 
 def record(x: int, columns=None) -> dict:
@@ -24,15 +22,15 @@ def record(x: int, columns=None) -> dict:
 
 
 @pytest.fixture(scope="session")
-def ds(tmpdir_factory) -> vortex.dataset.VortexDataset:
+def ds(tmpdir_factory) -> vx.dataset.VortexDataset:
     fname = tmpdir_factory.mktemp("data") / "foo.vortex"
 
     assert not os.path.exists(fname)
 
     a = pa.array([record(x) for x in range(1_000_000)])
     arr = vx.compress(vx.array(a))
-    vortex.io.write(arr, str(fname))
-    return vortex.dataset.VortexDataset.from_path(str(fname))
+    vx.io.write(arr, str(fname))
+    return vx.dataset.VortexDataset.from_path(str(fname))
 
 
 def test_schema(ds):
@@ -42,7 +40,7 @@ def test_schema(ds):
 
 
 def test_scanner_schema(ds):
-    scanner = vortex.dataset.VortexScanner(ds)
+    scanner = vx.dataset.VortexScanner(ds)
     assert scanner.schema == pa.schema(
         [("bool", pa.bool_()), ("float", pa.float64()), ("index", pa.int64()), ("string", pa.string_view())]
     )
