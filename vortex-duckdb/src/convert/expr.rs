@@ -17,6 +17,9 @@ use crate::cpp::DUCKDB_VX_EXPR_TYPE;
 use crate::duckdb::{Expression, ExpressionClass};
 
 const DUCKDB_FUNCTION_NAME_CONTAINS: &str = "contains";
+const DUCKDB_FUNCTION_NAME_LENGTH: &str = "length";
+const DUCKDB_FUNCTION_NAME_LEN: &str = "len";
+const DUCKDB_FUNCTION_NAME_STRLEN: &str = "strlen";
 
 fn like_pattern_str(value: &Expression) -> VortexResult<Option<String>> {
     match value.as_class().vortex_expect("unknown class") {
@@ -142,6 +145,14 @@ pub fn try_from_bound_expression(value: &Expression) -> VortexResult<Option<Expr
                 };
                 let pattern = LiteralExpr::new_expr(pattern_lit);
                 LikeExpr::new_expr(value, pattern, false, false)
+            }
+            DUCKDB_FUNCTION_NAME_LENGTH
+            | DUCKDB_FUNCTION_NAME_LEN
+            | DUCKDB_FUNCTION_NAME_STRLEN => {
+                // For now, we'll return None to indicate we can't handle this
+                // We'll need to pass context to properly handle this
+                log::debug!("length function detected on column - optimization opportunity");
+                return Ok(None);
             }
             _ => {
                 log::debug!("bound function {}", func.scalar_function.name());

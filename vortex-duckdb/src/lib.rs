@@ -18,6 +18,7 @@ use crate::scan::VortexTableFunction;
 mod convert;
 pub mod duckdb;
 pub mod exporter;
+mod optimizer;
 mod scan;
 mod utils;
 
@@ -38,6 +39,16 @@ pub fn register_table_functions(conn: &Connection) -> VortexResult<()> {
     conn.register_copy_function::<VortexCopyFunction>(c"vortex", c"vortex")
 }
 
+/// Initialize the Vortex extension including optimizer
+pub fn register_extension(db: &Database) -> VortexResult<()> {
+    // Register optimizer extension
+    optimizer::register_optimizer(db)?;
+    
+    // Register table functions
+    let conn = db.connect()?;
+    register_table_functions(&conn)
+}
+
 /// Global symbol visibility in the Vortex extension:
 /// - Rust functions use C ABI with "_rust" suffix (e.g., vortex_init_rust)
 /// - C++ wrapper functions have the expected name without suffix (e.g., vortex_init)
@@ -49,10 +60,8 @@ pub fn register_table_functions(conn: &Connection) -> VortexResult<()> {
 /// The DuckDB extension ABI initialization function.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vortex_init_rust(db: cpp::duckdb_database) {
-    let conn = unsafe { Database::borrow(db) }
-        .connect()
-        .vortex_expect("Failed to connect to DuckDB database");
-    register_table_functions(&conn).vortex_expect("Failed to initialize Vortex extension");
+    let database = unsafe { Database::borrow(db) };
+    register_extension(&database).vortex_expect("Failed to initialize Vortex extension");
 }
 
 /// The DuckDB extension ABI version function.

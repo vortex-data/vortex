@@ -11,7 +11,6 @@ use itertools::Itertools;
 use num_traits::AsPrimitive;
 use tokio::task::block_in_place;
 use url::Url;
-use vortex::dtype::FieldNames;
 use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{ExprRef, and, and_collect, col, lit, root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
@@ -19,7 +18,6 @@ use vortex::scan::{MultiScan, MultiScanIterator};
 use vortex::{ArrayRef, ToCanonical};
 use vortex_file::GenericVortexFile;
 
-use crate::RUNTIME;
 use crate::convert::{try_from_bound_expression, try_from_table_filter};
 use crate::duckdb::footer_cache::FooterCache;
 use crate::duckdb::{
@@ -29,6 +27,7 @@ use crate::duckdb::{
 use crate::exporter::{ArrayExporter, ConversionCache};
 use crate::utils::glob::expand_glob;
 use crate::utils::object_store::s3_store;
+use crate::{RUNTIME, cpp};
 
 pub struct VortexBindData {
     first_file: VortexFile,
@@ -36,6 +35,7 @@ pub struct VortexBindData {
     file_urls: Vec<Url>,
     column_names: Vec<String>,
     column_types: Vec<LogicalType>,
+    virtual_column_mappings: Vec<(usize, usize)>, // (virtual_column_index, source_column_index)
 }
 
 impl Clone for VortexBindData {
@@ -48,6 +48,7 @@ impl Clone for VortexBindData {
             file_urls: self.file_urls.clone(),
             column_names: self.column_names.clone(),
             column_types: self.column_types.clone(),
+            virtual_column_mappings: self.virtual_column_mappings.clone(),
         }
     }
 }
@@ -66,6 +67,8 @@ impl Debug for VortexBindData {
 pub struct VortexGlobalData {
     scan: MultiScan<(ArrayRef, Arc<ConversionCache>)>,
     batch_id: AtomicU64,
+    #[allow(dead_code)]
+    virtual_column_requests: Vec<(usize, usize)>, // (projection_idx, source_column_idx)
 }
 
 pub struct VortexLocalData {
@@ -102,28 +105,52 @@ fn extract_schema_from_vortex_file(
 }
 
 /// Creates a projection expression based on the table initialization input.
-fn extract_projection_expr(init: &TableInitInput<VortexTableFunction>) -> ExprRef {
+/// Returns both the projection expression for real columns and indices of virtual columns
+fn extract_projection_expr(
+    init: &TableInitInput<VortexTableFunction>,
+) -> (ExprRef, Vec<(usize, usize)>) {
     let projection_ids = init.projection_ids().unwrap_or(&[]);
     let column_ids = init.column_ids();
+    let bind_data = init.bind_data();
 
-    select(
-        projection_ids
+    let mut real_columns: Vec<Arc<str>> = Vec::new();
+    let mut virtual_column_requests = Vec::new();
+
+    for (proj_idx, p) in projection_ids.iter().enumerate() {
+        let idx: usize = p.as_();
+        let col_idx: usize = column_ids[idx].as_();
+
+        // Check if this is a virtual column
+        if let Some((_, source_idx)) = bind_data
+            .virtual_column_mappings
             .iter()
-            .map(|p| {
-                let idx: usize = p.as_();
-                let val: usize = column_ids[idx].as_();
-                val
-            })
-            .map(|idx| {
-                init.bind_data()
-                    .column_names
-                    .get(idx)
-                    .vortex_expect("prune idx in column names")
-            })
-            .map(|s| Arc::from(s.as_str()))
-            .collect::<FieldNames>(),
-        root(),
-    )
+            .find(|(virt_idx, _)| *virt_idx == col_idx)
+        {
+            // This is a virtual column, track it
+            virtual_column_requests.push((proj_idx, *source_idx));
+        } else if col_idx < bind_data.column_names.len() - bind_data.virtual_column_mappings.len() {
+            // This is a real column
+            let col_name = bind_data
+                .column_names
+                .get(col_idx)
+                .vortex_expect("prune idx in column names");
+            real_columns.push(Arc::from(col_name.as_str()));
+        }
+    }
+
+    let projection = if real_columns.is_empty() {
+        // If no real columns requested, still need to project something
+        // Project the first column to get row count
+        use vortex::dtype::FieldNames;
+        let field_names: FieldNames = vec![Arc::from(bind_data.column_names[0].as_str())].into();
+        select(field_names, root())
+    } else {
+        use vortex::dtype::FieldNames;
+        let field_names: FieldNames = real_columns.into();
+        select(field_names, root())
+    };
+
+    (projection, virtual_column_requests)
 }
 
 /// Creates a table filter expression from the table filter set.
@@ -235,11 +262,36 @@ impl TableFunction for VortexTableFunction {
             })
         })?;
 
-        let (column_names, column_types) = extract_schema_from_vortex_file(&first_file)?;
+        let (mut column_names, mut column_types) = extract_schema_from_vortex_file(&first_file)?;
+
+        // Create a list to track original column count before adding virtual columns
+        let original_column_count = column_names.len();
+
+        // Add virtual $length columns for string columns
+        let mut virtual_columns = Vec::new();
+        let mut virtual_column_mappings = Vec::new();
+        for i in 0..original_column_count {
+            if column_types[i].as_type_id() == cpp::DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR {
+                let virtual_name = format!("{}$length", column_names[i]);
+                let virtual_index = column_names.len() + virtual_columns.len();
+                virtual_columns.push((
+                    virtual_name.clone(),
+                    LogicalType::new(cpp::DUCKDB_TYPE::DUCKDB_TYPE_BIGINT),
+                ));
+                virtual_column_mappings.push((virtual_index, i));
+            }
+        }
 
         // Add result columns based on the extracted schema.
         for (column_name, column_type) in column_names.iter().zip(&column_types) {
             result.add_result_column(column_name, column_type);
+        }
+
+        // Add virtual columns to the result
+        for (virtual_name, virtual_type) in &virtual_columns {
+            result.add_result_column(virtual_name, virtual_type);
+            column_names.push(virtual_name.clone());
+            column_types.push(virtual_type.clone());
         }
 
         Ok(VortexBindData {
@@ -248,6 +300,7 @@ impl TableFunction for VortexTableFunction {
             filter_exprs: vec![],
             column_names,
             column_types,
+            virtual_column_mappings,
         })
     }
 
@@ -297,18 +350,25 @@ impl TableFunction for VortexTableFunction {
 
     fn init_global(init_input: &TableInitInput<Self>) -> VortexResult<Self::GlobalState> {
         let bind_data = init_input.bind_data();
-        let projection_expr = extract_projection_expr(init_input);
+        let (projection_expr, virtual_column_requests) = extract_projection_expr(init_input);
         let filter_expr = extract_table_filter_expr(init_input, init_input.column_ids())?;
 
         log::trace!(
-            "Global init Vortex scan SELECT {} WHERE {}",
+            "Global init Vortex scan SELECT {} WHERE {}, virtual columns: {:?}",
             &projection_expr,
             filter_expr
                 .as_ref()
-                .map_or("true".to_string(), |f| f.to_string())
+                .map_or("true".to_string(), |f| f.to_string()),
+            virtual_column_requests
         );
 
         let object_cache = init_input.client_context()?.object_cache();
+
+        log::debug!(
+            "projection expr: {}, virtual columns: {:?}",
+            projection_expr,
+            virtual_column_requests
+        );
 
         let closures =
             bind_data
@@ -358,6 +418,7 @@ impl TableFunction for VortexTableFunction {
         Ok(VortexGlobalData {
             scan: MultiScan::new(closures),
             batch_id: AtomicU64::new(0),
+            virtual_column_requests,
         })
     }
 
@@ -426,3 +487,6 @@ impl TableFunction for VortexTableFunction {
         Some(result)
     }
 }
+
+#[cfg(test)]
+mod tests;

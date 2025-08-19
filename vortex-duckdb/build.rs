@@ -242,6 +242,7 @@ fn main() {
         .file("cpp/expr.cpp")
         .file("cpp/logical_type.cpp")
         .file("cpp/object_cache.cpp")
+        .file("cpp/optimizer_rule.cpp")
         .file("cpp/scalar_function.cpp")
         .file("cpp/table_filter.cpp")
         .file("cpp/table_function.cpp")
