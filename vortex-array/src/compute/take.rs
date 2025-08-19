@@ -84,7 +84,7 @@ impl ComputeFnVTable for Take {
             stats.combine_sets(&derived_stats, array.dtype())?;
 
             for (stat, val) in stats {
-                // Alternatively, use a monadic reducer here to set `stat = val`, or if it already
+                // Alternatively, use a monoidal pattern here to set `stat = val`, or if it already
                 // exists, combine the two stats (similar to how `combine_sets` does it).
                 taken_array.statistics().set(stat, val)
             }
