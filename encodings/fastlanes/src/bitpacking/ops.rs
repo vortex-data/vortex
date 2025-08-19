@@ -185,21 +185,23 @@ mod test {
 
     #[test]
     fn scalar_at_invalid_patches() {
-        let packed_array = BitPackedArray::new_unchecked(
-            ByteBuffer::copy_from_aligned([0u8; 128], Alignment::of::<u32>()),
-            DType::Primitive(PType::U32, true.into()),
-            Validity::AllInvalid,
-            Some(Patches::new(
+        let packed_array = unsafe {
+            BitPackedArray::new_unchecked(
+                ByteBuffer::copy_from_aligned([0u8; 128], Alignment::of::<u32>()),
+                DType::Primitive(PType::U32, true.into()),
+                Validity::AllInvalid,
+                Some(Patches::new(
+                    8,
+                    0,
+                    buffer![1u32].into_array(),
+                    PrimitiveArray::new(buffer![999u32], Validity::AllValid).to_array(),
+                )),
+                1,
                 8,
                 0,
-                buffer![1u32].into_array(),
-                PrimitiveArray::new(buffer![999u32], Validity::AllValid).to_array(),
-            )),
-            1,
-            8,
-            0,
-        )
-        .into_array();
+            )
+            .into_array()
+        };
         assert_eq!(
             packed_array.scalar_at(1),
             Scalar::null(DType::Primitive(PType::U32, Nullability::Nullable))

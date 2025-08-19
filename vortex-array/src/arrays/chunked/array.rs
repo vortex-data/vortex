@@ -43,6 +43,13 @@ impl ChunkedArray {
         unsafe { Ok(Self::new_unchecked(chunks, dtype)) }
     }
 
+    /// Create a new `ChunkedArray` from a set of chunks without verifying that all chunks have
+    /// the same DType.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that all chunks have the same DType, else downstream operations
+    /// may break correctness assumptions about `ChunkedArray` child types.
     pub unsafe fn new_unchecked(chunks: Vec<ArrayRef>, dtype: DType) -> Self {
         let nchunks = chunks.len();
 

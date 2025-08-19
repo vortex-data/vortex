@@ -37,14 +37,17 @@ impl OperationsVTable<DeltaVTable> for DeltaVTable {
 
         let logical_len = stop - start;
 
-        DeltaArray::new_unchecked(
-            new_bases,
-            new_deltas,
-            new_validity,
-            physical_start % 1024,
-            logical_len,
-        )
-        .into_array()
+        // SAFETY: slicing valid bases/deltas preserves correctness
+        unsafe {
+            DeltaArray::new_unchecked(
+                new_bases,
+                new_deltas,
+                new_validity,
+                physical_start % 1024,
+                logical_len,
+            )
+            .into_array()
+        }
     }
 
     fn scalar_at(array: &DeltaArray, index: usize) -> Scalar {

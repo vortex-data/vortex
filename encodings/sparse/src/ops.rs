@@ -22,6 +22,7 @@ impl OperationsVTable<SparseVTable> for SparseVTable {
             return new_patches.into_values();
         }
 
+        // SAFETY:
         unsafe { SparseArray::new_unchecked(new_patches, array.fill_scalar().clone()).into_array() }
     }
 

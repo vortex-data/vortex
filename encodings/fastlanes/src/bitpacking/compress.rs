@@ -96,15 +96,18 @@ pub unsafe fn bitpack_encode_unchecked(
     // SAFETY: non-negativity of input checked by caller.
     let packed = unsafe { bitpack_unchecked(&array, bit_width)? };
 
-    Ok(BitPackedArray::new_unchecked(
-        packed,
-        array.dtype().clone(),
-        array.validity().clone(),
-        None,
-        bit_width,
-        array.len(),
-        0,
-    ))
+    // SAFETY: checked by bitpack_unchecked
+    unsafe {
+        Ok(BitPackedArray::new_unchecked(
+            packed,
+            array.dtype().clone(),
+            array.validity().clone(),
+            None,
+            bit_width,
+            array.len(),
+            0,
+        ))
+    }
 }
 
 /// Bitpack a [PrimitiveArray] to the given width.
