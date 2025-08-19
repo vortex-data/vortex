@@ -82,14 +82,14 @@ def _Array_to_arrow_table(self: _arrays.Array) -> pyarrow.Table:
 
     """
     array = self.to_arrow_array()
-    assert isinstance(array, (pyarrow.StructArray, pyarrow.ChunkedArray))
+    assert isinstance(array, pyarrow.StructArray | pyarrow.ChunkedArray)
     return arrow_table_from_struct_array(array)
 
 
 Array.to_arrow_table = _Array_to_arrow_table
 
 
-def _Array_to_pandas_df(self: _arrays.Array) -> "pandas.DataFrame":
+def _Array_to_pandas_df(self: _arrays.Array) -> pandas.DataFrame:
     """Construct a Pandas dataframe from this Vortex array.
 
     Warning
@@ -248,7 +248,7 @@ def _Array_to_polars_series(self: _arrays.Array):  # -> 'polars.Series':  # brea
 setattr(Array, "to_polars_series", _Array_to_polars_series)
 
 
-def _Array_to_numpy(self: _arrays.Array, *, zero_copy_only: bool = True) -> "numpy.ndarray":
+def _Array_to_numpy(self: _arrays.Array, *, zero_copy_only: bool = True) -> numpy.ndarray:
     """Construct a NumPy array from this Vortex array.
 
     This is an alias for :code:`self.to_arrow_array().to_numpy(zero_copy_only)`
@@ -304,14 +304,15 @@ def _Array_to_pylist(self: _arrays.Array) -> list[Any]:
 Array.to_pylist = _Array_to_pylist
 
 
-def array(obj: pyarrow.Array | pyarrow.ChunkedArray | pyarrow.Table | list | "pandas.DataFrame") -> Array:
+def array(obj: pyarrow.Array | pyarrow.ChunkedArray | pyarrow.Table | list | pandas.DataFrame) -> Array:
     """The main entry point for creating Vortex arrays from other Python objects.
 
     This function is also available as ``vortex.array``.
 
     Parameters
     ----------
-    obj : :class:`pyarrow.Array`, :class:`pyarrow.ChunkedArray`, :class:`pyarrow.Table`, :class:`list`, :class:`pandas.DataFrame`
+    obj : :class:`pyarrow.Array`, :class:`pyarrow.ChunkedArray`, :class:`pyarrow.Table`, :class:`list`,
+          :class:`pandas.DataFrame`
         The elements of this array or list become the elements of the Vortex array.
 
     Returns
@@ -390,7 +391,7 @@ def array(obj: pyarrow.Array | pyarrow.ChunkedArray | pyarrow.Table | list | "pa
             return Array.from_arrow(pyarrow.Table.from_pandas(obj))
     except ImportError:
         # if we cannot import pandas, it cannot be a pandas DataFrame
-        assert isinstance(obj, (pyarrow.Array, pyarrow.ChunkedArray, pyarrow.Table))
+        assert isinstance(obj, pyarrow.Array | pyarrow.ChunkedArray | pyarrow.Table)
     return Array.from_arrow(obj)
 
 

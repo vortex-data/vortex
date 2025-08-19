@@ -6,13 +6,14 @@ from typing import TypeAlias
 
 import pyarrow as pa
 
-import vortex as vx
+from .arrays import Array
+from ._lib import file as _file  # pyright: ignore[reportMissingModuleSource]
+from ._lib.iter import ArrayIterator  # pyright: ignore[reportMissingModuleSource]
 import vortex.expr as ve
-from vortex._lib import file as _file  # pyright: ignore[reportMissingModuleSource]
 
 VortexFile = _file.VortexFile
 IntoProjection: TypeAlias = ve.Expr | list[str] | None
-IntoArrayIterator: TypeAlias = vx.Array | vx.ArrayIterator | pa.Table | pa.RecordBatchReader
+IntoArrayIterator: TypeAlias = Array | ArrayIterator | pa.Table | pa.RecordBatchReader
 
 
 def _to_polars(self: VortexFile):

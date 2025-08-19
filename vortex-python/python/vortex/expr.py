@@ -4,7 +4,7 @@
 from datetime import date, datetime
 from typing import TypeAlias
 
-from vortex._lib.expr import Expr, column, literal, root, not_  # pyright: ignore[reportMissingModuleSource]
+from vortex._lib.expr import Expr, column, literal, not_, root  # pyright: ignore[reportMissingModuleSource]
 
 IntoExpr: TypeAlias = Expr | int | str | date | datetime | None
 

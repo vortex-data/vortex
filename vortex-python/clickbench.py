@@ -3,13 +3,13 @@
 
 #!/usr/bin/env python3
 # ruff: noqa: E501
-from typing import Any
 import argparse
 import json
 import os.path
 import timeit
 from collections import defaultdict
 from datetime import date
+from typing import Any
 
 import polars as pl
 

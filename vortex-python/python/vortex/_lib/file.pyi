@@ -5,7 +5,6 @@ from typing import final
 
 import polars as pl
 import pyarrow as pa
-import pyarrow.dataset as pds
 
 import vortex as vx
 import vortex.expr as ve
