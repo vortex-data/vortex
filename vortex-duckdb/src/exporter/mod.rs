@@ -97,6 +97,27 @@ impl ArrayExporter {
         })
     }
 
+    pub fn try_new_with_virtual_columns(
+        array: &StructArray,
+        cache: &ConversionCache,
+        _virtual_column_requests: &[(usize, usize)],
+        _total_columns: usize,
+    ) -> VortexResult<Self> {
+        // For now, just use the standard approach and ignore virtual columns
+        // This is a simplified implementation to get the basic functionality working
+        let fields = array
+            .fields()
+            .iter()
+            .map(|field| new_array_exporter(field.as_ref(), cache))
+            .try_collect()?;
+
+        Ok(Self {
+            fields,
+            array_len: array.len(),
+            remaining: array.len(),
+        })
+    }
+
     /// Export the data into the next chunk.
     ///
     /// Returns `true` if a chunk was exported, `false` if all rows have been exported.
@@ -236,6 +257,46 @@ impl VectorExt for Vector {
             }
         }
     }
+}
+
+/// Virtual column exporter for string length computation
+struct VirtualLengthExporter {
+    source_array: vortex::ArrayRef,
+}
+
+impl VirtualLengthExporter {
+    fn new(source_array: &dyn Array) -> VortexResult<Self> {
+        Ok(Self {
+            source_array: source_array.to_owned().into(),
+        })
+    }
+}
+
+impl ColumnExporter for VirtualLengthExporter {
+    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
+        use crate::cpp::duckdb_vector_get_data;
+
+        // Get the data pointer for the integer vector
+        let data_ptr = unsafe { duckdb_vector_get_data(vector.as_ptr()) };
+        let data_slice: &mut [i32] =
+            unsafe { std::slice::from_raw_parts_mut(data_ptr as *mut i32, len) };
+
+        // Convert source array to canonical VarBinView to compute lengths
+        let varbinview = self.source_array.to_canonical()?.into_varbinview()?;
+
+        // Compute string lengths
+        for i in 0..len {
+            let string_value = varbinview.bytes_at(offset + i);
+            data_slice[i] = string_value.len() as i32;
+        }
+
+        Ok(())
+    }
+}
+
+/// Create a virtual length column exporter for string arrays
+fn new_virtual_length_exporter(source_array: &dyn Array) -> VortexResult<Box<dyn ColumnExporter>> {
+    Ok(Box::new(VirtualLengthExporter::new(source_array)?))
 }
 
 #[cfg(test)]

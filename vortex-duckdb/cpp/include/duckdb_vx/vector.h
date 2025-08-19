@@ -21,6 +21,10 @@ void duckdb_vx_set_dictionary_vector_length(duckdb_vector dict, unsigned int len
 // Add the buffer to the string vector (basically, keep it alive as long as the vector).
 void duckdb_vx_string_vector_add_buffer(duckdb_vector ffi_vector, duckdb_vx_data buffer);
 
+// Get string data and size for computing virtual columns
+uint32_t duckdb_vx_string_vector_get_string_size(duckdb_vector ffi_vector, idx_t index);
+const char *duckdb_vx_string_vector_get_string_data(duckdb_vector ffi_vector, idx_t index);
+
 // Converts a duckdb flat vector into a Sequence vector.
 void duckdb_vx_sequence_vector(duckdb_vector c_vector, int64_t start, int64_t step, idx_t capacity);
 

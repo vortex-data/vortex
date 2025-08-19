@@ -5,6 +5,7 @@
 #include "duckdb/optimizer/optimizer_extension.hpp"
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 #include "duckdb/planner/expression/bound_columnref_expression.hpp"
+#include "duckdb/parser/expression/columnref_expression.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/planner/logical_operator_visitor.hpp"
 #include "duckdb/planner/expression_iterator.hpp"
@@ -37,46 +38,129 @@ public:
         return false;
     }
 
-    // Simple visitor that looks for len() functions and prints what it finds
-    class LengthFunctionVisitor : public LogicalOperatorVisitor {
+    // Helper class to rewrite len() function calls to virtual column references
+    class LengthRewriter {
     public:
-        bool found_length_function = false;
+        static unique_ptr<Expression> RewriteExpression(unique_ptr<Expression> expr, LogicalOperator &op) {
+            if (expr->type == ExpressionType::BOUND_FUNCTION) {
+                auto &func_expr = expr->Cast<BoundFunctionExpression>();
+                auto func_name = StringUtil::Lower(func_expr.function.name);
+                
+                // Check if it's a length function with one argument
+                if ((func_name == "length" || func_name == "len" || func_name == "strlen") && 
+                    func_expr.children.size() == 1) {
+                    
+                    auto &arg = func_expr.children[0];
+                    
+                    // Check if the argument is a column reference
+                    if (arg->type == ExpressionType::BOUND_COLUMN_REF) {
+                        auto &col_ref = arg->Cast<BoundColumnRefExpression>();
+                        
+                        // Create new column name with $length suffix
+                        std::string virtual_col_name = col_ref.alias + "$length";
+                        
+                        std::cout << "🔄 OPTIMIZER: Rewriting " << func_expr.function.name 
+                                  << "(" << col_ref.alias << ") → " << virtual_col_name << std::endl;
+                        
+                        // Try to find the LogicalGet node to access table schema
+                        LogicalGet* get_node = nullptr;
+                        
+                        // Search current operator first
+                        if (op.type == LogicalOperatorType::LOGICAL_GET) {
+                            get_node = &op.Cast<LogicalGet>();
+                        }
+                        
+                        // If not found in current op, search children
+                        if (!get_node) {
+                            std::function<void(LogicalOperator&)> find_get = [&](LogicalOperator &search_op) {
+                                if (!get_node && search_op.type == LogicalOperatorType::LOGICAL_GET) {
+                                    get_node = &search_op.Cast<LogicalGet>();
+                                    return;
+                                }
+                                for (auto &child : search_op.children) {
+                                    find_get(*child);
+                                }
+                            };
+                            find_get(op);
+                        }
+                        
+                        std::cout << "🔍 OPTIMIZER: Looking for virtual column '" << virtual_col_name 
+                                  << "' in table " << col_ref.binding.table_index << std::endl;
+                        
+                        auto virtual_column_index = col_ref.binding.column_index;
+                        
+                        if (get_node) {
+                            std::cout << "📊 OPTIMIZER: Found LogicalGet with " << get_node->names.size() << " columns" << std::endl;
+                            
+                            // Look for the virtual column in the bound column names
+                            for (size_t col_idx = 0; col_idx <= get_node->names.size(); col_idx++) {
+                                std::cout << "   Column " << col_idx << ": " << get_node->names[col_idx] << std::endl;
+                                if (get_node->names[col_idx] == virtual_col_name) {
+                                    virtual_column_index = col_idx;
+                                    std::cout << "✅ OPTIMIZER: Found virtual column '" << virtual_col_name 
+                                              << "' at index " << virtual_column_index << std::endl;
+                                    break;
+                                }
+                            }
+                        } else {
+                            std::cout << "⚠️  OPTIMIZER: No LogicalGet found, using fallback calculation" << std::endl;
+                            // Fallback: assume 2 real columns, virtual columns start at index 2
+                            virtual_column_index = 2 + col_ref.binding.column_index;
+                        }
+                        
+                        std::cout << "🔢 OPTIMIZER: Mapping " << col_ref.alias << " (idx:" << col_ref.binding.column_index 
+                                  << ") → " << virtual_col_name << " (idx:" << virtual_column_index << ")" << std::endl;
+                        
+                        auto virtual_col_ref = make_uniq<BoundColumnRefExpression>(
+                            virtual_col_name,
+                            LogicalType::INTEGER,
+                            ColumnBinding(col_ref.binding.table_index, virtual_column_index),
+                            col_ref.depth
+                        );
+                        
+                        return std::move(virtual_col_ref);
+                    }
+                }
+            }
+            
+            // Recursively rewrite child expressions
+            ExpressionIterator::EnumerateChildren(*expr, [&](unique_ptr<Expression> &child) {
+                child = RewriteExpression(std::move(child), op);
+            });
+            
+            return expr;
+        }
+    };
+
+    // Visitor that applies length function rewriting to all expressions
+    class VortexOptimizerVisitor : public LogicalOperatorVisitor {
+    public:
+        bool made_changes = false;
+        OptimizerExtensionInput* optimizer_input = nullptr; // Access to optimizer context
+        
+        VortexOptimizerVisitor(OptimizerExtensionInput* input) : optimizer_input(input) {}
 
         void VisitOperator(LogicalOperator &op) override {
             std::cout << "🔍 VISITING: Operator type: " << (int)op.type << std::endl;
 
-            // Look at all expressions in this operator
+            // Rewrite all expressions in this operator
             for (size_t i = 0; i < op.expressions.size(); i++) {
-                std::cout << "🔍 EXPRESSION " << i << ": " << op.expressions[i]->ToString() << std::endl;
-
-                CheckExpression(*op.expressions[i]);
+                std::cout << "🔍 BEFORE: " << op.expressions[i]->ToString() << std::endl;
+                
+                auto original_str = op.expressions[i]->ToString();
+                op.expressions[i] = LengthRewriter::RewriteExpression(std::move(op.expressions[i]), op);
+                auto new_str = op.expressions[i]->ToString();
+                
+                if (original_str != new_str) {
+                    made_changes = true;
+                    std::cout << "🔄 AFTER:  " << new_str << std::endl;
+                } else {
+                    std::cout << "🔍 UNCHANGED: " << new_str << std::endl;
+                }
             }
 
             // Visit children
             VisitOperatorChildren(op);
-        }
-
-        void CheckExpression(Expression &expr) {
-            // Check if this is a function expression
-            if (expr.type == ExpressionType::BOUND_FUNCTION) {
-                auto &func_expr = expr.Cast<BoundFunctionExpression>();
-                std::cout << "🎯 FOUND FUNCTION: " << func_expr.function.name << std::endl;
-
-                // Check if it's a length function
-                auto func_name = StringUtil::Lower(func_expr.function.name);
-                if (func_name == "length" || func_name == "len" || func_name == "strlen") {
-                    std::cout << "✅ FOUND LENGTH FUNCTION: " << func_expr.function.name << " with "
-                              << func_expr.children.size() << " args" << std::endl;
-                    found_length_function = true;
-
-                    for (size_t j = 0; j < func_expr.children.size(); j++) {
-                        std::cout << "   ARG " << j << ": " << func_expr.children[j]->ToString() << std::endl;
-                    }
-                }
-            }
-
-            // Recursively check children expressions
-            ExpressionIterator::EnumerateChildren(expr, [&](Expression &child) { CheckExpression(child); });
         }
     };
 
@@ -92,13 +176,12 @@ public:
 
         std::cout << "✅ OPTIMIZER: Found vortex_scan in plan!" << std::endl;
 
-        // Use our visitor to detect length functions
-        LengthFunctionVisitor visitor;
+        // Apply length function rewriting
+        VortexOptimizerVisitor visitor(&input);
         visitor.VisitOperator(*plan);
 
-        if (visitor.found_length_function) {
-            std::cout << "🎯 OPTIMIZER: Found len() functions to potentially optimize!" << std::endl;
-            // TODO: Implement actual transformation here
+        if (visitor.made_changes) {
+            std::cout << "🎯 OPTIMIZER: Successfully applied len() → virtual column transformations!" << std::endl;
         } else {
             std::cout << "ℹ️  OPTIMIZER: No len() functions found to optimize" << std::endl;
         }

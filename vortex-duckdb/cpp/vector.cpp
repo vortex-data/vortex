@@ -55,6 +55,18 @@ extern "C" void duckdb_vx_string_vector_add_buffer(duckdb_vector ffi_vector, duc
     StringVector::AddBuffer(*vector, ext_buffer);
 }
 
+extern "C" uint32_t duckdb_vx_string_vector_get_string_size(duckdb_vector ffi_vector, idx_t index) {
+    auto vector = reinterpret_cast<Vector *>(ffi_vector);
+    auto string_data = FlatVector::GetData<string_t>(*vector);
+    return string_data[index].GetSize();
+}
+
+extern "C" const char *duckdb_vx_string_vector_get_string_data(duckdb_vector ffi_vector, idx_t index) {
+    auto vector = reinterpret_cast<Vector *>(ffi_vector);
+    auto string_data = FlatVector::GetData<string_t>(*vector);
+    return string_data[index].GetData();
+}
+
 void duckdb_vector_flatten(duckdb_vector vector, unsigned long len) {
     auto dvector = reinterpret_cast<Vector *>(vector);
     dvector->Flatten(len);

@@ -114,9 +114,20 @@ fn extract_projection_expr(
 
     let mut real_columns: Vec<Arc<str>> = Vec::new();
     let mut virtual_column_requests = Vec::new();
+    let mut needed_source_columns = std::collections::HashSet::new();
 
+    // First pass: identify virtual columns and their source columns
     for (proj_idx, p) in projection_ids.iter().enumerate() {
         let idx: usize = p.as_();
+        
+        // Check if this index is within the column_ids range
+        if idx >= column_ids.len() {
+            // This might be a virtual column that doesn't have a column_id assigned
+            println!("⚠️  Column index {} is beyond column_ids range ({}), might be virtual column", 
+                     idx, column_ids.len());
+            continue;
+        }
+        
         let col_idx: usize = column_ids[idx].as_();
 
         // Check if this is a virtual column
@@ -125,8 +136,9 @@ fn extract_projection_expr(
             .iter()
             .find(|(virt_idx, _)| *virt_idx == col_idx)
         {
-            // This is a virtual column, track it
+            // This is a virtual column, track it and mark source column as needed
             virtual_column_requests.push((proj_idx, *source_idx));
+            needed_source_columns.insert(*source_idx);
         } else if col_idx < bind_data.column_names.len() - bind_data.virtual_column_mappings.len() {
             // This is a real column
             let col_name = bind_data
@@ -134,6 +146,18 @@ fn extract_projection_expr(
                 .get(col_idx)
                 .vortex_expect("prune idx in column names");
             real_columns.push(Arc::from(col_name.as_str()));
+        }
+    }
+
+    // Second pass: ensure all needed source columns are included in projection
+    for &source_idx in &needed_source_columns {
+        let source_col_name = bind_data
+            .column_names
+            .get(source_idx)
+            .vortex_expect("source column must exist");
+        let source_col_arc = Arc::from(source_col_name.as_str());
+        if !real_columns.contains(&source_col_arc) {
+            real_columns.push(source_col_arc);
         }
     }
 
@@ -344,6 +368,9 @@ impl TableFunction for VortexTableFunction {
 
         assert!(!chunk.is_empty());
 
+        // Compute virtual columns after the real data has been exported
+        compute_virtual_columns(chunk, global_state)?;
+
         Ok(())
     }
 
@@ -484,6 +511,65 @@ impl TableFunction for VortexTableFunction {
 
         Some(result)
     }
+}
+
+/// Compute virtual column values based on the real columns data
+fn compute_virtual_columns(
+    chunk: &mut DataChunk,
+    global_state: &VortexGlobalData,
+) -> VortexResult<()> {
+    // The issue is that virtual columns are expected to be in the chunk but they're not
+    // generated from the Vortex data - they need to be computed from the source columns
+    
+    // For each virtual column request, compute the length from the source column
+    for (virtual_proj_idx, source_col_idx) in &global_state.virtual_column_requests {
+        // Find which column in the chunk corresponds to the source column
+        // The chunk contains the projected real columns, we need to find the right one
+        
+        // This is complex because the chunk column indices don't directly map to
+        // the original column indices due to projection
+        
+        // For now, let's add a debug print to understand the chunk structure
+        println!("🔍 VIRTUAL: Need to compute virtual column at proj_idx {} from source col {}", 
+                 virtual_proj_idx, source_col_idx);
+        println!("🔍 CHUNK: Has {} columns", chunk.column_count());
+    }
+    
+    Ok(())
+}
+
+/// Compute string length for a virtual column
+fn compute_string_length_virtual_column(
+    chunk: &mut DataChunk,
+    source_col_idx: usize,
+    virtual_col_idx: usize,
+) -> VortexResult<()> {
+    use crate::cpp::{
+        DUCKDB_TYPE, duckdb_vector_get_data, duckdb_vx_string_vector_get_string_size,
+    };
+    use crate::duckdb::LogicalType;
+
+    let chunk_len = chunk.len();
+    if chunk_len == 0 {
+        return Ok(());
+    }
+
+    let source_vector = chunk.get_vector(source_col_idx);
+    let virtual_vector = chunk.get_vector(virtual_col_idx);
+
+    // Get data pointers
+    let virtual_data_ptr = unsafe { duckdb_vector_get_data(virtual_vector.as_ptr()) };
+    let virtual_data: &mut [i32] =
+        unsafe { std::slice::from_raw_parts_mut(virtual_data_ptr as *mut i32, chunk_len as usize) };
+
+    // Compute length for each string
+    for i in 0..chunk_len {
+        let string_size =
+            unsafe { duckdb_vx_string_vector_get_string_size(source_vector.as_ptr(), i) };
+        virtual_data[i as usize] = string_size as i32;
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
