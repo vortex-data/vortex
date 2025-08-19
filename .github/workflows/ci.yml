@@ -57,6 +57,8 @@ jobs:
         run: uv run ruff format --check .
       - name: Python Lint - Ruff
         run: uv run ruff check .
+      - name: Python Lint - Ruff
+        run: uv run pyright vortex-python
 
   python-test:
     name: "Python (test)"

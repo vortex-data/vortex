@@ -3,7 +3,7 @@
 
 import pyarrow as pa
 import pyarrow.compute as pc
-from substrait.proto import ExtendedExpression
+from substrait.proto import ExtendedExpression  # pyright: ignore[reportAttributeAccessIssue]
 
 import vortex.expr
 from vortex.substrait import extended_expression

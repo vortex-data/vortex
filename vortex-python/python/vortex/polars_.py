@@ -98,7 +98,6 @@ def _polars_to_vortex(expr: dict) -> ve.Expr:
 
         # Special-case Series
         if literal_type == "Series":
-            expr = pl.Expr.from_json(json.dumps({"Literal": expr}))
             raise ValueError
 
         # Special-case date-times

@@ -4,7 +4,10 @@ name = "vortex-data"
 # https://github.com/PyO3/maturin/blob/main/src/metadata.rs#L127-L129
 dynamic = ["version", "description", "authors"]
 readme = "README.md"
-dependencies = ["pyarrow>=17.0.0", "substrait>=0.23.0"]
+dependencies = [
+    "pyarrow>=17.0.0",
+    "substrait>=0.23.0",
+]
 requires-python = ">= 3.11"
 classifiers = [
     # How mature is this project? Common values are

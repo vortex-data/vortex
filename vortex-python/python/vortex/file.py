@@ -8,11 +8,11 @@ import pyarrow as pa
 
 import vortex as vx
 import vortex.expr as ve
-from vortex._lib import file as _file
+from vortex._lib import file as _file  # pyright: ignore[reportMissingModuleSource]
 
 VortexFile = _file.VortexFile
 IntoProjection: TypeAlias = ve.Expr | list[str] | None
-IntoArrayIterator: TypeAlias = vx.Array | vx.ArrayIterator
+IntoArrayIterator: TypeAlias = vx.Array | vx.ArrayIterator | pa.Table | pa.RecordBatchReader
 
 
 def _to_polars(self: VortexFile):
@@ -30,10 +30,9 @@ def _to_polars(self: VortexFile):
         n_rows: int | None,
         batch_size: int | None,
     ) -> Iterator[pl.DataFrame]:
-        if predicate is not None:
-            predicate = polars_to_vortex(predicate)
+        vx_predicate: ve.Expr | None = None if predicate is None else polars_to_vortex(predicate)
 
-        reader = self.to_arrow(projection=with_columns, expr=predicate)
+        reader = self.to_arrow(projection=with_columns, expr=vx_predicate)
 
         for batch in reader:
             batch = pl.DataFrame._from_arrow(batch, rechunk=False)
@@ -48,7 +47,8 @@ def _to_polars(self: VortexFile):
             ),
         )
 
-    return register_io_source(_io_source, schema=schema)
+    # https://github.com/pola-rs/polars/pull/24125
+    return register_io_source(_io_source, schema=schema)  # pyright: ignore[reportArgumentType]
 
 
 VortexFile.to_polars = _to_polars

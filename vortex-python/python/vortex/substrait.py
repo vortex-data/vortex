@@ -5,10 +5,10 @@ import operator
 from collections.abc import Callable
 
 import substrait
-from substrait.proto import ExtendedExpression, NamedStruct
+from substrait.proto import ExtendedExpression, NamedStruct  # pyright: ignore[reportAttributeAccessIssue]
 
 import vortex as vx
-from vortex._lib import expr as _expr
+from vortex._lib import expr as _expr  # pyright: ignore[reportMissingModuleSource]
 
 
 def literal(substrait_object) -> _expr.Expr:
@@ -142,7 +142,8 @@ def function_argument(substrait_object, functions: list[Callable[..., _expr.Expr
 
 
 def extension_function(
-    substrait_object, extension_uris: list["substrait.proto.extensions.SimpleExtensionURI"]
+    substrait_object,
+    extension_uris: list["substrait.proto.extensions.SimpleExtensionURI"],  # pyright: ignore[reportAttributeAccessIssue]
 ) -> Callable[..., _expr.Expr]:
     # https://github.com/substrait-io/substrait/blob/main/proto/substrait/extensions/extensions.proto#L57
     match extension_uris[substrait_object.extension_uri_reference].uri:
@@ -155,7 +156,7 @@ def extension_function(
                 case "xor":
                     return operator.__xor__
                 case "not":
-                    return operator.__not__
+                    return vx.expr.not_
                 case name:
                     raise NotImplementedError(f"Function name {name} not supported")
         case "https://github.com/substrait-io/substrait/blob/main/extensions/functions_comparison.yaml":

@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.12'",
@@ -1653,6 +1653,7 @@ dev = [
     { name = "pip", specifier = ">=23.3.2" },
     { name = "polars", specifier = ">=1.9.0" },
     { name = "pyright", specifier = ">=1.1.385" },
+    { name = "pyright", specifier = ">=1.1.403" },
     { name = "pytest", specifier = ">=7.4.0" },
     { name = "pytest-benchmark", specifier = ">=4.0.0" },
     { name = "ruff", specifier = ">=0.7.1" },

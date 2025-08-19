@@ -27,11 +27,12 @@ def record(x: int, columns=None) -> dict:
 def ds(tmpdir_factory) -> vortex.dataset.VortexDataset:
     fname = tmpdir_factory.mktemp("data") / "foo.vortex"
 
-    if not os.path.exists(fname):
-        a = pa.array([record(x) for x in range(1_000_000)])
-        arr = vx.compress(vx.array(a))
-        vortex.io.write(arr, str(fname))
-        return vortex.dataset.VortexDataset.from_path(str(fname))
+    assert not os.path.exists(fname)
+
+    a = pa.array([record(x) for x in range(1_000_000)])
+    arr = vx.compress(vx.array(a))
+    vortex.io.write(arr, str(fname))
+    return vortex.dataset.VortexDataset.from_path(str(fname))
 
 
 def test_schema(ds):

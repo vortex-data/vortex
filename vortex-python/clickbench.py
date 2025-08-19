@@ -3,6 +3,7 @@
 
 #!/usr/bin/env python3
 # ruff: noqa: E501
+from typing import Any
 import argparse
 import json
 import os.path
@@ -463,7 +464,7 @@ queries = [
 ]
 
 
-def run_timings(lf: pl.LazyFrame, name: str, src: str, load_time: int | None) -> None:
+def run_timings(lf: pl.LazyFrame, name: str, src: str, load_time: int | None) -> dict[str, Any] | None:
     queries_times = []
     for q in queries:
         # if q[0] == "Q19":

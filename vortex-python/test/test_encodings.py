@@ -13,7 +13,10 @@ def test_struct():
 
     # basic usage
     array = pa.Table.from_arrays([pa.array(["1", "2", "3"]), pa.array([1.0, 2.0, 3.0])], names=["strings", "floats"])
-    struct_array = vortex.array(array).chunks()[0]
+    vxarray = vortex.array(array)
+    assert isinstance(vxarray, vortex.ChunkedArray)
+    struct_array = vxarray.chunks()[0]
+    assert isinstance(struct_array, vortex.StructArray)
     assert struct_array.names() == ["strings", "floats"]
 
     # advanced: duplicate field names
@@ -21,7 +24,9 @@ def test_struct():
         [pa.array(["1", "2", "3"]), pa.array([1.0, 2.0, 3.0]), pa.array(["one", "two", "three"])],
         names=["strings", "floats", "strings"],
     )
-    struct_array = vortex.array(array).chunks()[0]
+    assert isinstance(vxarray, vortex.ChunkedArray)
+    struct_array = vxarray.chunks()[0]
+    assert isinstance(struct_array, vortex.StructArray)
     assert struct_array.names() == ["strings", "floats", "strings"]
 
 
@@ -35,4 +40,5 @@ def test_chunked():
         )
     )
 
+    assert isinstance(chunked_array, vortex.ChunkedArray)
     assert len(chunked_array.chunks())

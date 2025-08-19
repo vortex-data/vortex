@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 import pyarrow
 
 import vortex as vx
-from vortex._lib import arrays as _arrays
+import vortex._lib.arrays as _arrays  # pyright: ignore[reportMissingModuleSource]
 
 try:
     import pandas
@@ -16,7 +16,7 @@ except ImportError:
 else:
     # HACK: monkey-patch a fixed implementation of the pd.ArrowDtype.type property accessor.
     # See https://github.com/pandas-dev/pandas/issues/60068 for more details
-    _old_ArrowDtype_type = pandas.ArrowDtype.type
+    _old_ArrowDtype_type = pandas.ArrowDtype.type.fget
 
     @property
     def __ArrowDtype_type_patched(self):
@@ -24,9 +24,10 @@ else:
             return str
         if pyarrow.types.is_binary_view(self.pyarrow_dtype):
             return bytes
+        assert _old_ArrowDtype_type is not None
         return _old_ArrowDtype_type(self)
 
-    pandas.ArrowDtype.type = __ArrowDtype_type_patched
+    setattr(pandas.ArrowDtype, "type", __ArrowDtype_type_patched)
 
 
 if TYPE_CHECKING:
@@ -36,7 +37,7 @@ Array = _arrays.Array
 
 
 def empty_arrow_table(schema: pyarrow.Schema) -> pyarrow.Table:
-    return pyarrow.Table.from_arrays([[] for _ in schema], schema=schema)
+    return pyarrow.Table.from_arrays([pyarrow.array([], type=t) for t in schema], schema=schema)
 
 
 def arrow_table_from_struct_array(array: pyarrow.StructArray | pyarrow.ChunkedArray) -> pyarrow.Table:
@@ -79,7 +80,9 @@ def _Array_to_arrow_table(self: _arrays.Array) -> pyarrow.Table:
     name: [["Joseph","Narendra","Angela","Mikhail"]]
 
     """
-    return arrow_table_from_struct_array(self.to_arrow_array())
+    array = self.to_arrow_array()
+    assert isinstance(array, (pyarrow.StructArray, pyarrow.ChunkedArray))
+    return arrow_table_from_struct_array(array)
 
 
 Array.to_arrow_table = _Array_to_arrow_table
@@ -116,6 +119,8 @@ def _Array_to_pandas_df(self: _arrays.Array) -> "pandas.DataFrame":
     3   57   Mikhail
 
     """
+    import pandas
+
     return self.to_arrow_table().to_pandas(types_mapper=pandas.ArrowDtype)
 
 
@@ -171,7 +176,7 @@ def _Array_to_polars_dataframe(
     return polars.from_arrow(self.to_arrow_table())
 
 
-Array.to_polars_dataframe = _Array_to_polars_dataframe
+setattr(Array, "to_polars_dataframe", _Array_to_polars_dataframe)
 
 
 def _Array_to_polars_series(self: _arrays.Array):  # -> 'polars.Series':  # breaks docs due to Polars issue #7027
@@ -239,7 +244,7 @@ def _Array_to_polars_series(self: _arrays.Array):  # -> 'polars.Series':  # brea
     return polars.from_arrow(self.to_arrow_array())
 
 
-Array.to_polars_series = _Array_to_polars_series
+setattr(Array, "to_polars_series", _Array_to_polars_series)
 
 
 def _Array_to_numpy(self: _arrays.Array, *, zero_copy_only: bool = True) -> "numpy.ndarray":
@@ -298,14 +303,14 @@ def _Array_to_pylist(self: _arrays.Array) -> list[Any]:
 Array.to_pylist = _Array_to_pylist
 
 
-def array(obj: pyarrow.Array | list | Any) -> Array:
+def array(obj: pyarrow.Array | pyarrow.ChunkedArray | pyarrow.Table | list | "pandas.DataFrame") -> Array:
     """The main entry point for creating Vortex arrays from other Python objects.
 
     This function is also available as ``vortex.array``.
 
     Parameters
     ----------
-    obj : :class:`pyarrow.Array`, :class:`list`, :class:`pandas.DataFrame`
+    obj : :class:`pyarrow.Array`, :class:`pyarrow.ChunkedArray`, :class:`pyarrow.Table`, :class:`list`, :class:`pandas.DataFrame`
         The elements of this array or list become the elements of the Vortex array.
 
     Returns
@@ -383,14 +388,18 @@ def array(obj: pyarrow.Array | list | Any) -> Array:
         if isinstance(obj, pandas.DataFrame):
             return Array.from_arrow(pyarrow.Table.from_pandas(obj))
     except ImportError:
-        pass
+        # if we cannot import pandas, it cannot be a pandas DataFrame
+        assert isinstance(obj, (pyarrow.Array, pyarrow.ChunkedArray, pyarrow.Table))
     return Array.from_arrow(obj)
 
 
 class PyArray(Array, metaclass=abc.ABCMeta):
     """Abstract base class for Python-based Vortex arrays."""
 
-    id: str
+    @property
+    @abc.abstractmethod
+    def id(self) -> str:
+        """The id of the array."""
 
     @abc.abstractmethod
     def __len__(self) -> int:

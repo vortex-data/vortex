@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 from . import _lib
-from ._lib.arrays import (
+from ._lib.arrays import (  # pyright: ignore[reportMissingModuleSource]
     AlpArray,
     AlpRdArray,
     BoolArray,
@@ -26,8 +26,8 @@ from ._lib.arrays import (
     VarBinViewArray,
     ZigZagArray,
 )
-from ._lib.compress import compress
-from ._lib.dtype import (
+from ._lib.compress import compress  # pyright: ignore[reportMissingModuleSource]
+from ._lib.dtype import (  # pyright: ignore[reportMissingModuleSource]
     BinaryDType,
     BoolDType,
     DType,
@@ -49,10 +49,10 @@ from ._lib.dtype import (
     uint,
     utf8,
 )
-from ._lib.file import open
-from ._lib.iter import ArrayIterator
-from ._lib.registry import Registry
-from ._lib.scalar import (
+from ._lib.file import open  # pyright: ignore[reportMissingModuleSource]
+from ._lib.iter import ArrayIterator  # pyright: ignore[reportMissingModuleSource]
+from ._lib.registry import Registry  # pyright: ignore[reportMissingModuleSource]
+from ._lib.scalar import (  # pyright: ignore[reportMissingModuleSource]
     BinaryScalar,
     BoolScalar,
     ExtensionScalar,
@@ -64,13 +64,22 @@ from ._lib.scalar import (
     Utf8Scalar,
     scalar,
 )
-from ._lib.serde import ArrayContext, ArrayParts
+from ._lib.serde import ArrayContext, ArrayParts  # pyright: ignore[reportMissingModuleSource]
 from .arrays import Array, PyArray, array
 from .file import VortexFile
 
 assert _lib, "Ensure we eagerly import the Vortex native library"
 
+from . import io, arrays, dataset, expr, file
+
 __all__ = [
+    # --- Modules ---
+    "io",
+    "arrays",
+    "dataset",
+    "expr",
+    "file",
+    # --- Objects and Functions ---
     "array",
     "compress",
     # Arrays

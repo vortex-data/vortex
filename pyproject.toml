@@ -28,6 +28,7 @@ dev-dependencies = [
     "pyright>=1.1.385",
     "pytest-benchmark>=4.0.0",
     "pytest>=7.4.0",
+    "pyright>=1.1.403",
     "ruff>=0.7.1",
 ]
 

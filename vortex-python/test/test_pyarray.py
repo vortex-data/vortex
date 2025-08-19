@@ -4,22 +4,31 @@
 import numpy as np
 import pyarrow as pa
 import pytest
-from pcodec import ChunkConfig
-from pcodec import wrapped as pco
+from pcodec import ChunkConfig  # pyright: ignore[reportAttributeAccessIssue]
+from pcodec import wrapped as pco  # pyright: ignore[reportAttributeAccessIssue]
 
 import vortex as vx
 
 
 class PCodecArray(vx.PyArray):
-    id = "pcodec.v0"
+    @property
+    def id(self):
+        return "pcodec.v0"
+
+    def __len__(self) -> int:
+        return self._len
+
+    @property
+    def dtype(self) -> vx.DType:
+        return self._dtype
 
     def __init__(
         self,
         length: int,
         dtype: vx.DType,
-        file_header: memoryview,
-        chunk_header: memoryview,
-        data: memoryview,
+        file_header: memoryview[bytes],
+        chunk_header: memoryview[bytes],
+        data: memoryview[bytes],
     ):
         (fd, _bytes_read) = pco.FileDecompressor.new(file_header)
 
@@ -37,7 +46,7 @@ class PCodecArray(vx.PyArray):
             dst=dst,
         )
 
-        self._len = len
+        self._len = length
         self._dtype = dtype
         self._file_header = file_header
         self._chunk_header = chunk_header
@@ -59,18 +68,19 @@ class PCodecArray(vx.PyArray):
         for i, _n in enumerate(cc.n_per_page()):
             data += cc.write_page(i)
 
-        PCodecArray(
+        return PCodecArray(
             len(array),
             vx.DType.from_arrow(array.type),
             file_header,
             chunk_header,
-            data,
+            memoryview(data),
         )
 
     @classmethod
     def decode(cls, parts: vx.ArrayParts, ctx: vx.ArrayContext, dtype: vx.DType, len: int) -> vx.Array:
         """Decode the serialized array parts into an array."""
         assert pco
+        raise NotImplementedError
 
 
 @pytest.mark.skip(reason="Not implemented yet")
