@@ -219,28 +219,72 @@ impl<F: Into<FieldName>> FromIterator<F> for FieldNames {
 
 /// The logical types of elements in Vortex arrays.
 ///
-/// Vortex arrays preserve a single logical type, while the encodings allow for multiple
-/// physical ways to encode that type.
+/// `DType` represents the different logical data types that can be represented in a Vortex array.
+///
+/// This is different from physical types, which represent the actual layout of data (compressed or
+/// uncompressed). The set of physical types/formats (or data layout) is surjective into the set of
+/// logical types (or in other words, all physical types map to a single logical type).
+///
+/// Note that a `DType` represents the logical type of the elements in the `Array`s, **not** the
+/// logical type of the `Array` itself.
+///
+/// For example, an array with [`DType::Primitive`]([`I32`], [`NonNullable`]) could be physically
+/// encoded as any of the following:
+///
+/// - A flat array of `i32` values.
+/// - A run-length encoded sequence.
+/// - Dictionary encoded values with bitpacked codes.
+///
+/// All of these physical encodings preserve the same logical [`I32`] type, even if the physical
+/// data is different.
+/// 
+/// [`I32`]: PType::I32
+/// [`NonNullable`]: Nullability::NonNullable
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum DType {
-    /// The logical null type (only has a single value, `null`)
+    /// A logical null type.
+    ///
+    /// `Null` only has a single value, `null`.
     Null,
-    /// The logical boolean type (`true` or `false` if non-nullable; `true`, `false`, or `null` if nullable)
+
+    /// A logical boolean type.
+    ///
+    /// `Bool` can be `true` or `false` if non-nullable. It can be `true`, `false`, or `null` if
+    /// nullable.
     Bool(Nullability),
-    /// Primitive, fixed-width numeric types (e.g., `u8`, `i8`, `u16`, `i16`, `u32`, `i32`, `u64`, `i64`, `f32`, `f64`)
+
+    /// A logical fixed-width numeric type.
+    ///
+    /// This can be unsigned, signed, or floating point. See [`PType`] for more information.
     Primitive(PType, Nullability),
-    /// Real numbers with fixed exact precision and scale.
+
+    /// Logical real numbers with fixed precision and scale.
+    ///
+    /// See [`DecimalDType`] for more information.
     Decimal(DecimalDType, Nullability),
-    /// UTF-8 strings
+
+    /// Logical UTF-8 strings.
     Utf8(Nullability),
-    /// Binary data
+
+    /// Logical binary data.
     Binary(Nullability),
-    /// A struct is composed of an ordered list of fields, each with a corresponding name and DType
-    Struct(StructFields, Nullability),
-    /// A variable-length list type, parameterized by a single element DType
+
+    /// A logical variable-length list type.
+    ///
+    /// This is parameterized by a single `DType` that represents the element type of the inner
+    /// lists.
     List(Arc<DType>, Nullability),
-    /// User-defined extension types
+
+    /// A logical struct type.
+    ///
+    /// A `Struct` type is composed of an ordered list of fields, each with a corresponding name and
+    /// `DType`. See [`StructFields`] for more information.
+    Struct(StructFields, Nullability),
+
+    /// A user-defined extension type.
+    /// 
+    /// See [`ExtDType`] for more information.
     Extension(Arc<ExtDType>),
 }
 
@@ -341,7 +385,7 @@ impl DType {
         matches!(self, List(_, _))
     }
 
-    /// Check if `self` is a primitive tpye
+    /// Check if `self` is a primitive type
     pub fn is_primitive(&self) -> bool {
         matches!(self, Primitive(_, _))
     }
