@@ -6,38 +6,38 @@
 #include "rust/cxx.h"
 
 namespace vortex {
-ScanBuilder &&ScanBuilder::WithFilter(Expr expr) && {
+ScanBuilder &ScanBuilder::WithFilter(Expr&& expr) {
     impl_->with_filter(std::move(expr).IntoImpl());
-    return std::move(*this);
+    return *this;
 }
 
-ScanBuilder &&ScanBuilder::WithProjection(Expr expr) && {
+ScanBuilder &ScanBuilder::WithProjection(Expr&& expr) {
     impl_->with_projection(std::move(expr).IntoImpl());
-    return std::move(*this);
+    return *this;
 }
 
-ScanBuilder &&ScanBuilder::WithRowRange(uint64_t row_range_start, uint64_t row_range_end) && {
+ScanBuilder &ScanBuilder::WithRowRange(uint64_t row_range_start, uint64_t row_range_end) {
     impl_->with_row_range(row_range_start, row_range_end);
-    return std::move(*this);
+    return *this;
 }
 
-ScanBuilder &&ScanBuilder::WithLimit(uint64_t limit) && {
+ScanBuilder &ScanBuilder::WithLimit(uint64_t limit) {
     impl_->with_limit(limit);
-    return std::move(*this);
+    return *this;
 }
 
-ScanBuilder &&ScanBuilder::WithIncludeByIndex(const uint64_t *indices, std::size_t size) && {
+ScanBuilder &ScanBuilder::WithIncludeByIndex(const uint64_t *indices, std::size_t size) {
     impl_->with_include_by_index(rust::Slice<const uint64_t>(indices, size));
-    return std::move(*this);
+    return *this;
 }
 
-ScanBuilder &&ScanBuilder::WithOutputSchema(ArrowSchema &output_schema) && {
+ScanBuilder &ScanBuilder::WithOutputSchema(ArrowSchema &output_schema) {
     try {
         impl_->with_output_schema(reinterpret_cast<uint8_t *>(&output_schema));
     } catch (const rust::cxxbridge1::Error &e) {
         throw VortexException(e.what());
     }
-    return std::move(*this);
+    return *this;
 }
 
 ArrowArrayStream ScanBuilder::IntoStream() && {

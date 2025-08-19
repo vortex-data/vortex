@@ -56,23 +56,23 @@ public:
     ScanBuilder &operator=(const ScanBuilder &) = delete;
 
     /// Only include rows that match the filter expressions.
-    ScanBuilder &&WithFilter(Expr expr) &&;
+    ScanBuilder &WithFilter(Expr&& expr);
 
     /// Only include columns that match the projection expressions.
-    ScanBuilder &&WithProjection(Expr expr) &&;
+    ScanBuilder &WithProjection(Expr&& expr);
 
     /// Only include rows in the range [row_range_start, row_range_end).
-    ScanBuilder &&WithRowRange(uint64_t row_range_start, uint64_t row_range_end) &&;
+    ScanBuilder &WithRowRange(uint64_t row_range_start, uint64_t row_range_end);
 
     /// Only include rows with the given indices.
-    ScanBuilder &&WithIncludeByIndex(const uint64_t *indices, std::size_t size) &&;
+    ScanBuilder &WithIncludeByIndex(const uint64_t *indices, std::size_t size);
 
     /// Set the limit on the number of rows to scan out.
-    ScanBuilder &&WithLimit(uint64_t limit) &&;
+    ScanBuilder &WithLimit(uint64_t limit);
 
     /// Set the output schema on the scan builder.
     /// TODO: currently if pass in this option, the schema needs to be the schema after adding projection.
-    ScanBuilder &&WithOutputSchema(ArrowSchema &output_schema) &&;
+    ScanBuilder &WithOutputSchema(ArrowSchema &output_schema);
 
     /// Take ownership and consume the scan builder to a stream of record batches.
     ArrowArrayStream IntoStream() &&;
