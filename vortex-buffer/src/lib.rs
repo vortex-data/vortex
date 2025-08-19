@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #![deny(missing_docs)]
+// cudarc HostSlice has len and is_empty methods that duplicate BufferMut methods.
+#![allow(clippy::same_name_method)]
 
 //! A library for working with custom aligned buffers of sized values.
 //!
@@ -59,6 +61,8 @@ mod buffer;
 mod buffer_mut;
 mod bytes;
 mod r#const;
+#[cfg(feature = "cuda")]
+mod cuda;
 mod debug;
 mod macros;
 #[cfg(feature = "memmap2")]

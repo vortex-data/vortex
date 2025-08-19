@@ -29,8 +29,9 @@ members = [
     "vortex-tui",
     "vortex-utils",
     "xtask",
+    "vortex-gpu",
 ]
-exclude = ["duckdb-vortex/duckdb-rs", "java/testfiles", "wasm-test"]
+exclude = ["fls-gpu-kernel-gen", "java/testfiles", "wasm-test"]
 resolver = "2"
 
 [workspace.package]
@@ -85,6 +86,12 @@ clap = "4.5"
 crossbeam-deque = "0.8.6"
 crossbeam-queue = "0.3.12"
 crossterm = "0.29"
+cudarc = { version = "0.17.3", features = [
+    "std",
+    "driver",
+    "cuda-12080",
+    "dynamic-loading",
+], default-features = false }
 dashmap = "6.1.0"
 datafusion = { version = "50", default-features = false }
 datafusion-catalog = { version = "50" }
@@ -216,6 +223,7 @@ vortex-fastlanes = { version = "0.1.0", path = "./encodings/fastlanes", default-
 vortex-file = { version = "0.1.0", path = "./vortex-file", default-features = false }
 vortex-flatbuffers = { version = "0.1.0", path = "./vortex-flatbuffers", default-features = false }
 vortex-fsst = { version = "0.1.0", path = "./encodings/fsst", default-features = false }
+vortex-gpu = { version = "0.1.0", path = "./vortex-gpu", default-features = false }
 vortex-io = { version = "0.1.0", path = "./vortex-io", default-features = false }
 vortex-ipc = { version = "0.1.0", path = "./vortex-ipc", default-features = false }
 vortex-layout = { version = "0.1.0", path = "./vortex-layout", default-features = false }

@@ -161,7 +161,7 @@ impl VarBinViewBuilder {
             VarBinViewArray::new_unchecked(
                 std::mem::take(&mut self.views_builder).freeze(),
                 buffers.finish(),
-                std::mem::replace(&mut self.dtype, DType::Null),
+                self.dtype.clone(),
                 validity,
             )
         }

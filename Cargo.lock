@@ -1396,6 +1396,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cudarc"
+version = "0.17.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72ba848ae5c6f3cb36e71eab5f268763e3fabcabe3f7bc683e16f7fa3d46281e"
+dependencies = [
+ "libloading 0.8.9",
+]
+
+[[package]]
 name = "cxx"
 version = "1.0.186"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6516,6 +6525,7 @@ dependencies = [
  "arrow-buffer",
  "bytes",
  "codspeed-divan-compat",
+ "cudarc",
  "itertools 0.14.0",
  "log",
  "memmap2",
@@ -6885,6 +6895,21 @@ dependencies = [
  "vortex-mask",
  "vortex-scalar",
  "vortex-utils",
+]
+
+[[package]]
+name = "vortex-gpu"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cudarc",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-dtype",
+ "vortex-error",
+ "vortex-fastlanes",
+ "vortex-mask",
+ "walkdir",
 ]
 
 [[package]]
