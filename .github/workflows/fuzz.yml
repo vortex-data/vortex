@@ -121,3 +121,20 @@ jobs:
       - name: Fail job if fuzz run found a bug
         if: steps.fuzz.outcome == 'failure'
         run: exit 1
+  slack_alert:
+    runs-on: ubuntu-latest
+    if: always() && (needs.io_fuzz.result == 'failure' || needs.ops_fuzz.result == 'failure')
+    needs: [io_fuzz, ops_fuzz]
+    steps:
+      - name: Send slack message
+        uses: slackapi/slack-github-action@v2.1.1
+        with:
+          webhook: ${{ secrets.SLACK_FUZZ_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            text: "*FUZZ FAILED*: "
+            blocks:
+              - type: "section"
+                text:
+                  type: "mrkdwn"
+                  text: "🚨 *Fuzz Testing Failed*\n\nOne or more fuzz tests have failed. Please check the workflow run for details and crash artifacts.\n\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow Run>"
