@@ -272,7 +272,7 @@ public:
                     get_op.AddColumnId(col_id);
                 }
                 
-                // Update projection_ids to include virtual columns and set expression bindings
+                // Replace original column projections with virtual column projections
                 for (const auto &replacement : replacements) {
                     // Find the position of the virtual column in our column_ids array
                     auto it = std::find(existing_column_ids.begin(), existing_column_ids.end(), replacement.virtual_column_index);
@@ -281,28 +281,43 @@ public:
                         std::cout << "🔧 OPTIMIZER: Virtual column " << replacement.virtual_column_index 
                                   << " is at position " << virtual_column_position << " in column_ids" << std::endl;
                         
-                        // Add virtual column position to projection_ids if not already present
-                        bool already_projected = false;
-                        idx_t projection_index = 0;
-                        for (size_t i = 0; i < get_op.projection_ids.size(); i++) {
-                            if (get_op.projection_ids[i] == virtual_column_position) {
-                                already_projected = true;
-                                projection_index = i;
-                                break;
+                        // Find projection positions that reference the original source column and replace them
+                        bool found_replacement = false;
+                        for (size_t proj_idx = 0; proj_idx < get_op.projection_ids.size(); proj_idx++) {
+                            idx_t current_column_pos = get_op.projection_ids[proj_idx];
+                            if (current_column_pos < existing_column_ids.size()) {
+                                idx_t current_column_id = existing_column_ids[current_column_pos];
+                                // If this projection position refers to the source column that was transformed
+                                if (current_column_id == replacement.original_column_binding) {
+                                    // Replace this projection position with the virtual column position
+                                    std::cout << "🔧 OPTIMIZER: Replacing projection_ids[" << proj_idx 
+                                              << "] from " << current_column_pos << " (col " << current_column_id 
+                                              << ") to " << virtual_column_position 
+                                              << " (virtual col " << replacement.virtual_column_index << ")" << std::endl;
+                                    get_op.projection_ids[proj_idx] = virtual_column_position;
+                                    
+                                    // Update the expression binding to point to the virtual column position
+                                    if (replacement.expression_ptr) {
+                                        replacement.expression_ptr->binding.column_index = virtual_column_position;
+                                        std::cout << "🔧 OPTIMIZER: Updated expression binding to column_ids position " << virtual_column_position << std::endl;
+                                    }
+                                    found_replacement = true;
+                                    break; // Only replace the first matching position
+                                }
                             }
                         }
                         
-                        if (!already_projected) {
-                            projection_index = get_op.projection_ids.size();
+                        // If we didn't find a source column to replace, add the virtual column as a new projection
+                        if (!found_replacement) {
+                            idx_t projection_index = get_op.projection_ids.size();
                             get_op.projection_ids.push_back(virtual_column_position);
                             std::cout << "🔧 OPTIMIZER: Added virtual column position " << virtual_column_position 
                                       << " to projection_ids at index " << projection_index << std::endl;
-                        }
-                        
-                        // Update the expression binding to point to the projection index
-                        if (replacement.expression_ptr) {
-                            replacement.expression_ptr->binding.column_index = projection_index;
-                            std::cout << "🔧 OPTIMIZER: Updated expression binding to projection index " << projection_index << std::endl;
+                            
+                            if (replacement.expression_ptr) {
+                                replacement.expression_ptr->binding.column_index = virtual_column_position;
+                                std::cout << "🔧 OPTIMIZER: Updated expression binding to column_ids position " << virtual_column_position << std::endl;
+                            }
                         }
                     }
                 }
