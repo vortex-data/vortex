@@ -91,7 +91,9 @@ pub unsafe extern "C" fn vortex_init_rust(db: cpp::duckdb_database) {
 
     // Register table functions
     println!("🚀 INIT: Registering table functions...");
-    let conn = database.connect().expect("Failed to connect to database");
+    let conn = database
+        .connect()
+        .vortex_expect("Failed to connect to database");
     register_table_functions(&conn).vortex_expect("Failed to register table functions");
     println!("✅ INIT: Extension initialization complete");
 }

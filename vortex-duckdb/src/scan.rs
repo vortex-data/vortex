@@ -114,20 +114,24 @@ fn extract_projection_expr(
 
     let mut real_columns: Vec<Arc<str>> = Vec::new();
     let mut virtual_column_requests = Vec::new();
+    #[allow(clippy::disallowed_types)]
     let mut needed_source_columns = std::collections::HashSet::new();
 
     // First pass: identify virtual columns and their source columns
     for (proj_idx, p) in projection_ids.iter().enumerate() {
         let idx: usize = p.as_();
-        
+
         // Check if this index is within the column_ids range
         if idx >= column_ids.len() {
             // This might be a virtual column that doesn't have a column_id assigned
-            println!("⚠️  Column index {} is beyond column_ids range ({}), might be virtual column", 
-                     idx, column_ids.len());
+            println!(
+                "⚠️  Column index {} is beyond column_ids range ({}), might be virtual column",
+                idx,
+                column_ids.len()
+            );
             continue;
         }
-        
+
         let col_idx: usize = column_ids[idx].as_();
 
         // Check if this is a virtual column
@@ -342,9 +346,11 @@ impl TableFunction for VortexTableFunction {
 
                 let (array_result, conversion_cache) = result?;
 
-                local_state.exporter = Some(ArrayExporter::try_new(
+                local_state.exporter = Some(ArrayExporter::try_new_with_virtual_columns(
                     &array_result.to_struct()?,
                     &conversion_cache,
+                    &global_state.virtual_column_requests,
+                    chunk.column_count(),
                 )?);
                 // Relaxed since there is no intra-instruction ordering required.
                 local_state.batch_id = Some(global_state.batch_id.fetch_add(1, Ordering::Relaxed));
@@ -368,9 +374,6 @@ impl TableFunction for VortexTableFunction {
 
         assert!(!chunk.is_empty());
 
-        // Compute virtual columns after the real data has been exported
-        compute_virtual_columns(chunk, global_state)?;
-
         Ok(())
     }
 
@@ -391,9 +394,15 @@ impl TableFunction for VortexTableFunction {
         let object_cache = init_input.client_context()?.object_cache();
 
         println!(
-            "projection expr: {}, virtual columns: {:?}",
+            "PROJECTION: expr: {}, virtual columns: {:?}",
             projection_expr, virtual_column_requests
         );
+        println!(
+            "PROJECTION: projection_ids: {:?}, column_ids: {:?}",
+            init_input.projection_ids().unwrap_or(&[]),
+            init_input.column_ids()
+        );
+        println!("proj {}", projection_expr);
 
         let closures =
             bind_data
@@ -507,69 +516,11 @@ impl TableFunction for VortexTableFunction {
             let mut filters = bind_data.filter_exprs.iter().map(|f| format!("{}", f));
             result.push(("Filters".to_string(), filters.join(" /\\\n")));
         }
+
         // NOTE: Projection is already printed by the planner.
 
         Some(result)
     }
-}
-
-/// Compute virtual column values based on the real columns data
-fn compute_virtual_columns(
-    chunk: &mut DataChunk,
-    global_state: &VortexGlobalData,
-) -> VortexResult<()> {
-    // The issue is that virtual columns are expected to be in the chunk but they're not
-    // generated from the Vortex data - they need to be computed from the source columns
-    
-    // For each virtual column request, compute the length from the source column
-    for (virtual_proj_idx, source_col_idx) in &global_state.virtual_column_requests {
-        // Find which column in the chunk corresponds to the source column
-        // The chunk contains the projected real columns, we need to find the right one
-        
-        // This is complex because the chunk column indices don't directly map to
-        // the original column indices due to projection
-        
-        // For now, let's add a debug print to understand the chunk structure
-        println!("🔍 VIRTUAL: Need to compute virtual column at proj_idx {} from source col {}", 
-                 virtual_proj_idx, source_col_idx);
-        println!("🔍 CHUNK: Has {} columns", chunk.column_count());
-    }
-    
-    Ok(())
-}
-
-/// Compute string length for a virtual column
-fn compute_string_length_virtual_column(
-    chunk: &mut DataChunk,
-    source_col_idx: usize,
-    virtual_col_idx: usize,
-) -> VortexResult<()> {
-    use crate::cpp::{
-        DUCKDB_TYPE, duckdb_vector_get_data, duckdb_vx_string_vector_get_string_size,
-    };
-    use crate::duckdb::LogicalType;
-
-    let chunk_len = chunk.len();
-    if chunk_len == 0 {
-        return Ok(());
-    }
-
-    let source_vector = chunk.get_vector(source_col_idx);
-    let virtual_vector = chunk.get_vector(virtual_col_idx);
-
-    // Get data pointers
-    let virtual_data_ptr = unsafe { duckdb_vector_get_data(virtual_vector.as_ptr()) };
-    let virtual_data: &mut [i32] =
-        unsafe { std::slice::from_raw_parts_mut(virtual_data_ptr as *mut i32, chunk_len as usize) };
-
-    // Compute length for each string
-    for i in 0..chunk_len {
-        let string_size =
-            unsafe { duckdb_vx_string_vector_get_string_size(source_vector.as_ptr(), i) };
-        virtual_data[i as usize] = string_size as i32;
-    }
-
-    Ok(())
 }
 
 #[cfg(test)]

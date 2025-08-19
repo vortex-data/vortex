@@ -4,8 +4,9 @@
 //! Tests for virtual column exposure and len() function optimization.
 
 use tempfile::NamedTempFile;
-use vortex::arrays::{StructArray, VarBinArray};
+use vortex::arrays::{PrimitiveArray, StructArray, VarBinArray};
 use vortex::file::VortexWriteOptions;
+use vortex::IntoArray;
 
 use crate::RUNTIME;
 use crate::duckdb::{Connection, Database};
@@ -60,6 +61,51 @@ async fn create_test_vortex_file() -> NamedTempFile {
     temp_file
 }
 
+async fn create_complex_test_vortex_file() -> NamedTempFile {
+    let temp_file = NamedTempFile::new().unwrap();
+
+    // Create test data with multiple string columns and an integer column
+    let titles = VarBinArray::from_iter(
+        [
+            "Machine Learning Fundamentals",
+            "Advanced Database Systems", 
+            "Web Development with Rust",
+            "Data Structures and Algorithms",
+        ]
+        .iter()
+        .map(|s| Some(s.as_bytes())),
+        vortex::dtype::DType::Utf8(vortex::dtype::Nullability::NonNullable),
+    );
+
+    let descriptions = VarBinArray::from_iter(
+        [
+            "An introduction to ML concepts and techniques",
+            "Deep dive into modern database architectures", 
+            "Building fast web applications using Rust",
+            "Core computer science fundamentals",
+        ]
+        .iter()
+        .map(|s| Some(s.as_bytes())),
+        vortex::dtype::DType::Utf8(vortex::dtype::Nullability::NonNullable),
+    );
+
+    let page_counts = PrimitiveArray::from_iter([245i32, 512i32, 398i32, 687i32]);
+
+    let struct_array = StructArray::try_from_iter([
+        ("title", titles.into_array()), 
+        ("description", descriptions.into_array()),
+        ("page_count", page_counts.into_array()),
+    ]).unwrap();
+
+    let file = tokio::fs::File::create(&temp_file).await.unwrap();
+    VortexWriteOptions::default()
+        .write(file, struct_array.to_array_stream())
+        .await
+        .unwrap();
+
+    temp_file
+}
+
 #[test]
 fn test_virtual_columns_exposed_in_schema() {
     let temp_file = RUNTIME.block_on(create_test_vortex_file());
@@ -74,11 +120,7 @@ fn test_virtual_columns_exposed_in_schema() {
     );
 
     // The fact that this doesn't error means virtual columns are exposed
-    let result = conn.query(&query);
-    match result {
-        Ok(_) => println!("✓ Virtual columns are properly exposed in schema"),
-        Err(e) => panic!("✗ Virtual columns not exposed: {}", e),
-    }
+    conn.query(&query).unwrap();
 }
 
 #[test]
@@ -94,11 +136,7 @@ fn test_len_function_works() {
         file_path
     );
 
-    let result = conn.query(&query);
-    match result {
-        Ok(_) => println!("✓ len() function queries execute successfully"),
-        Err(e) => println!("✗ len() function failed: {}", e),
-    }
+    conn.query(&query).unwrap();
 }
 
 #[test]
@@ -112,12 +150,8 @@ fn test_virtual_column_direct_access() {
         "SELECT url$length, name$length FROM vortex_scan('{}')",
         file_path
     );
-    let result = conn.query(&query);
-
-    match result {
-        Ok(_) => println!("✓ Virtual columns can be accessed directly"),
-        Err(e) => panic!("✗ Virtual column access failed: {}", e),
-    }
+    
+    conn.query(&query).unwrap();
 }
 
 #[test]
@@ -128,13 +162,9 @@ fn test_optimizer_registration() {
 
     // Execute a query that should trigger optimization
     let query = format!("SELECT len(url) FROM vortex_scan('{}')", file_path);
-    let result = conn.query(&query);
-
+    
     // The fact that this doesn't crash indicates the optimizer was registered successfully
-    match result {
-        Ok(_) => println!("✓ Optimizer registered successfully - queries execute without error"),
-        Err(e) => println!("✗ Query failed (optimizer registration issue?): {}", e),
-    }
+    conn.query(&query).unwrap();
 }
 
 #[test]
@@ -145,10 +175,48 @@ fn test_mixed_virtual_and_real_columns() {
 
     // Query mixing real columns and virtual columns
     let query = format!("SELECT url, url$length FROM vortex_scan('{}')", file_path);
-    let result = conn.query(&query);
+    
+    conn.query(&query).unwrap();
+}
 
-    match result {
-        Ok(_) => println!("✓ Can mix real and virtual columns in same query"),
-        Err(e) => panic!("✗ Mixed column query failed: {}", e),
-    }
+#[test]
+fn test_multiple_string_columns_with_len_and_integer_column() {
+    let temp_file = RUNTIME.block_on(create_complex_test_vortex_file());
+    let conn = database_connection_with_optimizer();
+    let file_path = temp_file.path().to_string_lossy();
+
+    // Test virtual columns are exposed for both string columns
+    let virtual_columns_query = format!(
+        "SELECT title$length, description$length FROM vortex_scan('{}')",
+        file_path
+    );
+    conn.query(&virtual_columns_query).unwrap();
+
+    // Test len() functions work on multiple columns
+    let len_functions_query = format!(
+        "SELECT len(title), len(description) FROM vortex_scan('{}')",
+        file_path
+    );
+    conn.query(&len_functions_query).unwrap();
+
+    // Test mixing string columns, virtual columns, and integer column
+    let mixed_query = format!(
+        "SELECT title, len(title), description$length, page_count FROM vortex_scan('{}')",
+        file_path
+    );
+    conn.query(&mixed_query).unwrap();
+
+    // Test complex expressions with len() functions
+    let complex_expr_query = format!(
+        "SELECT len(title) + len(description) as total_text_length, page_count FROM vortex_scan('{}')",
+        file_path
+    );
+    conn.query(&complex_expr_query).unwrap();
+
+    // Test WHERE clause with len() function
+    let where_clause_query = format!(
+        "SELECT title FROM vortex_scan('{}') WHERE len(title) > 25",
+        file_path
+    );
+    conn.query(&where_clause_query).unwrap();
 }

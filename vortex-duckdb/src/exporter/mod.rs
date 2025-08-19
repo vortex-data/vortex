@@ -100,16 +100,58 @@ impl ArrayExporter {
     pub fn try_new_with_virtual_columns(
         array: &StructArray,
         cache: &ConversionCache,
-        _virtual_column_requests: &[(usize, usize)],
-        _total_columns: usize,
+        virtual_column_requests: &[(usize, usize)],
+        total_columns: usize,
     ) -> VortexResult<Self> {
-        // For now, just use the standard approach and ignore virtual columns
-        // This is a simplified implementation to get the basic functionality working
-        let fields = array
-            .fields()
-            .iter()
-            .map(|field| new_array_exporter(field.as_ref(), cache))
-            .try_collect()?;
+        log::debug!(
+            "EXPORTER: Creating exporter for {} total columns, {} virtual requests",
+            total_columns,
+            virtual_column_requests.len()
+        );
+        log::debug!("EXPORTER: Array has {} real fields", array.fields().len());
+        log::debug!(
+            "EXPORTER: Virtual column requests: {:?}",
+            virtual_column_requests
+        );
+
+        // Create exporters for exactly the columns that are projected
+        let mut fields: Vec<Box<dyn ColumnExporter>> = Vec::with_capacity(total_columns);
+
+        // The key insight: we need to place exporters at the exact projection positions
+        // If a position corresponds to a virtual column, use a virtual exporter
+        // If a position corresponds to a real column, use a real exporter
+        for i in 0..total_columns {
+            // Check if this projection position is a virtual column request
+            if let Some((_, source_col_idx)) = virtual_column_requests
+                .iter()
+                .find(|(proj_idx, _)| *proj_idx == i)
+            {
+                // This position needs a virtual column exporter
+                log::debug!(
+                    "EXPORTER: Position {} is virtual column from source {}",
+                    i,
+                    source_col_idx
+                );
+                if *source_col_idx < array.fields().len() {
+                    let source_field = &array.fields()[*source_col_idx];
+                    fields.push(new_virtual_length_exporter(source_field.as_ref())?);
+                } else {
+                    // Fallback for invalid source index
+                    fields.push(new_virtual_length_exporter(array.fields()[0].as_ref())?);
+                }
+            } else {
+                // This position needs a real column exporter
+                // Use the i-th field, or fallback to first field if out of bounds
+                log::debug!("EXPORTER: Position {} is real column", i);
+                let field_idx = if i < array.fields().len() { i } else { 0 };
+                fields.push(new_array_exporter(
+                    array.fields()[field_idx].as_ref(),
+                    cache,
+                )?);
+            }
+        }
+
+        log::debug!("EXPORTER: Created {} exporters", fields.len());
 
         Ok(Self {
             fields,
@@ -267,7 +309,7 @@ struct VirtualLengthExporter {
 impl VirtualLengthExporter {
     fn new(source_array: &dyn Array) -> VortexResult<Self> {
         Ok(Self {
-            source_array: source_array.to_owned().into(),
+            source_array: source_array.to_owned(),
         })
     }
 }
@@ -285,9 +327,16 @@ impl ColumnExporter for VirtualLengthExporter {
         let varbinview = self.source_array.to_canonical()?.into_varbinview()?;
 
         // Compute string lengths
-        for i in 0..len {
+        for (i, data) in data_slice.iter_mut().enumerate().take(len) {
             let string_value = varbinview.bytes_at(offset + i);
-            data_slice[i] = string_value.len() as i32;
+            *data = i32::try_from(string_value.len()).unwrap_or(i32::MAX);
+        }
+
+        // Set vector validity - all virtual columns are non-null
+        unsafe {
+            if let Some(validity) = vector.validity_slice_mut(len) {
+                validity.fill(true);
+            }
         }
 
         Ok(())
