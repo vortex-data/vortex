@@ -364,10 +364,9 @@ impl TableFunction for VortexTableFunction {
 
         let object_cache = init_input.client_context()?.object_cache();
 
-        log::debug!(
+        println!(
             "projection expr: {}, virtual columns: {:?}",
-            projection_expr,
-            virtual_column_requests
+            projection_expr, virtual_column_requests
         );
 
         let closures =

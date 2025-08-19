@@ -9,6 +9,7 @@ use vortex::arrays::{StructArray, VarBinArray};
 use vortex::file::VortexWriteOptions;
 
 use crate::duckdb::{Connection, Database};
+use crate::RUNTIME;
 
 async fn create_demo_vortex_file() -> NamedTempFile {
     let temp_file = NamedTempFile::new().unwrap();
@@ -52,12 +53,12 @@ fn database_connection_with_optimizer() -> Connection {
     db.connect().unwrap()
 }
 
-#[tokio::test]
-async fn test_plan_rewrite_demonstration() {
+#[test]
+fn test_plan_rewrite_demonstration() {
     println!("\n🎯 PLAN REWRITE DEMONSTRATION");
     println!("===============================");
 
-    let temp_file = create_demo_vortex_file().await;
+    let temp_file = RUNTIME.block_on(create_demo_vortex_file());
     let conn = database_connection_with_optimizer();
     let file_path = temp_file.path().to_string_lossy();
 
@@ -101,9 +102,9 @@ async fn test_plan_rewrite_demonstration() {
     println!("5. Projection pushdown now works with virtual columns");
 }
 
-#[tokio::test]
-async fn test_explain_shows_transformation() {
-    let temp_file = create_demo_vortex_file().await;
+#[test]
+fn test_explain_shows_transformation() {
+    let temp_file = RUNTIME.block_on(create_demo_vortex_file());
     let conn = database_connection_with_optimizer();
     let file_path = temp_file.path().to_string_lossy();
 

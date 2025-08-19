@@ -4,7 +4,7 @@
 #[cfg(test)]
 mod basic_test;
 #[cfg(test)]
-mod implementation_summary_test;
+mod debug_exception_test;
 #[cfg(test)]
 mod object_cache_test;
 #[cfg(test)]

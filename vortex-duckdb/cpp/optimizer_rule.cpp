@@ -121,7 +121,11 @@ extern "C" void duckdb_vx_register_optimizer(duckdb_database db_handle) {
     if (!db_handle) {
         return;
     }
-    
+
+    try {
     auto db = reinterpret_cast<DuckDB *>(db_handle);
     vortex::VortexOptimizerExtension::Register(*db->instance);
+    } catch (std::exception e) {
+    std::cout << e.what() << std::endl;
+    }
 }

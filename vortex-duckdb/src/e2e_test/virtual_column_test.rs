@@ -4,11 +4,11 @@
 //! Tests for virtual column exposure and len() function optimization.
 
 use tempfile::NamedTempFile;
-use vortex::IntoArray;
 use vortex::arrays::{StructArray, VarBinArray};
 use vortex::file::VortexWriteOptions;
 
 use crate::duckdb::{Connection, Database};
+use crate::RUNTIME;
 
 fn database_connection_with_optimizer() -> Connection {
     let db = Database::open_in_memory().unwrap();
@@ -60,9 +60,9 @@ async fn create_test_vortex_file() -> NamedTempFile {
     temp_file
 }
 
-#[tokio::test]
-async fn test_virtual_columns_exposed_in_schema() {
-    let temp_file = create_test_vortex_file().await;
+#[test]
+fn test_virtual_columns_exposed_in_schema() {
+    let temp_file = RUNTIME.block_on(create_test_vortex_file());
     let conn = database_connection_with_optimizer();
     let file_path = temp_file.path().to_string_lossy();
 
@@ -81,9 +81,9 @@ async fn test_virtual_columns_exposed_in_schema() {
     }
 }
 
-#[tokio::test]
-async fn test_len_function_works() {
-    let temp_file = create_test_vortex_file().await;
+#[test]
+fn test_len_function_works() {
+    let temp_file = RUNTIME.block_on(create_test_vortex_file());
     let conn = database_connection_with_optimizer();
     let file_path = temp_file.path().to_string_lossy();
 
@@ -101,9 +101,9 @@ async fn test_len_function_works() {
     }
 }
 
-#[tokio::test]
-async fn test_virtual_column_direct_access() {
-    let temp_file = create_test_vortex_file().await;
+#[test]
+fn test_virtual_column_direct_access() {
+    let temp_file = RUNTIME.block_on(create_test_vortex_file());
     let conn = database_connection_with_optimizer();
     let file_path = temp_file.path().to_string_lossy();
 
@@ -120,9 +120,9 @@ async fn test_virtual_column_direct_access() {
     }
 }
 
-#[tokio::test]
-async fn test_optimizer_registration() {
-    let temp_file = create_test_vortex_file().await;
+#[test]
+fn test_optimizer_registration() {
+    let temp_file = RUNTIME.block_on(create_test_vortex_file());
     let conn = database_connection_with_optimizer();
     let file_path = temp_file.path().to_string_lossy();
 
@@ -137,9 +137,9 @@ async fn test_optimizer_registration() {
     }
 }
 
-#[tokio::test]
-async fn test_mixed_virtual_and_real_columns() {
-    let temp_file = create_test_vortex_file().await;
+#[test]
+fn test_mixed_virtual_and_real_columns() {
+    let temp_file = RUNTIME.block_on(create_test_vortex_file());
     let conn = database_connection_with_optimizer();
     let file_path = temp_file.path().to_string_lossy();
 
