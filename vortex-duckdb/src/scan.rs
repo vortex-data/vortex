@@ -67,7 +67,6 @@ impl Debug for VortexBindData {
 pub struct VortexGlobalData {
     scan: MultiScan<(ArrayRef, Arc<ConversionCache>)>,
     batch_id: AtomicU64,
-    #[allow(dead_code)]
     virtual_column_requests: Vec<(usize, usize)>, // (projection_idx, source_column_idx)
 }
 

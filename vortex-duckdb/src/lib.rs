@@ -39,14 +39,25 @@ pub fn register_table_functions(conn: &Connection) -> VortexResult<()> {
     conn.register_copy_function::<VortexCopyFunction>(c"vortex", c"vortex")
 }
 
-/// Initialize the Vortex extension including optimizer
+/// Initialize the Vortex extension (table functions AND optimizer)
 pub fn register_extension(db: &Database) -> VortexResult<()> {
-    // Register optimizer extension
-    optimizer::register_optimizer(db)?;
+    println!("🚀 REGISTERING: Starting Vortex extension registration...");
+
+    // Register optimizer first (this handles the C++ extension system)
+    println!("🚀 REGISTERING: Registering optimizer...");
+    if let Err(e) = optimizer::register_optimizer(db) {
+        println!("⚠️ REGISTERING: Optimizer registration failed: {}, continuing with table functions only", e);
+    } else {
+        println!("✅ REGISTERING: Optimizer registration succeeded!");
+    }
 
     // Register table functions
+    println!("🚀 REGISTERING: Registering table functions...");
     let conn = db.connect()?;
-    register_table_functions(&conn)
+    let result = register_table_functions(&conn);
+    println!("✅ REGISTERING: Extension registration completed!");
+    
+    result
 }
 
 /// Global symbol visibility in the Vortex extension:
@@ -60,8 +71,23 @@ pub fn register_extension(db: &Database) -> VortexResult<()> {
 /// The DuckDB extension ABI initialization function.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vortex_init_rust(db: cpp::duckdb_database) {
+    println!("🚀 INIT: vortex_init_rust called - registering at DuckDB extension loading time");
+    
     let database = unsafe { Database::borrow(db) };
-    register_extension(&database).vortex_expect("Failed to initialize Vortex extension");
+    
+    // Try registering optimizer first, during extension loading
+    println!("🚀 INIT: Registering optimizer during extension loading...");
+    if let Err(e) = optimizer::register_optimizer(&database) {
+        println!("⚠️ INIT: Optimizer registration failed: {}, continuing without optimizer", e);
+    } else {
+        println!("✅ INIT: Optimizer registration succeeded during extension loading");
+    }
+    
+    // Register table functions
+    println!("🚀 INIT: Registering table functions...");
+    let conn = database.connect().expect("Failed to connect to database");
+    register_table_functions(&conn).vortex_expect("Failed to register table functions");
+    println!("✅ INIT: Extension initialization complete");
 }
 
 /// The DuckDB extension ABI version function.
