@@ -30,6 +30,7 @@ dev-dependencies = [
     "pytest>=7.4.0",
     "pyright>=1.1.403",
     "ruff>=0.7.1",
+    "pcodec>=0.3.3",
 ]
 
 [tool.uv.workspace]
