@@ -43,7 +43,7 @@ pub fn register_table_functions(conn: &Connection) -> VortexResult<()> {
 pub fn register_extension(db: &Database) -> VortexResult<()> {
     // Register optimizer extension
     optimizer::register_optimizer(db)?;
-    
+
     // Register table functions
     let conn = db.connect()?;
     register_table_functions(&conn)

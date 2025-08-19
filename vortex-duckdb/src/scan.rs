@@ -276,7 +276,7 @@ impl TableFunction for VortexTableFunction {
                 let virtual_index = column_names.len() + virtual_columns.len();
                 virtual_columns.push((
                     virtual_name.clone(),
-                    LogicalType::new(cpp::DUCKDB_TYPE::DUCKDB_TYPE_BIGINT),
+                    LogicalType::new(cpp::DUCKDB_TYPE::DUCKDB_TYPE_INTEGER),
                 ));
                 virtual_column_mappings.push((virtual_index, i));
             }
