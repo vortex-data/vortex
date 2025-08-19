@@ -372,6 +372,13 @@ impl TableFunction for VortexTableFunction {
             }
         }
 
+        println!(
+            "chunk: {}",
+            String::try_from(&*chunk)
+                .ok()
+                .vortex_expect("error: chunk missing")
+        );
+
         assert!(!chunk.is_empty());
 
         Ok(())
