@@ -8,8 +8,8 @@ use vortex::IntoArray;
 use vortex::arrays::{StructArray, VarBinArray};
 use vortex::file::VortexWriteOptions;
 
-use crate::duckdb::{Connection, Database};
 use crate::RUNTIME;
+use crate::duckdb::{Connection, Database};
 
 async fn create_demo_vortex_file() -> NamedTempFile {
     let temp_file = NamedTempFile::new().unwrap();
@@ -45,10 +45,10 @@ async fn create_demo_vortex_file() -> NamedTempFile {
 }
 
 fn database_connection_with_optimizer() -> Connection {
-    let db = Database::open_in_memory().unwrap();
+    let mut db = Database::open_in_memory().unwrap();
 
     // Register the full extension including optimizer
-    crate::register_extension(&db).unwrap();
+    crate::register_extension(&mut db).unwrap();
 
     db.connect().unwrap()
 }

@@ -13,10 +13,10 @@ use crate::RUNTIME;
 use crate::duckdb::{Connection, Database};
 
 fn database_connection_with_optimizer() -> Connection {
-    let db = Database::open_in_memory().unwrap();
+    let mut db = Database::open_in_memory().unwrap();
 
     // Register the full extension including optimizer
-    crate::register_extension(&db).unwrap();
+    crate::register_extension(&mut db).unwrap();
 
     db.connect().unwrap()
 }
@@ -111,11 +111,11 @@ fn test_debug_virtual_column_exception() {
     }
 }
 
-#[tokio::test]
-async fn test_debug_real_columns_only() {
+#[test]
+fn test_debug_real_columns_only() {
     println!("\n🔍 DEBUG: Testing real columns only (should work)");
 
-    let temp_file = create_test_vortex_file().await;
+    let temp_file = RUNTIME.block_on(create_test_vortex_file());
     let conn = database_connection_with_optimizer();
     let file_path = temp_file.path().to_string_lossy();
 

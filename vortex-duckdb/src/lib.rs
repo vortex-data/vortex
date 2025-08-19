@@ -40,13 +40,16 @@ pub fn register_table_functions(conn: &Connection) -> VortexResult<()> {
 }
 
 /// Initialize the Vortex extension (table functions AND optimizer)
-pub fn register_extension(db: &Database) -> VortexResult<()> {
+pub fn register_extension(db: &mut Database) -> VortexResult<()> {
     println!("🚀 REGISTERING: Starting Vortex extension registration...");
 
     // Register optimizer first (this handles the C++ extension system)
     println!("🚀 REGISTERING: Registering optimizer...");
     if let Err(e) = optimizer::register_optimizer(db) {
-        println!("⚠️ REGISTERING: Optimizer registration failed: {}, continuing with table functions only", e);
+        println!(
+            "⚠️ REGISTERING: Optimizer registration failed: {}, continuing with table functions only",
+            e
+        );
     } else {
         println!("✅ REGISTERING: Optimizer registration succeeded!");
     }
@@ -56,7 +59,7 @@ pub fn register_extension(db: &Database) -> VortexResult<()> {
     let conn = db.connect()?;
     let result = register_table_functions(&conn);
     println!("✅ REGISTERING: Extension registration completed!");
-    
+
     result
 }
 
@@ -72,17 +75,20 @@ pub fn register_extension(db: &Database) -> VortexResult<()> {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vortex_init_rust(db: cpp::duckdb_database) {
     println!("🚀 INIT: vortex_init_rust called - registering at DuckDB extension loading time");
-    
-    let database = unsafe { Database::borrow(db) };
-    
+
+    let mut database = unsafe { Database::borrow(db) };
+
     // Try registering optimizer first, during extension loading
     println!("🚀 INIT: Registering optimizer during extension loading...");
-    if let Err(e) = optimizer::register_optimizer(&database) {
-        println!("⚠️ INIT: Optimizer registration failed: {}, continuing without optimizer", e);
+    if let Err(e) = optimizer::register_optimizer(&mut database) {
+        println!(
+            "⚠️ INIT: Optimizer registration failed: {}, continuing without optimizer",
+            e
+        );
     } else {
         println!("✅ INIT: Optimizer registration succeeded during extension loading");
     }
-    
+
     // Register table functions
     println!("🚀 INIT: Registering table functions...");
     let conn = database.connect().expect("Failed to connect to database");

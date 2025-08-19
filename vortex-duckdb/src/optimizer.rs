@@ -5,17 +5,18 @@
 
 use vortex::error::VortexResult;
 
+use crate::cpp::duckdb_database;
 use crate::duckdb::Database;
 
 unsafe extern "C" {
     /// Register the Vortex optimizer extension that rewrites len(column) -> column$length
-    fn duckdb_vx_register_optimizer(db_handle: *mut std::ffi::c_void);
+    fn duckdb_vx_register_optimizer(db_handle: duckdb_database);
 }
 
 /// Register the Vortex optimizer extension with DuckDB
-pub fn register_optimizer(db: &Database) -> VortexResult<()> {
+pub fn register_optimizer(db: &mut Database) -> VortexResult<()> {
     unsafe {
-        duckdb_vx_register_optimizer(db.as_ptr() as *mut std::ffi::c_void);
+        duckdb_vx_register_optimizer(db.as_ptr());
     }
     Ok(())
 }
