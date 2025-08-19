@@ -23,6 +23,16 @@ pub type FieldName = Arc<str>;
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FieldNames(Arc<[FieldName]>);
 
+impl Display for FieldNames {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "[{}]",
+            itertools::join(self.0.iter().map(|n| format!("\"{n}\"")), ", ")
+        )
+    }
+}
+
 impl PartialEq<&FieldNames> for FieldNames {
     fn eq(&self, other: &&FieldNames) -> bool {
         self == *other
@@ -534,5 +544,13 @@ mod tests {
         assert_ne!(field_names, &["field1", "field2"][..]);
         assert_ne!(field_names, ["different", "fields", "here"]);
         assert_ne!(field_names, &["field1", "field2", "field3", "extra"][..]);
+    }
+
+    #[test]
+    fn test_field_names_display() {
+        let names = FieldNames::from(["a", "b", "c"]);
+        let f = format!("{names}");
+
+        assert_eq!(f, r#"["a", "b", "c"]"#);
     }
 }
