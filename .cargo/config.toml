@@ -16,4 +16,4 @@ vx = "run -p vortex-tui --"
 # means that it will block indefinitely and this config override is
 # necessary for using the -Zpublish-timeout setting.
 # See https://doc.rust-lang.org/beta/cargo/reference/unstable.html#publish-timeout
-timeout = 0
+timeout = 3600
