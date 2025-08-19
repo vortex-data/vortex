@@ -105,19 +105,20 @@ impl ALPRDArray {
             })
             .transpose()?;
 
-        Ok(Self::new_unchecked(
+        Ok(Self {
             dtype,
             left_parts,
             left_parts_dictionary,
             right_parts,
             right_bit_width,
             left_parts_patches,
-        ))
+            stats_set: Default::default(),
+        })
     }
 
     /// Build a new `ALPRDArray` from components. This does not perform any validation, and instead
     /// it constructs it from parts.
-    pub(crate) fn new_unchecked(
+    pub(crate) unsafe fn new_unchecked(
         dtype: DType,
         left_parts: ArrayRef,
         left_parts_dictionary: Buffer<u16>,

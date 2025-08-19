@@ -22,7 +22,7 @@ impl OperationsVTable<SparseVTable> for SparseVTable {
             return new_patches.into_values();
         }
 
-        SparseArray::new_unchecked(new_patches, array.fill_scalar().clone()).into_array()
+        unsafe { SparseArray::new_unchecked(new_patches, array.fill_scalar().clone()).into_array() }
     }
 
     fn scalar_at(array: &SparseArray, index: usize) -> Scalar {

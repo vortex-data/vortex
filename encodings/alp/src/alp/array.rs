@@ -209,7 +209,7 @@ impl ALPArray {
     ///
     /// See [`ALPArray::try_new`] for information about the preconditions that should be checked
     /// **before** calling this method.
-    pub(crate) fn new_unchecked(
+    pub(crate) unsafe fn new_unchecked(
         encoded: ArrayRef,
         exponents: Exponents,
         patches: Option<Patches>,

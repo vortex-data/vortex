@@ -13,13 +13,16 @@ use crate::{DateTimePartsArray, DateTimePartsVTable, timestamp};
 
 impl OperationsVTable<DateTimePartsVTable> for DateTimePartsVTable {
     fn slice(array: &DateTimePartsArray, start: usize, stop: usize) -> ArrayRef {
-        DateTimePartsArray::new_unchecked(
-            array.dtype().clone(),
-            array.days().slice(start, stop),
-            array.seconds().slice(start, stop),
-            array.subseconds().slice(start, stop),
-        )
-        .into_array()
+        // SAFETY: slicing all components preserves values
+        unsafe {
+            DateTimePartsArray::new_unchecked(
+                array.dtype().clone(),
+                array.days().slice(start, stop),
+                array.seconds().slice(start, stop),
+                array.subseconds().slice(start, stop),
+            )
+            .into_array()
+        }
     }
 
     fn scalar_at(array: &DateTimePartsArray, index: usize) -> Scalar {

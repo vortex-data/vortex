@@ -105,16 +105,19 @@ impl FSSTArray {
             vortex_bail!(InvalidArgument: "codes array must be DType::Binary type");
         }
 
-        Ok(Self::new_unchecked(
-            dtype,
-            symbols,
-            symbol_lengths,
-            codes,
-            uncompressed_lengths,
-        ))
+        // SAFETY: all components validated above
+        unsafe {
+            Ok(Self::new_unchecked(
+                dtype,
+                symbols,
+                symbol_lengths,
+                codes,
+                uncompressed_lengths,
+            ))
+        }
     }
 
-    pub(crate) fn new_unchecked(
+    pub(crate) unsafe fn new_unchecked(
         dtype: DType,
         symbols: Buffer<Symbol>,
         symbol_lengths: Buffer<u8>,

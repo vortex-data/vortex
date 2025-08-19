@@ -103,7 +103,13 @@ impl Patches {
             max - offset < array_len,
             "Patch indices {max:?}, offset {offset} are longer than the array length {array_len}"
         );
-        Self::new_unchecked(array_len, offset, indices, values)
+
+        Self {
+            array_len,
+            offset,
+            indices,
+            values,
+        }
     }
 
     /// Construct new patches without validating any of the arguments
@@ -115,7 +121,7 @@ impl Patches {
     /// * Indices is an unsigned integer type
     /// * Indices must be sorted
     /// * Last value in indices is smaller than array_len
-    pub fn new_unchecked(
+    pub unsafe fn new_unchecked(
         array_len: usize,
         offset: usize,
         indices: ArrayRef,
@@ -197,12 +203,15 @@ impl Patches {
     }
 
     pub fn cast_values(self, values_dtype: &DType) -> VortexResult<Self> {
-        Ok(Self::new_unchecked(
-            self.array_len,
-            self.offset,
-            self.indices,
-            cast(&self.values, values_dtype)?,
-        ))
+        // SAFETY: casting does not affect the relationship between the indices and values
+        unsafe {
+            Ok(Self::new_unchecked(
+                self.array_len,
+                self.offset,
+                self.indices,
+                cast(&self.values, values_dtype)?,
+            ))
+        }
     }
 
     /// Get the patched value at a given index if it exists.
@@ -335,12 +344,15 @@ impl Patches {
             return Ok(None);
         }
 
-        Ok(Some(Self::new_unchecked(
-            self.array_len,
-            self.offset,
-            filter(&self.indices, &filter_mask)?,
-            filter(&self.values, &filter_mask)?,
-        )))
+        // SAFETY: filtering indices/values with same mask maintains their 1:1 relationship
+        unsafe {
+            Ok(Some(Self::new_unchecked(
+                self.array_len,
+                self.offset,
+                filter(&self.indices, &filter_mask)?,
+                filter(&self.values, &filter_mask)?,
+            )))
+        }
     }
 
     /// Slice the patches by a range of the patched array.

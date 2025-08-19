@@ -70,7 +70,7 @@ impl DecimalBytePartsArray {
         })
     }
 
-    pub(crate) fn new_unchecked(msp: ArrayRef, decimal_dtype: DecimalDType) -> Self {
+    pub(crate) unsafe fn new_unchecked(msp: ArrayRef, decimal_dtype: DecimalDType) -> Self {
         let nullable = msp.dtype().nullability();
         Self {
             msp,
@@ -129,8 +129,14 @@ impl CanonicalVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
 
 impl OperationsVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
     fn slice(array: &DecimalBytePartsArray, start: usize, stop: usize) -> ArrayRef {
-        DecimalBytePartsArray::new_unchecked(array.msp.slice(start, stop), *array.decimal_dtype())
+        // SAFETY: slicing encoded MSP does not change the encoded values
+        unsafe {
+            DecimalBytePartsArray::new_unchecked(
+                array.msp.slice(start, stop),
+                *array.decimal_dtype(),
+            )
             .into_array()
+        }
     }
 
     #[allow(clippy::useless_conversion)]

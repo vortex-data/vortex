@@ -17,7 +17,10 @@ impl OperationsVTable<ChunkedVTable> for ChunkedVTable {
         );
 
         if array.is_empty() {
-            return ChunkedArray::new_unchecked(vec![], array.dtype().clone()).into_array();
+            // SAFETY: empty chunked array trivially satisfies all validations
+            unsafe {
+                return ChunkedArray::new_unchecked(vec![], array.dtype().clone()).into_array();
+            }
         }
 
         let (offset_chunk, offset_in_first_chunk) = array.find_chunk_idx(start);
@@ -41,7 +44,8 @@ impl OperationsVTable<ChunkedVTable> for ChunkedVTable {
             *c = c.slice(0, length_in_last_chunk);
         }
 
-        ChunkedArray::new_unchecked(chunks, array.dtype().clone()).into_array()
+        // SAFETY: all chunks still have same DType
+        unsafe { ChunkedArray::new_unchecked(chunks, array.dtype().clone()).into_array() }
     }
 
     fn scalar_at(array: &ChunkedArray, index: usize) -> Scalar {

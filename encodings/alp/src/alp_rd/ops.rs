@@ -14,15 +14,18 @@ impl OperationsVTable<ALPRDVTable> for ALPRDVTable {
             .left_parts_patches()
             .and_then(|patches| patches.slice(start, stop));
 
-        ALPRDArray::new_unchecked(
-            array.dtype().clone(),
-            array.left_parts().slice(start, stop),
-            array.left_parts_dictionary().clone(),
-            array.right_parts().slice(start, stop),
-            array.right_bit_width(),
-            left_parts_exceptions,
-        )
-        .into_array()
+        // SAFETY: slicing components does not change the encoded values
+        unsafe {
+            ALPRDArray::new_unchecked(
+                array.dtype().clone(),
+                array.left_parts().slice(start, stop),
+                array.left_parts_dictionary().clone(),
+                array.right_parts().slice(start, stop),
+                array.right_bit_width(),
+                left_parts_exceptions,
+            )
+            .into_array()
+        }
     }
 
     fn scalar_at(array: &ALPRDArray, index: usize) -> Scalar {

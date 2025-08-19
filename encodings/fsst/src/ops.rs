@@ -12,20 +12,21 @@ use crate::{FSSTArray, FSSTVTable};
 
 impl OperationsVTable<FSSTVTable> for FSSTVTable {
     fn slice(array: &FSSTArray, start: usize, stop: usize) -> ArrayRef {
-        // Slicing an FSST array leaves the symbol table unmodified,
-        // only slicing the `codes` array.
-        FSSTArray::new_unchecked(
-            array.dtype().clone(),
-            array.symbols().clone(),
-            array.symbol_lengths().clone(),
-            array
-                .codes()
-                .slice(start, stop)
-                .as_::<VarBinVTable>()
-                .clone(),
-            array.uncompressed_lengths().slice(start, stop),
-        )
-        .into_array()
+        // SAFETY: slicing the `codes` leaves the symbol table intact
+        unsafe {
+            FSSTArray::new_unchecked(
+                array.dtype().clone(),
+                array.symbols().clone(),
+                array.symbol_lengths().clone(),
+                array
+                    .codes()
+                    .slice(start, stop)
+                    .as_::<VarBinVTable>()
+                    .clone(),
+                array.uncompressed_lengths().slice(start, stop),
+            )
+            .into_array()
+        }
     }
 
     fn scalar_at(array: &FSSTArray, index: usize) -> Scalar {

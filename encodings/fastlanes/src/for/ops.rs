@@ -11,11 +11,14 @@ use crate::{FoRArray, FoRVTable};
 
 impl OperationsVTable<FoRVTable> for FoRVTable {
     fn slice(array: &FoRArray, start: usize, stop: usize) -> ArrayRef {
-        FoRArray::new_unchecked(
-            array.encoded().slice(start, stop),
-            array.reference_scalar().clone(),
-        )
-        .into_array()
+        // SAFETY: just slicing encoded data does not affect FOR
+        unsafe {
+            FoRArray::new_unchecked(
+                array.encoded().slice(start, stop),
+                array.reference_scalar().clone(),
+            )
+            .into_array()
+        }
     }
 
     fn scalar_at(array: &FoRArray, index: usize) -> Scalar {

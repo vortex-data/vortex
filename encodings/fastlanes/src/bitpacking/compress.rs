@@ -67,15 +67,18 @@ pub fn bitpack_encode(
         .transpose()?
         .flatten();
 
-    Ok(BitPackedArray::new_unchecked(
-        packed,
-        array.dtype().clone(),
-        array.validity().clone(),
-        patches,
-        bit_width,
-        array.len(),
-        0,
-    ))
+    // SAFETY: all components validated above
+    unsafe {
+        Ok(BitPackedArray::new_unchecked(
+            packed,
+            array.dtype().clone(),
+            array.validity().clone(),
+            patches,
+            bit_width,
+            array.len(),
+            0,
+        ))
+    }
 }
 
 /// Bitpack an array into the specified bit-width without checking statistics.

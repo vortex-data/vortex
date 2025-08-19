@@ -13,7 +13,7 @@ use vortex_array::vtable::{ArrayVTable, NotSupported, VTable, ValidityVTable};
 use vortex_array::{Array, ArrayRef, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, NativePType, Nullability, match_each_integer_ptype};
-use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_ensure};
 use vortex_mask::{AllOr, Mask};
 use vortex_scalar::Scalar;
 
@@ -63,50 +63,55 @@ impl SparseArray {
         len: usize,
         fill_value: Scalar,
     ) -> VortexResult<Self> {
-        Self::try_new_with_offset(indices, values, len, 0, fill_value)
-    }
+        vortex_ensure!(
+            indices.len() == values.len(),
+            "Mismatched indices {} and values {} length",
+            indices.len(),
+            values.len()
+        );
 
-    pub(crate) fn try_new_with_offset(
-        indices: ArrayRef,
-        values: ArrayRef,
-        len: usize,
-        indices_offset: usize,
-        fill_value: Scalar,
-    ) -> VortexResult<Self> {
-        if indices.len() != values.len() {
-            vortex_bail!(
-                "Mismatched indices {} and values {} length",
-                indices.len(),
-                values.len()
-            );
-        }
+        vortex_ensure!(
+            indices.statistics().compute_is_strict_sorted() == Some(true),
+            "SparseArray: indices must be strict-sorted"
+        );
 
+        // Verify the indices are all in the valid range
         if !indices.is_empty() {
             let last_index = usize::try_from(&indices.scalar_at(indices.len() - 1))?;
 
-            if last_index - indices_offset >= len {
-                vortex_bail!("Array length was set to {len} but the last index is {last_index}");
-            }
-        }
-
-        let patches = Patches::new(len, indices_offset, indices, values);
-
-        Self::try_new_from_patches(patches, fill_value)
-    }
-
-    pub fn try_new_from_patches(patches: Patches, fill_value: Scalar) -> VortexResult<Self> {
-        if fill_value.dtype() != patches.values().dtype() {
-            vortex_bail!(
-                "fill value, {:?}, should be instance of values dtype, {} but was {}.",
-                fill_value,
-                patches.values().dtype(),
-                fill_value.dtype(),
+            vortex_ensure!(
+                last_index < len,
+                "Array length was {len} but the last index is {last_index}"
             );
         }
-        Ok(Self::new_unchecked(patches, fill_value))
+
+        let patches = Patches::new(len, 0, indices, values);
+
+        Ok(Self {
+            patches,
+            fill_value,
+            stats_set: Default::default(),
+        })
     }
 
-    pub(crate) fn new_unchecked(patches: Patches, fill_value: Scalar) -> Self {
+    /// Build a new SparseArray from an existing set of patches.
+    pub fn try_new_from_patches(patches: Patches, fill_value: Scalar) -> VortexResult<Self> {
+        vortex_ensure!(
+            fill_value.dtype() == patches.values().dtype(),
+            "fill value, {:?}, should be instance of values dtype, {} but was {}.",
+            fill_value,
+            patches.values().dtype(),
+            fill_value.dtype(),
+        );
+
+        Ok(Self {
+            patches,
+            fill_value,
+            stats_set: Default::default(),
+        })
+    }
+
+    pub(crate) unsafe fn new_unchecked(patches: Patches, fill_value: Scalar) -> Self {
         Self {
             patches,
             fill_value,

@@ -151,7 +151,7 @@ impl BitPackedArray {
     ///
     /// See also the [`encode`][Self::encode] method on this type for a safe path to create a new
     /// bit-packed array.
-    pub(crate) fn new_unchecked(
+    pub(crate) unsafe fn new_unchecked(
         packed: ByteBuffer,
         dtype: DType,
         validity: Validity,
@@ -214,9 +214,12 @@ impl BitPackedArray {
 
         let dtype = DType::Primitive(ptype, validity.nullability());
 
-        Ok(Self::new_unchecked(
-            packed, dtype, validity, patches, bit_width, length, offset,
-        ))
+        // SAFETY: all components validated above
+        unsafe {
+            Ok(Self::new_unchecked(
+                packed, dtype, validity, patches, bit_width, length, offset,
+            ))
+        }
     }
 
     pub fn ptype(&self) -> PType {
@@ -253,7 +256,7 @@ impl BitPackedArray {
         BitUnpackedChunks::new(self)
     }
 
-    /// Bit width of the packed values
+    /// Bit-width of the packed values
     #[inline]
     pub fn bit_width(&self) -> u8 {
         self.bit_width

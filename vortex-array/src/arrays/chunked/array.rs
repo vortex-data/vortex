@@ -39,20 +39,22 @@ impl ChunkedArray {
             }
         }
 
-        Ok(Self::new_unchecked(chunks, dtype))
+        // SAFETY: validation done above
+        unsafe { Ok(Self::new_unchecked(chunks, dtype)) }
     }
 
-    pub fn new_unchecked(chunks: Vec<ArrayRef>, dtype: DType) -> Self {
+    pub unsafe fn new_unchecked(chunks: Vec<ArrayRef>, dtype: DType) -> Self {
         let nchunks = chunks.len();
 
         let mut chunk_offsets = BufferMut::<u64>::with_capacity(nchunks + 1);
+        // SAFETY: nchunks + 1
         unsafe { chunk_offsets.push_unchecked(0) }
         let mut curr_offset = 0;
         for c in &chunks {
             curr_offset += c.len() as u64;
+            // SAFETY: nchunks + 1
             unsafe { chunk_offsets.push_unchecked(curr_offset) }
         }
-        assert_eq!(chunk_offsets.len(), nchunks + 1);
 
         Self {
             dtype,
@@ -130,9 +132,12 @@ impl ChunkedArray {
                 && !chunks_to_combine.is_empty()
             {
                 new_chunks.push(
-                    ChunkedArray::new_unchecked(chunks_to_combine, self.dtype().clone())
-                        .to_canonical()?
-                        .into_array(),
+                    // SAFETY: combining chunks of same type maintains valid chunk types
+                    unsafe {
+                        ChunkedArray::new_unchecked(chunks_to_combine, self.dtype().clone())
+                            .to_canonical()?
+                            .into_array()
+                    },
                 );
 
                 new_chunk_n_bytes = 0;
@@ -150,14 +155,16 @@ impl ChunkedArray {
         }
 
         if !chunks_to_combine.is_empty() {
-            new_chunks.push(
+            new_chunks.push(unsafe {
+                // SAFETY: combining chunks of same type maintains valid chunk types
                 ChunkedArray::new_unchecked(chunks_to_combine, self.dtype().clone())
                     .to_canonical()?
-                    .into_array(),
-            );
+                    .into_array()
+            });
         }
 
-        Ok(Self::new_unchecked(new_chunks, self.dtype().clone()))
+        // SAFETY: combining chunks of same type maintains valid chunk types
+        unsafe { Ok(Self::new_unchecked(new_chunks, self.dtype().clone())) }
     }
 }
 

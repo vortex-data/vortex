@@ -64,11 +64,14 @@ impl TakeKernel for ChunkedVTable {
             )?);
         }
 
-        Ok(ChunkedArray::new_unchecked(
-            chunks,
-            array.dtype().clone().union_nullability(nullability),
-        )
-        .into_array())
+        // SAFETY: take on chunks that all have same DType retains same DType
+        unsafe {
+            Ok(ChunkedArray::new_unchecked(
+                chunks,
+                array.dtype().clone().union_nullability(nullability),
+            )
+            .into_array())
+        }
     }
 }
 

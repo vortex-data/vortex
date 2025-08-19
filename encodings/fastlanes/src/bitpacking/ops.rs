@@ -21,16 +21,19 @@ impl OperationsVTable<BitPackedVTable> for BitPackedVTable {
         let encoded_stop = (block_stop / 8) * array.bit_width() as usize;
 
         // slice the buffer using the encoded start/stop values
-        BitPackedArray::new_unchecked(
-            array.packed().slice(encoded_start..encoded_stop),
-            array.dtype.clone(),
-            array.validity().slice(start, stop),
-            array.patches().and_then(|p| p.slice(start, stop)),
-            array.bit_width(),
-            stop - start,
-            offset as u16,
-        )
-        .into_array()
+        // SAFETY: slicing packed values without decoding preserves invariants
+        unsafe {
+            BitPackedArray::new_unchecked(
+                array.packed().slice(encoded_start..encoded_stop),
+                array.dtype.clone(),
+                array.validity().slice(start, stop),
+                array.patches().and_then(|p| p.slice(start, stop)),
+                array.bit_width(),
+                stop - start,
+                offset as u16,
+            )
+            .into_array()
+        }
     }
 
     fn scalar_at(array: &BitPackedArray, index: usize) -> Scalar {

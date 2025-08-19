@@ -177,16 +177,11 @@ impl DeltaArray {
             );
         }
 
-        Ok(Self::new_unchecked(
-            bases,
-            deltas,
-            validity,
-            offset,
-            logical_len,
-        ))
+        // SAFETY: validation done above
+        Ok(unsafe { Self::new_unchecked(bases, deltas, validity, offset, logical_len) })
     }
 
-    pub(crate) fn new_unchecked(
+    pub(crate) unsafe fn new_unchecked(
         bases: ArrayRef,
         deltas: ArrayRef,
         validity: Validity,

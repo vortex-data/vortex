@@ -27,7 +27,8 @@ impl FilterKernel for ChunkedVTable {
             MaskIter::Slices(slices) => filter_slices(array, slices.iter().copied()),
         }?;
 
-        Ok(ChunkedArray::new_unchecked(chunks, array.dtype().clone()).into_array())
+        // SAFETY: filter on chunks with same DType will yield chunks with same DType
+        unsafe { Ok(ChunkedArray::new_unchecked(chunks, array.dtype().clone()).into_array()) }
     }
 }
 

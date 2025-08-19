@@ -78,10 +78,16 @@ impl DateTimePartsArray {
             );
         }
 
-        Ok(Self::new_unchecked(dtype, days, seconds, subseconds))
+        Ok(Self {
+            dtype,
+            days,
+            seconds,
+            subseconds,
+            stats_set: Default::default(),
+        })
     }
 
-    pub(crate) fn new_unchecked(
+    pub(crate) unsafe fn new_unchecked(
         dtype: DType,
         days: ArrayRef,
         seconds: ArrayRef,

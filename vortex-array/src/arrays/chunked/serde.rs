@@ -58,7 +58,8 @@ impl SerdeVTable<ChunkedVTable> for ChunkedVTable {
             .try_collect()?;
 
         // Unchecked because we just created each chunk with the same DType.
-        Ok(ChunkedArray::new_unchecked(chunks, dtype.clone()))
+        // SAFETY:
+        unsafe { Ok(ChunkedArray::new_unchecked(chunks, dtype.clone())) }
     }
 }
 

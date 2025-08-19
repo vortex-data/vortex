@@ -43,12 +43,15 @@ pub fn alp_encode(parray: &PrimitiveArray, exponents: Option<Exponents>) -> Vort
         _ => vortex_bail!("ALP can only encode f32 and f64"),
     };
 
-    Ok(ALPArray::new_unchecked(
-        encoded,
-        exponents,
-        patches,
-        parray.dtype().clone(),
-    ))
+    // SAFETY: alp_encode_components_typed must return well-formed components
+    unsafe {
+        Ok(ALPArray::new_unchecked(
+            encoded,
+            exponents,
+            patches,
+            parray.dtype().clone(),
+        ))
+    }
 }
 
 #[allow(clippy::cast_possible_truncation)]
