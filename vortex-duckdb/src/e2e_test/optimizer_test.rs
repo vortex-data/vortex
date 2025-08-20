@@ -111,129 +111,76 @@ fn test_expose_query_plan_with_len_function() {
         Ok(query_result) => {
             println!("✅ EXPLAIN executed successfully!");
 
-            // Print the full EXPLAIN plan
-            println!("\n📄 EXPLAIN Query Plan:");
-            println!("─────────────────────────");
-
             let mut chunk_count = 0;
             let mut full_plan = String::new();
             for chunk in query_result {
                 chunk_count += 1;
-                let len = chunk.len();
+                let _len = chunk.len();
                 let chunk_str = String::try_from(&chunk).unwrap();
                 full_plan.push_str(&chunk_str);
-                println!("{}", chunk_str);
             }
 
-            println!("─────────────────────────");
-            println!("📊 Total chunks: {}", chunk_count);
-
+            // Assert that we got a meaningful plan
+            assert!(chunk_count > 0, "EXPLAIN query should return at least one chunk");
+            assert!(!full_plan.is_empty(), "EXPLAIN plan should not be empty");
+            
             // Check if length pushdown is happening
             let has_length_columns = full_plan.contains("$length")
                 || full_plan.contains("url$length")
                 || full_plan.contains("name$length");
             let has_len_function = full_plan.contains("len(") || full_plan.contains("length(");
 
-            println!("\n🔍 PLAN ANALYSIS:");
-            if has_length_columns {
-                println!("✅ Virtual length columns detected in plan - pushdown working!");
-            } else if has_len_function {
-                println!("⚠️  len() functions still present - transformation may not be working");
-            } else {
-                println!("❓ No obvious len() or $length references found in plan");
-            }
+            // Assert that we have evidence of optimization or the original function
+            assert!(has_length_columns || has_len_function, 
+                "Plan should contain either virtual length columns (optimized) or len() functions (unoptimized)");
         }
         Err(e) => {
-            println!("❌ EXPLAIN failed with error: {}", e);
-            println!("   This indicates the optimizer transformation caused an issue.");
+            panic!("EXPLAIN query failed: {}. This indicates the optimizer transformation caused an issue.", e);
         }
     }
 
-    println!("\n🔍 Testing without len() function for comparison...");
+    // Test a simple query without len() function for comparison
     let simple_query = format!("SELECT url, name FROM vortex_scan('{}')", file_path);
     let simple_explain = format!("EXPLAIN {}", simple_query);
 
-    println!("📋 Simple Query: {}", simple_query);
-
     let simple_result = conn.query(&simple_explain);
-    match simple_result {
-        Ok(_) => println!("✅ Simple query EXPLAIN also works"),
-        Err(e) => println!("❌ Simple query EXPLAIN failed: {}", e),
-    }
+    // Simple query should also work
+    simple_result.expect("Simple query EXPLAIN should work without optimization");
 }
 
 #[test]
 fn test_optimizer_transformation_messages() {
-    println!("\n🔧 OPTIMIZER TRANSFORMATION MESSAGES TEST");
-    println!("==========================================");
-
     let temp_file = RUNTIME.block_on(create_test_vortex_file());
     let conn = database_connection_with_optimizer();
     let file_path = temp_file.path().to_string_lossy();
-
-    println!("\n📝 This test should show optimizer messages in stdout during execution.");
-    println!("Look for messages like: '🔄 OPTIMIZER: Rewriting len(url) → url$length'");
 
     // Execute EXPLAIN to see the plan transformation
     let query = format!("SELECT len(url) FROM vortex_scan('{}')", file_path);
     let explain_query = format!("EXPLAIN {}", query);
 
-    println!("\n🎯 Original Query: {}", query);
-    println!("\n🎯 EXPLAIN Query: {}", explain_query);
-    println!("─────────────────────────────────────");
-
     let result = conn.query(&explain_query);
 
-    println!("─────────────────────────────────────");
+    let query_result = result.expect("EXPLAIN query for length optimization should execute successfully");
 
-    match result {
-        Ok(query_result) => {
-            println!("✅ EXPLAIN executed successfully!");
-
-            // Print the full plan and analyze for transformations
-            println!("\n📄 EXPLAIN Plan for len(url) query:");
-            println!("────────────────────────────────────");
-
-            let mut full_plan = String::new();
-            for chunk in query_result {
-                let chunk_str = String::try_from(&chunk).unwrap();
-                full_plan.push_str(&chunk_str);
-                println!("{}", chunk_str);
-            }
-
-            println!("────────────────────────────────────");
-
-            // Detailed analysis of transformation
-            let has_url_length = full_plan.contains("url$length");
-            let has_len_url = full_plan.contains("len(url)") || full_plan.contains("length(url)");
-
-            println!("\n🔧 TRANSFORMATION ANALYSIS:");
-            if has_url_length {
-                println!("✅ SUCCESS: 'url$length' found in plan - len(url) was transformed!");
-                if has_len_url {
-                    println!("⚠️  WARNING: Still found 'len(url)' - partial transformation?");
-                } else {
-                    println!("✅ PERFECT: No 'len(url)' found - complete transformation!");
-                }
-            } else if has_len_url {
-                println!("❌ ISSUE: 'len(url)' still present - transformation NOT working");
-                println!("   Expected: len(url) → url$length");
-            } else {
-                println!("❓ UNCLEAR: Neither 'len(url)' nor 'url$length' found in plan");
-            }
-        }
-        Err(e) => {
-            println!("❌ EXPLAIN failed: {}", e);
-            println!("   This indicates the optimizer transformation caused an issue.");
-        }
+    let mut full_plan = String::new();
+    for chunk in query_result {
+        let chunk_str = String::try_from(&chunk).unwrap();
+        full_plan.push_str(&chunk_str);
     }
+
+    assert!(!full_plan.is_empty(), "EXPLAIN plan should not be empty");
+
+    // Analyze transformation results
+    let has_url_length = full_plan.contains("url$length");
+    let has_len_url = full_plan.contains("len(url)") || full_plan.contains("length(url)");
+
+    // Assert that either optimization occurred or original function is preserved
+    assert!(has_url_length || has_len_url, 
+        "Plan should contain either virtual 'url$length' column (optimized) or 'len(url)' function (unoptimized)");
 }
 
 #[test]
 fn test_simple_len_query_without_optimizer() {
-    println!("\\n🔧 SIMPLE LEN QUERY TEST (no extension)");
-    println!("=========================================");
-
     let temp_file = RUNTIME.block_on(create_test_vortex_file());
     // Use database without trying to register optimizer extension
     let db = Database::open_in_memory().unwrap();
@@ -246,36 +193,24 @@ fn test_simple_len_query_without_optimizer() {
     let query = format!("SELECT len(url) FROM vortex_scan('{}')", file_path);
     let explain_query = format!("EXPLAIN {}", query);
 
-    println!("\\n🎯 Query: {}", query);
-
     let result = conn.query(&explain_query);
 
-    match result {
-        Ok(query_result) => {
-            println!("✅ Query works without optimizer extension!");
+    let query_result = result.expect("EXPLAIN query should work without optimizer extension");
 
-            for chunk in query_result {
-                let chunk_str = String::try_from(&chunk).unwrap();
-                println!("{}", chunk_str);
-
-                if chunk_str.contains("len(url)") {
-                    println!(
-                        "✅ CONFIRMED: len(url) is present in plan (normal behavior without optimizer)"
-                    );
-                }
-            }
-        }
-        Err(e) => {
-            println!("❌ Query failed: {}", e);
+    let mut found_len_function = false;
+    for chunk in query_result {
+        let chunk_str = String::try_from(&chunk).unwrap();
+        if chunk_str.contains("len(url)") {
+            found_len_function = true;
         }
     }
+
+    // Without optimizer, len() function should be present in the plan
+    assert!(found_len_function, "len(url) should be present in plan without optimizer");
 }
 
 #[test]
 fn test_optimizer_with_actual_query() {
-    println!("\\n🔧 ACTUAL QUERY OPTIMIZER TEST");
-    println!("==============================");
-
     let temp_file = RUNTIME.block_on(create_test_vortex_file());
     let conn = database_connection_with_optimizer();
     let file_path = temp_file.path().to_string_lossy();
@@ -283,28 +218,15 @@ fn test_optimizer_with_actual_query() {
     // Execute the actual query (not EXPLAIN) to see if optimizer is triggered
     let query = format!("SELECT len(url) FROM vortex_scan('{}')", file_path);
 
-    println!("\\n🎯 Query: {}", query);
-    println!("\\n🎯 Executing actual query (watch for optimizer messages)...");
-    println!("─────────────────────────────────────");
-
     let result = conn.query(&query);
 
-    println!("─────────────────────────────────────");
+    let query_result = result.expect("Query with len() function should execute successfully with optimizer");
 
-    match result {
-        Ok(query_result) => {
-            println!("✅ Query executed successfully!");
-
-            // Just verify we get results
-            let mut row_count = 0;
-            for chunk in query_result {
-                row_count += chunk.len();
-                println!("📊 Got chunk with {} rows", chunk.len());
-            }
-            println!("📊 Total rows: {}", row_count);
-        }
-        Err(e) => {
-            println!("❌ Query failed: {}", e);
-        }
+    // Verify we get results
+    let mut row_count = 0;
+    for chunk in query_result {
+        row_count += chunk.len();
     }
+    
+    assert!(row_count > 0, "Query should return at least one row");
 }

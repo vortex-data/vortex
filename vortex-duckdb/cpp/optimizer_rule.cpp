@@ -811,3 +811,24 @@ extern "C" void duckdb_vx_register_optimizer(duckdb_database db_handle) {
         std::cout << "❌ EXCEPTION during optimizer registration: " << e.what() << std::endl;
     }
 }
+
+// Get string representation of logical operator
+extern "C" char* duckdb_vx_logical_operator_to_string(duckdb_logical_operator op) {
+    try {
+        if (!op) {
+            return nullptr;
+        }
+        
+        auto* logical_op = reinterpret_cast<duckdb::LogicalOperator*>(op);
+        std::string str = logical_op->ToString();
+        
+        // Allocate C string and copy
+        char* result = static_cast<char*>(malloc(str.length() + 1));
+        if (result) {
+            strcpy(result, str.c_str());
+        }
+        return result;
+    } catch (...) {
+        return nullptr;
+    }
+}

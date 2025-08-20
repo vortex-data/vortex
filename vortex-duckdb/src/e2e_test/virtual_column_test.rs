@@ -207,13 +207,13 @@ fn test_multiple_string_columns_with_len_and_integer_column() {
     );
     conn.query(&mixed_query).unwrap();
 
-    // Test complex expressions with len() functions - temporarily disabled
+    // Test complex expressions with len() functions - known to have issues
     let complex_expr_query = format!(
         "SELECT len(title) + len(description) as total_text_length, page_count FROM vortex_scan('{}')",
         file_path
     );
+    // Skip this test for now due to known column binding issues
     // conn.query(&complex_expr_query).unwrap();
-    println!("Complex expression query temporarily disabled");
 
     // Test WHERE clause with len() function
     let where_clause_query = format!(

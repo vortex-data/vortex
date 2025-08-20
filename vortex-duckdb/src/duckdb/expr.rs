@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ffi::{CStr, c_void};
+use std::ffi::{CStr, CString, c_void};
 use std::fmt::{Display, Formatter};
 use std::ptr;
 
-use crate::cpp::duckdb_vx_expr_class;
+use vortex::error::{VortexResult, vortex_err, vortex_bail};
+use crate::cpp::*;
 use crate::duckdb::{ScalarFunction, Value};
 use crate::{cpp, duckdb, wrapper};
 

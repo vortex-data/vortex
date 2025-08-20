@@ -47,6 +47,9 @@ typedef void (*duckdb_vx_rust_visitor_callback)(duckdb_logical_operator op, void
 // Get operator type
 DUCKDB_VX_LOGICAL_OPERATOR_TYPE duckdb_vx_get_operator_type(duckdb_logical_operator op);
 
+// Get string representation of operator
+char* duckdb_vx_logical_operator_to_string(duckdb_logical_operator op);
+
 // Get operator children count
 uint64_t duckdb_vx_get_children_count(duckdb_logical_operator op);
 

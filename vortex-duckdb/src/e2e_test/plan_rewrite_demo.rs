@@ -4,7 +4,6 @@
 //! Demonstration of the plan rewrite functionality.
 
 use tempfile::NamedTempFile;
-use vortex::IntoArray;
 use vortex::arrays::{StructArray, VarBinArray};
 use vortex::file::VortexWriteOptions;
 
