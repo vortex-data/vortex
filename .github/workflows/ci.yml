@@ -329,6 +329,7 @@ jobs:
           name: run-${{ matrix.suite }}
           files: ${{ env.GRCOV_OUTPUT_FILE }}
           disable_search: true
+          flags: ${{ matrix.suite }}
           use_oidc: true
 
   rust-test:
