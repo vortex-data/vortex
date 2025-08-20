@@ -5,12 +5,12 @@
 use std::collections::{HashMap, HashSet};
 use std::ptr;
 
-use vortex::error::{VortexResult, vortex_bail, vortex_err};
+use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
-use crate::duckdb::Database;
-use crate::duckdb::expr::{Expression, ColumnBinding, LogicalExpressionType as ExpressionType};
-use crate::duckdb::logical_operator::{LogicalOperator, LogicalOperatorType, LogicalOperatorClass};
+use crate::duckdb::expr::{ColumnBinding, Expression, LogicalExpressionType as ExpressionType};
+use crate::duckdb::logical_operator::{LogicalOperator, LogicalOperatorClass};
 use crate::duckdb::logical_plan::LogicalPlanUtils;
+use crate::duckdb::{Database, ExpressionClass, LogicalExpressionType};
 
 /// Length replacement information
 #[derive(Debug, Clone)]
@@ -34,7 +34,7 @@ trait LengthOptimizationExt {
 impl LengthOptimizationExt for LogicalOperator {
     fn is_vortex_scan(&self) -> VortexResult<bool> {
         if let Some(LogicalOperatorClass::Get(get_op)) = self.as_class() {
-            get_op.is_vortex_scan()
+            Ok(get_op.is_vortex_scan())
         } else {
             Ok(false)
         }
@@ -134,6 +134,69 @@ impl RustLengthOptimizer {
         Ok(vortex_node)
     }
 
+    fn visit_node(&mut self, operator: &LogicalOperator) -> Option<()> {
+        println!("🔍 VISITING: Operator type: {:?}", operator.operator_type());
+
+        let LogicalOperatorClass::Projection(proj) = operator.as_class()? else {
+            return None;
+        };
+        if operator.children_count() != 1 {
+            return None;
+        }
+        let op_child = operator.get_child(0).unwrap();
+        let LogicalOperatorClass::Get(get_op) = op_child.as_class()? else {
+            return None;
+        };
+        if !get_op.is_vortex_scan() {
+            return None;
+        }
+
+        println!("🔍 FOUND VORTEX SCAN");
+
+        for (idx, projection_expr) in proj.projections().enumerate() {
+            let Some(projection_expr) = projection_expr else {
+                continue;
+            };
+            let Some(ExpressionClass::BoundFunction(func)) = projection_expr.as_class() else {
+                continue;
+            };
+            if func.scalar_function.name() != "len" {
+                continue;
+            }
+
+            let column_alias = projection_expr
+                .get_function_arg(0)
+                .vortex_expect("must have one child");
+
+            let ExpressionClass::BoundColumnRef(bound_col) = column_alias.as_class()? else {
+                continue;
+            };
+
+            let column_alias = bound_col.name;
+
+            let virtual_col_name = format!("{}$length", column_alias);
+
+            // let bound_column = Expression::create_column_ref(
+            //     &virtual_col_name,
+            //     ColumnBinding {
+            //         table_index: original_binding.table_index,
+            //         column_index: virtual_column_index as u64,
+            //     },
+            //     0, // depth
+            // )?;
+
+            println!("get op {:?}", get_op);
+            println!("proj op {:?}", proj.to_string());
+            println!("proj op {}", projection_expr);
+            println!("proj op {:?}", projection_expr);
+            println!("found len() at index {}", idx);
+        }
+
+        // print out the logical operator (all fields)
+
+        Some(())
+    }
+
     /// Visit all operators and apply optimizations
     fn visit_and_optimize(
         &mut self,
@@ -142,41 +205,7 @@ impl RustLengthOptimizer {
     ) -> VortexResult<()> {
         println!("🔍 VISITING: Operator type: {:?}", op.operator_type());
 
-        // Process expressions in this operator
-        let expression_count = op.expressions_count();
-        println!("🔍 OPERATOR has {} expressions", expression_count);
-
-        for i in 0..expression_count {
-            println!(
-                "operator before: {}",
-                op
-            );
-            if let Some(expr) = op.get_expression(i) {
-                println!(
-                    "🔍 BEFORE[{}]: {}",
-                    i,
-                    expr.to_string()
-                );
-
-                // Re-find vortex_scan node for each expression to ensure we have current state
-                let vortex_scan_node_ptr = Self::find_vortex_scan(plan_root)?;
-                if let Some(new_expr) = self.rewrite_expression(&expr, vortex_scan_node_ptr, i)? {
-                    println!(
-                        "🔄 AFTER[{}]: {}",
-                        i,
-                        new_expr.to_string()
-                    );
-                    op.set_expression(i, new_expr);
-                } else {
-                    println!("🔍 UNCHANGED[{}]", i);
-                }
-            }
-
-            println!(
-                "operator now: {}",
-                op
-            );
-        }
+        self.visit_node(op);
 
         // Visit children
         for i in 0..op.children_count() {
@@ -222,7 +251,7 @@ impl RustLengthOptimizer {
         // Find the virtual column index in the table schema
         let virtual_column_index = if let Some(vortex_node_ptr) = vortex_scan_node_ptr {
             let vortex_node = unsafe { &*vortex_node_ptr };
-            
+
             // Downcast to LogicalGet to access column_names
             if let Some(LogicalOperatorClass::Get(get_op)) = vortex_node.as_class() {
                 let column_names = get_op.column_names()?;
@@ -278,7 +307,7 @@ impl RustLengthOptimizer {
     fn update_vortex_scan_projections(&self, op: &LogicalOperator) -> VortexResult<()> {
         // Check if this is a vortex_scan and update it
         if let Some(LogicalOperatorClass::Get(get_op)) = op.as_class() {
-            if get_op.is_vortex_scan()? {
+            if get_op.is_vortex_scan() {
                 self.update_single_vortex_scan_projections(op)?;
             }
         }
@@ -458,6 +487,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::*;
+    use crate::optimizer_plan::LogicalOperatorType;
 
     #[test]
     fn test_length_replacement() {

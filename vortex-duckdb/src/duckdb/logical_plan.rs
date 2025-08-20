@@ -5,14 +5,8 @@
 
 use vortex::error::VortexResult;
 
-use crate::duckdb::expr::{Expression, LogicalExpressionType as ExpressionType, ColumnBinding};
+use crate::duckdb::expr::{Expression, LogicalExpressionType as ExpressionType};
 use crate::duckdb::logical_operator::{LogicalOperator, LogicalOperatorType};
-use crate::cpp::{duckdb_vx_column_binding, DUCKDB_VX_LOGICAL_OPERATOR_TYPE_DUCKDB_VX_LOGICAL_GET, DUCKDB_VX_LOGICAL_OPERATOR_TYPE_DUCKDB_VX_LOGICAL_PROJECTION, DUCKDB_VX_EXPRESSION_TYPE_DUCKDB_VX_BOUND_COLUMN_REF, DUCKDB_VX_EXPRESSION_TYPE_DUCKDB_VX_BOUND_FUNCTION};
-
-
-
-
-
 
 /// Utility functions for visiting and manipulating logical plans
 pub struct LogicalPlanUtils;
@@ -35,55 +29,6 @@ impl LogicalPlanUtils {
 
         Ok(())
     }
-
-    /// Find all operators of a specific type in the plan tree
-    pub fn find_operators_by_type(
-        plan: &LogicalOperator,
-        target_type: LogicalOperatorType,
-    ) -> VortexResult<Vec<*const LogicalOperator>> {
-        let mut operators = Vec::new();
-        Self::visit_operators(plan, &mut |op| {
-            if op.operator_type() == target_type {
-                operators.push(op as *const LogicalOperator);
-            }
-            Ok(())
-        })?;
-        Ok(operators)
-    }
-
-    /// Check if the plan contains any operator of the specified type
-    pub fn contains_operator_type(
-        plan: &LogicalOperator,
-        target_type: LogicalOperatorType,
-    ) -> VortexResult<bool> {
-        let mut found = false;
-        Self::visit_operators(plan, &mut |op| {
-            if op.operator_type() == target_type {
-                found = true;
-            }
-            Ok(())
-        })?;
-        Ok(found)
-    }
-
-    /// Find all expressions of a specific type in the plan tree
-    pub fn find_expressions_by_type(
-        plan: &LogicalOperator,
-        target_type: ExpressionType,
-    ) -> VortexResult<Vec<*const Expression>> {
-        let mut expressions = Vec::new();
-        Self::visit_operators(plan, &mut |op| {
-            for i in 0..op.expressions_count() {
-                if let Some(expr) = op.get_expression(i) {
-                    if expr.logical_expression_type() == target_type {
-                        expressions.push(&expr as *const Expression);
-                    }
-                }
-            }
-            Ok(())
-        })?;
-        Ok(expressions)
-    }
 }
 
 #[cfg(test)]
@@ -91,6 +36,13 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
+    use crate::cpp::{
+        DUCKDB_VX_EXPRESSION_TYPE_DUCKDB_VX_BOUND_COLUMN_REF,
+        DUCKDB_VX_EXPRESSION_TYPE_DUCKDB_VX_BOUND_FUNCTION,
+        DUCKDB_VX_LOGICAL_OPERATOR_TYPE_DUCKDB_VX_LOGICAL_GET,
+        DUCKDB_VX_LOGICAL_OPERATOR_TYPE_DUCKDB_VX_LOGICAL_PROJECTION, duckdb_vx_column_binding,
+    };
+    use crate::optimizer_plan::ColumnBinding;
 
     #[test]
     fn test_column_binding_conversion() {

@@ -8,7 +8,7 @@
 //! operator types for type-safe manipulation.
 
 use std::ffi::CStr;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 
 use vortex::error::{VortexResult, vortex_bail};
 
@@ -61,7 +61,7 @@ impl LogicalOperator {
     }
 
     /// Downcast the operator to its specific type with specialized methods
-    pub fn as_class(&self) -> Option<LogicalOperatorClass<'_>> {
+    pub fn as_class(&self) -> Option<LogicalOperatorClass> {
         match self.operator_type() {
             LogicalOperatorType::Get => Some(LogicalOperatorClass::Get(LogicalGet { op: self })),
             LogicalOperatorType::Projection => {
@@ -160,9 +160,11 @@ impl<'a> LogicalGet<'a> {
     }
 
     /// Check if this is a vortex_scan table function
-    pub fn is_vortex_scan(&self) -> VortexResult<bool> {
-        let function_name = self.function_name()?;
-        Ok(function_name.as_deref() == Some("vortex_scan"))
+    pub fn is_vortex_scan(&self) -> bool {
+        self.function_name()
+            .ok()
+            .flatten()
+            .is_some_and(|func_name| func_name == "vortex_scan")
     }
 
     /// Get column names from the table schema
@@ -239,6 +241,28 @@ impl<'a> LogicalGet<'a> {
     pub fn get_column_names(&self) -> VortexResult<Vec<String>> {
         self.column_names()
     }
+
+    /// Get detailed string representation of this LogicalGet operator
+    pub fn to_string(&self) -> VortexResult<String> {
+        unsafe {
+            let str_ptr = duckdb_vx_logical_get_to_string(self.op.as_ptr());
+            if str_ptr.is_null() {
+                vortex_bail!("Failed to convert LogicalGet to string");
+            }
+            let result = CStr::from_ptr(str_ptr).to_string_lossy().into_owned();
+            duckdb_vx_free_string(str_ptr);
+            Ok(result)
+        }
+    }
+}
+
+impl Debug for LogicalGet<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self.to_string() {
+            Ok(s) => write!(f, "{}", s),
+            Err(_) => write!(f, "<LogicalGet>"),
+        }
+    }
 }
 
 /// LogicalProjection operator with projection-specific methods
@@ -255,5 +279,18 @@ impl<'a> LogicalProjection<'a> {
     /// Set a projection expression at the given index
     pub fn set_projection(&self, index: usize, expression: Expression) {
         self.op.set_expression(index, expression);
+    }
+
+    /// Get detailed string representation of this LogicalProjection operator
+    pub fn to_string(&self) -> VortexResult<String> {
+        unsafe {
+            let str_ptr = duckdb_vx_logical_projection_to_string(self.op.as_ptr());
+            if str_ptr.is_null() {
+                vortex_bail!("Failed to convert LogicalProjection to string");
+            }
+            let result = CStr::from_ptr(str_ptr).to_string_lossy().into_owned();
+            duckdb_vx_free_string(str_ptr);
+            Ok(result)
+        }
     }
 }

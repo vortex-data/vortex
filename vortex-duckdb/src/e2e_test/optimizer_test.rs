@@ -121,9 +121,12 @@ fn test_expose_query_plan_with_len_function() {
             }
 
             // Assert that we got a meaningful plan
-            assert!(chunk_count > 0, "EXPLAIN query should return at least one chunk");
+            assert!(
+                chunk_count > 0,
+                "EXPLAIN query should return at least one chunk"
+            );
             assert!(!full_plan.is_empty(), "EXPLAIN plan should not be empty");
-            
+
             // Check if length pushdown is happening
             let has_length_columns = full_plan.contains("$length")
                 || full_plan.contains("url$length")
@@ -131,11 +134,16 @@ fn test_expose_query_plan_with_len_function() {
             let has_len_function = full_plan.contains("len(") || full_plan.contains("length(");
 
             // Assert that we have evidence of optimization or the original function
-            assert!(has_length_columns || has_len_function, 
-                "Plan should contain either virtual length columns (optimized) or len() functions (unoptimized)");
+            assert!(
+                has_length_columns || has_len_function,
+                "Plan should contain either virtual length columns (optimized) or len() functions (unoptimized)"
+            );
         }
         Err(e) => {
-            panic!("EXPLAIN query failed: {}. This indicates the optimizer transformation caused an issue.", e);
+            panic!(
+                "EXPLAIN query failed: {}. This indicates the optimizer transformation caused an issue.",
+                e
+            );
         }
     }
 
@@ -160,7 +168,8 @@ fn test_optimizer_transformation_messages() {
 
     let result = conn.query(&explain_query);
 
-    let query_result = result.expect("EXPLAIN query for length optimization should execute successfully");
+    let query_result =
+        result.expect("EXPLAIN query for length optimization should execute successfully");
 
     let mut full_plan = String::new();
     for chunk in query_result {
@@ -175,8 +184,10 @@ fn test_optimizer_transformation_messages() {
     let has_len_url = full_plan.contains("len(url)") || full_plan.contains("length(url)");
 
     // Assert that either optimization occurred or original function is preserved
-    assert!(has_url_length || has_len_url, 
-        "Plan should contain either virtual 'url$length' column (optimized) or 'len(url)' function (unoptimized)");
+    assert!(
+        has_url_length || has_len_url,
+        "Plan should contain either virtual 'url$length' column (optimized) or 'len(url)' function (unoptimized)"
+    );
 }
 
 #[test]
@@ -206,7 +217,10 @@ fn test_simple_len_query_without_optimizer() {
     }
 
     // Without optimizer, len() function should be present in the plan
-    assert!(found_len_function, "len(url) should be present in plan without optimizer");
+    assert!(
+        found_len_function,
+        "len(url) should be present in plan without optimizer"
+    );
 }
 
 #[test]
@@ -220,13 +234,14 @@ fn test_optimizer_with_actual_query() {
 
     let result = conn.query(&query);
 
-    let query_result = result.expect("Query with len() function should execute successfully with optimizer");
+    let query_result =
+        result.expect("Query with len() function should execute successfully with optimizer");
 
     // Verify we get results
     let mut row_count = 0;
     for chunk in query_result {
         row_count += chunk.len();
     }
-    
+
     assert!(row_count > 0, "Query should return at least one row");
 }

@@ -594,6 +594,86 @@ extern "C" void duckdb_vx_clear_column_ids(duckdb_vx_logical_operator get_op) {
     get.ClearColumnIds();
 }
 
+// Get detailed string representation of LogicalGet operator
+extern "C" char* duckdb_vx_logical_get_to_string(duckdb_vx_logical_operator get_op) {
+    try {
+        if (!get_op) {
+            return nullptr;
+        }
+        
+        auto& logical_op = *reinterpret_cast<LogicalOperator*>(get_op);
+        if (logical_op.type != LogicalOperatorType::LOGICAL_GET) {
+            return nullptr;
+        }
+        
+        auto& get = logical_op.Cast<LogicalGet>();
+        
+        // Create detailed string representation
+        std::string str = "LogicalGet:\n";
+        str += "  Function: " + get.function.name + "\n";
+        str += "  Table Index: " + std::to_string(get.table_index) + "\n";
+        str += "  Columns: [";
+        
+        if (!get.names.empty()) {
+            for (size_t i = 0; i < get.names.size(); i++) {
+                if (i > 0) str += ", ";
+                str += get.names[i];
+            }
+        }
+        str += "]\n";
+        
+        str += "  Projection IDs: [";
+        if (!get.projection_ids.empty()) {
+            for (size_t i = 0; i < get.projection_ids.size(); i++) {
+                if (i > 0) str += ", ";
+                str += std::to_string(get.projection_ids[i]);
+            }
+        }
+        str += "]";
+        
+        // Allocate C string and copy
+        char* result = static_cast<char*>(malloc(str.length() + 1));
+        if (result) {
+            strcpy(result, str.c_str());
+        }
+        return result;
+    } catch (...) {
+        return nullptr;
+    }
+}
+
+// Get detailed string representation of LogicalProjection operator
+extern "C" char* duckdb_vx_logical_projection_to_string(duckdb_vx_logical_operator proj_op) {
+    try {
+        if (!proj_op) {
+            return nullptr;
+        }
+        
+        auto& logical_op = *reinterpret_cast<LogicalOperator*>(proj_op);
+        if (logical_op.type != LogicalOperatorType::LOGICAL_PROJECTION) {
+            return nullptr;
+        }
+        
+        // Create detailed string representation
+        std::string str = "LogicalProjection:\n";
+        str += "  Expressions: [\n";
+        
+        for (size_t i = 0; i < logical_op.expressions.size(); i++) {
+            str += "    [" + std::to_string(i) + "] " + logical_op.expressions[i]->ToString() + "\n";
+        }
+        str += "  ]";
+        
+        // Allocate C string and copy
+        char* result = static_cast<char*>(malloc(str.length() + 1));
+        if (result) {
+            strcpy(result, str.c_str());
+        }
+        return result;
+    } catch (...) {
+        return nullptr;
+    }
+}
+
 // Expression functions
 extern "C" DUCKDB_VX_EXPRESSION_TYPE duckdb_vx_get_expression_type(duckdb_vx_expr expr) {
     if (!expr) return DUCKDB_VX_EXPRESSION_UNKNOWN;

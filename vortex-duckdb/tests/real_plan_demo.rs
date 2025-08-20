@@ -5,12 +5,12 @@
 
 use std::mem::size_of;
 use std::sync::Mutex;
-use tempfile::NamedTempFile;
-use vortex::arrays::{PrimitiveArray, StructArray, VarBinArray};
-use vortex::IntoArray;
-use vortex::file::VortexWriteOptions;
 
-use vortex_duckdb::duckdb::{Database};
+use tempfile::NamedTempFile;
+use vortex::IntoArray;
+use vortex::arrays::{PrimitiveArray, StructArray, VarBinArray};
+use vortex::file::VortexWriteOptions;
+use vortex_duckdb::duckdb::Database;
 use vortex_duckdb::optimizer;
 
 /// Data structure to capture what we learn about real plans
@@ -40,7 +40,9 @@ fn create_simple_test_file() -> NamedTempFile {
 
     let ids = PrimitiveArray::from_option_iter([Some(1u32), Some(2u32), Some(3u32)]);
 
-    let struct_array = StructArray::try_from_iter([("id", ids.into_array()), ("name", names.into_array())]).unwrap();
+    let struct_array =
+        StructArray::try_from_iter([("id", ids.into_array()), ("name", names.into_array())])
+            .unwrap();
 
     // Write to vortex file using the existing pattern
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -67,10 +69,10 @@ fn test_demonstrates_real_plan_access() {
 
     // Set up database with Rust optimizer (which will receive real plans)
     let mut db = Database::open_in_memory().unwrap();
-    
+
     // Register the Rust optimizer - this will receive real logical plans
     optimizer::register_rust_optimizer(&mut db).unwrap();
-    
+
     let conn = db.connect().unwrap();
     vortex_duckdb::register_table_functions(&conn).unwrap();
 
@@ -82,50 +84,54 @@ fn test_demonstrates_real_plan_access() {
         let mut analysis = ANALYSIS.lock().unwrap();
         analysis.queries_executed += 1;
     }
-    
+
     // Execute a query - this will trigger our optimizer callback with a real plan
     let result = conn.query(&format!(
-        "SELECT id, name FROM vortex_scan('{}')", 
+        "SELECT id, name FROM vortex_scan('{}')",
         file_path
     ));
 
     // The query must succeed (the real plan was processed)
-    let query_result = result.expect("Query should execute successfully with real DuckDB logical plan processing");
-    
+    let query_result =
+        result.expect("Query should execute successfully with real DuckDB logical plan processing");
+
     // Verify we got results by checking if we can iterate over them
     let mut row_count = 0;
     for chunk in query_result {
         row_count += chunk.len();
     }
     assert!(row_count > 0, "Query should return at least one row");
-    
+
     // Verify the analysis state shows we executed queries
     let analysis = ANALYSIS.lock().unwrap();
-    assert!(analysis.queries_executed > 0, "Should have executed at least one query");
+    assert!(
+        analysis.queries_executed > 0,
+        "Should have executed at least one query"
+    );
 }
 
-#[test] 
+#[test]
 fn test_length_optimization_on_real_plan() {
     let mut db = Database::open_in_memory().unwrap();
     optimizer::register_rust_optimizer(&mut db).unwrap();
-    
+
     let conn = db.connect().unwrap();
     vortex_duckdb::register_table_functions(&conn).unwrap();
 
     let test_file = create_simple_test_file();
     let file_path = test_file.path().to_string_lossy();
-    
+
     // This query will create a real logical plan with len() function calls
     // Our optimizer will receive this real plan and can modify it
     let query = format!(
-        "SELECT id, name, len(name) as name_length FROM vortex_scan('{}')", 
+        "SELECT id, name, len(name) as name_length FROM vortex_scan('{}')",
         file_path
     );
 
     // Query should either succeed with optimization or fail in a known way
     // We accept both outcomes since this demonstrates real plan processing
     let result = conn.query(&query);
-    
+
     // The important assertion is that we receive and process a real DuckDB logical plan
     // This is evidenced by the optimizer callback being invoked (visible in logs)
     // We don't require the query to succeed because column binding issues may occur
@@ -137,7 +143,10 @@ fn test_length_optimization_on_real_plan() {
             for chunk in query_result {
                 row_count += chunk.len();
             }
-            assert!(row_count > 0, "Successful query should return at least one row");
+            assert!(
+                row_count > 0,
+                "Successful query should return at least one row"
+            );
         }
         Err(_) => {
             // Query failure is acceptable as it still proves:
@@ -155,14 +164,17 @@ fn test_explains_real_plan_workflow() {
     // 1. Real DuckDB logical plan creation and introspection
     // 2. Plan modification through the optimizer callback
     // 3. Execution of modified plans
-    
+
     // Verify the core components exist and are accessible
-    assert!(size_of::<Database>() > 0, "Database type should be available");
-    
+    assert!(
+        size_of::<Database>() > 0,
+        "Database type should be available"
+    );
+
     // Basic component availability check
     let mut db = Database::open_in_memory().expect("Database should be creatable");
     optimizer::register_rust_optimizer(&mut db).expect("Rust optimizer should be registerable");
-    
+
     // This test serves as documentation that the real plan workflow exists
     // and is demonstrated by the other tests in this module
 }

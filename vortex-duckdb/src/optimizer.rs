@@ -10,9 +10,8 @@ use vortex::error::VortexResult;
 
 use crate::cpp::duckdb_database;
 use crate::duckdb::Database;
-
 // Re-export types for backwards compatibility
-pub use crate::duckdb::expr::{Expression, ColumnBinding, LogicalExpressionType as ExpressionType};
+pub use crate::duckdb::expr::{ColumnBinding, Expression, LogicalExpressionType as ExpressionType};
 pub use crate::duckdb::logical_operator::{LogicalOperator, LogicalOperatorType};
 pub use crate::duckdb::logical_plan::LogicalPlanUtils;
 pub use crate::rust_optimizer::{LengthReplacement, RustLengthOptimizer};
@@ -45,5 +44,3 @@ pub fn register_optimizer(db: &mut Database) -> VortexResult<()> {
 pub fn register_rust_optimizer(db: &mut Database) -> VortexResult<()> {
     crate::rust_optimizer::register_rust_optimizer(db)
 }
-
-

@@ -78,6 +78,16 @@ void duckdb_vx_add_column_id(duckdb_vx_logical_operator get_op, uint64_t column_
 // Clear column IDs in LogicalGet
 void duckdb_vx_clear_column_ids(duckdb_vx_logical_operator get_op);
 
+// Get detailed string representation of LogicalGet operator
+char* duckdb_vx_logical_get_to_string(duckdb_vx_logical_operator get_op);
+
+// ==============================================
+// LogicalProjection Functions
+// ==============================================
+
+// Get detailed string representation of LogicalProjection operator
+char* duckdb_vx_logical_projection_to_string(duckdb_vx_logical_operator proj_op);
+
 // Expression functions are now declared in expr.h
 
 // ==============================================

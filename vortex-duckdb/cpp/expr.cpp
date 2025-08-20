@@ -23,6 +23,83 @@ extern "C" const char *duckdb_vx_expr_to_string(duckdb_vx_expr ffi_expr) {
     return result;
 }
 
+// Get detailed debug string representation of expression
+extern "C" char *duckdb_vx_expr_to_debug_string(duckdb_vx_expr ffi_expr) {
+    try {
+        if (!ffi_expr) {
+            return nullptr;
+        }
+        
+        auto expr = reinterpret_cast<Expression *>(ffi_expr);
+        
+        // Create detailed debug string with class, type, and content information
+        std::string debug_str = "Expression Debug Info:\n";
+        debug_str += "  Class: " + ExpressionClassToString(expr->GetExpressionClass()) + "\n";
+        debug_str += "  Type: " + ExpressionTypeToString(expr->GetExpressionType()) + "\n";
+        debug_str += "  Return Type: " + expr->return_type.ToString() + "\n";
+        debug_str += "  ToString(): " + expr->ToString() + "\n";
+        
+        // Add specific information based on expression class
+        switch (expr->GetExpressionClass()) {
+            case ExpressionClass::BOUND_COLUMN_REF: {
+                auto& col_ref = expr->Cast<BoundColumnRefExpression>();
+                debug_str += "  Column Binding: table=" + std::to_string(col_ref.binding.table_index) 
+                           + ", column=" + std::to_string(col_ref.binding.column_index) + "\n";
+                debug_str += "  Depth: " + std::to_string(col_ref.depth) + "\n";
+                break;
+            }
+            case ExpressionClass::BOUND_FUNCTION: {
+                auto& func_expr = expr->Cast<BoundFunctionExpression>();
+                debug_str += "  Function: " + func_expr.function.name + "\n";
+                debug_str += "  Arguments: " + std::to_string(func_expr.children.size()) + "\n";
+                for (size_t i = 0; i < func_expr.children.size(); i++) {
+                    debug_str += "    [" + std::to_string(i) + "] " + func_expr.children[i]->ToString() + "\n";
+                }
+                break;
+            }
+            case ExpressionClass::BOUND_CONSTANT: {
+                auto& const_expr = expr->Cast<BoundConstantExpression>();
+                debug_str += "  Value: " + const_expr.value.ToString() + "\n";
+                break;
+            }
+            case ExpressionClass::BOUND_COMPARISON: {
+                auto& comp_expr = expr->Cast<BoundComparisonExpression>();
+                debug_str += "  Left: " + comp_expr.left->ToString() + "\n";
+                debug_str += "  Right: " + comp_expr.right->ToString() + "\n";
+                break;
+            }
+            case ExpressionClass::BOUND_CONJUNCTION: {
+                auto& conj_expr = expr->Cast<BoundConjunctionExpression>();
+                debug_str += "  Children: " + std::to_string(conj_expr.children.size()) + "\n";
+                for (size_t i = 0; i < conj_expr.children.size(); i++) {
+                    debug_str += "    [" + std::to_string(i) + "] " + conj_expr.children[i]->ToString() + "\n";
+                }
+                break;
+            }
+            case ExpressionClass::BOUND_OPERATOR: {
+                auto& op_expr = expr->Cast<BoundOperatorExpression>();
+                debug_str += "  Children: " + std::to_string(op_expr.children.size()) + "\n";
+                for (size_t i = 0; i < op_expr.children.size(); i++) {
+                    debug_str += "    [" + std::to_string(i) + "] " + op_expr.children[i]->ToString() + "\n";
+                }
+                break;
+            }
+            default:
+                debug_str += "  (No additional debug info for this expression class)\n";
+                break;
+        }
+        
+        // Allocate C string and copy
+        char* result = static_cast<char*>(malloc(debug_str.length() + 1));
+        if (result) {
+            strcpy(result, debug_str.c_str());
+        }
+        return result;
+    } catch (...) {
+        return nullptr;
+    }
+}
+
 // Legacy alias for backwards compatibility with optimizer_rule.h
 extern "C" char *duckdb_vx_expression_to_string(duckdb_vx_expr ffi_expr) {
     return const_cast<char*>(duckdb_vx_expr_to_string(ffi_expr));

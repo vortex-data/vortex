@@ -14,6 +14,9 @@ typedef struct duckdb_vx_expr_ *duckdb_vx_expr;
 /// Return the string representation of the expression. Must be freed with `duckdb_vx_free`.
 const char *duckdb_vx_expr_to_string(duckdb_vx_expr expr);
 
+/// Return a detailed debug string representation of the expression. Must be freed with `duckdb_vx_free`.
+char *duckdb_vx_expr_to_debug_string(duckdb_vx_expr expr);
+
 /// Legacy alias for backwards compatibility with optimizer_rule.h
 char *duckdb_vx_expression_to_string(duckdb_vx_expr expr);
 
