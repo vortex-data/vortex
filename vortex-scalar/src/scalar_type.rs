@@ -65,14 +65,6 @@ impl ScalarType for f16 {
 
 scalar_type_for_vec!(f16);
 
-impl ScalarType for usize {
-    fn dtype() -> DType {
-        DType::Primitive(PType::U64, Nullability::NonNullable)
-    }
-}
-
-scalar_type_for_vec!(usize);
-
 impl ScalarType for String {
     fn dtype() -> DType {
         DType::Utf8(Nullability::NonNullable)
@@ -158,15 +150,6 @@ mod tests {
     }
 
     #[test]
-    fn test_usize_scalar_type() {
-        // usize is mapped to U64
-        assert_eq!(
-            usize::dtype(),
-            DType::Primitive(PType::U64, Nullability::NonNullable)
-        );
-    }
-
-    #[test]
     fn test_string_scalar_types() {
         assert_eq!(String::dtype(), DType::Utf8(Nullability::NonNullable));
         assert_eq!(BufferString::dtype(), DType::Utf8(Nullability::NonNullable));
@@ -227,18 +210,6 @@ mod tests {
             Vec::<BufferString>::dtype(),
             DType::List(
                 Arc::new(DType::Utf8(Nullability::NonNullable)),
-                Nullability::NonNullable
-            )
-        );
-    }
-
-    #[test]
-    fn test_vec_usize_scalar_type() {
-        // Vec<usize> should be List(U64)
-        assert_eq!(
-            Vec::<usize>::dtype(),
-            DType::List(
-                Arc::new(DType::Primitive(PType::U64, Nullability::NonNullable)),
                 Nullability::NonNullable
             )
         );

@@ -514,7 +514,6 @@ macro_rules! from_vec_for_scalar {
 from_vec_for_scalar!(u16);
 from_vec_for_scalar!(u32);
 from_vec_for_scalar!(u64);
-from_vec_for_scalar!(usize); // For usize only, we implicitly cast for better ergonomics.
 from_vec_for_scalar!(i8);
 from_vec_for_scalar!(i16);
 from_vec_for_scalar!(i32);
