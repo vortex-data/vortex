@@ -9,9 +9,8 @@ use vortex::error::{VortexResult, vortex_bail, vortex_err};
 
 use crate::duckdb::Database;
 use crate::duckdb::expr::{Expression, ColumnBinding, LogicalExpressionType as ExpressionType};
-use crate::duckdb::logical_plan::{
-    LogicalOperator, LogicalOperatorType, LogicalPlanUtils,
-};
+use crate::duckdb::logical_operator::{LogicalOperator, LogicalOperatorType, LogicalOperatorClass};
+use crate::duckdb::logical_plan::LogicalPlanUtils;
 
 /// Length replacement information
 #[derive(Debug, Clone)]
@@ -34,12 +33,11 @@ trait LengthOptimizationExt {
 
 impl LengthOptimizationExt for LogicalOperator {
     fn is_vortex_scan(&self) -> VortexResult<bool> {
-        if self.operator_type() != LogicalOperatorType::Get {
-            return Ok(false);
+        if let Some(LogicalOperatorClass::Get(get_op)) = self.as_class() {
+            get_op.is_vortex_scan()
+        } else {
+            Ok(false)
         }
-
-        let function_name = self.function_name()?;
-        Ok(function_name.as_deref() == Some("vortex_scan"))
     }
 
     fn is_length_function(&self) -> VortexResult<bool> {
@@ -151,13 +149,13 @@ impl RustLengthOptimizer {
         for i in 0..expression_count {
             println!(
                 "operator before: {}",
-                op.to_string().unwrap_or("ERROR".to_string())
+                op
             );
             if let Some(expr) = op.get_expression(i) {
                 println!(
                     "🔍 BEFORE[{}]: {}",
                     i,
-                    expr.to_string().map_err(|_| ()).unwrap_or("ERROR".to_string())
+                    expr.to_string()
                 );
 
                 // Re-find vortex_scan node for each expression to ensure we have current state
@@ -166,7 +164,7 @@ impl RustLengthOptimizer {
                     println!(
                         "🔄 AFTER[{}]: {}",
                         i,
-                        new_expr.to_string().map_err(|_| ()).unwrap_or("ERROR".to_string())
+                        new_expr.to_string()
                     );
                     op.set_expression(i, new_expr);
                 } else {
@@ -176,7 +174,7 @@ impl RustLengthOptimizer {
 
             println!(
                 "operator now: {}",
-                op.to_string().unwrap_or("ERROR".to_string())
+                op
             );
         }
 
@@ -224,18 +222,24 @@ impl RustLengthOptimizer {
         // Find the virtual column index in the table schema
         let virtual_column_index = if let Some(vortex_node_ptr) = vortex_scan_node_ptr {
             let vortex_node = unsafe { &*vortex_node_ptr };
-            let column_names = vortex_node.column_names()?;
-            println!(
-                "✅ OPTIMIZER: Found vortex_scan node with {} columns: {:?}",
-                column_names.len(),
+            
+            // Downcast to LogicalGet to access column_names
+            if let Some(LogicalOperatorClass::Get(get_op)) = vortex_node.as_class() {
+                let column_names = get_op.column_names()?;
+                println!(
+                    "✅ OPTIMIZER: Found vortex_scan node with {} columns: {:?}",
+                    column_names.len(),
+                    column_names
+                );
                 column_names
-            );
-            column_names
-                .iter()
-                .position(|name| *name == virtual_col_name)
-                .ok_or_else(|| {
-                    vortex_err!("Virtual column '{}' not found in schema", virtual_col_name)
-                })?
+                    .iter()
+                    .position(|name| *name == virtual_col_name)
+                    .ok_or_else(|| {
+                        vortex_err!("Virtual column '{}' not found in schema", virtual_col_name)
+                    })?
+            } else {
+                vortex_bail!("Expected vortex_scan to be a LogicalGet operator");
+            }
         } else {
             vortex_bail!("No vortex_scan node found");
         };
@@ -272,8 +276,11 @@ impl RustLengthOptimizer {
 
     /// Update vortex scan projections based on the replacements
     fn update_vortex_scan_projections(&self, op: &LogicalOperator) -> VortexResult<()> {
-        if op.is_vortex_scan()? {
-            self.update_single_vortex_scan_projections(op)?;
+        // Check if this is a vortex_scan and update it
+        if let Some(LogicalOperatorClass::Get(get_op)) = op.as_class() {
+            if get_op.is_vortex_scan()? {
+                self.update_single_vortex_scan_projections(op)?;
+            }
         }
 
         // Recursively update children
@@ -287,13 +294,21 @@ impl RustLengthOptimizer {
     }
 
     /// Update projections for a single vortex_scan node
-    fn update_single_vortex_scan_projections(&self, get_op: &LogicalOperator) -> VortexResult<()> {
+    fn update_single_vortex_scan_projections(&self, op: &LogicalOperator) -> VortexResult<()> {
+        // Downcast to LogicalGet to access the projection manipulation methods
+        let get_op = match op.as_class() {
+            Some(LogicalOperatorClass::Get(get)) => get,
+            _ => {
+                vortex_bail!("update_single_vortex_scan_projections called on non-Get operator");
+            }
+        };
+
         println!("🔧 OPTIMIZER: ===== BEFORE TRANSFORM =====");
 
         let projection_ids = get_op.get_projection_ids()?;
         println!("🔧 OPTIMIZER: Current projection_ids: {:?}", projection_ids);
 
-        let column_names = get_op.get_column_names()?;
+        let column_names = get_op.column_names()?;
         println!("🔧 OPTIMIZER: Current names: {:?}", column_names);
 
         // Create a set of virtual columns to add
@@ -389,11 +404,11 @@ extern "C-unwind" fn rust_optimizer_callback(
     }
 
     // Safely create the LogicalOperator wrapper
-    let logical_op = unsafe { LogicalOperator::from_ptr(plan) };
-    let Some(logical_op) = logical_op else {
-        println!("❌ RUST OPTIMIZER: Failed to create LogicalOperator wrapper");
+    if plan.is_null() {
+        println!("❌ RUST OPTIMIZER: NULL plan pointer");
         return;
-    };
+    }
+    let logical_op = unsafe { LogicalOperator::borrow(plan) };
 
     // Create and run the optimizer
     let mut optimizer = RustLengthOptimizer::new();
