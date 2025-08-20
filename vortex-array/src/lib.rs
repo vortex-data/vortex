@@ -26,7 +26,6 @@ pub mod arrays;
 pub mod arrow;
 pub mod builders;
 mod canonical;
-pub mod compress;
 pub mod compute;
 mod context;
 mod encoding;
