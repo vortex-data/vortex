@@ -4,7 +4,7 @@
 use vortex_array::arrays::{VarBinArray, VarBinViewArray, VarBinViewVTable};
 use vortex_array::compress::downscale_integer_array;
 use vortex_array::vtable::ValidityHelper;
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_dict::builders::dict_encode;
 use vortex_error::{VortexExpect, VortexResult};
