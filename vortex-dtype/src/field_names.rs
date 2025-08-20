@@ -208,3 +208,74 @@ impl<F: Into<FieldName>> FromIterator<F> for FieldNames {
         Self(iter.into_iter().map(|v| v.into()).collect())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_field_names_iter() {
+        let names = ["a", "b"];
+        let field_names = FieldNames::from(names);
+        assert_eq!(field_names.iter().len(), names.len());
+        let mut iter = field_names.iter();
+        assert_eq!(iter.next(), Some(&"a".into()));
+        assert_eq!(iter.next(), Some(&"b".into()));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn test_field_names_owned_iter() {
+        let names = ["a", "b"];
+        let field_names = FieldNames::from(names);
+        assert_eq!(field_names.clone().into_iter().len(), names.len());
+        let mut iter = field_names.into_iter();
+        assert_eq!(iter.next(), Some("a".into()));
+        assert_eq!(iter.next(), Some("b".into()));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn test_field_names_equality() {
+        let field_names = FieldNames::from(["field1", "field2", "field3"]);
+
+        // FieldNames == &FieldNames
+        let field_names_ref = &field_names;
+        assert_eq!(field_names, field_names_ref);
+
+        // FieldNames == &[&str]
+        let str_slice = &["field1", "field2", "field3"][..];
+        assert_eq!(field_names, str_slice);
+
+        // &FieldNames == &[&str]
+        assert_eq!(&field_names, str_slice);
+
+        // FieldNames == [&str; N] (array)
+        assert_eq!(field_names, ["field1", "field2", "field3"]);
+
+        // &FieldNames == [&str; N] (array)
+        assert_eq!(&field_names, ["field1", "field2", "field3"]);
+
+        // FieldNames == &[FieldName]
+        let field_name_vec: Vec<FieldName> =
+            vec!["field1".into(), "field2".into(), "field3".into()];
+        let field_name_slice = field_name_vec.as_slice();
+        assert_eq!(field_names, field_name_slice);
+
+        // &FieldNames == &[FieldName]
+        assert_eq!(&field_names, field_name_slice);
+
+        // Test inequality cases
+        assert_ne!(field_names, &["field1", "field2"][..]);
+        assert_ne!(field_names, ["different", "fields", "here"]);
+        assert_ne!(field_names, &["field1", "field2", "field3", "extra"][..]);
+    }
+
+    #[test]
+    fn test_field_names_display() {
+        let names = FieldNames::from(["a", "b", "c"]);
+        let f = format!("{names}");
+
+        assert_eq!(f, r#"["a", "b", "c"]"#);
+    }
+}
