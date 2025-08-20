@@ -172,3 +172,296 @@ fn supported_data_types(dt: &DataType) -> bool {
 
     is_supported
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use arrow_schema::{DataType, Field, Schema, TimeUnit as ArrowTimeUnit};
+    use datafusion_common::ScalarValue;
+    use datafusion_expr::Operator as DFOperator;
+    use datafusion_physical_expr::PhysicalExpr;
+    use datafusion_physical_plan::expressions as df_expr;
+    use rstest::rstest;
+    use vortex::expr::{BinaryVTable, ExprRef, GetItemVTable, LikeVTable, LiteralVTable, Operator};
+
+    use super::*;
+
+    #[rstest::fixture]
+    fn test_schema() -> Schema {
+        Schema::new(vec![
+            Field::new("id", DataType::Int32, false),
+            Field::new("name", DataType::Utf8, true),
+            Field::new("score", DataType::Float64, true),
+            Field::new("active", DataType::Boolean, false),
+            Field::new(
+                "created_at",
+                DataType::Timestamp(ArrowTimeUnit::Millisecond, None),
+                true,
+            ),
+            Field::new(
+                "unsupported_list",
+                DataType::List(Arc::new(Field::new("item", DataType::Int32, true))),
+                true,
+            ),
+        ])
+    }
+
+    #[test]
+    fn test_make_vortex_predicate_empty() {
+        let result = make_vortex_predicate(&[]).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_make_vortex_predicate_single() {
+        let col_expr = Arc::new(df_expr::Column::new("test", 0)) as Arc<dyn PhysicalExpr>;
+        let result = make_vortex_predicate(&[&col_expr]).unwrap();
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_make_vortex_predicate_multiple() {
+        let col1 = Arc::new(df_expr::Column::new("col1", 0)) as Arc<dyn PhysicalExpr>;
+        let col2 = Arc::new(df_expr::Column::new("col2", 1)) as Arc<dyn PhysicalExpr>;
+        let result = make_vortex_predicate(&[&col1, &col2]).unwrap();
+        assert!(result.is_some());
+        // Result should be an AND expression combining the two columns
+    }
+
+    #[rstest]
+    #[case::eq(DFOperator::Eq, Operator::Eq)]
+    #[case::not_eq(DFOperator::NotEq, Operator::NotEq)]
+    #[case::lt(DFOperator::Lt, Operator::Lt)]
+    #[case::lte(DFOperator::LtEq, Operator::Lte)]
+    #[case::gt(DFOperator::Gt, Operator::Gt)]
+    #[case::gte(DFOperator::GtEq, Operator::Gte)]
+    #[case::and(DFOperator::And, Operator::And)]
+    #[case::or(DFOperator::Or, Operator::Or)]
+    fn test_operator_conversion_supported(
+        #[case] df_op: DFOperator,
+        #[case] expected_vortex_op: Operator,
+    ) {
+        let result = Operator::try_from_df(&df_op).unwrap();
+        // We can't directly compare operators, so let's check they convert successfully
+        // and have the expected behavior by converting back or through other means
+        match (&result, &expected_vortex_op) {
+            (Operator::Eq, Operator::Eq) => (),
+            (Operator::NotEq, Operator::NotEq) => (),
+            (Operator::Lt, Operator::Lt) => (),
+            (Operator::Lte, Operator::Lte) => (),
+            (Operator::Gt, Operator::Gt) => (),
+            (Operator::Gte, Operator::Gte) => (),
+            (Operator::And, Operator::And) => (),
+            (Operator::Or, Operator::Or) => (),
+            _ => panic!(
+                "Operator conversion mismatch: expected {:?}, got {:?}",
+                expected_vortex_op, result
+            ),
+        }
+    }
+
+    #[rstest]
+    #[case::plus(DFOperator::Plus)]
+    #[case::minus(DFOperator::Minus)]
+    #[case::multiply(DFOperator::Multiply)]
+    #[case::divide(DFOperator::Divide)]
+    #[case::modulo(DFOperator::Modulo)]
+    #[case::bitwise_and(DFOperator::BitwiseAnd)]
+    #[case::regex_match(DFOperator::RegexMatch)]
+    #[case::like_match(DFOperator::LikeMatch)]
+    fn test_operator_conversion_unsupported(#[case] df_op: DFOperator) {
+        let result = Operator::try_from_df(&df_op);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Unsupported datafusion operator")
+        );
+    }
+
+    #[test]
+    fn test_expr_from_df_column() {
+        let col_expr = df_expr::Column::new("test_column", 0);
+        let result = ExprRef::try_from_df(&col_expr).unwrap();
+
+        // Verify it's a column reference (get_item expression)
+        // We can't easily inspect the internal structure, but we can verify it converts without error
+        assert!(result.is::<GetItemVTable>());
+    }
+
+    #[test]
+    fn test_expr_from_df_literal() {
+        let literal_expr = df_expr::Literal::new(ScalarValue::Int32(Some(42)));
+        let result = ExprRef::try_from_df(&literal_expr).unwrap();
+
+        // Verify it's a literal expression
+        assert!(result.is::<LiteralVTable>());
+    }
+
+    #[test]
+    fn test_expr_from_df_binary() {
+        let left = Arc::new(df_expr::Column::new("left", 0)) as Arc<dyn PhysicalExpr>;
+        let right =
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(42)))) as Arc<dyn PhysicalExpr>;
+        let binary_expr = df_expr::BinaryExpr::new(left, DFOperator::Eq, right);
+
+        let result = ExprRef::try_from_df(&binary_expr).unwrap();
+
+        // Verify it's a binary expression
+        assert!(result.is::<BinaryVTable>());
+    }
+
+    #[rstest]
+    #[case::like_normal(false, false)]
+    #[case::like_negated(true, false)]
+    #[case::like_case_insensitive(false, true)]
+    #[case::like_negated_case_insensitive(true, true)]
+    fn test_expr_from_df_like(#[case] negated: bool, #[case] case_insensitive: bool) {
+        let expr = Arc::new(df_expr::Column::new("text_col", 0)) as Arc<dyn PhysicalExpr>;
+        let pattern = Arc::new(df_expr::Literal::new(ScalarValue::Utf8(Some(
+            "test%".to_string(),
+        )))) as Arc<dyn PhysicalExpr>;
+        let like_expr = df_expr::LikeExpr::new(negated, case_insensitive, expr, pattern);
+
+        let result = ExprRef::try_from_df(&like_expr).unwrap();
+
+        // Verify it's a like expression
+        assert!(dbg!(result).is::<LikeVTable>());
+    }
+
+    #[rstest]
+    // Supported types
+    #[case::null(DataType::Null, true)]
+    #[case::boolean(DataType::Boolean, true)]
+    #[case::int8(DataType::Int8, true)]
+    #[case::int16(DataType::Int16, true)]
+    #[case::int32(DataType::Int32, true)]
+    #[case::int64(DataType::Int64, true)]
+    #[case::uint8(DataType::UInt8, true)]
+    #[case::uint16(DataType::UInt16, true)]
+    #[case::uint32(DataType::UInt32, true)]
+    #[case::uint64(DataType::UInt64, true)]
+    #[case::float32(DataType::Float32, true)]
+    #[case::float64(DataType::Float64, true)]
+    #[case::utf8(DataType::Utf8, true)]
+    #[case::utf8_view(DataType::Utf8View, true)]
+    #[case::binary(DataType::Binary, true)]
+    #[case::binary_view(DataType::BinaryView, true)]
+    #[case::date32(DataType::Date32, true)]
+    #[case::date64(DataType::Date64, true)]
+    #[case::timestamp_ms(DataType::Timestamp(ArrowTimeUnit::Millisecond, None), true)]
+    #[case::timestamp_us(
+        DataType::Timestamp(ArrowTimeUnit::Microsecond, Some(Arc::from("UTC"))),
+        true
+    )]
+    #[case::time32_s(DataType::Time32(ArrowTimeUnit::Second), true)]
+    #[case::time64_ns(DataType::Time64(ArrowTimeUnit::Nanosecond), true)]
+    // Unsupported types
+    #[case::list(
+        DataType::List(Arc::new(Field::new("item", DataType::Int32, true))),
+        false
+    )]
+    #[case::struct_type(DataType::Struct(vec![Field::new("field", DataType::Int32, true)].into()), false)]
+    fn test_supported_data_types(#[case] data_type: DataType, #[case] expected: bool) {
+        assert_eq!(supported_data_types(&data_type), expected);
+    }
+
+    #[rstest]
+    fn test_can_be_pushed_down_column_supported(test_schema: Schema) {
+        let col_expr = Arc::new(df_expr::Column::new("id", 0)) as Arc<dyn PhysicalExpr>;
+
+        assert!(can_be_pushed_down(&col_expr, &test_schema));
+    }
+
+    #[rstest]
+    fn test_can_be_pushed_down_column_unsupported_type(test_schema: Schema) {
+        let col_expr =
+            Arc::new(df_expr::Column::new("unsupported_list", 5)) as Arc<dyn PhysicalExpr>;
+
+        assert!(!can_be_pushed_down(&col_expr, &test_schema));
+    }
+
+    #[rstest]
+    fn test_can_be_pushed_down_column_not_found(test_schema: Schema) {
+        let col_expr = Arc::new(df_expr::Column::new("nonexistent", 99)) as Arc<dyn PhysicalExpr>;
+
+        assert!(!can_be_pushed_down(&col_expr, &test_schema));
+    }
+
+    #[rstest]
+    fn test_can_be_pushed_down_literal_supported(test_schema: Schema) {
+        let lit_expr =
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(42)))) as Arc<dyn PhysicalExpr>;
+
+        assert!(can_be_pushed_down(&lit_expr, &test_schema));
+    }
+
+    #[rstest]
+    fn test_can_be_pushed_down_literal_unsupported(test_schema: Schema) {
+        // Use a simpler unsupported type - Duration is not supported
+        let unsupported_literal = ScalarValue::DurationSecond(Some(42));
+        let lit_expr =
+            Arc::new(df_expr::Literal::new(unsupported_literal)) as Arc<dyn PhysicalExpr>;
+
+        assert!(!can_be_pushed_down(&lit_expr, &test_schema));
+    }
+
+    #[rstest]
+    fn test_can_be_pushed_down_binary_supported(test_schema: Schema) {
+        let left = Arc::new(df_expr::Column::new("id", 0)) as Arc<dyn PhysicalExpr>;
+        let right =
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(42)))) as Arc<dyn PhysicalExpr>;
+        let binary_expr = Arc::new(df_expr::BinaryExpr::new(left, DFOperator::Eq, right))
+            as Arc<dyn PhysicalExpr>;
+
+        assert!(can_be_pushed_down(&binary_expr, &test_schema));
+    }
+
+    #[rstest]
+    fn test_can_be_pushed_down_binary_unsupported_operator(test_schema: Schema) {
+        let left = Arc::new(df_expr::Column::new("id", 0)) as Arc<dyn PhysicalExpr>;
+        let right =
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(42)))) as Arc<dyn PhysicalExpr>;
+        let binary_expr = Arc::new(df_expr::BinaryExpr::new(left, DFOperator::Plus, right))
+            as Arc<dyn PhysicalExpr>;
+
+        assert!(!can_be_pushed_down(&binary_expr, &test_schema));
+    }
+
+    #[rstest]
+    fn test_can_be_pushed_down_binary_unsupported_operand(test_schema: Schema) {
+        let left = Arc::new(df_expr::Column::new("unsupported_list", 5)) as Arc<dyn PhysicalExpr>;
+        let right =
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(42)))) as Arc<dyn PhysicalExpr>;
+        let binary_expr = Arc::new(df_expr::BinaryExpr::new(left, DFOperator::Eq, right))
+            as Arc<dyn PhysicalExpr>;
+
+        assert!(!can_be_pushed_down(&binary_expr, &test_schema));
+    }
+
+    #[rstest]
+    fn test_can_be_pushed_down_like_supported(test_schema: Schema) {
+        let expr = Arc::new(df_expr::Column::new("name", 1)) as Arc<dyn PhysicalExpr>;
+        let pattern = Arc::new(df_expr::Literal::new(ScalarValue::Utf8(Some(
+            "test%".to_string(),
+        )))) as Arc<dyn PhysicalExpr>;
+        let like_expr =
+            Arc::new(df_expr::LikeExpr::new(false, false, expr, pattern)) as Arc<dyn PhysicalExpr>;
+
+        assert!(can_be_pushed_down(&like_expr, &test_schema));
+    }
+
+    #[rstest]
+    fn test_can_be_pushed_down_like_unsupported_operand(test_schema: Schema) {
+        let expr = Arc::new(df_expr::Column::new("unsupported_list", 5)) as Arc<dyn PhysicalExpr>;
+        let pattern = Arc::new(df_expr::Literal::new(ScalarValue::Utf8(Some(
+            "test%".to_string(),
+        )))) as Arc<dyn PhysicalExpr>;
+        let like_expr =
+            Arc::new(df_expr::LikeExpr::new(false, false, expr, pattern)) as Arc<dyn PhysicalExpr>;
+
+        assert!(!can_be_pushed_down(&like_expr, &test_schema));
+    }
+}

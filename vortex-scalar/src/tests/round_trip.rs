@@ -8,7 +8,6 @@
 //! and preserve data integrity.
 
 #[cfg(test)]
-#[allow(clippy::panic)]
 mod tests {
     use std::sync::Arc;
 
