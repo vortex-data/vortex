@@ -7,6 +7,7 @@
 [![Crates.io](https://img.shields.io/crates/v/vortex.svg)](https://crates.io/crates/vortex)
 [![PyPI - Version](https://img.shields.io/pypi/v/vortex-data)](https://pypi.org/project/vortex-data/)
 [![Maven - Version](https://img.shields.io/maven-central/v/dev.vortex/vortex-spark)](https://central.sonatype.com/artifact/dev.vortex/vortex-spark)
+[![codecov](https://codecov.io/github/vortex-data/vortex/graph/badge.svg?token=KU27V0K5W9)](https://codecov.io/github/vortex-data/vortex)
 
 📚 [Documentation](https://docs.vortex.dev/) | 📊 [Performance Benchmarks](https://bench.vortex.dev)
 
