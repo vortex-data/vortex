@@ -1,5 +1,5 @@
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, PType, match_each_native_ptype};
+use vortex_dtype::{DType, PType};
 use vortex_error::VortexResult;
 
 use crate::ToCanonical;
@@ -10,9 +10,10 @@ use crate::validity::Validity;
 impl PrimitiveArray {
     pub fn downscale(&self) -> VortexResult<PrimitiveArray> {
         let Some(min_max) = min_max(self.as_ref())? else {
-            return Ok(match_each_native_ptype!(self.ptype(), |P| {
-                PrimitiveArray::new(Buffer::<P>::zeroed(self.len()), Validity::AllInvalid)
-            }));
+            return Ok(PrimitiveArray::new(
+                Buffer::<u8>::zeroed(self.len()),
+                Validity::AllInvalid,
+            ));
         };
 
         // If we can't cast to i64, then leave the array as its original type.
