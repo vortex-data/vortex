@@ -18,7 +18,9 @@ use crate::scan::VortexTableFunction;
 mod convert;
 pub mod duckdb;
 pub mod exporter;
-mod optimizer;
+pub mod optimizer;
+mod optimizer_plan;
+mod rust_optimizer;
 mod scan;
 mod utils;
 
@@ -43,15 +45,25 @@ pub fn register_table_functions(conn: &Connection) -> VortexResult<()> {
 pub fn register_extension(db: &mut Database) -> VortexResult<()> {
     println!("🚀 REGISTERING: Starting Vortex extension registration...");
 
-    // Register optimizer first (this handles the C++ extension system)
-    println!("🚀 REGISTERING: Registering optimizer...");
-    if let Err(e) = optimizer::register_optimizer(db) {
+    // Register the new Rust-based optimizer first
+    println!("🚀 REGISTERING: Registering Rust optimizer...");
+    if let Err(e) = optimizer::register_rust_optimizer(db) {
         println!(
-            "⚠️ REGISTERING: Optimizer registration failed: {}, continuing with table functions only",
+            "⚠️ REGISTERING: Rust optimizer registration failed: {}, trying legacy C++ optimizer...",
             e
         );
+
+        // Fallback to legacy C++ optimizer
+        if let Err(e2) = optimizer::register_optimizer(db) {
+            println!(
+                "⚠️ REGISTERING: Both optimizers failed. Rust: {}, C++: {}. Continuing with table functions only.",
+                e, e2
+            );
+        } else {
+            println!("✅ REGISTERING: Legacy C++ optimizer registration succeeded!");
+        }
     } else {
-        println!("✅ REGISTERING: Optimizer registration succeeded!");
+        println!("✅ REGISTERING: Rust optimizer registration succeeded!");
     }
 
     // Register table functions
