@@ -473,7 +473,7 @@ public:
 // ==============================================
 
 // Basic operator inspection functions
-extern "C" DUCKDB_VX_LOGICAL_OPERATOR_TYPE duckdb_vx_get_operator_type(duckdb_logical_operator op) {
+extern "C" DUCKDB_VX_LOGICAL_OPERATOR_TYPE duckdb_vx_get_operator_type(duckdb_vx_logical_operator op) {
     if (!op) return DUCKDB_VX_LOGICAL_UNKNOWN;
     
     auto& logical_op = *reinterpret_cast<LogicalOperator*>(op);
@@ -487,33 +487,33 @@ extern "C" DUCKDB_VX_LOGICAL_OPERATOR_TYPE duckdb_vx_get_operator_type(duckdb_lo
     }
 }
 
-extern "C" uint64_t duckdb_vx_get_children_count(duckdb_logical_operator op) {
+extern "C" uint64_t duckdb_vx_get_children_count(duckdb_vx_logical_operator op) {
     if (!op) return 0;
     auto& logical_op = *reinterpret_cast<LogicalOperator*>(op);
     return logical_op.children.size();
 }
 
-extern "C" duckdb_logical_operator duckdb_vx_get_child(duckdb_logical_operator op, uint64_t index) {
+extern "C" duckdb_vx_logical_operator duckdb_vx_get_child(duckdb_vx_logical_operator op, uint64_t index) {
     if (!op) return nullptr;
     auto& logical_op = *reinterpret_cast<LogicalOperator*>(op);
     if (index >= logical_op.children.size()) return nullptr;
     return logical_op.children[index].get();
 }
 
-extern "C" uint64_t duckdb_vx_get_expressions_count(duckdb_logical_operator op) {
+extern "C" uint64_t duckdb_vx_get_expressions_count(duckdb_vx_logical_operator op) {
     if (!op) return 0;
     auto& logical_op = *reinterpret_cast<LogicalOperator*>(op);
     return logical_op.expressions.size();
 }
 
-extern "C" duckdb_expression duckdb_vx_get_expression(duckdb_logical_operator op, uint64_t index) {
+extern "C" duckdb_vx_expr duckdb_vx_get_expression(duckdb_vx_logical_operator op, uint64_t index) {
     if (!op) return nullptr;
     auto& logical_op = *reinterpret_cast<LogicalOperator*>(op);
     if (index >= logical_op.expressions.size()) return nullptr;
-    return logical_op.expressions[index].get();
+    return reinterpret_cast<duckdb_vx_expr>(logical_op.expressions[index].get());
 }
 
-extern "C" void duckdb_vx_set_expression(duckdb_logical_operator op, uint64_t index, duckdb_expression expr) {
+extern "C" void duckdb_vx_set_expression(duckdb_vx_logical_operator op, uint64_t index, duckdb_vx_expr expr) {
     if (!op || !expr) return;
     auto& logical_op = *reinterpret_cast<LogicalOperator*>(op);
     if (index >= logical_op.expressions.size()) return;
@@ -523,7 +523,7 @@ extern "C" void duckdb_vx_set_expression(duckdb_logical_operator op, uint64_t in
 }
 
 // LogicalGet specific functions
-extern "C" char* duckdb_vx_get_function_name(duckdb_logical_operator get_op) {
+extern "C" char* duckdb_vx_get_function_name(duckdb_vx_logical_operator get_op) {
     if (!get_op) return nullptr;
     auto& logical_op = *reinterpret_cast<LogicalOperator*>(get_op);
     if (logical_op.type != LogicalOperatorType::LOGICAL_GET) return nullptr;
@@ -532,7 +532,7 @@ extern "C" char* duckdb_vx_get_function_name(duckdb_logical_operator get_op) {
     return strdup(get.function.name.c_str());
 }
 
-extern "C" char** duckdb_vx_get_column_names(duckdb_logical_operator get_op, uint64_t* count) {
+extern "C" char** duckdb_vx_get_column_names(duckdb_vx_logical_operator get_op, uint64_t* count) {
     if (!get_op || !count) return nullptr;
     auto& logical_op = *reinterpret_cast<LogicalOperator*>(get_op);
     if (logical_op.type != LogicalOperatorType::LOGICAL_GET) return nullptr;
@@ -547,7 +547,7 @@ extern "C" char** duckdb_vx_get_column_names(duckdb_logical_operator get_op, uin
     return names;
 }
 
-extern "C" uint64_t* duckdb_vx_get_projection_ids(duckdb_logical_operator get_op, uint64_t* count) {
+extern "C" uint64_t* duckdb_vx_get_projection_ids(duckdb_vx_logical_operator get_op, uint64_t* count) {
     if (!get_op || !count) return nullptr;
     auto& logical_op = *reinterpret_cast<LogicalOperator*>(get_op);
     if (logical_op.type != LogicalOperatorType::LOGICAL_GET) return nullptr;
@@ -562,7 +562,7 @@ extern "C" uint64_t* duckdb_vx_get_projection_ids(duckdb_logical_operator get_op
     return ids;
 }
 
-extern "C" void duckdb_vx_update_projection_ids(duckdb_logical_operator get_op, 
+extern "C" void duckdb_vx_update_projection_ids(duckdb_vx_logical_operator get_op, 
                                                uint64_t* new_projection_ids,
                                                uint64_t count) {
     if (!get_op || !new_projection_ids) return;
@@ -576,7 +576,7 @@ extern "C" void duckdb_vx_update_projection_ids(duckdb_logical_operator get_op,
     }
 }
 
-extern "C" void duckdb_vx_add_column_id(duckdb_logical_operator get_op, uint64_t column_id) {
+extern "C" void duckdb_vx_add_column_id(duckdb_vx_logical_operator get_op, uint64_t column_id) {
     if (!get_op) return;
     auto& logical_op = *reinterpret_cast<LogicalOperator*>(get_op);
     if (logical_op.type != LogicalOperatorType::LOGICAL_GET) return;
@@ -585,7 +585,7 @@ extern "C" void duckdb_vx_add_column_id(duckdb_logical_operator get_op, uint64_t
     get.AddColumnId(column_id);
 }
 
-extern "C" void duckdb_vx_clear_column_ids(duckdb_logical_operator get_op) {
+extern "C" void duckdb_vx_clear_column_ids(duckdb_vx_logical_operator get_op) {
     if (!get_op) return;
     auto& logical_op = *reinterpret_cast<LogicalOperator*>(get_op);
     if (logical_op.type != LogicalOperatorType::LOGICAL_GET) return;
@@ -595,7 +595,7 @@ extern "C" void duckdb_vx_clear_column_ids(duckdb_logical_operator get_op) {
 }
 
 // Expression functions
-extern "C" DUCKDB_VX_EXPRESSION_TYPE duckdb_vx_get_expression_type(duckdb_expression expr) {
+extern "C" DUCKDB_VX_EXPRESSION_TYPE duckdb_vx_get_expression_type(duckdb_vx_expr expr) {
     if (!expr) return DUCKDB_VX_EXPRESSION_UNKNOWN;
     
     auto& expression = *reinterpret_cast<Expression*>(expr);
@@ -607,13 +607,8 @@ extern "C" DUCKDB_VX_EXPRESSION_TYPE duckdb_vx_get_expression_type(duckdb_expres
     }
 }
 
-extern "C" char* duckdb_vx_expression_to_string(duckdb_expression expr) {
-    if (!expr) return nullptr;
-    auto& expression = *reinterpret_cast<Expression*>(expr);
-    return strdup(expression.ToString().c_str());
-}
 
-extern "C" char* duckdb_vx_get_function_name_from_expr(duckdb_expression expr) {
+extern "C" char* duckdb_vx_get_function_name_from_expr(duckdb_vx_expr expr) {
     if (!expr) return nullptr;
     auto& expression = *reinterpret_cast<Expression*>(expr);
     
@@ -624,7 +619,7 @@ extern "C" char* duckdb_vx_get_function_name_from_expr(duckdb_expression expr) {
     return nullptr;
 }
 
-extern "C" uint64_t duckdb_vx_get_function_arg_count(duckdb_expression expr) {
+extern "C" uint64_t duckdb_vx_get_function_arg_count(duckdb_vx_expr expr) {
     if (!expr) return 0;
     auto& expression = *reinterpret_cast<Expression*>(expr);
     
@@ -635,19 +630,19 @@ extern "C" uint64_t duckdb_vx_get_function_arg_count(duckdb_expression expr) {
     return 0;
 }
 
-extern "C" duckdb_expression duckdb_vx_get_function_arg(duckdb_expression expr, uint64_t index) {
+extern "C" duckdb_vx_expr duckdb_vx_get_function_arg(duckdb_vx_expr expr, uint64_t index) {
     if (!expr) return nullptr;
     auto& expression = *reinterpret_cast<Expression*>(expr);
     
     if (expression.type == ExpressionType::BOUND_FUNCTION) {
         auto& func_expr = expression.Cast<BoundFunctionExpression>();
         if (index >= func_expr.children.size()) return nullptr;
-        return func_expr.children[index].get();
+        return reinterpret_cast<duckdb_vx_expr>(func_expr.children[index].get());
     }
     return nullptr;
 }
 
-extern "C" char* duckdb_vx_get_column_alias(duckdb_expression expr) {
+extern "C" char* duckdb_vx_get_column_alias(duckdb_vx_expr expr) {
     if (!expr) return nullptr;
     auto& expression = *reinterpret_cast<Expression*>(expr);
     
@@ -658,7 +653,7 @@ extern "C" char* duckdb_vx_get_column_alias(duckdb_expression expr) {
     return nullptr;
 }
 
-extern "C" duckdb_vx_column_binding duckdb_vx_get_column_binding(duckdb_expression expr) {
+extern "C" duckdb_vx_column_binding duckdb_vx_get_column_binding(duckdb_vx_expr expr) {
     duckdb_vx_column_binding binding = {0, 0};
     if (!expr) return binding;
     
@@ -671,7 +666,7 @@ extern "C" duckdb_vx_column_binding duckdb_vx_get_column_binding(duckdb_expressi
     return binding;
 }
 
-extern "C" duckdb_expression duckdb_vx_create_column_ref(const char* name, 
+extern "C" duckdb_vx_expr duckdb_vx_create_column_ref(const char* name, 
                                                        duckdb_vx_column_binding binding,
                                                        uint64_t depth) {
     if (!name) return nullptr;
@@ -683,10 +678,10 @@ extern "C" duckdb_expression duckdb_vx_create_column_ref(const char* name,
         depth
     );
     
-    return col_ref.release();
+    return reinterpret_cast<duckdb_vx_expr>(col_ref.release());
 }
 
-extern "C" void duckdb_vx_update_column_binding(duckdb_expression expr, duckdb_vx_column_binding binding) {
+extern "C" void duckdb_vx_update_column_binding(duckdb_vx_expr expr, duckdb_vx_column_binding binding) {
     if (!expr) return;
     auto& expression = *reinterpret_cast<Expression*>(expr);
     
@@ -698,7 +693,7 @@ extern "C" void duckdb_vx_update_column_binding(duckdb_expression expr, duckdb_v
 }
 
 // Visitor pattern implementation
-extern "C" void duckdb_vx_visit_operators(duckdb_logical_operator plan,
+extern "C" void duckdb_vx_visit_operators(duckdb_vx_logical_operator plan,
                                          duckdb_vx_rust_visitor_callback callback,
                                          void* user_data) {
     if (!plan || !callback) return;
@@ -813,7 +808,7 @@ extern "C" void duckdb_vx_register_optimizer(duckdb_database db_handle) {
 }
 
 // Get string representation of logical operator
-extern "C" char* duckdb_vx_logical_operator_to_string(duckdb_logical_operator op) {
+extern "C" char* duckdb_vx_logical_operator_to_string(duckdb_vx_logical_operator op) {
     try {
         if (!op) {
             return nullptr;

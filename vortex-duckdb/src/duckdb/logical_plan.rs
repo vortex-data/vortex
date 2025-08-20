@@ -3,11 +3,12 @@
 //! This module provides safe Rust wrappers around DuckDB's logical plan structures,
 //! allowing for custom optimization rules and plan transformations.
 
-use std::ffi::{CStr, CString, c_void};
+use std::ffi::{CStr, c_void};
 
-use vortex::error::{VortexResult, vortex_bail, vortex_err};
+use vortex::error::{VortexResult, vortex_bail};
 
 use crate::cpp::*;
+use crate::duckdb::expr::{Expression, LogicalExpressionType as ExpressionType};
 
 /// Represents the type of a logical operator in DuckDB's query plan
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,49 +22,16 @@ pub enum LogicalOperatorType {
     Unknown = DUCKDB_VX_LOGICAL_OPERATOR_TYPE_DUCKDB_VX_LOGICAL_UNKNOWN,
 }
 
-/// Represents the type of an expression in DuckDB's query plan
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u32)]
-pub enum ExpressionType {
-    BoundColumnRef = DUCKDB_VX_EXPRESSION_TYPE_DUCKDB_VX_BOUND_COLUMN_REF,
-    BoundFunction = DUCKDB_VX_EXPRESSION_TYPE_DUCKDB_VX_BOUND_FUNCTION,
-    Constant = DUCKDB_VX_EXPRESSION_TYPE_DUCKDB_VX_CONSTANT,
-    Unknown = DUCKDB_VX_EXPRESSION_TYPE_DUCKDB_VX_EXPRESSION_UNKNOWN,
-}
 
-/// Column binding information
-#[derive(Debug, Clone, Copy)]
-pub struct ColumnBinding {
-    pub table_index: u64,
-    pub column_index: u64,
-}
-
-impl From<ColumnBinding> for duckdb_vx_column_binding {
-    fn from(binding: ColumnBinding) -> Self {
-        duckdb_vx_column_binding {
-            table_index: binding.table_index,
-            column_index: binding.column_index,
-        }
-    }
-}
-
-impl From<duckdb_vx_column_binding> for ColumnBinding {
-    fn from(binding: duckdb_vx_column_binding) -> Self {
-        ColumnBinding {
-            table_index: binding.table_index,
-            column_index: binding.column_index,
-        }
-    }
-}
 
 /// Safe wrapper around DuckDB's LogicalOperator
 pub struct LogicalOperator {
-    ptr: duckdb_logical_operator,
+    ptr: duckdb_vx_logical_operator,
 }
 
 impl LogicalOperator {
     /// Create a LogicalOperator from a raw pointer (internal use only)
-    pub(crate) unsafe fn from_ptr(ptr: duckdb_logical_operator) -> Option<Self> {
+    pub(crate) unsafe fn from_ptr(ptr: duckdb_vx_logical_operator) -> Option<Self> {
         if ptr.is_null() {
             None
         } else {
@@ -110,14 +78,18 @@ impl LogicalOperator {
     pub fn get_expression(&self, index: usize) -> Option<Expression> {
         unsafe {
             let expr_ptr = duckdb_vx_get_expression(self.ptr, index as u64);
-            Expression::from_ptr(expr_ptr)
+            if expr_ptr.is_null() {
+                None
+            } else {
+                Some(Expression::borrow(expr_ptr))
+            }
         }
     }
 
     /// Set an expression by index (transfers ownership)
     pub fn set_expression(&self, index: usize, expression: Expression) {
         unsafe {
-            duckdb_vx_set_expression(self.ptr, index as u64, expression.ptr);
+            duckdb_vx_set_expression(self.ptr, index as u64, expression.as_ptr());
             // Prevent the expression from being dropped since ownership was transferred
             std::mem::forget(expression);
         }
@@ -235,123 +207,11 @@ impl LogicalOperator {
 
     /// Get the raw pointer (for internal use)
     #[allow(dead_code)]
-    pub(crate) fn as_ptr(&self) -> duckdb_logical_operator {
+    pub(crate) fn as_ptr(&self) -> duckdb_vx_logical_operator {
         self.ptr
     }
 }
 
-/// Safe wrapper around DuckDB's Expression
-pub struct Expression {
-    ptr: duckdb_expression,
-}
-
-impl Expression {
-    /// Create an Expression from a raw pointer (internal use only)
-    pub(crate) unsafe fn from_ptr(ptr: duckdb_expression) -> Option<Self> {
-        if ptr.is_null() {
-            None
-        } else {
-            Some(Expression { ptr })
-        }
-    }
-
-    /// Get the type of this expression
-    pub fn expression_type(&self) -> ExpressionType {
-        let expr_type = unsafe { duckdb_vx_get_expression_type(self.ptr) };
-        match expr_type {
-            DUCKDB_VX_EXPRESSION_TYPE_DUCKDB_VX_BOUND_COLUMN_REF => ExpressionType::BoundColumnRef,
-            DUCKDB_VX_EXPRESSION_TYPE_DUCKDB_VX_BOUND_FUNCTION => ExpressionType::BoundFunction,
-            DUCKDB_VX_EXPRESSION_TYPE_DUCKDB_VX_CONSTANT => ExpressionType::Constant,
-            _ => ExpressionType::Unknown,
-        }
-    }
-
-    /// Get string representation of this expression
-    pub fn to_string(&self) -> VortexResult<String> {
-        unsafe {
-            let str_ptr = duckdb_vx_expression_to_string(self.ptr);
-            if str_ptr.is_null() {
-                vortex_bail!("Failed to convert expression to string");
-            }
-            let result = CStr::from_ptr(str_ptr).to_string_lossy().into_owned();
-            duckdb_vx_free_string(str_ptr);
-            Ok(result)
-        }
-    }
-
-    /// Get function name if this is a function expression
-    pub fn function_name(&self) -> VortexResult<Option<String>> {
-        unsafe {
-            let name_ptr = duckdb_vx_get_function_name_from_expr(self.ptr);
-            if name_ptr.is_null() {
-                Ok(None)
-            } else {
-                let name = CStr::from_ptr(name_ptr).to_string_lossy().into_owned();
-                duckdb_vx_free_string(name_ptr);
-                Ok(Some(name))
-            }
-        }
-    }
-
-    /// Get function argument count if this is a function expression
-    pub fn function_arg_count(&self) -> usize {
-        unsafe { duckdb_vx_get_function_arg_count(self.ptr) as usize }
-    }
-
-    /// Get function argument by index if this is a function expression
-    pub fn get_function_arg(&self, index: usize) -> Option<Expression> {
-        unsafe {
-            let arg_ptr = duckdb_vx_get_function_arg(self.ptr, index as u64);
-            Expression::from_ptr(arg_ptr)
-        }
-    }
-
-    /// Get column alias if this is a column reference
-    pub fn column_alias(&self) -> VortexResult<Option<String>> {
-        unsafe {
-            let alias_ptr = duckdb_vx_get_column_alias(self.ptr);
-            if alias_ptr.is_null() {
-                Ok(None)
-            } else {
-                let alias = CStr::from_ptr(alias_ptr).to_string_lossy().into_owned();
-                duckdb_vx_free_string(alias_ptr);
-                Ok(Some(alias))
-            }
-        }
-    }
-
-    /// Get column binding if this is a column reference
-    pub fn column_binding(&self) -> ColumnBinding {
-        let binding = unsafe { duckdb_vx_get_column_binding(self.ptr) };
-        binding.into()
-    }
-
-    /// Update column binding if this is a column reference
-    pub fn update_column_binding(&self, binding: ColumnBinding) {
-        unsafe {
-            duckdb_vx_update_column_binding(self.ptr, binding.into());
-        }
-    }
-
-    /// Create a new column reference expression
-    pub fn create_column_ref(name: &str, binding: ColumnBinding, depth: u64) -> VortexResult<Self> {
-        let c_name = CString::new(name).map_err(|e| vortex_err!("Invalid column name: {}", e))?;
-        unsafe {
-            let expr_ptr = duckdb_vx_create_column_ref(c_name.as_ptr(), binding.into(), depth);
-            if expr_ptr.is_null() {
-                vortex_bail!("Failed to create column reference expression")
-            } else {
-                Ok(Expression { ptr: expr_ptr })
-            }
-        }
-    }
-
-    /// Get the raw pointer (for internal use)
-    #[allow(dead_code)]
-    pub(crate) fn as_ptr(&self) -> duckdb_expression {
-        self.ptr
-    }
-}
 
 /// Utility functions for visiting and manipulating logical plans
 pub struct LogicalPlanUtils;
@@ -414,7 +274,7 @@ impl LogicalPlanUtils {
         Self::visit_operators(plan, &mut |op| {
             for i in 0..op.expressions_count() {
                 if let Some(expr) = op.get_expression(i) {
-                    if expr.expression_type() == target_type {
+                    if expr.logical_expression_type() == target_type {
                         expressions.push(&expr as *const Expression);
                     }
                 }

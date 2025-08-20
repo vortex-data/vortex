@@ -8,9 +8,9 @@ use std::ptr;
 use vortex::error::{VortexResult, vortex_bail, vortex_err};
 
 use crate::duckdb::Database;
+use crate::duckdb::expr::{Expression, ColumnBinding, LogicalExpressionType as ExpressionType};
 use crate::duckdb::logical_plan::{
-    ColumnBinding, Expression, ExpressionType, LogicalOperator, LogicalOperatorType,
-    LogicalPlanUtils,
+    LogicalOperator, LogicalOperatorType, LogicalPlanUtils,
 };
 
 /// Length replacement information
@@ -53,7 +53,7 @@ impl LengthOptimizationExt for Expression {
     }
 
     fn is_length_function(&self) -> VortexResult<bool> {
-        if self.expression_type() != ExpressionType::BoundFunction {
+        if self.logical_expression_type() != ExpressionType::BoundFunction {
             return Ok(false);
         }
 
@@ -151,13 +151,13 @@ impl RustLengthOptimizer {
         for i in 0..expression_count {
             println!(
                 "operator before: {}",
-                op.to_string().unwrap_or_else(|_| "ERROR".to_string())
+                op.to_string().unwrap_or("ERROR".to_string())
             );
             if let Some(expr) = op.get_expression(i) {
                 println!(
                     "🔍 BEFORE[{}]: {}",
                     i,
-                    expr.to_string().unwrap_or_else(|_| "ERROR".to_string())
+                    expr.to_string().map_err(|_| ()).unwrap_or("ERROR".to_string())
                 );
 
                 // Re-find vortex_scan node for each expression to ensure we have current state
@@ -166,7 +166,7 @@ impl RustLengthOptimizer {
                     println!(
                         "🔄 AFTER[{}]: {}",
                         i,
-                        new_expr.to_string().unwrap_or_else(|_| "ERROR".to_string())
+                        new_expr.to_string().map_err(|_| ()).unwrap_or("ERROR".to_string())
                     );
                     op.set_expression(i, new_expr);
                 } else {
@@ -176,7 +176,7 @@ impl RustLengthOptimizer {
 
             println!(
                 "operator now: {}",
-                op.to_string().unwrap_or_else(|_| "ERROR".to_string())
+                op.to_string().unwrap_or("ERROR".to_string())
             );
         }
 
@@ -206,7 +206,7 @@ impl RustLengthOptimizer {
             .get_function_arg(0)
             .ok_or_else(|| vortex_err!("Length function has no arguments"))?;
 
-        if arg.expression_type() != ExpressionType::BoundColumnRef {
+        if arg.logical_expression_type() != ExpressionType::BoundColumnRef {
             return Ok(None);
         }
 
@@ -378,7 +378,7 @@ impl Default for RustLengthOptimizer {
 
 /// C callback function that implements the optimization in Rust
 extern "C-unwind" fn rust_optimizer_callback(
-    plan: crate::cpp::duckdb_logical_operator,
+    plan: crate::cpp::duckdb_vx_logical_operator,
     _user_data: *mut std::ffi::c_void,
 ) {
     println!("🚀🚀🚀 RUST OPTIMIZER FUNCTION CALLED! 🚀🚀🚀");

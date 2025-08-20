@@ -5,19 +5,20 @@ use std::ffi::{CStr, CString, c_void};
 use std::fmt::{Display, Formatter};
 use std::ptr;
 
-use vortex::error::{VortexResult, vortex_err, vortex_bail};
+use vortex::error::{VortexResult, vortex_bail, vortex_err};
+
 use crate::cpp::*;
 use crate::duckdb::{ScalarFunction, Value};
 use crate::{cpp, duckdb, wrapper};
 
-wrapper!(Expression, cpp::duckdb_vx_expr, cpp::duckdb_vx_destroy_expr);
+wrapper!(Expression, duckdb_vx_expr, duckdb_vx_destroy_expr);
 
 impl Display for Expression {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let ptr = unsafe { cpp::duckdb_vx_expr_to_string(self.as_ptr()) };
+        let ptr = unsafe { duckdb_vx_expr_to_string(self.as_ptr()) };
         let cstr = unsafe { CStr::from_ptr(ptr) };
         let result = write!(f, "{}", cstr.to_string_lossy());
-        unsafe { cpp::duckdb_free(ptr.cast_mut().cast()) };
+        unsafe { duckdb_free(ptr.cast_mut().cast()) };
         result
     }
 }
@@ -139,6 +140,7 @@ impl Expression {
             },
         )
     }
+
 }
 
 pub enum ExpressionClass<'a> {
@@ -213,5 +215,144 @@ impl BoundFunction<'_> {
         self.children
             .iter()
             .map(|&child| unsafe { Expression::borrow(child) })
+    }
+}
+
+// ==============================================
+// Logical Plan Expression Support
+// ==============================================
+
+/// Represents the type of an expression in DuckDB's logical plan (simplified enum)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u32)]
+pub enum LogicalExpressionType {
+    BoundColumnRef = DUCKDB_VX_EXPRESSION_TYPE_DUCKDB_VX_BOUND_COLUMN_REF,
+    BoundFunction = DUCKDB_VX_EXPRESSION_TYPE_DUCKDB_VX_BOUND_FUNCTION,
+    Constant = DUCKDB_VX_EXPRESSION_TYPE_DUCKDB_VX_CONSTANT,
+    Unknown = DUCKDB_VX_EXPRESSION_TYPE_DUCKDB_VX_EXPRESSION_UNKNOWN,
+}
+
+/// Column binding information for logical plans
+#[derive(Debug, Clone, Copy)]
+pub struct ColumnBinding {
+    pub table_index: u64,
+    pub column_index: u64,
+}
+
+impl From<ColumnBinding> for duckdb_vx_column_binding {
+    fn from(binding: ColumnBinding) -> Self {
+        duckdb_vx_column_binding {
+            table_index: binding.table_index,
+            column_index: binding.column_index,
+        }
+    }
+}
+
+impl From<duckdb_vx_column_binding> for ColumnBinding {
+    fn from(binding: duckdb_vx_column_binding) -> Self {
+        ColumnBinding {
+            table_index: binding.table_index,
+            column_index: binding.column_index,
+        }
+    }
+}
+
+// Add logical plan methods to the unified Expression struct
+impl Expression {
+    /// Get the logical plan type of this expression (simplified enum)
+    pub fn logical_expression_type(&self) -> LogicalExpressionType {
+        let expr_type = unsafe { duckdb_vx_get_expression_type(self.as_ptr()) };
+        match expr_type {
+            DUCKDB_VX_EXPRESSION_TYPE_DUCKDB_VX_BOUND_COLUMN_REF => LogicalExpressionType::BoundColumnRef,
+            DUCKDB_VX_EXPRESSION_TYPE_DUCKDB_VX_BOUND_FUNCTION => LogicalExpressionType::BoundFunction,
+            DUCKDB_VX_EXPRESSION_TYPE_DUCKDB_VX_CONSTANT => LogicalExpressionType::Constant,
+            _ => LogicalExpressionType::Unknown,
+        }
+    }
+
+    /// Get string representation using legacy function name
+    pub fn to_string_legacy(&self) -> VortexResult<String> {
+        unsafe {
+            let str_ptr = duckdb_vx_expression_to_string(self.as_ptr());
+            if str_ptr.is_null() {
+                vortex_bail!("Failed to convert expression to string");
+            }
+            let result = CStr::from_ptr(str_ptr).to_string_lossy().into_owned();
+            duckdb_vx_free_string(str_ptr);
+            Ok(result)
+        }
+    }
+
+    /// Get function name if this is a function expression  
+    pub fn function_name(&self) -> VortexResult<Option<String>> {
+        unsafe {
+            let name_ptr = duckdb_vx_get_function_name_from_expr(self.as_ptr());
+            if name_ptr.is_null() {
+                Ok(None)
+            } else {
+                let name = CStr::from_ptr(name_ptr).to_string_lossy().into_owned();
+                duckdb_vx_free_string(name_ptr);
+                Ok(Some(name))
+            }
+        }
+    }
+
+    /// Get function argument count if this is a function expression
+    pub fn function_arg_count(&self) -> usize {
+        unsafe { duckdb_vx_get_function_arg_count(self.as_ptr()) as usize }
+    }
+
+    /// Get function argument by index if this is a function expression
+    pub fn get_function_arg(&self, index: usize) -> Option<Expression> {
+        unsafe {
+            let arg_ptr = duckdb_vx_get_function_arg(self.as_ptr(), index as u64);
+            if arg_ptr.is_null() {
+                None
+            } else {
+                Some(Expression::borrow(arg_ptr))
+            }
+        }
+    }
+
+    /// Get column alias if this is a column reference
+    pub fn column_alias(&self) -> VortexResult<Option<String>> {
+        unsafe {
+            let alias_ptr = duckdb_vx_get_column_alias(self.as_ptr());
+            if alias_ptr.is_null() {
+                Ok(None)
+            } else {
+                let alias = CStr::from_ptr(alias_ptr).to_string_lossy().into_owned();
+                duckdb_vx_free_string(alias_ptr);
+                Ok(Some(alias))
+            }
+        }
+    }
+
+    /// Get column binding if this is a column reference
+    pub fn column_binding(&self) -> ColumnBinding {
+        let binding = unsafe { duckdb_vx_get_column_binding(self.as_ptr()) };
+        binding.into()
+    }
+
+    /// Update column binding if this is a column reference
+    pub fn update_column_binding(&self, binding: ColumnBinding) {
+        unsafe {
+            duckdb_vx_update_column_binding(self.as_ptr(), binding.into());
+        }
+    }
+
+    /// Create a new column reference expression
+    pub fn create_column_ref(name: &str, binding: ColumnBinding, depth: u64) -> VortexResult<Self> {
+        let c_name = CString::new(name).map_err(|e| {
+            vortex_err!("Invalid column name: {}", e)
+        })?;
+        unsafe {
+            let expr_ptr = duckdb_vx_create_column_ref(c_name.as_ptr(), binding.into(), depth);
+            if expr_ptr.is_null() {
+                vortex_bail!("Failed to create column reference expression")
+            } else {
+                Ok(Self::own(expr_ptr))
+            }
+        }
     }
 }

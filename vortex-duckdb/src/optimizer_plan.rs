@@ -5,11 +5,13 @@
 //! and `crate::rust_optimizer` for the length optimization.
 
 // Legacy re-exports - marked as deprecated to guide users to new locations
+#[deprecated(note = "Use crate::duckdb::expr for Expression types and crate::duckdb::logical_plan for operators")]
+#[allow(unused_imports)]
+pub use crate::duckdb::expr::{Expression, ColumnBinding, LogicalExpressionType as ExpressionType};
 #[deprecated(note = "Use crate::duckdb::logical_plan instead")]
 #[allow(unused_imports)]
 pub use crate::duckdb::logical_plan::{
-    ColumnBinding, Expression, ExpressionType, LogicalOperator, LogicalOperatorType,
-    LogicalPlanUtils,
+    LogicalOperator, LogicalOperatorType, LogicalPlanUtils,
 };
 
 #[deprecated(note = "Use crate::rust_optimizer::LengthReplacement instead")]

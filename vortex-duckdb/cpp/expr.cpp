@@ -23,6 +23,11 @@ extern "C" const char *duckdb_vx_expr_to_string(duckdb_vx_expr ffi_expr) {
     return result;
 }
 
+// Legacy alias for backwards compatibility with optimizer_rule.h
+extern "C" char *duckdb_vx_expression_to_string(duckdb_vx_expr ffi_expr) {
+    return const_cast<char*>(duckdb_vx_expr_to_string(ffi_expr));
+}
+
 //! Create a DuckDB vortex error.
 extern "C" void duckdb_vx_destroy_expr(duckdb_vx_expr *ffi_expr) {
     auto expr = reinterpret_cast<Expression *>(ffi_expr);

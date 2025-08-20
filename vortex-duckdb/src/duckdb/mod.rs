@@ -7,7 +7,7 @@ mod copy_function;
 mod data;
 mod data_chunk;
 mod database;
-mod expr;
+pub mod expr;
 pub mod footer_cache;
 pub mod logical_plan;
 mod logical_type;
