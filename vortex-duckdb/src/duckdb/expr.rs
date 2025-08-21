@@ -26,6 +26,7 @@ impl Expression {
                 let bind_ptr = unsafe { duckdb_vx_get_column_binding(self.as_ptr()) };
 
                 ExpressionClass::BoundColumnRef(BoundColumnRef {
+                    expr: self,
                     name: duckdb::string::String::from_ptr(ptr),
                     column_binding: bind_ptr.into(),
                 })
@@ -34,7 +35,7 @@ impl Expression {
                 let value = unsafe {
                     Value::borrow(duckdb_vx_expr_bound_constant_get_value(self.as_ptr()))
                 };
-                ExpressionClass::BoundConstant(BoundConstant { value })
+                ExpressionClass::BoundConstant(BoundConstant { expr: self, value })
             }
             DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_CONJUNCTION => {
                 let mut out = duckdb_vx_expr_bound_conjunction {
@@ -48,6 +49,7 @@ impl Expression {
                     unsafe { std::slice::from_raw_parts(out.children, out.children_count) };
 
                 ExpressionClass::BoundConjunction(BoundConjunction {
+                    expr: self,
                     children,
                     op: out.type_,
                 })
@@ -61,6 +63,7 @@ impl Expression {
                 unsafe { duckdb_vx_expr_get_bound_comparison(self.as_ptr(), &raw mut out) };
 
                 ExpressionClass::BoundComparison(BoundComparison {
+                    expr: self,
                     left: unsafe { Expression::borrow(out.left) },
                     right: unsafe { Expression::borrow(out.right) },
                     op: out.type_,
@@ -79,6 +82,7 @@ impl Expression {
                 }
 
                 ExpressionClass::BoundBetween(BoundBetween {
+                    expr: self,
                     input: unsafe { Expression::borrow(out.input) },
                     lower: unsafe { Expression::borrow(out.lower) },
                     upper: unsafe { Expression::borrow(out.upper) },
@@ -98,6 +102,7 @@ impl Expression {
                     unsafe { std::slice::from_raw_parts(out.children, out.children_count) };
 
                 ExpressionClass::BoundOperator(BoundOperator {
+                    expr: self,
                     children,
                     op: out.type_,
                 })
@@ -115,6 +120,7 @@ impl Expression {
                     unsafe { std::slice::from_raw_parts(out.children, out.children_count) };
 
                 ExpressionClass::BoundFunction(BoundFunction {
+                    expr: self,
                     children,
                     scalar_function: unsafe { ScalarFunction::borrow(out.scalar_function) },
                     bind_info: out.bind_info,
@@ -128,31 +134,47 @@ impl Expression {
 }
 
 pub enum ExpressionClass<'a> {
-    BoundColumnRef(BoundColumnRef),
-    BoundConstant(BoundConstant),
-    BoundComparison(BoundComparison),
+    BoundColumnRef(BoundColumnRef<'a>),
+    BoundConstant(BoundConstant<'a>),
+    BoundComparison(BoundComparison<'a>),
     BoundConjunction(BoundConjunction<'a>),
-    BoundBetween(BoundBetween),
+    BoundBetween(BoundBetween<'a>),
     BoundOperator(BoundOperator<'a>),
     BoundFunction(BoundFunction<'a>),
 }
 
-pub struct BoundColumnRef {
+pub struct BoundColumnRef<'a> {
+    expr: &'a Expression,
     pub name: duckdb::string::String,
     pub column_binding: ColumnBinding,
 }
 
-pub struct BoundConstant {
+impl BoundColumnRef<'_> {
+    // Specific methods for BoundColumnRef can be added here
+}
+
+pub struct BoundConstant<'a> {
+    expr: &'a Expression,
     pub value: Value,
 }
 
-pub struct BoundComparison {
+impl BoundConstant<'_> {
+    // Specific methods for BoundConstant can be added here
+}
+
+pub struct BoundComparison<'a> {
+    expr: &'a Expression,
     pub left: Expression,
     pub right: Expression,
     pub op: DUCKDB_VX_EXPR_TYPE,
 }
 
-pub struct BoundBetween {
+impl BoundComparison<'_> {
+    // Specific methods for BoundComparison can be added here
+}
+
+pub struct BoundBetween<'a> {
+    expr: &'a Expression,
     pub input: Expression,
     pub lower: Expression,
     pub upper: Expression,
@@ -160,7 +182,12 @@ pub struct BoundBetween {
     pub upper_inclusive: bool,
 }
 
+impl BoundBetween<'_> {
+    // Specific methods for BoundBetween can be added here
+}
+
 pub struct BoundConjunction<'a> {
+    expr: &'a Expression,
     children: &'a [duckdb_vx_expr],
     pub op: DUCKDB_VX_EXPR_TYPE,
 }
@@ -175,6 +202,7 @@ impl BoundConjunction<'_> {
 }
 
 pub struct BoundOperator<'a> {
+    expr: &'a Expression,
     children: &'a [duckdb_vx_expr],
     pub op: DUCKDB_VX_EXPR_TYPE,
 }
@@ -189,6 +217,7 @@ impl BoundOperator<'_> {
 }
 
 pub struct BoundFunction<'a> {
+    expr: &'a Expression,
     children: &'a [duckdb_vx_expr],
     pub scalar_function: ScalarFunction,
     pub bind_info: *const c_void,
@@ -200,6 +229,44 @@ impl BoundFunction<'_> {
         self.children
             .iter()
             .map(|&child| unsafe { Expression::borrow(child) })
+    }
+
+    pub fn function_name(&self) -> Option<String> {
+        unsafe {
+            let name_ptr = duckdb_vx_get_function_name_from_expr(self.expr.as_ptr());
+            if name_ptr.is_null() {
+                None
+            } else {
+                let name = CStr::from_ptr(name_ptr).to_string_lossy().into_owned();
+                duckdb_vx_free_string(name_ptr);
+                Some(name)
+            }
+        }
+    }
+
+    /// Get function argument count - only works if this is a BoundFunction expression
+    pub fn function_arg_count(&self) -> usize {
+        unsafe {
+            duckdb_vx_get_function_arg_count(self.expr.as_ptr())
+                .try_into()
+                .unwrap_or(0)
+        }
+        // } else {
+        //     0
+        // }
+    }
+
+    /// Get function argument by index - only works if this is a BoundFunction expression
+    pub fn get_function_arg(&self, index: usize) -> Option<Expression> {
+        // Check if this is a BoundFunction using the class ID directly to avoid borrowing issues
+        unsafe {
+            let arg_ptr = duckdb_vx_get_function_arg(self.expr.as_ptr(), index as u64);
+            if arg_ptr.is_null() {
+                None
+            } else {
+                Some(Expression::borrow(arg_ptr))
+            }
+        }
     }
 }
 
@@ -272,39 +339,12 @@ impl Expression {
         }
     }
 
-    /// Get function name if this is a function expression  
-    pub fn function_name(&self) -> VortexResult<Option<String>> {
-        unsafe {
-            let name_ptr = duckdb_vx_get_function_name_from_expr(self.as_ptr());
-            if name_ptr.is_null() {
-                Ok(None)
-            } else {
-                let name = CStr::from_ptr(name_ptr).to_string_lossy().into_owned();
-                duckdb_vx_free_string(name_ptr);
-                Ok(Some(name))
-            }
-        }
-    }
-
-    /// Get function argument count if this is a function expression
-    pub fn function_arg_count(&self) -> usize {
-        unsafe { duckdb_vx_get_function_arg_count(self.as_ptr()) as usize }
-    }
-
-    /// Get function argument by index if this is a function expression
-    pub fn get_function_arg(&self, index: usize) -> Option<Expression> {
-        unsafe {
-            let arg_ptr = duckdb_vx_get_function_arg(self.as_ptr(), index as u64);
-            if arg_ptr.is_null() {
-                None
-            } else {
-                Some(Expression::borrow(arg_ptr))
-            }
-        }
-    }
-
-    /// Get column alias if this is a column reference
+    /// Get column alias - only works if this is a BoundColumnRef expression
     pub fn column_alias(&self) -> VortexResult<Option<String>> {
+        // Check if this is a BoundColumnRef using the class ID directly to avoid borrowing issues
+        // if unsafe { duckdb_vx_expr_get_class(self.as_ptr()) }
+        //     == DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_COLUMN_REF
+        // {
         unsafe {
             let alias_ptr = duckdb_vx_get_column_alias(self.as_ptr());
             if alias_ptr.is_null() {
@@ -315,19 +355,36 @@ impl Expression {
                 Ok(Some(alias))
             }
         }
+        // } else {
+        //     Ok(None)
+        // }
     }
 
-    /// Get column binding if this is a column reference
-    pub fn column_binding(&self) -> ColumnBinding {
+    /// Get column binding - only works if this is a BoundColumnRef expression
+    pub fn column_binding(&self) -> Option<ColumnBinding> {
+        // Check if this is a BoundColumnRef using the class ID directly to avoid borrowing issues
+        // if unsafe { duckdb_vx_expr_get_class(self.as_ptr()) }
+        //     == DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_COLUMN_REF
+        // {
         let binding = unsafe { duckdb_vx_get_column_binding(self.as_ptr()) };
-        binding.into()
+        Some(binding.into())
+        // } else {
+        //     None
+        // }
     }
 
-    /// Update column binding if this is a column reference
+    /// Update column binding - only works if this is a BoundColumnRef expression
     pub fn update_column_binding(&self, binding: ColumnBinding) {
+        // Check if this is a BoundColumnRef using the class ID directly to avoid borrowing issues
+        // if unsafe { duckdb_vx_expr_get_class(self.as_ptr()) }
+        //     == DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_COLUMN_REF
+        // {
         unsafe {
             duckdb_vx_update_column_binding(self.as_ptr(), binding.into());
         }
+        // } else {
+        //     false
+        // }
     }
 
     /// Create a new column reference expression

@@ -8,7 +8,6 @@ mod data;
 mod data_chunk;
 mod database;
 pub mod expr;
-pub mod expr_debug_demo;
 pub mod footer_cache;
 pub mod logical_operator;
 pub mod logical_operator_demo;

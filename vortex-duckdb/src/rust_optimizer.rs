@@ -7,6 +7,7 @@ use std::ptr;
 
 use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
+use crate::cpp::DUCKDB_VX_EXPR_CLASS;
 use crate::duckdb::expr::{ColumnBinding, Expression, LogicalExpressionType as ExpressionType};
 use crate::duckdb::logical_operator::{LogicalOperator, LogicalOperatorClass};
 use crate::duckdb::logical_plan::LogicalPlanUtils;
@@ -51,16 +52,15 @@ impl LengthOptimizationExt for Expression {
     }
 
     fn is_length_function(&self) -> VortexResult<bool> {
-        if self.logical_expression_type() != ExpressionType::BoundFunction {
+        let Some(ExpressionClass::BoundFunction(func_)) = self.as_class() else {
             return Ok(false);
-        }
+        };
 
-        let function_name = self.function_name()?;
-        if let Some(name) = function_name {
+        if let Some(name) = func_.function_name() {
             let name_lower = name.to_lowercase();
             Ok(
                 (name_lower == "length" || name_lower == "len" || name_lower == "strlen")
-                    && self.function_arg_count() == 1,
+                    && func_.function_arg_count() == 1,
             )
         } else {
             Ok(false)
@@ -138,61 +138,108 @@ impl RustLengthOptimizer {
         println!("🔍 VISITING: Operator type: {:?}", operator.operator_type());
 
         let LogicalOperatorClass::Projection(proj) = operator.as_class()? else {
+            println!("🔍 Not a projection operator");
             return None;
         };
         if operator.children_count() != 1 {
+            println!(
+                "🔍 Projection operator has {} children, expected 1",
+                operator.children_count()
+            );
             return None;
         }
         let op_child = operator.get_child(0).unwrap();
         let LogicalOperatorClass::Get(get_op) = op_child.as_class()? else {
+            println!("🔍 Child is not a Get operator");
             return None;
         };
         if !get_op.is_vortex_scan() {
+            println!("🔍 Get operator is not a vortex_scan");
             return None;
         }
 
         println!("🔍 FOUND VORTEX SCAN");
 
         for (idx, projection_expr) in proj.projections().enumerate() {
+            println!("🔍 Processing projection {}", idx);
+
             let Some(projection_expr) = projection_expr else {
+                println!("🔍 Projection {} is None", idx);
                 continue;
             };
-            let Some(ExpressionClass::BoundFunction(func)) = projection_expr.as_class() else {
+
+            println!("🔍 Projection {} has expression: {}", idx, projection_expr);
+
+            // Check if this is a function expression first using as_class_id
+            let Some(ExpressionClass::BoundFunction(func_)) = projection_expr.as_class() else {
                 continue;
             };
-            if func.scalar_function.name() != "len" {
+
+            // Try to get function name safely
+            let function_name = match func_.function_name() {
+                Some(name) => name,
+                None => {
+                    continue;
+                }
+            };
+
+            println!("🔍 Function name: {}", function_name);
+
+            if function_name != "len" {
+                println!("🔍 Function is not 'len', it's '{}'", function_name);
                 continue;
             }
 
-            let column_alias = projection_expr
-                .get_function_arg(0)
-                .vortex_expect("must have one child");
+            println!("🔍 Found len() function!");
+
+            // Try to get function argument safely
+            let arg_count = func_.function_arg_count();
+            println!("🔍 Function has {} arguments", arg_count);
+
+            if arg_count == 0 {
+                println!("🔍 len() function has no arguments");
+                continue;
+            }
+
+            let column_alias = match func_.get_function_arg(0) {
+                Some(arg) => arg,
+                None => {
+                    println!("🔍 Could not get first argument of len() function");
+                    continue;
+                }
+            };
+
+            println!("🔍 Got first argument of len() function");
 
             let ExpressionClass::BoundColumnRef(bound_col) = column_alias.as_class()? else {
+                println!("🔍 First argument is not a BoundColumnRef");
                 continue;
             };
 
             let column_alias = bound_col.name;
+            let column_bind = bound_col.column_binding;
 
             let virtual_col_name = format!("{}$length", column_alias);
 
-            // let bound_column = Expression::create_column_ref(
-            //     &virtual_col_name,
-            //     ColumnBinding {
-            //         table_index: original_binding.table_index,
-            //         column_index: virtual_column_index as u64,
-            //     },
-            //     0, // depth
-            // )?;
+            println!(
+                "🔍 Processing len({}) -> {}",
+                column_alias, virtual_col_name
+            );
 
-            println!("get op {:?}", get_op);
-            println!("proj op {:?}", proj.to_string());
-            println!("proj op {}", projection_expr);
-            println!("proj op {:?}", projection_expr);
-            println!("found len() at index {}", idx);
+            let e = Expression::create_column_ref(
+                &virtual_col_name,
+                ColumnBinding {
+                    table_index: column_bind.table_index,
+                    column_index: column_bind.column_index,
+                },
+                0,
+            );
+
+            // proj.set_projection(idx, e);
+
+            // Rest of the processing would go here, but let's stop here for now
+            println!("🔍 Successfully processed len() at index {}", idx);
         }
-
-        // print out the logical operator (all fields)
 
         Some(())
     }
@@ -217,91 +264,96 @@ impl RustLengthOptimizer {
         Ok(())
     }
 
-    /// Rewrite a single expression to replace len() calls with virtual column references
-    fn rewrite_expression(
-        &mut self,
-        expr: &Expression,
-        vortex_scan_node_ptr: Option<*const LogicalOperator>,
-        expression_index: usize,
-    ) -> VortexResult<Option<Expression>> {
-        if !expr.is_length_function()? {
-            return Ok(None);
-        }
-
-        // Get the first argument (should be a column reference)
-        let arg = expr
-            .get_function_arg(0)
-            .ok_or_else(|| vortex_err!("Length function has no arguments"))?;
-
-        if arg.logical_expression_type() != ExpressionType::BoundColumnRef {
-            return Ok(None);
-        }
-
-        let column_alias = arg
-            .column_alias()?
-            .ok_or_else(|| vortex_err!("Column reference has no alias"))?;
-
-        let virtual_col_name = format!("{}$length", column_alias);
-
-        println!(
-            "🔄 OPTIMIZER: Found len({}) → {}",
-            column_alias, virtual_col_name
-        );
-
-        // Find the virtual column index in the table schema
-        let virtual_column_index = if let Some(vortex_node_ptr) = vortex_scan_node_ptr {
-            let vortex_node = unsafe { &*vortex_node_ptr };
-
-            // Downcast to LogicalGet to access column_names
-            if let Some(LogicalOperatorClass::Get(get_op)) = vortex_node.as_class() {
-                let column_names = get_op.column_names()?;
-                println!(
-                    "✅ OPTIMIZER: Found vortex_scan node with {} columns: {:?}",
-                    column_names.len(),
-                    column_names
-                );
-                column_names
-                    .iter()
-                    .position(|name| *name == virtual_col_name)
-                    .ok_or_else(|| {
-                        vortex_err!("Virtual column '{}' not found in schema", virtual_col_name)
-                    })?
-            } else {
-                vortex_bail!("Expected vortex_scan to be a LogicalGet operator");
-            }
-        } else {
-            vortex_bail!("No vortex_scan node found");
-        };
-
-        println!(
-            "✅ OPTIMIZER: Found virtual column '{}' at index {}",
-            virtual_col_name, virtual_column_index
-        );
-
-        // Create a new column reference for the virtual column
-        let original_binding = arg.column_binding();
-        let virtual_col_ref = Expression::create_column_ref(
-            &virtual_col_name,
-            ColumnBinding {
-                table_index: original_binding.table_index,
-                column_index: virtual_column_index as u64,
-            },
-            0, // depth
-        )?;
-
-        // Record this replacement for later projection mapping
-        let replacement = LengthReplacement {
-            original_column_binding: original_binding.column_index,
-            virtual_column_index: virtual_column_index as u64,
-            virtual_col_name,
-            new_expression_binding: virtual_column_index as u64,
-            expression_index: expression_index as u64,
-        };
-
-        self.replacements.push(replacement);
-
-        Ok(Some(virtual_col_ref))
-    }
+    // /// Rewrite a single expression to replace len() calls with virtual column references
+    // fn rewrite_expression(
+    //     &mut self,
+    //     expr: &Expression,
+    //     vortex_scan_node_ptr: Option<*const LogicalOperator>,
+    //     expression_index: usize,
+    // ) -> VortexResult<Option<Expression>> {
+    //     if !expr.is_length_function()? {
+    //         return Ok(None);
+    //     }
+    //     let Some(ExpressionClass::BoundFunction(func_)) = expr.as_class() else {
+    //         return Ok(None);
+    //     };
+    //
+    //     // Get the first argument (should be a column reference)
+    //     let arg = expr
+    //         .get_function_arg(0)
+    //         .ok_or_else(|| vortex_err!("Length function has no arguments"))?;
+    //
+    //     if arg.logical_expression_type() != ExpressionType::BoundColumnRef {
+    //         return Ok(None);
+    //     }
+    //
+    //     let column_alias = arg
+    //         .column_alias()?
+    //         .ok_or_else(|| vortex_err!("Column reference has no alias"))?;
+    //
+    //     let virtual_col_name = format!("{}$length", column_alias);
+    //
+    //     println!(
+    //         "🔄 OPTIMIZER: Found len({}) → {}",
+    //         column_alias, virtual_col_name
+    //     );
+    //
+    //     // Find the virtual column index in the table schema
+    //     let virtual_column_index = if let Some(vortex_node_ptr) = vortex_scan_node_ptr {
+    //         let vortex_node = unsafe { &*vortex_node_ptr };
+    //
+    //         // Downcast to LogicalGet to access column_names
+    //         if let Some(LogicalOperatorClass::Get(get_op)) = vortex_node.as_class() {
+    //             let column_names = get_op.column_names()?;
+    //             println!(
+    //                 "✅ OPTIMIZER: Found vortex_scan node with {} columns: {:?}",
+    //                 column_names.len(),
+    //                 column_names
+    //             );
+    //             column_names
+    //                 .iter()
+    //                 .position(|name| *name == virtual_col_name)
+    //                 .ok_or_else(|| {
+    //                     vortex_err!("Virtual column '{}' not found in schema", virtual_col_name)
+    //                 })?
+    //         } else {
+    //             vortex_bail!("Expected vortex_scan to be a LogicalGet operator");
+    //         }
+    //     } else {
+    //         vortex_bail!("No vortex_scan node found");
+    //     };
+    //
+    //     println!(
+    //         "✅ OPTIMIZER: Found virtual column '{}' at index {}",
+    //         virtual_col_name, virtual_column_index
+    //     );
+    //
+    //     // Create a new column reference for the virtual column
+    //     let original_binding = arg
+    //         .column_binding()
+    //         .ok_or_else(|| vortex_err!("Expected column reference to have binding"))?;
+    //     let virtual_col_ref = Expression::create_column_ref(
+    //         &virtual_col_name,
+    //         ColumnBinding {
+    //             table_index: original_binding.table_index,
+    //             column_index: virtual_column_index as u64,
+    //         },
+    //         0, // depth
+    //     )?;
+    //
+    //     // Record this replacement for later projection mapping
+    //     let replacement = LengthReplacement {
+    //         original_column_binding: original_binding.column_index,
+    //         virtual_column_index: virtual_column_index as u64,
+    //         virtual_col_name,
+    //         new_expression_binding: virtual_column_index as u64,
+    //         expression_index: expression_index as u64,
+    //     };
+    //
+    //     self.replacements.push(replacement);
+    //
+    //     Ok(Some(virtual_col_ref))
+    // }
 
     /// Update vortex scan projections based on the replacements
     fn update_vortex_scan_projections(&self, op: &LogicalOperator) -> VortexResult<()> {
