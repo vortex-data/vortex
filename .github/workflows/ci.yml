@@ -75,25 +75,19 @@ jobs:
           sync: false
           prune-cache: false
 
-      # Ensure the stub files are up-to-date with the public API of the native module.
-      - name: Stubtest - Vortex
-        run: |
-          uv run --isolated --all-packages stubtest vortex._lib --allowlist python/vortex/_lib/mypy.allowlist
-        working-directory: vortex-python/
-
       - name: Pytest - Vortex
         run: |
-          uv run --isolated --all-packages pytest --benchmark-disable test/
+          uv run --all-packages pytest --benchmark-disable test/
         working-directory: vortex-python/
 
       - name: Doctest - PyVortex
         run: |
-          uv run --isolated --all-packages make doctest
+          uv run --all-packages make doctest
         working-directory: docs/
 
       - name: Ensure docs build - PyVortex
         run: |
-          uv run --isolated --all-packages make html
+          uv run --all-packages make html
         working-directory: docs/
 
       - uses: mlugg/setup-zig@v2

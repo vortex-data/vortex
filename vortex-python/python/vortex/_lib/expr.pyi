@@ -2,7 +2,7 @@
 #  SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 from datetime import date, datetime
-from typing import Any, TypeAlias, final
+from typing import TypeAlias, final
 
 from typing_extensions import override
 
