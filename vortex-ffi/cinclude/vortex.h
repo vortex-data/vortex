@@ -164,6 +164,33 @@ typedef enum {
 typedef struct DType DType;
 
 /**
+ * Base type for all Vortex arrays.
+ *
+ * All built-in Vortex array types can be safely cast to this type to pass into functions that
+ * expect a generic array type. e.g.
+ *
+ * ```cpp
+ * auto primitive_array = vx_array_primitive_new(...);
+ * vx_array_len((*vx_array) primitive_array));
+ * ```
+ */
+typedef struct vx_array vx_array;
+
+/**
+ * A Vortex array iterator.
+ *
+ * Once the iterator is finished (returns `null` from [`vx_array_iterator_next`]), it may panic
+ * on subsequent calls to [`vx_array_iterator_next`].
+ *
+ * Even after the iterator is finished, an owned iterator must be released by calling
+ * [`vx_array_iter_free`].
+ *
+ * Iterators may be passed between threads, but calls to [`vx_array_iterator_next`] should be
+ * serialized and not invoked concurrently.
+ */
+typedef struct vx_array_iterator vx_array_iterator;
+
+/**
  * The `sink` interface is used to collect array chunks and place them into a resource
  * (e.g. an array stream or file (`vx_array_sink_open_file`)).
  *
@@ -179,6 +206,44 @@ typedef struct DType DType;
  * called exactly once after all `push` operations are complete.
  */
 typedef struct vx_array_sink vx_array_sink;
+
+/**
+ * A Vortex data type.
+ *
+ * Data types in Vortex are purely logical, meaning they confer no information about how the data
+ * is physically stored.
+ */
+typedef struct vx_dtype vx_dtype;
+
+/**
+ * The error structure populated by fallible Vortex C functions.
+ */
+typedef struct vx_error vx_error;
+
+/**
+ * A handle to a Vortex file encapsulating ther footer and logic for instantiating a reader.
+ */
+typedef struct vx_file vx_file;
+
+/**
+ * A handle to a Vortex session.
+ */
+typedef struct vx_session vx_session;
+
+/**
+ * Strings for use within Vortex.
+ */
+typedef struct vx_string vx_string;
+
+/**
+ * Represents a Vortex struct data type, without top-level nullability.
+ */
+typedef struct vx_struct_fields vx_struct_fields;
+
+/**
+ * Builder for creating a [`vx_struct_fields`].
+ */
+typedef struct vx_struct_fields_builder vx_struct_fields_builder;
 
 /**
  * Options supplied for opening a file.
@@ -255,6 +320,19 @@ extern "C" {
 void vx_try_shutdown_runtime(void);
 
 /**
+ * Clone a borrowed [`vx_array`], returning an owned [`vx_array`].
+ *
+ *
+ * Must be released with [`vx_array_free`].
+ */
+const vx_array *vx_array_clone(const vx_array *ptr);
+
+/**
+ * Free an owned [`vx_array`] object.
+ */
+void vx_array_free(const vx_array *ptr);
+
+/**
  * Get the length of the array.
  */
 size_t vx_array_len(const vx_array *array);
@@ -277,6 +355,50 @@ bool vx_array_is_null(const vx_array *array, uint32_t index, vx_error **error_ou
 
 uint32_t vx_array_null_count(const vx_array *array, vx_error **error_out);
 
+uint8_t vx_array_get_u8(const vx_array *array, uint32_t index);
+
+uint8_t vx_array_get_storage_u8(const vx_array *array, uint32_t index);
+
+uint16_t vx_array_get_u16(const vx_array *array, uint32_t index);
+
+uint16_t vx_array_get_storage_u16(const vx_array *array, uint32_t index);
+
+uint32_t vx_array_get_u32(const vx_array *array, uint32_t index);
+
+uint32_t vx_array_get_storage_u32(const vx_array *array, uint32_t index);
+
+uint64_t vx_array_get_u64(const vx_array *array, uint32_t index);
+
+uint64_t vx_array_get_storage_u64(const vx_array *array, uint32_t index);
+
+int8_t vx_array_get_i8(const vx_array *array, uint32_t index);
+
+int8_t vx_array_get_storage_i8(const vx_array *array, uint32_t index);
+
+int16_t vx_array_get_i16(const vx_array *array, uint32_t index);
+
+int16_t vx_array_get_storage_i16(const vx_array *array, uint32_t index);
+
+int32_t vx_array_get_i32(const vx_array *array, uint32_t index);
+
+int32_t vx_array_get_storage_i32(const vx_array *array, uint32_t index);
+
+int64_t vx_array_get_i64(const vx_array *array, uint32_t index);
+
+int64_t vx_array_get_storage_i64(const vx_array *array, uint32_t index);
+
+uint16_t vx_array_get_f16(const vx_array *array, uint32_t index);
+
+uint16_t vx_array_get_storage_f16(const vx_array *array, uint32_t index);
+
+float vx_array_get_f32(const vx_array *array, uint32_t index);
+
+float vx_array_get_storage_f32(const vx_array *array, uint32_t index);
+
+double vx_array_get_f64(const vx_array *array, uint32_t index);
+
+double vx_array_get_storage_f64(const vx_array *array, uint32_t index);
+
 /**
  * Write the UTF-8 string at `index` in the array into the provided destination buffer, recording
  * the length in `len`.
@@ -290,6 +412,11 @@ void vx_array_get_utf8(const vx_array *array, uint32_t index, void *dst, int *le
 void vx_array_get_binary(const vx_array *array, uint32_t index, void *dst, int *len);
 
 /**
+ * Free an owned [`vx_array_iterator`] object.
+ */
+void vx_array_iterator_free(vx_array_iterator *ptr);
+
+/**
  * Attempt to advance the `current` pointer of the iterator.
  *
  * A return value of `true` indicates that another element was pulled from the iterator, and a return
@@ -299,6 +426,19 @@ void vx_array_get_binary(const vx_array *array, uint32_t index, void *dst, int *
  */
 const vx_array *vx_array_iterator_next(vx_array_iterator *iter,
                                        vx_error **error_out);
+
+/**
+ * Clone a borrowed [`vx_dtype`], returning an owned [`vx_dtype`].
+ *
+ *
+ * Must be released with [`vx_dtype_free`].
+ */
+const vx_dtype *vx_dtype_clone(const vx_dtype *ptr);
+
+/**
+ * Free an owned [`vx_dtype`] object.
+ */
+void vx_dtype_free(const vx_dtype *ptr);
 
 /**
  * Create a new null data type.
@@ -390,9 +530,27 @@ uint8_t vx_dtype_time_unit(const DType *dtype);
 void vx_dtype_time_zone(const DType *dtype, void *dst, int *len);
 
 /**
+ * Free an owned [`vx_error`] object.
+ */
+void vx_error_free(vx_error *ptr);
+
+/**
  * Returns a borrowed reference to the error message from the given Vortex error.
  */
 const vx_string *vx_error_get_message(const vx_error *error);
+
+/**
+ * Clone a borrowed [`vx_file`], returning an owned [`vx_file`].
+ *
+ *
+ * Must be released with [`vx_file_free`].
+ */
+const vx_file *vx_file_clone(const vx_file *ptr);
+
+/**
+ * Free an owned [`vx_file`] object.
+ */
+void vx_file_free(const vx_file *ptr);
 
 /**
  * Open a file at the given path on the file system.
@@ -433,6 +591,11 @@ vx_array_iterator *vx_file_scan(const vx_file *file,
 void vx_set_log_level(vx_log_level level);
 
 /**
+ * Free an owned [`vx_session`] object.
+ */
+void vx_session_free(vx_session *ptr);
+
+/**
  * Create a new Vortex session.
  *
  * The caller is responsible for freeing the session with [`vx_session_free`].
@@ -459,6 +622,19 @@ void vx_array_sink_push(vx_array_sink *sink, const vx_array *array, vx_error **e
 void vx_array_sink_close(vx_array_sink *sink, vx_error **error_out);
 
 /**
+ * Clone a borrowed [`vx_string`], returning an owned [`vx_string`].
+ *
+ *
+ * Must be released with [`vx_string_free`].
+ */
+const vx_string *vx_string_clone(const vx_string *ptr);
+
+/**
+ * Free an owned [`vx_string`] object.
+ */
+void vx_string_free(const vx_string *ptr);
+
+/**
  * Create a new Vortex UTF-8 string by copying from a pointer and length.
  */
 const vx_string *vx_string_new(const char *ptr, size_t len);
@@ -477,6 +653,19 @@ size_t vx_string_len(const vx_string *ptr);
  * Return the pointer to the string data.
  */
 const char *vx_string_ptr(const vx_string *ptr);
+
+/**
+ * Clone a borrowed [`vx_struct_fields`], returning an owned [`vx_struct_fields`].
+ *
+ *
+ * Must be released with [`vx_struct_fields_free`].
+ */
+const vx_struct_fields *vx_struct_fields_clone(const vx_struct_fields *ptr);
+
+/**
+ * Free an owned [`vx_struct_fields`] object.
+ */
+void vx_struct_fields_free(const vx_struct_fields *ptr);
 
 /**
  * Return the number of fields in the struct dtype.
@@ -499,6 +688,11 @@ const vx_string *vx_struct_fields_field_name(const vx_struct_fields *dtype, size
  * Returns null if the index is out of bounds or if the field dtype cannot be parsed.
  */
 const vx_dtype *vx_struct_fields_field_dtype(const vx_struct_fields *dtype, uint64_t idx);
+
+/**
+ * Free an owned [`vx_struct_fields_builder`] object.
+ */
+void vx_struct_fields_builder_free(vx_struct_fields_builder *ptr);
 
 /**
  * Create a new struct dtype builder.
