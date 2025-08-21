@@ -105,7 +105,8 @@ impl FileSink for VortexSink {
             let object_store = object_store.clone();
             let dtype = DType::from_arrow(self.config.output_schema.clone());
 
-            // We need to spawn work because there's a dependency between
+            // We need to spawn work because there's a dependency between the different files. If one file has too many batches buffered,
+            // the demux task might deadlock itself.
             file_write_tasks.spawn(async move {
                 let stream = ReceiverStream::new(rx).map(move |rb| {
                     row_counter.fetch_add(rb.num_rows() as u64, Ordering::Relaxed);
