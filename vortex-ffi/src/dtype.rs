@@ -182,7 +182,10 @@ pub unsafe extern "C-unwind" fn vx_dtype_struct_dtype(
     vx_struct_fields::new(Arc::new(struct_dtype.clone()))
 }
 
-/// Return a borrowed reference to the `element` typee of a list data type.
+/// Return the `element` type of a list data type.
+///
+/// The returned pointer is valid as long as the list dtype is valid.
+/// Do NOT free the returned dtype pointer - it shares the lifetime of the list dtype.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_list_element(dtype: *const vx_dtype) -> *const vx_dtype {
     let element_dtype = vx_dtype::as_ref(dtype)

@@ -219,7 +219,10 @@ struct ScanOptions {
     row_offset: u64,
 }
 
-/// Return a borrowed reference to the DType of the file.
+/// Return the DType of the file.
+///
+/// The returned pointer is valid as long as the file is valid.
+/// Do NOT free the returned dtype pointer - it shares the lifetime of the file.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_file_dtype(file: *const vx_file) -> *const vx_dtype {
     vx_dtype::new_ref(vx_file::as_ref(file).dtype())

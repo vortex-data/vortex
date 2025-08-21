@@ -21,6 +21,8 @@ mod struct_fields;
 
 #[cfg(test)]
 mod dtype_test;
+#[cfg(test)]
+mod memory_audit_test;
 
 use std::ffi::{CStr, c_char, c_int};
 use std::sync::Arc;

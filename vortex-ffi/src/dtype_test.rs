@@ -4,7 +4,7 @@ mod tests {
     use vortex::buffer::Buffer;
     use vortex::{IntoArray, ArrayRef};
     
-    use crate::dtype::{vx_dtype_get_variant, vx_dtype_struct_dtype, vx_dtype_variant};
+    use crate::dtype::vx_dtype_struct_dtype;
     use crate::array::vx_array;
 
     fn create_test_struct_array() -> ArrayRef {
