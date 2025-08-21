@@ -6906,7 +6906,6 @@ dependencies = [
  "vortex-scalar",
  "vortex-sequence",
  "vortex-utils",
- "vortex-vector",
  "vortex-zstd",
 ]
 
