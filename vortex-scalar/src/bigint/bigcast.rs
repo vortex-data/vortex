@@ -12,10 +12,10 @@ pub trait ToPrimitive: num_traits::ToPrimitive {
     fn to_i256(&self) -> Option<i256>;
 }
 
-// Implementation for primitive types that already implement ToPrimitive from num-traits.
+/// Implementation for primitive types that already implement ToPrimitive from num-traits.
 macro_rules! impl_toprimitive_lossless {
-    ($typ:ty) => {
-        impl ToPrimitive for $typ {
+    ($T:ty) => {
+        impl ToPrimitive for $T {
             #[inline]
             fn to_i256(&self) -> Option<i256> {
                 Some(i256::from_i128(*self as i128))

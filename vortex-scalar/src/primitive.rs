@@ -389,6 +389,12 @@ macro_rules! primitive_scalar {
                 )
             }
         }
+
+        impl From<$T> for ScalarValue {
+            fn from(value: $T) -> Self {
+                ScalarValue(InnerScalarValue::Primitive(value.into()))
+            }
+        }
     };
 }
 
@@ -433,28 +439,6 @@ impl From<usize> for Scalar {
         Scalar::primitive(value as u64, Nullability::NonNullable)
     }
 }
-
-macro_rules! primitive_scalar {
-    ($T:ty) => {
-        impl From<$T> for ScalarValue {
-            fn from(value: $T) -> Self {
-                ScalarValue(InnerScalarValue::Primitive(value.into()))
-            }
-        }
-    };
-}
-
-primitive_scalar!(u8);
-primitive_scalar!(u16);
-primitive_scalar!(u32);
-primitive_scalar!(u64);
-primitive_scalar!(i8);
-primitive_scalar!(i16);
-primitive_scalar!(i32);
-primitive_scalar!(i64);
-primitive_scalar!(f16);
-primitive_scalar!(f32);
-primitive_scalar!(f64);
 
 impl From<PValue> for ScalarValue {
     fn from(value: PValue) -> Self {
@@ -538,7 +522,7 @@ impl<'a> PrimitiveScalar<'a> {
         match_each_native_ptype!(
             self.ptype(),
             integral: |P| {
-                self.checked_integeral_numeric_operator::<P>(other, result_dtype, ptype, op)
+                self.checked_integral_numeric_operator::<P>(other, result_dtype, ptype, op)
             },
             floating: |P| {
                 let lhs = self.typed_value::<P>();
@@ -559,7 +543,7 @@ impl<'a> PrimitiveScalar<'a> {
         )
     }
 
-    fn checked_integeral_numeric_operator<
+    fn checked_integral_numeric_operator<
         P: NativePType
             + TryFrom<PValue, Error = VortexError>
             + CheckedSub
