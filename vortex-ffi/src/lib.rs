@@ -79,3 +79,9 @@ pub(crate) unsafe fn to_string_vec(ptr: *const *const c_char, len: c_int) -> Vec
         .map(|i| unsafe { to_string(*ptr.offset(i as isize)) })
         .collect()
 }
+
+/// Attempt to shutdown the shared tokio runtime if no sessions are active.
+#[unsafe(no_mangle)]
+pub extern "C" fn vx_try_shutdown_runtime() {
+    try_shutdown_runtime();
+}

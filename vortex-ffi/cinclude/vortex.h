@@ -585,6 +585,19 @@ void vx_session_free(vx_session *ptr);
 vx_session *vx_session_new(void);
 
 /**
+ * Attempt to shutdown the shared tokio runtime if no sessions are active.
+ *
+ * This function should be called before program exit to ensure clean runtime
+ * shutdown and prevent memory leaks or crashes. It safely checks if any
+ * VortexSession instances are still active and only shuts down the runtime
+ * when it's safe to do so.
+ *
+ * This is optional but recommended for proper cleanup, especially in
+ * applications that create and destroy multiple sessions.
+ */
+void vx_try_shutdown_runtime(void);
+
+/**
  * Opens a writable array stream, where sink is used to push values into the
  * stream. To close the stream close the sink with `vx_array_sink_close`.
  */
