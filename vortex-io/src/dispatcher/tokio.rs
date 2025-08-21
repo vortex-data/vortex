@@ -19,18 +19,21 @@ trait TokioSpawn {
 /// A [dispatcher][Dispatch] of IO operations that runs tasks on one of several
 /// Tokio `current_thread` runtimes.
 #[derive(Debug)]
-pub(super) struct TokioDispatcher {
+pub struct TokioDispatcher {
     submitter: flume::Sender<Box<dyn TokioSpawn + Send>>,
     threads: Vec<JoinHandle<()>>,
 }
 
 impl TokioDispatcher {
     pub fn new(num_threads: usize) -> Self {
+        Self::new_with_prefix(num_threads, "tokio-dispatcher")
+    }
+
+    pub fn new_with_prefix(num_threads: usize, prefix: &str) -> Self {
         let (submitter, rx) = flume::unbounded();
         let threads: Vec<_> = (0..num_threads)
             .map(|tid| {
-                let worker_thread =
-                    std::thread::Builder::new().name(format!("tokio-dispatch-{tid}"));
+                let worker_thread = std::thread::Builder::new().name(format!("{prefix}-{tid}"));
                 let rx: flume::Receiver<Box<dyn TokioSpawn + Send>> = rx.clone();
 
                 worker_thread

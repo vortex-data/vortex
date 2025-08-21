@@ -20,11 +20,11 @@ use vortex_error::{VortexResult, vortex_err};
 static SHARED: LazyLock<IoDispatcher> = LazyLock::new(IoDispatcher::new);
 
 #[cfg(feature = "compio")]
-use self::compio::*;
+pub use self::compio::*;
 #[cfg(not(target_arch = "wasm32"))]
-use self::tokio::*;
+pub use self::tokio::*;
 #[cfg(target_arch = "wasm32")]
-use self::wasm::*;
+pub use self::wasm::*;
 
 mod sealed {
     pub trait Sealed {}
