@@ -37,8 +37,7 @@ fn to_vec_of_scalar(array: &dyn Array) -> Vec<Scalar> {
     // Not fast, but obviously correct
     (0..array.len())
         .map(|index| array.scalar_at(index))
-        .try_collect()
-        .vortex_unwrap()
+        .collect_vec()
 }
 
 /// Tests binary numeric operations for conformance across array encodings.

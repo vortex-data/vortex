@@ -7,7 +7,7 @@ use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{BoolArray, DecimalArray, PrimitiveArray, VarBinViewArray};
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::{DType, NativePType, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::match_each_decimal_value_type;
 
 use crate::array::take_canonical_array_non_nullable_indices;
@@ -66,8 +66,7 @@ pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
             sort_indices.sort_by(|a, b| {
                 array
                     .scalar_at(*a)
-                    .vortex_unwrap()
-                    .partial_cmp(&array.scalar_at(*b).vortex_unwrap())
+                    .partial_cmp(&array.scalar_at(*b))
                     .vortex_expect("must be a valid comparison")
             });
             take_canonical_array_non_nullable_indices(array, &sort_indices)
@@ -77,8 +76,7 @@ pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
             sort_indices.sort_by(|a, b| {
                 array
                     .scalar_at(*a)
-                    .vortex_unwrap()
-                    .partial_cmp(&array.scalar_at(*b).vortex_unwrap())
+                    .partial_cmp(&array.scalar_at(*b))
                     .vortex_expect("must be a valid comparison")
             });
             take_canonical_array_non_nullable_indices(array, &sort_indices)

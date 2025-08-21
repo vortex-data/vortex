@@ -3,7 +3,6 @@
 
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
-use std::ops::Index;
 use std::sync::Arc;
 
 use DType::*;
@@ -13,224 +12,76 @@ use vortex_error::vortex_panic;
 
 use crate::decimal::DecimalDType;
 use crate::nullability::Nullability;
-use crate::{ExtDType, FieldDType, PType, StructFields};
-
-/// A name for a field in a struct
-pub type FieldName = Arc<str>;
-
-/// An ordered list of field names in a struct
-#[derive(Clone, PartialEq, Eq, Debug, Default, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct FieldNames(Arc<[FieldName]>);
-
-impl PartialEq<&FieldNames> for FieldNames {
-    fn eq(&self, other: &&FieldNames) -> bool {
-        self == *other
-    }
-}
-
-impl PartialEq<&[&str]> for FieldNames {
-    fn eq(&self, other: &&[&str]) -> bool {
-        self.len() == other.len() && self.iter().zip_eq(other.iter()).all(|(l, r)| &**l == *r)
-    }
-}
-
-impl PartialEq<&[&str]> for &FieldNames {
-    fn eq(&self, other: &&[&str]) -> bool {
-        *self == other
-    }
-}
-
-impl<const N: usize> PartialEq<[&str; N]> for FieldNames {
-    fn eq(&self, other: &[&str; N]) -> bool {
-        self == other.as_slice()
-    }
-}
-
-impl<const N: usize> PartialEq<[&str; N]> for &FieldNames {
-    fn eq(&self, other: &[&str; N]) -> bool {
-        *self == other.as_slice()
-    }
-}
-
-impl PartialEq<&[FieldName]> for FieldNames {
-    fn eq(&self, other: &&[FieldName]) -> bool {
-        self.0.as_ref() == *other
-    }
-}
-
-impl PartialEq<&[FieldName]> for &FieldNames {
-    fn eq(&self, other: &&[FieldName]) -> bool {
-        self.0.as_ref() == *other
-    }
-}
-
-impl FieldNames {
-    /// Returns the number of elements.
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    /// Returns true if the number of elements is 0.
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    /// Returns a borrowed iterator over the field names.
-    pub fn iter(&self) -> impl ExactSizeIterator<Item = &FieldName> {
-        FieldNamesIter {
-            inner: self,
-            idx: 0,
-        }
-    }
-
-    /// Returns a reference to a field name, or None if `index` is out of bounds.
-    pub fn get(&self, index: usize) -> Option<&FieldName> {
-        self.0.get(index)
-    }
-}
-
-impl AsRef<[FieldName]> for FieldNames {
-    fn as_ref(&self) -> &[FieldName] {
-        &self.0
-    }
-}
-
-impl Index<usize> for FieldNames {
-    type Output = FieldName;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.0[index]
-    }
-}
-
-/// Iterator of references to field names
-pub struct FieldNamesIter<'a> {
-    inner: &'a FieldNames,
-    idx: usize,
-}
-
-impl<'a> Iterator for FieldNamesIter<'a> {
-    type Item = &'a FieldName;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.idx >= self.inner.len() {
-            return None;
-        }
-
-        let i = &self.inner.0[self.idx];
-        self.idx += 1;
-        Some(i)
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = self.inner.len() - self.idx;
-        (len, Some(len))
-    }
-}
-
-impl ExactSizeIterator for FieldNamesIter<'_> {}
-
-/// Owned iterator of field names.
-pub struct FieldNamesIntoIter {
-    inner: FieldNames,
-    idx: usize,
-}
-
-impl Iterator for FieldNamesIntoIter {
-    type Item = FieldName;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.idx >= self.inner.len() {
-            return None;
-        }
-
-        let i = self.inner.0[self.idx].clone();
-        self.idx += 1;
-        Some(i)
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = self.inner.len() - self.idx;
-        (len, Some(len))
-    }
-}
-
-impl ExactSizeIterator for FieldNamesIntoIter {}
-
-impl IntoIterator for FieldNames {
-    type Item = FieldName;
-
-    type IntoIter = FieldNamesIntoIter;
-
-    fn into_iter(self) -> Self::IntoIter {
-        FieldNamesIntoIter {
-            inner: self,
-            idx: 0,
-        }
-    }
-}
-
-impl From<Vec<FieldName>> for FieldNames {
-    fn from(value: Vec<FieldName>) -> Self {
-        Self(value.into())
-    }
-}
-
-impl From<&[&'static str]> for FieldNames {
-    fn from(value: &[&'static str]) -> Self {
-        Self(value.iter().cloned().map(Arc::from).collect())
-    }
-}
-
-impl From<&[FieldName]> for FieldNames {
-    fn from(value: &[FieldName]) -> Self {
-        Self(Arc::from(value))
-    }
-}
-
-impl<const N: usize> From<[&'static str; N]> for FieldNames {
-    fn from(value: [&'static str; N]) -> Self {
-        Self(value.into_iter().map(Arc::from).collect())
-    }
-}
-
-impl<const N: usize> From<[FieldName; N]> for FieldNames {
-    fn from(value: [FieldName; N]) -> Self {
-        Self(value.into())
-    }
-}
-
-impl<F: Into<FieldName>> FromIterator<F> for FieldNames {
-    fn from_iter<T: IntoIterator<Item = F>>(iter: T) -> Self {
-        Self(iter.into_iter().map(|v| v.into()).collect())
-    }
-}
+use crate::{ExtDType, FieldDType, FieldName, PType, StructFields};
 
 /// The logical types of elements in Vortex arrays.
 ///
-/// Vortex arrays preserve a single logical type, while the encodings allow for multiple
-/// physical ways to encode that type.
+/// `DType` represents the different logical data types that can be represented in a Vortex array.
+///
+/// This is different from physical types, which represent the actual layout of data (compressed or
+/// uncompressed). The set of physical types/formats (or data layout) is surjective into the set of
+/// logical types (or in other words, all physical types map to a single logical type).
+///
+/// Note that a `DType` represents the logical type of the elements in the `Array`s, **not** the
+/// logical type of the `Array` itself.
+///
+/// For example, an array with [`DType::Primitive`]([`I32`], [`NonNullable`]) could be physically
+/// encoded as any of the following:
+///
+/// - A flat array of `i32` values.
+/// - A run-length encoded sequence.
+/// - Dictionary encoded values with bitpacked codes.
+///
+/// All of these physical encodings preserve the same logical [`I32`] type, even if the physical
+/// data is different.
+///
+/// [`I32`]: PType::I32
+/// [`NonNullable`]: Nullability::NonNullable
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum DType {
-    /// The logical null type (only has a single value, `null`)
+    /// A logical null type.
+    ///
+    /// `Null` only has a single value, `null`.
     Null,
-    /// The logical boolean type (`true` or `false` if non-nullable; `true`, `false`, or `null` if nullable)
+
+    /// A logical boolean type.
+    ///
+    /// `Bool` can be `true` or `false` if non-nullable. It can be `true`, `false`, or `null` if
+    /// nullable.
     Bool(Nullability),
-    /// Primitive, fixed-width numeric types (e.g., `u8`, `i8`, `u16`, `i16`, `u32`, `i32`, `u64`, `i64`, `f32`, `f64`)
+
+    /// A logical fixed-width numeric type.
+    ///
+    /// This can be unsigned, signed, or floating point. See [`PType`] for more information.
     Primitive(PType, Nullability),
-    /// Real numbers with fixed exact precision and scale.
+
+    /// Logical real numbers with fixed precision and scale.
+    ///
+    /// See [`DecimalDType`] for more information.
     Decimal(DecimalDType, Nullability),
-    /// UTF-8 strings
+
+    /// Logical UTF-8 strings.
     Utf8(Nullability),
-    /// Binary data
+
+    /// Logical binary data.
     Binary(Nullability),
-    /// A struct is composed of an ordered list of fields, each with a corresponding name and DType
-    Struct(StructFields, Nullability),
-    /// A variable-length list type, parameterized by a single element DType
+
+    /// A logical variable-length list type.
+    ///
+    /// This is parameterized by a single `DType` that represents the element type of the inner
+    /// lists.
     List(Arc<DType>, Nullability),
-    /// User-defined extension types
+
+    /// A logical struct type.
+    ///
+    /// A `Struct` type is composed of an ordered list of fields, each with a corresponding name and
+    /// `DType`. See [`StructFields`] for more information.
+    Struct(StructFields, Nullability),
+
+    /// A user-defined extension type.
+    ///
+    /// See [`ExtDType`] for more information.
     Extension(Arc<ExtDType>),
 }
 
@@ -251,18 +102,16 @@ impl DType {
 
     /// Check if the DType is nullable
     pub fn is_nullable(&self) -> bool {
-        use crate::nullability::Nullability::*;
-
         match self {
             Null => true,
             Extension(ext_dtype) => ext_dtype.storage_dtype().is_nullable(),
-            Bool(n)
-            | Primitive(_, n)
-            | Decimal(_, n)
-            | Utf8(n)
-            | Binary(n)
-            | Struct(_, n)
-            | List(_, n) => matches!(n, Nullable),
+            Bool(null)
+            | Primitive(_, null)
+            | Decimal(_, null)
+            | Utf8(null)
+            | Binary(null)
+            | Struct(_, null)
+            | List(_, null) => matches!(null, Nullability::Nullable),
         }
     }
 
@@ -281,12 +130,12 @@ impl DType {
         match self {
             Null => Null,
             Bool(_) => Bool(nullability),
-            Primitive(p, _) => Primitive(*p, nullability),
-            Decimal(d, _) => Decimal(*d, nullability),
+            Primitive(pdt, _) => Primitive(*pdt, nullability),
+            Decimal(ddt, _) => Decimal(*ddt, nullability),
             Utf8(_) => Utf8(nullability),
             Binary(_) => Binary(nullability),
-            Struct(st, _) => Struct(st.clone(), nullability),
-            List(c, _) => List(c.clone(), nullability),
+            Struct(sf, _) => Struct(sf.clone(), nullability),
+            List(edt, _) => List(edt.clone(), nullability),
             Extension(ext) => Extension(Arc::new(ext.with_nullability(nullability))),
         }
     }
@@ -331,7 +180,7 @@ impl DType {
         matches!(self, List(_, _))
     }
 
-    /// Check if `self` is a primitive tpye
+    /// Check if `self` is a primitive type
     pub fn is_primitive(&self) -> bool {
         matches!(self, Primitive(_, _))
     }
@@ -402,7 +251,7 @@ impl DType {
     }
 
     /// Check returns the inner decimal type if the dtype is a decimal
-    pub fn as_decimal(&self) -> Option<&DecimalDType> {
+    pub fn as_decimal_opt(&self) -> Option<&DecimalDType> {
         match self {
             Decimal(decimal, _) => Some(decimal),
             _ => None,
@@ -410,7 +259,7 @@ impl DType {
     }
 
     /// Get the `StructDType` if `self` is a `StructDType`, otherwise `None`
-    pub fn as_struct(&self) -> Option<&StructFields> {
+    pub fn as_struct_opt(&self) -> Option<&StructFields> {
         match self {
             Struct(s, _) => Some(s),
             _ => None,
@@ -418,7 +267,7 @@ impl DType {
     }
 
     /// Get the inner dtype if `self` is a `ListDType`, otherwise `None`
-    pub fn as_list_element(&self) -> Option<&Arc<DType>> {
+    pub fn as_list_element_opt(&self) -> Option<&Arc<DType>> {
         match self {
             List(s, _) => Some(s),
             _ => None,
@@ -443,22 +292,21 @@ impl Display for DType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Null => write!(f, "null"),
-            Bool(n) => write!(f, "bool{n}"),
-            Primitive(pt, n) => write!(f, "{pt}{n}"),
-            Decimal(dt, n) => write!(f, "{dt}{n}"),
-            Utf8(n) => write!(f, "utf8{n}"),
-            Binary(n) => write!(f, "binary{n}"),
-            Struct(sdt, n) => write!(
+            Bool(null) => write!(f, "bool{null}"),
+            Primitive(pdt, null) => write!(f, "{pdt}{null}"),
+            Decimal(ddt, null) => write!(f, "{ddt}{null}"),
+            Utf8(null) => write!(f, "utf8{null}"),
+            Binary(null) => write!(f, "binary{null}"),
+            Struct(sf, null) => write!(
                 f,
-                "{{{}}}{}",
-                sdt.names()
+                "{{{}}}{null}",
+                sf.names()
                     .iter()
-                    .zip(sdt.fields())
-                    .map(|(n, dt)| format!("{n}={dt}"))
+                    .zip(sf.fields())
+                    .map(|(field_null, dt)| format!("{field_null}={dt}"))
                     .join(", "),
-                n
             ),
-            List(edt, n) => write!(f, "list({edt}){n}"),
+            List(edt, null) => write!(f, "list({edt}){null}"),
             Extension(ext) => write!(
                 f,
                 "ext({}, {}{}){}",
@@ -471,68 +319,5 @@ impl Display for DType {
                 ext.storage_dtype().nullability(),
             ),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_field_names_iter() {
-        let names = ["a", "b"];
-        let field_names = FieldNames::from(names);
-        assert_eq!(field_names.iter().len(), names.len());
-        let mut iter = field_names.iter();
-        assert_eq!(iter.next(), Some(&"a".into()));
-        assert_eq!(iter.next(), Some(&"b".into()));
-        assert_eq!(iter.next(), None);
-    }
-
-    #[test]
-    fn test_field_names_owned_iter() {
-        let names = ["a", "b"];
-        let field_names = FieldNames::from(names);
-        assert_eq!(field_names.clone().into_iter().len(), names.len());
-        let mut iter = field_names.into_iter();
-        assert_eq!(iter.next(), Some("a".into()));
-        assert_eq!(iter.next(), Some("b".into()));
-        assert_eq!(iter.next(), None);
-    }
-
-    #[test]
-    fn test_field_names_equality() {
-        let field_names = FieldNames::from(["field1", "field2", "field3"]);
-
-        // FieldNames == &FieldNames
-        let field_names_ref = &field_names;
-        assert_eq!(field_names, field_names_ref);
-
-        // FieldNames == &[&str]
-        let str_slice = &["field1", "field2", "field3"][..];
-        assert_eq!(field_names, str_slice);
-
-        // &FieldNames == &[&str]
-        assert_eq!(&field_names, str_slice);
-
-        // FieldNames == [&str; N] (array)
-        assert_eq!(field_names, ["field1", "field2", "field3"]);
-
-        // &FieldNames == [&str; N] (array)
-        assert_eq!(&field_names, ["field1", "field2", "field3"]);
-
-        // FieldNames == &[FieldName]
-        let field_name_vec: Vec<FieldName> =
-            vec!["field1".into(), "field2".into(), "field3".into()];
-        let field_name_slice = field_name_vec.as_slice();
-        assert_eq!(field_names, field_name_slice);
-
-        // &FieldNames == &[FieldName]
-        assert_eq!(&field_names, field_name_slice);
-
-        // Test inequality cases
-        assert_ne!(field_names, &["field1", "field2"][..]);
-        assert_ne!(field_names, ["different", "fields", "here"]);
-        assert_ne!(field_names, &["field1", "field2", "field3", "extra"][..]);
     }
 }

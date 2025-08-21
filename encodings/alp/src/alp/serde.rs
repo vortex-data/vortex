@@ -9,7 +9,7 @@ use vortex_array::{
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_panic};
+use vortex_error::{VortexError, VortexResult, vortex_bail};
 
 use super::{ALPEncoding, alp_encode};
 use crate::{ALPArray, ALPVTable, Exponents};
@@ -50,7 +50,7 @@ impl SerdeVTable<ALPVTable> for ALPVTable {
         let encoded_ptype = match &dtype {
             DType::Primitive(PType::F32, n) => DType::Primitive(PType::I32, *n),
             DType::Primitive(PType::F64, n) => DType::Primitive(PType::I64, *n),
-            d => vortex_panic!(MismatchedTypes: "f32 or f64", d),
+            d => vortex_bail!(MismatchedTypes: "f32 or f64", d),
         };
         let encoded = children.get(0, &encoded_ptype, len)?;
 
@@ -66,8 +66,8 @@ impl SerdeVTable<ALPVTable> for ALPVTable {
         ALPArray::try_new(
             encoded,
             Exponents {
-                e: u8::try_from(metadata.exp_e).vortex_expect("Exponent e overflow"),
-                f: u8::try_from(metadata.exp_f).vortex_expect("Exponent f overflow"),
+                e: u8::try_from(metadata.exp_e)?,
+                f: u8::try_from(metadata.exp_f)?,
             },
             patches,
         )

@@ -27,7 +27,10 @@ impl TakeKernel for DictVTable {
             .values()
             .dtype()
             .union_nullability(codes.dtype().nullability());
-        DictArray::try_new(codes, cast(array.values(), &values_dtype)?).map(|a| a.into_array())
+        // SAFETY: selecting codes doesn't change the invariants of DictArray
+        unsafe {
+            Ok(DictArray::new_unchecked(codes, cast(array.values(), &values_dtype)?).into_array())
+        }
     }
 }
 
@@ -36,7 +39,9 @@ register_kernel!(TakeKernelAdapter(DictVTable).lift());
 impl FilterKernel for DictVTable {
     fn filter(&self, array: &DictArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let codes = filter(array.codes(), mask)?;
-        DictArray::try_new(codes, array.values().clone()).map(|a| a.into_array())
+
+        // SAFETY: filtering codes doesn't change invariants
+        unsafe { Ok(DictArray::new_unchecked(codes, array.values().clone()).into_array()) }
     }
 }
 
@@ -147,7 +152,7 @@ mod test {
             Some(5),
         ]);
         let dict = dict_encode(reference.as_ref()).unwrap();
-        dict.slice(1, 4).unwrap()
+        dict.slice(1, 4)
     }
 
     #[test]
@@ -156,15 +161,15 @@ mod test {
         let compared = compare(&sliced, ConstantArray::new(42, 3).as_ref(), Operator::Eq).unwrap();
 
         assert_eq!(
-            compared.scalar_at(0).unwrap(),
+            compared.scalar_at(0),
             Scalar::bool(false, Nullability::Nullable)
         );
         assert_eq!(
-            compared.scalar_at(1).unwrap(),
+            compared.scalar_at(1),
             Scalar::null(DType::Bool(Nullability::Nullable))
         );
         assert_eq!(
-            compared.scalar_at(2).unwrap(),
+            compared.scalar_at(2),
             Scalar::bool(true, Nullability::Nullable)
         );
     }

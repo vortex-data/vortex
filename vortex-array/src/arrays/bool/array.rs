@@ -3,8 +3,9 @@
 
 use arrow_array::BooleanArray;
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, MutableBuffer};
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_error::{VortexResult, vortex_ensure};
 
 use crate::Canonical;
 use crate::arrays::{BoolVTable, bool};
@@ -35,11 +36,11 @@ use crate::vtable::{ArrayVTable, CanonicalVTable, ValidityHelper};
 /// let array: BoolArray = [true, false, true, false].into_iter().collect();
 ///
 /// // Slice the array
-/// let sliced = array.slice(1, 3).unwrap();
+/// let sliced = array.slice(1, 3);
 /// assert_eq!(sliced.len(), 2);
 ///
 /// // Access individual values
-/// let value = array.scalar_at(0).unwrap();
+/// let value = array.scalar_at(0);
 /// assert_eq!(value, true.into());
 /// ```
 #[derive(Clone, Debug)]
@@ -51,7 +52,87 @@ pub struct BoolArray {
 }
 
 impl BoolArray {
-    /// Create a new [`BoolArray`] from a set of indices, a length and a [`Validity`].
+    fn validate(
+        buffer: &ByteBuffer,
+        offset: usize,
+        len: usize,
+        validity: &Validity,
+    ) -> VortexResult<()> {
+        vortex_ensure!(
+            offset < 8,
+            "offset must be less than whole byte, was {offset} bits"
+        );
+
+        // Validate the buffer is large enough to hold all the bits
+        let required_bytes = offset.saturating_add(len).div_ceil(8);
+        vortex_ensure!(
+            buffer.len() >= required_bytes,
+            "BoolArray with offset={offset} len={len} cannot be built from buffer of size {}",
+            buffer.len()
+        );
+
+        // Validate validity
+        if let Some(validity_len) = validity.maybe_len() {
+            vortex_ensure!(
+                validity_len == len,
+                "BoolArray of size {len} cannot be built with validity of size {validity_len}"
+            );
+        }
+
+        Ok(())
+    }
+}
+
+impl BoolArray {
+    /// Construct a new `BoolArray` from its components:
+    ///
+    /// * `buffer` is a raw ByteBuffer holding the packed bits
+    /// * `offset` is the number of bits in the start of the buffer that should be skipped when
+    ///   looking up the i-th value.
+    /// * `len` is the length of the array, which should correspond to the number of bits
+    /// * `validity` holds the null values.
+    ///
+    /// # Validation
+    ///
+    /// Buffer must be at least large enough to hold `len` bits starting at `offset`.
+    ///
+    /// A provided validity array must be of size `len`.
+    ///
+    /// The offset must be less than a whole byte.
+    pub fn try_new(
+        buffer: ByteBuffer,
+        offset: usize,
+        len: usize,
+        validity: Validity,
+    ) -> VortexResult<Self> {
+        Self::validate(&buffer, offset, len, &validity)?;
+
+        Ok(Self::new(
+            BooleanBuffer::new(buffer.into_arrow_buffer(), offset, len),
+            validity,
+        ))
+    }
+
+    /// Creates a new [`BoolArray`] from a [`BooleanBuffer`] and [`Validity`] directly.
+    ///
+    /// Panics if the validity length differs from the buffer length.
+    pub fn new(buffer: BooleanBuffer, validity: Validity) -> Self {
+        if let Some(validity_len) = validity.maybe_len() {
+            assert_eq!(buffer.len(), validity_len);
+        }
+
+        // Shrink the buffer to remove any whole bytes.
+        let buffer = buffer.shrink_offset();
+        Self {
+            dtype: DType::Bool(validity.nullability()),
+            buffer,
+            validity,
+            stats_set: ArrayStats::default(),
+        }
+    }
+
+    /// Create a new BoolArray from a set of indices and a length.
+    ///
     /// All indices must be less than the length.
     pub fn from_indices<I: IntoIterator<Item = usize>>(
         length: usize,
@@ -67,29 +148,6 @@ impl BoolArray {
             BooleanBufferBuilder::new_from_buffer(buffer, length).finish(),
             validity,
         )
-    }
-
-    /// Creates a new [`BoolArray`] from a [`BooleanBuffer`] and [`Validity`], without checking
-    /// any invariants.
-    pub fn new(buffer: BooleanBuffer, validity: Validity) -> Self {
-        if let Some(len) = validity.maybe_len()
-            && buffer.len() != len
-        {
-            vortex_panic!(
-                "Buffer and validity length mismatch: buffer={}, validity={}",
-                buffer.len(),
-                len
-            );
-        }
-
-        // Shrink the buffer to remove any whole bytes.
-        let buffer = buffer.shrink_offset();
-        Self {
-            dtype: DType::Bool(validity.nullability()),
-            buffer,
-            validity,
-            stats_set: ArrayStats::default(),
-        }
     }
 
     /// Returns the underlying [`BooleanBuffer`] of the array.
@@ -215,7 +273,7 @@ mod tests {
     #[test]
     fn bool_array() {
         let arr = BoolArray::from_iter([true, false, true]);
-        let scalar = bool::try_from(&arr.scalar_at(0).unwrap()).unwrap();
+        let scalar = bool::try_from(&arr.scalar_at(0)).unwrap();
         assert!(scalar);
     }
 
@@ -225,9 +283,9 @@ mod tests {
 
         assert!(matches!(arr.validity(), Validity::AllValid));
 
-        let scalar = bool::try_from(&arr.scalar_at(0).unwrap()).unwrap();
+        let scalar = bool::try_from(&arr.scalar_at(0)).unwrap();
         assert!(scalar);
-        let scalar = bool::try_from(&arr.scalar_at(1).unwrap()).unwrap();
+        let scalar = bool::try_from(&arr.scalar_at(1)).unwrap();
         assert!(!scalar);
     }
 
@@ -235,19 +293,19 @@ mod tests {
     fn test_bool_from_iter() {
         let arr = BoolArray::from_iter([Some(true), Some(true), None, Some(false), None]);
 
-        let scalar = bool::try_from(&arr.scalar_at(0).unwrap()).unwrap();
+        let scalar = bool::try_from(&arr.scalar_at(0)).unwrap();
         assert!(scalar);
 
-        let scalar = bool::try_from(&arr.scalar_at(1).unwrap()).unwrap();
+        let scalar = bool::try_from(&arr.scalar_at(1)).unwrap();
         assert!(scalar);
 
-        let scalar = arr.scalar_at(2).unwrap();
+        let scalar = arr.scalar_at(2);
         assert!(scalar.is_null());
 
-        let scalar = bool::try_from(&arr.scalar_at(3).unwrap()).unwrap();
+        let scalar = bool::try_from(&arr.scalar_at(3)).unwrap();
         assert!(!scalar);
 
-        let scalar = arr.scalar_at(4).unwrap();
+        let scalar = arr.scalar_at(4);
         assert!(scalar.is_null());
     }
 
@@ -259,7 +317,7 @@ mod tests {
             builder.append_n(11, true);
             BoolArray::from(builder.finish())
         };
-        let sliced = arr.slice(4, 12).unwrap();
+        let sliced = arr.slice(4, 12);
         let sliced_len = sliced.len();
         let (values, offset) = sliced.to_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 4);
@@ -289,7 +347,7 @@ mod tests {
     #[test]
     fn slice_array_in_middle() {
         let arr = BoolArray::from(BooleanBuffer::new_set(16));
-        let sliced = arr.slice(4, 12).unwrap();
+        let sliced = arr.slice(4, 12);
         let sliced_len = sliced.len();
         let (values, offset) = sliced.to_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 4);

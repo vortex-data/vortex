@@ -21,8 +21,6 @@ mod varbinview;
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
 mod decimal;
-//#[cfg(test)]
-//mod test_compatibility;
 
 pub use self::bool::*;
 pub use self::chunked::*;

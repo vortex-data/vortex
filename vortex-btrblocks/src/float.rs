@@ -217,7 +217,7 @@ impl Scheme for ALPScheme {
 
         let patches = alp.patches().map(compress_patches).transpose()?;
 
-        Ok(ALPArray::try_new(compressed_alp_ints, alp.exponents(), patches)?.into_array())
+        Ok(ALPArray::new(compressed_alp_ints, alp.exponents(), patches).into_array())
     }
 }
 
@@ -315,7 +315,7 @@ impl Scheme for DictScheme {
         allowed_cascading: usize,
         _excludes: &[FloatCode],
     ) -> VortexResult<ArrayRef> {
-        let dict_array = dictionary_encode(stats)?;
+        let dict_array = dictionary_encode(stats);
 
         // Only compress the codes.
         let codes_stats = IntegerStats::generate_opts(
@@ -344,7 +344,8 @@ impl Scheme for DictScheme {
             &[DICT_SCHEME],
         )?;
 
-        Ok(DictArray::try_new(compressed_codes, compressed_values)?.into_array())
+        // SAFETY: compressing codes or values does not alter the invariants
+        unsafe { Ok(DictArray::new_unchecked(compressed_codes, compressed_values).into_array()) }
     }
 }
 

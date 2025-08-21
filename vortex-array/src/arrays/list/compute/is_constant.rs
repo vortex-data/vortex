@@ -32,10 +32,10 @@ impl IsConstantKernel for ListVTable {
 
         if array.len() > SMALL_ARRAY_THRESHOLD {
             // check the rest of the element lengths
-            let start_offsets = array.offsets.slice(SMALL_ARRAY_THRESHOLD, array.len())?;
+            let start_offsets = array.offsets.slice(SMALL_ARRAY_THRESHOLD, array.len());
             let end_offsets = array
                 .offsets
-                .slice(SMALL_ARRAY_THRESHOLD + 1, array.len() + 1)?;
+                .slice(SMALL_ARRAY_THRESHOLD + 1, array.len() + 1);
             let list_lengths = numeric(&end_offsets, &start_offsets, NumericOperator::Sub)?;
 
             if !list_lengths.is_constant() {
@@ -44,9 +44,9 @@ impl IsConstantKernel for ListVTable {
         }
 
         // If all lists have the same length, compare the actual list contents
-        let first_scalar = array.scalar_at(0)?;
+        let first_scalar = array.scalar_at(0);
         for i in 1..array.len() {
-            let current_scalar = array.scalar_at(i)?;
+            let current_scalar = array.scalar_at(i);
             if current_scalar != first_scalar {
                 return Ok(Some(false));
             }

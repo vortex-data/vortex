@@ -13,15 +13,18 @@ impl CastKernel for RunEndVTable {
         // Cast the values array to the target type
         let casted_values = cast(array.values(), dtype)?;
 
-        Ok(Some(
-            RunEndArray::with_offset_and_length(
-                array.ends().clone(),
-                casted_values,
-                array.offset(),
-                array.len(),
-            )?
-            .into_array(),
-        ))
+        // SAFETY: casting does not affect the ends being valid
+        unsafe {
+            Ok(Some(
+                RunEndArray::new_unchecked(
+                    array.ends().clone(),
+                    casted_values,
+                    array.offset(),
+                    array.len(),
+                )
+                .into_array(),
+            ))
+        }
     }
 }
 
@@ -96,7 +99,7 @@ mod tests {
         .unwrap();
 
         // Slice it to get offset 3, length 5: [200, 200, 300, 300, 300]
-        let sliced = runend.slice(3, 8).unwrap();
+        let sliced = runend.slice(3, 8);
 
         // Verify the slice is correct before casting
         let sliced_decoded = sliced.to_canonical().unwrap().into_primitive().unwrap();

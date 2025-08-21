@@ -9,9 +9,7 @@ use std::ops::{Add, Sub};
 use num_traits::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, FromPrimitive};
 use vortex_dtype::half::f16;
 use vortex_dtype::{DType, NativePType, Nullability, PType, match_each_native_ptype};
-use vortex_error::{
-    VortexError, VortexExpect as _, VortexResult, VortexUnwrap, vortex_err, vortex_panic,
-};
+use vortex_error::{VortexError, VortexExpect as _, VortexResult, vortex_err, vortex_panic};
 
 use crate::pvalue::{CoercePValue, PValue};
 use crate::{InnerScalarValue, Scalar, ScalarValue};
@@ -106,7 +104,6 @@ impl<'a> PrimitiveScalar<'a> {
     /// # Panics
     ///
     /// Panics if the primitive type of this scalar does not match the requested type.
-    /// For example, attempting to read an i32 scalar as f32 will panic.
     pub fn typed_value<T: NativePType + TryFrom<PValue, Error = VortexError>>(&self) -> Option<T> {
         assert_eq!(
             self.ptype,
@@ -116,7 +113,7 @@ impl<'a> PrimitiveScalar<'a> {
             T::PTYPE
         );
 
-        self.pvalue.map(|pv| pv.as_primitive::<T>().vortex_unwrap())
+        self.pvalue.map(|pv| pv.as_primitive::<T>())
     }
 
     pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
@@ -126,9 +123,9 @@ impl<'a> PrimitiveScalar<'a> {
             .vortex_expect("nullness handled in Scalar::cast");
         Ok(match_each_native_ptype!(ptype, |Q| {
             Scalar::primitive(
-                pvalue.as_primitive::<Q>().map_err(|err| {
-                    vortex_err!("Cannot cast {} to {}: {}", self.ptype, dtype, err)
-                })?,
+                pvalue
+                    .as_primitive_opt::<Q>()
+                    .ok_or_else(|| vortex_err!("Cannot cast {} to {}", self.ptype, dtype))?,
                 dtype.nullability(),
             )
         }))
@@ -138,72 +135,82 @@ impl<'a> PrimitiveScalar<'a> {
     ///
     /// # Errors
     ///
-    /// Returns an error if the cast fails due to overflow or type incompatibility.
-    pub fn as_<T: FromPrimitiveOrF16>(&self) -> VortexResult<Option<T>> {
-        match self.pvalue {
-            None => Ok(None),
-            Some(pv) => Ok(Some(match pv {
-                PValue::U8(v) => T::from_u8(v).ok_or_else(|| {
-                    vortex_err!("Cannot cast u8 to {}: value out of range", type_name::<T>())
-                }),
-                PValue::U16(v) => T::from_u16(v).ok_or_else(|| {
-                    vortex_err!(
-                        "Cannot cast u16 to {}: value out of range",
-                        type_name::<T>()
-                    )
-                }),
-                PValue::U32(v) => T::from_u32(v).ok_or_else(|| {
-                    vortex_err!(
-                        "Cannot cast u32 to {}: value out of range",
-                        type_name::<T>()
-                    )
-                }),
-                PValue::U64(v) => T::from_u64(v).ok_or_else(|| {
-                    vortex_err!(
-                        "Cannot cast u64 to {}: value out of range",
-                        type_name::<T>()
-                    )
-                }),
-                PValue::I8(v) => T::from_i8(v).ok_or_else(|| {
-                    vortex_err!("Cannot cast i8 to {}: value out of range", type_name::<T>())
-                }),
-                PValue::I16(v) => T::from_i16(v).ok_or_else(|| {
-                    vortex_err!(
-                        "Cannot cast i16 to {}: value out of range",
-                        type_name::<T>()
-                    )
-                }),
-                PValue::I32(v) => T::from_i32(v).ok_or_else(|| {
-                    vortex_err!(
-                        "Cannot cast i32 to {}: value out of range",
-                        type_name::<T>()
-                    )
-                }),
-                PValue::I64(v) => T::from_i64(v).ok_or_else(|| {
-                    vortex_err!(
-                        "Cannot cast i64 to {}: value out of range",
-                        type_name::<T>()
-                    )
-                }),
-                PValue::F16(v) => T::from_f16(v).ok_or_else(|| {
-                    vortex_err!(
-                        "Cannot cast f16 to {}: value out of range",
-                        type_name::<T>()
-                    )
-                }),
-                PValue::F32(v) => T::from_f32(v).ok_or_else(|| {
-                    vortex_err!(
-                        "Cannot cast f32 to {}: value out of range",
-                        type_name::<T>()
-                    )
-                }),
-                PValue::F64(v) => T::from_f64(v).ok_or_else(|| {
-                    vortex_err!(
-                        "Cannot cast f64 to {}: value out of range",
-                        type_name::<T>()
-                    )
-                }),
-            }?)),
+    /// Panics if the cast fails due to overflow or type incompatibility. See also
+    /// `as_opt` for the checked version that does not panic.
+    ///
+    /// # Examples
+    ///
+    /// ```should_panic
+    /// # use vortex_dtype::{DType, PType};
+    /// # use vortex_scalar::Scalar;
+    /// let wide = Scalar::primitive(1000i32, false.into());
+    ///
+    /// // This succeeds
+    /// let narrow = wide.as_primitive().as_::<i16>();
+    /// assert_eq!(narrow, Some(1000i16));
+    ///
+    /// // This also succeeds
+    /// let null = Scalar::null(DType::Primitive(PType::I16, true.into()));
+    /// assert_eq!(null.as_primitive().as_::<i8>(), None);
+    ///
+    /// // This will panic, because 1000 does not fit in i8
+    /// wide.as_primitive().as_::<i8>();
+    /// ```
+    pub fn as_<T: FromPrimitiveOrF16>(&self) -> Option<T> {
+        self.as_opt::<T>().unwrap_or_else(|| {
+            vortex_panic!(
+                "cast {} to {}: value out of range",
+                self.ptype,
+                type_name::<T>()
+            )
+        })
+    }
+
+    /// Returns the inner value cast to the desired type.
+    ///
+    /// If the cast fails, `None` is returned. If the scalar represents a null, `Some(None)`
+    /// is returned. Otherwise, `Some(Some(T))` is returned for a successful non-null conversion.
+    ///
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use vortex_dtype::{DType, PType};
+    /// # use vortex_scalar::Scalar;
+    ///
+    /// // Non-null values
+    /// let scalar = Scalar::primitive(100i32, false.into());
+    /// let primitive = scalar.as_primitive();
+    /// assert_eq!(primitive.as_opt::<i8>(), Some(Some(100i8)));
+    ///
+    /// // Null value
+    /// let scalar = Scalar::null(DType::Primitive(PType::I32, true.into()));
+    /// let primitive = scalar.as_primitive();
+    /// assert_eq!(primitive.as_opt::<i8>(), Some(None));
+    ///
+    /// // Failed conversion: 1000 cannot fit in an i8
+    /// let scalar = Scalar::primitive(1000i32, false.into());
+    /// let primitive = scalar.as_primitive();
+    /// assert_eq!(primitive.as_opt::<i8>(), None);
+    /// ```
+    pub fn as_opt<T: FromPrimitiveOrF16>(&self) -> Option<Option<T>> {
+        if let Some(pv) = self.pvalue {
+            match pv {
+                PValue::U8(v) => T::from_u8(v),
+                PValue::U16(v) => T::from_u16(v),
+                PValue::U32(v) => T::from_u32(v),
+                PValue::U64(v) => T::from_u64(v),
+                PValue::I8(v) => T::from_i8(v),
+                PValue::I16(v) => T::from_i16(v),
+                PValue::I32(v) => T::from_i32(v),
+                PValue::I64(v) => T::from_i64(v),
+                PValue::F16(v) => T::from_f16(v),
+                PValue::F32(v) => T::from_f32(v),
+                PValue::F64(v) => T::from_f64(v),
+            }
+            .map(Some)
+        } else {
+            Some(None)
         }
     }
 }
@@ -403,7 +410,7 @@ impl TryFrom<&Scalar> for usize {
 
     fn try_from(value: &Scalar) -> Result<Self, Self::Error> {
         let prim = PrimitiveScalar::try_from(value)?
-            .as_::<u64>()?
+            .as_::<u64>()
             .ok_or_else(|| vortex_err!("cannot convert Null to usize"))?;
         Ok(usize::try_from(prim)?)
     }
@@ -414,7 +421,7 @@ impl TryFrom<&Scalar> for Option<usize> {
 
     fn try_from(value: &Scalar) -> Result<Self, Self::Error> {
         Ok(PrimitiveScalar::try_from(value)?
-            .as_::<u64>()?
+            .as_::<u64>()
             .map(usize::try_from)
             .transpose()?)
     }
@@ -615,9 +622,9 @@ mod tests {
         .unwrap();
         let pscalar_or_overflow = p_scalar1.checked_sub(&p_scalar2);
         let value_or_null_or_type_error = pscalar_or_overflow.unwrap().as_::<i32>();
-        assert_eq!(value_or_null_or_type_error.unwrap().unwrap(), 1);
+        assert_eq!(value_or_null_or_type_error.unwrap(), 1);
 
-        assert_eq!((p_scalar1 - p_scalar2).as_::<i32>().unwrap().unwrap(), 1);
+        assert_eq!((p_scalar1 - p_scalar2).as_::<i32>().unwrap(), 1);
     }
 
     #[test]
@@ -653,12 +660,9 @@ mod tests {
         .unwrap();
         let pscalar_or_overflow = p_scalar1.checked_sub(&p_scalar2).unwrap();
         let value_or_null_or_type_error = pscalar_or_overflow.as_::<f32>();
-        assert_eq!(value_or_null_or_type_error.unwrap().unwrap(), 0.99f32);
+        assert_eq!(value_or_null_or_type_error.unwrap(), 0.99f32);
 
-        assert_eq!(
-            (p_scalar1 - p_scalar2).as_::<f32>().unwrap().unwrap(),
-            0.99f32
-        );
+        assert_eq!((p_scalar1 - p_scalar2).as_::<f32>().unwrap(), 0.99f32);
     }
 
     #[test]
@@ -804,8 +808,8 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(scalar.as_::<i64>().unwrap(), Some(42i64));
-        assert_eq!(scalar.as_::<f64>().unwrap(), Some(42.0));
+        assert_eq!(scalar.as_::<i64>(), Some(42i64));
+        assert_eq!(scalar.as_::<f64>(), Some(42.0));
     }
 
     #[test]
@@ -818,8 +822,8 @@ mod tests {
         .unwrap();
 
         // Converting -1 to u32 should fail
-        let result = scalar.as_::<u32>();
-        assert!(result.is_err());
+        let result = scalar.as_opt::<u32>();
+        assert!(result.is_none());
     }
 
     #[test]
@@ -828,8 +832,8 @@ mod tests {
         let scalar =
             PrimitiveScalar::try_new(&dtype, &ScalarValue(InnerScalarValue::Null)).unwrap();
 
-        assert_eq!(scalar.as_::<i32>().unwrap(), None);
-        assert_eq!(scalar.as_::<f64>().unwrap(), None);
+        assert_eq!(scalar.as_::<i32>(), None);
+        assert_eq!(scalar.as_::<f64>(), None);
     }
 
     #[test]

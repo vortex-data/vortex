@@ -87,6 +87,21 @@ impl DateTimePartsArray {
         })
     }
 
+    pub(crate) unsafe fn new_unchecked(
+        dtype: DType,
+        days: ArrayRef,
+        seconds: ArrayRef,
+        subseconds: ArrayRef,
+    ) -> Self {
+        Self {
+            dtype,
+            days,
+            seconds,
+            subseconds,
+            stats_set: Default::default(),
+        }
+    }
+
     pub fn days(&self) -> &ArrayRef {
         &self.days
     }

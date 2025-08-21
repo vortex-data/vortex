@@ -445,10 +445,10 @@ mod test {
             Nullability::Nullable,
         );
         assert!(dtype.is_nullable());
-        assert!(dtype.as_struct().is_some());
-        assert!(a_type.as_struct().is_none());
+        assert!(dtype.as_struct_opt().is_some());
+        assert!(a_type.as_struct_opt().is_none());
 
-        let sdt = dtype.as_struct().unwrap();
+        let sdt = dtype.as_struct_opt().unwrap();
         assert_eq!(sdt.names().len(), 2);
         assert_eq!(sdt.fields().len(), 2);
         assert_eq!(sdt.names(), ["A", "B"]);

@@ -68,10 +68,7 @@ fn test_take_all(array: &dyn Array) {
             _ => {
                 // For non-primitive types, check scalar values
                 for i in 0..len {
-                    assert_eq!(
-                        array.scalar_at(i).vortex_unwrap(),
-                        result.scalar_at(i).vortex_unwrap()
-                    );
+                    assert_eq!(array.scalar_at(i), result.scalar_at(i));
                 }
             }
         }
@@ -101,8 +98,8 @@ fn test_take_selective(array: &dyn Array) {
     // Verify the taken elements
     for (result_idx, &original_idx) in indices.iter().enumerate() {
         assert_eq!(
-            array.scalar_at(original_idx as usize).vortex_unwrap(),
-            result.scalar_at(result_idx).vortex_unwrap()
+            array.scalar_at(original_idx as usize),
+            result.scalar_at(result_idx)
         );
     }
 }
@@ -113,14 +110,8 @@ fn test_take_first_and_last(array: &dyn Array) {
     let result = take(array, indices.as_ref()).vortex_unwrap();
 
     assert_eq!(result.len(), 2);
-    assert_eq!(
-        array.scalar_at(0).vortex_unwrap(),
-        result.scalar_at(0).vortex_unwrap()
-    );
-    assert_eq!(
-        array.scalar_at(len - 1).vortex_unwrap(),
-        result.scalar_at(1).vortex_unwrap()
-    );
+    assert_eq!(array.scalar_at(0), result.scalar_at(0));
+    assert_eq!(array.scalar_at(len - 1), result.scalar_at(1));
 }
 
 #[allow(clippy::cast_possible_truncation)]
@@ -149,12 +140,12 @@ fn test_take_with_nullable_indices(array: &dyn Array) {
     for (i, idx_opt) in indices_vec.iter().enumerate() {
         match idx_opt {
             Some(idx) => {
-                let expected = array.scalar_at(*idx as usize).vortex_unwrap();
-                let actual = result.scalar_at(i).vortex_unwrap();
+                let expected = array.scalar_at(*idx as usize);
+                let actual = result.scalar_at(i);
                 assert_eq!(expected, actual);
             }
             None => {
-                assert!(result.scalar_at(i).vortex_unwrap().is_null());
+                assert!(result.scalar_at(i).is_null());
             }
         }
     }
@@ -170,9 +161,9 @@ fn test_take_repeated_indices(array: &dyn Array) {
     let result = take(array, indices.as_ref()).vortex_unwrap();
 
     assert_eq!(result.len(), 3);
-    let first_elem = array.scalar_at(0).vortex_unwrap();
+    let first_elem = array.scalar_at(0);
     for i in 0..3 {
-        assert_eq!(result.scalar_at(i).vortex_unwrap(), first_elem);
+        assert_eq!(result.scalar_at(i), first_elem);
     }
 }
 
@@ -194,10 +185,7 @@ fn test_take_reverse(array: &dyn Array) {
 
     // Verify elements are in reverse order
     for i in 0..len {
-        assert_eq!(
-            array.scalar_at(len - 1 - i).vortex_unwrap(),
-            result.scalar_at(i).vortex_unwrap()
-        );
+        assert_eq!(array.scalar_at(len - 1 - i), result.scalar_at(i));
     }
 }
 
@@ -209,10 +197,7 @@ fn test_take_single_middle(array: &dyn Array) {
     let result = take(array, indices.as_ref()).vortex_unwrap();
 
     assert_eq!(result.len(), 1);
-    assert_eq!(
-        array.scalar_at(middle_idx).vortex_unwrap(),
-        result.scalar_at(0).vortex_unwrap()
-    );
+    assert_eq!(array.scalar_at(middle_idx), result.scalar_at(0));
 }
 
 #[allow(clippy::cast_possible_truncation)]
@@ -234,10 +219,7 @@ fn test_take_random_unsorted(array: &dyn Array) {
 
     // Verify elements match
     for (i, &idx) in indices.iter().enumerate() {
-        assert_eq!(
-            array.scalar_at(idx as usize).vortex_unwrap(),
-            result.scalar_at(i).vortex_unwrap()
-        );
+        assert_eq!(array.scalar_at(idx as usize), result.scalar_at(i));
     }
 }
 
@@ -254,10 +236,7 @@ fn test_take_contiguous_range(array: &dyn Array) {
 
     // Verify elements
     for i in 0..(end - start) {
-        assert_eq!(
-            array.scalar_at(start + i).vortex_unwrap(),
-            result.scalar_at(i).vortex_unwrap()
-        );
+        assert_eq!(array.scalar_at(start + i), result.scalar_at(i));
     }
 }
 
@@ -284,10 +263,7 @@ fn test_take_mixed_repeated(array: &dyn Array) {
 
     // Verify elements
     for (i, &idx) in indices.iter().enumerate() {
-        assert_eq!(
-            array.scalar_at(idx as usize).vortex_unwrap(),
-            result.scalar_at(i).vortex_unwrap()
-        );
+        assert_eq!(array.scalar_at(idx as usize), result.scalar_at(i));
     }
 }
 
@@ -310,9 +286,6 @@ fn test_take_large_indices(array: &dyn Array) {
     // Spot check a few elements
     for i in (0..num_indices).step_by(1000) {
         let expected_idx = indices[i] as usize;
-        assert_eq!(
-            array.scalar_at(expected_idx).vortex_unwrap(),
-            result.scalar_at(i).vortex_unwrap()
-        );
+        assert_eq!(array.scalar_at(expected_idx), result.scalar_at(i));
     }
 }

@@ -10,7 +10,6 @@ use vortex_array::validity::Validity;
 use vortex_array::{ArrayRef, IntoArray};
 use vortex_buffer::Buffer;
 use vortex_dtype::NativePType;
-use vortex_error::VortexUnwrap;
 use vortex_scalar::PValue;
 
 use crate::RunEndArray;
@@ -42,22 +41,24 @@ where
                 + 1;
 
             (
-                ends.slice(slice_begin, slice_end).vortex_unwrap(),
-                values.slice(slice_begin, slice_end).vortex_unwrap(),
+                ends.slice(slice_begin, slice_end),
+                values.slice(slice_begin, slice_end),
             )
         };
 
-        RunEndArray::with_offset_and_length(ends_slice, values_slice, offset, len).vortex_unwrap()
+        // SAFETY: arrow-rs enforces the RunEndArray invariants, we inherit their guarantees
+        unsafe { RunEndArray::new_unchecked(ends_slice, values_slice, offset, len) }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use arrow_array::types::{Int32Type, Int64Type};
-    use arrow_array::{Float64Array, Int32Array, Int64Array};
+    use arrow_array::{Float64Array, Int32Array, Int64Array, RunArray};
+    use vortex_array::arrow::FromArrowArray;
     use vortex_dtype::{DType, Nullability, PType};
 
-    use super::*;
+    use crate::RunEndArray;
 
     #[test]
     fn test_arrow_run_array_to_vortex() {
@@ -79,12 +80,12 @@ mod tests {
         );
 
         // Verify the values at different positions
-        assert_eq!(vortex_array.scalar_at(0).unwrap(), 10.into()); // First run
-        assert_eq!(vortex_array.scalar_at(2).unwrap(), 10.into()); // Still first run
-        assert_eq!(vortex_array.scalar_at(3).unwrap(), 20.into()); // Second run
-        assert_eq!(vortex_array.scalar_at(4).unwrap(), 20.into()); // Still second run
-        assert_eq!(vortex_array.scalar_at(5).unwrap(), 30.into()); // Third run
-        assert_eq!(vortex_array.scalar_at(7).unwrap(), 30.into()); // Still third run
+        assert_eq!(vortex_array.scalar_at(0), 10.into()); // First run
+        assert_eq!(vortex_array.scalar_at(2), 10.into()); // Still first run
+        assert_eq!(vortex_array.scalar_at(3), 20.into()); // Second run
+        assert_eq!(vortex_array.scalar_at(4), 20.into()); // Still second run
+        assert_eq!(vortex_array.scalar_at(5), 30.into()); // Third run
+        assert_eq!(vortex_array.scalar_at(7), 30.into()); // Still third run
     }
 
     #[test]
@@ -105,12 +106,12 @@ mod tests {
         );
 
         // Verify the values
-        assert_eq!(vortex_array.scalar_at(0).unwrap(), 100.into());
-        assert_eq!(vortex_array.scalar_at(1).unwrap(), 100.into());
-        assert!(vortex_array.scalar_at(2).unwrap().is_null()); // Null value
-        assert!(vortex_array.scalar_at(3).unwrap().is_null()); // Null value
-        assert_eq!(vortex_array.scalar_at(4).unwrap(), 300.into());
-        assert_eq!(vortex_array.scalar_at(5).unwrap(), 300.into());
+        assert_eq!(vortex_array.scalar_at(0), 100.into());
+        assert_eq!(vortex_array.scalar_at(1), 100.into());
+        assert!(vortex_array.scalar_at(2).is_null()); // Null value
+        assert!(vortex_array.scalar_at(3).is_null()); // Null value
+        assert_eq!(vortex_array.scalar_at(4), 300.into());
+        assert_eq!(vortex_array.scalar_at(5), 300.into());
     }
 
     #[test]
@@ -131,10 +132,10 @@ mod tests {
         );
 
         // Verify values
-        assert_eq!(vortex_array.scalar_at(0).unwrap(), 1.5.into());
-        assert_eq!(vortex_array.scalar_at(1).unwrap(), 2.5.into());
-        assert_eq!(vortex_array.scalar_at(2).unwrap(), 2.5.into());
-        assert_eq!(vortex_array.scalar_at(3).unwrap(), 3.5.into());
+        assert_eq!(vortex_array.scalar_at(0), 1.5.into());
+        assert_eq!(vortex_array.scalar_at(1), 2.5.into());
+        assert_eq!(vortex_array.scalar_at(2), 2.5.into());
+        assert_eq!(vortex_array.scalar_at(3), 3.5.into());
     }
 
     #[test]
@@ -161,12 +162,12 @@ mod tests {
         );
 
         // Verify the values in the sliced array
-        assert_eq!(vortex_array.scalar_at(0).unwrap(), 100.into()); // Index 1 of original
-        assert_eq!(vortex_array.scalar_at(1).unwrap(), 200.into()); // Index 2 of original
-        assert_eq!(vortex_array.scalar_at(2).unwrap(), 200.into()); // Index 3 of original
-        assert_eq!(vortex_array.scalar_at(3).unwrap(), 200.into()); // Index 4 of original
-        assert_eq!(vortex_array.scalar_at(4).unwrap(), 300.into()); // Index 5 of original
-        assert_eq!(vortex_array.scalar_at(5).unwrap(), 300.into()); // Index 6 of original
+        assert_eq!(vortex_array.scalar_at(0), 100.into()); // Index 1 of original
+        assert_eq!(vortex_array.scalar_at(1), 200.into()); // Index 2 of original
+        assert_eq!(vortex_array.scalar_at(2), 200.into()); // Index 3 of original
+        assert_eq!(vortex_array.scalar_at(3), 200.into()); // Index 4 of original
+        assert_eq!(vortex_array.scalar_at(4), 300.into()); // Index 5 of original
+        assert_eq!(vortex_array.scalar_at(5), 300.into()); // Index 6 of original
     }
 
     #[test]
@@ -194,12 +195,12 @@ mod tests {
         );
 
         // Verify the values in the sliced array
-        assert!(vortex_array.scalar_at(0).unwrap().is_null());
-        assert!(vortex_array.scalar_at(1).unwrap().is_null());
-        assert_eq!(vortex_array.scalar_at(2).unwrap(), 30i64.into());
-        assert_eq!(vortex_array.scalar_at(3).unwrap(), 30i64.into());
-        assert_eq!(vortex_array.scalar_at(4).unwrap(), 30i64.into());
-        assert_eq!(vortex_array.scalar_at(5).unwrap(), 40i64.into());
+        assert!(vortex_array.scalar_at(0).is_null());
+        assert!(vortex_array.scalar_at(1).is_null());
+        assert_eq!(vortex_array.scalar_at(2), 30i64.into());
+        assert_eq!(vortex_array.scalar_at(3), 30i64.into());
+        assert_eq!(vortex_array.scalar_at(4), 30i64.into());
+        assert_eq!(vortex_array.scalar_at(5), 40i64.into());
     }
 
     #[test]

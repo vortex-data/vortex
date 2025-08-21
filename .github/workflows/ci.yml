@@ -267,6 +267,8 @@ jobs:
   rust-coverage:
     name: "Rust tests (coverage)"
     timeout-minutes: 120
+    permissions:
+      id-token: write
     strategy:
       matrix:
         suite:
@@ -321,25 +323,14 @@ jobs:
             --ignore 'vortex-proto/*' --ignore 'vortex-tui/*' --ignore 'vortex-datafusion/examples/*' \
             --ignore 'vortex-ffi/examples/*' --ignore '*/arbitrary/*' --ignore '*/arbitrary.rs' --ignore 'vortex-cxx/*' \
             -o ${{ env.GRCOV_OUTPUT_FILE }}
-      - name: Coveralls
-        uses: coverallsapp/github-action@v2
-        continue-on-error: true
+      - name: Codecov
+        uses: codecov/codecov-action@v5
         with:
-          parallel: true
-          flag-name: run-${{ matrix.suite }}
-          file: ${{ env.GRCOV_OUTPUT_FILE }}
-
-  finish-coverage:
-    needs: rust-coverage
-    if: ${{ always() }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Close parallel build
-        uses: coverallsapp/github-action@v2
-        continue-on-error: true
-        with:
-          parallel-finished: true
-          carryforward: "run-tests,run-tpc-h,run-ffi"
+          name: run-${{ matrix.suite }}
+          files: ${{ env.GRCOV_OUTPUT_FILE }}
+          disable_search: true
+          flags: ${{ matrix.suite }}
+          use_oidc: true
 
   rust-test:
     name: "Rust tests (sanitizer)"

@@ -66,16 +66,10 @@ pub(crate) fn find_intersection_scalar(
     intercept: PValue,
 ) -> Option<usize> {
     match_each_integer_ptype!(base.ptype(), |P| {
-        let intercept = intercept
-            .as_primitive()
-            .vortex_expect("constant pvalue matching already validated");
+        let intercept = intercept.as_primitive::<P>();
 
-        let base = base
-            .as_primitive::<P>()
-            .vortex_expect("base pvalue matching already validated");
-        let multiplier = multiplier
-            .as_primitive::<P>()
-            .vortex_expect("multiplier pvalue matching already validated");
+        let base = base.as_primitive::<P>();
+        let multiplier = multiplier.as_primitive::<P>();
 
         find_intersection(base, multiplier, len, intercept)
     })

@@ -27,7 +27,8 @@ impl FilterKernel for ChunkedVTable {
             MaskIter::Slices(slices) => filter_slices(array, slices.iter().copied()),
         }?;
 
-        Ok(ChunkedArray::new_unchecked(chunks, array.dtype().clone()).into_array())
+        // SAFETY: filter on chunks with same DType will yield chunks with same DType
+        unsafe { Ok(ChunkedArray::new_unchecked(chunks, array.dtype().clone()).into_array()) }
     }
 }
 
@@ -145,9 +146,7 @@ fn filter_indices(
         if chunk_id != current_chunk_id {
             // Push the chunk we've accumulated.
             if !chunk_indices.is_empty() {
-                let chunk = array
-                    .chunk(current_chunk_id)
-                    .vortex_expect("find_chunk_idx must return valid chunk ID");
+                let chunk = array.chunk(current_chunk_id);
                 let filtered_chunk = take(
                     chunk,
                     PrimitiveArray::new(chunk_indices.clone().freeze(), Validity::NonNullable)
@@ -165,9 +164,7 @@ fn filter_indices(
     }
 
     if !chunk_indices.is_empty() {
-        let chunk = array
-            .chunk(current_chunk_id)
-            .vortex_expect("find_chunk_idx must return valid chunk ID");
+        let chunk = array.chunk(current_chunk_id);
         let filtered_chunk = take(
             chunk,
             PrimitiveArray::new(chunk_indices.clone().freeze(), Validity::NonNullable).as_ref(),

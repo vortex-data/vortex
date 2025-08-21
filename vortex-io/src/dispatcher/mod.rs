@@ -199,7 +199,6 @@ mod tests {
         let completed_clone = completed.clone();
 
         // Dispatch a task that will panic
-        #[allow(clippy::panic)]
         let _handle = dispatcher.dispatch(move || async move {
             panic!("Task panic");
         });

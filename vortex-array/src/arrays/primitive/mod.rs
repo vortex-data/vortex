@@ -76,10 +76,10 @@ impl VTable for PrimitiveVTable {
 /// let array: PrimitiveArray = [1i32, 2, 3, 4, 5].into_iter().collect();
 ///
 /// // Slice the array
-/// let sliced = array.slice(1, 3).unwrap();
+/// let sliced = array.slice(1, 3);
 ///
 /// // Access individual values
-/// let value = sliced.scalar_at(0).unwrap();
+/// let value = sliced.scalar_at(0);
 /// assert_eq!(value, 2i32.into());
 ///
 /// // Convert into a type-erased array that can be passed to compute functions.

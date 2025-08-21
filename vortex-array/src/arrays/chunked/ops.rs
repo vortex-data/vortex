@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::{VortexResult, vortex_bail};
+use itertools::Itertools;
 use vortex_scalar::Scalar;
 
 use crate::arrays::ChunkedVTable;
@@ -10,40 +10,47 @@ use crate::vtable::OperationsVTable;
 use crate::{Array, ArrayRef, IntoArray};
 
 impl OperationsVTable<ChunkedVTable> for ChunkedVTable {
-    fn slice(array: &ChunkedArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+    fn slice(array: &ChunkedArray, start: usize, stop: usize) -> ArrayRef {
+        assert!(
+            !array.is_empty() || (start > 0 && stop > 0),
+            "Empty chunked array can't be sliced from {start} to {stop}"
+        );
+
+        if array.is_empty() {
+            // SAFETY: empty chunked array trivially satisfies all validations
+            unsafe {
+                return ChunkedArray::new_unchecked(vec![], array.dtype().clone()).into_array();
+            }
+        }
+
         let (offset_chunk, offset_in_first_chunk) = array.find_chunk_idx(start);
         let (length_chunk, length_in_last_chunk) = array.find_chunk_idx(stop);
 
-        if array.is_empty() && (start != 0 || stop != 0) {
-            vortex_bail!(ComputeError: "Empty chunked array can't be sliced from {start} to {stop}");
-        } else if array.is_empty() {
-            return Ok(ChunkedArray::new_unchecked(vec![], array.dtype().clone()).into_array());
-        }
-
         if length_chunk == offset_chunk {
-            let chunk = array.chunk(offset_chunk)?;
+            let chunk = array.chunk(offset_chunk);
             return chunk.slice(offset_in_first_chunk, length_in_last_chunk);
         }
 
         let mut chunks = (offset_chunk..length_chunk + 1)
-            .map(|i| array.chunk(i).cloned())
-            .collect::<VortexResult<Vec<_>>>()?;
+            .map(|i| array.chunk(i).clone())
+            .collect_vec();
         if let Some(c) = chunks.first_mut() {
-            *c = c.slice(offset_in_first_chunk, c.len())?;
+            *c = c.slice(offset_in_first_chunk, c.len());
         }
 
         if length_in_last_chunk == 0 {
             chunks.pop();
         } else if let Some(c) = chunks.last_mut() {
-            *c = c.slice(0, length_in_last_chunk)?;
+            *c = c.slice(0, length_in_last_chunk);
         }
 
-        Ok(ChunkedArray::new_unchecked(chunks, array.dtype().clone()).into_array())
+        // SAFETY: all chunks still have same DType
+        unsafe { ChunkedArray::new_unchecked(chunks, array.dtype().clone()).into_array() }
     }
 
-    fn scalar_at(array: &ChunkedArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(array: &ChunkedArray, index: usize) -> Scalar {
         let (chunk_index, chunk_offset) = array.find_chunk_idx(index);
-        array.chunk(chunk_index)?.scalar_at(chunk_offset)
+        array.chunk(chunk_index).scalar_at(chunk_offset)
     }
 }
 
@@ -84,41 +91,38 @@ mod tests {
 
     #[test]
     fn slice_middle() {
-        assert_equal_slices(&chunked_array().slice(2, 5).unwrap(), &[3u64, 4, 5])
+        assert_equal_slices(&chunked_array().slice(2, 5), &[3u64, 4, 5])
     }
 
     #[test]
     fn slice_begin() {
-        assert_equal_slices(&chunked_array().slice(1, 3).unwrap(), &[2u64, 3]);
+        assert_equal_slices(&chunked_array().slice(1, 3), &[2u64, 3]);
     }
 
     #[test]
     fn slice_aligned() {
-        assert_equal_slices(&chunked_array().slice(3, 6).unwrap(), &[4u64, 5, 6]);
+        assert_equal_slices(&chunked_array().slice(3, 6), &[4u64, 5, 6]);
     }
 
     #[test]
     fn slice_many_aligned() {
-        assert_equal_slices(
-            &chunked_array().slice(0, 6).unwrap(),
-            &[1u64, 2, 3, 4, 5, 6],
-        );
+        assert_equal_slices(&chunked_array().slice(0, 6), &[1u64, 2, 3, 4, 5, 6]);
     }
 
     #[test]
     fn slice_end() {
-        assert_equal_slices(&chunked_array().slice(7, 8).unwrap(), &[8u64]);
+        assert_equal_slices(&chunked_array().slice(7, 8), &[8u64]);
     }
 
     #[test]
     fn slice_exactly_end() {
-        assert_equal_slices(&chunked_array().slice(6, 9).unwrap(), &[7u64, 8, 9]);
+        assert_equal_slices(&chunked_array().slice(6, 9), &[7u64, 8, 9]);
     }
 
     #[test]
     fn slice_empty() {
         let chunked = ChunkedArray::try_new(vec![], PType::U32.into()).unwrap();
-        let sliced = chunked.slice(0, 0).unwrap();
+        let sliced = chunked.slice(0, 0);
 
         assert!(sliced.is_empty());
     }
@@ -136,8 +140,8 @@ mod tests {
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
-        assert_eq!(array.scalar_at(0).unwrap(), 1u64.into());
-        assert_eq!(array.scalar_at(1).unwrap(), 2u64.into());
+        assert_eq!(array.scalar_at(0), 1u64.into());
+        assert_eq!(array.scalar_at(1), 2u64.into());
     }
 
     #[test]
@@ -152,10 +156,10 @@ mod tests {
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
-        assert_eq!(array.scalar_at(0).unwrap(), 1u64.into());
-        assert_eq!(array.scalar_at(1).unwrap(), 2u64.into());
-        assert_eq!(array.scalar_at(2).unwrap(), 3u64.into());
-        assert_eq!(array.scalar_at(3).unwrap(), 4u64.into());
+        assert_eq!(array.scalar_at(0), 1u64.into());
+        assert_eq!(array.scalar_at(1), 2u64.into());
+        assert_eq!(array.scalar_at(2), 3u64.into());
+        assert_eq!(array.scalar_at(3), 4u64.into());
     }
 
     #[test]
@@ -170,9 +174,9 @@ mod tests {
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
-        assert_eq!(array.scalar_at(0).unwrap(), 1u64.into());
-        assert_eq!(array.scalar_at(1).unwrap(), 2u64.into());
-        assert_eq!(array.scalar_at(2).unwrap(), 3u64.into());
-        assert_eq!(array.scalar_at(3).unwrap(), 4u64.into());
+        assert_eq!(array.scalar_at(0), 1u64.into());
+        assert_eq!(array.scalar_at(1), 2u64.into());
+        assert_eq!(array.scalar_at(2), 3u64.into());
+        assert_eq!(array.scalar_at(3), 4u64.into());
     }
 }

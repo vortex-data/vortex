@@ -33,7 +33,7 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
                 assert_array_eq(&expected.array(), &current_array, i).unwrap();
             }
             Action::Slice(range) => {
-                current_array = current_array.slice(range.start, range.end).vortex_unwrap();
+                current_array = current_array.slice(range.start, range.end);
                 assert_array_eq(&expected.array(), &current_array, i).unwrap();
             }
             Action::Take(indices) => {
@@ -130,8 +130,8 @@ fn assert_array_eq(lhs: &ArrayRef, rhs: &ArrayRef, step: usize) -> VortexFuzzRes
         ));
     }
     for idx in 0..lhs.len() {
-        let l = lhs.scalar_at(idx).vortex_unwrap();
-        let r = rhs.scalar_at(idx).vortex_unwrap();
+        let l = lhs.scalar_at(idx);
+        let r = rhs.scalar_at(idx);
 
         if l != r {
             return Err(VortexFuzzError::ArrayNotEqual(

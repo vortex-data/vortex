@@ -5,12 +5,11 @@ use std::sync::Arc;
 
 use vortex_array::ArrayRef;
 use vortex_array::arrays::{ConstantArray, StructArray};
-use vortex_array::stats::{Stat, StatsSet};
+use vortex_array::stats::{Stat, StatsProvider, StatsSet};
 use vortex_array::validity::Validity;
 use vortex_dtype::{Field, FieldName, FieldNames, FieldPath, StructFields};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_expr::pruning::field_path_stat_field_name;
-use vortex_scalar::Scalar;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 
@@ -43,19 +42,17 @@ pub fn extract_relevant_file_stats_as_struct_row(
         let Some(stat_set) = stats_sets.get(field_idx) else {
             vortex_bail!("missing stat field {} from stats set", field)
         };
+        let typed_stats = stat_set.as_typed_ref(&field_dtype);
 
         for stat in stats {
-            let Some(stat_value) = stat_set.get(*stat).and_then(|p| p.as_exact()) else {
-                vortex_bail!("missing stat {}, {} from stats set", field, stat)
-            };
             if stat == &Stat::Max || stat == &Stat::Min || stat == &Stat::NaNCount {
-                if let Some(stat_dtype) = stat.dtype(&field_dtype) {
-                    columns.push((
-                        field_path_stat_field_name(field_path, *stat),
-                        ConstantArray::new(Scalar::new(stat_dtype, stat_value.clone()), 1)
-                            .to_array(),
-                    ));
-                }
+                let Some(stat_value) = typed_stats.get(*stat).and_then(|p| p.as_exact()) else {
+                    vortex_bail!("missing stat {}, {} from stats set", field, stat)
+                };
+                columns.push((
+                    field_path_stat_field_name(field_path, *stat),
+                    ConstantArray::new(stat_value, 1).to_array(),
+                ));
             } else {
                 todo!("unsupported file prune stat {stat}")
             }

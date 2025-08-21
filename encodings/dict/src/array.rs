@@ -11,7 +11,7 @@ use vortex_array::{
     Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable,
 };
 use vortex_dtype::{DType, match_each_integer_ptype};
-use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_ensure};
 use vortex_mask::{AllOr, Mask};
 
 vtable!(Dict);
@@ -49,6 +49,39 @@ pub struct DictArray {
 pub struct DictEncoding;
 
 impl DictArray {
+    /// Build a new `DictArray` without validating the codes or values.
+    ///
+    /// # Safety
+    /// This should be called only when you can guarantee the invariants checked
+    /// by the safe [`DictArray::try_new`] constructor are valid, for example when
+    /// you are filtering or slicing an existing valid `DictArray`.
+    pub unsafe fn new_unchecked(codes: ArrayRef, values: ArrayRef) -> Self {
+        Self {
+            codes,
+            values,
+            stats_set: Default::default(),
+        }
+    }
+
+    /// Build a new `DictArray` from its components, `codes` and `values`.
+    ///
+    /// This constructor will panic if `codes` or `values` do not pass validation for building
+    /// a new `DictArray`. See [`DictArray::try_new`] for a description of the error conditions.
+    pub fn new(codes: ArrayRef, values: ArrayRef) -> Self {
+        Self::try_new(codes, values).vortex_expect("DictArray new")
+    }
+
+    /// Build a new `DictArray` from its components, `codes` and `values`.
+    ///
+    /// The codes must be unsigned integers, and may be nullable. Values can be any type, and
+    /// may also be nullable. This mirrors the nullability of the Arrow `DictionaryArray`.
+    ///
+    /// # Errors
+    ///
+    /// The `codes` **must** be unsigned integers, and the maximum code must be less than the length
+    /// of the `values` array. Otherwise, this constructor returns an error.
+    ///
+    /// It is an error to provide a nullable `codes` with non-nullable `values`.
     pub fn try_new(mut codes: ArrayRef, values: ArrayRef) -> VortexResult<Self> {
         if !codes.dtype().is_unsigned_int() {
             vortex_bail!(MismatchedTypes: "unsigned int", codes.dtype());
@@ -60,13 +93,14 @@ impl DictArray {
             codes = cast(&codes, &codes.dtype().as_nullable())?;
         } else {
             // If the values are non-nullable, we assert the codes are non-nullable as well.
-            if codes.dtype().is_nullable() {
-                vortex_bail!("Cannot have nullable codes for non-nullable dict array");
-            }
+            vortex_ensure!(
+                !codes.dtype().is_nullable(),
+                "Cannot have nullable codes for non-nullable dict array"
+            );
         }
-        assert_eq!(
-            codes.dtype().nullability(),
-            values.dtype().nullability(),
+
+        vortex_ensure!(
+            codes.dtype().nullability() == values.dtype().nullability(),
             "Mismatched nullability between codes and values"
         );
 
@@ -120,9 +154,7 @@ impl CanonicalVTable<DictVTable> for DictVTable {
 
 impl ValidityVTable<DictVTable> for DictVTable {
     fn is_valid(array: &DictArray, index: usize) -> VortexResult<bool> {
-        let scalar = array.codes().scalar_at(index).map_err(|err| {
-            err.with_context(format!("Failed to get index {index} from DictArray codes"))
-        })?;
+        let scalar = array.codes().scalar_at(index);
 
         if scalar.is_null() {
             return Ok(false);

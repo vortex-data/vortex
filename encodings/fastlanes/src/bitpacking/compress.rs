@@ -67,16 +67,17 @@ pub fn bitpack_encode(
         .transpose()?
         .flatten();
 
-    // SAFETY: values already checked to be non-negative.
+    // SAFETY: all components validated above
     unsafe {
-        BitPackedArray::new_unchecked(
+        Ok(BitPackedArray::new_unchecked(
             packed,
-            array.ptype(),
+            array.dtype().clone(),
             array.validity().clone(),
             patches,
             bit_width,
             array.len(),
-        )
+            0,
+        ))
     }
 }
 
@@ -93,17 +94,19 @@ pub unsafe fn bitpack_encode_unchecked(
     bit_width: u8,
 ) -> VortexResult<BitPackedArray> {
     // SAFETY: non-negativity of input checked by caller.
-    unsafe {
-        let packed = bitpack_unchecked(&array, bit_width)?;
+    let packed = unsafe { bitpack_unchecked(&array, bit_width)? };
 
-        BitPackedArray::new_unchecked(
+    // SAFETY: checked by bitpack_unchecked
+    unsafe {
+        Ok(BitPackedArray::new_unchecked(
             packed,
-            array.ptype(),
+            array.dtype().clone(),
             array.validity().clone(),
             None,
             bit_width,
             array.len(),
-        )
+            0,
+        ))
     }
 }
 
@@ -365,7 +368,7 @@ fn insert_values_and_validity_at_indices<
     }
 }
 
-pub fn unpack_single(array: &BitPackedArray, index: usize) -> VortexResult<Scalar> {
+pub fn unpack_single(array: &BitPackedArray, index: usize) -> Scalar {
     let bit_width = array.bit_width() as usize;
     let ptype = array.ptype();
     // let packed = array.packed().into_primitive()?;
@@ -377,7 +380,7 @@ pub fn unpack_single(array: &BitPackedArray, index: usize) -> VortexResult<Scala
         }
     });
     // Cast to fix signedness and nullability
-    scalar.cast(array.dtype())
+    scalar.cast(array.dtype()).vortex_expect("cast failure")
 }
 
 /// # Safety
@@ -619,7 +622,7 @@ mod test {
         let bitpacked = bitpack_encode(&zeros, 10, None).unwrap();
         assert_eq!(bitpacked.len(), 1025);
         assert!(bitpacked.patches().is_some());
-        let bitpacked = bitpacked.slice(1023, 1025).unwrap();
+        let bitpacked = bitpacked.slice(1023, 1025);
         let actual = unpack(bitpacked.as_::<BitPackedVTable>()).unwrap();
         let actual = actual.as_slice::<u16>();
         assert_eq!(actual, &[1535, 1536]);
@@ -634,7 +637,7 @@ mod test {
         let bitpacked = bitpack_encode(&zeros, 10, None).unwrap();
         assert_eq!(bitpacked.len(), 2229);
         assert!(bitpacked.patches().is_some());
-        let bitpacked = bitpacked.slice(1023, 2049).unwrap();
+        let bitpacked = bitpacked.slice(1023, 2049);
         let actual = unpack(bitpacked.as_::<BitPackedVTable>()).unwrap();
         let actual = actual.as_slice::<u16>();
         assert_eq!(actual, &(1023..2049).map(|x| x + 512).collect::<Vec<_>>());
@@ -698,7 +701,7 @@ mod test {
             .iter()
             .enumerate()
             .for_each(|(i, v)| {
-                let scalar: u16 = unpack_single(&compressed, i).unwrap().try_into().unwrap();
+                let scalar: u16 = unpack_single(&compressed, i).try_into().unwrap();
                 assert_eq!(scalar, *v);
             });
     }

@@ -151,10 +151,7 @@ mod test {
             .iter()
             .enumerate()
             .for_each(|(i, v)| {
-                assert_eq!(
-                    *v,
-                    i8::try_from(compressed.scalar_at(i).unwrap().as_ref()).unwrap()
-                );
+                assert_eq!(*v, i8::try_from(compressed.scalar_at(i).as_ref()).unwrap());
             });
     }
 }

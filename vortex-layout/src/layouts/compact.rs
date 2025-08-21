@@ -200,10 +200,7 @@ mod tests {
             assert_eq!(decompressed_array.len(), n_rows);
 
             for j in 0..n_rows {
-                assert_eq!(
-                    decompressed_array.scalar_at(j).unwrap(),
-                    columns[i].scalar_at(j).unwrap(),
-                );
+                assert_eq!(decompressed_array.scalar_at(j), columns[i].scalar_at(j),);
             }
         }
     }

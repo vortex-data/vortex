@@ -9,7 +9,7 @@ mod serde;
 use arrow_buffer::BooleanBufferBuilder;
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{DType, DecimalDType};
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, vortex_ensure, vortex_panic};
 use vortex_scalar::{DecimalValueType, NativeDecimalType};
 
 use crate::builders::ArrayBuilder;
@@ -134,34 +134,57 @@ pub struct DecimalArray {
 }
 
 impl DecimalArray {
-    /// Creates a new [`DecimalArray`] from a [`Buffer`] and [`Validity`], without checking
-    /// any invariants.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the validity length is not compatible with the buffer length.
-    pub fn new<T: NativeDecimalType>(
-        buffer: Buffer<T>,
-        decimal_dtype: DecimalDType,
-        validity: Validity,
-    ) -> Self {
-        if let Some(len) = validity.maybe_len()
-            && buffer.len() != len
-        {
-            vortex_panic!(
+    fn validate<T: NativeDecimalType>(buffer: &Buffer<T>, validity: &Validity) -> VortexResult<()> {
+        if let Some(len) = validity.maybe_len() {
+            vortex_ensure!(
+                buffer.len() == len,
                 "Buffer and validity length mismatch: buffer={}, validity={}",
                 buffer.len(),
                 len,
             );
         }
 
-        Self {
-            dtype: DType::Decimal(decimal_dtype, validity.nullability()),
+        Ok(())
+    }
+}
+
+impl DecimalArray {
+    /// Creates a new [`DecimalArray`] from a [`Buffer`] and [`Validity`], without checking
+    /// any invariants.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the provided buffer and validity differ in length.
+    ///
+    /// See also [`DecimalArray::try_new`].
+    pub fn new<T: NativeDecimalType>(
+        buffer: Buffer<T>,
+        decimal_dtype: DecimalDType,
+        validity: Validity,
+    ) -> Self {
+        Self::try_new(buffer, decimal_dtype, validity).vortex_expect("DecimalArray new")
+    }
+
+    /// Build a new `DecimalArray` from a component `buffer`, decimal_dtype` and `validity`.
+    ///
+    /// This constructor validates the length of the buffer and validity are equal, returning
+    /// an error otherwise.
+    ///
+    /// See [`DecimalArray::new`] for an infallible constructor that panics on validation errors.
+    pub fn try_new<T: NativeDecimalType>(
+        buffer: Buffer<T>,
+        decimal_dtype: DecimalDType,
+        validity: Validity,
+    ) -> VortexResult<Self> {
+        Self::validate(&buffer, &validity)?;
+
+        Ok(Self {
             values: buffer.into_byte_buffer(),
             values_type: T::VALUES_TYPE,
+            dtype: DType::Decimal(decimal_dtype, validity.nullability()),
             validity,
-            stats_set: ArrayStats::default(),
-        }
+            stats_set: Default::default(),
+        })
     }
 
     /// Returns the underlying [`ByteBuffer`] of the array.

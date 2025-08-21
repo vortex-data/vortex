@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-//! Convert an array into a human-readable string representation.
 
 mod tree;
 
@@ -8,6 +7,7 @@ use std::fmt::Display;
 
 use itertools::Itertools as _;
 use tree::TreeDisplayWrapper;
+#[cfg(feature = "table-display")]
 use vortex_error::VortexExpect as _;
 
 use crate::Array;
@@ -240,9 +240,7 @@ impl dyn Array + '_ {
                 write!(
                     f,
                     "{}",
-                    (0..self.len())
-                        .map(|i| self.scalar_at(i).vortex_expect("index is in bounds"))
-                        .format(sep)
+                    (0..self.len()).map(|i| self.scalar_at(i)).format(sep)
                 )?;
                 write!(f, "]")
             }
@@ -264,9 +262,7 @@ impl dyn Array + '_ {
                             } else {
                                 let mut row = Vec::new();
                                 for field_array in struct_.fields() {
-                                    let value = field_array
-                                        .scalar_at(row_idx)
-                                        .vortex_expect("index in bounds");
+                                    let value = field_array.scalar_at(row_idx);
                                     row.push(value.to_string());
                                 }
                                 builder.push_record(row);
@@ -298,7 +294,7 @@ impl dyn Array + '_ {
                     _ => {
                         // For non-struct arrays, display a single column table without header
                         for row_idx in 0..self.len() {
-                            let value = self.scalar_at(row_idx).vortex_expect("index is in bounds");
+                            let value = self.scalar_at(row_idx);
                             builder.push_record([value.to_string()]);
                         }
 

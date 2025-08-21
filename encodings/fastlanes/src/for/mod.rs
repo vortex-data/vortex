@@ -62,11 +62,20 @@ impl FoRArray {
                 .dtype()
                 .with_nullability(encoded.dtype().nullability()),
         )?;
+
         Ok(Self {
             encoded,
             reference,
             stats_set: Default::default(),
         })
+    }
+
+    pub(crate) unsafe fn new_unchecked(encoded: ArrayRef, reference: Scalar) -> Self {
+        Self {
+            encoded,
+            reference,
+            stats_set: Default::default(),
+        }
     }
 
     #[inline]

@@ -17,7 +17,7 @@ use vortex_array::vtable::{
 use vortex_array::{Array, Canonical, EncodingId, EncodingRef, vtable};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, NativePType, PType, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure};
 
 use crate::unpack_iter::{BitPacked, BitUnpackedChunks};
 
@@ -66,7 +66,70 @@ pub struct BitPackedArray {
 #[derive(Clone, Debug)]
 pub struct BitPackedEncoding;
 
-/// NB: All non-null values in the patches array are considered patches
+impl BitPackedArray {
+    fn validate(
+        packed: &ByteBuffer,
+        ptype: PType,
+        validity: &Validity,
+        patches: Option<&Patches>,
+        bit_width: u8,
+        length: usize,
+        offset: u16,
+    ) -> VortexResult<()> {
+        vortex_ensure!(ptype.is_int(), MismatchedTypes: "integer", ptype);
+        vortex_ensure!(bit_width <= 64, "Unsupported bit width {}", bit_width);
+
+        if let Some(validity_len) = validity.maybe_len() {
+            vortex_ensure!(
+                validity_len == length,
+                "BitPackedArray validity length {validity_len} != array length {length}",
+            );
+        }
+
+        // Validate offset for sliced arrays
+        vortex_ensure!(
+            offset < 1024,
+            "Offset must be less than full block, i.e. 1024, got {}",
+            offset
+        );
+
+        // Validate patches
+        if let Some(patches) = patches {
+            Self::validate_patches(patches, ptype, length)?;
+        }
+
+        // Validate packed buffer
+        let expected_packed_len =
+            (length + offset as usize).div_ceil(1024) * (128 * bit_width as usize);
+        vortex_ensure!(
+            packed.len() == expected_packed_len,
+            "Expected {} packed bytes, got {}",
+            expected_packed_len,
+            packed.len()
+        );
+
+        Ok(())
+    }
+
+    fn validate_patches(patches: &Patches, ptype: PType, len: usize) -> VortexResult<()> {
+        // Ensure that array and patches have same ptype
+        vortex_ensure!(
+            patches.dtype().eq_ignore_nullability(ptype.into()),
+            "Patches DType {} does not match BitPackedArray dtype {}",
+            patches.dtype().as_nonnullable(),
+            ptype
+        );
+
+        vortex_ensure!(
+            patches.array_len() == len,
+            "BitPackedArray patches length {} != expected {len}",
+            patches.array_len(),
+        );
+
+        Ok(())
+    }
+}
+
 impl BitPackedArray {
     /// Create a new bitpacked array using a buffer of packed data.
     ///
@@ -88,24 +151,49 @@ impl BitPackedArray {
     ///
     /// See also the [`encode`][Self::encode] method on this type for a safe path to create a new
     /// bit-packed array.
-    pub unsafe fn new_unchecked(
+    pub(crate) unsafe fn new_unchecked(
         packed: ByteBuffer,
-        ptype: PType,
+        dtype: DType,
         validity: Validity,
         patches: Option<Patches>,
         bit_width: u8,
         len: usize,
-    ) -> VortexResult<Self> {
-        // SAFETY: checked by caller.
-        unsafe {
-            Self::new_unchecked_with_offset(packed, ptype, validity, patches, bit_width, len, 0)
+        offset: u16,
+    ) -> Self {
+        Self {
+            offset,
+            len,
+            dtype,
+            bit_width,
+            packed,
+            patches,
+            validity,
+            stats_set: Default::default(),
         }
     }
 
-    /// An unsafe constructor for a `BitPackedArray` that also specifies a slicing offset.
+    /// A safe constructor for a `BitPackedArray` from its components:
     ///
-    /// See also [`new_unchecked`][Self::new_unchecked].
-    pub(crate) unsafe fn new_unchecked_with_offset(
+    /// * `packed` is ByteBuffer holding the compressed data that was packed with FastLanes
+    ///   bit-packing to a `bit_width` bits per value. `length` is the length of the original
+    ///   vector. Note that the packed is padded with zeros to the next multiple of 1024 elements
+    ///   if `length` is not divisible by 1024.
+    /// * `ptype` of the original data
+    /// * `validity` to track any nulls
+    /// * `patches` optionally provided for values that did not pack
+    ///
+    /// Any failure in validation will result in an error.
+    ///
+    /// # Validation
+    ///
+    /// * The `ptype` must be an integer
+    /// * `validity` must have `length` len
+    /// * Any patches must have any `array_len` equal to `length`
+    /// * The `packed` buffer must be exactly sized to hold `length` values of `bit_width` rounded
+    ///   up to the next multiple of 1024.
+    ///
+    /// Any violation of these preconditions will result in an error.
+    pub fn try_new(
         packed: ByteBuffer,
         ptype: PType,
         validity: Validity,
@@ -114,57 +202,24 @@ impl BitPackedArray {
         length: usize,
         offset: u16,
     ) -> VortexResult<Self> {
-        let dtype = DType::Primitive(ptype, validity.nullability());
-        if !dtype.is_int() {
-            vortex_bail!(MismatchedTypes: "integer", dtype);
-        }
-
-        if bit_width > u64::BITS as u8 {
-            vortex_bail!("Unsupported bit width {}", bit_width);
-        }
-        if offset > 1023 {
-            vortex_bail!(
-                "Offset must be less than full block, i.e. 1024, got {}",
-                offset
-            );
-        }
-
-        if let Some(ref patches) = patches {
-            // Ensure that array and patches have same PType
-            if !patches.dtype().eq_ignore_nullability(ptype.into()) {
-                vortex_bail!(
-                    "Patches DType {} does not match BitPackedArray dtype {}",
-                    patches.dtype().as_nonnullable(),
-                    ptype
-                )
-            }
-        }
-
-        // expected packed size is in bytes
-        let expected_packed_size =
-            (length + offset as usize).div_ceil(1024) * (128 * bit_width as usize);
-        if packed.len() != expected_packed_size {
-            return Err(vortex_err!(
-                "Expected {} packed bytes, got {}",
-                expected_packed_size,
-                packed.len()
-            ));
-        }
-
-        // TODO(ngates): enforce 128 byte alignment once we have a BufferBuilder that can
-        //  enforce custom alignments.
-        // let packed = ByteBuffer::new_with_alignment(packed, FASTLANES_ALIGNMENT);
-
-        Ok(Self {
-            offset,
-            len: length,
-            dtype,
+        Self::validate(
+            &packed,
+            ptype,
+            &validity,
+            patches.as_ref(),
             bit_width,
-            packed,
-            patches,
-            validity,
-            stats_set: Default::default(),
-        })
+            length,
+            offset,
+        )?;
+
+        let dtype = DType::Primitive(ptype, validity.nullability());
+
+        // SAFETY: all components validated above
+        unsafe {
+            Ok(Self::new_unchecked(
+                packed, dtype, validity, patches, bit_width, length, offset,
+            ))
+        }
     }
 
     pub fn ptype(&self) -> PType {
@@ -201,7 +256,7 @@ impl BitPackedArray {
         BitUnpackedChunks::new(self)
     }
 
-    /// Bit width of the packed values
+    /// Bit-width of the packed values
     #[inline]
     pub fn bit_width(&self) -> u8 {
         self.bit_width

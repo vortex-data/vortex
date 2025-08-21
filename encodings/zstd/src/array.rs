@@ -441,7 +441,7 @@ impl ZstdArray {
         // Last, we slice the exact values requested out of the decompressed data.
         let slice_validity = self
             .unsliced_validity
-            .slice(self.slice_start, self.slice_stop)?;
+            .slice(self.slice_start, self.slice_stop);
 
         match &self.dtype {
             DType::Primitive(..) => {
@@ -460,19 +460,22 @@ impl ZstdArray {
             }
             DType::Binary(_) | DType::Utf8(_) => {
                 // The decompressed buffer is a bunch of interleaved u32 lengths
-                // and strings of those lengths, we we need to reconstruct the
+                // and strings of those lengths, we need to reconstruct the
                 // views into those strings by passing through the buffer.
                 let views = reconstruct_views(decompressed.clone())?.slice(
                     slice_value_idx_start - n_skipped_values
                         ..slice_value_idx_stop - n_skipped_values,
                 );
 
-                let vbv = VarBinViewArray::try_new(
-                    views,
-                    Arc::from([decompressed]),
-                    self.dtype.clone(),
-                    slice_validity,
-                )?;
+                // SAFETY: we properly construct the views inside `reconstruct_views`
+                let vbv = unsafe {
+                    VarBinViewArray::new_unchecked(
+                        views,
+                        Arc::from([decompressed]),
+                        self.dtype.clone(),
+                        slice_validity,
+                    )
+                };
                 Ok(vbv.into_array())
             }
             _ => Err(vortex_err!(
@@ -535,11 +538,15 @@ impl CanonicalVTable<ZstdVTable> for ZstdVTable {
 }
 
 impl OperationsVTable<ZstdVTable> for ZstdVTable {
-    fn slice(array: &ZstdArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        Ok(array._slice(start, stop).into_array())
+    fn slice(array: &ZstdArray, start: usize, stop: usize) -> ArrayRef {
+        array._slice(start, stop).into_array()
     }
 
-    fn scalar_at(array: &ZstdArray, index: usize) -> VortexResult<Scalar> {
-        array._slice(index, index + 1).decompress()?.scalar_at(0)
+    fn scalar_at(array: &ZstdArray, index: usize) -> Scalar {
+        array
+            ._slice(index, index + 1)
+            .decompress()
+            .vortex_expect("zstd decompress")
+            .scalar_at(0)
     }
 }

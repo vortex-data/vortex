@@ -122,9 +122,9 @@ mod test {
         assert_eq!(array.len(), 3);
         assert_eq!(array.dtype().nullability(), Nullable);
         assert_eq!(
-            array.scalar_at(0).unwrap(),
+            array.scalar_at(0),
             Scalar::utf8("hello".to_string(), Nullable)
         );
-        assert!(array.scalar_at(1).unwrap().is_null());
+        assert!(array.scalar_at(1).is_null());
     }
 }

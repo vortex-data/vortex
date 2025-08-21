@@ -4,6 +4,7 @@
 use std::cmp::Ordering;
 use std::fmt::Debug;
 
+use itertools::Itertools;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::search_sorted::{IndexOrd, SearchResult, SearchSorted, SearchSortedSide};
 use vortex_array::{Array, ToCanonical};
@@ -116,15 +117,11 @@ pub fn search_sorted_canonical_array(
             Ok(SearchNullableSlice(opt_values).search_sorted(&Some(to_find), side))
         }
         DType::Struct(..) => {
-            let scalar_vals = (0..array.len())
-                .map(|i| array.scalar_at(i))
-                .collect::<VortexResult<Vec<_>>>()?;
+            let scalar_vals = (0..array.len()).map(|i| array.scalar_at(i)).collect_vec();
             Ok(scalar_vals.search_sorted(&scalar.cast(array.dtype())?, side))
         }
         DType::List(..) => {
-            let scalar_vals = (0..array.len())
-                .map(|i| array.scalar_at(i))
-                .collect::<VortexResult<Vec<_>>>()?;
+            let scalar_vals = (0..array.len()).map(|i| array.scalar_at(i)).collect_vec();
             Ok(scalar_vals.search_sorted(&scalar.cast(array.dtype())?, side))
         }
         d @ (DType::Null | DType::Extension(_)) => {

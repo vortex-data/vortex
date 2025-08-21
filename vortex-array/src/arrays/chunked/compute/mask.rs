@@ -3,7 +3,7 @@
 
 use itertools::Itertools as _;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect as _, VortexResult};
+use vortex_error::VortexResult;
 use vortex_mask::{AllOr, Mask, MaskIter};
 use vortex_scalar::Scalar;
 
@@ -49,9 +49,7 @@ fn mask_indices(
     for &set_index in indices {
         let (chunk_id, index) = find_chunk_idx(set_index, chunk_offsets);
         if chunk_id != current_chunk_id {
-            let chunk = array
-                .chunk(current_chunk_id)
-                .vortex_expect("find_chunk_idx must return valid chunk ID");
+            let chunk = array.chunk(current_chunk_id);
             let masked_chunk = mask(chunk, &Mask::from_indices(chunk.len(), chunk_indices))?;
             // Advance the chunk forward, reset the chunk indices buffer.
             chunk_indices = Vec::new();
@@ -60,9 +58,7 @@ fn mask_indices(
 
             while current_chunk_id < chunk_id {
                 // Chunks that are not affected by the mask, must still be casted to the correct dtype.
-                let chunk = array
-                    .chunk(current_chunk_id)
-                    .vortex_expect("find_chunk_idx must return valid chunk ID");
+                let chunk = array.chunk(current_chunk_id);
                 new_chunks.push(cast(chunk, new_dtype)?);
                 current_chunk_id += 1;
             }
@@ -72,18 +68,14 @@ fn mask_indices(
     }
 
     if !chunk_indices.is_empty() {
-        let chunk = array
-            .chunk(current_chunk_id)
-            .vortex_expect("find_chunk_idx must return valid chunk ID");
+        let chunk = array.chunk(current_chunk_id);
         let masked_chunk = mask(chunk, &Mask::from_indices(chunk.len(), chunk_indices))?;
         new_chunks.push(masked_chunk);
         current_chunk_id += 1;
     }
 
     while current_chunk_id < array.nchunks() {
-        let chunk = array
-            .chunk(current_chunk_id)
-            .vortex_expect("find_chunk_idx must return valid chunk ID");
+        let chunk = array.chunk(current_chunk_id);
         new_chunks.push(cast(chunk, new_dtype)?);
         current_chunk_id += 1;
     }

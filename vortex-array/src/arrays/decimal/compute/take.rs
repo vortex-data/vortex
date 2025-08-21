@@ -83,9 +83,9 @@ mod tests {
         let indices = PrimitiveArray::from_option_iter([None, Some(2), Some(3)]).into_array();
         let taken = take(array.as_ref(), indices.as_ref()).unwrap();
 
-        assert!(taken.scalar_at(0).unwrap().is_null());
+        assert!(taken.scalar_at(0).is_null());
         assert_eq!(
-            taken.scalar_at(1).unwrap(),
+            taken.scalar_at(1),
             Scalar::decimal(
                 DecimalValue::I128(12i128),
                 array.decimal_dtype(),
@@ -94,7 +94,7 @@ mod tests {
         );
 
         assert_eq!(
-            taken.scalar_at(2).unwrap(),
+            taken.scalar_at(2),
             Scalar::decimal(
                 DecimalValue::I128(13i128),
                 array.decimal_dtype(),

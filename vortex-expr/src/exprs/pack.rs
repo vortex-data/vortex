@@ -39,9 +39,9 @@ vtable!(Pack);
 ///     .field_by_name("x copy")
 ///     .unwrap()
 ///     .clone();
-/// assert_eq!(x_copy.scalar_at(0).unwrap(), Scalar::from(100));
-/// assert_eq!(x_copy.scalar_at(1).unwrap(), Scalar::from(110));
-/// assert_eq!(x_copy.scalar_at(2).unwrap(), Scalar::from(200));
+/// assert_eq!(x_copy.scalar_at(0), Scalar::from(100));
+/// assert_eq!(x_copy.scalar_at(1), Scalar::from(110));
+/// assert_eq!(x_copy.scalar_at(2), Scalar::from(200));
 /// ```
 ///
 #[allow(clippy::derived_hash_with_manual_eq)]

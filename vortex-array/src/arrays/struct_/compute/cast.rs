@@ -12,13 +12,13 @@ use crate::{ArrayRef, IntoArray, register_kernel};
 
 impl CastKernel for StructVTable {
     fn cast(&self, array: &StructArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        let Some(target_sdtype) = dtype.as_struct() else {
+        let Some(target_sdtype) = dtype.as_struct_opt() else {
             return Ok(None);
         };
 
         let source_sdtype = array
             .dtype()
-            .as_struct()
+            .as_struct_opt()
             .vortex_expect("struct array must have struct dtype");
 
         if target_sdtype.names() != source_sdtype.names() {

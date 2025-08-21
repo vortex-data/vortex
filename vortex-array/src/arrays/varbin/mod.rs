@@ -7,9 +7,7 @@ pub use compute::compute_min_max;
 use num_traits::PrimInt;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, NativePType, Nullability};
-use vortex_error::{
-    VortexExpect as _, VortexResult, VortexUnwrap as _, vortex_bail, vortex_err, vortex_panic,
-};
+use vortex_error::{VortexExpect as _, VortexResult, VortexUnwrap as _, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
 use crate::arrays::varbin::builder::VarBinBuilder;
@@ -63,6 +61,10 @@ pub struct VarBinArray {
 pub struct VarBinEncoding;
 
 impl VarBinArray {
+    pub fn new(offsets: ArrayRef, bytes: ByteBuffer, dtype: DType, validity: Validity) -> Self {
+        Self::try_new(offsets, bytes, dtype, validity).vortex_expect("VarBinArray new")
+    }
+
     pub fn try_new(
         offsets: ArrayRef,
         bytes: ByteBuffer,
@@ -172,10 +174,8 @@ impl VarBinArray {
             self.len()
         );
 
-        // TODO(ngates): PrimitiveArrayTrait should have get_scalar(idx) -> Option<T> method
         self.offsets()
             .scalar_at(index)
-            .unwrap_or_else(|err| vortex_panic!(err, "Failed to get offset at index: {}", index))
             .as_ref()
             .try_into()
             .vortex_expect("Failed to convert offset to usize")
@@ -305,18 +305,18 @@ mod test {
     #[rstest]
     pub fn test_scalar_at(binary_array: ArrayRef) {
         assert_eq!(binary_array.len(), 2);
-        assert_eq!(binary_array.scalar_at(0).unwrap(), "hello world".into());
+        assert_eq!(binary_array.scalar_at(0), "hello world".into());
         assert_eq!(
-            binary_array.scalar_at(1).unwrap(),
+            binary_array.scalar_at(1),
             "hello world this is a long string".into()
         )
     }
 
     #[rstest]
     pub fn slice_array(binary_array: ArrayRef) {
-        let binary_arr = binary_array.slice(1, 2).unwrap();
+        let binary_arr = binary_array.slice(1, 2);
         assert_eq!(
-            binary_arr.scalar_at(0).unwrap(),
+            binary_arr.scalar_at(0),
             "hello world this is a long string".into()
         );
     }

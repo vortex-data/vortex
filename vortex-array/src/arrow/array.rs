@@ -6,7 +6,7 @@ use std::fmt::Debug;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use vortex_dtype::arrow::FromArrowType;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexResult, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
@@ -92,18 +92,18 @@ impl CanonicalVTable<ArrowVTable> for ArrowVTable {
 }
 
 impl OperationsVTable<ArrowVTable> for ArrowVTable {
-    fn slice(array: &ArrowArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+    fn slice(array: &ArrowArray, start: usize, stop: usize) -> ArrayRef {
         let inner = array.inner.slice(start, stop - start);
         let new_array = ArrowArray {
             inner,
             dtype: array.dtype.clone(),
             stats_set: Default::default(),
         };
-        Ok(new_array.into_array())
+        new_array.into_array()
     }
 
-    fn scalar_at(_array: &ArrowArray, _index: usize) -> VortexResult<Scalar> {
-        vortex_bail!("Not supported")
+    fn scalar_at(_array: &ArrowArray, _index: usize) -> Scalar {
+        vortex_panic!("Not supported")
     }
 }
 

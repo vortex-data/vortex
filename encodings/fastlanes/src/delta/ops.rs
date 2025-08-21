@@ -5,13 +5,13 @@ use std::cmp::min;
 
 use vortex_array::vtable::{OperationsVTable, ValidityHelper};
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
-use vortex_error::VortexResult;
+use vortex_error::VortexExpect;
 use vortex_scalar::Scalar;
 
 use crate::{DeltaArray, DeltaVTable};
 
 impl OperationsVTable<DeltaVTable> for DeltaVTable {
-    fn slice(array: &DeltaArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+    fn slice(array: &DeltaArray, start: usize, stop: usize) -> ArrayRef {
         let physical_start = start + array.offset();
         let physical_stop = stop + array.offset();
 
@@ -26,30 +26,35 @@ impl OperationsVTable<DeltaVTable> for DeltaVTable {
         let new_bases = bases.slice(
             min(start_chunk * lanes, array.bases_len()),
             min(stop_chunk * lanes, array.bases_len()),
-        )?;
+        );
 
         let new_deltas = deltas.slice(
             min(start_chunk * 1024, array.deltas_len()),
             min(stop_chunk * 1024, array.deltas_len()),
-        )?;
+        );
 
-        let new_validity = validity.slice(start, stop)?;
+        let new_validity = validity.slice(start, stop);
 
         let logical_len = stop - start;
 
-        let arr = DeltaArray::try_new(
-            new_bases,
-            new_deltas,
-            new_validity,
-            physical_start % 1024,
-            logical_len,
-        )?;
-
-        Ok(arr.into_array())
+        // SAFETY: slicing valid bases/deltas preserves correctness
+        unsafe {
+            DeltaArray::new_unchecked(
+                new_bases,
+                new_deltas,
+                new_validity,
+                physical_start % 1024,
+                logical_len,
+            )
+            .into_array()
+        }
     }
 
-    fn scalar_at(array: &DeltaArray, index: usize) -> VortexResult<Scalar> {
-        let decompressed = array.slice(index, index + 1)?.to_primitive()?;
+    fn scalar_at(array: &DeltaArray, index: usize) -> Scalar {
+        let decompressed = array
+            .slice(index, index + 1)
+            .to_primitive()
+            .vortex_expect("delta must decode to primitive");
         decompressed.scalar_at(0)
     }
 }
@@ -60,7 +65,6 @@ mod test {
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_array::{IntoArray, ToCanonical};
-    use vortex_error::VortexError;
 
     use super::*;
 
@@ -71,7 +75,6 @@ mod test {
         assert_eq!(
             delta
                 .slice(10, 250)
-                .unwrap()
                 .to_primitive()
                 .unwrap()
                 .as_slice::<u32>(),
@@ -86,7 +89,6 @@ mod test {
         assert_eq!(
             delta
                 .slice(1024 + 10, 1024 + 250)
-                .unwrap()
                 .to_primitive()
                 .unwrap()
                 .as_slice::<u32>(),
@@ -101,7 +103,6 @@ mod test {
         assert_eq!(
             delta
                 .slice(1000, 1048)
-                .unwrap()
                 .to_primitive()
                 .unwrap()
                 .as_slice::<u32>(),
@@ -116,7 +117,6 @@ mod test {
         assert_eq!(
             delta
                 .slice(2040, 2050)
-                .unwrap()
                 .to_primitive()
                 .unwrap()
                 .as_slice::<u32>(),
@@ -131,7 +131,6 @@ mod test {
         assert_eq!(
             delta
                 .slice(0, 4096)
-                .unwrap()
                 .to_primitive()
                 .unwrap()
                 .as_slice::<u32>(),
@@ -144,19 +143,13 @@ mod test {
         let delta = DeltaArray::try_from_vec((0u32..4096).collect()).unwrap();
 
         assert_eq!(
-            delta
-                .slice(0, 0)
-                .unwrap()
-                .to_primitive()
-                .unwrap()
-                .as_slice::<u32>(),
+            delta.slice(0, 0).to_primitive().unwrap().as_slice::<u32>(),
             Vec::<u32>::new(),
         );
 
         assert_eq!(
             delta
                 .slice(4096, 4096)
-                .unwrap()
                 .to_primitive()
                 .unwrap()
                 .as_slice::<u32>(),
@@ -166,7 +159,6 @@ mod test {
         assert_eq!(
             delta
                 .slice(1024, 1024)
-                .unwrap()
                 .to_primitive()
                 .unwrap()
                 .as_slice::<u32>(),
@@ -181,7 +173,6 @@ mod test {
         assert_eq!(
             delta
                 .slice(1024 + 10, 1024 + 250)
-                .unwrap()
                 .to_primitive()
                 .unwrap()
                 .as_slice::<u32>(),
@@ -194,19 +185,13 @@ mod test {
         let delta = DeltaArray::try_from_vec((0u32..4000).collect()).unwrap();
 
         assert_eq!(
-            delta
-                .slice(0, 0)
-                .unwrap()
-                .to_primitive()
-                .unwrap()
-                .as_slice::<u32>(),
+            delta.slice(0, 0).to_primitive().unwrap().as_slice::<u32>(),
             Vec::<u32>::new(),
         );
 
         assert_eq!(
             delta
                 .slice(4000, 4000)
-                .unwrap()
                 .to_primitive()
                 .unwrap()
                 .as_slice::<u32>(),
@@ -216,7 +201,6 @@ mod test {
         assert_eq!(
             delta
                 .slice(1024, 1024)
-                .unwrap()
                 .to_primitive()
                 .unwrap()
                 .as_slice::<u32>(),
@@ -228,8 +212,8 @@ mod test {
     fn test_slice_of_slice_of_non_jagged() {
         let delta = DeltaArray::try_from_vec((0u32..2048).collect()).unwrap();
 
-        let sliced = delta.slice(10, 1013).unwrap();
-        let sliced_again = sliced.slice(0, 2).unwrap();
+        let sliced = delta.slice(10, 1013);
+        let sliced_again = sliced.slice(0, 2);
 
         assert_eq!(
             sliced_again.to_primitive().unwrap().as_slice::<u32>(),
@@ -241,8 +225,8 @@ mod test {
     fn test_slice_of_slice_of_jagged() {
         let delta = DeltaArray::try_from_vec((0u32..2000).collect()).unwrap();
 
-        let sliced = delta.slice(10, 1013).unwrap();
-        let sliced_again = sliced.slice(0, 2).unwrap();
+        let sliced = delta.slice(10, 1013);
+        let sliced_again = sliced.slice(0, 2);
 
         assert_eq!(
             sliced_again.to_primitive().unwrap().as_slice::<u32>(),
@@ -254,8 +238,8 @@ mod test {
     fn test_slice_of_slice_second_chunk_of_non_jagged() {
         let delta = DeltaArray::try_from_vec((0u32..2048).collect()).unwrap();
 
-        let sliced = delta.slice(1034, 1050).unwrap();
-        let sliced_again = sliced.slice(0, 2).unwrap();
+        let sliced = delta.slice(1034, 1050);
+        let sliced_again = sliced.slice(0, 2);
 
         assert_eq!(
             sliced_again.to_primitive().unwrap().as_slice::<u32>(),
@@ -267,8 +251,8 @@ mod test {
     fn test_slice_of_slice_second_chunk_of_jagged() {
         let delta = DeltaArray::try_from_vec((0u32..2000).collect()).unwrap();
 
-        let sliced = delta.slice(1034, 1050).unwrap();
-        let sliced_again = sliced.slice(0, 2).unwrap();
+        let sliced = delta.slice(1034, 1050);
+        let sliced_again = sliced.slice(0, 2);
 
         assert_eq!(
             sliced_again.to_primitive().unwrap().as_slice::<u32>(),
@@ -280,8 +264,8 @@ mod test {
     fn test_slice_of_slice_spanning_two_chunks_of_non_jagged() {
         let delta = DeltaArray::try_from_vec((0u32..2048).collect()).unwrap();
 
-        let sliced = delta.slice(1010, 1050).unwrap();
-        let sliced_again = sliced.slice(5, 20).unwrap();
+        let sliced = delta.slice(1010, 1050);
+        let sliced_again = sliced.slice(5, 20);
 
         assert_eq!(
             sliced_again.to_primitive().unwrap().as_slice::<u32>(),
@@ -293,8 +277,8 @@ mod test {
     fn test_slice_of_slice_spanning_two_chunks_of_jagged() {
         let delta = DeltaArray::try_from_vec((0u32..2000).collect()).unwrap();
 
-        let sliced = delta.slice(1010, 1050).unwrap();
-        let sliced_again = sliced.slice(5, 20).unwrap();
+        let sliced = delta.slice(1010, 1050);
+        let sliced_again = sliced.slice(5, 20);
 
         assert_eq!(
             sliced_again.to_primitive().unwrap().as_slice::<u32>(),
@@ -308,48 +292,45 @@ mod test {
             .unwrap()
             .into_array();
 
-        assert_eq!(delta.scalar_at(0).unwrap(), 0_u32.into());
-        assert_eq!(delta.scalar_at(1).unwrap(), 1_u32.into());
-        assert_eq!(delta.scalar_at(10).unwrap(), 10_u32.into());
-        assert_eq!(delta.scalar_at(1023).unwrap(), 1023_u32.into());
-        assert_eq!(delta.scalar_at(1024).unwrap(), 1024_u32.into());
-        assert_eq!(delta.scalar_at(1025).unwrap(), 1025_u32.into());
-        assert_eq!(delta.scalar_at(2047).unwrap(), 2047_u32.into());
-
-        assert!(matches!(
-            delta.scalar_at(2048),
-            Err(VortexError::OutOfBounds(2048, 0, 2048, _))
-        ));
-
-        assert!(matches!(
-            delta.scalar_at(2049),
-            Err(VortexError::OutOfBounds(2049, 0, 2048, _))
-        ));
+        assert_eq!(delta.scalar_at(0), 0_u32.into());
+        assert_eq!(delta.scalar_at(1), 1_u32.into());
+        assert_eq!(delta.scalar_at(10), 10_u32.into());
+        assert_eq!(delta.scalar_at(1023), 1023_u32.into());
+        assert_eq!(delta.scalar_at(1024), 1024_u32.into());
+        assert_eq!(delta.scalar_at(1025), 1025_u32.into());
+        assert_eq!(delta.scalar_at(2047), 2047_u32.into());
     }
 
+    #[test]
+    #[should_panic]
+    fn test_scalar_at_non_jagged_array_oob() {
+        let delta = DeltaArray::try_from_vec((0u32..2048).collect())
+            .unwrap()
+            .into_array();
+        delta.scalar_at(2048);
+    }
     #[test]
     fn test_scalar_at_jagged_array() {
         let delta = DeltaArray::try_from_vec((0u32..2000).collect())
             .unwrap()
             .into_array();
 
-        assert_eq!(delta.scalar_at(0).unwrap(), 0_u32.into());
-        assert_eq!(delta.scalar_at(1).unwrap(), 1_u32.into());
-        assert_eq!(delta.scalar_at(10).unwrap(), 10_u32.into());
-        assert_eq!(delta.scalar_at(1023).unwrap(), 1023_u32.into());
-        assert_eq!(delta.scalar_at(1024).unwrap(), 1024_u32.into());
-        assert_eq!(delta.scalar_at(1025).unwrap(), 1025_u32.into());
-        assert_eq!(delta.scalar_at(1999).unwrap(), 1999_u32.into());
+        assert_eq!(delta.scalar_at(0), 0_u32.into());
+        assert_eq!(delta.scalar_at(1), 1_u32.into());
+        assert_eq!(delta.scalar_at(10), 10_u32.into());
+        assert_eq!(delta.scalar_at(1023), 1023_u32.into());
+        assert_eq!(delta.scalar_at(1024), 1024_u32.into());
+        assert_eq!(delta.scalar_at(1025), 1025_u32.into());
+        assert_eq!(delta.scalar_at(1999), 1999_u32.into());
+    }
 
-        assert!(matches!(
-            delta.scalar_at(2000),
-            Err(VortexError::OutOfBounds(2000, 0, 2000, _))
-        ));
-
-        assert!(matches!(
-            delta.scalar_at(2001),
-            Err(VortexError::OutOfBounds(2001, 0, 2000, _))
-        ));
+    #[test]
+    #[should_panic]
+    fn test_scalar_at_jagged_array_oob() {
+        let delta = DeltaArray::try_from_vec((0u32..2000).collect())
+            .unwrap()
+            .into_array();
+        delta.scalar_at(2000);
     }
 
     #[rstest]

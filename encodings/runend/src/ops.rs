@@ -4,35 +4,37 @@
 use vortex_array::arrays::ConstantArray;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::{Array, ArrayRef, IntoArray};
-use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::{RunEndArray, RunEndVTable};
 
 impl OperationsVTable<RunEndVTable> for RunEndVTable {
-    fn slice(array: &RunEndArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+    fn slice(array: &RunEndArray, start: usize, stop: usize) -> ArrayRef {
         let new_length = stop - start;
 
-        let slice_begin = array.find_physical_index(start)?;
-        let slice_end = array.find_physical_index(stop)? + 1;
+        let slice_begin = array.find_physical_index(start);
+        let slice_end = array.find_physical_index(stop) + 1;
 
         // If the sliced range contains only a single run, opt to return a ConstantArray.
         if slice_begin + 1 == slice_end {
-            let value = array.values().scalar_at(slice_begin)?;
-            return Ok(ConstantArray::new(value, new_length).into_array());
+            let value = array.values().scalar_at(slice_begin);
+            return ConstantArray::new(value, new_length).into_array();
         }
 
-        Ok(RunEndArray::with_offset_and_length(
-            array.ends().slice(slice_begin, slice_end)?,
-            array.values().slice(slice_begin, slice_end)?,
-            start + array.offset(),
-            new_length,
-        )?
-        .into_array())
+        // SAFETY: we maintain the ends invariant in our slice implementation
+        unsafe {
+            RunEndArray::new_unchecked(
+                array.ends().slice(slice_begin, slice_end),
+                array.values().slice(slice_begin, slice_end),
+                start + array.offset(),
+                new_length,
+            )
+            .into_array()
+        }
     }
 
-    fn scalar_at(array: &RunEndArray, index: usize) -> VortexResult<Scalar> {
-        array.values().scalar_at(array.find_physical_index(index)?)
+    fn scalar_at(array: &RunEndArray, index: usize) -> Scalar {
+        array.values().scalar_at(array.find_physical_index(index))
     }
 }
 
@@ -52,8 +54,7 @@ mod tests {
             buffer![1i32, 2, 3].into_array(),
         )
         .unwrap()
-        .slice(3, 8)
-        .unwrap();
+        .slice(3, 8);
         assert_eq!(
             arr.dtype(),
             &DType::Primitive(PType::I32, Nullability::NonNullable)
@@ -73,11 +74,10 @@ mod tests {
             buffer![1i32, 2, 3].into_array(),
         )
         .unwrap()
-        .slice(3, 8)
-        .unwrap();
+        .slice(3, 8);
         assert_eq!(arr.len(), 5);
 
-        let doubly_sliced = arr.slice(0, 3).unwrap();
+        let doubly_sliced = arr.slice(0, 3);
 
         assert_eq!(
             doubly_sliced.to_primitive().unwrap().as_slice::<i32>(),
@@ -92,8 +92,7 @@ mod tests {
             buffer![1i32, 2, 3].into_array(),
         )
         .unwrap()
-        .slice(4, 10)
-        .unwrap();
+        .slice(4, 10);
         assert_eq!(
             arr.dtype(),
             &DType::Primitive(PType::I32, Nullability::NonNullable)
@@ -116,7 +115,7 @@ mod tests {
 
         assert_eq!(re_array.len(), 10);
 
-        let sliced_array = re_array.slice(re_array.len(), re_array.len()).unwrap();
+        let sliced_array = re_array.slice(re_array.len(), re_array.len());
         assert!(sliced_array.is_empty());
     }
 
@@ -130,7 +129,7 @@ mod tests {
 
         assert_eq!(re_array.len(), 10);
 
-        let sliced_array = re_array.slice(2, 5).unwrap();
+        let sliced_array = re_array.slice(2, 5);
 
         assert!(sliced_array.is_constant())
     }
@@ -141,8 +140,7 @@ mod tests {
             PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).into_array(),
         )
         .unwrap()
-        .scalar_at(11)
-        .unwrap();
+        .scalar_at(11);
         assert_eq!(scalar, 5.into());
     }
 }

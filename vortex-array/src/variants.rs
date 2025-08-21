@@ -89,7 +89,6 @@ impl BoolTyped<'_> {
         Ok(true_count
             .as_primitive()
             .as_::<usize>()
-            .vortex_expect("true count should never overflow usize")
             .vortex_expect("true count should never be null"))
     }
 }
@@ -116,7 +115,6 @@ impl PrimitiveTyped<'_> {
     pub fn value_unchecked(&self, idx: usize) -> PValue {
         self.0
             .scalar_at(idx)
-            .vortex_expect("scalar at index")
             .as_primitive()
             .pvalue()
             .unwrap_or_else(|| PValue::zero(self.ptype()))

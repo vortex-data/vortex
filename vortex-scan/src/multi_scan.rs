@@ -282,7 +282,6 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "Factory panic!")]
-    #[allow(clippy::panic)]
     fn test_task_factory_panic_handling() {
         // Test that panics in task factories are propagated
         let closures = vec![|| -> VortexResult<Vec<ArrayFuture<i32>>> {

@@ -97,17 +97,19 @@ impl Patches {
             "Patch indices must be shorter than the array length"
         );
         assert!(!indices.is_empty(), "Patch indices must not be empty");
-        let max = usize::try_from(
-            &indices
-                .scalar_at(indices.len() - 1)
-                .vortex_expect("indices are not empty"),
-        )
-        .vortex_expect("indices must be a number");
+        let max = usize::try_from(&indices.scalar_at(indices.len() - 1))
+            .vortex_expect("indices must be a number");
         assert!(
             max - offset < array_len,
             "Patch indices {max:?}, offset {offset} are longer than the array length {array_len}"
         );
-        Self::new_unchecked(array_len, offset, indices, values)
+
+        Self {
+            array_len,
+            offset,
+            indices,
+            values,
+        }
     }
 
     /// Construct new patches without validating any of the arguments
@@ -119,7 +121,7 @@ impl Patches {
     /// * Indices is an unsigned integer type
     /// * Indices must be sorted
     /// * Last value in indices is smaller than array_len
-    pub fn new_unchecked(
+    pub unsafe fn new_unchecked(
         array_len: usize,
         offset: usize,
         indices: ArrayRef,
@@ -201,29 +203,30 @@ impl Patches {
     }
 
     pub fn cast_values(self, values_dtype: &DType) -> VortexResult<Self> {
-        Ok(Self::new_unchecked(
-            self.array_len,
-            self.offset,
-            self.indices,
-            cast(&self.values, values_dtype)?,
-        ))
-    }
-
-    /// Get the patched value at a given index if it exists.
-    pub fn get_patched(&self, index: usize) -> VortexResult<Option<Scalar>> {
-        if let Some(patch_idx) = self.search_index(index)?.to_found() {
-            self.values().scalar_at(patch_idx).map(Some)
-        } else {
-            Ok(None)
+        // SAFETY: casting does not affect the relationship between the indices and values
+        unsafe {
+            Ok(Self::new_unchecked(
+                self.array_len,
+                self.offset,
+                self.indices,
+                cast(&self.values, values_dtype)?,
+            ))
         }
     }
 
+    /// Get the patched value at a given index if it exists.
+    pub fn get_patched(&self, index: usize) -> Option<Scalar> {
+        self.search_index(index)
+            .to_found()
+            .map(|patch_idx| self.values().scalar_at(patch_idx))
+    }
+
     /// Return the insertion point of `index` in the [Self::indices].
-    pub fn search_index(&self, index: usize) -> VortexResult<SearchResult> {
-        Ok(self.indices.as_primitive_typed().search_sorted(
+    pub fn search_index(&self, index: usize) -> SearchResult {
+        self.indices.as_primitive_typed().search_sorted(
             &PValue::U64((index + self.offset) as u64),
             SearchSortedSide::Left,
-        ))
+        )
     }
 
     /// Return the search_sorted result for the given target re-mapped into the original indices.
@@ -243,7 +246,7 @@ impl Patches {
         };
 
         let index_idx = sr.to_offsets_index(self.indices().len(), side);
-        let index = usize::try_from(&self.indices().scalar_at(index_idx)?)? - self.offset;
+        let index = usize::try_from(&self.indices().scalar_at(index_idx))? - self.offset;
         Ok(match sr {
             // If we reached the end of patched values when searching then the result is one after the last patch index
             SearchResult::Found(i) => SearchResult::Found(
@@ -261,13 +264,25 @@ impl Patches {
     }
 
     /// Returns the minimum patch index
-    pub fn min_index(&self) -> VortexResult<usize> {
-        Ok(usize::try_from(&self.indices().scalar_at(0)?)? - self.offset)
+    pub fn min_index(&self) -> usize {
+        let first = self
+            .indices
+            .scalar_at(0)
+            .as_primitive()
+            .as_::<usize>()
+            .vortex_expect("non-null");
+        first - self.offset
     }
 
     /// Returns the maximum patch index
-    pub fn max_index(&self) -> VortexResult<usize> {
-        Ok(usize::try_from(&self.indices().scalar_at(self.indices().len() - 1)?)? - self.offset)
+    pub fn max_index(&self) -> usize {
+        let last = self
+            .indices
+            .scalar_at(self.indices.len() - 1)
+            .as_primitive()
+            .as_::<usize>()
+            .vortex_expect("non-null");
+        last - self.offset
     }
 
     /// Filter the patches by a mask, resulting in new patches for the filtered array.
@@ -329,33 +344,36 @@ impl Patches {
             return Ok(None);
         }
 
-        Ok(Some(Self::new_unchecked(
-            self.array_len,
-            self.offset,
-            filter(&self.indices, &filter_mask)?,
-            filter(&self.values, &filter_mask)?,
-        )))
+        // SAFETY: filtering indices/values with same mask maintains their 1:1 relationship
+        unsafe {
+            Ok(Some(Self::new_unchecked(
+                self.array_len,
+                self.offset,
+                filter(&self.indices, &filter_mask)?,
+                filter(&self.values, &filter_mask)?,
+            )))
+        }
     }
 
     /// Slice the patches by a range of the patched array.
-    pub fn slice(&self, start: usize, stop: usize) -> VortexResult<Option<Self>> {
-        let patch_start = self.search_index(start)?.to_index();
-        let patch_stop = self.search_index(stop)?.to_index();
+    pub fn slice(&self, start: usize, stop: usize) -> Option<Self> {
+        let patch_start = self.search_index(start).to_index();
+        let patch_stop = self.search_index(stop).to_index();
 
         if patch_start == patch_stop {
-            return Ok(None);
+            return None;
         }
 
         // Slice out the values and indices
-        let values = self.values().slice(patch_start, patch_stop)?;
-        let indices = self.indices().slice(patch_start, patch_stop)?;
+        let values = self.values().slice(patch_start, patch_stop);
+        let indices = self.indices().slice(patch_start, patch_stop);
 
-        Ok(Some(Self::new(
+        Some(Self::new(
             stop - start,
             start + self.offset(),
             indices,
             values,
-        )))
+        ))
     }
 
     // https://docs.google.com/spreadsheets/d/1D9vBZ1QJ6mwcIvV5wIL0hjGgVchcEnAyhvitqWu2ugU
@@ -444,8 +462,8 @@ impl Patches {
                         indices.as_slice::<Indices>(),
                         take_indices,
                         self.offset(),
-                        self.min_index()?,
-                        self.max_index()?,
+                        self.min_index(),
+                        self.max_index(),
                         include_nulls,
                     )?
                 })
@@ -746,7 +764,7 @@ mod test {
 
     #[rstest]
     fn search_sliced(patches: Patches) {
-        let sliced = patches.slice(7, 20).unwrap().unwrap();
+        let sliced = patches.slice(7, 20).unwrap();
         assert_eq!(
             sliced.search_sorted(22, SearchSortedSide::Left).unwrap(),
             SearchResult::NotFound(2)
@@ -823,7 +841,7 @@ mod test {
 
         let patches = Patches::new(101, 0, indices, values);
 
-        let sliced = patches.slice(15, 100).unwrap().unwrap();
+        let sliced = patches.slice(15, 100).unwrap();
         assert_eq!(sliced.array_len(), 100 - 15);
         let primitive = sliced.values().to_primitive().unwrap();
 
@@ -837,13 +855,13 @@ mod test {
 
         let patches = Patches::new(101, 0, indices, values);
 
-        let sliced = patches.slice(15, 100).unwrap().unwrap();
+        let sliced = patches.slice(15, 100).unwrap();
         assert_eq!(sliced.array_len(), 100 - 15);
         let primitive = sliced.values().to_primitive().unwrap();
 
         assert_eq!(primitive.as_slice::<u32>(), &[13531]);
 
-        let doubly_sliced = sliced.slice(35, 36).unwrap().unwrap();
+        let doubly_sliced = sliced.slice(35, 36).unwrap();
         let primitive_doubly_sliced = doubly_sliced.values().to_primitive().unwrap();
 
         assert_eq!(primitive_doubly_sliced.as_slice::<u32>(), &[13531]);
@@ -959,10 +977,7 @@ mod test {
         assert_eq!(masked_values.len(), 2);
         assert!(!masked_values.is_valid(0).unwrap()); // the null value at index 5
         assert!(masked_values.is_valid(1).unwrap()); // the 300 value at index 8
-        assert_eq!(
-            i32::try_from(&masked_values.scalar_at(1).unwrap()).unwrap(),
-            300i32
-        );
+        assert_eq!(i32::try_from(&masked_values.scalar_at(1)).unwrap(), 300i32);
     }
 
     #[test]
@@ -1027,7 +1042,7 @@ mod test {
             buffer![100i32, 200, 300].into_array(),
         );
 
-        let sliced = patches.slice(0, 10).unwrap().unwrap();
+        let sliced = patches.slice(0, 10).unwrap();
 
         let indices = sliced.indices().to_primitive().unwrap();
         let values = sliced.values().to_primitive().unwrap();
@@ -1045,7 +1060,7 @@ mod test {
         );
 
         // Slice from 3 to 8 (includes patch at 5)
-        let sliced = patches.slice(3, 8).unwrap().unwrap();
+        let sliced = patches.slice(3, 8).unwrap();
 
         let indices = sliced.indices().to_primitive().unwrap();
         let values = sliced.values().to_primitive().unwrap();
@@ -1065,7 +1080,7 @@ mod test {
         );
 
         // Slice from 6 to 7 (no patches in this range)
-        let sliced = patches.slice(6, 7).unwrap();
+        let sliced = patches.slice(6, 7);
         assert!(sliced.is_none());
     }
 
@@ -1079,7 +1094,7 @@ mod test {
         );
 
         // Slice from 3 to 8 (includes patch at actual index 5)
-        let sliced = patches.slice(3, 8).unwrap().unwrap();
+        let sliced = patches.slice(3, 8).unwrap();
 
         let indices = sliced.indices().to_primitive().unwrap();
         let values = sliced.values().to_primitive().unwrap();
@@ -1098,18 +1113,9 @@ mod test {
         );
 
         let values = patches.values().to_primitive().unwrap();
-        assert_eq!(
-            i32::try_from(&values.scalar_at(0).unwrap()).unwrap(),
-            100i32
-        );
-        assert_eq!(
-            i32::try_from(&values.scalar_at(1).unwrap()).unwrap(),
-            200i32
-        );
-        assert_eq!(
-            i32::try_from(&values.scalar_at(2).unwrap()).unwrap(),
-            300i32
-        );
+        assert_eq!(i32::try_from(&values.scalar_at(0)).unwrap(), 100i32);
+        assert_eq!(i32::try_from(&values.scalar_at(1)).unwrap(), 200i32);
+        assert_eq!(i32::try_from(&values.scalar_at(2)).unwrap(), 300i32);
     }
 
     #[test]
@@ -1121,8 +1127,8 @@ mod test {
             buffer![100i32, 200, 300].into_array(),
         );
 
-        assert_eq!(patches.min_index().unwrap(), 2);
-        assert_eq!(patches.max_index().unwrap(), 8);
+        assert_eq!(patches.min_index(), 2);
+        assert_eq!(patches.max_index(), 8);
     }
 
     #[test]
@@ -1135,15 +1141,15 @@ mod test {
         );
 
         // Search for exact indices
-        assert_eq!(patches.search_index(2).unwrap(), SearchResult::Found(0));
-        assert_eq!(patches.search_index(5).unwrap(), SearchResult::Found(1));
-        assert_eq!(patches.search_index(8).unwrap(), SearchResult::Found(2));
+        assert_eq!(patches.search_index(2), SearchResult::Found(0));
+        assert_eq!(patches.search_index(5), SearchResult::Found(1));
+        assert_eq!(patches.search_index(8), SearchResult::Found(2));
 
         // Search for non-patch indices
-        assert_eq!(patches.search_index(0).unwrap(), SearchResult::NotFound(0));
-        assert_eq!(patches.search_index(3).unwrap(), SearchResult::NotFound(1));
-        assert_eq!(patches.search_index(6).unwrap(), SearchResult::NotFound(2));
-        assert_eq!(patches.search_index(9).unwrap(), SearchResult::NotFound(3));
+        assert_eq!(patches.search_index(0), SearchResult::NotFound(0));
+        assert_eq!(patches.search_index(3), SearchResult::NotFound(1));
+        assert_eq!(patches.search_index(6), SearchResult::NotFound(2));
+        assert_eq!(patches.search_index(9), SearchResult::NotFound(3));
     }
 
     #[test]

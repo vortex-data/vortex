@@ -117,6 +117,11 @@ pub trait TableFunction: Sized + Debug {
         _local_init_data: &mut Self::LocalState,
     ) -> VortexResult<u64>;
 
+    /// Returns a vector of key-value pairs for EXPLAIN output
+    fn to_string(_bind_data: &Self::BindData) -> Option<Vec<(String, String)>> {
+        None
+    }
+
     // TODO(ngates): there are many more callbacks that can be configured.
 }
 
@@ -160,6 +165,7 @@ impl Connection {
             cardinality: Some(cardinality_callback::<T>),
             pushdown_complex_filter: Some(pushdown_complex_filter_callback::<T>),
             pushdown_expression: ptr::null_mut::<c_void>(),
+            to_string: Some(to_string_callback::<T>),
             table_scan_progress: ptr::null_mut::<c_void>(),
             get_partition_data: Some(get_partition_data_callback::<T>),
             projection_pushdown: T::PROJECTION_PUSHDOWN,
@@ -176,6 +182,37 @@ impl Connection {
         );
 
         Ok(())
+    }
+}
+
+/// The to_string callback for a table function.
+unsafe extern "C-unwind" fn to_string_callback<T: TableFunction>(
+    bind_data: *mut c_void,
+) -> cpp::duckdb_vx_string_map {
+    let bind_data = unsafe { &*(bind_data as *const T::BindData) };
+
+    match T::to_string(bind_data) {
+        Some(map) => {
+            // Create a new C++ map
+            let cpp_map = unsafe { cpp::duckdb_vx_string_map_create() };
+
+            // Fill the map with key-value pairs
+            for (key, value) in map {
+                let key_cstr = CString::new(key).unwrap_or_else(|_| CString::default());
+                let value_cstr = CString::new(value).unwrap_or_else(|_| CString::default());
+
+                unsafe {
+                    cpp::duckdb_vx_string_map_insert(
+                        cpp_map,
+                        key_cstr.as_ptr(),
+                        value_cstr.as_ptr(),
+                    );
+                }
+            }
+
+            cpp_map
+        }
+        None => ptr::null_mut(),
     }
 }
 

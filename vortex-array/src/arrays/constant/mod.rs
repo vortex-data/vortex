@@ -89,12 +89,12 @@ impl ArrayVTable<ConstantVTable> for ConstantVTable {
 }
 
 impl OperationsVTable<ConstantVTable> for ConstantVTable {
-    fn slice(array: &ConstantArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        Ok(ConstantArray::new(array.scalar.clone(), stop - start).into_array())
+    fn slice(array: &ConstantArray, start: usize, stop: usize) -> ArrayRef {
+        ConstantArray::new(array.scalar.clone(), stop - start).into_array()
     }
 
-    fn scalar_at(array: &ConstantArray, _index: usize) -> VortexResult<Scalar> {
-        Ok(array.scalar.clone())
+    fn scalar_at(array: &ConstantArray, _index: usize) -> Scalar {
+        array.scalar.clone()
     }
 }
 

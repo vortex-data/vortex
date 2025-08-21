@@ -181,10 +181,10 @@ mod tests {
         .into_array();
 
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Lte)?;
-        assert_eq!(res.scalar_at(0)?.as_bool().value(), None);
-        assert_eq!(res.scalar_at(1)?.as_bool().value(), Some(true));
-        assert_eq!(res.scalar_at(2)?.as_bool().value(), Some(true));
-        assert_eq!(res.scalar_at(3)?.as_bool().value(), Some(true));
+        assert_eq!(res.scalar_at(0).as_bool().value(), None);
+        assert_eq!(res.scalar_at(1).as_bool().value(), Some(true));
+        assert_eq!(res.scalar_at(2).as_bool().value(), Some(true));
+        assert_eq!(res.scalar_at(3).as_bool().value(), Some(true));
 
         Ok(())
     }

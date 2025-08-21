@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_dtype::datetime::TimeUnit;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 
 pub const SECONDS_PER_DAY: i64 = 86_400; // 24 * 60 * 60
 
@@ -55,20 +55,16 @@ pub fn split(timestamp: i64, time_unit: TimeUnit) -> VortexResult<TimestampParts
 /// # Errors
 ///
 /// Returns an error if `time_unit` is days, which cannot be combined.
-pub fn combine(ts_parts: TimestampParts, time_unit: TimeUnit) -> VortexResult<i64> {
+pub fn combine(ts_parts: TimestampParts, time_unit: TimeUnit) -> i64 {
     let divisor = match time_unit {
         TimeUnit::Ns => 1_000_000_000,
         TimeUnit::Us => 1_000_000,
         TimeUnit::Ms => 1_000,
         TimeUnit::S => 1,
-        TimeUnit::D => vortex_bail!("Cannot handle day-level data"),
+        TimeUnit::D => vortex_panic!("Cannot handle day-level data"),
     };
 
-    Ok(
-        ts_parts.days * SECONDS_PER_DAY * divisor
-            + ts_parts.seconds * divisor
-            + ts_parts.subseconds,
-    )
+    ts_parts.days * SECONDS_PER_DAY * divisor + ts_parts.seconds * divisor + ts_parts.subseconds
 }
 
 #[cfg(test)]
@@ -139,7 +135,7 @@ mod tests {
             seconds: 3723, // 1*3600 + 2*60 + 3
             subseconds: 0,
         };
-        let ts = combine(parts, TimeUnit::S).unwrap();
+        let ts = combine(parts, TimeUnit::S);
         assert_eq!(ts, SECONDS_PER_DAY + 3723);
     }
 
@@ -151,7 +147,7 @@ mod tests {
             seconds: 3723,
             subseconds: 456,
         };
-        let ts = combine(parts, TimeUnit::Ms).unwrap();
+        let ts = combine(parts, TimeUnit::Ms);
         assert_eq!(ts, (SECONDS_PER_DAY + 3723) * 1000 + 456);
     }
 
@@ -163,7 +159,7 @@ mod tests {
             seconds: 3723,
             subseconds: 456789,
         };
-        let ts = combine(parts, TimeUnit::Us).unwrap();
+        let ts = combine(parts, TimeUnit::Us);
         assert_eq!(ts, (SECONDS_PER_DAY + 3723) * 1_000_000 + 456789);
     }
 
@@ -175,17 +171,18 @@ mod tests {
             seconds: 3723,
             subseconds: 456789123,
         };
-        let ts = combine(parts, TimeUnit::Ns).unwrap();
+        let ts = combine(parts, TimeUnit::Ns);
         assert_eq!(ts, (SECONDS_PER_DAY + 3723) * 1_000_000_000 + 456789123);
     }
 
     #[test]
+    #[should_panic(expected = "Cannot handle day-level data")]
     fn test_combine_days_error() {
         let parts = TimestampParts {
             days: 1,
             seconds: 0,
             subseconds: 0,
         };
-        assert!(combine(parts, TimeUnit::D).is_err());
+        combine(parts, TimeUnit::D);
     }
 }

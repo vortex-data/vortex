@@ -166,12 +166,12 @@ mod tests {
             ConstantArray::new(Scalar::null(DType::Utf8(Nullability::Nullable)), lhs.len());
         let equals_null = compare(lhs.as_ref(), null_rhs.as_ref(), Operator::Eq).unwrap();
         for idx in 0..lhs.len() {
-            assert!(equals_null.scalar_at(idx).unwrap().is_null());
+            assert!(equals_null.scalar_at(idx).is_null());
         }
 
         let noteq_null = compare(lhs.as_ref(), null_rhs.as_ref(), Operator::NotEq).unwrap();
         for idx in 0..lhs.len() {
-            assert!(noteq_null.scalar_at(idx).unwrap().is_null());
+            assert!(noteq_null.scalar_at(idx).is_null());
         }
     }
 }

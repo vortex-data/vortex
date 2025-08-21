@@ -56,6 +56,7 @@ pub struct ALPRDArray {
 pub struct ALPRDEncoding;
 
 impl ALPRDArray {
+    /// Build a new `ALPRDArray` from components.
     pub fn try_new(
         dtype: DType,
         left_parts: ArrayRef,
@@ -107,12 +108,33 @@ impl ALPRDArray {
         Ok(Self {
             dtype,
             left_parts,
+            left_parts_dictionary,
+            right_parts,
+            right_bit_width,
+            left_parts_patches,
+            stats_set: Default::default(),
+        })
+    }
+
+    /// Build a new `ALPRDArray` from components. This does not perform any validation, and instead
+    /// it constructs it from parts.
+    pub(crate) unsafe fn new_unchecked(
+        dtype: DType,
+        left_parts: ArrayRef,
+        left_parts_dictionary: Buffer<u16>,
+        right_parts: ArrayRef,
+        right_bit_width: u8,
+        left_parts_patches: Option<Patches>,
+    ) -> Self {
+        Self {
+            dtype,
+            left_parts,
             left_parts_patches,
             left_parts_dictionary,
             right_parts,
             right_bit_width,
             stats_set: Default::default(),
-        })
+        }
     }
 
     /// Returns true if logical type of the array values is f32.

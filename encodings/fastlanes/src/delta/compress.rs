@@ -108,7 +108,7 @@ pub fn delta_decompress(array: &DeltaArray) -> VortexResult<PrimitiveArray> {
     });
 
     decoded
-        .slice(array.offset(), array.offset() + array.len())?
+        .slice(array.offset(), array.offset() + array.len())
         .to_primitive()
 }
 

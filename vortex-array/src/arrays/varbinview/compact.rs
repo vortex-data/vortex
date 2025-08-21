@@ -1,5 +1,5 @@
-//  SPDX-License-Identifier: Apache-2.0
-//  SPDX-FileCopyrightText: Copyright the Vortex contributors
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Defines a compaction operation for VarBinViewArrays that evicts unused buffers so they can
 //! be dropped.
@@ -28,12 +28,15 @@ impl VarBinViewArray {
         // Compaction pathways, depend on the validity
         match self.validity() {
             // The array contains no values, all buffers can be dropped.
-            Validity::AllInvalid => Ok(VarBinViewArray::try_new(
-                self.views().clone(),
-                Default::default(),
-                self.dtype().clone(),
-                self.validity().clone(),
-            )?),
+            // SAFETY: for all-invalid array, zeroed views and buffer because they are never accessed.
+            Validity::AllInvalid => unsafe {
+                Ok(VarBinViewArray::new_unchecked(
+                    self.views().clone(),
+                    Default::default(),
+                    self.dtype().clone(),
+                    self.validity().clone(),
+                ))
+            },
             // Non-null pathway
             Validity::NonNullable | Validity::AllValid => rebuild_nonnull(self),
             // Nullable pathway, requires null-checks for each value
@@ -143,8 +146,8 @@ mod tests {
 
         // Verify the data is still correct
         assert_eq!(optimized_array.len(), 2);
-        assert_eq!(optimized_array.scalar_at(0).unwrap(), "short".into());
-        assert_eq!(optimized_array.scalar_at(1).unwrap(), "tiny".into());
+        assert_eq!(optimized_array.scalar_at(0), "short".into());
+        assert_eq!(optimized_array.scalar_at(1), "tiny".into());
     }
 
     #[test]
@@ -175,8 +178,8 @@ mod tests {
 
         // Verify the data is still correct
         assert_eq!(optimized_array.len(), 2);
-        assert_eq!(optimized_array.scalar_at(0).unwrap(), long_string_1.into());
-        assert_eq!(optimized_array.scalar_at(1).unwrap(), long_string_3.into());
+        assert_eq!(optimized_array.scalar_at(0), long_string_1.into());
+        assert_eq!(optimized_array.scalar_at(1), long_string_3.into());
     }
 
     #[test]
@@ -195,10 +198,7 @@ mod tests {
 
         // Verify all values are preserved
         for i in 0..4 {
-            assert_eq!(
-                optimized_array.scalar_at(i).unwrap(),
-                original.scalar_at(i).unwrap()
-            );
+            assert_eq!(optimized_array.scalar_at(i), original.scalar_at(i));
         }
     }
 
@@ -221,10 +221,7 @@ mod tests {
 
         // Verify all values are preserved
         for i in 0..2 {
-            assert_eq!(
-                optimized_array.scalar_at(i).unwrap(),
-                original.scalar_at(i).unwrap()
-            );
+            assert_eq!(optimized_array.scalar_at(i), original.scalar_at(i));
         }
     }
 }
