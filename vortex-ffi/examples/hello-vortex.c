@@ -19,7 +19,7 @@ int main(int argc, char *argv[])
     vx_session *session = vx_session_new();
     if (session == NULL)
     {
-        fprintf(stderr, "vx_session_new return NULL\n");
+        fprintf(stderr, "Failed to create Vortex session\n");
         return -1;
     }
 
@@ -37,9 +37,9 @@ int main(int argc, char *argv[])
     const vx_file *file = vx_file_open_reader(&open_opts, session, &error);
     if (error != NULL)
     {
-        fprintf(stderr, "Error opening file\n");
-        vx_session_free(session);
+        fprintf(stderr, "Failed to open file: %s\n", path);
         vx_error_free(error);
+        vx_session_free(session);
         return -1;
     }
 
@@ -58,9 +58,9 @@ int main(int argc, char *argv[])
     vx_array_iterator *scan = vx_file_scan(file, NULL, &error);
     if (error != NULL)
     {
-        fprintf(stderr, "Error creating scan\n");
-        vx_file_free(file);
+        fprintf(stderr, "Failed to create file scan iterator\n");
         vx_error_free(error);
+        vx_file_free(file);
         vx_session_free(session);
         return -1;
     }
@@ -105,20 +105,22 @@ int main(int argc, char *argv[])
                     const vx_string *field_name = vx_struct_fields_field_name(fields, i);
                     const vx_dtype *field_dtype = vx_struct_fields_field_dtype(fields, i);
 
-                    size_t name_len = vx_string_len(field_name);
-                    const char *name_ptr = vx_string_ptr(field_name);
-                    printf("    Field %zu: %.*s", i, (int)name_len, name_ptr);
+                    if (field_name != NULL && field_dtype != NULL)
+                    {
+                        size_t name_len = vx_string_len(field_name);
+                        const char *name_ptr = vx_string_ptr(field_name);
+                        printf("    Field %zu: %.*s", i, (int)name_len, name_ptr);
 
-                    vx_dtype_variant field_variant = vx_dtype_get_variant(field_dtype);
-                    if (field_variant == DTYPE_PRIMITIVE)
-                    {
-                        vx_ptype ptype = vx_dtype_primitive_ptype(field_dtype);
-                        printf(" (Primitive type %d)\n", ptype);
-                    }
-                    else
-                    {
-                        printf(" (Type variant %d)\n", field_variant);
-                    }
+                        vx_dtype_variant field_variant = vx_dtype_get_variant(field_dtype);
+                        if (field_variant == DTYPE_PRIMITIVE)
+                        {
+                            vx_ptype ptype = vx_dtype_primitive_ptype(field_dtype);
+                            printf(" (Primitive type %d)\n", ptype);
+                        }
+                        else
+                        {
+                            printf(" (Type variant %d)\n", field_variant);
+                        }
 
                     // For first chunk, also test field array access
                     if (chunk_count == 0 && i == 0)
@@ -154,8 +156,16 @@ int main(int argc, char *argv[])
                         }
                     }
 
-                    vx_string_free(field_name);
-                    vx_dtype_free(field_dtype);
+                        vx_string_free(field_name);
+                        vx_dtype_free(field_dtype);
+                    }
+                    else
+                    {
+                        // Handle null field_name or field_dtype
+                        printf("    Field %zu: [invalid field data]\n", i);
+                        if (field_name != NULL) vx_string_free(field_name);
+                        if (field_dtype != NULL) vx_dtype_free(field_dtype);
+                    }
                 }
                 vx_struct_fields_free(fields);
             }
@@ -172,6 +182,7 @@ int main(int argc, char *argv[])
 
     printf("\nTotal chunks processed: %d\n", chunk_count);
 
+    // Clean up resources
     vx_array_iterator_free(scan);
     vx_file_free(file);
 
@@ -184,8 +195,6 @@ int main(int argc, char *argv[])
     }
 
     printf("Scanning completed successfully\n");
-
     vx_session_free(session);
-
     return 0;
 }
