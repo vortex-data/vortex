@@ -453,4 +453,114 @@ mod tests {
             }
         }
     }
+
+    // Helper function for struct introspection tests
+    fn create_test_struct_array() -> vortex::ArrayRef {
+        use vortex::arrays::StructArray;
+        use vortex::buffer::Buffer;
+        use vortex::IntoArray;
+        
+        let nums: Buffer<i32> = (0..1000).collect();
+        let floats: Buffer<f32> = (0..1000).map(|x| x as f32).collect();
+        
+        StructArray::try_from_iter([
+            ("nums", nums.into_array()), 
+            ("floats", floats.into_array())
+        ])
+        .unwrap()
+        .into_array()
+    }
+
+    #[test]
+    fn test_struct_introspection_simple() {
+        use crate::array::vx_array;
+        use crate::struct_fields::{vx_struct_fields_nfields, vx_struct_fields_free};
+        
+        let array = create_test_struct_array();
+        let vx_arr = vx_array::new(array);
+        let dtype_ptr = unsafe { crate::array::vx_array_dtype(vx_arr) };
+        
+        let struct_fields_ptr = unsafe { vx_dtype_struct_dtype(dtype_ptr) };
+        let n_fields = unsafe { vx_struct_fields_nfields(struct_fields_ptr) };
+        assert_eq!(n_fields, 2);
+        
+        // Cleanup in reverse order - this is the safest order
+        unsafe {
+            vx_struct_fields_free(struct_fields_ptr);
+            crate::array::vx_array_free(vx_arr);
+        }
+    }
+
+    #[test] 
+    fn test_field_name_access() {
+        use crate::array::vx_array;
+        use crate::struct_fields::{vx_struct_fields_field_name, vx_struct_fields_free};
+        use crate::string::{vx_string_len, vx_string_ptr, vx_string_free};
+        
+        let array = create_test_struct_array();
+        let vx_arr = vx_array::new(array);
+        let dtype_ptr = unsafe { crate::array::vx_array_dtype(vx_arr) };
+        
+        let struct_fields_ptr = unsafe { vx_dtype_struct_dtype(dtype_ptr) };
+        
+        // Test field name access
+        let field_name_ptr = unsafe { 
+            vx_struct_fields_field_name(struct_fields_ptr, 0) 
+        };
+        assert!(!field_name_ptr.is_null());
+        
+        let name_len = unsafe { vx_string_len(field_name_ptr) };
+        let name_ptr = unsafe { vx_string_ptr(field_name_ptr) };
+        let name_slice = unsafe { std::slice::from_raw_parts(name_ptr as *const u8, name_len) };
+        let name_str = std::str::from_utf8(name_slice).unwrap();
+        assert_eq!(name_str, "nums");
+        
+        // Cleanup in careful order
+        unsafe {
+            vx_string_free(field_name_ptr);
+            vx_struct_fields_free(struct_fields_ptr);
+            crate::array::vx_array_free(vx_arr);
+        }
+    }
+
+    #[test]
+    fn test_comprehensive_struct_introspection() {
+        use crate::array::vx_array;
+        use crate::struct_fields::{vx_struct_fields_nfields, vx_struct_fields_field_name, vx_struct_fields_free};
+        use crate::string::{vx_string_len, vx_string_ptr, vx_string_free};
+        
+        let array = create_test_struct_array();
+        let vx_arr = vx_array::new(array);
+        let dtype_ptr = unsafe { crate::array::vx_array_dtype(vx_arr) };
+        
+        let struct_fields_ptr = unsafe { vx_dtype_struct_dtype(dtype_ptr) };
+        let n_fields = unsafe { vx_struct_fields_nfields(struct_fields_ptr) };
+        assert_eq!(n_fields, 2);
+        
+        // Test both field names
+        for i in 0..n_fields {
+            let field_name_ptr = unsafe { 
+                vx_struct_fields_field_name(struct_fields_ptr, i as usize) 
+            };
+            assert!(!field_name_ptr.is_null());
+            
+            let name_len = unsafe { vx_string_len(field_name_ptr) };
+            let name_ptr = unsafe { vx_string_ptr(field_name_ptr) };
+            let name_slice = unsafe { std::slice::from_raw_parts(name_ptr as *const u8, name_len) };
+            let name_str = std::str::from_utf8(name_slice).unwrap();
+            
+            let expected_name = if i == 0 { "nums" } else { "floats" };
+            assert_eq!(name_str, expected_name);
+            
+            unsafe {
+                vx_string_free(field_name_ptr);
+            }
+        }
+        
+        // Cleanup
+        unsafe {
+            vx_struct_fields_free(struct_fields_ptr);
+            crate::array::vx_array_free(vx_arr);
+        }
+    }
 }
