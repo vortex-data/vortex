@@ -1,26 +1,29 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+pub use handle::*;
+
 mod handle;
 mod multithread;
+mod singlethread;
 mod tokio;
 mod worker;
 
-use crate::runtime::handle::Handle;
 use flume::{Receiver, Sender};
-use futures_util::FutureExt;
 use futures_util::future::BoxFuture;
+use futures_util::FutureExt;
 use smol::Executor;
 use std::fs::File;
 use std::marker::PhantomData;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll, ready};
+use std::task::{ready, Context, Poll};
 use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 
 pub struct Runtime {
-    executor: Executor<'static>,
+    // The main executor driving our spawned futures.
+    executor: Arc<Executor<'static>>,
 
     // I/O queues for reading data.
     file_io_send: Sender<FileIoRequest>,
@@ -28,10 +31,23 @@ pub struct Runtime {
     file_io_exec: Executor<'static>,
 }
 
+impl Default for Runtime {
+    fn default() -> Self {
+        let (file_io_send, file_io_recv) = flume::unbounded();
+        Self {
+            executor: Default::default(),
+            file_io_send,
+            file_io_recv,
+            file_io_exec: Default::default(),
+        }
+    }
+}
+
 impl Runtime {
     /// Create a new [`Handle`] for spawning work onto this [`Runtime`].
     pub fn new_handle(&self) -> Handle {
         Handle {
+            executor: self.executor.clone(),
             file_io_send: self.file_io_send.clone(),
         }
     }
@@ -50,6 +66,14 @@ pub(crate) struct FileIoRequest {
     length: usize,
     alignment: Alignment,
     send: oneshot::Sender<VortexResult<ByteBuffer>>,
+}
+
+impl FileIoRequest {
+    pub(crate) fn resolve(self, result: VortexResult<ByteBuffer>) {
+        if let Err(e) = self.send.send(result) {
+            log::trace!("Receiver dropped {e}");
+        }
+    }
 }
 
 pub struct Read(ReadState);
@@ -111,37 +135,4 @@ impl<T> WorkerPool<T> {
 
 pub struct Worker<T> {
     _phantom: PhantomData<T>,
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::runtime::handle::Handle;
-    use std::fs::File;
-    use std::sync::Arc;
-    use vortex_buffer::Alignment;
-
-    #[test]
-    fn test_spawn() {
-        // A runtime does nothing unless we drive it. We want to support three threading models
-        // to drive a runtime:
-        //
-        //  * Drive a stream from multiple worker threads, emitting results out of order.
-        //  * Drive a stream from a single worker thread, using background execution threads.
-        //  * Drive a stream on a Tokio runtime.
-
-        // Once we create a runtime (possibly pre-configuring the threading model..)
-        let runtime = Handle::new();
-
-        // We can then create I/O futures?
-        let read = runtime.open_file(Arc::new(File::open("/dev/zero").unwrap()));
-
-        // Now we need to drive the future to completion.
-        // Does this use the runtime's configured threading model?
-        let result = runtime
-            .block_on(read.read(0, 100, Alignment::none()))
-            .unwrap();
-
-        // Or, we can drive a stream of futures?
-        // let result = runtime.block_on_stream();
-    }
 }

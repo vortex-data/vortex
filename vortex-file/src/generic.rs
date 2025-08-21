@@ -5,9 +5,9 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_io::runtime::Handle;
 use vortex_io::runtime::VortexRead;
-use vortex_io::runtime::handle::Handle;
 use vortex_io::source::{FileIo, IoSource};
 use vortex_io::{IoDispatcher, PerformanceHint};
 use vortex_layout::segments::{SegmentEvents, SegmentId};
@@ -17,7 +17,7 @@ use crate::segments::{
     InitialReadSegmentCache, MokaSegmentCache, NoOpSegmentCache, SegmentCache, SegmentCacheMetrics,
     SegmentCacheSourceAdapter,
 };
-use crate::{EOF_SIZE, FileType, Footer, MAX_FOOTER_SIZE, VortexFile, VortexOpenOptions};
+use crate::{FileType, Footer, VortexFile, VortexOpenOptions, EOF_SIZE, MAX_FOOTER_SIZE};
 
 #[cfg(feature = "tokio")]
 static TOKIO_DISPATCHER: std::sync::LazyLock<IoDispatcher> =
@@ -77,9 +77,14 @@ impl VortexOpenOptions<GenericVortexFile> {
     }
 
     /// Open a Vortex file using the provided [`std::path::Path`].
-    pub async fn open(self, read: impl AsRef<std::path::Path>) -> VortexResult<VortexFile> {
+    pub async fn open(
+        self,
+        read: impl AsRef<std::path::Path>,
+        handle: &Handle,
+    ) -> VortexResult<VortexFile> {
         // self.open_read_at(vortex_io::TokioFile::open(read)?).await
-        self.open_read_at(FileIo::try_new(read.as_ref())?).await
+        self.open_read_at(FileIo::try_new(read.as_ref())?, handle)
+            .await
     }
 
     /// Low-level API for opening any [`VortexReadAt`]. Note that the user is responsible for
@@ -87,8 +92,10 @@ impl VortexOpenOptions<GenericVortexFile> {
     pub(crate) async fn open_read_at(
         self,
         io_source: Arc<dyn IoSource>,
+        handle: &Handle,
     ) -> VortexResult<VortexFile> {
-        let read = io_source.open(&Handle::current());
+        // Open the file so we can read it's footer.
+        let read = io_source.open(&handle);
 
         let footer = if let Some(footer) = self.footer {
             footer

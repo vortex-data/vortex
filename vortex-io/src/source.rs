@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::runtime::handle::Handle;
-use crate::runtime::{Read, VortexRead};
-use futures_util::FutureExt;
+use crate::runtime::{Handle, Read, VortexRead};
 use futures_util::future::BoxFuture;
+use futures_util::FutureExt;
 use std::fs::File;
 use std::path::Path;
 use std::sync::Arc;
@@ -12,7 +11,7 @@ use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{VortexExpect, VortexResult};
 
 pub trait IoSource: 'static + Send + Sync {
-    fn open(&self, runtime: &dyn Handle) -> Arc<dyn VortexRead>;
+    fn open(&self, handle: &Handle) -> Arc<dyn VortexRead>;
 }
 
 pub struct FileIo(Arc<File>);
@@ -24,8 +23,8 @@ impl FileIo {
 }
 
 impl IoSource for FileIo {
-    fn open(&self, runtime: &dyn Handle) -> Arc<dyn VortexRead> {
-        runtime.open_file(self.0.clone())
+    fn open(&self, handle: &Handle) -> Arc<dyn VortexRead> {
+        handle.open_file(self.0.clone())
     }
 }
 
@@ -38,7 +37,7 @@ impl MemoryIo {
 }
 
 impl IoSource for MemoryIo {
-    fn open(&self, _runtime: &dyn Handle) -> Arc<dyn VortexRead> {
+    fn open(&self, _handle: &Handle) -> Arc<dyn VortexRead> {
         Arc::new(self.0.clone())
     }
 }
@@ -75,7 +74,7 @@ impl ObjectStoreIo {
 
 #[cfg(feature = "object_store")]
 impl IoSource for ObjectStoreIo {
-    fn open(&self, runtime: &dyn Handle) -> Arc<dyn VortexRead> {
+    fn open(&self, runtime: &Handle) -> Arc<dyn VortexRead> {
         todo!()
     }
 }
