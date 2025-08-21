@@ -10,6 +10,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_proto::expr as pb;
 
+use crate::display::{DisplayAs, DisplayFormat};
 use crate::{
     AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Operator, Scope, StatsCatalog,
     VTable, lit, vtable,
@@ -133,7 +134,25 @@ impl BinaryExpr {
 
 impl Display for BinaryExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "({} {} {})", self.lhs, self.operator, self.rhs)
+        DisplayAs::fmt_as(self, DisplayFormat::Dense, f)
+    }
+}
+
+impl DisplayAs for BinaryExpr {
+    fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match df {
+            DisplayFormat::Dense => {
+                write!(f, "({} {} {})", self.lhs, self.operator, self.rhs)
+            }
+            #[cfg(feature = "pretty")]
+            DisplayFormat::Tree => {
+                write!(f, "BinaryExpr({})", self.operator)
+            }
+        }
+    }
+
+    fn child_names(&self) -> Option<Vec<String>> {
+        Some(vec!["lhs".to_string(), "rhs".to_string()])
     }
 }
 

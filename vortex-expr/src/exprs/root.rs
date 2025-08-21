@@ -8,6 +8,7 @@ use vortex_array::{ArrayRef, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::{DType, FieldPath};
 use vortex_error::{VortexResult, vortex_bail};
 
+use crate::display::{DisplayAs, DisplayFormat};
 use crate::{
     AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog, VTable, vtable,
 };
@@ -70,7 +71,21 @@ impl VTable for RootVTable {
 
 impl Display for RootExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "$")
+        DisplayAs::fmt_as(self, DisplayFormat::Dense, f)
+    }
+}
+
+impl DisplayAs for RootExpr {
+    fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match df {
+            DisplayFormat::Dense => {
+                write!(f, "$")
+            }
+            #[cfg(feature = "pretty")]
+            DisplayFormat::Tree => {
+                write!(f, "RootExpr")
+            }
+        }
     }
 }
 

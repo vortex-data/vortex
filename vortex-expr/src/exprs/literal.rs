@@ -10,6 +10,8 @@ use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
 use vortex_scalar::Scalar;
 
+use crate::display::DisplayAs;
+use crate::display::DisplayFormat::Dense;
 use crate::{
     AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog, VTable, vtable,
 };
@@ -100,7 +102,30 @@ impl LiteralExpr {
 
 impl Display for LiteralExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.value)
+        DisplayAs::fmt_as(self, Dense, f)
+    }
+}
+
+impl DisplayAs for LiteralExpr {
+    fn fmt_as(
+        &self,
+        df: crate::display::DisplayFormat,
+        f: &mut std::fmt::Formatter,
+    ) -> std::fmt::Result {
+        match df {
+            Dense => {
+                write!(f, "{}", self.value)
+            }
+            #[cfg(feature = "pretty")]
+            crate::display::DisplayFormat::Tree => {
+                write!(
+                    f,
+                    "LiteralExpr(value: {}, dtype: {})",
+                    self.value,
+                    self.value.dtype()
+                )
+            }
+        }
     }
 }
 

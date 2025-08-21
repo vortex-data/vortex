@@ -10,6 +10,7 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
+use crate::display::{DisplayAs, DisplayFormat};
 use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
 
 vtable!(IsNull);
@@ -90,7 +91,21 @@ impl IsNullExpr {
 
 impl Display for IsNullExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "is_null({})", self.child)
+        DisplayAs::fmt_as(self, DisplayFormat::Dense, f)
+    }
+}
+
+impl DisplayAs for IsNullExpr {
+    fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match df {
+            DisplayFormat::Dense => {
+                write!(f, "is_null({})", self.child)
+            }
+            #[cfg(feature = "pretty")]
+            DisplayFormat::Tree => {
+                write!(f, "IsNullExpr")
+            }
+        }
     }
 }
 
@@ -211,5 +226,14 @@ mod tests {
                 Scalar::bool(*expected_value, Nullability::NonNullable)
             );
         }
+    }
+
+    #[test]
+    fn test_display() {
+        let expr = is_null(get_item("name", root()));
+        assert_eq!(expr.to_string(), "is_null($.name)");
+
+        let expr2 = is_null(root());
+        assert_eq!(expr2.to_string(), "is_null($)");
     }
 }

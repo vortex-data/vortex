@@ -9,6 +9,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
 
+use crate::display::{DisplayAs, DisplayFormat};
 use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
 
 vtable!(Cast);
@@ -102,7 +103,21 @@ impl CastExpr {
 
 impl Display for CastExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "cast({}, {})", self.child, self.target)
+        DisplayAs::fmt_as(self, DisplayFormat::Dense, f)
+    }
+}
+
+impl DisplayAs for CastExpr {
+    fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match df {
+            DisplayFormat::Dense => {
+                write!(f, "cast({}, {})", self.child, self.target)
+            }
+            #[cfg(feature = "pretty")]
+            DisplayFormat::Tree => {
+                write!(f, "CastExpr(target: {})", self.target)
+            }
+        }
     }
 }
 
@@ -166,5 +181,17 @@ mod tests {
             result.dtype(),
             &DType::Primitive(PType::I64, Nullability::NonNullable)
         );
+    }
+
+    #[test]
+    fn test_display() {
+        let expr = cast(
+            get_item("value", root()),
+            DType::Primitive(PType::I64, Nullability::NonNullable),
+        );
+        assert_eq!(expr.to_string(), "cast($.value, i64)");
+
+        let expr2 = cast(root(), DType::Bool(Nullability::Nullable));
+        assert_eq!(expr2.to_string(), "cast($, bool?)");
     }
 }

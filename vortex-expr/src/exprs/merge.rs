@@ -11,6 +11,7 @@ use vortex_array::{Array, ArrayRef, DeserializeMetadata, EmptyMetadata, IntoArra
 use vortex_dtype::{DType, FieldNames, Nullability, StructFields};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 
+use crate::display::{DisplayAs, DisplayFormat};
 use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
 
 vtable!(Merge);
@@ -191,12 +192,26 @@ pub fn merge(
 
 impl Display for MergeExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "merge({}){}",
-            self.values.iter().format(", "),
-            self.nullability
-        )
+        DisplayAs::fmt_as(self, DisplayFormat::Dense, f)
+    }
+}
+
+impl DisplayAs for MergeExpr {
+    fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match df {
+            DisplayFormat::Dense => {
+                write!(
+                    f,
+                    "merge({}){}",
+                    self.values.iter().format(", "),
+                    self.nullability
+                )
+            }
+            #[cfg(feature = "pretty")]
+            DisplayFormat::Tree => {
+                write!(f, "MergeExpr")
+            }
+        }
     }
 }
 
@@ -210,7 +225,7 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_error::{VortexResult, vortex_bail};
 
-    use crate::{MergeExpr, Scope, get_item, root};
+    use crate::{MergeExpr, Scope, get_item, merge, root};
 
     fn primitive_field(array: &dyn Array, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
         let mut field_path = field_path.iter();
@@ -432,5 +447,17 @@ mod tests {
         .into_array();
         let actual_array = expr.evaluate(&Scope::new(test_array.clone())).unwrap();
         assert!(actual_array.dtype().is_nullable());
+    }
+
+    #[test]
+    pub fn test_display() {
+        let expr = merge(
+            [get_item("struct1", root()), get_item("struct2", root())],
+            Nullability::NonNullable,
+        );
+        assert_eq!(expr.to_string(), "merge($.struct1, $.struct2)");
+
+        let expr2 = MergeExpr::new(vec![get_item("a", root())], Nullability::Nullable);
+        assert_eq!(expr2.to_string(), "merge($.a)?");
     }
 }

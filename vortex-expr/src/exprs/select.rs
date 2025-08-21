@@ -10,6 +10,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr::select_opts::Opts;
 use vortex_proto::expr::{FieldNames as ProtoFieldNames, SelectOpts};
 
+use crate::display::{DisplayAs, DisplayFormat};
 use crate::field::DisplayFieldNames;
 use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
 
@@ -275,9 +276,34 @@ impl Display for SelectField {
     }
 }
 
+impl DisplayAs for SelectExpr {
+    fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match df {
+            DisplayFormat::Dense => {
+                write!(f, "{}{}", self.child, self.fields)
+            }
+            #[cfg(feature = "pretty")]
+            DisplayFormat::Tree => {
+                let field_type = if self.fields.is_include() {
+                    "include"
+                } else {
+                    "exclude"
+                };
+
+                write!(f, "SelectExpr({}): {}", field_type, self.fields().fields())
+            }
+        }
+    }
+
+    fn child_names(&self) -> Option<Vec<String>> {
+        // Single child - no need to name it, the tree structure makes it obvious
+        None
+    }
+}
+
 impl Display for SelectExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}{}", self.child, self.fields)
+        DisplayAs::fmt_as(self, DisplayFormat::Dense, f)
     }
 }
 

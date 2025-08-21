@@ -62,6 +62,9 @@ use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail};
 use vortex_utils::aliases::hash_set::HashSet;
 pub use vtable::*;
 
+pub mod display;
+
+use crate::display::{DisplayAs, DisplayFormat};
 use crate::dyn_traits::DynEq;
 use crate::traversal::{NodeExt, ReferenceCollector};
 
@@ -74,7 +77,16 @@ pub type ExprRef = Arc<dyn VortexExpr>;
 
 /// Represents logical operation on [`ArrayRef`]s
 pub trait VortexExpr:
-    'static + Send + Sync + Debug + Display + DynEq + DynHash + private::Sealed + AnalysisExpr
+    'static
+    + Send
+    + Sync
+    + Debug
+    + Display
+    + DisplayAs
+    + DynEq
+    + DynHash
+    + private::Sealed
+    + AnalysisExpr
 {
     /// Convert expression reference to reference of [`Any`] type
     fn as_any(&self) -> &dyn Any;
@@ -154,6 +166,11 @@ impl dyn VortexExpr + '_ {
         );
         Ok(result)
     }
+
+    #[cfg(feature = "pretty")]
+    pub fn display_tree(&self) -> impl Display {
+        display::DisplayTreeExpr(self)
+    }
 }
 
 pub trait VortexExprExt {
@@ -223,7 +240,21 @@ impl<V: VTable> Debug for ExprAdapter<V> {
 
 impl<V: VTable> Display for ExprAdapter<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        Display::fmt(&self.0, f)
+        DisplayAs::fmt_as(&self.0, DisplayFormat::Dense, f)
+    }
+}
+
+impl<V: VTable> DisplayAs for ExprAdapter<V> {
+    fn fmt_as(&self, df: DisplayFormat, f: &mut Formatter) -> std::fmt::Result {
+        match df {
+            DisplayFormat::Dense => DisplayAs::fmt_as(&self.0, DisplayFormat::Dense, f),
+            #[cfg(feature = "pretty")]
+            DisplayFormat::Tree => DisplayAs::fmt_as(&self.0, DisplayFormat::Tree, f),
+        }
+    }
+
+    fn child_names(&self) -> Option<Vec<String>> {
+        DisplayAs::child_names(&self.0)
     }
 }
 

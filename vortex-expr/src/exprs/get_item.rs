@@ -10,6 +10,7 @@ use vortex_dtype::{DType, FieldName, FieldPath};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
 
+use crate::display::{DisplayAs, DisplayFormat};
 use crate::{
     AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog, VTable, root,
     vtable,
@@ -154,10 +155,23 @@ pub fn get_item(field: impl Into<FieldName>, child: ExprRef) -> ExprRef {
 
 impl Display for GetItemExpr {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}.{}", self.child, &self.field)
+        DisplayAs::fmt_as(self, DisplayFormat::Dense, f)
     }
 }
 
+impl DisplayAs for GetItemExpr {
+    fn fmt_as(&self, df: DisplayFormat, f: &mut Formatter) -> std::fmt::Result {
+        match df {
+            DisplayFormat::Dense => {
+                write!(f, "{}.{}", self.child, &self.field)
+            }
+            #[cfg(feature = "pretty")]
+            DisplayFormat::Tree => {
+                write!(f, "GetItemExpr(field = {})", self.field)
+            }
+        }
+    }
+}
 impl AnalysisExpr for GetItemExpr {
     fn max(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         catalog.stats_ref(&self.field_path()?, Stat::Max)

@@ -3157,6 +3157,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "insta"
+version = "1.43.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "154934ea70c58054b556dd430b99a98c2a7ff5309ac9891597e339b5c28f4371"
+dependencies = [
+ "console 0.15.11",
+ "once_cell",
+ "similar",
+]
+
+[[package]]
 name = "instability"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5832,6 +5843,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "termtree"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f50febec83f5ee1df3015341d8bd429f2d1cc62bcba7ea2076759d315084683"
+
+[[package]]
 name = "testing_table"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6740,12 +6757,14 @@ dependencies = [
  "arbitrary",
  "arcref",
  "dyn-hash",
+ "insta",
  "itertools 0.14.0",
  "parking_lot",
  "paste",
  "prost 0.14.1",
  "rstest",
  "serde",
+ "termtree",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",

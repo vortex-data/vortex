@@ -14,6 +14,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_proto::expr as pb;
 use vortex_scalar::{Scalar, ScalarValue};
 
+use crate::display::{DisplayAs, DisplayFormat};
 use crate::traversal::{NodeExt, NodeVisitor, TraversalOrder};
 use crate::{
     AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog, VTable, vtable,
@@ -172,11 +173,25 @@ impl DynamicComparisonExpr {
 
 impl Display for DynamicComparisonExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{} {} dynamic({})",
-            &self.lhs, self.operator, &self.rhs.dtype,
-        )
+        DisplayAs::fmt_as(self, DisplayFormat::Dense, f)
+    }
+}
+
+impl DisplayAs for DynamicComparisonExpr {
+    fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match df {
+            DisplayFormat::Dense => {
+                write!(
+                    f,
+                    "{} {} dynamic({})",
+                    &self.lhs, self.operator, &self.rhs.dtype,
+                )
+            }
+            #[cfg(feature = "pretty")]
+            DisplayFormat::Tree => {
+                write!(f, "DynamicComparisonExpr")
+            }
+        }
     }
 }
 

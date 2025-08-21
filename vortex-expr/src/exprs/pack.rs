@@ -12,6 +12,7 @@ use vortex_dtype::{DType, FieldName, FieldNames, Nullability, StructFields};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
 
+use crate::display::{DisplayAs, DisplayFormat};
 use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
 
 vtable!(Pack);
@@ -203,15 +204,29 @@ pub fn pack(
 
 impl Display for PackExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "pack({}){}",
-            self.names
-                .iter()
-                .zip(&self.values)
-                .format_with(", ", |(name, expr), f| f(&format_args!("{name}: {expr}"))),
-            self.nullability
-        )
+        DisplayAs::fmt_as(self, DisplayFormat::Dense, f)
+    }
+}
+
+impl DisplayAs for PackExpr {
+    fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match df {
+            DisplayFormat::Dense => {
+                write!(
+                    f,
+                    "pack({}){}",
+                    self.names
+                        .iter()
+                        .zip(&self.values)
+                        .format_with(", ", |(name, expr), f| f(&format_args!("{name}: {expr}"))),
+                    self.nullability
+                )
+            }
+            #[cfg(feature = "pretty")]
+            DisplayFormat::Tree => {
+                write!(f, "PackExpr")
+            }
+        }
     }
 }
 
@@ -228,7 +243,7 @@ mod tests {
     use vortex_dtype::{FieldNames, Nullability};
     use vortex_error::{VortexResult, vortex_bail};
 
-    use crate::{IntoExpr, PackExpr, Scope, col};
+    use crate::{IntoExpr, PackExpr, Scope, col, pack};
 
     fn test_array() -> ArrayRef {
         StructArray::from_fields(&[
@@ -375,5 +390,22 @@ mod tests {
 
         assert_eq!(actual_array.names(), ["one", "two", "three"]);
         assert_eq!(actual_array.validity(), &Validity::AllValid);
+    }
+
+    #[test]
+    pub fn test_display() {
+        let expr = pack(
+            [("id", col("user_id")), ("name", col("username"))],
+            Nullability::NonNullable,
+        );
+        assert_eq!(expr.to_string(), "pack(id: $.user_id, name: $.username)");
+
+        let expr2 = PackExpr::try_new(
+            ["x", "y"].into(),
+            vec![col("a"), col("b")],
+            Nullability::Nullable,
+        )
+        .unwrap();
+        assert_eq!(expr2.to_string(), "pack(x: $.a, y: $.b)?");
     }
 }
