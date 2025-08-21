@@ -13,13 +13,13 @@ fn main() {
     }
 
     // Skip header generation when sanitizers are enabled (cbindgen expansion fails with sanitizer flags)
-    if let Ok(rustflags) = env::var("RUSTFLAGS") {
-        if rustflags.contains("sanitizer") {
-            println!(
-                "cargo:warning=Skipping header generation with sanitizer flags (cbindgen incompatible)"
-            );
-            return;
-        }
+    if let Ok(rustflags) = env::var("RUSTFLAGS")
+        && rustflags.contains("sanitizer")
+    {
+        println!(
+            "cargo:warning=Skipping header generation with sanitizer flags (cbindgen incompatible)"
+        );
+        return;
     }
 
     // We require the macro expansion feature of cbindgen to generate the header, which is only available on nightly.
