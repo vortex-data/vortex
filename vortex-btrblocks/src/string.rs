@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::arrays::{VarBinArray, VarBinViewArray, VarBinViewVTable};
-use vortex_array::compress::downscale_integer_array;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dict::DictArray;
@@ -238,14 +237,14 @@ impl Scheme for FSSTScheme {
         let fsst = fsst_compress(&stats.src.clone().into_array(), &compressor)?;
 
         let compressed_original_lengths = IntCompressor::compress(
-            &downscale_integer_array(fsst.uncompressed_lengths().clone())?.to_primitive()?,
+            &fsst.uncompressed_lengths().to_primitive()?.downcast()?,
             is_sample,
             allowed_cascading,
             &[],
         )?;
 
         let compressed_codes_offsets = IntCompressor::compress(
-            &downscale_integer_array(fsst.codes().offsets().clone())?.to_primitive()?,
+            &fsst.codes().offsets().to_primitive()?.downcast()?,
             is_sample,
             allowed_cascading,
             &[],
