@@ -26,7 +26,7 @@ pub use log::vx_log_level;
 use parking_lot::Mutex;
 use tokio::runtime;
 use tokio::runtime::Runtime;
-use vortex::error::{VortexExpect, vortex_panic};
+use vortex::error::VortexExpect;
 
 #[cfg(all(feature = "mimalloc", not(miri)))]
 #[global_allocator]
@@ -53,23 +53,18 @@ pub(crate) fn get_runtime() -> Arc<Runtime> {
     }
 }
 
-/// Attempt to shutdown the runtime if no other references exist
-/// (e.g., no more VortexSessions are active)
-pub(crate) fn try_shutdown_runtime() {
+/// Attempt to shutdown the runtime by calling `drop` if no other references exist
+/// (e.g., no more VortexSessions are active). May block indefinitely if the runtime
+/// is still running tasks.
+pub fn try_shutdown_runtime() {
     let mut state = RUNTIME_STATE.lock();
 
     if let Some(runtime) = state.take() {
-        // Check if we have the only reference (strong_count == 1 means only the one in the Option)
-        if Arc::strong_count(&runtime) == 1 {
+        match Arc::try_unwrap(runtime) {
             // We have the only reference, safe to shut down
-            if let Ok(runtime) = Arc::try_unwrap(runtime) {
-                runtime.shutdown_background();
-            } else {
-                vortex_panic!("Failed to shutdown runtime");
-            }
-        } else {
-            // Still have other references, put it back
-            *state = Some(runtime);
+            Ok(runtime) => drop(runtime),
+            // There are other live references, so put it back
+            Err(runtime) => *state = Some(runtime),
         }
     }
 }
