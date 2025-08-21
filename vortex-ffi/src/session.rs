@@ -77,14 +77,6 @@ impl VortexSession {
     }
 }
 
-impl Drop for VortexSession {
-    fn drop(&mut self) {
-        // When the session is dropped, try to shutdown the runtime.
-        // If there are other sessions active, this will do nothing.
-        crate::try_shutdown_runtime();
-    }
-}
-
 // TODO(joe): unify with the df impl
 /// Approximate the in-memory size of a layout
 fn estimate_layout_size(footer: &Footer) -> usize {
