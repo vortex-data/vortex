@@ -21,6 +21,7 @@ impl CanonicalVTable<ChunkedVTable> for ChunkedVTable {
         if array.nchunks() == 1 {
             return array.chunks()[0].to_canonical();
         }
+
         match array.dtype() {
             DType::Struct(struct_dtype, _) => {
                 let struct_array = swizzle_struct_chunks(
@@ -30,12 +31,18 @@ impl CanonicalVTable<ChunkedVTable> for ChunkedVTable {
                 )?;
                 Ok(Canonical::Struct(struct_array))
             }
-            DType::List(elem, _) => Ok(Canonical::List(pack_lists(
+            DType::List(elem_dtype, _) => Ok(Canonical::List(pack_lists(
                 array.chunks(),
                 Validity::copy_from_array(array.as_ref())?,
-                elem,
+                elem_dtype,
             )?)),
-            _ => {
+            DType::Null
+            | DType::Bool(_)
+            | DType::Primitive(..)
+            | DType::Decimal(..)
+            | DType::Utf8(_)
+            | DType::Binary(_)
+            | DType::Extension(_) => {
                 let mut builder = builder_with_capacity(array.dtype(), array.len());
                 array.append_to_builder(builder.as_mut())?;
                 builder.finish().to_canonical()

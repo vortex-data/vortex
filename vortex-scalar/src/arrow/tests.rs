@@ -291,7 +291,7 @@ fn test_temporal_time_to_arrow(
                 Scalar::primitive(i32_value, Nullability::NonNullable)
             }
             PType::I64 => Scalar::primitive(value, Nullability::NonNullable),
-            _ => unreachable!(),
+            PType::U8 | PType::U16 | PType::U32 | PType::U64 | PType::I8 | PType::I16 | PType::F16 | PType::F32 | PType::F64 => unreachable!(),
         },
     );
 
@@ -340,7 +340,7 @@ fn test_temporal_date_to_arrow(
                 Scalar::primitive(i32_value, Nullability::NonNullable)
             }
             PType::I64 => Scalar::primitive(value, Nullability::NonNullable),
-            _ => unreachable!(),
+            PType::U8 | PType::U16 | PType::U32 | PType::U64 | PType::I8 | PType::I16 | PType::F16 | PType::F32 | PType::F64 => unreachable!(),
         },
     );
 
@@ -365,7 +365,7 @@ fn test_temporal_date_unsupported(#[case] time_unit: TimeUnit, #[case] ptype: PT
         match ptype {
             PType::I32 => Scalar::primitive(1234i32, Nullability::NonNullable),
             PType::I64 => Scalar::primitive(1234567890000i64, Nullability::NonNullable),
-            _ => unreachable!(),
+            PType::U8 | PType::U16 | PType::U32 | PType::U64 | PType::I8 | PType::I16 | PType::F16 | PType::F32 | PType::F64 => unreachable!(),
         },
     );
 

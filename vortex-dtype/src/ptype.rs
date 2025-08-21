@@ -13,7 +13,6 @@ use num_traits::{FromPrimitive, Num, NumCast, ToPrimitive, Unsigned};
 use vortex_error::{VortexError, VortexResult, vortex_err};
 
 use crate::DType;
-use crate::DType::*;
 use crate::half::f16;
 use crate::nullability::Nullability::NonNullable;
 
@@ -646,7 +645,9 @@ impl PType {
             Self::U16 => Self::I16,
             Self::U32 => Self::I32,
             Self::U64 => Self::I64,
-            _ => self,
+            Self::I8 | Self::I16 | Self::I32 | Self::I64 | Self::F16 | Self::F32 | Self::F64 => {
+                self
+            }
         }
     }
 
@@ -658,7 +659,9 @@ impl PType {
             Self::I16 => Self::U16,
             Self::I32 => Self::U32,
             Self::I64 => Self::U64,
-            _ => self,
+            Self::U8 | Self::U16 | Self::U32 | Self::U64 | Self::F16 | Self::F32 | Self::F64 => {
+                self
+            }
         }
     }
 }
@@ -686,9 +689,10 @@ impl TryFrom<&DType> for PType {
 
     #[inline]
     fn try_from(value: &DType) -> VortexResult<Self> {
-        match value {
-            Primitive(p, _) => Ok(*p),
-            _ => Err(vortex_err!("Cannot convert DType {} into PType", value)),
+        if let DType::Primitive(p, _) = value {
+            Ok(*p)
+        } else {
+            Err(vortex_err!("Cannot convert DType {} into PType", value))
         }
     }
 }
@@ -697,24 +701,24 @@ impl From<PType> for &DType {
     fn from(item: PType) -> Self {
         // We expand this match statement so that we can return a static reference.
         match item {
-            PType::I8 => &Primitive(PType::I8, NonNullable),
-            PType::I16 => &Primitive(PType::I16, NonNullable),
-            PType::I32 => &Primitive(PType::I32, NonNullable),
-            PType::I64 => &Primitive(PType::I64, NonNullable),
-            PType::U8 => &Primitive(PType::U8, NonNullable),
-            PType::U16 => &Primitive(PType::U16, NonNullable),
-            PType::U32 => &Primitive(PType::U32, NonNullable),
-            PType::U64 => &Primitive(PType::U64, NonNullable),
-            PType::F16 => &Primitive(PType::F16, NonNullable),
-            PType::F32 => &Primitive(PType::F32, NonNullable),
-            PType::F64 => &Primitive(PType::F64, NonNullable),
+            PType::I8 => &DType::Primitive(PType::I8, NonNullable),
+            PType::I16 => &DType::Primitive(PType::I16, NonNullable),
+            PType::I32 => &DType::Primitive(PType::I32, NonNullable),
+            PType::I64 => &DType::Primitive(PType::I64, NonNullable),
+            PType::U8 => &DType::Primitive(PType::U8, NonNullable),
+            PType::U16 => &DType::Primitive(PType::U16, NonNullable),
+            PType::U32 => &DType::Primitive(PType::U32, NonNullable),
+            PType::U64 => &DType::Primitive(PType::U64, NonNullable),
+            PType::F16 => &DType::Primitive(PType::F16, NonNullable),
+            PType::F32 => &DType::Primitive(PType::F32, NonNullable),
+            PType::F64 => &DType::Primitive(PType::F64, NonNullable),
         }
     }
 }
 
 impl From<PType> for DType {
     fn from(item: PType) -> Self {
-        Primitive(item, NonNullable)
+        DType::Primitive(item, NonNullable)
     }
 }
 
@@ -918,16 +922,49 @@ mod tests {
 
     #[test]
     fn to_dtype() {
-        assert_eq!(DType::from(PType::U8), Primitive(PType::U8, NonNullable));
-        assert_eq!(DType::from(PType::U16), Primitive(PType::U16, NonNullable));
-        assert_eq!(DType::from(PType::U32), Primitive(PType::U32, NonNullable));
-        assert_eq!(DType::from(PType::U64), Primitive(PType::U64, NonNullable));
-        assert_eq!(DType::from(PType::I8), Primitive(PType::I8, NonNullable));
-        assert_eq!(DType::from(PType::I16), Primitive(PType::I16, NonNullable));
-        assert_eq!(DType::from(PType::I32), Primitive(PType::I32, NonNullable));
-        assert_eq!(DType::from(PType::I64), Primitive(PType::I64, NonNullable));
-        assert_eq!(DType::from(PType::F16), Primitive(PType::F16, NonNullable));
-        assert_eq!(DType::from(PType::F32), Primitive(PType::F32, NonNullable));
-        assert_eq!(DType::from(PType::F64), Primitive(PType::F64, NonNullable));
+        assert_eq!(
+            DType::from(PType::U8),
+            DType::Primitive(PType::U8, NonNullable)
+        );
+        assert_eq!(
+            DType::from(PType::U16),
+            DType::Primitive(PType::U16, NonNullable)
+        );
+        assert_eq!(
+            DType::from(PType::U32),
+            DType::Primitive(PType::U32, NonNullable)
+        );
+        assert_eq!(
+            DType::from(PType::U64),
+            DType::Primitive(PType::U64, NonNullable)
+        );
+        assert_eq!(
+            DType::from(PType::I8),
+            DType::Primitive(PType::I8, NonNullable)
+        );
+        assert_eq!(
+            DType::from(PType::I16),
+            DType::Primitive(PType::I16, NonNullable)
+        );
+        assert_eq!(
+            DType::from(PType::I32),
+            DType::Primitive(PType::I32, NonNullable)
+        );
+        assert_eq!(
+            DType::from(PType::I64),
+            DType::Primitive(PType::I64, NonNullable)
+        );
+        assert_eq!(
+            DType::from(PType::F16),
+            DType::Primitive(PType::F16, NonNullable)
+        );
+        assert_eq!(
+            DType::from(PType::F32),
+            DType::Primitive(PType::F32, NonNullable)
+        );
+        assert_eq!(
+            DType::from(PType::F64),
+            DType::Primitive(PType::F64, NonNullable)
+        );
     }
 }

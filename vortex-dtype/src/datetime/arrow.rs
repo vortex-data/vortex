@@ -54,7 +54,13 @@ pub fn make_temporal_ext_dtype(data_type: &DataType) -> ExtDType {
             Arc::new(PType::I64.into()),
             Some(TemporalMetadata::Date(TimeUnit::Ms).into()),
         ),
-        _ => unimplemented!("{data_type} conversion"),
+        DataType::Null | DataType::Boolean | DataType::Int8 | DataType::Int16 | DataType::Int32 | DataType::Int64 | DataType::UInt8 | DataType::UInt16 | DataType::UInt32 | DataType::UInt64
+        | DataType::Float16 | DataType::Float32 | DataType::Float64 | DataType::Duration(_) | DataType::Interval(_) | DataType::Binary | DataType::FixedSizeBinary(_)
+        | DataType::LargeBinary | DataType::BinaryView | DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View | DataType::List(_) | DataType::ListView(_)
+        | DataType::FixedSizeList(..) | DataType::LargeList(_) | DataType::LargeListView(_) | DataType::Struct(_) | DataType::Union(..)
+        | DataType::Dictionary(..) | DataType::Decimal128(..) | DataType::Decimal256(..) | DataType::Map(..) | DataType::RunEndEncoded(..) => {
+            unimplemented!("{data_type} conversion")
+        }
     }
 }
 
@@ -68,7 +74,7 @@ pub fn make_arrow_temporal_dtype(ext_dtype: &ExtDType) -> DataType {
         TemporalMetadata::Date(time_unit) => match time_unit {
             TimeUnit::D => DataType::Date32,
             TimeUnit::Ms => DataType::Date64,
-            _ => {
+            TimeUnit::Ns | TimeUnit::Us | TimeUnit::S => {
                 vortex_panic!(InvalidArgument: "Invalid TimeUnit {} for {}", time_unit, ext_dtype.id())
             }
         },
@@ -77,7 +83,7 @@ pub fn make_arrow_temporal_dtype(ext_dtype: &ExtDType) -> DataType {
             TimeUnit::Ms => DataType::Time32(ArrowTimeUnit::Millisecond),
             TimeUnit::Us => DataType::Time64(ArrowTimeUnit::Microsecond),
             TimeUnit::Ns => DataType::Time64(ArrowTimeUnit::Nanosecond),
-            _ => {
+            TimeUnit::D => {
                 vortex_panic!(InvalidArgument: "Invalid TimeUnit {} for {}", time_unit, ext_dtype.id())
             }
         },
@@ -86,7 +92,7 @@ pub fn make_arrow_temporal_dtype(ext_dtype: &ExtDType) -> DataType {
             TimeUnit::Us => DataType::Timestamp(ArrowTimeUnit::Microsecond, tz.map(|t| t.into())),
             TimeUnit::Ms => DataType::Timestamp(ArrowTimeUnit::Millisecond, tz.map(|t| t.into())),
             TimeUnit::S => DataType::Timestamp(ArrowTimeUnit::Second, tz.map(|t| t.into())),
-            _ => {
+            TimeUnit::D => {
                 vortex_panic!(InvalidArgument: "Invalid TimeUnit {} for {}", time_unit, ext_dtype.id())
             }
         },

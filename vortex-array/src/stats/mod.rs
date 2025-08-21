@@ -174,13 +174,16 @@ impl Stat {
             Self::Min => data_type.clone(),
             Self::NullCount => DType::Primitive(PType::U64, NonNullable),
             Self::UncompressedSizeInBytes => DType::Primitive(PType::U64, NonNullable),
-            Self::NaNCount => match data_type {
-                DType::Primitive(ptype, ..) if ptype.is_float() => {
+            Self::NaNCount => {
+                // Only floating points support NaN counts.
+                if let DType::Primitive(ptype, ..) = data_type
+                    && ptype.is_float()
+                {
                     DType::Primitive(PType::U64, NonNullable)
+                } else {
+                    return None;
                 }
-                // Any other type does not support NaN count
-                _ => return None,
-            },
+            }
             Self::Sum => {
                 // Any array that cannot be summed has a sum DType of null.
                 // Any array that can be summed, but overflows, has a sum _value_ of null.
@@ -188,26 +191,18 @@ impl Stat {
                 match data_type {
                     DType::Bool(_) => DType::Primitive(PType::U64, Nullable),
                     DType::Primitive(ptype, _) => match ptype {
-                        PType::U8 | PType::U16 | PType::U32 | PType::U64 => {
-                            DType::Primitive(PType::U64, Nullable)
-                        }
-                        PType::I8 | PType::I16 | PType::I32 | PType::I64 => {
-                            DType::Primitive(PType::I64, Nullable)
-                        }
+                        PType::U8 | PType::U16 | PType::U32 | PType::U64 => DType::Primitive(PType::U64, Nullable),
+                        PType::I8 | PType::I16 | PType::I32 | PType::I64 => DType::Primitive(PType::I64, Nullable),
                         PType::F16 | PType::F32 | PType::F64 => {
                             // Float sums cannot overflow, but all null floats still end up as null
                             DType::Primitive(PType::F64, Nullable)
                         }
                     },
                     DType::Extension(ext_dtype) => self.dtype(ext_dtype.storage_dtype())?,
-                    // Unsupported types
-                    DType::Null
                     // TODO(aduffy): implement more stats for Decimal
-                    | DType::Decimal(..)
-                    | DType::Utf8(_)
-                    | DType::Binary(_)
-                    | DType::Struct(..)
-                    | DType::List(..) => return None,
+                    DType::Decimal(..) => return None,
+                    // Unsupported types
+                    DType::Null | DType::Utf8(_) | DType::Binary(_) | DType::Struct(..) | DType::List(..) => return None,
                 }
             }
         })

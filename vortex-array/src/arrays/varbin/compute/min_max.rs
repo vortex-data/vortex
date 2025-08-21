@@ -20,7 +20,7 @@ impl MinMaxKernel for VarBinVTable {
 register_kernel!(MinMaxKernelAdapter(VarBinVTable).lift());
 
 /// Compute the min and max of VarBin like array.
-pub fn compute_min_max<T: ArrayAccessor<[u8]>>(
+pub(crate) fn compute_min_max<T: ArrayAccessor<[u8]>>(
     array: &T,
     dtype: &DType,
 ) -> VortexResult<Option<MinMaxResult>> {
@@ -47,12 +47,14 @@ fn make_scalar(dtype: &DType, value: &[u8]) -> Scalar {
     match dtype {
         DType::Binary(_) => Scalar::new(dtype.clone(), value.into()),
         DType::Utf8(_) => {
-            // Safety:
-            // We trust the array's dtype here
+            // SAFETY: We only call `compute_min_max` within `varbin/`, in which we always validate
+            // the arrays, and we always pass `array.dtype()` in as the `dtype` argument.
             let value = unsafe { str::from_utf8_unchecked(value) };
             Scalar::new(dtype.clone(), value.into())
         }
-        _ => unreachable!(),
+        DType::Null | DType::Bool(_) | DType::Primitive(..) | DType::Decimal(..) | DType::List(..) | DType::Struct(..) | DType::Extension(_) => {
+            unreachable!()
+        }
     }
 }
 

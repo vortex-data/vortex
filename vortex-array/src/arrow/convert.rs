@@ -80,9 +80,9 @@ where
 }
 
 macro_rules! impl_from_arrow_primitive {
-    ($ty:path) => {
-        impl FromArrowArray<&ArrowPrimitiveArray<$ty>> for ArrayRef {
-            fn from_arrow(value: &ArrowPrimitiveArray<$ty>, nullable: bool) -> Self {
+    ($T:path) => {
+        impl FromArrowArray<&ArrowPrimitiveArray<$T>> for ArrayRef {
+            fn from_arrow(value: &ArrowPrimitiveArray<$T>, nullable: bool) -> Self {
                 let buffer = Buffer::from_arrow_scalar_buffer(value.values().clone());
                 let validity = nulls(value.nulls(), nullable);
                 PrimitiveArray::new(buffer, validity).into_array()
@@ -127,9 +127,9 @@ impl FromArrowArray<&ArrowPrimitiveArray<Decimal256Type>> for ArrayRef {
 }
 
 macro_rules! impl_from_arrow_temporal {
-    ($ty:path) => {
-        impl FromArrowArray<&ArrowPrimitiveArray<$ty>> for ArrayRef {
-            fn from_arrow(value: &ArrowPrimitiveArray<$ty>, nullable: bool) -> Self {
+    ($T:path) => {
+        impl FromArrowArray<&ArrowPrimitiveArray<$T>> for ArrayRef {
+            fn from_arrow(value: &ArrowPrimitiveArray<$T>, nullable: bool) -> Self {
                 temporal_array(value, nullable)
             }
         }
@@ -162,6 +162,9 @@ where
     )
     .into_array();
 
+    // We rely on the entrypoint in `impl FromArrowArray<&dyn ArrowArray> for ArrayRef` to handle
+    // new `DataType` variants.
+    #[allow(clippy::wildcard_enum_match_arm)]
     match value.data_type() {
         DataType::Timestamp(time_unit, tz) => {
             let tz = tz.as_ref().map(|s| s.to_string());
@@ -182,10 +185,15 @@ where
     <T as ByteArrayType>::Offset: NativePType,
 {
     fn from_arrow(value: &GenericByteArray<T>, nullable: bool) -> Self {
+        // We rely on the entrypoint in `impl FromArrowArray<&dyn ArrowArray> for ArrayRef` to
+        // handle new `DataType` variants.
+        #[allow(clippy::wildcard_enum_match_arm)]
         let dtype = match T::DATA_TYPE {
             DataType::Binary | DataType::LargeBinary => DType::Binary(nullable.into()),
             DataType::Utf8 | DataType::LargeUtf8 => DType::Utf8(nullable.into()),
-            _ => vortex_panic!("Invalid data type for ByteArray: {}", T::DATA_TYPE),
+            _ => {
+                vortex_panic!("Invalid data type for ByteArray: {}", T::DATA_TYPE)
+            }
         };
         VarBinArray::try_new(
             value.offsets().clone().into_array(),
@@ -200,10 +208,15 @@ where
 
 impl<T: ByteViewType> FromArrowArray<&GenericByteViewArray<T>> for ArrayRef {
     fn from_arrow(value: &GenericByteViewArray<T>, nullable: bool) -> Self {
+        // We rely on the entrypoint in `impl FromArrowArray<&dyn ArrowArray> for ArrayRef` to
+        // handle new `DataType` variants.
+        #[allow(clippy::wildcard_enum_match_arm)]
         let dtype = match T::DATA_TYPE {
             DataType::BinaryView => DType::Binary(nullable.into()),
             DataType::Utf8View => DType::Utf8(nullable.into()),
-            _ => vortex_panic!("Invalid data type for ByteViewArray: {}", T::DATA_TYPE),
+            _ => {
+                vortex_panic!("Invalid data type for ByteViewArray: {}", T::DATA_TYPE)
+            }
         };
 
         let views_buffer = Buffer::from_byte_buffer(
@@ -243,6 +256,9 @@ fn remove_nulls(data: arrow_data::ArrayData) -> arrow_data::ArrayData {
         return data;
     }
 
+    // We rely on the entrypoint in `impl FromArrowArray<&dyn ArrowArray> for ArrayRef` to handle
+    // new `DataType` variants.
+    #[allow(clippy::wildcard_enum_match_arm)]
     let children = match data.data_type() {
         DataType::Struct(fields) => Some(
             fields
@@ -313,11 +329,16 @@ impl FromArrowArray<&ArrowStructArray> for ArrayRef {
 
 impl<O: OffsetSizeTrait + NativePType> FromArrowArray<&GenericListArray<O>> for ArrayRef {
     fn from_arrow(value: &GenericListArray<O>, nullable: bool) -> Self {
+        // We rely on the entrypoint in `impl FromArrowArray<&dyn ArrowArray> for ArrayRef` to handle
+        // new `DataType` variants.
+        #[allow(clippy::wildcard_enum_match_arm)]
         // Extract the validity of the underlying element array
         let elem_nullable = match value.data_type() {
             DataType::List(field) => field.is_nullable(),
             DataType::LargeList(field) => field.is_nullable(),
-            dt => vortex_panic!("Invalid data type for ListArray: {dt}"),
+            dt => {
+                vortex_panic!("Invalid data type for ListArray: {dt}")
+            }
         };
         ListArray::try_new(
             Self::from_arrow(value.values().as_ref(), elem_nullable),
@@ -402,7 +423,7 @@ impl FromArrowArray<&dyn ArrowArray> for ArrayRef {
                 ArrowTimeUnit::Millisecond => {
                     Self::from_arrow(array.as_primitive::<Time32MillisecondType>(), nullable)
                 }
-                _ => unreachable!(),
+                ArrowTimeUnit::Microsecond | ArrowTimeUnit::Nanosecond => unreachable!(),
             },
             DataType::Time64(u) => match u {
                 ArrowTimeUnit::Microsecond => {
@@ -411,7 +432,7 @@ impl FromArrowArray<&dyn ArrowArray> for ArrayRef {
                 ArrowTimeUnit::Nanosecond => {
                     Self::from_arrow(array.as_primitive::<Time64NanosecondType>(), nullable)
                 }
-                _ => unreachable!(),
+                ArrowTimeUnit::Second | ArrowTimeUnit::Millisecond => unreachable!(),
             },
             DataType::Decimal128(..) => {
                 Self::from_arrow(array.as_primitive::<Decimal128Type>(), nullable)
@@ -419,10 +440,21 @@ impl FromArrowArray<&dyn ArrowArray> for ArrayRef {
             DataType::Decimal256(..) => {
                 Self::from_arrow(array.as_primitive::<Decimal256Type>(), nullable)
             }
-            _ => vortex_panic!(
-                "Array encoding not implemented for Arrow data type {}",
-                array.data_type().clone()
-            ),
+            DataType::Duration(_)
+            | DataType::Interval(_)
+            | DataType::FixedSizeBinary(_)
+            | DataType::ListView(_)
+            | DataType::FixedSizeList(..)
+            | DataType::LargeListView(_)
+            | DataType::Union(..)
+            | DataType::Dictionary(..)
+            | DataType::Map(..)
+            | DataType::RunEndEncoded(..) => {
+                vortex_panic!(
+                    "Array encoding not implemented for Arrow data type {}",
+                    array.data_type().clone()
+                )
+            }
         }
     }
 }

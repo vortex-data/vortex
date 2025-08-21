@@ -481,7 +481,8 @@ mod tests {
                         "ScalarValue {name} value not preserved: expected {expected}, got {v}"
                     );
                 }
-                _ => {
+                InnerScalarValue::Primitive(_) | InnerScalarValue::Null | InnerScalarValue::Bool(_) | InnerScalarValue::Decimal(_) | InnerScalarValue::Buffer(_) | InnerScalarValue::BufferString(_)
+                | InnerScalarValue::List(_) => {
                     vortex_panic!("Unexpected type after roundtrip for {name}: {read_back:?}")
                 }
             }
@@ -517,7 +518,8 @@ mod tests {
                         "ScalarValue {name} value not preserved: expected {expected}, got {v}"
                     );
                 }
-                _ => {
+                InnerScalarValue::Primitive(_) | InnerScalarValue::Null | InnerScalarValue::Bool(_) | InnerScalarValue::Decimal(_) | InnerScalarValue::Buffer(_) | InnerScalarValue::BufferString(_)
+                | InnerScalarValue::List(_) => {
                     vortex_panic!("Unexpected type after roundtrip for {name}: {read_back:?}")
                 }
             }

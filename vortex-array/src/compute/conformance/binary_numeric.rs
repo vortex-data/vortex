@@ -198,26 +198,25 @@ where
 /// }
 /// ```
 pub fn test_binary_numeric_array(array: ArrayRef) {
-    use vortex_dtype::PType;
-
     match array.dtype() {
         vortex_dtype::DType::Primitive(ptype, _) => match ptype {
-            PType::I8 => test_binary_numeric_conformance::<i8>(array),
-            PType::I16 => test_binary_numeric_conformance::<i16>(array),
-            PType::I32 => test_binary_numeric_conformance::<i32>(array),
-            PType::I64 => test_binary_numeric_conformance::<i64>(array),
-            PType::U8 => test_binary_numeric_conformance::<u8>(array),
-            PType::U16 => test_binary_numeric_conformance::<u16>(array),
-            PType::U32 => test_binary_numeric_conformance::<u32>(array),
-            PType::U64 => test_binary_numeric_conformance::<u64>(array),
-            PType::F16 => {
+            vortex_dtype::PType::I8 => test_binary_numeric_conformance::<i8>(array),
+            vortex_dtype::PType::I16 => test_binary_numeric_conformance::<i16>(array),
+            vortex_dtype::PType::I32 => test_binary_numeric_conformance::<i32>(array),
+            vortex_dtype::PType::I64 => test_binary_numeric_conformance::<i64>(array),
+            vortex_dtype::PType::U8 => test_binary_numeric_conformance::<u8>(array),
+            vortex_dtype::PType::U16 => test_binary_numeric_conformance::<u16>(array),
+            vortex_dtype::PType::U32 => test_binary_numeric_conformance::<u32>(array),
+            vortex_dtype::PType::U64 => test_binary_numeric_conformance::<u64>(array),
+            vortex_dtype::PType::F16 => {
                 // F16 not supported in num-traits, skip
                 eprintln!("Skipping f16 binary numeric tests (not supported)");
             }
-            PType::F32 => test_binary_numeric_conformance::<f32>(array),
-            PType::F64 => test_binary_numeric_conformance::<f64>(array),
+            vortex_dtype::PType::F32 => test_binary_numeric_conformance::<f32>(array),
+            vortex_dtype::PType::F64 => test_binary_numeric_conformance::<f64>(array),
         },
-        _ => {
+        vortex_dtype::DType::Null | vortex_dtype::DType::Bool(_) | vortex_dtype::DType::Decimal(..) | vortex_dtype::DType::Utf8(_) | vortex_dtype::DType::Binary(_) | vortex_dtype::DType::List(..) | vortex_dtype::DType::Struct(..)
+        | vortex_dtype::DType::Extension(_) => {
             vortex_panic!(
                 "Binary numeric tests are only supported for primitive numeric types, got {:?}",
                 array.dtype()
@@ -234,25 +233,24 @@ pub fn test_binary_numeric_array(array: ArrayRef) {
 /// - Maximum value (tests overflow behavior)
 /// - Minimum value (tests underflow behavior)
 fn test_binary_numeric_edge_cases(array: ArrayRef) {
-    use vortex_dtype::PType;
-
     match array.dtype() {
         vortex_dtype::DType::Primitive(ptype, _) => match ptype {
-            PType::I8 => test_binary_numeric_edge_cases_signed::<i8>(array),
-            PType::I16 => test_binary_numeric_edge_cases_signed::<i16>(array),
-            PType::I32 => test_binary_numeric_edge_cases_signed::<i32>(array),
-            PType::I64 => test_binary_numeric_edge_cases_signed::<i64>(array),
-            PType::U8 => test_binary_numeric_edge_cases_unsigned::<u8>(array),
-            PType::U16 => test_binary_numeric_edge_cases_unsigned::<u16>(array),
-            PType::U32 => test_binary_numeric_edge_cases_unsigned::<u32>(array),
-            PType::U64 => test_binary_numeric_edge_cases_unsigned::<u64>(array),
-            PType::F16 => {
+            vortex_dtype::PType::I8 => test_binary_numeric_edge_cases_signed::<i8>(array),
+            vortex_dtype::PType::I16 => test_binary_numeric_edge_cases_signed::<i16>(array),
+            vortex_dtype::PType::I32 => test_binary_numeric_edge_cases_signed::<i32>(array),
+            vortex_dtype::PType::I64 => test_binary_numeric_edge_cases_signed::<i64>(array),
+            vortex_dtype::PType::U8 => test_binary_numeric_edge_cases_unsigned::<u8>(array),
+            vortex_dtype::PType::U16 => test_binary_numeric_edge_cases_unsigned::<u16>(array),
+            vortex_dtype::PType::U32 => test_binary_numeric_edge_cases_unsigned::<u32>(array),
+            vortex_dtype::PType::U64 => test_binary_numeric_edge_cases_unsigned::<u64>(array),
+            vortex_dtype::PType::F16 => {
                 eprintln!("Skipping f16 edge case tests (not supported)");
             }
-            PType::F32 => test_binary_numeric_edge_cases_float::<f32>(array),
-            PType::F64 => test_binary_numeric_edge_cases_float::<f64>(array),
+            vortex_dtype::PType::F32 => test_binary_numeric_edge_cases_float::<f32>(array),
+            vortex_dtype::PType::F64 => test_binary_numeric_edge_cases_float::<f64>(array),
         },
-        _ => {
+        vortex_dtype::DType::Null | vortex_dtype::DType::Bool(_) | vortex_dtype::DType::Decimal(..) | vortex_dtype::DType::Utf8(_) | vortex_dtype::DType::Binary(_) | vortex_dtype::DType::List(..) | vortex_dtype::DType::Struct(..)
+        | vortex_dtype::DType::Extension(_) => {
             vortex_panic!(
                 "Binary numeric edge case tests are only supported for primitive numeric types"
             );

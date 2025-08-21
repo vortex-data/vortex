@@ -753,7 +753,9 @@ mod tests {
             PType::U8 => PValue::U8(source_value as u8),
             PType::U16 => PValue::U16(source_value as u16),
             PType::I32 => PValue::I32(source_value),
-            _ => unreachable!("Test case uses unexpected source type"),
+            PType::U32 | PType::U64 | PType::I16 | PType::I64 | PType::F16 | PType::F32 | PType::F64 => {
+                unreachable!("Test case uses unexpected source type")
+            }
         };
 
         let dtype = DType::Primitive(source_type, Nullability::NonNullable);

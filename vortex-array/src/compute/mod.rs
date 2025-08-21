@@ -303,35 +303,35 @@ impl<'a> Input<'a> {
     pub fn scalar(&self) -> Option<&'a Scalar> {
         match self {
             Input::Scalar(scalar) => Some(*scalar),
-            _ => None,
+            Input::Array(_) | Input::Mask(_) | Input::Builder(_) | Input::DType(_) => None,
         }
     }
 
     pub fn array(&self) -> Option<&'a dyn Array> {
         match self {
             Input::Array(array) => Some(*array),
-            _ => None,
+            Input::Scalar(_) | Input::Mask(_) | Input::Builder(_) | Input::DType(_) => None,
         }
     }
 
     pub fn mask(&self) -> Option<&'a Mask> {
         match self {
             Input::Mask(mask) => Some(*mask),
-            _ => None,
+            Input::Scalar(_) | Input::Array(_) | Input::Builder(_) | Input::DType(_) => None,
         }
     }
 
     pub fn builder(&'a mut self) -> Option<&'a mut dyn ArrayBuilder> {
         match self {
             Input::Builder(builder) => Some(*builder),
-            _ => None,
+            Input::Scalar(_) | Input::Array(_) | Input::Mask(_) | Input::DType(_) => None,
         }
     }
 
     pub fn dtype(&self) -> Option<&'a DType> {
         match self {
             Input::DType(dtype) => Some(*dtype),
-            _ => None,
+            Input::Scalar(_) | Input::Array(_) | Input::Mask(_) | Input::Builder(_) => None,
         }
     }
 }

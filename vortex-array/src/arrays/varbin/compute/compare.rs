@@ -37,16 +37,17 @@ impl CompareKernel for VarBinVTable {
                     .as_utf8()
                     .is_empty()
                     .vortex_expect("RHS should not be null"),
-                _ => vortex_bail!("VarBinArray can only have type of Binary or Utf8"),
+                DType::Null | DType::Bool(_) | DType::Primitive(..) | DType::Decimal(..) | DType::List(..) | DType::Struct(..)
+                | DType::Extension(_) => {
+                    vortex_bail!("VarBinArray can only have type of Binary or Utf8")
+                }
             };
 
             if rhs_is_empty {
                 let buffer = match operator {
-                    // Every possible value is gte ""
-                    Operator::Gte => BooleanBuffer::new_set(len),
-                    // No value is lt ""
-                    Operator::Lt => BooleanBuffer::new_unset(len),
-                    _ => {
+                    Operator::Gte => BooleanBuffer::new_set(len), // Every possible value is >= ""
+                    Operator::Lt => BooleanBuffer::new_unset(len), // No value is < ""
+                    Operator::Eq | Operator::NotEq | Operator::Gt | Operator::Lte => {
                         let lhs_offsets = lhs.offsets().to_canonical()?.into_primitive()?;
                         match_each_native_ptype!(lhs_offsets.ptype(), |P| {
                             compare_offsets_to_empty::<P>(lhs_offsets, operator)
@@ -79,7 +80,8 @@ impl CompareKernel for VarBinVTable {
                     .value()
                     .map(BinaryArray::new_scalar)
                     .unwrap_or_else(|| arrow_array::Scalar::new(BinaryArray::new_null(1))),
-                _ => vortex_bail!(
+                DType::Null | DType::Bool(_) | DType::Primitive(..) | DType::Decimal(..) | DType::List(..) | DType::Struct(..)
+                | DType::Extension(_) => vortex_bail!(
                     "VarBin array RHS can only be Utf8 or Binary, given {}",
                     rhs_const.dtype()
                 ),
