@@ -54,7 +54,7 @@ pub fn runend_encode(array: &PrimitiveArray) -> VortexResult<(PrimitiveArray, Ar
         }
     };
 
-    let ends = ends.downscale()?.to_primitive()?;
+    let ends = ends.downcast()?.to_primitive()?;
 
     Ok((ends, values))
 }

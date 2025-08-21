@@ -502,7 +502,7 @@ impl Scheme for SparseScheme {
                 &new_excludes,
             )?;
 
-            let indices = sparse.patches().indices().to_primitive()?.downscale()?;
+            let indices = sparse.patches().indices().to_primitive()?.downcast()?;
 
             let compressed_indices = IntCompressor::compress_no_dict(
                 &indices,

@@ -316,7 +316,7 @@ impl BtrBlocksCompressor {
                 // Compress the inner
                 let compressed_elems = self.compress(list_array.elements())?;
                 let compressed_offsets = IntCompressor::compress_no_dict(
-                    &list_array.offsets().to_primitive()?.downscale()?,
+                    &list_array.offsets().to_primitive()?.downcast()?,
                     false,
                     MAX_CASCADE,
                     &[],
