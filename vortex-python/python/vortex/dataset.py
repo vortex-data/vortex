@@ -235,16 +235,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
     @override
     def take(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
-        indices: pa.Array[
-            pa.Int8Scalar
-            | pa.Int16Scalar
-            | pa.Int32Scalar
-            | pa.Int64Scalar
-            | pa.UInt8Scalar
-            | pa.UInt16Scalar
-            | pa.UInt32Scalar
-            | pa.UInt64Scalar
-        ],
+        indices: pa.Array,
         columns: list[str] | None = None,
         filter: pc.Expression | None = None,
         batch_size: int | None = None,

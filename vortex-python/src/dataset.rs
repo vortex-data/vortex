@@ -28,6 +28,8 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     parent.add_submodule(&m)?;
     install_module("vortex._lib.dataset", &m)?;
 
+    m.add_class::<PyVortexDataset>()?;
+
     m.add_function(wrap_pyfunction!(dataset_from_url, &m)?)?;
 
     Ok(())
