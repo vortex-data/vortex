@@ -6,10 +6,20 @@ use std::env;
 use std::path::PathBuf;
 
 fn main() {
-    // Skip header generation under miri (miri fails on cbindgen)
+    // Skip header generation in environments where cbindgen macro expansion fails
     if env::var("MIRI").is_ok() || env::var("MIRIFLAGS").is_ok() {
-        println!("cargo:warning=Skipping header generation under miri");
+        println!("cargo:warning=Skipping header generation under miri (cbindgen incompatible)");
         return;
+    }
+
+    // Skip header generation when sanitizers are enabled (cbindgen expansion fails with sanitizer flags)
+    if let Ok(rustflags) = env::var("RUSTFLAGS") {
+        if rustflags.contains("sanitizer") {
+            println!(
+                "cargo:warning=Skipping header generation with sanitizer flags (cbindgen incompatible)"
+            );
+            return;
+        }
     }
 
     // We require the macro expansion feature of cbindgen to generate the header, which is only available on nightly.
