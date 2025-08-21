@@ -21,7 +21,6 @@
 //! It is a work-in-progress and is not yet used in production.
 
 pub mod bits;
-pub mod buffers;
 pub mod operators;
 pub mod query;
 pub mod selection;
