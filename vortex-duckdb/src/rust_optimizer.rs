@@ -160,6 +160,12 @@ impl RustLengthOptimizer {
 
         println!("🔍 FOUND VORTEX SCAN");
 
+        println!("scan {:?}", get_op);
+
+        // This operation needs to find all bound_column_exprs in the projection and record them
+        // replacing any which are len(col) -> col$length, but also storing the other bound column
+        // then updaing the column_ids and projection_ids in the get_op/vortex_scan.
+
         for (idx, projection_expr) in proj.projections().enumerate() {
             println!("🔍 Processing projection {}", idx);
 
@@ -221,21 +227,46 @@ impl RustLengthOptimizer {
 
             let virtual_col_name = format!("{}$length", column_alias);
 
+            let Some(col_idx) = get_op
+                .column_names()
+                .vortex_expect("names")
+                .iter()
+                .position(|n| *n == virtual_col_name)
+            else {
+                continue;
+            };
+
             println!(
                 "🔍 Processing len({}) -> {}",
                 column_alias, virtual_col_name
             );
 
+            println!(" get op  : {:#?}", get_op);
+
             let e = Expression::create_column_ref(
                 &virtual_col_name,
                 ColumnBinding {
                     table_index: column_bind.table_index,
-                    column_index: column_bind.column_index,
+                    column_index: col_idx as u64,
                 },
                 0,
+            )
+            .unwrap();
+
+            proj.set_projection(idx, e);
+
+            let mut projection_ids = get_op.get_projection_ids().vortex_expect("projection_ids");
+            projection_ids.push(col_idx as u64);
+            get_op.update_projection_ids(&projection_ids);
+
+            get_op.add_column_id(col_idx as u64);
+
+            println!(
+                "adding column id: {}, name: {}",
+                col_idx as u64, virtual_col_name
             );
 
-            // proj.set_projection(idx, e);
+            println!(" get op after : {:#?}", get_op);
 
             // Rest of the processing would go here, but let's stop here for now
             println!("🔍 Successfully processed len() at index {}", idx);

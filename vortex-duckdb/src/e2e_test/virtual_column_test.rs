@@ -181,6 +181,20 @@ fn test_mixed_virtual_and_real_columns() {
 }
 
 #[test]
+fn test_multiple_expr() {
+    let temp_file = RUNTIME.block_on(create_complex_test_vortex_file());
+    let conn = database_connection_with_optimizer();
+    let file_path = temp_file.path().to_string_lossy();
+
+    // Test virtual columns are exposed for both string columns
+    let virtual_columns_query = format!(
+        "SELECT page_count, page_count + 1, page_count + 2 FROM vortex_scan('{}')",
+        file_path
+    );
+    conn.query(&virtual_columns_query).unwrap();
+}
+
+#[test]
 fn test_multiple_string_columns_with_len_and_integer_column() {
     let temp_file = RUNTIME.block_on(create_complex_test_vortex_file());
     let conn = database_connection_with_optimizer();

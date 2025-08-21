@@ -217,6 +217,8 @@ duckdb_vx_expr_class duckdb_vx_expr_get_class(duckdb_vx_expr expr);
 
 const char *duckdb_vx_expr_get_bound_column_ref_get_name(duckdb_vx_expr expr);
 
+uint64_t duckdb_vx_expr_get_bound_column_ref_depth(duckdb_vx_expr expr);
+
 duckdb_value duckdb_vx_expr_bound_constant_get_value(duckdb_vx_expr expr);
 
 typedef struct {

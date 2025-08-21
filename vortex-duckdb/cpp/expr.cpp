@@ -134,6 +134,14 @@ extern "C" const char *duckdb_vx_expr_get_bound_column_ref_get_name(duckdb_vx_ex
     return result;
 }
 
+extern "C" uint64_t duckdb_vx_expr_get_bound_column_ref_depth(duckdb_vx_expr ffi_expr) {
+    if (!ffi_expr) {
+        return 0;
+    }
+    auto &expr = reinterpret_cast<Expression *>(ffi_expr)->Cast<BoundColumnRefExpression>();
+    return expr.depth;
+}
+
 extern "C" duckdb_value duckdb_vx_expr_bound_constant_get_value(duckdb_vx_expr ffi_expr) {
     if (!ffi_expr) {
         return nullptr;

@@ -672,7 +672,17 @@ extern "C" char *duckdb_vx_logical_get_to_string(duckdb_vx_logical_operator get_
         std::string str = "LogicalGet:\n";
         str += "  Function: " + get.function.name + "\n";
         str += "  Table Index: " + std::to_string(get.table_index) + "\n";
-        str += "  Columns: [";
+        str += "  Columns Idx: [";
+
+        auto &column_ids = get.GetColumnIds();
+        for (size_t i = 0; i < column_ids.size(); i++) {
+            if (i > 0)
+                str += ", ";
+            str += std::to_string(column_ids[i].GetPrimaryIndex());
+        }
+        str += "]\n";
+
+        str += "  Columns Names: [";
 
         if (!get.names.empty()) {
             for (size_t i = 0; i < get.names.size(); i++) {
@@ -824,9 +834,9 @@ extern "C" duckdb_vx_expr duckdb_vx_create_column_ref(const char *name, duckdb_v
         return nullptr;
 
     Expression *col_ref = new BoundColumnRefExpression(
-        // std::string(name),
-        LogicalType::INTEGER, ColumnBinding(binding.table_index, binding.column_index)
-        // depth
+         std::string(name),
+        LogicalType::INTEGER, ColumnBinding(binding.table_index, binding.column_index),
+         depth
     );
 
     return reinterpret_cast<duckdb_vx_expr>(col_ref);

@@ -18,6 +18,19 @@ impl Expression {
         unsafe { duckdb_vx_expr_get_class(self.as_ptr()) }
     }
 
+    /// Get the expression depth if this is a BoundColumnRef expression.
+    /// Returns None for other expression types.
+    ///
+    /// Expression depth represents how many query levels deep a column reference is.
+    /// Depth 0 = current query level, depth 1 = parent query (correlated), etc.
+    pub fn get_expression_depth(&self) -> Option<u64> {
+        if self.as_class_id() == DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_COLUMN_REF {
+            Some(unsafe { duckdb_vx_expr_get_bound_column_ref_depth(self.as_ptr()) })
+        } else {
+            None
+        }
+    }
+
     /// Match the subclass of the expression.
     pub fn as_class(&self) -> Option<ExpressionClass<'_>> {
         Some(match unsafe { duckdb_vx_expr_get_class(self.as_ptr()) } {
@@ -150,7 +163,15 @@ pub struct BoundColumnRef<'a> {
 }
 
 impl BoundColumnRef<'_> {
-    // Specific methods for BoundColumnRef can be added here
+    /// Get the expression depth for this BoundColumnRef.
+    ///
+    /// Expression depth in DuckDB represents how many query levels deep this column reference is.
+    /// A depth of 0 means the column is from the current query level,
+    /// depth 1 means it's from a parent query (correlated subquery), etc.
+    /// This is important for query optimization and determining if a subquery is correlated.
+    pub fn expression_depth(&self) -> u64 {
+        unsafe { duckdb_vx_expr_get_bound_column_ref_depth(self.expr.as_ptr()) }
+    }
 }
 
 pub struct BoundConstant<'a> {
@@ -169,10 +190,6 @@ pub struct BoundComparison<'a> {
     pub op: DUCKDB_VX_EXPR_TYPE,
 }
 
-impl BoundComparison<'_> {
-    // Specific methods for BoundComparison can be added here
-}
-
 pub struct BoundBetween<'a> {
     expr: &'a Expression,
     pub input: Expression,
@@ -180,10 +197,6 @@ pub struct BoundBetween<'a> {
     pub upper: Expression,
     pub lower_inclusive: bool,
     pub upper_inclusive: bool,
-}
-
-impl BoundBetween<'_> {
-    // Specific methods for BoundBetween can be added here
 }
 
 pub struct BoundConjunction<'a> {
