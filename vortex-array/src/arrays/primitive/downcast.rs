@@ -161,7 +161,7 @@ mod tests {
     #[test]
     fn test_downcast_preserves_values() {
         let values = vec![-100_i16, 0, 100];
-        let array = PrimitiveArray::from_iter(values.clone());
+        let array = PrimitiveArray::from_iter(values);
         let result = array.downcast().unwrap();
 
         assert_eq!(result.ptype(), PType::I8);
