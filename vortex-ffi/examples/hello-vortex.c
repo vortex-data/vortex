@@ -69,11 +69,29 @@ int main(int argc, char *argv[]) {
     size_t batch_len = vx_array_len(batch);
     printf("Chunk %d: %zu rows\n", chunk_count, batch_len);
 
-    // For the first chunk, show some details
+    // For the first chunk, show additional API coverage including struct introspection
     if (chunk_count == 0 && batch_len > 0) {
       const vx_dtype *dtype = vx_array_dtype(batch);
       vx_dtype_variant batch_variant = vx_dtype_get_variant(dtype);
       printf("  First chunk DType variant: %d\n", batch_variant);
+
+      // Test null count API
+      uint32_t null_count = vx_array_null_count(batch, &error);
+      if (error == NULL) {
+        printf("  Null count: %u\n", null_count);
+      } else {
+        printf("  Null count check failed (expected for some array types)\n");
+        vx_error_free(error);
+        error = NULL;
+      }
+
+      // Test struct field count if it's a struct  
+      if (batch_variant == DTYPE_STRUCT) {
+        const vx_struct_fields *fields = vx_dtype_struct_dtype(dtype);
+        size_t n_fields = vx_struct_fields_nfields(fields);
+        printf("  Struct with %zu fields\n", n_fields);
+        vx_struct_fields_free(fields);
+      }
     }
 
     vx_array_free(batch);

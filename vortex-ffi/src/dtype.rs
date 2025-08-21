@@ -169,7 +169,9 @@ pub unsafe extern "C-unwind" fn vx_dtype_decimal_scale(dtype: *const vx_dtype) -
         .scale()
 }
 
-/// Return a borrowed reference to the [`vx_struct_fields`] of a struct data type.
+/// Return an owned reference to the [`vx_struct_fields`] of a struct data type.
+/// 
+/// The caller is responsible for freeing the returned pointer with [`vx_struct_fields_free`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_struct_dtype(
     dtype: *const vx_dtype,
@@ -177,7 +179,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_struct_dtype(
     let struct_dtype = vx_dtype::as_ref(dtype)
         .as_struct_opt()
         .vortex_expect("not a struct dtype");
-    vx_struct_fields::new_ref(struct_dtype)
+    vx_struct_fields::new(Arc::new(struct_dtype.clone()))
 }
 
 /// Return a borrowed reference to the `element` typee of a list data type.
