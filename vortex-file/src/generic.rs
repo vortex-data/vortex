@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
 use std::sync::Arc;
 
 use dashmap::DashMap;
-use futures::{StreamExt, pin_mut};
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
-use vortex_io::{Dispatch, InstrumentedReadAt, IoDispatcher, VortexReadAt};
+use vortex_io::runtime::{Runtime, VortexRead};
+use vortex_io::source::{FileIo, IoSource};
+use vortex_io::{IoDispatcher, PerformanceHint};
 use vortex_layout::segments::{SegmentEvents, SegmentId};
 
 use crate::driver::CoalescedDriver;
@@ -71,23 +71,23 @@ impl VortexOpenOptions<GenericVortexFile> {
     pub fn open_blocking(self, read: impl AsRef<std::path::Path>) -> VortexResult<VortexFile> {
         // Since we dispatch all I/O to a dedicated Tokio dispatcher thread, we can just
         // block-on the async call to open.
+        // FIXME(ngates): use a Vortex runtime to block on.
         futures::executor::block_on(self.open(read))
     }
 
     /// Open a Vortex file using the provided [`std::path::Path`].
-    #[cfg(feature = "tokio")]
-    pub async fn open(mut self, read: impl AsRef<std::path::Path>) -> VortexResult<VortexFile> {
-        self.options.io_dispatcher = TOKIO_DISPATCHER.clone();
-        self.open_read_at(vortex_io::TokioFile::open(read)?).await
+    pub async fn open(self, read: impl AsRef<std::path::Path>) -> VortexResult<VortexFile> {
+        // self.open_read_at(vortex_io::TokioFile::open(read)?).await
+        self.open_read_at(FileIo::try_new(read.as_ref())?).await
     }
 
     /// Low-level API for opening any [`VortexReadAt`]. Note that the user is responsible for
     /// ensuring the `VortexReadAt` implementation is compatible with the chosen I/O dispatcher.
-    pub async fn open_read_at<R: VortexReadAt + Send + Sync>(
+    pub(crate) async fn open_read_at(
         self,
-        read: R,
+        io_source: Arc<dyn IoSource>,
     ) -> VortexResult<VortexFile> {
-        let read = Arc::new(read);
+        let read = io_source.open(&Runtime::current());
 
         let footer = if let Some(footer) = self.footer {
             footer
@@ -109,47 +109,46 @@ impl VortexOpenOptions<GenericVortexFile> {
         // Wrap the events source to first resolve segments from the initial read cache.
         let segment_source = Arc::new(SegmentCacheSourceAdapter::new(segment_cache, events_source));
 
-        let read = InstrumentedReadAt::new(read.clone(), &self.metrics);
+        // let read = InstrumentedReadAt::new(read.clone(), &self.metrics);
 
-        let driver = CoalescedDriver::new(
-            read.performance_hint(),
+        let _driver = CoalescedDriver::new(
+            // read.performance_hint(),
+            PerformanceHint::local(),
             footer.segment_map().clone(),
             events,
             self.metrics.clone(),
         );
 
-        // Spawn an I/O driver onto the dispatcher.
-        let io_concurrency = self.options.io_concurrency;
-        self.options
-            .io_dispatcher
-            .dispatch(move || {
-                async move {
-                    // Drive the segment event stream.
-                    let stream = driver
-                        .map(|coalesced_req| coalesced_req.launch(&read))
-                        .buffer_unordered(io_concurrency);
-                    pin_mut!(stream);
-
-                    // Drive the stream to completion.
-                    stream.collect::<()>().await
-                }
-            })
-            .vortex_expect("Failed to spawn I/O driver");
+        // // Spawn an I/O driver onto the dispatcher.
+        // let io_concurrency = self.options.io_concurrency;
+        // self.options
+        //     .io_dispatcher
+        //     .dispatch(move || {
+        //         async move {
+        //             // Drive the segment event stream.
+        //             let stream = driver
+        //                 .map(|coalesced_req| coalesced_req.launch(&read))
+        //                 .buffer_unordered(io_concurrency);
+        //             pin_mut!(stream);
+        //
+        //             // Drive the stream to completion.
+        //             stream.collect::<()>().await
+        //         }
+        //     })
+        //     .vortex_expect("Failed to spawn I/O driver");
 
         Ok(VortexFile {
             footer,
+            io_source,
             segment_source,
             metrics: self.metrics,
         })
     }
 
-    async fn read_footer<R: VortexReadAt + Send + Sync>(
-        &self,
-        read: Arc<R>,
-    ) -> VortexResult<Footer> {
+    async fn read_footer(&self, read: Arc<dyn VortexRead>) -> VortexResult<Footer> {
         // Fetch the file size and perform the initial read.
         let file_size = match self.file_size {
-            None => self.dispatched_size(read.clone()).await?,
+            None => read.size().await?,
             Some(file_size) => file_size,
         };
         let initial_read_size = self
@@ -159,8 +158,12 @@ impl VortexOpenOptions<GenericVortexFile> {
             .max(MAX_FOOTER_SIZE as u64 + EOF_SIZE as u64)
             .min(file_size);
         let mut initial_offset = file_size - initial_read_size;
-        let mut initial_read: ByteBuffer = self
-            .dispatched_read(read.clone(), initial_offset..file_size)
+        let mut initial_read: ByteBuffer = read
+            .read(
+                initial_offset,
+                usize::try_from(initial_read_size)?,
+                Alignment::none(),
+            )
             .await?;
 
         let postscript = self.parse_postscript(&initial_read)?;
@@ -195,12 +198,13 @@ impl VortexOpenOptions<GenericVortexFile> {
             log::info!(
                 "Initial read from {initial_offset} did not cover all footer segments, reading from {read_more_offset}"
             );
+            let read_more_len = usize::try_from(read_more_offset - initial_offset)?;
 
             let mut new_initial_read =
                 ByteBufferMut::with_capacity(usize::try_from(file_size - read_more_offset)?);
             new_initial_read.extend_from_slice(
-                &self
-                    .dispatched_read(read, read_more_offset..initial_offset)
+                &read
+                    .read(read_more_offset, read_more_len, Alignment::none())
                     .await?,
             );
             new_initial_read.extend_from_slice(&initial_read);
@@ -232,31 +236,6 @@ impl VortexOpenOptions<GenericVortexFile> {
         self.populate_initial_segments(initial_offset, &initial_read, &footer);
 
         Ok(footer)
-    }
-
-    /// Dispatch a [`VortexReadAt::size`] request onto the configured I/O dispatcher.
-    async fn dispatched_size<R: VortexReadAt + Send + Sync>(
-        &self,
-        read: Arc<R>,
-    ) -> VortexResult<u64> {
-        Ok(self
-            .options
-            .io_dispatcher
-            .dispatch(move || async move { read.size().await })?
-            .await??)
-    }
-
-    /// Dispatch a read onto the configured I/O dispatcher.
-    async fn dispatched_read<R: VortexReadAt + Send + Sync>(
-        &self,
-        read: Arc<R>,
-        range: Range<u64>,
-    ) -> VortexResult<ByteBuffer> {
-        Ok(self
-            .options
-            .io_dispatcher
-            .dispatch(move || async move { read.read_byte_range(range, Alignment::none()).await })?
-            .await??)
     }
 
     /// Populate segments in the cache that were covered by the initial read.
@@ -295,7 +274,7 @@ impl VortexOpenOptions<GenericVortexFile> {
     ) -> VortexResult<VortexFile> {
         use std::path::Path;
 
-        use vortex_io::ObjectStoreReadAt;
+        use vortex_io::source::ObjectStoreIo;
 
         // Object store _must_ use tokio for I/O.
         self.options.io_dispatcher = TOKIO_DISPATCHER.clone();
@@ -309,12 +288,8 @@ impl VortexOpenOptions<GenericVortexFile> {
             // Local disk is too fast to justify prefetching.
             self.open(local_path).await
         } else {
-            self.open_read_at(ObjectStoreReadAt::new(
-                object_store.clone(),
-                path.into(),
-                None,
-            ))
-            .await
+            self.open_read_at(ObjectStoreIo::new(object_store.clone(), path.into()))
+                .await
         }
     }
 }

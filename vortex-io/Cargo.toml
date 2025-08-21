@@ -26,19 +26,18 @@ log = { workspace = true }
 object_store = { workspace = true, optional = true, features = ["fs"] }
 oneshot = { workspace = true }
 pin-project = { workspace = true }
+smol = { workspace = true }
 # this is the maximum subset of fetaures that is safe for wasm32 targets
 tokio = { workspace = true, features = ["io-util", "rt", "sync"] }
 tracing = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 vortex-metrics = { workspace = true }
-memmap2 = "0.9.7"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = { workspace = true }
 
 [dev-dependencies]
-divan = { workspace = true }
 rstest = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
@@ -52,7 +51,3 @@ tokio = ["tokio/fs"]
 
 [lints]
 workspace = true
-
-[[bench]]
-name = "source_read"
-harness = false

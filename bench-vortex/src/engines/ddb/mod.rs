@@ -53,6 +53,7 @@ impl DuckDBCtx {
         }
         let db = Database::open(db_path)?;
         let connection = db.connect()?;
+
         vortex_duckdb::register_table_functions(&connection)?;
         Ok(Self { db, connection })
     }

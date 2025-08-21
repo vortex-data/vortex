@@ -6,6 +6,7 @@ use std::sync::Arc;
 use futures::FutureExt;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_io::source::MemoryIo;
 use vortex_layout::segments::{SegmentFuture, SegmentId, SegmentSource};
 
 use crate::{FileType, Footer, VortexFile, VortexOpenOptions};
@@ -58,12 +59,13 @@ impl VortexOpenOptions<InMemoryFileType> {
         )?;
 
         let segment_source = Arc::new(InMemorySegmentReader {
-            buffer,
+            buffer: buffer.clone(),
             footer: footer.clone(),
         });
 
         Ok(VortexFile {
             footer,
+            io_source: MemoryIo::new(buffer),
             segment_source,
             metrics: self.metrics,
         })

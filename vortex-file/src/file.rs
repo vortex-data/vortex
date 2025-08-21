@@ -14,6 +14,8 @@ use vortex_dtype::{DType, Field, FieldPath, FieldPathSet};
 use vortex_error::VortexResult;
 use vortex_expr::pruning::checked_pruning_expr;
 use vortex_expr::{ExprRef, Scope};
+use vortex_io::runtime::Runtime;
+use vortex_io::source::IoSource;
 use vortex_layout::LayoutReader;
 use vortex_layout::segments::SegmentSource;
 use vortex_metrics::VortexMetrics;
@@ -22,6 +24,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::footer::Footer;
 use crate::pruning::extract_relevant_file_stats_as_struct_row;
+use crate::segments::FileSegmentSource;
 
 /// Represents a Vortex file, providing access to its metadata and content.
 ///
@@ -32,6 +35,9 @@ use crate::pruning::extract_relevant_file_stats_as_struct_row;
 pub struct VortexFile {
     /// The footer of the Vortex file, containing metadata and layout information.
     pub(crate) footer: Footer,
+    /// The IoSource that backs this file. We cannot read from the source until it is bound to
+    /// a runtime.
+    pub(crate) io_source: Arc<dyn IoSource>,
     /// The segment source used to read segments from this file.
     pub(crate) segment_source: Arc<dyn SegmentSource>,
     /// Metrics tied to the file.
@@ -72,6 +78,13 @@ impl VortexFile {
     /// is dropped.
     pub fn segment_source(&self) -> Arc<dyn SegmentSource> {
         self.segment_source.clone()
+    }
+
+    pub fn segment_source2(&self, runtime: &Runtime) -> Arc<dyn SegmentSource> {
+        Arc::new(FileSegmentSource::new(
+            self.footer.segment_map().clone(),
+            self.io_source.open(runtime),
+        ))
     }
 
     /// Create a new layout reader for the file.
