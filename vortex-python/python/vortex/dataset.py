@@ -3,13 +3,15 @@
 
 import warnings
 from collections.abc import Iterator
-from typing_extensions import override, final
+from typing import final
 
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.dataset
+from typing_extensions import override
 
-from ._lib import dataset as _dataset, file as _file  # pyright: ignore[reportMissingModuleSource]
+from ._lib import dataset as _dataset  # pyright: ignore[reportMissingModuleSource]
+from ._lib import file as _file  # pyright: ignore[reportMissingModuleSource]
 from .arrays import array
 from .arrow.expression import arrow_to_vortex as arrow_to_vortex_expr
 

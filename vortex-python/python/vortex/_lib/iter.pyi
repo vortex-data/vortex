@@ -6,8 +6,8 @@ from typing import final
 
 import pyarrow as pa
 
-from .dtype import DType
 from .arrays import Array
+from .dtype import DType
 
 @final
 class ArrayIterator:

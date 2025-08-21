@@ -6,7 +6,7 @@ Simple benchmarks
 """
 
 import io
-from typing import Callable
+from collections.abc import Callable
 
 import pyarrow as pa
 import pyarrow.parquet as pq

@@ -7,10 +7,10 @@ import polars as pl
 import pyarrow as pa
 
 from .arrays import Array
+from .dataset import VortexDataset
 from .dtype import DType
 from .expr import Expr
 from .iter import ArrayIterator
-from .dataset import VortexDataset
 
 IntoProjection: TypeAlias = Expr | list[str] | None
 IntoArrayIterator: TypeAlias = Array | ArrayIterator | pa.Table | pa.RecordBatchReader

@@ -1,8 +1,9 @@
 #  SPDX-License-Identifier: Apache-2.0
 #  SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-from datetime import datetime, date
-from typing import TypeAlias, final
+from datetime import date, datetime
+from typing import Any, TypeAlias, final
+
 from typing_extensions import override
 
 from .dtype import DType

@@ -8,9 +8,9 @@ import pandas as pd
 import polars as pl
 import pyarrow as pa
 
-from .serde import ArrayContext
 from .dtype import DType, PType
 from .scalar import Scalar, ScalarPyType
+from .serde import ArrayContext
 
 class Array:
     def __lt__(self, other: Array) -> Array: ...

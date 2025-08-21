@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import abc
-from typing import TYPE_CHECKING, Any, Callable
-from typing_extensions import override
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 import pyarrow
+from typing_extensions import override
 
-from vortex._lib.dtype import DType  # pyright: ignore[reportMissingModuleSource]
 import vortex._lib.arrays as _arrays  # pyright: ignore[reportMissingModuleSource]
-from vortex._lib.serde import ArrayParts, ArrayContext  # pyright: ignore[reportMissingModuleSource]
+from vortex._lib.dtype import DType  # pyright: ignore[reportMissingModuleSource]
+from vortex._lib.serde import ArrayContext, ArrayParts  # pyright: ignore[reportMissingModuleSource]
 
 try:
     import pandas

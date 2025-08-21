@@ -5,13 +5,13 @@ import operator
 from collections.abc import Callable
 
 from google.protobuf.internal.containers import RepeatedCompositeFieldContainer
-from substrait.gen.proto.extended_expression_pb2 import ExpressionReference, ExtendedExpression
-from substrait.gen.proto.type_pb2 import NamedStruct
 from substrait.gen.proto.algebra_pb2 import Expression, FunctionArgument
+from substrait.gen.proto.extended_expression_pb2 import ExpressionReference, ExtendedExpression
 from substrait.gen.proto.extensions.extensions_pb2 import SimpleExtensionDeclaration, SimpleExtensionURI
+from substrait.gen.proto.type_pb2 import NamedStruct
 
-from ._lib import expr as _expr  # pyright: ignore[reportMissingModuleSource]
 from ._lib import dtype as _dtype  # pyright: ignore[reportMissingModuleSource]
+from ._lib import expr as _expr  # pyright: ignore[reportMissingModuleSource]
 
 
 def literal(substrait_object: Expression.Literal) -> _expr.Expr:

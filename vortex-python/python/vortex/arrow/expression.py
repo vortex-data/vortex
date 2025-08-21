@@ -3,9 +3,12 @@
 
 import pyarrow as pa
 import pyarrow.compute as pc
-from substrait.proto import ExtendedExpression  # pyright: ignore[reportAttributeAccessIssue, reportMissingTypeStubs, reportUnknownVariableType]
+from substrait.proto import (  # pyright: ignore[reportMissingTypeStubs]
+    ExtendedExpression,  # pyright: ignore[reportAttributeAccessIssue, reportUnknownVariableType]
+)
 
 from vortex._lib.expr import Expr  # pyright: ignore[reportMissingModuleSource]
+
 from ..substrait import extended_expression
 
 

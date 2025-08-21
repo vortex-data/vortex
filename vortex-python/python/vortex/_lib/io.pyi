@@ -1,8 +1,8 @@
 #  SPDX-License-Identifier: Apache-2.0
 #  SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-from .expr import Expr
 from .arrays import Array
+from .expr import Expr
 from .file import IntoArrayIterator
 
 def read_url(

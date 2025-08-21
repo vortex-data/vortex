@@ -1,14 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-from typing import Any, Callable
 import json
 import operator
+from collections.abc import Callable
+from typing import Any
 
 import polars as pl
 
-from ._lib import dtype as _dtype  # pyright: ignore[reportMissingModuleSource]
 import vortex.expr as ve
+
+from ._lib import dtype as _dtype  # pyright: ignore[reportMissingModuleSource]
 
 
 def polars_to_vortex(expr: pl.Expr) -> ve.Expr:

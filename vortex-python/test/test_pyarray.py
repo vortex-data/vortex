@@ -2,12 +2,17 @@
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 from typing import final
-from typing_extensions import override
+
 import numpy as np
 import pyarrow as pa
 import pytest
-from pcodec import ChunkConfig  # pyright: ignore[reportAttributeAccessIssue, reportMissingTypeStubs, reportUnknownVariableType]
-from pcodec import wrapped as pco  # pyright: ignore[reportAttributeAccessIssue, reportMissingTypeStubs, reportUnknownVariableType]
+from pcodec import (  # pyright: ignore[reportMissingTypeStubs]
+    ChunkConfig,  # pyright: ignore[reportAttributeAccessIssue, reportUnknownVariableType]
+)
+from pcodec import (  # pyright: ignore[reportMissingTypeStubs]
+    wrapped as pco,  # pyright: ignore[reportAttributeAccessIssue, reportUnknownVariableType]
+)
+from typing_extensions import override
 
 import vortex as vx
 
