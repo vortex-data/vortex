@@ -12,7 +12,7 @@ use vortex_vector::query::QueryPlan;
 use vortex_vector::types::Element;
 use vortex_vector::vector::Vector;
 use vortex_vector::view::ViewMut;
-use vortex_vector::{Kernel, SC};
+use vortex_vector::{Kernel, KernelContext, SC};
 
 use crate::Canonical;
 use crate::arrays::{BoolArray, PrimitiveArray};
@@ -79,14 +79,16 @@ fn export_primitive_nonnull<T: Element + NativePType>(
     let mut remaining = len;
     while remaining >= SC {
         let mut elements_view = ViewMut::new(&mut elements[len - remaining..][..SC], None);
-        pipeline.step(&(), BitView::all_true(), &mut elements_view)?;
+        let dummy_ctx = KernelContext::default();
+        pipeline.step(&dummy_ctx, BitView::all_true(), &mut elements_view)?;
         remaining -= SC;
     }
 
     if remaining > 0 {
         let mut elements_view = ViewMut::new(&mut elements[len - remaining..][..SC], None);
         let mask = BitVector::true_until(remaining);
-        pipeline.step(&(), mask.as_view(), &mut elements_view)?;
+        let dummy_ctx = KernelContext::default();
+        pipeline.step(&dummy_ctx, mask.as_view(), &mut elements_view)?;
     }
 
     unsafe { elements.set_len(len) };
@@ -122,7 +124,8 @@ fn export_primitive_nonnull_masked<T: Element + NativePType>(
         mask_view.clear();
         mask_view.fill_with_words(&mut bit_chunks_iter);
 
-        pipeline.step(&(), mask_view.as_view(), &mut elements_view)?;
+        let dummy_ctx = KernelContext::default();
+        pipeline.step(&dummy_ctx, mask_view.as_view(), &mut elements_view)?;
         offset += mask_view.true_count();
 
         remaining = remaining.saturating_sub(SC);
@@ -164,7 +167,8 @@ fn export_bool_nonnull_masked(mask: &Mask, pipeline: &mut dyn Kernel) -> VortexR
             mask_view.intersect_prefix(current_len);
         }
 
-        pipeline.step(&(), mask_view.as_view(), &mut elements_buffer_mut)?;
+        let dummy_ctx = KernelContext::default();
+        pipeline.step(&dummy_ctx, mask_view.as_view(), &mut elements_buffer_mut)?;
 
         // Collect bools efficiently with unsafe for better performance
         let bool_slice = elements_buffer_mut.as_slice::<bool>();

@@ -66,12 +66,7 @@ impl<T: Element + NativePType> Kernel for PrimitiveKernel<T> {
         Ok(())
     }
 
-    fn step(
-        &mut self,
-        _ctx: &dyn KernelContext,
-        mask: BitView,
-        out: &mut ViewMut,
-    ) -> VortexResult<()> {
+    fn step(&mut self, _ctx: &KernelContext, mask: BitView, out: &mut ViewMut) -> VortexResult<()> {
         // FIXME(ngates): support mask.
         // assert_eq!(mask.true_count(), N, "Mask must have exactly N true bits");
 
@@ -97,29 +92,11 @@ impl<T: Element + NativePType> Kernel for PrimitiveKernel<T> {
 
 #[cfg(test)]
 mod tests {
-    use std::task::Poll;
-
     use vortex_array::{IntoArray, ToCanonical};
-    use vortex_buffer::{BufferMut, ByteBuffer};
+    use vortex_buffer::BufferMut;
 
     use super::*;
     use crate::bits::BitView;
-    use crate::{BufferId, VectorId, VectorRef};
-
-    /// A no-op context for testing primitive kernels that don't need external resources
-    struct NoOpContext;
-
-    impl KernelContext for NoOpContext {
-        fn vector(&self, _vector_id: VectorId) -> VectorRef<'_> {
-            unreachable!("PrimitiveKernel does not access vectors - it owns its buffer directly")
-        }
-
-        fn buffer(&self, _buffer_id: BufferId) -> Poll<VortexResult<ByteBuffer>> {
-            unreachable!(
-                "PrimitiveKernel does not access external buffers - it owns its buffer directly"
-            )
-        }
-    }
 
     #[test]
     fn test_primitive_kernel_basic_operation() {
@@ -143,11 +120,9 @@ mod tests {
         unsafe { output.set_len(SC) };
         let mut output_view = ViewMut::new(&mut output[..], None);
 
-        // Create a no-op context (primitive kernels don't need external resources)
-        let ctx = NoOpContext;
-
         // Execute the step
-        let result = kernel.step(&ctx, mask_view, &mut output_view);
+        let dummy_ctx = KernelContext::default();
+        let result = kernel.step(&dummy_ctx, mask_view, &mut output_view);
         assert!(matches!(result, Ok(())));
 
         // Verify the first elements contain our values
@@ -193,11 +168,9 @@ mod tests {
         unsafe { output.set_len(SC) };
         let mut output_view = ViewMut::new(&mut output[..], None);
 
-        // Create a no-op context (primitive kernels don't need external resources)
-        let ctx = NoOpContext;
-
         // Execute the step
-        let result = kernel.step(&ctx, mask_view, &mut output_view);
+        let dummy_ctx = KernelContext::default();
+        let result = kernel.step(&dummy_ctx, mask_view, &mut output_view);
         assert!(matches!(result, Ok(())));
         unsafe { output.set_len(mask_view.true_count()) };
 
@@ -237,15 +210,14 @@ mod tests {
         // All-true mask
         let mask_data = [u64::MAX; SC / 64];
         let mask_view = BitView::new(&mask_data);
-        let ctx = NoOpContext;
-
         // First step should process first N elements
         {
             let mut output = BufferMut::<i32>::with_capacity(SC);
             unsafe { output.set_len(SC) };
             let mut output_view = ViewMut::new(&mut output[..], None);
 
-            let result = kernel.step(&ctx, mask_view, &mut output_view);
+            let dummy_ctx = KernelContext::default();
+            let result = kernel.step(&dummy_ctx, mask_view, &mut output_view);
             assert!(matches!(result, Ok(())));
             assert_eq!(kernel.offset, SC);
 
@@ -261,7 +233,8 @@ mod tests {
             unsafe { output.set_len(SC) };
             let mut output_view = ViewMut::new(&mut output[..], None);
 
-            let result = kernel.step(&ctx, mask_view, &mut output_view);
+            let dummy_ctx = KernelContext::default();
+            let result = kernel.step(&dummy_ctx, mask_view, &mut output_view);
             assert!(matches!(result, Ok(())));
             assert_eq!(kernel.offset, total_size);
 

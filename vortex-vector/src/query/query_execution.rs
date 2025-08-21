@@ -5,11 +5,10 @@ use std::ops::DerefMut;
 
 use vortex_error::VortexResult;
 
-use crate::Kernel;
 use crate::bits::BitView;
-use crate::query::Context;
-use crate::query::buffers::{OutputTarget, VectorAllocationPlan};
+use crate::query::buffers::OutputTarget;
 use crate::view::ViewMut;
+use crate::{Kernel, KernelContext};
 
 pub struct QueryExecution {
     /// The operators bound to each node in the DAG.
@@ -17,7 +16,9 @@ pub struct QueryExecution {
     /// Static execution order determined by topological sort
     pub execution_schedule: Vec<usize>,
     /// Vector allocation plan for intermediate results
-    pub(crate) allocation_plan: VectorAllocationPlan,
+    // pub(crate) allocation_plan: VectorAllocationPlan,
+    pub(crate) kernel_context: KernelContext,
+    pub(crate) output_targets: Vec<OutputTarget>,
 }
 
 impl Default for QueryExecution {
@@ -31,10 +32,8 @@ impl QueryExecution {
         QueryExecution {
             operators: Vec::new(),
             execution_schedule: Vec::new(),
-            allocation_plan: VectorAllocationPlan {
-                output_targets: Vec::new(),
-                vectors: Vec::new(),
-            },
+            output_targets: Vec::new(),
+            kernel_context: KernelContext::default()
         }
     }
 
@@ -50,19 +49,13 @@ impl QueryExecution {
             let node_idx = *node_idx;
             let operator = self.operators[node_idx].as_mut();
 
-            let ctx = Context {
-                allocation_plan: &self.allocation_plan,
-            };
-
-            // FIXME(ngates): should we reset the output vector selection?
-
-            match self.allocation_plan.output_targets[node_idx] {
-                OutputTarget::ExternalOutput => operator.step(&ctx, selected, out)?,
+            match self.output_targets[node_idx] {
+                OutputTarget::ExternalOutput => operator.step(&self.kernel_context, selected, out)?,
                 OutputTarget::IntermediateVector(vector_idx) => {
-                    let mut vector_ref = self.allocation_plan.vectors[vector_idx].borrow_mut();
+                    let mut vector_ref = self.kernel_context.vectors[vector_idx].borrow_mut();
                     let result = {
                         let mut view = vector_ref.as_view_mut();
-                        operator.step(&ctx, selected, &mut view)
+                        operator.step(&self.kernel_context, selected, &mut view)
                     };
                     vector_ref.deref_mut().set_len(selected.true_count());
                     result?

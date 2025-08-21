@@ -7,18 +7,13 @@ mod operators;
 mod query_execution;
 mod toposort;
 
-use std::task::Poll;
-
-use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 
 use crate::bits::BitView;
-use crate::buffers::BufferId;
 use crate::operators::Operator;
-use crate::query::buffers::VectorAllocationPlan;
+pub use crate::query::buffers::VectorAllocationPlan;
 use crate::query::dag::DagNode;
 use crate::query::query_execution::QueryExecution;
-use crate::vector::{VectorId, VectorRef};
 use crate::view::ViewMut;
 use crate::{Kernel, KernelContext};
 
@@ -33,7 +28,6 @@ use crate::{Kernel, KernelContext};
 pub struct QueryPlan<'a> {
     /// Nodes in the DAG representing the execution plan with common sub-expressions eliminated.
     dag: Vec<DagNode<'a>>,
-
     /// The topological order of `dag` nodes for execution.
     execution_order: Vec<usize>,
     /// The allocation plan for vectors used by the pipeline.
@@ -63,11 +57,13 @@ impl<'a> QueryPlan<'a> {
     pub fn executable_plan(self) -> VortexResult<QueryExecution> {
         // Construct the operators, binding their inputs using the allocation plan.
         let operators = Self::bind_operators(&self.dag, &self.allocation_plan)?;
+        let kernel_context = KernelContext::new(self.allocation_plan.vectors);
 
         Ok(QueryExecution {
             operators,
             execution_schedule: self.execution_order,
-            allocation_plan: self.allocation_plan,
+            kernel_context,
+            output_targets: self.allocation_plan.output_targets,
         })
     }
 }
@@ -80,24 +76,10 @@ impl Kernel for QueryExecution {
 
     fn step(
         &mut self,
-        ctx: &dyn KernelContext,
+        ctx: &KernelContext,
         selected: BitView,
         out: &mut ViewMut,
     ) -> VortexResult<()> {
         self._step(selected, out)
-    }
-}
-
-struct Context<'a> {
-    allocation_plan: &'a VectorAllocationPlan,
-}
-
-impl<'a> KernelContext for Context<'a> {
-    fn buffer(&self, _buffer_id: BufferId) -> Poll<VortexResult<ByteBuffer>> {
-        todo!()
-    }
-
-    fn vector(&self, vector_id: VectorId) -> VectorRef<'_> {
-        VectorRef::new(self.allocation_plan.vectors[*vector_id].borrow())
     }
 }

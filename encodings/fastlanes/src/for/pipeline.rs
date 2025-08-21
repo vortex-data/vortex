@@ -140,7 +140,7 @@ where
 
     fn step(
         &mut self,
-        ctx: &dyn KernelContext,
+        ctx: &KernelContext,
         _selected: BitView,
         out: &mut ViewMut,
     ) -> VortexResult<()> {

@@ -13,13 +13,16 @@ use crate::types::VType;
 use crate::vector::{Vector, VectorId};
 
 #[derive(Debug)]
-pub(crate) struct VectorAllocationPlan {
+pub struct VectorAllocationPlan {
     /// Where each node writes its output
     pub(crate) output_targets: Vec<OutputTarget>,
     /// The actual allocated vectors
     pub(crate) vectors: Vec<RefCell<Vector>>,
 }
 
+// TODO(joe): support in-place view operations
+// Node mutates its input in-place (input node index, vector idx)
+// add variant InPlace.
 /// Tracks which vector a node outputs to
 #[derive(Debug, Clone)]
 pub(crate) enum OutputTarget {
@@ -27,9 +30,7 @@ pub(crate) enum OutputTarget {
     ExternalOutput,
     /// Node writes to an allocated intermediate vector
     IntermediateVector(usize), // vector idx
-    // TODO(joe): support in-place view operations
-    // Node mutates its input in-place (input node index, vector idx)
-    // InPlace(usize, usize),
+
 }
 
 impl OutputTarget {
@@ -59,7 +60,6 @@ impl<'a> QueryPlan<'a> {
         dag: &[DagNode<'a>],
         execution_order: &[usize],
     ) -> VortexResult<VectorAllocationPlan> {
-
         let mut output_targets: Vec<Option<OutputTarget>> = vec![None; dag.len()];
         let mut allocations = Vec::new();
 

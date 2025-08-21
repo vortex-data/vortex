@@ -83,7 +83,7 @@ impl<T: Element + NativePType> Kernel for ConstantKernel<T> {
 
     fn step(
         &mut self,
-        ctx: &dyn KernelContext,
+        ctx: &KernelContext,
         selected: BitView,
         out: &mut ViewMut,
     ) -> VortexResult<()> {

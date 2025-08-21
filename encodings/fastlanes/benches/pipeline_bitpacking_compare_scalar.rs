@@ -4,6 +4,7 @@
 #![allow(clippy::unwrap_used)]
 #![allow(unexpected_cfgs)]
 use std::rc::Rc;
+
 use arrow_buffer::BooleanBuffer;
 use divan::Bencher;
 use mimalloc::MiMalloc;

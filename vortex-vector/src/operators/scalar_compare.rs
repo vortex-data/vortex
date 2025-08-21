@@ -94,7 +94,7 @@ impl<T: Element + NativePType, Op: CompareOp<T>> Kernel for ScalarComparePrimiti
 
     fn step(
         &mut self,
-        ctx: &dyn KernelContext,
+        ctx: &KernelContext,
         selected: BitView,
         out: &mut ViewMut,
     ) -> VortexResult<()> {

@@ -32,16 +32,13 @@ pub mod view;
 /// The number of elements in each step of a Vortex evaluation pipeline.
 pub const SC: usize = 1024;
 
-use std::ops::Range;
-use std::task::Poll;
-
+use std::cell::RefCell;
 pub use operators::Operator;
 use vector::{VectorId, VectorRef};
-use vortex_buffer::ByteBuffer;
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::VortexResult;
 
 use crate::bits::BitView;
-use crate::buffers::BufferId;
+use crate::vector::Vector;
 use crate::view::ViewMut;
 
 /// A pipeline provides a push-based way to emit a stream of canonical data.
@@ -71,7 +68,9 @@ pub trait Kernel {
     /// chunk without needing to perform a full binary search of the ends in each step.
     // TODO(ngates): should this be `skip(n)` instead? Depends if we want to support going
     //  backwards?
-    fn seek(&mut self, chunk_idx: usize) -> VortexResult<()>;
+    fn seek(&mut self, chunk_idx: usize) -> VortexResult<()> {
+        Ok(())
+    }
 
     /// Attempts to perform a single step of the pipeline, writing data to the output vector.
     /// Returns `Poll::Done` if the pipeline is complete, or `Poll::Pending` if buffers are
@@ -85,58 +84,28 @@ pub trait Kernel {
     //  elements that are not defined, for example if the parent is a dense null validity encoding.
     fn step(
         &mut self,
-        ctx: &dyn KernelContext,
+        ctx: &KernelContext,
         selected: BitView,
         out: &mut ViewMut,
     ) -> VortexResult<()>;
 }
 
-pub trait KernelContext {
-    /// Get a vector by its ID.
-    fn vector(&self, vector_id: VectorId) -> VectorRef<'_>;
-
-    /// Get a buffer by its ID.
-    fn buffer(&self, buffer_id: BufferId) -> Poll<VortexResult<ByteBuffer>>;
-
-    /// Pre-fetch buffers for future use (non-blocking hint).
-    fn prefetch(&self, buffer_ids: &[BufferId]) {
-        for &buffer_id in buffer_ids {
-            let _ = self.buffer(buffer_id);
-        }
-    }
-
-    /// Request a range of data from a buffer (for partial reads).
-    fn buffer_range(
-        &self,
-        buffer_id: BufferId,
-        range: Range<usize>,
-    ) -> Poll<VortexResult<ByteBuffer>> {
-        match self.buffer(buffer_id) {
-            Poll::Ready(Ok(buffer)) => {
-                let start = range.start;
-                let end = range.end;
-                if start < end && end <= buffer.len() {
-                    Poll::Ready(Ok(buffer.slice(start..end)))
-                } else {
-                    Poll::Ready(Err(vortex_err!(
-                        "Invalid range for buffer: {}..{}",
-                        start,
-                        end
-                    )))
-                }
-            }
-            Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
-            Poll::Pending => Poll::Pending,
-        }
-    }
+/// Context passed to kernels during execution, providing access to vectors.
+#[derive(Default)]
+pub struct KernelContext {
+    /// Optional allocation plan for resolving vector IDs
+    pub(crate) vectors: Vec<RefCell<Vector>>,
 }
 
-impl KernelContext for () {
-    fn vector(&self, vector_id: VectorId) -> VectorRef<'_> {
-        todo!()
+impl KernelContext {
+    pub fn new(allocation_plan: Vec<RefCell<Vector>>) -> Self {
+        Self {
+            vectors: allocation_plan,
+        }
     }
 
-    fn buffer(&self, buffer_id: BufferId) -> Poll<VortexResult<ByteBuffer>> {
-        todo!()
+    /// Get a vector by its ID.
+    pub fn vector(&self, vector_id: VectorId) -> VectorRef {
+        VectorRef::new(self.vectors[*vector_id].borrow())
     }
 }
