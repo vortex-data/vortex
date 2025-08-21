@@ -150,7 +150,7 @@ impl<'a> ViewMut<'a> {
 
     /// Re-interpret cast the vector into a new type where the element has the same width.
     #[inline(always)]
-    pub fn reinterpret_as<E: Element>(&mut self) -> ViewMut<'a> {
+    pub fn reinterpret_as<E: Element>(&mut self) {
         assert_eq!(
             self.vtype.byte_width(),
             size_of::<E>(),
@@ -158,13 +158,7 @@ impl<'a> ViewMut<'a> {
             self.vtype,
             E::vtype()
         );
-        Self {
-            vtype: E::vtype(),
-            elements: self.elements,
-            validity: self.validity.take(),
-            data: self.data.clone(),
-            _marker: Default::default(),
-        }
+        self.vtype = E::vtype();
     }
 
     /// Returns an immutable slice of the elements in the vector.

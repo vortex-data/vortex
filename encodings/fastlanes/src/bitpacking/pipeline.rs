@@ -100,10 +100,10 @@ where
         &mut self,
         _ctx: &dyn KernelContext,
         selected: BitView,
-        out: &mut ViewMut,
+        physical_out: &mut ViewMut,
     ) -> VortexResult<()> {
         // We re-interpret the output view as the unsigned bitpacked type.
-        let mut physical_out = out.reinterpret_as::<<T as PhysicalPType>::Physical>();
+        physical_out.reinterpret_as::<<T as PhysicalPType>::Physical>();
 
         let elements = physical_out.as_slice_mut::<<T as PhysicalPType>::Physical>();
         let packed = &self.buffer.as_slice()[self.packed_offset..];
