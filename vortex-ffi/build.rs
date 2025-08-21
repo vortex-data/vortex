@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 fn main() {
     // Skip header generation under miri (miri fails on cbindgen)
-    if env::var("MIRI").is_ok() {
+    if env::var("MIRI").is_ok() || env::var("MIRIFLAGS").is_ok() {
         println!("cargo:warning=Skipping header generation under miri");
         return;
     }
