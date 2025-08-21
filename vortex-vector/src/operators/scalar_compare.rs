@@ -139,12 +139,12 @@ mod tests {
         let byte_buffer = primitive_array.into_byte_buffer();
 
         // Create primitive operator (leaf node)
-        let primitive_op = Rc::new(PrimitiveOperator::new(PType::I32, byte_buffer.clone()));
+        let primitive_op = Rc::new(PrimitiveOperator::new(PType::I32, byte_buffer));
 
         // Create scalar compare operator: primitive_value > 10
         let compare_value = Scalar::primitive(10i32, Nullability::NonNullable);
         let scalar_compare_op = Rc::new(ScalarCompareOperator::new(
-            primitive_op.clone(),
+            primitive_op,
             BinaryOperator::Gt,
             compare_value,
         ));
@@ -185,12 +185,12 @@ mod tests {
         let primitive_array = values.into_array().to_primitive().unwrap();
         let byte_buffer = primitive_array.into_byte_buffer();
 
-        let primitive_op = Rc::new(PrimitiveOperator::new(PType::I32, byte_buffer.clone()));
+        let primitive_op = Rc::new(PrimitiveOperator::new(PType::I32, byte_buffer));
 
         // Test Eq: values == 3
         let compare_value = Scalar::primitive(3i32, Nullability::NonNullable);
         let eq_op = Rc::new(ScalarCompareOperator::new(
-            primitive_op.clone(),
+            primitive_op,
             BinaryOperator::Eq,
             compare_value,
         ));

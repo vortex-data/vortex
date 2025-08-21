@@ -148,7 +148,7 @@ where
         let values = unsafe { std::mem::transmute::<&[E], &[T]>(vec.as_slice::<E>()) };
         let out = out.as_slice_mut::<T>();
 
-        values.into_iter().zip(out).for_each(|(value, out)| {
+        values.iter().zip(out).for_each(|(value, out)| {
             *out = value.wrapping_add(&self.reference);
         });
 
