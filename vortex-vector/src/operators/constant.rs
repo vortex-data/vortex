@@ -57,18 +57,31 @@ impl Operator for ConstantOperator {
     }
 
     fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {
-        Ok(match_each_native_ptype!(
-            self.scalar.as_primitive().ptype(),
-            |T| {
-                Box::new(ConstantKernel::<T> {
-                    value: self
-                        .scalar
-                        .as_primitive()
-                        .typed_value::<T>()
-                        .vortex_expect("scalar value not of type T"),
-                })
-            }
-        ))
+        match self.scalar.dtype() {
+            DType::Bool(_) => Ok(Box::new(BoolConstantKernel {
+                value: self
+                    .scalar
+                    .as_bool()
+                    .value()
+                    .vortex_expect("scalar value not bool"),
+            })),
+            DType::Primitive(..) => Ok(match_each_native_ptype!(
+                self.scalar.as_primitive().ptype(),
+                |T| {
+                    Box::new(ConstantKernel::<T> {
+                        value: self
+                            .scalar
+                            .as_primitive()
+                            .typed_value::<T>()
+                            .vortex_expect("scalar value not of type T"),
+                    })
+                }
+            )),
+            _ => todo!(
+                "Unsupported scalar type for constant: {:?}",
+                self.scalar.dtype()
+            ),
+        }
     }
 }
 
@@ -76,7 +89,26 @@ pub struct ConstantKernel<T: NativePType> {
     value: T,
 }
 
+pub struct BoolConstantKernel {
+    value: bool,
+}
+
 impl<T: Element + NativePType> Kernel for ConstantKernel<T> {
+    fn step(
+        &mut self,
+        ctx: &KernelContext,
+        selected: BitView,
+        out: &mut ViewMut,
+    ) -> VortexResult<()> {
+        let out_slice = out.as_slice_mut::<T>();
+        for i in 0..selected.true_count() {
+            out_slice[i] = self.value;
+        }
+        Ok(())
+    }
+}
+
+impl Kernel for BoolConstantKernel {
     fn seek(&mut self, chunk_idx: usize) -> VortexResult<()> {
         Ok(())
     }
@@ -87,7 +119,7 @@ impl<T: Element + NativePType> Kernel for ConstantKernel<T> {
         selected: BitView,
         out: &mut ViewMut,
     ) -> VortexResult<()> {
-        let out_slice = out.as_slice_mut::<T>();
+        let out_slice = out.as_slice_mut::<bool>();
         for i in 0..selected.true_count() {
             out_slice[i] = self.value;
         }

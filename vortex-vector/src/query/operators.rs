@@ -45,5 +45,3 @@ impl BindContext for PipelineBindContext {
         &self.children
     }
 }
-
-// We have a step

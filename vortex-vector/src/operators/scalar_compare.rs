@@ -103,11 +103,10 @@ impl<T: Element + NativePType, Op: CompareOp<T>> Kernel for ScalarComparePrimiti
 
         let bools = out.as_slice_mut::<bool>();
 
-        assert!(selected.true_count() <= lhs.len());
-        assert!(selected.true_count() <= bools.len());
-        for i in 0..selected.true_count() {
-            unsafe { *bools.get_unchecked_mut(i) = Op::compare(lhs.get_unchecked(i), &self.rhs) };
-        }
+        debug_assert_eq!(selected.true_count(), lhs.len());
+        lhs.iter().zip(bools).for_each(|(lhs, bool)| {
+            *bool = Op::compare(lhs, &self.rhs);
+        });
 
         Ok(())
     }

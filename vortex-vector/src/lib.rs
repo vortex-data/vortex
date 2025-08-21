@@ -23,7 +23,6 @@
 pub mod bits;
 pub mod operators;
 pub mod query;
-pub mod selection;
 pub mod types;
 pub mod vector;
 pub mod view;
@@ -32,6 +31,7 @@ pub mod view;
 pub const SC: usize = 1024;
 
 use std::cell::RefCell;
+
 pub use operators::Operator;
 use vector::{VectorId, VectorRef};
 use vortex_error::VortexResult;
@@ -104,7 +104,7 @@ impl KernelContext {
     }
 
     /// Get a vector by its ID.
-    pub fn vector(&self, vector_id: VectorId) -> VectorRef {
+    pub fn vector(&self, vector_id: VectorId) -> VectorRef<'_> {
         VectorRef::new(self.vectors[*vector_id].borrow())
     }
 }

@@ -30,7 +30,6 @@ pub(crate) enum OutputTarget {
     ExternalOutput,
     /// Node writes to an allocated intermediate vector
     IntermediateVector(usize), // vector idx
-
 }
 
 impl OutputTarget {

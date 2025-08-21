@@ -33,7 +33,7 @@ impl QueryExecution {
             operators: Vec::new(),
             execution_schedule: Vec::new(),
             output_targets: Vec::new(),
-            kernel_context: KernelContext::default()
+            kernel_context: KernelContext::default(),
         }
     }
 
@@ -50,7 +50,9 @@ impl QueryExecution {
             let operator = self.operators[node_idx].as_mut();
 
             match self.output_targets[node_idx] {
-                OutputTarget::ExternalOutput => operator.step(&self.kernel_context, selected, out)?,
+                OutputTarget::ExternalOutput => {
+                    operator.step(&self.kernel_context, selected, out)?
+                }
                 OutputTarget::IntermediateVector(vector_idx) => {
                     let mut vector_ref = self.kernel_context.vectors[vector_idx].borrow_mut();
                     let result = {

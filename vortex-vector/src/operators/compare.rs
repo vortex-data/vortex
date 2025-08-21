@@ -120,25 +120,24 @@ impl Operator for CompareOperator {
     }
 
     fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {
-        assert_eq!(self.children[0].vtype(), self.children[1].vtype());
+        debug_assert_eq!(self.children[0].vtype(), self.children[1].vtype());
 
-        match self.children[0].vtype() {
-            VType::Primitive(ptype) => {
-                match_each_native_ptype!(ptype, |T| {
-                    match_each_compare_op!(self.op, |Op| {
-                        Ok(Box::new(ComparePrimitiveKernel::<T, Op> {
-                            lhs: ctx.children()[0],
-                            rhs: ctx.children()[1],
-                            _phantom: PhantomData,
-                        }) as Box<dyn Kernel>)
-                    })
-                })
-            }
-            _ => vortex_bail!(
+        let VType::Primitive(ptype) = self.children[0].vtype() else {
+            vortex_bail!(
                 "Unsupported type for comparison: {}",
                 self.children[0].vtype()
-            ),
-        }
+            )
+        };
+
+        match_each_native_ptype!(ptype, |T| {
+            match_each_compare_op!(self.op, |Op| {
+                Ok(Box::new(ComparePrimitiveKernel::<T, Op> {
+                    lhs: ctx.children()[0],
+                    rhs: ctx.children()[1],
+                    _phantom: PhantomData,
+                }) as Box<dyn Kernel>)
+            })
+        })
     }
 
     fn reduce_children(&self, children: &[Rc<dyn Operator>]) -> Option<Rc<dyn Operator>> {
@@ -207,9 +206,10 @@ impl<T: Element + NativePType, Op: CompareOp<T>> Kernel for ComparePrimitiveKern
             "LHS and RHS must have the same length"
         );
 
-        for i in 0..selected.true_count() {
-            bools[i] = unsafe { Op::compare(lhs.get_unchecked(i), rhs.get_unchecked(i)) };
-        }
+        lhs.iter()
+            .zip(rhs.iter())
+            .zip(bools)
+            .for_each(|((lhs, rhs), bool)| *bool = Op::compare(lhs, rhs));
 
         Ok(())
     }

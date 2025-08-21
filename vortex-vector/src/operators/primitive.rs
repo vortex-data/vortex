@@ -67,9 +67,6 @@ impl<T: Element + NativePType> Kernel for PrimitiveKernel<T> {
     }
 
     fn step(&mut self, _ctx: &KernelContext, mask: BitView, out: &mut ViewMut) -> VortexResult<()> {
-        // FIXME(ngates): support mask.
-        // assert_eq!(mask.true_count(), N, "Mask must have exactly N true bits");
-
         let buffer = &self.buffer;
         let remaining = buffer.len() - self.offset;
 

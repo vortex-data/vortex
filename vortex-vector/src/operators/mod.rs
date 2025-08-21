@@ -3,10 +3,9 @@
 
 //! Plan nodes represent the logical structure of a pipeline.
 
-pub mod binary_add;
+pub mod binary_bool;
 pub mod compare;
 pub mod constant;
-pub mod plus_constant;
 pub mod primitive;
 pub mod scalar_compare;
 
