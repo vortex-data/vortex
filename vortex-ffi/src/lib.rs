@@ -81,6 +81,7 @@ pub(crate) unsafe fn to_string_vec(ptr: *const *const c_char, len: c_int) -> Vec
 }
 
 /// Attempt to shutdown the shared tokio runtime if no sessions are active.
+/// May block indefinitely if the runtime is still running tasks.
 #[unsafe(no_mangle)]
 pub extern "C" fn vx_try_shutdown_runtime() {
     try_shutdown_runtime();
