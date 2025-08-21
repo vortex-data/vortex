@@ -19,7 +19,6 @@ mod sink;
 mod string;
 mod struct_fields;
 
-
 use std::ffi::{CStr, c_char, c_int};
 use std::sync::Arc;
 
