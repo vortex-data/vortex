@@ -166,48 +166,46 @@ impl Stat {
 
     /// Return the [`DType`] of the statistic scalar assuming the array is of the given [`DType`].
     pub fn dtype(&self, data_type: &DType) -> Option<DType> {
+        use DType::*;
+        use PType::*;
+
         Some(match self {
-            Self::IsConstant => DType::Bool(NonNullable),
-            Self::IsSorted => DType::Bool(NonNullable),
-            Self::IsStrictSorted => DType::Bool(NonNullable),
+            Self::IsConstant => Bool(NonNullable),
+            Self::IsSorted => Bool(NonNullable),
+            Self::IsStrictSorted => Bool(NonNullable),
             Self::Max => data_type.clone(),
             Self::Min => data_type.clone(),
-            Self::NullCount => DType::Primitive(PType::U64, NonNullable),
-            Self::UncompressedSizeInBytes => DType::Primitive(PType::U64, NonNullable),
-            Self::NaNCount => match data_type {
-                DType::Primitive(ptype, ..) if ptype.is_float() => {
-                    DType::Primitive(PType::U64, NonNullable)
+            Self::NullCount => Primitive(U64, NonNullable),
+            Self::UncompressedSizeInBytes => Primitive(U64, NonNullable),
+            Self::NaNCount => {
+                // Only floating points support NaN counts.
+                if let Primitive(ptype, ..) = data_type
+                    && ptype.is_float()
+                {
+                    Primitive(U64, NonNullable)
+                } else {
+                    return None;
                 }
-                // Any other type does not support NaN count
-                _ => return None,
-            },
+            }
             Self::Sum => {
                 // Any array that cannot be summed has a sum DType of null.
                 // Any array that can be summed, but overflows, has a sum _value_ of null.
                 // Therefore, we make integer sum stats nullable.
                 match data_type {
-                    DType::Bool(_) => DType::Primitive(PType::U64, Nullable),
-                    DType::Primitive(ptype, _) => match ptype {
-                        PType::U8 | PType::U16 | PType::U32 | PType::U64 => {
-                            DType::Primitive(PType::U64, Nullable)
-                        }
-                        PType::I8 | PType::I16 | PType::I32 | PType::I64 => {
-                            DType::Primitive(PType::I64, Nullable)
-                        }
-                        PType::F16 | PType::F32 | PType::F64 => {
+                    Bool(_) => Primitive(U64, Nullable),
+                    Primitive(ptype, _) => match ptype {
+                        U8 | U16 | U32 | U64 => Primitive(U64, Nullable),
+                        I8 | I16 | I32 | I64 => Primitive(I64, Nullable),
+                        F16 | F32 | F64 => {
                             // Float sums cannot overflow, but all null floats still end up as null
-                            DType::Primitive(PType::F64, Nullable)
+                            Primitive(F64, Nullable)
                         }
                     },
-                    DType::Extension(ext_dtype) => self.dtype(ext_dtype.storage_dtype())?,
-                    // Unsupported types
-                    DType::Null
+                    Extension(ext_dtype) => self.dtype(ext_dtype.storage_dtype())?,
                     // TODO(aduffy): implement more stats for Decimal
-                    | DType::Decimal(..)
-                    | DType::Utf8(_)
-                    | DType::Binary(_)
-                    | DType::Struct(..)
-                    | DType::List(..) => return None,
+                    Decimal(..) => return None,
+                    // Unsupported types
+                    Null | Utf8(_) | Binary(_) | Struct(..) | List(..) => return None,
                 }
             }
         })

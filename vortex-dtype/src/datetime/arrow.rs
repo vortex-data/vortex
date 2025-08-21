@@ -17,8 +17,10 @@ use crate::{ExtDType, PType};
 pub fn make_temporal_ext_dtype(data_type: &DataType) -> ExtDType {
     assert!(data_type.is_temporal(), "Must receive a temporal DataType");
 
+    use DataType::*;
+
     match data_type {
-        DataType::Timestamp(time_unit, time_zone) => {
+        Timestamp(time_unit, time_zone) => {
             let time_unit = TimeUnit::from(time_unit);
             let tz = time_zone.clone().map(|s| s.to_string());
             // PType is inferred for arrow based on the time units.
@@ -28,7 +30,7 @@ pub fn make_temporal_ext_dtype(data_type: &DataType) -> ExtDType {
                 Some(TemporalMetadata::Timestamp(time_unit, tz).into()),
             )
         }
-        DataType::Time32(time_unit) => {
+        Time32(time_unit) => {
             let time_unit = TimeUnit::from(time_unit);
             ExtDType::new(
                 TIME_ID.clone(),
@@ -36,7 +38,7 @@ pub fn make_temporal_ext_dtype(data_type: &DataType) -> ExtDType {
                 Some(TemporalMetadata::Time(time_unit).into()),
             )
         }
-        DataType::Time64(time_unit) => {
+        Time64(time_unit) => {
             let time_unit = TimeUnit::from(time_unit);
             ExtDType::new(
                 TIME_ID.clone(),
@@ -44,17 +46,23 @@ pub fn make_temporal_ext_dtype(data_type: &DataType) -> ExtDType {
                 Some(TemporalMetadata::Time(time_unit).into()),
             )
         }
-        DataType::Date32 => ExtDType::new(
+        Date32 => ExtDType::new(
             DATE_ID.clone(),
             Arc::new(PType::I32.into()),
             Some(TemporalMetadata::Date(TimeUnit::D).into()),
         ),
-        DataType::Date64 => ExtDType::new(
+        Date64 => ExtDType::new(
             DATE_ID.clone(),
             Arc::new(PType::I64.into()),
             Some(TemporalMetadata::Date(TimeUnit::Ms).into()),
         ),
-        _ => unimplemented!("{data_type} conversion"),
+        Null | Boolean | Int8 | Int16 | Int32 | Int64 | UInt8 | UInt16 | UInt32 | UInt64
+        | Float16 | Float32 | Float64 | Duration(_) | Interval(_) | Binary | FixedSizeBinary(_)
+        | LargeBinary | BinaryView | Utf8 | LargeUtf8 | Utf8View | List(_) | ListView(_)
+        | FixedSizeList(..) | LargeList(_) | LargeListView(_) | Struct(_) | Union(..)
+        | Dictionary(..) | Decimal128(..) | Decimal256(..) | Map(..) | RunEndEncoded(..) => {
+            unimplemented!("{data_type} conversion")
+        }
     }
 }
 
@@ -68,7 +76,7 @@ pub fn make_arrow_temporal_dtype(ext_dtype: &ExtDType) -> DataType {
         TemporalMetadata::Date(time_unit) => match time_unit {
             TimeUnit::D => DataType::Date32,
             TimeUnit::Ms => DataType::Date64,
-            _ => {
+            TimeUnit::Ns | TimeUnit::Us | TimeUnit::S => {
                 vortex_panic!(InvalidArgument: "Invalid TimeUnit {} for {}", time_unit, ext_dtype.id())
             }
         },
@@ -77,7 +85,7 @@ pub fn make_arrow_temporal_dtype(ext_dtype: &ExtDType) -> DataType {
             TimeUnit::Ms => DataType::Time32(ArrowTimeUnit::Millisecond),
             TimeUnit::Us => DataType::Time64(ArrowTimeUnit::Microsecond),
             TimeUnit::Ns => DataType::Time64(ArrowTimeUnit::Nanosecond),
-            _ => {
+            TimeUnit::D => {
                 vortex_panic!(InvalidArgument: "Invalid TimeUnit {} for {}", time_unit, ext_dtype.id())
             }
         },
@@ -86,7 +94,7 @@ pub fn make_arrow_temporal_dtype(ext_dtype: &ExtDType) -> DataType {
             TimeUnit::Us => DataType::Timestamp(ArrowTimeUnit::Microsecond, tz.map(|t| t.into())),
             TimeUnit::Ms => DataType::Timestamp(ArrowTimeUnit::Millisecond, tz.map(|t| t.into())),
             TimeUnit::S => DataType::Timestamp(ArrowTimeUnit::Second, tz.map(|t| t.into())),
-            _ => {
+            TimeUnit::D => {
                 vortex_panic!(InvalidArgument: "Invalid TimeUnit {} for {}", time_unit, ext_dtype.id())
             }
         },

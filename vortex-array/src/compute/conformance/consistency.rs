@@ -559,11 +559,12 @@ fn test_comparison_inverse_consistency(array: &dyn Array) {
         return;
     }
 
-    // Skip non-comparable types
+    use DType::*;
+
+    // Skip non-comparable types.
     match array.dtype() {
-        DType::Null | DType::Extension(_) => return,
-        DType::Struct(..) | DType::List(..) => return,
-        _ => {}
+        Null | Extension(_) | Struct(..) | List(..) => return,
+        Bool(_) | Primitive(..) | Decimal(..) | Utf8(_) | Binary(_) => {}
     }
 
     // Get a test value from the middle of the array
@@ -656,11 +657,13 @@ fn test_comparison_symmetry_consistency(array: &dyn Array) {
         return;
     }
 
-    // Skip non-comparable types
+    use DType::*;
+
+    // Skip non-comparable types.
     match array.dtype() {
-        DType::Null | DType::Extension(_) => return,
-        DType::Struct(..) | DType::List(..) => return,
-        _ => {}
+        Null | Extension(_) => return,
+        Struct(..) | List(..) => return,
+        Bool(_) | Primitive(..) | Decimal(..) | Utf8(_) | Binary(_) => {}
     }
 
     // Get test values

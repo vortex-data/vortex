@@ -7,7 +7,6 @@ use std::sync::Arc;
 use bytes::BufMut;
 use itertools::Itertools;
 use prost::Message;
-use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err};
 use vortex_proto::scalar as pb;
@@ -64,8 +63,8 @@ pub(crate) enum InnerScalarValue {
     Bool(bool),
     Primitive(PValue),
     Decimal(DecimalValue),
-    Buffer(Arc<ByteBuffer>),
-    BufferString(Arc<BufferString>),
+    Buffer(Arc<vortex_buffer::ByteBuffer>),
+    BufferString(Arc<vortex_buffer::BufferString>),
     List(Arc<[ScalarValue]>),
 }
 
@@ -180,12 +179,14 @@ impl ScalarValue {
     }
 
     /// Returns scalar as a binary buffer
-    pub(crate) fn as_buffer(&self) -> VortexResult<Option<Arc<ByteBuffer>>> {
+    pub(crate) fn as_buffer(&self) -> VortexResult<Option<Arc<vortex_buffer::ByteBuffer>>> {
         self.0.as_buffer()
     }
 
     /// Returns scalar as a string buffer
-    pub(crate) fn as_buffer_string(&self) -> VortexResult<Option<Arc<BufferString>>> {
+    pub(crate) fn as_buffer_string(
+        &self,
+    ) -> VortexResult<Option<Arc<vortex_buffer::BufferString>>> {
         self.0.as_buffer_string()
     }
 
@@ -225,17 +226,20 @@ impl InnerScalarValue {
     }
 
     pub(crate) fn as_null(&self) -> VortexResult<()> {
-        match self {
-            InnerScalarValue::Null => Ok(()),
-            _ => Err(vortex_err!("Expected a Null scalar, found {:?}", self)),
+        if matches!(self, InnerScalarValue::Null) {
+            Ok(())
+        } else {
+            Err(vortex_err!("Expected a Null scalar, found {:?}", self))
         }
     }
 
     pub(crate) fn as_bool(&self) -> VortexResult<Option<bool>> {
-        match &self {
-            InnerScalarValue::Null => Ok(None),
-            InnerScalarValue::Bool(b) => Ok(Some(*b)),
-            _ => Err(vortex_err!("Expected a bool scalar, found {:?}", self)),
+        if matches!(&self, InnerScalarValue::Null) {
+            Ok(None)
+        } else if let InnerScalarValue::Bool(b) = &self {
+            Ok(Some(*b))
+        } else {
+            Err(vortex_err!("Expected a bool scalar, found {:?}", self))
         }
     }
 
@@ -243,57 +247,76 @@ impl InnerScalarValue {
     ///  But the other accessors can sometimes be useful? e.g. as_buffer. But maybe we just force
     ///  the user to switch over Utf8 and Binary and use the correct Scalar wrapper?
     pub(crate) fn as_pvalue(&self) -> VortexResult<Option<PValue>> {
-        match &self {
-            InnerScalarValue::Null => Ok(None),
-            InnerScalarValue::Primitive(p) => Ok(Some(*p)),
-            _ => Err(vortex_err!("Expected a primitive scalar, found {:?}", self)),
+        if matches!(&self, InnerScalarValue::Null) {
+            Ok(None)
+        } else if let InnerScalarValue::Primitive(p) = &self {
+            Ok(Some(*p))
+        } else {
+            Err(vortex_err!("Expected a primitive scalar, found {:?}", self))
         }
     }
 
     pub(crate) fn as_decimal(&self) -> VortexResult<Option<DecimalValue>> {
+        use DecimalValue::*;
+        use InnerScalarValue::*;
+
         match self {
-            InnerScalarValue::Null => Ok(None),
-            InnerScalarValue::Decimal(v) => Ok(Some(*v)),
-            InnerScalarValue::Buffer(b) => Ok(Some(match b.len() {
-                1 => DecimalValue::I8(b[0] as i8),
-                2 => DecimalValue::I16(i16::from_le_bytes(b.as_slice().try_into()?)),
-                4 => DecimalValue::I32(i32::from_le_bytes(b.as_slice().try_into()?)),
-                8 => DecimalValue::I64(i64::from_le_bytes(b.as_slice().try_into()?)),
-                16 => DecimalValue::I128(i128::from_le_bytes(b.as_slice().try_into()?)),
-                32 => DecimalValue::I256(i256::from_le_bytes(b.as_slice().try_into()?)),
+            Null => Ok(None),
+            Decimal(v) => Ok(Some(*v)),
+            Buffer(b) => Ok(Some(match b.len() {
+                1 => I8(b[0] as i8),
+                2 => I16(i16::from_le_bytes(b.as_slice().try_into()?)),
+                4 => I32(i32::from_le_bytes(b.as_slice().try_into()?)),
+                8 => I64(i64::from_le_bytes(b.as_slice().try_into()?)),
+                16 => I128(i128::from_le_bytes(b.as_slice().try_into()?)),
+                32 => I256(i256::from_le_bytes(b.as_slice().try_into()?)),
                 l => vortex_bail!("Buffer is not a decimal value length {l}"),
             })),
-            _ => vortex_bail!("Expected a decimal scalar, found {:?}", self),
+            Bool(_) | Primitive(_) | BufferString(_) | List(_) => {
+                vortex_bail!("Expected a decimal scalar, found {:?}", self)
+            }
         }
     }
 
-    pub(crate) fn as_buffer(&self) -> VortexResult<Option<Arc<ByteBuffer>>> {
+    pub(crate) fn as_buffer(&self) -> VortexResult<Option<Arc<vortex_buffer::ByteBuffer>>> {
+        use InnerScalarValue::*;
+
         match &self {
-            InnerScalarValue::Null => Ok(None),
-            InnerScalarValue::Buffer(b) => Ok(Some(b.clone())),
-            InnerScalarValue::BufferString(b) => {
-                Ok(Some(Arc::new(b.as_ref().clone().into_inner())))
+            Null => Ok(None),
+            Buffer(b) => Ok(Some(b.clone())),
+            BufferString(b) => Ok(Some(Arc::new(b.as_ref().clone().into_inner()))),
+            Bool(_) | Primitive(_) | Decimal(_) | List(_) => {
+                Err(vortex_err!("Expected a binary scalar, found {:?}", self))
             }
-            _ => Err(vortex_err!("Expected a binary scalar, found {:?}", self)),
         }
     }
 
-    pub(crate) fn as_buffer_string(&self) -> VortexResult<Option<Arc<BufferString>>> {
+    pub(crate) fn as_buffer_string(
+        &self,
+    ) -> VortexResult<Option<Arc<vortex_buffer::BufferString>>> {
+        use InnerScalarValue::*;
+
         match &self {
-            InnerScalarValue::Null => Ok(None),
-            InnerScalarValue::Buffer(b) => {
-                Ok(Some(Arc::new(BufferString::try_from(b.as_ref().clone())?)))
+            Null => Ok(None),
+            Buffer(b) => Ok(Some(Arc::new(vortex_buffer::BufferString::try_from(
+                b.as_ref().clone(),
+            )?))),
+            BufferString(b) => Ok(Some(b.clone())),
+            Bool(_) | Primitive(_) | Decimal(_) | List(_) => {
+                Err(vortex_err!("Expected a string scalar, found {:?}", self))
             }
-            InnerScalarValue::BufferString(b) => Ok(Some(b.clone())),
-            _ => Err(vortex_err!("Expected a string scalar, found {:?}", self)),
         }
     }
 
     pub(crate) fn as_list(&self) -> VortexResult<Option<&Arc<[ScalarValue]>>> {
+        use InnerScalarValue::*;
+
         match &self {
-            InnerScalarValue::Null => Ok(None),
-            InnerScalarValue::List(l) => Ok(Some(l)),
-            _ => Err(vortex_err!("Expected a list scalar, found {:?}", self)),
+            Null => Ok(None),
+            List(l) => Ok(Some(l)),
+            Bool(_) | Primitive(_) | Decimal(_) | Buffer(_) | BufferString(_) => {
+                Err(vortex_err!("Expected a list scalar, found {:?}", self))
+            }
         }
     }
 }

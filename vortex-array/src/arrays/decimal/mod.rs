@@ -78,7 +78,7 @@ pub fn compatible_storage_type(value_type: DecimalValueType, dtype: DecimalDType
 ///
 /// The precisions supported for each scalar type are:
 /// - **i8**: precision 1-2 digits
-/// - **i16**: precision 3-4 digits  
+/// - **i16**: precision 3-4 digits
 /// - **i32**: precision 5-9 digits
 /// - **i64**: precision 10-18 digits
 /// - **i128**: precision 19-38 digits
@@ -205,9 +205,10 @@ impl DecimalArray {
 
     /// Returns the decimal type information
     pub fn decimal_dtype(&self) -> DecimalDType {
-        match &self.dtype {
-            DType::Decimal(decimal_dtype, _) => *decimal_dtype,
-            _ => vortex_panic!("Expected Decimal dtype, got {:?}", self.dtype),
+        if let DType::Decimal(decimal_dtype, _) = self.dtype {
+            decimal_dtype
+        } else {
+            vortex_panic!("Expected Decimal dtype, got {:?}", self.dtype)
         }
     }
 

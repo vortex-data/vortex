@@ -61,9 +61,11 @@ impl VarBinViewArray {
     // count the number of bytes addressed by the views, not including null
     // values or any inlined strings.
     fn count_referenced_bytes(&self) -> u64 {
+        use Validity::*;
+
         match self.validity() {
-            Validity::AllInvalid => 0u64,
-            _ => self
+            AllInvalid => 0u64,
+            NonNullable | AllValid | Array(_) => self
                 .views()
                 .iter()
                 .enumerate()

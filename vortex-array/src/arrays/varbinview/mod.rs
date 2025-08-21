@@ -388,12 +388,16 @@ impl VarBinViewArray {
             dtype.nullability()
         );
 
+        use DType::*;
+
         match dtype {
-            DType::Utf8(_) => Self::validate_views(views, buffers, validity, |string| {
+            Utf8(_) => Self::validate_views(views, buffers, validity, |string| {
                 std::str::from_utf8(string).is_ok()
             })?,
-            DType::Binary(_) => Self::validate_views(views, buffers, validity, |_| true)?,
-            _ => vortex_bail!("invalid DType {dtype}"),
+            Binary(_) => Self::validate_views(views, buffers, validity, |_| true)?,
+            Null | Bool(_) | Primitive(..) | Decimal(..) | List(..) | Struct(..) | Extension(_) => {
+                vortex_bail!("invalid DType {dtype}")
+            }
         }
 
         Ok(())

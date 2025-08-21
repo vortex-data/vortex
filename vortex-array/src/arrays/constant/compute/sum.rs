@@ -24,20 +24,24 @@ impl SumKernel for ConstantVTable {
 }
 
 fn sum_scalar(scalar: &Scalar, len: usize) -> VortexResult<ScalarValue> {
+    use DType::*;
+
     match scalar.dtype() {
-        DType::Bool(_) => Ok(ScalarValue::from(match scalar.as_bool().value() {
+        Bool(_) => Ok(ScalarValue::from(match scalar.as_bool().value() {
             None => unreachable!("Handled before reaching this point"),
             Some(false) => 0u64,
             Some(true) => len as u64,
         })),
-        DType::Primitive(ptype, _) => Ok(match_each_native_ptype!(
+        Primitive(ptype, _) => Ok(match_each_native_ptype!(
             ptype,
             unsigned: |T| { sum_integral::<u64>(scalar.as_primitive(), len)?.into() },
             signed: |T| { sum_integral::<i64>(scalar.as_primitive(), len)?.into() },
             floating: |T| { sum_float(scalar.as_primitive(), len)?.into() }
         )),
-        DType::Extension(_) => sum_scalar(&scalar.as_extension().storage(), len),
-        _ => vortex_bail!("Unsupported dtype for sum: {}", scalar.dtype()),
+        Extension(_) => sum_scalar(&scalar.as_extension().storage(), len),
+        Null | Decimal(..) | Utf8(_) | Binary(_) | List(..) | Struct(..) => {
+            vortex_bail!("Unsupported dtype for sum: {}", scalar.dtype())
+        }
     }
 }
 

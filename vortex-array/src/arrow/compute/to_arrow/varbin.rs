@@ -21,20 +21,26 @@ impl ToArrowKernel for VarBinVTable {
         array: &VarBinArray,
         arrow_type: Option<&DataType>,
     ) -> VortexResult<Option<ArrowArrayRef>> {
+        use DType::*;
+        use PType::*;
+
         let offsets_ptype = PType::try_from(array.offsets().dtype())?;
 
         match arrow_type {
             // Emit out preferred Arrow VarBin array.
             None => match array.dtype() {
-                DType::Binary(_) => match offsets_ptype {
-                    PType::I64 | PType::U64 => to_arrow::<i64>(array),
-                    _ => to_arrow::<i32>(array),
+                Binary(_) => match offsets_ptype {
+                    I64 | U64 => to_arrow::<i64>(array),
+                    // TODO(connor):                              vvv Is this correct?
+                    U8 | U16 | U32 | I8 | I16 | I32 | F16 | F32 | F64 => to_arrow::<i32>(array),
                 },
-                DType::Utf8(_) => match offsets_ptype {
-                    PType::I64 | PType::U64 => to_arrow::<i64>(array),
-                    _ => to_arrow::<i32>(array),
+                Utf8(_) => match offsets_ptype {
+                    I64 | U64 => to_arrow::<i64>(array),
+                    // TODO(connor):                              vvv Is this correct?
+                    U8 | U16 | U32 | I8 | I16 | I32 | F16 | F32 | F64 => to_arrow::<i32>(array),
                 },
-                _ => unreachable!("Unsupported DType"),
+                Null | Bool(_) | Primitive(..) | Decimal(..) | List(..) | Struct(..)
+                | Extension(_) => unreachable!("Unsupported DType"),
             },
             // Emit the requested Arrow array.
             Some(DataType::Binary) if array.dtype().is_binary() => to_arrow::<i32>(array),
@@ -57,9 +63,11 @@ impl ToArrowKernel for VarBinVTable {
 register_kernel!(ToArrowKernelAdapter(VarBinVTable).lift());
 
 fn to_arrow<O: NativePType + OffsetSizeTrait>(array: &VarBinArray) -> VortexResult<ArrowArrayRef> {
+    use DType::*;
+
     let offsets = cast(
         array.offsets(),
-        &DType::Primitive(O::PTYPE, Nullability::NonNullable),
+        &Primitive(O::PTYPE, Nullability::NonNullable),
     )?
     .to_primitive()
     .map_err(|err| err.with_context("Failed to canonicalize offsets"))?;
@@ -67,22 +75,24 @@ fn to_arrow<O: NativePType + OffsetSizeTrait>(array: &VarBinArray) -> VortexResu
     let nulls = array.validity_mask()?.to_null_buffer();
     let data = array.bytes().clone();
 
-    // Switch on DType.
+    // Match on the `DType`.
     Ok(match array.dtype() {
-        DType::Binary(_) => Arc::new(unsafe {
+        Binary(_) => Arc::new(unsafe {
             GenericBinaryArray::new_unchecked(
                 offsets.buffer::<O>().into_arrow_offset_buffer(),
                 data.into_arrow_buffer(),
                 nulls,
             )
         }),
-        DType::Utf8(_) => Arc::new(unsafe {
+        Utf8(_) => Arc::new(unsafe {
             GenericStringArray::new_unchecked(
                 offsets.buffer::<O>().into_arrow_offset_buffer(),
                 data.into_arrow_buffer(),
                 nulls,
             )
         }),
-        _ => unreachable!("expected utf8 or binary instead of {}", array.dtype()),
+        Null | Bool(_) | Primitive(..) | Decimal(..) | List(..) | Struct(..) | Extension(_) => {
+            unreachable!("expected utf8 or binary instead of {}", array.dtype())
+        }
     })
 }

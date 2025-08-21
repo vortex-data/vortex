@@ -474,14 +474,17 @@ mod tests {
             let written = value.to_protobytes::<Vec<u8>>();
             let read_back = ScalarValue::from_protobytes(&written).unwrap();
 
+            use InnerScalarValue::*;
+
             match &read_back.0 {
-                InnerScalarValue::Primitive(PValue::U64(v)) => {
+                Primitive(PValue::U64(v)) => {
                     assert_eq!(
                         *v, expected,
                         "ScalarValue {name} value not preserved: expected {expected}, got {v}"
                     );
                 }
-                _ => {
+                Primitive(_) | Null | Bool(_) | Decimal(_) | Buffer(_) | BufferString(_)
+                | List(_) => {
                     vortex_panic!("Unexpected type after roundtrip for {name}: {read_back:?}")
                 }
             }
@@ -510,14 +513,17 @@ mod tests {
             let written = value.to_protobytes::<Vec<u8>>();
             let read_back = ScalarValue::from_protobytes(&written).unwrap();
 
+            use InnerScalarValue::*;
+
             match &read_back.0 {
-                InnerScalarValue::Primitive(PValue::I64(v)) => {
+                Primitive(PValue::I64(v)) => {
                     assert_eq!(
                         *v, expected,
                         "ScalarValue {name} value not preserved: expected {expected}, got {v}"
                     );
                 }
-                _ => {
+                Primitive(_) | Null | Bool(_) | Decimal(_) | Buffer(_) | BufferString(_)
+                | List(_) => {
                     vortex_panic!("Unexpected type after roundtrip for {name}: {read_back:?}")
                 }
             }

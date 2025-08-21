@@ -566,7 +566,9 @@ impl PType {
             Self::U16 => Self::I16,
             Self::U32 => Self::I32,
             Self::U64 => Self::I64,
-            _ => self,
+            Self::I8 | Self::I16 | Self::I32 | Self::I64 | Self::F16 | Self::F32 | Self::F64 => {
+                self
+            }
         }
     }
 
@@ -578,7 +580,9 @@ impl PType {
             Self::I16 => Self::U16,
             Self::I32 => Self::U32,
             Self::I64 => Self::U64,
-            _ => self,
+            Self::U8 | Self::U16 | Self::U32 | Self::U64 | Self::F16 | Self::F32 | Self::F64 => {
+                self
+            }
         }
     }
 }
@@ -606,9 +610,10 @@ impl TryFrom<&DType> for PType {
 
     #[inline]
     fn try_from(value: &DType) -> VortexResult<Self> {
-        match value {
-            Primitive(p, _) => Ok(*p),
-            _ => Err(vortex_err!("Cannot convert DType {} into PType", value)),
+        if let Primitive(p, _) = value {
+            Ok(*p)
+        } else {
+            Err(vortex_err!("Cannot convert DType {} into PType", value))
         }
     }
 }

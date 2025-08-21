@@ -38,32 +38,47 @@ pub trait TryFromArrowType<T>: Sized {
 
 impl TryFromArrowType<&DataType> for PType {
     fn try_from_arrow(value: &DataType) -> VortexResult<Self> {
+        use DataType::*;
+
         match value {
-            DataType::Int8 => Ok(Self::I8),
-            DataType::Int16 => Ok(Self::I16),
-            DataType::Int32 => Ok(Self::I32),
-            DataType::Int64 => Ok(Self::I64),
-            DataType::UInt8 => Ok(Self::U8),
-            DataType::UInt16 => Ok(Self::U16),
-            DataType::UInt32 => Ok(Self::U32),
-            DataType::UInt64 => Ok(Self::U64),
-            DataType::Float16 => Ok(Self::F16),
-            DataType::Float32 => Ok(Self::F32),
-            DataType::Float64 => Ok(Self::F64),
-            _ => Err(vortex_err!(
-                "Arrow datatype {:?} cannot be converted to ptype",
-                value
-            )),
+            Int8 => Ok(Self::I8),
+            Int16 => Ok(Self::I16),
+            Int32 => Ok(Self::I32),
+            Int64 => Ok(Self::I64),
+            UInt8 => Ok(Self::U8),
+            UInt16 => Ok(Self::U16),
+            UInt32 => Ok(Self::U32),
+            UInt64 => Ok(Self::U64),
+            Float16 => Ok(Self::F16),
+            Float32 => Ok(Self::F32),
+            Float64 => Ok(Self::F64),
+            Null | Boolean | Timestamp(..) | Date32 | Date64 | Time32(_) | Time64(_)
+            | Duration(_) | Interval(_) | Binary | FixedSizeBinary(_) | LargeBinary
+            | BinaryView | Utf8 | LargeUtf8 | Utf8View | List(_) | ListView(_)
+            | FixedSizeList(..) | LargeList(_) | LargeListView(_) | Struct(_) | Union(..)
+            | Dictionary(..) | Decimal128(..) | Decimal256(..) | Map(..) | RunEndEncoded(..) => {
+                Err(vortex_err!(
+                    "Arrow datatype {:?} cannot be converted to ptype",
+                    value
+                ))
+            }
         }
     }
 }
 
 impl TryFromArrowType<&DataType> for DecimalDType {
     fn try_from_arrow(value: &DataType) -> VortexResult<Self> {
+        use DataType::*;
+
         match value {
-            DataType::Decimal128(precision, scale) => Self::try_new(*precision, *scale),
-            DataType::Decimal256(precision, scale) => Self::try_new(*precision, *scale),
-            _ => Err(vortex_err!(
+            Decimal128(precision, scale) => Self::try_new(*precision, *scale),
+            Decimal256(precision, scale) => Self::try_new(*precision, *scale),
+            Null | Boolean | Int8 | Int16 | Int32 | Int64 | UInt8 | UInt16 | UInt32 | UInt64
+            | Float16 | Float32 | Float64 | Timestamp(..) | Date32 | Date64 | Time32(_)
+            | Time64(_) | Duration(_) | Interval(_) | Binary | FixedSizeBinary(_) | LargeBinary
+            | BinaryView | Utf8 | LargeUtf8 | Utf8View | List(_) | ListView(_)
+            | FixedSizeList(..) | LargeList(_) | LargeListView(_) | Struct(_) | Union(..)
+            | Dictionary(..) | Map(..) | RunEndEncoded(..) => Err(vortex_err!(
                 "Arrow datatype {:?} cannot be converted to DecimalDType",
                 value
             )),
@@ -99,38 +114,36 @@ impl FromArrowType<&Fields> for StructFields {
 
 impl FromArrowType<(&DataType, Nullability)> for DType {
     fn from_arrow((data_type, nullability): (&DataType, Nullability)) -> Self {
-        use crate::DType::*;
+        use DataType::*;
 
         if data_type.is_integer() || data_type.is_floating() {
-            return Primitive(
+            return DType::Primitive(
                 PType::try_from_arrow(data_type).vortex_expect("arrow float/integer to ptype"),
                 nullability,
             );
         }
 
         match data_type {
-            DataType::Null => Null,
-            DataType::Decimal128(precision, scale) | DataType::Decimal256(precision, scale) => {
-                Decimal(DecimalDType::new(*precision, *scale), nullability)
+            Null => DType::Null,
+            Decimal128(precision, scale) | Decimal256(precision, scale) => {
+                DType::Decimal(DecimalDType::new(*precision, *scale), nullability)
             }
-            DataType::Boolean => Bool(nullability),
-            DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => Utf8(nullability),
-            DataType::Binary | DataType::LargeBinary | DataType::BinaryView => Binary(nullability),
-            DataType::Date32
-            | DataType::Date64
-            | DataType::Time32(_)
-            | DataType::Time64(_)
-            | DataType::Timestamp(..) => Extension(Arc::new(
+            Boolean => DType::Bool(nullability),
+            Utf8 | LargeUtf8 | Utf8View => DType::Utf8(nullability),
+            Binary | LargeBinary | BinaryView => DType::Binary(nullability),
+            Date32 | Date64 | Time32(_) | Time64(_) | Timestamp(..) => DType::Extension(Arc::new(
                 make_temporal_ext_dtype(data_type).with_nullability(nullability),
             )),
-            DataType::List(e) | DataType::LargeList(e) => {
-                List(Arc::new(Self::from_arrow(e.as_ref())), nullability)
+            List(e) | LargeList(e) => {
+                DType::List(Arc::new(Self::from_arrow(e.as_ref())), nullability)
             }
-            DataType::Struct(f) => Struct(StructFields::from_arrow(f), nullability),
-            DataType::Dictionary(_, value_type) => {
-                Self::from_arrow((value_type.as_ref(), nullability))
+            Struct(f) => DType::Struct(StructFields::from_arrow(f), nullability),
+            Dictionary(_, value_type) => Self::from_arrow((value_type.as_ref(), nullability)),
+            Int8 | Int16 | Int32 | Int64 | UInt8 | UInt16 | UInt32 | UInt64 | Float16 | Float32
+            | Float64 | Duration(..) | Interval(..) | FixedSizeBinary(..) | ListView(..)
+            | FixedSizeList(..) | LargeListView(..) | Union(..) | Map(..) | RunEndEncoded(..) => {
+                unimplemented!("Arrow data type not yet supported: {:?}", data_type)
             }
-            _ => unimplemented!("Arrow data type not yet supported: {:?}", data_type),
         }
     }
 }

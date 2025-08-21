@@ -283,15 +283,17 @@ fn test_temporal_time_to_arrow(
         Some(metadata.into()),
     ));
 
+    use PType::*;
+
     let scalar = Scalar::extension(
         ext_dtype,
         match ptype {
-            PType::I32 => {
+            I32 => {
                 let i32_value = i32::try_from(value).expect("test value should fit in i32");
                 Scalar::primitive(i32_value, Nullability::NonNullable)
             }
-            PType::I64 => Scalar::primitive(value, Nullability::NonNullable),
-            _ => unreachable!(),
+            I64 => Scalar::primitive(value, Nullability::NonNullable),
+            U8 | U16 | U32 | U64 | I8 | I16 | F16 | F32 | F64 => unreachable!(),
         },
     );
 
@@ -332,15 +334,17 @@ fn test_temporal_date_to_arrow(
         Some(metadata.into()),
     ));
 
+    use PType::*;
+
     let scalar = Scalar::extension(
         ext_dtype,
         match ptype {
-            PType::I32 => {
+            I32 => {
                 let i32_value = i32::try_from(value).expect("test value should fit in i32");
                 Scalar::primitive(i32_value, Nullability::NonNullable)
             }
-            PType::I64 => Scalar::primitive(value, Nullability::NonNullable),
-            _ => unreachable!(),
+            I64 => Scalar::primitive(value, Nullability::NonNullable),
+            U8 | U16 | U32 | U64 | I8 | I16 | F16 | F32 | F64 => unreachable!(),
         },
     );
 
@@ -360,12 +364,14 @@ fn test_temporal_date_unsupported(#[case] time_unit: TimeUnit, #[case] ptype: PT
         Some(metadata.into()),
     ));
 
+    use PType::*;
+
     let scalar = Scalar::extension(
         ext_dtype,
         match ptype {
-            PType::I32 => Scalar::primitive(1234i32, Nullability::NonNullable),
-            PType::I64 => Scalar::primitive(1234567890000i64, Nullability::NonNullable),
-            _ => unreachable!(),
+            I32 => Scalar::primitive(1234i32, Nullability::NonNullable),
+            I64 => Scalar::primitive(1234567890000i64, Nullability::NonNullable),
+            U8 | U16 | U32 | U64 | I8 | I16 | F16 | F32 | F64 => unreachable!(),
         },
     );
 

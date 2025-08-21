@@ -92,15 +92,15 @@ const_assert_eq!(size_of::<DType>(), 16);
 const_assert_eq!(size_of::<DType>(), 8);
 
 impl DType {
-    /// The default DType for bytes
+    /// The default `DType` for bytes.
     pub const BYTES: Self = Primitive(PType::U8, Nullability::NonNullable);
 
-    /// Get the nullability of the DType
+    /// Get the nullability of the `DType`.
     pub fn nullability(&self) -> Nullability {
         self.is_nullable().into()
     }
 
-    /// Check if the DType is nullable
+    /// Check if the `DType` is [`Nullability::Nullable`].
     pub fn is_nullable(&self) -> bool {
         match self {
             Null => true,
@@ -115,12 +115,12 @@ impl DType {
         }
     }
 
-    /// Get a new DType with `Nullability::NonNullable` (but otherwise the same as `self`)
+    /// Get a new `DType` with [`Nullability::NonNullable`] (but otherwise the same as `self`)
     pub fn as_nonnullable(&self) -> Self {
         self.with_nullability(Nullability::NonNullable)
     }
 
-    /// Get a new DType with `Nullability::Nullable` (but otherwise the same as `self`)
+    /// Get a new `DType` with [`Nullability::Nullable`] (but otherwise the same as `self`)
     pub fn as_nullable(&self) -> Self {
         self.with_nullability(Nullability::Nullable)
     }
@@ -140,13 +140,13 @@ impl DType {
         }
     }
 
-    /// Union the nullability of this dtype with the other nullability, returning a new dtype.
+    /// Union the nullability of this `DType` with the other nullability, returning a new `DType`.
     pub fn union_nullability(&self, other: Nullability) -> Self {
         let nullability = self.nullability() | other;
         self.with_nullability(nullability)
     }
 
-    /// Check if `self` and `other` are equal, ignoring nullability
+    /// Check if `self` and `other` are equal, ignoring nullability.
     pub fn eq_ignore_nullability(&self, other: &Self) -> bool {
         match (self, other) {
             (Null, Null) => true,
@@ -185,11 +185,12 @@ impl DType {
         matches!(self, Primitive(_, _))
     }
 
-    /// Returns this DType's `PType` if it is a primitive type, otherwise panics.
+    /// Returns this [`DType`]'s [`PType`] if it is a primitive type, otherwise panics.
     pub fn as_ptype(&self) -> PType {
-        match self {
-            Primitive(ptype, _) => *ptype,
-            _ => vortex_panic!("DType is not a primitive type"),
+        if let Primitive(ptype, _) = self {
+            *ptype
+        } else {
+            vortex_panic!("DType is not a primitive type")
         }
     }
 
@@ -252,29 +253,28 @@ impl DType {
 
     /// Check returns the inner decimal type if the dtype is a decimal
     pub fn as_decimal_opt(&self) -> Option<&DecimalDType> {
-        match self {
-            Decimal(decimal, _) => Some(decimal),
-            _ => None,
+        if let Decimal(decimal, _) = self {
+            Some(decimal)
+        } else {
+            None
         }
     }
 
     /// Get the `StructDType` if `self` is a `StructDType`, otherwise `None`
     pub fn as_struct_opt(&self) -> Option<&StructFields> {
-        match self {
-            Struct(s, _) => Some(s),
-            _ => None,
+        if let Struct(f, _) = self {
+            Some(f)
+        } else {
+            None
         }
     }
 
     /// Get the inner dtype if `self` is a `ListDType`, otherwise `None`
     pub fn as_list_element_opt(&self) -> Option<&Arc<DType>> {
-        match self {
-            List(s, _) => Some(s),
-            _ => None,
-        }
+        if let List(s, _) = self { Some(s) } else { None }
     }
 
-    /// Convenience method for creating a struct dtype
+    /// Convenience method for creating a [`DType::Struct`].
     pub fn struct_<I: IntoIterator<Item = (impl Into<FieldName>, impl Into<FieldDType>)>>(
         iter: I,
         nullability: Nullability,

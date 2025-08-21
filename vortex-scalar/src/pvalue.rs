@@ -224,6 +224,8 @@ impl PValue {
             "Cannot reinterpret cast between types of different widths"
         );
 
+        // It is unlikely that more primitive types will be added, so fingers crossed...
+        #[allow(clippy::wildcard_enum_match_arm)]
         match self {
             PValue::U8(v) => u8::cast_signed(*v).into(),
             PValue::U16(v) => match ptype {
@@ -453,7 +455,9 @@ impl CoercePValue for f16 {
             PValue::F64(f) => {
                 <Self as NumCast>::from(f).ok_or_else(|| vortex_err!("Cannot convert f64 to f16"))
             }
-            _ => vortex_bail!("Cannot coerce {value:?} to f16: type not supported for coercion"),
+            PValue::I8(_) | PValue::I16(_) | PValue::I32(_) | PValue::I64(_) => {
+                vortex_bail!("Cannot coerce {value:?} to f16: type not supported for coercion")
+            }
         }
     }
 }
@@ -474,7 +478,9 @@ impl CoercePValue for f32 {
             PValue::F64(f) => {
                 <Self as NumCast>::from(f).ok_or_else(|| vortex_err!("Cannot convert f64 to f32"))
             }
-            _ => vortex_bail!("Unsupported PValue {value:?} type for f32"),
+            PValue::I8(_) | PValue::I16(_) | PValue::I32(_) | PValue::I64(_) => {
+                vortex_bail!("Unsupported PValue {value:?} type for f32")
+            }
         }
     }
 }
@@ -494,7 +500,9 @@ impl CoercePValue for f64 {
                 <Self as NumCast>::from(f).ok_or_else(|| vortex_err!("Cannot convert f32 to f64"))
             }
             PValue::F64(f) => Ok(f),
-            _ => vortex_bail!("Unsupported PValue {value:?} type for f64"),
+            PValue::I8(_) | PValue::I16(_) | PValue::I32(_) | PValue::I64(_) => {
+                vortex_bail!("Unsupported PValue {value:?} type for f64")
+            }
         }
     }
 }

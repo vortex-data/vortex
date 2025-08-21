@@ -24,29 +24,33 @@ impl CompareKernel for VarBinVTable {
         rhs: &dyn Array,
         operator: Operator,
     ) -> VortexResult<Option<ArrayRef>> {
+        use DType::*;
+        use Operator::*;
+
         if let Some(rhs_const) = rhs.as_constant() {
             let nullable = lhs.dtype().is_nullable() || rhs_const.dtype().is_nullable();
             let len = lhs.len();
 
             let rhs_is_empty = match rhs_const.dtype() {
-                DType::Binary(_) => rhs_const
+                Binary(_) => rhs_const
                     .as_binary()
                     .is_empty()
                     .vortex_expect("RHS should not be null"),
-                DType::Utf8(_) => rhs_const
+                Utf8(_) => rhs_const
                     .as_utf8()
                     .is_empty()
                     .vortex_expect("RHS should not be null"),
-                _ => vortex_bail!("VarBinArray can only have type of Binary or Utf8"),
+                Null | Bool(_) | Primitive(..) | Decimal(..) | List(..) | Struct(..)
+                | Extension(_) => {
+                    vortex_bail!("VarBinArray can only have type of Binary or Utf8")
+                }
             };
 
             if rhs_is_empty {
                 let buffer = match operator {
-                    // Every possible value is gte ""
-                    Operator::Gte => BooleanBuffer::new_set(len),
-                    // No value is lt ""
-                    Operator::Lt => BooleanBuffer::new_unset(len),
-                    _ => {
+                    Gte => BooleanBuffer::new_set(len), // Every possible value is >= ""
+                    Lt => BooleanBuffer::new_unset(len), // No value is < ""
+                    Eq | NotEq | Gt | Lte => {
                         let lhs_offsets = lhs.offsets().to_canonical()?.into_primitive()?;
                         match_each_native_ptype!(lhs_offsets.ptype(), |P| {
                             compare_offsets_to_empty::<P>(lhs_offsets, operator)
@@ -69,29 +73,30 @@ impl CompareKernel for VarBinVTable {
 
             // TODO(robert): Handle LargeString/Binary arrays
             let arrow_rhs: &dyn arrow_array::Datum = match rhs_const.dtype() {
-                DType::Utf8(_) => &rhs_const
+                Utf8(_) => &rhs_const
                     .as_utf8()
                     .value()
                     .map(StringArray::new_scalar)
                     .unwrap_or_else(|| arrow_array::Scalar::new(StringArray::new_null(1))),
-                DType::Binary(_) => &rhs_const
+                Binary(_) => &rhs_const
                     .as_binary()
                     .value()
                     .map(BinaryArray::new_scalar)
                     .unwrap_or_else(|| arrow_array::Scalar::new(BinaryArray::new_null(1))),
-                _ => vortex_bail!(
+                Null | Bool(_) | Primitive(..) | Decimal(..) | List(..) | Struct(..)
+                | Extension(_) => vortex_bail!(
                     "VarBin array RHS can only be Utf8 or Binary, given {}",
                     rhs_const.dtype()
                 ),
             };
 
             let array = match operator {
-                Operator::Eq => cmp::eq(&lhs, arrow_rhs),
-                Operator::NotEq => cmp::neq(&lhs, arrow_rhs),
-                Operator::Gt => cmp::gt(&lhs, arrow_rhs),
-                Operator::Gte => cmp::gt_eq(&lhs, arrow_rhs),
-                Operator::Lt => cmp::lt(&lhs, arrow_rhs),
-                Operator::Lte => cmp::lt_eq(&lhs, arrow_rhs),
+                Eq => cmp::eq(&lhs, arrow_rhs),
+                NotEq => cmp::neq(&lhs, arrow_rhs),
+                Gt => cmp::gt(&lhs, arrow_rhs),
+                Gte => cmp::gt_eq(&lhs, arrow_rhs),
+                Lt => cmp::lt(&lhs, arrow_rhs),
+                Lte => cmp::lt_eq(&lhs, arrow_rhs),
             }
             .map_err(|err| vortex_err!("Failed to compare VarBin array: {}", err))?;
 

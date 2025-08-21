@@ -10,6 +10,7 @@ use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 
+use DecimalValue::*;
 use num_traits::ToPrimitive as NumToPrimitive;
 use vortex_dtype::{DType, DecimalDType, Nullability, PType};
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
@@ -37,8 +38,8 @@ impl NativeDecimalType for i8 {
 
     fn maybe_from(decimal_type: DecimalValue) -> Option<Self> {
         match decimal_type {
-            DecimalValue::I8(v) => Some(v),
-            _ => None,
+            I8(v) => Some(v),
+            I16(_) | I32(_) | I64(_) | I128(_) | I256(_) => None,
         }
     }
 }
@@ -48,8 +49,8 @@ impl NativeDecimalType for i16 {
 
     fn maybe_from(decimal_type: DecimalValue) -> Option<Self> {
         match decimal_type {
-            DecimalValue::I16(v) => Some(v),
-            _ => None,
+            I16(v) => Some(v),
+            I8(_) | I32(_) | I64(_) | I128(_) | I256(_) => None,
         }
     }
 }
@@ -59,8 +60,8 @@ impl NativeDecimalType for i32 {
 
     fn maybe_from(decimal_type: DecimalValue) -> Option<Self> {
         match decimal_type {
-            DecimalValue::I32(v) => Some(v),
-            _ => None,
+            I32(v) => Some(v),
+            I8(_) | I16(_) | I64(_) | I128(_) | I256(_) => None,
         }
     }
 }
@@ -70,8 +71,8 @@ impl NativeDecimalType for i64 {
 
     fn maybe_from(decimal_type: DecimalValue) -> Option<Self> {
         match decimal_type {
-            DecimalValue::I64(v) => Some(v),
-            _ => None,
+            I64(v) => Some(v),
+            I8(_) | I16(_) | I32(_) | I128(_) | I256(_) => None,
         }
     }
 }
@@ -81,8 +82,8 @@ impl NativeDecimalType for i128 {
 
     fn maybe_from(decimal_type: DecimalValue) -> Option<Self> {
         match decimal_type {
-            DecimalValue::I128(v) => Some(v),
-            _ => None,
+            I128(v) => Some(v),
+            I8(_) | I16(_) | I32(_) | I64(_) | I256(_) => None,
         }
     }
 }
@@ -92,8 +93,8 @@ impl NativeDecimalType for i256 {
 
     fn maybe_from(decimal_type: DecimalValue) -> Option<Self> {
         match decimal_type {
-            DecimalValue::I256(v) => Some(v),
-            _ => None,
+            I256(v) => Some(v),
+            I8(_) | I16(_) | I32(_) | I64(_) | I128(_) => None,
         }
     }
 }
@@ -101,12 +102,12 @@ impl NativeDecimalType for i256 {
 impl Display for DecimalValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            DecimalValue::I8(v8) => write!(f, "decimal8({v8})"),
-            DecimalValue::I16(v16) => write!(f, "decimal16({v16})"),
-            DecimalValue::I32(v32) => write!(f, "decimal32({v32})"),
-            DecimalValue::I64(v32) => write!(f, "decimal64({v32})"),
-            DecimalValue::I128(v128) => write!(f, "decimal128({v128})"),
-            DecimalValue::I256(v256) => write!(f, "decimal256({v256})"),
+            I8(v8) => write!(f, "decimal8({v8})"),
+            I16(v16) => write!(f, "decimal16({v16})"),
+            I32(v32) => write!(f, "decimal32({v32})"),
+            I64(v32) => write!(f, "decimal64({v32})"),
+            I128(v128) => write!(f, "decimal128({v128})"),
+            I256(v256) => write!(f, "decimal256({v256})"),
         }
     }
 }
@@ -170,9 +171,7 @@ impl<'a> DecimalScalar<'a> {
                     // Same decimal type, just change nullability if needed
                     return Ok(Scalar::new(
                         dtype.clone(),
-                        ScalarValue(InnerScalarValue::Decimal(
-                            self.value.unwrap_or(DecimalValue::I128(0)),
-                        )),
+                        ScalarValue(InnerScalarValue::Decimal(self.value.unwrap_or(I128(0)))),
                     ));
                 }
 
@@ -274,7 +273,13 @@ impl<'a> DecimalScalar<'a> {
                     Ok(Scalar::null(dtype.clone()))
                 }
             }
-            _ => vortex_bail!(
+            DType::Null
+            | DType::Bool(_)
+            | DType::Utf8(_)
+            | DType::Binary(_)
+            | DType::List(..)
+            | DType::Struct(..)
+            | DType::Extension(_) => vortex_bail!(
                 "Cannot cast decimal to {dtype}: decimal scalars can only be cast to decimal or primitive numeric types"
             ),
         }
@@ -292,45 +297,45 @@ impl<'a> TryFrom<&'a Scalar> for DecimalScalar<'a> {
 impl Display for DecimalScalar<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self.value.as_ref() {
-            Some(&dv) => {
+            Some(&decimal_value) => {
                 // Introduce some of the scale factors instead.
-                match dv {
-                    DecimalValue::I8(v) => write!(
+                match decimal_value {
+                    I8(v) => write!(
                         f,
                         "decimal8({}, precision={}, scale={})",
                         v,
                         self.decimal_type.precision(),
                         self.decimal_type.scale()
                     ),
-                    DecimalValue::I16(v) => write!(
+                    I16(v) => write!(
                         f,
                         "decimal16({}, precision={}, scale={})",
                         v,
                         self.decimal_type.precision(),
                         self.decimal_type.scale()
                     ),
-                    DecimalValue::I32(v) => write!(
+                    I32(v) => write!(
                         f,
                         "decimal32({}, precision={}, scale={})",
                         v,
                         self.decimal_type.precision(),
                         self.decimal_type.scale()
                     ),
-                    DecimalValue::I64(v) => write!(
+                    I64(v) => write!(
                         f,
                         "decimal64({}, precision={}, scale={})",
                         v,
                         self.decimal_type.precision(),
                         self.decimal_type.scale()
                     ),
-                    DecimalValue::I128(v) => write!(
+                    I128(v) => write!(
                         f,
                         "decimal128({}, precision={}, scale={})",
                         v,
                         self.decimal_type.precision(),
                         self.decimal_type.scale()
                     ),
-                    DecimalValue::I256(v) => write!(
+                    I256(v) => write!(
                         f,
                         "decimal256({}, precision={}, scale={})",
                         v,

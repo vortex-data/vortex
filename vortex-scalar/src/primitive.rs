@@ -748,12 +748,16 @@ mod tests {
         #[case] target_type: PType,
         #[case] should_succeed: bool,
     ) {
+        use PType::*;
+
         let source_pvalue = match source_type {
-            PType::I8 => PValue::I8(source_value as i8),
-            PType::U8 => PValue::U8(source_value as u8),
-            PType::U16 => PValue::U16(source_value as u16),
-            PType::I32 => PValue::I32(source_value),
-            _ => unreachable!("Test case uses unexpected source type"),
+            I8 => PValue::I8(source_value as i8),
+            U8 => PValue::U8(source_value as u8),
+            U16 => PValue::U16(source_value as u16),
+            I32 => PValue::I32(source_value),
+            U32 | U64 | I16 | I64 | F16 | F32 | F64 => {
+                unreachable!("Test case uses unexpected source type")
+            }
         };
 
         let dtype = DType::Primitive(source_type, Nullability::NonNullable);
