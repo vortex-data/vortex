@@ -211,7 +211,7 @@ impl<T: Element + NativePType, Op: CompareOp<T>> Kernel for ComparePrimitiveKern
             bools[i] = unsafe { Op::compare(lhs.get_unchecked(i), rhs.get_unchecked(i)) };
         }
 
-       Ok(())
+        Ok(())
     }
 }
 

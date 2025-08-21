@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod reduce;
+mod fold;
+mod visitor;
 
-pub use reduce::*;
+pub use fold::*;
+pub use visitor::*;

@@ -10,7 +10,6 @@ use vortex_dtype::{NativePType, PType, match_each_native_ptype};
 use vortex_error::VortexResult;
 
 use crate::bits::BitView;
-use crate::buffers::BufferHandle;
 use crate::operators::{BindContext, Operator};
 use crate::types::{Element, VType};
 use crate::view::ViewMut;
@@ -48,7 +47,7 @@ impl Operator for PrimitiveOperator {
     fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {
         match_each_native_ptype!(self.ptype, |T| {
             Ok(Box::new(PrimitiveKernel::<T> {
-                buffer: BufferHandle::new(Buffer::from_byte_buffer(self.byte_buffer.clone())),
+                buffer: Buffer::from_byte_buffer(self.byte_buffer.clone()),
                 offset: 0,
             }) as Box<dyn Kernel>)
         })
@@ -57,7 +56,7 @@ impl Operator for PrimitiveOperator {
 
 /// A kernel that produces primitive values from a byte buffer.
 pub struct PrimitiveKernel<T: NativePType> {
-    buffer: BufferHandle<T>,
+    buffer: Buffer<T>,
     offset: usize,
 }
 
@@ -69,14 +68,14 @@ impl<T: Element + NativePType> Kernel for PrimitiveKernel<T> {
 
     fn step(
         &mut self,
-        ctx: &dyn KernelContext,
+        _ctx: &dyn KernelContext,
         mask: BitView,
         out: &mut ViewMut,
     ) -> VortexResult<()> {
         // FIXME(ngates): support mask.
         // assert_eq!(mask.true_count(), N, "Mask must have exactly N true bits");
 
-        let buffer = self.buffer.get_or_load(ctx)?;
+        let buffer = &self.buffer;
         let remaining = buffer.len() - self.offset;
 
         let out_slice = out.as_slice_mut::<T>();
@@ -107,15 +106,16 @@ mod tests {
     use crate::bits::BitView;
     use crate::{BufferId, VectorId, VectorRef};
 
-    struct MockContext;
+    /// A no-op context for testing primitive kernels that don't need external resources
+    struct NoOpContext;
 
-    impl KernelContext for MockContext {
+    impl KernelContext for NoOpContext {
         fn vector(&self, _vector_id: VectorId) -> VectorRef<'_> {
-            unimplemented!("not needed for these tests")
+            unreachable!("PrimitiveKernel does not access vectors - it owns its buffer directly")
         }
 
         fn buffer(&self, _buffer_id: BufferId) -> Poll<VortexResult<ByteBuffer>> {
-            unimplemented!("not needed for these tests")
+            unreachable!("PrimitiveKernel does not access external buffers - it owns its buffer directly")
         }
     }
 
@@ -128,7 +128,7 @@ mod tests {
 
         // Create the kernel
         let mut kernel = PrimitiveKernel::<i32> {
-            buffer: BufferHandle::new(primitive_array.buffer()),
+            buffer: primitive_array.buffer(),
             offset: 0,
         };
 
@@ -141,12 +141,12 @@ mod tests {
         unsafe { output.set_len(SC) };
         let mut output_view = ViewMut::new(&mut output[..], None);
 
-        // Create a mock context
-        let ctx = MockContext;
+        // Create a no-op context (primitive kernels don't need external resources)
+        let ctx = NoOpContext;
 
         // Execute the step
         let result = kernel.step(&ctx, mask_view, &mut output_view);
-        assert!(matches!(result, Poll::Ready(Ok(()))));
+        assert!(matches!(result, Ok(())));
 
         // Verify the first elements contain our values
         for i in 0..size {
@@ -170,7 +170,7 @@ mod tests {
 
         // Create the kernel
         let mut kernel = PrimitiveKernel::<i32> {
-            buffer: BufferHandle::new(primitive_array.buffer()),
+            buffer: primitive_array.buffer(),
             offset: 0,
         };
 
@@ -191,12 +191,12 @@ mod tests {
         unsafe { output.set_len(SC) };
         let mut output_view = ViewMut::new(&mut output[..], None);
 
-        // Create a mock context
-        let ctx = MockContext;
+        // Create a no-op context (primitive kernels don't need external resources)
+        let ctx = NoOpContext;
 
         // Execute the step
         let result = kernel.step(&ctx, mask_view, &mut output_view);
-        assert!(matches!(result, Poll::Ready(Ok(()))));
+        assert!(matches!(result, Ok(())));
         unsafe { output.set_len(mask_view.true_count()) };
 
         // Verify that the mask was applied successfully
@@ -228,14 +228,14 @@ mod tests {
 
         // Create the kernel
         let mut kernel = PrimitiveKernel::<i32> {
-            buffer: BufferHandle::new(primitive_array.buffer()),
+            buffer: primitive_array.buffer(),
             offset: 0,
         };
 
         // All-true mask
         let mask_data = [u64::MAX; SC / 64];
         let mask_view = BitView::new(&mask_data);
-        let ctx = MockContext;
+        let ctx = NoOpContext;
 
         // First step should process first N elements
         {
@@ -244,7 +244,7 @@ mod tests {
             let mut output_view = ViewMut::new(&mut output[..], None);
 
             let result = kernel.step(&ctx, mask_view, &mut output_view);
-            assert!(matches!(result, Poll::Ready(Ok(()))));
+            assert!(matches!(result, Ok(())));
             assert_eq!(kernel.offset, SC);
 
             // Verify first chunk
@@ -260,7 +260,7 @@ mod tests {
             let mut output_view = ViewMut::new(&mut output[..], None);
 
             let result = kernel.step(&ctx, mask_view, &mut output_view);
-            assert!(matches!(result, Poll::Ready(Ok(()))));
+            assert!(matches!(result, Ok(())));
             assert_eq!(kernel.offset, total_size);
 
             // Verify remaining elements (first 100 should be valid)

@@ -5,22 +5,22 @@ use std::any::Any;
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::rc::Rc;
-use std::task::Poll;
 
 use num_traits::WrappingAdd;
 use vortex_array::Array;
 use vortex_array::pipeline::PipelineVTable;
-use vortex_dtype::{NativePType, PType, match_each_integer_ptype, match_each_native_ptype};
+use vortex_dtype::{NativePType, PType, match_each_integer_ptype };
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 use vortex_vector::bits::BitView;
+use vortex_vector::operators::compare::BinaryOperator;
 use vortex_vector::operators::scalar_compare::ScalarCompareOperator;
 use vortex_vector::operators::{BindContext, Operator};
 use vortex_vector::types::{Element, VType};
 use vortex_vector::vector::VectorId;
 use vortex_vector::view::ViewMut;
 use vortex_vector::{Kernel, KernelContext};
-use vortex_vector::operators::compare::BinaryOperator;
+
 use crate::{FoRArray, FoRVTable};
 
 impl PipelineVTable<FoRVTable> for FoRVTable {
@@ -99,7 +99,7 @@ impl Operator for FoROperator {
             return None;
         }
 
-        let new_ref = match_each_native_ptype!(self.reference.as_primitive().ptype(), |P| {
+        let new_ref = match_each_integer_ptype!(self.reference.as_primitive().ptype(), |P| {
             let compare = compare
                 .scalar
                 .as_primitive()
@@ -111,7 +111,7 @@ impl Operator for FoROperator {
                 .typed_value::<P>()
                 .vortex_expect("must have ptype");
             // TODO: handle overflow
-            Scalar::from(compare.wrapping_sub(&reference))
+            Scalar::from(compare.wrapping_sub(reference))
         });
 
         Some(Rc::new(ScalarCompareOperator::new(

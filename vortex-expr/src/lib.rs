@@ -111,11 +111,6 @@ pub trait VortexExpr:
     /// Compute the type of the array returned by
     /// [`VortexExpr::evaluate`](./trait.VortexExpr.html#method.evaluate).
     fn return_dtype(&self, scope: &DType) -> VortexResult<DType>;
-
-    fn operator(
-        &self,
-        _children: Vec<Rc<dyn pipeline::operators::Operator>>,
-    ) -> Option<Rc<dyn pipeline::operators::Operator>>;
 }
 
 dyn_hash::hash_trait_object!(VortexExpr);
@@ -166,11 +161,6 @@ impl dyn VortexExpr + '_ {
 pub trait VortexExprExt {
     /// Accumulate all field references from this expression and its children in a set
     fn field_references(&self) -> HashSet<FieldName>;
-
-    fn to_operator(
-        &self,
-        root: &dyn Array,
-    ) -> VortexResult<Option<Rc<dyn pipeline::operators::Operator>>>;
 }
 
 impl VortexExprExt for ExprRef {
@@ -179,17 +169,6 @@ impl VortexExprExt for ExprRef {
         // The collector is infallible, so we can unwrap the result
         self.accept(&mut collector).vortex_unwrap();
         collector.into_fields()
-    }
-
-    fn to_operator(
-        &self,
-        root: &dyn Array,
-    ) -> VortexResult<Option<Rc<dyn pipeline::operators::Operator>>> {
-        let mut converter = ExprOperatorConverter::new(root);
-        let Some(operator) = self.clone().fold(&mut converter)?.value() else {
-            return Ok(None);
-        };
-        reduce_up(operator).map(Some)
     }
 }
 
@@ -235,13 +214,6 @@ impl<V: VTable> VortexExpr for ExprAdapter<V> {
 
     fn return_dtype(&self, scope: &DType) -> VortexResult<DType> {
         V::return_dtype(&self.0, scope)
-    }
-
-    fn operator(
-        &self,
-        children: Vec<Rc<dyn pipeline::operators::Operator>>,
-    ) -> Option<Rc<dyn pipeline::operators::Operator>> {
-        V::operator(&self.0, children)
     }
 }
 

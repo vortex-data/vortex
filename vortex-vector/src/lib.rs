@@ -91,7 +91,6 @@ pub trait Kernel {
     ) -> VortexResult<()>;
 }
 
-
 pub trait KernelContext {
     /// Get a vector by its ID.
     fn vector(&self, vector_id: VectorId) -> VectorRef<'_>;

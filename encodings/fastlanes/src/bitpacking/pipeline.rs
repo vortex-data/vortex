@@ -4,14 +4,13 @@
 use std::any::Any;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
-use std::task::{Poll, ready};
 
 use fastlanes::{BitPacking, FastLanes};
 use vortex_array::pipeline::PipelineVTable;
+use vortex_buffer::Buffer;
 use vortex_dtype::{PhysicalPType, match_each_integer_ptype};
 use vortex_error::VortexResult;
 use vortex_vector::bits::BitView;
-use vortex_vector::buffers::BufferHandle;
 use vortex_vector::operators::{BindContext, Operator};
 use vortex_vector::types::{Element, VType};
 use vortex_vector::view::ViewMut;
@@ -58,10 +57,9 @@ impl Operator for BitPackedArray {
                 width: self.bit_width as usize,
                 packed_stride: self.bit_width as usize
                     * <<T as PhysicalPType>::Physical as FastLanes>::LANES,
-                buffer: BufferHandle::new(self.packed.clone())
-                    .into_typed::<<T as PhysicalPType>::Physical>(),
+                buffer: Buffer::<<T as PhysicalPType>::Physical>::from_byte_buffer(self.packed.clone().into_byte_buffer()),
                 packed_offset: 0,
-            }))
+            }) as Box<dyn Kernel>)
         })
     }
 }
@@ -80,7 +78,7 @@ pub(crate) struct BitPackedKernel<T: PhysicalPType<Physical: BitPacking>> {
     width: usize,
     packed_stride: usize,
 
-    buffer: BufferHandle<<T as PhysicalPType>::Physical>,
+    buffer: Buffer<<T as PhysicalPType>::Physical>,
     packed_offset: usize,
 }
 
@@ -98,17 +96,15 @@ where
 
     fn step(
         &mut self,
-        ctx: &dyn KernelContext,
+        _ctx: &dyn KernelContext,
         selected: BitView,
         out: &mut ViewMut,
-    ) -> Poll<VortexResult<()>> {
-        let buffer = ready!(self.buffer.get_or_load(ctx))?;
-
+    ) -> VortexResult<()> {
         // We re-interpret the output view as the unsigned bitpacked type.
         let mut physical_out = out.reinterpret_as::<<T as PhysicalPType>::Physical>();
 
         let elements = physical_out.as_slice_mut::<<T as PhysicalPType>::Physical>();
-        let packed = &buffer.as_slice()[self.packed_offset..];
+        let packed = &self.buffer.as_slice()[self.packed_offset..];
 
         // We compute the number of FastLanes vectors that we have remaining.
         let nvecs = (SC / 1024).min(packed.len() / self.packed_stride);
@@ -148,7 +144,7 @@ where
             self.packed_offset += nvecs * self.packed_stride;
         }
 
-        Poll::Ready(Ok(()))
+        Ok(())
     }
 }
 

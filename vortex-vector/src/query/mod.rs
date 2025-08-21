@@ -10,12 +10,12 @@ mod toposort;
 use std::task::Poll;
 
 use vortex_buffer::ByteBuffer;
-use vortex_error::{VortexError, VortexResult};
+use vortex_error::VortexResult;
 
 use crate::bits::BitView;
 use crate::buffers::BufferId;
 use crate::operators::Operator;
-use crate::query::buffers::{ VectorAllocationPlan};
+use crate::query::buffers::VectorAllocationPlan;
 use crate::query::dag::DagNode;
 use crate::query::query_execution::QueryExecution;
 use crate::vector::{VectorId, VectorRef};
@@ -33,13 +33,9 @@ use crate::{Kernel, KernelContext};
 pub struct QueryPlan<'a> {
     /// Nodes in the DAG representing the execution plan with common sub-expressions eliminated.
     dag: Vec<DagNode<'a>>,
-    /// The index into the `dag` of the root node (the entry point for execution).
-    dag_root: usize,
 
     /// The topological order of `dag` nodes for execution.
     execution_order: Vec<usize>,
-    /// The leaf nodes of the plan (nodes with no children).
-    leaf_nodes: Vec<usize>,
     /// The allocation plan for vectors used by the pipeline.
     allocation_plan: VectorAllocationPlan,
 }
@@ -53,54 +49,27 @@ impl<'a> QueryPlan<'a> {
 
         // Step 2: Determine execution order (topological sort)
         let execution_order = Self::topological_sort(&dag)?;
-        let leaf_nodes = Self::leaf_nodes(&dag);
 
         // Step 3: Allocate vectors
         let allocation_plan = Self::allocate_vectors(dag_root, &dag, &execution_order)?;
 
         Ok(Self {
             dag,
-            dag_root,
             execution_order,
-            leaf_nodes,
             allocation_plan,
         })
     }
 
-    pub fn executable_plan(&self) -> VortexResult<QueryExecution> {
-        let node_count = self.dag.len();
+    pub fn executable_plan(self) -> VortexResult<QueryExecution> {
         // Construct the operators, binding their inputs using the allocation plan.
         let operators = Self::bind_operators(&self.dag, &self.allocation_plan)?;
 
         Ok(QueryExecution {
             operators,
-            // Pre-allocate work arrays
-            node_states: vec![NodeState::NotStarted; node_count],
-            work_stack: Vec::new(),
-            pending_nodes: Vec::new(),
-            pending_nodes_next: Vec::new(),
+            execution_schedule: self.execution_order,
+            allocation_plan: self.allocation_plan,
         })
     }
-}
-
-/// Execution state for a node
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum NodeState {
-    /// Node has not been executed yet
-    NotStarted,
-    /// Node is currently executing (may return Poll::Pending)
-    Executing,
-    /// Node is waiting for external resources (e.g. buffers) to become available
-    Pending,
-    /// Node has completed execution
-    Completed,
-}
-
-enum ExecutionResult {
-    Completed,
-    Pending,
-    NotReady,
-    Error(VortexError),
 }
 
 /// FIXME(ngates): this is a hack for testing

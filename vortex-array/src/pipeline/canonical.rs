@@ -11,7 +11,7 @@ use vortex_vector::query::QueryPlan;
 use vortex_vector::types::Element;
 use vortex_vector::vector::Vector;
 use vortex_vector::view::ViewMut;
-use vortex_vector::{Kernel, KernelExt, SC};
+use vortex_vector::{Kernel, SC};
 
 use crate::Canonical;
 use crate::arrays::{BoolArray, PrimitiveArray};
@@ -49,7 +49,8 @@ pub fn export_canonical_pipeline_expr_offset(
     expression: &dyn Operator,
     mask: &Mask,
 ) -> VortexResult<Canonical> {
-    let mut pipeline = QueryPlan::new(expression)?;
+    let plan = QueryPlan::new(expression)?;
+    let mut pipeline = plan.executable_plan()?;
     pipeline.seek(offset)?;
     export_canonical_pipeline(dtype, len, &mut pipeline, mask)
 }
@@ -60,7 +61,8 @@ pub fn export_canonical_pipeline_expr(
     expression: &dyn Operator,
     mask: &Mask,
 ) -> VortexResult<Canonical> {
-    let mut pipeline = QueryPlan::new(expression)?;
+    let plan = QueryPlan::new(expression)?;
+    let mut pipeline = plan.executable_plan()?;
     export_canonical_pipeline(dtype, len, &mut pipeline, mask)
 }
 

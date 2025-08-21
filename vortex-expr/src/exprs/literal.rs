@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Display;
-use std::rc::Rc;
 
 use vortex_array::arrays::ConstantArray;
 use vortex_array::{ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata};
@@ -10,8 +9,6 @@ use vortex_dtype::{DType, match_each_float_ptype};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
 use vortex_scalar::Scalar;
-use vortex_vector::operators::Operator;
-use vortex_vector::operators::constant::ConstantOperator;
 
 use crate::{
     AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog, VTable, vtable,
@@ -78,12 +75,6 @@ impl VTable for LiteralVTable {
 
     fn return_dtype(expr: &Self::Expr, _scope: &DType) -> VortexResult<DType> {
         Ok(expr.value.dtype().clone())
-    }
-
-    fn operator(expr: &LiteralExpr, children: Vec<Rc<dyn Operator>>) -> Option<Rc<dyn Operator>> {
-        assert!(children.is_empty());
-
-        Some(Rc::new(ConstantOperator::maybe_new(expr.value().clone())?))
     }
 }
 

@@ -9,15 +9,6 @@ use crate::query::QueryPlan;
 use crate::query::dag::DagNode;
 
 impl QueryPlan<'_> {
-    /// Returns the nodes of the DAG with no children.
-    pub(crate) fn leaf_nodes(dag: &[DagNode]) -> Vec<usize> {
-        dag.iter()
-            .enumerate()
-            .filter(|(_, node)| node.children.is_empty())
-            .map(|(idx, _)| idx)
-            .collect()
-    }
-
     /// Topological sort for execution order
     pub(crate) fn topological_sort(dag: &[DagNode]) -> VortexResult<Vec<usize>> {
         let mut in_degree = vec![0; dag.len()];
