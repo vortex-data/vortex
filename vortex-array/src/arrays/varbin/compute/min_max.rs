@@ -11,9 +11,6 @@ use crate::arrays::{VarBinArray, VarBinVTable};
 use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult};
 use crate::register_kernel;
 
-// TODO(connor): UNSAFETY; `make_scalar` should be an unsafe function, which means `compute_min_max`
-// should also be an unsafe function.
-
 impl MinMaxKernel for VarBinVTable {
     fn min_max(&self, array: &VarBinArray) -> VortexResult<Option<MinMaxResult>> {
         compute_min_max(array, array.dtype())
@@ -23,7 +20,7 @@ impl MinMaxKernel for VarBinVTable {
 register_kernel!(MinMaxKernelAdapter(VarBinVTable).lift());
 
 /// Compute the min and max of VarBin like array.
-pub fn compute_min_max<T: ArrayAccessor<[u8]>>(
+pub(crate) fn compute_min_max<T: ArrayAccessor<[u8]>>(
     array: &T,
     dtype: &DType,
 ) -> VortexResult<Option<MinMaxResult>> {
@@ -52,10 +49,8 @@ fn make_scalar(dtype: &DType, value: &[u8]) -> Scalar {
     match dtype {
         Binary(_) => Scalar::new(dtype.clone(), value.into()),
         Utf8(_) => {
-            // TODO(connor): This is absolutely not safe!!! We cannot trust the input to a public
-            // function (via `compute_min_max`) to be correct.
-            // Safety:
-            // We trust the array's dtype here
+            // SAFETY: We only call `compute_min_max` within `varbin/`, in which we always validate
+            // the arrays, and we always pass `array.dtype()` in as the `dtype` argument.
             let value = unsafe { str::from_utf8_unchecked(value) };
             Scalar::new(dtype.clone(), value.into())
         }
