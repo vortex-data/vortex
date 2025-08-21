@@ -7,7 +7,8 @@ use std::path::PathBuf;
 
 fn main() {
     let crate_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-    let output_file = PathBuf::from(&crate_dir).join("cinclude").join("vortex.h");
+    let crate_dir = PathBuf::from(&crate_dir);
+    let output_file = crate_dir.join("cinclude").join("vortex.h");
     std::fs::create_dir_all(output_file.parent().unwrap()).unwrap();
 
     if let Ok(builder) = cbindgen::Builder::new()

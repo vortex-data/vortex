@@ -26,16 +26,17 @@ pub use log::vx_log_level;
 use parking_lot::Mutex;
 use tokio::runtime;
 use tokio::runtime::Runtime;
-use vortex::error::VortexExpect;
+use vortex::error::{VortexExpect, vortex_panic};
 
 #[cfg(all(feature = "mimalloc", not(miri)))]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-// Session-scoped runtime management using Arc reference counting
+// Shared runtime for all sessions; may be dropped by calling `try_shutdown_runtime`
+// if no more sessions are active
 static RUNTIME_STATE: Mutex<Option<Arc<Runtime>>> = Mutex::new(None);
 
-fn get_runtime() -> Arc<Runtime> {
+pub(crate) fn get_runtime() -> Arc<Runtime> {
     let mut state = RUNTIME_STATE.lock();
 
     if let Some(runtime) = state.as_ref() {
@@ -52,12 +53,8 @@ fn get_runtime() -> Arc<Runtime> {
     }
 }
 
-/// Get a runtime handle for a new session (increments Arc reference count)
-pub(crate) fn get_session_runtime() -> Arc<Runtime> {
-    get_runtime()
-}
-
-/// Attempt to shutdown the runtime if no more references exist
+/// Attempt to shutdown the runtime if no other references exist
+/// (e.g., no more VortexSessions are active)
 pub(crate) fn try_shutdown_runtime() {
     let mut state = RUNTIME_STATE.lock();
 
@@ -65,11 +62,11 @@ pub(crate) fn try_shutdown_runtime() {
         // Check if we have the only reference (strong_count == 1 means only the one in the Option)
         if Arc::strong_count(&runtime) == 1 {
             // We have the only reference, safe to shut down
-            std::thread::spawn(move || {
-                if let Ok(runtime) = Arc::try_unwrap(runtime) {
-                    runtime.shutdown_background();
-                }
-            });
+            if let Ok(runtime) = Arc::try_unwrap(runtime) {
+                runtime.shutdown_background();
+            } else {
+                vortex_panic!("Failed to shutdown runtime");
+            }
         } else {
             // Still have other references, put it back
             *state = Some(runtime);

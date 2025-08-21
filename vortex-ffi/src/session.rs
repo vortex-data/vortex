@@ -27,6 +27,16 @@ pub unsafe extern "C-unwind" fn vx_session_new() -> *mut vx_session {
     vx_session::new(Box::new(VortexSession::new()))
 }
 
+/// A Vortex session stores registries of extensible types, various caches, and other
+/// top-level configuration.
+///
+/// Extensible types include array encodings, layouts, extension dtypes, compute functions, etc.
+///
+/// Multiple sessions may be created in a single process, and individual arrays are not tied to a
+/// specific session.
+///
+/// The session holds a reference to a shared tokio runtime. When the last session is dropped,
+/// the runtime may be shut down by calling `crate::try_shutdown_runtime()`.
 pub struct VortexSession {
     file_cache: Cache<FileKey, Footer, DefaultHashBuilder>,
     _runtime: Arc<tokio::runtime::Runtime>,
@@ -50,11 +60,11 @@ impl VortexSession {
             .build_with_hasher(DefaultHashBuilder::default());
 
         // Get a runtime reference that will be held for the lifetime of this session
-        let runtime = crate::get_session_runtime();
+        let _runtime = crate::get_runtime();
 
         Self {
             file_cache,
-            _runtime: runtime,
+            _runtime,
         }
     }
 
@@ -69,7 +79,8 @@ impl VortexSession {
 
 impl Drop for VortexSession {
     fn drop(&mut self) {
-        // When the session is dropped, try to shutdown the runtime if no other sessions hold references
+        // When the session is dropped, try to shutdown the runtime.
+        // If there are other sessions active, this will do nothing.
         crate::try_shutdown_runtime();
     }
 }
