@@ -358,12 +358,12 @@ where
 
 impl<T> TryFrom<Scalar> for Vec<T>
 where
-    T: TryFrom<Scalar, Error = VortexError>,
+    T: for<'b> TryFrom<&'b Scalar, Error = VortexError>,
 {
     type Error = VortexError;
 
     fn try_from(value: Scalar) -> Result<Self, Self::Error> {
-        Vec::try_from(ListScalar::try_from(&value)?)
+        Vec::try_from(&value)
     }
 }
 

@@ -214,16 +214,12 @@ impl<'a> TryFrom<&'a Scalar> for ListScalar<'a> {
 
 impl<T> TryFrom<ListScalar<'_>> for Vec<T>
 where
-    T: TryFrom<Scalar, Error = VortexError>,
+    T: for<'b> TryFrom<&'b Scalar, Error = VortexError>,
 {
     type Error = VortexError;
 
     fn try_from(list: ListScalar<'_>) -> Result<Self, Self::Error> {
-        list.elements()
-            .ok_or_else(|| vortex_err!("Expected non-null list"))?
-            .into_iter()
-            .map(T::try_from)
-            .collect::<Result<Vec<T>, Self::Error>>()
+        Vec::try_from(&list)
     }
 }
 
