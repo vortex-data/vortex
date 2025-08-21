@@ -3,6 +3,7 @@
 
 #![allow(clippy::unwrap_used)]
 #![allow(unexpected_cfgs)]
+use std::rc::Rc;
 use arrow_buffer::BooleanBuffer;
 use divan::Bencher;
 use mimalloc::MiMalloc;
@@ -31,11 +32,9 @@ pub fn main() {
     divan::main();
 }
 
-// const TRUE_COUNT: &[f64] = &[
-//     0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99, 1.00,
-// ];
-
-const TRUE_COUNT: &[f64] = &[1.0];
+const TRUE_COUNT: &[f64] = &[
+    0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99, 1.00,
+];
 
 fn create_for_bitpacked_array<T: NativePType>(values: BufferMut<T>) -> VortexResult<ArrayRef> {
     let primitive_array = values.into_array().to_primitive().unwrap();
@@ -93,9 +92,6 @@ pub fn pipeline<T: Element + NativePType + Into<Scalar>>(bencher: Bencher, fract
         .map(|_| rng.random_bool(fraction_kept))
         .collect::<BooleanBuffer>();
 
-    // Construct the unoptimized operator tree directly: root < lit(2)
-    use std::rc::Rc;
-
     // Get the operator from the FoR+BitPacked array
     let array_operator = array.to_operator().unwrap().unwrap();
     let constant_operator = Rc::new(ConstantOperator::new(T::from_i32(2).unwrap().into()));
@@ -131,9 +127,6 @@ pub fn pipeline_opt<T: Element + NativePType + Into<Scalar>>(bencher: Bencher, f
     let mask = (0..100_000)
         .map(|_| rng.random_bool(fraction_kept))
         .collect::<BooleanBuffer>();
-
-    // Construct the unoptimized operator tree, then optimize it
-    use std::rc::Rc;
 
     // Get the operator from the FoR+BitPacked array
     let array_operator = array.to_operator().unwrap().unwrap();

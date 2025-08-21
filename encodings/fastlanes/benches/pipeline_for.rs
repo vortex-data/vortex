@@ -11,14 +11,13 @@ use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex_array::compute::filter;
 use vortex_array::pipeline::canonical::{
-    export_canonical_pipeline, export_canonical_pipeline_expr,
+     export_canonical_pipeline_expr,
 };
 use vortex_array::{IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
 use vortex_fastlanes::{FoRArray, bitpack_to_best_bit_width};
 use vortex_mask::Mask;
-use vortex_vector::query::QueryPlan;
 use vortex_vector::types::Element;
 
 #[global_allocator]
@@ -103,14 +102,4 @@ pub fn decompress_for_pipeline_plan_filter<T: Element + NativePType>(
             )
             .unwrap()
         });
-
-    let result = export_canonical_pipeline_expr(
-        array.dtype(),
-        array.len(),
-        array.to_operator().unwrap().unwrap().as_ref(),
-        &Mask::from_buffer(mask.clone()),
-    )
-    .unwrap()
-    .into_primitive()
-    .unwrap();
 }

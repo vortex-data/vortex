@@ -12,8 +12,6 @@ use crate::query::QueryPlan;
 /// A node in our execution DAG
 #[derive(Clone, Debug)]
 pub(crate) struct DagNode<'a> {
-    /// Index of this node in the DAG
-    pub(crate) index: usize,
     /// The original plan node
     pub(crate) plan_node: &'a dyn Operator,
     /// Indices of children in the DAG
@@ -54,7 +52,6 @@ impl<'a> QueryPlan<'a> {
             // Create new DAG node
             let index = dag.len();
             let dag_node = DagNode {
-                index,
                 plan_node: node,
                 children: child_indices,
                 parents: Vec::new(), // Will be filled in later
