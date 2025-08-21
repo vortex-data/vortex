@@ -52,6 +52,7 @@ jobs:
         uses: spiraldb/actions/.github/actions/setup-uv@0.15.0
         with:
           sync: false
+          prune-cache: false
       - name: Python Lint - Format
         run: uv run ruff format --check .
       - name: Python Lint - Ruff
@@ -70,6 +71,7 @@ jobs:
         uses: spiraldb/actions/.github/actions/setup-uv@0.15.0
         with:
           sync: false
+          prune-cache: false
 
       # Ensure the stub files are up-to-date with the public API of the native module.
       - name: Stubtest - Vortex

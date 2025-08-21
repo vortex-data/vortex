@@ -27,6 +27,7 @@ jobs:
         uses: spiraldb/actions/.github/actions/setup-uv@0.15.0
         with:
           sync: false
+          prune-cache: false
       - name: Generate Javadoc for Java projects
         run: |
           cd java
