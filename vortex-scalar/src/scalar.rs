@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use vortex_buffer::Buffer;
 use vortex_dtype::{DECIMAL128_MAX_PRECISION, DType, Nullability};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 use super::*;
 
@@ -374,7 +374,12 @@ where
     type Error = VortexError;
 
     fn try_from(value: &'a Scalar) -> Result<Self, Self::Error> {
-        Vec::try_from(&ListScalar::try_from(value)?)
+        ListScalar::try_from(value)?
+            .elements()
+            .ok_or_else(|| vortex_err!("Expected non-null list"))?
+            .into_iter()
+            .map(|e| T::try_from(&e))
+            .collect::<VortexResult<Vec<T>>>()
     }
 }
 
