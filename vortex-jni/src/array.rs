@@ -140,7 +140,31 @@ fn data_type_no_views(data_type: DataType) -> DataType {
         DataType::Map(..) => unreachable!("Vortex never returns Map"),
         DataType::RunEndEncoded(..) => unreachable!("Vortex never returns RunEndEncoded"),
         // The non-nested non-view types stay the same.
-        dt => dt,
+        dt @ DataType::Null
+        | dt @ DataType::Boolean
+        | dt @ DataType::Int8
+        | dt @ DataType::Int16
+        | dt @ DataType::Int32
+        | dt @ DataType::Int64
+        | dt @ DataType::UInt8
+        | dt @ DataType::UInt16
+        | dt @ DataType::UInt32
+        | dt @ DataType::UInt64
+        | dt @ DataType::Float16
+        | dt @ DataType::Float32
+        | dt @ DataType::Float64
+        | dt @ DataType::Timestamp(..)
+        | dt @ DataType::Date32
+        | dt @ DataType::Date64
+        | dt @ DataType::Time32(_)
+        | dt @ DataType::Time64(_)
+        | dt @ DataType::Duration(_)
+        | dt @ DataType::Interval(_)
+        | dt @ DataType::Binary
+        | dt @ DataType::FixedSizeBinary(_)
+        | dt @ DataType::LargeBinary
+        | dt @ DataType::Utf8
+        | dt @ DataType::LargeUtf8 => dt,
     }
 }
 

@@ -65,7 +65,16 @@ impl CompressorStats for FloatStats {
             PType::F16 => typed_float_stats::<f16>(input, opts.count_distinct_values),
             PType::F32 => typed_float_stats::<f32>(input, opts.count_distinct_values),
             PType::F64 => typed_float_stats::<f64>(input, opts.count_distinct_values),
-            _ => vortex_panic!("cannot generate FloatStats from ptype {}", input.ptype()),
+            PType::U8
+            | PType::U16
+            | PType::U32
+            | PType::U64
+            | PType::I8
+            | PType::I16
+            | PType::I32
+            | PType::I64 => {
+                vortex_panic!("cannot generate FloatStats from ptype {}", input.ptype())
+            }
         }
     }
 

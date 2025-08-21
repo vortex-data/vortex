@@ -23,7 +23,12 @@ fn like_pattern_str(value: &Expression) -> VortexResult<Option<String>> {
         ExpressionClass::BoundConstant(constant) => {
             Ok(Some(format!("%{}%", constant.value.as_string().as_str())))
         }
-        _ => Ok(None),
+        ExpressionClass::BoundColumnRef(_)
+        | ExpressionClass::BoundComparison(_)
+        | ExpressionClass::BoundBetween(_)
+        | ExpressionClass::BoundOperator(_)
+        | ExpressionClass::BoundFunction(_)
+        | ExpressionClass::BoundConjunction(_) => Ok(None),
     }
 }
 
@@ -75,6 +80,8 @@ pub fn try_from_bound_expression(value: &Expression) -> VortexResult<Option<Expr
                 },
             )
         }
+        // TODO(connor): spell out all DUCKDB_VX_EXPR_TYPE variants
+        #[allow(clippy::wildcard_enum_match_arm)]
         ExpressionClass::BoundOperator(operator) => match operator.op {
             DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_NOT
             | DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NULL
@@ -84,6 +91,8 @@ pub fn try_from_bound_expression(value: &Expression) -> VortexResult<Option<Expr
                 let Some(child) = try_from_bound_expression(&children[0])? else {
                     return Ok(None);
                 };
+                // TODO(connor): spell out all DUCKDB_VX_EXPR_TYPE variants
+                #[allow(clippy::wildcard_enum_match_arm)]
                 match operator.op {
                     DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_NOT => not(child),
                     DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NULL => is_null(child),
@@ -156,6 +165,8 @@ pub fn try_from_bound_expression(value: &Expression) -> VortexResult<Option<Expr
             else {
                 return Ok(None);
             };
+            // TODO(connor): spell out all DUCKDB_VX_EXPR_TYPE variants
+            #[allow(clippy::wildcard_enum_match_arm)]
             match conj.op {
                 DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_CONJUNCTION_AND => {
                     and_collect(children).vortex_expect("cannot be empty")
@@ -173,6 +184,8 @@ impl TryFrom<DUCKDB_VX_EXPR_TYPE> for Operator {
     type Error = VortexError;
 
     fn try_from(value: DUCKDB_VX_EXPR_TYPE) -> VortexResult<Self> {
+        // TODO(connor): spell out all DUCKDB_VX_EXPR_TYPE variants
+        #[allow(clippy::wildcard_enum_match_arm)]
         Ok(match value {
             DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_INVALID => vortex_bail!("invalid expr"),
             DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_EQUAL => Operator::Eq,

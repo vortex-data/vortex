@@ -111,7 +111,7 @@ pub(crate) fn make_object_store(
 
             Arc::new(builder.build()?)
         }
-        store => {
+        store @ ObjectStoreScheme::Memory | store @ ObjectStoreScheme::Http | store => {
             vortex_bail!("Unsupported store scheme: {store:?}");
         }
     };

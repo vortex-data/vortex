@@ -89,7 +89,9 @@ fn main() -> anyhow::Result<()> {
             Format::Csv => FileType::Csv,
             Format::Parquet => FileType::Parquet,
             Format::OnDiskVortex => FileType::Vortex,
-            other => vortex_panic!("Format {other} isn't supported on Public BI"),
+            Format::Arrow | Format::VortexCompact | Format::OnDiskDuckDB => {
+                vortex_panic!("Format {format} isn't supported on Public BI")
+            }
         };
 
         runtime.block_on(dataset.register_tables(&session, file_type))?;

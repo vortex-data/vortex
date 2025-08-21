@@ -18,10 +18,12 @@ pub fn zigzag_encode(parray: PrimitiveArray) -> VortexResult<ZigZagArray> {
         PType::I16 => zigzag_encode_primitive::<i16>(parray.into_buffer_mut(), validity),
         PType::I32 => zigzag_encode_primitive::<i32>(parray.into_buffer_mut(), validity),
         PType::I64 => zigzag_encode_primitive::<i64>(parray.into_buffer_mut(), validity),
-        _ => vortex_bail!(
-            "ZigZag can only encode signed integers, got {}",
-            parray.ptype()
-        ),
+        PType::U8 | PType::U16 | PType::U32 | PType::U64 | PType::F16 | PType::F32 | PType::F64 => {
+            vortex_bail!(
+                "ZigZag can only encode signed integers, got {}",
+                parray.ptype()
+            )
+        }
     };
     ZigZagArray::try_new(encoded.to_array())
 }
@@ -43,10 +45,12 @@ pub fn zigzag_decode(parray: PrimitiveArray) -> VortexResult<PrimitiveArray> {
         PType::U16 => zigzag_decode_primitive::<i16>(parray.into_buffer_mut(), validity),
         PType::U32 => zigzag_decode_primitive::<i32>(parray.into_buffer_mut(), validity),
         PType::U64 => zigzag_decode_primitive::<i64>(parray.into_buffer_mut(), validity),
-        _ => vortex_bail!(
-            "ZigZag can only decode unsigned integers, got {}",
-            parray.ptype()
-        ),
+        PType::I8 | PType::I16 | PType::I32 | PType::I64 | PType::F16 | PType::F32 | PType::F64 => {
+            vortex_bail!(
+                "ZigZag can only decode unsigned integers, got {}",
+                parray.ptype()
+            )
+        }
     };
     Ok(decoded)
 }

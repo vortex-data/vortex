@@ -47,10 +47,13 @@ impl SerdeVTable<ALPVTable> for ALPVTable {
         _buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ALPArray> {
+        use DType::*;
+
         let encoded_ptype = match &dtype {
-            DType::Primitive(PType::F32, n) => DType::Primitive(PType::I32, *n),
-            DType::Primitive(PType::F64, n) => DType::Primitive(PType::I64, *n),
-            d => vortex_bail!(MismatchedTypes: "f32 or f64", d),
+            Primitive(PType::F32, n) => Primitive(PType::I32, *n),
+            Primitive(PType::F64, n) => Primitive(PType::I64, *n),
+            Null | Bool(_) | Primitive(..) | Decimal(..) | Utf8(_) | Binary(_) | List(..)
+            | Struct(..) | Extension(_) => vortex_bail!(MismatchedTypes: "f32 or f64", dtype),
         };
         let encoded = children.get(0, &encoded_ptype, len)?;
 

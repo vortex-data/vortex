@@ -37,16 +37,20 @@ fn compare_fsst_constant(
     right: &Scalar,
     operator: Operator,
 ) -> VortexResult<Option<ArrayRef>> {
+    use DType::*;
+
     let is_rhs_empty = match right.dtype() {
-        DType::Binary(_) => right
+        Binary(_) => right
             .as_binary()
             .is_empty()
             .vortex_expect("RHS should not be null"),
-        DType::Utf8(_) => right
+        Utf8(_) => right
             .as_utf8()
             .is_empty()
             .vortex_expect("RHS should not be null"),
-        _ => vortex_bail!("VarBinArray can only have type of Binary or Utf8"),
+        Null | Bool(_) | Primitive(..) | Decimal(..) | List(..) | Struct(..) | Extension(_) => {
+            vortex_bail!("VarBinArray can only have type of Binary or Utf8")
+        }
     };
     if is_rhs_empty {
         let buffer = match operator {
@@ -54,7 +58,7 @@ fn compare_fsst_constant(
             Operator::Gte => BooleanBuffer::new_set(left.len()),
             // No value is lt ""
             Operator::Lt => BooleanBuffer::new_unset(left.len()),
-            _ => {
+            Operator::Eq | Operator::NotEq | Operator::Gt | Operator::Lte => {
                 let uncompressed_lengths = left.uncompressed_lengths().to_primitive()?;
                 match_each_native_ptype!(uncompressed_lengths.ptype(), |P| {
                     compare_lengths_to_empty(
@@ -82,25 +86,27 @@ fn compare_fsst_constant(
 
     let compressor = left.compressor();
     let encoded_buffer = match left.dtype() {
-        DType::Utf8(_) => {
+        Utf8(_) => {
             let value = right
                 .as_utf8()
                 .value()
                 .vortex_expect("Expected non-null scalar");
             ByteBuffer::from(compressor.compress(value.as_bytes()))
         }
-        DType::Binary(_) => {
+        Binary(_) => {
             let value = right
                 .as_binary()
                 .value()
                 .vortex_expect("Expected non-null scalar");
             ByteBuffer::from(compressor.compress(value.as_slice()))
         }
-        _ => unreachable!("FSSTArray can only have string or binary data type"),
+        Null | Bool(_) | Primitive(..) | Decimal(..) | List(..) | Struct(..) | Extension(_) => {
+            unreachable!("FSSTArray can only have string or binary data type")
+        }
     };
 
     let encoded_scalar = Scalar::new(
-        DType::Binary(left.dtype().nullability() | right.dtype().nullability()),
+        Binary(left.dtype().nullability() | right.dtype().nullability()),
         encoded_buffer.into(),
     );
 

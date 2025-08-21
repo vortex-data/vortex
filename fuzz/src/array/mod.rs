@@ -213,8 +213,10 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
 }
 
 fn actions_for_dtype(dtype: &DType) -> HashSet<usize> {
+    use DType::*;
+
     match dtype {
-        DType::Struct(sdt, _) => sdt
+        Struct(sdt, _) => sdt
             .fields()
             .map(|child| actions_for_dtype(&child))
             // exclude compare
@@ -223,8 +225,10 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<usize> {
             }),
         // Once we support more list operations also recurse here on child dtype
         // compress, slice
-        DType::List(..) => [0, 1].into_iter().collect(),
-        _ => ALL_ACTIONS.collect(),
+        List(..) => [0, 1].into_iter().collect(),
+        Null | Bool(_) | Primitive(..) | Decimal(..) | Utf8(_) | Binary(_) | Extension(_) => {
+            ALL_ACTIONS.collect()
+        }
     }
 }
 

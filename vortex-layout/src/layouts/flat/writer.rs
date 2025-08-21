@@ -108,7 +108,13 @@ impl LayoutStrategy for FlatLayoutStrategy {
                     }
                 }
             }
-            _ => {}
+            DType::Null
+            | DType::Bool(_)
+            | DType::Primitive(..)
+            | DType::Decimal(..)
+            | DType::List(..)
+            | DType::Struct(..)
+            | DType::Extension(_) => {}
         }
 
         // TODO(os): spawn serialization

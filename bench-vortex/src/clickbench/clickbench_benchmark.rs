@@ -74,59 +74,53 @@ impl Benchmark for ClickBenchBenchmark {
     }
 
     fn generate_data(&self, target: &Target) -> Result<()> {
-        match self.data_url.scheme() {
-            "file" => {
-                let basepath = clickbench_flavor(self.flavor).to_data_path();
-                let client = reqwest::blocking::Client::default();
-
-                match target.format() {
-                    Format::Parquet | Format::OnDiskDuckDB => {
-                        // Download Parquet files (idempotent - won't re-download if already present)
-                        // For DuckDB format, we typically start with Parquet and let DuckDB handle it
-                        self.flavor.download(&client, basepath.as_path())?;
-                    }
-                    Format::OnDiskVortex | Format::VortexCompact => {
-                        // First ensure Parquet files exist
-                        self.flavor.download(&client, basepath.as_path())?;
-
-                        // Then convert to Vortex format (idempotent)
-                        if self.data_url.scheme() == "file" {
-                            let file_path = self.data_url.to_file_path().map_err(|_| {
-                                anyhow::anyhow!("invalid file URL: {}", self.data_url)
-                            })?;
-
-                            // Use tokio runtime to handle async conversion
-                            let rt = tokio::runtime::Runtime::new()?;
-                            rt.block_on(async {
-                                match target.format {
-                                    Format::OnDiskVortex => {
-                                        convert_parquet_to_vortex(
-                                            &file_path,
-                                            CompactionStrategy::Default,
-                                        )
-                                        .await
-                                    }
-                                    Format::VortexCompact => {
-                                        convert_parquet_to_vortex(
-                                            &file_path,
-                                            CompactionStrategy::Compact,
-                                        )
-                                        .await
-                                    }
-                                    _ => unreachable!(),
-                                }
-                            })?
-                        }
-                    }
-                    f => {
-                        todo!("format {f} unsupported in clickbench")
-                    }
-                }
-
-                Ok(())
-            }
-            _ => Ok(()),
+        if self.data_url.scheme() != "file" {
+            return Ok(());
         }
+
+        let basepath = clickbench_flavor(self.flavor).to_data_path();
+        let client = reqwest::blocking::Client::default();
+
+        use Format::*;
+
+        match target.format() {
+            Parquet | OnDiskDuckDB => {
+                // Download Parquet files (idempotent - won't re-download if already present)
+                // For DuckDB format, we typically start with Parquet and let DuckDB handle it
+                self.flavor.download(&client, basepath.as_path())?;
+            }
+            OnDiskVortex | VortexCompact => {
+                // First ensure Parquet files exist
+                self.flavor.download(&client, basepath.as_path())?;
+
+                // Then convert to Vortex format (idempotent)
+                if self.data_url.scheme() == "file" {
+                    let file_path = self
+                        .data_url
+                        .to_file_path()
+                        .map_err(|_| anyhow::anyhow!("invalid file URL: {}", self.data_url))?;
+
+                    // Use tokio runtime to handle async conversion
+                    let rt = tokio::runtime::Runtime::new()?;
+                    rt.block_on(async {
+                        match target.format {
+                            OnDiskVortex => {
+                                convert_parquet_to_vortex(&file_path, CompactionStrategy::Default)
+                                    .await
+                            }
+                            VortexCompact => {
+                                convert_parquet_to_vortex(&file_path, CompactionStrategy::Compact)
+                                    .await
+                            }
+                            Csv | Arrow | Parquet | OnDiskDuckDB => unreachable!(),
+                        }
+                    })?
+                }
+            }
+            Csv | Arrow => todo!("format {} unsupported in clickbench", target.format()),
+        }
+
+        Ok(())
     }
 
     #[allow(async_fn_in_trait)]

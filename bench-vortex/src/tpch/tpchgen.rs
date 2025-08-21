@@ -213,7 +213,7 @@ fn generate_table_files(
                         schema,
                         CompactionStrategy::Compact,
                     )?),
-                    _ => unreachable!(),
+                    Format::Csv | Format::Arrow | Format::OnDiskDuckDB => unreachable!(),
                 };
 
                 for batch in iter {

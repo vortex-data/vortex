@@ -446,14 +446,18 @@ fn replace_with_views(schema: &DFSchema) -> Result<DFSchema> {
     let fields: Vec<_> = schema
         .fields()
         .iter()
-        .map(|f| match f.data_type() {
-            DataType::Binary => {
-                Arc::new(<Field as Clone>::clone(f).with_data_type(DataType::BinaryView))
+        .map(|f| {
+            // TODO(connor): spell out all DataType variants
+            #[allow(clippy::wildcard_enum_match_arm)]
+            match f.data_type() {
+                DataType::Binary => {
+                    Arc::new(<Field as Clone>::clone(f).with_data_type(DataType::BinaryView))
+                }
+                DataType::Utf8 => {
+                    Arc::new(<Field as Clone>::clone(f).with_data_type(DataType::Utf8View))
+                }
+                _ => f.clone(),
             }
-            DataType::Utf8 => {
-                Arc::new(<Field as Clone>::clone(f).with_data_type(DataType::Utf8View))
-            }
-            _ => f.clone(),
         })
         .collect();
     let new_schema = Schema::new(fields);

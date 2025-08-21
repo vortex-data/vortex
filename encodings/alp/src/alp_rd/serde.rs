@@ -65,7 +65,7 @@ impl SerdeVTable<ALPRDVTable> for ALPRDVTable {
             );
         }
 
-        let left_parts_dtype = DType::Primitive(metadata.left_parts_ptype(), dtype.nullability());
+        let left_parts_dtype = Primitive(metadata.left_parts_ptype(), dtype.nullability());
         let left_parts = children.get(0, &left_parts_dtype, len)?;
         let left_parts_dictionary: Buffer<u16> = metadata.dict.as_slice()
             [0..metadata.dict_len as usize]
@@ -76,14 +76,15 @@ impl SerdeVTable<ALPRDVTable> for ALPRDVTable {
             })
             .try_collect()?;
 
+        use DType::*;
+
         let right_parts_dtype = match &dtype {
-            DType::Primitive(PType::F32, _) => {
-                DType::Primitive(PType::U32, Nullability::NonNullable)
+            Primitive(PType::F32, _) => Primitive(PType::U32, Nullability::NonNullable),
+            Primitive(PType::F64, _) => Primitive(PType::U64, Nullability::NonNullable),
+            Null | Bool(_) | Primitive(..) | Decimal(..) | Utf8(_) | Binary(_) | List(..)
+            | Struct(..) | Extension(_) => {
+                vortex_bail!("Expected f32 or f64 dtype, got {:?}", dtype)
             }
-            DType::Primitive(PType::F64, _) => {
-                DType::Primitive(PType::U64, Nullability::NonNullable)
-            }
-            _ => vortex_bail!("Expected f32 or f64 dtype, got {:?}", dtype),
         };
         let right_parts = children.get(1, &right_parts_dtype, len)?;
 
@@ -125,7 +126,15 @@ impl EncodeVTable<ALPRDVTable> for ALPRDVTable {
                 let encoder = match parray.ptype() {
                     PType::F32 => RDEncoder::new(parray.as_slice::<f32>()),
                     PType::F64 => RDEncoder::new(parray.as_slice::<f64>()),
-                    ptype => vortex_bail!("cannot ALPRD compress ptype {ptype}"),
+                    ptype @ PType::U8
+                    | ptype @ PType::U16
+                    | ptype @ PType::U32
+                    | ptype @ PType::U64
+                    | ptype @ PType::I8
+                    | ptype @ PType::I16
+                    | ptype @ PType::I32
+                    | ptype @ PType::I64
+                    | ptype @ PType::F16 => vortex_bail!("cannot ALPRD compress ptype {ptype}"),
                 };
                 encoder.encode(&parray)
             }

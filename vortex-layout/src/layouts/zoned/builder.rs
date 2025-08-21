@@ -33,7 +33,13 @@ pub fn stats_builder_with_capacity(
                 BoolBuilder::with_capacity(Nullability::NonNullable, capacity),
                 max_length,
             )),
-            _ => Box::new(StatNameArrayBuilder::new(stat, values_builder)),
+            DType::Null
+            | DType::Bool(_)
+            | DType::Primitive(..)
+            | DType::Decimal(..)
+            | DType::List(..)
+            | DType::Struct(..)
+            | DType::Extension(_) => Box::new(StatNameArrayBuilder::new(stat, values_builder)),
         },
         Stat::Min => match dtype {
             DType::Utf8(_) => Box::new(TruncatedMinBinaryStatsBuilder::<Utf8Scalar>::new(
@@ -46,9 +52,21 @@ pub fn stats_builder_with_capacity(
                 BoolBuilder::with_capacity(Nullability::NonNullable, capacity),
                 max_length,
             )),
-            _ => Box::new(StatNameArrayBuilder::new(stat, values_builder)),
+            DType::Null
+            | DType::Bool(_)
+            | DType::Primitive(..)
+            | DType::Decimal(..)
+            | DType::List(..)
+            | DType::Struct(..)
+            | DType::Extension(_) => Box::new(StatNameArrayBuilder::new(stat, values_builder)),
         },
-        _ => Box::new(StatNameArrayBuilder::new(stat, values_builder)),
+        Stat::IsConstant
+        | Stat::IsSorted
+        | Stat::IsStrictSorted
+        | Stat::Sum
+        | Stat::NullCount
+        | Stat::UncompressedSizeInBytes
+        | Stat::NaNCount => Box::new(StatNameArrayBuilder::new(stat, values_builder)),
     }
 }
 
@@ -112,7 +130,13 @@ impl StatsArrayBuilder for StatNameArrayBuilder {
                 names: vec![self.stat.name().into(), MIN_IS_TRUNCATED.into()],
                 arrays: vec![array, ConstantArray::new(false, len).into_array()],
             },
-            _ => NamedArrays {
+            Stat::IsConstant
+            | Stat::IsSorted
+            | Stat::IsStrictSorted
+            | Stat::Sum
+            | Stat::NullCount
+            | Stat::UncompressedSizeInBytes
+            | Stat::NaNCount => NamedArrays {
                 names: vec![self.stat.name().into()],
                 arrays: vec![array],
             },

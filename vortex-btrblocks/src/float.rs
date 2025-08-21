@@ -259,7 +259,15 @@ impl Scheme for ALPRDScheme {
         let encoder = match stats.source().ptype() {
             PType::F32 => RDEncoder::new(stats.source().as_slice::<f32>()),
             PType::F64 => RDEncoder::new(stats.source().as_slice::<f64>()),
-            ptype => vortex_panic!("cannot ALPRD compress ptype {ptype}"),
+            ptype @ PType::U8
+            | ptype @ PType::U16
+            | ptype @ PType::U32
+            | ptype @ PType::U64
+            | ptype @ PType::I8
+            | ptype @ PType::I16
+            | ptype @ PType::I32
+            | ptype @ PType::I64
+            | ptype @ PType::F16 => vortex_panic!("cannot ALPRD compress ptype {ptype}"),
         };
 
         let mut alp_rd = encoder.encode(stats.source());

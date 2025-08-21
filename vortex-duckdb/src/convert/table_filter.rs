@@ -74,6 +74,8 @@ pub fn try_from_table_filter(
             list_contains(lit(list_scalar), col.clone())
         }
         TableFilterClass::Dynamic(dynamic) => {
+            // TODO(connor): spell out all DUCKDB_VX_EXPR_TYPE variants
+            #[allow(clippy::wildcard_enum_match_arm)]
             let op = match dynamic.operator {
                 DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_EQUAL => Operator::Eq,
                 DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_NOTEQUAL => Operator::NotEq,

@@ -37,10 +37,14 @@ macro_rules! match_each_alp_float_ptype {
 }
 
 pub fn alp_encode(parray: &PrimitiveArray, exponents: Option<Exponents>) -> VortexResult<ALPArray> {
+    use PType::*;
+
     let (exponents, encoded, patches) = match parray.ptype() {
-        PType::F32 => alp_encode_components_typed::<f32>(parray, exponents)?,
-        PType::F64 => alp_encode_components_typed::<f64>(parray, exponents)?,
-        _ => vortex_bail!("ALP can only encode f32 and f64"),
+        F32 => alp_encode_components_typed::<f32>(parray, exponents)?,
+        F64 => alp_encode_components_typed::<f64>(parray, exponents)?,
+        U8 | U16 | U32 | U64 | I8 | I16 | I32 | I64 | F16 => {
+            vortex_bail!("ALP can only encode f32 and f64")
+        }
     };
 
     // SAFETY: alp_encode_components_typed must return well-formed components

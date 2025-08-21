@@ -107,7 +107,7 @@ fn collect_valid_vbv(vbv: &VarBinViewArray) -> VortexResult<(ByteBuffer, Vec<usi
     let mask = vbv.validity_mask()?;
     let buffer_and_value_byte_indices = match mask.boolean_buffer() {
         AllOr::None => (Buffer::empty(), Vec::new()),
-        _ => {
+        AllOr::All | AllOr::Some(_) => {
             let mut buffer = BufferMut::with_capacity(
                 usize::try_from(vbv.nbytes()).vortex_expect("must fit into buffer")
                     + mask.true_count() * size_of::<ViewLen>(),
@@ -349,7 +349,12 @@ impl ZstdArray {
                 level,
                 values_per_frame,
             )?)),
-            _ => Ok(None),
+            Canonical::Null(_)
+            | Canonical::Bool(_)
+            | Canonical::Decimal(_)
+            | Canonical::Struct(_)
+            | Canonical::List(_)
+            | Canonical::Extension(_) => Ok(None),
         }
     }
 
@@ -478,7 +483,12 @@ impl ZstdArray {
                 };
                 Ok(vbv.into_array())
             }
-            _ => Err(vortex_err!(
+            DType::Null
+            | DType::Bool(_)
+            | DType::Decimal(..)
+            | DType::List(..)
+            | DType::Struct(..)
+            | DType::Extension(_) => Err(vortex_err!(
                 "Unsupported dtype for Zstd array: {:?}",
                 self.dtype
             )),

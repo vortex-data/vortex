@@ -81,7 +81,9 @@ fn number_type_from_dtype(dtype: &DType) -> NumberType {
         PType::U16 => NumberType::U16,
         PType::U32 => NumberType::U32,
         PType::U64 => NumberType::U64,
-        _ => unreachable!("PType not supported by Pco: {:?}", ptype),
+        PType::U8 | PType::I8 => {
+            unreachable!("PType not supported by Pco: {:?}", ptype)
+        }
     }
 }
 
@@ -90,8 +92,11 @@ fn collect_valid(parray: &PrimitiveArray) -> VortexResult<PrimitiveArray> {
     filter(&parray.to_array(), &mask)?.to_primitive()
 }
 
+#[allow(clippy::wildcard_enum_match_arm)]
 fn vortex_err_from_pco(err: PcoError) -> VortexError {
     use pco::errors::ErrorKind::*;
+    // We use a catch-all here because pco::errors::ErrorKind is an external type
+    // and we want to handle any new variants gracefully.
     match err.kind {
         Io(io_kind) => VortexError::from(std::io::Error::new(io_kind, err.message)),
         InvalidArgument => vortex_err!(InvalidArgument: "{}", err.message),

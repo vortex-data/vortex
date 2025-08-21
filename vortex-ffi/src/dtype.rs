@@ -193,9 +193,10 @@ pub unsafe extern "C-unwind" fn vx_dtype_list_element(dtype: *const vx_dtype) ->
 pub unsafe extern "C-unwind" fn vx_dtype_is_time(dtype: *const DType) -> bool {
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
 
-    match dtype {
-        DType::Extension(ext_dtype) => ext_dtype.id() == &*TIME_ID,
-        _ => false,
+    if let DType::Extension(ext_dtype) = dtype {
+        ext_dtype.id() == &*TIME_ID
+    } else {
+        false
     }
 }
 
@@ -203,9 +204,10 @@ pub unsafe extern "C-unwind" fn vx_dtype_is_time(dtype: *const DType) -> bool {
 pub unsafe extern "C-unwind" fn vx_dtype_is_date(dtype: *const DType) -> bool {
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
 
-    match dtype {
-        DType::Extension(ext_dtype) => ext_dtype.id() == &*DATE_ID,
-        _ => false,
+    if let DType::Extension(ext_dtype) = dtype {
+        ext_dtype.id() == &*DATE_ID
+    } else {
+        false
     }
 }
 
@@ -213,9 +215,10 @@ pub unsafe extern "C-unwind" fn vx_dtype_is_date(dtype: *const DType) -> bool {
 pub unsafe extern "C-unwind" fn vx_dtype_is_timestamp(dtype: *const DType) -> bool {
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
 
-    match dtype {
-        DType::Extension(ext_dtype) => ext_dtype.id() == &*TIMESTAMP_ID,
-        _ => false,
+    if let DType::Extension(ext_dtype) = dtype {
+        ext_dtype.id() == &*TIMESTAMP_ID
+    } else {
+        false
     }
 }
 
@@ -256,7 +259,9 @@ pub unsafe extern "C-unwind" fn vx_dtype_time_zone(
                 unsafe { *len = 0 };
             }
         }
-        _ => vortex_panic!("DType_time_zone: not a timestamp metadata: {ext_dtype:?}"),
+        TemporalMetadata::Time(_) | TemporalMetadata::Date(_) => {
+            vortex_panic!("DType_time_zone: not a timestamp metadata: {ext_dtype:?}")
+        }
     }
 }
 

@@ -57,11 +57,10 @@ impl ALPArray {
         exponents: Exponents,
         patches: Option<&Patches>,
     ) -> VortexResult<()> {
+        use PType::*;
+
         vortex_ensure!(
-            matches!(
-                encoded.dtype(),
-                DType::Primitive(PType::I32 | PType::I64, _)
-            ),
+            matches!(encoded.dtype(), DType::Primitive(I32 | I64, _)),
             "ALP encoded ints have invalid DType {}",
             encoded.dtype(),
         );
@@ -70,14 +69,14 @@ impl ALPArray {
         // length and type.
         let Exponents { e, f } = exponents;
         match encoded.dtype().as_ptype() {
-            PType::I32 => {
+            I32 => {
                 vortex_ensure!(exponents.e <= f32::MAX_EXPONENT, "e out of bounds: {e}");
                 vortex_ensure!(exponents.f <= f32::MAX_EXPONENT, "f out of bounds: {f}");
                 if let Some(patches) = patches {
                     Self::validate_patches::<f32>(patches, encoded)?;
                 }
             }
-            PType::I64 => {
+            I64 => {
                 vortex_ensure!(e <= f64::MAX_EXPONENT, "e out of bounds: {e}");
                 vortex_ensure!(f <= f64::MAX_EXPONENT, "f out of bounds: {f}");
 
@@ -85,7 +84,7 @@ impl ALPArray {
                     Self::validate_patches::<f64>(patches, encoded)?;
                 }
             }
-            _ => unreachable!(),
+            U8 | U16 | U32 | U64 | I8 | I16 | F16 | F32 | F64 => unreachable!(),
         }
 
         // Validate patches
@@ -190,10 +189,13 @@ impl ALPArray {
     ) -> VortexResult<Self> {
         Self::validate(&encoded, exponents, patches.as_ref())?;
 
+        use DType::*;
+
         let dtype = match encoded.dtype() {
-            DType::Primitive(PType::I32, nullability) => DType::Primitive(PType::F32, *nullability),
-            DType::Primitive(PType::I64, nullability) => DType::Primitive(PType::F64, *nullability),
-            _ => unreachable!(),
+            Primitive(PType::I32, nullability) => Primitive(PType::F32, *nullability),
+            Primitive(PType::I64, nullability) => Primitive(PType::F64, *nullability),
+            Null | Bool(_) | Primitive(..) | Decimal(..) | Utf8(_) | Binary(_) | List(..)
+            | Struct(..) | Extension(_) => unreachable!(),
         };
 
         Ok(Self {

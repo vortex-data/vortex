@@ -70,7 +70,13 @@ impl ZoneMap {
                             (s.name(), dt),
                             (MIN_IS_TRUNCATED, DType::Bool(Nullability::NonNullable)),
                         ],
-                        _ => vec![(s.name(), dt)],
+                        Stat::IsConstant
+                        | Stat::IsSorted
+                        | Stat::IsStrictSorted
+                        | Stat::Sum
+                        | Stat::NullCount
+                        | Stat::UncompressedSizeInBytes
+                        | Stat::NaNCount => vec![(s.name(), dt)],
                     }),
             ),
             Nullability::NonNullable,

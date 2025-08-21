@@ -88,19 +88,25 @@ impl DuckDBCtx {
         let object = match file_format {
             Format::Parquet | Format::OnDiskVortex | Format::VortexCompact => DuckDBObject::View,
             Format::OnDiskDuckDB => DuckDBObject::Table,
-            format => anyhow::bail!("Format {format} isn't supported for DuckDB"),
+            Format::Csv | Format::Arrow => {
+                anyhow::bail!("Format {file_format} isn't supported for DuckDB")
+            }
         };
 
         let load_format = match file_format {
             // Duckdb loads values from parquet to duckdb
             Format::Parquet | Format::OnDiskDuckDB => Format::Parquet,
-            f => f,
+            Format::Csv | Format::Arrow | Format::OnDiskVortex | Format::VortexCompact => {
+                file_format
+            }
         };
 
         let effective_url = self.resolve_storage_url(base_url, load_format, dataset)?;
         let extension = match load_format {
             Format::Parquet | Format::OnDiskVortex | Format::VortexCompact => load_format.ext(),
-            other => anyhow::bail!("Format {other} isn't supported for DuckDB"),
+            Format::Csv | Format::Arrow | Format::OnDiskDuckDB => {
+                anyhow::bail!("Format {load_format} isn't supported for DuckDB")
+            }
         };
 
         // Generate and execute table registration commands

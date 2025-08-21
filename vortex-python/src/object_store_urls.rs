@@ -19,6 +19,9 @@ pub(crate) fn object_store_from_url(
     let url = Url::parse(url_str)?;
 
     let (scheme, path) = ObjectStoreScheme::parse(&url).map_err(object_store::Error::from)?;
+
+    // `ObjectStoreScheme` is `non_exhaustive`.
+    #[allow(clippy::wildcard_enum_match_arm)]
     let store: Arc<dyn ObjectStore> = match scheme {
         ObjectStoreScheme::Local => Arc::new(LocalFileSystem::default()),
         ObjectStoreScheme::AmazonS3 => {
@@ -39,7 +42,7 @@ pub(crate) fn object_store_from_url(
                 .with_url(&url[..url::Position::BeforePath])
                 .build()?,
         ),
-        otherwise => vortex_bail!("unrecognized object store scheme: {:?}", otherwise),
+        _ => vortex_bail!("unrecognized object store scheme: {:?}", scheme),
     };
 
     Ok((scheme, store, path))

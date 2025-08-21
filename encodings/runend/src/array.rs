@@ -346,7 +346,13 @@ impl CanonicalVTable<RunEndVTable> for RunEndVTable {
                 runend_decode_primitive(pends, pvalues, array.offset(), array.len())
                     .map(Canonical::Primitive)
             }
-            _ => vortex_bail!("Only Primitive and Bool values are supported"),
+            DType::Null
+            | DType::Utf8(_)
+            | DType::Binary(_)
+            | DType::Decimal(..)
+            | DType::List(..)
+            | DType::Struct(..)
+            | DType::Extension(_) => vortex_bail!("Only Primitive and Bool values are supported"),
         }
     }
 }

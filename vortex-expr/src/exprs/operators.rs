@@ -128,7 +128,14 @@ impl Operator {
         match self {
             Operator::And => Some(Operator::Or),
             Operator::Or => Some(Operator::And),
-            _ => None,
+            Operator::Eq
+            | Operator::NotEq
+            | Operator::Gt
+            | Operator::Gte
+            | Operator::Lt
+            | Operator::Lte
+            | Operator::Add
+            | Operator::Sub => None,
         }
     }
 
@@ -156,7 +163,7 @@ impl Operator {
             Operator::Lte => Some(compute::Operator::Lte),
             Operator::Gt => Some(compute::Operator::Gt),
             Operator::Gte => Some(compute::Operator::Gte),
-            _ => None,
+            Operator::And | Operator::Or | Operator::Add | Operator::Sub => None,
         }
     }
 }

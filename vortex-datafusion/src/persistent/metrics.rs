@@ -137,8 +137,7 @@ fn metric_value_to_datafusion(name: &str, metric: &Metric) -> Vec<DatafusionMetr
             }
             res
         }
-        // TODO(os): add more metric types when added to VortexMetrics
-        _ => vec![],
+        Metric::Meter(_) | Metric::Gauge(_) => vec![],
     }
 }
 

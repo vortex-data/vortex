@@ -21,7 +21,7 @@ pub fn compress_decimal(decimal: &DecimalArray) -> VortexResult<ArrayRef> {
         DecimalValueType::I16 => PrimitiveArray::new(decimal.buffer::<i16>(), validity.clone()),
         DecimalValueType::I32 => PrimitiveArray::new(decimal.buffer::<i32>(), validity.clone()),
         DecimalValueType::I64 => PrimitiveArray::new(decimal.buffer::<i64>(), validity.clone()),
-        _ => return Ok(decimal.to_array()),
+        DecimalValueType::I128 | DecimalValueType::I256 | _ => return Ok(decimal.to_array()),
     };
 
     let compressed = IntCompressor::compress(&prim, false, MAX_CASCADE, &[])?;

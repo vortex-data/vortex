@@ -219,7 +219,7 @@ impl AnalysisExpr for DynamicComparisonExpr {
                 }
                 .into_expr(),
             ),
-            _ => None,
+            Operator::Eq | Operator::NotEq => None,
         }
     }
 }

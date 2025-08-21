@@ -22,12 +22,13 @@ impl<R: Read> SyncIPCReader<R> {
     pub fn try_new(read: R, registry: ArrayRegistry) -> VortexResult<Self> {
         let mut reader = SyncMessageReader::new(read, registry);
         match reader.next().transpose()? {
-            Some(msg) => match msg {
-                DecoderMessage::DType(dtype) => Ok(SyncIPCReader { reader, dtype }),
-                msg => {
+            Some(msg) => {
+                if let DecoderMessage::DType(dtype) = msg {
+                    Ok(SyncIPCReader { reader, dtype })
+                } else {
                     vortex_bail!("Expected DType message, got {:?}", msg);
                 }
-            },
+            }
             None => vortex_bail!("Expected DType message, got EOF"),
         }
     }
@@ -44,24 +45,27 @@ impl<R: Read> Iterator for SyncIPCReader<R> {
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.reader.next()? {
-            Ok(msg) => match msg {
-                DecoderMessage::Array((array_parts, ctx, row_count)) => Some(
-                    array_parts
-                        .decode(&ctx, &self.dtype, row_count)
-                        .and_then(|array| {
-                            if array.dtype() != self.dtype() {
-                                Err(vortex_err!(
-                                    "Array data type mismatch: expected {:?}, got {:?}",
-                                    self.dtype(),
-                                    array.dtype()
-                                ))
-                            } else {
-                                Ok(array)
-                            }
-                        }),
-                ),
-                msg => Some(Err(vortex_err!("Expected Array message, got {:?}", msg))),
-            },
+            Ok(msg) => {
+                if let DecoderMessage::Array((array_parts, ctx, row_count)) = msg {
+                    Some(
+                        array_parts
+                            .decode(&ctx, &self.dtype, row_count)
+                            .and_then(|array| {
+                                if array.dtype() != self.dtype() {
+                                    Err(vortex_err!(
+                                        "Array data type mismatch: expected {:?}, got {:?}",
+                                        self.dtype(),
+                                        array.dtype()
+                                    ))
+                                } else {
+                                    Ok(array)
+                                }
+                            }),
+                    )
+                } else {
+                    Some(Err(vortex_err!("Expected Array message, got {:?}", msg)))
+                }
+            }
             Err(e) => Some(Err(e)),
         }
     }

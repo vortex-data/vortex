@@ -286,9 +286,10 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_isDecimal(
     dtype_ptr: jlong,
 ) -> jboolean {
     let dtype = unsafe { &*(dtype_ptr as *const DType) };
-    match dtype {
-        DType::Decimal(..) => JNI_TRUE,
-        _ => JNI_FALSE,
+    if let DType::Decimal(..) = dtype {
+        JNI_TRUE
+    } else {
+        JNI_FALSE
     }
 }
 
@@ -573,7 +574,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_newDate(
         let ptype = match time_unit {
             TimeUnit::D => PType::I32,
             TimeUnit::Ms => PType::I64,
-            unit => throw_runtime!("invalid time_unit for Date type {unit}"),
+            unit @ TimeUnit::Ns | unit @ TimeUnit::Us | unit @ TimeUnit::S => {
+                throw_runtime!("invalid time_unit for Date type {unit}")
+            }
         };
 
         let metadata = TemporalMetadata::Date(time_unit);

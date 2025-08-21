@@ -294,7 +294,7 @@ tests_outside_test_module = "deny"
 unwrap_in_result = "deny"
 unwrap_used = "deny"
 use_debug = "deny"
-# wildcard_enum_match_arm = "deny" # TODO(connor): Re-enable this once everything passes.
+wildcard_enum_match_arm = "deny" # TODO(connor): Re-enable this once everything passes.
 
 [profile.release]
 codegen-units = 1

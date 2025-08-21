@@ -29,12 +29,13 @@ impl<R: AsyncRead + Unpin> AsyncIPCReader<R> {
         let mut reader = AsyncMessageReader::new(read, registry);
 
         let dtype = match reader.next().await.transpose()? {
-            Some(msg) => match msg {
-                DecoderMessage::DType(dtype) => dtype,
-                msg => {
+            Some(msg) => {
+                if let DecoderMessage::DType(dtype) = msg {
+                    dtype
+                } else {
                     vortex_bail!("Expected DType message, got {:?}", msg);
                 }
-            },
+            }
             None => vortex_bail!("Expected DType message, got EOF"),
         };
 

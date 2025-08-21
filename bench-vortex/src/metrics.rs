@@ -69,13 +69,15 @@ fn aggregate_metric(metric: &mut MetricValue, to_aggregate: &MetricValue) {
             MetricValue::Gauge {
                 gauge: other_gauge, ..
             },
-        ) => match name {
-            _ if name.ends_with("max") => gauge.set_max(other_gauge.value()),
-            _ if name.ends_with("min") => {
+        ) => {
+            if name.ends_with("max") {
+                gauge.set_max(other_gauge.value())
+            } else if name.ends_with("min") {
                 gauge.set(gauge.value().min(other_gauge.value()));
+            } else {
+                gauge.add(other_gauge.value())
             }
-            _ => gauge.add(other_gauge.value()),
-        },
+        }
         (metric, to_aggregate) => metric.aggregate(to_aggregate),
     };
 }
@@ -189,6 +191,8 @@ fn timestamps(plan: &dyn ExecutionPlan) -> (Option<SystemTime>, Option<SystemTim
             let mut min_start: Option<SystemTime> = None;
             let mut max_end: Option<SystemTime> = None;
             for m in metrics.iter() {
+                // TODO(connor): spell out all MetricValue variants
+                #[allow(clippy::wildcard_enum_match_arm)]
                 match m.value() {
                     MetricValue::StartTimestamp(ts) => {
                         min_start = match (ts.value().map(|dt| dt.into()), min_start) {

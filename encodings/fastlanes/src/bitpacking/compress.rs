@@ -191,9 +191,10 @@ pub fn gather_patches(
     bit_width: u8,
     num_exceptions_hint: usize,
 ) -> VortexResult<Option<Patches>> {
-    let patch_validity = match parray.validity() {
-        Validity::NonNullable => Validity::NonNullable,
-        _ => Validity::AllValid,
+    let patch_validity = if matches!(parray.validity(), Validity::NonNullable) {
+        Validity::NonNullable
+    } else {
+        Validity::AllValid
     };
 
     let array_len = parray.len();

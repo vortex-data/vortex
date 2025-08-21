@@ -228,43 +228,26 @@ impl Value {
         if unsafe { cpp::duckdb_is_null_value(self.as_ptr()) } {
             return Val::Null;
         }
+
+        use DUCKDB_TYPE::*;
+
         match self.logical_type().as_type_id() {
-            DUCKDB_TYPE::DUCKDB_TYPE_INVALID => vortex_panic!("Invalid type for DuckDB value"),
-            DUCKDB_TYPE::DUCKDB_TYPE_SQLNULL => Val::Null,
-            DUCKDB_TYPE::DUCKDB_TYPE_BOOLEAN => {
-                Val::Boolean(unsafe { cpp::duckdb_get_bool(self.as_ptr()) })
-            }
-            DUCKDB_TYPE::DUCKDB_TYPE_TINYINT => {
-                Val::TinyInt(unsafe { cpp::duckdb_get_int8(self.as_ptr()) })
-            }
-            DUCKDB_TYPE::DUCKDB_TYPE_SMALLINT => {
-                Val::SmallInt(unsafe { cpp::duckdb_get_int16(self.as_ptr()) })
-            }
-            DUCKDB_TYPE::DUCKDB_TYPE_INTEGER => {
-                Val::Integer(unsafe { cpp::duckdb_get_int32(self.as_ptr()) })
-            }
-            DUCKDB_TYPE::DUCKDB_TYPE_BIGINT => {
-                Val::BigInt(unsafe { cpp::duckdb_get_int64(self.as_ptr()) })
-            }
-            DUCKDB_TYPE::DUCKDB_TYPE_UTINYINT => {
-                Val::UTinyInt(unsafe { cpp::duckdb_get_uint8(self.as_ptr()) })
-            }
-            DUCKDB_TYPE::DUCKDB_TYPE_USMALLINT => {
+            DUCKDB_TYPE_INVALID => vortex_panic!("Invalid type for DuckDB value"),
+            DUCKDB_TYPE_SQLNULL => Val::Null,
+            DUCKDB_TYPE_BOOLEAN => Val::Boolean(unsafe { cpp::duckdb_get_bool(self.as_ptr()) }),
+            DUCKDB_TYPE_TINYINT => Val::TinyInt(unsafe { cpp::duckdb_get_int8(self.as_ptr()) }),
+            DUCKDB_TYPE_SMALLINT => Val::SmallInt(unsafe { cpp::duckdb_get_int16(self.as_ptr()) }),
+            DUCKDB_TYPE_INTEGER => Val::Integer(unsafe { cpp::duckdb_get_int32(self.as_ptr()) }),
+            DUCKDB_TYPE_BIGINT => Val::BigInt(unsafe { cpp::duckdb_get_int64(self.as_ptr()) }),
+            DUCKDB_TYPE_UTINYINT => Val::UTinyInt(unsafe { cpp::duckdb_get_uint8(self.as_ptr()) }),
+            DUCKDB_TYPE_USMALLINT => {
                 Val::USmallInt(unsafe { cpp::duckdb_get_uint16(self.as_ptr()) })
             }
-            DUCKDB_TYPE::DUCKDB_TYPE_UINTEGER => {
-                Val::UInteger(unsafe { cpp::duckdb_get_uint32(self.as_ptr()) })
-            }
-            DUCKDB_TYPE::DUCKDB_TYPE_UBIGINT => {
-                Val::UBigInt(unsafe { cpp::duckdb_get_uint64(self.as_ptr()) })
-            }
-            DUCKDB_TYPE::DUCKDB_TYPE_FLOAT => {
-                Val::Float(unsafe { cpp::duckdb_get_float(self.as_ptr()) })
-            }
-            DUCKDB_TYPE::DUCKDB_TYPE_DOUBLE => {
-                Val::Double(unsafe { cpp::duckdb_get_double(self.as_ptr()) })
-            }
-            DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR => {
+            DUCKDB_TYPE_UINTEGER => Val::UInteger(unsafe { cpp::duckdb_get_uint32(self.as_ptr()) }),
+            DUCKDB_TYPE_UBIGINT => Val::UBigInt(unsafe { cpp::duckdb_get_uint64(self.as_ptr()) }),
+            DUCKDB_TYPE_FLOAT => Val::Float(unsafe { cpp::duckdb_get_float(self.as_ptr()) }),
+            DUCKDB_TYPE_DOUBLE => Val::Double(unsafe { cpp::duckdb_get_double(self.as_ptr()) }),
+            DUCKDB_TYPE_VARCHAR => {
                 let ptr = unsafe { cpp::duckdb_get_varchar(self.as_ptr()) };
                 let cstr = unsafe { CStr::from_ptr(ptr) };
                 let string = BufferString::from(
@@ -275,7 +258,7 @@ impl Value {
                 unsafe { cpp::duckdb_free(ptr.cast()) };
                 Val::Varchar(string)
             }
-            DUCKDB_TYPE::DUCKDB_TYPE_BLOB => {
+            DUCKDB_TYPE_BLOB => {
                 // TODO(ngates): for blobs and strings, we could write our own C functions to
                 //  get the values by reference, avoiding a double copy since these C functions
                 //  also copy on the CPP side.
@@ -286,25 +269,21 @@ impl Value {
                 unsafe { cpp::duckdb_free(blob.data) };
                 Val::Blob(bytes)
             }
-            DUCKDB_TYPE::DUCKDB_TYPE_DATE => {
-                Val::Date(unsafe { cpp::duckdb_get_date(self.as_ptr()).days })
-            }
-            DUCKDB_TYPE::DUCKDB_TYPE_TIME => {
-                Val::Time(unsafe { cpp::duckdb_get_time(self.as_ptr()).micros })
-            }
-            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_NS => {
+            DUCKDB_TYPE_DATE => Val::Date(unsafe { cpp::duckdb_get_date(self.as_ptr()).days }),
+            DUCKDB_TYPE_TIME => Val::Time(unsafe { cpp::duckdb_get_time(self.as_ptr()).micros }),
+            DUCKDB_TYPE_TIMESTAMP_NS => {
                 Val::TimestampNs(unsafe { cpp::duckdb_get_timestamp_ns(self.as_ptr()).nanos })
             }
-            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP => {
+            DUCKDB_TYPE_TIMESTAMP => {
                 Val::Timestamp(unsafe { cpp::duckdb_get_timestamp(self.as_ptr()).micros })
             }
-            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS => {
+            DUCKDB_TYPE_TIMESTAMP_MS => {
                 Val::TimestampMs(unsafe { cpp::duckdb_get_timestamp_ms(self.as_ptr()).millis })
             }
-            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S => {
+            DUCKDB_TYPE_TIMESTAMP_S => {
                 Val::TimestampS(unsafe { cpp::duckdb_get_timestamp_s(self.as_ptr()).seconds })
             }
-            DUCKDB_TYPE::DUCKDB_TYPE_DECIMAL => {
+            DUCKDB_TYPE_DECIMAL => {
                 let decimal = unsafe { cpp::duckdb_get_decimal(self.as_ptr()) };
                 let value = i128_from_parts(decimal.value.upper, decimal.value.lower);
                 Val::Decimal(
@@ -314,7 +293,19 @@ impl Value {
                 )
             }
             // ...other types remain unimplemented...
-            _ => vortex_panic!("Unsupported DuckDB value type {:?}", self),
+            DUCKDB_TYPE_TIMESTAMP_TZ
+            | DUCKDB_TYPE_TIME_TZ
+            | DUCKDB_TYPE_INTERVAL
+            | DUCKDB_TYPE_HUGEINT
+            | DUCKDB_TYPE_UUID
+            | DUCKDB_TYPE_LIST
+            | DUCKDB_TYPE_STRUCT
+            | DUCKDB_TYPE_MAP
+            | DUCKDB_TYPE_ARRAY
+            | DUCKDB_TYPE_ENUM
+            | DUCKDB_TYPE_UNION
+            | DUCKDB_TYPE_BIT
+            | _ => vortex_panic!("Unsupported DuckDB value type {:?}", self),
         }
     }
 }

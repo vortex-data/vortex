@@ -100,7 +100,9 @@ impl TryToDataFusion<ScalarValue> for Scalar {
                         TemporalMetadata::Date(u) => match u {
                             TimeUnit::Ms => ScalarValue::Date64(pv.as_::<i64>()),
                             TimeUnit::D => ScalarValue::Date32(pv.as_::<i32>()),
-                            _ => unreachable!("Unsupported TimeUnit {u} for {}", ext.id()),
+                            TimeUnit::Ns | TimeUnit::Us | TimeUnit::S => {
+                                unreachable!("Unsupported TimeUnit {u} for {}", ext.id())
+                            }
                         },
                         TemporalMetadata::Timestamp(u, tz) => match u {
                             TimeUnit::Ns => ScalarValue::TimestampNanosecond(
@@ -235,7 +237,22 @@ impl FromDataFusion<ScalarValue> for Scalar {
                     Scalar::null(DType::Decimal(decimal_dtype, nullable))
                 }
             }
-            _ => unimplemented!("Can't convert {value:?} value to a Vortex scalar"),
+            ScalarValue::List(_)
+            | ScalarValue::LargeList(_)
+            | ScalarValue::Map(_)
+            | ScalarValue::Struct(_)
+            | ScalarValue::Dictionary(..)
+            | ScalarValue::Union(..)
+            | ScalarValue::IntervalYearMonth(_)
+            | ScalarValue::IntervalDayTime(_)
+            | ScalarValue::IntervalMonthDayNano(_)
+            | ScalarValue::DurationSecond(_)
+            | ScalarValue::DurationMillisecond(_)
+            | ScalarValue::DurationMicrosecond(_)
+            | ScalarValue::DurationNanosecond(_)
+            | ScalarValue::FixedSizeList(_) => {
+                unimplemented!("Can't convert {value:?} value to a Vortex scalar")
+            }
         }
     }
 }
@@ -431,6 +448,9 @@ mod tests {
     #[case::decimal256_null(ScalarValue::Decimal256(None, 50, 10))]
     fn test_from_datafusion_decimals(#[case] df_scalar: ScalarValue) {
         let result = Scalar::from_df(&df_scalar);
+
+        // We probably are not adding other `Decimal` variants.
+        #[allow(clippy::wildcard_enum_match_arm)]
         match &df_scalar {
             ScalarValue::Decimal128(value, precision, scale) => {
                 if let DType::Decimal(decimal_type, _) = result.dtype() {

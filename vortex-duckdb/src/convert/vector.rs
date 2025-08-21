@@ -63,6 +63,8 @@ pub fn flat_vector_to_arrow_array(
     len: usize,
 ) -> Result<Arc<dyn Array>, Box<dyn std::error::Error>> {
     let type_id = vector.logical_type().as_type_id();
+    // TODO(connor): spell out all DUCKDB_TYPE variants
+    #[allow(clippy::wildcard_enum_match_arm)]
     match type_id {
         DUCKDB_TYPE::DUCKDB_TYPE_INTEGER => {
             let data = vector.as_slice_with_len::<i32>(len);
@@ -300,7 +302,9 @@ pub fn flat_vector_to_arrow_array(
                     let data = vector.as_slice_with_len::<i128>(len);
                     data.to_vec()
                 }
-                _ => return Err(format!("Unsupported decimal precision: {precision}").into()),
+                DecimalValueType::I8 | DecimalValueType::I256 | _ => {
+                    return Err(format!("Unsupported decimal precision: {precision}").into());
+                }
             };
 
             let decimal_array = Decimal128Array::from_iter_values_with_nulls(

@@ -161,7 +161,10 @@ impl FileFormat for VortexFormat {
     ) -> DFResult<String> {
         match file_compression_type.get_variant() {
             CompressionTypeVariant::UNCOMPRESSED => Ok(self.get_ext()),
-            _ => Err(DataFusionError::Internal(
+            CompressionTypeVariant::GZIP
+            | CompressionTypeVariant::BZIP2
+            | CompressionTypeVariant::XZ
+            | CompressionTypeVariant::ZSTD => Err(DataFusionError::Internal(
                 "Vortex does not support file level compression.".into(),
             )),
         }

@@ -136,7 +136,14 @@ fn maybe_strict_comparison(op: Operator) -> Option<StrictComparison> {
     match op {
         Operator::Lt => Some(StrictComparison::Strict),
         Operator::Lte => Some(StrictComparison::NonStrict),
-        _ => None,
+        Operator::Eq
+        | Operator::NotEq
+        | Operator::Gt
+        | Operator::Gte
+        | Operator::And
+        | Operator::Or
+        | Operator::Add
+        | Operator::Sub => None,
     }
 }
 

@@ -212,9 +212,10 @@ mod tests {
                 .with_tag("file", "a")
                 .with_tag("partition", "1")
         );
-        match metric {
-            Metric::Counter(c) => assert_eq!(c.count(), 1),
-            _ => return Err("metric is not a counter"),
+        if let Metric::Counter(c) = metric {
+            assert_eq!(c.count(), 1);
+        } else {
+            return Err("metric is not a counter");
         }
         Ok(())
     }
@@ -246,9 +247,10 @@ mod tests {
                 .with_tag("service", "vortex")
                 .with_tag("instance", "child1")
         );
-        match metric {
-            Metric::Counter(c) => assert_eq!(c.count(), 1),
-            _ => return Err("metric is not a counter"),
+        if let Metric::Counter(c) = metric {
+            assert_eq!(c.count(), 1);
+        } else {
+            return Err("metric is not a counter");
         }
 
         // Verify child2 metrics
@@ -260,9 +262,10 @@ mod tests {
                 .with_tag("service", "vortex")
                 .with_tag("instance", "child2")
         );
-        match metric {
-            Metric::Counter(c) => assert_eq!(c.count(), 2),
-            _ => return Err("metric is not a counter"),
+        if let Metric::Counter(c) = metric {
+            assert_eq!(c.count(), 2);
+        } else {
+            return Err("metric is not a counter");
         }
         Ok(())
     }
@@ -289,9 +292,10 @@ mod tests {
                 .with_tag("environment", "test")
                 .with_tag("instance", "child1")
         );
-        match metric {
-            Metric::Counter(c) => assert_eq!(c.count(), 1),
-            _ => return Err("metric is not a counter"),
+        if let Metric::Counter(c) = metric {
+            assert_eq!(c.count(), 1);
+        } else {
+            return Err("metric is not a counter");
         }
         Ok(())
     }

@@ -126,7 +126,9 @@ impl CompactCompressor {
                         .into_array(),
                 )
             }
-            other => Ok(other.into_array()),
+            other @ Canonical::Null(_)
+            | other @ Canonical::Bool(_)
+            | other @ Canonical::Decimal(_) => Ok(other.into_array()),
         }
     }
 }

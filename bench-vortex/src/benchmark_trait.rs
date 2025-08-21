@@ -39,7 +39,7 @@ pub trait Benchmark {
                     delete_duckdb_database,
                 )?)
             }
-            _ => unreachable!("engine not supported"),
+            Engine::Vortex | Engine::Arrow => unreachable!("engine not supported"),
         }
     }
 

@@ -138,16 +138,20 @@ impl ArrayVTable<DictVTable> for DictVTable {
 
 impl CanonicalVTable<DictVTable> for DictVTable {
     fn canonicalize(array: &DictArray) -> VortexResult<Canonical> {
+        use DType::*;
+
         match array.dtype() {
             // NOTE: Utf8 and Binary will decompress into VarBinViewArray, which requires a full
             // decompression to construct the views child array.
             // For this case, it is *always* faster to decompress the values first and then create
             // copies of the view pointers.
-            DType::Utf8(_) | DType::Binary(_) => {
+            Utf8(_) | Binary(_) => {
                 let canonical_values: ArrayRef = array.values().to_canonical()?.into_array();
                 take(&canonical_values, array.codes())?.to_canonical()
             }
-            _ => take(array.values(), array.codes())?.to_canonical(),
+            Null | Bool(_) | Primitive(..) | Decimal(..) | List(..) | Struct(..) | Extension(_) => {
+                take(array.values(), array.codes())?.to_canonical()
+            }
         }
     }
 }

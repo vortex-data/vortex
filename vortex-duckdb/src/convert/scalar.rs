@@ -177,7 +177,9 @@ impl ToDuckDBScalar for ExtScalar<'_> {
                     .as_::<i32>()
                     .map(Value::new_date)
                     .unwrap_or_else(Value::null)),
-                _ => vortex_bail!("cannot have TimeUnit {unit}, so represent a day"),
+                TimeUnit::Ns | TimeUnit::Us | TimeUnit::Ms | TimeUnit::S => {
+                    vortex_bail!("cannot have TimeUnit {unit}, so represent a day")
+                }
             },
             TemporalMetadata::Timestamp(unit, tz) => {
                 if tz.is_some() {
