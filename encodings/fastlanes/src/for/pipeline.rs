@@ -139,14 +139,16 @@ where
         ctx: &dyn KernelContext,
         selected: BitView,
         out: &mut ViewMut,
-    ) -> Poll<VortexResult<()>> {
+    ) -> VortexResult<()> {
         let vec = ctx.vector(self.child);
         let values = unsafe { std::mem::transmute::<&[E], &[T]>(vec.as_slice::<E>()) };
         let out = out.as_slice_mut::<T>();
+
         for i in 0..selected.true_count() {
             out[i] = values[i].wrapping_add(&self.reference);
         }
-        Poll::Ready(Ok(()))
+
+        Ok(())
     }
 }
 
