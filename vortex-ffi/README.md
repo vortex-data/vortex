@@ -26,8 +26,10 @@ item cannot be referenced in the documentation if it does not have a documentati
 
 ## Updating
 
-To rebuild the header run
+To rebuild the header run:
 
 ```shell
-cbindgen --config cbindgen.toml --crate vortex-ffi --output cinclude/vortex.h
+cargo +nightly build
 ```
+
+Note that generating the header requires the nightly toolchain in order to utilize the macro expansion feature of cbindgen.
