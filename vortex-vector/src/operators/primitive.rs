@@ -4,7 +4,6 @@
 use std::any::Any;
 use std::hash::Hash;
 use std::rc::Rc;
-use std::task::{Poll, ready};
 
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{NativePType, PType, match_each_native_ptype};
@@ -73,11 +72,11 @@ impl<T: Element + NativePType> Kernel for PrimitiveKernel<T> {
         ctx: &dyn KernelContext,
         mask: BitView,
         out: &mut ViewMut,
-    ) -> Poll<VortexResult<()>> {
+    ) -> VortexResult<()> {
         // FIXME(ngates): support mask.
         // assert_eq!(mask.true_count(), N, "Mask must have exactly N true bits");
 
-        let buffer = ready!(self.buffer.get_or_load(ctx))?;
+        let buffer = self.buffer.get_or_load(ctx)?;
         let remaining = buffer.len() - self.offset;
 
         let out_slice = out.as_slice_mut::<T>();
@@ -93,7 +92,7 @@ impl<T: Element + NativePType> Kernel for PrimitiveKernel<T> {
         // TODO(joe): use mask in copy_from_slice, if faster.
         out.select_mask::<T>(&mask);
 
-        Poll::Ready(Ok(()))
+        Ok(())
     }
 }
 

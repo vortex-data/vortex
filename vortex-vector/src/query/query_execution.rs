@@ -42,66 +42,67 @@ impl QueryExecution {
     }
 
     /// Step the pipeline forward
-    pub fn _step(&mut self, selected: BitView, out: &mut ViewMut) -> Poll<VortexResult<()>> {
-        self.work_stack.clear();
-        self.pending_nodes_next.clear();
-
-        // Start with leaf nodes
-        self.work_stack.extend(
-            self.leaf_nodes
-                .iter()
-                .filter(|&&idx| self.node_states[idx] == NodeState::NotStarted)
-                .copied(),
-        );
-
-        loop {
-            // Retry pending nodes first
-            while let Some(node_idx) = self.pending_nodes.pop() {
-                match self.try_execute_node(node_idx, selected, out) {
-                    ExecutionResult::Completed => {
-                        // Add ready parents for cache locality
-                        self.push_ready_parents(node_idx);
-                    }
-                    ExecutionResult::Pending => {
-                        // Keep in pending set
-                        self.pending_nodes_next.push(node_idx);
-                    }
-                    ExecutionResult::Error(e) => return Poll::Ready(Err(e)),
-                    ExecutionResult::NotReady => {
-                        // Dependencies not ready, skip
-                    }
-                }
-            }
-
-            std::mem::swap(&mut self.pending_nodes, &mut self.pending_nodes_next);
-            self.pending_nodes_next.clear();
-
-            // Process work stack
-            if let Some(node_idx) = self.work_stack.pop() {
-                match self.try_execute_node(node_idx, selected, out) {
-                    ExecutionResult::Completed => {
-                        // Execute entire parent chain for maximum cache locality
-                        self.execute_parent_chain(node_idx, selected, out);
-                    }
-                    ExecutionResult::Pending => {
-                        self.pending_nodes.push(node_idx);
-                    }
-                    ExecutionResult::Error(e) => return Poll::Ready(Err(e)),
-                    ExecutionResult::NotReady => {}
-                }
-            } else if self.pending_nodes.is_empty() {
-                break;
-            }
-        }
-
-        if !self.pending_nodes.is_empty() {
-            Poll::Pending
-        } else if self.node_states[self.dag_root] == NodeState::Completed {
-            self.reset_step();
-            Poll::Ready(Ok(()))
-        } else {
-            Poll::Ready(Ok(()))
-        }
+    pub fn _step(&mut self, selected: BitView, out: &mut ViewMut) -> VortexResult<()> {
+        // self.work_stack.clear();
+        // self.pending_nodes_next.clear();
+        //
+        // // Start with leaf nodes
+        // self.work_stack.extend(
+        //     self.leaf_nodes
+        //         .iter()
+        //         .filter(|&&idx| self.node_states[idx] == NodeState::NotStarted)
+        //         .copied(),
+        // );
+        //
+        // loop {
+        //     // Retry pending nodes first
+        //     while let Some(node_idx) = self.pending_nodes.pop() {
+        //         match self.try_execute_node(node_idx, selected, out) {
+        //             ExecutionResult::Completed => {
+        //                 // Add ready parents for cache locality
+        //                 self.push_ready_parents(node_idx);
+        //             }
+        //             ExecutionResult::Pending => {
+        //                 // Keep in pending set
+        //                 self.pending_nodes_next.push(node_idx);
+        //             }
+        //             ExecutionResult::Error(e) => return Err(e),
+        //             ExecutionResult::NotReady => {
+        //                 // Dependencies not ready, skip
+        //             }
+        //         }
+        //     }
+        //
+        //     std::mem::swap(&mut self.pending_nodes, &mut self.pending_nodes_next);
+        //     self.pending_nodes_next.clear();
+        //
+        //     // Process work stack
+        //     if let Some(node_idx) = self.work_stack.pop() {
+        //         match self.try_execute_node(node_idx, selected, out) {
+        //             ExecutionResult::Completed => {
+        //                 // Execute entire parent chain for maximum cache locality
+        //                 self.execute_parent_chain(node_idx, selected, out);
+        //             }
+        //             ExecutionResult::Pending => {
+        //                 self.pending_nodes.push(node_idx);
+        //             }
+        //             ExecutionResult::Error(e) => return Poll::Ready(Err(e)),
+        //             ExecutionResult::NotReady => {}
+        //         }
+        //     } else if self.pending_nodes.is_empty() {
+        //         break;
+        //     }
+        // }
+        //
+        // if !self.pending_nodes.is_empty() {
+        //     Poll::Pending
+        // } else if self.node_states[self.dag_root] == NodeState::Completed {
+        //     self.reset_step();
+        //     Poll::Ready(Ok(()))
+        // } else {
+        //     Poll::Ready(Ok(()))
+        // }
+        todo!()
     }
 
     /// Execute chain of ready parents while data is in cache

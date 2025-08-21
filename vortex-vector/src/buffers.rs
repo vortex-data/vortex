@@ -4,10 +4,9 @@
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use std::sync::atomic::AtomicUsize;
-use std::task::{Poll, ready};
 
 use vortex_buffer::Buffer;
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_error::{VortexResult};
 
 use crate::KernelContext;
 
@@ -90,22 +89,23 @@ impl<T> BufferHandle<T> {
         }
     }
 
-    pub fn get_or_load(&mut self, ctx: &dyn KernelContext) -> Poll<VortexResult<&Buffer<T>>> {
-        if let BufferHandle::Ready(buffer) = self {
-            return Poll::Ready(Ok(buffer));
-        }
-
-        let buffer_id = match self {
-            BufferHandle::Pending(id) => *id,
-            BufferHandle::Ready(_) => unreachable!("BufferHandle should not be ready here"),
-        };
-        let buffer = ready!(ctx.buffer(buffer_id))?;
-        *self = BufferHandle::Ready(Buffer::<T>::from_byte_buffer(buffer));
-
-        if let BufferHandle::Ready(buffer) = self {
-            Poll::Ready(Ok(buffer))
-        } else {
-            vortex_panic!("BufferHandle should be ready after loading");
-        }
+    pub fn get_or_load(&mut self, ctx: &dyn KernelContext) -> VortexResult<&Buffer<T>> {
+        todo!()
+        // if let BufferHandle::Ready(buffer) = self {
+        //     return Ok(buffer);
+        // }
+        //
+        // let buffer_id = match self {
+        //     BufferHandle::Pending(id) => *id,
+        //     BufferHandle::Ready(_) => unreachable!("BufferHandle should not be ready here"),
+        // };
+        // let buffer = ready!(ctx.buffer(buffer_id))?;
+        // *self = BufferHandle::Ready(Buffer::<T>::from_byte_buffer(buffer));
+        //
+        // if let BufferHandle::Ready(buffer) = self {
+        //     Poll::Ready(Ok(buffer))
+        // } else {
+        //     vortex_panic!("BufferHandle should be ready after loading");
+        // }
     }
 }

@@ -4,7 +4,6 @@
 use std::any::Any;
 use std::marker::PhantomData;
 use std::rc::Rc;
-use std::task::Poll;
 
 use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
@@ -98,7 +97,7 @@ impl<T: Element + NativePType, Op: CompareOp<T>> Kernel for ScalarComparePrimiti
         ctx: &dyn KernelContext,
         selected: BitView,
         out: &mut ViewMut,
-    ) -> Poll<VortexResult<()>> {
+    ) -> VortexResult<()> {
         let lhs_vec = ctx.vector(self.lhs);
         let lhs = lhs_vec.as_slice::<T>();
 
@@ -110,6 +109,6 @@ impl<T: Element + NativePType, Op: CompareOp<T>> Kernel for ScalarComparePrimiti
             unsafe { *bools.get_unchecked_mut(i) = Op::compare(lhs.get_unchecked(i), &self.rhs) };
         }
 
-        Poll::Ready(Ok(()))
+        Ok(())
     }
 }

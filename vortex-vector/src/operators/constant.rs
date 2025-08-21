@@ -4,7 +4,6 @@
 use std::any::Any;
 use std::hash::Hash;
 use std::rc::Rc;
-use std::task::Poll;
 
 use vortex_dtype::{DType, NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult};
@@ -87,11 +86,11 @@ impl<T: Element + NativePType> Kernel for ConstantKernel<T> {
         ctx: &dyn KernelContext,
         selected: BitView,
         out: &mut ViewMut,
-    ) -> Poll<VortexResult<()>> {
+    ) -> VortexResult<()> {
         let out_slice = out.as_slice_mut::<T>();
         for i in 0..selected.true_count() {
             out_slice[i] = self.value;
         }
-        Poll::Ready(Ok(()))
+        Ok(())
     }
 }

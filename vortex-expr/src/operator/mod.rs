@@ -23,8 +23,6 @@ impl<'a> ExprOperatorConverter<'a> {
     }
 }
 
-// Needs a mapping from Root array to encoding -> Operator
-
 impl<'a> NodeFolder for ExprOperatorConverter<'a> {
     type NodeTy = ExprRef;
     type Result = Option<Rc<dyn Operator>>;

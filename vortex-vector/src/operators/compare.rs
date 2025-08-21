@@ -4,7 +4,6 @@
 use std::any::Any;
 use std::marker::PhantomData;
 use std::rc::Rc;
-use std::task::Poll;
 
 use itertools::Itertools;
 use vortex_dtype::{NativePType, match_each_native_ptype};
@@ -195,7 +194,7 @@ impl<T: Element + NativePType, Op: CompareOp<T>> Kernel for ComparePrimitiveKern
         ctx: &dyn KernelContext,
         selected: BitView,
         out: &mut ViewMut,
-    ) -> Poll<VortexResult<()>> {
+    ) -> VortexResult<()> {
         let lhs_vec = ctx.vector(self.lhs);
         let lhs = lhs_vec.as_slice::<T>();
         let rhs_vec = ctx.vector(self.rhs);
@@ -212,7 +211,7 @@ impl<T: Element + NativePType, Op: CompareOp<T>> Kernel for ComparePrimitiveKern
             bools[i] = unsafe { Op::compare(lhs.get_unchecked(i), rhs.get_unchecked(i)) };
         }
 
-        Poll::Ready(Ok(()))
+       Ok(())
     }
 }
 

@@ -38,7 +38,7 @@ use std::task::Poll;
 pub use operators::Operator;
 use vector::{VectorId, VectorRef};
 use vortex_buffer::ByteBuffer;
-use vortex_error::{VortexResult, vortex_err, vortex_panic};
+use vortex_error::{VortexResult, vortex_err};
 
 use crate::bits::BitView;
 use crate::buffers::BufferId;
@@ -88,27 +88,9 @@ pub trait Kernel {
         ctx: &dyn KernelContext,
         selected: BitView,
         out: &mut ViewMut,
-    ) -> Poll<VortexResult<()>>;
+    ) -> VortexResult<()>;
 }
 
-pub trait KernelExt: Kernel {
-    /// Perform a single step of the pipeline, panics if the step returns [`Poll::Pending`].
-    fn step_now(
-        &mut self,
-        ctx: &dyn KernelContext,
-        selected: BitView,
-        out: &mut ViewMut,
-    ) -> VortexResult<()> {
-        match self.step(ctx, selected, out) {
-            Poll::Ready(r) => r,
-            Poll::Pending => {
-                vortex_panic!("Pipeline step is pending, but expected it to be ready.")
-            }
-        }
-    }
-}
-
-impl<K: Kernel + ?Sized> KernelExt for K {}
 
 pub trait KernelContext {
     /// Get a vector by its ID.

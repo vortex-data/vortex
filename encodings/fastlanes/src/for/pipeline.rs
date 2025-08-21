@@ -20,7 +20,7 @@ use vortex_vector::types::{Element, VType};
 use vortex_vector::vector::VectorId;
 use vortex_vector::view::ViewMut;
 use vortex_vector::{Kernel, KernelContext};
-
+use vortex_vector::operators::compare::BinaryOperator;
 use crate::{FoRArray, FoRVTable};
 
 impl PipelineVTable<FoRVTable> for FoRVTable {
@@ -95,6 +95,9 @@ impl Operator for FoROperator {
 
     fn reduce_parent(&self, parent: Rc<dyn Operator>) -> Option<Rc<dyn Operator>> {
         let compare = parent.as_any().downcast_ref::<ScalarCompareOperator>()?;
+        if compare.op != BinaryOperator::Eq && compare.op != BinaryOperator::NotEq {
+            return None;
+        }
 
         let new_ref = match_each_native_ptype!(self.reference.as_primitive().ptype(), |P| {
             let compare = compare
@@ -108,7 +111,7 @@ impl Operator for FoROperator {
                 .typed_value::<P>()
                 .vortex_expect("must have ptype");
             // TODO: handle overflow
-            Scalar::from(compare - reference)
+            Scalar::from(compare.wrapping_sub(&reference))
         });
 
         Some(Rc::new(ScalarCompareOperator::new(

@@ -7,7 +7,6 @@ mod operators;
 mod query_execution;
 mod toposort;
 
-use std::ops::DerefMut;
 use std::task::Poll;
 
 use vortex_buffer::ByteBuffer;
@@ -16,7 +15,7 @@ use vortex_error::{VortexError, VortexResult};
 use crate::bits::BitView;
 use crate::buffers::BufferId;
 use crate::operators::Operator;
-use crate::query::buffers::{OutputTarget, VectorAllocationPlan};
+use crate::query::buffers::{ VectorAllocationPlan};
 use crate::query::dag::DagNode;
 use crate::query::query_execution::QueryExecution;
 use crate::vector::{VectorId, VectorRef};
@@ -74,7 +73,7 @@ impl<'a> QueryPlan<'a> {
         let operators = Self::bind_operators(&self.dag, &self.allocation_plan)?;
 
         Ok(QueryExecution {
-            operators: operators.clone(),
+            operators,
             // Pre-allocate work arrays
             node_states: vec![NodeState::NotStarted; node_count],
             work_stack: Vec::new(),
@@ -115,7 +114,7 @@ impl Kernel for QueryExecution {
         ctx: &dyn KernelContext,
         selected: BitView,
         out: &mut ViewMut,
-    ) -> Poll<VortexResult<()>> {
+    ) -> VortexResult<()> {
         self._step(selected, out)
     }
 }
