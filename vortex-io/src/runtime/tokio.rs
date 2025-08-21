@@ -7,34 +7,14 @@ use smol::future::FutureExt;
 use std::fs::File;
 use std::os::unix::fs::FileExt;
 use std::sync::Arc;
-use tokio::runtime::Handle;
+use tokio::runtime::Handle as TokioHandle;
 use vortex_buffer::{Alignment, ByteBufferMut};
 use vortex_error::{VortexError, VortexResult, vortex_err};
 
-/// A Vortex runtime that spawns all CPU and I/O work onto the given Tokio runtime.
-pub struct TokioRuntime(Handle);
-
-impl TokioRuntime {
-    pub fn current() -> Self {
-        Self(Handle::current().clone())
-    }
-}
-
-impl Runtime for TokioRuntime {
-    fn open_file(&self, file: Arc<File>) -> Arc<dyn VortexRead> {
-        Arc::new(TokioFile {
-            handle: self.0.clone(),
-            file,
-        })
-    }
-
-    #[cfg(feature = "object_store")]
-    fn open_object_store(
-        &self,
-        object_store: Arc<dyn object_store::ObjectStore>,
-        path: &object_store::path::Path,
-    ) -> Arc<dyn VortexRead> {
-        todo!()
+impl Runtime {
+    /// Spawn this Runtime into the given Tokio runtime such that it is driven in the background.
+    pub fn into_tokio(self, handle: TokioHandle) {
+        self.file_io_send
     }
 }
 

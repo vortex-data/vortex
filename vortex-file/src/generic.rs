@@ -6,7 +6,8 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
-use vortex_io::runtime::{Runtime, VortexRead};
+use vortex_io::runtime::VortexRead;
+use vortex_io::runtime::handle::Handle;
 use vortex_io::source::{FileIo, IoSource};
 use vortex_io::{IoDispatcher, PerformanceHint};
 use vortex_layout::segments::{SegmentEvents, SegmentId};
@@ -87,7 +88,7 @@ impl VortexOpenOptions<GenericVortexFile> {
         self,
         io_source: Arc<dyn IoSource>,
     ) -> VortexResult<VortexFile> {
-        let read = io_source.open(&Runtime::current());
+        let read = io_source.open(&Handle::current());
 
         let footer = if let Some(footer) = self.footer {
             footer

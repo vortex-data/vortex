@@ -14,7 +14,7 @@ use vortex_dtype::{DType, Field, FieldPath, FieldPathSet};
 use vortex_error::VortexResult;
 use vortex_expr::pruning::checked_pruning_expr;
 use vortex_expr::{ExprRef, Scope};
-use vortex_io::runtime::Runtime;
+use vortex_io::runtime::handle::Handle;
 use vortex_io::source::IoSource;
 use vortex_layout::LayoutReader;
 use vortex_layout::segments::SegmentSource;
@@ -80,7 +80,7 @@ impl VortexFile {
         self.segment_source.clone()
     }
 
-    pub fn segment_source2(&self, runtime: &Runtime) -> Arc<dyn SegmentSource> {
+    pub fn segment_source2(&self, runtime: &Handle) -> Arc<dyn SegmentSource> {
         Arc::new(FileSegmentSource::new(
             self.footer.segment_map().clone(),
             self.io_source.open(runtime),

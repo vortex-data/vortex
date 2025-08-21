@@ -1,36 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod handle;
+mod multithread;
 mod tokio;
+mod worker;
 
+use crate::runtime::handle::Handle;
 use flume::{Receiver, Sender};
-use futures::Stream;
 use futures_util::FutureExt;
 use futures_util::future::BoxFuture;
 use smol::Executor;
 use std::fs::File;
 use std::marker::PhantomData;
-use std::os::unix::fs::MetadataExt;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll, ready};
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
-pub trait Runtime {
-    fn open_file(&self, file: Arc<File>) -> Arc<dyn VortexRead>;
-
-    #[cfg(feature = "object_store")]
-    fn open_object_store(
-        &self,
-        object_store: Arc<dyn object_store::ObjectStore>,
-        path: &object_store::path::Path,
-    ) -> Arc<dyn VortexRead>;
-}
-
-/// A runtime that drives futures from a pool of worker threads.
-pub struct WorkerRuntime {
-    // The main executor for driving "scheduling" futures on the runtime.
+pub struct Runtime {
     executor: Executor<'static>,
 
     // I/O queues for reading data.
@@ -39,12 +28,12 @@ pub struct WorkerRuntime {
     file_io_exec: Executor<'static>,
 }
 
-impl WorkerRuntime {
-    /// Create a worker pool to drive the given stream of futures to completion.
-    pub fn spawn_worker_stream<T>(
-        stream: impl Stream<Item = impl Future<Output = T>>,
-    ) -> WorkerPool<T> {
-        todo!()
+impl Runtime {
+    /// Create a new [`Handle`] for spawning work onto this [`Runtime`].
+    pub fn new_handle(&self) -> Handle {
+        Handle {
+            file_io_send: self.file_io_send.clone(),
+        }
     }
 }
 
@@ -55,34 +44,7 @@ pub trait VortexRead: 'static + Send + Sync {
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>>;
 }
 
-struct FileRead {
-    file: Arc<File>,
-    send: Sender<FileIoRequest>,
-}
-
-impl VortexRead for FileRead {
-    fn read(&self, offset: u64, length: usize, alignment: Alignment) -> Read {
-        let (send, recv) = oneshot::channel();
-        self.send
-            .send(FileIoRequest {
-                file: self.file.clone(),
-                offset,
-                length,
-                alignment,
-                send,
-            })
-            .map_err(|e| vortex_err!("Sender dropped: {e}"))
-            .vortex_expect("Failed to send read request");
-        Read(ReadState::Future(recv))
-    }
-
-    fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
-        let file = self.file.clone();
-        async move { Ok(file.metadata()?.size()) }.boxed()
-    }
-}
-
-struct FileIoRequest {
+pub(crate) struct FileIoRequest {
     file: Arc<File>,
     offset: u64,
     length: usize,
@@ -153,7 +115,7 @@ pub struct Worker<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::runtime::Runtime;
+    use crate::runtime::handle::Handle;
     use std::fs::File;
     use std::sync::Arc;
     use vortex_buffer::Alignment;
@@ -168,7 +130,7 @@ mod tests {
         //  * Drive a stream on a Tokio runtime.
 
         // Once we create a runtime (possibly pre-configuring the threading model..)
-        let runtime = Runtime::new();
+        let runtime = Handle::new();
 
         // We can then create I/O futures?
         let read = runtime.open_file(Arc::new(File::open("/dev/zero").unwrap()));
