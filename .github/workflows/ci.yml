@@ -58,7 +58,7 @@ jobs:
       - name: Python Lint - Ruff
         run: uv run ruff check .
       - name: Python Lint - PyRight
-        run: uv run pyright vortex-python
+        run: uv run basedpyright vortex-python
 
   python-test:
     name: "Python (test)"

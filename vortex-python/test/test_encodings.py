@@ -12,7 +12,7 @@ def test_struct():
     """
 
     # basic usage
-    array = pa.Table.from_arrays([pa.array(["1", "2", "3"]), pa.array([1.0, 2.0, 3.0])], names=["strings", "floats"])
+    array = pa.Table.from_arrays([pa.array(["1", "2", "3"]), pa.array([1.0, 2.0, 3.0])], names=["strings", "floats"])  # pyright: ignore[reportUnknownMemberType]
     vxarray = vortex.array(array)
     assert isinstance(vxarray, vortex.ChunkedArray)
     struct_array = vxarray.chunks()[0]
@@ -20,7 +20,7 @@ def test_struct():
     assert struct_array.names() == ["strings", "floats"]
 
     # advanced: duplicate field names
-    array = pa.Table.from_arrays(
+    array = pa.Table.from_arrays(  # pyright: ignore[reportUnknownMemberType]
         [pa.array(["1", "2", "3"]), pa.array([1.0, 2.0, 3.0]), pa.array(["one", "two", "three"])],
         names=["strings", "floats", "strings"],
     )

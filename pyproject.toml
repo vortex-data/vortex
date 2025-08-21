@@ -19,18 +19,19 @@ required-version = ">=0.6.0"
 # Currently, all dev dependencies live in the root since uv doesn't have transitive dev dependencies.
 #  See: https://github.com/astral-sh/uv/issues/7541
 dev-dependencies = [
+    "basedpyright>=1.31",
     "duckdb>=1.1.2",
     "ipython>=8.26.0",
     "maturin>=1.7.2",
+    "pandas-stubs>=2.2.3.241126",
     "pandas[output-formatting]>=2.2.3",
+    "pcodec>=0.3.3",
     "pip>=23.3.2",
     "polars>=1.9.0",
-    "pyright>=1.1.385",
+    "pyarrow-stubs>=17.16",
     "pytest-benchmark>=4.0.0",
     "pytest>=7.4.0",
-    "pyright>=1.1.403",
     "ruff>=0.7.1",
-    "pcodec>=0.3.3",
 ]
 
 [tool.uv.workspace]

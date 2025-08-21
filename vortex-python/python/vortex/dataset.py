@@ -3,17 +3,18 @@
 
 import warnings
 from collections.abc import Iterator
-from typing import Any
+from typing_extensions import override, final
 
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.dataset
 
-import vortex as vx
-from vortex._lib import dataset as _dataset  # pyright: ignore[reportMissingModuleSource]
-from vortex.arrow.expression import arrow_to_vortex as arrow_to_vortex_expr
+from ._lib import dataset as _dataset, file as _file  # pyright: ignore[reportMissingModuleSource]
+from .arrays import array
+from .arrow.expression import arrow_to_vortex as arrow_to_vortex_expr
 
 
+@final
 class VortexDataset(pyarrow.dataset.Dataset):
     """Read Vortex files with row filter and column selection pushdown.
 
@@ -22,7 +23,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
 
     """
 
-    def __init__(self, dataset):
+    def __init__(self, dataset: _dataset.VortexDataset):
         self._dataset = dataset
 
     @staticmethod
@@ -31,13 +32,15 @@ class VortexDataset(pyarrow.dataset.Dataset):
 
     @staticmethod
     def from_path(path: str):
-        return vx.open(path).to_dataset()
+        return VortexDataset(_file.open(path).to_dataset())
 
     @property
+    @override
     def schema(self) -> pa.Schema:
         return self._dataset.schema()
 
     # regarding the ignore: https://github.com/zen-xu/pyarrow-stubs/pull/258
+    @override
     def count_rows(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
         filter: pc.Expression | None = None,
@@ -61,16 +64,20 @@ class VortexDataset(pyarrow.dataset.Dataset):
         if cache_metadata:
             warnings.warn("Vortex does not support cache_metadata. Ignoring cache_metadata=True")
         del memory_pool
-        return self._dataset.count_rows(row_filter=filter, split_by=batch_size)
+        vx_filter = None if filter is None else arrow_to_vortex_expr(filter, self.schema)
+        return self._dataset.count_rows(row_filter=vx_filter, split_by=batch_size)
 
+    @override
     def filter(self, expression: pc.Expression) -> "VortexDataset":
         """Not implemented."""
         raise NotImplementedError("filter")
 
+    @override
     def get_fragments(self, filter: pc.Expression | None = None) -> Iterator[pyarrow.dataset.Fragment]:
         """Not implemented."""
         raise NotImplementedError("get_fragments")
 
+    @override
     def head(
         self,
         num_rows: int,
@@ -132,30 +139,40 @@ class VortexDataset(pyarrow.dataset.Dataset):
         vx_filter = None if filter is None else arrow_to_vortex_expr(filter, self.schema)
         return self._dataset.to_array(columns=columns, row_filter=vx_filter).slice(0, num_rows).to_arrow_table()
 
+    @override
     def join(
         self,
-        right_dataset,
-        keys,
-        right_keys=None,
-        join_type=None,
-        left_suffix=None,
-        right_suffix=None,
-        coalesce_keys=True,
-        use_threads: bool | None = None,
+        right_dataset: pyarrow.dataset.Dataset,
+        keys: str | list[str],
+        right_keys: str | list[str] | None = None,
+        join_type: str = "left outer",
+        left_suffix: str | None = None,
+        right_suffix: str | None = None,
+        coalesce_keys: bool = True,
+        use_threads: bool = True,
     ) -> pyarrow.dataset.InMemoryDataset:
         """Not implemented."""
         raise NotImplementedError("join")
 
+    @override
     def join_asof(
-        self, right_dataset, on, by, tolerance, right_on=None, right_by=None
+        self,
+        right_dataset: pyarrow.dataset.Dataset,
+        on: str,
+        by: str | list[str],
+        tolerance: int,
+        right_on: str | list[str] | None = None,
+        right_by: str | list[str] | None = None,
     ) -> pyarrow.dataset.InMemoryDataset:
         """Not implemented."""
         raise NotImplementedError("join_asof")
 
-    def replace_schema(self, schema: pa.Schema):
+    @override
+    def replace_schema(self, schema: pa.Schema) -> None:
         """Not implemented."""
         raise NotImplementedError("replace_schema")
 
+    @override
     def scanner(
         self,
         columns: list[str] | None = None,
@@ -208,13 +225,24 @@ class VortexDataset(pyarrow.dataset.Dataset):
             memory_pool,
         )
 
-    def sort_by(self, sorting, **kwargs) -> pyarrow.dataset.InMemoryDataset:
+    @override
+    def sort_by(self, sorting: str | list[tuple[str, str]], **kwargs) -> pyarrow.dataset.InMemoryDataset:  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType, reportIncompatibleMethodOverride]
         """Not implemented."""
         raise NotImplementedError("sort_by")
 
-    def take(
+    @override
+    def take(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
-        indices: pa.Array | Any,
+        indices: pa.Array[
+            pa.Int8Scalar
+            | pa.Int16Scalar
+            | pa.Int32Scalar
+            | pa.Int64Scalar
+            | pa.UInt8Scalar
+            | pa.UInt16Scalar
+            | pa.UInt32Scalar
+            | pa.UInt64Scalar
+        ],
         columns: list[str] | None = None,
         filter: pc.Expression | None = None,
         batch_size: int | None = None,
@@ -256,8 +284,9 @@ class VortexDataset(pyarrow.dataset.Dataset):
         table : :class:`.pyarrow.Table`
 
         """
+        vx_filter = None if filter is None else arrow_to_vortex_expr(filter, self.schema)
         return self._dataset.to_array(
-            columns=columns, row_filter=filter, indices=vx.array(indices.cast(pa.uint64()))
+            columns=columns, row_filter=vx_filter, indices=array(indices.cast(pa.uint64()))
         ).to_arrow_table()
 
     def to_record_batch_reader(
@@ -315,6 +344,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
         vx_filter = None if filter is None else arrow_to_vortex_expr(filter, self.schema)
         return self._dataset.to_record_batch_reader(columns=columns, row_filter=vx_filter, split_by=batch_size)
 
+    @override
     def to_batches(
         self,
         columns: list[str] | None = None,
@@ -373,6 +403,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
             except StopIteration:
                 return
 
+    @override
     def to_table(
         self,
         columns: list[str] | dict[str, pc.Expression] | None = None,
@@ -427,6 +458,12 @@ class VortexDataset(pyarrow.dataset.Dataset):
         if columns is not None and len(columns) == 0:
             raise ValueError("empty projections are not currently supported")
         del memory_pool
+
+        if isinstance(columns, dict):
+            raise ValueError(
+                "VortexDataset does not currently support a dict of expressions as the 'column' parameter."
+            )
+
         vx_filter = None if filter is None else arrow_to_vortex_expr(filter, self.schema)
         return self._dataset.to_array(columns=columns, row_filter=vx_filter).to_arrow_table()
 
@@ -435,6 +472,7 @@ def from_url(url: str) -> VortexDataset:
     return VortexDataset(_dataset.dataset_from_url(url))
 
 
+@final
 class VortexScanner(pyarrow.dataset.Scanner):
     """A PyArrow Dataset Scanner that reads from a Vortex Array.
 
@@ -494,6 +532,7 @@ class VortexScanner(pyarrow.dataset.Scanner):
     def schema(self):
         return self._dataset.schema
 
+    @override
     def count_rows(self):
         return self._dataset.count_rows(
             self._filter,
@@ -506,6 +545,7 @@ class VortexScanner(pyarrow.dataset.Scanner):
             self._memory_pool,
         )
 
+    @override
     def head(self, num_rows: int) -> pa.Table:
         """Load the first `num_rows` of the dataset.
 
@@ -532,10 +572,12 @@ class VortexScanner(pyarrow.dataset.Scanner):
             self._memory_pool,
         )
 
+    @override
     def scan_batches(self) -> Iterator[pyarrow.dataset.TaggedRecordBatch]:  # pyright: ignore[reportIncompatibleMethodOverride]
         """Not implemented."""
         raise NotImplementedError("scan batches")
 
+    @override
     def to_batches(self) -> Iterator[pa.RecordBatch]:
         """Construct an iterator of :class:`.pyarrow.RecordBatch`.
 
@@ -556,6 +598,7 @@ class VortexScanner(pyarrow.dataset.Scanner):
             self._memory_pool,
         )
 
+    @override
     def to_reader(self) -> pa.RecordBatchReader:
         """Construct a :class:`.pyarrow.RecordBatchReader`.
 
@@ -577,6 +620,7 @@ class VortexScanner(pyarrow.dataset.Scanner):
             self._memory_pool,
         )
 
+    @override
     def to_table(self) -> pa.Table:
         """Construct an Arrow :class:`.pyarrow.Table`.
 

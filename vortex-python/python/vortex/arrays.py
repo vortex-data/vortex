@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import abc
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
+from typing_extensions import override
 
 import pyarrow
 
-import vortex as vx
+from vortex._lib.dtype import DType  # pyright: ignore[reportMissingModuleSource]
 import vortex._lib.arrays as _arrays  # pyright: ignore[reportMissingModuleSource]
+from vortex._lib.serde import ArrayParts, ArrayContext  # pyright: ignore[reportMissingModuleSource]
 
 try:
     import pandas
@@ -17,10 +19,10 @@ except ImportError:
 else:
     # HACK: monkey-patch a fixed implementation of the pd.ArrowDtype.type property accessor.
     # See https://github.com/pandas-dev/pandas/issues/60068 for more details
-    _old_ArrowDtype_type = pandas.ArrowDtype.type.fget
+    _old_ArrowDtype_type: Callable[[pandas.ArrowDtype], type] = pandas.ArrowDtype.type.fget  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
 
     @property
-    def __ArrowDtype_type_patched(self):
+    def __ArrowDtype_type_patched(self: pandas.ArrowDtype):
         if pyarrow.types.is_string_view(self.pyarrow_dtype):
             return str
         if pyarrow.types.is_binary_view(self.pyarrow_dtype):
@@ -38,10 +40,12 @@ Array = _arrays.Array
 
 
 def empty_arrow_table(schema: pyarrow.Schema) -> pyarrow.Table:
-    return pyarrow.Table.from_arrays([pyarrow.array([], type=t) for t in schema], schema=schema)
+    return pyarrow.Table.from_arrays([pyarrow.array([], type=t) for t in schema], schema=schema)  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType, reportUnknownArgumentType]
 
 
-def arrow_table_from_struct_array(array: pyarrow.StructArray | pyarrow.ChunkedArray) -> pyarrow.Table:
+def arrow_table_from_struct_array(
+    array: pyarrow.StructArray | pyarrow.ChunkedArray[pyarrow.StructScalar],
+) -> pyarrow.Table:
     if len(array) == 0:
         return empty_arrow_table(pyarrow.schema(array.type))
     return pyarrow.Table.from_struct_array(array)
@@ -122,7 +126,7 @@ def _Array_to_pandas_df(self: _arrays.Array) -> pandas.DataFrame:
     """
     import pandas
 
-    return self.to_arrow_table().to_pandas(types_mapper=pandas.ArrowDtype)
+    return self.to_arrow_table().to_pandas(types_mapper=pandas.ArrowDtype)  # pyright: ignore[reportUnknownMemberType]
 
 
 Array.to_pandas_df = _Array_to_pandas_df
@@ -174,7 +178,7 @@ def _Array_to_polars_dataframe(
     """
     import polars
 
-    return polars.from_arrow(self.to_arrow_table())
+    return polars.from_arrow(self.to_arrow_table())  # pyright: ignore[reportUnknownMemberType]
 
 
 setattr(Array, "to_polars_dataframe", _Array_to_polars_dataframe)
@@ -242,7 +246,7 @@ def _Array_to_polars_series(self: _arrays.Array):  # -> 'polars.Series':  # brea
     """
     import polars
 
-    return polars.from_arrow(self.to_arrow_array())
+    return polars.from_arrow(self.to_arrow_array())  # pyright: ignore[reportUnknownMemberType]
 
 
 setattr(Array, "to_polars_series", _Array_to_polars_series)
@@ -279,7 +283,7 @@ def _Array_to_numpy(self: _arrays.Array, *, zero_copy_only: bool = True) -> nump
 Array.to_numpy = _Array_to_numpy
 
 
-def _Array_to_pylist(self: _arrays.Array) -> list[Any]:
+def _Array_to_pylist(self: _arrays.Array) -> list[Any]:  # pyright: ignore[reportExplicitAny]
     """Deeply copy an Array into a Python list.
 
     Returns
@@ -304,7 +308,13 @@ def _Array_to_pylist(self: _arrays.Array) -> list[Any]:
 Array.to_pylist = _Array_to_pylist
 
 
-def array(obj: pyarrow.Array | pyarrow.ChunkedArray | pyarrow.Table | list | pandas.DataFrame) -> Array:
+def array(
+    obj: pyarrow.Array[pyarrow.Scalar[Any]]  # pyright: ignore[reportExplicitAny]
+    | pyarrow.ChunkedArray[pyarrow.Scalar[Any]]  # pyright: ignore[reportExplicitAny]
+    | pyarrow.Table
+    | list[Any]  # pyright: ignore[reportExplicitAny]
+    | pandas.DataFrame,
+) -> Array:
     """The main entry point for creating Vortex arrays from other Python objects.
 
     This function is also available as ``vortex.array``.
@@ -399,22 +409,25 @@ class PyArray(Array, metaclass=abc.ABCMeta):
     """Abstract base class for Python-based Vortex arrays."""
 
     @property
+    @override
     @abc.abstractmethod
     def id(self) -> str:
         """The id of the array."""
 
+    @override
     @abc.abstractmethod
     def __len__(self) -> int:
         """The logical length of the array."""
 
     @property
+    @override
     @abc.abstractmethod
-    def dtype(self) -> vx.DType:
+    def dtype(self) -> DType:
         """The data type of the array."""
 
     @classmethod
     @abc.abstractmethod
-    def decode(cls, parts: vx.ArrayParts, ctx: vx.ArrayContext, dtype: vx.DType, len: int) -> Array:
+    def decode(cls, parts: ArrayParts, ctx: ArrayContext, dtype: DType, len: int) -> Array:
         """Decode an array from its component parts.
 
         :class:`ArrayParts` contains the metadata, buffers and child :class:`ArrayParts` that represent the

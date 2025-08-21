@@ -1,24 +1,30 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+from typing import final
+from typing_extensions import override
 import numpy as np
 import pyarrow as pa
 import pytest
-from pcodec import ChunkConfig  # pyright: ignore[reportAttributeAccessIssue]
-from pcodec import wrapped as pco  # pyright: ignore[reportAttributeAccessIssue]
+from pcodec import ChunkConfig  # pyright: ignore[reportAttributeAccessIssue, reportMissingTypeStubs, reportUnknownVariableType]
+from pcodec import wrapped as pco  # pyright: ignore[reportAttributeAccessIssue, reportMissingTypeStubs, reportUnknownVariableType]
 
 import vortex as vx
 
 
+@final
 class PCodecArray(vx.PyArray):
     @property
+    @override
     def id(self):
         return "pcodec.v0"
 
+    @override
     def __len__(self) -> int:
         return self._len
 
     @property
+    @override
     def dtype(self) -> vx.DType:
         return self._dtype
 
@@ -30,17 +36,17 @@ class PCodecArray(vx.PyArray):
         chunk_header: memoryview,
         data: memoryview,
     ):
-        (fd, _bytes_read) = pco.FileDecompressor.new(file_header)
+        (fd, _bytes_read) = pco.FileDecompressor.new(file_header)  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
 
         if dtype == vx.int_(64, nullable=True):
             dt = "i64"
         else:
             raise ValueError(f"Unsupported dtype: {dtype}")
 
-        (cd, _bytes_read) = fd.read_chunk_meta(chunk_header, dt)
+        (cd, _bytes_read) = fd.read_chunk_meta(chunk_header, dt)  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
 
         dst = np.array([0] * length, dtype=np.int64)
-        cd.read_page_into(
+        cd.read_page_into(  # pyright: ignore[reportUnknownMemberType]
             data,
             page_n=length,
             dst=dst,
@@ -53,29 +59,30 @@ class PCodecArray(vx.PyArray):
         self._data = data
 
     @classmethod
-    def encode(cls, array: pa.Array, config: ChunkConfig | None = None) -> "PCodecArray":
+    def encode(cls, array: pa.Array[pa.Scalar[pa.DataType]], config: ChunkConfig | None = None) -> "PCodecArray":  # pyright: ignore[reportUnknownParameterType]
         assert array.null_count == 0, "Cannot compress arrays with nulls"
 
-        config = config or ChunkConfig()
+        config = config or ChunkConfig()  # pyright: ignore[reportUnknownVariableType]
 
-        fc = pco.FileCompressor()
-        file_header = fc.write_header()
+        fc = pco.FileCompressor()  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+        file_header = fc.write_header()  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
 
-        cc = fc.chunk_compressor(array.to_numpy(), config)
-        chunk_header = cc.write_chunk_meta()
+        cc = fc.chunk_compressor(array.to_numpy(), config)  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+        chunk_header = cc.write_chunk_meta()  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
 
         data = b""
-        for i, _n in enumerate(cc.n_per_page()):
-            data += cc.write_page(i)
+        for i, _n in enumerate(cc.n_per_page()):  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType, reportUnknownVariableType]
+            data += cc.write_page(i)  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
 
         return PCodecArray(
             len(array),
             vx.DType.from_arrow(array.type),
-            file_header,
-            chunk_header,
-            memoryview(data),
+            file_header,  # pyright: ignore[reportUnknownArgumentType]
+            chunk_header,  # pyright: ignore[reportUnknownArgumentType]
+            memoryview(data),  # pyright: ignore[reportUnknownArgumentType]
         )
 
+    @override
     @classmethod
     def decode(cls, parts: vx.ArrayParts, ctx: vx.ArrayContext, dtype: vx.DType, len: int) -> vx.Array:
         """Decode the serialized array parts into an array."""
@@ -85,6 +92,6 @@ class PCodecArray(vx.PyArray):
 
 @pytest.mark.skip(reason="Not implemented yet")
 def test_pcodec():
-    PCodecArray.encode(pa.array([0, 1, 2, 3, 4]))
+    _ = PCodecArray.encode(pa.array([0, 1, 2, 3, 4]))  # pyright: ignore[reportUnknownMemberType]
 
     vx.registry.register(PCodecArray)

@@ -66,6 +66,7 @@ include = [
 
 [dependency-groups]
 dev = [
+    "basedpyright>=1.31",
     "mypy>=1.14.1",
     "numpy>=2.2.2",
     "pandas-stubs>=2.2.3.241126",

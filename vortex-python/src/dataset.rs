@@ -81,7 +81,7 @@ fn filter_from_python(row_filter: Option<&Bound<PyExpr>>) -> Option<ExprRef> {
     row_filter.map(|x| x.borrow().inner().clone())
 }
 
-#[pyclass(name = "VortexDataset", module = "io")]
+#[pyclass(name = "VortexDataset", module = "dataset")]
 pub struct PyVortexDataset {
     vxf: VortexFile,
     schema: SchemaRef,
