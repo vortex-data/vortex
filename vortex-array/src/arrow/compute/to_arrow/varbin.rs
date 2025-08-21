@@ -8,7 +8,7 @@ use arrow_array::{
 };
 use arrow_schema::DataType;
 use vortex_dtype::{DType, NativePType, Nullability, PType};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 
 use crate::arrays::{VarBinArray, VarBinVTable};
 use crate::arrow::compute::{ToArrowKernel, ToArrowKernelAdapter};
@@ -31,13 +31,13 @@ impl ToArrowKernel for VarBinVTable {
             None => match array.dtype() {
                 Binary(_) => match offsets_ptype {
                     I64 | U64 => to_arrow::<i64>(array),
-                    // TODO(connor):                              vvv Is this correct?
-                    U8 | U16 | U32 | I8 | I16 | I32 | F16 | F32 | F64 => to_arrow::<i32>(array),
+                    U8 | U16 | U32 | I8 | I16 | I32 => to_arrow::<i32>(array),
+                    F16 | F32 | F64 => vortex_panic!("offsets array were somehow floating point"),
                 },
                 Utf8(_) => match offsets_ptype {
                     I64 | U64 => to_arrow::<i64>(array),
-                    // TODO(connor):                              vvv Is this correct?
-                    U8 | U16 | U32 | I8 | I16 | I32 | F16 | F32 | F64 => to_arrow::<i32>(array),
+                    U8 | U16 | U32 | I8 | I16 | I32 => to_arrow::<i32>(array),
+                    F16 | F32 | F64 => vortex_panic!("offsets array were somehow floating point"),
                 },
                 Null | Bool(_) | Primitive(..) | Decimal(..) | List(..) | Struct(..)
                 | Extension(_) => unreachable!("Unsupported DType"),
