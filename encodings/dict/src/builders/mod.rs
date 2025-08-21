@@ -4,8 +4,7 @@
 use bytes::bytes_dict_builder;
 use primitive::primitive_dict_builder;
 use vortex_array::arrays::{PrimitiveVTable, VarBinVTable, VarBinViewVTable};
-use vortex_array::compress::downscale_integer_array;
-use vortex_array::{Array, ArrayRef};
+use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::{VortexResult, vortex_bail};
 
@@ -55,9 +54,14 @@ pub fn dict_encode_with_constraints(
     constraints: &DictConstraints,
 ) -> VortexResult<DictArray> {
     let mut encoder = dict_encoder(array, constraints)?;
-    let codes = downscale_integer_array(encoder.encode(array)?)?;
+    let codes = encoder.encode(array)?.to_primitive()?.downcast()?;
     // SAFETY: The encoding process will produce a value set of codes and values
-    unsafe { Ok(DictArray::new_unchecked(codes, encoder.values()?)) }
+    unsafe {
+        Ok(DictArray::new_unchecked(
+            codes.into_array(),
+            encoder.values()?,
+        ))
+    }
 }
 
 pub fn dict_encode(array: &dyn Array) -> VortexResult<DictArray> {

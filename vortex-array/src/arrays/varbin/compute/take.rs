@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::iter::Sum;
+
 use num_traits::PrimInt;
 use vortex_dtype::{DType, NativePType, match_each_integer_ptype};
 use vortex_error::{VortexResult, vortex_err, vortex_panic};
@@ -38,7 +40,7 @@ impl TakeKernel for VarBinVTable {
 
 register_kernel!(TakeKernelAdapter(VarBinVTable).lift());
 
-fn take<I: NativePType, O: NativePType + PrimInt>(
+fn take<I: NativePType, O: NativePType + PrimInt + Sum>(
     dtype: DType,
     offsets: &[O],
     data: &[u8],
@@ -57,7 +59,7 @@ fn take<I: NativePType, O: NativePType + PrimInt>(
         ));
     }
 
-    let mut builder = VarBinBuilder::<O>::with_capacity(indices.len());
+    let mut builder = VarBinBuilder::<u32>::with_capacity(indices.len());
     for &idx in indices {
         let idx = idx
             .to_usize()
@@ -81,7 +83,7 @@ fn take_nullable<I: NativePType, O: NativePType + PrimInt>(
     data_validity: Mask,
     indices_validity: Mask,
 ) -> VarBinArray {
-    let mut builder = VarBinBuilder::<O>::with_capacity(indices.len());
+    let mut builder = VarBinBuilder::<u32>::with_capacity(indices.len());
     for (idx, data_idx) in indices.iter().enumerate() {
         if !indices_validity.value(idx) {
             builder.append_null();

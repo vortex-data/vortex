@@ -102,18 +102,16 @@ impl DType {
 
     /// Check if the DType is nullable
     pub fn is_nullable(&self) -> bool {
-        use crate::nullability::Nullability::*;
-
         match self {
             Null => true,
             Extension(ext_dtype) => ext_dtype.storage_dtype().is_nullable(),
-            Bool(n)
-            | Primitive(_, n)
-            | Decimal(_, n)
-            | Utf8(n)
-            | Binary(n)
-            | Struct(_, n)
-            | List(_, n) => matches!(n, Nullable),
+            Bool(null)
+            | Primitive(_, null)
+            | Decimal(_, null)
+            | Utf8(null)
+            | Binary(null)
+            | Struct(_, null)
+            | List(_, null) => matches!(null, Nullability::Nullable),
         }
     }
 
@@ -132,12 +130,12 @@ impl DType {
         match self {
             Null => Null,
             Bool(_) => Bool(nullability),
-            Primitive(p, _) => Primitive(*p, nullability),
-            Decimal(d, _) => Decimal(*d, nullability),
+            Primitive(pdt, _) => Primitive(*pdt, nullability),
+            Decimal(ddt, _) => Decimal(*ddt, nullability),
             Utf8(_) => Utf8(nullability),
             Binary(_) => Binary(nullability),
-            Struct(st, _) => Struct(st.clone(), nullability),
-            List(c, _) => List(c.clone(), nullability),
+            Struct(sf, _) => Struct(sf.clone(), nullability),
+            List(edt, _) => List(edt.clone(), nullability),
             Extension(ext) => Extension(Arc::new(ext.with_nullability(nullability))),
         }
     }
@@ -294,22 +292,21 @@ impl Display for DType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Null => write!(f, "null"),
-            Bool(n) => write!(f, "bool{n}"),
-            Primitive(pt, n) => write!(f, "{pt}{n}"),
-            Decimal(dt, n) => write!(f, "{dt}{n}"),
-            Utf8(n) => write!(f, "utf8{n}"),
-            Binary(n) => write!(f, "binary{n}"),
-            Struct(sdt, n) => write!(
+            Bool(null) => write!(f, "bool{null}"),
+            Primitive(pdt, null) => write!(f, "{pdt}{null}"),
+            Decimal(ddt, null) => write!(f, "{ddt}{null}"),
+            Utf8(null) => write!(f, "utf8{null}"),
+            Binary(null) => write!(f, "binary{null}"),
+            Struct(sf, null) => write!(
                 f,
-                "{{{}}}{}",
-                sdt.names()
+                "{{{}}}{null}",
+                sf.names()
                     .iter()
-                    .zip(sdt.fields())
-                    .map(|(n, dt)| format!("{n}={dt}"))
+                    .zip(sf.fields())
+                    .map(|(field_null, dt)| format!("{field_null}={dt}"))
                     .join(", "),
-                n
             ),
-            List(edt, n) => write!(f, "list({edt}){n}"),
+            List(edt, null) => write!(f, "list({edt}){null}"),
             Extension(ext) => write!(
                 f,
                 "ext({}, {}{}){}",
@@ -322,77 +319,5 @@ impl Display for DType {
                 ext.storage_dtype().nullability(),
             ),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::field_names::FieldNames;
-
-    #[test]
-    fn test_field_names_iter() {
-        let names = ["a", "b"];
-        let field_names = FieldNames::from(names);
-        assert_eq!(field_names.iter().len(), names.len());
-        let mut iter = field_names.iter();
-        assert_eq!(iter.next(), Some(&"a".into()));
-        assert_eq!(iter.next(), Some(&"b".into()));
-        assert_eq!(iter.next(), None);
-    }
-
-    #[test]
-    fn test_field_names_owned_iter() {
-        let names = ["a", "b"];
-        let field_names = FieldNames::from(names);
-        assert_eq!(field_names.clone().into_iter().len(), names.len());
-        let mut iter = field_names.into_iter();
-        assert_eq!(iter.next(), Some("a".into()));
-        assert_eq!(iter.next(), Some("b".into()));
-        assert_eq!(iter.next(), None);
-    }
-
-    #[test]
-    fn test_field_names_equality() {
-        let field_names = FieldNames::from(["field1", "field2", "field3"]);
-
-        // FieldNames == &FieldNames
-        let field_names_ref = &field_names;
-        assert_eq!(field_names, field_names_ref);
-
-        // FieldNames == &[&str]
-        let str_slice = &["field1", "field2", "field3"][..];
-        assert_eq!(field_names, str_slice);
-
-        // &FieldNames == &[&str]
-        assert_eq!(&field_names, str_slice);
-
-        // FieldNames == [&str; N] (array)
-        assert_eq!(field_names, ["field1", "field2", "field3"]);
-
-        // &FieldNames == [&str; N] (array)
-        assert_eq!(&field_names, ["field1", "field2", "field3"]);
-
-        // FieldNames == &[FieldName]
-        let field_name_vec: Vec<FieldName> =
-            vec!["field1".into(), "field2".into(), "field3".into()];
-        let field_name_slice = field_name_vec.as_slice();
-        assert_eq!(field_names, field_name_slice);
-
-        // &FieldNames == &[FieldName]
-        assert_eq!(&field_names, field_name_slice);
-
-        // Test inequality cases
-        assert_ne!(field_names, &["field1", "field2"][..]);
-        assert_ne!(field_names, ["different", "fields", "here"]);
-        assert_ne!(field_names, &["field1", "field2", "field3", "extra"][..]);
-    }
-
-    #[test]
-    fn test_field_names_display() {
-        let names = FieldNames::from(["a", "b", "c"]);
-        let f = format!("{names}");
-
-        assert_eq!(f, r#"["a", "b", "c"]"#);
     }
 }

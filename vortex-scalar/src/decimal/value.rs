@@ -22,7 +22,7 @@ use crate::{
 ///     println!("Value: {}", v);
 /// });
 /// ```
-#[macro_export]
+#[macro_export] // Used in `vortex-array`.
 macro_rules! match_each_decimal_value {
     ($self:expr, | $value:ident | $body:block) => {{
         match $self {
@@ -54,8 +54,9 @@ macro_rules! match_each_decimal_value {
     }};
 }
 
-/// Macro to match over each decimal value type, binding the corresponding native type (from `DecimalValueType`)
-#[macro_export]
+/// Macro to match over each decimal value type, binding the corresponding native type (from
+/// `DecimalValueType`)
+#[macro_export] // Used in `vortex-array`.
 macro_rules! match_each_decimal_value_type {
     ($self:expr, | $enc:ident | $body:block) => {{
         use $crate::{DecimalValueType, i256};

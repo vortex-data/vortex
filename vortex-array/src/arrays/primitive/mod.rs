@@ -17,6 +17,7 @@ use crate::validity::Validity;
 use crate::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable};
 
 mod compute;
+mod downcast;
 mod native_value;
 mod ops;
 mod patch;

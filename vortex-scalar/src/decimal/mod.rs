@@ -365,27 +365,27 @@ impl PartialOrd for DecimalScalar<'_> {
 }
 
 macro_rules! decimal_scalar_unpack {
-    ($ty:ident, $arm:ident) => {
-        impl TryFrom<DecimalScalar<'_>> for Option<$ty> {
+    ($T:ident, $arm:ident) => {
+        impl TryFrom<DecimalScalar<'_>> for Option<$T> {
             type Error = VortexError;
 
             fn try_from(value: DecimalScalar) -> Result<Self, Self::Error> {
                 Ok(match value.value {
                     None => None,
                     Some(DecimalValue::$arm(v)) => Some(v),
-                    v => vortex_bail!("Cannot extract decimal {:?} as {}", v, stringify!($ty)),
+                    v => vortex_bail!("Cannot extract decimal {:?} as {}", v, stringify!($T)),
                 })
             }
         }
 
-        impl TryFrom<DecimalScalar<'_>> for $ty {
+        impl TryFrom<DecimalScalar<'_>> for $T {
             type Error = VortexError;
 
             fn try_from(value: DecimalScalar) -> Result<Self, Self::Error> {
                 match value.value {
                     None => vortex_bail!("Cannot extract value from null decimal"),
                     Some(DecimalValue::$arm(v)) => Ok(v),
-                    v => vortex_bail!("Cannot extract decimal {:?} as {}", v, stringify!($ty)),
+                    v => vortex_bail!("Cannot extract decimal {:?} as {}", v, stringify!($T)),
                 }
             }
         }

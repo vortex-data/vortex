@@ -9,7 +9,6 @@ use std::hash::Hash;
 
 pub use stats::IntegerStats;
 use vortex_array::arrays::{ConstantArray, PrimitiveArray, PrimitiveVTable};
-use vortex_array::compress::downscale_integer_array;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_err};
@@ -503,8 +502,7 @@ impl Scheme for SparseScheme {
                 &new_excludes,
             )?;
 
-            let indices =
-                downscale_integer_array(sparse.patches().indices().clone())?.to_primitive()?;
+            let indices = sparse.patches().indices().to_primitive()?.downcast()?;
 
             let compressed_indices = IntCompressor::compress_no_dict(
                 &indices,
