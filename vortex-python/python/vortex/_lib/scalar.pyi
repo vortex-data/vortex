@@ -6,7 +6,7 @@ from typing import Any, TypeAlias, final
 
 from .dtype import DType
 
-ScalarPyType: TypeAlias = None | int | float | str | Decimal | list[ScalarPyType] | dict[str, ScalarPyType]
+ScalarPyType: TypeAlias = None | int | float | str | Decimal | bytes | list[ScalarPyType] | dict[str, ScalarPyType]
 
 def scalar(value: Any, *, dtype: DType | None = None) -> Scalar: ...  # pyright: ignore[reportAny, reportExplicitAny]
 

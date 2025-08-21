@@ -2,10 +2,11 @@
 #  SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 from datetime import datetime, date
-from typing import Any, TypeAlias, final
+from typing import TypeAlias, final
 from typing_extensions import override
 
 from .dtype import DType
+from .scalar import ScalarPyType
 
 IntoExpr: TypeAlias = Expr | int | str | date | datetime | None
 
@@ -24,5 +25,5 @@ class Expr:
 
 def column(name: str) -> Expr: ...
 def root() -> Expr: ...
-def literal(dtype: DType, value: Any) -> Expr: ...  # pyright: ignore[reportExplicitAny, reportAny]
+def literal(dtype: DType, value: ScalarPyType) -> Expr: ...
 def not_(child: Expr) -> Expr: ...

@@ -119,7 +119,7 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:  # pyright: ignore[repor
             metadata += b"\x00\x00"
 
             dtype = _dtype.ext("vortex.timestamp", _dtype.int_(64, nullable=value is None), metadata=metadata)
-            return ve.literal(dtype, value)
+            return ve.literal(dtype, value)  # pyright: ignore[reportAny]
 
         # Unwrap 'Dyn' scalars, whose type hasn't been established yet.
         # (post https://github.com/pola-rs/polars/pull/21849)
