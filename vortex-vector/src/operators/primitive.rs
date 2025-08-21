@@ -115,7 +115,9 @@ mod tests {
         }
 
         fn buffer(&self, _buffer_id: BufferId) -> Poll<VortexResult<ByteBuffer>> {
-            unreachable!("PrimitiveKernel does not access external buffers - it owns its buffer directly")
+            unreachable!(
+                "PrimitiveKernel does not access external buffers - it owns its buffer directly"
+            )
         }
     }
 

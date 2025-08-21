@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use arrow_buffer::BooleanBuffer;
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, NativePType, Nullability, match_each_native_ptype};
 use vortex_error::{VortexResult, vortex_bail};
@@ -184,7 +185,7 @@ fn export_bool_nonnull_masked(mask: &Mask, pipeline: &mut dyn Kernel) -> VortexR
     }
 
     // Use collect_bool for optimal bit packing - avoid closure overhead
-    let values = arrow_buffer::BooleanBuffer::collect_bool(all_bools.len(), |idx| unsafe {
+    let values = BooleanBuffer::collect_bool(all_bools.len(), |idx| unsafe {
         *all_bools.get_unchecked(idx)
     });
 

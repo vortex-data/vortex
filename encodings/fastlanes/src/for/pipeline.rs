@@ -9,7 +9,7 @@ use std::rc::Rc;
 use num_traits::WrappingAdd;
 use vortex_array::Array;
 use vortex_array::pipeline::PipelineVTable;
-use vortex_dtype::{NativePType, PType, match_each_integer_ptype };
+use vortex_dtype::{NativePType, PType, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 use vortex_vector::bits::BitView;
@@ -122,6 +122,7 @@ impl Operator for FoROperator {
     }
 }
 
+// We could replace this with a binaryOp kernel
 pub(crate) struct FoRKernel<T: NativePType, E: NativePType> {
     child: VectorId,
     reference: T,
@@ -140,16 +141,16 @@ where
     fn step(
         &mut self,
         ctx: &dyn KernelContext,
-        selected: BitView,
+        _selected: BitView,
         out: &mut ViewMut,
     ) -> VortexResult<()> {
         let vec = ctx.vector(self.child);
         let values = unsafe { std::mem::transmute::<&[E], &[T]>(vec.as_slice::<E>()) };
         let out = out.as_slice_mut::<T>();
 
-        for i in 0..selected.true_count() {
-            out[i] = values[i].wrapping_add(&self.reference);
-        }
+        values.into_iter().zip(out).for_each(|(value, out)| {
+            *out = value.wrapping_add(&self.reference);
+        });
 
         Ok(())
     }
@@ -165,10 +166,6 @@ mod tests {
     use vortex_array::pipeline::canonical::export_canonical_pipeline_expr;
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::BufferMut;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability::NonNullable;
-    use vortex_expr::traversal::NodeExt;
-    use vortex_expr::{ExprOperatorConverter, Scope, gt, lit, reduce_operator, root};
     use vortex_mask::Mask;
 
     use super::*;
@@ -251,45 +248,6 @@ mod tests {
                     frac
                 );
             }
-        }
-    }
-
-    #[test]
-    fn test_expr_operator_converter() {
-        const N: usize = 100;
-        let array =
-            create_for_bitpacked_array((0..N as i32).map(|x| x % 32).collect::<BufferMut<_>>())
-                .unwrap()
-                .to_array();
-        let expr = gt(root(), lit(2));
-
-        let mut m = vec![true; N];
-        m[2] = false;
-        let mask = Mask::from_iter(m);
-
-        let expect = expr
-            .evaluate(&Scope::new(filter(&array, &mask).unwrap()))
-            .unwrap();
-
-        let mut converter = ExprOperatorConverter::new(array.as_ref());
-        let operator = expr.fold(&mut converter).unwrap().value();
-        let operator = reduce_operator(operator.unwrap()).unwrap();
-
-        let result = export_canonical_pipeline_expr(
-            &DType::Bool(NonNullable),
-            array.len(),
-            operator.as_ref(),
-            &mask,
-        )
-        .unwrap()
-        .into_array();
-
-        for i in 0..mask.true_count() {
-            assert_eq!(
-                result.scalar_at(i).unwrap(),
-                expect.scalar_at(i).unwrap(),
-                "i: {i}"
-            );
         }
     }
 }

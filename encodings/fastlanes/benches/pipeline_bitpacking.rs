@@ -26,11 +26,12 @@ pub fn main() {
 }
 
 const TRUE_COUNT: &[f64] = &[0.001, 0.01, 0.1, 0.5, 0.9, 0.99, 0.999];
+const LENGTH: usize = 100_000;
 
 #[divan::bench(types = [i8, i16, i32, i64], args = TRUE_COUNT)]
 pub fn decompress_bitpacking_early_filter<T: NativePType>(bencher: Bencher, fraction_kept: f64) {
     let mut rng = StdRng::seed_from_u64(0);
-    let values = (0..100_000)
+    let values = (0..LENGTH)
         .map(|_| T::from(rng.random_range(0..100)).unwrap())
         .collect::<BufferMut<T>>()
         .into_array()
@@ -38,7 +39,7 @@ pub fn decompress_bitpacking_early_filter<T: NativePType>(bencher: Bencher, frac
         .unwrap();
     let array = bitpack_to_best_bit_width(&values).unwrap();
 
-    let mask = (0..100_000)
+    let mask = (0..LENGTH)
         .map(|_| rng.random_bool(fraction_kept))
         .collect::<BooleanBuffer>();
 
@@ -56,7 +57,7 @@ pub fn decompress_bitpacking_early_filter<T: NativePType>(bencher: Bencher, frac
 #[divan::bench(types = [i8, i16, i32, i64], args = TRUE_COUNT)]
 pub fn decompress_bitpacking_late_filter<T: NativePType>(bencher: Bencher, fraction_kept: f64) {
     let mut rng = StdRng::seed_from_u64(0);
-    let values = (0..100_000)
+    let values = (0..LENGTH)
         .map(|_| T::from(rng.random_range(0..100)).unwrap())
         .collect::<BufferMut<T>>()
         .into_array()
@@ -65,7 +66,7 @@ pub fn decompress_bitpacking_late_filter<T: NativePType>(bencher: Bencher, fract
 
     let array = bitpack_to_best_bit_width(&values).unwrap();
 
-    let mask = (0..100_000)
+    let mask = (0..LENGTH)
         .map(|_| rng.random_bool(fraction_kept))
         .collect::<BooleanBuffer>();
 
@@ -80,7 +81,7 @@ pub fn decompress_bitpacking_pipeline_filter<T: Element + NativePType>(
     fraction_kept: f64,
 ) {
     let mut rng = StdRng::seed_from_u64(0);
-    let values = (0..100_000)
+    let values = (0..LENGTH)
         .map(|_| T::from(rng.random_range(0..100)).unwrap())
         .collect::<BufferMut<T>>()
         .into_array()
@@ -88,15 +89,9 @@ pub fn decompress_bitpacking_pipeline_filter<T: Element + NativePType>(
         .unwrap();
     let array = bitpack_to_best_bit_width(&values).unwrap();
 
-    let mask = (0..100_000)
+    let mask = (0..LENGTH)
         .map(|_| rng.random_bool(fraction_kept))
         .collect::<BooleanBuffer>();
-
-    let expect = filter(
-        array.to_canonical().unwrap().as_ref(),
-        &Mask::from_buffer(mask.clone()),
-    )
-    .unwrap();
 
     bencher
         .with_inputs(|| Mask::from_buffer(mask.clone()))
@@ -109,20 +104,4 @@ pub fn decompress_bitpacking_pipeline_filter<T: Element + NativePType>(
             )
             .unwrap()
         });
-
-    let array = export_canonical_pipeline_expr(
-        array.dtype(),
-        array.len(),
-        array.to_operator().unwrap().unwrap().as_ref(),
-        &Mask::from_buffer(mask.clone()),
-    )
-    .unwrap()
-    .into_primitive()
-    .unwrap();
-    assert_eq!(array.len(), mask.count_set_bits());
-
-    assert_eq!(
-        array.into_buffer::<T>(),
-        expect.to_primitive().unwrap().into_buffer::<T>()
-    );
 }

@@ -76,11 +76,6 @@ harness = false
 test = false
 
 [[bench]]
-name = "pipeline_bitpacking_compare"
-harness = false
-test = false
-
-[[bench]]
 name = "pipeline_bitpacking_compare_scalar"
 harness = false
 test = false

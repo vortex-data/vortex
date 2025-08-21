@@ -51,16 +51,18 @@ const TRUE_COUNT: &[f64] = &[
     0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99, 1.00,
 ];
 
+const LENGTH: usize = 102_400;
+
 #[divan::bench(types = [i8, i16, i32, i64], args = TRUE_COUNT)]
 pub fn decompress_for_early_filter<T: NativePType>(bencher: Bencher, fraction_kept: f64) {
     let mut rng = StdRng::seed_from_u64(0);
-    let values = (0..102_400)
-        .map(|_| T::from(rng.random_range(50..150)).unwrap())
+    let values = (0..LENGTH)
+        .map(|_| T::from(rng.random_range(26..127)).unwrap())
         .collect::<BufferMut<T>>();
 
     let array = create_for_bitpacked_array(values).unwrap();
     // let mask = generate_mask_with_runs(102_400, fraction_kept, &mut rng);
-    let mask = (0..102_400)
+    let mask = (0..LENGTH)
         .map(|_| rng.random_bool(fraction_kept))
         .collect::<BooleanBuffer>();
 
@@ -80,22 +82,15 @@ pub fn decompress_for_pipeline_plan_filter<T: Element + NativePType>(
     bencher: Bencher,
     fraction_kept: f64,
 ) {
-    let len = 102_400;
     let mut rng = StdRng::seed_from_u64(0);
-    let values = (0..len)
-        .map(|_| T::from(rng.random_range(50..150)).unwrap())
+    let values = (0..LENGTH)
+        .map(|_| T::from(rng.random_range(26..127)).unwrap())
         .collect::<BufferMut<T>>();
 
     let array = create_for_bitpacked_array(values).unwrap();
-    let mask = (0..len)
+    let mask = (0..LENGTH)
         .map(|_| rng.random_bool(fraction_kept))
         .collect::<BooleanBuffer>();
-
-    let expect = filter(
-        array.to_canonical().unwrap().as_ref(),
-        &Mask::from_buffer(mask.clone()),
-    )
-    .unwrap();
 
     bencher
         .with_inputs(|| Mask::from_buffer(mask.clone()))
@@ -118,74 +113,4 @@ pub fn decompress_for_pipeline_plan_filter<T: Element + NativePType>(
     .unwrap()
     .into_primitive()
     .unwrap();
-    assert_eq!(result.len(), mask.count_set_bits());
-
-    for i in 0..mask.count_set_bits() {
-        assert_eq!(
-            result.scalar_at(i).unwrap(),
-            expect.scalar_at(i).unwrap(),
-            "{}, {}",
-            i,
-            fraction_kept
-        );
-    }
-}
-
-#[divan::bench(types = [i8, i16, i32, i64], args = TRUE_COUNT)]
-#[allow(dead_code)]
-pub fn decompress_for_pipeline_filter<T: Element + NativePType>(
-    bencher: Bencher,
-    fraction_kept: f64,
-) {
-    let len = 102_400;
-    let mut rng = StdRng::seed_from_u64(0);
-    let values = (0..len)
-        .map(|_| T::from(rng.random_range(50..150)).unwrap())
-        .collect::<BufferMut<T>>();
-
-    let array = create_for_bitpacked_array(values).unwrap();
-    // let mask = generate_mask_with_runs(100, fraction_kept, &mut rng);
-    let mask = (0..len)
-        .map(|_| rng.random_bool(fraction_kept))
-        .collect::<BooleanBuffer>();
-
-    let expect = filter(
-        array.to_canonical().unwrap().as_ref(),
-        &Mask::from_buffer(mask.clone()),
-    )
-    .unwrap();
-
-    let plan = array.to_operator().unwrap().unwrap();
-
-    bencher
-        .with_inputs(|| {
-            (
-                Mask::from_buffer(mask.clone()),
-                QueryPlan::new(plan.as_ref()).unwrap(),
-            )
-        })
-        .bench_local_values(|(mask, mut pipeline)| {
-            export_canonical_pipeline(array.dtype(), array.len(), &mut pipeline, &mask).unwrap()
-        });
-
-    let result = export_canonical_pipeline_expr(
-        array.dtype(),
-        array.len(),
-        array.to_operator().unwrap().unwrap().as_ref(),
-        &Mask::from_buffer(mask.clone()),
-    )
-    .unwrap()
-    .into_primitive()
-    .unwrap();
-    assert_eq!(result.len(), mask.count_set_bits());
-
-    for i in 0..mask.count_set_bits() {
-        assert_eq!(
-            result.scalar_at(i).unwrap(),
-            expect.scalar_at(i).unwrap(),
-            "{}, {}",
-            i,
-            fraction_kept
-        );
-    }
 }

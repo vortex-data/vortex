@@ -57,7 +57,9 @@ impl Operator for BitPackedArray {
                 width: self.bit_width as usize,
                 packed_stride: self.bit_width as usize
                     * <<T as PhysicalPType>::Physical as FastLanes>::LANES,
-                buffer: Buffer::<<T as PhysicalPType>::Physical>::from_byte_buffer(self.packed.clone().into_byte_buffer()),
+                buffer: Buffer::<<T as PhysicalPType>::Physical>::from_byte_buffer(
+                    self.packed.clone().into_byte_buffer(),
+                ),
                 packed_offset: 0,
             }) as Box<dyn Kernel>)
         })

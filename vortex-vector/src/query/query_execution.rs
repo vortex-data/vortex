@@ -14,7 +14,7 @@ pub struct QueryExecution {
     /// Static execution order determined by topological sort
     pub execution_schedule: Vec<usize>,
     /// Vector allocation plan for intermediate results
-    pub allocation_plan: VectorAllocationPlan,
+    pub(crate) allocation_plan: VectorAllocationPlan,
 }
 
 impl Default for QueryExecution {
@@ -43,42 +43,29 @@ impl QueryExecution {
 
     /// Step the pipeline forward - executes all nodes in static topological order
     pub fn _step(&mut self, selected: BitView, out: &mut ViewMut) -> VortexResult<()> {
-        // Clone the execution schedule to avoid borrow checker issues
-        let schedule = self.execution_schedule.clone();
+        for node_idx in self.execution_schedule.iter() {
+            let node_idx = *node_idx;
+            let operator = self.operators[node_idx].as_mut();
 
-        // Execute each node in pre-computed topological order
-        for node_idx in schedule {
-            self.execute_single_node(node_idx, selected, out)?;
-        }
-        Ok(())
-    }
+            let ctx = Context {
+                allocation_plan: &self.allocation_plan,
+            };
 
-    /// Execute a single node
-    fn execute_single_node(
-        &mut self,
-        node_idx: usize,
-        selected: BitView,
-        external_out: &mut ViewMut,
-    ) -> VortexResult<()> {
-        let operator = self.operators[node_idx].as_mut();
+            // FIXME(ngates): should we reset the output vector selection?
 
-        let ctx = Context {
-            allocation_plan: &self.allocation_plan,
-        };
-
-        // FIXME(ngates): should we reset the output vector selection?
-
-        match self.allocation_plan.output_targets[node_idx] {
-            OutputTarget::ExternalOutput => operator.step(&ctx, selected, external_out),
-            OutputTarget::IntermediateVector(vector_idx) | OutputTarget::InPlace(_, vector_idx) => {
-                let mut vector_ref = self.allocation_plan.vectors[vector_idx].borrow_mut();
-                let result = {
-                    let mut view = vector_ref.as_view_mut();
-                    operator.step(&ctx, selected, &mut view)
-                };
-                vector_ref.deref_mut().set_len(selected.true_count());
-                result
+            match self.allocation_plan.output_targets[node_idx] {
+                OutputTarget::ExternalOutput => operator.step(&ctx, selected, out)?,
+                OutputTarget::IntermediateVector(vector_idx) => {
+                    let mut vector_ref = self.allocation_plan.vectors[vector_idx].borrow_mut();
+                    let result = {
+                        let mut view = vector_ref.as_view_mut();
+                        operator.step(&ctx, selected, &mut view)
+                    };
+                    vector_ref.deref_mut().set_len(selected.true_count());
+                    result?
+                }
             }
         }
+        Ok(())
     }
 }

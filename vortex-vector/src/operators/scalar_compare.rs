@@ -123,12 +123,12 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use super::*;
+    use crate::SC;
     use crate::bits::BitView;
     use crate::operators::compare::BinaryOperator;
     use crate::operators::primitive::PrimitiveOperator;
     use crate::query::QueryPlan;
     use crate::view::ViewMut;
-    use crate::SC;
 
     #[test]
     fn test_scalar_compare_stacked_on_primitive() {

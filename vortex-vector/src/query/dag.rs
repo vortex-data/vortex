@@ -20,17 +20,6 @@ pub(crate) struct DagNode<'a> {
     pub(crate) children: Vec<usize>,
     /// Indices of parents in the DAG (for dependency tracking)
     pub(crate) parents: Vec<usize>,
-    /// Hash of this subtree (for deduplication)
-    pub(crate) subtree_hash: u64,
-    /// Output buffer assignment (if not writing to final output)
-    pub(crate) output_buffer: Option<BufferSlot>,
-}
-
-/// A reusable buffer slot
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct BufferSlot {
-    index: usize,
-    size_bytes: usize,
 }
 
 impl<'a> QueryPlan<'a> {
@@ -69,8 +58,6 @@ impl<'a> QueryPlan<'a> {
                 plan_node: node,
                 children: child_indices,
                 parents: Vec::new(), // Will be filled in later
-                subtree_hash,
-                output_buffer: None, // Will be assigned later
             };
 
             dag.push(dag_node);

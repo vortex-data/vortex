@@ -49,7 +49,7 @@ impl<'a> View<'a> {
     {
         debug_assert_eq!(self.vtype, T::vtype(), "Invalid type for canonical view");
         // SAFETY: We assume that the elements are of type T and that the view is valid.
-        unsafe { std::slice::from_raw_parts(self.elements.cast(), SC) }
+        unsafe { std::slice::from_raw_parts(self.elements.cast(), self.len) }
     }
 
     /// Re-interpret cast the vector into a new type where the element has the same width.

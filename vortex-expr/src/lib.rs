@@ -13,7 +13,6 @@
 use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
-use std::rc::Rc;
 use std::sync::Arc;
 
 use dyn_hash::DynHash;
@@ -61,7 +60,6 @@ use vortex_array::{Array, ArrayRef, SerializeMetadata};
 use vortex_dtype::{DType, FieldName, FieldPath};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail};
 use vortex_utils::aliases::hash_set::HashSet;
-use vortex_vector as pipeline;
 pub use vtable::*;
 
 use crate::dyn_traits::DynEq;
