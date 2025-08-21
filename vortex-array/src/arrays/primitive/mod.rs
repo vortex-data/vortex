@@ -17,12 +17,12 @@ use crate::validity::Validity;
 use crate::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable};
 
 mod compute;
+mod downcast;
 mod native_value;
 mod ops;
 mod patch;
 mod serde;
 mod top_value;
-mod downscale;
 
 pub use compute::{IS_CONST_LANE_WIDTH, compute_is_constant};
 pub use native_value::NativeValue;
