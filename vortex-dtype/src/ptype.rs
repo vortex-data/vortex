@@ -9,7 +9,7 @@ use std::hash::Hash;
 use std::panic::RefUnwindSafe;
 
 use num_traits::bounds::UpperBounded;
-use num_traits::{FromPrimitive, Num, NumCast, ToPrimitive, Unsigned};
+use num_traits::{FromPrimitive, Num, NumCast, ToPrimitive};
 use vortex_error::{VortexError, VortexResult, vortex_err};
 
 use crate::DType;
