@@ -112,9 +112,10 @@ impl TryFrom<&DType> for DecimalDType {
     type Error = VortexError;
 
     fn try_from(value: &DType) -> Result<Self, Self::Error> {
-        match value {
-            DType::Decimal(dt, _) => Ok(*dt),
-            _ => vortex_bail!("Cannot convert DType {value} into DecimalType"),
+        if let DType::Decimal(dt, _) = value {
+            Ok(*dt)
+        } else {
+            vortex_bail!("Cannot convert DType {value} into DecimalType")
         }
     }
 }
