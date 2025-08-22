@@ -166,7 +166,7 @@ jobs:
           fetch-depth: 0
       - run: |
           apt update
-          apt install -y wget build-essential
+          apt install -y wget curl build-essential
       - uses: actions/setup-java@v5
         with:
           distribution: "corretto"
