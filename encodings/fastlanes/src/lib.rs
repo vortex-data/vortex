@@ -36,19 +36,18 @@ mod test {
             .unwrap();
         let array = bitpack_to_best_bit_width(&values).unwrap();
 
-        let mask = (0..100_000)
-            .map(|_| rng.random_bool(fraction_kept))
-            .collect::<BooleanBuffer>();
+        let mask = Mask::from_buffer(
+            (0..100_000)
+                .map(|_| rng.random_bool(fraction_kept))
+                .collect::<BooleanBuffer>(),
+        );
 
-        let array = export_canonical_pipeline_expr(
-            array.dtype(),
-            array.len(),
-            &array,
-            &Mask::from_buffer(mask.clone()),
-        )
-        .unwrap()
-        .into_primitive()
-        .unwrap();
-        assert_eq!(array.len(), mask.count_set_bits());
+        let tc = mask.true_count();
+
+        let array = export_canonical_pipeline_expr(array.dtype(), array.len(), &array, &mask)
+            .unwrap()
+            .into_primitive()
+            .unwrap();
+        assert_eq!(array.len(), tc);
     }
 }

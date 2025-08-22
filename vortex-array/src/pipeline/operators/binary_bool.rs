@@ -149,7 +149,7 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use super::*;
-    use crate::arrays::{ConstantOperator, PrimitiveArray};
+    use crate::arrays::{ConstantArray, PrimitiveArray};
     use crate::compute::Operator as BinaryOperator;
     use crate::pipeline::bits::BitView;
     use crate::pipeline::operators::scalar_compare::ScalarCompareOperator;
@@ -307,7 +307,10 @@ mod tests {
         ));
 
         // Create constant true
-        let constant_true = Rc::new(ConstantOperator::new(Scalar::from(true)));
+        let constant_true = ConstantArray::new(Scalar::from(true), size)
+            .to_operator()
+            .unwrap()
+            .unwrap();
 
         // Build pipeline: (x AND y) OR true
         let x_and_y = Rc::new(BinaryBoolOpOperator::and(x_bool_op, y_bool_op));

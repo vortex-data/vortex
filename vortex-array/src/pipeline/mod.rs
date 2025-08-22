@@ -32,7 +32,7 @@ pub mod view;
 pub const N: usize = 1024;
 
 // Number of usize words needed to store N bits
-pub const N_BITS: usize = N / size_of::<usize>(); // 64 bits per usize
+pub const N_BITS: usize = N / (size_of::<usize>() * 8); // 64 bits per usize
 
 use std::cell::RefCell;
 use std::rc::Rc;

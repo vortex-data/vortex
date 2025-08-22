@@ -67,35 +67,22 @@ impl<'a> BitViewMut<'a> {
         self.set_true_count(0);
     }
 
-    pub fn fill_with_bytes(&mut self, slice: &[u8], true_count: usize) {
-        // Calculate total bytes available in the usize array
-        let total_bytes = N_BITS * size_of::<usize>();
-        let bytes_to_copy = slice.len().min(total_bytes);
+    pub fn fill_with_words(&mut self, mut iter: impl Iterator<Item = u64>) {
+        let mut true_count = 0;
 
-        // Cast the usize array to u8 slice for direct byte access
         let dst_bytes = unsafe {
             std::slice::from_raw_parts_mut(
-                self.bits.as_raw_mut_slice().as_mut_ptr() as *mut u8,
-                total_bytes,
+                self.bits.as_raw_mut_slice().as_mut_ptr() as *mut u64,
+                N_BITS,
             )
         };
 
-        // Single memcpy for the data
-        if bytes_to_copy > 0 {
-            unsafe {
-                std::ptr::copy_nonoverlapping(
-                    slice.as_ptr(),
-                    dst_bytes.as_mut_ptr(),
-                    bytes_to_copy,
-                );
+        for word in 0..N / 64 {
+            if let Some(value) = iter.next() {
+                dst_bytes[word] = value;
+                true_count += value.count_ones() as usize;
             }
         }
-
-        // Fill remaining bytes with zeros
-        if bytes_to_copy < total_bytes {
-            dst_bytes[bytes_to_copy..].fill(0);
-        }
-
         self.set_true_count(true_count);
     }
 

@@ -150,7 +150,7 @@ mod tests {
         let mut pipeline = plan.executable_plan().unwrap();
 
         // Create all-true mask for simplicity
-        let mask_data = [0usize; N_BITS];
+        let mask_data = [usize::MAX; N_BITS];
         let mask_view = BitView::new(&mask_data);
 
         // Create output buffer for boolean results
@@ -192,7 +192,7 @@ mod tests {
         let plan = QueryPlan::new(eq_op.as_ref()).unwrap();
         let mut pipeline = plan.executable_plan().unwrap();
 
-        let mask_data = [0usize; N_BITS];
+        let mask_data = [usize::MAX; N_BITS];
         let mask_view = BitView::new(&mask_data);
 
         let mut output = BufferMut::<bool>::with_capacity(N);
@@ -233,7 +233,7 @@ mod tests {
         let plan = QueryPlan::new(lt_op.as_ref()).unwrap();
         let mut pipeline = plan.executable_plan().unwrap();
 
-        let mask_data = [0usize; N_BITS];
+        let mask_data = [usize::MAX; N_BITS];
         let mask_view = BitView::new(&mask_data);
 
         let mut output = BufferMut::<bool>::with_capacity(N);

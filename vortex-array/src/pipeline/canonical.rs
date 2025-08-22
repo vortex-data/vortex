@@ -112,8 +112,8 @@ fn export_primitive_nonnull_masked<T: Element + NativePType>(
     let mut elements = BufferMut::<T>::with_capacity(capacity);
     unsafe { elements.set_len(capacity) };
 
-    let true_count = mask.true_count();
     let mask_buffer = mask.to_boolean_buffer();
+    let mut mask_iter = mask_buffer.bit_chunks().iter_padded();
 
     let mut mask = [0usize; N_BITS];
     let mut mask_view = BitViewMut::new(&mut mask);
@@ -124,7 +124,7 @@ fn export_primitive_nonnull_masked<T: Element + NativePType>(
         let mut elements_view = ViewMut::new(&mut elements[offset..][..N], None);
 
         mask_view.clear();
-        mask_view.fill_with_bytes(mask_buffer.values(), true_count);
+        mask_view.fill_with_words(&mut mask_iter);
 
         let dummy_ctx = KernelContext::default();
         pipeline.step(&dummy_ctx, mask_view.as_view(), &mut elements_view)?;
@@ -148,8 +148,8 @@ fn export_bool_nonnull_masked(mask: &Mask, pipeline: &mut dyn Kernel) -> VortexR
     let mut elements_buffer = Vector::new::<bool>();
     let mut elements_buffer_mut = elements_buffer.as_view_mut();
 
-    let true_count = mask.true_count();
     let mask_buffer = mask.to_boolean_buffer();
+    let mut mask_iter = mask_buffer.bit_chunks().iter_padded();
 
     let mut mask = [0usize; N_BITS];
     let mut mask_view = BitViewMut::new(&mut mask);
@@ -160,7 +160,7 @@ fn export_bool_nonnull_masked(mask: &Mask, pipeline: &mut dyn Kernel) -> VortexR
 
     while remaining > 0 {
         mask_view.clear();
-        mask_view.fill_with_bytes(mask_buffer.values(), true_count);
+        mask_view.fill_with_words(&mut mask_iter);
 
         // Handle partial iteration on the last chunk
         let current_len = remaining.min(N);
