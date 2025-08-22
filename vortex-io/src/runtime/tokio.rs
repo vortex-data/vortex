@@ -2,12 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::runtime::{Handle, Runtime};
+use futures::pin_mut;
 use futures_util::StreamExt;
 use std::os::unix::fs::FileExt;
 use tokio::runtime::Handle as TokioHandle;
 use tokio::task::spawn_blocking;
 use vortex_buffer::ByteBufferMut;
-use vortex_error::{vortex_err, VortexError, VortexExpect};
+use vortex_error::VortexError;
 
 impl Runtime {
     // FIXME(ngates): this can actually just spawn any Vortex future onto a Tokio runtime by
@@ -30,28 +31,25 @@ impl Runtime {
     pub fn drive_on_tokio(self, handle: &TokioHandle) {
         // Spawn a future to process the file I/O requests
         let file_io_recv = self.file_io_recv;
-        handle.spawn(
-            file_io_recv
-                .into_stream()
-                .map(|req| {
-                    spawn_blocking(move || -> () {
-                        let mut buffer =
-                            ByteBufferMut::with_capacity_aligned(req.length, req.alignment);
-                        unsafe { buffer.set_len(req.length) };
-                        match req.file.read_exact_at(&mut buffer, req.offset) {
-                            Ok(()) => req.resolve(Ok(buffer.freeze())),
-                            Err(e) => req.resolve(Err(VortexError::from(e))),
-                        }
-                    })
-                })
-                // FIXME(ngates): what file-level concurrency do we want here?
-                .buffer_unordered(32)
-                .map(|result| {
-                    result
-                        .map_err(|e| vortex_err!("Failed to join file read task {e}"))
-                        .vortex_expect("Failed to join file read task")
-                })
-                .collect::<()>(),
-        );
+        handle.spawn(async move {
+            let file_io_recv = file_io_recv.into_stream();
+            pin_mut!(file_io_recv);
+
+            // We don't perform any back-pressure here, simply rely on Tokio's blocking thread pool
+            // to limit the number of concurrent blocking tasks.
+            // Perhaps this is wrong, and some back-pressure would allow minimal coalescing?
+            // Or perhaps we should just do ready_chunks and submit a pread?
+            while let Some(req) = file_io_recv.next().await {
+                spawn_blocking(move || -> () {
+                    let mut buffer =
+                        ByteBufferMut::with_capacity_aligned(req.length, req.alignment);
+                    unsafe { buffer.set_len(req.length) };
+                    match req.file.read_exact_at(&mut buffer, req.offset) {
+                        Ok(()) => req.resolve(Ok(buffer.freeze())),
+                        Err(e) => req.resolve(Err(VortexError::from(e))),
+                    }
+                });
+            }
+        });
     }
 }

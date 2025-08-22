@@ -60,6 +60,7 @@ pub trait VortexRead: 'static + Send + Sync {
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>>;
 }
 
+#[derive(Debug)]
 pub(crate) struct FileIoRequest {
     file: Arc<File>,
     offset: u64,
