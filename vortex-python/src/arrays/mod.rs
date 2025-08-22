@@ -192,8 +192,6 @@ impl PyArray {
 
     /// Convert this array to a PyArrow array.
     ///
-    /// Convert this array to an Arrow array.
-    ///
     /// .. seealso::
     ///     :meth:`.to_arrow_table`
     ///
