@@ -12,7 +12,7 @@ use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::pipeline::bits::BitView;
 use crate::pipeline::operators::{BindContext, Operator};
 use crate::pipeline::view::ViewMut;
-use crate::pipeline::{Element, Kernel, KernelContext, PipelineVTable, N, VType};
+use crate::pipeline::{Element, Kernel, KernelContext, N, PipelineVTable, VType};
 use crate::vtable::ValidityHelper;
 
 impl PipelineVTable<PrimitiveVTable> for PrimitiveVTable {
@@ -111,7 +111,7 @@ mod tests {
     use vortex_mask::Mask;
 
     use super::*;
-    use crate::pipeline::{export_canonical_pipeline };
+    use crate::pipeline::export_canonical_pipeline;
 
     #[test]
     fn test_primitive_kernel_basic_operation() {
@@ -165,12 +165,7 @@ mod tests {
 
         // Create a mask with alternating bits (every other element selected)
         let mask = Mask::from_indices(size, (0..size).step_by(2).collect_vec());
-        let out = export_canonical_pipeline(
-            primitive_array.dtype(),
-            size,
-            &mut kernel,
-            &mask,
-        )
+        let out = export_canonical_pipeline(primitive_array.dtype(), size, &mut kernel, &mask)
             .unwrap()
             .into_primitive()
             .unwrap();
@@ -182,7 +177,8 @@ mod tests {
 
         // The exact number of selected elements should match our true_count
         assert_eq!(
-            out.len(), size/2,
+            out.len(),
+            size / 2,
             "Selected element count should match true_count"
         )
     }

@@ -18,7 +18,7 @@ use crate::pipeline::N;
 #[cfg(target_pointer_width = "32")]
 const N_BITS: usize = N / 32; // 32 bits per usize
 #[cfg(target_pointer_width = "64")]
-const N_BITS: usize = N / 64; // 64 bits per usize
+const N_BITS: usize = N_BITS; // 64 bits per usize
 
 static EMPTY: LazyLock<BitVector> = LazyLock::new(|| BitVector {
     bits: Arc::new(BitArray::ZERO),
@@ -134,9 +134,7 @@ impl BitVector {
 impl From<BitView<'_>> for BitVector {
     fn from(value: BitView<'_>) -> Self {
         let true_count = value.true_count();
-        let bits = Arc::new(BitArray::<[usize; N_BITS], Lsb0>::from(
-            *value.as_raw(),
-        ));
+        let bits = Arc::new(BitArray::<[usize; N_BITS], Lsb0>::from(*value.as_raw()));
         BitVector { bits, true_count }
     }
 }
@@ -200,7 +198,7 @@ mod tests {
     #[test]
     fn test_from_bitview() {
         // Create a BitView from raw data
-        let mut raw = [0usize; N / 64];
+        let mut raw = [0usize; N_BITS];
         raw[0] = 0b11111111;
         raw[1] = 0b11110000;
 
