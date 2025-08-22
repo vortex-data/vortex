@@ -508,12 +508,14 @@ jobs:
         run: cargo +nightly miri nextest run --no-fail-fast -p vortex-buffer -p vortex-ffi
 
   generated-files:
-    name: "Check generated proto/fbs files are up to date"
+    name: "Check generated source files are up to date"
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-rust
+        with:
+          toolchain: nightly
       - uses: ./.github/actions/setup-flatc
       - name: Install Protoc
         uses: arduino/setup-protoc@v3
@@ -523,6 +525,9 @@ jobs:
         run: |
           cargo xtask generate-fbs
           cargo xtask generate-proto
+      - name: "regenerate FFI header file"
+        run: |
+          cargo +nightly build -p vortex-ffi
       - name: "Make sure no files changed after regenerating"
         run: |
           git status --porcelain

@@ -17,4 +17,4 @@ comment:
   require_base: false
   require_head: true
   hide_project_coverage: false
-  after_n_builds: 0
+  after_n_builds: 3
