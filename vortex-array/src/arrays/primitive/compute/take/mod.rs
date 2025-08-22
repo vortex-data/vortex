@@ -73,17 +73,17 @@ impl TakeImpl for TakeKernelScalar {
 
 impl TakeKernel for PrimitiveVTable {
     fn take(&self, array: &PrimitiveArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let unsigned_indices = match indices.dtype() {
-            DType::Primitive(p, n) => {
-                if p.is_unsigned_int() {
-                    indices.to_primitive()?
-                } else {
-                    // This will fail if all values cannot be converted to unsigned
-                    cast(indices, &DType::Primitive(p.to_unsigned(), *n))?.to_primitive()?
-                }
-            }
-            _ => vortex_bail!("Invalid indices dtype: {}", indices.dtype()),
+        let DType::Primitive(ptype, null) = indices.dtype() else {
+            vortex_bail!("Invalid indices dtype: {}", indices.dtype())
         };
+
+        let unsigned_indices = if ptype.is_unsigned_int() {
+            indices.to_primitive()?
+        } else {
+            // This will fail if all values cannot be converted to unsigned
+            cast(indices, &DType::Primitive(ptype.to_unsigned(), *null))?.to_primitive()?
+        };
+
         let validity = array.validity().take(unsigned_indices.as_ref())?;
         // Delegate to the best kernel based on the target CPU
         PRIMITIVE_TAKE_KERNEL.take(array, &unsigned_indices, validity)

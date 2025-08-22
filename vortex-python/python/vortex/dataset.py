@@ -1,19 +1,23 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+from __future__ import annotations
+
 import warnings
 from collections.abc import Iterator
-from typing import Any
+from typing import final
 
 import pyarrow as pa
-import pyarrow.compute as pc
 import pyarrow.dataset
+from typing_extensions import override
 
-import vortex as vx
-from vortex._lib import dataset as _dataset
-from vortex.arrow.expression import arrow_to_vortex as arrow_to_vortex_expr
+from ._lib import dataset as _dataset  # pyright: ignore[reportMissingModuleSource]
+from ._lib import file as _file  # pyright: ignore[reportMissingModuleSource]
+from .arrays import array
+from .arrow.expression import arrow_to_vortex as arrow_to_vortex_expr
 
 
+@final
 class VortexDataset(pyarrow.dataset.Dataset):
     """Read Vortex files with row filter and column selection pushdown.
 
@@ -22,7 +26,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
 
     """
 
-    def __init__(self, dataset):
+    def __init__(self, dataset: _dataset.VortexDataset):
         self._dataset = dataset
 
     @staticmethod
@@ -31,21 +35,25 @@ class VortexDataset(pyarrow.dataset.Dataset):
 
     @staticmethod
     def from_path(path: str):
-        return vx.open(path).to_dataset()
+        return VortexDataset(_file.open(path).to_dataset())
 
     @property
-    def schema(self) -> pa.Schema:
+    @override
+    def schema(self) -> pyarrow.Schema:
         return self._dataset.schema()
 
-    def count_rows(
+    # regarding the ignore: https://github.com/zen-xu/pyarrow-stubs/pull/258
+    @override
+    def count_rows(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
-        filter: pc.Expression | None = None,
+        filter: pyarrow.dataset.Expression | None = None,
         batch_size: int | None = None,
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
-        fragment_scan_options: pa.dataset.FragmentScanOptions | None = None,
+        fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
         use_threads: bool | None = None,
-        memory_pool: pa.MemoryPool = None,
+        cache_metadata: bool | None = None,
+        memory_pool: pyarrow.MemoryPool | None = None,
     ) -> int:
         """Count the number of rows in this dataset."""
         if batch_readahead is not None:
@@ -54,31 +62,38 @@ class VortexDataset(pyarrow.dataset.Dataset):
             raise ValueError("fragment_readahead not supported")
         if fragment_scan_options is not None:
             raise ValueError("fragment_scan_options not supported")
-        if use_threads is True:
+        if use_threads:
             warnings.warn("Vortex does not support threading. Ignoring use_threads=True")
+        if cache_metadata:
+            warnings.warn("Vortex does not support cache_metadata. Ignoring cache_metadata=True")
         del memory_pool
-        return self._dataset.count_rows(row_filter=filter, split_by=batch_size)
+        vx_filter = None if filter is None else arrow_to_vortex_expr(filter, self.schema)
+        return self._dataset.count_rows(row_filter=vx_filter, split_by=batch_size)
 
-    def filter(self, expression: pc.Expression) -> "VortexDataset":
+    @override
+    def filter(self, expression: pyarrow.dataset.Expression) -> VortexDataset:
         """Not implemented."""
         raise NotImplementedError("filter")
 
-    def get_fragments(self, filter: pc.Expression | None = None) -> Iterator[pa.dataset.Fragment]:
+    @override
+    def get_fragments(self, filter: pyarrow.dataset.Expression | None = None) -> Iterator[pyarrow.dataset.Fragment]:
         """Not implemented."""
         raise NotImplementedError("get_fragments")
 
+    @override
     def head(
         self,
         num_rows: int,
         columns: list[str] | None = None,
-        filter: pc.Expression | None = None,
+        filter: pyarrow.dataset.Expression | None = None,
         batch_size: int | None = None,
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
-        fragment_scan_options: pa.dataset.FragmentScanOptions | None = None,
+        fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
         use_threads: bool | None = None,
-        memory_pool: pa.MemoryPool = None,
-    ) -> pa.Table:
+        cache_metadata: bool = False,
+        memory_pool: pyarrow.MemoryPool | None = None,
+    ) -> pyarrow.Table:
         """Load the first `num_rows` of the dataset.
 
         Parameters
@@ -100,7 +115,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
             Not implemented.
         use_threads : bool
             Not implemented.
-        memory_pool : :class:`.pyarrow.MemoryPool`
+        memory_pool : :class:`.pyarrow.MemoryPool`, optional
             Not implemented.
 
         Returns
@@ -116,48 +131,63 @@ class VortexDataset(pyarrow.dataset.Dataset):
             raise ValueError("fragment_readahead not supported")
         if fragment_scan_options is not None:
             raise ValueError("fragment_scan_options not supported")
-        if use_threads is True:
+        if use_threads:
             warnings.warn("Vortex does not support threading. Ignoring use_threads=True")
         if columns is not None and len(columns) == 0:
             raise ValueError("empty projections are not currently supported")
+        if cache_metadata:
+            warnings.warn("Vortex does not support cache_metadata. Ignoring cache_metadata=True")
         del memory_pool
-        if filter is not None:
-            filter = arrow_to_vortex_expr(filter, self.schema)
-        return self._dataset.to_array(columns=columns, row_filter=filter).slice(0, num_rows).to_arrow_table()
 
+        vx_filter = None if filter is None else arrow_to_vortex_expr(filter, self.schema)
+        return self._dataset.to_array(columns=columns, row_filter=vx_filter).slice(0, num_rows).to_arrow_table()
+
+    @override
     def join(
         self,
-        right_dataset,
-        keys,
-        right_keys=None,
-        join_type=None,
-        left_suffix=None,
-        right_suffix=None,
-        coalesce_keys=True,
-        use_threads: bool | None = None,
-    ) -> pa.dataset.InMemoryDataset:
+        right_dataset: pyarrow.dataset.Dataset,
+        keys: str | list[str],
+        right_keys: str | list[str] | None = None,
+        join_type: str = "left outer",
+        left_suffix: str | None = None,
+        right_suffix: str | None = None,
+        coalesce_keys: bool = True,
+        use_threads: bool = True,
+    ) -> pyarrow.dataset.InMemoryDataset:
         """Not implemented."""
         raise NotImplementedError("join")
 
-    def join_asof(self, right_dataset, on, by, tolerance, right_on=None, right_by=None) -> pa.dataset.InMemoryDataset:
+    @override
+    def join_asof(
+        self,
+        right_dataset: pyarrow.dataset.Dataset,
+        on: str,
+        by: str | list[str],
+        tolerance: int,
+        right_on: str | list[str] | None = None,
+        right_by: str | list[str] | None = None,
+    ) -> pyarrow.dataset.InMemoryDataset:
         """Not implemented."""
         raise NotImplementedError("join_asof")
 
-    def replace_schema(self, schema: pa.Schema):
+    @override
+    def replace_schema(self, schema: pyarrow.Schema) -> None:
         """Not implemented."""
         raise NotImplementedError("replace_schema")
 
+    @override
     def scanner(
         self,
         columns: list[str] | None = None,
-        filter: pc.Expression | None = None,
+        filter: pyarrow.dataset.Expression | None = None,
         batch_size: int | None = None,
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
-        fragment_scan_options: pa.dataset.FragmentScanOptions | None = None,
+        fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
         use_threads: bool | None = None,
-        memory_pool: pa.MemoryPool = None,
-    ) -> pa.dataset.Scanner:
+        cache_metadata: bool = False,
+        memory_pool: pyarrow.MemoryPool | None = None,
+    ) -> pyarrow.dataset.Scanner:
         """Construct a :class:`.pyarrow.dataset.Scanner`.
 
         Parameters
@@ -177,7 +207,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
             Not implemented.
         use_threads : bool
             Not implemented.
-        memory_pool : :class:`.pyarrow.MemoryPool`
+        memory_pool : :class:`.pyarrow.MemoryPool`, optional
             Not implemented.
 
         Returns
@@ -194,25 +224,38 @@ class VortexDataset(pyarrow.dataset.Dataset):
             fragment_readahead,
             fragment_scan_options,
             use_threads,
+            cache_metadata,
             memory_pool,
         )
 
-    def sort_by(self, sorting, **kwargs) -> pa.dataset.InMemoryDataset:
+    @override
+    def sort_by(self, sorting: str | list[tuple[str, str]], **kwargs) -> pyarrow.dataset.InMemoryDataset:  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType, reportIncompatibleMethodOverride]
         """Not implemented."""
         raise NotImplementedError("sort_by")
 
-    def take(
+    @override
+    def take(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
-        indices: pa.Array | Any,
+        indices: pyarrow.Array[
+            pyarrow.Int8Scalar
+            | pyarrow.Int16Scalar
+            | pyarrow.Int32Scalar
+            | pyarrow.Int64Scalar
+            | pyarrow.UInt8Scalar
+            | pyarrow.UInt16Scalar
+            | pyarrow.UInt32Scalar
+            | pyarrow.UInt64Scalar
+        ],
         columns: list[str] | None = None,
-        filter: pc.Expression | None = None,
+        filter: pyarrow.dataset.Expression | None = None,
         batch_size: int | None = None,
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
-        fragment_scan_options: pa.dataset.FragmentScanOptions | None = None,
+        fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
         use_threads: bool | None = None,
-        memory_pool: pa.MemoryPool = None,
-    ) -> pa.Table:
+        cache_metadata: bool = False,
+        memory_pool: pyarrow.MemoryPool | None = None,
+    ) -> pyarrow.Table:
         """Load a subset of rows identified by their absolute indices.
 
         Parameters
@@ -234,7 +277,9 @@ class VortexDataset(pyarrow.dataset.Dataset):
             Not implemented.
         use_threads : bool
             Not implemented.
-        memory_pool : :class:`.pyarrow.MemoryPool`
+        cache_metadata : bool
+            Not implemented.
+        memory_pool : :class:`.pyarrow.MemoryPool`, optional
             Not implemented.
 
         Returns
@@ -242,21 +287,23 @@ class VortexDataset(pyarrow.dataset.Dataset):
         table : :class:`.pyarrow.Table`
 
         """
+        vx_filter = None if filter is None else arrow_to_vortex_expr(filter, self.schema)
         return self._dataset.to_array(
-            columns=columns, row_filter=filter, indices=vx.array(indices.cast(pa.uint64()))
+            columns=columns, row_filter=vx_filter, indices=array(indices.cast(pa.uint64()))
         ).to_arrow_table()
 
     def to_record_batch_reader(
         self,
         columns: list[str] | None = None,
-        filter: pc.Expression | None = None,
+        filter: pyarrow.dataset.Expression | None = None,
         batch_size: int | None = None,
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
-        fragment_scan_options: pa.dataset.FragmentScanOptions | None = None,
+        fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
         use_threads: bool | None = None,
-        memory_pool: pa.MemoryPool = None,
-    ) -> pa.RecordBatchReader:
+        cache_metadata: bool | None = None,
+        memory_pool: pyarrow.MemoryPool | None = None,
+    ) -> pyarrow.RecordBatchReader:
         """Construct a :class:`.pyarrow.RecordBatchReader`.
 
         Parameters
@@ -276,7 +323,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
             Not implemented.
         use_threads : bool
             Not implemented.
-        memory_pool : :class:`.pyarrow.MemoryPool`
+        memory_pool : :class:`.pyarrow.MemoryPool`, optional
             Not implemented.
 
         Returns
@@ -290,26 +337,29 @@ class VortexDataset(pyarrow.dataset.Dataset):
             raise ValueError("fragment_readahead not supported")
         if fragment_scan_options is not None:
             raise ValueError("fragment_scan_options not supported")
-        if use_threads is True:
+        if use_threads:
             warnings.warn("Vortex does not support threading. Ignoring use_threads=True")
+        if cache_metadata:
+            warnings.warn("Vortex does not support cache_metadata. Ignoring cache_metadata=True")
         if columns is not None and len(columns) == 0:
             raise ValueError("empty projections are not currently supported")
         del memory_pool
-        if filter is not None:
-            filter = arrow_to_vortex_expr(filter, self.schema)
-        return self._dataset.to_record_batch_reader(columns=columns, row_filter=filter, split_by=batch_size)
+        vx_filter = None if filter is None else arrow_to_vortex_expr(filter, self.schema)
+        return self._dataset.to_record_batch_reader(columns=columns, row_filter=vx_filter, split_by=batch_size)
 
+    @override
     def to_batches(
         self,
         columns: list[str] | None = None,
-        filter: pc.Expression | None = None,
+        filter: pyarrow.dataset.Expression | None = None,
         batch_size: int | None = None,
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
-        fragment_scan_options: pa.dataset.FragmentScanOptions | None = None,
+        fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
         use_threads: bool | None = None,
-        memory_pool: pa.MemoryPool = None,
-    ) -> Iterator[pa.RecordBatch]:
+        cache_metadata: bool = False,
+        memory_pool: pyarrow.MemoryPool | None = None,
+    ) -> Iterator[pyarrow.RecordBatch]:
         """Construct an iterator of :class:`.pyarrow.RecordBatch`.
 
         Parameters
@@ -329,7 +379,9 @@ class VortexDataset(pyarrow.dataset.Dataset):
             Not implemented.
         use_threads : bool
             Not implemented.
-        memory_pool : :class:`.pyarrow.MemoryPool`
+        cache_metadata : bool
+            Not implemented.
+        memory_pool : :class:`.pyarrow.MemoryPool`, optional
             Not implemented.
 
         Returns
@@ -345,6 +397,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
             fragment_readahead,
             fragment_scan_options,
             use_threads,
+            cache_metadata,
             memory_pool,
         )
         while True:
@@ -353,22 +406,24 @@ class VortexDataset(pyarrow.dataset.Dataset):
             except StopIteration:
                 return
 
+    @override
     def to_table(
         self,
-        columns: list[str] | None = None,
-        filter: pc.Expression | None = None,
+        columns: list[str] | dict[str, pyarrow.dataset.Expression] | None = None,
+        filter: pyarrow.dataset.Expression | None = None,
         batch_size: int | None = None,
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
-        fragment_scan_options: pa.dataset.FragmentScanOptions | None = None,
+        fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
         use_threads: bool | None = None,
-        memory_pool: pa.MemoryPool = None,
-    ) -> pa.Table:
+        cache_metadata: bool = True,
+        memory_pool: pyarrow.MemoryPool | None = None,
+    ) -> pyarrow.Table:
         """Construct an Arrow :class:`.pyarrow.Table`.
 
         Parameters
         ----------
-        columns : list of str
+        columns : list of str, dict[str, :class:`.pyarrow.dataset.Expression`], optional
             The columns to keep, identified by name.
         filter : :class:`.pyarrow.dataset.Expression`
             Keep only rows for which this expression evalutes to ``True``. Any rows for which
@@ -383,7 +438,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
             Not implemented.
         use_threads : bool
             Not implemented.
-        memory_pool : :class:`.pyarrow.MemoryPool`
+        memory_pool : :class:`.pyarrow.MemoryPool`, optional
             Not implemented.
 
         Returns
@@ -399,25 +454,29 @@ class VortexDataset(pyarrow.dataset.Dataset):
             raise ValueError("fragment_readahead not supported")
         if fragment_scan_options is not None:
             raise ValueError("fragment_scan_options not supported")
-        if use_threads is True:
+        if use_threads:
             warnings.warn("Vortex does not support threading. Ignoring use_threads=True")
+        if cache_metadata:
+            warnings.warn("Vortex does not support cache_metadata. Ignoring cache_metadata=True")
         if columns is not None and len(columns) == 0:
             raise ValueError("empty projections are not currently supported")
         del memory_pool
-        if filter is not None:
-            filter = arrow_to_vortex_expr(filter, self.schema)
-        return self._dataset.to_array(columns=columns, row_filter=filter).to_arrow_table()
 
+        if isinstance(columns, dict):
+            raise ValueError(
+                "VortexDataset does not currently support a dict of expressions as the 'column' parameter."
+            )
 
-def from_path(path: str) -> VortexDataset:
-    return VortexDataset(_dataset.dataset_from_path(path))
+        vx_filter = None if filter is None else arrow_to_vortex_expr(filter, self.schema)
+        return self._dataset.to_array(columns=columns, row_filter=vx_filter).to_arrow_table()
 
 
 def from_url(url: str) -> VortexDataset:
     return VortexDataset(_dataset.dataset_from_url(url))
 
 
-class VortexScanner(pa.dataset.Scanner):
+@final
+class VortexScanner(pyarrow.dataset.Scanner):
     """A PyArrow Dataset Scanner that reads from a Vortex Array.
 
     Parameters
@@ -439,7 +498,7 @@ class VortexScanner(pa.dataset.Scanner):
         Not implemented.
     use_threads : bool
         Not implemented.
-    memory_pool : :class:`.pyarrow.MemoryPool`
+    memory_pool : :class:`.pyarrow.MemoryPool`, optional
         Not implemented.
 
     Returns
@@ -452,13 +511,14 @@ class VortexScanner(pa.dataset.Scanner):
         self,
         dataset: VortexDataset,
         columns: list[str] | None = None,
-        filter: pc.Expression | None = None,
+        filter: pyarrow.dataset.Expression | None = None,
         batch_size: int | None = None,
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
-        fragment_scan_options: pa.dataset.FragmentScanOptions | None = None,
+        fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
         use_threads: bool | None = None,
-        memory_pool: pa.MemoryPool = None,
+        cache_metadata: bool = False,
+        memory_pool: pyarrow.MemoryPool | None = None,
     ):
         self._dataset = dataset
         self._columns = columns
@@ -468,12 +528,14 @@ class VortexScanner(pa.dataset.Scanner):
         self._fragment_readahead = fragment_readahead
         self._fragment_scan_options = fragment_scan_options
         self._use_threads = use_threads
+        self._cache_metadata = cache_metadata
         self._memory_pool = memory_pool
 
     @property
     def schema(self):
         return self._dataset.schema
 
+    @override
     def count_rows(self):
         return self._dataset.count_rows(
             self._filter,
@@ -482,10 +544,12 @@ class VortexScanner(pa.dataset.Scanner):
             self._fragment_readahead,
             self._fragment_scan_options,
             self._use_threads,
+            self._cache_metadata,
             self._memory_pool,
         )
 
-    def head(self, num_rows: int) -> pa.Table:
+    @override
+    def head(self, num_rows: int) -> pyarrow.Table:
         """Load the first `num_rows` of the dataset.
 
         Parameters
@@ -507,14 +571,17 @@ class VortexScanner(pa.dataset.Scanner):
             self._fragment_readahead,
             self._fragment_scan_options,
             self._use_threads,
+            self._cache_metadata,
             self._memory_pool,
         )
 
-    def scan_batches(self) -> Iterator[pa.dataset.TaggedRecordBatch]:
+    @override
+    def scan_batches(self) -> Iterator[pyarrow.dataset.TaggedRecordBatch]:  # pyright: ignore[reportIncompatibleMethodOverride]
         """Not implemented."""
         raise NotImplementedError("scan batches")
 
-    def to_batches(self) -> Iterator[pa.RecordBatch]:
+    @override
+    def to_batches(self) -> Iterator[pyarrow.RecordBatch]:
         """Construct an iterator of :class:`.pyarrow.RecordBatch`.
 
         Returns
@@ -530,10 +597,12 @@ class VortexScanner(pa.dataset.Scanner):
             self._fragment_readahead,
             self._fragment_scan_options,
             self._use_threads,
+            self._cache_metadata,
             self._memory_pool,
         )
 
-    def to_reader(self) -> pa.RecordBatchReader:
+    @override
+    def to_reader(self) -> pyarrow.RecordBatchReader:
         """Construct a :class:`.pyarrow.RecordBatchReader`.
 
 
@@ -550,10 +619,12 @@ class VortexScanner(pa.dataset.Scanner):
             self._fragment_readahead,
             self._fragment_scan_options,
             self._use_threads,
+            self._cache_metadata,
             self._memory_pool,
         )
 
-    def to_table(self) -> pa.Table:
+    @override
+    def to_table(self) -> pyarrow.Table:
         """Construct an Arrow :class:`.pyarrow.Table`.
 
 
@@ -570,5 +641,6 @@ class VortexScanner(pa.dataset.Scanner):
             self._fragment_readahead,
             self._fragment_scan_options,
             self._use_threads,
+            self._cache_metadata,
             self._memory_pool,
         )

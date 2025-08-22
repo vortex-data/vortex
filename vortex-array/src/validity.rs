@@ -58,24 +58,27 @@ impl Validity {
 
     /// If Validity is [`Validity::Array`], returns the array, otherwise returns `None`.
     pub fn into_array(self) -> Option<ArrayRef> {
-        match self {
-            Self::Array(a) => Some(a),
-            _ => None,
+        if let Self::Array(a) = self {
+            Some(a)
+        } else {
+            None
         }
     }
 
     /// If Validity is [`Validity::Array`], returns a reference to the array array, otherwise returns `None`.
     pub fn as_array(&self) -> Option<&ArrayRef> {
-        match self {
-            Self::Array(a) => Some(a),
-            _ => None,
+        if let Self::Array(a) = self {
+            Some(a)
+        } else {
+            None
         }
     }
 
     pub fn nullability(&self) -> Nullability {
-        match self {
-            Self::NonNullable => Nullability::NonNullable,
-            _ => Nullability::Nullable,
+        if matches!(self, Self::NonNullable) {
+            Nullability::NonNullable
+        } else {
+            Nullability::Nullable
         }
     }
 
@@ -139,7 +142,7 @@ impl Validity {
     pub fn slice(&self, start: usize, stop: usize) -> Self {
         match self {
             Self::Array(a) => Self::Array(a.slice(start, stop)),
-            _ => self.clone(),
+            Self::NonNullable | Self::AllValid | Self::AllInvalid => self.clone(),
         }
     }
 
@@ -311,7 +314,7 @@ impl Validity {
     pub fn into_nullable(self) -> Validity {
         match self {
             Self::NonNullable => Self::AllValid,
-            _ => self,
+            Self::AllValid | Self::AllInvalid | Self::Array(_) => self,
         }
     }
 

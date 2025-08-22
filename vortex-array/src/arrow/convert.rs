@@ -80,9 +80,9 @@ where
 }
 
 macro_rules! impl_from_arrow_primitive {
-    ($ty:path) => {
-        impl FromArrowArray<&ArrowPrimitiveArray<$ty>> for ArrayRef {
-            fn from_arrow(value: &ArrowPrimitiveArray<$ty>, nullable: bool) -> Self {
+    ($T:path) => {
+        impl FromArrowArray<&ArrowPrimitiveArray<$T>> for ArrayRef {
+            fn from_arrow(value: &ArrowPrimitiveArray<$T>, nullable: bool) -> Self {
                 let buffer = Buffer::from_arrow_scalar_buffer(value.values().clone());
                 let validity = nulls(value.nulls(), nullable);
                 PrimitiveArray::new(buffer, validity).into_array()
@@ -127,9 +127,9 @@ impl FromArrowArray<&ArrowPrimitiveArray<Decimal256Type>> for ArrayRef {
 }
 
 macro_rules! impl_from_arrow_temporal {
-    ($ty:path) => {
-        impl FromArrowArray<&ArrowPrimitiveArray<$ty>> for ArrayRef {
-            fn from_arrow(value: &ArrowPrimitiveArray<$ty>, nullable: bool) -> Self {
+    ($T:path) => {
+        impl FromArrowArray<&ArrowPrimitiveArray<$T>> for ArrayRef {
+            fn from_arrow(value: &ArrowPrimitiveArray<$T>, nullable: bool) -> Self {
                 temporal_array(value, nullable)
             }
         }
@@ -185,7 +185,7 @@ where
         let dtype = match T::DATA_TYPE {
             DataType::Binary | DataType::LargeBinary => DType::Binary(nullable.into()),
             DataType::Utf8 | DataType::LargeUtf8 => DType::Utf8(nullable.into()),
-            _ => vortex_panic!("Invalid data type for ByteArray: {}", T::DATA_TYPE),
+            dt => vortex_panic!("Invalid data type for ByteArray: {dt}"),
         };
         VarBinArray::try_new(
             value.offsets().clone().into_array(),
@@ -203,7 +203,7 @@ impl<T: ByteViewType> FromArrowArray<&GenericByteViewArray<T>> for ArrayRef {
         let dtype = match T::DATA_TYPE {
             DataType::BinaryView => DType::Binary(nullable.into()),
             DataType::Utf8View => DType::Utf8(nullable.into()),
-            _ => vortex_panic!("Invalid data type for ByteViewArray: {}", T::DATA_TYPE),
+            dt => vortex_panic!("Invalid data type for ByteViewArray: {dt}"),
         };
 
         let views_buffer = Buffer::from_byte_buffer(
@@ -402,7 +402,7 @@ impl FromArrowArray<&dyn ArrowArray> for ArrayRef {
                 ArrowTimeUnit::Millisecond => {
                     Self::from_arrow(array.as_primitive::<Time32MillisecondType>(), nullable)
                 }
-                _ => unreachable!(),
+                ArrowTimeUnit::Microsecond | ArrowTimeUnit::Nanosecond => unreachable!(),
             },
             DataType::Time64(u) => match u {
                 ArrowTimeUnit::Microsecond => {
@@ -411,7 +411,7 @@ impl FromArrowArray<&dyn ArrowArray> for ArrayRef {
                 ArrowTimeUnit::Nanosecond => {
                     Self::from_arrow(array.as_primitive::<Time64NanosecondType>(), nullable)
                 }
-                _ => unreachable!(),
+                ArrowTimeUnit::Second | ArrowTimeUnit::Millisecond => unreachable!(),
             },
             DataType::Decimal128(..) => {
                 Self::from_arrow(array.as_primitive::<Decimal128Type>(), nullable)
@@ -419,10 +419,7 @@ impl FromArrowArray<&dyn ArrowArray> for ArrayRef {
             DataType::Decimal256(..) => {
                 Self::from_arrow(array.as_primitive::<Decimal256Type>(), nullable)
             }
-            _ => vortex_panic!(
-                "Array encoding not implemented for Arrow data type {}",
-                array.data_type().clone()
-            ),
+            dt => vortex_panic!("Array encoding not implemented for Arrow data type {dt}"),
         }
     }
 }

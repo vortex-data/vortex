@@ -25,7 +25,7 @@
 
 use itertools::Itertools;
 use num_traits::Num;
-use vortex_dtype::NativePType;
+use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{VortexExpect, VortexUnwrap, vortex_err, vortex_panic};
 use vortex_scalar::{NumericOperator, PrimitiveScalar, Scalar};
 
@@ -198,10 +198,8 @@ where
 /// }
 /// ```
 pub fn test_binary_numeric_array(array: ArrayRef) {
-    use vortex_dtype::PType;
-
     match array.dtype() {
-        vortex_dtype::DType::Primitive(ptype, _) => match ptype {
+        DType::Primitive(ptype, _) => match ptype {
             PType::I8 => test_binary_numeric_conformance::<i8>(array),
             PType::I16 => test_binary_numeric_conformance::<i16>(array),
             PType::I32 => test_binary_numeric_conformance::<i32>(array),
@@ -217,12 +215,9 @@ pub fn test_binary_numeric_array(array: ArrayRef) {
             PType::F32 => test_binary_numeric_conformance::<f32>(array),
             PType::F64 => test_binary_numeric_conformance::<f64>(array),
         },
-        _ => {
-            vortex_panic!(
-                "Binary numeric tests are only supported for primitive numeric types, got {:?}",
-                array.dtype()
-            );
-        }
+        dtype => vortex_panic!(
+            "Binary numeric tests are only supported for primitive numeric types, got {dtype}",
+        ),
     }
 }
 
@@ -234,10 +229,8 @@ pub fn test_binary_numeric_array(array: ArrayRef) {
 /// - Maximum value (tests overflow behavior)
 /// - Minimum value (tests underflow behavior)
 fn test_binary_numeric_edge_cases(array: ArrayRef) {
-    use vortex_dtype::PType;
-
     match array.dtype() {
-        vortex_dtype::DType::Primitive(ptype, _) => match ptype {
+        DType::Primitive(ptype, _) => match ptype {
             PType::I8 => test_binary_numeric_edge_cases_signed::<i8>(array),
             PType::I16 => test_binary_numeric_edge_cases_signed::<i16>(array),
             PType::I32 => test_binary_numeric_edge_cases_signed::<i32>(array),
@@ -252,11 +245,9 @@ fn test_binary_numeric_edge_cases(array: ArrayRef) {
             PType::F32 => test_binary_numeric_edge_cases_float::<f32>(array),
             PType::F64 => test_binary_numeric_edge_cases_float::<f64>(array),
         },
-        _ => {
-            vortex_panic!(
-                "Binary numeric edge case tests are only supported for primitive numeric types"
-            );
-        }
+        dtype => vortex_panic!(
+            "Binary numeric edge case tests are only supported for primitive numeric types, got {dtype}"
+        ),
     }
 }
 

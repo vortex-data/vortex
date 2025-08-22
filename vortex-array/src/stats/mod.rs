@@ -174,13 +174,16 @@ impl Stat {
             Self::Min => data_type.clone(),
             Self::NullCount => DType::Primitive(PType::U64, NonNullable),
             Self::UncompressedSizeInBytes => DType::Primitive(PType::U64, NonNullable),
-            Self::NaNCount => match data_type {
-                DType::Primitive(ptype, ..) if ptype.is_float() => {
+            Self::NaNCount => {
+                // Only floating points support NaN counts.
+                if let DType::Primitive(ptype, ..) = data_type
+                    && ptype.is_float()
+                {
                     DType::Primitive(PType::U64, NonNullable)
+                } else {
+                    return None;
                 }
-                // Any other type does not support NaN count
-                _ => return None,
-            },
+            }
             Self::Sum => {
                 // Any array that cannot be summed has a sum DType of null.
                 // Any array that can be summed, but overflows, has a sum _value_ of null.
@@ -200,14 +203,10 @@ impl Stat {
                         }
                     },
                     DType::Extension(ext_dtype) => self.dtype(ext_dtype.storage_dtype())?,
-                    // Unsupported types
-                    DType::Null
                     // TODO(aduffy): implement more stats for Decimal
-                    | DType::Decimal(..)
-                    | DType::Utf8(_)
-                    | DType::Binary(_)
-                    | DType::Struct(..)
-                    | DType::List(..) => return None,
+                    DType::Decimal(..) => return None,
+                    // Unsupported types
+                    _ => return None,
                 }
             }
         })
