@@ -268,8 +268,42 @@ ffiarray_get_ptype!(f64);
 // f16 is stored as u16 in memory, so we handle it separately
 /// Access a half-precision float value from the array.
 ///
-/// Returns the raw u16 representation of the f16 value.
-/// Use appropriate conversion functions to work with the actual float value.
+/// # Safety
+/// - `array` must be a valid pointer to a vx_array
+/// - `error_out` must be a valid pointer or null
+///
+/// # Arguments
+/// * `array` - Pointer to the array to access
+/// * `index` - Index of the element to retrieve
+/// * `error_out` - Optional pointer to receive error information
+///
+/// # Returns
+/// The raw u16 bit representation of the f16 value, or 0 if an error occurs.
+/// This is NOT the float value itself, but the underlying 16-bit representation.
+/// Use IEEE 754 half-precision conversion functions to get the actual float value.
+///
+/// # Errors
+/// - Index out of bounds
+/// - Null value access
+/// - Type conversion failure
+///
+/// # Example
+/// ```c
+/// vx_error *error = NULL;
+/// uint16_t f16_bits = vx_array_get_f16(array, 5, &error);
+/// if (error != NULL) {
+///     // Handle error - f16_bits will be 0
+///     vx_error_free(error);
+/// } else {
+///     // Convert bits to float using appropriate library
+///     // float value = f16_to_f32(f16_bits);  // hypothetical conversion
+///     printf("F16 bits: 0x%04x\n", f16_bits);
+/// }
+/// ```
+///
+/// # Note
+/// The returned value is the raw IEEE 754 half-precision bit pattern, not a usable float.
+/// You'll need to use a half-precision float library to convert this to a regular float.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_get_f16(
     array: *const vx_array,
@@ -302,6 +336,18 @@ pub unsafe extern "C-unwind" fn vx_array_get_f16(
 }
 
 /// Access the storage value of an f16 extension type.
+///
+/// For extension types that store f16 values, this accesses the underlying storage
+/// representation rather than the logical value.
+///
+/// # Arguments
+/// * `array` - Pointer to the array to access
+/// * `index` - Index of the element to retrieve
+/// * `error_out` - Optional pointer to receive error information
+///
+/// # Returns
+/// The raw u16 bit representation of the f16 storage value, or 0 if an error occurs.
+/// Like `vx_array_get_f16`, this returns the IEEE 754 half-precision bit pattern.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_get_storage_f16(
     array: *const vx_array,
