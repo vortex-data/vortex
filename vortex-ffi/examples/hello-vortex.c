@@ -93,6 +93,82 @@ int main(int argc, char *argv[]) {
         const vx_struct_fields *fields = vx_dtype_struct_dtype(dtype);
         size_t n_fields = vx_struct_fields_nfields(fields);
         printf("  Struct with %zu fields\n", n_fields);
+
+        // Demonstrate safe accessor usage with proper error handling
+        printf("  Testing safe array access:\n");
+
+        // Test array slicing with error handling
+        const vx_array *slice = vx_array_slice(batch, 0, 
+                                               batch_len > 5 ? 5 : batch_len, &error);
+        if (error == NULL && slice != NULL) {
+          printf("    Created slice with %zu elements\n", vx_array_len(slice));
+          vx_array_free(slice);
+        } else if (error != NULL) {
+          printf("    Slice creation failed (expected for some array types)\n");
+          vx_error_free(error);
+          error = NULL;
+        }
+
+        // Test null checking on individual elements
+        printf("    Null checks for first 3 elements:\n");
+        for (uint32_t i = 0; i < 3 && i < batch_len; i++) {
+          bool is_null = vx_array_is_null(batch, i, &error);
+          if (error == NULL) {
+            printf("      Element[%u] is null: %s\n", i, is_null ? "true" : "false");
+          } else {
+            printf("      Element[%u] null check failed\n", i);
+            vx_error_free(error);
+            error = NULL;
+          }
+        }
+
+        // Try to access struct fields and demonstrate safe primitive access
+        for (size_t field_idx = 0; field_idx < n_fields && field_idx < 2; field_idx++) {
+          const vx_array *field_array = vx_array_get_field(batch, field_idx, &error);
+          if (error == NULL && field_array != NULL) {
+            const vx_dtype *field_dtype = vx_array_dtype(field_array);
+            vx_dtype_variant field_variant = vx_dtype_get_variant(field_dtype);
+            bool field_nullable = vx_dtype_is_nullable(field_dtype);
+            size_t field_len = vx_array_len(field_array);
+
+            printf("    Field[%zu]: type variant %d, nullable: %s, length: %zu\n",
+                   field_idx, field_variant, field_nullable ? "true" : "false", field_len);
+
+            // Try to access first few values using safe accessors
+            if (field_len > 0 && field_variant == DTYPE_PRIMITIVE) {
+              printf("      Sample values: ");
+              for (uint32_t i = 0; i < 3 && i < field_len; i++) {
+                // Try i32 first - this will fail gracefully for wrong types
+                int32_t i32_val = vx_array_get_i32(field_array, i, &error);
+                if (error == NULL) {
+                  printf("%d ", i32_val);
+                } else {
+                  vx_error_free(error);
+                  error = NULL;
+                  
+                  // Try f64 if i32 failed
+                  double f64_val = vx_array_get_f64(field_array, i, &error);
+                  if (error == NULL) {
+                    printf("%.1f ", f64_val);
+                  } else {
+                    printf("(?) ");
+                    vx_error_free(error);
+                    error = NULL;
+                  }
+                }
+              }
+              printf("\n");
+            }
+
+            vx_array_free(field_array);
+          } else if (error != NULL) {
+            printf("    Field[%zu] access failed\n", field_idx);
+            vx_error_free(error);
+            error = NULL;
+          }
+        }
+
+        vx_struct_fields_free(fields);
       }
     }
 

@@ -6,7 +6,7 @@ use std::ffi::{c_int, c_void};
 use std::slice;
 
 use vortex::dtype::half::f16;
-use vortex::error::{VortexExpect, VortexUnwrap, vortex_err};
+use vortex::error::{VortexUnwrap, vortex_err};
 use vortex::{Array, ToCanonical};
 
 use crate::arc_dyn_wrapper;
@@ -62,17 +62,69 @@ pub unsafe extern "C-unwind" fn vx_array_get_field(
     })
 }
 
+/// Create a slice of the array from start (inclusive) to stop (exclusive).
+///
+/// # Safety
+/// - `array` must be a valid pointer to a vx_array
+/// - `error_out` must be a valid pointer or null
+///
+/// # Arguments
+/// * `array` - Pointer to the array to slice
+/// * `start` - Starting index (inclusive)
+/// * `stop` - Ending index (exclusive)
+/// * `error_out` - Optional pointer to receive error information
+///
+/// # Returns
+/// A new array containing the slice, or null if an error occurs.
+/// The caller is responsible for freeing the returned array with `vx_array_free`.
+///
+/// # Errors
+/// - Invalid slice bounds (start >= stop, or indices out of bounds)
+///
+/// # Example
+/// ```c
+/// vx_error *error = NULL;
+/// vx_array *slice = vx_array_slice(array, 10, 20, &error);
+/// if (error != NULL) {
+///     // Handle error
+///     vx_error_free(error);
+/// } else {
+///     // Use slice - contains elements 10-19
+///     vx_array_free(slice);
+/// }
+/// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_slice(
     array: *const vx_array,
     start: u32,
     stop: u32,
-    // TODO(aduffy): deprecate this from the FFI API.
-    _error_out: *mut *mut vx_error,
+    error_out: *mut *mut vx_error,
 ) -> *const vx_array {
-    let array = vx_array::as_ref(array);
-    let sliced = array.slice(start as usize, stop as usize);
-    vx_array::new(sliced)
+    try_or_default(error_out, || {
+        let array = vx_array::as_ref(array);
+        let start_usize = start as usize;
+        let stop_usize = stop as usize;
+
+        // Validate slice bounds
+        if start_usize >= stop_usize {
+            return Err(vortex_err!(
+                "Invalid slice: start {} must be less than stop {}",
+                start,
+                stop
+            ));
+        }
+
+        if stop_usize > array.len() {
+            return Err(vortex_err!(
+                "Slice end {} out of bounds for array of length {}",
+                stop,
+                array.len()
+            ));
+        }
+
+        let sliced = array.slice(start_usize, stop_usize);
+        Ok(vx_array::new(sliced))
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -94,52 +146,45 @@ pub unsafe extern "C-unwind" fn vx_array_null_count(
     try_or_default(error_out, || Ok(array.invalid_count()?.try_into()?))
 }
 
+// Primitive accessor functions with comprehensive error handling
+// These functions replace the old panicking versions and provide safe access with detailed error reporting
 macro_rules! ffiarray_get_ptype {
     ($ptype:ident) => {
         paste::paste! {
-            #[unsafe(no_mangle)]
-            pub unsafe extern "C-unwind" fn [<vx_array_get_ $ptype>](array: *const vx_array, index: u32) -> $ptype {
-                let array = vx_array::as_ref(array);
-                let value = array.scalar_at(index as usize);
-                value.as_primitive()
-                    .as_::<$ptype>()
-                    .vortex_expect("null value")
-            }
-
-            #[unsafe(no_mangle)]
-            pub unsafe extern "C-unwind" fn [<vx_array_get_storage_ $ptype>](array: *const vx_array, index: u32) -> $ptype {
-                let array = vx_array::as_ref(array);
-                let value = array.scalar_at(index as usize);
-                value.as_extension()
-                    .storage()
-                    .as_primitive()
-                    .as_::<$ptype>()
-                    .vortex_expect("null value")
-            }
-        }
-    };
-}
-
-ffiarray_get_ptype!(u8);
-ffiarray_get_ptype!(u16);
-ffiarray_get_ptype!(u32);
-ffiarray_get_ptype!(u64);
-ffiarray_get_ptype!(i8);
-ffiarray_get_ptype!(i16);
-ffiarray_get_ptype!(i32);
-ffiarray_get_ptype!(i64);
-
-// Safe variants of primitive accessor functions with proper error handling
-// These provide error handling instead of panicking on null values, type mismatches, or bounds errors
-macro_rules! ffiarray_get_ptype_safe {
-    ($ptype:ident) => {
-        paste::paste! {
-            /// Safe variant of primitive accessor that returns errors instead of panicking.
+            /// Access a primitive value from the array at the specified index.
             ///
-            /// Returns the default value (0) if an error occurs. Check error_out for details.
-            /// This prevents segmentation faults caused by panics in FFI code.
+            /// # Safety
+            /// - `array` must be a valid pointer to a vx_array
+            /// - `error_out` must be a valid pointer or null
+            ///
+            /// # Arguments
+            /// * `array` - Pointer to the array to access
+            /// * `index` - Index of the element to retrieve
+            /// * `error_out` - Optional pointer to receive error information
+            ///
+            /// # Returns
+            /// The value at the specified index, or the default value (0) if an error occurs.
+            /// Check `error_out` to determine if an error occurred.
+            ///
+            /// # Errors
+            /// - Index out of bounds
+            /// - Null value access
+            /// - Type conversion failure
+            ///
+            /// # Example
+            /// ```c
+            /// vx_error *error = NULL;
+            /// int32_t value = vx_array_get_i32(array, 5, &error);
+            /// if (error != NULL) {
+            ///     // Handle error - value will be 0
+            ///     vx_error_free(error);
+            /// } else {
+            ///     // Use value safely
+            ///     printf("Value: %d\n", value);
+            /// }
+            /// ```
             #[unsafe(no_mangle)]
-            pub unsafe extern "C-unwind" fn [<vx_array_get_ $ptype _safe>](
+            pub unsafe extern "C-unwind" fn [<vx_array_get_ $ptype>](
                 array: *const vx_array,
                 index: u32,
                 error_out: *mut *mut vx_error
@@ -166,11 +211,20 @@ macro_rules! ffiarray_get_ptype_safe {
                 })
             }
 
-            /// Safe variant of storage accessor that returns errors instead of panicking.
+            /// Access the storage value of an extension type at the specified index.
             ///
-            /// Returns the default value (0) if an error occurs. Check error_out for details.
+            /// For extension types (like decimals), this accesses the underlying storage value
+            /// rather than the logical value.
+            ///
+            /// # Arguments
+            /// * `array` - Pointer to the array to access
+            /// * `index` - Index of the element to retrieve
+            /// * `error_out` - Optional pointer to receive error information
+            ///
+            /// # Returns
+            /// The storage value at the specified index, or the default value (0) if an error occurs.
             #[unsafe(no_mangle)]
-            pub unsafe extern "C-unwind" fn [<vx_array_get_storage_ $ptype _safe>](
+            pub unsafe extern "C-unwind" fn [<vx_array_get_storage_ $ptype>](
                 array: *const vx_array,
                 index: u32,
                 error_out: *mut *mut vx_error
@@ -198,66 +252,233 @@ macro_rules! ffiarray_get_ptype_safe {
     };
 }
 
-ffiarray_get_ptype_safe!(u8);
-ffiarray_get_ptype_safe!(u16);
-ffiarray_get_ptype_safe!(u32);
-ffiarray_get_ptype_safe!(u64);
-ffiarray_get_ptype_safe!(i8);
-ffiarray_get_ptype_safe!(i16);
-ffiarray_get_ptype_safe!(i32);
-ffiarray_get_ptype_safe!(i64);
-ffiarray_get_ptype_safe!(f32);
-ffiarray_get_ptype_safe!(f64);
-// Note: f16 support may need special handling due to half-precision floating point
-
-ffiarray_get_ptype!(f16);
+// Generate safe accessor functions for all primitive types
+ffiarray_get_ptype!(u8);
+ffiarray_get_ptype!(u16);
+ffiarray_get_ptype!(u32);
+ffiarray_get_ptype!(u64);
+ffiarray_get_ptype!(i8);
+ffiarray_get_ptype!(i16);
+ffiarray_get_ptype!(i32);
+ffiarray_get_ptype!(i64);
 ffiarray_get_ptype!(f32);
 ffiarray_get_ptype!(f64);
 
-/// Write the UTF-8 string at `index` in the array into the provided destination buffer, recording
-/// the length in `len`.
+// Special handling for f16 type (half-precision float)
+// f16 is stored as u16 in memory, so we handle it separately
+/// Access a half-precision float value from the array.
+///
+/// Returns the raw u16 representation of the f16 value.
+/// Use appropriate conversion functions to work with the actual float value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_array_get_f16(
+    array: *const vx_array,
+    index: u32,
+    error_out: *mut *mut vx_error,
+) -> u16 {
+    try_or_default(error_out, || {
+        let array = vx_array::as_ref(array);
+
+        if index as usize >= array.len() {
+            return Err(vortex_err!(
+                "Index {} out of bounds for array of length {}",
+                index,
+                array.len()
+            ));
+        }
+
+        let value = array.scalar_at(index as usize);
+
+        if value.is_null() {
+            return Err(vortex_err!("Cannot access null value as f16"));
+        }
+
+        let primitive_scalar = value.as_primitive();
+        primitive_scalar
+            .as_::<f16>()
+            .map(|f| f.to_bits())
+            .ok_or_else(|| vortex_err!("Cannot convert value to f16 (type mismatch)"))
+    })
+}
+
+/// Access the storage value of an f16 extension type.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_array_get_storage_f16(
+    array: *const vx_array,
+    index: u32,
+    error_out: *mut *mut vx_error,
+) -> u16 {
+    try_or_default(error_out, || {
+        let array = vx_array::as_ref(array);
+
+        if index as usize >= array.len() {
+            return Err(vortex_err!(
+                "Index {} out of bounds for array of length {}",
+                index,
+                array.len()
+            ));
+        }
+
+        let value = array.scalar_at(index as usize);
+        let extension = value.as_extension();
+        let storage = extension.storage();
+        let primitive_scalar = storage.as_primitive();
+
+        primitive_scalar
+            .as_::<f16>()
+            .map(|f| f.to_bits())
+            .ok_or_else(|| vortex_err!("Cannot convert storage value to f16 (type mismatch)"))
+    })
+}
+
+/// Write the UTF-8 string at `index` in the array into the provided destination buffer.
+///
+/// # Safety
+/// - `array` must be a valid pointer to a vx_array
+/// - `dst` must point to a buffer large enough to hold the string data
+/// - `len` must be a valid pointer to receive the string length
+/// - `error_out` must be a valid pointer or null
+///
+/// # Arguments
+/// * `array` - Pointer to the array containing UTF-8 strings
+/// * `index` - Index of the string to retrieve
+/// * `dst` - Destination buffer to write string bytes
+/// * `len` - Pointer to receive the length of the string in bytes
+/// * `error_out` - Optional pointer to receive error information
+///
+/// # Returns
+/// On success, the string data is written to `dst` and the length is stored in `len`.
+/// On error, `error_out` will contain error details and `len` will be set to 0.
+///
+/// # Errors
+/// - Index out of bounds
+/// - Null value access
+/// - Type conversion failure (not a UTF-8 array)
+///
+/// # Example
+/// ```c
+/// char buffer[1024];
+/// int length;
+/// vx_error *error = NULL;
+/// vx_array_get_utf8(array, 0, buffer, &length, &error);
+/// if (error != NULL) {
+///     // Handle error
+///     vx_error_free(error);
+/// } else {
+///     buffer[length] = '\\0';  // Null-terminate if needed
+///     printf("String: %.*s\\n", length, buffer);
+/// }
+/// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_get_utf8(
     array: *const vx_array,
     index: u32,
     dst: *mut c_void,
     len: *mut c_int,
+    error_out: *mut *mut vx_error,
 ) {
-    let array = vx_array::as_ref(array);
-    let value = array.scalar_at(index as usize);
-    let utf8_scalar = value.as_utf8();
-    if let Some(buffer) = utf8_scalar.value() {
-        let bytes = buffer.as_bytes();
-        let dst = unsafe { slice::from_raw_parts_mut(dst as *mut u8, bytes.len()) };
-        dst.copy_from_slice(bytes);
-        unsafe { *len = bytes.len().try_into().vortex_unwrap() };
-    }
+    try_or_default(error_out, || {
+        let array = vx_array::as_ref(array);
+
+        // Bounds checking
+        if index as usize >= array.len() {
+            unsafe { *len = 0 };
+            return Err(vortex_err!(
+                "Index {} out of bounds for array of length {}",
+                index,
+                array.len()
+            ));
+        }
+
+        let value = array.scalar_at(index as usize);
+
+        // Null checking
+        if value.is_null() {
+            unsafe { *len = 0 };
+            return Err(vortex_err!("Cannot access null value as UTF-8 string"));
+        }
+
+        // Type checking and conversion
+        let utf8_scalar = value.as_utf8();
+        if let Some(buffer) = utf8_scalar.value() {
+            let bytes = buffer.as_bytes();
+            let dst_slice = unsafe { slice::from_raw_parts_mut(dst as *mut u8, bytes.len()) };
+            dst_slice.copy_from_slice(bytes);
+            unsafe { *len = bytes.len().try_into().vortex_unwrap() };
+            Ok(())
+        } else {
+            unsafe { *len = 0 };
+            Err(vortex_err!("Value is not a valid UTF-8 string"))
+        }
+    });
 }
 
-/// Write the UTF-8 string at `index` in the array into the provided destination buffer, recording
-/// the length in `len`.
+/// Write the binary data at `index` in the array into the provided destination buffer.
+///
+/// # Safety
+/// - `array` must be a valid pointer to a vx_array
+/// - `dst` must point to a buffer large enough to hold the binary data
+/// - `len` must be a valid pointer to receive the data length
+/// - `error_out` must be a valid pointer or null
+///
+/// # Arguments
+/// * `array` - Pointer to the array containing binary data
+/// * `index` - Index of the binary data to retrieve
+/// * `dst` - Destination buffer to write binary bytes
+/// * `len` - Pointer to receive the length of the data in bytes
+/// * `error_out` - Optional pointer to receive error information
+///
+/// # Returns
+/// On success, the binary data is written to `dst` and the length is stored in `len`.
+/// On error, `error_out` will contain error details and `len` will be set to 0.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_get_binary(
     array: *const vx_array,
     index: u32,
     dst: *mut c_void,
     len: *mut c_int,
+    error_out: *mut *mut vx_error,
 ) {
-    let array = vx_array::as_ref(array);
-    let value = array.scalar_at(index as usize);
-    let utf8_scalar = value.as_binary();
-    if let Some(bytes) = utf8_scalar.value() {
-        let dst = unsafe { slice::from_raw_parts_mut(dst as *mut u8, bytes.len()) };
-        dst.copy_from_slice(&bytes);
-        unsafe { *len = bytes.len().try_into().vortex_unwrap() };
-    }
+    try_or_default(error_out, || {
+        let array = vx_array::as_ref(array);
+
+        // Bounds checking
+        if index as usize >= array.len() {
+            unsafe { *len = 0 };
+            return Err(vortex_err!(
+                "Index {} out of bounds for array of length {}",
+                index,
+                array.len()
+            ));
+        }
+
+        let value = array.scalar_at(index as usize);
+
+        // Null checking
+        if value.is_null() {
+            unsafe { *len = 0 };
+            return Err(vortex_err!("Cannot access null value as binary data"));
+        }
+
+        // Type checking and conversion
+        let binary_scalar = value.as_binary();
+        if let Some(bytes) = binary_scalar.value() {
+            let dst_slice = unsafe { slice::from_raw_parts_mut(dst as *mut u8, bytes.len()) };
+            dst_slice.copy_from_slice(&bytes);
+            unsafe { *len = bytes.len().try_into().vortex_unwrap() };
+            Ok(())
+        } else {
+            unsafe { *len = 0 };
+            Err(vortex_err!("Value is not valid binary data"))
+        }
+    });
 }
 
 #[cfg(test)]
 mod tests {
     use std::ffi::{c_int, c_void};
-
     use std::ptr;
+
     use vortex::IntoArray;
     use vortex::arrays::{PrimitiveArray, StructArray, VarBinViewArray};
     use vortex::buffer::{Buffer, buffer};
@@ -283,9 +504,13 @@ mod tests {
                 vx_dtype_variant::DTYPE_PRIMITIVE
             );
 
-            assert_eq!(vx_array_get_i32(ffi_array, 0), 1);
-            assert_eq!(vx_array_get_i32(ffi_array, 1), 2);
-            assert_eq!(vx_array_get_i32(ffi_array, 2), 3);
+            let mut error: *mut vx_error = ptr::null_mut();
+            assert_eq!(vx_array_get_i32(ffi_array, 0, &raw mut error), 1);
+            assert!(error.is_null());
+            assert_eq!(vx_array_get_i32(ffi_array, 1, &raw mut error), 2);
+            assert!(error.is_null());
+            assert_eq!(vx_array_get_i32(ffi_array, 2, &raw mut error), 3);
+            assert!(error.is_null());
 
             vx_array_free(ffi_array);
         }
@@ -298,13 +523,16 @@ mod tests {
                 PrimitiveArray::new(buffer![1i32, 2i32, 3i32, 4i32, 5i32], Validity::NonNullable);
             let ffi_array = vx_array::new(primitive.into_array());
 
-            let mut error = ptr::null_mut();
+            let mut error: *mut vx_error = ptr::null_mut();
             let sliced = vx_array_slice(ffi_array, 1, 4, &raw mut error);
             assert!(error.is_null());
             assert_eq!(vx_array_len(sliced), 3);
-            assert_eq!(vx_array_get_i32(sliced, 0), 2);
-            assert_eq!(vx_array_get_i32(sliced, 1), 3);
-            assert_eq!(vx_array_get_i32(sliced, 2), 4);
+            assert_eq!(vx_array_get_i32(sliced, 0, &raw mut error), 2);
+            assert!(error.is_null());
+            assert_eq!(vx_array_get_i32(sliced, 1, &raw mut error), 3);
+            assert!(error.is_null());
+            assert_eq!(vx_array_get_i32(sliced, 2, &raw mut error), 4);
+            assert!(error.is_null());
 
             vx_array_free(sliced);
             vx_array_free(ffi_array);
@@ -320,7 +548,7 @@ mod tests {
             );
             let ffi_array = vx_array::new(primitive.into_array());
 
-            let mut error = ptr::null_mut();
+            let mut error: *mut vx_error = ptr::null_mut();
             assert!(!vx_array_is_null(ffi_array, 0, &raw mut error));
             assert!(error.is_null());
             assert!(vx_array_is_null(ffi_array, 1, &raw mut error));
@@ -350,7 +578,7 @@ mod tests {
             .unwrap();
             let ffi_array = vx_array::new(struct_array.into_array());
 
-            let mut error = ptr::null_mut();
+            let mut error: *mut vx_error = ptr::null_mut();
             let field0 = vx_array_get_field(ffi_array, 0, &raw mut error);
             assert!(error.is_null());
             assert_eq!(vx_array_len(field0), 3);
@@ -358,9 +586,12 @@ mod tests {
             let field1 = vx_array_get_field(ffi_array, 1, &raw mut error);
             assert!(error.is_null());
             assert_eq!(vx_array_len(field1), 3);
-            assert_eq!(vx_array_get_u8(field1, 0), 30);
-            assert_eq!(vx_array_get_u8(field1, 1), 25);
-            assert_eq!(vx_array_get_u8(field1, 2), 35);
+            assert_eq!(vx_array_get_u8(field1, 0, &raw mut error), 30);
+            assert!(error.is_null());
+            assert_eq!(vx_array_get_u8(field1, 1, &raw mut error), 25);
+            assert!(error.is_null());
+            assert_eq!(vx_array_get_u8(field1, 2, &raw mut error), 35);
+            assert!(error.is_null());
 
             // Test out of bounds
             let field_oob = vx_array_get_field(ffi_array, 2, &raw mut error);
@@ -377,6 +608,8 @@ mod tests {
     #[test]
     fn test_primitive_getters() {
         unsafe {
+            let mut error: *mut vx_error = ptr::null_mut();
+
             // Test a representative sample of primitive types
             // The macro generates identical code for all types, so exhaustive testing is redundant
 
@@ -384,18 +617,24 @@ mod tests {
             let i32_array =
                 PrimitiveArray::new(buffer![i32::MAX, i32::MIN, 0i32], Validity::NonNullable);
             let ffi_i32 = vx_array::new(i32_array.into_array());
-            assert_eq!(vx_array_get_i32(ffi_i32, 0), i32::MAX);
-            assert_eq!(vx_array_get_i32(ffi_i32, 1), i32::MIN);
-            assert_eq!(vx_array_get_i32(ffi_i32, 2), 0);
+            assert_eq!(vx_array_get_i32(ffi_i32, 0, &raw mut error), i32::MAX);
+            assert!(error.is_null());
+            assert_eq!(vx_array_get_i32(ffi_i32, 1, &raw mut error), i32::MIN);
+            assert!(error.is_null());
+            assert_eq!(vx_array_get_i32(ffi_i32, 2, &raw mut error), 0);
+            assert!(error.is_null());
             vx_array_free(ffi_i32);
 
             // Test unsigned integer
             let u64_array =
                 PrimitiveArray::new(buffer![u64::MAX, 0u64, 42u64], Validity::NonNullable);
             let ffi_u64 = vx_array::new(u64_array.into_array());
-            assert_eq!(vx_array_get_u64(ffi_u64, 0), u64::MAX);
-            assert_eq!(vx_array_get_u64(ffi_u64, 1), 0);
-            assert_eq!(vx_array_get_u64(ffi_u64, 2), 42);
+            assert_eq!(vx_array_get_u64(ffi_u64, 0, &raw mut error), u64::MAX);
+            assert!(error.is_null());
+            assert_eq!(vx_array_get_u64(ffi_u64, 1, &raw mut error), 0);
+            assert!(error.is_null());
+            assert_eq!(vx_array_get_u64(ffi_u64, 2, &raw mut error), 42);
+            assert!(error.is_null());
             vx_array_free(ffi_u64);
 
             // Test floating point including special values
@@ -404,9 +643,15 @@ mod tests {
                 Validity::NonNullable,
             );
             let ffi_f64 = vx_array::new(f64_array.into_array());
-            assert_eq!(vx_array_get_f64(ffi_f64, 0), f64::NEG_INFINITY);
-            assert_eq!(vx_array_get_f64(ffi_f64, 1), 0.0);
-            assert!(vx_array_get_f64(ffi_f64, 2).is_nan());
+            assert_eq!(
+                vx_array_get_f64(ffi_f64, 0, &raw mut error),
+                f64::NEG_INFINITY
+            );
+            assert!(error.is_null());
+            assert_eq!(vx_array_get_f64(ffi_f64, 1, &raw mut error), 0.0);
+            assert!(error.is_null());
+            assert!(vx_array_get_f64(ffi_f64, 2, &raw mut error).is_nan());
+            assert!(error.is_null());
             vx_array_free(ffi_f64);
 
             // Test f16 (special half-precision type) - skip in Miri due to inline assembly
@@ -417,8 +662,16 @@ mod tests {
                     Validity::NonNullable,
                 );
                 let ffi_f16 = vx_array::new(f16_array.into_array());
-                assert_eq!(vx_array_get_f16(ffi_f16, 0), f16::from_f32(1.0));
-                assert_eq!(vx_array_get_f16(ffi_f16, 1), f16::from_f32(-0.5));
+                assert_eq!(
+                    vx_array_get_f16(ffi_f16, 0, &raw mut error),
+                    f16::from_f32(1.0).to_bits()
+                );
+                assert!(error.is_null());
+                assert_eq!(
+                    vx_array_get_f16(ffi_f16, 1, &raw mut error),
+                    f16::from_f32(-0.5).to_bits()
+                );
+                assert!(error.is_null());
                 vx_array_free(ffi_f16);
             }
         }
@@ -427,6 +680,7 @@ mod tests {
     #[test]
     fn test_get_utf8() {
         unsafe {
+            let mut error: *mut vx_error = ptr::null_mut();
             let utf8_array = VarBinViewArray::from_iter_str(["hello", "world", "test"]);
             let ffi_array = vx_array::new(utf8_array.into_array());
 
@@ -438,7 +692,9 @@ mod tests {
                 0,
                 buffer.as_mut_ptr() as *mut c_void,
                 &raw mut len,
+                &raw mut error,
             );
+            assert!(error.is_null());
             assert_eq!(len, 5);
             assert_eq!(&buffer[..5], b"hello");
 
@@ -447,7 +703,9 @@ mod tests {
                 1,
                 buffer.as_mut_ptr() as *mut c_void,
                 &raw mut len,
+                &raw mut error,
             );
+            assert!(error.is_null());
             assert_eq!(len, 5);
             assert_eq!(&buffer[..5], b"world");
 
@@ -456,7 +714,9 @@ mod tests {
                 2,
                 buffer.as_mut_ptr() as *mut c_void,
                 &raw mut len,
+                &raw mut error,
             );
+            assert!(error.is_null());
             assert_eq!(len, 4);
             assert_eq!(&buffer[..4], b"test");
 
@@ -467,6 +727,7 @@ mod tests {
     #[test]
     fn test_get_binary() {
         unsafe {
+            let mut error: *mut vx_error = ptr::null_mut();
             let binary_array = VarBinViewArray::from_iter_bin(vec![
                 vec![0x01, 0x02, 0x03],
                 vec![0xFF, 0xEE],
@@ -482,7 +743,9 @@ mod tests {
                 0,
                 buffer.as_mut_ptr() as *mut c_void,
                 &raw mut len,
+                &raw mut error,
             );
+            assert!(error.is_null());
             assert_eq!(len, 3);
             assert_eq!(&buffer[..3], &[0x01, 0x02, 0x03]);
 
@@ -491,7 +754,9 @@ mod tests {
                 1,
                 buffer.as_mut_ptr() as *mut c_void,
                 &raw mut len,
+                &raw mut error,
             );
+            assert!(error.is_null());
             assert_eq!(len, 2);
             assert_eq!(&buffer[..2], &[0xFF, 0xEE]);
 
@@ -500,7 +765,9 @@ mod tests {
                 2,
                 buffer.as_mut_ptr() as *mut c_void,
                 &raw mut len,
+                &raw mut error,
             );
+            assert!(error.is_null());
             assert_eq!(len, 4);
             assert_eq!(&buffer[..4], &[0xAA, 0xBB, 0xCC, 0xDD]);
 
@@ -543,7 +810,7 @@ mod tests {
             let primitive = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
             let ffi_array = vx_array::new(primitive.into_array());
 
-            let mut error = ptr::null_mut();
+            let mut error: *mut vx_error = ptr::null_mut();
             let field = vx_array_get_field(ffi_array, 0, &raw mut error);
 
             // Should fail - primitive arrays don't have fields
@@ -570,7 +837,7 @@ mod tests {
             let primitive = PrimitiveArray::new(buffer![1i32, 2i32], Validity::NonNullable);
             let ffi_array = vx_array::new(primitive.into_array());
 
-            let mut error = ptr::null_mut();
+            let mut error: *mut vx_error = ptr::null_mut();
 
             // Test valid index first
             assert!(!vx_array_is_null(ffi_array, 0, &raw mut error));
@@ -605,7 +872,7 @@ mod tests {
             .unwrap();
             let ffi_array = vx_array::new(struct_array.into_array());
 
-            let mut error = ptr::null_mut();
+            let mut error: *mut vx_error = ptr::null_mut();
 
             // Test valid field access
             let field0 = vx_array_get_field(ffi_array, 0, &raw mut error);
@@ -630,7 +897,7 @@ mod tests {
             let primitive = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
             let ffi_array = vx_array::new(primitive.into_array());
 
-            let mut error = ptr::null_mut();
+            let mut error: *mut vx_error = ptr::null_mut();
 
             // Test valid slice
             let valid_slice = vx_array_slice(ffi_array, 0, 2, &raw mut error);
@@ -660,7 +927,7 @@ mod tests {
             let primitive = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
             let ffi_array = vx_array::new(primitive.into_array());
 
-            let mut error = ptr::null_mut();
+            let mut error: *mut vx_error = ptr::null_mut();
             let null_count = vx_array_null_count(ffi_array, &raw mut error);
 
             // For this simple case, should succeed
@@ -680,6 +947,7 @@ mod tests {
     #[test]
     fn test_primitive_accessor_type_safety() {
         unsafe {
+            let mut error: *mut vx_error = ptr::null_mut();
             // Test accessing wrong primitive type
             let f64_array = PrimitiveArray::new(buffer![1.5f64, 2.5f64], Validity::NonNullable);
             let ffi_array = vx_array::new(f64_array.into_array());
@@ -689,7 +957,8 @@ mod tests {
             // The accessor functions should be fixed to use error parameters
 
             // For now, test the "correct" type access
-            let f64_val = vx_array_get_f64(ffi_array, 0);
+            let f64_val = vx_array_get_f64(ffi_array, 0, &raw mut error);
+            assert!(error.is_null());
             assert!((f64_val - 1.5).abs() < f64::EPSILON);
 
             vx_array_free(ffi_array);
@@ -699,6 +968,7 @@ mod tests {
     #[test]
     fn test_primitive_accessor_documentation() {
         unsafe {
+            let mut error: *mut vx_error = ptr::null_mut();
             // This test documents the current dangerous behavior of primitive accessors
             // They panic instead of returning errors, causing segfaults in FFI usage
 
@@ -706,10 +976,12 @@ mod tests {
             let ffi_array = vx_array::new(i32_array.into_array());
 
             // Test that the "correct" type access works
-            let value = vx_array_get_i32(ffi_array, 0);
+            let value = vx_array_get_i32(ffi_array, 0, &raw mut error);
+            assert!(error.is_null());
             assert_eq!(value, 42);
 
-            let value2 = vx_array_get_i32(ffi_array, 1);
+            let value2 = vx_array_get_i32(ffi_array, 1, &raw mut error);
+            assert!(error.is_null());
             assert_eq!(value2, -123);
 
             // NOTE: The following operations would panic and are NOT safe:
@@ -724,25 +996,25 @@ mod tests {
     }
 
     #[test]
-    fn test_safe_primitive_accessors() {
+    fn test_primitive_accessors() {
         unsafe {
-            // Test the new safe primitive accessor functions
+            // Test the primitive accessor functions with error handling
             let i32_array = PrimitiveArray::new(buffer![42i32, -123i32], Validity::NonNullable);
             let ffi_array = vx_array::new(i32_array.into_array());
 
-            let mut error = ptr::null_mut();
+            let mut error: *mut vx_error = ptr::null_mut();
 
             // Test successful access
-            let value = vx_array_get_i32_safe(ffi_array, 0, &raw mut error);
+            let value = vx_array_get_i32(ffi_array, 0, &raw mut error);
             assert!(error.is_null());
             assert_eq!(value, 42);
 
-            let value2 = vx_array_get_i32_safe(ffi_array, 1, &raw mut error);
+            let value2 = vx_array_get_i32(ffi_array, 1, &raw mut error);
             assert!(error.is_null());
             assert_eq!(value2, -123);
 
             // Test out-of-bounds access (should return 0 and set error)
-            let oob_value = vx_array_get_i32_safe(ffi_array, 999, &raw mut error);
+            let oob_value = vx_array_get_i32(ffi_array, 999, &raw mut error);
             assert!(!error.is_null()); // Should have error
             assert_eq!(oob_value, 0); // Should return default value
 
@@ -753,21 +1025,21 @@ mod tests {
     }
 
     #[test]
-    fn test_safe_primitive_type_mismatch() {
+    fn test_primitive_type_mismatch() {
         unsafe {
-            // Test type conversion errors in safe accessors
+            // Test type conversion errors in accessors
             let f64_array = PrimitiveArray::new(buffer![1.5f64, 2.7f64], Validity::NonNullable);
             let ffi_array = vx_array::new(f64_array.into_array());
 
-            let mut error = ptr::null_mut();
+            let mut error: *mut vx_error = ptr::null_mut();
 
             // Test correct type access
-            let f64_value = vx_array_get_f64_safe(ffi_array, 0, &raw mut error);
+            let f64_value = vx_array_get_f64(ffi_array, 0, &raw mut error);
             assert!(error.is_null());
             assert!((f64_value - 1.5).abs() < f64::EPSILON);
 
             // Test type mismatch - try to access f64 as i32
-            let i32_value = vx_array_get_i32_safe(ffi_array, 0, &raw mut error);
+            let i32_value = vx_array_get_i32(ffi_array, 0, &raw mut error);
 
             // Should either succeed with conversion or fail gracefully
             if !error.is_null() {
@@ -789,24 +1061,24 @@ mod tests {
     }
 
     #[test]
-    fn test_safe_primitive_null_handling() {
+    fn test_primitive_null_handling() {
         unsafe {
-            // Test null value handling in safe accessors
+            // Test null value handling in accessors
             let nullable_array = PrimitiveArray::new(
                 buffer![42i32, 0i32, 84i32],
                 Validity::from_iter([true, false, true]), // Middle element is null
             );
             let ffi_array = vx_array::new(nullable_array.into_array());
 
-            let mut error = ptr::null_mut();
+            let mut error: *mut vx_error = ptr::null_mut();
 
             // Test non-null value
-            let value = vx_array_get_i32_safe(ffi_array, 0, &raw mut error);
+            let value = vx_array_get_i32(ffi_array, 0, &raw mut error);
             assert!(error.is_null());
             assert_eq!(value, 42);
 
             // Test null value access (should fail gracefully)
-            let null_value = vx_array_get_i32_safe(ffi_array, 1, &raw mut error);
+            let null_value = vx_array_get_i32(ffi_array, 1, &raw mut error);
             assert!(!error.is_null()); // Should have error for null access
             assert_eq!(null_value, 0); // Should return default value
 
@@ -818,7 +1090,7 @@ mod tests {
             error = ptr::null_mut();
 
             // Test another non-null value
-            let value3 = vx_array_get_i32_safe(ffi_array, 2, &raw mut error);
+            let value3 = vx_array_get_i32(ffi_array, 2, &raw mut error);
             assert!(error.is_null());
             assert_eq!(value3, 84);
 
@@ -841,7 +1113,7 @@ mod tests {
                 thread::spawn(move || {
                     unsafe {
                         let array = array_ptr as *const vx_array;
-                        let mut error = ptr::null_mut();
+                        let mut error: *mut vx_error = ptr::null_mut();
 
                         // Try to access out-of-bounds - each thread should handle its own errors
                         let _is_null = vx_array_is_null(array, 999, &raw mut error);
