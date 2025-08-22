@@ -28,6 +28,8 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     parent.add_submodule(&m)?;
     install_module("vortex._lib.dataset", &m)?;
 
+    m.add_class::<PyVortexDataset>()?;
+
     m.add_function(wrap_pyfunction!(dataset_from_url, &m)?)?;
 
     Ok(())
@@ -81,7 +83,7 @@ fn filter_from_python(row_filter: Option<&Bound<PyExpr>>) -> Option<ExprRef> {
     row_filter.map(|x| x.borrow().inner().clone())
 }
 
-#[pyclass(name = "VortexDataset", module = "io")]
+#[pyclass(name = "VortexDataset", module = "dataset")]
 pub struct PyVortexDataset {
     vxf: VortexFile,
     schema: SchemaRef,

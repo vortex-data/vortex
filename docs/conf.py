@@ -43,7 +43,7 @@ intersphinx_mapping = {
     "pyarrow": ("https://arrow.apache.org/docs", None),
     "pandas": ("https://pandas.pydata.org/docs", None),
     "numpy": ("https://numpy.org/doc/stable", None),
-    "polars": ("https://docs.pola.rs/api/python/stable", None),
+    "polars": ("https://docs.pola.rs/api/python/stable", "polars.objects.inv"),
 }
 
 git_root = Path(__file__).parent.parent
