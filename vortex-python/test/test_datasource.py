@@ -35,10 +35,10 @@ def test_vortex_datasource(tmpdir_factory):  # pyright: ignore[reportUnknownPara
 
     folder = tmpdir_factory.mktemp("data")  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
 
-    arr1 = vx.compress(vx.array([record(x) for x in range(5)]))
+    arr1 = vx.array([record(x) for x in range(5)])
     vx.io.write(arr1, str(folder / "01.vortex"))  # pyright: ignore[reportUnknownArgumentType]
 
-    arr2 = vx.compress(vx.array([record(x) for x in range(5, 10)]))
+    arr2 = vx.array([record(x) for x in range(5, 10)])
     vx.io.write(arr2, str(folder / "02.vortex"))  # pyright: ignore[reportUnknownArgumentType]
 
     ds = read_datasource(VortexDatasource(url=str(folder)))  # pyright: ignore[reportUnknownArgumentType]
