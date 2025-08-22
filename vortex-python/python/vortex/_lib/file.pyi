@@ -1,19 +1,17 @@
 #  SPDX-License-Identifier: Apache-2.0
 #  SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-from typing import TypeAlias, final
+from typing import final
 
 import polars as pl
 import pyarrow as pa
+from vortex.type_aliases import IntoProjection
 
 from .arrays import Array
-from .dataset import VortexDataset
 from .dtype import DType
 from .expr import Expr
 from .iter import ArrayIterator
-
-IntoProjection: TypeAlias = Expr | list[str] | None
-IntoArrayIterator: TypeAlias = Array | ArrayIterator | pa.Table | pa.RecordBatchReader
+from .dataset import VortexDataset
 
 @final
 class VortexFile:
