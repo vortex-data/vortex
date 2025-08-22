@@ -85,28 +85,28 @@ impl DuckDBCtx {
         file_format: Format,
         dataset: &BenchmarkDataset,
     ) -> Result<()> {
-        let object = match file_format {
-            Format::Parquet | Format::OnDiskVortex | Format::VortexCompact => DuckDBObject::View,
-            Format::OnDiskDuckDB => DuckDBObject::Table,
-            Format::Csv | Format::Arrow => {
-                anyhow::bail!("Format {file_format} isn't supported for DuckDB")
-            }
-        };
+        use Format::*;
 
         let load_format = match file_format {
             // Duckdb loads values from parquet to duckdb
-            Format::Parquet | Format::OnDiskDuckDB => Format::Parquet,
-            Format::Csv | Format::Arrow | Format::OnDiskVortex | Format::VortexCompact => {
-                file_format
-            }
+            Parquet | OnDiskDuckDB => Parquet,
+            OnDiskVortex | VortexCompact => file_format,
+            Csv | Arrow => anyhow::bail!("Format {file_format} isn't supported for DuckDB"),
         };
 
         let effective_url = self.resolve_storage_url(base_url, load_format, dataset)?;
         let extension = match load_format {
-            Format::Parquet | Format::OnDiskVortex | Format::VortexCompact => load_format.ext(),
-            Format::Csv | Format::Arrow | Format::OnDiskDuckDB => {
+            Parquet | OnDiskVortex | VortexCompact => load_format.ext(),
+            OnDiskDuckDB => {
                 anyhow::bail!("Format {load_format} isn't supported for DuckDB")
             }
+            Csv | Arrow => unreachable!(),
+        };
+
+        let object = match file_format {
+            Parquet | OnDiskVortex | VortexCompact => DuckDBObject::View,
+            OnDiskDuckDB => DuckDBObject::Table,
+            Csv | Arrow => unreachable!(),
         };
 
         // Generate and execute table registration commands

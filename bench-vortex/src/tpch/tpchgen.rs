@@ -201,19 +201,20 @@ fn generate_table_files(
                 let schema = iter.schema().clone();
 
                 // Create writer based on format
+                use Format::*;
                 let mut writer: Box<dyn FileWriter + Send> = match write_format {
-                    Format::Parquet => Box::new(ParquetWriter::new(path, schema).await?),
-                    Format::OnDiskVortex => Box::new(VortexWriter::new(
+                    Parquet => Box::new(ParquetWriter::new(path, schema).await?),
+                    OnDiskVortex => Box::new(VortexWriter::new(
                         path,
                         schema,
                         CompactionStrategy::Default,
                     )?),
-                    Format::VortexCompact => Box::new(VortexWriter::new(
+                    VortexCompact => Box::new(VortexWriter::new(
                         path,
                         schema,
                         CompactionStrategy::Compact,
                     )?),
-                    Format::Csv | Format::Arrow | Format::OnDiskDuckDB => unreachable!(),
+                    Csv | Arrow | OnDiskDuckDB => unreachable!("{write_format} not supported"),
                 };
 
                 for batch in iter {

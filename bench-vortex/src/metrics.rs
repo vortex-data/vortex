@@ -191,7 +191,7 @@ fn timestamps(plan: &dyn ExecutionPlan) -> (Option<SystemTime>, Option<SystemTim
             let mut min_start: Option<SystemTime> = None;
             let mut max_end: Option<SystemTime> = None;
             for m in metrics.iter() {
-                // TODO(connor): spell out all MetricValue variants
+                // There can only be a start and end timestamp.
                 #[allow(clippy::wildcard_enum_match_arm)]
                 match m.value() {
                     MetricValue::StartTimestamp(ts) => {

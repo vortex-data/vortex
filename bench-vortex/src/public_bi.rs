@@ -447,7 +447,7 @@ fn replace_with_views(schema: &DFSchema) -> Result<DFSchema> {
         .fields()
         .iter()
         .map(|f| {
-            // TODO(connor): spell out all DataType variants
+            // TODO(connor): There probably will not be more views like this, but fingers crossed...
             #[allow(clippy::wildcard_enum_match_arm)]
             match f.data_type() {
                 DataType::Binary => {
