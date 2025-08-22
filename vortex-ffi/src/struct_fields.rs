@@ -42,7 +42,7 @@ pub unsafe extern "C-unwind" fn vx_struct_fields_field_name(
     if idx >= struct_dtype.nfields() {
         return ptr::null();
     }
-    vx_string::new(struct_dtype.names()[idx].clone())
+    vx_string::new_ref(&struct_dtype.names()[idx])
 }
 
 /// Returns an *owned* reference to the dtype of the field at the given index.
@@ -162,8 +162,7 @@ mod tests {
             let invalid_dtype = vx_struct_fields_field_dtype(fields, 999);
             assert!(invalid_dtype.is_null());
 
-            // Clean up
-            vx_string_free(field_name_0);
+            // Clean up - field names are borrowed references, don't free them
             vx_dtype_free(field_dtype_0);
             vx_struct_fields_free(fields);
         }
@@ -203,8 +202,7 @@ mod tests {
                 let variant = vx_dtype_get_variant(field_dtype);
                 assert_eq!(variant, vx_dtype_variant::DTYPE_PRIMITIVE);
 
-                // Clean up owned references
-                vx_string_free(field_name);
+                // Clean up - field names are borrowed references, don't free them
                 vx_dtype_free(field_dtype);
             }
 
@@ -266,7 +264,7 @@ mod tests {
                 let expected_len = test_names[i].count_bytes();
                 assert_eq!(name_len, expected_len);
 
-                vx_string_free(field_name);
+                // field_name is a borrowed reference, don't free it
             }
 
             vx_struct_fields_free(fields);

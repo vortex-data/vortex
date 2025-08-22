@@ -339,7 +339,7 @@ mod tests {
                 vx_dtype_variant::DTYPE_PRIMITIVE
             );
 
-            // Field names are borrowed references - do not free them
+            // Field names are now borrowed references - do not free them
             // Free field dtypes (owned references)
             vx_dtype_free(dtype0);
             vx_dtype_free(dtype1);
@@ -484,9 +484,8 @@ mod tests {
         let n_fields = unsafe { vx_struct_fields_nfields(struct_fields_ptr) };
         assert_eq!(n_fields, 2);
 
-        // Cleanup in reverse order - this is the safest order
+        // Cleanup - struct_fields_ptr is a borrowed reference, so don't free it
         unsafe {
-            vx_struct_fields_free(struct_fields_ptr);
             vx_array_free(vx_arr);
         }
     }
@@ -509,7 +508,8 @@ mod tests {
         let name_str = std::str::from_utf8(name_slice).unwrap();
         assert_eq!(name_str, "nums");
 
-        // Cleanup in careful order
+        // Cleanup - field_name_ptr is a borrowed reference (don't free it)
+        // struct_fields_ptr is also a borrowed reference (don't free it)
         unsafe {
             vx_array_free(vx_arr);
         }
