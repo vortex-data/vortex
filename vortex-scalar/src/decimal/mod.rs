@@ -36,9 +36,10 @@ impl NativeDecimalType for i8 {
     const VALUES_TYPE: DecimalValueType = DecimalValueType::I8;
 
     fn maybe_from(decimal_type: DecimalValue) -> Option<Self> {
-        match decimal_type {
-            DecimalValue::I8(v) => Some(v),
-            _ => None,
+        if let DecimalValue::I8(v) = decimal_type {
+            Some(v)
+        } else {
+            None
         }
     }
 }
@@ -47,9 +48,10 @@ impl NativeDecimalType for i16 {
     const VALUES_TYPE: DecimalValueType = DecimalValueType::I16;
 
     fn maybe_from(decimal_type: DecimalValue) -> Option<Self> {
-        match decimal_type {
-            DecimalValue::I16(v) => Some(v),
-            _ => None,
+        if let DecimalValue::I16(v) = decimal_type {
+            Some(v)
+        } else {
+            None
         }
     }
 }
@@ -58,9 +60,10 @@ impl NativeDecimalType for i32 {
     const VALUES_TYPE: DecimalValueType = DecimalValueType::I32;
 
     fn maybe_from(decimal_type: DecimalValue) -> Option<Self> {
-        match decimal_type {
-            DecimalValue::I32(v) => Some(v),
-            _ => None,
+        if let DecimalValue::I32(v) = decimal_type {
+            Some(v)
+        } else {
+            None
         }
     }
 }
@@ -69,9 +72,10 @@ impl NativeDecimalType for i64 {
     const VALUES_TYPE: DecimalValueType = DecimalValueType::I64;
 
     fn maybe_from(decimal_type: DecimalValue) -> Option<Self> {
-        match decimal_type {
-            DecimalValue::I64(v) => Some(v),
-            _ => None,
+        if let DecimalValue::I64(v) = decimal_type {
+            Some(v)
+        } else {
+            None
         }
     }
 }
@@ -80,9 +84,10 @@ impl NativeDecimalType for i128 {
     const VALUES_TYPE: DecimalValueType = DecimalValueType::I128;
 
     fn maybe_from(decimal_type: DecimalValue) -> Option<Self> {
-        match decimal_type {
-            DecimalValue::I128(v) => Some(v),
-            _ => None,
+        if let DecimalValue::I128(v) = decimal_type {
+            Some(v)
+        } else {
+            None
         }
     }
 }
@@ -91,9 +96,10 @@ impl NativeDecimalType for i256 {
     const VALUES_TYPE: DecimalValueType = DecimalValueType::I256;
 
     fn maybe_from(decimal_type: DecimalValue) -> Option<Self> {
-        match decimal_type {
-            DecimalValue::I256(v) => Some(v),
-            _ => None,
+        if let DecimalValue::I256(v) = decimal_type {
+            Some(v)
+        } else {
+            None
         }
     }
 }
@@ -202,71 +208,70 @@ impl<'a> DecimalScalar<'a> {
                     let actual_value = scaled_value as f64 / scale_factor as f64;
 
                     // Cast to target primitive type
-                    use PType::*;
                     #[allow(clippy::cast_possible_truncation)]
                     let primitive_scalar = match ptype {
-                        U8 => {
+                        PType::U8 => {
                             let v = actual_value as u8;
                             if actual_value < 0.0 || actual_value > u8::MAX as f64 {
                                 vortex_bail!("Decimal value {} out of range for u8", actual_value);
                             }
                             Scalar::primitive(v, *nullability)
                         }
-                        U16 => {
+                        PType::U16 => {
                             let v = actual_value as u16;
                             if actual_value < 0.0 || actual_value > u16::MAX as f64 {
                                 vortex_bail!("Decimal value {} out of range for u16", actual_value);
                             }
                             Scalar::primitive(v, *nullability)
                         }
-                        U32 => {
+                        PType::U32 => {
                             let v = actual_value as u32;
                             if actual_value < 0.0 || actual_value > u32::MAX as f64 {
                                 vortex_bail!("Decimal value {} out of range for u32", actual_value);
                             }
                             Scalar::primitive(v, *nullability)
                         }
-                        U64 => {
+                        PType::U64 => {
                             let v = actual_value as u64;
                             if actual_value < 0.0 || actual_value > u64::MAX as f64 {
                                 vortex_bail!("Decimal value {} out of range for u64", actual_value);
                             }
                             Scalar::primitive(v, *nullability)
                         }
-                        I8 => {
+                        PType::I8 => {
                             let v = actual_value as i8;
                             if actual_value < i8::MIN as f64 || actual_value > i8::MAX as f64 {
                                 vortex_bail!("Decimal value {} out of range for i8", actual_value);
                             }
                             Scalar::primitive(v, *nullability)
                         }
-                        I16 => {
+                        PType::I16 => {
                             let v = actual_value as i16;
                             if actual_value < i16::MIN as f64 || actual_value > i16::MAX as f64 {
                                 vortex_bail!("Decimal value {} out of range for i16", actual_value);
                             }
                             Scalar::primitive(v, *nullability)
                         }
-                        I32 => {
+                        PType::I32 => {
                             let v = actual_value as i32;
                             if actual_value < i32::MIN as f64 || actual_value > i32::MAX as f64 {
                                 vortex_bail!("Decimal value {} out of range for i32", actual_value);
                             }
                             Scalar::primitive(v, *nullability)
                         }
-                        I64 => {
+                        PType::I64 => {
                             let v = actual_value as i64;
                             if actual_value < i64::MIN as f64 || actual_value > i64::MAX as f64 {
                                 vortex_bail!("Decimal value {} out of range for i64", actual_value);
                             }
                             Scalar::primitive(v, *nullability)
                         }
-                        F16 => {
+                        PType::F16 => {
                             use vortex_dtype::half::f16;
                             Scalar::primitive(f16::from_f64(actual_value), *nullability)
                         }
-                        F32 => Scalar::primitive(actual_value as f32, *nullability),
-                        F64 => Scalar::primitive(actual_value, *nullability),
+                        PType::F32 => Scalar::primitive(actual_value as f32, *nullability),
+                        PType::F64 => Scalar::primitive(actual_value, *nullability),
                     };
                     Ok(primitive_scalar)
                 } else {
@@ -291,57 +296,54 @@ impl<'a> TryFrom<&'a Scalar> for DecimalScalar<'a> {
 
 impl Display for DecimalScalar<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self.value.as_ref() {
-            Some(&dv) => {
-                // Introduce some of the scale factors instead.
-                match dv {
-                    DecimalValue::I8(v) => write!(
-                        f,
-                        "decimal8({}, precision={}, scale={})",
-                        v,
-                        self.decimal_type.precision(),
-                        self.decimal_type.scale()
-                    ),
-                    DecimalValue::I16(v) => write!(
-                        f,
-                        "decimal16({}, precision={}, scale={})",
-                        v,
-                        self.decimal_type.precision(),
-                        self.decimal_type.scale()
-                    ),
-                    DecimalValue::I32(v) => write!(
-                        f,
-                        "decimal32({}, precision={}, scale={})",
-                        v,
-                        self.decimal_type.precision(),
-                        self.decimal_type.scale()
-                    ),
-                    DecimalValue::I64(v) => write!(
-                        f,
-                        "decimal64({}, precision={}, scale={})",
-                        v,
-                        self.decimal_type.precision(),
-                        self.decimal_type.scale()
-                    ),
-                    DecimalValue::I128(v) => write!(
-                        f,
-                        "decimal128({}, precision={}, scale={})",
-                        v,
-                        self.decimal_type.precision(),
-                        self.decimal_type.scale()
-                    ),
-                    DecimalValue::I256(v) => write!(
-                        f,
-                        "decimal256({}, precision={}, scale={})",
-                        v,
-                        self.decimal_type.precision(),
-                        self.decimal_type.scale()
-                    ),
-                }
-            }
-            None => {
-                write!(f, "null")
-            }
+        let Some(&decimal_value) = self.value.as_ref() else {
+            return write!(f, "null");
+        };
+
+        // Introduce some of the scale factors instead.
+        match decimal_value {
+            DecimalValue::I8(v) => write!(
+                f,
+                "decimal8({}, precision={}, scale={})",
+                v,
+                self.decimal_type.precision(),
+                self.decimal_type.scale()
+            ),
+            DecimalValue::I16(v) => write!(
+                f,
+                "decimal16({}, precision={}, scale={})",
+                v,
+                self.decimal_type.precision(),
+                self.decimal_type.scale()
+            ),
+            DecimalValue::I32(v) => write!(
+                f,
+                "decimal32({}, precision={}, scale={})",
+                v,
+                self.decimal_type.precision(),
+                self.decimal_type.scale()
+            ),
+            DecimalValue::I64(v) => write!(
+                f,
+                "decimal64({}, precision={}, scale={})",
+                v,
+                self.decimal_type.precision(),
+                self.decimal_type.scale()
+            ),
+            DecimalValue::I128(v) => write!(
+                f,
+                "decimal128({}, precision={}, scale={})",
+                v,
+                self.decimal_type.precision(),
+                self.decimal_type.scale()
+            ),
+            DecimalValue::I256(v) => write!(
+                f,
+                "decimal256({}, precision={}, scale={})",
+                v,
+                self.decimal_type.precision(),
+                self.decimal_type.scale()
+            ),
         }
     }
 }

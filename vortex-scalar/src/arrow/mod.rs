@@ -140,7 +140,9 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
                             TimeUnit::D => {
                                 value_to_arrow_scalar!(primitive.as_::<i32>(), Date32Array)
                             }
-                            _ => vortex_bail!("Unsupported TimeUnit {u} for {}", ext.id()),
+                            TimeUnit::Ns | TimeUnit::Us | TimeUnit::S => {
+                                vortex_bail!("Unsupported TimeUnit {u} for {}", ext.id())
+                            }
                         },
                         TemporalMetadata::Timestamp(u, _) => match u {
                             TimeUnit::Ns => value_to_arrow_scalar!(

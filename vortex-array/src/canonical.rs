@@ -98,7 +98,7 @@ impl Canonical {
         match self {
             Canonical::VarBinView(array) => Ok(Canonical::VarBinView(array.compact_buffers()?)),
             Canonical::List(array) => Ok(Canonical::List(array.reset_offsets()?)),
-            other => Ok(other.clone()),
+            _ => Ok(self.clone()),
         }
     }
 }
@@ -106,58 +106,66 @@ impl Canonical {
 // Unwrap canonical type back down to specialized type.
 impl Canonical {
     pub fn into_null(self) -> VortexResult<NullArray> {
-        match self {
-            Canonical::Null(a) => Ok(a),
-            _ => vortex_bail!("Cannot unwrap NullArray from {:?}", &self),
+        if let Canonical::Null(a) = self {
+            Ok(a)
+        } else {
+            vortex_bail!("Cannot unwrap NullArray from {:?}", &self)
         }
     }
 
     pub fn into_bool(self) -> VortexResult<BoolArray> {
-        match self {
-            Canonical::Bool(a) => Ok(a),
-            _ => vortex_bail!("Cannot unwrap BoolArray from {:?}", &self),
+        if let Canonical::Bool(a) = self {
+            Ok(a)
+        } else {
+            vortex_bail!("Cannot unwrap BoolArray from {:?}", &self)
         }
     }
 
     pub fn into_primitive(self) -> VortexResult<PrimitiveArray> {
-        match self {
-            Canonical::Primitive(a) => Ok(a),
-            _ => vortex_bail!("Cannot unwrap PrimitiveArray from {:?}", &self),
+        if let Canonical::Primitive(a) = self {
+            Ok(a)
+        } else {
+            vortex_bail!("Cannot unwrap PrimitiveArray from {:?}", &self)
         }
     }
 
     pub fn into_decimal(self) -> VortexResult<DecimalArray> {
-        match self {
-            Canonical::Decimal(a) => Ok(a),
-            _ => vortex_bail!("Cannot unwrap DecimalArray from {:?}", &self),
+        if let Canonical::Decimal(a) = self {
+            Ok(a)
+        } else {
+            vortex_bail!("Cannot unwrap DecimalArray from {:?}", &self)
         }
     }
 
     pub fn into_struct(self) -> VortexResult<StructArray> {
-        match self {
-            Canonical::Struct(a) => Ok(a),
-            _ => vortex_bail!("Cannot unwrap StructArray from {:?}", &self),
+        if let Canonical::Struct(a) = self {
+            Ok(a)
+        } else {
+            vortex_bail!("Cannot unwrap StructArray from {:?}", &self)
         }
     }
 
     pub fn into_list(self) -> VortexResult<ListArray> {
-        match self {
-            Canonical::List(a) => Ok(a),
-            _ => vortex_bail!("Cannot unwrap ListArray from {:?}", &self),
+        if let Canonical::List(a) = self {
+            Ok(a)
+        } else {
+            vortex_bail!("Cannot unwrap ListArray from {:?}", &self)
         }
     }
 
     pub fn into_varbinview(self) -> VortexResult<VarBinViewArray> {
-        match self {
-            Canonical::VarBinView(a) => Ok(a),
-            _ => vortex_bail!("Cannot unwrap VarBinViewArray from {:?}", &self),
+        if let Canonical::VarBinView(a) = self {
+            Ok(a)
+        } else {
+            vortex_bail!("Cannot unwrap VarBinViewArray from {:?}", &self)
         }
     }
 
     pub fn into_extension(self) -> VortexResult<ExtensionArray> {
-        match self {
-            Canonical::Extension(a) => Ok(a),
-            _ => vortex_bail!("Cannot unwrap ExtensionArray from {:?}", &self),
+        if let Canonical::Extension(a) = self {
+            Ok(a)
+        } else {
+            vortex_bail!("Cannot unwrap ExtensionArray from {:?}", &self)
         }
     }
 }

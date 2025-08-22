@@ -301,37 +301,42 @@ impl<'a> From<&'a DType> for Input<'a> {
 
 impl<'a> Input<'a> {
     pub fn scalar(&self) -> Option<&'a Scalar> {
-        match self {
-            Input::Scalar(scalar) => Some(*scalar),
-            _ => None,
+        if let Input::Scalar(scalar) = self {
+            Some(*scalar)
+        } else {
+            None
         }
     }
 
     pub fn array(&self) -> Option<&'a dyn Array> {
-        match self {
-            Input::Array(array) => Some(*array),
-            _ => None,
+        if let Input::Array(array) = self {
+            Some(*array)
+        } else {
+            None
         }
     }
 
     pub fn mask(&self) -> Option<&'a Mask> {
-        match self {
-            Input::Mask(mask) => Some(*mask),
-            _ => None,
+        if let Input::Mask(mask) = self {
+            Some(*mask)
+        } else {
+            None
         }
     }
 
     pub fn builder(&'a mut self) -> Option<&'a mut dyn ArrayBuilder> {
-        match self {
-            Input::Builder(builder) => Some(*builder),
-            _ => None,
+        if let Input::Builder(builder) = self {
+            Some(*builder)
+        } else {
+            None
         }
     }
 
     pub fn dtype(&self) -> Option<&'a DType> {
-        match self {
-            Input::DType(dtype) => Some(*dtype),
-            _ => None,
+        if let Input::DType(dtype) = self {
+            Some(*dtype)
+        } else {
+            None
         }
     }
 }

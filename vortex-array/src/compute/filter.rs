@@ -235,7 +235,7 @@ impl TryFrom<&dyn Array> for Mask {
 pub fn arrow_filter_fn(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
     let values = match &mask {
         Mask::Values(values) => values,
-        _ => unreachable!("check in filter invoke"),
+        Mask::AllTrue(_) | Mask::AllFalse(_) => unreachable!("check in filter invoke"),
     };
 
     let array_ref = array.to_array().into_arrow_preferred()?;

@@ -93,7 +93,7 @@ impl TemporalMetadata {
                 TimeUnit::D | TimeUnit::Ms => Ok(TemporalJiff::Date(
                     Date::new(1970, 1, 1)?.checked_add(unit.to_jiff_span(v)?)?,
                 )),
-                _ => {
+                TimeUnit::Ns | TimeUnit::Us | TimeUnit::S => {
                     vortex_bail!("Invalid TimeUnit {} for TemporalMetadata::Time", unit)
                 }
             },
@@ -113,11 +113,11 @@ impl TemporalMetadata {
 }
 
 macro_rules! impl_temporal_metadata_try_from {
-    ($typ:ty) => {
-        impl TryFrom<$typ> for TemporalMetadata {
+    ($T:ty) => {
+        impl TryFrom<$T> for TemporalMetadata {
             type Error = VortexError;
 
-            fn try_from(ext_dtype: $typ) -> Result<Self, Self::Error> {
+            fn try_from(ext_dtype: $T) -> Result<Self, Self::Error> {
                 let metadata = ext_dtype
                     .metadata()
                     .ok_or_else(|| vortex_err!("ExtDType is missing metadata"))?;
