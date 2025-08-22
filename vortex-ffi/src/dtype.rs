@@ -271,10 +271,10 @@ pub unsafe extern "C-unwind" fn vx_dtype_time_zone(
 mod tests {
     use std::slice;
 
-    use vortex::IntoArray;
     use vortex::arrays::StructArray;
     use vortex::buffer::Buffer;
     use vortex::dtype::{DType, DecimalDType};
+    use vortex::{ArrayRef, IntoArray};
 
     use super::*;
     use crate::array::{vx_array, vx_array_dtype};
@@ -467,7 +467,7 @@ mod tests {
     }
 
     // Helper function for struct introspection tests
-    fn create_test_struct_array() -> vortex::ArrayRef {
+    fn create_test_struct_array() -> ArrayRef {
         let nums: Buffer<i32> = (0..1000).collect();
         let floats: Buffer<f32> = (0..1000).map(|x| x as f32).collect();
 
