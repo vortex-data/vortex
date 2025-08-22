@@ -1,17 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+from __future__ import annotations
+
 import warnings
 from collections.abc import Iterator
-from typing import final
+from typing_extensions import override, final
 
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.dataset
-from typing_extensions import override
 
-from ._lib import dataset as _dataset  # pyright: ignore[reportMissingModuleSource]
-from ._lib import file as _file  # pyright: ignore[reportMissingModuleSource]
+from ._lib import dataset as _dataset, file as _file  # pyright: ignore[reportMissingModuleSource]
 from .arrays import array
 from .arrow.expression import arrow_to_vortex as arrow_to_vortex_expr
 
@@ -235,7 +235,16 @@ class VortexDataset(pyarrow.dataset.Dataset):
     @override
     def take(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
-        indices: pa.Array,  # pyright: ignore[reportMissingTypeArgument, reportUnknownParameterType]
+        indices: pa.Array[
+            pa.Int8Scalar
+            | pa.Int16Scalar
+            | pa.Int32Scalar
+            | pa.Int64Scalar
+            | pa.UInt8Scalar
+            | pa.UInt16Scalar
+            | pa.UInt32Scalar
+            | pa.UInt64Scalar
+        ],
         columns: list[str] | None = None,
         filter: pc.Expression | None = None,
         batch_size: int | None = None,
