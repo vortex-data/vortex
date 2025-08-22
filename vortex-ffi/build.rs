@@ -13,18 +13,6 @@ fn main() {
         return;
     }
 
-    // Skip header generation when sanitizers are enabled (cbindgen expansion fails with sanitizer flags)
-    let has_sanitizer = env::var("RUSTFLAGS")
-        .map(|flags| flags.contains("sanitizer"))
-        .unwrap_or(false);
-
-    if has_sanitizer {
-        println!(
-            "cargo:warning=Skipping header generation with sanitizer flags (cbindgen incompatible)"
-        );
-        return;
-    }
-
     // We require the macro expansion feature of cbindgen to generate the header, which is only available on nightly.
     let is_nightly = std::process::Command::new("rustc")
         .arg("-V")
@@ -46,16 +34,17 @@ fn main() {
     let config = cbindgen::Config::from_file("cbindgen.toml").unwrap();
 
     // Generate and write header
-    match cbindgen::Builder::new()
+    let result = cbindgen::Builder::new()
         .with_crate(&crate_dir)
         .with_config(config)
-        .generate()
-    {
+        .generate();
+
+    match result {
         Ok(bindings) => {
             bindings.write_to_file(&output_file);
         }
         Err(e) => {
-            // Check if this might be a sanitizer-related failure that we missed in detection
+            // Check if this might be a sanitizer-related incompatibility
             let error_msg = e.to_string();
             let rustflags = env::var("RUSTFLAGS").unwrap_or_default();
 
