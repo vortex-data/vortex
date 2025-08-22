@@ -26,7 +26,7 @@ def test_partition():
 
 
 def test_vortex_datasource(tmpdir_factory):  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]
-    ray.init(
+    ray.init(  # pyright: ignore[reportUnknownMemberType]
         runtime_env={
             "working_dir": None,
             "excludes": [".git", ".venv"],
