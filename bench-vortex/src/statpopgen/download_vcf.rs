@@ -77,13 +77,20 @@ impl StatPopGenBenchmark {
             let schema = schema_from_vcf_header(&header);
             let mut builder = GnomADBuilder::new(&header, schema.clone());
             let file = File::create(parquet_output_path).await?;
-            let mut writer = AsyncArrowWriter::try_new(file, schema.clone(), None)?;
+            let mut writer = AsyncArrowWriter::try_new(file, schema.clone(), None)
+                .map_err(|err| VortexError::generic(Box::new(err)))?;
             for i in progress.wrap_iter(0..self.n_rows) {
                 if i % ROW_GROUP_SIZE_IN_VARIANTS == 0 {
                     let rb = builder.finish()?;
                     builder = GnomADBuilder::new(&header, schema.clone());
-                    writer.write(&rb).await?;
-                    writer.flush().await?;
+                    writer
+                        .write(&rb)
+                        .await
+                        .map_err(|err| VortexError::generic(Box::new(err)))?;
+                    writer
+                        .flush()
+                        .await
+                        .map_err(|err| VortexError::generic(Box::new(err)))?;
                 }
 
                 let bytes_read = vcf_reader.read_record(&mut record).await?;
@@ -94,10 +101,19 @@ impl StatPopGenBenchmark {
             }
 
             let rb = builder.finish()?;
-            writer.write(&rb).await?;
-            writer.flush().await?;
+            writer
+                .write(&rb)
+                .await
+                .map_err(|err| VortexError::generic(Box::new(err)))?;
+            writer
+                .flush()
+                .await
+                .map_err(|err| VortexError::generic(Box::new(err)))?;
 
-            writer.close().await?;
+            writer
+                .close()
+                .await
+                .map_err(|err| VortexError::generic(Box::new(err)))?;
 
             info!(
                 "Finished downloading first {} lines of gnomAD v3.1.2 HGDP-1kG chr21.",
@@ -135,15 +151,18 @@ impl StatPopGenBenchmark {
             .await?;
             let file = File::open(parquet_path).await?;
 
-            let parquet = ParquetRecordBatchStreamBuilder::new(file).await?;
+            let parquet = ParquetRecordBatchStreamBuilder::new(file)
+                .await
+                .map_err(|err| VortexError::generic(Box::new(err)))?;
             let num_groups = parquet.metadata().num_row_groups();
 
             let dtype = DType::from_arrow(parquet.schema().as_ref());
             let mut vortex_stream = parquet
-                .build()?
+                .build()
+                .map_err(|err| VortexError::generic(Box::new(err)))?
                 .map(|record_batch| {
                     record_batch
-                        .map_err(VortexError::from)
+                        .map_err(|err| VortexError::generic(Box::new(err)))
                         .map(|rb| ArrayRef::from_arrow(rb, false))
                 })
                 .boxed();

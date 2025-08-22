@@ -13,6 +13,7 @@ use crate::statpopgen::vcf_conversion::data_type_from_info;
 pub fn list(x: DataType) -> DataType {
     List(Arc::new(Field::new("item", x, true)))
 }
+
 pub fn schema_from_vcf_header(header: &Header) -> SchemaRef {
     let info_fields = header.infos().iter().map(|(name, info)| {
         let data_type = data_type_from_info(info);
