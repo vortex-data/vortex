@@ -24,6 +24,7 @@ pub use serde::*;
 pub use validity::*;
 pub use visitor::*;
 
+use crate::pipeline::PipelineVTable;
 use crate::{Array, Encoding, EncodingId, EncodingRef, IntoArray};
 
 /// The encoding [`VTable`] encapsulates logic for an Encoding type and associated Array type.
@@ -61,6 +62,9 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// Optionally enable serde for this encoding by implementing the [`SerdeVTable`] trait.
     /// Can be disabled by assigning to the [`NotSupported`] type.
     type SerdeVTable: SerdeVTable<Self>;
+    /// Optionally enable the [`PipelineVTable`] for this encoding. This allows it to partake in
+    /// pipeline operations.
+    type PipelineVTable: PipelineVTable<Self>;
 
     /// Returns the ID of the encoding.
     fn id(encoding: &Self::Encoding) -> EncodingId;

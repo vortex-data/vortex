@@ -6,21 +6,21 @@
 //! Users should want to implement [`Node`] and potentially [`NodeContainer`].
 
 mod fold;
+mod operator;
 mod references;
 mod visitor;
 
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+pub use fold::{FoldDown, FoldDownContext, FoldUp, NodeFolder, NodeFolderContext};
 use itertools::Itertools;
 pub use references::ReferenceCollector;
 pub use visitor::{pre_order_visit_down, pre_order_visit_up};
 use vortex_error::VortexResult;
 
 use crate::ExprRef;
-use crate::traversal::fold::{
-    FoldDownContext, FoldUp, NodeFolder, NodeFolderContext, NodeFolderContextWrapper,
-};
+use crate::traversal::fold::NodeFolderContextWrapper;
 
 /// Signal to control a traversal's flow
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -9,7 +9,7 @@ use std::hash::Hash;
 use std::panic::RefUnwindSafe;
 
 use num_traits::bounds::UpperBounded;
-use num_traits::{FromPrimitive, Num, NumCast, ToPrimitive};
+use num_traits::{FromPrimitive, Num, NumCast, ToPrimitive, Unsigned};
 use vortex_error::{VortexError, VortexResult, vortex_err};
 
 use crate::DType;
@@ -764,6 +764,29 @@ try_from_bytes!(i64);
 try_from_bytes!(f16);
 try_from_bytes!(f32);
 try_from_bytes!(f64);
+
+/// A trait that allows conversion from a PType to its physical representation (i.e., unsigned)
+pub trait PhysicalPType: NativePType {
+    /// The physical type that corresponds to this native type.
+    type Physical: NativePType + Unsigned;
+}
+
+macro_rules! physical_ptype {
+    ($T:ty, $U:ty) => {
+        impl PhysicalPType for $T {
+            type Physical = $U;
+        }
+    };
+}
+
+physical_ptype!(i8, u8);
+physical_ptype!(i16, u16);
+physical_ptype!(i32, u32);
+physical_ptype!(i64, u64);
+physical_ptype!(u8, u8);
+physical_ptype!(u16, u16);
+physical_ptype!(u32, u32);
+physical_ptype!(u64, u64);
 
 #[cfg(test)]
 mod tests {

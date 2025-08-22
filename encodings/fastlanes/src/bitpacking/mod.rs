@@ -24,6 +24,7 @@ use crate::unpack_iter::{BitPacked, BitUnpackedChunks};
 mod compress;
 mod compute;
 mod ops;
+mod pipeline;
 mod serde;
 pub mod unpack_iter;
 
@@ -41,6 +42,7 @@ impl VTable for BitPackedVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
     type SerdeVTable = Self;
+    type PipelineVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("fastlanes.bitpacked")

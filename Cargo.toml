@@ -283,6 +283,7 @@ manual_is_variant_and = "deny"
 many_single_char_names = "deny"
 mem_forget = "deny"
 multiple_crate_versions = "allow"
+needless_range_loop = "allow"
 or_fun_call = "deny"
 panic = "deny"
 # panic_in_result_fn = "deny" -- we cannot disable this for tests to use assertions

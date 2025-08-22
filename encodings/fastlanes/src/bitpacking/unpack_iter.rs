@@ -11,7 +11,7 @@ use lending_iterator::prelude::Item;
 use lending_iterator::prelude::LendingIterator;
 use vortex_array::builders::UninitRange;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::NativePType;
+use vortex_dtype::PhysicalPType;
 
 use crate::BitPackedArray;
 
@@ -94,9 +94,9 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
     /// Access first chunk of the array if the last chunk has fewer than 1024 due to slicing
     pub fn initial(&mut self) -> Option<&mut [T]> {
         (self.first_chunk_is_sliced() || self.num_chunks == 1).then(|| {
-            let chunk: &[T::UnsignedT] = &buffer_as_slice(&self.packed)[..self.elems_per_chunk()];
+            let chunk: &[T::Physical] = &buffer_as_slice(&self.packed)[..self.elems_per_chunk()];
             let dst: &mut [MaybeUninit<T>] = &mut self.buffer;
-            let dst: &mut [T::UnsignedT] = unsafe { mem::transmute(dst) };
+            let dst: &mut [T::Physical] = unsafe { mem::transmute(dst) };
 
             let header_end_slice = if self.num_chunks == 1 {
                 self.len
@@ -146,14 +146,14 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
             0
         };
 
-        let packed_slice: &[T::UnsignedT] = buffer_as_slice(&self.packed);
+        let packed_slice: &[T::Physical] = buffer_as_slice(&self.packed);
         let elems_per_chunk = self.elems_per_chunk();
         for i in full_chunks_range {
             let chunk = &packed_slice[i * elems_per_chunk..][..elems_per_chunk];
 
             unsafe {
                 // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout
-                let dst: &mut [T::UnsignedT] = mem::transmute(&mut output[out_idx..][..CHUNK_SIZE]);
+                let dst: &mut [T::Physical] = mem::transmute(&mut output[out_idx..][..CHUNK_SIZE]);
                 BitPacking::unchecked_unpack(self.bit_width, chunk, dst);
             }
             out_idx += CHUNK_SIZE;
@@ -164,10 +164,10 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
     /// Access last chunk of the array if the last chunk has fewer than 1024 due to slicing
     pub fn trailer(&mut self) -> Option<&mut [T]> {
         (self.last_chunk_is_sliced() && self.num_chunks > 1).then(|| {
-            let chunk: &[T::UnsignedT] = &buffer_as_slice(&self.packed)
+            let chunk: &[T::Physical] = &buffer_as_slice(&self.packed)
                 [(self.num_chunks - 1) * self.elems_per_chunk()..][..self.elems_per_chunk()];
             let dst: &mut [MaybeUninit<T>] = &mut self.buffer;
-            let dst: &mut [T::UnsignedT] = unsafe { mem::transmute(dst) };
+            let dst: &mut [T::Physical] = unsafe { mem::transmute(dst) };
             // SAFETY:
             // 1. chunk is elems_per_chunk.
             // 2. buffer is exactly CHUNK_SIZE.
@@ -191,7 +191,7 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
 
 /// Iterator over full chunks of bitpacked array that yields unpacked chunks one at a time
 pub struct BitUnpackIterator<'a, T: BitPacked + 'a> {
-    packed: &'a [T::UnsignedT],
+    packed: &'a [T::Physical],
     buffer: &'a mut [MaybeUninit<T>; CHUNK_SIZE],
     bit_width: usize,
     elems_per_chunk: usize,
@@ -201,7 +201,7 @@ pub struct BitUnpackIterator<'a, T: BitPacked + 'a> {
 
 impl<'a, T: BitPacked> BitUnpackIterator<'a, T> {
     pub fn new(
-        packed: &'a [T::UnsignedT],
+        packed: &'a [T::Physical],
         buffer: &'a mut [MaybeUninit<T>; CHUNK_SIZE],
         bit_width: usize,
         elems_per_chunk: usize,
@@ -235,7 +235,7 @@ impl<'a, T: BitPacked + 'a> LendingIterator for BitUnpackIterator<'a, T> {
 
         let dst: &mut [MaybeUninit<T>] = self.buffer;
         unsafe {
-            let dst: &mut [T::UnsignedT] = mem::transmute(dst);
+            let dst: &mut [T::Physical] = mem::transmute(dst);
 
             BitPacking::unchecked_unpack(self.bit_width, chunk, dst);
         }
@@ -256,23 +256,13 @@ fn buffer_as_slice<T>(buffer: &ByteBuffer) -> &[T] {
     unsafe { std::slice::from_raw_parts(packed_ptr, packed_len) }
 }
 
-pub trait BitPacked: NativePType {
-    type UnsignedT: NativePType + BitPacking;
-}
+pub trait BitPacked: PhysicalPType<Physical: BitPacking> {}
 
-macro_rules! impl_bit_packed {
-    ($T:ty, $Unsigned:ty) => {
-        impl BitPacked for $T {
-            type UnsignedT = $Unsigned;
-        }
-    };
-}
-
-impl_bit_packed!(i8, u8);
-impl_bit_packed!(i16, u16);
-impl_bit_packed!(i32, u32);
-impl_bit_packed!(i64, u64);
-impl_bit_packed!(u8, u8);
-impl_bit_packed!(u16, u16);
-impl_bit_packed!(u32, u32);
-impl_bit_packed!(u64, u64);
+impl BitPacked for i8 {}
+impl BitPacked for i16 {}
+impl BitPacked for i32 {}
+impl BitPacked for i64 {}
+impl BitPacked for u8 {}
+impl BitPacked for u16 {}
+impl BitPacked for u32 {}
+impl BitPacked for u64 {}

@@ -85,6 +85,16 @@ mod test {
     use super::*;
 
     #[test]
+    fn test_compress_round_trip_small() {
+        let array = PrimitiveArray::new((1i32..10).collect::<Buffer<_>>(), Validity::NonNullable);
+        let compressed = FoRArray::encode(array.clone()).unwrap();
+        assert_eq!(i32::try_from(compressed.reference_scalar()).unwrap(), 1);
+
+        let decompressed = compressed.to_primitive().unwrap();
+        assert_eq!(decompressed.as_slice::<i32>(), array.as_slice::<i32>());
+    }
+
+    #[test]
     fn test_compress() {
         // Create a range offset by a million
         let array = PrimitiveArray::new(

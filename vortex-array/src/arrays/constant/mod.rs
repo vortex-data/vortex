@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+pub use compute::ConstantOperator;
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -44,6 +45,7 @@ impl VTable for ConstantVTable {
     // TODO(ngates): implement a compute kernel for elementwise operations
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
+    type PipelineVTable = Self;
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
