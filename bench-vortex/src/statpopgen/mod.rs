@@ -6,7 +6,7 @@
 //! release of the jointly called One Thousand Genomes (1kG) and Human Genome Diversity Project
 //! (HGDP) dataset (1kG+HGDP). Only a prefix of Chromosome 21 is used for benchmarking.
 //!
-//! Data source: https://gnomad.broadinstitute.org/
+//! Data source: <https://gnomad.broadinstitute.org/>
 //!
 //! Queries test common genomics analytics patterns:
 //!

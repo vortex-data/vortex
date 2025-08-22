@@ -2,11 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::borrow::Cow;
+use std::sync::Arc;
 
-use crate::statpopgen::builder::InfoArrayBuilder;
-use arrow_schema::DataType;
 use arrow_schema::DataType::*;
-use arrow_schema::Field;
+use arrow_schema::{DataType, Field};
 use itertools::Itertools as _;
 use noodles_vcf::header::record::value::Map;
 use noodles_vcf::header::record::value::map::Info;
@@ -16,8 +15,9 @@ use noodles_vcf::variant::record::info::field::value::{Array, Value};
 use noodles_vcf::variant::record::samples::series::value::{
     Array as EntryArray, Value as EntryValue,
 };
-use std::sync::Arc;
 use vortex::error::{VortexResult, vortex_bail};
+
+use crate::statpopgen::builder::InfoArrayBuilder;
 
 pub fn builder_from_info(info: &Map<Info>) -> InfoArrayBuilder {
     match (info.number(), info.ty()) {

@@ -9,7 +9,8 @@ use url::Url;
 use vortex::error::VortexExpect;
 use vortex_duckdb::duckdb::{Connection, Database};
 
-use crate::{BenchmarkDataset, Format, IdempotentPath, statpopgen::StatPopGenBenchmark};
+use crate::statpopgen::StatPopGenBenchmark;
+use crate::{BenchmarkDataset, Format, IdempotentPath};
 
 #[derive(Debug, Clone)]
 enum DuckDBObject {
