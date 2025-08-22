@@ -106,12 +106,12 @@ impl<T: Element + NativePType> Kernel for PrimitiveKernel<T> {
 #[cfg(test)]
 mod tests {
     use itertools::Itertools;
-    use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::BufferMut;
     use vortex_mask::Mask;
 
     use super::*;
     use crate::pipeline::export_canonical_pipeline;
+    use crate::{IntoArray, ToCanonical};
 
     #[test]
     fn test_primitive_kernel_basic_operation() {

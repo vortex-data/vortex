@@ -15,7 +15,6 @@ mod sum;
 mod take;
 
 pub use is_constant::*;
-pub use pipeline::PrimitiveOperator;
 
 #[cfg(test)]
 mod tests {

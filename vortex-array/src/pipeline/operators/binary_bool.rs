@@ -144,13 +144,12 @@ impl Kernel for BinaryBoolOpKernel {
 mod tests {
     use std::rc::Rc;
 
-    use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::BufferMut;
-    use vortex_dtype::{Nullability, PType};
+    use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
 
     use super::*;
-    use crate::arrays::{ConstantOperator, PrimitiveOperator};
+    use crate::arrays::{ConstantOperator, PrimitiveArray};
     use crate::compute::Operator as BinaryOperator;
     use crate::pipeline::bits::BitView;
     use crate::pipeline::operators::scalar_compare::ScalarCompareOperator;
@@ -162,16 +161,16 @@ mod tests {
     fn test_binary_bool_and_basic() {
         // Create left data: [1, 0, 1, 0] to generate [true, false, true, false]
         let size = 4;
-        let left_values = [1i32, 0, 1, 0].into_iter().collect::<BufferMut<_>>();
-        let left_primitive_array = left_values.into_array().to_primitive().unwrap();
-        let left_byte_buffer = left_primitive_array.into_byte_buffer();
-        let left_primitive_op = Rc::new(PrimitiveOperator::new(PType::I32, left_byte_buffer));
+        let left_primitive_array = [1i32, 0, 1, 0].into_iter().collect::<PrimitiveArray>();
+        let left_primitive_op = left_primitive_array
+            .as_ref()
+            .to_operator()
+            .unwrap()
+            .unwrap();
 
         // Create right data: [1, 1, 0, 0] to generate [true, true, false, false]
-        let right_values = [1i32, 1, 0, 0].into_iter().collect::<BufferMut<_>>();
-        let right_primitive_array = right_values.into_array().to_primitive().unwrap();
-        let right_byte_buffer = right_primitive_array.into_byte_buffer();
-        let right_primitive_op = Rc::new(PrimitiveOperator::new(PType::I32, right_byte_buffer));
+        let right_primitive_array = [1i32, 1, 0, 0].into_iter().collect::<PrimitiveArray>();
+        let right_primitive_op = right_primitive_array.to_operator().unwrap().unwrap();
 
         let zero_scalar = Scalar::primitive(0i32, Nullability::NonNullable);
         let left_bool_op = Rc::new(ScalarCompareOperator::new(
@@ -222,16 +221,12 @@ mod tests {
     fn test_binary_bool_or_basic() {
         // Create left data: [1, 0, 1, 0] to generate [true, false, true, false]
         let size = 4;
-        let left_values = [1i32, 0, 1, 0].into_iter().collect::<BufferMut<_>>();
-        let left_primitive_array = left_values.into_array().to_primitive().unwrap();
-        let left_byte_buffer = left_primitive_array.into_byte_buffer();
-        let left_primitive_op = Rc::new(PrimitiveOperator::new(PType::I32, left_byte_buffer));
+        let left_primitive_array = [1i32, 0, 1, 0].into_iter().collect::<PrimitiveArray>();
+        let left_primitive_op = left_primitive_array.to_operator().unwrap().unwrap();
 
         // Create right data: [1, 1, 0, 0] to generate [true, true, false, false]
-        let right_values = [1i32, 1, 0, 0].into_iter().collect::<BufferMut<_>>();
-        let right_primitive_array = right_values.into_array().to_primitive().unwrap();
-        let right_byte_buffer = right_primitive_array.into_byte_buffer();
-        let right_primitive_op = Rc::new(PrimitiveOperator::new(PType::I32, right_byte_buffer));
+        let right_primitive_array = [1i32, 1, 0, 0].into_iter().collect::<PrimitiveArray>();
+        let right_primitive_op = right_primitive_array.to_operator().unwrap().unwrap();
 
         // Create comparisons to generate boolean values: value > 0
         let zero_scalar = Scalar::primitive(0i32, Nullability::NonNullable);
@@ -285,16 +280,12 @@ mod tests {
         let size = 4;
 
         // Create x data: [1, 0, 1, 0] to generate [true, false, true, false]
-        let x_values = [1i32, 0, 1, 0].into_iter().collect::<BufferMut<_>>();
-        let x_primitive_array = x_values.into_array().to_primitive().unwrap();
-        let x_byte_buffer = x_primitive_array.into_byte_buffer();
-        let x_primitive_op = Rc::new(PrimitiveOperator::new(PType::I32, x_byte_buffer));
+        let x_primitive_array = [1i32, 0, 1, 0].into_iter().collect::<PrimitiveArray>();
+        let x_primitive_op = x_primitive_array.to_operator().unwrap().unwrap();
 
         // Create y data: [0, 0, 1, 1] to generate [false, false, true, true]
-        let y_values = [0i32, 0, 1, 1].into_iter().collect::<BufferMut<_>>();
-        let y_primitive_array = y_values.into_array().to_primitive().unwrap();
-        let y_byte_buffer = y_primitive_array.into_byte_buffer();
-        let y_primitive_op = Rc::new(PrimitiveOperator::new(PType::I32, y_byte_buffer));
+        let y_primitive_array = [0i32, 0, 1, 1].into_iter().collect::<PrimitiveArray>();
+        let y_primitive_op = y_primitive_array.to_operator().unwrap().unwrap();
 
         // Create comparisons to generate boolean values: value > 0
         use vortex_dtype::Nullability;

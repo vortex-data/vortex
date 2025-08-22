@@ -12,12 +12,12 @@ use vortex_scalar::Scalar;
 use crate::compute::Operator as BinaryOperator;
 use crate::match_each_compare_op;
 use crate::pipeline::bits::BitView;
+use crate::pipeline::operators::BindContext;
 use crate::pipeline::operators::compare::CompareOp;
-use crate::pipeline::operators::{BindContext, Operator};
 use crate::pipeline::types::{Element, VType};
 use crate::pipeline::vec::VectorId;
 use crate::pipeline::view::ViewMut;
-use crate::pipeline::{Kernel, KernelContext};
+use crate::pipeline::{Kernel, KernelContext, Operator};
 
 /// Pipeline operator for comparing an array against a scalar value.
 #[derive(Debug, Hash)]
@@ -119,13 +119,12 @@ impl<T: Element + NativePType, Op: CompareOp<T>> Kernel for ScalarComparePrimiti
 mod tests {
     use std::rc::Rc;
 
-    use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::BufferMut;
-    use vortex_dtype::{Nullability, PType};
+    use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
 
     use super::*;
-    use crate::arrays::PrimitiveOperator;
+    use crate::arrays::PrimitiveArray;
     use crate::pipeline::bits::BitView;
     use crate::pipeline::query::QueryPlan;
     use crate::pipeline::view::ViewMut;
@@ -135,12 +134,8 @@ mod tests {
     fn test_scalar_compare_stacked_on_primitive() {
         // Create input data: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
         let size = 16;
-        let values = (0..i32::try_from(size).unwrap()).collect::<BufferMut<_>>();
-        let primitive_array = values.into_array().to_primitive().unwrap();
-        let byte_buffer = primitive_array.into_byte_buffer();
-
-        // Create primitive operator (leaf node)
-        let primitive_op = Rc::new(PrimitiveOperator::new(PType::I32, byte_buffer));
+        let primitive_array = (0..i32::try_from(size).unwrap()).collect::<PrimitiveArray>();
+        let primitive_op = primitive_array.as_ref().to_operator().unwrap().unwrap();
 
         // Create scalar compare operator: primitive_value > 10
         let compare_value = Scalar::primitive(10i32, Nullability::NonNullable);
@@ -182,11 +177,9 @@ mod tests {
     fn test_scalar_compare_different_operators() {
         // Test with different comparison operators
         let size = 8;
-        let values = (0..i32::try_from(size).unwrap()).collect::<BufferMut<_>>();
-        let primitive_array = values.into_array().to_primitive().unwrap();
-        let byte_buffer = primitive_array.into_byte_buffer();
+        let primitive_array = (0..i32::try_from(size).unwrap()).collect::<PrimitiveArray>();
 
-        let primitive_op = Rc::new(PrimitiveOperator::new(PType::I32, byte_buffer));
+        let primitive_op = primitive_array.as_ref().to_operator().unwrap().unwrap();
 
         // Test Eq: values == 3
         let compare_value = Scalar::primitive(3i32, Nullability::NonNullable);
@@ -225,11 +218,9 @@ mod tests {
         // Test with floating-point values
         let size = 8;
         let values: Vec<f32> = (0..size).map(|i| i as f32 + 0.5).collect();
-        let buffer_data = values.into_iter().collect::<BufferMut<_>>();
-        let primitive_array = buffer_data.into_array().to_primitive().unwrap();
-        let byte_buffer = primitive_array.into_byte_buffer();
+        let primitive_array = values.into_iter().collect::<PrimitiveArray>();
 
-        let primitive_op = Rc::new(PrimitiveOperator::new(PType::F32, byte_buffer));
+        let primitive_op = primitive_array.as_ref().to_operator().unwrap().unwrap();
 
         // Test Lt: values < 3.5
         let compare_value = Scalar::primitive(3.5f32, Nullability::NonNullable);
