@@ -317,9 +317,11 @@ impl TableFunction for VortexTableFunction {
         let handle2 = runtime.new_handle();
 
         // let object_cache = init_input.client_context()?.object_cache();
+        let first_file = bind_data.first_file.clone();
+        let file_urls = bind_data.file_urls.clone();
 
-        let stream = stream::once(ready(ready(Ok(bind_data.first_file.clone())).boxed()))
-            .chain(stream::iter(bind_data.file_urls.iter()).map(move |path| {
+        let stream = stream::once(ready(ready(Ok(first_file)).boxed()))
+            .chain(stream::iter(file_urls).map(move |path| {
                 let handle = handle.clone();
                 async move {
                     // let cache = FooterCache::new(object_cache);

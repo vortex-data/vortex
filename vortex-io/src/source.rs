@@ -3,6 +3,7 @@
 
 use crate::runtime::{Handle, Read, VortexRead};
 use futures_util::future::BoxFuture;
+use futures_util::stream::BoxStream;
 use futures_util::FutureExt;
 use std::fs::File;
 use std::path::Path;
@@ -12,6 +13,26 @@ use vortex_error::{VortexExpect, VortexResult};
 
 pub trait IoSource: 'static + Send + Sync {
     fn open(&self, handle: &Handle) -> Arc<dyn VortexRead>;
+}
+
+/// A trait that describes how to process I/O requests for a given source.
+/// Vortex runtimes will spawn I/O drivers only when they are needed, partly to free up cores for
+/// performing CPU work when there is no I/O, but also to allow the I/O drivers to be non-Send.
+pub(crate) trait IoDriver {
+    type Data: Send + 'static;
+
+    /// Spawn a local future to process the given a stream of I/O requests until it terminates.
+    /// The future should apply reasonable concurrency constraints.
+    fn spawn(&self, stream: BoxStream<'static, IoRequest<Self::Data>>) -> impl Future<Output = ()>;
+}
+
+/// An I/O request that supports opaque attached data.
+pub(crate) struct IoRequest<Data> {
+    offset: u64,
+    length: usize,
+    alignment: Alignment,
+    resolve: oneshot::Receiver<VortexResult<ByteBuffer>>,
+    data: Data,
 }
 
 pub struct FileIo(Arc<File>);
