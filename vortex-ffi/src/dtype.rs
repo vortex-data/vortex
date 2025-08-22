@@ -266,6 +266,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_time_zone(
 }
 
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation)]
 mod tests {
     use vortex::dtype::DType;
 

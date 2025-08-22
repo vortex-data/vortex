@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #![allow(clippy::unwrap_used)]
+#![allow(clippy::panic)]
 use std::env;
 use std::path::PathBuf;
 
