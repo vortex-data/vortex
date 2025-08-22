@@ -13,9 +13,11 @@ fn main() {
     }
 
     // Skip header generation when sanitizers are enabled (cbindgen expansion fails with sanitizer flags)
-    if let Ok(rustflags) = env::var("RUSTFLAGS")
-        && rustflags.contains("sanitizer")
-    {
+    let has_sanitizer = env::var("RUSTFLAGS")
+        .map(|flags| flags.contains("sanitizer"))
+        .unwrap_or(false);
+
+    if has_sanitizer {
         println!(
             "cargo:warning=Skipping header generation with sanitizer flags (cbindgen incompatible)"
         );
@@ -43,12 +45,31 @@ fn main() {
     let config = cbindgen::Config::from_file("cbindgen.toml").unwrap();
 
     // Generate and write header
-    cbindgen::Builder::new()
+    match cbindgen::Builder::new()
         .with_crate(&crate_dir)
         .with_config(config)
         .generate()
-        .unwrap()
-        .write_to_file(&output_file);
+    {
+        Ok(bindings) => {
+            bindings.write_to_file(&output_file);
+        }
+        Err(e) => {
+            // Check if this might be a sanitizer-related failure that we missed in detection
+            let error_msg = e.to_string();
+            let rustflags = env::var("RUSTFLAGS").unwrap_or_default();
+
+            if rustflags.contains("sanitizer") || error_msg.contains("sanitizer") {
+                println!(
+                    "cargo:warning=Skipping header generation due to sanitizer incompatibility"
+                );
+                println!("cargo:warning=Error: {}", e);
+                return;
+            }
+
+            // For non-sanitizer errors, fail hard as these indicate real problems
+            panic!("Failed to generate header with cbindgen: {}", e);
+        }
+    }
 
     // Set up dependency tracking
     println!("cargo:rerun-if-changed=src/");
