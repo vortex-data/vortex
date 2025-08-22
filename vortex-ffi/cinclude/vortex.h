@@ -377,220 +377,652 @@ const vx_dtype *vx_array_dtype(const vx_array *array);
 
 const vx_array *vx_array_get_field(const vx_array *array, uint32_t index, vx_error **error_out);
 
+/**
+ * Create a slice of the array from start (inclusive) to stop (exclusive).
+ *
+ * # Safety
+ * - `array` must be a valid pointer to a vx_array
+ * - `error_out` must be a valid pointer or null
+ *
+ * # Arguments
+ * * `array` - Pointer to the array to slice
+ * * `start` - Starting index (inclusive)
+ * * `stop` - Ending index (exclusive)
+ * * `error_out` - Optional pointer to receive error information
+ *
+ * # Returns
+ * A new array containing the slice, or null if an error occurs.
+ * The caller is responsible for freeing the returned array with `vx_array_free`.
+ *
+ * # Errors
+ * - Invalid slice bounds (start >= stop, or indices out of bounds)
+ *
+ * # Example
+ * ```c
+ * vx_error *error = NULL;
+ * vx_array *slice = vx_array_slice(array, 10, 20, &error);
+ * if (error != NULL) {
+ *     // Handle error
+ *     vx_error_free(error);
+ * } else {
+ *     // Use slice - contains elements 10-19
+ *     vx_array_free(slice);
+ * }
+ * ```
+ */
 const vx_array *vx_array_slice(const vx_array *array,
                                uint32_t start,
                                uint32_t stop,
-                               vx_error **_error_out);
+                               vx_error **error_out);
 
 bool vx_array_is_null(const vx_array *array, uint32_t index, vx_error **error_out);
 
 uint32_t vx_array_null_count(const vx_array *array, vx_error **error_out);
 
-uint8_t vx_array_get_u8(const vx_array *array, uint32_t index);
-
-uint8_t vx_array_get_storage_u8(const vx_array *array, uint32_t index);
-
-uint16_t vx_array_get_u16(const vx_array *array, uint32_t index);
-
-uint16_t vx_array_get_storage_u16(const vx_array *array, uint32_t index);
-
-uint32_t vx_array_get_u32(const vx_array *array, uint32_t index);
-
-uint32_t vx_array_get_storage_u32(const vx_array *array, uint32_t index);
-
-uint64_t vx_array_get_u64(const vx_array *array, uint32_t index);
-
-uint64_t vx_array_get_storage_u64(const vx_array *array, uint32_t index);
-
-int8_t vx_array_get_i8(const vx_array *array, uint32_t index);
-
-int8_t vx_array_get_storage_i8(const vx_array *array, uint32_t index);
-
-int16_t vx_array_get_i16(const vx_array *array, uint32_t index);
-
-int16_t vx_array_get_storage_i16(const vx_array *array, uint32_t index);
-
-int32_t vx_array_get_i32(const vx_array *array, uint32_t index);
-
-int32_t vx_array_get_storage_i32(const vx_array *array, uint32_t index);
-
-int64_t vx_array_get_i64(const vx_array *array, uint32_t index);
-
-int64_t vx_array_get_storage_i64(const vx_array *array, uint32_t index);
-
 /**
- * Safe variant of primitive accessor that returns errors instead of panicking.
+ * Access a primitive value from the array at the specified index.
  *
- * Returns the default value (0) if an error occurs. Check error_out for details.
- * This prevents segmentation faults caused by panics in FFI code.
- */
-uint8_t vx_array_get_u8_safe(const vx_array *array, uint32_t index, vx_error **error_out);
-
-/**
- * Safe variant of storage accessor that returns errors instead of panicking.
+ * # Safety
+ * - `array` must be a valid pointer to a vx_array
+ * - `error_out` must be a valid pointer or null
  *
- * Returns the default value (0) if an error occurs. Check error_out for details.
- */
-uint8_t vx_array_get_storage_u8_safe(const vx_array *array, uint32_t index, vx_error **error_out);
-
-/**
- * Safe variant of primitive accessor that returns errors instead of panicking.
+ * # Arguments
+ * * `array` - Pointer to the array to access
+ * * `index` - Index of the element to retrieve
+ * * `error_out` - Optional pointer to receive error information
  *
- * Returns the default value (0) if an error occurs. Check error_out for details.
- * This prevents segmentation faults caused by panics in FFI code.
- */
-uint16_t vx_array_get_u16_safe(const vx_array *array, uint32_t index, vx_error **error_out);
-
-/**
- * Safe variant of storage accessor that returns errors instead of panicking.
+ * # Returns
+ * The value at the specified index, or the default value (0) if an error occurs.
+ * Check `error_out` to determine if an error occurred.
  *
- * Returns the default value (0) if an error occurs. Check error_out for details.
- */
-uint16_t vx_array_get_storage_u16_safe(const vx_array *array, uint32_t index, vx_error **error_out);
-
-/**
- * Safe variant of primitive accessor that returns errors instead of panicking.
+ * # Errors
+ * - Index out of bounds
+ * - Null value access
+ * - Type conversion failure
  *
- * Returns the default value (0) if an error occurs. Check error_out for details.
- * This prevents segmentation faults caused by panics in FFI code.
+ * # Example
+ * ```c
+ * vx_error *error = NULL;
+ * int32_t value = vx_array_get_i32(array, 5, &error);
+ * if (error != NULL) {
+ *     // Handle error - value will be 0
+ *     vx_error_free(error);
+ * } else {
+ *     // Use value safely
+ *     printf("Value: %d\n", value);
+ * }
+ * ```
  */
-uint32_t vx_array_get_u32_safe(const vx_array *array, uint32_t index, vx_error **error_out);
+uint8_t vx_array_get_u8(const vx_array *array, uint32_t index, vx_error **error_out);
 
 /**
- * Safe variant of storage accessor that returns errors instead of panicking.
+ * Access the storage value of an extension type at the specified index.
  *
- * Returns the default value (0) if an error occurs. Check error_out for details.
- */
-uint32_t vx_array_get_storage_u32_safe(const vx_array *array, uint32_t index, vx_error **error_out);
-
-/**
- * Safe variant of primitive accessor that returns errors instead of panicking.
+ * For extension types (like decimals), this accesses the underlying storage value
+ * rather than the logical value.
  *
- * Returns the default value (0) if an error occurs. Check error_out for details.
- * This prevents segmentation faults caused by panics in FFI code.
- */
-uint64_t vx_array_get_u64_safe(const vx_array *array, uint32_t index, vx_error **error_out);
-
-/**
- * Safe variant of storage accessor that returns errors instead of panicking.
+ * # Arguments
+ * * `array` - Pointer to the array to access
+ * * `index` - Index of the element to retrieve
+ * * `error_out` - Optional pointer to receive error information
  *
- * Returns the default value (0) if an error occurs. Check error_out for details.
+ * # Returns
+ * The storage value at the specified index, or the default value (0) if an error occurs.
  */
-uint64_t vx_array_get_storage_u64_safe(const vx_array *array, uint32_t index, vx_error **error_out);
+uint8_t vx_array_get_storage_u8(const vx_array *array, uint32_t index, vx_error **error_out);
 
 /**
- * Safe variant of primitive accessor that returns errors instead of panicking.
+ * Access a primitive value from the array at the specified index.
  *
- * Returns the default value (0) if an error occurs. Check error_out for details.
- * This prevents segmentation faults caused by panics in FFI code.
- */
-int8_t vx_array_get_i8_safe(const vx_array *array, uint32_t index, vx_error **error_out);
-
-/**
- * Safe variant of storage accessor that returns errors instead of panicking.
+ * # Safety
+ * - `array` must be a valid pointer to a vx_array
+ * - `error_out` must be a valid pointer or null
  *
- * Returns the default value (0) if an error occurs. Check error_out for details.
- */
-int8_t vx_array_get_storage_i8_safe(const vx_array *array, uint32_t index, vx_error **error_out);
-
-/**
- * Safe variant of primitive accessor that returns errors instead of panicking.
+ * # Arguments
+ * * `array` - Pointer to the array to access
+ * * `index` - Index of the element to retrieve
+ * * `error_out` - Optional pointer to receive error information
  *
- * Returns the default value (0) if an error occurs. Check error_out for details.
- * This prevents segmentation faults caused by panics in FFI code.
- */
-int16_t vx_array_get_i16_safe(const vx_array *array, uint32_t index, vx_error **error_out);
-
-/**
- * Safe variant of storage accessor that returns errors instead of panicking.
+ * # Returns
+ * The value at the specified index, or the default value (0) if an error occurs.
+ * Check `error_out` to determine if an error occurred.
  *
- * Returns the default value (0) if an error occurs. Check error_out for details.
- */
-int16_t vx_array_get_storage_i16_safe(const vx_array *array, uint32_t index, vx_error **error_out);
-
-/**
- * Safe variant of primitive accessor that returns errors instead of panicking.
+ * # Errors
+ * - Index out of bounds
+ * - Null value access
+ * - Type conversion failure
  *
- * Returns the default value (0) if an error occurs. Check error_out for details.
- * This prevents segmentation faults caused by panics in FFI code.
+ * # Example
+ * ```c
+ * vx_error *error = NULL;
+ * int32_t value = vx_array_get_i32(array, 5, &error);
+ * if (error != NULL) {
+ *     // Handle error - value will be 0
+ *     vx_error_free(error);
+ * } else {
+ *     // Use value safely
+ *     printf("Value: %d\n", value);
+ * }
+ * ```
  */
-int32_t vx_array_get_i32_safe(const vx_array *array, uint32_t index, vx_error **error_out);
+uint16_t vx_array_get_u16(const vx_array *array, uint32_t index, vx_error **error_out);
 
 /**
- * Safe variant of storage accessor that returns errors instead of panicking.
+ * Access the storage value of an extension type at the specified index.
  *
- * Returns the default value (0) if an error occurs. Check error_out for details.
- */
-int32_t vx_array_get_storage_i32_safe(const vx_array *array, uint32_t index, vx_error **error_out);
-
-/**
- * Safe variant of primitive accessor that returns errors instead of panicking.
+ * For extension types (like decimals), this accesses the underlying storage value
+ * rather than the logical value.
  *
- * Returns the default value (0) if an error occurs. Check error_out for details.
- * This prevents segmentation faults caused by panics in FFI code.
- */
-int64_t vx_array_get_i64_safe(const vx_array *array, uint32_t index, vx_error **error_out);
-
-/**
- * Safe variant of storage accessor that returns errors instead of panicking.
+ * # Arguments
+ * * `array` - Pointer to the array to access
+ * * `index` - Index of the element to retrieve
+ * * `error_out` - Optional pointer to receive error information
  *
- * Returns the default value (0) if an error occurs. Check error_out for details.
+ * # Returns
+ * The storage value at the specified index, or the default value (0) if an error occurs.
  */
-int64_t vx_array_get_storage_i64_safe(const vx_array *array, uint32_t index, vx_error **error_out);
+uint16_t vx_array_get_storage_u16(const vx_array *array, uint32_t index, vx_error **error_out);
 
 /**
- * Safe variant of primitive accessor that returns errors instead of panicking.
+ * Access a primitive value from the array at the specified index.
  *
- * Returns the default value (0) if an error occurs. Check error_out for details.
- * This prevents segmentation faults caused by panics in FFI code.
- */
-float vx_array_get_f32_safe(const vx_array *array, uint32_t index, vx_error **error_out);
-
-/**
- * Safe variant of storage accessor that returns errors instead of panicking.
+ * # Safety
+ * - `array` must be a valid pointer to a vx_array
+ * - `error_out` must be a valid pointer or null
  *
- * Returns the default value (0) if an error occurs. Check error_out for details.
- */
-float vx_array_get_storage_f32_safe(const vx_array *array, uint32_t index, vx_error **error_out);
-
-/**
- * Safe variant of primitive accessor that returns errors instead of panicking.
+ * # Arguments
+ * * `array` - Pointer to the array to access
+ * * `index` - Index of the element to retrieve
+ * * `error_out` - Optional pointer to receive error information
  *
- * Returns the default value (0) if an error occurs. Check error_out for details.
- * This prevents segmentation faults caused by panics in FFI code.
- */
-double vx_array_get_f64_safe(const vx_array *array, uint32_t index, vx_error **error_out);
-
-/**
- * Safe variant of storage accessor that returns errors instead of panicking.
+ * # Returns
+ * The value at the specified index, or the default value (0) if an error occurs.
+ * Check `error_out` to determine if an error occurred.
  *
- * Returns the default value (0) if an error occurs. Check error_out for details.
+ * # Errors
+ * - Index out of bounds
+ * - Null value access
+ * - Type conversion failure
+ *
+ * # Example
+ * ```c
+ * vx_error *error = NULL;
+ * int32_t value = vx_array_get_i32(array, 5, &error);
+ * if (error != NULL) {
+ *     // Handle error - value will be 0
+ *     vx_error_free(error);
+ * } else {
+ *     // Use value safely
+ *     printf("Value: %d\n", value);
+ * }
+ * ```
  */
-double vx_array_get_storage_f64_safe(const vx_array *array, uint32_t index, vx_error **error_out);
-
-uint16_t vx_array_get_f16(const vx_array *array, uint32_t index);
-
-uint16_t vx_array_get_storage_f16(const vx_array *array, uint32_t index);
-
-float vx_array_get_f32(const vx_array *array, uint32_t index);
-
-float vx_array_get_storage_f32(const vx_array *array, uint32_t index);
-
-double vx_array_get_f64(const vx_array *array, uint32_t index);
-
-double vx_array_get_storage_f64(const vx_array *array, uint32_t index);
+uint32_t vx_array_get_u32(const vx_array *array, uint32_t index, vx_error **error_out);
 
 /**
- * Write the UTF-8 string at `index` in the array into the provided destination buffer, recording
- * the length in `len`.
+ * Access the storage value of an extension type at the specified index.
+ *
+ * For extension types (like decimals), this accesses the underlying storage value
+ * rather than the logical value.
+ *
+ * # Arguments
+ * * `array` - Pointer to the array to access
+ * * `index` - Index of the element to retrieve
+ * * `error_out` - Optional pointer to receive error information
+ *
+ * # Returns
+ * The storage value at the specified index, or the default value (0) if an error occurs.
  */
-void vx_array_get_utf8(const vx_array *array, uint32_t index, void *dst, int *len);
+uint32_t vx_array_get_storage_u32(const vx_array *array, uint32_t index, vx_error **error_out);
 
 /**
- * Write the UTF-8 string at `index` in the array into the provided destination buffer, recording
- * the length in `len`.
+ * Access a primitive value from the array at the specified index.
+ *
+ * # Safety
+ * - `array` must be a valid pointer to a vx_array
+ * - `error_out` must be a valid pointer or null
+ *
+ * # Arguments
+ * * `array` - Pointer to the array to access
+ * * `index` - Index of the element to retrieve
+ * * `error_out` - Optional pointer to receive error information
+ *
+ * # Returns
+ * The value at the specified index, or the default value (0) if an error occurs.
+ * Check `error_out` to determine if an error occurred.
+ *
+ * # Errors
+ * - Index out of bounds
+ * - Null value access
+ * - Type conversion failure
+ *
+ * # Example
+ * ```c
+ * vx_error *error = NULL;
+ * int32_t value = vx_array_get_i32(array, 5, &error);
+ * if (error != NULL) {
+ *     // Handle error - value will be 0
+ *     vx_error_free(error);
+ * } else {
+ *     // Use value safely
+ *     printf("Value: %d\n", value);
+ * }
+ * ```
  */
-void vx_array_get_binary(const vx_array *array, uint32_t index, void *dst, int *len);
+uint64_t vx_array_get_u64(const vx_array *array, uint32_t index, vx_error **error_out);
+
+/**
+ * Access the storage value of an extension type at the specified index.
+ *
+ * For extension types (like decimals), this accesses the underlying storage value
+ * rather than the logical value.
+ *
+ * # Arguments
+ * * `array` - Pointer to the array to access
+ * * `index` - Index of the element to retrieve
+ * * `error_out` - Optional pointer to receive error information
+ *
+ * # Returns
+ * The storage value at the specified index, or the default value (0) if an error occurs.
+ */
+uint64_t vx_array_get_storage_u64(const vx_array *array, uint32_t index, vx_error **error_out);
+
+/**
+ * Access a primitive value from the array at the specified index.
+ *
+ * # Safety
+ * - `array` must be a valid pointer to a vx_array
+ * - `error_out` must be a valid pointer or null
+ *
+ * # Arguments
+ * * `array` - Pointer to the array to access
+ * * `index` - Index of the element to retrieve
+ * * `error_out` - Optional pointer to receive error information
+ *
+ * # Returns
+ * The value at the specified index, or the default value (0) if an error occurs.
+ * Check `error_out` to determine if an error occurred.
+ *
+ * # Errors
+ * - Index out of bounds
+ * - Null value access
+ * - Type conversion failure
+ *
+ * # Example
+ * ```c
+ * vx_error *error = NULL;
+ * int32_t value = vx_array_get_i32(array, 5, &error);
+ * if (error != NULL) {
+ *     // Handle error - value will be 0
+ *     vx_error_free(error);
+ * } else {
+ *     // Use value safely
+ *     printf("Value: %d\n", value);
+ * }
+ * ```
+ */
+int8_t vx_array_get_i8(const vx_array *array, uint32_t index, vx_error **error_out);
+
+/**
+ * Access the storage value of an extension type at the specified index.
+ *
+ * For extension types (like decimals), this accesses the underlying storage value
+ * rather than the logical value.
+ *
+ * # Arguments
+ * * `array` - Pointer to the array to access
+ * * `index` - Index of the element to retrieve
+ * * `error_out` - Optional pointer to receive error information
+ *
+ * # Returns
+ * The storage value at the specified index, or the default value (0) if an error occurs.
+ */
+int8_t vx_array_get_storage_i8(const vx_array *array, uint32_t index, vx_error **error_out);
+
+/**
+ * Access a primitive value from the array at the specified index.
+ *
+ * # Safety
+ * - `array` must be a valid pointer to a vx_array
+ * - `error_out` must be a valid pointer or null
+ *
+ * # Arguments
+ * * `array` - Pointer to the array to access
+ * * `index` - Index of the element to retrieve
+ * * `error_out` - Optional pointer to receive error information
+ *
+ * # Returns
+ * The value at the specified index, or the default value (0) if an error occurs.
+ * Check `error_out` to determine if an error occurred.
+ *
+ * # Errors
+ * - Index out of bounds
+ * - Null value access
+ * - Type conversion failure
+ *
+ * # Example
+ * ```c
+ * vx_error *error = NULL;
+ * int32_t value = vx_array_get_i32(array, 5, &error);
+ * if (error != NULL) {
+ *     // Handle error - value will be 0
+ *     vx_error_free(error);
+ * } else {
+ *     // Use value safely
+ *     printf("Value: %d\n", value);
+ * }
+ * ```
+ */
+int16_t vx_array_get_i16(const vx_array *array, uint32_t index, vx_error **error_out);
+
+/**
+ * Access the storage value of an extension type at the specified index.
+ *
+ * For extension types (like decimals), this accesses the underlying storage value
+ * rather than the logical value.
+ *
+ * # Arguments
+ * * `array` - Pointer to the array to access
+ * * `index` - Index of the element to retrieve
+ * * `error_out` - Optional pointer to receive error information
+ *
+ * # Returns
+ * The storage value at the specified index, or the default value (0) if an error occurs.
+ */
+int16_t vx_array_get_storage_i16(const vx_array *array, uint32_t index, vx_error **error_out);
+
+/**
+ * Access a primitive value from the array at the specified index.
+ *
+ * # Safety
+ * - `array` must be a valid pointer to a vx_array
+ * - `error_out` must be a valid pointer or null
+ *
+ * # Arguments
+ * * `array` - Pointer to the array to access
+ * * `index` - Index of the element to retrieve
+ * * `error_out` - Optional pointer to receive error information
+ *
+ * # Returns
+ * The value at the specified index, or the default value (0) if an error occurs.
+ * Check `error_out` to determine if an error occurred.
+ *
+ * # Errors
+ * - Index out of bounds
+ * - Null value access
+ * - Type conversion failure
+ *
+ * # Example
+ * ```c
+ * vx_error *error = NULL;
+ * int32_t value = vx_array_get_i32(array, 5, &error);
+ * if (error != NULL) {
+ *     // Handle error - value will be 0
+ *     vx_error_free(error);
+ * } else {
+ *     // Use value safely
+ *     printf("Value: %d\n", value);
+ * }
+ * ```
+ */
+int32_t vx_array_get_i32(const vx_array *array, uint32_t index, vx_error **error_out);
+
+/**
+ * Access the storage value of an extension type at the specified index.
+ *
+ * For extension types (like decimals), this accesses the underlying storage value
+ * rather than the logical value.
+ *
+ * # Arguments
+ * * `array` - Pointer to the array to access
+ * * `index` - Index of the element to retrieve
+ * * `error_out` - Optional pointer to receive error information
+ *
+ * # Returns
+ * The storage value at the specified index, or the default value (0) if an error occurs.
+ */
+int32_t vx_array_get_storage_i32(const vx_array *array, uint32_t index, vx_error **error_out);
+
+/**
+ * Access a primitive value from the array at the specified index.
+ *
+ * # Safety
+ * - `array` must be a valid pointer to a vx_array
+ * - `error_out` must be a valid pointer or null
+ *
+ * # Arguments
+ * * `array` - Pointer to the array to access
+ * * `index` - Index of the element to retrieve
+ * * `error_out` - Optional pointer to receive error information
+ *
+ * # Returns
+ * The value at the specified index, or the default value (0) if an error occurs.
+ * Check `error_out` to determine if an error occurred.
+ *
+ * # Errors
+ * - Index out of bounds
+ * - Null value access
+ * - Type conversion failure
+ *
+ * # Example
+ * ```c
+ * vx_error *error = NULL;
+ * int32_t value = vx_array_get_i32(array, 5, &error);
+ * if (error != NULL) {
+ *     // Handle error - value will be 0
+ *     vx_error_free(error);
+ * } else {
+ *     // Use value safely
+ *     printf("Value: %d\n", value);
+ * }
+ * ```
+ */
+int64_t vx_array_get_i64(const vx_array *array, uint32_t index, vx_error **error_out);
+
+/**
+ * Access the storage value of an extension type at the specified index.
+ *
+ * For extension types (like decimals), this accesses the underlying storage value
+ * rather than the logical value.
+ *
+ * # Arguments
+ * * `array` - Pointer to the array to access
+ * * `index` - Index of the element to retrieve
+ * * `error_out` - Optional pointer to receive error information
+ *
+ * # Returns
+ * The storage value at the specified index, or the default value (0) if an error occurs.
+ */
+int64_t vx_array_get_storage_i64(const vx_array *array, uint32_t index, vx_error **error_out);
+
+/**
+ * Access a primitive value from the array at the specified index.
+ *
+ * # Safety
+ * - `array` must be a valid pointer to a vx_array
+ * - `error_out` must be a valid pointer or null
+ *
+ * # Arguments
+ * * `array` - Pointer to the array to access
+ * * `index` - Index of the element to retrieve
+ * * `error_out` - Optional pointer to receive error information
+ *
+ * # Returns
+ * The value at the specified index, or the default value (0) if an error occurs.
+ * Check `error_out` to determine if an error occurred.
+ *
+ * # Errors
+ * - Index out of bounds
+ * - Null value access
+ * - Type conversion failure
+ *
+ * # Example
+ * ```c
+ * vx_error *error = NULL;
+ * int32_t value = vx_array_get_i32(array, 5, &error);
+ * if (error != NULL) {
+ *     // Handle error - value will be 0
+ *     vx_error_free(error);
+ * } else {
+ *     // Use value safely
+ *     printf("Value: %d\n", value);
+ * }
+ * ```
+ */
+float vx_array_get_f32(const vx_array *array, uint32_t index, vx_error **error_out);
+
+/**
+ * Access the storage value of an extension type at the specified index.
+ *
+ * For extension types (like decimals), this accesses the underlying storage value
+ * rather than the logical value.
+ *
+ * # Arguments
+ * * `array` - Pointer to the array to access
+ * * `index` - Index of the element to retrieve
+ * * `error_out` - Optional pointer to receive error information
+ *
+ * # Returns
+ * The storage value at the specified index, or the default value (0) if an error occurs.
+ */
+float vx_array_get_storage_f32(const vx_array *array, uint32_t index, vx_error **error_out);
+
+/**
+ * Access a primitive value from the array at the specified index.
+ *
+ * # Safety
+ * - `array` must be a valid pointer to a vx_array
+ * - `error_out` must be a valid pointer or null
+ *
+ * # Arguments
+ * * `array` - Pointer to the array to access
+ * * `index` - Index of the element to retrieve
+ * * `error_out` - Optional pointer to receive error information
+ *
+ * # Returns
+ * The value at the specified index, or the default value (0) if an error occurs.
+ * Check `error_out` to determine if an error occurred.
+ *
+ * # Errors
+ * - Index out of bounds
+ * - Null value access
+ * - Type conversion failure
+ *
+ * # Example
+ * ```c
+ * vx_error *error = NULL;
+ * int32_t value = vx_array_get_i32(array, 5, &error);
+ * if (error != NULL) {
+ *     // Handle error - value will be 0
+ *     vx_error_free(error);
+ * } else {
+ *     // Use value safely
+ *     printf("Value: %d\n", value);
+ * }
+ * ```
+ */
+double vx_array_get_f64(const vx_array *array, uint32_t index, vx_error **error_out);
+
+/**
+ * Access the storage value of an extension type at the specified index.
+ *
+ * For extension types (like decimals), this accesses the underlying storage value
+ * rather than the logical value.
+ *
+ * # Arguments
+ * * `array` - Pointer to the array to access
+ * * `index` - Index of the element to retrieve
+ * * `error_out` - Optional pointer to receive error information
+ *
+ * # Returns
+ * The storage value at the specified index, or the default value (0) if an error occurs.
+ */
+double vx_array_get_storage_f64(const vx_array *array, uint32_t index, vx_error **error_out);
+
+/**
+ * Access a half-precision float value from the array.
+ *
+ * Returns the raw u16 representation of the f16 value.
+ * Use appropriate conversion functions to work with the actual float value.
+ */
+uint16_t vx_array_get_f16(const vx_array *array, uint32_t index, vx_error **error_out);
+
+/**
+ * Access the storage value of an f16 extension type.
+ */
+uint16_t vx_array_get_storage_f16(const vx_array *array, uint32_t index, vx_error **error_out);
+
+/**
+ * Write the UTF-8 string at `index` in the array into the provided destination buffer.
+ *
+ * # Safety
+ * - `array` must be a valid pointer to a vx_array
+ * - `dst` must point to a buffer large enough to hold the string data
+ * - `len` must be a valid pointer to receive the string length
+ * - `error_out` must be a valid pointer or null
+ *
+ * # Arguments
+ * * `array` - Pointer to the array containing UTF-8 strings
+ * * `index` - Index of the string to retrieve
+ * * `dst` - Destination buffer to write string bytes
+ * * `len` - Pointer to receive the length of the string in bytes
+ * * `error_out` - Optional pointer to receive error information
+ *
+ * # Returns
+ * On success, the string data is written to `dst` and the length is stored in `len`.
+ * On error, `error_out` will contain error details and `len` will be set to 0.
+ *
+ * # Errors
+ * - Index out of bounds
+ * - Null value access
+ * - Type conversion failure (not a UTF-8 array)
+ *
+ * # Example
+ * ```c
+ * char buffer[1024];
+ * int length;
+ * vx_error *error = NULL;
+ * vx_array_get_utf8(array, 0, buffer, &length, &error);
+ * if (error != NULL) {
+ *     // Handle error
+ *     vx_error_free(error);
+ * } else {
+ *     buffer[length] = '\\0';  // Null-terminate if needed
+ *     printf("String: %.*s\\n", length, buffer);
+ * }
+ * ```
+ */
+void vx_array_get_utf8(const vx_array *array,
+                       uint32_t index,
+                       void *dst,
+                       int *len,
+                       vx_error **error_out);
+
+/**
+ * Write the binary data at `index` in the array into the provided destination buffer.
+ *
+ * # Safety
+ * - `array` must be a valid pointer to a vx_array
+ * - `dst` must point to a buffer large enough to hold the binary data
+ * - `len` must be a valid pointer to receive the data length
+ * - `error_out` must be a valid pointer or null
+ *
+ * # Arguments
+ * * `array` - Pointer to the array containing binary data
+ * * `index` - Index of the binary data to retrieve
+ * * `dst` - Destination buffer to write binary bytes
+ * * `len` - Pointer to receive the length of the data in bytes
+ * * `error_out` - Optional pointer to receive error information
+ *
+ * # Returns
+ * On success, the binary data is written to `dst` and the length is stored in `len`.
+ * On error, `error_out` will contain error details and `len` will be set to 0.
+ */
+void vx_array_get_binary(const vx_array *array,
+                         uint32_t index,
+                         void *dst,
+                         int *len,
+                         vx_error **error_out);
 
 /**
  * Free an owned [`vx_array_iterator`] object.
