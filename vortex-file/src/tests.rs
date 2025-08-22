@@ -935,11 +935,7 @@ fn test_pruning_with_or() {
     assert_eq!(
         (0..numbers.len())
             .map(|index| -> Option<i32> {
-                numbers
-                    .scalar_at(index)
-                    .unwrap()
-                    .as_primitive()
-                    .typed_value::<i32>()
+                numbers.scalar_at(index).as_primitive().typed_value::<i32>()
             })
             .collect::<Vec<_>>(),
         vec![
@@ -995,10 +991,10 @@ fn test_repeated_projection() {
 
     assert_eq!(
         (0..actual.len())
-            .map(|index| actual.scalar_at(index).unwrap())
+            .map(|index| actual.scalar_at(index))
             .collect_vec(),
         (0..expected.len())
-            .map(|index| expected.scalar_at(index).unwrap())
+            .map(|index| expected.scalar_at(index))
             .collect_vec()
     );
 }

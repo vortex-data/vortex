@@ -21,7 +21,7 @@ impl Datum {
     pub fn try_new(array: &dyn Array) -> VortexResult<Self> {
         if array.is_constant() {
             Ok(Self {
-                array: array.slice(0, 1)?.into_arrow_preferred()?,
+                array: array.slice(0, 1).into_arrow_preferred()?,
                 is_scalar: true,
             })
         } else {
@@ -38,7 +38,7 @@ impl Datum {
     ) -> VortexResult<Self> {
         if array.is_constant() {
             Ok(Self {
-                array: array.slice(0, 1)?.into_arrow(target_datatype)?,
+                array: array.slice(0, 1).into_arrow(target_datatype)?,
                 is_scalar: true,
             })
         } else {
@@ -60,14 +60,16 @@ impl ArrowDatum for Datum {
 /// This is useful for compute functions that delegate to Arrow using [Datum],
 /// which will return a scalar (length 1 Arrow array) if the input array is constant.
 ///
-/// Panics if the length of the array is not 1 and also not equal to the expected length.
-pub fn from_arrow_array_with_len<A>(array: A, len: usize, nullable: bool) -> VortexResult<ArrayRef>
+/// # Error
+///
+/// The provided array must have length
+pub fn from_arrow_array_with_len<A>(array: A, len: usize, nullable: bool) -> ArrayRef
 where
     ArrayRef: FromArrowArray<A>,
 {
     let array = ArrayRef::from_arrow(array, nullable);
     if array.len() == len {
-        return Ok(array);
+        return array;
     }
 
     if array.len() != 1 {
@@ -79,5 +81,5 @@ where
         );
     }
 
-    Ok(ConstantArray::new(array.scalar_at(0)?, len).into_array())
+    ConstantArray::new(array.scalar_at(0), len).into_array()
 }

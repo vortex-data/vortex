@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::ArrayRef;
@@ -19,7 +18,7 @@ pub trait OperationsVTable<V: VTable> {
     /// ## Preconditions
     ///
     /// Bounds-checking has already been performed by the time this function is called.
-    fn slice(array: &V::Array, start: usize, stop: usize) -> VortexResult<ArrayRef>;
+    fn slice(array: &V::Array, start: usize, stop: usize) -> ArrayRef;
 
     /// Fetch the scalar at the given index.
     ///
@@ -27,5 +26,5 @@ pub trait OperationsVTable<V: VTable> {
     ///
     /// Bounds-checking has already been performed by the time this function is called,
     /// and the index is guaranteed to be non-null.
-    fn scalar_at(array: &V::Array, index: usize) -> VortexResult<Scalar>;
+    fn scalar_at(array: &V::Array, index: usize) -> Scalar;
 }

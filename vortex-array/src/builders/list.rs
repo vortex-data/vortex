@@ -163,18 +163,18 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
 
         let index_dtype = self.index_builder.dtype();
 
-        let n_leading_junk_values_scalar = offsets.scalar_at(0)?.cast(index_dtype)?;
+        let n_leading_junk_values_scalar = offsets.scalar_at(0).cast(index_dtype)?;
         let n_leading_junk_values = usize::try_from(&n_leading_junk_values_scalar)?;
 
-        let casted_offsets = cast(&offsets.slice(1, offsets.len())?, index_dtype)?;
+        let casted_offsets = cast(&offsets.slice(1, offsets.len()), index_dtype)?;
         let offsets_without_leading_junk =
             sub_scalar(&casted_offsets, n_leading_junk_values_scalar)?;
         let offsets_into_builder =
             add_scalar(&offsets_without_leading_junk, n_already_added_values.into())?;
 
-        let last_offset = offsets.scalar_at(offsets.len() - 1)?;
+        let last_offset = offsets.scalar_at(offsets.len() - 1);
         let last_offset = usize::try_from(&last_offset)?;
-        let non_junk_values = elements.slice(n_leading_junk_values, last_offset)?;
+        let non_junk_values = elements.slice(n_leading_junk_values, last_offset);
 
         self.nulls.append_validity_mask(array.validity_mask()?);
         self.index_builder
@@ -271,8 +271,8 @@ mod tests {
 
         let list_array = list.to_list().unwrap();
 
-        assert_eq!(list_array.elements_at(0).unwrap().len(), 3);
-        assert_eq!(list_array.elements_at(1).unwrap().len(), 3);
+        assert_eq!(list_array.elements_at(0).len(), 3);
+        assert_eq!(list_array.elements_at(1).len(), 3);
     }
 
     #[test]
@@ -323,9 +323,9 @@ mod tests {
 
         let list_array = list.to_list().unwrap();
 
-        assert_eq!(list_array.elements_at(0).unwrap().len(), 3);
-        assert_eq!(list_array.elements_at(1).unwrap().len(), 0);
-        assert_eq!(list_array.elements_at(2).unwrap().len(), 3);
+        assert_eq!(list_array.elements_at(0).len(), 3);
+        assert_eq!(list_array.elements_at(1).len(), 0);
+        assert_eq!(list_array.elements_at(2).len(), 3);
     }
 
     fn test_extend_builder_gen<O: OffsetPType>() {
@@ -339,12 +339,8 @@ mod tests {
 
         builder.extend_from_array(&list).unwrap();
         builder.extend_from_array(&list).unwrap();
-        builder
-            .extend_from_array(&list.slice(0, 0).unwrap())
-            .unwrap();
-        builder
-            .extend_from_array(&list.slice(1, 3).unwrap())
-            .unwrap();
+        builder.extend_from_array(&list.slice(0, 0)).unwrap();
+        builder.extend_from_array(&list.slice(1, 3)).unwrap();
 
         let expected = ListArray::from_iter_opt_slow::<O, _, _>(
             [
@@ -427,12 +423,9 @@ mod tests {
         let canon_values = chunked_list.unwrap().to_list().unwrap();
 
         assert_eq!(
-            one_trailing_unused_element.scalar_at(0).unwrap(),
-            canon_values.scalar_at(0).unwrap()
+            one_trailing_unused_element.scalar_at(0),
+            canon_values.scalar_at(0)
         );
-        assert_eq!(
-            second_array.scalar_at(0).unwrap(),
-            canon_values.scalar_at(1).unwrap()
-        );
+        assert_eq!(second_array.scalar_at(0), canon_values.scalar_at(1));
     }
 }

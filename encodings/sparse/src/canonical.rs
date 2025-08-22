@@ -218,7 +218,7 @@ fn canonicalize_sparse_lists_inner<I: NativePType, SmallestViableOffsetType: Off
         for _ in next_index..next_patched_index {
             builder.extend_from_array(&fill_value_array)?;
         }
-        builder.extend_from_array(&values.slice(patch_values_index, patch_values_index + 1)?)?;
+        builder.extend_from_array(&values.slice(patch_values_index, patch_values_index + 1))?;
         next_index = next_patched_index + 1;
     }
 
@@ -443,7 +443,10 @@ fn canonicalize_varbin_inner<I: NativePType>(
         views[patch_index_usize] = patch;
     }
 
-    let array = VarBinViewArray::try_new(views.freeze(), Arc::from(buffers), dtype, validity)?;
+    // SAFETY: views are constructed to maintain the invariants
+    let array = unsafe {
+        VarBinViewArray::new_unchecked(views.freeze(), Arc::from(buffers), dtype, validity)
+    };
 
     Ok(Canonical::VarBinView(array))
 }
@@ -997,7 +1000,7 @@ mod test {
         let array = list_scalar_to_singleton_list_array(scalar.as_list()).unwrap();
         assert!(array.is_some());
         let array = array.unwrap();
-        assert_eq!(array.scalar_at(0).unwrap(), scalar);
+        assert_eq!(array.scalar_at(0), scalar);
         assert_eq!(array.len(), 1);
 
         let scalar = Scalar::null_typed::<Vec<i32>>();
@@ -1044,7 +1047,7 @@ mod test {
         let lists = ListArray::try_new(elements, offsets, Validity::AllValid)
             .unwrap()
             .into_array();
-        let lists = lists.slice(2, 6).unwrap();
+        let lists = lists.slice(2, 6);
 
         let indices = buffer![0u8, 3u8, 4u8, 5u8].into_array();
         let fill_value = Scalar::null(lists.dtype().clone());

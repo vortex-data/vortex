@@ -78,7 +78,7 @@ where
                 let mut offset = 0;
                 while offset < chunk.len() {
                     let end = (offset + options.block_len_multiple).min(chunk.len());
-                    let sliced = chunk.slice(offset, end)?;
+                    let sliced = chunk.slice(offset, end);
                     chunks.push_back(sliced);
                     offset = end;
 
@@ -86,7 +86,7 @@ where
                         let output_chunks = chunks.collect_exact_blocks()?;
                         assert!(!output_chunks.is_empty());
                         let chunked =
-                            ChunkedArray::new_unchecked(output_chunks, dtype_clone.clone());
+                            ChunkedArray::try_new(output_chunks, dtype_clone.clone())?;
                         if !chunked.is_empty() {
                             yield (
                                 sequence_pointer.advance(),
@@ -96,10 +96,10 @@ where
                     }
                 }
                 if canonical_stream.as_mut().peek().await.is_none() {
-                    let to_flush = ChunkedArray::new_unchecked(
+                    let to_flush = ChunkedArray::try_new(
                         chunks.data.drain(..).collect(),
                         dtype_clone.clone(),
-                    );
+                    )?;
                     if !to_flush.is_empty() {
                         yield (
                             sequence_pointer.advance(),
@@ -153,8 +153,8 @@ impl ChunksBuffer {
             let len = chunk.len();
 
             if len > remaining {
-                let left = chunk.slice(0, remaining)?;
-                let right = chunk.slice(remaining, len)?;
+                let left = chunk.slice(0, remaining);
+                let right = chunk.slice(remaining, len);
                 self.push_front(right);
                 res.push(left);
                 remaining = 0;

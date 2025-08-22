@@ -105,15 +105,9 @@ mod test {
         let all_invalid_indices = PrimitiveArray::from_option_iter([None::<u32>, None, None]);
         let b = take(reference.as_ref(), all_invalid_indices.as_ref()).unwrap();
         assert_eq!(b.dtype(), &nullable_bool_dtype);
-        assert_eq!(
-            b.scalar_at(0).unwrap(),
-            Scalar::null(nullable_bool_dtype.clone())
-        );
-        assert_eq!(
-            b.scalar_at(1).unwrap(),
-            Scalar::null(nullable_bool_dtype.clone())
-        );
-        assert_eq!(b.scalar_at(2).unwrap(), Scalar::null(nullable_bool_dtype));
+        assert_eq!(b.scalar_at(0), Scalar::null(nullable_bool_dtype.clone()));
+        assert_eq!(b.scalar_at(1), Scalar::null(nullable_bool_dtype.clone()));
+        assert_eq!(b.scalar_at(2), Scalar::null(nullable_bool_dtype));
     }
 
     #[test]
@@ -124,11 +118,11 @@ mod test {
             Validity::Array(BoolArray::from_iter([true, true, false]).to_array()),
         );
         let actual = take(values.as_ref(), indices.as_ref()).unwrap();
-        assert_eq!(actual.scalar_at(0).unwrap(), Scalar::from(Some(false)));
+        assert_eq!(actual.scalar_at(0), Scalar::from(Some(false)));
         // position 3 is null
-        assert_eq!(actual.scalar_at(1).unwrap(), Scalar::null_typed::<bool>());
+        assert_eq!(actual.scalar_at(1), Scalar::null_typed::<bool>());
         // the third index is null
-        assert_eq!(actual.scalar_at(2).unwrap(), Scalar::null_typed::<bool>());
+        assert_eq!(actual.scalar_at(2), Scalar::null_typed::<bool>());
     }
 
     #[test]
@@ -139,10 +133,10 @@ mod test {
             Validity::Array(BoolArray::from_iter([true, true, false]).to_array()),
         );
         let actual = take(values.as_ref(), indices.as_ref()).unwrap();
-        assert_eq!(actual.scalar_at(0).unwrap(), Scalar::from(Some(false)));
-        assert_eq!(actual.scalar_at(1).unwrap(), Scalar::from(Some(true)));
+        assert_eq!(actual.scalar_at(0), Scalar::from(Some(false)));
+        assert_eq!(actual.scalar_at(1), Scalar::from(Some(true)));
         // the third index is null
-        assert_eq!(actual.scalar_at(2).unwrap(), Scalar::null_typed::<bool>());
+        assert_eq!(actual.scalar_at(2), Scalar::null_typed::<bool>());
     }
 
     #[test]
@@ -153,9 +147,9 @@ mod test {
             Validity::Array(BoolArray::from_iter([false, false, false]).to_array()),
         );
         let actual = take(values.as_ref(), indices.as_ref()).unwrap();
-        assert_eq!(actual.scalar_at(0).unwrap(), Scalar::null_typed::<bool>());
-        assert_eq!(actual.scalar_at(1).unwrap(), Scalar::null_typed::<bool>());
-        assert_eq!(actual.scalar_at(2).unwrap(), Scalar::null_typed::<bool>());
+        assert_eq!(actual.scalar_at(0), Scalar::null_typed::<bool>());
+        assert_eq!(actual.scalar_at(1), Scalar::null_typed::<bool>());
+        assert_eq!(actual.scalar_at(2), Scalar::null_typed::<bool>());
     }
 
     #[test]
@@ -166,9 +160,9 @@ mod test {
             Validity::Array(BoolArray::from_iter([false, false, false]).to_array()),
         );
         let actual = take(values.as_ref(), indices.as_ref()).unwrap();
-        assert_eq!(actual.scalar_at(0).unwrap(), Scalar::null_typed::<bool>());
-        assert_eq!(actual.scalar_at(1).unwrap(), Scalar::null_typed::<bool>());
-        assert_eq!(actual.scalar_at(2).unwrap(), Scalar::null_typed::<bool>());
+        assert_eq!(actual.scalar_at(0), Scalar::null_typed::<bool>());
+        assert_eq!(actual.scalar_at(1), Scalar::null_typed::<bool>());
+        assert_eq!(actual.scalar_at(2), Scalar::null_typed::<bool>());
     }
 
     #[rstest]

@@ -18,28 +18,26 @@ impl CastKernel for BitPackedVTable {
                 .clone()
                 .cast_nullability(dtype.nullability())?;
             return Ok(Some(
-                unsafe {
-                    BitPackedArray::new_unchecked_with_offset(
-                        array.packed().clone(),
-                        dtype.as_ptype(),
-                        new_validity,
-                        array
-                            .patches()
-                            .map(|patches| {
-                                let new_values = cast(patches.values(), dtype)?;
-                                VortexResult::Ok(Patches::new(
-                                    patches.array_len(),
-                                    patches.offset(),
-                                    patches.indices().clone(),
-                                    new_values,
-                                ))
-                            })
-                            .transpose()?,
-                        array.bit_width(),
-                        array.len(),
-                        array.offset(),
-                    )?
-                }
+                BitPackedArray::try_new(
+                    array.packed().clone(),
+                    dtype.as_ptype(),
+                    new_validity,
+                    array
+                        .patches()
+                        .map(|patches| {
+                            let new_values = cast(patches.values(), dtype)?;
+                            VortexResult::Ok(Patches::new(
+                                patches.array_len(),
+                                patches.offset(),
+                                patches.indices().clone(),
+                                new_values,
+                            ))
+                        })
+                        .transpose()?,
+                    array.bit_width(),
+                    array.len(),
+                    array.offset(),
+                )?
                 .into_array(),
             ));
         }

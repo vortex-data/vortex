@@ -7,7 +7,19 @@ use vortex_error::{VortexError, vortex_bail};
 use vortex_flatbuffers::{ReadFlatBuffer, WriteFlatBuffer, array as fba};
 use vortex_scalar::ScalarValue;
 
-use crate::stats::{Precision, Stat, StatsSet};
+use crate::stats::{Precision, Stat, StatsSet, StatsSetRef};
+
+impl WriteFlatBuffer for StatsSetRef<'_> {
+    type Target<'t> = fba::ArrayStats<'t>;
+
+    /// All statistics written must be exact
+    fn write_flatbuffer<'fb>(
+        &self,
+        fbb: &mut FlatBufferBuilder<'fb>,
+    ) -> WIPOffset<Self::Target<'fb>> {
+        self.with_typed_stats_set(|stats_set| stats_set.values.write_flatbuffer(fbb))
+    }
+}
 
 impl WriteFlatBuffer for StatsSet {
     type Target<'t> = fba::ArrayStats<'t>;

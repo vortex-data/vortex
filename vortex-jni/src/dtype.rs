@@ -103,7 +103,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getFieldNames(
     try_or_throw(&mut env, |env| {
         let array_list = env.new_object("java/util/ArrayList", "()V", &[])?;
         let field_names = env.get_list(&array_list)?;
-        let Some(struct_dtype) = dtype.as_struct() else {
+        let Some(struct_dtype) = dtype.as_struct_opt() else {
             throw_runtime!("DType should be STRUCT, was {dtype}");
         };
 
@@ -127,7 +127,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getFieldTypes(
     try_or_throw(&mut env, |env| {
         let array_list = env.new_object("java/util/ArrayList", "()V", &[])?;
         let field_types = env.get_list(&array_list)?;
-        let Some(struct_dtype) = dtype.as_struct() else {
+        let Some(struct_dtype) = dtype.as_struct_opt() else {
             throw_runtime!("DType should be STRUCT, was {dtype}");
         };
 
@@ -157,7 +157,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getElementType(
     let dtype = unsafe { &*(dtype_ptr as *const DType) };
 
     try_or_throw(&mut env, |_| {
-        let Some(element_type) = dtype.as_list_element() else {
+        let Some(element_type) = dtype.as_list_element_opt() else {
             throw_runtime!("DType should be LIST, was {dtype}");
         };
 

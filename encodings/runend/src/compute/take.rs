@@ -128,7 +128,7 @@ mod test {
 
     #[test]
     fn sliced_take() {
-        let sliced = ree_array().slice(4, 9).unwrap();
+        let sliced = ree_array().slice(4, 9);
         let taken = take(
             sliced.as_ref(),
             PrimitiveArray::from_iter([1, 3, 4]).as_ref(),
@@ -136,9 +136,9 @@ mod test {
         .unwrap();
 
         assert_eq!(taken.len(), 3);
-        assert_eq!(taken.scalar_at(0).unwrap(), 4.into());
-        assert_eq!(taken.scalar_at(1).unwrap(), 2.into());
-        assert_eq!(taken.scalar_at(2).unwrap(), 5.into());
+        assert_eq!(taken.scalar_at(0), 4.into());
+        assert_eq!(taken.scalar_at(1), 2.into());
+        assert_eq!(taken.scalar_at(2), 5.into());
     }
 
     #[test]
@@ -150,14 +150,14 @@ mod test {
         .unwrap();
 
         assert_eq!(
-            taken.scalar_at(0).unwrap(),
+            taken.scalar_at(0),
             Scalar::new(
                 DType::Primitive(PType::I32, Nullability::Nullable),
                 ScalarValue::from(1i32)
             )
         );
         assert_eq!(
-            taken.scalar_at(1).unwrap(),
+            taken.scalar_at(1),
             Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable))
         );
     }
@@ -198,13 +198,13 @@ mod test {
     }
 
     #[rstest]
-    #[case(ree_array().slice(3, 6).unwrap())]
+    #[case(ree_array().slice(3, 6))]
     #[case({
         let array = RunEndArray::encode(
             PrimitiveArray::from_iter([1i32, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3]).into_array(),
         )
         .unwrap();
-        array.slice(2, 8).unwrap()
+        array.slice(2, 8)
     })]
     fn test_take_sliced_runend_conformance(#[case] sliced: ArrayRef) {
         test_take_conformance(sliced.as_ref());

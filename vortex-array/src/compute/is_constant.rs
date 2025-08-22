@@ -12,7 +12,7 @@ use vortex_scalar::Scalar;
 use crate::Array;
 use crate::arrays::{ConstantVTable, NullVTable};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
-use crate::stats::{Precision, Stat, StatsProvider};
+use crate::stats::{Precision, Stat, StatsProvider, StatsProviderExt};
 use crate::vtable::VTable;
 
 static IS_CONSTANT_FN: LazyLock<ComputeFn> = LazyLock::new(|| {

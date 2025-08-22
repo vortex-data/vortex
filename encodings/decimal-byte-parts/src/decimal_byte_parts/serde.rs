@@ -8,7 +8,7 @@ use vortex_array::{
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexResult, vortex_bail};
 
 use crate::{DecimalBytePartsArray, DecimalBytePartsEncoding, DecimalBytePartsVTable};
 
@@ -25,8 +25,7 @@ impl SerdeVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
 
     fn metadata(array: &DecimalBytePartsArray) -> VortexResult<Option<Self::Metadata>> {
         Ok(Some(ProstMetadata(DecimalBytesPartsMetadata {
-            zeroth_child_ptype: PType::try_from(array.msp.dtype()).vortex_expect("must be a PType")
-                as i32,
+            zeroth_child_ptype: PType::try_from(array.msp.dtype())? as i32,
             lower_part_count: 0,
         })))
     }
@@ -39,7 +38,7 @@ impl SerdeVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
         _buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<DecimalBytePartsArray> {
-        let Some(decimal_dtype) = dtype.as_decimal() else {
+        let Some(decimal_dtype) = dtype.as_decimal_opt() else {
             vortex_bail!("decoding decimal but given non decimal dtype {}", dtype)
         };
 

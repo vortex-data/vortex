@@ -266,7 +266,7 @@ fn search_sorted_side_idx<F: FnMut(usize) -> Ordering>(
 
 impl IndexOrd<Scalar> for dyn Array + '_ {
     fn index_cmp(&self, idx: usize, elem: &Scalar) -> Option<Ordering> {
-        let scalar_a = self.scalar_at(idx).ok()?;
+        let scalar_a = self.scalar_at(idx);
         scalar_a.partial_cmp(elem)
     }
 

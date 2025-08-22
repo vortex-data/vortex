@@ -8,6 +8,7 @@ use crate::Array;
 use crate::validity::Validity;
 use crate::vtable::VTable;
 
+// TODO(aduffy): these methods should be infallible.
 pub trait ValidityVTable<V: VTable> {
     fn is_valid(array: &V::Array, index: usize) -> VortexResult<bool>;
 
@@ -70,7 +71,7 @@ pub struct ValidityVTableFromValiditySliceHelper;
 pub trait ValiditySliceHelper {
     fn unsliced_validity_and_slice(&self) -> (&Validity, usize, usize);
 
-    fn sliced_validity(&self) -> VortexResult<Validity> {
+    fn sliced_validity(&self) -> Validity {
         let (unsliced_validity, start, stop) = self.unsliced_validity_and_slice();
         unsliced_validity.slice(start, stop)
     }
@@ -86,15 +87,15 @@ where
     }
 
     fn all_valid(array: &V::Array) -> VortexResult<bool> {
-        array.sliced_validity()?.all_valid()
+        array.sliced_validity().all_valid()
     }
 
     fn all_invalid(array: &V::Array) -> VortexResult<bool> {
-        array.sliced_validity()?.all_invalid()
+        array.sliced_validity().all_invalid()
     }
 
     fn validity_mask(array: &V::Array) -> VortexResult<Mask> {
-        array.sliced_validity()?.to_mask(array.len())
+        array.sliced_validity().to_mask(array.len())
     }
 }
 

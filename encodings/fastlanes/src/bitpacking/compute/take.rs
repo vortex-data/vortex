@@ -181,7 +181,7 @@ mod test {
         // Create a u8 array modulo 63.
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
-        let sliced = bitpacked.slice(128, 2050).unwrap();
+        let sliced = bitpacked.slice(128, 2050);
 
         let primitive_result = take(&sliced, &indices).unwrap().to_primitive().unwrap();
         let res_bytes = primitive_result.as_slice::<u8>();
@@ -210,11 +210,11 @@ mod test {
             .enumerate()
             .for_each(|(ti, i)| {
                 assert_eq!(
-                    u32::try_from(&packed.scalar_at(*i as usize).unwrap()).unwrap(),
+                    u32::try_from(&packed.scalar_at(*i as usize)).unwrap(),
                     values[*i as usize]
                 );
                 assert_eq!(
-                    u32::try_from(&taken.scalar_at(ti).unwrap()).unwrap(),
+                    u32::try_from(&taken.scalar_at(ti)).unwrap(),
                     values[*i as usize]
                 );
             });

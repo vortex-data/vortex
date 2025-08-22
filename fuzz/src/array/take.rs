@@ -117,7 +117,7 @@ pub fn take_canonical_array(
             let mut builder = builder_with_capacity(array.dtype(), indices_slice_non_opt.len());
             for idx in indices {
                 if let Some(idx) = idx {
-                    builder.append_scalar(&array.scalar_at(*idx)?)?;
+                    builder.append_scalar(&array.scalar_at(*idx))?;
                 } else {
                     builder.append_null()
                 }

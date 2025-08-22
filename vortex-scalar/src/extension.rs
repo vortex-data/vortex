@@ -31,9 +31,8 @@ impl Display for ExtScalar<'_> {
                 .storage()
                 .as_primitive()
                 .as_::<i64>()
-                .and_then(|maybe_timestamp| {
-                    maybe_timestamp.map(|v| metadata.to_jiff(v)).transpose()
-                })
+                .map(|maybe_timestamp| metadata.to_jiff(maybe_timestamp))
+                .transpose()
                 .map_err(|_| std::fmt::Error)?;
 
             match maybe_timestamp {

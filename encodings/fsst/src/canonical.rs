@@ -3,47 +3,48 @@
 
 use std::sync::Arc;
 
-use fsst::Decompressor;
 use vortex_array::arrays::{BinaryView, VarBinViewArray};
 use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
-use vortex_array::validity::Validity;
-use vortex_array::vtable::CanonicalVTable;
+use vortex_array::vtable::{CanonicalVTable, ValidityHelper};
 use vortex_array::{Canonical, IntoArray, ToCanonical};
-use vortex_buffer::{BufferMut, ByteBuffer, ByteBufferMut};
+use vortex_buffer::{Buffer, BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 
 use crate::{FSSTArray, FSSTVTable};
 
 impl CanonicalVTable<FSSTVTable> for FSSTVTable {
     fn canonicalize(array: &FSSTArray) -> VortexResult<Canonical> {
-        fsst_into_varbin_view(array.decompressor(), array, 0).map(Canonical::VarBinView)
+        let (buffer, views) = fsst_decode_views(array, 0);
+        // SAFETY: FSST already validates the bytes for binary/UTF-8. We build views directly on
+        //  top of them, so the view pointers will all be valid.
+        unsafe {
+            Ok(Canonical::VarBinView(VarBinViewArray::new_unchecked(
+                views,
+                Arc::new([buffer]),
+                array.dtype().clone(),
+                array.codes().validity().clone(),
+            )))
+        }
     }
 
     fn append_to_builder(array: &FSSTArray, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
             return builder.extend_from_array(&array.to_canonical()?.into_array());
         };
-        let view =
-            fsst_into_varbin_view(array.decompressor(), array, builder.completed_block_count())?;
 
-        builder.push_buffer_and_adjusted_views(
-            view.buffers(),
-            view.views(),
-            array.validity_mask()?,
-        );
+        // Decompress the whole block of data into a new buffer, and create some views
+        // from it instead.
+
+        let (buffer, views) = fsst_decode_views(array, builder.completed_block_count());
+
+        builder.push_buffer_and_adjusted_views(&[buffer], &views, array.validity_mask()?);
         Ok(())
     }
 }
 
-// Decompresses a fsst encoded array into a varbinview, a block_offset can be passed if the decoding
-// if happening as part of the larger view and is used to set the block_offset in each view.
 #[allow(clippy::cast_possible_truncation)]
-fn fsst_into_varbin_view(
-    decompressor: Decompressor,
-    fsst_array: &FSSTArray,
-    block_offset: usize,
-) -> VortexResult<VarBinViewArray> {
+fn fsst_decode_views(fsst_array: &FSSTArray, buf_index: u32) -> (ByteBuffer, Buffer<BinaryView>) {
     // FSSTArray has two child arrays:
     //  1. A VarBinArray, which holds the string heap of the compressed codes.
     //  2. An uncompressed_lengths primitive array, storing the length of each original
@@ -53,7 +54,10 @@ fn fsst_into_varbin_view(
     // necessary for a VarBinViewArray and construct the canonical array.
     let bytes = fsst_array.codes().sliced_bytes();
 
-    let uncompressed_lens_array = fsst_array.uncompressed_lengths().to_primitive()?;
+    let uncompressed_lens_array = fsst_array
+        .uncompressed_lengths()
+        .to_primitive()
+        .vortex_expect("uncompressed_lens must be primitive");
 
     // Decompres the full dataset.
     #[allow(clippy::cast_possible_truncation)]
@@ -66,12 +70,11 @@ fn fsst_into_varbin_view(
     });
 
     // Bulk-decompress the entire array.
+    let decompressor = fsst_array.decompressor();
     let mut uncompressed_bytes = ByteBufferMut::with_capacity(total_size + 7);
     let len =
         decompressor.decompress_into(bytes.as_slice(), uncompressed_bytes.spare_capacity_mut());
     unsafe { uncompressed_bytes.set_len(len) };
-
-    let block_offset = u32::try_from(block_offset)?;
 
     // Directly create the binary views.
     let mut views = BufferMut::<BinaryView>::with_capacity(uncompressed_lens_array.len());
@@ -82,7 +85,7 @@ fn fsst_into_varbin_view(
             let len = *len as usize;
             let view = BinaryView::make_view(
                 &uncompressed_bytes[offset..][..len],
-                block_offset,
+                buf_index,
                 offset as u32,
             );
             // SAFETY: we reserved the right capacity beforehand
@@ -91,15 +94,7 @@ fn fsst_into_varbin_view(
         }
     });
 
-    let views = views.freeze();
-    let uncompressed_bytes_array = ByteBuffer::from(uncompressed_bytes);
-
-    VarBinViewArray::try_new(
-        views,
-        Arc::from([uncompressed_bytes_array]),
-        fsst_array.dtype().clone(),
-        Validity::copy_from_array(fsst_array.as_ref())?,
-    )
+    (uncompressed_bytes.freeze(), views.freeze())
 }
 
 #[cfg(test)]

@@ -14,7 +14,7 @@ use vortex_proto::scalar as pb;
 
 use crate::decimal::DecimalValue;
 use crate::pvalue::PValue;
-use crate::{ScalarType, i256};
+use crate::{Scalar, ScalarType, i256};
 
 /// Represents the internal data of a scalar value. Must be interpreted by wrapping up with a
 /// [`DType`] to make a [`super::Scalar`].
@@ -24,6 +24,39 @@ use crate::{ScalarType, i256};
 /// read using [`super::PrimitiveScalar`] which will handle the conversion.
 #[derive(Debug, Clone)]
 pub struct ScalarValue(pub(crate) InnerScalarValue);
+
+/// It is common to represent a nullable type `T` as an `Option<T>`, so we implement a blanket
+/// implementation for all `Option<T>` to simply be a nullable `T`.
+impl<T> From<Option<T>> for ScalarValue
+where
+    T: ScalarType,
+    ScalarValue: From<T>,
+{
+    fn from(value: Option<T>) -> Self {
+        value
+            .map(ScalarValue::from)
+            .unwrap_or_else(|| ScalarValue(InnerScalarValue::Null))
+    }
+}
+
+impl<T> From<Vec<T>> for ScalarValue
+where
+    T: ScalarType,
+    Scalar: From<T>,
+{
+    /// Converts a vector into a `ScalarValue` (specifically a `ListScalar`).
+    fn from(value: Vec<T>) -> Self {
+        ScalarValue(InnerScalarValue::List(
+            value
+                .into_iter()
+                .map(|x| {
+                    let scalar: Scalar = T::into(x);
+                    scalar.into_value()
+                })
+                .collect::<Arc<[ScalarValue]>>(),
+        ))
+    }
+}
 
 #[derive(Debug, Clone)]
 pub(crate) enum InnerScalarValue {
@@ -262,18 +295,6 @@ impl InnerScalarValue {
             InnerScalarValue::List(l) => Ok(Some(l)),
             _ => Err(vortex_err!("Expected a list scalar, found {:?}", self)),
         }
-    }
-}
-
-impl<T> From<Option<T>> for ScalarValue
-where
-    T: ScalarType,
-    ScalarValue: From<T>,
-{
-    fn from(value: Option<T>) -> Self {
-        value
-            .map(ScalarValue::from)
-            .unwrap_or_else(|| ScalarValue(InnerScalarValue::Null))
     }
 }
 

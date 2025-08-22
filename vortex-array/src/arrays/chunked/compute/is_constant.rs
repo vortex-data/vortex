@@ -26,7 +26,7 @@ impl IsConstantKernel for ChunkedVTable {
             Some(true) => {}
         }
 
-        let first_value = first_chunk.scalar_at(0)?.into_nullable();
+        let first_value = first_chunk.scalar_at(0).into_nullable();
 
         for chunk in chunks {
             match is_constant_opts(chunk, opts)? {
@@ -36,7 +36,7 @@ impl IsConstantKernel for ChunkedVTable {
                 Some(true) => {}
             }
 
-            if first_value != chunk.scalar_at(0)?.into_nullable() {
+            if first_value != chunk.scalar_at(0).into_nullable() {
                 return Ok(Some(false));
             }
         }

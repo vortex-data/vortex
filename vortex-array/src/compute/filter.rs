@@ -46,8 +46,8 @@ static FILTER_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
 ///
 /// let filtered = filter(array.as_ref(), &mask).unwrap();
 /// assert_eq!(filtered.len(), 2);
-/// assert_eq!(filtered.scalar_at(0).unwrap(), Scalar::from(Some(0_i32)));
-/// assert_eq!(filtered.scalar_at(1).unwrap(), Scalar::from(Some(2_i32)));
+/// assert_eq!(filtered.scalar_at(0), Scalar::from(Some(0_i32)));
+/// assert_eq!(filtered.scalar_at(1), Scalar::from(Some(2_i32)));
 /// ```
 ///
 /// # Panics
@@ -97,7 +97,7 @@ impl ComputeFnVTable for Filter {
         // Otherwise, we can use scalar_at if the mask has length 1.
         if mask.true_count() == 1 {
             let idx = mask.first().vortex_expect("true_count == 1");
-            return Ok(ConstantArray::new(array.scalar_at(idx)?, 1)
+            return Ok(ConstantArray::new(array.scalar_at(idx), 1)
                 .into_array()
                 .into());
         }

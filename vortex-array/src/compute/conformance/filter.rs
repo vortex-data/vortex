@@ -71,10 +71,7 @@ fn test_all_filter(array: &dyn Array) {
 
     // Verify all elements are preserved
     for i in 0..len {
-        assert_eq!(
-            filtered.scalar_at(i).vortex_unwrap(),
-            array.scalar_at(i).vortex_unwrap()
-        );
+        assert_eq!(filtered.scalar_at(i), array.scalar_at(i));
     }
 }
 
@@ -102,10 +99,7 @@ fn test_selective_filter(array: &dyn Array) {
 
     // Verify correct elements are kept
     for (filtered_idx, i) in (0..len).step_by(2).enumerate() {
-        assert_eq!(
-            filtered.scalar_at(filtered_idx).vortex_unwrap(),
-            array.scalar_at(i).vortex_unwrap()
-        );
+        assert_eq!(filtered.scalar_at(filtered_idx), array.scalar_at(i));
     }
 
     // Test first and last only
@@ -116,14 +110,8 @@ fn test_selective_filter(array: &dyn Array) {
         let mask = Mask::try_from(&BoolArray::from_iter(mask_values)).vortex_unwrap();
         let filtered = filter(array, &mask).vortex_unwrap();
         assert_eq!(filtered.len(), 2);
-        assert_eq!(
-            filtered.scalar_at(0).vortex_unwrap(),
-            array.scalar_at(0).vortex_unwrap()
-        );
-        assert_eq!(
-            filtered.scalar_at(1).vortex_unwrap(),
-            array.scalar_at(len - 1).vortex_unwrap()
-        );
+        assert_eq!(filtered.scalar_at(0), array.scalar_at(0));
+        assert_eq!(filtered.scalar_at(1), array.scalar_at(len - 1));
     }
 }
 
@@ -139,10 +127,7 @@ fn test_single_element_filter(array: &dyn Array) {
     let mask = Mask::try_from(&BoolArray::from_iter(mask_values)).vortex_unwrap();
     let filtered = filter(array, &mask).vortex_unwrap();
     assert_eq!(filtered.len(), 1);
-    assert_eq!(
-        filtered.scalar_at(0).vortex_unwrap(),
-        array.scalar_at(0).vortex_unwrap()
-    );
+    assert_eq!(filtered.scalar_at(0), array.scalar_at(0));
 
     // Test selecting only the last element
     if len > 1 {
@@ -151,10 +136,7 @@ fn test_single_element_filter(array: &dyn Array) {
         let mask = Mask::try_from(&BoolArray::from_iter(mask_values)).vortex_unwrap();
         let filtered = filter(array, &mask).vortex_unwrap();
         assert_eq!(filtered.len(), 1);
-        assert_eq!(
-            filtered.scalar_at(0).vortex_unwrap(),
-            array.scalar_at(len - 1).vortex_unwrap()
-        );
+        assert_eq!(filtered.scalar_at(0), array.scalar_at(len - 1));
     }
 }
 
@@ -186,10 +168,7 @@ fn test_nullable_filter(array: &dyn Array) {
     let mut filtered_idx = 0;
     for i in 0..len {
         if bool_values[i] && validity_values[i] {
-            assert_eq!(
-                filtered.scalar_at(filtered_idx).vortex_unwrap(),
-                array.scalar_at(i).vortex_unwrap()
-            );
+            assert_eq!(filtered.scalar_at(filtered_idx), array.scalar_at(i));
             filtered_idx += 1;
         }
     }
@@ -244,10 +223,7 @@ fn test_alternating_pattern_filter(array: &dyn Array) {
     let mut filtered_idx = 0;
     for (i, &keep) in pattern.iter().enumerate() {
         if keep {
-            assert_eq!(
-                filtered.scalar_at(filtered_idx).vortex_unwrap(),
-                array.scalar_at(i).vortex_unwrap()
-            );
+            assert_eq!(filtered.scalar_at(filtered_idx), array.scalar_at(i));
             filtered_idx += 1;
         }
     }
@@ -346,10 +322,7 @@ fn test_nullable_mask_input(array: &dyn Array) {
     let mut filtered_idx = 0;
     for i in 0..len {
         if bool_values[i] && validity_values[i] {
-            assert_eq!(
-                filtered.scalar_at(filtered_idx).vortex_unwrap(),
-                array.scalar_at(i).vortex_unwrap()
-            );
+            assert_eq!(filtered.scalar_at(filtered_idx), array.scalar_at(i),);
             filtered_idx += 1;
         }
     }

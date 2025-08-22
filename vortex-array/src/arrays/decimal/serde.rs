@@ -2,8 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
-use vortex_dtype::{DType, DecimalDType};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_dtype::DType;
+#[cfg(test)]
+use vortex_dtype::DecimalDType;
+use vortex_error::{VortexResult, vortex_bail, vortex_ensure};
 use vortex_scalar::{DecimalValueType, NativeDecimalType, match_each_decimal_value_type};
 
 use super::{DecimalArray, DecimalEncoding};
@@ -51,37 +53,21 @@ impl SerdeVTable<DecimalVTable> for DecimalVTable {
             vortex_bail!("Expected 0 or 1 child, got {}", children.len());
         };
 
-        let Some(decimal_dtype) = dtype.as_decimal() else {
+        let Some(decimal_dtype) = dtype.as_decimal_opt() else {
             vortex_bail!("Expected Decimal dtype, got {:?}", dtype)
         };
 
         match_each_decimal_value_type!(metadata.values_type(), |D| {
-            check_and_build_decimal::<D>(len, buffer, *decimal_dtype, validity)
+            // Check and reinterpret-cast the buffer
+            vortex_ensure!(
+                buffer.is_aligned(Alignment::of::<D>()),
+                "DecimalArray buffer not aligned for values type {:?}",
+                D::VALUES_TYPE
+            );
+            let buffer = Buffer::<D>::from_byte_buffer(buffer);
+            DecimalArray::try_new::<D>(buffer, *decimal_dtype, validity)
         })
     }
-}
-
-fn check_and_build_decimal<T: NativeDecimalType>(
-    array_len: usize,
-    buffer: ByteBuffer,
-    decimal_dtype: DecimalDType,
-    validity: Validity,
-) -> VortexResult<DecimalArray> {
-    // Assuming 16-byte alignment for decimal values
-    if !buffer.is_aligned(Alignment::of::<T>()) {
-        vortex_bail!("Buffer is not aligned to 16-byte boundary");
-    }
-
-    let buffer = Buffer::<T>::from_byte_buffer(buffer);
-    if buffer.len() != array_len {
-        vortex_bail!(
-            "Buffer length {} does not match expected length {} for decimal values",
-            buffer.len(),
-            array_len,
-        );
-    }
-
-    Ok(DecimalArray::new(buffer, decimal_dtype, validity))
 }
 
 #[cfg(test)]

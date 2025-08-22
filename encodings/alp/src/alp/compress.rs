@@ -43,7 +43,15 @@ pub fn alp_encode(parray: &PrimitiveArray, exponents: Option<Exponents>) -> Vort
         _ => vortex_bail!("ALP can only encode f32 and f64"),
     };
 
-    ALPArray::try_new(encoded, exponents, patches)
+    // SAFETY: alp_encode_components_typed must return well-formed components
+    unsafe {
+        Ok(ALPArray::new_unchecked(
+            encoded,
+            exponents,
+            patches,
+            parray.dtype().clone(),
+        ))
+    }
 }
 
 #[allow(clippy::cast_possible_truncation)]
@@ -65,7 +73,7 @@ where
 
     let validity = values.validity_mask()?;
     // exceptional_positions may contain exceptions at invalid positions (which contain garbage
-    // data). We remove invalid exceptional positions in order to keep the Patches small.
+    // data). We remove null exceptions in order to keep the Patches small.
     let (valid_exceptional_positions, valid_exceptional_values): (Buffer<u64>, Buffer<T>) =
         match validity {
             Mask::AllTrue(_) => (exceptional_positions, exceptional_values),
@@ -194,10 +202,10 @@ mod tests {
         assert_eq!(encoded.exponents(), Exponents { e: 16, f: 13 });
 
         let decoded = decompress(&encoded).unwrap();
-        assert_eq!(decoded.scalar_at(0).unwrap(), array.scalar_at(0).unwrap());
-        assert_eq!(decoded.scalar_at(1).unwrap(), array.scalar_at(1).unwrap());
+        assert_eq!(decoded.scalar_at(0), array.scalar_at(0));
+        assert_eq!(decoded.scalar_at(1), array.scalar_at(1));
         assert!(!decoded.is_valid(2).unwrap());
-        assert_eq!(decoded.scalar_at(3).unwrap(), array.scalar_at(3).unwrap());
+        assert_eq!(decoded.scalar_at(3), array.scalar_at(3));
     }
 
     #[test]
@@ -216,12 +224,12 @@ mod tests {
         assert_eq!(encoded.exponents(), Exponents { e: 16, f: 13 });
 
         for idx in 0..3 {
-            let s = encoded.scalar_at(idx).unwrap();
+            let s = encoded.scalar_at(idx);
             assert!(s.is_valid());
         }
 
         assert!(!encoded.is_valid(4).unwrap());
-        let s = encoded.scalar_at(4).unwrap();
+        let s = encoded.scalar_at(4);
         assert!(s.is_null());
 
         let _decoded = decompress(&encoded).unwrap();
@@ -249,9 +257,9 @@ mod tests {
             decompressed.as_slice::<f64>()
         );
         assert_eq!(original.validity(), decompressed.validity());
-        assert_eq!(original.scalar_at(0).unwrap(), Scalar::null_typed::<f64>());
-        assert_eq!(original.scalar_at(1).unwrap(), Scalar::null_typed::<f64>());
-        assert_eq!(original.scalar_at(2).unwrap(), Scalar::null_typed::<f64>());
+        assert_eq!(original.scalar_at(0), Scalar::null_typed::<f64>());
+        assert_eq!(original.scalar_at(1), Scalar::null_typed::<f64>());
+        assert_eq!(original.scalar_at(2), Scalar::null_typed::<f64>());
     }
 
     #[test]

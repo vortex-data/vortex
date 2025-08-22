@@ -99,13 +99,13 @@ fn pack_lists(
         )?
         .to_primitive()?;
 
-        let first_offset_value: usize = usize::try_from(&offsets_arr.scalar_at(0)?)?;
+        let first_offset_value: usize = usize::try_from(&offsets_arr.scalar_at(0))?;
         let last_offset_value: usize =
-            usize::try_from(&offsets_arr.scalar_at(offsets_arr.len() - 1)?)?;
+            usize::try_from(&offsets_arr.scalar_at(offsets_arr.len() - 1))?;
         elements.push(
             chunk
                 .elements()
-                .slice(first_offset_value, last_offset_value)?,
+                .slice(first_offset_value, last_offset_value),
         );
 
         let adjustment_from_previous = *offsets
@@ -193,7 +193,7 @@ mod tests {
 
         let canon_values = chunked_list.unwrap().to_list().unwrap();
 
-        assert_eq!(l1.scalar_at(0).unwrap(), canon_values.scalar_at(0).unwrap());
-        assert_eq!(l2.scalar_at(0).unwrap(), canon_values.scalar_at(1).unwrap());
+        assert_eq!(l1.scalar_at(0), canon_values.scalar_at(0));
+        assert_eq!(l2.scalar_at(0), canon_values.scalar_at(1));
     }
 }

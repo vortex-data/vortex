@@ -4,7 +4,6 @@
 use arrow_buffer::BooleanBufferBuilder;
 use itertools::Itertools;
 use vortex_array::arrays::{BoolArray, BooleanBuffer, ConstantArray, PrimitiveArray};
-use vortex_array::compress::downscale_integer_array;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
@@ -55,7 +54,7 @@ pub fn runend_encode(array: &PrimitiveArray) -> VortexResult<(PrimitiveArray, Ar
         }
     };
 
-    let ends = downscale_integer_array(ends.to_array())?.to_primitive()?;
+    let ends = ends.downcast()?.to_primitive()?;
 
     Ok((ends, values))
 }

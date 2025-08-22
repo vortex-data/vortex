@@ -118,7 +118,7 @@ impl StructReader {
                     self.dtype(),
                     annotate_scope_access(
                         self.dtype()
-                            .as_struct()
+                            .as_struct_opt()
                             .vortex_expect("We know it's a struct DType"),
                     ),
                 )

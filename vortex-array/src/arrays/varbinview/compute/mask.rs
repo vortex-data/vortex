@@ -11,13 +11,16 @@ use crate::{ArrayRef, IntoArray, register_kernel};
 
 impl MaskKernel for VarBinViewVTable {
     fn mask(&self, array: &VarBinViewArray, mask: &Mask) -> VortexResult<ArrayRef> {
-        Ok(VarBinViewArray::try_new(
-            array.views().clone(),
-            array.buffers().clone(),
-            array.dtype().as_nullable(),
-            array.validity().mask(mask)?,
-        )?
-        .into_array())
+        // SAFETY: masking the validity does not affect the invariants
+        unsafe {
+            Ok(VarBinViewArray::new_unchecked(
+                array.views().clone(),
+                array.buffers().clone(),
+                array.dtype().as_nullable(),
+                array.validity().mask(mask)?,
+            )
+            .into_array())
+        }
     }
 }
 

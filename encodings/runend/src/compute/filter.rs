@@ -46,7 +46,16 @@ impl FilterKernel for RunEndVTable {
                         });
                     let values = filter(array.values(), &values_mask)?;
 
-                    RunEndArray::try_new(run_ends.into_array(), values).map(|a| a.into_array())
+                    // SAFETY: guaranteed by implementation of filter_run_end_primitive
+                    unsafe {
+                        Ok(RunEndArray::new_unchecked(
+                            run_ends.into_array(),
+                            values,
+                            0,
+                            mask_values.true_count(),
+                        )
+                        .into_array())
+                    }
                 }
             }
         }
@@ -71,7 +80,13 @@ pub fn filter_run_end(array: &RunEndArray, mask: &Mask) -> VortexResult<ArrayRef
         });
     let values = filter(array.values(), &values_mask)?;
 
-    RunEndArray::try_new(run_ends.into_array(), values).map(|a| a.into_array())
+    // SAFETY: enforced by filter_run_end_primitive
+    unsafe {
+        Ok(
+            RunEndArray::new_unchecked(run_ends.into_array(), values, 0, mask.true_count())
+                .into_array(),
+        )
+    }
 }
 
 // Code adapted from apache arrow-rs https://github.com/apache/arrow-rs/blob/b1f5c250ebb6c1252b4e7c51d15b8e77f4c361fa/arrow-select/src/filter.rs#L425
@@ -162,7 +177,7 @@ mod tests {
 
     #[test]
     fn filter_sliced_run_end() {
-        let arr = ree_array().slice(2, 7).unwrap();
+        let arr = ree_array().slice(2, 7);
         let filtered = filter_run_end(
             arr.as_::<RunEndVTable>(),
             &Mask::from_iter([true, false, false, true, true]),

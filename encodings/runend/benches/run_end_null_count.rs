@@ -66,5 +66,5 @@ fn fixture(n: usize, run_step: usize, valid_density: f64) -> RunEndArray {
     )
     .into_array();
 
-    RunEndArray::try_new(ends, values).unwrap()
+    RunEndArray::new(ends, values)
 }

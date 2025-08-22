@@ -214,7 +214,7 @@ mod tests {
 
     #[rstest]
     fn test_expr_top_level_ref(dtype: DType) {
-        let fields = dtype.as_struct().unwrap();
+        let fields = dtype.as_struct_opt().unwrap();
 
         let expr = root();
         let partitioned = partition(expr.clone(), &dtype, annotate_scope_access(fields)).unwrap();
@@ -232,7 +232,7 @@ mod tests {
 
     #[rstest]
     fn test_expr_top_level_ref_get_item_and_split(dtype: DType) {
-        let fields = dtype.as_struct().unwrap();
+        let fields = dtype.as_struct_opt().unwrap();
 
         let expr = get_item("y", get_item("a", root()));
 
@@ -242,7 +242,7 @@ mod tests {
 
     #[rstest]
     fn test_expr_top_level_ref_get_item_and_split_pack(dtype: DType) {
-        let fields = dtype.as_struct().unwrap();
+        let fields = dtype.as_struct_opt().unwrap();
 
         let expr = pack(
             [
@@ -269,7 +269,7 @@ mod tests {
 
     #[rstest]
     fn test_expr_top_level_ref_get_item_add(dtype: DType) {
-        let fields = dtype.as_struct().unwrap();
+        let fields = dtype.as_struct_opt().unwrap();
 
         let expr = and(get_item("y", get_item("a", root())), lit(1));
         let partitioned = partition(expr, &dtype, annotate_scope_access(fields)).unwrap();
@@ -280,7 +280,7 @@ mod tests {
 
     #[rstest]
     fn test_expr_top_level_ref_get_item_add_cannot_split(dtype: DType) {
-        let fields = dtype.as_struct().unwrap();
+        let fields = dtype.as_struct_opt().unwrap();
 
         let expr = and(get_item("y", get_item("a", root())), get_item("b", root()));
         let partitioned = partition(expr, &dtype, annotate_scope_access(fields)).unwrap();
@@ -292,7 +292,7 @@ mod tests {
     // Test that typed_simplify removes select and partition precise
     #[rstest]
     fn test_expr_partition_many_occurrences_of_field(dtype: DType) {
-        let fields = dtype.as_struct().unwrap();
+        let fields = dtype.as_struct_opt().unwrap();
 
         let expr = and(
             get_item("y", get_item("a", root())),
@@ -332,7 +332,7 @@ mod tests {
 
     #[rstest]
     fn test_expr_merge(dtype: DType) {
-        let fields = dtype.as_struct().unwrap();
+        let fields = dtype.as_struct_opt().unwrap();
 
         let expr = merge(
             [col("a"), pack([("b", col("b"))], NonNullable)],

@@ -9,7 +9,6 @@ use std::hash::Hash;
 
 pub use stats::IntegerStats;
 use vortex_array::arrays::{ConstantArray, PrimitiveArray, PrimitiveVTable};
-use vortex_array::compress::downscale_integer_array;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_err};
@@ -503,8 +502,7 @@ impl Scheme for SparseScheme {
                 &new_excludes,
             )?;
 
-            let indices =
-                downscale_integer_array(sparse.patches().indices().clone())?.to_primitive()?;
+            let indices = sparse.patches().indices().to_primitive()?.downcast()?;
 
             let compressed_indices = IntCompressor::compress_no_dict(
                 &indices,
@@ -586,7 +584,7 @@ impl Scheme for DictScheme {
         // TODO(aduffy): we can be more prescriptive: we know that codes will EITHER be
         //    RLE or FOR + BP. Cascading probably wastes some time here.
 
-        let dict = dictionary_encode(stats)?;
+        let dict = dictionary_encode(stats);
 
         // Cascade the codes child
         // Don't allow SequenceArray as the codes child as it merely adds extra indirection without actually compressing data.
@@ -600,7 +598,10 @@ impl Scheme for DictScheme {
             &new_excludes,
         )?;
 
-        Ok(DictArray::try_new(compressed_codes, dict.values().clone())?.into_array())
+        // SAFETY: compressing codes does not change their values
+        unsafe {
+            Ok(DictArray::new_unchecked(compressed_codes, dict.values().clone()).into_array())
+        }
     }
 }
 
@@ -675,7 +676,13 @@ impl Scheme for RunEndScheme {
             &new_excludes,
         )?;
 
-        Ok(RunEndArray::try_new(compressed_ends, compressed_values)?.into_array())
+        // SAFETY: compression doesn't affect invariants
+        unsafe {
+            Ok(
+                RunEndArray::new_unchecked(compressed_ends, compressed_values, 0, stats.src.len())
+                    .into_array(),
+            )
+        }
     }
 }
 

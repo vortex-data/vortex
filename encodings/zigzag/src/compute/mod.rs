@@ -87,7 +87,7 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(
-            zigzag.scalar_at(1).unwrap(),
+            zigzag.scalar_at(1),
             Scalar::primitive(-160, Nullability::Nullable)
         );
     }

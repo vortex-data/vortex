@@ -6,14 +6,16 @@ use std::sync::Arc;
 use arrow_array::RecordBatchReader;
 use arrow_pyarrow::{IntoPyArrow, ToPyArrow};
 use arrow_schema::SchemaRef;
-use pyo3::exceptions::PyTypeError;
+use itertools::Itertools;
+use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyString;
 use vortex::dtype::FieldName;
 use vortex::error::VortexResult;
-use vortex::expr::{ExprRef, SelectExpr, root};
+use vortex::expr::{ExprRef, SelectExpr, root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::iter::ArrayIteratorExt;
+use vortex::scan::SplitBy;
 use vortex::{ArrayRef, ToCanonical};
 
 use crate::arrays::PyArrayRef;
@@ -123,18 +125,20 @@ impl PyVortexDataset {
         Ok(PyArrayRef::from(array))
     }
 
-    #[pyo3(signature = (*, columns = None, row_filter = None, indices = None))]
+    #[pyo3(signature = (*, columns = None, row_filter = None, indices = None, split_by = None))]
     pub fn to_record_batch_reader(
         self_: PyRef<Self>,
         columns: Option<Vec<Bound<'_, PyAny>>>,
         row_filter: Option<&Bound<'_, PyExpr>>,
         indices: Option<PyArrayRef>,
+        split_by: Option<usize>,
     ) -> PyResult<PyObject> {
         let mut scan = self_
             .vxf
             .scan()?
             .with_projection(projection_from_python(columns)?)
-            .with_some_filter(filter_from_python(row_filter));
+            .with_some_filter(filter_from_python(row_filter))
+            .with_split_by(split_by.map(SplitBy::RowCount).unwrap_or(SplitBy::Layout));
 
         if let Some(indices) = indices.map(|i| i.inner().clone()) {
             let indices = indices.to_primitive()?.into_buffer();
@@ -147,6 +151,31 @@ impl PyVortexDataset {
             Box::new(scan.into_record_batch_reader_multithread(schema)?);
 
         reader.into_pyarrow(self_.py())
+    }
+
+    /// The number of rows matching the filter.
+    #[pyo3(signature = (*, row_filter = None, split_by = None))]
+    pub fn count_rows(
+        self_: PyRef<Self>,
+        row_filter: Option<&Bound<'_, PyExpr>>,
+        split_by: Option<usize>,
+    ) -> PyResult<usize> {
+        let scan = self_
+            .vxf
+            .scan()?
+            .with_projection(select(vec![], root()))
+            .with_some_filter(filter_from_python(row_filter))
+            .with_split_by(split_by.map(SplitBy::RowCount).unwrap_or(SplitBy::Layout));
+
+        // TODO(ngates): should we use multi-threaded read or not?
+        let schema = Arc::new(scan.dtype()?.to_arrow_schema()?);
+        let n_rows: usize = scan
+            .into_record_batch_reader_multithread(schema)?
+            .map_ok(|rb| rb.num_rows())
+            .process_results(|iter| iter.sum())
+            .map_err(|err| PyValueError::new_err(format!("arrow error: {}", err)))?;
+
+        Ok(n_rows)
     }
 }
 

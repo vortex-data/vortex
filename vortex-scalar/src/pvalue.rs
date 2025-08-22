@@ -180,12 +180,30 @@ impl PValue {
 
     /// Converts this value to a specific native primitive type.
     ///
-    /// Returns an error if the conversion is not supported or would overflow.
+    /// Panics if the conversion is not supported or would overflow.
     #[inline]
-    pub fn as_primitive<T: NativePType + TryFrom<PValue, Error = VortexError>>(
-        &self,
-    ) -> Result<T, VortexError> {
-        T::try_from(*self)
+    pub fn as_primitive<T: NativePType>(&self) -> T {
+        self.as_primitive_opt::<T>().vortex_expect("as_primitive")
+    }
+
+    /// Converts this value to a specific native primitive type.
+    ///
+    /// Returns `None` if the conversion is not supported or would overflow.
+    #[inline]
+    pub fn as_primitive_opt<T: NativePType>(&self) -> Option<T> {
+        match *self {
+            PValue::U8(u) => T::from_u8(u),
+            PValue::U16(u) => T::from_u16(u),
+            PValue::U32(u) => T::from_u32(u),
+            PValue::U64(u) => T::from_u64(u),
+            PValue::I8(i) => T::from_i8(i),
+            PValue::I16(i) => T::from_i16(i),
+            PValue::I32(i) => T::from_i32(i),
+            PValue::I64(i) => T::from_i64(i),
+            PValue::F16(f) => <T as NumCast>::from(f),
+            PValue::F32(f) => T::from_f32(f),
+            PValue::F64(f) => T::from_f64(f),
+        }
     }
 
     /// Reinterprets the bits of this value as a different primitive type.

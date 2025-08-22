@@ -51,7 +51,6 @@ impl Mask {
 }
 
 #[cfg(test)]
-#[allow(clippy::panic)]
 mod test {
     use arrow_buffer::BooleanBuffer;
     use rstest::rstest;

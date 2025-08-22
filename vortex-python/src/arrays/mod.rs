@@ -431,7 +431,7 @@ impl PyArray {
     ///     >>> vx.array([10, 42, 999, 1992]).scalar_at(10)
     ///     Traceback (most recent call last):
     ///     ...
-    ///     ValueError: index 10 out of bounds from 0 to 4
+    ///     pyo3_runtime.PanicException: index 10 out of bounds
     ///     ...
     ///
     /// Unlike Python, negative indices are not supported:
@@ -444,7 +444,7 @@ impl PyArray {
     fn scalar_at(slf: Bound<Self>, index: usize) -> PyResult<Bound<PyScalar>> {
         let py = slf.py();
         let slf = PyArrayRef::extract_bound(slf.as_any())?.into_inner();
-        PyScalar::init(py, slf.scalar_at(index)?)
+        PyScalar::init(py, slf.scalar_at(index))
     }
 
     /// Filter, permute, and/or repeat elements by their index.
@@ -540,7 +540,7 @@ impl PyArray {
     ///     >>> a.slice(2, 10).to_arrow_array()
     ///     Traceback (most recent call last):
     ///     ...
-    ///     ValueError: index 10 out of bounds from 0 to 4
+    ///     pyo3_runtime.PanicException: OutOfBounds: stop 10 > length 4
     ///
     /// Or to slice with a negative value:
     ///
@@ -552,7 +552,7 @@ impl PyArray {
     #[pyo3(signature = (start, end))]
     fn slice(slf: Bound<Self>, start: usize, end: usize) -> PyResult<PyArrayRef> {
         let slf = PyArrayRef::extract_bound(slf.as_any())?.into_inner();
-        let inner = slf.slice(start, end)?;
+        let inner = slf.slice(start, end);
         Ok(PyArrayRef::from(inner))
     }
 

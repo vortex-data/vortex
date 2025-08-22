@@ -10,13 +10,16 @@ use crate::{RunEndArray, RunEndVTable};
 
 impl FillNullKernel for RunEndVTable {
     fn fill_null(&self, array: &RunEndArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
-        Ok(RunEndArray::with_offset_and_length(
-            array.ends().clone(),
-            fill_null(array.values(), fill_value)?,
-            array.offset(),
-            array.len(),
-        )?
-        .into_array())
+        // SAFETY: modifying values only, does not affect ends
+        unsafe {
+            Ok(RunEndArray::new_unchecked(
+                array.ends().clone(),
+                fill_null(array.values(), fill_value)?,
+                array.offset(),
+                array.len(),
+            )
+            .into_array())
+        }
     }
 }
 

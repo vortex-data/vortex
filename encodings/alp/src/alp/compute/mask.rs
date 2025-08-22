@@ -24,7 +24,7 @@ impl MaskKernel for ALPVTable {
                 )
             })
             .transpose()?;
-        Ok(ALPArray::try_new(masked_encoded, array.exponents(), masked_patches)?.to_array())
+        Ok(ALPArray::new(masked_encoded, array.exponents(), masked_patches).to_array())
     }
 }
 

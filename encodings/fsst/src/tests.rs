@@ -12,7 +12,7 @@ use crate::{FSSTEncoding, fsst_compress, fsst_train_compressor};
 
 macro_rules! assert_nth_scalar {
     ($arr:expr, $n:expr, $expected:expr) => {
-        assert_eq!($arr.scalar_at($n).unwrap(), $expected.try_into().unwrap());
+        assert_eq!($arr.scalar_at($n), $expected.try_into().unwrap());
     };
 }
 
@@ -53,7 +53,7 @@ fn test_fsst_array_ops() {
     );
 
     // test slice
-    let fsst_sliced = fsst_array.slice(1, 3).unwrap();
+    let fsst_sliced = fsst_array.slice(1, 3);
     assert_eq!(fsst_sliced.encoding_id(), FSSTEncoding.id());
     assert_eq!(fsst_sliced.len(), 2);
     assert_nth_scalar!(
@@ -101,9 +101,6 @@ fn test_fsst_array_ops() {
     assert_eq!(canonical_array.len(), fsst_array.len());
 
     for i in 0..fsst_array.len() {
-        assert_eq!(
-            fsst_array.scalar_at(i).unwrap(),
-            canonical_array.scalar_at(i).unwrap(),
-        );
+        assert_eq!(fsst_array.scalar_at(i), canonical_array.scalar_at(i),);
     }
 }

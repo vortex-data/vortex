@@ -26,7 +26,7 @@ use vortex::dtype::PType::{I32, I64};
 use vortex::dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
 use vortex::dtype::half::f16;
 use vortex::dtype::{DType, DecimalDType, ExtDType, PType, match_each_native_simd_ptype};
-use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex::error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex::scalar::{
     BinaryScalar, BoolScalar, DecimalScalar, DecimalValue, ExtScalar, PrimitiveScalar, Scalar,
     ScalarValue, Utf8Scalar,
@@ -72,17 +72,9 @@ impl ToDuckDBScalar for PrimitiveScalar<'_> {
     /// - `F16` values are converted to `F32` before creating the DuckDB value
     fn try_to_duckdb_scalar(&self) -> VortexResult<Value> {
         if self.ptype() == PType::F16 {
-            return Ok(Value::from(
-                self.as_::<f16>()
-                    .vortex_expect("check ptyped")
-                    .map(|f| f.to_f32()),
-            ));
+            return Ok(Value::from(self.as_::<f16>().map(|f| f.to_f32())));
         }
-        match_each_native_simd_ptype!(self.ptype(), |P| {
-            Ok(Value::from(
-                self.as_::<P>().vortex_expect("ptype value mismatch"),
-            ))
-        })
+        match_each_native_simd_ptype!(self.ptype(), |P| { Ok(Value::from(self.as_::<P>(),)) })
     }
 }
 
@@ -102,7 +94,7 @@ impl ToDuckDBScalar for DecimalScalar<'_> {
     fn try_to_duckdb_scalar(&self) -> VortexResult<Value> {
         let decimal_type = self
             .dtype()
-            .as_decimal()
+            .as_decimal_opt()
             .ok_or_else(|| vortex_err!("decimal scalar without decimal dtype"))?;
 
         let Some(decimal_value) = self.decimal_value() else {
@@ -163,7 +155,7 @@ impl ToDuckDBScalar for ExtScalar<'_> {
                 .ok_or_else(|| {
                     vortex_err!("Cannot have a temporal time type not packed by a primitive scalar")
                 })?
-                .as_::<i64>()?
+                .as_::<i64>()
                 .ok_or_else(|| vortex_err!("temporal types must be convertable to i64"))
         };
         match time {
@@ -182,7 +174,7 @@ impl ToDuckDBScalar for ExtScalar<'_> {
                     .ok_or_else(|| {
                         vortex_err!("temporal types must be backed by primitive scalars")
                     })?
-                    .as_::<i32>()?
+                    .as_::<i32>()
                     .map(Value::new_date)
                     .unwrap_or_else(Value::null)),
                 _ => vortex_bail!("cannot have TimeUnit {unit}, so represent a day"),

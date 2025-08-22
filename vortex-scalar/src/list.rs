@@ -7,12 +7,8 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use itertools::Itertools as _;
-use vortex_buffer::{BufferString, ByteBuffer};
-use vortex_dtype::half::f16;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{
-    VortexError, VortexExpect as _, VortexResult, vortex_bail, vortex_err, vortex_panic,
-};
+use vortex_error::{VortexError, VortexExpect as _, VortexResult, vortex_bail, vortex_panic};
 
 use crate::{InnerScalarValue, Scalar, ScalarValue};
 
@@ -213,75 +209,6 @@ impl<'a> TryFrom<&'a Scalar> for ListScalar<'a> {
         })
     }
 }
-
-impl<'a, T> TryFrom<&'a Scalar> for Vec<T>
-where
-    T: for<'b> TryFrom<&'b Scalar, Error = VortexError>,
-{
-    type Error = VortexError;
-
-    fn try_from(value: &'a Scalar) -> Result<Self, Self::Error> {
-        let value = ListScalar::try_from(value)?;
-        let mut elems = vec![];
-        for e in value
-            .elements()
-            .ok_or_else(|| vortex_err!("Expected non-null list"))?
-        {
-            elems.push(T::try_from(&e)?);
-        }
-        Ok(elems)
-    }
-}
-
-impl<T> TryFrom<Scalar> for Vec<T>
-where
-    T: TryFrom<Scalar, Error = VortexError>,
-{
-    type Error = VortexError;
-
-    fn try_from(value: Scalar) -> Result<Self, Self::Error> {
-        let value = ListScalar::try_from(&value)?;
-        let mut elems = vec![];
-        for e in value
-            .elements()
-            .ok_or_else(|| vortex_err!("Expected non-null list"))?
-        {
-            elems.push(T::try_from(e)?);
-        }
-        Ok(elems)
-    }
-}
-
-macro_rules! from_vec_for_scalar_value {
-    ($T:ty) => {
-        impl From<Vec<$T>> for ScalarValue {
-            fn from(value: Vec<$T>) -> Self {
-                ScalarValue(InnerScalarValue::List(
-                    value
-                        .into_iter()
-                        .map(ScalarValue::from)
-                        .collect::<Arc<[_]>>(),
-                ))
-            }
-        }
-    };
-}
-
-// no From<Vec<u8>> because it could either be a List or a Buffer
-from_vec_for_scalar_value!(u16);
-from_vec_for_scalar_value!(u32);
-from_vec_for_scalar_value!(u64);
-from_vec_for_scalar_value!(usize); // For usize only, we implicitly cast for better ergonomics.
-from_vec_for_scalar_value!(i8);
-from_vec_for_scalar_value!(i16);
-from_vec_for_scalar_value!(i32);
-from_vec_for_scalar_value!(i64);
-from_vec_for_scalar_value!(f16);
-from_vec_for_scalar_value!(f32);
-from_vec_for_scalar_value!(f64);
-from_vec_for_scalar_value!(String);
-from_vec_for_scalar_value!(BufferString);
-from_vec_for_scalar_value!(ByteBuffer);
 
 #[cfg(test)]
 mod tests {

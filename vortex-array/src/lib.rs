@@ -19,16 +19,15 @@ pub use encoding::*;
 pub use metadata::*;
 
 pub mod accessor;
+#[doc(hidden)]
 pub mod aliases;
 mod array;
 pub mod arrays;
 pub mod arrow;
 pub mod builders;
 mod canonical;
-pub mod compress;
 pub mod compute;
 mod context;
-pub mod data;
 mod encoding;
 pub mod iter;
 mod metadata;

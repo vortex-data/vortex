@@ -22,10 +22,18 @@ impl CastKernel for ALPVTable {
                     .with_nullability(dtype.nullability()),
             )?;
 
-            Ok(Some(
-                ALPArray::try_new(new_encoded, array.exponents(), array.patches().cloned())?
+            // SAFETY: casting nullability doesn't alter the invariants
+            unsafe {
+                Ok(Some(
+                    ALPArray::new_unchecked(
+                        new_encoded,
+                        array.exponents(),
+                        array.patches().cloned(),
+                        dtype.clone(),
+                    )
                     .into_array(),
-            ))
+                ))
+            }
         } else {
             Ok(None)
         }

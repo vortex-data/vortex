@@ -11,6 +11,8 @@ use vortex_error::{VortexError, vortex_bail, vortex_err};
 use crate::Scalar;
 use crate::decimal::DecimalValue;
 
+// TODO(connor): All `Array` types here seem to implement common methods (`new_scalar` and
+// `new_null`), but they are not actually grouped together by a trait.
 macro_rules! value_to_arrow_scalar {
     ($V:expr, $AR:ty) => {
         Ok(std::sync::Arc::new(
@@ -113,19 +115,19 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
                     return match metadata {
                         TemporalMetadata::Time(u) => match u {
                             TimeUnit::Ns => value_to_arrow_scalar!(
-                                primitive.as_::<i64>()?,
+                                primitive.as_::<i64>(),
                                 Time64NanosecondArray
                             ),
                             TimeUnit::Us => value_to_arrow_scalar!(
-                                primitive.as_::<i64>()?,
+                                primitive.as_::<i64>(),
                                 Time64MicrosecondArray
                             ),
                             TimeUnit::Ms => value_to_arrow_scalar!(
-                                primitive.as_::<i32>()?,
+                                primitive.as_::<i32>(),
                                 Time32MillisecondArray
                             ),
                             TimeUnit::S => {
-                                value_to_arrow_scalar!(primitive.as_::<i32>()?, Time32SecondArray)
+                                value_to_arrow_scalar!(primitive.as_::<i32>(), Time32SecondArray)
                             }
                             TimeUnit::D => {
                                 vortex_bail!("Unsupported TimeUnit {u} for {}", ext.id())
@@ -133,30 +135,29 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
                         },
                         TemporalMetadata::Date(u) => match u {
                             TimeUnit::Ms => {
-                                value_to_arrow_scalar!(primitive.as_::<i64>()?, Date64Array)
+                                value_to_arrow_scalar!(primitive.as_::<i64>(), Date64Array)
                             }
                             TimeUnit::D => {
-                                value_to_arrow_scalar!(primitive.as_::<i32>()?, Date32Array)
+                                value_to_arrow_scalar!(primitive.as_::<i32>(), Date32Array)
                             }
                             _ => vortex_bail!("Unsupported TimeUnit {u} for {}", ext.id()),
                         },
                         TemporalMetadata::Timestamp(u, _) => match u {
                             TimeUnit::Ns => value_to_arrow_scalar!(
-                                primitive.as_::<i64>()?,
+                                primitive.as_::<i64>(),
                                 TimestampNanosecondArray
                             ),
                             TimeUnit::Us => value_to_arrow_scalar!(
-                                primitive.as_::<i64>()?,
+                                primitive.as_::<i64>(),
                                 TimestampMicrosecondArray
                             ),
                             TimeUnit::Ms => value_to_arrow_scalar!(
-                                primitive.as_::<i64>()?,
+                                primitive.as_::<i64>(),
                                 TimestampMillisecondArray
                             ),
-                            TimeUnit::S => value_to_arrow_scalar!(
-                                primitive.as_::<i64>()?,
-                                TimestampSecondArray
-                            ),
+                            TimeUnit::S => {
+                                value_to_arrow_scalar!(primitive.as_::<i64>(), TimestampSecondArray)
+                            }
                             TimeUnit::D => {
                                 vortex_bail!("Unsupported TimeUnit {u} for {}", ext.id())
                             }

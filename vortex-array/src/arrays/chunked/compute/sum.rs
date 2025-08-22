@@ -38,7 +38,7 @@ fn sum_int<T: NativePType + PrimInt + FromPrimitiveOrF16>(
     for chunk in chunks {
         let chunk_sum = sum(chunk)?;
 
-        let Some(chunk_sum) = chunk_sum.as_primitive().as_::<T>()? else {
+        let Some(chunk_sum) = chunk_sum.as_primitive().as_::<T>() else {
             // Bail out on overflow
             return Ok(None);
         };
@@ -56,7 +56,7 @@ fn sum_int<T: NativePType + PrimInt + FromPrimitiveOrF16>(
 fn sum_float(chunks: &[ArrayRef]) -> VortexResult<f64> {
     let mut result = 0f64;
     for chunk in chunks {
-        if let Some(chunk_sum) = sum(chunk)?.as_primitive().as_::<f64>()? {
+        if let Some(chunk_sum) = sum(chunk)?.as_primitive().as_::<f64>() {
             result += chunk_sum;
         };
     }
@@ -98,7 +98,7 @@ mod tests {
         let result = sum(chunked.as_ref()).unwrap();
 
         // Expected sum: 1.5 + 3.2 + 4.8 + 2.1 + 5.7 + 1.0 + 2.5 = 20.8
-        assert_eq!(result.as_primitive().as_::<f64>().unwrap(), Some(20.8));
+        assert_eq!(result.as_primitive().as_::<f64>(), Some(20.8));
     }
 
     #[test]
@@ -113,7 +113,7 @@ mod tests {
 
         // Compute sum - should return null for all nulls
         let result = sum(chunked.as_ref()).unwrap();
-        assert!(result.as_primitive().as_::<f64>().unwrap().is_none());
+        assert!(result.as_primitive().as_::<f64>().is_none());
     }
 
     #[test]
@@ -136,6 +136,6 @@ mod tests {
 
         // Compute sum: 10.5 + 20.3 + 5.2 = 36.0
         let result = sum(chunked.as_ref()).unwrap();
-        assert_eq!(result.as_primitive().as_::<f64>().unwrap(), Some(36.0));
+        assert_eq!(result.as_primitive().as_::<f64>(), Some(36.0));
     }
 }

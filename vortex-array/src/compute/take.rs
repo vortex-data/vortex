@@ -8,9 +8,9 @@ use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
-use crate::arrays::ConstantArray;
+use crate::arrays::{ConstantArray, ConstantVTable};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output};
-use crate::stats::{Precision, Stat, StatsSet};
+use crate::stats::{Precision, Stat, StatsProviderExt, StatsSet};
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef, Canonical, IntoArray};
 
@@ -22,6 +22,12 @@ static TAKE_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     compute
 });
 
+/// Creates a new array using the elements from the input `array` indexed by `indices`.
+///
+/// For example, if we have an `array` `[1, 2, 3, 4, 5]` and `indices` `[4, 2]`, the resulting
+/// array would be `[5, 3]`.
+///
+/// The output array will have the same length as the `indices` array.
 pub fn take(array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
     if indices.is_empty() {
         return Ok(Canonical::empty(
@@ -40,6 +46,7 @@ pub fn take(array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
         .unwrap_array()
 }
 
+#[doc(hidden)]
 pub struct Take;
 
 impl ComputeFnVTable for Take {
@@ -64,21 +71,26 @@ impl ComputeFnVTable for Take {
             .into());
         }
 
+        let taken_array = take_impl(array, indices, kernels)?;
+
         // We know that constant array don't need stats propagation, so we can avoid the overhead of
         // computing derived stats and merging them in.
-        let derived_stats = (!array.is_constant()).then(|| derive_take_stats(array));
+        if !taken_array.is::<ConstantVTable>() {
+            let derived_stats = derive_take_stats(array);
 
-        let taken = take_impl(array, indices, kernels)?;
-
-        if let Some(derived_stats) = derived_stats {
-            let mut stats = taken.statistics().to_owned();
+            // TODO(robert): Ideally, we want to have a `combine_sets` method available on a
+            // `StatsSetRef` so we don't have to incur a clone here in `.to_owned()`.
+            let mut stats = taken_array.statistics().to_owned();
             stats.combine_sets(&derived_stats, array.dtype())?;
-            for (stat, val) in stats.into_iter() {
-                taken.statistics().set(stat, val)
+
+            for (stat, val) in stats {
+                // Alternatively, use a monoidal pattern here to set `stat = val`, or if it already
+                // exists, combine the two stats (similar to how `combine_sets` does it).
+                taken_array.statistics().set(stat, val)
             }
         }
 
-        Ok(taken.into())
+        Ok(taken_array.into())
     }
 
     fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {

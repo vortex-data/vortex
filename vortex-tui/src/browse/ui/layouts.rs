@@ -139,13 +139,11 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
         // TODO: trim the number of displayed rows and allow paging through column stats.
         let rows = (0..array.len()).map(|chunk_id| {
             std::iter::once(Cell::from(Text::from(format!("{chunk_id}"))))
-                .chain(field_arrays.iter().map(|arr| {
-                    Cell::from(Text::from(
-                        arr.scalar_at(chunk_id)
-                            .vortex_expect("stats table scalar_at")
-                            .to_string(),
-                    ))
-                }))
+                .chain(
+                    field_arrays
+                        .iter()
+                        .map(|arr| Cell::from(Text::from(arr.scalar_at(chunk_id).to_string()))),
+                )
                 .collect::<Row>()
         });
 

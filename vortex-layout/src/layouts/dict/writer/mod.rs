@@ -484,14 +484,12 @@ fn encode_chunk(
     chunk: &dyn Array,
 ) -> VortexResult<EncodingState> {
     let encoded = encoder.encode(chunk)?;
-    Ok(match remainder(chunk, encoded.len())? {
+    Ok(match remainder(chunk, encoded.len()) {
         None => EncodingState::Continue((encoder, encoded)),
         Some(unencoded) => EncodingState::Done((encoder.values()?, encoded, unencoded)),
     })
 }
 
-fn remainder(array: &dyn Array, encoded_len: usize) -> VortexResult<Option<ArrayRef>> {
-    (encoded_len < array.len())
-        .then(|| array.slice(encoded_len, array.len()))
-        .transpose()
+fn remainder(array: &dyn Array, encoded_len: usize) -> Option<ArrayRef> {
+    (encoded_len < array.len()).then(|| array.slice(encoded_len, array.len()))
 }

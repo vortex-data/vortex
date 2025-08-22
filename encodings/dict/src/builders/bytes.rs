@@ -179,13 +179,17 @@ impl<Code: Unsigned + AsPrimitive<usize> + NativePType> DictEncoder for BytesDic
     }
 
     fn values(&mut self) -> VortexResult<ArrayRef> {
-        VarBinViewArray::try_new(
-            self.views.clone().freeze(),
-            Arc::from([self.values.clone().freeze()]),
-            self.dtype.clone(),
-            self.dtype.nullability().into(),
-        )
-        .map(|a| a.into_array())
+        // SAFETY: we build the views explicitly and the bytes should be checked before feeding
+        //  to the encoder.
+        unsafe {
+            Ok(VarBinViewArray::new_unchecked(
+                self.views.clone().freeze(),
+                Arc::from([self.values.clone().freeze()]),
+                self.dtype.clone(),
+                self.dtype.nullability().into(),
+            )
+            .into_array())
+        }
     }
 }
 

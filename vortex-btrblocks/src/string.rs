@@ -213,7 +213,8 @@ impl Scheme for DictScheme {
             &[DictScheme.code()],
         )?;
 
-        Ok(DictArray::try_new(compressed_codes, compressed_values)?.into_array())
+        // SAFETY: compressing codes or values does not alter the invariants
+        unsafe { Ok(DictArray::new_unchecked(compressed_codes, compressed_values).into_array()) }
     }
 }
 
@@ -236,15 +237,14 @@ impl Scheme for FSSTScheme {
         let fsst = fsst_compress(&stats.src.clone().into_array(), &compressor)?;
 
         let compressed_original_lengths = IntCompressor::compress(
-            &fsst.uncompressed_lengths().to_primitive()?,
+            &fsst.uncompressed_lengths().to_primitive()?.downcast()?,
             is_sample,
             allowed_cascading,
             &[],
         )?;
 
-        // We compress the var bin offsets of the FSST codes array.
         let compressed_codes_offsets = IntCompressor::compress(
-            &fsst.codes().offsets().to_primitive()?,
+            &fsst.codes().offsets().to_primitive()?.downcast()?,
             is_sample,
             allowed_cascading,
             &[],

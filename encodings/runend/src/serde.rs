@@ -49,7 +49,7 @@ impl SerdeVTable<RunEndVTable> for RunEndVTable {
 
         let values = children.get(1, dtype, runs)?;
 
-        RunEndArray::with_offset_and_length(
+        RunEndArray::try_new_offset_length(
             ends,
             values,
             usize::try_from(metadata.offset).vortex_expect("Offset must be a valid usize"),
@@ -66,7 +66,16 @@ impl EncodeVTable<RunEndVTable> for RunEndVTable {
     ) -> VortexResult<Option<RunEndArray>> {
         let parray = canonical.clone().into_primitive()?;
         let (ends, values) = runend_encode(&parray)?;
-        Ok(Some(RunEndArray::try_new(ends.to_array(), values)?))
+        // SAFETY: runend_decode implementation must return valid RunEndArray
+        //  components.
+        unsafe {
+            Ok(Some(RunEndArray::new_unchecked(
+                ends.to_array(),
+                values,
+                0,
+                parray.len(),
+            )))
+        }
     }
 }
 

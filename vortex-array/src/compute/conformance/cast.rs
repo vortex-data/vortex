@@ -62,10 +62,7 @@ fn test_cast_identity(array: &dyn Array) {
 
     // Verify values are unchanged
     for i in 0..array.len().min(10) {
-        assert_eq!(
-            array.scalar_at(i).vortex_unwrap(),
-            result.scalar_at(i).vortex_unwrap()
-        );
+        assert_eq!(array.scalar_at(i), result.scalar_at(i),);
     }
 }
 
@@ -91,7 +88,7 @@ fn test_cast_from_null(array: &dyn Array) {
 
         // Verify all values are null
         for i in 0..array.len().min(10) {
-            assert!(result.scalar_at(i).vortex_unwrap().is_null());
+            assert!(result.scalar_at(i).is_null());
         }
     }
 
@@ -226,10 +223,7 @@ fn test_cast_allvalid_to_nonnullable_and_back(array: &dyn Array) {
 
                 // Verify values are unchanged
                 for i in 0..array.len().min(10) {
-                    assert_eq!(
-                        array.scalar_at(i).vortex_unwrap(),
-                        back_to_nullable.scalar_at(i).vortex_unwrap()
-                    );
+                    assert_eq!(array.scalar_at(i), back_to_nullable.scalar_at(i));
                 }
             }
         }
@@ -250,10 +244,7 @@ fn test_cast_allvalid_to_nonnullable_and_back(array: &dyn Array) {
 
             // Verify values are unchanged
             for i in 0..array.len().min(10) {
-                assert_eq!(
-                    array.scalar_at(i).vortex_unwrap(),
-                    back_to_non_nullable.scalar_at(i).vortex_unwrap()
-                );
+                assert_eq!(array.scalar_at(i), back_to_non_nullable.scalar_at(i));
             }
         }
     }
@@ -275,10 +266,7 @@ fn test_cast_nullability_changes(array: &dyn Array, nullable_version: &DType) {
 
         // Values should be unchanged
         for i in 0..array.len().min(10) {
-            assert_eq!(
-                array.scalar_at(i).vortex_unwrap(),
-                result.scalar_at(i).vortex_unwrap()
-            );
+            assert_eq!(array.scalar_at(i), result.scalar_at(i),);
         }
     }
 }
@@ -304,10 +292,7 @@ fn test_cast_nullability_changes_primitive(
 
         // Values should be unchanged
         for i in 0..array.len().min(10) {
-            assert_eq!(
-                array.scalar_at(i).vortex_unwrap(),
-                result.scalar_at(i).vortex_unwrap()
-            );
+            assert_eq!(array.scalar_at(i), result.scalar_at(i),);
         }
     }
 
@@ -328,10 +313,7 @@ fn test_cast_nullability_changes_primitive(
 
             // Values should be unchanged
             for i in 0..array.len().min(10) {
-                assert_eq!(
-                    array.scalar_at(i).vortex_unwrap(),
-                    result.scalar_at(i).vortex_unwrap()
-                );
+                assert_eq!(array.scalar_at(i), result.scalar_at(i),);
             }
         }
     }
@@ -513,8 +495,8 @@ fn test_cast_to_type_safe(array: &dyn Array, target_dtype: &DType) {
     // For valid casts, verify the values are correctly converted
     // We verify up to the first 10 values (or all if less than 10)
     for i in 0..array.len().min(10) {
-        let original = array.scalar_at(i).vortex_unwrap();
-        let casted = result.scalar_at(i).vortex_unwrap();
+        let original = array.scalar_at(i);
+        let casted = result.scalar_at(i);
 
         // For nullability-only changes, values should be identical
         if array.dtype().eq_ignore_nullability(target_dtype) {

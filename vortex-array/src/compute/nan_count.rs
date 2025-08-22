@@ -10,7 +10,7 @@ use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::Array;
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, UnaryArgs};
-use crate::stats::{Precision, Stat};
+use crate::stats::{Precision, Stat, StatsProviderExt};
 use crate::vtable::VTable;
 
 static NAN_COUNT_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
@@ -30,7 +30,7 @@ pub fn nan_count(array: &dyn Array) -> VortexResult<usize> {
         })?
         .unwrap_scalar()?
         .as_primitive()
-        .as_::<usize>()?
+        .as_::<usize>()
         .vortex_expect("NaN count should not return null"))
 }
 
@@ -123,7 +123,7 @@ fn nan_count_impl(array: &dyn Array, kernels: &[ArcRef<dyn Kernel>]) -> VortexRe
             return output
                 .unwrap_scalar()?
                 .as_primitive()
-                .as_::<usize>()?
+                .as_::<usize>()
                 .ok_or_else(|| vortex_err!("NaN count should not return null"));
         }
     }
@@ -131,7 +131,7 @@ fn nan_count_impl(array: &dyn Array, kernels: &[ArcRef<dyn Kernel>]) -> VortexRe
         return output
             .unwrap_scalar()?
             .as_primitive()
-            .as_::<usize>()?
+            .as_::<usize>()
             .ok_or_else(|| vortex_err!("NaN count should not return null"));
     }
 

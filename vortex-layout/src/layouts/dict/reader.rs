@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use dashmap::DashMap;
 use futures::{FutureExt, join};
 use vortex_array::ArrayRef;
-use vortex_array::compute::{MinMaxResult, filter, min_max};
+use vortex_array::compute::{MinMaxResult, min_max};
 use vortex_array::stats::Precision;
 use vortex_dict::DictArray;
 use vortex_dtype::{DType, FieldMask};
@@ -196,27 +196,16 @@ impl MaskEvaluation for DictMaskEvaluation {
         }
 
         let codes = self.codes_eval.invoke(Mask::new_true(mask.len())).await?;
-        // TODO(os): remove the low density code path, does not really improve perf
-        if mask.density() < 0.1 {
-            let codes = filter(&codes, &mask)?;
-            let dict_mask = &Mask::try_from(
-                DictArray::try_new(codes, values_result)?
-                    .to_array()
-                    .as_ref(),
-            )?;
-            Ok(mask.intersect_by_rank(dict_mask))
-        } else {
-            // Creating a mask from the dict array would canonicalise it,
-            // it should be fine for now as long as values is already canonical,
-            // so different row ranges do not canonicalise the same array
-            // multiple times.
-            let dict_mask = &Mask::try_from(
-                DictArray::try_new(codes, values_result)?
-                    .to_array()
-                    .as_ref(),
-            )?;
-            Ok(mask.bitand(dict_mask))
-        }
+        // Creating a mask from the dict array would canonicalize it,
+        // it should be fine for now as long as values is already canonical,
+        // so different row ranges do not canonicalize to the same array
+        // multiple times.
+        let dict_mask = &Mask::try_from(
+            DictArray::try_new(codes, values_result)?
+                .to_array()
+                .as_ref(),
+        )?;
+        Ok(mask.bitand(dict_mask))
     }
 }
 
@@ -232,6 +221,7 @@ impl ArrayEvaluation for DictArrayEvaluation {
         let (values_result, codes) = join!(self.values_eval.clone(), self.codes_eval.invoke(mask));
         let (values_result, codes) = (values_result?, codes?);
 
+        // Validate that codes are valid for the values
         let array = DictArray::try_new(codes, values_result)?.to_array();
         self.expr.evaluate(&Scope::new(array))
     }

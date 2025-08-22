@@ -26,7 +26,7 @@ jobs:
 
       - name: Release
         run: |
-          cargo +nightly publish -Z package-workspace --no-verify --allow-dirty --workspace \
+          cargo +nightly publish -Zpublish-timeout --no-verify --allow-dirty --workspace \
           --exclude bench-vortex \
           --exclude vortex-python \
           --exclude vortex-duckdb \
@@ -139,7 +139,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: "corretto"
           java-version: "17"
@@ -166,7 +166,7 @@ jobs:
         working-directory: ./java
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: "corretto"
           java-version: "17"

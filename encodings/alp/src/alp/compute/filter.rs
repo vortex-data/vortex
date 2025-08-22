@@ -16,10 +16,16 @@ impl FilterKernel for ALPVTable {
             .transpose()?
             .flatten();
 
-        Ok(
-            ALPArray::try_new(filter(array.encoded(), mask)?, array.exponents(), patches)?
-                .to_array(),
-        )
+        // SAFETY: filtering the values does not change correctness
+        unsafe {
+            Ok(ALPArray::new_unchecked(
+                filter(array.encoded(), mask)?,
+                array.exponents(),
+                patches,
+                array.dtype().clone(),
+            )
+            .to_array())
+        }
     }
 }
 

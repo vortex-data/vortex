@@ -49,7 +49,7 @@ impl Validity {
                 }
                 let true_count = sum(a)?
                     .as_primitive()
-                    .as_::<usize>()?
+                    .as_::<usize>()
                     .ok_or_else(|| vortex_err!("Failed to compute true count"))?;
                 Ok(length - true_count)
             }
@@ -122,7 +122,7 @@ impl Validity {
             Self::NonNullable | Self::AllValid => true,
             Self::AllInvalid => false,
             Self::Array(a) => {
-                let scalar = a.scalar_at(index)?;
+                let scalar = a.scalar_at(index);
                 scalar
                     .as_bool()
                     .value()
@@ -136,10 +136,10 @@ impl Validity {
         Ok(!self.is_valid(index)?)
     }
 
-    pub fn slice(&self, start: usize, stop: usize) -> VortexResult<Self> {
+    pub fn slice(&self, start: usize, stop: usize) -> Self {
         match self {
-            Self::Array(a) => Ok(Self::Array(a.slice(start, stop)?)),
-            _ => Ok(self.clone()),
+            Self::Array(a) => Self::Array(a.slice(start, stop)),
+            _ => self.clone(),
         }
     }
 
