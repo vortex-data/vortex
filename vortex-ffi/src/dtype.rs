@@ -179,7 +179,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_struct_dtype(
     let struct_dtype = vx_dtype::as_ref(dtype)
         .as_struct_opt()
         .vortex_expect("not a struct dtype");
-    vx_struct_fields::new(Arc::new(struct_dtype.clone()))
+    vx_struct_fields::new_ref(struct_dtype)
 }
 
 /// Return the `element` type of a list data type.
@@ -480,7 +480,7 @@ mod tests {
     #[test]
     fn test_struct_introspection_simple() {
         use crate::array::vx_array;
-        use crate::struct_fields::{vx_struct_fields_free, vx_struct_fields_nfields};
+        use crate::struct_fields::vx_struct_fields_nfields;
 
         let array = create_test_struct_array();
         let vx_arr = vx_array::new(array);
@@ -492,7 +492,6 @@ mod tests {
 
         // Cleanup in reverse order - this is the safest order
         unsafe {
-            vx_struct_fields_free(struct_fields_ptr);
             crate::array::vx_array_free(vx_arr);
         }
     }
@@ -501,7 +500,7 @@ mod tests {
     fn test_field_name_access() {
         use crate::array::vx_array;
         use crate::string::{vx_string_free, vx_string_len, vx_string_ptr};
-        use crate::struct_fields::{vx_struct_fields_field_name, vx_struct_fields_free};
+        use crate::struct_fields::vx_struct_fields_field_name;
 
         let array = create_test_struct_array();
         let vx_arr = vx_array::new(array);
@@ -522,7 +521,6 @@ mod tests {
         // Cleanup in careful order
         unsafe {
             vx_string_free(field_name_ptr);
-            vx_struct_fields_free(struct_fields_ptr);
             crate::array::vx_array_free(vx_arr);
         }
     }
@@ -531,9 +529,7 @@ mod tests {
     fn test_comprehensive_struct_introspection() {
         use crate::array::vx_array;
         use crate::string::{vx_string_free, vx_string_len, vx_string_ptr};
-        use crate::struct_fields::{
-            vx_struct_fields_field_name, vx_struct_fields_free, vx_struct_fields_nfields,
-        };
+        use crate::struct_fields::{vx_struct_fields_field_name, vx_struct_fields_nfields};
 
         let array = create_test_struct_array();
         let vx_arr = vx_array::new(array);
@@ -564,7 +560,6 @@ mod tests {
 
         // Cleanup
         unsafe {
-            vx_struct_fields_free(struct_fields_ptr);
             crate::array::vx_array_free(vx_arr);
         }
     }

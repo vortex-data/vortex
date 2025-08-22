@@ -90,7 +90,6 @@ int main(int argc, char *argv[]) {
         const vx_struct_fields *fields = vx_dtype_struct_dtype(dtype);
         size_t n_fields = vx_struct_fields_nfields(fields);
         printf("  Struct with %zu fields\n", n_fields);
-        vx_struct_fields_free(fields);
       }
     }
 
