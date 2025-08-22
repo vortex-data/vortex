@@ -7,18 +7,17 @@ mod handle;
 mod multithread;
 mod singlethread;
 mod tokio;
-mod worker;
+pub mod worker;
 
 use flume::{Receiver, Sender};
 use futures_util::future::BoxFuture;
 use futures_util::FutureExt;
 use smol::Executor;
 use std::fs::File;
-use std::marker::PhantomData;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{ready, Context, Poll};
-use vortex_buffer::{Alignment, ByteBuffer};
+use vortex_buffer::{Alignment, ByteBuffer, Iter};
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 
 pub struct Runtime {
@@ -122,18 +121,4 @@ impl Future for Read {
             },
         }
     }
-}
-
-pub struct WorkerPool<T> {
-    _phantom: PhantomData<T>,
-}
-
-impl<T> WorkerPool<T> {
-    pub fn new_worker(&self) -> Worker<T> {
-        todo!()
-    }
-}
-
-pub struct Worker<T> {
-    _phantom: PhantomData<T>,
 }

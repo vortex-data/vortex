@@ -214,6 +214,16 @@ impl<A: 'static + Send> ScanBuilder<A> {
         Ok(split_tasks)
     }
 
+    pub fn into_stream(
+        self,
+        handle: Handle,
+    ) -> VortexResult<impl futures::Stream<Item = VortexResult<A>> + Send + 'static> {
+        let concurrency = self.concurrency;
+        Ok(stream::iter(self.build(&handle)?)
+            .buffered(concurrency)
+            .filter_map(|chunk| async move { chunk.transpose() }))
+    }
+
     /// Returns a [`Stream`](futures::Stream) with tasks spawned onto the current Tokio runtime.
     ///
     /// The stream performs CPU work on the polling thread, with I/O operations dispatched as

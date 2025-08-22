@@ -3,10 +3,9 @@
 
 use std::any::Any;
 use std::fmt::Formatter;
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 
 use arrow_schema::SchemaRef;
-use dashmap::DashMap;
 use datafusion_common::config::ConfigOptions;
 use datafusion_common::{Result as DFResult, Statistics};
 use datafusion_datasource::file::FileSource;
@@ -16,17 +15,15 @@ use datafusion_datasource::schema_adapter::{DefaultSchemaAdapterFactory, SchemaA
 use datafusion_physical_expr::schema_rewriter::{
     DefaultPhysicalExprAdapterFactory, PhysicalExprAdapterFactory,
 };
-use datafusion_physical_expr::{PhysicalExprRef, conjunction};
+use datafusion_physical_expr::{conjunction, PhysicalExprRef};
 use datafusion_physical_plan::filter_pushdown::{
     FilterPushdownPropagation, PushedDown, PushedDownPredicate,
 };
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::{DisplayFormatType, PhysicalExpr};
 use object_store::ObjectStore;
-use object_store::path::Path;
 use vortex::error::VortexExpect as _;
 use vortex::file::VORTEX_FILE_EXTENSION;
-use vortex::layout::LayoutReader;
 use vortex::metrics::VortexMetrics;
 
 use super::cache::VortexFileCache;
@@ -49,10 +46,6 @@ pub struct VortexSource {
     pub(crate) expr_adapter_factory: Option<Arc<dyn PhysicalExprAdapterFactory>>,
     pub(crate) metrics: VortexMetrics,
     _unused_df_metrics: ExecutionPlanMetricsSet,
-    /// Shared layout readers, the source only lives as long as one scan.
-    ///
-    /// Sharing the readers allows us to only read every layout once from the file, even across partitions.
-    layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
 }
 
 impl VortexSource {
@@ -67,7 +60,6 @@ impl VortexSource {
             schema_adapter_factory: None,
             expr_adapter_factory: None,
             _unused_df_metrics: Default::default(),
-            layout_readers: Arc::new(DashMap::default()),
         }
     }
 
@@ -139,7 +131,6 @@ impl FileSource for VortexSource {
             batch_size,
             limit: base_config.limit,
             metrics: partition_metrics,
-            layout_readers: self.layout_readers.clone(),
         };
 
         Arc::new(opener)

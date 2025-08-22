@@ -11,9 +11,10 @@ use object_store::path::Path;
 use object_store::{ObjectMeta, ObjectStore};
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
-use vortex::error::{VortexError, VortexResult, vortex_err};
+use vortex::error::{vortex_err, VortexError, VortexResult};
 use vortex::file::segments::SegmentCache;
 use vortex::file::{Footer, SegmentSpec, VortexFile, VortexOpenOptions};
+use vortex::io::runtime::Handle;
 use vortex::layout::segments::SegmentId;
 use vortex::session::VortexSession;
 use vortex::stats::{Precision, Stat};
@@ -80,6 +81,7 @@ impl VortexFileCache {
         &self,
         object: &ObjectMeta,
         object_store: Arc<dyn ObjectStore>,
+        handle: Handle,
     ) -> VortexResult<VortexFile> {
         let file_key = FileKey::from(object);
         self.file_cache
@@ -99,7 +101,7 @@ impl VortexFileCache {
                         file_key,
                         segment_cache: self.segment_cache.clone(),
                     }))
-                    .open_object_store(&object_store, object.location.as_ref()),
+                    .open_object_store(&object_store, object.location.as_ref(), handle),
             )
             .await
             .map_err(|e: Arc<VortexError>| {
