@@ -15,7 +15,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio::task::{spawn_blocking, LocalSet};
 use vortex_buffer::ByteBufferMut;
-use vortex_error::{vortex_err, VortexError, VortexExpect};
+use vortex_error::{vortex_err, VortexError, VortexExpect, VortexResult};
 
 impl Runtime {
     /// Returns a worker pool that can be used to drive the Runtime and in the process emit
@@ -108,7 +108,7 @@ impl<T: Send + 'static> Worker<T> {
         self.io_runtime
             .block_on(LocalSet::new().run_until(async move {
                 // Create a FuturesUnordered to manage concurrent blocking operations
-                let mut inflight = FuturesUnordered::new();
+                let mut inflight = FuturesUnordered::<VortexResult<()>>::new();
 
                 // Convert receiver to stream for easier polling
                 let mut file_io_stream = file_io_recv.into_stream();
@@ -125,25 +125,23 @@ impl<T: Send + 'static> Worker<T> {
                                 got_new_request = true;
 
                                 // Spawn a new blocking operation
-                                let fut = async move {
-                                    spawn_blocking(move || {
-                                        let mut buffer = ByteBufferMut::with_capacity_aligned(
-                                            req.length,
-                                            req.alignment,
-                                        );
-                                        unsafe { buffer.set_len(req.length) };
-                                        match req.file.read_exact_at(&mut buffer, req.offset) {
-                                            Ok(()) => req.resolve(Ok(buffer.freeze())),
-                                            Err(e) => req.resolve(Err(VortexError::from(e))),
-                                        }
-                                    })
-                                    .await
-                                    .map_err(|e| {
-                                        vortex_err!("Failed to spawn blocking read: {}", e)
-                                    })
-                                };
-
-                                inflight.push(fut);
+                                // let fut = async move {
+                                // spawn_blocking(move || {
+                                let mut buffer =
+                                    ByteBufferMut::with_capacity_aligned(req.length, req.alignment);
+                                unsafe { buffer.set_len(req.length) };
+                                match req.file.read_exact_at(&mut buffer, req.offset) {
+                                    Ok(()) => req.resolve(Ok(buffer.freeze())),
+                                    Err(e) => req.resolve(Err(VortexError::from(e))),
+                                }
+                                // })
+                                // .await
+                                // .map_err(|e| {
+                                //     vortex_err!("Failed to spawn blocking read: {}", e)
+                                // })
+                                // };
+                                //
+                                // inflight.push(fut);
                             }
                             Poll::Ready(None) => {
                                 // Channel closed
