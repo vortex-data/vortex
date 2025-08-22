@@ -50,7 +50,7 @@ impl ScanBuilder<ArrayRef> {
         let num_workers = CPU_RUNTIME.metrics().num_workers();
 
         let runtime = Runtime::default();
-        let handle = runtime.new_handle();
+        let handle = runtime.handle();
         runtime.drive_on_tokio(CPU_RUNTIME.handle());
 
         let tasks = self.build(&handle)?;

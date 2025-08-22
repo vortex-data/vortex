@@ -45,7 +45,7 @@ impl Runtime {
             shared: Arc::new(Shared {
                 next_worker_id: Default::default(),
                 executor: self.executor,
-                file_io_recv: self.file_io_recv,
+                file_io_recv: self.io_recv,
                 active_io_workers: Default::default(),
                 target_io_reqs_per_worker: 32,
                 results: recv,

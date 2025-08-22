@@ -19,7 +19,7 @@ impl Runtime {
         Fut: Future<Output = T> + Send + 'static,
     {
         let runtime = Runtime::default();
-        let handle = runtime.new_handle();
+        let handle = runtime.handle();
         runtime.drive_on_tokio(&TokioHandle::current());
         f(handle)
     }
@@ -29,7 +29,7 @@ impl Runtime {
     /// Tokio runtime and will be able to make progress.
     pub fn drive_on_tokio(self, handle: &TokioHandle) {
         // Spawn a future to process the file I/O requests
-        let file_io_recv = self.file_io_recv;
+        let file_io_recv = self.io_recv;
         // Create a stream with limited concurrency for reading from local disk.
         handle.spawn(
             file_io_recv

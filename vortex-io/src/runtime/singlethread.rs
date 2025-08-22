@@ -27,7 +27,7 @@ impl Runtime {
         Fut: Future<Output = R>,
     {
         let runtime = Self::default();
-        let fut = f(runtime.new_handle());
+        let fut = f(runtime.handle());
         block_on(runtime.into_executor().run(fut))
     }
 
@@ -39,7 +39,7 @@ impl Runtime {
         S: Stream<Item = R> + Unpin,
     {
         let runtime = Self::default();
-        let stream = f(runtime.new_handle());
+        let stream = f(runtime.handle());
         let executor = runtime.into_executor();
         BlockingStream { stream, executor }
     }
@@ -50,7 +50,7 @@ impl Runtime {
         // We spawn a future to process I/O requests as blocking calls on the main executor.
         self.executor
             .spawn(async move {
-                let recv = self.file_io_recv.into_stream();
+                let recv = self.io_recv.into_stream();
                 pin_mut!(recv);
 
                 while let Some(req) = recv.next().await {

@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::runtime::{FileIoRequest, Read, ReadState, VortexRead};
+use crate::runtime::{CpuTask, FileIoRequest, Read, ReadState, VortexRead};
+use async_task::{Runnable, Schedule, WithInfo};
 use flume::Sender;
 use futures_util::future::BoxFuture;
 use futures_util::FutureExt;
-use smol::Executor;
 use std::fs::File;
 use std::marker::PhantomData;
 use std::os::unix::fs::MetadataExt;
@@ -18,9 +18,13 @@ use vortex_error::{vortex_err, VortexExpect, VortexResult};
 /// Handles can be thought of like the "send" end of a channel, where the runtime is the "receive"
 /// end that is actually driven.
 #[derive(Clone)]
-pub struct Handle {
-    pub(super) executor: Arc<Executor<'static>>,
-    pub(super) file_io_send: Sender<FileIoRequest>,
+pub struct Handle(pub(super) Arc<Inner>);
+
+pub(super) struct Inner {
+    pub(super) sched_send: Sender<Runnable>,
+    pub(super) sched_schedule: Arc<dyn Schedule + Send + Sync>,
+    pub(super) cpu_send: Sender<CpuTask>,
+    pub(super) io_send: Sender<FileIoRequest>,
 }
 
 impl Handle {
@@ -32,7 +36,19 @@ impl Handle {
         F: Future<Output = R> + Send + 'static,
         R: Send + 'static,
     {
-        self.executor.spawn(f)
+        // TODO(ngates): we may want to avoid scheduling back onto the main runtime? But we cannot
+        //  push tasks into a queue unless we type erase them...
+        let schedule = self.0.sched_schedule.clone();
+        let (runnable, task) = async_task::spawn(
+            f,
+            WithInfo(move |runnable, info| schedule.schedule(runnable, info)),
+        );
+        self.0
+            .sched_send
+            .send(runnable)
+            .map_err(|e| vortex_err!("Runtime dropped"))
+            .vortex_expect("Runtime dropped");
+        task
     }
 
     /// Spawn a CPU-bound task for execution on the runtime.
@@ -51,7 +67,7 @@ impl Handle {
     pub(crate) fn open_file(&self, file: Arc<File>) -> Arc<dyn VortexRead> {
         Arc::new(FileRead {
             file,
-            send: self.file_io_send.clone(),
+            send: self.0.io_send.clone(),
         })
     }
 

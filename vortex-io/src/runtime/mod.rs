@@ -9,10 +9,10 @@ mod singlethread;
 mod tokio;
 pub mod worker;
 
-use flume::{Receiver, Sender};
+use async_task::Runnable;
+use flume::Receiver;
 use futures_util::future::BoxFuture;
 use futures_util::FutureExt;
-use smol::Executor;
 use std::fs::File;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -20,36 +20,64 @@ use std::task::{ready, Context, Poll};
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 
+/// A Vortex runtime provides an abstract way of scheduling mixed I/O and CPU workloads onto the
+/// various threading models supported by Vortex.
+///
+/// The models we currently support are:
+/// * Single-threaded: all work is driven on the current thread.
+/// * Multi-threaded: work is driven on a pool of threads managed by Vortex.
+/// * Worker Pool: work is driven on a pool of threads provided by the caller.
+/// * Tokio: work is driven on a Tokio runtime provided by the caller.
+///
+/// ## Implementation
+///
+/// The runtime abstraction is largely just a collection of injection queues used to submit the
+/// three types of work: I/O, CPU, and scheduling.
+///
+/// Each threading model has some associated `drive_on_*` methods that take the receiver side of
+/// these queues and performs the actual work of driving them to completion.
+///
+/// The submission end of these queues is accessible via a [`Handle`], which should be cloned and
+/// passed around when constructing async futures in Vortex.
 pub struct Runtime {
-    // The main executor driving our spawned futures.
-    executor: Arc<Executor<'static>>,
+    /// Queue of scheduling futures.
+    sched_recv: Receiver<Runnable>,
+    /// Queue of exclusively CPU-bound tasks.
+    cpu_recv: Receiver<CpuTask>,
+    /// I/O queue for reading data from files.
+    io_recv: Receiver<FileIoRequest>,
 
-    // I/O queues for reading data.
-    file_io_send: Sender<FileIoRequest>,
-    file_io_recv: Receiver<FileIoRequest>,
-    file_io_exec: Executor<'static>,
+    /// Queue of pending scheduling tasks.
+    sched_pending: Receiver<Runnable>,
+
+    // A handle holds the "submission" side of the runtime.
+    handle: Handle,
 }
 
 impl Default for Runtime {
     fn default() -> Self {
-        let (file_io_send, file_io_recv) = flume::unbounded();
+        let scheduler =
+        let (sched_send, sched_recv) = flume::unbounded();
+        let (cpu_send, cpu_recv) = flume::unbounded();
+        let (io_send, io_recv) = flume::unbounded();
+
         Self {
-            executor: Default::default(),
-            file_io_send,
-            file_io_recv,
-            file_io_exec: Default::default(),
+            sched_recv,
+            cpu_recv,
+            io_recv,
+            handle: Handle(Arc::new(Inner {
+                sched_send,
+                cpu_send,
+                io_send,
+            })),
         }
     }
 }
 
 impl Runtime {
-    /// Create a new [`Handle`] for spawning work onto this [`Runtime`].
-    // FIXME(ngates): we could hold a Handle on self, and return a cloneable reference?
-    pub fn new_handle(&self) -> Handle {
-        Handle {
-            executor: self.executor.clone(),
-            file_io_send: self.file_io_send.clone(),
-        }
+    /// Returns a [`Handle`] for spawning work onto this [`Runtime`].
+    pub fn handle(&self) -> &Handle {
+        &self.handle
     }
 }
 
@@ -58,6 +86,12 @@ pub trait VortexRead: 'static + Send + Sync {
 
     // FIXME(ngates): remove this.
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>>;
+}
+
+pub(crate) struct CpuTask {
+    runnable: Option<Box<dyn FnOnce() + Send + 'static>>,
+    // TODO(ngates): we may want worker affinity and other metadata in here?
+    //  We may also just want to use an async task Runnable and accept that it's blocking?
 }
 
 #[derive(Debug)]

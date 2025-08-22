@@ -242,7 +242,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
         let concurrency = self.concurrency * num_workers;
 
         let runtime = Runtime::default();
-        let handle = runtime.new_handle();
+        let handle = runtime.handle();
         runtime.drive_on_tokio(&tokio_handle);
 
         Ok(stream::iter(self.build(&handle)?)
@@ -280,7 +280,7 @@ impl ScanBuilder<ArrayRef> {
         let concurrency = self.concurrency;
 
         let runtime = Runtime::default();
-        let handle = runtime.new_handle();
+        let handle = runtime.handle();
 
         let tasks = self.build(&handle)?;
         let stream = stream::iter(tasks)

@@ -314,8 +314,8 @@ impl TableFunction for VortexTableFunction {
         );
 
         let runtime = Runtime::default();
-        let handle = runtime.new_handle();
-        let handle2 = runtime.new_handle();
+        let handle = runtime.handle();
+        let handle2 = runtime.handle();
 
         // let object_cache = init_input.client_context()?.object_cache();
         let first_file = bind_data.first_file.clone();
