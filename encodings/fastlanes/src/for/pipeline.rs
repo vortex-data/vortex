@@ -8,15 +8,14 @@ use std::rc::Rc;
 
 use num_traits::WrappingAdd;
 use vortex_array::Array;
-use vortex_array::pipeline::PipelineVTable;
-use vortex_array::pipeline::bits::BitView;
 use vortex_array::compute::Operator as BinaryOperator;
+use vortex_array::pipeline::bits::BitView;
 use vortex_array::pipeline::operators::scalar_compare::ScalarCompareOperator;
 use vortex_array::pipeline::operators::{BindContext, Operator};
 use vortex_array::pipeline::types::{Element, VType};
 use vortex_array::pipeline::vec::VectorId;
 use vortex_array::pipeline::view::ViewMut;
-use vortex_array::pipeline::{Kernel, KernelContext};
+use vortex_array::pipeline::{Kernel, KernelContext, PipelineVTable};
 use vortex_dtype::{NativePType, PType, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;

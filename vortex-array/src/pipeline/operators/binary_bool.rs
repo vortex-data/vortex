@@ -139,21 +139,19 @@ impl Kernel for BinaryBoolOpKernel {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::Nullability;
-use vortex_scalar::Scalar;
-use crate::arrays::ConstantOperator;
-use crate::pipeline::operators::scalar_compare::ScalarCompareOperator;
-use crate::arrays::PrimitiveOperator;
-use std::rc::Rc;
+    use std::rc::Rc;
 
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::BufferMut;
-    use vortex_dtype::PType;
-    use crate::compute::Operator as BinaryOperator;
+    use vortex_dtype::{Nullability, PType};
+    use vortex_scalar::Scalar;
 
     use super::*;
+    use crate::arrays::{ConstantOperator, PrimitiveOperator};
+    use crate::compute::Operator as BinaryOperator;
     use crate::pipeline::SC;
     use crate::pipeline::bits::BitView;
+    use crate::pipeline::operators::scalar_compare::ScalarCompareOperator;
     use crate::pipeline::query::QueryPlan;
     use crate::pipeline::view::ViewMut;
 
@@ -171,7 +169,6 @@ use std::rc::Rc;
         let right_primitive_array = right_values.into_array().to_primitive().unwrap();
         let right_byte_buffer = right_primitive_array.into_byte_buffer();
         let right_primitive_op = Rc::new(PrimitiveOperator::new(PType::I32, right_byte_buffer));
-
 
         let zero_scalar = Scalar::primitive(0i32, Nullability::NonNullable);
         let left_bool_op = Rc::new(ScalarCompareOperator::new(

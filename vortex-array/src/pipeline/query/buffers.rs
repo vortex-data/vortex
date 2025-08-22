@@ -6,8 +6,9 @@
 use std::cell::RefCell;
 
 use vortex_error::{VortexExpect, VortexResult};
-use crate::pipeline::query::dag::DagNode;
+
 use crate::pipeline::query::QueryPlan;
+use crate::pipeline::query::dag::DagNode;
 use crate::pipeline::types::VType;
 use crate::pipeline::vec::{Vector, VectorId};
 

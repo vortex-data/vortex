@@ -3,16 +3,17 @@
 
 use std::any::Any;
 use std::rc::Rc;
+
 use vortex_buffer::{Buffer, ByteBuffer};
-use vortex_dtype::{match_each_native_ptype, NativePType, PType};
+use vortex_dtype::{NativePType, PType, match_each_native_ptype};
 use vortex_error::{VortexResult, vortex_bail};
 
 use crate::arrays::{PrimitiveArray, PrimitiveVTable};
-use crate::pipeline::{Kernel, KernelContext, PipelineVTable, SC};
 use crate::pipeline::bits::BitView;
 use crate::pipeline::operators::{BindContext, Operator};
 use crate::pipeline::types::{Element, VType};
 use crate::pipeline::view::ViewMut;
+use crate::pipeline::{Kernel, KernelContext, PipelineVTable, SC};
 use crate::vtable::ValidityHelper;
 
 impl PipelineVTable<PrimitiveVTable> for PrimitiveVTable {

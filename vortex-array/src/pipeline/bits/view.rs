@@ -5,6 +5,7 @@ use std::fmt::{Debug, Formatter};
 
 use bitvec::prelude::*;
 use vortex_error::{VortexError, vortex_err};
+
 use crate::pipeline::SC;
 
 /// A borrowed fixed-size bit vector of length `N` bits, represented as an array of 64-bit words.

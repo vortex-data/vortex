@@ -8,6 +8,7 @@ use std::rc::Rc;
 use itertools::Itertools;
 use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+
 use crate::arrays::ConstantOperator;
 use crate::compute::Operator as BinaryOperator;
 use crate::pipeline::bits::BitView;
@@ -17,7 +18,6 @@ use crate::pipeline::types::{Element, VType};
 use crate::pipeline::vec::VectorId;
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{Kernel, KernelContext};
-
 
 #[macro_export]
 macro_rules! match_each_compare_op {

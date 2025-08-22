@@ -3,8 +3,9 @@
 
 use bitvec::array::BitArray;
 use bitvec::order::Lsb0;
-use crate::pipeline::bits::BitView;
+
 use crate::pipeline::SC;
+use crate::pipeline::bits::BitView;
 
 /// A mutable borrowed fixed-size bit vector of length `N` bits, represented as an array of
 /// 64-bit words.

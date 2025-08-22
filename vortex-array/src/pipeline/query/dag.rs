@@ -5,6 +5,7 @@ use std::hash::BuildHasher;
 
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::{HashMap, RandomState};
+
 use crate::pipeline::Operator;
 use crate::pipeline::query::QueryPlan;
 

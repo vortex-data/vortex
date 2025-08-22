@@ -9,8 +9,8 @@ use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
-use crate::match_each_compare_op;
 use crate::compute::Operator as BinaryOperator;
+use crate::match_each_compare_op;
 use crate::pipeline::bits::BitView;
 use crate::pipeline::operators::compare::CompareOp;
 use crate::pipeline::operators::{BindContext, Operator};
@@ -116,8 +116,7 @@ impl<T: Element + NativePType, Op: CompareOp<T>> Kernel for ScalarComparePrimiti
 
 #[cfg(test)]
 mod tests {
-    use crate::arrays::PrimitiveOperator;
-use std::rc::Rc;
+    use std::rc::Rc;
 
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::BufferMut;
@@ -125,6 +124,7 @@ use std::rc::Rc;
     use vortex_scalar::Scalar;
 
     use super::*;
+    use crate::arrays::PrimitiveOperator;
     use crate::pipeline::SC;
     use crate::pipeline::bits::BitView;
     use crate::pipeline::query::QueryPlan;
