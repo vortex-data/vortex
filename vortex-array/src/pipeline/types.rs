@@ -10,7 +10,7 @@ use crate::arrays::BinaryView;
 
 /// Defines the "vector type", a physical type describing the data that's held in the vector.
 ///
-/// See the specific vector view types, e.g. [`PrimitiveVector`], for more details.
+/// See the specific vector view types like primitive views for more details.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum VType {
     Bool,

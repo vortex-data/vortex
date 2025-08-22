@@ -19,6 +19,7 @@ use crate::pipeline::vec::VectorId;
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{Kernel, KernelContext};
 
+/// Pipeline operator for comparing an array against a scalar value.
 #[derive(Debug, Hash)]
 pub struct ScalarCompareOperator {
     children: [Rc<dyn Operator>; 1],

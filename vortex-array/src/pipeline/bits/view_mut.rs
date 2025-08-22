@@ -9,6 +9,7 @@ use crate::pipeline::bits::BitView;
 
 /// A mutable borrowed fixed-size bit vector of length `N` bits, represented as an array of
 /// 64-bit words.
+/// Mutable view into a bit array for constructing selection masks.
 #[derive(Debug)]
 pub struct BitViewMut<'a> {
     bits: &'a mut BitArray<[u64; SC / 64], Lsb0>,

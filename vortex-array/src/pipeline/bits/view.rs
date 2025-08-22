@@ -13,6 +13,7 @@ use crate::pipeline::SC;
 /// Internally, it uses a [`BitArray`] to store the bits, but this crate has some
 /// performance foot-guns in cases where we can lean on better assumptions, and therefore we wrap
 /// it up for use within Vortex.
+/// Read-only view into a bit array for selection masking in pipeline operations.
 #[derive(Clone, Copy)]
 pub struct BitView<'a> {
     bits: &'a BitArray<[u64; SC / 64], Lsb0>,

@@ -19,6 +19,7 @@ use crate::pipeline::bits::BitVector;
 use crate::pipeline::types::{Element, VType};
 use crate::pipeline::view::{View, ViewMut};
 
+/// Identifier for a vector in the pipeline execution context.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct VectorId(pub(crate) usize);
 
@@ -37,7 +38,7 @@ pub struct Vector {
     vtype: VType,
     /// The allocated elements buffer.
     /// Alignment is at least the size of the element type.
-    /// The capacity of the elements buffer is N * size_of::<T>() where T is the element type.
+    /// The capacity of the elements buffer is N * `size_of::<T>()` where T is the element type.
     elements: ByteBufferMut,
     /// The validity mask for the vector, indicating which elements in the buffer are valid.
     validity: BitVector,

@@ -51,6 +51,7 @@ macro_rules! match_each_compare_op {
     }};
 }
 
+/// Pipeline operator for comparing two arrays using various comparison operations.
 #[derive(Debug, Hash)]
 pub struct CompareOperator {
     children: [Rc<dyn Operator>; 2],
@@ -146,6 +147,7 @@ impl Operator for CompareOperator {
 
 /// A compare operator for primitive types that compares two vectors element-wise using a binary
 /// operation.
+/// Kernel that performs primitive type comparisons between two input vectors.
 pub struct ComparePrimitiveKernel<T, Op> {
     lhs: VectorId,
     rhs: VectorId,
@@ -184,6 +186,7 @@ pub(crate) trait CompareOp<T> {
     fn compare(lhs: &T, rhs: &T) -> bool;
 }
 
+/// Equality comparison operation.
 pub struct Eq;
 impl<T: PartialEq> CompareOp<T> for Eq {
     #[inline(always)]
@@ -192,6 +195,7 @@ impl<T: PartialEq> CompareOp<T> for Eq {
     }
 }
 
+/// Not equal comparison operation.
 pub struct NotEq;
 impl<T: PartialEq> CompareOp<T> for NotEq {
     #[inline(always)]
@@ -200,6 +204,7 @@ impl<T: PartialEq> CompareOp<T> for NotEq {
     }
 }
 
+/// Greater than comparison operation.
 pub struct Gt;
 impl<T: PartialOrd> CompareOp<T> for Gt {
     #[inline(always)]
@@ -208,6 +213,7 @@ impl<T: PartialOrd> CompareOp<T> for Gt {
     }
 }
 
+/// Greater than or equal comparison operation.
 pub struct Gte;
 impl<T: PartialOrd> CompareOp<T> for Gte {
     #[inline(always)]
@@ -216,6 +222,7 @@ impl<T: PartialOrd> CompareOp<T> for Gte {
     }
 }
 
+/// Less than comparison operation.
 pub struct Lt;
 impl<T: PartialOrd> CompareOp<T> for Lt {
     #[inline(always)]
@@ -224,6 +231,7 @@ impl<T: PartialOrd> CompareOp<T> for Lt {
     }
 }
 
+/// Less than or equal comparison operation.
 pub struct Lte;
 impl<T: PartialOrd> CompareOp<T> for Lte {
     #[inline(always)]

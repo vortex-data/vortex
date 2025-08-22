@@ -14,12 +14,14 @@ use crate::pipeline::vec::VectorId;
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{Kernel, KernelContext};
 
+/// Boolean operations supported by the binary boolean operator.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum BoolOp {
     And,
     Or,
 }
 
+/// Pipeline operator for binary boolean operations (AND, OR) on two boolean arrays.
 #[derive(Debug, Hash)]
 pub struct BinaryBoolOpOperator {
     children: [Rc<dyn Operator>; 2],
@@ -85,6 +87,7 @@ impl Operator for BinaryBoolOpOperator {
     }
 }
 
+/// Kernel that performs binary boolean operations on two input vectors.
 pub struct BinaryBoolOpKernel {
     left: VectorId,
     right: VectorId,

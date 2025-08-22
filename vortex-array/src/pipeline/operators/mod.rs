@@ -20,19 +20,7 @@ use crate::pipeline::Kernel;
 use crate::pipeline::types::VType;
 use crate::pipeline::vec::VectorId;
 
-// Operator reduction optimization examples:
-//
-// Step 1 - Initial pipeline:
-//   compare(_, 12) <- for(ref=10) <- bitpacked
-//
-// Step 2 - reduce_parent optimization:
-//   compare_scalar(12-10=2) <- bitpacked
-//
-// Step 3 - Final optimized pipeline:
-//   bitpacked -> compare_scalar(2)
-//
-// The reduction process eliminates the FoR decoding step by adjusting
-// the comparison constant to work directly on encoded values.
+
 
 /// An operator represents a node in a logical query plan.
 pub trait Operator: Debug + DynHash + 'static {
@@ -57,7 +45,19 @@ pub trait Operator: Debug + DynHash + 'static {
     /// Create a kernel for this operator
     fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>>;
 
-    //TODO: fixme
+    /// Operator reduction optimization examples:
+    ///
+    /// Step 1 - Initial pipeline:
+    ///   compare(_, 12) <- for(ref=10) <- bitpacked
+    ///
+    /// Step 2 - reduce_children optimization:
+    ///   compare_scalar(12-10=2) <- bitpacked
+    ///
+    /// Step 3 - Final optimized pipeline (reduce_parent):
+    ///   bitpacked -> compare_scalar(2)
+    ///
+    /// The reduction process eliminates the FoR decoding step by adjusting
+    /// the comparison constant to work directly on encoded values.
     /// Given a set of reduced children, try and reduce the current node.
     /// If Keep is returned then the children of this node as still updated.
     fn reduce_children(&self, children: &[Rc<dyn Operator>]) -> Option<Rc<dyn Operator>> {

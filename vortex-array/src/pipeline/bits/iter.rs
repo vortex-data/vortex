@@ -8,6 +8,7 @@ use bitvec::slice::{BitSlice, ChunksExact};
 
 use crate::pipeline::SC;
 
+/// Create an iterator over chunks of a boolean buffer.
 pub fn iter_boolean_buffer<'a>(buffer: &'a BooleanBuffer) -> ChunksExact<'a, u64, Lsb0> {
     assert_eq!(buffer.offset(), 0, "BooleanBuffer must have an offset of 0");
     let ptr = buffer.inner().as_ptr().cast::<u64>();
@@ -17,6 +18,7 @@ pub fn iter_boolean_buffer<'a>(buffer: &'a BooleanBuffer) -> ChunksExact<'a, u64
     slice.chunks_exact(SC)
 }
 
+/// Iterator over boolean buffer chunks for pipeline processing.
 pub struct BooleanBufferChunksIter<'a> {
     bit_chunks: BitChunkIterator<'a>,
     remainder_bits: Option<u64>,

@@ -15,7 +15,7 @@ pub struct View<'a> {
     pub(super) vtype: VType,
     /// A pointer to the allocated elements buffer.
     /// Alignment is at least the size of the element type.
-    /// The capacity of the elements buffer is N * size_of::<T>() where T is the element type.
+    /// The capacity of the elements buffer is N * `size_of::<T>()` where T is the element type.
     pub(super) elements: *const u8,
     /// The validity mask for the vector, indicating which elements in the buffer are valid.
     /// This value can be `None` if the expected DType is `NonNullable`.
@@ -119,7 +119,7 @@ pub struct ViewMut<'a> {
     pub(super) vtype: VType,
     /// A pointer to the allocated elements buffer.
     /// Alignment is at least the size of the element type.
-    /// The capacity of the elements buffer is N * size_of::<T>() where T is the element type.
+    /// The capacity of the elements buffer is N * `size_of::<T>()` where T is the element type.
     // TODO(ngates): it would be nice to guarantee _wider_ alignment, ideally 128 bytes, so that
     //  we can use aligned load/store instructions for wide SIMD lanes.
     pub(super) elements: *mut u8,
@@ -169,7 +169,7 @@ impl<'a> ViewMut<'a> {
     }
 
     /// Returns a mutable slice of the elements in the vector, allowing for modification.
-    /// FIXME(ngates): test the performance if we return &mut [E; N] instead of &[E].
+    /// FIXME(ngates): test the performance if we return `&mut [E; N]` instead of `&[E]`.
     #[inline(always)]
     pub fn as_slice_mut<E: Element>(&mut self) -> &'a mut [E] {
         debug_assert_eq!(self.vtype, E::vtype(), "Invalid type for canonical view");

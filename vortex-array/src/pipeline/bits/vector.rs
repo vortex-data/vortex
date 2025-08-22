@@ -29,6 +29,7 @@ static FULL: LazyLock<BitVector> = LazyLock::new(|| BitVector {
 /// Internally, it uses a [`BitArray`] to store the bits, but this crate has some
 /// performance foot-guns in cases where we can lean on better assumptions, and therefore we wrap
 /// it up for use within Vortex.
+/// Owned bit vector for storing boolean selection masks.
 #[derive(Clone)]
 pub struct BitVector {
     pub(super) bits: Arc<BitArray<[u64; SC / 64], Lsb0>>,
