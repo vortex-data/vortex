@@ -11,9 +11,8 @@ use vortex_scalar::Scalar;
 
 use crate::pipeline::bits::BitView;
 use crate::pipeline::operators::{BindContext, Operator};
-use crate::pipeline::{Element, VType};
 use crate::pipeline::view::ViewMut;
-use crate::pipeline::{Kernel, KernelContext};
+use crate::pipeline::{Element, Kernel, KernelContext, VType};
 
 /// Pipeline operator for constant arrays that produces the same scalar value for all elements.
 #[derive(Debug, Hash)]

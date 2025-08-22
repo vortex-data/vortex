@@ -11,9 +11,8 @@ use vortex_error::{VortexResult, vortex_bail};
 use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::pipeline::bits::BitView;
 use crate::pipeline::operators::{BindContext, Operator};
-use crate::pipeline::{Element, VType};
 use crate::pipeline::view::ViewMut;
-use crate::pipeline::{Kernel, KernelContext, PipelineVTable, SC};
+use crate::pipeline::{Element, Kernel, KernelContext, PipelineVTable, SC, VType};
 use crate::vtable::ValidityHelper;
 
 impl PipelineVTable<PrimitiveVTable> for PrimitiveVTable {

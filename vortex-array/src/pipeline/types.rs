@@ -5,6 +5,7 @@ use std::fmt::{Debug, Display, Formatter};
 
 use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PType};
+
 use crate::arrays::BinaryView;
 
 /// Defines the "vector type", a physical type describing the data that's held in the vector.

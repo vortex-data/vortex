@@ -11,10 +11,10 @@ use std::any::Any;
 use std::fmt::Debug;
 use std::rc::Rc;
 
-use dyn_hash::DynHash;
-use vortex_error::VortexResult;
 pub use compare::CompareOperator;
+use dyn_hash::DynHash;
 pub use scalar_compare::ScalarCompareOperator;
+use vortex_error::VortexResult;
 
 use crate::pipeline::Kernel;
 use crate::pipeline::types::VType;
