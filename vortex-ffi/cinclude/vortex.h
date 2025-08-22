@@ -314,8 +314,38 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * Attempt to shutdown the shared tokio runtime if no sessions are active.
- * May block indefinitely if the runtime is still running tasks.
+ * Attempt to shutdown the shared Tokio runtime if no active sessions exist.
+ * This function is thread-safe & idempotent. It can be called concurrently from multiple threads.
+ * It is recommended to call this function just before exiting the application, after all sessions
+ * have been explicitly dropped via `vx_session_free`.
+ *
+ * ## Behavior
+ *
+ * - **Success**: If no sessions hold runtime references, shuts down immediately
+ * - **Failure**: If sessions still exist, runtime continues running (no-op)
+ * - **Blocking**: May block indefinitely if runtime has active tasks
+ *
+ * ## Thread Safety
+ *
+ * This function is thread-safe but coordination is required for predictable behavior:
+ *
+ * - **Race Condition Safe**: Uses atomic Arc operations to detect active references
+ * - **Concurrent Calls**: Multiple threads can call this simultaneously (idempotent)
+ * - **Session Creation Race**: If called during session creation, may fail to shutdown
+ *
+ * ## Example Usage
+ *
+ * ```c
+ * // C usage pattern
+ * vx_session* session1 = vx_session_new();
+ * vx_session* session2 = vx_session_new();  // Reuses same runtime
+ *
+ * vx_session_free(session1);
+ * vx_session_free(session2);
+ *
+ * // Explicit cleanup:
+ * vx_try_shutdown_runtime();  // Only succeeds if no sessions active
+ * ```
  */
 void vx_try_shutdown_runtime(void);
 

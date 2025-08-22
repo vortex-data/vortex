@@ -64,25 +64,12 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 static RUNTIME_STATE: Mutex<Option<Arc<Runtime>>> = Mutex::new(None);
 
 /// Get or create the shared Tokio runtime for VortexSession instances.
+/// This function is fully thread-safe and can be called concurrently from multiple threads.
 ///
-/// ## Thread Safety
+/// ## Panics
 ///
-/// This function is fully thread-safe and can be called concurrently from multiple threads:
-///
-/// - **Lock Duration**: Minimized through clone-before-return pattern
-/// - **Race Condition Prevention**: Mutex ensures atomic runtime creation
-/// - **Memory Safety**: Arc ensures runtime lives as long as any session references it
-///
-/// ## Performance
-///
-/// - **First Call**: Creates runtime (expensive, ~10-50ms)
-/// - **Subsequent Calls**: Clone Arc reference (cheap, ~nanoseconds)
-/// - **Lock Contention**: Minimal due to short critical sections
-///
-/// ## Error Handling
-///
-/// Panics if runtime creation fails - this is intentional as runtime failure
-/// indicates system-level issues that should abort the process.
+/// Panics if runtime creation fails - this is intentional as runtime failure indicates
+/// system-level issues that should abort the process.
 pub(crate) fn get_runtime() -> Arc<Runtime> {
     let mut state = RUNTIME_STATE.lock();
 
@@ -101,46 +88,7 @@ pub(crate) fn get_runtime() -> Arc<Runtime> {
 }
 
 /// Attempt to shutdown the shared Tokio runtime if no active sessions exist.
-///
-/// ## Behavior
-///
-/// - **Success**: If no sessions hold runtime references, shuts down immediately  
-/// - **Failure**: If sessions still exist, runtime continues running (no-op)
-/// - **Blocking**: May block indefinitely if runtime has active tasks
-///
-/// ## Thread Safety
-///
-/// This function is thread-safe but coordination is required for predictable behavior:
-///
-/// - **Race Condition Safe**: Uses atomic Arc operations to detect active references
-/// - **Concurrent Calls**: Multiple threads can call this simultaneously (idempotent)
-/// - **Session Creation Race**: If called during session creation, may fail to shutdown
-///
-/// ## When to Use
-///
-/// **Recommended:**
-/// - Application shutdown after all sessions are explicitly dropped
-/// - Clean exit in single-threaded applications
-/// - Testing scenarios where resource cleanup is required
-///
-/// **Not Recommended:**
-/// - Automatic cleanup during normal operation (sessions handle this)  
-/// - Multithreaded environments where session lifecycle is unclear
-/// - Performance-critical code paths (this function can block)
-///
-/// ## Example Usage
-///
-/// ```c
-/// // C usage pattern
-/// vx_session* session1 = vx_session_new();
-/// vx_session* session2 = vx_session_new();  // Reuses same runtime
-///
-/// vx_session_free(session1);
-/// vx_session_free(session2);  // Runtime auto-cleaned here
-///
-/// // Or explicit cleanup:
-/// vx_try_shutdown_runtime();  // Only succeeds if no sessions active
-/// ```
+/// This function is thread-safe & idempotent. It can be called concurrently from multiple threads.
 pub fn try_shutdown_runtime() {
     let mut state = RUNTIME_STATE.lock();
 
@@ -171,8 +119,38 @@ pub(crate) unsafe fn to_string_vec(ptr: *const *const c_char, len: c_int) -> Vec
         .collect()
 }
 
-/// Attempt to shutdown the shared tokio runtime if no sessions are active.
-/// May block indefinitely if the runtime is still running tasks.
+/// Attempt to shutdown the shared Tokio runtime if no active sessions exist.
+/// This function is thread-safe & idempotent. It can be called concurrently from multiple threads.
+/// It is recommended to call this function just before exiting the application, after all sessions
+/// have been explicitly dropped via `vx_session_free`.
+///
+/// ## Behavior
+///
+/// - **Success**: If no sessions hold runtime references, shuts down immediately  
+/// - **Failure**: If sessions still exist, runtime continues running (no-op)
+/// - **Blocking**: May block indefinitely if runtime has active tasks
+///
+/// ## Thread Safety
+///
+/// This function is thread-safe but coordination is required for predictable behavior:
+///
+/// - **Race Condition Safe**: Uses atomic Arc operations to detect active references
+/// - **Concurrent Calls**: Multiple threads can call this simultaneously (idempotent)
+/// - **Session Creation Race**: If called during session creation, may fail to shutdown
+///
+/// ## Example Usage
+///
+/// ```c
+/// // C usage pattern
+/// vx_session* session1 = vx_session_new();
+/// vx_session* session2 = vx_session_new();  // Reuses same runtime
+///
+/// vx_session_free(session1);
+/// vx_session_free(session2);
+///
+/// // Explicit cleanup:
+/// vx_try_shutdown_runtime();  // Only succeeds if no sessions active
+/// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn vx_try_shutdown_runtime() {
     try_shutdown_runtime();
