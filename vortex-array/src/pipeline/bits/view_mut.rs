@@ -97,6 +97,11 @@ impl<'a> BitViewMut<'a> {
             }
         }
 
+        // Fill remaining bytes with zeros
+        if bytes_to_copy < total_bytes {
+            dst_bytes[bytes_to_copy..].fill(0);
+        }
+
         self.set_true_count(true_count);
     }
 

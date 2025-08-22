@@ -11,14 +11,8 @@ use std::sync::{Arc, LazyLock};
 use bitvec::array::BitArray;
 use bitvec::order::Lsb0;
 
-use super::{BitView, BitViewMut};
+use super::{BitView, BitViewMut, N_BITS};
 use crate::pipeline::N;
-
-// Number of usize words needed to store SC bits
-#[cfg(target_pointer_width = "32")]
-const N_BITS: usize = N / 32; // 32 bits per usize
-#[cfg(target_pointer_width = "64")]
-const N_BITS: usize = N_BITS; // 64 bits per usize
 
 static EMPTY: LazyLock<BitVector> = LazyLock::new(|| BitVector {
     bits: Arc::new(BitArray::ZERO),

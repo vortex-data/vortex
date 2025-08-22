@@ -7,12 +7,7 @@ use bitvec::prelude::*;
 use vortex_error::{VortexError, vortex_err};
 
 use crate::pipeline::N;
-
-// Number of usize words needed to store SC bits
-#[cfg(target_pointer_width = "32")]
-const USIZE_WORDS: usize = N / 32; // 32 bits per usize
-#[cfg(target_pointer_width = "64")]
-const USIZE_WORDS: usize = N / 64; // 64 bits per usize
+use crate::pipeline::bits::N_BITS;
 
 /// A borrowed fixed-size bit vector of length `N` bits, represented as an array of usize words.
 ///
@@ -22,7 +17,7 @@ const USIZE_WORDS: usize = N / 64; // 64 bits per usize
 /// Read-only view into a bit array for selection masking in pipeline operations.
 #[derive(Clone, Copy)]
 pub struct BitView<'a> {
-    bits: &'a BitArray<[usize; USIZE_WORDS], Lsb0>,
+    bits: &'a BitArray<[usize; N_BITS], Lsb0>,
     true_count: usize,
 }
 
@@ -37,10 +32,10 @@ impl Debug for BitView<'_> {
 
 impl BitView<'static> {
     pub fn all_true() -> Self {
-        static ALL_TRUE: [usize; USIZE_WORDS] = [usize::MAX; USIZE_WORDS];
+        static ALL_TRUE: [usize; N_BITS] = [usize::MAX; N_BITS];
         unsafe {
             BitView::new_unchecked(
-                std::mem::transmute::<&[usize; USIZE_WORDS], &BitArray<[usize; USIZE_WORDS], Lsb0>>(
+                std::mem::transmute::<&[usize; N_BITS], &BitArray<[usize; N_BITS], Lsb0>>(
                     &ALL_TRUE,
                 ),
                 N,
@@ -49,10 +44,10 @@ impl BitView<'static> {
     }
 
     pub fn all_false() -> Self {
-        static ALL_FALSE: [usize; USIZE_WORDS] = [0; USIZE_WORDS];
+        static ALL_FALSE: [usize; N_BITS] = [0; N_BITS];
         unsafe {
             BitView::new_unchecked(
-                std::mem::transmute::<&[usize; USIZE_WORDS], &BitArray<[usize; USIZE_WORDS], Lsb0>>(
+                std::mem::transmute::<&[usize; N_BITS], &BitArray<[usize; N_BITS], Lsb0>>(
                     &ALL_FALSE,
                 ),
                 0,
@@ -62,18 +57,16 @@ impl BitView<'static> {
 }
 
 impl<'a> BitView<'a> {
-    pub fn new(bits: &[usize; USIZE_WORDS]) -> Self {
+    pub fn new(bits: &[usize; N_BITS]) -> Self {
         let true_count = bits.iter().map(|&word| word.count_ones() as usize).sum();
-        let bits: &BitArray<[usize; USIZE_WORDS], Lsb0> = unsafe {
-            std::mem::transmute::<&[usize; USIZE_WORDS], &BitArray<[usize; USIZE_WORDS], Lsb0>>(
-                bits,
-            )
+        let bits: &BitArray<[usize; N_BITS], Lsb0> = unsafe {
+            std::mem::transmute::<&[usize; N_BITS], &BitArray<[usize; N_BITS], Lsb0>>(bits)
         };
         BitView { bits, true_count }
     }
 
     pub(crate) unsafe fn new_unchecked(
-        bits: &'a BitArray<[usize; USIZE_WORDS], Lsb0>,
+        bits: &'a BitArray<[usize; N_BITS], Lsb0>,
         true_count: usize,
     ) -> Self {
         BitView { bits, true_count }
@@ -167,23 +160,23 @@ impl<'a> BitView<'a> {
         }
     }
 
-    pub fn as_raw(&self) -> &[usize; USIZE_WORDS] {
+    pub fn as_raw(&self) -> &[usize; N_BITS] {
         // It's actually remarkably hard to get a reference to the underlying array!
         let raw = self.bits.as_raw_slice();
-        unsafe { &*(raw.as_ptr() as *const [usize; USIZE_WORDS]) }
+        unsafe { &*(raw.as_ptr() as *const [usize; N_BITS]) }
     }
 }
 
-impl<'a> From<&'a [usize; USIZE_WORDS]> for BitView<'a> {
-    fn from(value: &'a [usize; USIZE_WORDS]) -> Self {
+impl<'a> From<&'a [usize; N_BITS]> for BitView<'a> {
+    fn from(value: &'a [usize; N_BITS]) -> Self {
         Self::new(value)
     }
 }
 
-impl<'a> From<&'a BitArray<[usize; USIZE_WORDS], Lsb0>> for BitView<'a> {
-    fn from(bits: &'a BitArray<[usize; USIZE_WORDS], Lsb0>) -> Self {
+impl<'a> From<&'a BitArray<[usize; N_BITS], Lsb0>> for BitView<'a> {
+    fn from(bits: &'a BitArray<[usize; N_BITS], Lsb0>) -> Self {
         BitView::new(unsafe {
-            std::mem::transmute::<&BitArray<[usize; USIZE_WORDS]>, &[usize; USIZE_WORDS]>(bits)
+            std::mem::transmute::<&BitArray<[usize; N_BITS]>, &[usize; N_BITS]>(bits)
         })
     }
 }
@@ -192,11 +185,11 @@ impl<'a> TryFrom<&'a BitSlice<usize, Lsb0>> for BitView<'a> {
     type Error = VortexError;
 
     fn try_from(value: &'a BitSlice<usize, Lsb0>) -> Result<Self, Self::Error> {
-        let bits: &BitArray<[usize; USIZE_WORDS], Lsb0> = value
+        let bits: &BitArray<[usize; N_BITS], Lsb0> = value
             .try_into()
             .map_err(|e| vortex_err!("Failed to convert BitSlice to BitArray: {}", e))?;
         Ok(BitView::new(unsafe {
-            std::mem::transmute::<&BitArray<[usize; USIZE_WORDS]>, &[usize; USIZE_WORDS]>(bits)
+            std::mem::transmute::<&BitArray<[usize; N_BITS]>, &[usize; N_BITS]>(bits)
         }))
     }
 }
@@ -210,7 +203,7 @@ mod tests {
 
     #[test]
     fn test_iter_ones_empty() {
-        let bits = [0usize; N / 64];
+        let bits = [0usize; N_BITS];
         let view = BitView::new(&bits);
 
         let mut ones = Vec::new();
@@ -234,7 +227,7 @@ mod tests {
 
     #[test]
     fn test_iter_zeros_empty() {
-        let bits = [0usize; N / 64];
+        let bits = [0usize; N_BITS];
         let view = BitView::new(&bits);
 
         let mut zeros = Vec::new();
@@ -256,7 +249,7 @@ mod tests {
 
     #[test]
     fn test_iter_ones_single_bit() {
-        let mut bits = [0usize; N / 64];
+        let mut bits = [0usize; N_BITS];
         bits[0] = 1; // Set bit 0 (LSB)
         let view = BitView::new(&bits);
 
@@ -269,7 +262,7 @@ mod tests {
 
     #[test]
     fn test_iter_zeros_single_bit_unset() {
-        let mut bits = [usize::MAX; N / 64];
+        let mut bits = [usize::MAX; N_BITS];
         bits[0] = usize::MAX ^ 1; // Clear bit 0 (LSB)
         let view = BitView::new(&bits);
 
@@ -281,7 +274,7 @@ mod tests {
 
     #[test]
     fn test_iter_ones_multiple_bits_first_word() {
-        let mut bits = [0usize; N / 64];
+        let mut bits = [0usize; N_BITS];
         bits[0] = 0b1010101; // Set bits 0, 2, 4, 6
         let view = BitView::new(&bits);
 
@@ -294,7 +287,7 @@ mod tests {
 
     #[test]
     fn test_iter_zeros_multiple_bits_first_word() {
-        let mut bits = [usize::MAX; N / 64];
+        let mut bits = [usize::MAX; N_BITS];
         bits[0] = !0b1010101; // Clear bits 0, 2, 4, 6
         let view = BitView::new(&bits);
 
@@ -306,7 +299,7 @@ mod tests {
 
     #[test]
     fn test_iter_ones_across_words() {
-        let mut bits = [0usize; N / 64];
+        let mut bits = [0usize; N_BITS];
         bits[0] = 1 << 63; // Set bit 63 of first word
         bits[1] = 1; // Set bit 0 of second word (bit 64 overall)
         bits[2] = 1 << 31; // Set bit 31 of third word (bit 159 overall)
@@ -321,7 +314,7 @@ mod tests {
 
     #[test]
     fn test_iter_zeros_across_words() {
-        let mut bits = [usize::MAX; N / 64];
+        let mut bits = [usize::MAX; N_BITS];
         bits[0] = !(1 << 63); // Clear bit 63 of first word
         bits[1] = !1; // Clear bit 0 of second word (bit 64 overall)
         bits[2] = !(1 << 31); // Clear bit 31 of third word (bit 159 overall)
@@ -335,7 +328,7 @@ mod tests {
 
     #[test]
     fn test_lsb_bit_ordering() {
-        let mut bits = [0usize; N / 64];
+        let mut bits = [0usize; N_BITS];
         bits[0] = 0b11111111; // Set bits 0-7 (LSB ordering)
         let view = BitView::new(&bits);
 
@@ -348,7 +341,7 @@ mod tests {
 
     #[test]
     fn test_iter_ones_and_zeros_complement() {
-        let mut bits = [0usize; N / 64];
+        let mut bits = [0usize; N_BITS];
         bits[0] = 0xAAAAAAAAAAAAAAAA; // Alternating pattern
         let view = BitView::new(&bits);
 
@@ -431,7 +424,7 @@ mod tests {
         let mask = Mask::from_indices(N, indices.clone());
 
         // Create corresponding BitView
-        let mut bits = [0usize; N / 64];
+        let mut bits = [0usize; N_BITS];
         for idx in &indices {
             let word_idx = idx / 64;
             let bit_idx = idx % 64;
@@ -454,7 +447,7 @@ mod tests {
         let mask = Mask::from_slices(N, slices.clone());
 
         // Create corresponding BitView
-        let mut bits = [0usize; N / 64];
+        let mut bits = [0usize; N_BITS];
         for (start, end) in &slices {
             for idx in *start..*end {
                 let word_idx = idx / 64;
@@ -481,7 +474,7 @@ mod tests {
     #[test]
     fn test_mask_and_bitview_iter_match() {
         // Create a pattern with alternating bits in first word
-        let mut bits = [0usize; N / 64];
+        let mut bits = [0usize; N_BITS];
         bits[0] = 0xAAAAAAAAAAAAAAAA; // Alternating 1s and 0s
         bits[1] = 0xFF00FF00FF00FF00; // Alternating bytes
 
@@ -532,7 +525,7 @@ mod tests {
     #[test]
     fn test_bitview_zeros_complement_mask() {
         // Create a pattern
-        let mut bits = [0usize; N / 64];
+        let mut bits = [0usize; N_BITS];
         bits[0] = 0b11110000111100001111000011110000;
 
         let view = BitView::new(&bits);
