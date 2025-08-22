@@ -17,6 +17,7 @@ version = { workspace = true }
 bytes = { workspace = true }
 cfg-if = { workspace = true }
 compio = { workspace = true, features = ["bytes", "macros"], optional = true }
+crossbeam-channel = { workspace = true }
 flume = { workspace = true }
 futures = { workspace = true, features = ["std"] }
 futures-util = { workspace = true }

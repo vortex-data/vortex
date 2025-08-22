@@ -3,19 +3,20 @@
 
 use crate::runtime::{FileIoRequest, Runtime};
 use flume::Receiver;
+use futures::executor::block_on;
 use futures::{pin_mut, Stream};
+use futures_util::future::BoxFuture;
 use futures_util::stream::FuturesUnordered;
 use futures_util::task::noop_waker_ref;
 use futures_util::StreamExt;
-use smol::lock::Semaphore;
 use smol::Executor;
 use std::os::unix::fs::FileExt;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use tokio::task::{spawn_blocking, LocalSet};
+use tokio::task::LocalSet;
 use vortex_buffer::ByteBufferMut;
-use vortex_error::{vortex_err, VortexError, VortexExpect, VortexResult};
+use vortex_error::{VortexError, VortexExpect, VortexResult};
 
 impl Runtime {
     /// Returns a worker pool that can be used to drive the Runtime and in the process emit
@@ -31,7 +32,7 @@ impl Runtime {
                 pin_mut!(stream);
                 while let Some(item) = stream.next().await {
                     if let Err(e) = send.send(item) {
-                        log::trace!("Failed to send item to worker pool: {}", e);
+                        log::trace!("All workers disconnected: {}", e);
                         break;
                     }
                 }
@@ -43,7 +44,8 @@ impl Runtime {
                 next_worker_id: Default::default(),
                 executor: self.executor,
                 file_io_recv: self.file_io_recv,
-                io_workers: Arc::new(Semaphore::new(1)), // Start with 1 I/O worker.
+                active_io_workers: Default::default(),
+                target_io_reqs_per_worker: 32,
                 results: recv,
             }),
         }
@@ -63,8 +65,9 @@ struct Shared<T: Send + 'static> {
 
     // The I/O request queue.
     file_io_recv: Receiver<FileIoRequest>,
-    // A semaphore for controlling the number of I/O workers.
-    io_workers: Arc<Semaphore>,
+    /// The current count of I/O worker threads.
+    active_io_workers: AtomicUsize,
+    target_io_reqs_per_worker: usize, // e.g. queue len = 32, target = 8 -> 4 workers
 
     // The result channel.
     results: Receiver<T>,
@@ -81,20 +84,67 @@ impl<T: Send + 'static> WorkerPool<T> {
             .vortex_expect("Failed to create worker I/O runtime");
 
         Worker {
+            id,
             shared: self.shared.clone(),
+            role: WorkerRole::Executor,
             io_runtime,
         }
     }
 }
 
 pub struct Worker<T: Send + 'static> {
+    id: usize,
     shared: Arc<Shared<T>>,
+    role: WorkerRole,
 
     // FIXME(ngates): we need to share a pool of workers that perform blocking reads...
     io_runtime: tokio::runtime::Runtime,
 }
 
+#[derive(Debug, Clone, Copy)]
+enum WorkerRole {
+    Executor,
+    IO,
+}
+
 impl<T: Send + 'static> Worker<T> {
+    fn update_role(&mut self) -> WorkerRole {
+        // FIXME(ngates): this works quite well, except flume channel len requires a mutex!
+        // let queue_depth = self.shared.file_io_recv.len();
+        let active_workers = self.shared.active_io_workers.load(Ordering::Relaxed);
+        let target_workers = 1;
+
+        // Simple heuristic: need more I/O workers if queue is backing up
+        // let target_workers = (queue_depth / self.shared.target_io_reqs_per_worker).max(1);
+        // log::trace!(
+        //     "Queue depth: {}, Active I/O workers: {}, Target I/O workers: {}",
+        //     queue_depth,
+        //     active_workers,
+        //     target_workers
+        // );
+
+        match self.role {
+            WorkerRole::Executor => {
+                if active_workers < target_workers {
+                    // Try to increment atomically
+                    self.shared.active_io_workers.fetch_add(1, Ordering::AcqRel);
+                    // Upgrade to I/O role
+                    self.role = WorkerRole::IO;
+                }
+            }
+            WorkerRole::IO => {
+                if active_workers > target_workers {
+                    // Try to decrement atomically
+                    self.shared.active_io_workers.fetch_sub(1, Ordering::AcqRel);
+                    // Downgrade to executor role
+                    self.role = WorkerRole::Executor;
+                }
+            }
+        }
+
+        self.role
+    }
+
     /// Perform the role of the I/O driver.
     fn drive_io(&mut self) {
         if self.shared.file_io_recv.is_empty() {
@@ -108,7 +158,7 @@ impl<T: Send + 'static> Worker<T> {
         self.io_runtime
             .block_on(LocalSet::new().run_until(async move {
                 // Create a FuturesUnordered to manage concurrent blocking operations
-                let mut inflight = FuturesUnordered::<VortexResult<()>>::new();
+                let mut inflight = FuturesUnordered::<BoxFuture<'static, VortexResult<()>>>::new();
 
                 // Convert receiver to stream for easier polling
                 let mut file_io_stream = file_io_recv.into_stream();
@@ -176,29 +226,36 @@ impl<T: Send + 'static> Worker<T> {
 impl<T: Send + 'static> Iterator for Worker<T> {
     type Item = T;
 
+    #[inline(never)]
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             // Try to emit an item from the results channel.
-            match self.shared.results.try_recv() {
-                Ok(item) => return Some(item),
-                Err(flume::TryRecvError::Empty) => { /* No items, continue */ }
-                Err(flume::TryRecvError::Disconnected) => return None,
-            }
+            // match self.shared.results.try_recv() {
+            //     Ok(item) => return Some(item),
+            //     Err(crossbeam_channel::TryRecvError::Empty) => { /* No items, continue */ }
+            //     Err(crossbeam_channel::TryRecvError::Disconnected) => return None,
+            // }
 
-            // Check if we should become an I/O worker.
-            if let Some(_guard) = self.shared.io_workers.try_acquire_arc() {
-                if !self.shared.file_io_recv.is_empty() {
+            match self.update_role() {
+                WorkerRole::Executor => {
+                    // Otherwise, drive the main executor for some number of ticks.
+                    match block_on(
+                        self.shared
+                            .executor
+                            .run(self.shared.results.stream().next()),
+                    ) {
+                        None => {
+                            return None;
+                        }
+                        Some(result) => {
+                            return Some(result);
+                        }
+                    }
+                }
+                WorkerRole::IO => {
                     self.drive_io();
                     // Start the loop again to check for more work.
                     continue;
-                }
-            }
-
-            // Otherwise, drive the main executor for some number of ticks.
-            // FIXME(ngates): adjust based on load?
-            for _ in 0..8 {
-                if !self.shared.executor.try_tick() {
-                    break;
                 }
             }
         }

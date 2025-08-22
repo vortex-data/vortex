@@ -6969,6 +6969,7 @@ dependencies = [
  "bytes",
  "cfg-if",
  "compio",
+ "crossbeam-channel",
  "flume",
  "futures",
  "futures-util",

@@ -303,6 +303,7 @@ impl TableFunction for VortexTableFunction {
         let bind_data = init_input.bind_data();
         let projection_expr = extract_projection_expr(init_input);
         let filter_expr = extract_table_filter_expr(init_input, init_input.column_ids())?;
+        let filter_expr2 = filter_expr.clone();
 
         log::trace!(
             "Global init Vortex scan SELECT {} WHERE {}",
@@ -321,7 +322,7 @@ impl TableFunction for VortexTableFunction {
         let file_urls = bind_data.file_urls.clone();
 
         let stream = stream::once(ready(ready(Ok(first_file)).boxed()))
-            .chain(stream::iter(file_urls).map(move |path| {
+            .chain(stream::iter(file_urls).skip(1).map(move |path| {
                 let handle = handle.clone();
                 async move {
                     // let cache = FooterCache::new(object_cache);
@@ -336,13 +337,25 @@ impl TableFunction for VortexTableFunction {
             }))
             // We make sure we're N files ahead in terms of opening and parsing footers.
             .buffered(16)
+            .try_filter_map(move |vxf| {
+                let filter_expr = filter_expr.clone();
+                async move {
+                    if let Some(filter) = filter_expr.as_ref() {
+                        if vxf.can_prune(filter)? {
+                            return Ok(None);
+                        }
+                    }
+                    Ok::<_, VortexError>(Some(vxf))
+                }
+            })
             .enumerate()
             .map(move |(idx, vxf)| {
                 let conversion_cache = Arc::new(ConversionCache::new(idx as u64));
                 let tasks = vxf?
                     .scan()?
-                    .with_some_filter(filter_expr.clone())
+                    .with_some_filter(filter_expr2.clone())
                     .with_projection(projection_expr.clone())
+                    .with_concurrency(1024)
                     .map(move |split: ArrayRef| Ok((split, conversion_cache.clone())))
                     .into_stream(handle2.clone())?;
                 Ok::<_, VortexError>(tasks)
