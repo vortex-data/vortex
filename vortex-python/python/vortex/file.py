@@ -6,13 +6,8 @@ from __future__ import annotations
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, final
 
-if TYPE_CHECKING:
-    import polars as pl
-    import pyarrow as pa
+import pyarrow as pa
 
-import vortex
-
-from . import expr as ve
 from ._lib import file as _file  # pyright: ignore[reportMissingModuleSource]
 from ._lib.arrays import Array  # pyright: ignore[reportMissingModuleSource]
 from ._lib.dtype import DType  # pyright: ignore[reportMissingModuleSource]
@@ -23,6 +18,7 @@ from .type_aliases import IntoProjection
 
 if TYPE_CHECKING:
     import polars
+    from .type_aliases import RecordBatchReader
 
 
 def open(path: str) -> VortexFile:
@@ -155,7 +151,7 @@ class VortexFile:
         *,
         expr: Expr | None = None,
         batch_size: int | None = None,
-    ) -> vortex.type_aliases.RecordBatchReader:
+    ) -> RecordBatchReader:
         """Scan the Vortex file as a :class:`pyarrow.RecordBatchReader`.
 
         Parameters
@@ -190,7 +186,7 @@ class VortexFile:
             _n_rows: int | None,
             _batch_size: int | None,
         ) -> Iterator[pl.DataFrame]:
-            vx_predicate: ve.Expr | None = None if predicate is None else polars_to_vortex(predicate)
+            vx_predicate: Expr | None = None if predicate is None else polars_to_vortex(predicate)
 
             reader = self.to_arrow(projection=with_columns, expr=vx_predicate)
 

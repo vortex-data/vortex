@@ -12,7 +12,7 @@ import pyarrow.dataset
 from typing_extensions import override
 
 from ._lib import dataset as _dataset  # pyright: ignore[reportMissingModuleSource]
-from ._lib import file as _file
+from ._lib import file as _file  # pyright: ignore[reportMissingModuleSource]
 from .arrays import array
 from .arrow.expression import arrow_to_vortex as arrow_to_vortex_expr
 
