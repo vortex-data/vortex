@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::datasets::Dataset;
+use crate::tpch::tpchgen::{generate_tpch_tables, TpchGenOptions};
+use crate::{Format, IdempotentPath};
 use async_trait::async_trait;
 use glob::glob;
 use vortex::arrays::ChunkedArray;
@@ -8,10 +11,6 @@ use vortex::dtype::Nullability::NonNullable;
 use vortex::expr::{col, pack};
 use vortex::file::VortexOpenOptions;
 use vortex::{Array, ArrayRef, IntoArray, ToCanonical};
-
-use crate::datasets::Dataset;
-use crate::tpch::tpchgen::{TpchGenOptions, generate_tpch_tables};
-use crate::{Format, IdempotentPath};
 
 pub struct TPCHLCommentChunked;
 
@@ -32,23 +31,24 @@ impl Dataset for TPCHLCommentChunked {
             let options = TpchGenOptions::new("1.0".to_string(), scale_factor_dir)
                 .with_format(Format::OnDiskVortex);
 
-            futures::executor::block_on(generate_tpch_tables(options))
+            generate_tpch_tables(options)
+                .await
                 .expect("Failed to generate TPC-H data");
         }
 
         let mut chunks: Vec<ArrayRef> = vec![];
-        for path in glob(
+        let paths = glob(
             data_dir
                 .join("lineitem_*.vortex")
                 .to_string_lossy()
                 .as_ref(),
         )
         .unwrap()
-        {
-            let file = VortexOpenOptions::file()
-                .open(path.unwrap())
-                .await
-                .expect("cannot open lineitem.vortex");
+        .map(|x| x.unwrap())
+        .collect::<Vec<_>>();
+
+        for path in paths {
+            let file = VortexOpenOptions::file().open_blocking(path).unwrap();
 
             chunks.extend(
                 file.scan()
@@ -57,7 +57,7 @@ impl Dataset for TPCHLCommentChunked {
                     .into_array_iter()
                     .unwrap()
                     .map(|a| a.unwrap().to_canonical().unwrap().into_array()),
-            )
+            );
         }
 
         ChunkedArray::from_iter(chunks).into_array()

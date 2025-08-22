@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::path::Path;
 use std::sync::Arc;
 
 use dashmap::DashMap;
@@ -68,19 +69,19 @@ impl VortexOpenOptions<GenericVortexFile> {
     }
 
     /// Blocking call to open a Vortex file using the provided [`std::path::Path`].
-    pub fn open_blocking(self, read: impl AsRef<std::path::Path>) -> VortexResult<VortexFile> {
+    pub fn open_blocking<P: AsRef<Path>>(self, read: P) -> VortexResult<VortexFile> {
         Runtime::oneshot(|handle| self.open(read, handle))
     }
 
     /// Open a Vortex file using the provided [`std::path::Path`].
-    pub async fn open(
+    pub fn open<P: AsRef<Path>>(
         self,
-        read: impl AsRef<std::path::Path>,
+        read: P,
         handle: Handle,
-    ) -> VortexResult<VortexFile> {
+    ) -> impl Future<Output = VortexResult<VortexFile>> + 'static {
         // self.open_read_at(vortex_io::TokioFile::open(read)?).await
-        self.open_read_at(FileIo::try_new(read.as_ref())?, handle)
-            .await
+        let io = FileIo::try_new(read);
+        async move { self.open_read_at(io?, handle).await }
     }
 
     /// Low-level API for opening any [`VortexReadAt`]. Note that the user is responsible for

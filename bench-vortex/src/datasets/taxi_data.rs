@@ -6,15 +6,16 @@ use std::path::PathBuf;
 use async_trait::async_trait;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
-use vortex::ArrayRef;
 use vortex::error::VortexError;
 use vortex::file::{VortexOpenOptions, VortexWriteOptions};
+use vortex::io::runtime::Runtime;
 use vortex::iter::ArrayIteratorExt;
+use vortex::ArrayRef;
 
 use crate::conversions::parquet_to_vortex;
-use crate::datasets::Dataset;
 use crate::datasets::data_downloads::download_data;
-use crate::{IdempotentPath, idempotent_async};
+use crate::datasets::Dataset;
+use crate::{idempotent_async, IdempotentPath};
 
 pub struct TaxiData;
 
@@ -38,16 +39,19 @@ pub async fn taxi_data_parquet() -> PathBuf {
 
 pub async fn fetch_taxi_data() -> ArrayRef {
     let vortex_data = taxi_data_vortex().await;
-    VortexOpenOptions::file()
-        .open(vortex_data)
-        .await
-        .unwrap()
-        .scan()
-        .unwrap()
-        .into_array_iter_multithread()
-        .unwrap()
-        .read_all()
-        .unwrap()
+    Runtime::oneshot_tokio(|handle| async move {
+        VortexOpenOptions::file()
+            .open(vortex_data, handle)
+            .await
+            .unwrap()
+            .scan()
+            .unwrap()
+            .into_array_iter_multithread()
+            .unwrap()
+            .read_all()
+            .unwrap()
+    })
+    .await
 }
 
 pub async fn taxi_data_vortex() -> PathBuf {

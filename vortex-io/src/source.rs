@@ -17,7 +17,7 @@ pub trait IoSource: 'static + Send + Sync {
 pub struct FileIo(Arc<File>);
 
 impl FileIo {
-    pub fn try_new(path: impl AsRef<Path>) -> VortexResult<Arc<dyn IoSource>> {
+    pub fn try_new<P: AsRef<Path>>(path: P) -> VortexResult<Arc<dyn IoSource>> {
         Ok(Arc::new(Self(Arc::new(File::open(path)?))) as _)
     }
 }

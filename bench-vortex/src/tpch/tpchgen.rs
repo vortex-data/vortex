@@ -6,10 +6,10 @@ use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
-use futures::{StreamExt, TryStreamExt, stream};
+use futures::{stream, StreamExt, TryStreamExt};
 use log::info;
 use parquet::arrow::AsyncArrowWriter;
 use parquet::basic::Compression;
@@ -22,13 +22,14 @@ use tpchgen::generators::{
     PartSuppGenerator, RegionGenerator, SupplierGenerator,
 };
 use tpchgen_arrow::RecordBatchIterator;
-use vortex::ArrayRef;
 use vortex::arrow::FromArrowArray;
-use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
+use vortex::dtype::DType;
 use vortex::error::VortexExpect;
 use vortex::file::VortexWriteOptions;
+use vortex::io::runtime::Handle;
 use vortex::stream::ArrayStreamAdapter;
+use vortex::ArrayRef;
 
 use crate::utils::file_utils::idempotent_async;
 use crate::{CompactionStrategy, Format, IdempotentPath};
@@ -119,15 +120,15 @@ pub async fn generate_tpch_tables(options: TpchGenOptions) -> Result<()> {
     // Process futures with bounded concurrency
     // Map each future to a spawned task, then use buffer_unordered to limit concurrency
     let results: Vec<_> = stream::iter(all_futures.into_iter().flatten())
-        .map(|future| tokio::spawn(future))
+        // .map(|future| tokio::spawn(future))
         .buffer_unordered(MAX_CONCURRENT_FILES)
         .try_collect()
         .await?;
 
-    // Check all spawned tasks completed successfully
-    for result in results {
-        result?;
-    }
+    // // Check all spawned tasks completed successfully
+    // for result in results {
+    //     result?;
+    // }
 
     Ok(())
 }
