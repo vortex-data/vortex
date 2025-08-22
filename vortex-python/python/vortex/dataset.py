@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Iterator
+from functools import reduce
 from typing import final
 
 import pyarrow as pa
@@ -14,7 +15,8 @@ from typing_extensions import override
 from ._lib import dataset as _dataset  # pyright: ignore[reportMissingModuleSource]
 from ._lib import file as _file  # pyright: ignore[reportMissingModuleSource]
 from .arrays import array
-from .arrow.expression import arrow_to_vortex as arrow_to_vortex_expr
+from .arrow.expression import ensure_vortex_expression
+from .expr import Expr, and_
 
 
 @final
@@ -26,8 +28,9 @@ class VortexDataset(pyarrow.dataset.Dataset):
 
     """
 
-    def __init__(self, dataset: _dataset.VortexDataset):
+    def __init__(self, dataset: _dataset.VortexDataset, *, filters: list[Expr] | None = None):
         self._dataset = dataset
+        self._filters: list[Expr] = filters or []
 
     @staticmethod
     def from_url(url: str):
@@ -46,7 +49,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
     @override
     def count_rows(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
-        filter: pyarrow.dataset.Expression | None = None,
+        filter: pyarrow.dataset.Expression | Expr | None = None,
         batch_size: int | None = None,
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
@@ -67,16 +70,29 @@ class VortexDataset(pyarrow.dataset.Dataset):
         if cache_metadata:
             warnings.warn("Vortex does not support cache_metadata. Ignoring cache_metadata=True")
         del memory_pool
-        vx_filter = None if filter is None else arrow_to_vortex_expr(filter, self.schema)
-        return self._dataset.count_rows(row_filter=vx_filter, split_by=batch_size)
+        return self._dataset.count_rows(row_filter=self._filter_expression(filter), split_by=batch_size)
+
+    def _filter_expression(self, expression: pyarrow.dataset.Expression | Expr | None) -> Expr | None:
+        if expression is None:
+            if self._filters:
+                return reduce(and_, self._filters)
+            return None
+        return reduce(and_, [*self._filters, ensure_vortex_expression(expression, schema=self.schema)])
 
     @override
-    def filter(self, expression: pyarrow.dataset.Expression) -> VortexDataset:
-        """Not implemented."""
-        raise NotImplementedError("filter")
+    def filter(self, expression: pyarrow.dataset.Expression | Expr) -> VortexDataset:
+        """A new Dataset with a filter condition applied.
+
+        Successively calling this method conjuncts all the filter expressions together.
+        """
+        return VortexDataset(
+            self._dataset, filters=[*self._filters, ensure_vortex_expression(expression, schema=self.schema)]
+        )
 
     @override
-    def get_fragments(self, filter: pyarrow.dataset.Expression | None = None) -> Iterator[pyarrow.dataset.Fragment]:
+    def get_fragments(
+        self, filter: pyarrow.dataset.Expression | Expr | None = None
+    ) -> Iterator[pyarrow.dataset.Fragment]:
         """Not implemented."""
         raise NotImplementedError("get_fragments")
 
@@ -85,7 +101,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
         self,
         num_rows: int,
         columns: list[str] | None = None,
-        filter: pyarrow.dataset.Expression | None = None,
+        filter: pyarrow.dataset.Expression | Expr | None = None,
         batch_size: int | None = None,
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
@@ -139,8 +155,11 @@ class VortexDataset(pyarrow.dataset.Dataset):
             warnings.warn("Vortex does not support cache_metadata. Ignoring cache_metadata=True")
         del memory_pool
 
-        vx_filter = None if filter is None else arrow_to_vortex_expr(filter, self.schema)
-        return self._dataset.to_array(columns=columns, row_filter=vx_filter).slice(0, num_rows).to_arrow_table()
+        return (
+            self._dataset.to_array(columns=columns, row_filter=self._filter_expression(filter))
+            .slice(0, num_rows)
+            .to_arrow_table()
+        )
 
     @override
     def join(
@@ -179,7 +198,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
     def scanner(
         self,
         columns: list[str] | None = None,
-        filter: pyarrow.dataset.Expression | None = None,
+        filter: pyarrow.dataset.Expression | Expr | None = None,
         batch_size: int | None = None,
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
@@ -247,7 +266,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
             | pyarrow.UInt64Scalar
         ],
         columns: list[str] | None = None,
-        filter: pyarrow.dataset.Expression | None = None,
+        filter: pyarrow.dataset.Expression | Expr | None = None,
         batch_size: int | None = None,
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
@@ -287,15 +306,16 @@ class VortexDataset(pyarrow.dataset.Dataset):
         table : :class:`.pyarrow.Table`
 
         """
-        vx_filter = None if filter is None else arrow_to_vortex_expr(filter, self.schema)
         return self._dataset.to_array(
-            columns=columns, row_filter=vx_filter, indices=array(indices.cast(pa.uint64()))
+            columns=columns,
+            row_filter=self._filter_expression(filter),
+            indices=array(indices.cast(pa.uint64())),
         ).to_arrow_table()
 
     def to_record_batch_reader(
         self,
         columns: list[str] | None = None,
-        filter: pyarrow.dataset.Expression | None = None,
+        filter: pyarrow.dataset.Expression | Expr | None = None,
         batch_size: int | None = None,
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
@@ -344,14 +364,15 @@ class VortexDataset(pyarrow.dataset.Dataset):
         if columns is not None and len(columns) == 0:
             raise ValueError("empty projections are not currently supported")
         del memory_pool
-        vx_filter = None if filter is None else arrow_to_vortex_expr(filter, self.schema)
-        return self._dataset.to_record_batch_reader(columns=columns, row_filter=vx_filter, split_by=batch_size)
+        return self._dataset.to_record_batch_reader(
+            columns=columns, row_filter=self._filter_expression(filter), split_by=batch_size
+        )
 
     @override
     def to_batches(
         self,
         columns: list[str] | None = None,
-        filter: pyarrow.dataset.Expression | None = None,
+        filter: pyarrow.dataset.Expression | Expr | None = None,
         batch_size: int | None = None,
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
@@ -410,7 +431,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
     def to_table(
         self,
         columns: list[str] | dict[str, pyarrow.dataset.Expression] | None = None,
-        filter: pyarrow.dataset.Expression | None = None,
+        filter: pyarrow.dataset.Expression | Expr | None = None,
         batch_size: int | None = None,
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
@@ -467,8 +488,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
                 "VortexDataset does not currently support a dict of expressions as the 'column' parameter."
             )
 
-        vx_filter = None if filter is None else arrow_to_vortex_expr(filter, self.schema)
-        return self._dataset.to_array(columns=columns, row_filter=vx_filter).to_arrow_table()
+        return self._dataset.to_array(columns=columns, row_filter=self._filter_expression(filter)).to_arrow_table()
 
 
 def from_url(url: str) -> VortexDataset:
@@ -511,7 +531,7 @@ class VortexScanner(pyarrow.dataset.Scanner):
         self,
         dataset: VortexDataset,
         columns: list[str] | None = None,
-        filter: pyarrow.dataset.Expression | None = None,
+        filter: pyarrow.dataset.Expression | Expr | None = None,
         batch_size: int | None = None,
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
