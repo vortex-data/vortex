@@ -10,13 +10,14 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
 use crate::match_each_compare_op;
-use crate::vector::bits::BitView;
-use crate::vector::operators::compare::{BinaryOperator, CompareOp};
-use crate::vector::operators::{BindContext, Operator};
-use crate::vector::types::{Element, VType};
-use crate::vector::vec::VectorId;
-use crate::vector::view::ViewMut;
-use crate::vector::{Kernel, KernelContext};
+use crate::compute::Operator as BinaryOperator;
+use crate::pipeline::bits::BitView;
+use crate::pipeline::operators::compare::CompareOp;
+use crate::pipeline::operators::{BindContext, Operator};
+use crate::pipeline::types::{Element, VType};
+use crate::pipeline::vec::VectorId;
+use crate::pipeline::view::ViewMut;
+use crate::pipeline::{Kernel, KernelContext};
 
 #[derive(Debug, Hash)]
 pub struct ScalarCompareOperator {
@@ -115,7 +116,8 @@ impl<T: Element + NativePType, Op: CompareOp<T>> Kernel for ScalarComparePrimiti
 
 #[cfg(test)]
 mod tests {
-    use std::rc::Rc;
+    use crate::arrays::PrimitiveOperator;
+use std::rc::Rc;
 
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::BufferMut;
@@ -123,12 +125,10 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use super::*;
-    use crate::vector::SC;
-    use crate::vector::bits::BitView;
-    use crate::vector::operators::compare::BinaryOperator;
-    use crate::vector::operators::primitive::PrimitiveOperator;
-    use crate::vector::query::QueryPlan;
-    use crate::vector::view::ViewMut;
+    use crate::pipeline::SC;
+    use crate::pipeline::bits::BitView;
+    use crate::pipeline::query::QueryPlan;
+    use crate::pipeline::view::ViewMut;
 
     #[test]
     fn test_scalar_compare_stacked_on_primitive() {

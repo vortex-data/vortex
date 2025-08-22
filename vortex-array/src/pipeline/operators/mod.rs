@@ -5,8 +5,6 @@
 
 pub mod binary_bool;
 pub mod compare;
-pub mod constant;
-pub mod primitive;
 pub mod scalar_compare;
 
 use std::any::Any;
@@ -16,9 +14,9 @@ use std::rc::Rc;
 use dyn_hash::DynHash;
 use vortex_error::VortexResult;
 
-use crate::vector::Kernel;
-use crate::vector::types::VType;
-use crate::vector::vec::VectorId;
+use crate::pipeline::Kernel;
+use crate::pipeline::types::VType;
+use crate::pipeline::vec::VectorId;
 
 // TODO: clean up this diagram
 // compare(_, _) <-  for <- bitpacked

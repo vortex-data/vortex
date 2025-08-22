@@ -5,10 +5,10 @@ use std::ops::DerefMut;
 
 use vortex_error::VortexResult;
 
-use crate::vector::bits::BitView;
-use crate::vector::query::buffers::OutputTarget;
-use crate::vector::view::ViewMut;
-use crate::vector::{Kernel, KernelContext};
+use crate::pipeline::bits::BitView;
+use crate::pipeline::query::buffers::OutputTarget;
+use crate::pipeline::view::ViewMut;
+use crate::pipeline::{Kernel, KernelContext};
 
 pub struct QueryExecution {
     /// The operators bound to each node in the DAG.

@@ -8,74 +8,43 @@ use std::rc::Rc;
 use itertools::Itertools;
 use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use crate::arrays::ConstantOperator;
+use crate::compute::Operator as BinaryOperator;
+use crate::pipeline::bits::BitView;
+use crate::pipeline::operators::scalar_compare::ScalarCompareOperator;
+use crate::pipeline::operators::{BindContext, Operator};
+use crate::pipeline::types::{Element, VType};
+use crate::pipeline::vec::VectorId;
+use crate::pipeline::view::ViewMut;
+use crate::pipeline::{Kernel, KernelContext};
 
-use crate::vector::bits::BitView;
-use crate::vector::operators::constant::ConstantOperator;
-use crate::vector::operators::scalar_compare::ScalarCompareOperator;
-use crate::vector::operators::{BindContext, Operator};
-use crate::vector::types::{Element, VType};
-use crate::vector::vec::VectorId;
-use crate::vector::view::ViewMut;
-use crate::vector::{Kernel, KernelContext};
-
-// TODO(joe): dedup.
-// This duplicates the Operator from vortex_array,
-// make we can merge them into here, or another package
-#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Hash)]
-pub enum BinaryOperator {
-    /// Equality (`=`)
-    Eq,
-    /// Inequality (`!=`)
-    NotEq,
-    /// Greater than (`>`)
-    Gt,
-    /// Greater than or equal (`>=`)
-    Gte,
-    /// Less than (`<`)
-    Lt,
-    /// Less than or equal (`<=`)
-    Lte,
-}
-
-impl BinaryOperator {
-    pub fn inverse(self) -> Self {
-        match self {
-            BinaryOperator::Eq => BinaryOperator::NotEq,
-            BinaryOperator::NotEq => BinaryOperator::Eq,
-            BinaryOperator::Gt => BinaryOperator::Lte,
-            BinaryOperator::Gte => BinaryOperator::Lt,
-            BinaryOperator::Lt => BinaryOperator::Gte,
-            BinaryOperator::Lte => BinaryOperator::Gt,
-        }
-    }
-}
 
 #[macro_export]
 macro_rules! match_each_compare_op {
     ($self:expr, | $enc:ident | $body:block) => {{
         match $self {
             BinaryOperator::Eq => {
-                type $enc = $crate::vector::operators::compare::Eq;
+                type $enc = $crate::pipeline::operators::compare::Eq;
                 $body
             }
             BinaryOperator::NotEq => {
-                type $enc = $crate::vector::operators::compare::NotEq;
+                type $enc = $crate::pipeline::operators::compare::NotEq;
                 $body
             }
             BinaryOperator::Gt => {
-                type $enc = $crate::vector::operators::compare::Gt;
+                type $enc = $crate::pipeline::operators::compare::Gt;
                 $body
             }
             BinaryOperator::Gte => {
-                type $enc = $crate::vector::operators::compare::Gte;
+                type $enc = $crate::pipeline::operators::compare::Gte;
                 $body
             }
             BinaryOperator::Lt => {
-                type $enc = $crate::vector::operators::compare::Lt;
+                type $enc = $crate::pipeline::operators::compare::Lt;
                 $body
             }
             BinaryOperator::Lte => {
-                type $enc = $crate::vector::operators::compare::Lte;
+                type $enc = $crate::pipeline::operators::compare::Lte;
                 $body
             }
         }

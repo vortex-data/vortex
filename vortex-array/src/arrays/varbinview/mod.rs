@@ -726,7 +726,7 @@ mod test {
     use vortex_scalar::Scalar;
 
     use crate::arrays::varbinview::{BinaryView, VarBinViewArray};
-    use crate::vector::types::BINARY_VIEW_BYTE_WIDTH;
+    use crate::pipeline::types::BINARY_VIEW_BYTE_WIDTH;
     use crate::{Array, Canonical, IntoArray};
 
     #[test]

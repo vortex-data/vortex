@@ -7,11 +7,11 @@ use std::rc::Rc;
 
 use fastlanes::{BitPacking, FastLanes};
 use vortex_array::pipeline::PipelineVTable;
-use vortex_array::vector::bits::BitView;
-use vortex_array::vector::operators::{BindContext, Operator};
-use vortex_array::vector::types::{Element, VType};
-use vortex_array::vector::view::ViewMut;
-use vortex_array::vector::{Kernel, KernelContext, SC};
+use vortex_array::pipeline::bits::BitView;
+use vortex_array::pipeline::operators::{BindContext, Operator};
+use vortex_array::pipeline::types::{Element, VType};
+use vortex_array::pipeline::view::ViewMut;
+use vortex_array::pipeline::{Kernel, KernelContext, SC};
 use vortex_buffer::Buffer;
 use vortex_dtype::{PhysicalPType, match_each_integer_ptype};
 use vortex_error::VortexResult;
@@ -157,7 +157,7 @@ mod tests {
     use rand::{Rng, SeedableRng};
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::filter;
-    use vortex_array::pipeline::canonical::export_canonical_pipeline_expr;
+    use vortex_array::pipeline::export_canonical_pipeline_expr;
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::BufferMut;
     use vortex_mask::Mask;

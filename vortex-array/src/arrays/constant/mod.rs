@@ -14,6 +14,7 @@ use crate::vtable::{
 use crate::{
     ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, EncodingId, EncodingRef, IntoArray, vtable,
 };
+pub use compute::ConstantOperator;
 
 mod canonical;
 mod compute;

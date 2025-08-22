@@ -5,8 +5,8 @@ use std::collections::VecDeque;
 
 use vortex_error::{VortexResult, vortex_bail};
 
-use crate::vector::query::QueryPlan;
-use crate::vector::query::dag::DagNode;
+use crate::pipeline::query::QueryPlan;
+use crate::pipeline::query::dag::DagNode;
 
 impl QueryPlan<'_> {
     /// Topological sort for execution order

@@ -22,10 +22,9 @@ use crate::arrays::{
 };
 use crate::builders::ArrayBuilder;
 use crate::compute::{ComputeFn, Cost, InvocationArgs, IsConstantOpts, Output, is_constant_opts};
-use crate::pipeline::PipelineVTable;
+use crate::pipeline::{Operator, PipelineVTable};
 use crate::serde::ArrayChildren;
 use crate::stats::{Precision, Stat, StatsProviderExt, StatsSetRef};
-use crate::vector::operators::Operator;
 use crate::vtable::{
     ArrayVTable, CanonicalVTable, ComputeVTable, OperationsVTable, SerdeVTable, VTable,
     ValidityVTable, VisitorVTable,

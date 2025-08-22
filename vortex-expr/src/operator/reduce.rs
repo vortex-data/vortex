@@ -3,7 +3,7 @@
 
 use std::rc::Rc;
 
-use vortex_array::vector::operators::Operator;
+use vortex_array::pipeline::Operator;
 use vortex_error::VortexResult;
 
 use crate::traversal::{FoldUp, Node, NodeExt, NodeFolder, NodeRewriter, Transformed};

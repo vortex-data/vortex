@@ -3,12 +3,12 @@
 
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::vector::Kernel;
-use crate::vector::operators::BindContext;
-use crate::vector::query::QueryPlan;
-use crate::vector::query::buffers::VectorAllocationPlan;
-use crate::vector::query::dag::DagNode;
-use crate::vector::vec::VectorId;
+use crate::pipeline::Kernel;
+use crate::pipeline::operators::BindContext;
+use crate::pipeline::query::QueryPlan;
+use crate::pipeline::query::buffers::VectorAllocationPlan;
+use crate::pipeline::query::dag::DagNode;
+use crate::pipeline::vec::VectorId;
 
 impl QueryPlan<'_> {
     pub(crate) fn bind_operators(

@@ -5,8 +5,7 @@ use std::fmt::{Debug, Formatter};
 
 use bitvec::prelude::*;
 use vortex_error::{VortexError, vortex_err};
-
-use crate::vector::SC;
+use crate::pipeline::SC;
 
 /// A borrowed fixed-size bit vector of length `N` bits, represented as an array of 64-bit words.
 ///
@@ -191,7 +190,7 @@ mod tests {
     use vortex_mask::Mask;
 
     use super::*;
-    use crate::vector::bits::BitVector;
+    use crate::pipeline::bits::BitVector;
 
     #[test]
     fn test_iter_ones_empty() {

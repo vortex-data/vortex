@@ -9,11 +9,11 @@ use vortex_dtype::{DType, NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::vector::bits::BitView;
-use crate::vector::operators::{BindContext, Operator};
-use crate::vector::types::{Element, VType};
-use crate::vector::view::ViewMut;
-use crate::vector::{Kernel, KernelContext};
+use crate::pipeline::bits::BitView;
+use crate::pipeline::operators::{BindContext, Operator};
+use crate::pipeline::types::{Element, VType};
+use crate::pipeline::view::ViewMut;
+use crate::pipeline::{Kernel, KernelContext};
 
 #[derive(Debug, Hash)]
 pub struct ConstantOperator {
@@ -52,11 +52,11 @@ impl Operator for ConstantOperator {
         &[]
     }
 
-    fn with_children(&self, children: Vec<Rc<dyn Operator>>) -> Rc<dyn Operator> {
+    fn with_children(&self, _children: Vec<Rc<dyn Operator>>) -> Rc<dyn Operator> {
         Rc::new(ConstantOperator::new(self.scalar.clone()))
     }
 
-    fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {
+    fn bind(&self, _ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {
         match self.scalar.dtype() {
             DType::Bool(_) => Ok(Box::new(BoolConstantKernel {
                 value: self
@@ -96,7 +96,7 @@ pub struct BoolConstantKernel {
 impl<T: Element + NativePType> Kernel for ConstantKernel<T> {
     fn step(
         &mut self,
-        ctx: &KernelContext,
+        _ctx: &KernelContext,
         selected: BitView,
         out: &mut ViewMut,
     ) -> VortexResult<()> {
@@ -109,13 +109,9 @@ impl<T: Element + NativePType> Kernel for ConstantKernel<T> {
 }
 
 impl Kernel for BoolConstantKernel {
-    fn seek(&mut self, chunk_idx: usize) -> VortexResult<()> {
-        Ok(())
-    }
-
     fn step(
         &mut self,
-        ctx: &KernelContext,
+        _ctx: &KernelContext,
         selected: BitView,
         out: &mut ViewMut,
     ) -> VortexResult<()> {

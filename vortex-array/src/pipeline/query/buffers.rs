@@ -6,11 +6,10 @@
 use std::cell::RefCell;
 
 use vortex_error::{VortexExpect, VortexResult};
-
-use crate::vector::query::QueryPlan;
-use crate::vector::query::dag::DagNode;
-use crate::vector::types::VType;
-use crate::vector::vec::{Vector, VectorId};
+use crate::pipeline::query::dag::DagNode;
+use crate::pipeline::query::QueryPlan;
+use crate::pipeline::types::VType;
+use crate::pipeline::vec::{Vector, VectorId};
 
 #[derive(Debug)]
 pub struct VectorAllocationPlan {
@@ -55,7 +54,6 @@ struct VectorAllocation {
 impl<'a> QueryPlan<'a> {
     /// Allocate vectors with lifetime analysis and zero-copy optimization
     pub(crate) fn allocate_vectors(
-        dag_root: usize,
         dag: &[DagNode<'a>],
         execution_order: &[usize],
     ) -> VortexResult<VectorAllocationPlan> {

@@ -5,7 +5,6 @@ use core::fmt;
 use std::fmt::{Display, Formatter};
 
 use vortex_array::compute;
-use vortex_array::vector::operators::compare::BinaryOperator;
 use vortex_error::{VortexError, VortexResult, vortex_bail};
 use vortex_proto::expr::binary_opts::BinaryOp;
 
@@ -186,22 +185,6 @@ impl TryInto<compute::Operator> for Operator {
             Operator::Gte => compute::Operator::Gte,
             Operator::Lt => compute::Operator::Lt,
             Operator::Lte => compute::Operator::Lte,
-            _ => vortex_bail!("Not a compute operator: {}", self),
-        })
-    }
-}
-
-impl TryInto<BinaryOperator> for Operator {
-    type Error = VortexError;
-
-    fn try_into(self) -> VortexResult<BinaryOperator> {
-        Ok(match self {
-            Operator::Eq => BinaryOperator::Eq,
-            Operator::NotEq => BinaryOperator::NotEq,
-            Operator::Gt => BinaryOperator::Gt,
-            Operator::Gte => BinaryOperator::Gte,
-            Operator::Lt => BinaryOperator::Lt,
-            Operator::Lte => BinaryOperator::Lte,
             _ => vortex_bail!("Not a compute operator: {}", self),
         })
     }

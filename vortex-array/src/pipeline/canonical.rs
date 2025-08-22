@@ -10,13 +10,13 @@ use vortex_mask::Mask;
 use crate::Canonical;
 use crate::arrays::{BoolArray, PrimitiveArray};
 use crate::validity::Validity;
-use crate::vector::bits::{BitVector, BitView, BitViewMut};
-use crate::vector::operators::Operator;
-use crate::vector::query::QueryPlan;
-use crate::vector::types::Element;
-use crate::vector::vec::Vector;
-use crate::vector::view::ViewMut;
-use crate::vector::{Kernel, KernelContext, SC};
+use crate::pipeline::bits::{BitVector, BitView, BitViewMut};
+use crate::pipeline::operators::Operator;
+use crate::pipeline::query::QueryPlan;
+use crate::pipeline::types::Element;
+use crate::pipeline::vec::Vector;
+use crate::pipeline::view::ViewMut;
+use crate::pipeline::{Kernel, KernelContext, SC};
 
 pub fn export_canonical_pipeline(
     dtype: &DType,

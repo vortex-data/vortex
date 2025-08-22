@@ -9,13 +9,13 @@ mod toposort;
 
 use vortex_error::VortexResult;
 
-use crate::vector::bits::BitView;
-use crate::vector::operators::Operator;
-pub use crate::vector::query::buffers::VectorAllocationPlan;
-use crate::vector::query::dag::DagNode;
-use crate::vector::query::query_execution::QueryExecution;
-use crate::vector::view::ViewMut;
-use crate::vector::{Kernel, KernelContext};
+use crate::pipeline::bits::BitView;
+use crate::pipeline::operators::Operator;
+pub use crate::pipeline::query::buffers::VectorAllocationPlan;
+use crate::pipeline::query::dag::DagNode;
+use crate::pipeline::query::query_execution::QueryExecution;
+use crate::pipeline::view::ViewMut;
+use crate::pipeline::{Kernel, KernelContext};
 
 /// The idea of a query-plan is to orchestrate driving a set of operators to completion with
 /// fully optimized resource usage.
@@ -45,7 +45,7 @@ impl<'a> QueryPlan<'a> {
         let execution_order = Self::topological_sort(&dag)?;
 
         // Step 3: Allocate vectors
-        let allocation_plan = Self::allocate_vectors(dag_root, &dag, &execution_order)?;
+        let allocation_plan = Self::allocate_vectors(&dag, &execution_order)?;
 
         Ok(Self {
             dag,
