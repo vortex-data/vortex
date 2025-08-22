@@ -6966,10 +6966,12 @@ dependencies = [
 name = "vortex-io"
 version = "0.1.0"
 dependencies = [
+ "async-task",
  "bytes",
  "cfg-if",
  "compio",
  "crossbeam-channel",
+ "crossbeam-deque",
  "flume",
  "futures",
  "futures-util",
@@ -6977,6 +6979,7 @@ dependencies = [
  "log",
  "object_store",
  "oneshot",
+ "parking_lot",
  "pin-project",
  "rstest",
  "smol",

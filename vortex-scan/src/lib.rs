@@ -220,6 +220,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
     ) -> VortexResult<impl futures::Stream<Item = VortexResult<A>> + Send + 'static> {
         let concurrency = self.concurrency;
         Ok(stream::iter(self.build(&handle)?)
+            .map(move |fut| handle.clone().spawn(fut))
             .buffered(concurrency)
             .filter_map(|chunk| async move { chunk.transpose() }))
     }

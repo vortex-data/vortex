@@ -14,10 +14,12 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [dependencies]
+async-task = { workspace = true }
 bytes = { workspace = true }
 cfg-if = { workspace = true }
 compio = { workspace = true, features = ["bytes", "macros"], optional = true }
 crossbeam-channel = { workspace = true }
+crossbeam-deque = { workspace = true }
 flume = { workspace = true }
 futures = { workspace = true, features = ["std"] }
 futures-util = { workspace = true }
@@ -26,6 +28,7 @@ getrandom_v03 = { workspace = true }
 log = { workspace = true }
 object_store = { workspace = true, optional = true, features = ["fs"] }
 oneshot = { workspace = true }
+parking_lot = { workspace = true }
 pin-project = { workspace = true }
 smol = { workspace = true }
 # this is the maximum subset of fetaures that is safe for wasm32 targets

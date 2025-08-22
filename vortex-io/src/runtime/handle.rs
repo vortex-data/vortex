@@ -27,7 +27,7 @@ impl Handle {
     /// Spawn a new future onto the runtime.
     ///
     /// If the returned future is dropped, the work is cancelled.
-    pub fn spawn<F, R>(&self, f: F) -> impl Future<Output = R>
+    pub fn spawn<F, R>(&self, f: F) -> impl Future<Output = R> + use<F, R>
     where
         F: Future<Output = R> + Send + 'static,
         R: Send + 'static,

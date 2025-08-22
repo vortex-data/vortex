@@ -2,21 +2,23 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::runtime::{FileIoRequest, Runtime};
+use async_task::Runnable;
+use crossbeam_deque::{Injector, Stealer};
 use flume::Receiver;
 use futures::executor::block_on;
 use futures::{pin_mut, Stream};
-use futures_util::future::BoxFuture;
 use futures_util::stream::FuturesUnordered;
 use futures_util::task::noop_waker_ref;
 use futures_util::StreamExt;
-use smol::Executor;
+use parking_lot::RwLock;
+use smol::{unblock, Executor};
 use std::os::unix::fs::FileExt;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio::task::LocalSet;
 use vortex_buffer::ByteBufferMut;
-use vortex_error::{VortexError, VortexExpect, VortexResult};
+use vortex_error::{VortexError, VortexExpect};
 
 impl Runtime {
     /// Returns a worker pool that can be used to drive the Runtime and in the process emit
@@ -26,7 +28,7 @@ impl Runtime {
         stream: impl Stream<Item = T> + Send + 'static,
     ) -> WorkerPool<T> {
         // We create a channel for the output results and spawn a detached task to populate it.
-        let (send, recv) = flume::unbounded::<T>();
+        let (send, recv) = crossbeam_channel::unbounded::<T>();
         self.executor
             .spawn(async move {
                 pin_mut!(stream);
@@ -52,6 +54,12 @@ impl Runtime {
     }
 }
 
+/// A worker pool is way of driving a Vortex runtime from multiple worker threads, typically
+/// orchestrated by the system that is calling into Vortex.
+///
+/// Each worker makes a decision about whether to perform I/O tasks, CPU tasks, or drive the
+/// underlying stream. It is therefore expected that the stream is largely a lightweight state
+/// machine that alternates between spawning I/O and spawning CPU onto the runtime handle.
 pub struct WorkerPool<T: Send + 'static> {
     shared: Arc<Shared<T>>,
 }
@@ -59,6 +67,11 @@ pub struct WorkerPool<T: Send + 'static> {
 struct Shared<T: Send + 'static> {
     // The next worker ID.
     next_worker_id: AtomicUsize,
+
+    // The global injector for scheduling tasks.
+    scheduling_injector: Injector<Runnable<Meta>>,
+    scheduling_stealers: RwLock<Vec<Stealer<Runnable<Meta>>>>,
+    scheduling_workers: RwLock<Vec<Worker<Runnable<Meta>>>>,
 
     // The primary executor.
     executor: Arc<Executor<'static>>,
@@ -70,7 +83,14 @@ struct Shared<T: Send + 'static> {
     target_io_reqs_per_worker: usize, // e.g. queue len = 32, target = 8 -> 4 workers
 
     // The result channel.
-    results: Receiver<T>,
+    results: crossbeam_channel::Receiver<T>,
+}
+
+/// Metadata that we attach to each runnable task.
+/// Currently, this is used exclusively to schedule tasks back onto the most recent worker that
+/// polled them.
+struct Meta {
+    worker_affinity: Option<usize>,
 }
 
 impl<T: Send + 'static> WorkerPool<T> {
@@ -157,49 +177,41 @@ impl<T: Send + 'static> Worker<T> {
         let file_io_recv = self.shared.file_io_recv.clone();
         self.io_runtime
             .block_on(LocalSet::new().run_until(async move {
-                // Create a FuturesUnordered to manage concurrent blocking operations
-                let mut inflight = FuturesUnordered::<BoxFuture<'static, VortexResult<()>>>::new();
+                // A no-op context.
+                let mut cx = Context::from_waker(noop_waker_ref());
 
                 // Convert receiver to stream for easier polling
                 let mut file_io_stream = file_io_recv.into_stream();
+
+                // Create a FuturesUnordered to manage concurrent blocking operations
+                let mut inflight = FuturesUnordered::new();
 
                 loop {
                     // Try to fill up to our concurrency limit with new requests
                     let mut got_new_request = false;
 
                     while inflight.len() < 16 {
-                        let mut cx = Context::from_waker(noop_waker_ref());
-
                         match file_io_stream.poll_next_unpin(&mut cx) {
                             Poll::Ready(Some(req)) => {
                                 got_new_request = true;
 
                                 // Spawn a new blocking operation
-                                // let fut = async move {
-                                // spawn_blocking(move || {
-                                let mut buffer =
-                                    ByteBufferMut::with_capacity_aligned(req.length, req.alignment);
-                                unsafe { buffer.set_len(req.length) };
-                                match req.file.read_exact_at(&mut buffer, req.offset) {
-                                    Ok(()) => req.resolve(Ok(buffer.freeze())),
-                                    Err(e) => req.resolve(Err(VortexError::from(e))),
-                                }
-                                // })
-                                // .await
-                                // .map_err(|e| {
-                                //     vortex_err!("Failed to spawn blocking read: {}", e)
-                                // })
-                                // };
-                                //
-                                // inflight.push(fut);
+                                let fut = unblock(move || {
+                                    let mut buffer = ByteBufferMut::with_capacity_aligned(
+                                        req.length,
+                                        req.alignment,
+                                    );
+                                    unsafe { buffer.set_len(req.length) };
+                                    match req.file.read_exact_at(&mut buffer, req.offset) {
+                                        Ok(()) => req.resolve(Ok(buffer.freeze())),
+                                        Err(e) => req.resolve(Err(VortexError::from(e))),
+                                    }
+                                });
+                                inflight.push(fut);
                             }
                             Poll::Ready(None) => {
                                 // Channel closed
-                                // Wait for remaining operations to complete before terminating
-                                while let Some(result) = inflight.next().await {
-                                    result.vortex_expect("Failed to complete blocking read");
-                                }
-                                return;
+                                break;
                             }
                             Poll::Pending => {
                                 // No more requests available right now
@@ -210,9 +222,7 @@ impl<T: Send + 'static> Worker<T> {
 
                     // If we have pending operations, wait for at least one to complete
                     if !inflight.is_empty() {
-                        if let Some(result) = inflight.next().await {
-                            result.vortex_expect("Failed to complete blocking read");
-                        }
+                        while let Some(fut) = inflight.next().await {}
                     } else if !got_new_request {
                         // No pending operations and no new requests available - terminate
                         return;
@@ -230,27 +240,19 @@ impl<T: Send + 'static> Iterator for Worker<T> {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             // Try to emit an item from the results channel.
-            // match self.shared.results.try_recv() {
-            //     Ok(item) => return Some(item),
-            //     Err(crossbeam_channel::TryRecvError::Empty) => { /* No items, continue */ }
-            //     Err(crossbeam_channel::TryRecvError::Disconnected) => return None,
-            // }
+            match self.shared.results.try_recv() {
+                Ok(item) => return Some(item),
+                Err(crossbeam_channel::TryRecvError::Empty) => { /* No items, continue */ }
+                Err(crossbeam_channel::TryRecvError::Disconnected) => return None,
+            }
 
             match self.update_role() {
                 WorkerRole::Executor => {
                     // Otherwise, drive the main executor for some number of ticks.
-                    match block_on(
-                        self.shared
-                            .executor
-                            .run(self.shared.results.stream().next()),
-                    ) {
-                        None => {
-                            return None;
-                        }
-                        Some(result) => {
-                            return Some(result);
-                        }
-                    }
+                    block_on(self.shared.executor.run(async {
+                        // We yield to allow other tasks to make progress.
+                        smol::future::yield_now().await;
+                    }));
                 }
                 WorkerRole::IO => {
                     self.drive_io();
