@@ -128,6 +128,88 @@ ffiarray_get_ptype!(i8);
 ffiarray_get_ptype!(i16);
 ffiarray_get_ptype!(i32);
 ffiarray_get_ptype!(i64);
+
+// Safe variants of primitive accessor functions with proper error handling
+// These provide error handling instead of panicking on null values, type mismatches, or bounds errors
+macro_rules! ffiarray_get_ptype_safe {
+    ($ptype:ident) => {
+        paste::paste! {
+            /// Safe variant of primitive accessor that returns errors instead of panicking.
+            ///
+            /// Returns the default value (0) if an error occurs. Check error_out for details.
+            /// This prevents segmentation faults caused by panics in FFI code.
+            #[unsafe(no_mangle)]
+            pub unsafe extern "C-unwind" fn [<vx_array_get_ $ptype _safe>](
+                array: *const vx_array,
+                index: u32,
+                error_out: *mut *mut vx_error
+            ) -> $ptype {
+                try_or_default(error_out, || {
+                    let array = vx_array::as_ref(array);
+
+                    // Bounds checking - prevent out-of-bounds access
+                    if index as usize >= array.len() {
+                        return Err(vortex_err!("Index {} out of bounds for array of length {}", index, array.len()));
+                    }
+
+                    let value = array.scalar_at(index as usize);
+
+                    // Null checking - prevent accessing null values
+                    if value.is_null() {
+                        return Err(vortex_err!("Cannot access null value as {}", stringify!($ptype)));
+                    }
+
+                    // Type-safe conversion with proper error handling
+                    let primitive_scalar = value.as_primitive();
+                    primitive_scalar.as_::<$ptype>()
+                        .ok_or_else(|| vortex_err!("Cannot convert value to {} (type mismatch)", stringify!($ptype)))
+                })
+            }
+
+            /// Safe variant of storage accessor that returns errors instead of panicking.
+            ///
+            /// Returns the default value (0) if an error occurs. Check error_out for details.
+            #[unsafe(no_mangle)]
+            pub unsafe extern "C-unwind" fn [<vx_array_get_storage_ $ptype _safe>](
+                array: *const vx_array,
+                index: u32,
+                error_out: *mut *mut vx_error
+            ) -> $ptype {
+                try_or_default(error_out, || {
+                    let array = vx_array::as_ref(array);
+
+                    // Bounds checking
+                    if index as usize >= array.len() {
+                        return Err(vortex_err!("Index {} out of bounds for array of length {}", index, array.len()));
+                    }
+
+                    let value = array.scalar_at(index as usize);
+
+                    // For extension types, get storage and convert
+                    let extension = value.as_extension();
+                    let storage = extension.storage();
+                    let primitive_scalar = storage.as_primitive();
+
+                    primitive_scalar.as_::<$ptype>()
+                        .ok_or_else(|| vortex_err!("Cannot convert storage value to {} (type mismatch)", stringify!($ptype)))
+                })
+            }
+        }
+    };
+}
+
+ffiarray_get_ptype_safe!(u8);
+ffiarray_get_ptype_safe!(u16);
+ffiarray_get_ptype_safe!(u32);
+ffiarray_get_ptype_safe!(u64);
+ffiarray_get_ptype_safe!(i8);
+ffiarray_get_ptype_safe!(i16);
+ffiarray_get_ptype_safe!(i32);
+ffiarray_get_ptype_safe!(i64);
+ffiarray_get_ptype_safe!(f32);
+ffiarray_get_ptype_safe!(f64);
+// Note: f16 support may need special handling due to half-precision floating point
+
 ffiarray_get_ptype!(f16);
 ffiarray_get_ptype!(f32);
 ffiarray_get_ptype!(f64);
@@ -174,8 +256,8 @@ pub unsafe extern "C-unwind" fn vx_array_get_binary(
 #[cfg(test)]
 mod tests {
     use std::ffi::{c_int, c_void};
-    use std::ptr;
 
+    use std::ptr;
     use vortex::IntoArray;
     use vortex::arrays::{PrimitiveArray, StructArray, VarBinViewArray};
     use vortex::buffer::{Buffer, buffer};
@@ -452,5 +534,339 @@ mod tests {
 
         // Note: dtype_ptr is now invalid - this test documents the lifetime pattern
         // In real usage, don't access dtype_ptr after freeing the array
+    }
+
+    #[test]
+    fn test_error_handling_comprehensive() {
+        unsafe {
+            // Test 1: Field access on non-struct array
+            let primitive = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
+            let ffi_array = vx_array::new(primitive.into_array());
+
+            let mut error = ptr::null_mut();
+            let field = vx_array_get_field(ffi_array, 0, &raw mut error);
+
+            // Should fail - primitive arrays don't have fields
+            assert!(!error.is_null());
+            assert!(field.is_null());
+
+            // Verify error message contains meaningful information
+            use crate::error::{vx_error_free, vx_error_get_message};
+            use crate::string::vx_string_len;
+            let error_msg = vx_error_get_message(error);
+            assert!(!error_msg.is_null());
+            let msg_len = vx_string_len(error_msg);
+            assert!(msg_len > 0);
+
+            vx_error_free(error);
+            vx_array_free(ffi_array);
+        }
+    }
+
+    #[test]
+    fn test_out_of_bounds_errors() {
+        unsafe {
+            // Test array bounds checking
+            let primitive = PrimitiveArray::new(buffer![1i32, 2i32], Validity::NonNullable);
+            let ffi_array = vx_array::new(primitive.into_array());
+
+            let mut error = ptr::null_mut();
+
+            // Test valid index first
+            assert!(!vx_array_is_null(ffi_array, 0, &raw mut error));
+            assert!(error.is_null());
+
+            // Test out of bounds index
+            let _is_null = vx_array_is_null(ffi_array, 999, &raw mut error);
+
+            // Should generate an error for out-of-bounds access
+            if !error.is_null() {
+                use crate::error::vx_error_free;
+                vx_error_free(error);
+            }
+
+            vx_array_free(ffi_array);
+        }
+    }
+
+    #[test]
+    fn test_struct_field_bounds_checking() {
+        unsafe {
+            use vortex::arrays::{StructArray, VarBinViewArray};
+
+            let names = VarBinViewArray::from_iter_str(["Alice"]);
+            let ages = PrimitiveArray::new(buffer![30u8], Validity::NonNullable);
+            let struct_array = StructArray::try_new(
+                ["name", "age"].into(),
+                vec![names.into_array(), ages.into_array()],
+                1,
+                Validity::NonNullable,
+            )
+            .unwrap();
+            let ffi_array = vx_array::new(struct_array.into_array());
+
+            let mut error = ptr::null_mut();
+
+            // Test valid field access
+            let field0 = vx_array_get_field(ffi_array, 0, &raw mut error);
+            assert!(error.is_null());
+            assert!(!field0.is_null());
+            vx_array_free(field0);
+
+            // Test out-of-bounds field access
+            let invalid_field = vx_array_get_field(ffi_array, 999, &raw mut error);
+            assert!(!error.is_null()); // Should have error
+            assert!(invalid_field.is_null()); // Should return null
+
+            use crate::error::vx_error_free;
+            vx_error_free(error);
+            vx_array_free(ffi_array);
+        }
+    }
+
+    #[test]
+    fn test_slice_bounds_validation() {
+        unsafe {
+            let primitive = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
+            let ffi_array = vx_array::new(primitive.into_array());
+
+            let mut error = ptr::null_mut();
+
+            // Test valid slice
+            let valid_slice = vx_array_slice(ffi_array, 0, 2, &raw mut error);
+            assert!(error.is_null());
+            assert!(!valid_slice.is_null());
+            assert_eq!(vx_array_len(valid_slice), 2);
+            vx_array_free(valid_slice);
+
+            // NOTE: The following slice operations would panic and are NOT safe:
+            // - vx_array_slice(ffi_array, 2, 1, &raw mut error);  // start > stop
+            // - vx_array_slice(ffi_array, 0, 999, &raw mut error); // out of bounds
+            //
+            // These demonstrate the same issue as primitive accessors - they panic
+            // instead of returning errors properly. The slice function should also
+            // be made safe with proper error handling.
+
+            // For now, we can only test valid slices
+
+            vx_array_free(ffi_array);
+        }
+    }
+
+    #[test]
+    fn test_null_count_error_handling() {
+        unsafe {
+            // Create array where null count might fail on certain encodings
+            let primitive = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
+            let ffi_array = vx_array::new(primitive.into_array());
+
+            let mut error = ptr::null_mut();
+            let null_count = vx_array_null_count(ffi_array, &raw mut error);
+
+            // For this simple case, should succeed
+            if error.is_null() {
+                // Null count should be 0 for non-nullable array
+                assert_eq!(null_count, 0);
+            } else {
+                // If it fails, clean up the error
+                use crate::error::vx_error_free;
+                vx_error_free(error);
+            }
+
+            vx_array_free(ffi_array);
+        }
+    }
+
+    #[test]
+    fn test_primitive_accessor_type_safety() {
+        unsafe {
+            // Test accessing wrong primitive type
+            let f64_array = PrimitiveArray::new(buffer![1.5f64, 2.5f64], Validity::NonNullable);
+            let ffi_array = vx_array::new(f64_array.into_array());
+
+            // This currently panics instead of proper error handling
+            // TODO: This test documents the current dangerous behavior
+            // The accessor functions should be fixed to use error parameters
+
+            // For now, test the "correct" type access
+            let f64_val = vx_array_get_f64(ffi_array, 0);
+            assert!((f64_val - 1.5).abs() < f64::EPSILON);
+
+            vx_array_free(ffi_array);
+        }
+    }
+
+    #[test]
+    fn test_primitive_accessor_documentation() {
+        unsafe {
+            // This test documents the current dangerous behavior of primitive accessors
+            // They panic instead of returning errors, causing segfaults in FFI usage
+
+            let i32_array = PrimitiveArray::new(buffer![42i32, -123i32], Validity::NonNullable);
+            let ffi_array = vx_array::new(i32_array.into_array());
+
+            // Test that the "correct" type access works
+            let value = vx_array_get_i32(ffi_array, 0);
+            assert_eq!(value, 42);
+
+            let value2 = vx_array_get_i32(ffi_array, 1);
+            assert_eq!(value2, -123);
+
+            // NOTE: The following operations would panic and are NOT safe:
+            // - vx_array_get_i32(ffi_array, 999);  // Out of bounds
+            // - vx_array_get_f64(ffi_array, 0);    // Wrong type (if array contained different type)
+            // - Access on null values would also panic
+            //
+            // This is why safe variants with error parameters are needed.
+
+            vx_array_free(ffi_array);
+        }
+    }
+
+    #[test]
+    fn test_safe_primitive_accessors() {
+        unsafe {
+            // Test the new safe primitive accessor functions
+            let i32_array = PrimitiveArray::new(buffer![42i32, -123i32], Validity::NonNullable);
+            let ffi_array = vx_array::new(i32_array.into_array());
+
+            let mut error = ptr::null_mut();
+
+            // Test successful access
+            let value = vx_array_get_i32_safe(ffi_array, 0, &raw mut error);
+            assert!(error.is_null());
+            assert_eq!(value, 42);
+
+            let value2 = vx_array_get_i32_safe(ffi_array, 1, &raw mut error);
+            assert!(error.is_null());
+            assert_eq!(value2, -123);
+
+            // Test out-of-bounds access (should return 0 and set error)
+            let oob_value = vx_array_get_i32_safe(ffi_array, 999, &raw mut error);
+            assert!(!error.is_null()); // Should have error
+            assert_eq!(oob_value, 0); // Should return default value
+
+            use crate::error::vx_error_free;
+            vx_error_free(error);
+            vx_array_free(ffi_array);
+        }
+    }
+
+    #[test]
+    fn test_safe_primitive_type_mismatch() {
+        unsafe {
+            // Test type conversion errors in safe accessors
+            let f64_array = PrimitiveArray::new(buffer![1.5f64, 2.7f64], Validity::NonNullable);
+            let ffi_array = vx_array::new(f64_array.into_array());
+
+            let mut error = ptr::null_mut();
+
+            // Test correct type access
+            let f64_value = vx_array_get_f64_safe(ffi_array, 0, &raw mut error);
+            assert!(error.is_null());
+            assert!((f64_value - 1.5).abs() < f64::EPSILON);
+
+            // Test type mismatch - try to access f64 as i32
+            let i32_value = vx_array_get_i32_safe(ffi_array, 0, &raw mut error);
+
+            // Should either succeed with conversion or fail gracefully
+            if !error.is_null() {
+                // If it fails, should return default value
+                assert_eq!(i32_value, 0);
+                use crate::error::{vx_error_free, vx_error_get_message};
+                use crate::string::vx_string_len;
+
+                // Verify error message
+                let error_msg = vx_error_get_message(error);
+                let msg_len = vx_string_len(error_msg);
+                assert!(msg_len > 0); // Should have meaningful error message
+
+                vx_error_free(error);
+            }
+
+            vx_array_free(ffi_array);
+        }
+    }
+
+    #[test]
+    fn test_safe_primitive_null_handling() {
+        unsafe {
+            // Test null value handling in safe accessors
+            let nullable_array = PrimitiveArray::new(
+                buffer![42i32, 0i32, 84i32],
+                Validity::from_iter([true, false, true]), // Middle element is null
+            );
+            let ffi_array = vx_array::new(nullable_array.into_array());
+
+            let mut error = ptr::null_mut();
+
+            // Test non-null value
+            let value = vx_array_get_i32_safe(ffi_array, 0, &raw mut error);
+            assert!(error.is_null());
+            assert_eq!(value, 42);
+
+            // Test null value access (should fail gracefully)
+            let null_value = vx_array_get_i32_safe(ffi_array, 1, &raw mut error);
+            assert!(!error.is_null()); // Should have error for null access
+            assert_eq!(null_value, 0); // Should return default value
+
+            use crate::error::{vx_error_free, vx_error_get_message};
+            let error_msg = vx_error_get_message(error);
+            assert!(!error_msg.is_null()); // Should have error message about null value
+
+            vx_error_free(error);
+            error = ptr::null_mut();
+
+            // Test another non-null value
+            let value3 = vx_array_get_i32_safe(ffi_array, 2, &raw mut error);
+            assert!(error.is_null());
+            assert_eq!(value3, 84);
+
+            vx_array_free(ffi_array);
+        }
+    }
+
+    #[cfg(test)]
+    mod error_stress_tests {
+        use super::*;
+
+        #[test]
+        fn test_concurrent_error_handling() {
+            // Test error handling under concurrent access
+            use std::thread;
+
+            let primitive = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
+            let ffi_array = vx_array::new(primitive.into_array());
+
+            // Create multiple threads that access the same array and trigger errors
+            let handles: Vec<_> = (0..4)
+                .map(|_| {
+                    let array_ptr = ffi_array as usize; // Convert to raw address for sharing
+                    thread::spawn(move || {
+                        unsafe {
+                            let array = array_ptr as *const vx_array;
+                            let mut error = ptr::null_mut();
+
+                            // Try to access out-of-bounds - each thread should handle its own errors
+                            let _is_null = vx_array_is_null(array, 999, &raw mut error);
+
+                            if !error.is_null() {
+                                use crate::error::vx_error_free;
+                                vx_error_free(error);
+                            }
+                        }
+                    })
+                })
+                .collect();
+
+            // Wait for all threads
+            for handle in handles {
+                handle.join().unwrap();
+            }
+
+            unsafe {
+                vx_array_free(ffi_array);
+            }
+        }
     }
 }

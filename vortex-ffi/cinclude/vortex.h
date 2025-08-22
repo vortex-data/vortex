@@ -388,6 +388,156 @@ int64_t vx_array_get_i64(const vx_array *array, uint32_t index);
 
 int64_t vx_array_get_storage_i64(const vx_array *array, uint32_t index);
 
+/**
+ * Safe variant of primitive accessor that returns errors instead of panicking.
+ *
+ * Returns the default value (0) if an error occurs. Check error_out for details.
+ * This prevents segmentation faults caused by panics in FFI code.
+ */
+uint8_t vx_array_get_u8_safe(const vx_array *array, uint32_t index, vx_error **error_out);
+
+/**
+ * Safe variant of storage accessor that returns errors instead of panicking.
+ *
+ * Returns the default value (0) if an error occurs. Check error_out for details.
+ */
+uint8_t vx_array_get_storage_u8_safe(const vx_array *array, uint32_t index, vx_error **error_out);
+
+/**
+ * Safe variant of primitive accessor that returns errors instead of panicking.
+ *
+ * Returns the default value (0) if an error occurs. Check error_out for details.
+ * This prevents segmentation faults caused by panics in FFI code.
+ */
+uint16_t vx_array_get_u16_safe(const vx_array *array, uint32_t index, vx_error **error_out);
+
+/**
+ * Safe variant of storage accessor that returns errors instead of panicking.
+ *
+ * Returns the default value (0) if an error occurs. Check error_out for details.
+ */
+uint16_t vx_array_get_storage_u16_safe(const vx_array *array, uint32_t index, vx_error **error_out);
+
+/**
+ * Safe variant of primitive accessor that returns errors instead of panicking.
+ *
+ * Returns the default value (0) if an error occurs. Check error_out for details.
+ * This prevents segmentation faults caused by panics in FFI code.
+ */
+uint32_t vx_array_get_u32_safe(const vx_array *array, uint32_t index, vx_error **error_out);
+
+/**
+ * Safe variant of storage accessor that returns errors instead of panicking.
+ *
+ * Returns the default value (0) if an error occurs. Check error_out for details.
+ */
+uint32_t vx_array_get_storage_u32_safe(const vx_array *array, uint32_t index, vx_error **error_out);
+
+/**
+ * Safe variant of primitive accessor that returns errors instead of panicking.
+ *
+ * Returns the default value (0) if an error occurs. Check error_out for details.
+ * This prevents segmentation faults caused by panics in FFI code.
+ */
+uint64_t vx_array_get_u64_safe(const vx_array *array, uint32_t index, vx_error **error_out);
+
+/**
+ * Safe variant of storage accessor that returns errors instead of panicking.
+ *
+ * Returns the default value (0) if an error occurs. Check error_out for details.
+ */
+uint64_t vx_array_get_storage_u64_safe(const vx_array *array, uint32_t index, vx_error **error_out);
+
+/**
+ * Safe variant of primitive accessor that returns errors instead of panicking.
+ *
+ * Returns the default value (0) if an error occurs. Check error_out for details.
+ * This prevents segmentation faults caused by panics in FFI code.
+ */
+int8_t vx_array_get_i8_safe(const vx_array *array, uint32_t index, vx_error **error_out);
+
+/**
+ * Safe variant of storage accessor that returns errors instead of panicking.
+ *
+ * Returns the default value (0) if an error occurs. Check error_out for details.
+ */
+int8_t vx_array_get_storage_i8_safe(const vx_array *array, uint32_t index, vx_error **error_out);
+
+/**
+ * Safe variant of primitive accessor that returns errors instead of panicking.
+ *
+ * Returns the default value (0) if an error occurs. Check error_out for details.
+ * This prevents segmentation faults caused by panics in FFI code.
+ */
+int16_t vx_array_get_i16_safe(const vx_array *array, uint32_t index, vx_error **error_out);
+
+/**
+ * Safe variant of storage accessor that returns errors instead of panicking.
+ *
+ * Returns the default value (0) if an error occurs. Check error_out for details.
+ */
+int16_t vx_array_get_storage_i16_safe(const vx_array *array, uint32_t index, vx_error **error_out);
+
+/**
+ * Safe variant of primitive accessor that returns errors instead of panicking.
+ *
+ * Returns the default value (0) if an error occurs. Check error_out for details.
+ * This prevents segmentation faults caused by panics in FFI code.
+ */
+int32_t vx_array_get_i32_safe(const vx_array *array, uint32_t index, vx_error **error_out);
+
+/**
+ * Safe variant of storage accessor that returns errors instead of panicking.
+ *
+ * Returns the default value (0) if an error occurs. Check error_out for details.
+ */
+int32_t vx_array_get_storage_i32_safe(const vx_array *array, uint32_t index, vx_error **error_out);
+
+/**
+ * Safe variant of primitive accessor that returns errors instead of panicking.
+ *
+ * Returns the default value (0) if an error occurs. Check error_out for details.
+ * This prevents segmentation faults caused by panics in FFI code.
+ */
+int64_t vx_array_get_i64_safe(const vx_array *array, uint32_t index, vx_error **error_out);
+
+/**
+ * Safe variant of storage accessor that returns errors instead of panicking.
+ *
+ * Returns the default value (0) if an error occurs. Check error_out for details.
+ */
+int64_t vx_array_get_storage_i64_safe(const vx_array *array, uint32_t index, vx_error **error_out);
+
+/**
+ * Safe variant of primitive accessor that returns errors instead of panicking.
+ *
+ * Returns the default value (0) if an error occurs. Check error_out for details.
+ * This prevents segmentation faults caused by panics in FFI code.
+ */
+float vx_array_get_f32_safe(const vx_array *array, uint32_t index, vx_error **error_out);
+
+/**
+ * Safe variant of storage accessor that returns errors instead of panicking.
+ *
+ * Returns the default value (0) if an error occurs. Check error_out for details.
+ */
+float vx_array_get_storage_f32_safe(const vx_array *array, uint32_t index, vx_error **error_out);
+
+/**
+ * Safe variant of primitive accessor that returns errors instead of panicking.
+ *
+ * Returns the default value (0) if an error occurs. Check error_out for details.
+ * This prevents segmentation faults caused by panics in FFI code.
+ */
+double vx_array_get_f64_safe(const vx_array *array, uint32_t index, vx_error **error_out);
+
+/**
+ * Safe variant of storage accessor that returns errors instead of panicking.
+ *
+ * Returns the default value (0) if an error occurs. Check error_out for details.
+ */
+double vx_array_get_storage_f64_safe(const vx_array *array, uint32_t index, vx_error **error_out);
+
 uint16_t vx_array_get_f16(const vx_array *array, uint32_t index);
 
 uint16_t vx_array_get_storage_f16(const vx_array *array, uint32_t index);

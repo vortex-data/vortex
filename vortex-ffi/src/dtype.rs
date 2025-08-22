@@ -271,19 +271,16 @@ pub unsafe extern "C-unwind" fn vx_dtype_time_zone(
 mod tests {
     use std::slice;
 
-    use vortex::arrays::StructArray;
-    use vortex::buffer::Buffer;
-    use vortex::dtype::{DType, DecimalDType};
-    use vortex::{ArrayRef, IntoArray};
+    use vortex::dtype::DType;
 
     use super::*;
-    use crate::array::{vx_array, vx_array_dtype};
+    use crate::array::{vx_array, vx_array_free};
     use crate::dtype::{
         vx_dtype, vx_dtype_free, vx_dtype_get_variant, vx_dtype_new_bool, vx_dtype_new_primitive,
         vx_dtype_new_utf8, vx_dtype_variant,
     };
     use crate::ptype::vx_ptype;
-    use crate::string::{vx_string, vx_string_len, vx_string_ptr};
+    use crate::string::{vx_string, vx_string_free, vx_string_len, vx_string_ptr};
     use crate::struct_fields::{
         vx_struct_fields_builder_add_field, vx_struct_fields_builder_finalize,
         vx_struct_fields_builder_new, vx_struct_fields_field_dtype, vx_struct_fields_field_name,
@@ -339,8 +336,7 @@ mod tests {
                 vx_dtype_variant::DTYPE_PRIMITIVE
             );
 
-            // Field names are now borrowed references - do not free them
-
+            // Field names are borrowed references - do not free them
             // Free field dtypes (owned references)
             vx_dtype_free(dtype0);
             vx_dtype_free(dtype1);
@@ -442,7 +438,6 @@ mod tests {
     fn test_dtype_variant_conversion() {
         // Important: Verifies the From trait implementation for FFI variant enum
         // These mappings are part of the ABI contract
-
         let dtypes = vec![
             DType::Null,
             DType::Bool(true.into()),
@@ -467,7 +462,11 @@ mod tests {
     }
 
     // Helper function for struct introspection tests
-    fn create_test_struct_array() -> ArrayRef {
+    fn create_test_struct_array() -> vortex::ArrayRef {
+        use vortex::IntoArray;
+        use vortex::arrays::StructArray;
+        use vortex::buffer::Buffer;
+
         let nums: Buffer<i32> = (0..1000).collect();
         let floats: Buffer<f32> = (0..1000).map(|x| x as f32).collect();
 
@@ -480,7 +479,7 @@ mod tests {
     fn test_struct_introspection_simple() {
         let array = create_test_struct_array();
         let vx_arr = vx_array::new(array);
-        let dtype_ptr = unsafe { vx_array_dtype(vx_arr) };
+        let dtype_ptr = unsafe { crate::array::vx_array_dtype(vx_arr) };
 
         let struct_fields_ptr = unsafe { vx_dtype_struct_dtype(dtype_ptr) };
         let n_fields = unsafe { vx_struct_fields_nfields(struct_fields_ptr) };
@@ -488,7 +487,8 @@ mod tests {
 
         // Cleanup in reverse order - this is the safest order
         unsafe {
-            crate::array::vx_array_free(vx_arr);
+            vx_struct_fields_free(struct_fields_ptr);
+            vx_array_free(vx_arr);
         }
     }
 
@@ -496,7 +496,7 @@ mod tests {
     fn test_field_name_access() {
         let array = create_test_struct_array();
         let vx_arr = vx_array::new(array);
-        let dtype_ptr = unsafe { vx_array_dtype(vx_arr) };
+        let dtype_ptr = unsafe { crate::array::vx_array_dtype(vx_arr) };
 
         let struct_fields_ptr = unsafe { vx_dtype_struct_dtype(dtype_ptr) };
 
@@ -507,13 +507,14 @@ mod tests {
         let name_len = unsafe { vx_string_len(field_name_ptr) };
         let name_ptr = unsafe { vx_string_ptr(field_name_ptr) };
         let name_slice = unsafe { slice::from_raw_parts(name_ptr as *const u8, name_len) };
-        let name_str = str::from_utf8(name_slice).unwrap();
+        let name_str = std::str::from_utf8(name_slice).unwrap();
         assert_eq!(name_str, "nums");
 
         // Cleanup in careful order
         unsafe {
-            // Field name is now a borrowed reference - do not free it
-            crate::array::vx_array_free(vx_arr);
+            vx_string_free(field_name_ptr);
+            vx_struct_fields_free(struct_fields_ptr);
+            vx_array_free(vx_arr);
         }
     }
 
@@ -521,7 +522,7 @@ mod tests {
     fn test_comprehensive_struct_introspection() {
         let array = create_test_struct_array();
         let vx_arr = vx_array::new(array);
-        let dtype_ptr = unsafe { vx_array_dtype(vx_arr) };
+        let dtype_ptr = unsafe { crate::array::vx_array_dtype(vx_arr) };
 
         let struct_fields_ptr = unsafe { vx_dtype_struct_dtype(dtype_ptr) };
         let n_fields = unsafe { vx_struct_fields_nfields(struct_fields_ptr) };
@@ -546,7 +547,7 @@ mod tests {
 
         // Cleanup
         unsafe {
-            crate::array::vx_array_free(vx_arr);
+            vx_array_free(vx_arr);
         }
     }
 }
