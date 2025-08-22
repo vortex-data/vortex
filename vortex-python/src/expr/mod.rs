@@ -7,6 +7,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::*;
 use vortex::dtype::{DType, Nullability, PType};
+use vortex::expr::and;
 use vortex::expr::{BinaryExpr, ExprRef, GetItemExpr, IntoExpr, NotExpr, Operator, lit};
 
 use crate::dtype::PyDType;
@@ -22,6 +23,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(root, &m)?)?;
     m.add_function(wrap_pyfunction!(literal, &m)?)?;
     m.add_function(wrap_pyfunction!(not_, &m)?)?;
+    m.add_function(wrap_pyfunction!(and_, &m)?)?;
     m.add_class::<PyExpr>()?;
 
     Ok(())
@@ -180,8 +182,8 @@ impl PyExpr {
 /// --------
 ///
 ///     >>> import vortex.expr as ve
-///     >>> ve.literal(ve.int_(), 42)
-///     literal(int(), 42)
+///     >>> ve.literal(vx.int_(), 42)
+///     <vortex.Expr object at ...>
 // TODO(ngates): make dtype optional, casting if necessary.
 #[pyfunction]
 pub fn literal<'py>(
@@ -204,7 +206,7 @@ pub fn literal<'py>(
 ///
 ///     >>> import vortex.expr as ve
 ///     >>> ve.root()
-///     root()
+///     <vortex.Expr object at ...>
 #[pyfunction]
 pub fn root() -> PyExpr {
     PyExpr {
@@ -272,11 +274,37 @@ pub fn get_item(field: String, child: PyExpr) -> PyResult<PyExpr> {
 /// --------
 ///
 ///     >>> import vortex.expr as ve
-///     >>> ve.not(ve.literal(ve.int_(), 42) == ve.literal(ve.int_(), 42))
-///     literal(int(), 42)
+///     >>> import vortex as vx
+///     >>> ve.not_(ve.literal(vx.int_(), 42) == ve.literal(vx.int_(), 42))
+///     <vortex.Expr object at ...>
 #[pyfunction]
 pub fn not_(child: PyExpr) -> PyResult<PyExpr> {
     Ok(PyExpr {
         inner: NotExpr::new_expr(child.inner),
+    })
+}
+
+/// True if both arguments are true.
+///
+/// Parameters
+/// ----------
+/// child : :class:`Any`
+///     A boolean expression.
+///
+/// Returns
+/// -------
+/// :class:`vortex.Expr`
+///
+/// Examples
+/// --------
+///
+///     >>> import vortex.expr as ve
+///     >>> import vortex as vx
+///     >>> ve.and_(ve.literal(vx.bool_(), True), ve.literal(vx.bool_(), True))
+///     <vortex.Expr object at ...>
+#[pyfunction]
+pub fn and_(left: PyExpr, right: PyExpr) -> PyResult<PyExpr> {
+    Ok(PyExpr {
+        inner: and(left.inner, right.inner),
     })
 }
