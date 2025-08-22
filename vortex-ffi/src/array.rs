@@ -1152,22 +1152,28 @@ mod tests {
         let primitive = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
         let ffi_array = vx_array::new(primitive.into_array());
 
-        // Create multiple threads that access the same array and trigger errors
+        // Create multiple arrays for each thread to avoid strict provenance issues
+        // This tests that error handling is thread-safe for different array instances
         let handles: Vec<_> = (0..4)
             .map(|_| {
-                let array_ptr = ffi_array as usize; // Convert to raw address for sharing
                 thread::spawn(move || {
+                    // Each thread creates its own array to test concurrent error handling
+                    let thread_primitive =
+                        PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
+                    let thread_array = vx_array::new(thread_primitive.into_array());
+
                     unsafe {
-                        let array = array_ptr as *const vx_array;
                         let mut error: *mut vx_error = ptr::null_mut();
 
                         // Try to access out-of-bounds - each thread should handle its own errors
-                        let _is_null = vx_array_is_null(array, 999, &raw mut error);
+                        let _is_null = vx_array_is_null(thread_array, 999, &raw mut error);
 
                         if !error.is_null() {
                             use crate::error::vx_error_free;
                             vx_error_free(error);
                         }
+
+                        vx_array_free(thread_array);
                     }
                 })
             })
