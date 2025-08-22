@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 import pyarrow as pa
+import ray
 from ray.data import read_datasource  # pyright: ignore[reportUnknownVariableType]
 
 import vortex as vx
@@ -25,6 +26,13 @@ def test_partition():
 
 
 def test_vortex_datasource(tmpdir_factory):  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]
+    ray.init(
+        runtime_env={
+            "working_dir": None,
+            "excludes": [".git", ".venv"],
+        }
+    )
+
     folder = tmpdir_factory.mktemp("data")  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
 
     arr1 = vx.compress(vx.array([record(x) for x in range(5)]))
