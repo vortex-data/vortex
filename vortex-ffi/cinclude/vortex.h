@@ -511,9 +511,10 @@ uint8_t vx_dtype_decimal_precision(const vx_dtype *dtype);
 int8_t vx_dtype_decimal_scale(const vx_dtype *dtype);
 
 /**
- * Return an owned reference to the [`vx_struct_fields`] of a struct data type.
+ * Return a borrowed reference to the [`vx_struct_fields`] of a struct data type.
  *
- * The caller is responsible for freeing the returned pointer with [`vx_struct_fields_free`].
+ * The returned pointer is valid as long as the struct dtype is valid.
+ * Do NOT free the returned pointer - it shares the lifetime of the struct dtype.
  */
 const vx_struct_fields *vx_dtype_struct_dtype(const vx_dtype *dtype);
 
@@ -685,9 +686,10 @@ void vx_struct_fields_free(const vx_struct_fields *ptr);
 uint64_t vx_struct_fields_nfields(const vx_struct_fields *dtype);
 
 /**
- * Return an owned reference to the name of the field at the given index.
+ * Return a borrowed reference to the name of the field at the given index.
  *
- * The caller is responsible for freeing the returned pointer with [`vx_string_free`].
+ * The returned pointer is valid as long as the struct fields is valid.
+ * Do NOT free the returned string pointer - it shares the lifetime of the struct fields.
  * Returns null if the index is out of bounds.
  */
 const vx_string *vx_struct_fields_field_name(const vx_struct_fields *dtype, size_t idx);
