@@ -48,8 +48,20 @@ impl VortexScanBuilder {
         take_mut::take(&mut self.inner, |inner| inner.with_filter(filter.inner));
     }
 
+    pub(crate) fn with_filter_ref(&mut self, filter: &Expr) {
+        take_mut::take(&mut self.inner, |inner| {
+            inner.with_filter(filter.inner.clone())
+        });
+    }
+
     pub(crate) fn with_projection(&mut self, filter: Box<Expr>) {
         take_mut::take(&mut self.inner, |inner| inner.with_projection(filter.inner));
+    }
+
+    pub(crate) fn with_projection_ref(&mut self, filter: &Expr) {
+        take_mut::take(&mut self.inner, |inner| {
+            inner.with_projection(filter.inner.clone())
+        });
     }
 
     pub(crate) fn with_row_range(&mut self, row_range_start: u64, row_range_end: u64) {

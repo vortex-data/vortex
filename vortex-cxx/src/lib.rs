@@ -71,7 +71,9 @@ mod ffi {
 
         type VortexScanBuilder;
         fn with_filter(self: &mut VortexScanBuilder, filter: Box<Expr>);
+        fn with_filter_ref(self: &mut VortexScanBuilder, filter: &Expr);
         fn with_projection(self: &mut VortexScanBuilder, projection: Box<Expr>);
+        fn with_projection_ref(self: &mut VortexScanBuilder, projection: &Expr);
         fn with_row_range(self: &mut VortexScanBuilder, row_range_start: u64, row_range_end: u64);
         fn with_include_by_index(self: &mut VortexScanBuilder, include_by_index: &[u64]);
         fn with_limit(self: &mut VortexScanBuilder, limit: usize);

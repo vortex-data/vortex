@@ -392,6 +392,16 @@ TEST_F(VortexTest, ScanBuilderWithFilter) {
         vortex::testing::CreateTestDataStream(), {2}, true); // Row index 2 corresponds to value 30
 }
 
+TEST_F(VortexTest, ScanBuilderWithFilterLvalueref) {
+    // Test filtering with eq(column("a"), val) - should return only rows where column "a" equals 30
+    RunScanBuilderTest(
+        [](vortex::ScanBuilder &scan_builder) {
+            const auto filter = ve::eq(ve::column("a"), ve::literal(vs::int32(30)));
+            return std::move(scan_builder.WithFilter(filter)).IntoStream();
+        },
+        vortex::testing::CreateTestDataStream(), {2}, true); // Row index 2 corresponds to value 30
+}
+
 TEST_F(VortexTest, ScanBuilderWithFilterNoMatches) {
     // Test filtering with eq(column("a"), val) where no rows match - should return empty result
     RunScanBuilderTest(
