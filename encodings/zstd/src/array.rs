@@ -338,23 +338,20 @@ impl ZstdArray {
         level: i32,
         values_per_frame: usize,
     ) -> VortexResult<Option<Self>> {
+        use Canonical::*;
+
         match canonical {
-            Canonical::Primitive(parray) => Ok(Some(ZstdArray::from_primitive(
+            Primitive(parray) => Ok(Some(ZstdArray::from_primitive(
                 parray,
                 level,
                 values_per_frame,
             )?)),
-            Canonical::VarBinView(vbv) => Ok(Some(ZstdArray::from_var_bin_view(
+            VarBinView(vbv) => Ok(Some(ZstdArray::from_var_bin_view(
                 vbv,
                 level,
                 values_per_frame,
             )?)),
-            Canonical::Null(_)
-            | Canonical::Bool(_)
-            | Canonical::Decimal(_)
-            | Canonical::Struct(_)
-            | Canonical::List(_)
-            | Canonical::Extension(_) => Ok(None),
+            Null(_) | Bool(_) | Decimal(_) | Struct(_) | List(_) | Extension(_) => Ok(None),
         }
     }
 
@@ -448,8 +445,10 @@ impl ZstdArray {
             .unsliced_validity
             .slice(self.slice_start, self.slice_stop);
 
+        use DType::*;
+
         match &self.dtype {
-            DType::Primitive(..) => {
+            Primitive(..) => {
                 let slice_values_buffer = decompressed.slice(
                     (slice_value_idx_start - n_skipped_values) * byte_width
                         ..(slice_value_idx_stop - n_skipped_values) * byte_width,
@@ -463,7 +462,7 @@ impl ZstdArray {
 
                 Ok(primitive.into_array())
             }
-            DType::Binary(_) | DType::Utf8(_) => {
+            Binary(_) | Utf8(_) => {
                 // The decompressed buffer is a bunch of interleaved u32 lengths
                 // and strings of those lengths, we need to reconstruct the
                 // views into those strings by passing through the buffer.
@@ -483,15 +482,9 @@ impl ZstdArray {
                 };
                 Ok(vbv.into_array())
             }
-            DType::Null
-            | DType::Bool(_)
-            | DType::Decimal(..)
-            | DType::List(..)
-            | DType::Struct(..)
-            | DType::Extension(_) => Err(vortex_err!(
-                "Unsupported dtype for Zstd array: {:?}",
-                self.dtype
-            )),
+            Null | Bool(_) | Decimal(..) | List(..) | Struct(..) | Extension(_) => Err(
+                vortex_err!("Unsupported dtype for Zstd array: {:?}", self.dtype),
+            ),
         }
     }
 

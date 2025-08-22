@@ -53,12 +53,14 @@ fn compare_fsst_constant(
         }
     };
     if is_rhs_empty {
+        use Operator::*;
+
         let buffer = match operator {
             // Every possible value is gte ""
-            Operator::Gte => BooleanBuffer::new_set(left.len()),
+            Gte => BooleanBuffer::new_set(left.len()),
             // No value is lt ""
-            Operator::Lt => BooleanBuffer::new_unset(left.len()),
-            Operator::Eq | Operator::NotEq | Operator::Gt | Operator::Lte => {
+            Lt => BooleanBuffer::new_unset(left.len()),
+            Eq | NotEq | Gt | Lte => {
                 let uncompressed_lengths = left.uncompressed_lengths().to_primitive()?;
                 match_each_native_ptype!(uncompressed_lengths.ptype(), |P| {
                     compare_lengths_to_empty(

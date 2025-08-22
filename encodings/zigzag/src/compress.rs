@@ -12,13 +12,15 @@ use zigzag::ZigZag as ExternalZigZag;
 use crate::ZigZagArray;
 
 pub fn zigzag_encode(parray: PrimitiveArray) -> VortexResult<ZigZagArray> {
+    use PType::*;
+
     let validity = parray.validity().clone();
     let encoded = match parray.ptype() {
-        PType::I8 => zigzag_encode_primitive::<i8>(parray.into_buffer_mut(), validity),
-        PType::I16 => zigzag_encode_primitive::<i16>(parray.into_buffer_mut(), validity),
-        PType::I32 => zigzag_encode_primitive::<i32>(parray.into_buffer_mut(), validity),
-        PType::I64 => zigzag_encode_primitive::<i64>(parray.into_buffer_mut(), validity),
-        PType::U8 | PType::U16 | PType::U32 | PType::U64 | PType::F16 | PType::F32 | PType::F64 => {
+        I8 => zigzag_encode_primitive::<i8>(parray.into_buffer_mut(), validity),
+        I16 => zigzag_encode_primitive::<i16>(parray.into_buffer_mut(), validity),
+        I32 => zigzag_encode_primitive::<i32>(parray.into_buffer_mut(), validity),
+        I64 => zigzag_encode_primitive::<i64>(parray.into_buffer_mut(), validity),
+        U8 | U16 | U32 | U64 | F16 | F32 | F64 => {
             vortex_bail!(
                 "ZigZag can only encode signed integers, got {}",
                 parray.ptype()
@@ -39,13 +41,15 @@ where
 }
 
 pub fn zigzag_decode(parray: PrimitiveArray) -> VortexResult<PrimitiveArray> {
+    use PType::*;
+
     let validity = parray.validity().clone();
     let decoded = match parray.ptype() {
-        PType::U8 => zigzag_decode_primitive::<i8>(parray.into_buffer_mut(), validity),
-        PType::U16 => zigzag_decode_primitive::<i16>(parray.into_buffer_mut(), validity),
-        PType::U32 => zigzag_decode_primitive::<i32>(parray.into_buffer_mut(), validity),
-        PType::U64 => zigzag_decode_primitive::<i64>(parray.into_buffer_mut(), validity),
-        PType::I8 | PType::I16 | PType::I32 | PType::I64 | PType::F16 | PType::F32 | PType::F64 => {
+        U8 => zigzag_decode_primitive::<i8>(parray.into_buffer_mut(), validity),
+        U16 => zigzag_decode_primitive::<i16>(parray.into_buffer_mut(), validity),
+        U32 => zigzag_decode_primitive::<i32>(parray.into_buffer_mut(), validity),
+        U64 => zigzag_decode_primitive::<i64>(parray.into_buffer_mut(), validity),
+        I8 | I16 | I32 | I64 | F16 | F32 | F64 => {
             vortex_bail!(
                 "ZigZag can only decode unsigned integers, got {}",
                 parray.ptype()

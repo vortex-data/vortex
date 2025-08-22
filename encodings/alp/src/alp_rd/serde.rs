@@ -123,18 +123,13 @@ impl EncodeVTable<ALPRDVTable> for ALPRDVTable {
 
         let alprd_array = match like {
             None => {
+                use PType::*;
                 let encoder = match parray.ptype() {
-                    PType::F32 => RDEncoder::new(parray.as_slice::<f32>()),
-                    PType::F64 => RDEncoder::new(parray.as_slice::<f64>()),
-                    ptype @ PType::U8
-                    | ptype @ PType::U16
-                    | ptype @ PType::U32
-                    | ptype @ PType::U64
-                    | ptype @ PType::I8
-                    | ptype @ PType::I16
-                    | ptype @ PType::I32
-                    | ptype @ PType::I64
-                    | ptype @ PType::F16 => vortex_bail!("cannot ALPRD compress ptype {ptype}"),
+                    F32 => RDEncoder::new(parray.as_slice::<f32>()),
+                    F64 => RDEncoder::new(parray.as_slice::<f64>()),
+                    U8 | U16 | U32 | U64 | I8 | I16 | I32 | I64 | F16 => {
+                        vortex_bail!("cannot ALPRD compress ptype {}", parray.ptype())
+                    }
                 };
                 encoder.encode(&parray)
             }

@@ -335,24 +335,22 @@ impl ValidityVTable<RunEndVTable> for RunEndVTable {
 
 impl CanonicalVTable<RunEndVTable> for RunEndVTable {
     fn canonicalize(array: &RunEndArray) -> VortexResult<Canonical> {
+        use DType::*;
+
         let pends = array.ends().to_primitive()?;
         match array.dtype() {
-            DType::Bool(_) => {
+            Bool(_) => {
                 let bools = array.values().to_bool()?;
                 runend_decode_bools(pends, bools, array.offset(), array.len()).map(Canonical::Bool)
             }
-            DType::Primitive(..) => {
+            Primitive(..) => {
                 let pvalues = array.values().to_primitive()?;
                 runend_decode_primitive(pends, pvalues, array.offset(), array.len())
                     .map(Canonical::Primitive)
             }
-            DType::Null
-            | DType::Utf8(_)
-            | DType::Binary(_)
-            | DType::Decimal(..)
-            | DType::List(..)
-            | DType::Struct(..)
-            | DType::Extension(_) => vortex_bail!("Only Primitive and Bool values are supported"),
+            Null | Utf8(_) | Binary(_) | Decimal(..) | List(..) | Struct(..) | Extension(_) => {
+                vortex_bail!("Only Primitive and Bool values are supported")
+            }
         }
     }
 }
