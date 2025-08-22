@@ -50,7 +50,6 @@ from ._lib.dtype import (  # pyright: ignore[reportMissingModuleSource]
     uint,
     utf8,
 )
-from ._lib.file import open  # pyright: ignore[reportMissingModuleSource]
 from ._lib.iter import ArrayIterator  # pyright: ignore[reportMissingModuleSource]
 from ._lib.registry import Registry  # pyright: ignore[reportMissingModuleSource]
 from ._lib.scalar import (  # pyright: ignore[reportMissingModuleSource]
@@ -67,7 +66,7 @@ from ._lib.scalar import (  # pyright: ignore[reportMissingModuleSource]
 )
 from ._lib.serde import ArrayContext, ArrayParts  # pyright: ignore[reportMissingModuleSource]
 from .arrays import Array, PyArray, array
-from .file import VortexFile
+from .file import VortexFile, open
 
 assert _lib, "Ensure we eagerly import the Vortex native library"
 

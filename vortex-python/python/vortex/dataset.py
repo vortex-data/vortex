@@ -8,7 +8,6 @@ from collections.abc import Iterator
 from typing import final
 
 import pyarrow as pa
-import pyarrow.compute as pc
 import pyarrow.dataset
 from typing_extensions import override
 
@@ -40,21 +39,21 @@ class VortexDataset(pyarrow.dataset.Dataset):
 
     @property
     @override
-    def schema(self) -> pa.Schema:
+    def schema(self) -> pyarrow.Schema:
         return self._dataset.schema()
 
     # regarding the ignore: https://github.com/zen-xu/pyarrow-stubs/pull/258
     @override
     def count_rows(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
-        filter: pc.Expression | None = None,
+        filter: pyarrow.dataset.Expression | None = None,
         batch_size: int | None = None,
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
         fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
         use_threads: bool | None = None,
         cache_metadata: bool | None = None,
-        memory_pool: pa.MemoryPool | None = None,
+        memory_pool: pyarrow.MemoryPool | None = None,
     ) -> int:
         """Count the number of rows in this dataset."""
         if batch_readahead is not None:
@@ -72,12 +71,12 @@ class VortexDataset(pyarrow.dataset.Dataset):
         return self._dataset.count_rows(row_filter=vx_filter, split_by=batch_size)
 
     @override
-    def filter(self, expression: pc.Expression) -> VortexDataset:
+    def filter(self, expression: pyarrow.dataset.Expression) -> VortexDataset:
         """Not implemented."""
         raise NotImplementedError("filter")
 
     @override
-    def get_fragments(self, filter: pc.Expression | None = None) -> Iterator[pyarrow.dataset.Fragment]:
+    def get_fragments(self, filter: pyarrow.dataset.Expression | None = None) -> Iterator[pyarrow.dataset.Fragment]:
         """Not implemented."""
         raise NotImplementedError("get_fragments")
 
@@ -86,15 +85,15 @@ class VortexDataset(pyarrow.dataset.Dataset):
         self,
         num_rows: int,
         columns: list[str] | None = None,
-        filter: pc.Expression | None = None,
+        filter: pyarrow.dataset.Expression | None = None,
         batch_size: int | None = None,
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
         fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
         use_threads: bool | None = None,
         cache_metadata: bool = False,
-        memory_pool: pa.MemoryPool | None = None,
-    ) -> pa.Table:
+        memory_pool: pyarrow.MemoryPool | None = None,
+    ) -> pyarrow.Table:
         """Load the first `num_rows` of the dataset.
 
         Parameters
@@ -172,7 +171,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
         raise NotImplementedError("join_asof")
 
     @override
-    def replace_schema(self, schema: pa.Schema) -> None:
+    def replace_schema(self, schema: pyarrow.Schema) -> None:
         """Not implemented."""
         raise NotImplementedError("replace_schema")
 
@@ -180,14 +179,14 @@ class VortexDataset(pyarrow.dataset.Dataset):
     def scanner(
         self,
         columns: list[str] | None = None,
-        filter: pc.Expression | None = None,
+        filter: pyarrow.dataset.Expression | None = None,
         batch_size: int | None = None,
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
         fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
         use_threads: bool | None = None,
         cache_metadata: bool = False,
-        memory_pool: pa.MemoryPool | None = None,
+        memory_pool: pyarrow.MemoryPool | None = None,
     ) -> pyarrow.dataset.Scanner:
         """Construct a :class:`.pyarrow.dataset.Scanner`.
 
@@ -237,26 +236,26 @@ class VortexDataset(pyarrow.dataset.Dataset):
     @override
     def take(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
-        indices: pa.Array[
-            pa.Int8Scalar
-            | pa.Int16Scalar
-            | pa.Int32Scalar
-            | pa.Int64Scalar
-            | pa.UInt8Scalar
-            | pa.UInt16Scalar
-            | pa.UInt32Scalar
-            | pa.UInt64Scalar
+        indices: pyarrow.Array[
+            pyarrow.Int8Scalar
+            | pyarrow.Int16Scalar
+            | pyarrow.Int32Scalar
+            | pyarrow.Int64Scalar
+            | pyarrow.UInt8Scalar
+            | pyarrow.UInt16Scalar
+            | pyarrow.UInt32Scalar
+            | pyarrow.UInt64Scalar
         ],
         columns: list[str] | None = None,
-        filter: pc.Expression | None = None,
+        filter: pyarrow.dataset.Expression | None = None,
         batch_size: int | None = None,
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
         fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
         use_threads: bool | None = None,
         cache_metadata: bool = False,
-        memory_pool: pa.MemoryPool | None = None,
-    ) -> pa.Table:
+        memory_pool: pyarrow.MemoryPool | None = None,
+    ) -> pyarrow.Table:
         """Load a subset of rows identified by their absolute indices.
 
         Parameters
@@ -296,15 +295,15 @@ class VortexDataset(pyarrow.dataset.Dataset):
     def to_record_batch_reader(
         self,
         columns: list[str] | None = None,
-        filter: pc.Expression | None = None,
+        filter: pyarrow.dataset.Expression | None = None,
         batch_size: int | None = None,
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
         fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
         use_threads: bool | None = None,
         cache_metadata: bool | None = None,
-        memory_pool: pa.MemoryPool | None = None,
-    ) -> pa.RecordBatchReader:
+        memory_pool: pyarrow.MemoryPool | None = None,
+    ) -> pyarrow.RecordBatchReader:
         """Construct a :class:`.pyarrow.RecordBatchReader`.
 
         Parameters
@@ -352,15 +351,15 @@ class VortexDataset(pyarrow.dataset.Dataset):
     def to_batches(
         self,
         columns: list[str] | None = None,
-        filter: pc.Expression | None = None,
+        filter: pyarrow.dataset.Expression | None = None,
         batch_size: int | None = None,
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
         fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
         use_threads: bool | None = None,
         cache_metadata: bool = False,
-        memory_pool: pa.MemoryPool | None = None,
-    ) -> Iterator[pa.RecordBatch]:
+        memory_pool: pyarrow.MemoryPool | None = None,
+    ) -> Iterator[pyarrow.RecordBatch]:
         """Construct an iterator of :class:`.pyarrow.RecordBatch`.
 
         Parameters
@@ -410,16 +409,16 @@ class VortexDataset(pyarrow.dataset.Dataset):
     @override
     def to_table(
         self,
-        columns: list[str] | dict[str, pc.Expression] | None = None,
-        filter: pc.Expression | None = None,
+        columns: list[str] | dict[str, pyarrow.dataset.Expression] | None = None,
+        filter: pyarrow.dataset.Expression | None = None,
         batch_size: int | None = None,
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
         fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
         use_threads: bool | None = None,
         cache_metadata: bool = True,
-        memory_pool: pa.MemoryPool | None = None,
-    ) -> pa.Table:
+        memory_pool: pyarrow.MemoryPool | None = None,
+    ) -> pyarrow.Table:
         """Construct an Arrow :class:`.pyarrow.Table`.
 
         Parameters
@@ -512,14 +511,14 @@ class VortexScanner(pyarrow.dataset.Scanner):
         self,
         dataset: VortexDataset,
         columns: list[str] | None = None,
-        filter: pc.Expression | None = None,
+        filter: pyarrow.dataset.Expression | None = None,
         batch_size: int | None = None,
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
         fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
         use_threads: bool | None = None,
         cache_metadata: bool = False,
-        memory_pool: pa.MemoryPool | None = None,
+        memory_pool: pyarrow.MemoryPool | None = None,
     ):
         self._dataset = dataset
         self._columns = columns
@@ -550,7 +549,7 @@ class VortexScanner(pyarrow.dataset.Scanner):
         )
 
     @override
-    def head(self, num_rows: int) -> pa.Table:
+    def head(self, num_rows: int) -> pyarrow.Table:
         """Load the first `num_rows` of the dataset.
 
         Parameters
@@ -582,7 +581,7 @@ class VortexScanner(pyarrow.dataset.Scanner):
         raise NotImplementedError("scan batches")
 
     @override
-    def to_batches(self) -> Iterator[pa.RecordBatch]:
+    def to_batches(self) -> Iterator[pyarrow.RecordBatch]:
         """Construct an iterator of :class:`.pyarrow.RecordBatch`.
 
         Returns
@@ -603,7 +602,7 @@ class VortexScanner(pyarrow.dataset.Scanner):
         )
 
     @override
-    def to_reader(self) -> pa.RecordBatchReader:
+    def to_reader(self) -> pyarrow.RecordBatchReader:
         """Construct a :class:`.pyarrow.RecordBatchReader`.
 
 
@@ -625,7 +624,7 @@ class VortexScanner(pyarrow.dataset.Scanner):
         )
 
     @override
-    def to_table(self) -> pa.Table:
+    def to_table(self) -> pyarrow.Table:
         """Construct an Arrow :class:`.pyarrow.Table`.
 
 

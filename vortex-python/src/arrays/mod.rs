@@ -500,56 +500,6 @@ impl PyArray {
         Ok(PyArrayRef::from(inner))
     }
 
-    /// Slice this array.
-    ///
-    /// Parameters
-    /// ----------
-    /// start : :class:`int`
-    ///     The start index of the range to keep, inclusive.
-    ///
-    /// end : :class:`int`
-    ///     The end index, exclusive.
-    ///
-    /// Returns
-    /// -------
-    /// :class:`~vortex.Array`
-    ///
-    /// Examples
-    /// --------
-    ///
-    /// Keep only the second through third elements:
-    ///
-    ///     >>> import vortex as vx
-    ///     >>> a = vx.array(['a', 'b', 'c', 'd'])
-    ///     >>> a.slice(1, 3).to_arrow_array()
-    ///     <pyarrow.lib.StringArray object at ...>
-    ///     [
-    ///       "b",
-    ///       "c"
-    ///     ]
-    ///
-    /// Keep none of the elements:
-    ///
-    ///     >>> a = vx.array(['a', 'b', 'c', 'd'])
-    ///     >>> a.slice(3, 3).to_arrow_array()
-    ///     <pyarrow.lib.StringViewArray object at ...>
-    ///     []
-    ///
-    /// Unlike Python, it is an error to slice outside the bounds of the array:
-    ///
-    ///     >>> a = vx.array(['a', 'b', 'c', 'd'])
-    ///     >>> a.slice(2, 10).to_arrow_array()
-    ///     Traceback (most recent call last):
-    ///     ...
-    ///     pyo3_runtime.PanicException: OutOfBounds: stop 10 > length 4
-    ///
-    /// Or to slice with a negative value:
-    ///
-    ///     >>> a = vx.array(['a', 'b', 'c', 'd'])
-    ///     >>> a.slice(-2, -1).to_arrow_array()
-    ///     Traceback (most recent call last):
-    ///     ...
-    ///     OverflowError: can't convert negative int to unsigned
     #[pyo3(signature = (start, end))]
     fn slice(slf: Bound<Self>, start: usize, end: usize) -> PyResult<PyArrayRef> {
         let slf = PyArrayRef::extract_bound(slf.as_any())?.into_inner();
