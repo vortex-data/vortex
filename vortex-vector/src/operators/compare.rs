@@ -184,10 +184,6 @@ pub struct ComparePrimitiveKernel<T, Op> {
 }
 
 impl<T: Element + NativePType, Op: CompareOp<T>> Kernel for ComparePrimitiveKernel<T, Op> {
-    fn seek(&mut self, chunk_idx: usize) -> VortexResult<()> {
-        todo!()
-    }
-
     fn step(
         &mut self,
         ctx: &KernelContext,

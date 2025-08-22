@@ -206,8 +206,8 @@ mod tests {
 
         for i in 0..mask.true_count() {
             assert_eq!(
-                res.scalar_at(i).unwrap(),
-                expect.scalar_at(i).unwrap(),
+                res.scalar_at(i),
+                expect.scalar_at(i),
                 "{i}",
             );
         }
@@ -241,8 +241,8 @@ mod tests {
 
             for i in 0..mask.true_count() {
                 assert_eq!(
-                    result.scalar_at(i).unwrap(),
-                    expect.scalar_at(i).unwrap(),
+                    result.scalar_at(i),
+                    expect.scalar_at(i),
                     "{}, {}",
                     i,
                     frac

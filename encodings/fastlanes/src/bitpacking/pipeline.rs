@@ -197,11 +197,10 @@ mod tests {
 
             for i in 0..mask.true_count() {
                 assert_eq!(
-                    result.scalar_at(i).unwrap(),
-                    expect.scalar_at(i).unwrap(),
-                    "mismatch at index {}, fraction {}",
+                    result.scalar_at(i),
+                    expect.scalar_at(i),
+                    "mismatch at index {}",
                     i,
-                    frac
                 );
             }
         }
@@ -228,8 +227,8 @@ mod tests {
 
         for i in 0..mask.true_count() {
             assert_eq!(
-                res.scalar_at(i).unwrap(),
-                expect.scalar_at(i).unwrap(),
+                res.scalar_at(i),
+                expect.scalar_at(i),
                 "{i}",
             );
         }
