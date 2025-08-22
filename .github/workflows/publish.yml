@@ -128,17 +128,8 @@ jobs:
 #          verbose: true
 #          skip-existing: true  # Idempotent releases
 
-  prepare-java:
-    runs-on: ${{ matrix.target.runs-on }}
-    container: ${{ matrix.target.container }}
-    timeout-minutes: 120
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - { os: macos, runs-on: "macos-latest", target: aarch64-apple-darwin, container: {} }
-          - { os: ubuntu, runs-on: "ubuntu-24.04-arm", container: { image: "ubuntu:20.04" }, target: aarch64-unknown-linux-gnu }
-          - { os: ubuntu, runs-on: "ubuntu-latest", container: { image: "ubuntu:20.04" }, target: x86_64-unknown-linux-gnu }
+  prepare-java-macos:
+    runs-on: "macos-latest"
     steps:
       - uses: actions/checkout@v5
         with:
@@ -153,8 +144,41 @@ jobs:
       - run: cargo build --release --package vortex-jni
       - uses: actions/upload-artifact@v4
         with:
+          name: "libvortex_jni_aarch64-apple-darwin.zip"
+          path: "target/release/libvortex_jni.dylib"
+          retention-days: 1
+          if-no-files-found: error
+
+  prepare-java-linux:
+    runs-on: ${{ matrix.target.runs-on }}
+    container:
+      image: "ubuntu:20.04"
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { os: ubuntu, runs-on: "ubuntu-24.04-arm", target: aarch64-unknown-linux-gnu }
+          - { os: ubuntu, runs-on: "ubuntu-24.04", target: x86_64-unknown-linux-gnu }
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - run: |
+          apt update
+          apt install -y wget build-essential
+      - uses: actions/setup-java@v5
+        with:
+          distribution: "corretto"
+          java-version: "17"
+      - uses: ./.github/actions/setup-rust
+        with:
+          targets: ${{ matrix.target.target }}
+      - run: cargo build --release --package vortex-jni
+      - uses: actions/upload-artifact@v4
+        with:
           name: "libvortex_jni_${{ matrix.target.target }}.zip"
-          path: "target/release/libvortex_jni.${{ (matrix.target.os == 'macos' && 'dylib') || 'so' }}"
+          path: "target/release/libvortex_jni.so"
           retention-days: 1
           if-no-files-found: error
 
