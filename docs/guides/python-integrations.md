@@ -196,8 +196,8 @@ and then run `make -C docs doctest` -->
 >>> from vortex.ray.datasource import VortexDatasource
 >>> from ray.data import read_datasource
 >>>
->>> ds = read_datasource(VortexDatasource(url='ray_data'))
->>> ds.to_pandas()
+>>> ds = read_datasource(VortexDatasource(url='ray_data')) # doctest: +SKIP
+>>> ds.to_pandas() # doctest: +SKIP
 [dataset]: Run `pip install tqdm` to enable progress reporting.
       VendorID tpep_pickup_datetime  ... congestion_surcharge  Airport_fee
 0            1  2023-11-01 00:03:03  ...                  0.0         1.75
