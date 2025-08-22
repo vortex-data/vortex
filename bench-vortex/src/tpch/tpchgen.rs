@@ -241,22 +241,6 @@ fn generate_table_files(
     Ok(futures)
 }
 
-macro_rules! generate_parts {
-    ($prefix:ident, $num_parts:expr, $scale_factor:expr, $batch_size:expr) => {{
-        let mut generators: Vec<Box<dyn tpchgen_arrow::RecordBatchIterator>> = Vec::new();
-        let num_parts_i32 = $num_parts.try_into().unwrap();
-        for part in 1..=num_parts_i32 {
-            let generator = paste::paste! {
-                tpchgen_arrow::[<$prefix Arrow>]::new(
-                    [<$prefix Generator>]::new($scale_factor, part, num_parts_i32)
-                ).with_batch_size($batch_size)
-            };
-            generators.push(Box::new(generator) as Box<dyn tpchgen_arrow::RecordBatchIterator>);
-        }
-        Ok(generators)
-    }};
-}
-
 /// Calculate the number of partitions without creating expensive iterators
 #[allow(clippy::cast_possible_truncation)]
 fn calculate_num_parts(generator: TableGenerator, options: &TpchGenOptions) -> Result<usize> {
