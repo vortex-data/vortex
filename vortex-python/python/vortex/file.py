@@ -18,6 +18,7 @@ from .type_aliases import IntoProjection
 
 if TYPE_CHECKING:
     import polars
+
     from .type_aliases import RecordBatchReader
 
 
