@@ -15,8 +15,6 @@ use crate::{Array as _, ArrayRef, Canonical, IntoArray, ToCanonical};
 
 impl CanonicalVTable<ChunkedVTable> for ChunkedVTable {
     fn canonicalize(array: &ChunkedArray) -> VortexResult<Canonical> {
-        use DType::*;
-
         if array.nchunks() == 0 {
             return Ok(Canonical::empty(array.dtype()));
         }
@@ -25,7 +23,7 @@ impl CanonicalVTable<ChunkedVTable> for ChunkedVTable {
         }
 
         match array.dtype() {
-            Struct(struct_dtype, _) => {
+            DType::Struct(struct_dtype, _) => {
                 let struct_array = swizzle_struct_chunks(
                     array.chunks(),
                     Validity::copy_from_array(array.as_ref())?,
@@ -33,12 +31,18 @@ impl CanonicalVTable<ChunkedVTable> for ChunkedVTable {
                 )?;
                 Ok(Canonical::Struct(struct_array))
             }
-            List(elem_dtype, _) => Ok(Canonical::List(pack_lists(
+            DType::List(elem_dtype, _) => Ok(Canonical::List(pack_lists(
                 array.chunks(),
                 Validity::copy_from_array(array.as_ref())?,
                 elem_dtype,
             )?)),
-            Null | Bool(_) | Primitive(..) | Decimal(..) | Utf8(_) | Binary(_) | Extension(_) => {
+            DType::Null
+            | DType::Bool(_)
+            | DType::Primitive(..)
+            | DType::Decimal(..)
+            | DType::Utf8(_)
+            | DType::Binary(_)
+            | DType::Extension(_) => {
                 let mut builder = builder_with_capacity(array.dtype(), array.len());
                 array.append_to_builder(builder.as_mut())?;
                 builder.finish().to_canonical()

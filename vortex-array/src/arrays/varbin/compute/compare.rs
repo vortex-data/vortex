@@ -25,7 +25,6 @@ impl CompareKernel for VarBinVTable {
         operator: Operator,
     ) -> VortexResult<Option<ArrayRef>> {
         use DType::*;
-        use Operator::*;
 
         if let Some(rhs_const) = rhs.as_constant() {
             let nullable = lhs.dtype().is_nullable() || rhs_const.dtype().is_nullable();
@@ -48,9 +47,9 @@ impl CompareKernel for VarBinVTable {
 
             if rhs_is_empty {
                 let buffer = match operator {
-                    Gte => BooleanBuffer::new_set(len), // Every possible value is >= ""
-                    Lt => BooleanBuffer::new_unset(len), // No value is < ""
-                    Eq | NotEq | Gt | Lte => {
+                    Operator::Gte => BooleanBuffer::new_set(len),   // Every possible value is >= ""
+                    Operator::Lt => BooleanBuffer::new_unset(len),  // No value is < ""
+                    Operator::Eq | Operator::NotEq | Operator::Gt | Operator::Lte => {
                         let lhs_offsets = lhs.offsets().to_canonical()?.into_primitive()?;
                         match_each_native_ptype!(lhs_offsets.ptype(), |P| {
                             compare_offsets_to_empty::<P>(lhs_offsets, operator)
@@ -91,12 +90,12 @@ impl CompareKernel for VarBinVTable {
             };
 
             let array = match operator {
-                Eq => cmp::eq(&lhs, arrow_rhs),
-                NotEq => cmp::neq(&lhs, arrow_rhs),
-                Gt => cmp::gt(&lhs, arrow_rhs),
-                Gte => cmp::gt_eq(&lhs, arrow_rhs),
-                Lt => cmp::lt(&lhs, arrow_rhs),
-                Lte => cmp::lt_eq(&lhs, arrow_rhs),
+                Operator::Eq => cmp::eq(&lhs, arrow_rhs),
+                Operator::NotEq => cmp::neq(&lhs, arrow_rhs),
+                Operator::Gt => cmp::gt(&lhs, arrow_rhs),
+                Operator::Gte => cmp::gt_eq(&lhs, arrow_rhs),
+                Operator::Lt => cmp::lt(&lhs, arrow_rhs),
+                Operator::Lte => cmp::lt_eq(&lhs, arrow_rhs),
             }
             .map_err(|err| vortex_err!("Failed to compare VarBin array: {}", err))?;
 
