@@ -16,12 +16,22 @@ use crate::trusted_len::TrustedLen;
 use crate::{Alignment, BufferMut, ByteBuffer};
 
 /// An immutable buffer of items of `T`.
-#[derive(Clone)]
 pub struct Buffer<T> {
     pub(crate) bytes: Bytes,
     pub(crate) length: usize,
     pub(crate) alignment: Alignment,
     pub(crate) _marker: std::marker::PhantomData<T>,
+}
+
+impl<T> Clone for Buffer<T> {
+    fn clone(&self) -> Self {
+        Self {
+            bytes: self.bytes.clone(),
+            length: self.length,
+            alignment: self.alignment,
+            _marker: std::marker::PhantomData,
+        }
+    }
 }
 
 impl<T> PartialEq for Buffer<T> {
