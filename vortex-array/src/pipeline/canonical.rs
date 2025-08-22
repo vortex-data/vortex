@@ -15,7 +15,7 @@ use crate::pipeline::query::QueryPlan;
 use crate::pipeline::types::Element;
 use crate::pipeline::vec::Vector;
 use crate::pipeline::view::ViewMut;
-use crate::pipeline::{Kernel, KernelContext, N, N_BITS};
+use crate::pipeline::{Kernel, KernelContext, N, N_WORDS};
 use crate::validity::Validity;
 
 /// Export canonical data from a pipeline kernel with the given mask.
@@ -115,7 +115,7 @@ fn export_primitive_nonnull_masked<T: Element + NativePType>(
     let mask_buffer = mask.to_boolean_buffer();
     let mut mask_iter = mask_buffer.bit_chunks().iter_padded();
 
-    let mut mask = [0usize; N_BITS];
+    let mut mask = [0usize; N_WORDS];
     let mut mask_view = BitViewMut::new(&mut mask);
 
     let mut offset = 0;
@@ -151,7 +151,7 @@ fn export_bool_nonnull_masked(mask: &Mask, pipeline: &mut dyn Kernel) -> VortexR
     let mask_buffer = mask.to_boolean_buffer();
     let mut mask_iter = mask_buffer.bit_chunks().iter_padded();
 
-    let mut mask = [0usize; N_BITS];
+    let mut mask = [0usize; N_WORDS];
     let mut mask_view = BitViewMut::new(&mut mask);
 
     // Fast path: collect all bools first, then use collect_bool for optimal packing

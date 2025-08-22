@@ -5,26 +5,26 @@ use bitvec::array::BitArray;
 use bitvec::order::Lsb0;
 
 use crate::pipeline::bits::BitView;
-use crate::pipeline::{N, N_BITS};
+use crate::pipeline::{N, N_WORDS};
 
 /// A mutable borrowed fixed-size bit vector of length `N` bits, represented as an array of
 /// usize words.
 /// Mutable view into a bit array for constructing selection masks.
 #[derive(Debug)]
 pub struct BitViewMut<'a> {
-    bits: &'a mut BitArray<[usize; N_BITS], Lsb0>,
+    bits: &'a mut BitArray<[usize; N_WORDS], Lsb0>,
     true_count: usize,
 }
 
 impl<'a> BitViewMut<'a> {
-    pub fn new(bits: &'a mut [usize; N_BITS]) -> Self {
+    pub fn new(bits: &'a mut [usize; N_WORDS]) -> Self {
         let true_count = bits.iter().map(|&word| word.count_ones() as usize).sum();
-        let bits: &mut BitArray<[usize; N_BITS], Lsb0> = unsafe { std::mem::transmute(bits) };
+        let bits: &mut BitArray<[usize; N_WORDS], Lsb0> = unsafe { std::mem::transmute(bits) };
         BitViewMut { bits, true_count }
     }
 
     pub(crate) unsafe fn new_unchecked(
-        bits: &'a mut BitArray<[usize; N_BITS], Lsb0>,
+        bits: &'a mut BitArray<[usize; N_WORDS], Lsb0>,
         true_count: usize,
     ) -> Self {
         BitViewMut { bits, true_count }
@@ -54,7 +54,7 @@ impl<'a> BitViewMut<'a> {
             word += 1;
         }
 
-        while word < N_BITS {
+        while word < N_WORDS {
             bit_slice[word] = 0;
             word += 1;
         }
@@ -73,7 +73,7 @@ impl<'a> BitViewMut<'a> {
         let dst_bytes = unsafe {
             std::slice::from_raw_parts_mut(
                 self.bits.as_raw_mut_slice().as_mut_ptr() as *mut u64,
-                N_BITS,
+                N_WORDS,
             )
         };
 
@@ -90,7 +90,7 @@ impl<'a> BitViewMut<'a> {
         unsafe { BitView::new_unchecked(self.bits, self.true_count) }
     }
 
-    pub fn as_raw_mut(&mut self) -> &mut [usize; N_BITS] {
+    pub fn as_raw_mut(&mut self) -> &mut [usize; N_WORDS] {
         unsafe { std::mem::transmute(&mut self.bits) }
     }
 

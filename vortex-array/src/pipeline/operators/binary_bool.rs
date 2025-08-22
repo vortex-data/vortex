@@ -155,7 +155,7 @@ mod tests {
     use crate::pipeline::operators::scalar_compare::ScalarCompareOperator;
     use crate::pipeline::query::QueryPlan;
     use crate::pipeline::view::ViewMut;
-    use crate::pipeline::{N, N_BITS};
+    use crate::pipeline::{N, N_WORDS};
 
     #[test]
     fn test_binary_bool_and_basic() {
@@ -192,7 +192,7 @@ mod tests {
         let mut pipeline = plan.executable_plan().unwrap();
 
         // Create mask for first 4 elements
-        let mut mask_data = [0usize; N_BITS];
+        let mut mask_data = [0usize; N_WORDS];
         mask_data[0] = 0b1111; // First 4 bits set
         let mask_view = BitView::new(&mask_data);
 
@@ -249,7 +249,7 @@ mod tests {
         let mut pipeline = plan.executable_plan().unwrap();
 
         // Create mask for first 4 elements
-        let mut mask_data = [0usize; N_BITS];
+        let mut mask_data = [0usize; N_WORDS];
         mask_data[0] = 0b1111; // First 4 bits set
         let mask_view = BitView::new(&mask_data);
 
@@ -321,7 +321,7 @@ mod tests {
         let mut pipeline = plan.executable_plan().unwrap();
 
         // Create mask for first 4 elements
-        let mut mask_data = [0usize; N_BITS];
+        let mut mask_data = [0usize; N_WORDS];
         mask_data[0] = 0b1111; // First 4 bits set
         let mask_view = BitView::new(&mask_data);
 

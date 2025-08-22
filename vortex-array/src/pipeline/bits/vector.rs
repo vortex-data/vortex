@@ -9,7 +9,7 @@ use bitvec::array::BitArray;
 use bitvec::order::Lsb0;
 
 use super::{BitView, BitViewMut};
-use crate::pipeline::{N, N_BITS};
+use crate::pipeline::{N, N_WORDS};
 
 static EMPTY: LazyLock<BitVector> = LazyLock::new(|| BitVector {
     bits: Arc::new(BitArray::ZERO),
@@ -29,7 +29,7 @@ static FULL: LazyLock<BitVector> = LazyLock::new(|| BitVector {
 /// Owned bit vector for storing boolean selection masks.
 #[derive(Clone)]
 pub struct BitVector {
-    pub(super) bits: Arc<BitArray<[usize; N_BITS], Lsb0>>,
+    pub(super) bits: Arc<BitArray<[usize; N_WORDS], Lsb0>>,
     pub(super) true_count: usize,
 }
 
@@ -63,7 +63,7 @@ impl BitVector {
     pub fn true_until(n: usize) -> Self {
         assert!(n <= N, "Cannot create a BitVector with more than N bits");
 
-        let mut bits = Arc::new(BitArray::<[usize; N_BITS], Lsb0>::ZERO);
+        let mut bits = Arc::new(BitArray::<[usize; N_WORDS], Lsb0>::ZERO);
         let bits_mut = Arc::make_mut(&mut bits);
 
         let mut word = 0;
@@ -89,16 +89,16 @@ impl BitVector {
         self.true_count
     }
 
-    pub fn as_raw(&self) -> &[usize; N_BITS] {
+    pub fn as_raw(&self) -> &[usize; N_WORDS] {
         // It's actually remarkably hard to get a reference to the underlying array!
         let raw = self.bits.as_raw_slice();
-        unsafe { &*(raw.as_ptr() as *const [usize; N_BITS]) }
+        unsafe { &*(raw.as_ptr() as *const [usize; N_WORDS]) }
     }
 
-    pub fn as_raw_mut(&mut self) -> &mut [usize; N_BITS] {
+    pub fn as_raw_mut(&mut self) -> &mut [usize; N_WORDS] {
         // SAFETY: We assume that the bits are mutable and that the view is valid.
         let raw = Arc::make_mut(&mut self.bits).as_raw_mut_slice();
-        unsafe { &mut *(raw.as_mut_ptr() as *mut [usize; N_BITS]) }
+        unsafe { &mut *(raw.as_mut_ptr() as *mut [usize; N_WORDS]) }
     }
 
     pub fn fill_from<I>(&mut self, iter: I)
@@ -125,7 +125,7 @@ impl BitVector {
 impl From<BitView<'_>> for BitVector {
     fn from(value: BitView<'_>) -> Self {
         let true_count = value.true_count();
-        let bits = Arc::new(BitArray::<[usize; N_BITS], Lsb0>::from(*value.as_raw()));
+        let bits = Arc::new(BitArray::<[usize; N_WORDS], Lsb0>::from(*value.as_raw()));
         BitVector { bits, true_count }
     }
 }
@@ -189,7 +189,7 @@ mod tests {
     #[test]
     fn test_from_bitview() {
         // Create a BitView from raw data
-        let mut raw = [0usize; N_BITS];
+        let mut raw = [0usize; N_WORDS];
         raw[0] = 0b11111111;
         raw[1] = 0b11110000;
 
