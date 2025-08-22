@@ -426,8 +426,7 @@ mod tests {
 
     #[test]
     fn test_array_dtype_lifetime_pattern() {
-        // Helper function to create test array
-        fn create_test_struct_array() -> ArrayRef {
+        let array = {
             let nums: Buffer<i32> = (0..1000).collect();
             let floats: Buffer<f32> = (0..1000).map(|x| x as f32).collect();
 
@@ -437,9 +436,7 @@ mod tests {
             ])
             .unwrap()
             .into_array()
-        }
-
-        let array = create_test_struct_array();
+        };
         let vx_arr = vx_array::new(array);
 
         // Get dtype reference - this is valid as long as array lives
@@ -449,7 +446,6 @@ mod tests {
 
         // Proper usage: use dtype while array is still alive
         // This demonstrates the correct lifetime pattern
-
         unsafe { vx_array_free(vx_arr) };
 
         // Note: dtype_ptr is now invalid - this test documents the lifetime pattern
