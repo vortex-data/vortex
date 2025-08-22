@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-from . import _lib, arrays, dataset, expr, file, io
+from . import _lib, arrays, dataset, expr, file, io, ray
 from ._lib.arrays import (  # pyright: ignore[reportMissingModuleSource]
     AlpArray,
     AlpRdArray,
@@ -72,11 +72,12 @@ assert _lib, "Ensure we eagerly import the Vortex native library"
 
 __all__ = [
     # --- Modules ---
-    "io",
     "arrays",
     "dataset",
     "expr",
     "file",
+    "io",
+    "ray",
     # --- Objects and Functions ---
     "array",
     "compress",

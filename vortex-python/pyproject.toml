@@ -39,6 +39,7 @@ polars = [
 pandas = ["pandas>=2.2.0"]
 numpy = ["numpy>=1.26.0"]
 duckdb = ["duckdb>=1.1.2"]
+ray = ["ray>=2.48"]
 
 [project.urls]
 Documentation = "https://docs.vortex.dev"
