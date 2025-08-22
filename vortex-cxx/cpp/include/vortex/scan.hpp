@@ -61,14 +61,14 @@ public:
     ScanBuilder &operator=(const ScanBuilder &) = delete;
 
     /// Only include rows that match the filter expressions.
-    /// Expect `ExprType` to be `expr::Expr`
+    /// Expect `ExprType` to be `expr::Expr &&` or `const expr::Expr &`
     template <typename ExprType>
     ScanBuilder &WithFilter(ExprType &&expr) &;
     template <typename ExprType>
     ScanBuilder &&WithFilter(ExprType &&expr) &&;
 
     /// Only include columns that match the projection expressions.
-    /// Expect `ExprType` to be `expr::Expr`
+    /// Expect `ExprType` to be `expr::Expr &&` or `const expr::Expr &`
     template <typename ExprType>
     ScanBuilder &WithProjection(ExprType &&expr) &;
     template <typename ExprType>
