@@ -42,6 +42,7 @@ pub mod stream;
 pub mod test_harness;
 pub mod validity;
 pub mod variants;
+pub mod vector;
 pub mod vtable;
 
 pub mod flatbuffers {

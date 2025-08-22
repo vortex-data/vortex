@@ -62,7 +62,6 @@ vortex-flatbuffers = { workspace = true, features = ["array"] }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
 vortex-utils = { workspace = true }
-vortex-vector = { workspace = true }
 
 [features]
 arbitrary = [

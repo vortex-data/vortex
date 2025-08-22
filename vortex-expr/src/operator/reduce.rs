@@ -3,8 +3,8 @@
 
 use std::rc::Rc;
 
+use vortex_array::vector::operators::Operator;
 use vortex_error::VortexResult;
-use vortex_vector::operators::Operator;
 
 use crate::traversal::{FoldUp, Node, NodeExt, NodeFolder, NodeRewriter, Transformed};
 

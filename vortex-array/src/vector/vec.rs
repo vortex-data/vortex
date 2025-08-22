@@ -14,10 +14,10 @@ use std::ops::{Deref, DerefMut};
 
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 
-use crate::SC;
-use crate::bits::BitVector;
-use crate::types::{Element, VType};
-use crate::view::{View, ViewMut};
+use crate::vector::SC;
+use crate::vector::bits::BitVector;
+use crate::vector::types::{Element, VType};
+use crate::vector::view::{View, ViewMut};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct VectorId(pub(crate) usize);

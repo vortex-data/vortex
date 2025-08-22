@@ -6,9 +6,9 @@ use std::fmt::Display;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 
-use crate::SC;
-use crate::bits::{BitView, BitViewMut};
-use crate::types::{Element, VType};
+use crate::vector::SC;
+use crate::vector::bits::{BitView, BitViewMut};
+use crate::vector::types::{Element, VType};
 
 pub struct View<'a> {
     /// The physical type of the vector, which defines how the elements are stored.

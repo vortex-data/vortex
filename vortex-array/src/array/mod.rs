@@ -15,7 +15,6 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
-use vortex_vector::operators::Operator;
 
 use crate::arrays::{
     BoolEncoding, ConstantVTable, DecimalEncoding, ExtensionEncoding, ListEncoding, NullEncoding,
@@ -26,6 +25,7 @@ use crate::compute::{ComputeFn, Cost, InvocationArgs, IsConstantOpts, Output, is
 use crate::pipeline::PipelineVTable;
 use crate::serde::ArrayChildren;
 use crate::stats::{Precision, Stat, StatsProviderExt, StatsSetRef};
+use crate::vector::operators::Operator;
 use crate::vtable::{
     ArrayVTable, CanonicalVTable, ComputeVTable, OperationsVTable, SerdeVTable, VTable,
     ValidityVTable, VisitorVTable,

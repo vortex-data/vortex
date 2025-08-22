@@ -33,7 +33,6 @@ vortex-mask = { workspace = true }
 vortex-proto = { workspace = true, features = ["expr"] }
 vortex-scalar = { workspace = true }
 vortex-utils = { workspace = true }
-vortex-vector = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }

@@ -6,17 +6,17 @@ use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, NativePType, Nullability, match_each_native_ptype};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
-use vortex_vector::bits::{BitVector, BitView, BitViewMut};
-use vortex_vector::operators::Operator;
-use vortex_vector::query::QueryPlan;
-use vortex_vector::types::Element;
-use vortex_vector::vector::Vector;
-use vortex_vector::view::ViewMut;
-use vortex_vector::{Kernel, KernelContext, SC};
 
 use crate::Canonical;
 use crate::arrays::{BoolArray, PrimitiveArray};
 use crate::validity::Validity;
+use crate::vector::bits::{BitVector, BitView, BitViewMut};
+use crate::vector::operators::Operator;
+use crate::vector::query::QueryPlan;
+use crate::vector::types::Element;
+use crate::vector::vec::Vector;
+use crate::vector::view::ViewMut;
+use crate::vector::{Kernel, KernelContext, SC};
 
 pub fn export_canonical_pipeline(
     dtype: &DType,

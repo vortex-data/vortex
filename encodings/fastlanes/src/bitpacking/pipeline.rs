@@ -7,14 +7,14 @@ use std::rc::Rc;
 
 use fastlanes::{BitPacking, FastLanes};
 use vortex_array::pipeline::PipelineVTable;
+use vortex_array::vector::bits::BitView;
+use vortex_array::vector::operators::{BindContext, Operator};
+use vortex_array::vector::types::{Element, VType};
+use vortex_array::vector::view::ViewMut;
+use vortex_array::vector::{Kernel, KernelContext, SC};
 use vortex_buffer::Buffer;
 use vortex_dtype::{PhysicalPType, match_each_integer_ptype};
 use vortex_error::VortexResult;
-use vortex_vector::bits::BitView;
-use vortex_vector::operators::{BindContext, Operator};
-use vortex_vector::types::{Element, VType};
-use vortex_vector::view::ViewMut;
-use vortex_vector::{Kernel, KernelContext, SC};
 
 use crate::{BitPackedArray, BitPackedVTable};
 
@@ -226,11 +226,7 @@ mod tests {
         let expect = filter(array.as_ref(), &mask).unwrap();
 
         for i in 0..mask.true_count() {
-            assert_eq!(
-                res.scalar_at(i),
-                expect.scalar_at(i),
-                "{i}",
-            );
+            assert_eq!(res.scalar_at(i), expect.scalar_at(i), "{i}",);
         }
     }
 }

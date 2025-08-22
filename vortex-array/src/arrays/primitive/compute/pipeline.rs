@@ -4,11 +4,11 @@
 use std::rc::Rc;
 
 use vortex_error::{VortexResult, vortex_bail};
-use vortex_vector::operators::Operator;
-use vortex_vector::operators::primitive::PrimitiveOperator;
 
 use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::pipeline::PipelineVTable;
+use crate::vector::operators::Operator;
+use crate::vector::operators::primitive::PrimitiveOperator;
 use crate::vtable::ValidityHelper;
 
 impl PipelineVTable<PrimitiveVTable> for PrimitiveVTable {

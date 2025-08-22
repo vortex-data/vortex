@@ -12,6 +12,10 @@ use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex_array::compute::filter;
 use vortex_array::pipeline::canonical::export_canonical_pipeline_expr;
+use vortex_array::vector::operators::compare::{BinaryOperator, CompareOperator};
+use vortex_array::vector::operators::constant::ConstantOperator;
+use vortex_array::vector::operators::scalar_compare::ScalarCompareOperator;
+use vortex_array::vector::types::Element;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
 use vortex_dtype::Nullability::NonNullable;
@@ -21,10 +25,6 @@ use vortex_expr::{Scope, lit, lt, reduce_operator, root};
 use vortex_fastlanes::{FoRArray, bitpack_to_best_bit_width};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
-use vortex_vector::operators::compare::{BinaryOperator, CompareOperator};
-use vortex_vector::operators::constant::ConstantOperator;
-use vortex_vector::operators::scalar_compare::ScalarCompareOperator;
-use vortex_vector::types::Element;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;

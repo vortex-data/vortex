@@ -9,11 +9,11 @@ use vortex_dtype::{DType, NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::bits::BitView;
-use crate::operators::{BindContext, Operator};
-use crate::types::{Element, VType};
-use crate::view::ViewMut;
-use crate::{Kernel, KernelContext};
+use crate::vector::bits::BitView;
+use crate::vector::operators::{BindContext, Operator};
+use crate::vector::types::{Element, VType};
+use crate::vector::view::ViewMut;
+use crate::vector::{Kernel, KernelContext};
 
 #[derive(Debug, Hash)]
 pub struct ConstantOperator {

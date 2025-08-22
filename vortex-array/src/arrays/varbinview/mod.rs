@@ -724,9 +724,9 @@ impl<'a> FromIterator<Option<&'a str>> for VarBinViewArray {
 #[cfg(test)]
 mod test {
     use vortex_scalar::Scalar;
-    use vortex_vector::types::BINARY_VIEW_BYTE_WIDTH;
 
     use crate::arrays::varbinview::{BinaryView, VarBinViewArray};
+    use crate::vector::types::BINARY_VIEW_BYTE_WIDTH;
     use crate::{Array, Canonical, IntoArray};
 
     #[test]

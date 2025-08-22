@@ -9,17 +9,17 @@ use std::rc::Rc;
 use num_traits::WrappingAdd;
 use vortex_array::Array;
 use vortex_array::pipeline::PipelineVTable;
+use vortex_array::vector::bits::BitView;
+use vortex_array::vector::operators::compare::BinaryOperator;
+use vortex_array::vector::operators::scalar_compare::ScalarCompareOperator;
+use vortex_array::vector::operators::{BindContext, Operator};
+use vortex_array::vector::types::{Element, VType};
+use vortex_array::vector::vec::VectorId;
+use vortex_array::vector::view::ViewMut;
+use vortex_array::vector::{Kernel, KernelContext};
 use vortex_dtype::{NativePType, PType, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
-use vortex_vector::bits::BitView;
-use vortex_vector::operators::compare::BinaryOperator;
-use vortex_vector::operators::scalar_compare::ScalarCompareOperator;
-use vortex_vector::operators::{BindContext, Operator};
-use vortex_vector::types::{Element, VType};
-use vortex_vector::vector::VectorId;
-use vortex_vector::view::ViewMut;
-use vortex_vector::{Kernel, KernelContext};
 
 use crate::{FoRArray, FoRVTable};
 
@@ -205,11 +205,7 @@ mod tests {
         let expect = filter(array.as_ref(), &mask).unwrap();
 
         for i in 0..mask.true_count() {
-            assert_eq!(
-                res.scalar_at(i),
-                expect.scalar_at(i),
-                "{i}",
-            );
+            assert_eq!(res.scalar_at(i), expect.scalar_at(i), "{i}",);
         }
     }
 
@@ -240,13 +236,7 @@ mod tests {
             let expect = filter(array.to_canonical().unwrap().as_ref(), &mask).unwrap();
 
             for i in 0..mask.true_count() {
-                assert_eq!(
-                    result.scalar_at(i),
-                    expect.scalar_at(i),
-                    "{}, {}",
-                    i,
-                    frac
-                );
+                assert_eq!(result.scalar_at(i), expect.scalar_at(i), "{}, {}", i, frac);
             }
         }
     }

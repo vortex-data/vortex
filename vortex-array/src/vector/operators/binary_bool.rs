@@ -7,12 +7,12 @@ use std::rc::Rc;
 
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
 
-use crate::bits::BitView;
-use crate::operators::{BindContext, Operator};
-use crate::types::VType;
-use crate::vector::VectorId;
-use crate::view::ViewMut;
-use crate::{Kernel, KernelContext};
+use crate::vector::bits::BitView;
+use crate::vector::operators::{BindContext, Operator};
+use crate::vector::types::VType;
+use crate::vector::vec::VectorId;
+use crate::vector::view::ViewMut;
+use crate::vector::{Kernel, KernelContext};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum BoolOp {
@@ -146,12 +146,12 @@ mod tests {
     use vortex_dtype::PType;
 
     use super::*;
-    use crate::SC;
-    use crate::bits::BitView;
-    use crate::operators::constant::ConstantOperator;
-    use crate::operators::primitive::PrimitiveOperator;
-    use crate::query::QueryPlan;
-    use crate::view::ViewMut;
+    use crate::vector::SC;
+    use crate::vector::bits::BitView;
+    use crate::vector::operators::constant::ConstantOperator;
+    use crate::vector::operators::primitive::PrimitiveOperator;
+    use crate::vector::query::QueryPlan;
+    use crate::vector::view::ViewMut;
 
     #[test]
     fn test_binary_bool_and_basic() {
@@ -172,8 +172,8 @@ mod tests {
         use vortex_dtype::Nullability;
         use vortex_scalar::Scalar;
 
-        use crate::operators::compare::BinaryOperator;
-        use crate::operators::scalar_compare::ScalarCompareOperator;
+        use crate::vector::operators::compare::BinaryOperator;
+        use crate::vector::operators::scalar_compare::ScalarCompareOperator;
 
         let zero_scalar = Scalar::primitive(0i32, Nullability::NonNullable);
         let left_bool_op = Rc::new(ScalarCompareOperator::new(
@@ -239,8 +239,8 @@ mod tests {
         use vortex_dtype::Nullability;
         use vortex_scalar::Scalar;
 
-        use crate::operators::compare::BinaryOperator;
-        use crate::operators::scalar_compare::ScalarCompareOperator;
+        use crate::vector::operators::compare::BinaryOperator;
+        use crate::vector::operators::scalar_compare::ScalarCompareOperator;
 
         let zero_scalar = Scalar::primitive(0i32, Nullability::NonNullable);
         let left_bool_op = Rc::new(ScalarCompareOperator::new(
@@ -308,8 +308,8 @@ mod tests {
         use vortex_dtype::Nullability;
         use vortex_scalar::Scalar;
 
-        use crate::operators::compare::BinaryOperator;
-        use crate::operators::scalar_compare::ScalarCompareOperator;
+        use crate::vector::operators::compare::BinaryOperator;
+        use crate::vector::operators::scalar_compare::ScalarCompareOperator;
 
         let zero_scalar = Scalar::primitive(0i32, Nullability::NonNullable);
         let x_bool_op = Rc::new(ScalarCompareOperator::new(

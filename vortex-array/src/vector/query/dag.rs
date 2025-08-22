@@ -6,8 +6,8 @@ use std::hash::BuildHasher;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::{HashMap, RandomState};
 
-use crate::operators::Operator;
-use crate::query::QueryPlan;
+use crate::vector::operators::Operator;
+use crate::vector::query::QueryPlan;
 
 /// A node in our execution DAG
 #[derive(Clone, Debug)]

@@ -5,9 +5,9 @@ use core::fmt;
 use std::fmt::{Display, Formatter};
 
 use vortex_array::compute;
+use vortex_array::vector::operators::compare::BinaryOperator;
 use vortex_error::{VortexError, VortexResult, vortex_bail};
 use vortex_proto::expr::binary_opts::BinaryOp;
-use vortex_vector::operators::compare::BinaryOperator;
 
 /// Equalities, inequalities, and boolean operations over possibly null values.
 ///

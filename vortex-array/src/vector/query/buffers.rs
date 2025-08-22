@@ -7,10 +7,10 @@ use std::cell::RefCell;
 
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::query::QueryPlan;
-use crate::query::dag::DagNode;
-use crate::types::VType;
-use crate::vector::{Vector, VectorId};
+use crate::vector::query::QueryPlan;
+use crate::vector::query::dag::DagNode;
+use crate::vector::types::VType;
+use crate::vector::vec::{Vector, VectorId};
 
 #[derive(Debug)]
 pub struct VectorAllocationPlan {

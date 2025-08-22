@@ -5,8 +5,8 @@ use std::rc::Rc;
 
 use itertools::Itertools;
 use pipeline::operators::Operator;
+use vortex_array::vector as pipeline;
 use vortex_error::VortexResult;
-use vortex_vector as pipeline;
 
 use crate::traversal::{Node, NodeContainer, Transformed, TraversalOrder};
 

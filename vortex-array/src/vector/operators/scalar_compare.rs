@@ -9,13 +9,14 @@ use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
-use crate::bits::BitView;
-use crate::operators::compare::{BinaryOperator, CompareOp};
-use crate::operators::{BindContext, Operator};
-use crate::types::{Element, VType};
-use crate::vector::VectorId;
-use crate::view::ViewMut;
-use crate::{Kernel, KernelContext, match_each_compare_op};
+use crate::match_each_compare_op;
+use crate::vector::bits::BitView;
+use crate::vector::operators::compare::{BinaryOperator, CompareOp};
+use crate::vector::operators::{BindContext, Operator};
+use crate::vector::types::{Element, VType};
+use crate::vector::vec::VectorId;
+use crate::vector::view::ViewMut;
+use crate::vector::{Kernel, KernelContext};
 
 #[derive(Debug, Hash)]
 pub struct ScalarCompareOperator {
@@ -122,12 +123,12 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use super::*;
-    use crate::SC;
-    use crate::bits::BitView;
-    use crate::operators::compare::BinaryOperator;
-    use crate::operators::primitive::PrimitiveOperator;
-    use crate::query::QueryPlan;
-    use crate::view::ViewMut;
+    use crate::vector::SC;
+    use crate::vector::bits::BitView;
+    use crate::vector::operators::compare::BinaryOperator;
+    use crate::vector::operators::primitive::PrimitiveOperator;
+    use crate::vector::query::QueryPlan;
+    use crate::vector::view::ViewMut;
 
     #[test]
     fn test_scalar_compare_stacked_on_primitive() {

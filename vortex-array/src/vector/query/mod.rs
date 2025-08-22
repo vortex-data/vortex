@@ -9,13 +9,13 @@ mod toposort;
 
 use vortex_error::VortexResult;
 
-use crate::bits::BitView;
-use crate::operators::Operator;
-pub use crate::query::buffers::VectorAllocationPlan;
-use crate::query::dag::DagNode;
-use crate::query::query_execution::QueryExecution;
-use crate::view::ViewMut;
-use crate::{Kernel, KernelContext};
+use crate::vector::bits::BitView;
+use crate::vector::operators::Operator;
+pub use crate::vector::query::buffers::VectorAllocationPlan;
+use crate::vector::query::dag::DagNode;
+use crate::vector::query::query_execution::QueryExecution;
+use crate::vector::view::ViewMut;
+use crate::vector::{Kernel, KernelContext};
 
 /// The idea of a query-plan is to orchestrate driving a set of operators to completion with
 /// fully optimized resource usage.

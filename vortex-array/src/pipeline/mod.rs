@@ -9,8 +9,8 @@
 use std::rc::Rc;
 
 use vortex_error::VortexResult;
-use vortex_vector::*;
 
+use crate::vector::*;
 use crate::vtable::{NotSupported, VTable};
 
 pub mod canonical;

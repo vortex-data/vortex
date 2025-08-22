@@ -24,7 +24,7 @@ pub mod bits;
 pub mod operators;
 pub mod query;
 pub mod types;
-pub mod vector;
+pub mod vec;
 pub mod view;
 
 /// The number of elements in each step of a Vortex evaluation pipeline.
@@ -33,12 +33,12 @@ pub const SC: usize = 1024;
 use std::cell::RefCell;
 
 pub use operators::Operator;
-use vector::{VectorId, VectorRef};
+use vec::{VectorId, VectorRef};
 use vortex_error::VortexResult;
 
-use crate::bits::BitView;
-use crate::vector::Vector;
-use crate::view::ViewMut;
+use self::bits::BitView;
+use self::vec::Vector;
+use self::view::ViewMut;
 
 /// A pipeline provides a push-based way to emit a stream of canonical data.
 ///

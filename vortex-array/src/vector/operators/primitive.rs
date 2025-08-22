@@ -9,11 +9,11 @@ use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{NativePType, PType, match_each_native_ptype};
 use vortex_error::VortexResult;
 
-use crate::bits::BitView;
-use crate::operators::{BindContext, Operator};
-use crate::types::{Element, VType};
-use crate::view::ViewMut;
-use crate::{Kernel, KernelContext, SC};
+use crate::vector::bits::BitView;
+use crate::vector::operators::{BindContext, Operator};
+use crate::vector::types::{Element, VType};
+use crate::vector::view::ViewMut;
+use crate::vector::{Kernel, KernelContext, SC};
 
 #[derive(Debug, Clone, Hash)]
 pub struct PrimitiveOperator {
@@ -93,7 +93,7 @@ mod tests {
     use vortex_buffer::BufferMut;
 
     use super::*;
-    use crate::bits::BitView;
+    use crate::vector::bits::BitView;
 
     #[test]
     fn test_primitive_kernel_basic_operation() {

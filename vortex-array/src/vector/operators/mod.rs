@@ -16,9 +16,9 @@ use std::rc::Rc;
 use dyn_hash::DynHash;
 use vortex_error::VortexResult;
 
-use crate::Kernel;
-use crate::types::VType;
-use crate::vector::VectorId;
+use crate::vector::Kernel;
+use crate::vector::types::VType;
+use crate::vector::vec::VectorId;
 
 // TODO: clean up this diagram
 // compare(_, _) <-  for <- bitpacked
