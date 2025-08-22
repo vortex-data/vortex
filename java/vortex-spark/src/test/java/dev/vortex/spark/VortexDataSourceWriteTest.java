@@ -15,12 +15,10 @@ import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.spark.sql.*;
-import org.apache.spark.sql.api.java.UDF1;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 import org.junit.jupiter.api.*;
-import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
@@ -284,14 +282,12 @@ public final class VortexDataSourceWriteTest {
      * and their string representations.
      */
     private Dataset<Row> createTestDataFrame(int numRows) {
-        // Register UDF for integer to string conversion
-        spark.udf().register("intToString", (UDF1<Integer, String>) value -> "value_" + value, DataTypes.StringType);
-
         // Create DataFrame with monotonically increasing integers
-        Dataset<Row> df = spark.range(0, numRows)
-                .selectExpr("cast(id as int) as id", "concat('value_', cast(id as string)) as value");
-
-        return df;
+        return spark.range(0, numRows)
+                .selectExpr(
+                        "cast(id as int) as id",
+                        "concat('value_', cast(id as string)) as value",
+                        "array('Alpha', 'Bravo', 'Charlie') AS elements");
     }
 
     /**
