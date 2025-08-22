@@ -169,9 +169,10 @@ pub unsafe extern "C-unwind" fn vx_dtype_decimal_scale(dtype: *const vx_dtype) -
         .scale()
 }
 
-/// Return an owned reference to the [`vx_struct_fields`] of a struct data type.
+/// Return a borrowed reference to the [`vx_struct_fields`] of a struct data type.
 ///
-/// The caller is responsible for freeing the returned pointer with [`vx_struct_fields_free`].
+/// The returned pointer is valid as long as the struct dtype is valid.
+/// Do NOT free the returned pointer - it shares the lifetime of the struct dtype.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_struct_dtype(
     dtype: *const vx_dtype,
@@ -268,15 +269,19 @@ pub unsafe extern "C-unwind" fn vx_dtype_time_zone(
 #[cfg(test)]
 #[allow(clippy::cast_possible_truncation)]
 mod tests {
-    use vortex::dtype::DType;
+    use vortex::IntoArray;
+    use vortex::arrays::StructArray;
+    use vortex::buffer::Buffer;
+    use vortex::dtype::{DType, DecimalDType};
 
     use super::*;
+    use crate::array::vx_array;
     use crate::dtype::{
         vx_dtype, vx_dtype_free, vx_dtype_get_variant, vx_dtype_new_bool, vx_dtype_new_primitive,
         vx_dtype_new_utf8, vx_dtype_variant,
     };
     use crate::ptype::vx_ptype;
-    use crate::string::{vx_string, vx_string_free};
+    use crate::string::{vx_string, vx_string_free, vx_string_len, vx_string_ptr};
     use crate::struct_fields::{
         vx_struct_fields_builder_add_field, vx_struct_fields_builder_finalize,
         vx_struct_fields_builder_new, vx_struct_fields_field_dtype, vx_struct_fields_field_name,
@@ -438,7 +443,6 @@ mod tests {
     fn test_dtype_variant_conversion() {
         // Important: Verifies the From trait implementation for FFI variant enum
         // These mappings are part of the ABI contract
-        use vortex::dtype::{DType, DecimalDType};
 
         let dtypes = vec![
             DType::Null,
@@ -465,10 +469,6 @@ mod tests {
 
     // Helper function for struct introspection tests
     fn create_test_struct_array() -> vortex::ArrayRef {
-        use vortex::IntoArray;
-        use vortex::arrays::StructArray;
-        use vortex::buffer::Buffer;
-
         let nums: Buffer<i32> = (0..1000).collect();
         let floats: Buffer<f32> = (0..1000).map(|x| x as f32).collect();
 
@@ -479,9 +479,6 @@ mod tests {
 
     #[test]
     fn test_struct_introspection_simple() {
-        use crate::array::vx_array;
-        use crate::struct_fields::vx_struct_fields_nfields;
-
         let array = create_test_struct_array();
         let vx_arr = vx_array::new(array);
         let dtype_ptr = unsafe { crate::array::vx_array_dtype(vx_arr) };
@@ -498,10 +495,6 @@ mod tests {
 
     #[test]
     fn test_field_name_access() {
-        use crate::array::vx_array;
-        use crate::string::{vx_string_free, vx_string_len, vx_string_ptr};
-        use crate::struct_fields::vx_struct_fields_field_name;
-
         let array = create_test_struct_array();
         let vx_arr = vx_array::new(array);
         let dtype_ptr = unsafe { crate::array::vx_array_dtype(vx_arr) };
@@ -527,10 +520,6 @@ mod tests {
 
     #[test]
     fn test_comprehensive_struct_introspection() {
-        use crate::array::vx_array;
-        use crate::string::{vx_string_free, vx_string_len, vx_string_ptr};
-        use crate::struct_fields::{vx_struct_fields_field_name, vx_struct_fields_nfields};
-
         let array = create_test_struct_array();
         let vx_arr = vx_array::new(array);
         let dtype_ptr = unsafe { crate::array::vx_array_dtype(vx_arr) };

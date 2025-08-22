@@ -174,10 +174,12 @@ pub unsafe extern "C-unwind" fn vx_array_get_binary(
 mod tests {
     use std::ffi::{c_int, c_void};
 
-    use vortex::IntoArray;
     use vortex::arrays::{PrimitiveArray, StructArray, VarBinViewArray};
-    use vortex::buffer::buffer;
+    use vortex::buffer::{Buffer, buffer};
+    #[cfg(not(miri))]
+    use vortex::dtype::half::f16;
     use vortex::validity::Validity;
+    use vortex::{ArrayRef, IntoArray};
 
     use crate::array::*;
     use crate::dtype::{vx_dtype_get_variant, vx_dtype_variant};
@@ -326,7 +328,6 @@ mod tests {
             // Test f16 (special half-precision type) - skip in Miri due to inline assembly
             #[cfg(not(miri))]
             {
-                use vortex::dtype::half::f16;
                 let f16_array = PrimitiveArray::new(
                     buffer![f16::from_f32(1.0), f16::from_f32(-0.5)],
                     Validity::NonNullable,
@@ -425,12 +426,6 @@ mod tests {
 
     #[test]
     fn test_array_dtype_lifetime_pattern() {
-        use vortex::arrays::StructArray;
-        use vortex::buffer::Buffer;
-        use vortex::{ArrayRef, IntoArray};
-
-        use crate::dtype::{vx_dtype_get_variant, vx_dtype_variant};
-
         // Helper function to create test array
         fn create_test_struct_array() -> ArrayRef {
             let nums: Buffer<i32> = (0..1000).collect();
