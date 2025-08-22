@@ -127,10 +127,10 @@ def _read_task(
         input_files=paths,
     )
 
-    vx_filter = ensure_vortex_expression(filter, schema=schema)
-
     def read() -> Iterable[pandas.DataFrame]:
-        # We cannot serialize a PyVortexFile using Python pickling.
+        # If we could serialize a PyVortexFile and a PyExpr, we could set those up earlier.
+
+        vx_filter = ensure_vortex_expression(filter, schema=schema)
         for path in paths:
             f = vx_open(path)
             for rb in f.to_arrow(columns, expr=vx_filter, batch_size=batch_size):
