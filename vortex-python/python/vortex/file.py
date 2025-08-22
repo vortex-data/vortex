@@ -14,12 +14,10 @@ from ._lib.dtype import DType  # pyright: ignore[reportMissingModuleSource]
 from ._lib.expr import Expr  # pyright: ignore[reportMissingModuleSource]
 from ._lib.iter import ArrayIterator  # pyright: ignore[reportMissingModuleSource]
 from .dataset import VortexDataset
-from .type_aliases import IntoProjection
+from .type_aliases import IntoProjection, RecordBatchReader
 
 if TYPE_CHECKING:
     import polars
-
-    from .type_aliases import RecordBatchReader
 
 
 def open(path: str) -> VortexFile:
