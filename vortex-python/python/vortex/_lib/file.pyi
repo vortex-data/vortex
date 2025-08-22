@@ -5,13 +5,14 @@ from typing import final
 
 import polars as pl
 import pyarrow as pa
+
 from vortex.type_aliases import IntoProjection
 
 from .arrays import Array
+from .dataset import VortexDataset
 from .dtype import DType
 from .expr import Expr
 from .iter import ArrayIterator
-from .dataset import VortexDataset
 
 @final
 class VortexFile:

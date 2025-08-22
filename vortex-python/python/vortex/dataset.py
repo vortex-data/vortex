@@ -5,13 +5,15 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Iterator
-from typing_extensions import override, final
+from typing import final
 
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.dataset
+from typing_extensions import override
 
-from ._lib import dataset as _dataset, file as _file  # pyright: ignore[reportMissingModuleSource]
+from ._lib import dataset as _dataset  # pyright: ignore[reportMissingModuleSource]
+from ._lib import file as _file
 from .arrays import array
 from .arrow.expression import arrow_to_vortex as arrow_to_vortex_expr
 
@@ -70,7 +72,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
         return self._dataset.count_rows(row_filter=vx_filter, split_by=batch_size)
 
     @override
-    def filter(self, expression: pc.Expression) -> "VortexDataset":
+    def filter(self, expression: pc.Expression) -> VortexDataset:
         """Not implemented."""
         raise NotImplementedError("filter")
 

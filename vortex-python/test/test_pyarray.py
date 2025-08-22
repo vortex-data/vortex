@@ -66,7 +66,7 @@ class PCodecArray(vx.PyArray):
         self._data = data
 
     @classmethod
-    def encode(cls, array: pa.Array[pa.Scalar[pa.DataType]], config: ChunkConfig | None = None) -> "PCodecArray":  # pyright: ignore[reportUnknownParameterType]
+    def encode(cls, array: pa.Array[pa.Scalar[pa.DataType]], config: ChunkConfig | None = None) -> PCodecArray:  # pyright: ignore[reportUnknownParameterType]
         assert array.null_count == 0, "Cannot compress arrays with nulls"
 
         config = config or ChunkConfig()  # pyright: ignore[reportUnknownVariableType]
