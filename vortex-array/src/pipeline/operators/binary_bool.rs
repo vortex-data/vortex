@@ -152,11 +152,11 @@ mod tests {
     use super::*;
     use crate::arrays::{ConstantOperator, PrimitiveOperator};
     use crate::compute::Operator as BinaryOperator;
-    use crate::pipeline::N;
     use crate::pipeline::bits::BitView;
     use crate::pipeline::operators::scalar_compare::ScalarCompareOperator;
     use crate::pipeline::query::QueryPlan;
     use crate::pipeline::view::ViewMut;
+    use crate::pipeline::{N, N_BITS};
 
     #[test]
     fn test_binary_bool_and_basic() {
@@ -193,7 +193,7 @@ mod tests {
         let mut pipeline = plan.executable_plan().unwrap();
 
         // Create mask for first 4 elements
-        let mut mask_data = [0usize; N / (usize::BITS as usize)];
+        let mut mask_data = [0usize; N_BITS];
         mask_data[0] = 0b1111; // First 4 bits set
         let mask_view = BitView::new(&mask_data);
 
@@ -254,7 +254,7 @@ mod tests {
         let mut pipeline = plan.executable_plan().unwrap();
 
         // Create mask for first 4 elements
-        let mut mask_data = [0usize; N / (usize::BITS as usize)];
+        let mut mask_data = [0usize; N_BITS];
         mask_data[0] = 0b1111; // First 4 bits set
         let mask_view = BitView::new(&mask_data);
 
@@ -327,7 +327,7 @@ mod tests {
         let mut pipeline = plan.executable_plan().unwrap();
 
         // Create mask for first 4 elements
-        let mut mask_data = [0usize; N / (usize::BITS as usize)];
+        let mut mask_data = [0usize; N_BITS];
         mask_data[0] = 0b1111; // First 4 bits set
         let mask_view = BitView::new(&mask_data);
 

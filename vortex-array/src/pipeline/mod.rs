@@ -31,6 +31,9 @@ pub mod view;
 /// The number of elements in each step of a Vortex evaluation pipeline.
 pub const N: usize = 1024;
 
+// Number of usize words needed to store N bits
+pub const N_BITS: usize = N / size_of::<usize>(); // 64 bits per usize
+
 use std::cell::RefCell;
 use std::rc::Rc;
 

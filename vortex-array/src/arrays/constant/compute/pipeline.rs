@@ -9,10 +9,18 @@ use vortex_dtype::{DType, NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
+use crate::arrays::{ConstantArray, ConstantVTable};
 use crate::pipeline::bits::BitView;
 use crate::pipeline::operators::{BindContext, Operator};
 use crate::pipeline::view::ViewMut;
-use crate::pipeline::{Element, Kernel, KernelContext, VType};
+use crate::pipeline::{Element, Kernel, KernelContext, PipelineVTable, VType};
+
+impl PipelineVTable<ConstantVTable> for ConstantVTable {
+    fn to_operator(array: &ConstantArray) -> VortexResult<Option<Rc<dyn Operator>>> {
+        Ok(ConstantOperator::maybe_new(array.scalar.clone())
+            .map(|c| Rc::new(c) as Rc<dyn Operator>))
+    }
+}
 
 /// Pipeline operator for constant arrays that produces the same scalar value for all elements.
 #[derive(Debug, Hash)]
@@ -22,7 +30,7 @@ pub struct ConstantOperator {
 
 impl ConstantOperator {
     pub fn maybe_new(scalar: Scalar) -> Option<Self> {
-        if scalar.is_null() {
+        if scalar.is_null() || !matches!(scalar.dtype(), DType::Bool(_) | DType::Primitive(..)) {
             None
         } else {
             Some(Self { scalar })
@@ -57,6 +65,7 @@ impl Operator for ConstantOperator {
     }
 
     fn bind(&self, _ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {
+        debug_assert!(matches!(self.vtype(), VType::Bool | VType::Primitive(_)));
         match self.scalar.dtype() {
             DType::Bool(_) => Ok(Box::new(BoolConstantKernel {
                 value: self

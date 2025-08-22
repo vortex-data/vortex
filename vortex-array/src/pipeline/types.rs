@@ -77,3 +77,9 @@ canonical_ptype!(i64);
 canonical_ptype!(f16);
 canonical_ptype!(f32);
 canonical_ptype!(f64);
+
+impl Element for BinaryView {
+    fn vtype() -> VType {
+        VType::Binary
+    }
+}

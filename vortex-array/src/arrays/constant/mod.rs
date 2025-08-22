@@ -45,7 +45,7 @@ impl VTable for ConstantVTable {
     // TODO(ngates): implement a compute kernel for elementwise operations
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
-    type PipelineVTable = NotSupported;
+    type PipelineVTable = Self;
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {

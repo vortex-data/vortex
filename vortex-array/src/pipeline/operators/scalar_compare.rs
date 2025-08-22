@@ -126,10 +126,10 @@ mod tests {
 
     use super::*;
     use crate::arrays::PrimitiveOperator;
-    use crate::pipeline::N;
     use crate::pipeline::bits::BitView;
     use crate::pipeline::query::QueryPlan;
     use crate::pipeline::view::ViewMut;
+    use crate::pipeline::{N, N_BITS};
 
     #[test]
     fn test_scalar_compare_stacked_on_primitive() {
@@ -155,7 +155,7 @@ mod tests {
         let mut pipeline = plan.executable_plan().unwrap();
 
         // Create all-true mask for simplicity
-        let mask_data = [usize::MAX; N / (usize::BITS as usize)];
+        let mask_data = [0usize; N_BITS];
         let mask_view = BitView::new(&mask_data);
 
         // Create output buffer for boolean results
@@ -199,7 +199,7 @@ mod tests {
         let plan = QueryPlan::new(eq_op.as_ref()).unwrap();
         let mut pipeline = plan.executable_plan().unwrap();
 
-        let mask_data = [usize::MAX; N / (usize::BITS as usize)];
+        let mask_data = [0usize; N_BITS];
         let mask_view = BitView::new(&mask_data);
 
         let mut output = BufferMut::<bool>::with_capacity(N);
@@ -242,7 +242,7 @@ mod tests {
         let plan = QueryPlan::new(lt_op.as_ref()).unwrap();
         let mut pipeline = plan.executable_plan().unwrap();
 
-        let mask_data = [usize::MAX; N / (usize::BITS as usize)];
+        let mask_data = [0usize; N_BITS];
         let mask_view = BitView::new(&mask_data);
 
         let mut output = BufferMut::<bool>::with_capacity(N);

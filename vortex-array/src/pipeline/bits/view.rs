@@ -6,8 +6,7 @@ use std::fmt::{Debug, Formatter};
 use bitvec::prelude::*;
 use vortex_error::{VortexError, vortex_err};
 
-use crate::pipeline::N;
-use crate::pipeline::bits::N_BITS;
+use crate::pipeline::{N, N_BITS};
 
 /// A borrowed fixed-size bit vector of length `N` bits, represented as an array of usize words.
 ///

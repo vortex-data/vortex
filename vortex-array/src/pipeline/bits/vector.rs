@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-// SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: Copyright the Vortex contributors
-
 use std::fmt::{Debug, Formatter};
 use std::ops::Not;
 use std::sync::{Arc, LazyLock};
@@ -11,8 +8,8 @@ use std::sync::{Arc, LazyLock};
 use bitvec::array::BitArray;
 use bitvec::order::Lsb0;
 
-use super::{BitView, BitViewMut, N_BITS};
-use crate::pipeline::N;
+use super::{BitView, BitViewMut};
+use crate::pipeline::{N, N_BITS};
 
 static EMPTY: LazyLock<BitVector> = LazyLock::new(|| BitVector {
     bits: Arc::new(BitArray::ZERO),
