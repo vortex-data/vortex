@@ -126,7 +126,7 @@ mod tests {
 
     use super::*;
     use crate::arrays::PrimitiveOperator;
-    use crate::pipeline::SC;
+    use crate::pipeline::N;
     use crate::pipeline::bits::BitView;
     use crate::pipeline::query::QueryPlan;
     use crate::pipeline::view::ViewMut;
@@ -155,12 +155,12 @@ mod tests {
         let mut pipeline = plan.executable_plan().unwrap();
 
         // Create all-true mask for simplicity
-        let mask_data = [usize::MAX; SC / (usize::BITS as usize)];
+        let mask_data = [usize::MAX; N / (usize::BITS as usize)];
         let mask_view = BitView::new(&mask_data);
 
         // Create output buffer for boolean results
-        let mut output = BufferMut::<bool>::with_capacity(SC);
-        unsafe { output.set_len(SC) };
+        let mut output = BufferMut::<bool>::with_capacity(N);
+        unsafe { output.set_len(N) };
         let mut output_view = ViewMut::new(&mut output[..], None);
 
         // Execute the pipeline
@@ -199,11 +199,11 @@ mod tests {
         let plan = QueryPlan::new(eq_op.as_ref()).unwrap();
         let mut pipeline = plan.executable_plan().unwrap();
 
-        let mask_data = [usize::MAX; SC / (usize::BITS as usize)];
+        let mask_data = [usize::MAX; N / (usize::BITS as usize)];
         let mask_view = BitView::new(&mask_data);
 
-        let mut output = BufferMut::<bool>::with_capacity(SC);
-        unsafe { output.set_len(SC) };
+        let mut output = BufferMut::<bool>::with_capacity(N);
+        unsafe { output.set_len(N) };
         let mut output_view = ViewMut::new(&mut output[..], None);
 
         let result = pipeline._step(mask_view, &mut output_view);
@@ -242,11 +242,11 @@ mod tests {
         let plan = QueryPlan::new(lt_op.as_ref()).unwrap();
         let mut pipeline = plan.executable_plan().unwrap();
 
-        let mask_data = [usize::MAX; SC / (usize::BITS as usize)];
+        let mask_data = [usize::MAX; N / (usize::BITS as usize)];
         let mask_view = BitView::new(&mask_data);
 
-        let mut output = BufferMut::<bool>::with_capacity(SC);
-        unsafe { output.set_len(SC) };
+        let mut output = BufferMut::<bool>::with_capacity(N);
+        unsafe { output.set_len(N) };
         let mut output_view = ViewMut::new(&mut output[..], None);
 
         let result = pipeline._step(mask_view, &mut output_view);

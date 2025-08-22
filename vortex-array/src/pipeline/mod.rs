@@ -8,7 +8,7 @@
 //! This module contains experiments into pipelined data processing within Vortex.
 //!
 //! Arrays (and eventually Layouts) will be convertible into a [`Kernel`] that can then be
-//! exported into a [`ViewMut`] one chunk of [`SC`] elements at a time. This allows us to keep
+//! exported into a [`ViewMut`] one chunk of [`N`] elements at a time. This allows us to keep
 //! compute largely within the L1 cache, as well as to write out canonical data into externally
 //! provided buffers.
 //!
@@ -29,7 +29,7 @@ pub mod vec;
 pub mod view;
 
 /// The number of elements in each step of a Vortex evaluation pipeline.
-pub const SC: usize = 1024;
+pub const N: usize = 1024;
 
 use std::cell::RefCell;
 use std::rc::Rc;

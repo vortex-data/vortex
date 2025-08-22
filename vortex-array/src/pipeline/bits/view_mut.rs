@@ -4,14 +4,14 @@
 use bitvec::array::BitArray;
 use bitvec::order::Lsb0;
 
-use crate::pipeline::SC;
+use crate::pipeline::N;
 use crate::pipeline::bits::BitView;
 
 // Number of usize words needed to store SC bits
 #[cfg(target_pointer_width = "32")]
-const USIZE_WORDS: usize = SC / 32; // 32 bits per usize
+const USIZE_WORDS: usize = N / 32; // 32 bits per usize
 #[cfg(target_pointer_width = "64")]
-const USIZE_WORDS: usize = SC / 64; // 64 bits per usize
+const USIZE_WORDS: usize = N / 64; // 64 bits per usize
 
 /// A mutable borrowed fixed-size bit vector of length `N` bits, represented as an array of
 /// usize words.
@@ -42,7 +42,7 @@ impl<'a> BitViewMut<'a> {
 
     /// Mask the values in the mask up to the given length.
     pub fn intersect_prefix(&mut self, mut len: usize) {
-        assert!(len <= SC, "BitViewMut::truncate: length exceeds N");
+        assert!(len <= N, "BitViewMut::truncate: length exceeds N");
 
         let bit_slice = self.bits.as_raw_mut_slice();
 
@@ -132,10 +132,10 @@ mod tests {
         let mut bit_vec = BitVector::full().clone();
 
         let mut view_mut = bit_vec.as_view_mut();
-        assert_eq!(view_mut.true_count(), SC);
+        assert_eq!(view_mut.true_count(), N);
 
-        view_mut.intersect_prefix(SC - 1);
-        assert_eq!(view_mut.true_count(), SC - 1);
+        view_mut.intersect_prefix(N - 1);
+        assert_eq!(view_mut.true_count(), N - 1);
 
         view_mut.intersect_prefix(64);
         assert_eq!(view_mut.true_count(), 64);

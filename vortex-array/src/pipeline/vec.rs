@@ -14,7 +14,7 @@ use std::ops::{Deref, DerefMut};
 
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 
-use crate::pipeline::SC;
+use crate::pipeline::N;
 use crate::pipeline::bits::BitVector;
 use crate::pipeline::types::{Element, VType};
 use crate::pipeline::view::{View, ViewMut};
@@ -58,10 +58,10 @@ impl Vector {
 
     pub fn new_with_vtype(vtype: VType) -> Self {
         let mut elements = ByteBufferMut::with_capacity_aligned(
-            vtype.byte_width() * SC,
+            vtype.byte_width() * N,
             Alignment::new(vtype.byte_width()),
         );
-        unsafe { elements.set_len(vtype.byte_width() * SC) };
+        unsafe { elements.set_len(vtype.byte_width() * N) };
 
         Self {
             vtype,
@@ -82,13 +82,13 @@ impl Vector {
     }
 
     pub fn set_len(&mut self, len: usize) {
-        assert!(len <= SC, "Length cannot exceed the capacity of the vector");
+        assert!(len <= N, "Length cannot exceed the capacity of the vector");
         self.len = len;
     }
 
-    pub fn as_mut_array<T: Element>(&mut self) -> &mut [T; SC] {
+    pub fn as_mut_array<T: Element>(&mut self) -> &mut [T; N] {
         assert_eq!(self.vtype, T::vtype());
-        unsafe { &mut *(self.elements.as_mut_ptr().cast::<T>().cast::<[T; SC]>()) }
+        unsafe { &mut *(self.elements.as_mut_ptr().cast::<T>().cast::<[T; N]>()) }
     }
 
     pub fn as_view_mut(&mut self) -> ViewMut<'_> {

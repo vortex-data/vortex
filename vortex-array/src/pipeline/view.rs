@@ -6,7 +6,7 @@ use std::fmt::Display;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 
-use crate::pipeline::SC;
+use crate::pipeline::N;
 use crate::pipeline::bits::{BitView, BitViewMut};
 use crate::pipeline::types::{Element, VType};
 
@@ -138,7 +138,7 @@ pub struct ViewMut<'a> {
 
 impl<'a> ViewMut<'a> {
     pub fn new<E: Element>(elements: &'a mut [E], validity: Option<BitViewMut<'a>>) -> Self {
-        assert_eq!(elements.len(), SC);
+        assert_eq!(elements.len(), N);
         Self {
             vtype: E::vtype(),
             elements: elements.as_mut_ptr().cast(),
@@ -165,7 +165,7 @@ impl<'a> ViewMut<'a> {
     #[inline(always)]
     pub fn as_slice<E: Element>(&self) -> &'a [E] {
         debug_assert_eq!(self.vtype, E::vtype(), "Invalid type for canonical view");
-        unsafe { std::slice::from_raw_parts(self.elements.cast::<E>(), SC) }
+        unsafe { std::slice::from_raw_parts(self.elements.cast::<E>(), N) }
     }
 
     /// Returns a mutable slice of the elements in the vector, allowing for modification.
@@ -173,7 +173,7 @@ impl<'a> ViewMut<'a> {
     #[inline(always)]
     pub fn as_slice_mut<E: Element>(&mut self) -> &'a mut [E] {
         debug_assert_eq!(self.vtype, E::vtype(), "Invalid type for canonical view");
-        unsafe { std::slice::from_raw_parts_mut(self.elements.cast::<E>(), SC) }
+        unsafe { std::slice::from_raw_parts_mut(self.elements.cast::<E>(), N) }
     }
 
     /// Access the validity mask of the vector.
@@ -207,10 +207,10 @@ impl<'a> ViewMut<'a> {
             0 => {
                 // If the mask has no true bits, we set the length to 0.
             }
-            SC => {
+            N => {
                 // If the mask has N true bits, we copy all elements.
             }
-            n if n > 3 * SC / 4 => {
+            n if n > 3 * N / 4 => {
                 // High density: use iter_zeros to compact by removing gaps
                 let slice = self.as_slice_mut::<E>();
                 let mut write_idx = 0;
@@ -237,7 +237,7 @@ impl<'a> ViewMut<'a> {
                     std::ptr::copy(
                         slice.as_ptr().add(read_idx),
                         slice.as_mut_ptr().add(write_idx),
-                        SC - read_idx,
+                        N - read_idx,
                     );
                 }
             }

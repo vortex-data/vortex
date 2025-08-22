@@ -12,13 +12,13 @@ use bitvec::array::BitArray;
 use bitvec::order::Lsb0;
 
 use super::{BitView, BitViewMut};
-use crate::pipeline::SC;
+use crate::pipeline::N;
 
 // Number of usize words needed to store SC bits
 #[cfg(target_pointer_width = "32")]
-const USIZE_WORDS: usize = SC / 32; // 32 bits per usize
+const N_BITS: usize = N / 32; // 32 bits per usize
 #[cfg(target_pointer_width = "64")]
-const USIZE_WORDS: usize = SC / 64; // 64 bits per usize
+const N_BITS: usize = N / 64; // 64 bits per usize
 
 static EMPTY: LazyLock<BitVector> = LazyLock::new(|| BitVector {
     bits: Arc::new(BitArray::ZERO),
@@ -27,7 +27,7 @@ static EMPTY: LazyLock<BitVector> = LazyLock::new(|| BitVector {
 
 static FULL: LazyLock<BitVector> = LazyLock::new(|| BitVector {
     bits: Arc::new(BitArray::ZERO.not()),
-    true_count: SC,
+    true_count: N,
 });
 
 /// An owned fixed-size bit vector of length `N` bits, represented as an array of usize words.
@@ -38,7 +38,7 @@ static FULL: LazyLock<BitVector> = LazyLock::new(|| BitVector {
 /// Owned bit vector for storing boolean selection masks.
 #[derive(Clone)]
 pub struct BitVector {
-    pub(super) bits: Arc<BitArray<[usize; USIZE_WORDS], Lsb0>>,
+    pub(super) bits: Arc<BitArray<[usize; N_BITS], Lsb0>>,
     pub(super) true_count: usize,
 }
 
@@ -70,9 +70,9 @@ impl BitVector {
     }
 
     pub fn true_until(n: usize) -> Self {
-        assert!(n <= SC, "Cannot create a BitVector with more than N bits");
+        assert!(n <= N, "Cannot create a BitVector with more than N bits");
 
-        let mut bits = Arc::new(BitArray::<[usize; USIZE_WORDS], Lsb0>::ZERO);
+        let mut bits = Arc::new(BitArray::<[usize; N_BITS], Lsb0>::ZERO);
         let bits_mut = Arc::make_mut(&mut bits);
 
         let mut word = 0;
@@ -98,16 +98,16 @@ impl BitVector {
         self.true_count
     }
 
-    pub fn as_raw(&self) -> &[usize; USIZE_WORDS] {
+    pub fn as_raw(&self) -> &[usize; N_BITS] {
         // It's actually remarkably hard to get a reference to the underlying array!
         let raw = self.bits.as_raw_slice();
-        unsafe { &*(raw.as_ptr() as *const [usize; USIZE_WORDS]) }
+        unsafe { &*(raw.as_ptr() as *const [usize; N_BITS]) }
     }
 
-    pub fn as_raw_mut(&mut self) -> &mut [usize; USIZE_WORDS] {
+    pub fn as_raw_mut(&mut self) -> &mut [usize; N_BITS] {
         // SAFETY: We assume that the bits are mutable and that the view is valid.
         let raw = Arc::make_mut(&mut self.bits).as_raw_mut_slice();
-        unsafe { &mut *(raw.as_mut_ptr() as *mut [usize; USIZE_WORDS]) }
+        unsafe { &mut *(raw.as_mut_ptr() as *mut [usize; N_BITS]) }
     }
 
     pub fn fill_from<I>(&mut self, iter: I)
@@ -134,7 +134,7 @@ impl BitVector {
 impl From<BitView<'_>> for BitVector {
     fn from(value: BitView<'_>) -> Self {
         let true_count = value.true_count();
-        let bits = Arc::new(BitArray::<[usize; USIZE_WORDS], Lsb0>::from(
+        let bits = Arc::new(BitArray::<[usize; N_BITS], Lsb0>::from(
             *value.as_raw(),
         ));
         BitVector { bits, true_count }
@@ -200,7 +200,7 @@ mod tests {
     #[test]
     fn test_from_bitview() {
         // Create a BitView from raw data
-        let mut raw = [0usize; SC / 64];
+        let mut raw = [0usize; N / 64];
         raw[0] = 0b11111111;
         raw[1] = 0b11110000;
 
@@ -247,7 +247,7 @@ mod tests {
     #[test]
     fn test_boundary_conditions() {
         // Test various boundary values
-        let boundaries = [1, 31, 32, 33, 63, 64, 65, 127, 128, 129, SC - 1, SC];
+        let boundaries = [1, 31, 32, 33, 63, 64, 65, 127, 128, 129, N - 1, N];
 
         for &n in &boundaries {
             let vec = BitVector::true_until(n);

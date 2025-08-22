@@ -152,7 +152,7 @@ mod tests {
     use super::*;
     use crate::arrays::{ConstantOperator, PrimitiveOperator};
     use crate::compute::Operator as BinaryOperator;
-    use crate::pipeline::SC;
+    use crate::pipeline::N;
     use crate::pipeline::bits::BitView;
     use crate::pipeline::operators::scalar_compare::ScalarCompareOperator;
     use crate::pipeline::query::QueryPlan;
@@ -193,13 +193,13 @@ mod tests {
         let mut pipeline = plan.executable_plan().unwrap();
 
         // Create mask for first 4 elements
-        let mut mask_data = [0usize; SC / (usize::BITS as usize)];
+        let mut mask_data = [0usize; N / (usize::BITS as usize)];
         mask_data[0] = 0b1111; // First 4 bits set
         let mask_view = BitView::new(&mask_data);
 
         // Create output buffer for results
-        let mut output = BufferMut::<bool>::with_capacity(SC);
-        unsafe { output.set_len(SC) };
+        let mut output = BufferMut::<bool>::with_capacity(N);
+        unsafe { output.set_len(N) };
         let mut output_view = ViewMut::new(&mut output[..], None);
 
         // Execute the pipeline
@@ -254,13 +254,13 @@ mod tests {
         let mut pipeline = plan.executable_plan().unwrap();
 
         // Create mask for first 4 elements
-        let mut mask_data = [0usize; SC / (usize::BITS as usize)];
+        let mut mask_data = [0usize; N / (usize::BITS as usize)];
         mask_data[0] = 0b1111; // First 4 bits set
         let mask_view = BitView::new(&mask_data);
 
         // Create output buffer for results
-        let mut output = BufferMut::<bool>::with_capacity(SC);
-        unsafe { output.set_len(SC) };
+        let mut output = BufferMut::<bool>::with_capacity(N);
+        unsafe { output.set_len(N) };
         let mut output_view = ViewMut::new(&mut output[..], None);
 
         // Execute the pipeline
@@ -327,13 +327,13 @@ mod tests {
         let mut pipeline = plan.executable_plan().unwrap();
 
         // Create mask for first 4 elements
-        let mut mask_data = [0usize; SC / (usize::BITS as usize)];
+        let mut mask_data = [0usize; N / (usize::BITS as usize)];
         mask_data[0] = 0b1111; // First 4 bits set
         let mask_view = BitView::new(&mask_data);
 
         // Create output buffer
-        let mut output = BufferMut::<bool>::with_capacity(SC);
-        unsafe { output.set_len(SC) };
+        let mut output = BufferMut::<bool>::with_capacity(N);
+        unsafe { output.set_len(N) };
         let mut output_view = ViewMut::new(&mut output[..], None);
 
         // Execute the pipeline

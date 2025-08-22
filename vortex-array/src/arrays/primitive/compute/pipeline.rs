@@ -12,7 +12,7 @@ use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::pipeline::bits::BitView;
 use crate::pipeline::operators::{BindContext, Operator};
 use crate::pipeline::view::ViewMut;
-use crate::pipeline::{Element, Kernel, KernelContext, PipelineVTable, SC, VType};
+use crate::pipeline::{Element, Kernel, KernelContext, PipelineVTable, N, VType};
 use crate::vtable::ValidityHelper;
 
 impl PipelineVTable<PrimitiveVTable> for PrimitiveVTable {
@@ -78,7 +78,7 @@ pub struct PrimitiveKernel<T: NativePType> {
 
 impl<T: Element + NativePType> Kernel for PrimitiveKernel<T> {
     fn seek(&mut self, chunk_idx: usize) -> VortexResult<()> {
-        self.offset = chunk_idx * SC;
+        self.offset = chunk_idx * N;
         Ok(())
     }
 
@@ -88,9 +88,9 @@ impl<T: Element + NativePType> Kernel for PrimitiveKernel<T> {
 
         let out_slice = out.as_slice_mut::<T>();
 
-        if remaining > SC {
-            out_slice.copy_from_slice(&buffer[self.offset..][..SC]);
-            self.offset += SC;
+        if remaining > N {
+            out_slice.copy_from_slice(&buffer[self.offset..][..N]);
+            self.offset += N;
         } else {
             out_slice[..remaining].copy_from_slice(&buffer[self.offset..]);
             self.offset += remaining;

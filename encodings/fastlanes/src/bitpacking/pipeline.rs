@@ -9,7 +9,7 @@ use fastlanes::{BitPacking, FastLanes};
 use vortex_array::pipeline::bits::BitView;
 use vortex_array::pipeline::operators::{BindContext, Operator};
 use vortex_array::pipeline::view::ViewMut;
-use vortex_array::pipeline::{Element, Kernel, KernelContext, PipelineVTable, SC, VType};
+use vortex_array::pipeline::{Element, Kernel, KernelContext, PipelineVTable, N, VType};
 use vortex_buffer::Buffer;
 use vortex_dtype::{PhysicalPType, match_each_integer_ptype};
 use vortex_error::VortexResult;
@@ -89,7 +89,7 @@ where
     <T as PhysicalPType>::Physical: Element,
 {
     fn seek(&mut self, chunk_idx: usize) -> VortexResult<()> {
-        let fls_chunk_idx = chunk_idx * (SC / 1024);
+        let fls_chunk_idx = chunk_idx * (N / 1024);
         self.packed_offset = fls_chunk_idx * self.packed_stride;
         Ok(())
     }
@@ -107,7 +107,7 @@ where
         let packed = &self.buffer.as_slice()[self.packed_offset..];
 
         // We compute the number of FastLanes vectors that we have remaining.
-        let nvecs = (SC / 1024).min(packed.len() / self.packed_stride);
+        let nvecs = (N / 1024).min(packed.len() / self.packed_stride);
 
         // We short-circuit full unpacking logic if the mask is sufficiently sparse.
         if selected.true_count() > 8 {
