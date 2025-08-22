@@ -341,6 +341,7 @@ size_t vx_array_len(const vx_array *array);
  * Get the [`crate::vx_dtype`] of the array.
  *
  * The returned pointer is valid as long as the array is valid.
+ * Do NOT free the returned dtype pointer - it shares the lifetime of the array.
  */
 const vx_dtype *vx_array_dtype(const vx_array *array);
 
@@ -510,12 +511,17 @@ uint8_t vx_dtype_decimal_precision(const vx_dtype *dtype);
 int8_t vx_dtype_decimal_scale(const vx_dtype *dtype);
 
 /**
- * Return a borrowed reference to the [`vx_struct_fields`] of a struct data type.
+ * Return an owned reference to the [`vx_struct_fields`] of a struct data type.
+ *
+ * The caller is responsible for freeing the returned pointer with [`vx_struct_fields_free`].
  */
 const vx_struct_fields *vx_dtype_struct_dtype(const vx_dtype *dtype);
 
 /**
- * Return a borrowed reference to the `element` typee of a list data type.
+ * Return the `element` type of a list data type.
+ *
+ * The returned pointer is valid as long as the list dtype is valid.
+ * Do NOT free the returned dtype pointer - it shares the lifetime of the list dtype.
  */
 const vx_dtype *vx_dtype_list_element(const vx_dtype *dtype);
 
@@ -535,7 +541,10 @@ void vx_dtype_time_zone(const DType *dtype, void *dst, int *len);
 void vx_error_free(vx_error *ptr);
 
 /**
- * Returns a borrowed reference to the error message from the given Vortex error.
+ * Returns the error message from the given Vortex error.
+ *
+ * The returned pointer is valid as long as the error is valid.
+ * Do NOT free the returned string pointer - it shares the lifetime of the error.
  */
 const vx_string *vx_error_get_message(const vx_error *error);
 
@@ -564,7 +573,10 @@ void vx_file_write_array(const char *path, const vx_array *array, vx_error **err
 uint64_t vx_file_row_count(const vx_file *file);
 
 /**
- * Return a borrowed reference to the DType of the file.
+ * Return the DType of the file.
+ *
+ * The returned pointer is valid as long as the file is valid.
+ * Do NOT free the returned dtype pointer - it shares the lifetime of the file.
  */
 const vx_dtype *vx_file_dtype(const vx_file *file);
 
@@ -673,8 +685,9 @@ void vx_struct_fields_free(const vx_struct_fields *ptr);
 uint64_t vx_struct_fields_nfields(const vx_struct_fields *dtype);
 
 /**
- * Return a borrowed reference to the name of the field at the given index.
+ * Return an owned reference to the name of the field at the given index.
  *
+ * The caller is responsible for freeing the returned pointer with [`vx_string_free`].
  * Returns null if the index is out of bounds.
  */
 const vx_string *vx_struct_fields_field_name(const vx_struct_fields *dtype, size_t idx);
