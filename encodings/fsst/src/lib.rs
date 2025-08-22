@@ -15,6 +15,7 @@ mod array;
 mod canonical;
 mod compress;
 mod compute;
+pub mod fsst_view;
 mod ops;
 mod serde;
 #[cfg(test)]

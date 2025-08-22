@@ -31,8 +31,8 @@ mod serde;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(C, align(8))]
 pub struct Inlined {
-    size: u32,
-    data: [u8; BinaryView::MAX_INLINED_SIZE],
+    pub size: u32,
+    pub data: [u8; BinaryView::MAX_INLINED_SIZE],
 }
 
 impl Inlined {
@@ -54,10 +54,10 @@ impl Inlined {
 #[derive(Clone, Copy, Debug)]
 #[repr(C, align(8))]
 pub struct Ref {
-    size: u32,
-    prefix: [u8; 4],
-    buffer_index: u32,
-    offset: u32,
+    pub size: u32,
+    pub prefix: [u8; 4],
+    pub buffer_index: u32,
+    pub offset: u32,
 }
 
 impl Ref {
@@ -96,13 +96,13 @@ impl Ref {
 pub union BinaryView {
     // Numeric representation. This is logically `u128`, but we split it into the high and low
     // bits to preserve the alignment.
-    le_bytes: [u8; 16],
+    pub le_bytes: [u8; 16],
 
     // Inlined representation: strings <= 12 bytes
-    inlined: Inlined,
+    pub inlined: Inlined,
 
     // Reference type: strings > 12 bytes.
-    _ref: Ref,
+    pub _ref: Ref,
 }
 
 assert_eq_size!(BinaryView, [u8; 16]);
