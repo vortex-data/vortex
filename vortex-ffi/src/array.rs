@@ -826,47 +826,42 @@ mod tests {
         }
     }
 
-    #[cfg(test)]
-    mod error_stress_tests {
-        use super::*;
+    #[test]
+    fn test_concurrent_error_handling() {
+        // Test error handling under concurrent access
+        use std::thread;
 
-        #[test]
-        fn test_concurrent_error_handling() {
-            // Test error handling under concurrent access
-            use std::thread;
+        let primitive = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
+        let ffi_array = vx_array::new(primitive.into_array());
 
-            let primitive = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-            let ffi_array = vx_array::new(primitive.into_array());
+        // Create multiple threads that access the same array and trigger errors
+        let handles: Vec<_> = (0..4)
+            .map(|_| {
+                let array_ptr = ffi_array as usize; // Convert to raw address for sharing
+                thread::spawn(move || {
+                    unsafe {
+                        let array = array_ptr as *const vx_array;
+                        let mut error = ptr::null_mut();
 
-            // Create multiple threads that access the same array and trigger errors
-            let handles: Vec<_> = (0..4)
-                .map(|_| {
-                    let array_ptr = ffi_array as usize; // Convert to raw address for sharing
-                    thread::spawn(move || {
-                        unsafe {
-                            let array = array_ptr as *const vx_array;
-                            let mut error = ptr::null_mut();
+                        // Try to access out-of-bounds - each thread should handle its own errors
+                        let _is_null = vx_array_is_null(array, 999, &raw mut error);
 
-                            // Try to access out-of-bounds - each thread should handle its own errors
-                            let _is_null = vx_array_is_null(array, 999, &raw mut error);
-
-                            if !error.is_null() {
-                                use crate::error::vx_error_free;
-                                vx_error_free(error);
-                            }
+                        if !error.is_null() {
+                            use crate::error::vx_error_free;
+                            vx_error_free(error);
                         }
-                    })
+                    }
                 })
-                .collect();
+            })
+            .collect();
 
-            // Wait for all threads
-            for handle in handles {
-                handle.join().unwrap();
-            }
+        // Wait for all threads
+        for handle in handles {
+            handle.join().unwrap();
+        }
 
-            unsafe {
-                vx_array_free(ffi_array);
-            }
+        unsafe {
+            vx_array_free(ffi_array);
         }
     }
 }
