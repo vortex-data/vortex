@@ -7,54 +7,39 @@
 #include "vortex/expr.hpp"
 
 namespace vortex {
-
-template <typename ExprType>
-ScanBuilder &ScanBuilder::WithFilter(ExprType &&expr) & {
-    if constexpr (std::is_rvalue_reference_v<ExprType &&>) {
-        impl_->with_filter(std::forward<ExprType>(expr).IntoImpl());
-    } else {
-        impl_->with_filter_ref(std::forward<ExprType>(expr).Impl());
-    }
+ScanBuilder &ScanBuilder::WithFilter(expr::Expr &&expr) & {
+    impl_->with_filter(std::move(expr).IntoImpl());
     return *this;
 }
-template ScanBuilder &ScanBuilder::WithFilter(expr::Expr &&expr) &;
-template ScanBuilder &ScanBuilder::WithFilter(const expr::Expr &expr) &;
-
-template <typename ExprType>
-ScanBuilder &&ScanBuilder::WithFilter(ExprType &&expr) && {
-    if constexpr (std::is_rvalue_reference_v<ExprType &&>) {
-        impl_->with_filter(std::forward<ExprType>(expr).IntoImpl());
-    } else {
-        impl_->with_filter_ref(std::forward<ExprType>(expr).Impl());
-    }
-    return std::move(*this);
-}
-template ScanBuilder &&ScanBuilder::WithFilter(expr::Expr &&expr) &&;
-template ScanBuilder &&ScanBuilder::WithFilter(const expr::Expr &expr) &&;
-
-template <typename ExprType>
-ScanBuilder &ScanBuilder::WithProjection(ExprType &&expr) & {
-    if constexpr (std::is_rvalue_reference_v<ExprType &&>) {
-        impl_->with_projection(std::forward<ExprType>(expr).IntoImpl());
-    } else {
-        impl_->with_projection_ref(std::forward<ExprType>(expr).Impl());
-    }
+ScanBuilder &ScanBuilder::WithFilter(const expr::Expr &expr) & {
+    impl_->with_filter_ref(expr.Impl());
     return *this;
 }
-template ScanBuilder &ScanBuilder::WithProjection(expr::Expr &&expr) &;
-template ScanBuilder &ScanBuilder::WithProjection(const expr::Expr &expr) &;
-
-template <typename ExprType>
-ScanBuilder &&ScanBuilder::WithProjection(ExprType &&expr) && {
-    if constexpr (std::is_rvalue_reference_v<ExprType &&>) {
-        impl_->with_projection(std::forward<ExprType>(expr).IntoImpl());
-    } else {
-        impl_->with_projection_ref(std::forward<ExprType>(expr).Impl());
-    }
+ScanBuilder &&ScanBuilder::WithFilter(expr::Expr &&expr) && {
+    impl_->with_filter(std::move(expr).IntoImpl());
     return std::move(*this);
 }
-template ScanBuilder &&ScanBuilder::WithProjection(expr::Expr &&expr) &&;
-template ScanBuilder &&ScanBuilder::WithProjection(const expr::Expr &expr) &&;
+ScanBuilder &&ScanBuilder::WithFilter(const expr::Expr &expr) && {
+    impl_->with_filter_ref(expr.Impl());
+    return std::move(*this);
+}
+
+ScanBuilder &ScanBuilder::WithProjection(expr::Expr &&expr) & {
+    impl_->with_projection(std::move(expr).IntoImpl());
+    return *this;
+}
+ScanBuilder &ScanBuilder::WithProjection(const expr::Expr &expr) & {
+    impl_->with_projection_ref(expr.Impl());
+    return *this;
+}
+ScanBuilder &&ScanBuilder::WithProjection(expr::Expr &&expr) && {
+    impl_->with_projection(std::move(expr).IntoImpl());
+    return std::move(*this);
+}
+ScanBuilder &&ScanBuilder::WithProjection(const expr::Expr &expr) && {
+    impl_->with_projection_ref(expr.Impl());
+    return std::move(*this);
+}
 
 ScanBuilder &ScanBuilder::WithRowRange(uint64_t row_range_start, uint64_t row_range_end) & {
     impl_->with_row_range(row_range_start, row_range_end);
