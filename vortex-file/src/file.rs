@@ -14,7 +14,6 @@ use vortex_dtype::{DType, Field, FieldPath, FieldPathSet};
 use vortex_error::VortexResult;
 use vortex_expr::pruning::checked_pruning_expr;
 use vortex_expr::{ExprRef, Scope};
-use vortex_io::runtime::Handle;
 use vortex_io::source::IoSource;
 use vortex_layout::segments::SegmentSource;
 use vortex_layout::LayoutReader;
@@ -70,25 +69,24 @@ impl VortexFile {
     }
 
     /// Create a new segment source for reading from the file.
-    pub fn segment_source(&self, handle: &Handle) -> Arc<dyn SegmentSource> {
+    pub fn segment_source(&self) -> Arc<dyn SegmentSource> {
         Arc::new(FileSegmentSource::new(
             self.footer.segment_map().clone(),
-            self.io_source.open(handle),
+            self.io_source.clone(),
         ))
     }
 
     /// Create a new layout reader for the file.
-    pub fn layout_reader(&self, handle: &Handle) -> VortexResult<Arc<dyn LayoutReader>> {
+    pub fn layout_reader(&self) -> VortexResult<Arc<dyn LayoutReader>> {
         self.footer
             .layout()
             // TODO(ngates): we may want to allow the user pass in a name here?
-            .new_reader("".into(), self.segment_source(handle))
+            .new_reader("".into(), self.segment_source())
     }
 
     /// Initiate a scan of the file, returning a builder for configuring the scan.
-    // TODO(ngates): can we defer passing the handle until Scan::build?
-    pub fn scan(&self, handle: &Handle) -> VortexResult<ScanBuilder<ArrayRef>> {
-        Ok(ScanBuilder::new(self.layout_reader(handle)?).with_metrics(self.metrics.clone()))
+    pub fn scan(&self) -> VortexResult<ScanBuilder<ArrayRef>> {
+        Ok(ScanBuilder::new(self.layout_reader()?).with_metrics(self.metrics.clone()))
     }
 
     /// Returns true if the expression will never match any rows in the file.

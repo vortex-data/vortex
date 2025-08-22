@@ -4,8 +4,8 @@
 use arrow_array::cast::AsArray;
 use arrow_array::{RecordBatch, RecordBatchReader};
 use arrow_schema::{ArrowError, DataType, SchemaRef};
-use vortex_array::ArrayRef;
 use vortex_array::arrow::IntoArrowArray;
+use vortex_array::ArrayRef;
 use vortex_error::{VortexError, VortexResult};
 
 use crate::ScanBuilder;
@@ -21,7 +21,7 @@ impl ScanBuilder<ArrayRef> {
     pub fn into_record_batch_reader(
         self,
         schema: SchemaRef,
-    ) -> VortexResult<impl RecordBatchReader + Send + Clone + 'static> {
+    ) -> VortexResult<impl RecordBatchReader + Send + 'static> {
         let data_type = DataType::Struct(schema.fields().clone());
 
         let iter = self
@@ -97,9 +97,9 @@ mod tests {
         Array, ArrayRef as ArrowArrayRef, Int32Array, RecordBatch, StringArray, StructArray,
     };
     use arrow_schema::{ArrowError, DataType, Field, Schema};
-    use vortex_array::ArrayRef;
     use vortex_array::arrow::FromArrowArray;
-    use vortex_error::{VortexResult, vortex_err};
+    use vortex_array::ArrayRef;
+    use vortex_error::{vortex_err, VortexResult};
 
     use super::*;
 

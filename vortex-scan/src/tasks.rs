@@ -87,14 +87,14 @@ pub(super) fn split_exec<A: 'static + Send>(
             let pruning_conjuncts: Vec<_> = filter
                 .conjuncts()
                 .iter()
-                .map(|expr| ctx.reader.pruning_evaluation(&row_range, expr))
+                .map(|expr| ctx.reader.pruning_evaluation(&row_range, expr, &ctx.handle))
                 .try_collect()?;
 
             // And one projection task per conjunct.
             let conjuncts: Vec<_> = filter
                 .conjuncts()
                 .iter()
-                .map(|expr| ctx.reader.filter_evaluation(&row_range, expr))
+                .map(|expr| ctx.reader.filter_evaluation(&row_range, expr, &ctx.handle))
                 .try_collect()?;
 
             let filter = filter.clone();
@@ -179,7 +179,7 @@ pub(super) fn split_exec<A: 'static + Send>(
     // Step 4: execute the projection, only at the mask for rows which match the filter
     let exec = ctx
         .reader
-        .projection_evaluation(&row_range, &ctx.projection)?;
+        .projection_evaluation(&row_range, &ctx.projection, &ctx.handle)?;
     let mapper = ctx.mapper.clone();
     let array_fut = async move {
         let filtered_mask = filter.await?;

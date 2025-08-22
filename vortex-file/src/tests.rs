@@ -61,9 +61,9 @@ fn test_read_simple() {
         let tasks = VortexOpenOptions::in_memory()
             .open(buf)
             .unwrap()
-            .scan(handle)
+            .scan()
             .unwrap()
-            .build()
+            .build(&handle)
             .unwrap();
         FuturesOrdered::from_iter(tasks)
             .filter_map(|result| async move { result.transpose() })

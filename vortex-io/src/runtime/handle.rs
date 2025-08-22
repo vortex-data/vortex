@@ -27,7 +27,7 @@ impl Handle {
     /// Spawn a new future onto the runtime.
     ///
     /// If the returned future is dropped, the work is cancelled.
-    fn spawn<F, R>(&self, f: F) -> impl Future<Output = R>
+    pub fn spawn<F, R>(&self, f: F) -> impl Future<Output = R>
     where
         F: Future<Output = R> + Send + 'static,
         R: Send + 'static,
@@ -36,7 +36,7 @@ impl Handle {
     }
 
     /// Spawn a CPU-bound task for execution on the runtime.
-    fn spawn_cpu<F, R>(&self, _f: F) -> TaskHandle<R>
+    pub fn spawn_cpu<F, R>(&self, _f: F) -> TaskHandle<R>
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
@@ -56,7 +56,7 @@ impl Handle {
     }
 
     #[cfg(feature = "object_store")]
-    fn open_object_store(
+    pub(crate) fn open_object_store(
         &self,
         object_store: Arc<dyn object_store::ObjectStore>,
         path: &object_store::path::Path,

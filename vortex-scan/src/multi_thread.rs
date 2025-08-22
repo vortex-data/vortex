@@ -4,20 +4,20 @@
 use std::iter;
 use std::sync::{Arc, LazyLock};
 
-use futures::{StreamExt, stream};
-use tokio::runtime::{Builder, Runtime};
-use vortex_array::ArrayRef;
-use vortex_array::iter::{ArrayIterator, ArrayIteratorAdapter};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
-
 use crate::ScanBuilder;
+use futures::{stream, StreamExt};
+use tokio::runtime::Builder;
+use vortex_array::iter::{ArrayIterator, ArrayIteratorAdapter};
+use vortex_array::ArrayRef;
+use vortex_error::{VortexExpect, VortexResult};
+use vortex_io::runtime::Runtime;
 
 /// We create an internal Tokio runtime used exclusively for orchestrating work-stealing
 /// of CPU-bound work for multithreaded scans.
 ///
 /// It is intentionally not exposed to the user, not configurable, and does not enable I/O or
 /// timers.
-static CPU_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
+static CPU_RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
     Builder::new_multi_thread()
         .thread_name("vortex-multithread-scan")
         .build()
@@ -49,19 +49,18 @@ impl ScanBuilder<ArrayRef> {
         let concurrency = self.concurrency;
         let num_workers = CPU_RUNTIME.metrics().num_workers();
 
-        let tasks = self.build()?;
+        let runtime = Runtime::default();
+        let handle = runtime.new_handle();
+        runtime.drive_on_tokio(CPU_RUNTIME.handle());
+
+        let tasks = self.build(&handle)?;
         // We need to clone and send the map_fn into each task.
         let map_fn = Arc::new(map_fn);
-        let handle = CPU_RUNTIME.handle().clone();
 
         let mut stream = stream::iter(tasks)
             .map(move |task| {
                 let map_fn = map_fn.clone();
-                // We don't _need_ to spawn the work here. But it allows Tokio to make progress on
-                // the tasks in the background, even if the consumer thread is not calling
-                // poll_next.
-
-                handle.spawn(async move { task.await.transpose().map(|t| map_fn(t)) })
+                async move { task.await.transpose().map(|t| map_fn(t)) }
             })
             // TODO(ngates): this is very crude indeed. This buffered call essentially controls how
             //  many splits we have in-flight at any given time. We multiple workers by concurrency
@@ -76,11 +75,7 @@ impl ScanBuilder<ArrayRef> {
         Ok(iter::from_fn(move || {
             tokio::task::block_in_place(|| CPU_RUNTIME.handle().block_on(stream.next()))
         })
-        .filter_map(|result| {
-            result
-                .map_err(|e| vortex_err!("Failed to join on a spawned scan task {e}"))
-                .vortex_expect("Failed to join on a spawned scan task")
-        }))
+        .filter_map(|result| result))
     }
 }
 

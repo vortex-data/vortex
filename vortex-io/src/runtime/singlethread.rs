@@ -10,6 +10,15 @@ use std::os::unix::fs::FileExt;
 use std::sync::Arc;
 
 impl Runtime {
+    pub fn drive_stream_on_current_thread<T>(
+        self,
+        stream: impl Stream<Item = T> + Unpin,
+    ) -> impl Iterator<Item = T> {
+        // Create the executor that performs all I/O and CPU work on the current thread.
+        let executor = self.into_executor();
+        BlockingStream { stream, executor }
+    }
+
     /// Executes a future to completion on a new temporary runtime with all work performed on the
     /// current thread.
     pub fn oneshot<F, Fut, R>(f: F) -> R
@@ -26,11 +35,11 @@ impl Runtime {
     /// performed on the thread calling [`Iterator::next`].
     pub fn oneshot_iter<F, S, R>(f: F) -> impl Iterator<Item = R>
     where
-        F: FnOnce(&Handle) -> S,
+        F: FnOnce(Handle) -> S,
         S: Stream<Item = R> + Unpin,
     {
         let runtime = Self::default();
-        let stream = f(&runtime.new_handle());
+        let stream = f(runtime.new_handle());
         let executor = runtime.into_executor();
         BlockingStream { stream, executor }
     }

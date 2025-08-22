@@ -11,6 +11,7 @@ use moka::policy::EvictionPolicy;
 use rustc_hash::FxBuildHasher;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexExpect, VortexResult};
+use vortex_io::runtime::Handle;
 use vortex_layout::segments::{SegmentFuture, SegmentId, SegmentSource};
 use vortex_metrics::{Counter, VortexMetrics};
 
@@ -137,9 +138,9 @@ impl SegmentCacheSourceAdapter {
 }
 
 impl SegmentSource for SegmentCacheSourceAdapter {
-    fn request(&self, id: SegmentId) -> SegmentFuture {
+    fn request(&self, id: SegmentId, handle: &Handle) -> SegmentFuture {
         let cache = self.cache.clone();
-        let delegate = self.source.request(id);
+        let delegate = self.source.request(id, handle);
 
         async move {
             if let Ok(Some(segment)) = cache.get(id).await {
