@@ -9,7 +9,7 @@ use bench_vortex::display::DisplayFormat;
 use bench_vortex::statpopgen::StatPopGenBenchmark;
 use bench_vortex::tpcds::TpcDsBenchmark;
 use bench_vortex::tpch::tpch_benchmark::TpcHBenchmark;
-use bench_vortex::{Target, setup_logging_and_tracing};
+use bench_vortex::{IdempotentPath as _, Target, setup_logging_and_tracing};
 use clap::{Parser, Subcommand, value_parser};
 use url::Url;
 
@@ -320,6 +320,8 @@ fn run_tpcds(args: TpcDSArgs) -> anyhow::Result<()> {
 }
 
 fn run_statpopgen(args: StatPopGenArgs) -> anyhow::Result<()> {
+    setup_logging_and_tracing(args.common.verbose, args.common.tracing)?;
+
     // Create benchmark instance
     let data_url = Url::from_directory_path("statpopgen".to_data_path())
         .map_err(|_| anyhow::anyhow!("bad data path?"))?;
@@ -330,7 +332,6 @@ fn run_statpopgen(args: StatPopGenArgs) -> anyhow::Result<()> {
         targets: args.targets,
         iterations: args.common.iterations,
         threads: args.common.threads,
-        verbose: args.common.verbose,
         display_format: args.common.display_format,
         disable_datafusion_cache: args.common.disable_datafusion_cache,
         delete_duckdb_database: args.common.delete_duckdb_database,
@@ -342,6 +343,7 @@ fn run_statpopgen(args: StatPopGenArgs) -> anyhow::Result<()> {
         show_metrics: args.common.show_metrics,
         hide_progress_bar: args.common.hide_progress_bar,
         track_memory: args.common.track_memory,
+        skip_generate: args.common.skip_generate,
     };
 
     // Run benchmark using the trait system
