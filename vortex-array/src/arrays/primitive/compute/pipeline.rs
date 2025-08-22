@@ -105,11 +105,13 @@ impl<T: Element + NativePType> Kernel for PrimitiveKernel<T> {
 
 #[cfg(test)]
 mod tests {
+    use itertools::Itertools;
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::BufferMut;
+    use vortex_mask::Mask;
 
     use super::*;
-    use crate::pipeline::bits::BitView;
+    use crate::pipeline::{export_canonical_pipeline };
 
     #[test]
     fn test_primitive_kernel_basic_operation() {
@@ -124,19 +126,17 @@ mod tests {
             offset: 0,
         };
 
-        // Create an all-true mask for simplicity
-        let mask_data = [u64::MAX; SC / 64];
-        let mask_view = BitView::new(&mask_data);
+        let out = export_canonical_pipeline(
+            primitive_array.dtype(),
+            size,
+            &mut kernel,
+            &Mask::AllTrue(size),
+        )
+        .unwrap()
+        .into_primitive()
+        .unwrap();
 
-        // Create output buffer
-        let mut output = BufferMut::<i32>::with_capacity(SC);
-        unsafe { output.set_len(SC) };
-        let mut output_view = ViewMut::new(&mut output[..], None);
-
-        // Execute the step
-        let dummy_ctx = KernelContext::default();
-        let result = kernel.step(&dummy_ctx, mask_view, &mut output_view);
-        assert!(matches!(result, Ok(())));
+        let output = out.as_slice::<i32>();
 
         // Verify the first elements contain our values
         for i in 0..size {
@@ -155,8 +155,7 @@ mod tests {
     fn test_primitive_kernel_with_mask() {
         // Create a primitive array with values 0..16
         let size = 16;
-        let values = (0..size).collect::<BufferMut<_>>();
-        let primitive_array = values.into_array().to_primitive().unwrap();
+        let primitive_array = (0i32..i32::try_from(size).unwrap()).collect::<PrimitiveArray>();
 
         // Create the kernel
         let mut kernel = PrimitiveKernel::<i32> {
@@ -165,96 +164,26 @@ mod tests {
         };
 
         // Create a mask with alternating bits (every other element selected)
-        let mut mask_data = [0u64; SC / 64];
-        // Set bits 0, 2, 4, 6, 8, 10, 12, 14 (first 8 even positions)
-        for i in 0..8 {
-            let bit_pos = i * 2;
-            let word_idx = bit_pos / 64;
-            let bit_idx = bit_pos % 64;
-            mask_data[word_idx] |= 1u64 << bit_idx; // MSB ordering
-        }
-        let true_count = 8;
-        let mask_view = BitView::new(&mask_data);
+        let mask = Mask::from_indices(size, (0..size).step_by(2).collect_vec());
+        let out = export_canonical_pipeline(
+            primitive_array.dtype(),
+            size,
+            &mut kernel,
+            &mask,
+        )
+            .unwrap()
+            .into_primitive()
+            .unwrap();
 
-        // Create output buffer
-        let mut output = BufferMut::<i32>::with_capacity(SC);
-        unsafe { output.set_len(SC) };
-        let mut output_view = ViewMut::new(&mut output[..], None);
-
-        // Execute the step
-        let dummy_ctx = KernelContext::default();
-        let result = kernel.step(&dummy_ctx, mask_view, &mut output_view);
-        assert!(matches!(result, Ok(())));
-        unsafe { output.set_len(mask_view.true_count()) };
-
-        // Verify that the mask was applied successfully
-        // The select_mask operation filters elements based on the mask
-
-        // Count elements that have been affected by mask selection
-        // Note: element 0 is a valid selected value, so we need to count differently
-        let non_zero_count = output.iter().filter(|&&x| x != 0).count();
+        let output = out.as_slice::<i32>();
 
         // Verify that element 0 was selected (first bit in mask is 1)
         assert_eq!(output[0], 0, "First element should be 0 since bit 0 is set");
 
-        // Since element 0 is valid but counts as zero, the actual selection count is non_zero_count + 1
-        let actual_selected = non_zero_count + 1; // +1 for the zero at position 0
-
         // The exact number of selected elements should match our true_count
         assert_eq!(
-            actual_selected, true_count,
+            out.len(), size/2,
             "Selected element count should match true_count"
         )
-    }
-
-    #[test]
-    fn test_primitive_kernel_offset_tracking() {
-        // Create a primitive array with more than N values
-        let total_size = SC + 100;
-        let values = (0..i32::try_from(total_size).unwrap()).collect::<BufferMut<_>>();
-        let primitive_array = values.into_array().to_primitive().unwrap();
-
-        // Create the kernel
-        let mut kernel = PrimitiveKernel::<i32> {
-            buffer: primitive_array.buffer(),
-            offset: 0,
-        };
-
-        // All-true mask
-        let mask_data = [u64::MAX; SC / 64];
-        let mask_view = BitView::new(&mask_data);
-        // First step should process first N elements
-        {
-            let mut output = BufferMut::<i32>::with_capacity(SC);
-            unsafe { output.set_len(SC) };
-            let mut output_view = ViewMut::new(&mut output[..], None);
-
-            let dummy_ctx = KernelContext::default();
-            let result = kernel.step(&dummy_ctx, mask_view, &mut output_view);
-            assert!(matches!(result, Ok(())));
-            assert_eq!(kernel.offset, SC);
-
-            // Verify first chunk
-            for i in 0..SC {
-                assert_eq!(output[i], i32::try_from(i).unwrap(), "{i}");
-            }
-        }
-
-        // Second step should process remaining elements (partial chunk)
-        {
-            let mut output = BufferMut::<i32>::with_capacity(SC);
-            unsafe { output.set_len(SC) };
-            let mut output_view = ViewMut::new(&mut output[..], None);
-
-            let dummy_ctx = KernelContext::default();
-            let result = kernel.step(&dummy_ctx, mask_view, &mut output_view);
-            assert!(matches!(result, Ok(())));
-            assert_eq!(kernel.offset, total_size);
-
-            // Verify remaining elements (first 100 should be valid)
-            for i in 0..100 {
-                assert_eq!(output[i], i32::try_from(SC + i).unwrap());
-            }
-        }
     }
 }

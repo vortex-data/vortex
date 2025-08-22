@@ -112,11 +112,10 @@ fn export_primitive_nonnull_masked<T: Element + NativePType>(
     let mut elements = BufferMut::<T>::with_capacity(capacity);
     unsafe { elements.set_len(capacity) };
 
+    let true_count = mask.true_count();
     let mask_buffer = mask.to_boolean_buffer();
-    let bit_chunks = mask_buffer.bit_chunks();
-    let mut bit_chunks_iter = bit_chunks.iter_padded();
 
-    let mut mask = [0u64; SC / 64];
+    let mut mask = [0usize; SC / (usize::BITS as usize)];
     let mut mask_view = BitViewMut::new(&mut mask);
 
     let mut offset = 0;
@@ -125,7 +124,7 @@ fn export_primitive_nonnull_masked<T: Element + NativePType>(
         let mut elements_view = ViewMut::new(&mut elements[offset..][..SC], None);
 
         mask_view.clear();
-        mask_view.fill_with_words(&mut bit_chunks_iter);
+        mask_view.fill_with_bytes(mask_buffer.values(), true_count);
 
         let dummy_ctx = KernelContext::default();
         pipeline.step(&dummy_ctx, mask_view.as_view(), &mut elements_view)?;
@@ -149,11 +148,10 @@ fn export_bool_nonnull_masked(mask: &Mask, pipeline: &mut dyn Kernel) -> VortexR
     let mut elements_buffer = Vector::new::<bool>();
     let mut elements_buffer_mut = elements_buffer.as_view_mut();
 
+    let true_count = mask.true_count();
     let mask_buffer = mask.to_boolean_buffer();
-    let bit_chunks = mask_buffer.bit_chunks();
-    let mut bit_chunks_iter = bit_chunks.iter_padded();
 
-    let mut mask = [0u64; SC / 64];
+    let mut mask = [0usize; SC / (usize::BITS as usize)];
     let mut mask_view = BitViewMut::new(&mut mask);
 
     // Fast path: collect all bools first, then use collect_bool for optimal packing
@@ -162,7 +160,7 @@ fn export_bool_nonnull_masked(mask: &Mask, pipeline: &mut dyn Kernel) -> VortexR
 
     while remaining > 0 {
         mask_view.clear();
-        mask_view.fill_with_words(&mut bit_chunks_iter);
+        mask_view.fill_with_bytes(mask_buffer.values(), true_count);
 
         // Handle partial iteration on the last chunk
         let current_len = remaining.min(SC);

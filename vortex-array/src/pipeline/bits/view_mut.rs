@@ -7,24 +7,30 @@ use bitvec::order::Lsb0;
 use crate::pipeline::SC;
 use crate::pipeline::bits::BitView;
 
+// Number of usize words needed to store SC bits
+#[cfg(target_pointer_width = "32")]
+const USIZE_WORDS: usize = SC / 32; // 32 bits per usize
+#[cfg(target_pointer_width = "64")]
+const USIZE_WORDS: usize = SC / 64; // 64 bits per usize
+
 /// A mutable borrowed fixed-size bit vector of length `N` bits, represented as an array of
-/// 64-bit words.
+/// usize words.
 /// Mutable view into a bit array for constructing selection masks.
 #[derive(Debug)]
 pub struct BitViewMut<'a> {
-    bits: &'a mut BitArray<[u64; SC / 64], Lsb0>,
+    bits: &'a mut BitArray<[usize; USIZE_WORDS], Lsb0>,
     true_count: usize,
 }
 
 impl<'a> BitViewMut<'a> {
-    pub fn new(bits: &'a mut [u64; SC / 64]) -> Self {
+    pub fn new(bits: &'a mut [usize; USIZE_WORDS]) -> Self {
         let true_count = bits.iter().map(|&word| word.count_ones() as usize).sum();
-        let bits: &mut BitArray<[u64; SC / 64], Lsb0> = unsafe { std::mem::transmute(bits) };
+        let bits: &mut BitArray<[usize; USIZE_WORDS], Lsb0> = unsafe { std::mem::transmute(bits) };
         BitViewMut { bits, true_count }
     }
 
     pub(crate) unsafe fn new_unchecked(
-        bits: &'a mut BitArray<[u64; SC / 64], Lsb0>,
+        bits: &'a mut BitArray<[usize; USIZE_WORDS], Lsb0>,
         true_count: usize,
     ) -> Self {
         BitViewMut { bits, true_count }
@@ -42,19 +48,19 @@ impl<'a> BitViewMut<'a> {
 
         let mut word = 0;
         let mut true_count = 0;
-        while len >= 64 {
+        while len >= usize::BITS as usize {
             true_count += bit_slice[word].count_ones() as usize;
-            len -= 64;
+            len -= usize::BITS as usize;
             word += 1;
         }
 
         if len > 0 {
-            bit_slice[word] &= !(u64::MAX << len);
+            bit_slice[word] &= !(usize::MAX << len);
             true_count += bit_slice[word].count_ones() as usize;
             word += 1;
         }
 
-        while word < SC / 64 {
+        while word < USIZE_WORDS {
             bit_slice[word] = 0;
             word += 1;
         }
@@ -67,17 +73,30 @@ impl<'a> BitViewMut<'a> {
         self.set_true_count(0);
     }
 
-    pub fn fill_with_words(&mut self, mut iter: impl Iterator<Item = u64>) {
-        let mut true_count = 0;
-        for word in 0..SC / 64 {
-            if let Some(value) = iter.next() {
-                self.bits.as_raw_mut_slice()[word] = value;
-                true_count += value.count_ones() as usize;
-            } else {
-                self.bits.as_raw_mut_slice()[word] = 0;
-                break;
+    pub fn fill_with_bytes(&mut self, slice: &[u8], true_count: usize) {
+        // Calculate total bytes available in the usize array
+        let total_bytes = USIZE_WORDS * size_of::<usize>();
+        let bytes_to_copy = slice.len().min(total_bytes);
+
+        // Cast the usize array to u8 slice for direct byte access
+        let dst_bytes = unsafe {
+            std::slice::from_raw_parts_mut(
+                self.bits.as_raw_mut_slice().as_mut_ptr() as *mut u8,
+                total_bytes,
+            )
+        };
+
+        // Single memcpy for the data
+        if bytes_to_copy > 0 {
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    slice.as_ptr(),
+                    dst_bytes.as_mut_ptr(),
+                    bytes_to_copy,
+                );
             }
         }
+
         self.set_true_count(true_count);
     }
 
@@ -85,7 +104,7 @@ impl<'a> BitViewMut<'a> {
         unsafe { BitView::new_unchecked(self.bits, self.true_count) }
     }
 
-    pub fn as_raw_mut(&mut self) -> &mut [u64; SC / 64] {
+    pub fn as_raw_mut(&mut self) -> &mut [usize; USIZE_WORDS] {
         unsafe { std::mem::transmute(&mut self.bits) }
     }
 

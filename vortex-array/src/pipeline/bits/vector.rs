@@ -14,6 +14,12 @@ use bitvec::order::Lsb0;
 use super::{BitView, BitViewMut};
 use crate::pipeline::SC;
 
+// Number of usize words needed to store SC bits
+#[cfg(target_pointer_width = "32")]
+const USIZE_WORDS: usize = SC / 32; // 32 bits per usize
+#[cfg(target_pointer_width = "64")]
+const USIZE_WORDS: usize = SC / 64; // 64 bits per usize
+
 static EMPTY: LazyLock<BitVector> = LazyLock::new(|| BitVector {
     bits: Arc::new(BitArray::ZERO),
     true_count: 0,
@@ -24,7 +30,7 @@ static FULL: LazyLock<BitVector> = LazyLock::new(|| BitVector {
     true_count: SC,
 });
 
-/// An owned fixed-size bit vector of length `N` bits, represented as an array of 64-bit words.
+/// An owned fixed-size bit vector of length `N` bits, represented as an array of usize words.
 ///
 /// Internally, it uses a [`BitArray`] to store the bits, but this crate has some
 /// performance foot-guns in cases where we can lean on better assumptions, and therefore we wrap
@@ -32,7 +38,7 @@ static FULL: LazyLock<BitVector> = LazyLock::new(|| BitVector {
 /// Owned bit vector for storing boolean selection masks.
 #[derive(Clone)]
 pub struct BitVector {
-    pub(super) bits: Arc<BitArray<[u64; SC / 64], Lsb0>>,
+    pub(super) bits: Arc<BitArray<[usize; USIZE_WORDS], Lsb0>>,
     pub(super) true_count: usize,
 }
 
@@ -66,20 +72,20 @@ impl BitVector {
     pub fn true_until(n: usize) -> Self {
         assert!(n <= SC, "Cannot create a BitVector with more than N bits");
 
-        let mut bits = Arc::new(BitArray::<[u64; SC / 64], Lsb0>::ZERO);
+        let mut bits = Arc::new(BitArray::<[usize; USIZE_WORDS], Lsb0>::ZERO);
         let bits_mut = Arc::make_mut(&mut bits);
 
         let mut word = 0;
         let mut remaining = n;
-        while remaining >= 64 {
-            bits_mut.as_raw_mut_slice()[word] = u64::MAX;
-            remaining -= 64;
+        while remaining >= usize::BITS as usize {
+            bits_mut.as_raw_mut_slice()[word] = usize::MAX;
+            remaining -= usize::BITS as usize;
             word += 1;
         }
 
         if remaining > 0 {
             // For LSB ordering, set the lower bits (0 to remaining-1)
-            bits_mut.as_raw_mut_slice()[word] = (1u64 << remaining) - 1;
+            bits_mut.as_raw_mut_slice()[word] = (1usize << remaining) - 1;
         }
 
         BitVector {
@@ -92,21 +98,21 @@ impl BitVector {
         self.true_count
     }
 
-    pub fn as_raw(&self) -> &[u64; SC / 64] {
+    pub fn as_raw(&self) -> &[usize; USIZE_WORDS] {
         // It's actually remarkably hard to get a reference to the underlying array!
         let raw = self.bits.as_raw_slice();
-        unsafe { &*(raw.as_ptr() as *const [u64; SC / 64]) }
+        unsafe { &*(raw.as_ptr() as *const [usize; USIZE_WORDS]) }
     }
 
-    pub fn as_raw_mut(&mut self) -> &mut [u64; SC / 64] {
+    pub fn as_raw_mut(&mut self) -> &mut [usize; USIZE_WORDS] {
         // SAFETY: We assume that the bits are mutable and that the view is valid.
         let raw = Arc::make_mut(&mut self.bits).as_raw_mut_slice();
-        unsafe { &mut *(raw.as_mut_ptr() as *mut [u64; SC / 64]) }
+        unsafe { &mut *(raw.as_mut_ptr() as *mut [usize; USIZE_WORDS]) }
     }
 
     pub fn fill_from<I>(&mut self, iter: I)
     where
-        I: IntoIterator<Item = u64>,
+        I: IntoIterator<Item = usize>,
     {
         let mut true_count = 0;
         for (dst, word) in self.as_raw_mut().iter_mut().zip(iter) {
@@ -128,7 +134,9 @@ impl BitVector {
 impl From<BitView<'_>> for BitVector {
     fn from(value: BitView<'_>) -> Self {
         let true_count = value.true_count();
-        let bits = Arc::new(BitArray::<[u64; SC / 64], Lsb0>::from(*value.as_raw()));
+        let bits = Arc::new(BitArray::<[usize; USIZE_WORDS], Lsb0>::from(
+            *value.as_raw(),
+        ));
         BitVector { bits, true_count }
     }
 }
@@ -142,20 +150,25 @@ mod tests {
         let mut vec = BitVector::empty().clone();
 
         // Fill with a pattern
-        let pattern = [0b1010101010101010u64, 0b1111000011110000u64, u64::MAX, 0];
+        let pattern = [
+            0b1010101010101010usize,
+            0b1111000011110000usize,
+            usize::MAX,
+            0,
+        ];
 
         vec.fill_from(pattern.iter().copied());
 
         let raw = vec.as_raw();
-        assert_eq!(raw[0], 0b1010101010101010u64);
-        assert_eq!(raw[1], 0b1111000011110000u64);
-        assert_eq!(raw[2], u64::MAX);
+        assert_eq!(raw[0], 0b1010101010101010usize);
+        assert_eq!(raw[1], 0b1111000011110000usize);
+        assert_eq!(raw[2], usize::MAX);
         assert_eq!(raw[3], 0);
 
         // Check true_count is updated correctly
-        let expected_count = 0b1010101010101010u64.count_ones() as usize
-            + 0b1111000011110000u64.count_ones() as usize
-            + u64::MAX.count_ones() as usize;
+        let expected_count = 0b1010101010101010usize.count_ones() as usize
+            + 0b1111000011110000usize.count_ones() as usize
+            + usize::MAX.count_ones() as usize;
         assert_eq!(vec.true_count(), expected_count);
     }
 
@@ -187,7 +200,7 @@ mod tests {
     #[test]
     fn test_from_bitview() {
         // Create a BitView from raw data
-        let mut raw = [0u64; SC / 64];
+        let mut raw = [0usize; SC / 64];
         raw[0] = 0b11111111;
         raw[1] = 0b11110000;
 
@@ -220,14 +233,14 @@ mod tests {
         // Modify through as_raw_mut
         let raw_mut = vec.as_raw_mut();
         raw_mut[0] = 0b1111;
-        raw_mut[2] = u64::MAX;
+        raw_mut[2] = usize::MAX;
 
         // Note: true_count is NOT automatically updated when using as_raw_mut
         // This is a low-level API, so the user must manage true_count
         vec.true_count = 4 + 64; // Update manually
 
         assert_eq!(vec.as_raw()[0], 0b1111);
-        assert_eq!(vec.as_raw()[2], u64::MAX);
+        assert_eq!(vec.as_raw()[2], usize::MAX);
         assert_eq!(vec.true_count(), 68);
     }
 

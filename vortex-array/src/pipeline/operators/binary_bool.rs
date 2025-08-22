@@ -193,7 +193,7 @@ mod tests {
         let mut pipeline = plan.executable_plan().unwrap();
 
         // Create mask for first 4 elements
-        let mut mask_data = [0u64; SC / 64];
+        let mut mask_data = [0usize; SC / (usize::BITS as usize)];
         mask_data[0] = 0b1111; // First 4 bits set
         let mask_view = BitView::new(&mask_data);
 
@@ -254,7 +254,7 @@ mod tests {
         let mut pipeline = plan.executable_plan().unwrap();
 
         // Create mask for first 4 elements
-        let mut mask_data = [0u64; SC / 64];
+        let mut mask_data = [0usize; SC / (usize::BITS as usize)];
         mask_data[0] = 0b1111; // First 4 bits set
         let mask_view = BitView::new(&mask_data);
 
@@ -327,7 +327,7 @@ mod tests {
         let mut pipeline = plan.executable_plan().unwrap();
 
         // Create mask for first 4 elements
-        let mut mask_data = [0u64; SC / 64];
+        let mut mask_data = [0usize; SC / (usize::BITS as usize)];
         mask_data[0] = 0b1111; // First 4 bits set
         let mask_view = BitView::new(&mask_data);
 
