@@ -20,8 +20,6 @@ use crate::pipeline::Kernel;
 use crate::pipeline::types::VType;
 use crate::pipeline::vec::VectorId;
 
-
-
 /// An operator represents a node in a logical query plan.
 pub trait Operator: Debug + DynHash + 'static {
     fn as_any(&self) -> &dyn Any;
