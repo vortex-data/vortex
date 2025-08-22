@@ -135,6 +135,7 @@ impl LayoutReader for FlatReader {
             array: self.array_future(handle)?,
             row_range,
             expr: expr.clone(),
+            handle: handle.clone(),
         }))
     }
 
@@ -153,6 +154,7 @@ impl LayoutReader for FlatReader {
             array: self.array_future(handle)?,
             row_range,
             expr: expr.clone(),
+            handle: handle.clone(),
         }))
     }
 }
@@ -162,6 +164,7 @@ struct FlatEvaluation {
     array: SharedArrayFuture,
     row_range: Range<usize>,
     expr: ExprRef,
+    handle: Handle,
 }
 
 #[async_trait]
@@ -172,39 +175,49 @@ impl MaskEvaluation for FlatEvaluation {
         //  to evaluating the expression.
 
         // Now we await the array .
-        let mut array = self.array.clone().await?;
+        let array = self.array.clone().await?;
 
-        // Slice the array based on the row mask.
-        if self.row_range.start > 0 || self.row_range.end < array.len() {
-            array = array.slice(self.row_range.start, self.row_range.end);
-        }
+        let name = self.name.clone();
+        let expr = self.expr.clone();
+        let row_range = self.row_range.clone();
 
-        // TODO(ngates): the mask may actually be dense within a range, as is often the case when
-        //  we have approximate mask results from a zone map. In which case we could look at
-        //  the true_count between the mask's first and last true positions.
-        // TODO(ngates): we could also track runtime statistics about whether it's worth selecting
-        //   or not.
-        let array_mask = if mask.density() < EXPR_EVAL_THRESHOLD {
-            // Evaluate only the selected rows of the mask.
-            array = filter(&array, &mask)?;
-            let array_mask = Mask::try_from(self.expr.evaluate(&Scope::new(array))?.as_ref())?;
-            mask.intersect_by_rank(&array_mask)
-        } else {
-            // Evaluate all rows, avoiding the more expensive rank intersection.
-            array = self.expr.evaluate(&Scope::new(array))?;
-            let array_mask = Mask::try_from(array.as_ref())?;
-            mask.bitand(&array_mask)
-        };
+        self.handle
+            .spawn_cpu(move || {
+                let mut array = array;
 
-        log::debug!(
-            "Flat mask evaluation {} - {} (mask = {}) => {}",
-            self.name,
-            self.expr,
-            mask.density(),
-            array_mask.density(),
-        );
+                // Slice the array based on the row mask.
+                if row_range.start > 0 || row_range.end < array.len() {
+                    array = array.slice(row_range.start, row_range.end);
+                }
 
-        Ok(array_mask)
+                // TODO(ngates): the mask may actually be dense within a range, as is often the case when
+                //  we have approximate mask results from a zone map. In which case we could look at
+                //  the true_count between the mask's first and last true positions.
+                // TODO(ngates): we could also track runtime statistics about whether it's worth selecting
+                //   or not.
+                let array_mask = if mask.density() < EXPR_EVAL_THRESHOLD {
+                    // Evaluate only the selected rows of the mask.
+                    array = filter(&array, &mask)?;
+                    let array_mask = Mask::try_from(expr.evaluate(&Scope::new(array))?.as_ref())?;
+                    mask.intersect_by_rank(&array_mask)
+                } else {
+                    // Evaluate all rows, avoiding the more expensive rank intersection.
+                    array = expr.evaluate(&Scope::new(array))?;
+                    let array_mask = Mask::try_from(array.as_ref())?;
+                    mask.bitand(&array_mask)
+                };
+
+                log::debug!(
+                    "Flat mask evaluation {} - {} (mask = {}) => {}",
+                    name,
+                    expr,
+                    mask.density(),
+                    array_mask.density(),
+                );
+
+                Ok(array_mask)
+            })
+            .await
     }
 }
 

@@ -11,7 +11,7 @@ use std::marker::PhantomData;
 use std::os::unix::fs::MetadataExt;
 use std::sync::Arc;
 use vortex_buffer::Alignment;
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
 
 /// Represents a handle to a Vortex runtime that can be used to enqueue CPU- or I/O-bound tasks.
 ///
@@ -41,12 +41,24 @@ impl Handle {
     }
 
     /// Spawn a CPU-bound task for execution on the runtime.
-    pub fn spawn_cpu<F, R>(&self, _f: F) -> TaskHandle<R>
+    pub fn spawn_cpu<F, R>(&self, f: F) -> impl Future<Output = R> + Send + 'static
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        todo!()
+        let (send, recv) = oneshot::channel();
+        if let Err(e) = self.0.cpu_send.send(CpuTask {
+            runnable: Box::new(move || {
+                let _ = send.send(f());
+            }),
+        }) {
+            vortex_panic!("Failed to send CPU task to runtime: {e}");
+        }
+        async move {
+            recv.await
+                .map_err(|e| vortex_err!("Sender dropped: {e}"))
+                .vortex_expect("Failed to recv from vortex task")
+        }
     }
 
     /// Opens a file whose following read requests will occur on the underlying runtime.
