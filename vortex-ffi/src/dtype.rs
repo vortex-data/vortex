@@ -281,7 +281,7 @@ mod tests {
         vx_dtype_new_utf8, vx_dtype_variant,
     };
     use crate::ptype::vx_ptype;
-    use crate::string::{vx_string, vx_string_free, vx_string_len, vx_string_ptr};
+    use crate::string::{vx_string, vx_string_len, vx_string_ptr};
     use crate::struct_fields::{
         vx_struct_fields_builder_add_field, vx_struct_fields_builder_finalize,
         vx_struct_fields_builder_new, vx_struct_fields_field_dtype, vx_struct_fields_field_name,
@@ -337,10 +337,7 @@ mod tests {
                 vx_dtype_variant::DTYPE_PRIMITIVE
             );
 
-            // Free field names (owned references)
-
-            vx_string_free(name);
-            vx_string_free(age);
+            // Field names are now borrowed references - do not free them
 
             // Free field dtypes (owned references)
             vx_dtype_free(dtype0);
@@ -513,7 +510,7 @@ mod tests {
 
         // Cleanup in careful order
         unsafe {
-            vx_string_free(field_name_ptr);
+            // Field name is now a borrowed reference - do not free it
             crate::array::vx_array_free(vx_arr);
         }
     }
@@ -542,9 +539,7 @@ mod tests {
             let expected_name = if i == 0 { "nums" } else { "floats" };
             assert_eq!(name_str, expected_name);
 
-            unsafe {
-                vx_string_free(field_name_ptr);
-            }
+            // Field name is now a borrowed reference - do not free it
         }
 
         // Cleanup

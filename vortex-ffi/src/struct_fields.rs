@@ -26,9 +26,10 @@ pub unsafe extern "C-unwind" fn vx_struct_fields_nfields(dtype: *const vx_struct
         .nfields() as u64
 }
 
-/// Return an owned reference to the name of the field at the given index.
+/// Return a borrowed reference to the name of the field at the given index.
 ///
-/// The caller is responsible for freeing the returned pointer with [`vx_string_free`].
+/// The returned pointer is valid as long as the struct fields is valid.
+/// Do NOT free the returned string pointer - it shares the lifetime of the struct fields.
 /// Returns null if the index is out of bounds.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_struct_fields_field_name(
@@ -40,7 +41,7 @@ pub unsafe extern "C-unwind" fn vx_struct_fields_field_name(
     if idx >= struct_dtype.nfields() {
         return std::ptr::null();
     }
-    vx_string::new(struct_dtype.names()[idx].clone())
+    vx_string::new_ref(&struct_dtype.names()[idx])
 }
 
 /// Returns an *owned* reference to the dtype of the field at the given index.
