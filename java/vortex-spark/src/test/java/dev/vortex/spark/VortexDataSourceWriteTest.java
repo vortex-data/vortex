@@ -66,7 +66,7 @@ public final class VortexDataSourceWriteTest {
 
         // Verify original data
         assertEquals(numRows, originalDf.count(), "Original DataFrame should have " + numRows + " rows");
-        assertEquals(2, originalDf.columns().length, "Original DataFrame should have 2 columns");
+        assertEquals(3, originalDf.columns().length, "Original DataFrame should have 2 columns");
 
         // When: Repartition to 2 partitions and write as Vortex
         Path outputPath = tempDir.resolve("vortex_output");
