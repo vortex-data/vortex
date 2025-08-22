@@ -11,10 +11,11 @@ use vortex_scalar::Scalar;
 
 use crate::pipeline::bits::BitView;
 use crate::pipeline::operators::{BindContext, Operator};
-use crate::pipeline::types::{Element, VType};
+use crate::pipeline::{Element, VType};
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{Kernel, KernelContext};
 
+/// Pipeline operator for constant arrays that produces the same scalar value for all elements.
 #[derive(Debug, Hash)]
 pub struct ConstantOperator {
     pub(crate) scalar: Scalar,
@@ -85,10 +86,12 @@ impl Operator for ConstantOperator {
     }
 }
 
+/// Kernel that produces constant primitive values.
 pub struct ConstantKernel<T: NativePType> {
     value: T,
 }
 
+/// Kernel that produces constant boolean values.
 pub struct BoolConstantKernel {
     value: bool,
 }

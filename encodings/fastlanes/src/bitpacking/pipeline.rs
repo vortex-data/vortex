@@ -8,7 +8,7 @@ use std::rc::Rc;
 use fastlanes::{BitPacking, FastLanes};
 use vortex_array::pipeline::bits::BitView;
 use vortex_array::pipeline::operators::{BindContext, Operator};
-use vortex_array::pipeline::types::{Element, VType};
+use vortex_array::pipeline::{Element, VType};
 use vortex_array::pipeline::view::ViewMut;
 use vortex_array::pipeline::{Kernel, KernelContext, PipelineVTable, SC};
 use vortex_buffer::Buffer;

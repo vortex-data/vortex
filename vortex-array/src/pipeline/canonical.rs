@@ -18,6 +18,7 @@ use crate::pipeline::view::ViewMut;
 use crate::pipeline::{Kernel, KernelContext, SC};
 use crate::validity::Validity;
 
+/// Export canonical data from a pipeline kernel with the given mask.
 pub fn export_canonical_pipeline(
     dtype: &DType,
     len: usize,
@@ -43,6 +44,7 @@ pub fn export_canonical_pipeline(
     }
 }
 
+/// Export canonical data from an operator expression with a starting offset and mask.
 pub fn export_canonical_pipeline_expr_offset(
     dtype: &DType,
     offset: usize,
@@ -56,6 +58,7 @@ pub fn export_canonical_pipeline_expr_offset(
     export_canonical_pipeline(dtype, len, &mut pipeline, mask)
 }
 
+/// Export canonical data from an operator expression with the given mask.
 pub fn export_canonical_pipeline_expr(
     dtype: &DType,
     len: usize,

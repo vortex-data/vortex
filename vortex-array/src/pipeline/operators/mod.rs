@@ -4,8 +4,8 @@
 //! Plan nodes represent the logical structure of a pipeline.
 
 pub mod binary_bool;
-pub mod compare;
-pub mod scalar_compare;
+mod compare;
+mod scalar_compare;
 
 use std::any::Any;
 use std::fmt::Debug;
@@ -13,21 +13,26 @@ use std::rc::Rc;
 
 use dyn_hash::DynHash;
 use vortex_error::VortexResult;
+pub use compare::CompareOperator;
+pub use scalar_compare::ScalarCompareOperator;
 
 use crate::pipeline::Kernel;
 use crate::pipeline::types::VType;
 use crate::pipeline::vec::VectorId;
 
-// TODO: clean up this diagram
-// compare(_, _) <-  for <- bitpacked
-//               <- 12
-
-// !--> reduce_child(compare(_, _), for <- bitpacked) -->
-// --> reduce_child(compare(_, _), 12) -->
-
-// compare_single[12](_) <- for(10) <- bitpacked
-
-// compare_single[2](_) <- bitpacked
+// Operator reduction optimization examples:
+//
+// Step 1 - Initial pipeline:
+//   compare(_, 12) <- for(ref=10) <- bitpacked
+//
+// Step 2 - reduce_parent optimization:
+//   compare_scalar(12-10=2) <- bitpacked
+//
+// Step 3 - Final optimized pipeline:
+//   bitpacked -> compare_scalar(2)
+//
+// The reduction process eliminates the FoR decoding step by adjusting
+// the comparison constant to work directly on encoded values.
 
 /// An operator represents a node in a logical query plan.
 pub trait Operator: Debug + DynHash + 'static {

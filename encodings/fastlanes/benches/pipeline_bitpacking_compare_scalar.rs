@@ -3,19 +3,22 @@
 
 #![allow(clippy::unwrap_used)]
 #![allow(unexpected_cfgs)]
+use vortex_array::pipeline::operators::CompareOperator;
 use std::rc::Rc;
+use vortex_array::arrays::ConstantOperator;
+
 
 use arrow_buffer::BooleanBuffer;
 use divan::Bencher;
 use mimalloc::MiMalloc;
+use vortex_array::compute::Operator as BinaryOperator;
+
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex_array::compute::filter;
-use vortex_array::pipeline::canonical::export_canonical_pipeline_expr;
-use vortex_array::vector::operators::compare::{BinaryOperator, CompareOperator};
-use vortex_array::vector::operators::constant::ConstantOperator;
-use vortex_array::vector::operators::scalar_compare::ScalarCompareOperator;
-use vortex_array::vector::types::Element;
+use vortex_array::pipeline::export_canonical_pipeline_expr;
+use vortex_array::pipeline::operators::ScalarCompareOperator;
+use vortex_array::pipeline::Element;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
 use vortex_dtype::Nullability::NonNullable;

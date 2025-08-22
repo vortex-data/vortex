@@ -11,7 +11,7 @@ use vortex_error::{VortexResult, vortex_bail};
 use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::pipeline::bits::BitView;
 use crate::pipeline::operators::{BindContext, Operator};
-use crate::pipeline::types::{Element, VType};
+use crate::pipeline::{Element, VType};
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{Kernel, KernelContext, PipelineVTable, SC};
 use crate::vtable::ValidityHelper;
@@ -30,6 +30,7 @@ impl PipelineVTable<PrimitiveVTable> for PrimitiveVTable {
     }
 }
 
+/// Pipeline operator for primitive arrays that produces values from a byte buffer.
 #[derive(Debug, Clone, Hash)]
 pub struct PrimitiveOperator {
     ptype: PType,
@@ -69,6 +70,7 @@ impl Operator for PrimitiveOperator {
     }
 }
 
+/// A kernel that produces primitive values from a byte buffer.
 /// A kernel that produces primitive values from a byte buffer.
 pub struct PrimitiveKernel<T: NativePType> {
     buffer: Buffer<T>,

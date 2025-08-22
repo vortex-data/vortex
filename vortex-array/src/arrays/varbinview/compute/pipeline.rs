@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::arrays::BinaryView;
-use crate::pipeline::types::{Element, VType};
+use crate::pipeline::{Element, VType};
 
 impl Element for BinaryView {
     fn vtype() -> VType {

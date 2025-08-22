@@ -24,7 +24,7 @@ pub mod bits;
 mod canonical;
 pub mod operators;
 pub mod query;
-pub mod types;
+mod types;
 pub mod vec;
 pub mod view;
 
