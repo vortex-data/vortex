@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-rust
         with:
-          toolchain: nightly
+          toolchain: nightly-2025-06-26
       - name: Install cargo fuzz
         run: cargo install --locked cargo-fuzz
       - name: Restore corpus
@@ -66,7 +66,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-rust
         with:
-          toolchain: nightly
+          toolchain: nightly-2025-06-26
       - name: Install cargo fuzz
         run: cargo install --locked cargo-fuzz
       - name: Restore corpus
