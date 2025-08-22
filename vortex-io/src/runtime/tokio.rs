@@ -11,8 +11,10 @@ use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexError;
 
 impl Runtime {
-    /// Spawn this Runtime into the given Tokio runtime such that it is driven in the background.
-    pub fn run_on_tokio(self, handle: TokioHandle) {
+    /// Drive this Runtime in the background on the given Tokio runtime. After calling this,
+    /// any futures or streams that expected to run on the Vortex Runtime can be polled by the
+    /// Tokio runtime and will be able to make progress.
+    pub fn drive_on_tokio(self, handle: &TokioHandle) {
         // Spawn a future to process the file I/O requests
         handle.spawn(async move {
             let recv = self.file_io_recv.into_stream();

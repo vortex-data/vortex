@@ -13,11 +13,12 @@ use vortex_array::stats::Precision;
 use vortex_array::{Array, ArrayRef};
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
-use vortex_expr::{ExprRef, Scope, is_root};
+use vortex_expr::{is_root, ExprRef, Scope};
+use vortex_io::runtime::Handle;
 use vortex_mask::Mask;
 
-use crate::layouts::SharedArrayFuture;
 use crate::layouts::flat::FlatLayout;
+use crate::layouts::SharedArrayFuture;
 use crate::segments::SegmentSource;
 use crate::{
     ArrayEvaluation, LayoutReader, MaskEvaluation, NoOpPruningEvaluation, PruningEvaluation,
@@ -58,13 +59,15 @@ impl FlatReader {
     // TODO(ngates): caching this and ignoring SegmentReaders may be a terrible idea... we may
     //  instead want to store all segment futures and race them, so if a layout requests a
     //  projection future before a pruning future, the pruning isn't blocked.
-    fn array_future(&self) -> VortexResult<SharedArrayFuture> {
+    fn array_future(&self, handle: &Handle) -> VortexResult<SharedArrayFuture> {
         let row_count = usize::try_from(self.layout.row_count()).vortex_unwrap();
 
         // We create the segment_fut here to ensure we give the segment reader visibility into
         // how to prioritize this segment, even if the `array` future has already been initialized.
         // This is gross... see the function's TODO for a maybe better solution?
-        let segment_fut = self.segment_source.request(self.layout.segment_id());
+        let segment_fut = self
+            .segment_source
+            .request(self.layout.segment_id(), handle);
 
         Ok(self
             .array
@@ -111,6 +114,7 @@ impl LayoutReader for FlatReader {
         &self,
         _row_range: &Range<u64>,
         _expr: &ExprRef,
+        _handle: &Handle,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
         Ok(Box::new(NoOpPruningEvaluation))
     }
@@ -119,6 +123,7 @@ impl LayoutReader for FlatReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
+        handle: &Handle,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
         let row_range = usize::try_from(row_range.start)
             .vortex_expect("Row range begin must fit within FlatLayout size")
@@ -127,7 +132,7 @@ impl LayoutReader for FlatReader {
 
         Ok(Box::new(FlatEvaluation {
             name: self.name.clone(),
-            array: self.array_future()?,
+            array: self.array_future(handle)?,
             row_range,
             expr: expr.clone(),
         }))
@@ -137,6 +142,7 @@ impl LayoutReader for FlatReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
+        handle: &Handle,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
         let row_range = usize::try_from(row_range.start)
             .vortex_expect("Row range begin must fit within FlatLayout size")
@@ -144,7 +150,7 @@ impl LayoutReader for FlatReader {
                 .vortex_expect("Row range end must fit within FlatLayout size");
         Ok(Box::new(FlatEvaluation {
             name: self.name.clone(),
-            array: self.array_future()?,
+            array: self.array_future(handle)?,
             row_range,
             expr: expr.clone(),
         }))
@@ -239,13 +245,13 @@ mod test {
     use std::sync::Arc;
 
     use arrow_buffer::BooleanBuffer;
-    use futures::executor::block_on;
     use futures::stream;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayContext, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_expr::{gt, lit, root};
+    use vortex_io::runtime::Runtime;
     use vortex_mask::Mask;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
@@ -255,7 +261,7 @@ mod test {
 
     #[test]
     fn flat_identity() {
-        block_on(async {
+        Runtime::oneshot(|handle| async move {
             let ctx = ArrayContext::empty();
             let segments = TestSegments::default();
             let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
@@ -278,7 +284,7 @@ mod test {
             let result = layout
                 .new_reader("".into(), segments)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &root())
+                .projection_evaluation(&(0..layout.row_count()), &root(), &handle)
                 .unwrap()
                 .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await
@@ -295,7 +301,7 @@ mod test {
 
     #[test]
     fn flat_expr() {
-        block_on(async {
+        Runtime::oneshot(|handle| async move {
             let ctx = ArrayContext::empty();
             let segments = TestSegments::default();
             let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
@@ -319,7 +325,7 @@ mod test {
             let result = layout
                 .new_reader("".into(), segments)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &expr)
+                .projection_evaluation(&(0..layout.row_count()), &expr, &handle)
                 .unwrap()
                 .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await
@@ -336,7 +342,7 @@ mod test {
 
     #[test]
     fn flat_unaligned_row_mask() {
-        block_on(async {
+        Runtime::oneshot(|handle| async move {
             let ctx = ArrayContext::empty();
             let segments = TestSegments::default();
             let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
@@ -359,7 +365,7 @@ mod test {
             let result = layout
                 .new_reader("".into(), segments)
                 .unwrap()
-                .projection_evaluation(&(2..4), &root())
+                .projection_evaluation(&(2..4), &root(), &handle)
                 .unwrap()
                 .invoke(Mask::new_true(2))
                 .await

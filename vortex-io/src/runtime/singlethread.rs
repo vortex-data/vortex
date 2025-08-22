@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::runtime::{Handle, Runtime};
-use futures::pin_mut;
+use futures::{pin_mut, Stream};
 use futures_util::StreamExt;
 use smol::future::block_on;
 use smol::Executor;
@@ -14,13 +14,25 @@ impl Runtime {
     /// current thread.
     pub fn oneshot<F, Fut, R>(f: F) -> R
     where
-        F: FnOnce(&Handle) -> Fut,
+        F: FnOnce(Handle) -> Fut,
         Fut: Future<Output = R>,
     {
         let runtime = Self::default();
-        let handle = runtime.new_handle();
-        let fut = f(&handle);
+        let fut = f(runtime.new_handle());
         block_on(runtime.into_executor().run(fut))
+    }
+
+    /// Wraps a stream into a blocking iterator using a new temporary runtime with all work
+    /// performed on the thread calling [`Iterator::next`].
+    pub fn oneshot_iter<F, S, R>(f: F) -> impl Iterator<Item = R>
+    where
+        F: FnOnce(&Handle) -> S,
+        S: Stream<Item = R> + Unpin,
+    {
+        let runtime = Self::default();
+        let stream = f(&runtime.new_handle());
+        let executor = runtime.into_executor();
+        BlockingStream { stream, executor }
     }
 
     /// Spawn the entire runtime onto a single executor. This executor will drive the I/O, CPU,
@@ -50,6 +62,19 @@ impl Runtime {
     }
 }
 
+struct BlockingStream<S: Stream + Unpin> {
+    stream: S,
+    executor: Arc<Executor<'static>>,
+}
+
+impl<S: Stream + Unpin> Iterator for BlockingStream<S> {
+    type Item = S::Item;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        block_on(self.executor.run(self.stream.next()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::runtime::Runtime;
@@ -69,7 +94,7 @@ mod tests {
             // Now we read from the file using the handle.
             let read = FileIo::try_new("test.txt")
                 .expect("Failed to create IoSource")
-                .open(handle);
+                .open(&handle);
 
             read.read(0, 14, Alignment::none())
         })

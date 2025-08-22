@@ -6,6 +6,8 @@ use std::iter;
 use std::sync::Arc;
 
 use bytes::Bytes;
+use futures::stream::FuturesOrdered;
+use futures::StreamExt;
 use itertools::Itertools;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{
@@ -16,15 +18,16 @@ use vortex_array::iter::ArrayIteratorExt;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
-use vortex_buffer::{Buffer, ByteBufferMut, buffer};
+use vortex_buffer::{buffer, Buffer, ByteBufferMut};
 use vortex_dtype::PType::I32;
 use vortex_dtype::{DType, DecimalDType, Nullability, PType, StructFields};
 use vortex_error::VortexResult;
-use vortex_expr::{PackExpr, and, eq, get_item, gt, gt_eq, lit, lt, lt_eq, or, root, select};
+use vortex_expr::{and, eq, get_item, gt, gt_eq, lit, lt, lt_eq, or, root, select, PackExpr};
+use vortex_io::runtime::Runtime;
 use vortex_scalar::Scalar;
 use vortex_scan::ScanBuilder;
 
-use crate::{V1_FOOTER_FBS_SIZE, VERSION, VortexFile, VortexOpenOptions, VortexWriteOptions};
+use crate::{VortexFile, VortexOpenOptions, VortexWriteOptions, V1_FOOTER_FBS_SIZE, VERSION};
 
 #[test]
 fn test_eof_values() {
@@ -54,13 +57,18 @@ fn test_read_simple() {
         .write_blocking(ByteBufferMut::empty(), st.to_array_stream())
         .unwrap();
 
-    let iter = VortexOpenOptions::in_memory()
-        .open(buf)
-        .unwrap()
-        .scan()
-        .unwrap()
-        .into_array_iter()
-        .unwrap();
+    let iter = Runtime::oneshot_iter(|handle| {
+        let tasks = VortexOpenOptions::in_memory()
+            .open(buf)
+            .unwrap()
+            .scan(handle)
+            .unwrap()
+            .build()
+            .unwrap();
+        FuturesOrdered::from_iter(tasks)
+            .filter_map(|result| async move { result.transpose() })
+            .boxed()
+    });
 
     let mut row_count = 0;
 

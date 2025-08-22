@@ -2,10 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ops::Range;
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 
+use super::cache::VortexFileCache;
+use crate::convert::exprs::{can_be_pushed_down, make_vortex_predicate};
 use arrow_schema::{ArrowError, Field, SchemaRef};
-use dashmap::{DashMap, Entry};
 use datafusion_common::{DataFusionError, Result as DFResult};
 use datafusion_datasource::file_meta::FileMeta;
 use datafusion_datasource::file_stream::{FileOpenFuture, FileOpener};
@@ -13,20 +14,18 @@ use datafusion_datasource::schema_adapter::SchemaAdapterFactory;
 use datafusion_datasource::{FileRange, PartitionedFile};
 use datafusion_physical_expr::schema_rewriter::PhysicalExprAdapterFactory;
 use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
-use datafusion_physical_expr::{PhysicalExprRef, split_conjunction};
-use futures::{FutureExt, StreamExt, TryStreamExt, stream};
-use object_store::ObjectStore;
+use datafusion_physical_expr::{split_conjunction, PhysicalExprRef};
+use futures::{stream, FutureExt, StreamExt, TryStreamExt};
 use object_store::path::Path;
+use object_store::ObjectStore;
 use vortex::dtype::FieldName;
 use vortex::error::VortexError;
 use vortex::expr::{root, select};
+use vortex::io::runtime::Runtime;
 use vortex::layout::LayoutReader;
 use vortex::metrics::VortexMetrics;
 use vortex::scan::ScanBuilder;
 use vortex::{ArrayRef, ToCanonical};
-
-use super::cache::VortexFileCache;
-use crate::convert::exprs::{can_be_pushed_down, make_vortex_predicate};
 
 #[derive(Clone)]
 pub(crate) struct VortexOpener {
@@ -45,7 +44,6 @@ pub(crate) struct VortexOpener {
     pub batch_size: usize,
     pub limit: Option<usize>,
     pub metrics: VortexMetrics,
-    pub layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
 }
 
 impl FileOpener for VortexOpener {
@@ -60,7 +58,6 @@ impl FileOpener for VortexOpener {
         let batch_size = self.batch_size;
         let limit = self.limit;
         let metrics = self.metrics.clone();
-        let layout_reader = self.layout_readers.clone();
 
         let projected_schema = match projection.as_ref() {
             None => logical_schema.clone(),
@@ -122,35 +119,10 @@ impl FileOpener for VortexOpener {
                 .collect::<Vec<_>>();
             let projection_expr = select(fields, root());
 
-            // We share our layout readers with others partitions in the scan, so we can only need to read each layout in each file once.
-            let layout_reader = match layout_reader.entry(file_meta.object_meta.location) {
-                Entry::Occupied(mut occupied_entry) => {
-                    if let Some(reader) = occupied_entry.get().upgrade() {
-                        log::trace!("reusing layout reader for {}", occupied_entry.key());
-                        reader
-                    } else {
-                        log::trace!("creating layout reader for {}", occupied_entry.key());
-                        let reader = vxf.layout_reader().map_err(|e| {
-                            DataFusionError::Execution(format!(
-                                "Failed to create layout reader: {e}"
-                            ))
-                        })?;
-                        occupied_entry.insert(Arc::downgrade(&reader));
-                        reader
-                    }
-                }
-                Entry::Vacant(vacant_entry) => {
-                    log::trace!("creating layout reader for {}", vacant_entry.key());
-                    let reader = vxf.layout_reader().map_err(|e| {
-                        DataFusionError::Execution(format!("Failed to create layout reader: {e}"))
-                    })?;
-                    vacant_entry.insert(Arc::downgrade(&reader));
+            let runtime = Runtime::default();
+            let handle = runtime.new_handle();
 
-                    reader
-                }
-            };
-
-            let mut scan_builder = ScanBuilder::new(layout_reader);
+            let mut scan_builder = ScanBuilder::new(vxf.layout_reader(&handle));
             if let Some(file_range) = file_meta.range {
                 scan_builder = apply_byte_range(
                     file_range,
@@ -253,7 +225,6 @@ fn byte_range_to_row_range(byte_range: Range<u64>, row_count: u64, total_size: u
 
 #[cfg(test)]
 mod tests {
-
     use chrono::Utc;
     use datafusion::arrow;
     use datafusion::arrow::array::RecordBatch;
@@ -267,8 +238,8 @@ mod tests {
     use datafusion::scalar::ScalarValue;
     use futures::stream::BoxStream;
     use itertools::Itertools;
-    use object_store::ObjectMeta;
     use object_store::memory::InMemory;
+    use object_store::ObjectMeta;
     use rstest::rstest;
     use vortex::arrow::FromArrowArray;
     use vortex::file::VortexWriteOptions;

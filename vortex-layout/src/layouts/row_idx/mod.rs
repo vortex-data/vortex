@@ -8,7 +8,6 @@ use std::fmt::{Display, Formatter};
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
-use Nullability::NonNullable;
 use async_trait::async_trait;
 use dashmap::DashMap;
 pub use expr::*;
@@ -17,11 +16,13 @@ use vortex_array::stats::Precision;
 use vortex_array::{ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldMask, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_expr::transform::{PartitionedExpr, partition, replace};
-use vortex_expr::{ExactExpr, ExprRef, Scope, is_root, root};
+use vortex_expr::transform::{partition, replace, PartitionedExpr};
+use vortex_expr::{is_root, root, ExactExpr, ExprRef, Scope};
+use vortex_io::runtime::Handle;
 use vortex_mask::Mask;
 use vortex_scalar::PValue;
 use vortex_sequence::SequenceArray;
+use Nullability::NonNullable;
 
 use crate::layouts::partitioned::{PartitionedArrayEvaluation, PartitionedMaskEvaluation};
 use crate::{
@@ -137,6 +138,7 @@ impl LayoutReader for RowIdxLayoutReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
+        handle: &Handle,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
         match &self.partition_expr(expr) {
             Partitioning::RowIdx(expr) => Ok(Box::new(RowIdxEvaluation::new(
@@ -144,7 +146,7 @@ impl LayoutReader for RowIdxLayoutReader {
                 row_range,
                 expr,
             ))),
-            Partitioning::Child(expr) => self.child.pruning_evaluation(row_range, expr),
+            Partitioning::Child(expr) => self.child.pruning_evaluation(row_range, expr, handle),
             Partitioning::Partitioned(..) => Ok(Box::new(NoOpPruningEvaluation)),
         }
     }
@@ -153,12 +155,13 @@ impl LayoutReader for RowIdxLayoutReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
+        handle: &Handle,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
         match &self.partition_expr(expr) {
             // Since this is run during pruning, we skip re-evaluating the row index expression
             // during the filter evaluation.
             Partitioning::RowIdx(_) => Ok(Box::new(NoOpMaskEvaluation)),
-            Partitioning::Child(expr) => self.child.filter_evaluation(row_range, expr),
+            Partitioning::Child(expr) => self.child.filter_evaluation(row_range, expr, handle),
             Partitioning::Partitioned(p) => Ok(Box::new(PartitionedMaskEvaluation::try_new(
                 p.clone(),
                 |annotation, expr| match annotation {
@@ -167,7 +170,7 @@ impl LayoutReader for RowIdxLayoutReader {
                         row_range,
                         expr,
                     ))),
-                    Partition::Child => self.child.filter_evaluation(row_range, expr),
+                    Partition::Child => self.child.filter_evaluation(row_range, expr, handle),
                 },
                 |annotation, expr| match annotation {
                     Partition::RowIdx => Ok(Box::new(RowIdxEvaluation::new(
@@ -175,7 +178,7 @@ impl LayoutReader for RowIdxLayoutReader {
                         row_range,
                         expr,
                     ))),
-                    Partition::Child => self.child.projection_evaluation(row_range, expr),
+                    Partition::Child => self.child.projection_evaluation(row_range, expr, handle),
                 },
             )?)),
         }
@@ -185,6 +188,7 @@ impl LayoutReader for RowIdxLayoutReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
+        handle: &Handle,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
         match &self.partition_expr(expr) {
             Partitioning::RowIdx(expr) => Ok(Box::new(RowIdxEvaluation::new(
@@ -192,7 +196,7 @@ impl LayoutReader for RowIdxLayoutReader {
                 row_range,
                 expr,
             ))),
-            Partitioning::Child(expr) => self.child.projection_evaluation(row_range, expr),
+            Partitioning::Child(expr) => self.child.projection_evaluation(row_range, expr, handle),
             Partitioning::Partitioned(p) => Ok(Box::new(PartitionedArrayEvaluation::try_new(
                 p.clone(),
                 |annotation, expr| match annotation {
@@ -201,7 +205,7 @@ impl LayoutReader for RowIdxLayoutReader {
                         row_range,
                         expr,
                     ))),
-                    Partition::Child => self.child.projection_evaluation(row_range, expr),
+                    Partition::Child => self.child.projection_evaluation(row_range, expr, handle),
                 },
             )?)),
         }
@@ -276,23 +280,23 @@ mod tests {
     use std::sync::Arc;
 
     use arrow_buffer::BooleanBuffer;
-    use futures::executor::block_on;
     use futures::stream;
     use itertools::Itertools;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::{ArrayContext, ToCanonical};
     use vortex_expr::{eq, gt, lit, or, root};
+    use vortex_io::runtime::Runtime;
     use vortex_mask::Mask;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::layouts::row_idx::{RowIdxLayoutReader, row_idx};
+    use crate::layouts::row_idx::{row_idx, RowIdxLayoutReader};
     use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
     use crate::{LayoutReader, LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt};
 
     #[test]
     fn flat_expr_no_row_id() {
-        block_on(async {
+        Runtime::oneshot(move |handle| async move {
             let ctx = ArrayContext::empty();
             let segments = TestSegments::default();
             let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
@@ -315,7 +319,7 @@ mod tests {
             let expr = eq(root(), lit(3i32));
             let result =
                 RowIdxLayoutReader::new(0, layout.new_reader("".into(), segments).unwrap())
-                    .projection_evaluation(&(0..layout.row_count()), &expr)
+                    .projection_evaluation(&(0..layout.row_count()), &expr, &handle)
                     .unwrap()
                     .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                     .await
@@ -332,7 +336,7 @@ mod tests {
 
     #[test]
     fn flat_expr_row_id() {
-        block_on(async {
+        Runtime::oneshot(|handle| async move {
             let ctx = ArrayContext::empty();
             let segments = TestSegments::default();
             let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
@@ -355,7 +359,7 @@ mod tests {
             let expr = gt(row_idx(), lit(3u64));
             let result =
                 RowIdxLayoutReader::new(0, layout.new_reader("".into(), segments).unwrap())
-                    .projection_evaluation(&(0..layout.row_count()), &expr)
+                    .projection_evaluation(&(0..layout.row_count()), &expr, &handle)
                     .unwrap()
                     .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                     .await
@@ -372,7 +376,7 @@ mod tests {
 
     #[test]
     fn flat_expr_or() {
-        block_on(async {
+        Runtime::oneshot(|handle| async move {
             let ctx = ArrayContext::empty();
             let segments = TestSegments::default();
             let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
@@ -399,7 +403,7 @@ mod tests {
 
             let result =
                 RowIdxLayoutReader::new(0, layout.new_reader("".into(), segments).unwrap())
-                    .projection_evaluation(&(0..layout.row_count()), &expr)
+                    .projection_evaluation(&(0..layout.row_count()), &expr, &handle)
                     .unwrap()
                     .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                     .await

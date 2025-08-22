@@ -35,11 +35,8 @@ use crate::segments::FileSegmentSource;
 pub struct VortexFile {
     /// The footer of the Vortex file, containing metadata and layout information.
     pub(crate) footer: Footer,
-    /// The IoSource that backs this file. We cannot read from the source until it is bound to
-    /// a runtime.
+    /// The segment source used for reading segments from the file.
     pub(crate) io_source: Arc<dyn IoSource>,
-    /// The segment source used to read segments from this file.
-    pub(crate) segment_source: Arc<dyn SegmentSource>,
     /// Metrics tied to the file.
     pub(crate) metrics: VortexMetrics,
 }
@@ -73,14 +70,7 @@ impl VortexFile {
     }
 
     /// Create a new segment source for reading from the file.
-    ///
-    /// This may spawn a background I/O driver that will exit when the returned segment source
-    /// is dropped.
-    pub fn segment_source(&self) -> Arc<dyn SegmentSource> {
-        self.segment_source.clone()
-    }
-
-    pub fn segment_source2(&self, handle: &Handle) -> Arc<dyn SegmentSource> {
+    pub fn segment_source(&self, handle: &Handle) -> Arc<dyn SegmentSource> {
         Arc::new(FileSegmentSource::new(
             self.footer.segment_map().clone(),
             self.io_source.open(handle),
@@ -88,17 +78,17 @@ impl VortexFile {
     }
 
     /// Create a new layout reader for the file.
-    pub fn layout_reader(&self) -> VortexResult<Arc<dyn LayoutReader>> {
-        let segment_source = self.segment_source();
+    pub fn layout_reader(&self, handle: &Handle) -> VortexResult<Arc<dyn LayoutReader>> {
         self.footer
             .layout()
             // TODO(ngates): we may want to allow the user pass in a name here?
-            .new_reader("".into(), segment_source)
+            .new_reader("".into(), self.segment_source(handle))
     }
 
     /// Initiate a scan of the file, returning a builder for configuring the scan.
-    pub fn scan(&self) -> VortexResult<ScanBuilder<ArrayRef>> {
-        Ok(ScanBuilder::new(self.layout_reader()?).with_metrics(self.metrics.clone()))
+    // TODO(ngates): can we defer passing the handle until Scan::build?
+    pub fn scan(&self, handle: &Handle) -> VortexResult<ScanBuilder<ArrayRef>> {
+        Ok(ScanBuilder::new(self.layout_reader(handle)?).with_metrics(self.metrics.clone()))
     }
 
     /// Returns true if the expression will never match any rows in the file.

@@ -7,14 +7,15 @@ use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
 use dashmap::DashMap;
-use futures::{FutureExt, join};
-use vortex_array::ArrayRef;
-use vortex_array::compute::{MinMaxResult, min_max};
+use futures::{join, FutureExt};
+use vortex_array::compute::{min_max, MinMaxResult};
 use vortex_array::stats::Precision;
+use vortex_array::ArrayRef;
 use vortex_dict::DictArray;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_expr::{ExprRef, Scope, root};
+use vortex_expr::{root, ExprRef, Scope};
+use vortex_io::runtime::Handle;
 use vortex_mask::Mask;
 
 use super::DictLayout;
@@ -66,7 +67,7 @@ impl DictReader {
         })
     }
 
-    fn values_array(&self) -> SharedArrayFuture {
+    fn values_array(&self, handle: &Handle) -> SharedArrayFuture {
         // We capture the name, so it may be wrong if we re-use the same reader within multiple
         // different parent readers. But that's rare...
         let values_len = self.values_len;
@@ -74,7 +75,7 @@ impl DictReader {
             .get_or_init(move || {
                 let eval = self
                     .values
-                    .projection_evaluation(&(0..values_len as u64), &root())
+                    .projection_evaluation(&(0..values_len as u64), &root(), handle)
                     .vortex_expect("must construct dict values array evaluation");
 
                 async move {
@@ -88,11 +89,11 @@ impl DictReader {
             .clone()
     }
 
-    fn values_eval(&self, expr: ExprRef) -> SharedArrayFuture {
+    fn values_eval(&self, expr: ExprRef, handle: &Handle) -> SharedArrayFuture {
         self.values_evals
             .entry(expr.clone())
             .or_insert_with(|| {
-                self.values_array()
+                self.values_array(handle)
                     .map(move |array| expr.evaluate(&Scope::new(array?)).map_err(Arc::new))
                     .boxed()
                     .shared()
@@ -127,6 +128,7 @@ impl LayoutReader for DictReader {
         &self,
         _row_range: &Range<u64>,
         _expr: &ExprRef,
+        _handle: &Handle,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
         // NOTE: we can get the values here, convert expression to the codes domain, and push down
         // to the codes child. We don't do that here because:
@@ -139,13 +141,16 @@ impl LayoutReader for DictReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
+        handle: &Handle,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
-        let values_eval = self.values_eval(expr.clone());
+        let values_eval = self.values_eval(expr.clone(), handle);
 
         // We register interest on the entire codes row_range for now, there
         // is no straightforward shift into the codes domain we can do to the expression
         // without reading values.
-        let codes_eval = self.codes.projection_evaluation(row_range, &root())?;
+        let codes_eval = self
+            .codes
+            .projection_evaluation(row_range, &root(), handle)?;
 
         Ok(Box::new(DictMaskEvaluation {
             values_eval,
@@ -157,9 +162,12 @@ impl LayoutReader for DictReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
+        handle: &Handle,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
-        let values_eval = self.values_eval(root());
-        let codes_eval = self.codes.projection_evaluation(row_range, &root())?;
+        let values_eval = self.values_eval(root(), handle);
+        let codes_eval = self
+            .codes
+            .projection_evaluation(row_range, &root(), handle)?;
         Ok(Box::new(DictArrayEvaluation {
             values_eval,
             codes_eval,
@@ -240,6 +248,7 @@ mod tests {
     use vortex_array::{ArrayContext, IntoArray as _};
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
     use vortex_expr::{is_null, not, pack, root};
+    use vortex_io::runtime::Runtime;
     use vortex_mask::Mask;
 
     use crate::layouts::dict::writer::{DictLayoutOptions, DictStrategy};
@@ -251,86 +260,88 @@ mod tests {
         SequentialStreamExt,
     };
 
-    #[tokio::test]
-    async fn reading_nested_packs_works() {
-        let strategy = DictStrategy::new(
-            FlatLayoutStrategy::default(),
-            FlatLayoutStrategy::default(),
-            FlatLayoutStrategy::default(),
-            DictLayoutOptions::default(),
-            Arc::new(LocalExecutor),
-        );
+    #[test]
+    fn reading_nested_packs_works() {
+        Runtime::oneshot(|handle| async move {
+            let strategy = DictStrategy::new(
+                FlatLayoutStrategy::default(),
+                FlatLayoutStrategy::default(),
+                FlatLayoutStrategy::default(),
+                DictLayoutOptions::default(),
+                Arc::new(LocalExecutor),
+            );
 
-        let array = VarBinArray::from_iter(
-            [
-                Some("abc"),
-                Some("def"),
-                None,
-                Some("abc"),
-                Some("def"),
-                None,
-                Some("abc"),
-                Some("def"),
-                None,
-            ],
-            DType::Utf8(Nullability::Nullable),
-        )
-        .to_array();
-        let array_to_write = array.clone();
-        let ctx = ArrayContext::empty();
-        let segments = TestSegments::default();
-        let layout: LayoutRef = block_on(
-            strategy.write_stream(
-                &ctx,
-                SequenceWriter::new(Box::new(segments.clone())),
-                SequentialStreamAdapter::new(
-                    DType::Utf8(Nullability::Nullable),
-                    stream::once(
-                        async move { Ok((SequenceId::root().downgrade(), array_to_write)) },
-                    ),
-                )
-                .sendable(),
-            ),
-        )
-        .unwrap();
-
-        let expression = pack(
-            [(
-                "top",
-                pack([("one", root()), ("two", root())], Nullability::NonNullable),
-            )],
-            Nullability::NonNullable,
-        );
-        assert!(layout.encoding_id() == LayoutId::new_ref("vortex.dict"));
-        let actual = layout
-            .new_reader("".into(), Arc::from(segments))
-            .unwrap()
-            .projection_evaluation(&(0..layout.row_count()), &expression)
-            .unwrap()
-            .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
-            .await
+            let array = VarBinArray::from_iter(
+                [
+                    Some("abc"),
+                    Some("def"),
+                    None,
+                    Some("abc"),
+                    Some("def"),
+                    None,
+                    Some("abc"),
+                    Some("def"),
+                    None,
+                ],
+                DType::Utf8(Nullability::Nullable),
+            )
+            .to_array();
+            let array_to_write = array.clone();
+            let ctx = ArrayContext::empty();
+            let segments = TestSegments::default();
+            let layout: LayoutRef = block_on(
+                strategy.write_stream(
+                    &ctx,
+                    SequenceWriter::new(Box::new(segments.clone())),
+                    SequentialStreamAdapter::new(
+                        DType::Utf8(Nullability::Nullable),
+                        stream::once(async move {
+                            Ok((SequenceId::root().downgrade(), array_to_write))
+                        }),
+                    )
+                    .sendable(),
+                ),
+            )
             .unwrap();
-        let expected = StructArray::try_new(
-            FieldNames::from([FieldName::from("top")]),
-            vec![
-                StructArray::try_new(
-                    FieldNames::from([FieldName::from("one"), FieldName::from("two")]),
-                    vec![array.clone(), array],
-                    9,
-                    Validity::NonNullable,
-                )
+
+            let expression = pack(
+                [(
+                    "top",
+                    pack([("one", root()), ("two", root())], Nullability::NonNullable),
+                )],
+                Nullability::NonNullable,
+            );
+            assert!(layout.encoding_id() == LayoutId::new_ref("vortex.dict"));
+            let actual = layout
+                .new_reader("".into(), Arc::from(segments))
                 .unwrap()
-                .into_array(),
-            ],
-            9,
-            Validity::NonNullable,
-        )
-        .unwrap()
-        .into_array();
-        let actual = actual.into_arrow_preferred().unwrap();
-        let expected = expected.into_arrow_preferred().unwrap();
-        assert_eq!(actual.data_type(), expected.data_type());
-        assert_eq!(&actual, &expected);
+                .projection_evaluation(&(0..layout.row_count()), &expression, &handle)
+                .unwrap()
+                .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
+                .await
+                .unwrap();
+            let expected = StructArray::try_new(
+                FieldNames::from([FieldName::from("top")]),
+                vec![
+                    StructArray::try_new(
+                        FieldNames::from([FieldName::from("one"), FieldName::from("two")]),
+                        vec![array.clone(), array],
+                        9,
+                        Validity::NonNullable,
+                    )
+                    .unwrap()
+                    .into_array(),
+                ],
+                9,
+                Validity::NonNullable,
+            )
+            .unwrap()
+            .into_array();
+            let actual = actual.into_arrow_preferred().unwrap();
+            let expected = expected.into_arrow_preferred().unwrap();
+            assert_eq!(actual.data_type(), expected.data_type());
+            assert_eq!(&actual, &expected);
+        })
     }
 
     #[rstest]
@@ -382,14 +393,16 @@ mod tests {
                 Nullability::Nullable,
             )),
         );
-        let mask = layout
-            .new_reader("".into(), Arc::from(segments))
-            .unwrap()
-            .filter_evaluation(&(0..3), &filter)
-            .unwrap()
-            .invoke(Mask::new_true(3))
-            .await
-            .unwrap();
+        let mask = Runtime::oneshot(|handle| async move {
+            layout
+                .new_reader("".into(), Arc::from(segments))
+                .unwrap()
+                .filter_evaluation(&(0..3), &filter, &handle)
+                .unwrap()
+                .invoke(Mask::new_true(3))
+                .await
+                .unwrap()
+        });
 
         assert_eq!(
             mask.to_boolean_buffer().iter().collect::<Vec<_>>(),
@@ -397,63 +410,65 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn reading_is_null_works() {
-        let strategy = DictStrategy::new(
-            FlatLayoutStrategy::default(),
-            FlatLayoutStrategy::default(),
-            FlatLayoutStrategy::default(),
-            DictLayoutOptions::default(),
-            Arc::new(LocalExecutor),
-        );
+    #[test]
+    fn reading_is_null_works() {
+        Runtime::oneshot(|handle| async move {
+            let strategy = DictStrategy::new(
+                FlatLayoutStrategy::default(),
+                FlatLayoutStrategy::default(),
+                FlatLayoutStrategy::default(),
+                DictLayoutOptions::default(),
+                Arc::new(LocalExecutor),
+            );
 
-        let array = VarBinArray::from_iter(
-            [
-                Some("abc"),
-                Some("def"),
-                None,
-                Some("abc"),
-                Some("def"),
-                None,
-                Some("abc"),
-                Some("def"),
-                None,
-            ],
-            DType::Utf8(Nullability::Nullable),
-        )
-        .to_array();
-        let array_to_write = array.clone();
-        let ctx = ArrayContext::empty();
-        let segments = TestSegments::default();
-        let layout: LayoutRef = block_on(
-            strategy.write_stream(
-                &ctx,
-                SequenceWriter::new(Box::new(segments.clone())),
-                SequentialStreamAdapter::new(
-                    DType::Utf8(Nullability::Nullable),
-                    stream::once(
-                        async move { Ok((SequenceId::root().downgrade(), array_to_write)) },
-                    ),
-                )
-                .sendable(),
-            ),
-        )
-        .unwrap();
-
-        let expression = not(is_null(root())); // easier to test not_is_null b/c that's the validity array
-        assert!(layout.encoding_id() == LayoutId::new_ref("vortex.dict"));
-        let actual = layout
-            .new_reader("".into(), Arc::from(segments))
-            .unwrap()
-            .projection_evaluation(&(0..layout.row_count()), &expression)
-            .unwrap()
-            .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
-            .await
+            let array = VarBinArray::from_iter(
+                [
+                    Some("abc"),
+                    Some("def"),
+                    None,
+                    Some("abc"),
+                    Some("def"),
+                    None,
+                    Some("abc"),
+                    Some("def"),
+                    None,
+                ],
+                DType::Utf8(Nullability::Nullable),
+            )
+            .to_array();
+            let array_to_write = array.clone();
+            let ctx = ArrayContext::empty();
+            let segments = TestSegments::default();
+            let layout: LayoutRef = block_on(
+                strategy.write_stream(
+                    &ctx,
+                    SequenceWriter::new(Box::new(segments.clone())),
+                    SequentialStreamAdapter::new(
+                        DType::Utf8(Nullability::Nullable),
+                        stream::once(async move {
+                            Ok((SequenceId::root().downgrade(), array_to_write))
+                        }),
+                    )
+                    .sendable(),
+                ),
+            )
             .unwrap();
-        let expected = array.validity_mask().unwrap().into_array();
-        let actual = actual.into_arrow_preferred().unwrap();
-        let expected = expected.into_arrow_preferred().unwrap();
-        assert_eq!(actual.data_type(), expected.data_type());
-        assert_eq!(&actual, &expected);
+
+            let expression = not(is_null(root())); // easier to test not_is_null b/c that's the validity array
+            assert!(layout.encoding_id() == LayoutId::new_ref("vortex.dict"));
+            let actual = layout
+                .new_reader("".into(), Arc::from(segments))
+                .unwrap()
+                .projection_evaluation(&(0..layout.row_count()), &expression, &handle)
+                .unwrap()
+                .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
+                .await
+                .unwrap();
+            let expected = array.validity_mask().unwrap().into_array();
+            let actual = actual.into_arrow_preferred().unwrap();
+            let expected = expected.into_arrow_preferred().unwrap();
+            assert_eq!(actual.data_type(), expected.data_type());
+            assert_eq!(&actual, &expected);
+        });
     }
 }

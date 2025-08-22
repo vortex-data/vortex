@@ -9,12 +9,13 @@ use dashmap::DashMap;
 use itertools::Itertools;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_expr::transform::immediate_access::annotate_scope_access;
 use vortex_expr::transform::{
-    PartitionedExpr, partition, replace, replace_root_fields, simplify_typed,
+    partition, replace, replace_root_fields, simplify_typed, PartitionedExpr,
 };
-use vortex_expr::{ExactExpr, ExprRef, col, root};
+use vortex_expr::{col, root, ExactExpr, ExprRef};
+use vortex_io::runtime::Handle;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::layouts::partitioned::{PartitionedArrayEvaluation, PartitionedMaskEvaluation};
@@ -193,12 +194,13 @@ impl LayoutReader for StructReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
+        handle: &Handle,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
         // Partition the expression into expressions that can be evaluated over individual fields
         match &self.partition_expr(expr.clone()) {
-            Partitioned::Single(name, partition) => {
-                self.child(name)?.pruning_evaluation(row_range, partition)
-            }
+            Partitioned::Single(name, partition) => self
+                .child(name)?
+                .pruning_evaluation(row_range, partition, handle),
             Partitioned::Multi(_) => {
                 // TODO(ngates): if all partitions are boolean, we can use a pruning evaluation. Otherwise
                 //  there's not much we can do? Maybe... it's complicated...
@@ -211,16 +213,20 @@ impl LayoutReader for StructReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
+        handle: &Handle,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
         // Partition the expression into expressions that can be evaluated over individual fields
         match &self.partition_expr(expr.clone()) {
-            Partitioned::Single(name, partition) => {
-                self.child(name)?.filter_evaluation(row_range, partition)
-            }
+            Partitioned::Single(name, partition) => self
+                .child(name)?
+                .filter_evaluation(row_range, partition, handle),
             Partitioned::Multi(partitioned) => Ok(Box::new(PartitionedMaskEvaluation::try_new(
                 partitioned.clone(),
-                |name, expr| self.child(name)?.filter_evaluation(row_range, expr),
-                |name, expr| self.child(name)?.projection_evaluation(row_range, expr),
+                |name, expr| self.child(name)?.filter_evaluation(row_range, expr, handle),
+                |name, expr| {
+                    self.child(name)?
+                        .projection_evaluation(row_range, expr, handle)
+                },
             )?)),
         }
     }
@@ -229,15 +235,19 @@ impl LayoutReader for StructReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
+        handle: &Handle,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
         // Partition the expression into expressions that can be evaluated over individual fields
         match &self.partition_expr(expr.clone()) {
             Partitioned::Single(name, partition) => self
                 .child(name)?
-                .projection_evaluation(row_range, partition),
+                .projection_evaluation(row_range, partition, handle),
             Partitioned::Multi(partitioned) => Ok(Box::new(PartitionedArrayEvaluation::try_new(
                 partitioned.clone(),
-                |name, expr| self.child(name)?.projection_evaluation(row_range, expr),
+                |name, expr| {
+                    self.child(name)?
+                        .projection_evaluation(row_range, expr, handle)
+                },
             )?)),
         }
     }
@@ -258,6 +268,7 @@ mod tests {
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, StructFields};
     use vortex_expr::{col, eq, get_item, gt, lit, or, pack, root};
+    use vortex_io::runtime::Runtime;
     use vortex_mask::Mask;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
@@ -318,12 +329,13 @@ mod tests {
             eq(col("a"), lit(7)),
             or(eq(col("b"), lit(5)), eq(col("a"), lit(3))),
         );
-        let result = block_on(
+        let result = Runtime::oneshot(|handle| async move {
             reader
-                .filter_evaluation(&(0..3), &filt)
+                .filter_evaluation(&(0..3), &filt, &handle)
                 .unwrap()
-                .invoke(Mask::new_true(3)),
-        )
+                .invoke(Mask::new_true(3))
+                .await
+        })
         .unwrap();
         assert_eq!(
             vec![true, true, true],
@@ -337,12 +349,13 @@ mod tests {
     ) {
         let reader = layout.new_reader("".into(), segments).unwrap();
         let expr = gt(get_item("a", root()), get_item("b", root()));
-        let result = block_on(
+        let result = Runtime::oneshot(|handle| async move {
             reader
-                .projection_evaluation(&(0..3), &expr)
+                .projection_evaluation(&(0..3), &expr, &handle)
                 .unwrap()
-                .invoke(Mask::new_true(3)),
-        )
+                .invoke(Mask::new_true(3))
+                .await
+        })
         .unwrap();
         assert_eq!(
             vec![true, false, false],
@@ -361,12 +374,13 @@ mod tests {
     ) {
         let reader = layout.new_reader("".into(), segments).unwrap();
         let expr = gt(get_item("a", root()), get_item("b", root()));
-        let result = block_on(
+        let result = Runtime::oneshot(|handle| async move {
             reader
-                .projection_evaluation(&(0..3), &expr)
+                .projection_evaluation(&(0..3), &expr, &handle)
                 .unwrap()
-                .invoke(Mask::from_iter([true, true, false])),
-        )
+                .invoke(Mask::from_iter([true, true, false]))
+                .await
+        })
         .unwrap();
 
         assert_eq!(result.len(), 2);
@@ -391,13 +405,14 @@ mod tests {
             [("a", get_item("a", root())), ("b", get_item("b", root()))],
             NonNullable,
         );
-        let result = block_on(
+        let result = Runtime::oneshot(|handle| async move {
             reader
-                .projection_evaluation(&(0..3), &expr)
+                .projection_evaluation(&(0..3), &expr, &handle)
                 .unwrap()
                 // Take rows 0 and 1, skip row 2, and anything after that
-                .invoke(Mask::from_iter([true, true, false])),
-        )
+                .invoke(Mask::from_iter([true, true, false]))
+                .await
+        })
         .unwrap();
 
         assert_eq!(result.len(), 2);

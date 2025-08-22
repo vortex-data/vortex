@@ -148,7 +148,6 @@ impl VortexOpenOptions<GenericVortexFile> {
         Ok(VortexFile {
             footer,
             io_source,
-            segment_source,
             metrics: self.metrics,
         })
     }
@@ -279,6 +278,7 @@ impl VortexOpenOptions<GenericVortexFile> {
         mut self,
         object_store: &Arc<dyn object_store::ObjectStore>,
         path: &str,
+        handle: &Handle,
     ) -> VortexResult<VortexFile> {
         use std::path::Path;
 
@@ -294,10 +294,13 @@ impl VortexOpenOptions<GenericVortexFile> {
         let local_path = Path::new("/").join(path);
         if local_path.exists() {
             // Local disk is too fast to justify prefetching.
-            self.open(local_path).await
+            self.open(local_path, handle).await
         } else {
-            self.open_read_at(ObjectStoreIo::new(object_store.clone(), path.into()))
-                .await
+            self.open_read_at(
+                ObjectStoreIo::new(object_store.clone(), path.into()),
+                handle,
+            )
+            .await
         }
     }
 }

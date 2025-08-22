@@ -45,6 +45,7 @@ impl Default for Runtime {
 
 impl Runtime {
     /// Create a new [`Handle`] for spawning work onto this [`Runtime`].
+    // FIXME(ngates): we could hold a Handle on self, and return a cloneable reference?
     pub fn new_handle(&self) -> Handle {
         Handle {
             executor: self.executor.clone(),

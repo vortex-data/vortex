@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use humansize::{DECIMAL, make_format};
+use humansize::{make_format, DECIMAL};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Style, Stylize};
@@ -16,8 +16,8 @@ use vortex::layout::layouts::zoned::ZonedVTable;
 use vortex::mask::Mask;
 use vortex::{Array, ArrayRef, ToCanonical};
 
-use crate::TOKIO_RUNTIME;
 use crate::browse::app::{AppState, LayoutCursor};
+use crate::TOKIO_RUNTIME;
 
 /// Render the Layouts tab.
 pub fn render_layouts(app_state: &mut AppState, area: Rect, buf: &mut Buffer) {

@@ -4,18 +4,18 @@
 use std::fmt::{Debug, Formatter};
 use std::pin::Pin;
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, atomic};
+use std::sync::{atomic, Arc};
 use std::task::{Context, Poll};
 
+use crate::segments::{SegmentFuture, SegmentId, SegmentSource};
 use dashmap::{DashMap, Entry};
 use futures::channel::{mpsc, oneshot};
 use futures::future::{BoxFuture, Shared, WeakShared};
 use futures::stream::BoxStream;
 use futures::{FutureExt, StreamExt, TryFutureExt};
 use vortex_buffer::ByteBuffer;
-use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult, vortex_err};
-
-use crate::segments::{SegmentFuture, SegmentId, SegmentSource};
+use vortex_error::{vortex_err, SharedVortexResult, VortexError, VortexExpect, VortexResult};
+use vortex_io::runtime::Handle;
 
 /// A utility for turning a [`SegmentSource`] into a stream of [`SegmentEvent`]s.
 ///
@@ -131,7 +131,7 @@ struct EventsSegmentSource {
 }
 
 impl SegmentSource for EventsSegmentSource {
-    fn request(&self, id: SegmentId) -> SegmentFuture {
+    fn request(&self, id: SegmentId, _handle: &Handle) -> SegmentFuture {
         self.events
             .clone()
             .segment_future(id)

@@ -6,14 +6,15 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::FutureExt;
 use futures::future::{BoxFuture, Shared};
+use futures::FutureExt;
 use once_cell::sync::OnceCell;
-use vortex_array::ArrayRef;
 use vortex_array::stats::Precision;
+use vortex_array::ArrayRef;
 use vortex_dtype::{DType, FieldMask};
-use vortex_error::{SharedVortexResult, VortexError, VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, SharedVortexResult, VortexError, VortexResult};
 use vortex_expr::ExprRef;
+use vortex_io::runtime::Handle;
 use vortex_mask::Mask;
 
 use crate::children::LayoutChildren;
@@ -48,6 +49,7 @@ pub trait LayoutReader: 'static + Send + Sync {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
+        handle: &Handle,
     ) -> VortexResult<Box<dyn PruningEvaluation>>;
 
     /// Performs an exact evaluation of the expression against the layout reader.
@@ -55,6 +57,7 @@ pub trait LayoutReader: 'static + Send + Sync {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
+        handle: &Handle,
     ) -> VortexResult<Box<dyn MaskEvaluation>>;
 
     /// Evaluates the expression against the layout.
@@ -62,6 +65,7 @@ pub trait LayoutReader: 'static + Send + Sync {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
+        handle: &Handle,
     ) -> VortexResult<Box<dyn ArrayEvaluation>>;
 }
 

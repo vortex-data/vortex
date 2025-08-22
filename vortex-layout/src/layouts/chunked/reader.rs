@@ -10,12 +10,13 @@ use futures::future::ready;
 use futures::stream::FuturesOrdered;
 use futures::{FutureExt, TryStreamExt};
 use itertools::Itertools;
-use vortex_array::ArrayRef;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::stats::Precision;
+use vortex_array::ArrayRef;
 use vortex_dtype::{DType, FieldMask};
-use vortex_error::{VortexExpect, VortexResult, vortex_panic};
+use vortex_error::{vortex_panic, VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
+use vortex_io::runtime::Handle;
 use vortex_mask::Mask;
 
 use crate::layouts::chunked::ChunkedLayout;
@@ -171,13 +172,14 @@ impl LayoutReader for ChunkedReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
+        handle: &Handle,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
         let mut chunk_evals = vec![];
         let mut mask_ranges = vec![];
 
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
             let chunk_reader = self.chunk_reader(chunk_idx)?;
-            let chunk_eval = chunk_reader.pruning_evaluation(&chunk_range, expr)?;
+            let chunk_eval = chunk_reader.pruning_evaluation(&chunk_range, expr, handle)?;
             chunk_evals.push(chunk_eval);
             mask_ranges.push(mask_range);
         }
@@ -193,13 +195,14 @@ impl LayoutReader for ChunkedReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
+        handle: &Handle,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
         let mut chunk_evals = vec![];
         let mut mask_ranges = vec![];
 
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
             let chunk_reader = self.chunk_reader(chunk_idx)?;
-            let chunk_eval = chunk_reader.filter_evaluation(&chunk_range, expr)?;
+            let chunk_eval = chunk_reader.filter_evaluation(&chunk_range, expr, handle)?;
             chunk_evals.push(chunk_eval);
             mask_ranges.push(mask_range);
         }
@@ -215,6 +218,7 @@ impl LayoutReader for ChunkedReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
+        handle: &Handle,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
         let dtype = expr.return_dtype(self.dtype())?;
         let mut chunk_evals = vec![];
@@ -222,7 +226,7 @@ impl LayoutReader for ChunkedReader {
 
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
             let chunk_reader = self.chunk_reader(chunk_idx)?;
-            let chunk_eval = chunk_reader.projection_evaluation(&chunk_range, expr)?;
+            let chunk_eval = chunk_reader.projection_evaluation(&chunk_range, expr, handle)?;
             chunk_evals.push(chunk_eval);
             mask_ranges.push(mask_range);
         }
@@ -364,6 +368,7 @@ mod test {
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, PType};
     use vortex_expr::root;
+    use vortex_io::runtime::Runtime;
     use vortex_mask::Mask;
 
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
@@ -404,11 +409,11 @@ mod test {
     fn test_chunked_evaluator(
         #[from(chunked_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        block_on(async {
+        Runtime::oneshot(|handle| async move {
             let result = layout
                 .new_reader("".into(), segments)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &root())
+                .projection_evaluation(&(0..layout.row_count()), &root(), &handle)
                 .unwrap()
                 .invoke(Mask::new_true(usize::try_from(layout.row_count()).unwrap()))
                 .await

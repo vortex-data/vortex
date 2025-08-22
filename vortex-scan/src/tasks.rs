@@ -7,17 +7,18 @@ use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
 use bit_vec::BitVec;
+use futures::future::{ok, BoxFuture};
 use futures::FutureExt;
-use futures::future::{BoxFuture, ok};
 use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_error::{VortexError, VortexResult};
 use vortex_expr::ExprRef;
+use vortex_io::runtime::Handle;
 use vortex_layout::LayoutReader;
 use vortex_mask::Mask;
 
-use crate::Selection;
 use crate::filter::FilterExpr;
+use crate::Selection;
 
 pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 
@@ -194,6 +195,7 @@ pub(super) fn split_exec<A: 'static + Send>(
 
 /// Information needed to execute a single split task.
 pub(super) struct TaskContext<A> {
+    pub(super) handle: Handle,
     /// A caller-provided range of the file to read. All tasks should intersect their reads
     /// with this range to ensure that they are split as well.
     pub(super) row_range: Option<Range<u64>>,

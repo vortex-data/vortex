@@ -3,13 +3,13 @@
 
 use std::sync::Arc;
 
+use crate::segments::sink::SegmentWriter;
+use crate::segments::{SegmentFuture, SegmentId, SegmentSource};
 use futures::FutureExt;
 use parking_lot::Mutex;
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
-use vortex_error::{VortexResult, vortex_err};
-
-use crate::segments::sink::SegmentWriter;
-use crate::segments::{SegmentFuture, SegmentId, SegmentSource};
+use vortex_error::{vortex_err, VortexResult};
+use vortex_io::runtime::Handle;
 
 /// A dummy in-memory implementation of a segment reader and writer.
 #[derive(Default, Clone)]
@@ -18,7 +18,7 @@ pub struct TestSegments {
 }
 
 impl SegmentSource for TestSegments {
-    fn request(&self, id: SegmentId) -> SegmentFuture {
+    fn request(&self, id: SegmentId, _handle: &Handle) -> SegmentFuture {
         let buffer = self.segments.lock().get(*id as usize).cloned();
         async move { buffer.ok_or_else(|| vortex_err!("Segment not found")) }.boxed()
     }

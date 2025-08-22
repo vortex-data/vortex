@@ -12,7 +12,7 @@ use std::sync::Arc;
 impl Runtime {
     /// Returns a worker pool that can be used to drive the Runtime and in the process emit
     /// items from the stream.
-    pub fn into_worker_pool<T>(
+    pub fn drive_stream_on_pool<T>(
         self,
         _stream: impl Stream<Item = impl Future<Output = T>>,
     ) -> WorkerPool<T> {

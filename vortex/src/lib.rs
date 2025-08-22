@@ -11,7 +11,7 @@ pub use vortex_array::*;
 pub use vortex_file as file;
 pub use {
     vortex_buffer as buffer, vortex_dtype as dtype, vortex_error as error, vortex_expr as expr,
-    vortex_flatbuffers as flatbuffers, vortex_ipc as ipc, vortex_layout as layout,
+    vortex_flatbuffers as flatbuffers, vortex_io as io, vortex_ipc as ipc, vortex_layout as layout,
     vortex_mask as mask, vortex_metrics as metrics, vortex_proto as proto, vortex_scalar as scalar,
     vortex_scan as scan, vortex_utils as utils,
 };

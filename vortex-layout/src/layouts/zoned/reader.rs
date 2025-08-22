@@ -12,17 +12,18 @@ use futures::future::{BoxFuture, Shared};
 use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
 use parking_lot::RwLock;
-use vortex_array::ToCanonical;
 use vortex_array::stats::Precision;
+use vortex_array::ToCanonical;
 use vortex_dtype::{DType, FieldMask, FieldPath, FieldPathSet};
 use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
 use vortex_expr::dynamic::DynamicExprUpdates;
 use vortex_expr::pruning::checked_pruning_expr;
-use vortex_expr::{ExprRef, root};
+use vortex_expr::{root, ExprRef};
+use vortex_io::runtime::Handle;
 use vortex_mask::Mask;
 
-use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::ZoneMap;
+use crate::layouts::zoned::ZonedLayout;
 use crate::segments::SegmentSource;
 use crate::{ArrayEvaluation, LayoutReader, MaskEvaluation, PruningEvaluation};
 
@@ -95,7 +96,7 @@ impl ZonedReader {
     ///
     /// Only the first successful caller will initialize the zone map, all other callers will
     /// resolve to the same result.
-    fn zone_map(&self) -> SharedZoneMap {
+    fn zone_map(&self, handle: &Handle) -> SharedZoneMap {
         self.zone_map
             .get_or_init(move || {
                 let nzones = self.layout.nzones();
@@ -103,7 +104,7 @@ impl ZonedReader {
 
                 let zones_eval = self
                     .zones_child
-                    .projection_evaluation(&(0..nzones as u64), &root())
+                    .projection_evaluation(&(0..nzones as u64), &root(), handle)
                     .vortex_expect("Failed construct zone map evaluation");
 
                 async move {
@@ -122,7 +123,7 @@ impl ZonedReader {
     }
 
     /// Returns a pruning mask where `true` means the chunk _can be pruned_.
-    fn pruning_mask_future(&self, expr: ExprRef) -> Option<SharedPruningResult> {
+    fn pruning_mask_future(&self, expr: ExprRef, handle: &Handle) -> Option<SharedPruningResult> {
         self.pruning_result
             .entry(expr.clone())
             .or_insert_with(|| match self.pruning_predicate(expr.clone()) {
@@ -132,7 +133,7 @@ impl ZonedReader {
                 }
                 Some(predicate) => {
                     log::debug!("Constructed pruning predicate for expr: {expr}: {predicate:?}");
-                    let zone_map = self.zone_map();
+                    let zone_map = self.zone_map(handle);
                     let dynamic_updates = DynamicExprUpdates::new(&expr);
 
                     Some(
@@ -199,11 +200,14 @@ impl LayoutReader for ZonedReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
+        handle: &Handle,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
         log::debug!("Stats pruning evaluation: {} - {}", &self.name, expr);
-        let data_eval = self.data_child.pruning_evaluation(row_range, expr)?;
+        let data_eval = self
+            .data_child
+            .pruning_evaluation(row_range, expr, handle)?;
 
-        let Some(pruning_mask_future) = self.pruning_mask_future(expr.clone()) else {
+        let Some(pruning_mask_future) = self.pruning_mask_future(expr.clone(), handle) else {
             log::debug!("Stats pruning evaluation: not prune-able {expr}");
             return Ok(data_eval);
         };
@@ -241,18 +245,21 @@ impl LayoutReader for ZonedReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
+        handle: &Handle,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
-        self.data_child.filter_evaluation(row_range, expr)
+        self.data_child.filter_evaluation(row_range, expr, handle)
     }
 
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
+        handle: &Handle,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
         // TODO(ngates): there are some projection expressions that we may also be able to
         //  short-circuit with statistics.
-        self.data_child.projection_evaluation(row_range, expr)
+        self.data_child
+            .projection_evaluation(row_range, expr, handle)
     }
 }
 
@@ -375,6 +382,7 @@ mod test {
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, PType};
     use vortex_expr::{gt, lit, root};
+    use vortex_io::runtime::Runtime;
     use vortex_mask::Mask;
 
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
@@ -415,11 +423,11 @@ mod test {
     fn test_stats_evaluator(
         #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        block_on(async {
+        Runtime::oneshot(|handle| async move {
             let result = layout
                 .new_reader("".into(), segments)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &root())
+                .projection_evaluation(&(0..layout.row_count()), &root(), &handle)
                 .unwrap()
                 .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await
@@ -436,7 +444,7 @@ mod test {
     fn test_stats_pruning_mask(
         #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        block_on(async {
+        Runtime::oneshot(|handle| async move {
             let row_count = layout.row_count();
             let reader = layout.new_reader("".into(), segments).unwrap();
 
@@ -444,7 +452,7 @@ mod test {
             let expr = gt(root(), lit(7));
 
             let result = reader
-                .pruning_evaluation(&(0..row_count), &expr)
+                .pruning_evaluation(&(0..row_count), &expr, &handle)
                 .unwrap()
                 .invoke(Mask::new_true(row_count.try_into().unwrap()))
                 .await

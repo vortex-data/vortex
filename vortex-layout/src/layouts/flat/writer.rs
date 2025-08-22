@@ -7,7 +7,7 @@ use vortex_array::serde::SerializeOptions;
 use vortex_array::stats::{Precision, Stat, StatsProvider};
 use vortex_array::{Array, ArrayContext};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::{BinaryScalar, Utf8Scalar};
 
 use crate::layouts::flat::FlatLayout;
@@ -136,7 +136,6 @@ mod tests {
     use std::sync::Arc;
 
     use arrow_buffer::BooleanBufferBuilder;
-    use futures::executor::block_on;
     use futures::stream;
     use vortex_array::arrays::{BoolArray, PrimitiveArray, StructArray};
     use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
@@ -147,6 +146,7 @@ mod tests {
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
     use vortex_error::VortexUnwrap;
     use vortex_expr::root;
+    use vortex_io::runtime::Runtime;
     use vortex_mask::{AllOr, Mask};
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
@@ -169,7 +169,7 @@ mod tests {
     #[should_panic]
     #[test]
     fn flat_stats() {
-        block_on(async {
+        Runtime::oneshot(|handle| async move {
             let ctx = ArrayContext::empty();
             let segments = TestSegments::default();
             let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
@@ -183,7 +183,7 @@ mod tests {
             let result = layout
                 .new_reader("".into(), segments)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &root())
+                .projection_evaluation(&(0..layout.row_count()), &root(), &handle)
                 .unwrap()
                 .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await
@@ -198,7 +198,7 @@ mod tests {
 
     #[test]
     fn truncates_variable_size_stats() {
-        block_on(async {
+        Runtime::oneshot(|handle| async move {
             let ctx = ArrayContext::empty();
             let segments = TestSegments::default();
             let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
@@ -224,7 +224,7 @@ mod tests {
             let result = layout
                 .new_reader("".into(), segments)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &root())
+                .projection_evaluation(&(0..layout.row_count()), &root(), &handle)
                 .unwrap()
                 .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await
@@ -247,7 +247,7 @@ mod tests {
 
     #[test]
     fn struct_array_round_trip() {
-        block_on(async {
+        Runtime::oneshot(|handle| async move {
             let mut validity_builder = BooleanBufferBuilder::new(2);
             validity_builder.append(true);
             validity_builder.append(false);
@@ -284,7 +284,7 @@ mod tests {
             let result: ArrayRef = layout
                 .new_reader("".into(), segments)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &root())
+                .projection_evaluation(&(0..layout.row_count()), &root(), &handle)
                 .unwrap()
                 .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await
