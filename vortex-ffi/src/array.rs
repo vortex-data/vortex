@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! FFI interface for working with Vortex Arrays.
+use core::slice;
 use std::ffi::{c_int, c_void};
 
 use vortex::dtype::half::f16;
@@ -145,7 +146,7 @@ pub unsafe extern "C-unwind" fn vx_array_get_utf8(
     let utf8_scalar = value.as_utf8();
     if let Some(buffer) = utf8_scalar.value() {
         let bytes = buffer.as_bytes();
-        let dst = unsafe { std::slice::from_raw_parts_mut(dst as *mut u8, bytes.len()) };
+        let dst = unsafe { slice::from_raw_parts_mut(dst as *mut u8, bytes.len()) };
         dst.copy_from_slice(bytes);
         unsafe { *len = bytes.len().try_into().vortex_unwrap() };
     }
@@ -164,7 +165,7 @@ pub unsafe extern "C-unwind" fn vx_array_get_binary(
     let value = array.scalar_at(index as usize);
     let utf8_scalar = value.as_binary();
     if let Some(bytes) = utf8_scalar.value() {
-        let dst = unsafe { std::slice::from_raw_parts_mut(dst as *mut u8, bytes.len()) };
+        let dst = unsafe { slice::from_raw_parts_mut(dst as *mut u8, bytes.len()) };
         dst.copy_from_slice(&bytes);
         unsafe { *len = bytes.len().try_into().vortex_unwrap() };
     }
@@ -172,14 +173,15 @@ pub unsafe extern "C-unwind" fn vx_array_get_binary(
 
 #[cfg(test)]
 mod tests {
+    use core::ptr;
     use std::ffi::{c_int, c_void};
 
+    use vortex::IntoArray;
     use vortex::arrays::{PrimitiveArray, StructArray, VarBinViewArray};
     use vortex::buffer::{Buffer, buffer};
     #[cfg(not(miri))]
     use vortex::dtype::half::f16;
     use vortex::validity::Validity;
-    use vortex::{ArrayRef, IntoArray};
 
     use crate::array::*;
     use crate::dtype::{vx_dtype_get_variant, vx_dtype_variant};
@@ -214,7 +216,7 @@ mod tests {
                 PrimitiveArray::new(buffer![1i32, 2i32, 3i32, 4i32, 5i32], Validity::NonNullable);
             let ffi_array = vx_array::new(primitive.into_array());
 
-            let mut error = std::ptr::null_mut();
+            let mut error = ptr::null_mut();
             let sliced = vx_array_slice(ffi_array, 1, 4, &raw mut error);
             assert!(error.is_null());
             assert_eq!(vx_array_len(sliced), 3);
@@ -236,7 +238,7 @@ mod tests {
             );
             let ffi_array = vx_array::new(primitive.into_array());
 
-            let mut error = std::ptr::null_mut();
+            let mut error = ptr::null_mut();
             assert!(!vx_array_is_null(ffi_array, 0, &raw mut error));
             assert!(error.is_null());
             assert!(vx_array_is_null(ffi_array, 1, &raw mut error));
@@ -266,7 +268,7 @@ mod tests {
             .unwrap();
             let ffi_array = vx_array::new(struct_array.into_array());
 
-            let mut error = std::ptr::null_mut();
+            let mut error = ptr::null_mut();
             let field0 = vx_array_get_field(ffi_array, 0, &raw mut error);
             assert!(error.is_null());
             assert_eq!(vx_array_len(field0), 3);

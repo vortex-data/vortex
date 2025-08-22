@@ -269,13 +269,15 @@ pub unsafe extern "C-unwind" fn vx_dtype_time_zone(
 #[cfg(test)]
 #[allow(clippy::cast_possible_truncation)]
 mod tests {
+    use core::slice;
+
     use vortex::IntoArray;
     use vortex::arrays::StructArray;
     use vortex::buffer::Buffer;
     use vortex::dtype::{DType, DecimalDType};
 
     use super::*;
-    use crate::array::vx_array;
+    use crate::array::{vx_array, vx_array_dtype};
     use crate::dtype::{
         vx_dtype, vx_dtype_free, vx_dtype_get_variant, vx_dtype_new_bool, vx_dtype_new_primitive,
         vx_dtype_new_utf8, vx_dtype_variant,
@@ -478,7 +480,7 @@ mod tests {
     fn test_struct_introspection_simple() {
         let array = create_test_struct_array();
         let vx_arr = vx_array::new(array);
-        let dtype_ptr = unsafe { crate::array::vx_array_dtype(vx_arr) };
+        let dtype_ptr = unsafe { vx_array_dtype(vx_arr) };
 
         let struct_fields_ptr = unsafe { vx_dtype_struct_dtype(dtype_ptr) };
         let n_fields = unsafe { vx_struct_fields_nfields(struct_fields_ptr) };
@@ -494,7 +496,7 @@ mod tests {
     fn test_field_name_access() {
         let array = create_test_struct_array();
         let vx_arr = vx_array::new(array);
-        let dtype_ptr = unsafe { crate::array::vx_array_dtype(vx_arr) };
+        let dtype_ptr = unsafe { vx_array_dtype(vx_arr) };
 
         let struct_fields_ptr = unsafe { vx_dtype_struct_dtype(dtype_ptr) };
 
@@ -504,8 +506,8 @@ mod tests {
 
         let name_len = unsafe { vx_string_len(field_name_ptr) };
         let name_ptr = unsafe { vx_string_ptr(field_name_ptr) };
-        let name_slice = unsafe { std::slice::from_raw_parts(name_ptr as *const u8, name_len) };
-        let name_str = std::str::from_utf8(name_slice).unwrap();
+        let name_slice = unsafe { slice::from_raw_parts(name_ptr as *const u8, name_len) };
+        let name_str = str::from_utf8(name_slice).unwrap();
         assert_eq!(name_str, "nums");
 
         // Cleanup in careful order
@@ -519,7 +521,7 @@ mod tests {
     fn test_comprehensive_struct_introspection() {
         let array = create_test_struct_array();
         let vx_arr = vx_array::new(array);
-        let dtype_ptr = unsafe { crate::array::vx_array_dtype(vx_arr) };
+        let dtype_ptr = unsafe { vx_array_dtype(vx_arr) };
 
         let struct_fields_ptr = unsafe { vx_dtype_struct_dtype(dtype_ptr) };
         let n_fields = unsafe { vx_struct_fields_nfields(struct_fields_ptr) };
@@ -533,8 +535,8 @@ mod tests {
 
             let name_len = unsafe { vx_string_len(field_name_ptr) };
             let name_ptr = unsafe { vx_string_ptr(field_name_ptr) };
-            let name_slice = unsafe { std::slice::from_raw_parts(name_ptr as *const u8, name_len) };
-            let name_str = std::str::from_utf8(name_slice).unwrap();
+            let name_slice = unsafe { slice::from_raw_parts(name_ptr as *const u8, name_len) };
+            let name_str = str::from_utf8(name_slice).unwrap();
 
             let expected_name = if i == 0 { "nums" } else { "floats" };
             assert_eq!(name_str, expected_name);
