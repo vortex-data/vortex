@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ops::Deref;
+use std::ptr;
 use std::sync::Arc;
 
 use vortex::dtype::{DType, StructFields};
@@ -39,7 +40,7 @@ pub unsafe extern "C-unwind" fn vx_struct_fields_field_name(
     let ptr = unsafe { dtype.as_ref() }.vortex_expect("null ptr");
     let struct_dtype = &ptr.0;
     if idx >= struct_dtype.nfields() {
-        return std::ptr::null();
+        return ptr::null();
     }
     vx_string::new_ref(&struct_dtype.names()[idx])
 }
@@ -61,16 +62,16 @@ pub unsafe extern "C-unwind" fn vx_struct_fields_field_dtype(
 
     let idx_usize = match usize::try_from(idx) {
         Ok(i) => i,
-        Err(_) => return std::ptr::null(),
+        Err(_) => return ptr::null(),
     };
 
     if idx_usize >= struct_dtype.nfields() {
-        return std::ptr::null();
+        return ptr::null();
     }
 
     match struct_dtype.field_by_index(idx_usize) {
         Some(field_dtype) => vx_dtype::new(Arc::new(field_dtype)),
-        None => std::ptr::null(),
+        None => ptr::null(),
     }
 }
 

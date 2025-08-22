@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! FFI interface for working with Vortex Arrays.
-use core::slice;
 use std::ffi::{c_int, c_void};
+use std::slice;
 
 use vortex::dtype::half::f16;
 use vortex::error::{VortexExpect, VortexUnwrap, vortex_err};
@@ -173,8 +173,8 @@ pub unsafe extern "C-unwind" fn vx_array_get_binary(
 
 #[cfg(test)]
 mod tests {
-    use core::ptr;
     use std::ffi::{c_int, c_void};
+    use std::ptr;
 
     use vortex::IntoArray;
     use vortex::arrays::{PrimitiveArray, StructArray, VarBinViewArray};

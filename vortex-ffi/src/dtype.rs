@@ -269,7 +269,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_time_zone(
 #[cfg(test)]
 #[allow(clippy::cast_possible_truncation)]
 mod tests {
-    use core::slice;
+    use std::slice;
 
     use vortex::IntoArray;
     use vortex::arrays::StructArray;
