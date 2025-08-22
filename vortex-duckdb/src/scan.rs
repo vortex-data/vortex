@@ -313,57 +313,55 @@ impl TableFunction for VortexTableFunction {
                 .map_or("true".to_string(), |f| f.to_string())
         );
 
-        let runtime = Runtime::default();
-        let handle = runtime.handle();
-        let handle2 = runtime.handle();
-
         // let object_cache = init_input.client_context()?.object_cache();
         let first_file = bind_data.first_file.clone();
         let file_urls = bind_data.file_urls.clone();
 
-        let stream = stream::once(ready(ready(Ok(first_file)).boxed()))
-            .chain(stream::iter(file_urls).skip(1).map(move |path| {
-                let handle = handle.clone();
-                async move {
-                    // let cache = FooterCache::new(object_cache);
-                    // let entry = cache.entry(path.as_ref());
-                    // let options = entry.apply_to_file(VortexOpenOptions::file());
-                    // let file = open_file(path.clone(), options, handle.clone()).await?;
-                    // entry.put_if_absent(|| file.footer().clone());
-                    let file = open_file(path.clone(), VortexOpenOptions::file(), handle).await?;
-                    Ok::<_, VortexError>(file)
-                }
-                .boxed()
-            }))
-            // We make sure we're N files ahead in terms of opening and parsing footers.
-            .buffered(16)
-            .try_filter_map(move |vxf| {
-                let filter_expr = filter_expr.clone();
-                async move {
-                    if let Some(filter) = filter_expr.as_ref() {
-                        if vxf.can_prune(filter)? {
-                            return Ok(None);
-                        }
+        let pool = Runtime::default().drive_stream_on_pool(move |handle| {
+            let handle2 = handle.clone();
+            stream::once(ready(ready(Ok(first_file)).boxed()))
+                .chain(stream::iter(file_urls).skip(1).map(move |path| {
+                    let handle = handle.clone();
+                    async move {
+                        // let cache = FooterCache::new(object_cache);
+                        // let entry = cache.entry(path.as_ref());
+                        // let options = entry.apply_to_file(VortexOpenOptions::file());
+                        // let file = open_file(path.clone(), options, handle.clone()).await?;
+                        // entry.put_if_absent(|| file.footer().clone());
+                        let file =
+                            open_file(path.clone(), VortexOpenOptions::file(), handle).await?;
+                        Ok::<_, VortexError>(file)
                     }
-                    Ok::<_, VortexError>(Some(vxf))
-                }
-            })
-            .enumerate()
-            .map(move |(idx, vxf)| {
-                let conversion_cache = Arc::new(ConversionCache::new(idx as u64));
-                let tasks = vxf?
-                    .scan()?
-                    .with_some_filter(filter_expr2.clone())
-                    .with_projection(projection_expr.clone())
-                    .with_concurrency(1024)
-                    .map(move |split: ArrayRef| Ok((split, conversion_cache.clone())))
-                    .into_stream(handle2.clone())?;
-                Ok::<_, VortexError>(tasks)
-            })
-            .try_flatten();
-
-        let pool =
-            runtime.drive_stream_on_pool::<VortexResult<(ArrayRef, Arc<ConversionCache>)>>(stream);
+                    .boxed()
+                }))
+                // We make sure we're N files ahead in terms of opening and parsing footers.
+                .buffered(16)
+                .try_filter_map(move |vxf| {
+                    let filter_expr = filter_expr.clone();
+                    async move {
+                        if let Some(filter) = filter_expr.as_ref() {
+                            if vxf.can_prune(filter)? {
+                                return Ok(None);
+                            }
+                        }
+                        Ok::<_, VortexError>(Some(vxf))
+                    }
+                })
+                .enumerate()
+                .map(move |(idx, vxf)| {
+                    let conversion_cache = Arc::new(ConversionCache::new(idx as u64));
+                    let tasks = vxf?
+                        .scan()?
+                        .with_some_filter(filter_expr2.clone())
+                        .with_projection(projection_expr.clone())
+                        .with_concurrency(1024)
+                        .map(move |split: ArrayRef| Ok((split, conversion_cache.clone())))
+                        .into_stream(handle2.clone())?;
+                    Ok::<_, VortexError>(tasks)
+                })
+                .try_flatten()
+                .boxed()
+        });
 
         Ok(VortexGlobalData {
             pool,

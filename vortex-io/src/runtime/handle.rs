@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::runtime::{CpuTask, FileIoRequest, Read, ReadState, VortexRead};
-use async_task::{Runnable, Schedule, WithInfo};
 use flume::Sender;
 use futures_util::future::BoxFuture;
+use futures_util::task::{FutureObj, Spawn, SpawnError, SpawnExt};
 use futures_util::FutureExt;
 use std::fs::File;
 use std::marker::PhantomData;
@@ -21,8 +21,7 @@ use vortex_error::{vortex_err, VortexExpect, VortexResult};
 pub struct Handle(pub(super) Arc<Inner>);
 
 pub(super) struct Inner {
-    pub(super) sched_send: Sender<Runnable>,
-    pub(super) sched_schedule: Arc<dyn Schedule + Send + Sync>,
+    pub(super) sched_send: Sender<FutureObj<'static, ()>>,
     pub(super) cpu_send: Sender<CpuTask>,
     pub(super) io_send: Sender<FileIoRequest>,
 }
@@ -36,19 +35,9 @@ impl Handle {
         F: Future<Output = R> + Send + 'static,
         R: Send + 'static,
     {
-        // TODO(ngates): we may want to avoid scheduling back onto the main runtime? But we cannot
-        //  push tasks into a queue unless we type erase them...
-        let schedule = self.0.sched_schedule.clone();
-        let (runnable, task) = async_task::spawn(
-            f,
-            WithInfo(move |runnable, info| schedule.schedule(runnable, info)),
-        );
-        self.0
-            .sched_send
-            .send(runnable)
-            .map_err(|e| vortex_err!("Runtime dropped"))
-            .vortex_expect("Runtime dropped");
-        task
+        SpawnExt::spawn_with_handle(&self.0, f)
+            .map_err(|e| vortex_err!("Runtime dropped {e}"))
+            .vortex_expect("Failed to spawn vortex task")
     }
 
     /// Spawn a CPU-bound task for execution on the runtime.
@@ -78,6 +67,16 @@ impl Handle {
         path: &object_store::path::Path,
     ) -> Arc<dyn VortexRead> {
         todo!()
+    }
+}
+
+impl Spawn for Inner {
+    fn spawn_obj(&self, future: FutureObj<'static, ()>) -> Result<(), SpawnError> {
+        if let Err(_) = self.sched_send.send(future) {
+            Err(SpawnError::shutdown())
+        } else {
+            Ok(())
+        }
     }
 }
 

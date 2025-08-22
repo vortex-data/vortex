@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::runtime::{Handle, Runtime};
+use futures::pin_mut;
 use futures_util::StreamExt;
 use std::os::unix::fs::FileExt;
 use tokio::runtime::Handle as TokioHandle;
@@ -19,7 +20,7 @@ impl Runtime {
         Fut: Future<Output = T> + Send + 'static,
     {
         let runtime = Runtime::default();
-        let handle = runtime.handle();
+        let handle = runtime.handle().clone();
         runtime.drive_on_tokio(&TokioHandle::current());
         f(handle)
     }
@@ -28,12 +29,34 @@ impl Runtime {
     /// any futures or streams that expected to run on the Vortex Runtime can be polled by the
     /// Tokio runtime and will be able to make progress.
     pub fn drive_on_tokio(self, handle: &TokioHandle) {
+        // Spawn a future to spawn scheduling futures.
+        let handle2 = handle.clone();
+        handle.spawn(async move {
+            let recv = self.sched_recv.into_stream();
+            pin_mut!(recv);
+
+            while let Some(fut) = recv.next().await {
+                handle2.spawn(fut);
+            }
+        });
+
+        // Spawn a future to process the CPU-bound tasks
+        let handle2 = handle.clone();
+        handle.spawn(async move {
+            let cpu_recv = self.cpu_recv.into_stream();
+            pin_mut!(cpu_recv);
+
+            while let Some(task) = cpu_recv.next().await {
+                // NOTE(ngates): we run CPU tasks as normal async tasks on the Tokio runtime,
+                //  rather than spawn_blocking.
+                handle2.spawn(async move { task.run() });
+            }
+        });
+
         // Spawn a future to process the file I/O requests
-        let file_io_recv = self.io_recv;
-        // Create a stream with limited concurrency for reading from local disk.
+        let recv = self.io_recv;
         handle.spawn(
-            file_io_recv
-                .into_stream()
+            recv.into_stream()
                 // Take up to 4 requests at a time to spawn in a single blocking task. This
                 // reduces the overhead of spawn_blocking, but it does mean these 4 tasks will now
                 // run sequentially.

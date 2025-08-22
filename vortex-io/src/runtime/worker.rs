@@ -1,17 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::runtime::{FileIoRequest, Runtime};
+use crate::runtime::{CpuTask, FileIoRequest, Handle, Runtime};
 use async_task::Runnable;
 use crossbeam_deque::{Injector, Stealer};
 use flume::Receiver;
-use futures::executor::block_on;
 use futures::{pin_mut, Stream};
+use futures_util::future::FutureObj;
 use futures_util::stream::FuturesUnordered;
 use futures_util::task::noop_waker_ref;
 use futures_util::StreamExt;
 use parking_lot::RwLock;
-use smol::{unblock, Executor};
+use smol::unblock;
+use std::iter;
 use std::os::unix::fs::FileExt;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -23,29 +24,42 @@ use vortex_error::{VortexError, VortexExpect};
 impl Runtime {
     /// Returns a worker pool that can be used to drive the Runtime and in the process emit
     /// items from the stream.
-    pub fn drive_stream_on_pool<T: Send + 'static>(
-        self,
-        stream: impl Stream<Item = T> + Send + 'static,
-    ) -> WorkerPool<T> {
+    pub fn drive_stream_on_pool<F, S, R>(self, f: F) -> WorkerPool<R>
+    where
+        F: FnOnce(Handle) -> S,
+        S: Stream<Item = R> + Unpin + Send + 'static,
+        R: Send + 'static,
+    {
+        let handle = self.handle.clone();
+        let stream = f(handle.clone());
+
+        let scheduling_injector = Arc::new(Injector::<Runnable>::new());
+
         // We create a channel for the output results and spawn a detached task to populate it.
-        let (send, recv) = crossbeam_channel::unbounded::<T>();
-        self.executor
-            .spawn(async move {
-                pin_mut!(stream);
-                while let Some(item) = stream.next().await {
-                    if let Err(e) = send.send(item) {
-                        log::trace!("All workers disconnected: {}", e);
-                        break;
-                    }
+        // This will be driven by the scheduler.
+        let (send, recv) = crossbeam_channel::unbounded::<R>();
+        let results_fut = async move {
+            pin_mut!(stream);
+            while let Some(item) = stream.next().await {
+                if let Err(e) = send.send(item) {
+                    log::trace!("All workers disconnected: {}", e);
+                    break;
                 }
-            })
-            .detach();
+            }
+        };
+        let scheduling_injector2 = scheduling_injector.clone();
+        let (results_runnable, results_task) =
+            async_task::spawn(results_fut, move |r| scheduling_injector2.push(r));
+        results_task.detach();
+        scheduling_injector.push(results_runnable);
 
         WorkerPool {
             shared: Arc::new(Shared {
-                next_worker_id: Default::default(),
-                executor: self.executor,
-                file_io_recv: self.io_recv,
+                recv_sched: self.sched_recv,
+                recv_cpu: self.cpu_recv,
+                recv_io: self.io_recv,
+                scheduling: Arc::new(WorkStealing::new(scheduling_injector)),
+                cpu: Default::default(),
                 active_io_workers: Default::default(),
                 target_io_reqs_per_worker: 32,
                 results: recv,
@@ -65,19 +79,15 @@ pub struct WorkerPool<T: Send + 'static> {
 }
 
 struct Shared<T: Send + 'static> {
-    // The next worker ID.
-    next_worker_id: AtomicUsize,
+    // The recver side of the runtime.
+    recv_sched: Receiver<FutureObj<'static, ()>>,
+    recv_cpu: Receiver<CpuTask>,
+    recv_io: Receiver<FileIoRequest>,
 
     // The global injector for scheduling tasks.
-    scheduling_injector: Injector<Runnable<Meta>>,
-    scheduling_stealers: RwLock<Vec<Stealer<Runnable<Meta>>>>,
-    scheduling_workers: RwLock<Vec<Worker<Runnable<Meta>>>>,
+    scheduling: Arc<WorkStealing<Runnable>>,
+    cpu: Arc<WorkStealing<CpuTask>>,
 
-    // The primary executor.
-    executor: Arc<Executor<'static>>,
-
-    // The I/O request queue.
-    file_io_recv: Receiver<FileIoRequest>,
     /// The current count of I/O worker threads.
     active_io_workers: AtomicUsize,
     target_io_reqs_per_worker: usize, // e.g. queue len = 32, target = 8 -> 4 workers
@@ -86,36 +96,33 @@ struct Shared<T: Send + 'static> {
     results: crossbeam_channel::Receiver<T>,
 }
 
-/// Metadata that we attach to each runnable task.
-/// Currently, this is used exclusively to schedule tasks back onto the most recent worker that
-/// polled them.
-struct Meta {
-    worker_affinity: Option<usize>,
-}
-
 impl<T: Send + 'static> WorkerPool<T> {
     pub fn new_worker(&self) -> Worker<T> {
-        let id = self.shared.next_worker_id.fetch_add(1, Ordering::Relaxed);
+        let scheduling = self.shared.scheduling.new_worker();
 
         let io_runtime = tokio::runtime::Builder::new_current_thread()
-            .thread_name(format!("vortex-worker-{}", id))
-            .enable_io()
+            .thread_name(format!("vortex-worker-{}", scheduling.id))
+            .enable_all()
             .build()
             .vortex_expect("Failed to create worker I/O runtime");
 
         Worker {
-            id,
             shared: self.shared.clone(),
             role: WorkerRole::Executor,
+            scheduling,
+            cpu: self.shared.cpu.new_worker(),
             io_runtime,
         }
     }
 }
 
 pub struct Worker<T: Send + 'static> {
-    id: usize,
     shared: Arc<Shared<T>>,
+
     role: WorkerRole,
+
+    scheduling: WorkStealingLocal<Runnable>,
+    cpu: WorkStealingLocal<CpuTask>,
 
     // FIXME(ngates): we need to share a pool of workers that perform blocking reads...
     io_runtime: tokio::runtime::Runtime,
@@ -123,7 +130,7 @@ pub struct Worker<T: Send + 'static> {
 
 #[derive(Debug, Clone, Copy)]
 enum WorkerRole {
-    Executor,
+    Executor, // TODO(ngates): split CPU from scheduling tasks.
     IO,
 }
 
@@ -167,14 +174,9 @@ impl<T: Send + 'static> Worker<T> {
 
     /// Perform the role of the I/O driver.
     fn drive_io(&mut self) {
-        if self.shared.file_io_recv.is_empty() {
-            // No work to do...
-            return;
-        }
-
         // We should become an I/O worker until there are no in-flight requests, and no requests
         // in the queue. After that, we yield back to the worker to perform more work.
-        let file_io_recv = self.shared.file_io_recv.clone();
+        let file_io_recv = self.shared.recv_io.clone();
         self.io_runtime
             .block_on(LocalSet::new().run_until(async move {
                 // A no-op context.
@@ -222,7 +224,7 @@ impl<T: Send + 'static> Worker<T> {
 
                     // If we have pending operations, wait for at least one to complete
                     if !inflight.is_empty() {
-                        while let Some(fut) = inflight.next().await {}
+                        while let Some(()) = inflight.next().await {}
                     } else if !got_new_request {
                         // No pending operations and no new requests available - terminate
                         return;
@@ -246,20 +248,111 @@ impl<T: Send + 'static> Iterator for Worker<T> {
                 Err(crossbeam_channel::TryRecvError::Disconnected) => return None,
             }
 
+            // Move globally pending tasks into our work-stealing queues.
+            while let Ok(fut) = self.shared.recv_sched.try_recv() {
+                let injector = self.shared.scheduling.injector.clone();
+                let (runnable, task) = async_task::spawn(fut, move |r| injector.push(r));
+                // TODO(ngates): I'm not sure about detaching here...
+                task.detach();
+                self.shared.scheduling.injector.push(runnable);
+            }
+            while let Ok(task) = self.shared.recv_cpu.try_recv() {
+                self.shared.cpu.injector.push(task);
+            }
+
+            // Try to drive the scheduler if there is a task to perform.
+            // TODO(ngates): we probably shouldn't work-steal at this point?
+            if let Some(runnable) = self.scheduling.find_task() {
+                runnable.run();
+                // Start the loop again to check for more work.
+                continue;
+            }
+
             match self.update_role() {
                 WorkerRole::Executor => {
-                    // Otherwise, drive the main executor for some number of ticks.
-                    block_on(self.shared.executor.run(async {
-                        // We yield to allow other tasks to make progress.
-                        smol::future::yield_now().await;
-                    }));
+                    if let Some(task) = self.cpu.find_task() {
+                        task.run();
+                        continue;
+                    }
                 }
                 WorkerRole::IO => {
                     self.drive_io();
-                    // Start the loop again to check for more work.
-                    continue;
                 }
             }
+
+            // TODO(ngates): how to avoid busy looping here? Or maybe that's ok?
+            // std::thread::yield_now();
         }
+    }
+}
+
+struct WorkStealing<T> {
+    injector: Arc<Injector<T>>,
+    stealers: RwLock<Vec<Stealer<T>>>,
+}
+
+impl<T> WorkStealing<T> {
+    fn new(injector: Arc<Injector<T>>) -> Self {
+        Self {
+            injector,
+            stealers: RwLock::new(Vec::new()),
+        }
+    }
+}
+
+impl<T> Default for WorkStealing<T> {
+    fn default() -> Self {
+        Self {
+            injector: Arc::new(Injector::new()),
+            stealers: RwLock::new(Vec::new()),
+        }
+    }
+}
+
+impl<T> WorkStealing<T> {
+    fn new_worker(self: &Arc<Self>) -> WorkStealingLocal<T> {
+        let local = crossbeam_deque::Worker::new_fifo();
+        let mut stealers = self.stealers.write();
+        let id = stealers.len(); // Grab our ID while we hold the write lock.
+        stealers.push(local.stealer());
+        WorkStealingLocal {
+            id,
+            global: self.clone(),
+            local,
+        }
+    }
+}
+
+struct WorkStealingLocal<T> {
+    id: usize,
+    global: Arc<WorkStealing<T>>,
+    local: crossbeam_deque::Worker<T>,
+}
+
+impl<T> WorkStealingLocal<T> {
+    fn find_task(&self) -> Option<T> {
+        // Pop a task from the local queue, if not empty.
+        self.local.pop().or_else(|| {
+            // Otherwise, we need to look for a task elsewhere.
+            iter::repeat_with(|| {
+                // Try stealing a batch of tasks from the global queue.
+                self.global
+                    .injector
+                    .steal_batch_and_pop(&self.local)
+                    // Or try stealing a task from one of the other threads.
+                    .or_else(|| {
+                        self.global
+                            .stealers
+                            .read()
+                            .iter()
+                            .map(|s| s.steal())
+                            .collect()
+                    })
+            })
+            // Loop while no task was stolen and any steal operation needs to be retried.
+            .find(|s| !s.is_retry())
+            // Extract the stolen task, if there is one.
+            .and_then(|s| s.success())
+        })
     }
 }

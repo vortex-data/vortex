@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::runtime::{Handle, Runtime};
+use async_task::Task;
 use futures::{pin_mut, Stream};
 use futures_util::StreamExt;
 use smol::future::block_on;
@@ -10,6 +11,7 @@ use std::os::unix::fs::FileExt;
 use std::sync::Arc;
 
 impl Runtime {
+    // FIXME(ngates): all these drive_on functions should accept |handle| closures.
     pub fn drive_stream_on_current_thread<T>(
         self,
         stream: impl Stream<Item = T> + Unpin,
@@ -27,7 +29,7 @@ impl Runtime {
         Fut: Future<Output = R>,
     {
         let runtime = Self::default();
-        let fut = f(runtime.handle());
+        let fut = f(runtime.handle().clone());
         block_on(runtime.into_executor().run(fut))
     }
 
@@ -39,7 +41,7 @@ impl Runtime {
         S: Stream<Item = R> + Unpin,
     {
         let runtime = Self::default();
-        let stream = f(runtime.handle());
+        let stream = f(runtime.handle().clone());
         let executor = runtime.into_executor();
         BlockingStream { stream, executor }
     }
@@ -47,8 +49,44 @@ impl Runtime {
     /// Spawn the entire runtime onto a single executor. This executor will drive the I/O, CPU,
     /// and other tasks that are spawned onto it.
     fn into_executor(self) -> Arc<Executor<'static>> {
-        // We spawn a future to process I/O requests as blocking calls on the main executor.
-        self.executor
+        let executor = Arc::new(Executor::new());
+
+        // Initially launch any queued tasks.
+        struct Detacher;
+        impl Extend<Task<()>> for Detacher {
+            fn extend<T: IntoIterator<Item = Task<()>>>(&mut self, iter: T) {
+                iter.into_iter().for_each(|task| task.detach());
+            }
+        }
+        executor.spawn_many(self.sched_recv.drain(), &mut Detacher);
+
+        // Spawn a task to continue spawning tasks.
+        let ex = executor.clone();
+        executor
+            .spawn(async move {
+                let recv = self.sched_recv.into_stream();
+                pin_mut!(recv);
+
+                while let Some(fut) = recv.next().await {
+                    ex.spawn(fut).detach();
+                }
+            })
+            .detach();
+
+        // Spawn a task to drive CPU.
+        executor
+            .spawn(async move {
+                let recv = self.cpu_recv.into_stream();
+                pin_mut!(recv);
+
+                while let Some(req) = recv.next().await {
+                    req.run()
+                }
+            })
+            .detach();
+
+        // Spawn a task to drive I/O
+        executor
             .spawn(async move {
                 let recv = self.io_recv.into_stream();
                 pin_mut!(recv);
@@ -67,7 +105,7 @@ impl Runtime {
             })
             .detach();
 
-        self.executor
+        executor
     }
 }
 

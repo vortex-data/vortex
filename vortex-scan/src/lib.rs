@@ -242,7 +242,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
         let concurrency = self.concurrency * num_workers;
 
         let runtime = Runtime::default();
-        let handle = runtime.handle();
+        let handle = runtime.handle().clone();
         runtime.drive_on_tokio(&tokio_handle);
 
         Ok(stream::iter(self.build(&handle)?)

@@ -9,9 +9,9 @@ mod singlethread;
 mod tokio;
 pub mod worker;
 
-use async_task::Runnable;
 use flume::Receiver;
 use futures_util::future::BoxFuture;
+use futures_util::task::FutureObj;
 use futures_util::FutureExt;
 use std::fs::File;
 use std::pin::Pin;
@@ -41,14 +41,11 @@ use vortex_error::{vortex_err, VortexExpect, VortexResult};
 /// passed around when constructing async futures in Vortex.
 pub struct Runtime {
     /// Queue of scheduling futures.
-    sched_recv: Receiver<Runnable>,
+    sched_recv: Receiver<FutureObj<'static, ()>>,
     /// Queue of exclusively CPU-bound tasks.
     cpu_recv: Receiver<CpuTask>,
     /// I/O queue for reading data from files.
     io_recv: Receiver<FileIoRequest>,
-
-    /// Queue of pending scheduling tasks.
-    sched_pending: Receiver<Runnable>,
 
     // A handle holds the "submission" side of the runtime.
     handle: Handle,
@@ -56,7 +53,6 @@ pub struct Runtime {
 
 impl Default for Runtime {
     fn default() -> Self {
-        let scheduler =
         let (sched_send, sched_recv) = flume::unbounded();
         let (cpu_send, cpu_recv) = flume::unbounded();
         let (io_send, io_recv) = flume::unbounded();
@@ -89,9 +85,15 @@ pub trait VortexRead: 'static + Send + Sync {
 }
 
 pub(crate) struct CpuTask {
-    runnable: Option<Box<dyn FnOnce() + Send + 'static>>,
+    runnable: Box<dyn FnOnce() + Send + 'static>,
     // TODO(ngates): we may want worker affinity and other metadata in here?
     //  We may also just want to use an async task Runnable and accept that it's blocking?
+}
+
+impl CpuTask {
+    pub(crate) fn run(self) {
+        (self.runnable)()
+    }
 }
 
 #[derive(Debug)]
