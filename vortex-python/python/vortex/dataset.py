@@ -90,11 +90,9 @@ class VortexDataset(pyarrow.dataset.Dataset):
         )
 
     @override
-    def get_fragments(
-        self, filter: pyarrow.dataset.Expression | Expr | None = None
-    ) -> Iterator[pyarrow.dataset.Fragment]:
-        """Not implemented."""
-        raise NotImplementedError("get_fragments")
+    def get_fragments(self, filter: pyarrow.dataset.Expression | Expr | None = None) -> Iterator[VortexFragment]:
+        """A fragment for each file in the Dataset."""
+        yield VortexFragment(self)
 
     @override
     def head(
@@ -493,6 +491,199 @@ class VortexDataset(pyarrow.dataset.Dataset):
 
 def from_url(url: str) -> VortexDataset:
     return VortexDataset(_dataset.dataset_from_url(url))
+
+
+@final
+class VortexFragment(pyarrow.dataset.Fragment):
+    """Fragment of data from a :class:`.VortexDataset`."""
+
+    def __init__(self, dataset: VortexDataset):
+        self._dataset = dataset
+
+    @property
+    @override
+    def physical_schema(self) -> pyarrow.Schema:
+        """Return the physical schema of this Fragment. This schema can be
+        different from the dataset read schema."""
+        return self._dataset.schema
+
+    @property
+    @override
+    def partition_expression(self) -> pyarrow.dataset.Expression:
+        """An Expression which evaluates to true for all data viewed by this
+        Fragment."""
+        raise NotImplementedError
+
+    @override
+    def scanner(
+        self,
+        schema: pyarrow.Schema | None = None,
+        columns: list[str] | None = None,
+        filter: pyarrow.dataset.Expression | Expr | None = None,
+        batch_size: int | None = None,
+        batch_readahead: int | None = None,
+        fragment_readahead: int | None = None,
+        fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
+        use_threads: bool | None = None,
+        cache_metadata: bool = True,
+        memory_pool: pyarrow.MemoryPool | None = None,
+    ) -> pyarrow.dataset.Scanner:
+        """See :class:`vortex.dataset.VortexDataset.scanner`"""
+        if schema:
+            raise ValueError("schema is not supported")
+        return self._dataset.scanner(
+            columns=columns,
+            filter=filter,
+            batch_size=batch_size,
+            batch_readahead=batch_readahead,
+            fragment_readahead=fragment_readahead,
+            fragment_scan_options=fragment_scan_options,
+            use_threads=use_threads,
+            cache_metadata=cache_metadata,
+            memory_pool=memory_pool,
+        )
+
+    @override
+    def to_batches(
+        self,
+        columns: list[str] | None = None,
+        filter: pyarrow.dataset.Expression | Expr | None = None,
+        batch_size: int | None = None,
+        batch_readahead: int | None = None,
+        fragment_readahead: int | None = None,
+        fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
+        use_threads: bool | None = None,
+        cache_metadata: bool = True,
+        memory_pool: pyarrow.MemoryPool | None = None,
+    ) -> Iterator[pyarrow.RecordBatch]:
+        """See :class:`vortex.dataset.VortexDataset.scanner`"""
+        return self._dataset.to_batches(
+            columns=columns,
+            filter=filter,
+            batch_size=batch_size,
+            batch_readahead=batch_readahead,
+            fragment_readahead=fragment_readahead,
+            fragment_scan_options=fragment_scan_options,
+            use_threads=use_threads,
+            cache_metadata=cache_metadata,
+            memory_pool=memory_pool,
+        )
+
+    @override
+    def to_table(
+        self,
+        columns: list[str] | None = None,
+        filter: pyarrow.dataset.Expression | Expr | None = None,
+        batch_size: int | None = None,
+        batch_readahead: int | None = None,
+        fragment_readahead: int | None = None,
+        fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
+        use_threads: bool | None = None,
+        cache_metadata: bool = True,
+        memory_pool: pyarrow.MemoryPool | None = None,
+    ) -> pyarrow.Table:
+        """See :class:`vortex.dataset.VortexDataset.scanner`"""
+        return self._dataset.to_table(
+            columns=columns,
+            filter=filter,
+            batch_size=batch_size,
+            batch_readahead=batch_readahead,
+            fragment_readahead=fragment_readahead,
+            fragment_scan_options=fragment_scan_options,
+            use_threads=use_threads,
+            cache_metadata=cache_metadata,
+            memory_pool=memory_pool,
+        )
+
+    @override
+    def take(  # pyright: ignore[reportIncompatibleMethodOverride]
+        self,
+        indices: pyarrow.Array[
+            pyarrow.Int8Scalar
+            | pyarrow.Int16Scalar
+            | pyarrow.Int32Scalar
+            | pyarrow.Int64Scalar
+            | pyarrow.UInt8Scalar
+            | pyarrow.UInt16Scalar
+            | pyarrow.UInt32Scalar
+            | pyarrow.UInt64Scalar
+        ],
+        columns: list[str] | None = None,
+        filter: pyarrow.dataset.Expression | Expr | None = None,
+        batch_size: int | None = None,
+        batch_readahead: int | None = None,
+        fragment_readahead: int | None = None,
+        fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
+        use_threads: bool | None = None,
+        cache_metadata: bool = True,
+        memory_pool: pyarrow.MemoryPool | None = None,
+    ) -> pyarrow.Table:
+        """See :class:`vortex.dataset.VortexDataset.scanner`"""
+        return self._dataset.take(
+            indices=indices,
+            columns=columns,
+            filter=filter,
+            batch_size=batch_size,
+            batch_readahead=batch_readahead,
+            fragment_readahead=fragment_readahead,
+            fragment_scan_options=fragment_scan_options,
+            use_threads=use_threads,
+            cache_metadata=cache_metadata,
+            memory_pool=memory_pool,
+        )
+
+    @override
+    def head(
+        self,
+        num_rows: int,
+        columns: list[str] | None = None,
+        filter: pyarrow.dataset.Expression | Expr | None = None,
+        batch_size: int | None = None,
+        batch_readahead: int | None = None,
+        fragment_readahead: int | None = None,
+        fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
+        use_threads: bool | None = None,
+        cache_metadata: bool = True,
+        memory_pool: pyarrow.MemoryPool | None = None,
+    ) -> pyarrow.Table:
+        """See :class:`vortex.dataset.VortexDataset.scanner`"""
+        return self._dataset.head(
+            num_rows=num_rows,
+            columns=columns,
+            filter=filter,
+            batch_size=batch_size,
+            batch_readahead=batch_readahead,
+            fragment_readahead=fragment_readahead,
+            fragment_scan_options=fragment_scan_options,
+            use_threads=use_threads,
+            cache_metadata=cache_metadata,
+            memory_pool=memory_pool,
+        )
+
+    # regarding the ignore: https://github.com/zen-xu/pyarrow-stubs/pull/258
+    @override
+    def count_rows(  # pyright: ignore[reportIncompatibleMethodOverride]
+        self,
+        filter: pyarrow.dataset.Expression | Expr | None = None,
+        batch_size: int | None = None,
+        batch_readahead: int | None = None,
+        fragment_readahead: int | None = None,
+        fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
+        use_threads: bool | None = None,
+        cache_metadata: bool = True,
+        memory_pool: pyarrow.MemoryPool | None = None,
+    ) -> int:
+        """See :class:`vortex.dataset.VortexDataset.scanner`"""
+        return self._dataset.count_rows(
+            filter=filter,
+            batch_size=batch_size,
+            batch_readahead=batch_readahead,
+            fragment_readahead=fragment_readahead,
+            fragment_scan_options=fragment_scan_options,
+            use_threads=use_threads,
+            cache_metadata=cache_metadata,
+            memory_pool=memory_pool,
+        )
 
 
 @final
