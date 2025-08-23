@@ -8,7 +8,6 @@ use bytes::BufMut;
 use itertools::Itertools;
 use prost::Message;
 use vortex_buffer::{BufferString, ByteBuffer};
-use vortex_dtype::DType;
 use vortex_error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err};
 use vortex_proto::scalar as pb;
 
@@ -17,10 +16,10 @@ use crate::pvalue::PValue;
 use crate::{Scalar, ScalarType, i256};
 
 /// Represents the internal data of a scalar value. Must be interpreted by wrapping up with a
-/// [`DType`] to make a [`super::Scalar`].
+/// [`vortex_dtype::DType`] to make a [`super::Scalar`].
 ///
 /// Note that these values can be deserialized from JSON or other formats. So a [`PValue`] may not
-/// have the correct width for what the [`DType`] expects. Primitive values should therefore be
+/// have the correct width for what the [`vortex_dtype::DType`] expects. Primitive values should therefore be
 /// read using [`super::PrimitiveScalar`] which will handle the conversion.
 #[derive(Debug, Clone)]
 pub struct ScalarValue(pub(crate) InnerScalarValue);
@@ -154,11 +153,6 @@ impl ScalarValue {
         self.0.is_null()
     }
 
-    /// Returns true if this value is compatible with the given data type.
-    pub fn is_instance_of(&self, dtype: &DType) -> bool {
-        self.0.is_instance_of(dtype)
-    }
-
     /// Returns scalar as a null value
     pub(crate) fn as_null(&self) -> VortexResult<()> {
         self.0.as_null()
@@ -198,30 +192,6 @@ impl ScalarValue {
 impl InnerScalarValue {
     pub(crate) fn is_null(&self) -> bool {
         matches!(self, InnerScalarValue::Null)
-    }
-
-    pub(crate) fn is_instance_of(&self, dtype: &DType) -> bool {
-        match (&self, dtype) {
-            (InnerScalarValue::Bool(_), DType::Bool(_)) => true,
-            (InnerScalarValue::Primitive(pvalue), DType::Primitive(ptype, _)) => {
-                pvalue.is_instance_of(ptype)
-            }
-            (InnerScalarValue::Decimal(_) | InnerScalarValue::Buffer(_), DType::Decimal(..)) => {
-                true
-            }
-            (InnerScalarValue::Buffer(_), DType::Binary(_)) => true,
-            (InnerScalarValue::BufferString(_), DType::Utf8(_)) => true,
-            (InnerScalarValue::List(values), DType::List(dtype, _)) => {
-                values.iter().all(|v| v.is_instance_of(dtype))
-            }
-            (InnerScalarValue::List(values), DType::Struct(structdt, _)) => values
-                .iter()
-                .zip(structdt.fields())
-                .all(|(v, dt)| v.is_instance_of(&dt)),
-            (InnerScalarValue::Null, dtype) => dtype.is_nullable(),
-            (_, DType::Extension(ext_dtype)) => self.is_instance_of(ext_dtype.storage_dtype()),
-            _ => false,
-        }
     }
 
     pub(crate) fn as_null(&self) -> VortexResult<()> {
@@ -300,133 +270,5 @@ impl InnerScalarValue {
             InnerScalarValue::List(l) => Ok(Some(l)),
             _ => Err(vortex_err!("Expected a list scalar, found {:?}", self)),
         }
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use vortex_dtype::{DType, FieldNames, Nullability, PType, StructFields};
-
-    use crate::{InnerScalarValue, PValue, ScalarValue};
-
-    #[test]
-    pub fn test_is_instance_of_bool() {
-        assert!(
-            ScalarValue(InnerScalarValue::Bool(true))
-                .is_instance_of(&DType::Bool(Nullability::Nullable))
-        );
-        assert!(
-            ScalarValue(InnerScalarValue::Bool(true))
-                .is_instance_of(&DType::Bool(Nullability::NonNullable))
-        );
-        assert!(
-            ScalarValue(InnerScalarValue::Bool(false))
-                .is_instance_of(&DType::Bool(Nullability::Nullable))
-        );
-        assert!(
-            ScalarValue(InnerScalarValue::Bool(false))
-                .is_instance_of(&DType::Bool(Nullability::NonNullable))
-        );
-    }
-
-    #[test]
-    pub fn test_is_instance_of_primitive() {
-        assert!(
-            ScalarValue(InnerScalarValue::Primitive(PValue::F64(0.0)))
-                .is_instance_of(&DType::Primitive(PType::F64, Nullability::NonNullable))
-        );
-    }
-
-    #[test]
-    pub fn test_is_instance_of_list_and_struct() {
-        let tbool = DType::Bool(Nullability::NonNullable);
-        let tboolnull = DType::Bool(Nullability::Nullable);
-        let tnull = DType::Null;
-
-        let bool_null = ScalarValue(InnerScalarValue::List(
-            vec![
-                ScalarValue(InnerScalarValue::Bool(true)),
-                ScalarValue(InnerScalarValue::Null),
-            ]
-            .into(),
-        ));
-        let bool_bool = ScalarValue(InnerScalarValue::List(
-            vec![
-                ScalarValue(InnerScalarValue::Bool(true)),
-                ScalarValue(InnerScalarValue::Bool(false)),
-            ]
-            .into(),
-        ));
-
-        fn tlist(element: &DType) -> DType {
-            DType::List(element.clone().into(), Nullability::NonNullable)
-        }
-
-        assert!(bool_null.is_instance_of(&tlist(&tboolnull)));
-        assert!(!bool_null.is_instance_of(&tlist(&tbool)));
-        assert!(bool_bool.is_instance_of(&tlist(&tbool)));
-        assert!(bool_bool.is_instance_of(&tlist(&tbool)));
-
-        fn tstruct(left: &DType, right: &DType) -> DType {
-            DType::Struct(
-                StructFields::new(
-                    vec!["left".into(), "right".into()].into(),
-                    vec![left.clone(), right.clone()],
-                ),
-                Nullability::NonNullable,
-            )
-        }
-
-        assert!(bool_null.is_instance_of(&tstruct(&tboolnull, &tboolnull)));
-        assert!(bool_null.is_instance_of(&tstruct(&tbool, &tboolnull)));
-        assert!(!bool_null.is_instance_of(&tstruct(&tboolnull, &tbool)));
-        assert!(!bool_null.is_instance_of(&tstruct(&tbool, &tbool)));
-
-        assert!(bool_null.is_instance_of(&tstruct(&tbool, &tnull)));
-        assert!(!bool_null.is_instance_of(&tstruct(&tnull, &tbool)));
-
-        assert!(bool_bool.is_instance_of(&tstruct(&tboolnull, &tboolnull)));
-        assert!(bool_bool.is_instance_of(&tstruct(&tbool, &tboolnull)));
-        assert!(bool_bool.is_instance_of(&tstruct(&tboolnull, &tbool)));
-        assert!(bool_bool.is_instance_of(&tstruct(&tbool, &tbool)));
-
-        assert!(!bool_bool.is_instance_of(&tstruct(&tbool, &tnull)));
-        assert!(!bool_bool.is_instance_of(&tstruct(&tnull, &tbool)));
-    }
-
-    #[test]
-    pub fn test_is_instance_of_null() {
-        assert!(
-            ScalarValue(InnerScalarValue::Null).is_instance_of(&DType::Bool(Nullability::Nullable))
-        );
-        assert!(
-            !ScalarValue(InnerScalarValue::Null)
-                .is_instance_of(&DType::Bool(Nullability::NonNullable))
-        );
-
-        assert!(
-            ScalarValue(InnerScalarValue::Null)
-                .is_instance_of(&DType::Primitive(PType::U8, Nullability::Nullable))
-        );
-        assert!(
-            ScalarValue(InnerScalarValue::Null).is_instance_of(&DType::Utf8(Nullability::Nullable))
-        );
-        assert!(
-            ScalarValue(InnerScalarValue::Null)
-                .is_instance_of(&DType::Binary(Nullability::Nullable))
-        );
-        assert!(
-            ScalarValue(InnerScalarValue::Null).is_instance_of(&DType::Struct(
-                StructFields::new(FieldNames::default(), [].into()),
-                Nullability::Nullable,
-            ))
-        );
-        assert!(
-            ScalarValue(InnerScalarValue::Null).is_instance_of(&DType::List(
-                DType::Utf8(Nullability::NonNullable).into(),
-                Nullability::Nullable
-            ))
-        );
-        assert!(ScalarValue(InnerScalarValue::Null).is_instance_of(&DType::Null));
     }
 }
