@@ -356,18 +356,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "arrow-pyarrow"
-version = "55.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e55ecf16b9b61d433f6e63c72fc6afcf2597d7db96583de88ebb887d1822268"
-dependencies = [
- "arrow-array",
- "arrow-data",
- "arrow-schema",
- "pyo3",
-]
-
-[[package]]
 name = "arrow-row"
 version = "55.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6955,7 +6943,6 @@ version = "0.1.0"
 dependencies = [
  "arrow-array",
  "arrow-data",
- "arrow-pyarrow",
  "arrow-schema",
  "itertools 0.14.0",
  "log",

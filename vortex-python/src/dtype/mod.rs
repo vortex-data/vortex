@@ -15,7 +15,6 @@ mod utf8;
 
 use std::ops::Deref;
 
-use arrow_pyarrow::{FromPyArrow, IntoPyArrow};
 use arrow_schema::{DataType, Field};
 pub(crate) use ptype::*;
 use pyo3::prelude::{PyAnyMethods, PyModule, PyModuleMethods};
@@ -27,6 +26,7 @@ use pyo3::{
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 
+use crate::arrow::{FromPyArrow, ToPyArrow};
 use crate::dtype::binary::PyBinaryDType;
 use crate::dtype::bool::PyBoolDType;
 use crate::dtype::decimal::PyDecimalDType;
@@ -140,11 +140,11 @@ impl PyDType {
 #[pymethods]
 impl PyDType {
     fn to_arrow_type(&self, py: Python) -> PyResult<PyObject> {
-        self.0.to_arrow_dtype()?.into_pyarrow(py)
+        self.0.to_arrow_dtype()?.to_pyarrow(py)
     }
 
     fn to_arrow_schema(&self, py: Python) -> PyResult<PyObject> {
-        self.0.to_arrow_schema()?.into_pyarrow(py)
+        self.0.to_arrow_schema()?.to_pyarrow(py)
     }
 
     fn __str__(&self) -> String {

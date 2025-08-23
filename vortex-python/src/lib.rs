@@ -10,6 +10,7 @@ use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 
 pub(crate) mod arrays;
+mod arrow;
 mod compress;
 mod dataset;
 pub(crate) mod dtype;

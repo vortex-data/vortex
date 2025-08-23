@@ -3,7 +3,6 @@
 
 use arrow_array::RecordBatchReader;
 use arrow_array::ffi_stream::ArrowArrayStreamReader;
-use arrow_pyarrow::FromPyArrow;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::pyfunction;
@@ -17,6 +16,7 @@ use vortex::iter::{ArrayIterator, ArrayIteratorAdapter, ArrayIteratorExt};
 use vortex::{ArrayRef, Canonical, IntoArray};
 
 use crate::arrays::{PyArray, PyArrayRef};
+use crate::arrow::FromPyArrow;
 use crate::dataset::PyVortexDataset;
 use crate::expr::PyExpr;
 use crate::iter::PyArrayIterator;

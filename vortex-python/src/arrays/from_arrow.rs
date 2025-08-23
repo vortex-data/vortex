@@ -4,7 +4,6 @@
 use arrow_array::ffi_stream::ArrowArrayStreamReader;
 use arrow_array::{RecordBatchReader, make_array};
 use arrow_data::ArrayData as ArrowArrayData;
-use arrow_pyarrow::FromPyArrow;
 use arrow_schema::{DataType, Field};
 use itertools::Itertools;
 use pyo3::exceptions::PyValueError;
@@ -17,6 +16,7 @@ use vortex::error::{VortexError, VortexResult};
 use vortex::{ArrayRef, IntoArray};
 
 use crate::arrays::PyArrayRef;
+use crate::arrow::FromPyArrow;
 
 /// Convert an Arrow object to a Vortex array.
 pub(super) fn from_arrow(obj: &Bound<'_, PyAny>) -> PyResult<PyArrayRef> {

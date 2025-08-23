@@ -4,7 +4,6 @@
 use std::sync::Arc;
 
 use arrow_array::RecordBatchReader;
-use arrow_pyarrow::{IntoPyArrow, ToPyArrow};
 use arrow_schema::SchemaRef;
 use itertools::Itertools;
 use pyo3::exceptions::{PyTypeError, PyValueError};
@@ -19,6 +18,7 @@ use vortex::scan::SplitBy;
 use vortex::{ArrayRef, ToCanonical};
 
 use crate::arrays::PyArrayRef;
+use crate::arrow::{IntoPyArrow, ToPyArrow};
 use crate::expr::PyExpr;
 use crate::object_store_urls::object_store_from_url;
 use crate::{TOKIO_RUNTIME, install_module};
