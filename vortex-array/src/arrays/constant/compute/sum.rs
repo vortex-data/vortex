@@ -37,7 +37,7 @@ fn sum_scalar(scalar: &Scalar, len: usize) -> VortexResult<ScalarValue> {
             floating: |T| { sum_float(scalar.as_primitive(), len)?.into() }
         )),
         DType::Extension(_) => sum_scalar(&scalar.as_extension().storage(), len),
-        _ => vortex_bail!("Unsupported dtype for sum: {}", scalar.dtype()),
+        dtype => vortex_bail!("Unsupported dtype for sum: {}", dtype),
     }
 }
 

@@ -13,8 +13,8 @@ use vortex::scalar::Scalar;
 use vortex::serde::ArrayChildren;
 use vortex::stats::StatsSetRef;
 use vortex::vtable::{
-    ArrayVTable, CanonicalVTable, ComputeVTable, EncodeVTable, OperationsVTable, SerdeVTable,
-    VTable, ValidityVTable, VisitorVTable,
+    ArrayVTable, CanonicalVTable, ComputeVTable, EncodeVTable, NotSupported, OperationsVTable,
+    SerdeVTable, VTable, ValidityVTable, VisitorVTable,
 };
 use vortex::{
     ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata, EncodingId,
@@ -37,6 +37,7 @@ impl VTable for PythonVTable {
     type ComputeVTable = Self;
     type EncodeVTable = Self;
     type SerdeVTable = Self;
+    type PipelineVTable = NotSupported;
 
     fn id(encoding: &Self::Encoding) -> EncodingId {
         encoding.id.clone()

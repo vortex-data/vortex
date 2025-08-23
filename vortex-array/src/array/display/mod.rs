@@ -7,8 +7,6 @@ use std::fmt::Display;
 
 use itertools::Itertools as _;
 use tree::TreeDisplayWrapper;
-#[cfg(feature = "table-display")]
-use vortex_error::VortexExpect as _;
 
 use crate::Array;
 
@@ -247,63 +245,62 @@ impl dyn Array + '_ {
             DisplayOptions::TreeDisplay => write!(f, "{}", TreeDisplayWrapper(self.to_array())),
             #[cfg(feature = "table-display")]
             DisplayOptions::TableDisplay => {
+                use vortex_dtype::DType;
+                use vortex_error::VortexExpect as _;
+
                 use crate::canonical::ToCanonical;
+
                 let mut builder = tabled::builder::Builder::default();
 
-                let table = match self.dtype() {
-                    vortex_dtype::DType::Struct(sf, _) => {
-                        let struct_ = self.to_struct().vortex_expect("struct array");
-                        builder.push_record(sf.names().iter().map(|name| name.to_string()));
-
-                        for row_idx in 0..self.len() {
-                            if !self.is_valid(row_idx).vortex_expect("index in bounds") {
-                                let null_row = vec!["null".to_string(); sf.names().len()];
-                                builder.push_record(null_row);
-                            } else {
-                                let mut row = Vec::new();
-                                for field_array in struct_.fields() {
-                                    let value = field_array.scalar_at(row_idx);
-                                    row.push(value.to_string());
-                                }
-                                builder.push_record(row);
-                            }
-                        }
-
-                        let mut table = builder.build();
-                        table.with(tabled::settings::Style::modern());
-
-                        // Center headers
-                        for col_idx in 0..sf.names().len() {
-                            table.modify((0, col_idx), tabled::settings::Alignment::center());
-                        }
-
-                        for row_idx in 0..self.len() {
-                            if !self.is_valid(row_idx).vortex_expect("index is in bounds") {
-                                table.modify(
-                                    (1 + row_idx, 0),
-                                    tabled::settings::Span::column(sf.names().len() as isize),
-                                );
-                                table.modify(
-                                    (1 + row_idx, 0),
-                                    tabled::settings::Alignment::center(),
-                                );
-                            }
-                        }
-                        table
+                // Special logic for struct arrays.
+                let DType::Struct(sf, _) = self.dtype() else {
+                    // For non-struct arrays, simply display a single column table without header.
+                    for row_idx in 0..self.len() {
+                        let value = self.scalar_at(row_idx);
+                        builder.push_record([value.to_string()]);
                     }
-                    _ => {
-                        // For non-struct arrays, display a single column table without header
-                        for row_idx in 0..self.len() {
-                            let value = self.scalar_at(row_idx);
-                            builder.push_record([value.to_string()]);
-                        }
 
-                        let mut table = builder.build();
-                        table.with(tabled::settings::Style::modern());
+                    let mut table = builder.build();
+                    table.with(tabled::settings::Style::modern());
 
-                        table
-                    }
+                    return write!(f, "{table}");
                 };
+
+                let struct_ = self.to_struct().vortex_expect("struct array");
+                builder.push_record(sf.names().iter().map(|name| name.to_string()));
+
+                for row_idx in 0..self.len() {
+                    if !self.is_valid(row_idx).vortex_expect("index in bounds") {
+                        let null_row = vec!["null".to_string(); sf.names().len()];
+                        builder.push_record(null_row);
+                    } else {
+                        let mut row = Vec::new();
+                        for field_array in struct_.fields() {
+                            let value = field_array.scalar_at(row_idx);
+                            row.push(value.to_string());
+                        }
+                        builder.push_record(row);
+                    }
+                }
+
+                let mut table = builder.build();
+                table.with(tabled::settings::Style::modern());
+
+                // Center headers
+                for col_idx in 0..sf.names().len() {
+                    table.modify((0, col_idx), tabled::settings::Alignment::center());
+                }
+
+                for row_idx in 0..self.len() {
+                    if !self.is_valid(row_idx).vortex_expect("index is in bounds") {
+                        table.modify(
+                            (1 + row_idx, 0),
+                            tabled::settings::Span::column(sf.names().len() as isize),
+                        );
+                        table.modify((1 + row_idx, 0), tabled::settings::Alignment::center());
+                    }
+                }
+
                 write!(f, "{table}")
             }
         }

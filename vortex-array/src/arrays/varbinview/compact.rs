@@ -63,7 +63,7 @@ impl VarBinViewArray {
     fn count_referenced_bytes(&self) -> u64 {
         match self.validity() {
             Validity::AllInvalid => 0u64,
-            _ => self
+            Validity::NonNullable | Validity::AllValid | Validity::Array(_) => self
                 .views()
                 .iter()
                 .enumerate()

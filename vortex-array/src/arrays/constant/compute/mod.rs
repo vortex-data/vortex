@@ -7,8 +7,11 @@ mod cast;
 mod compare;
 mod filter;
 mod invert;
+mod pipeline;
 mod sum;
 mod take;
+
+pub use pipeline::*;
 
 #[cfg(test)]
 mod test {

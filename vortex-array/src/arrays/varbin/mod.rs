@@ -3,7 +3,7 @@
 
 use std::fmt::Debug;
 
-pub use compute::compute_min_max;
+pub(crate) use compute::compute_min_max;
 use num_traits::PrimInt;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, NativePType, Nullability};
@@ -37,6 +37,7 @@ impl VTable for VarBinVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
+    type PipelineVTable = NotSupported;
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {

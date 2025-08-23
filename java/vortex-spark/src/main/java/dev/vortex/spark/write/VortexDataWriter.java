@@ -8,6 +8,7 @@ import dev.vortex.relocated.org.apache.arrow.memory.BufferAllocator;
 import dev.vortex.relocated.org.apache.arrow.memory.RootAllocator;
 import dev.vortex.relocated.org.apache.arrow.vector.*;
 import dev.vortex.relocated.org.apache.arrow.vector.VectorSchemaRoot;
+import dev.vortex.relocated.org.apache.arrow.vector.complex.ListVector;
 import dev.vortex.relocated.org.apache.arrow.vector.ipc.ArrowStreamWriter;
 import dev.vortex.spark.SparkTypes;
 import java.io.ByteArrayOutputStream;
@@ -20,6 +21,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.apache.spark.sql.catalyst.InternalRow;
+import org.apache.spark.sql.catalyst.expressions.SpecializedGetters;
+import org.apache.spark.sql.catalyst.util.ArrayData;
 import org.apache.spark.sql.connector.write.DataWriter;
 import org.apache.spark.sql.connector.write.WriterCommitMessage;
 import org.apache.spark.sql.types.*;
@@ -185,7 +188,8 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
     /**
      * Populates an Arrow vector with a value from an InternalRow.
      */
-    private void populateVector(FieldVector vector, DataType dataType, InternalRow row, int fieldIndex, int rowIndex) {
+    private void populateVector(
+            FieldVector vector, DataType dataType, SpecializedGetters row, int fieldIndex, int rowIndex) {
         if (dataType instanceof BooleanType) {
             ((BitVector) vector).set(rowIndex, row.getBoolean(fieldIndex) ? 1 : 0);
         } else if (dataType instanceof ByteType) {
@@ -203,12 +207,12 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
         } else if (dataType instanceof StringType) {
             UTF8String str = row.getUTF8String(fieldIndex);
             if (str != null) {
-                ((VarCharVector) vector).set(rowIndex, str.getBytes());
+                ((VarCharVector) vector).setSafe(rowIndex, str.getBytes());
             }
         } else if (dataType instanceof BinaryType) {
             byte[] bytes = row.getBinary(fieldIndex);
             if (bytes != null) {
-                ((VarBinaryVector) vector).set(rowIndex, bytes);
+                ((VarBinaryVector) vector).setSafe(rowIndex, bytes);
             }
         } else if (dataType instanceof DecimalType) {
             DecimalType decType = (DecimalType) dataType;
@@ -218,9 +222,19 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
                         .toJavaBigDecimal();
                 ((DecimalVector) vector).set(rowIndex, decimal);
             }
+        } else if (dataType instanceof ArrayType) {
+            ArrayType arrayType = (ArrayType) dataType;
+            ArrayData data = row.getArray(fieldIndex);
+            ListVector listVector = ((ListVector) vector);
+            int writtenElements = listVector.getElementEndIndex(listVector.getLastSet());
+            listVector.startNewValue(rowIndex);
+            for (int i = 0; i < data.numElements(); i++) {
+                populateVector(listVector.getDataVector(), arrayType.elementType(), data, i, writtenElements + i);
+            }
+            listVector.endValue(rowIndex, data.numElements());
         } else {
             // For unsupported types, set null
-            vector.setNull(rowIndex);
+            throw new IllegalArgumentException("Unsupported data type: " + dataType);
         }
     }
 

@@ -25,6 +25,7 @@ impl VTable for ChunkedVTable {
     type VisitorVTable = Self;
     type ComputeVTable = Self;
     type EncodeVTable = NotSupported;
+    type PipelineVTable = NotSupported;
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {

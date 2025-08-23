@@ -7,6 +7,7 @@ use jiff::Span;
 use num_enum::IntoPrimitive;
 use vortex_error::{VortexError, VortexResult, vortex_bail};
 
+// TODO(connor): Consider renaming the enum variants to be more descriptive.
 /// Time units for temporal data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd, IntoPrimitive)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

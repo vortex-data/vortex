@@ -17,4 +17,4 @@ def pytest_sessionstart():
         # neither want to rebuild nor pollute the target/wheels directory with a wheel that PyPI
         # will reject.
         working_dir = pathlib.Path(__file__).parent.parent
-        subprocess.check_call(["maturin", "develop", "--skip-install"], cwd=working_dir)
+        _ = subprocess.check_call(["maturin", "develop", "--skip-install"], cwd=working_dir)

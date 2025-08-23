@@ -481,9 +481,7 @@ mod tests {
                         "ScalarValue {name} value not preserved: expected {expected}, got {v}"
                     );
                 }
-                _ => {
-                    vortex_panic!("Unexpected type after roundtrip for {name}: {read_back:?}")
-                }
+                _ => vortex_panic!("Unexpected type after roundtrip for {name}: {read_back:?}"),
             }
         }
 
@@ -517,9 +515,7 @@ mod tests {
                         "ScalarValue {name} value not preserved: expected {expected}, got {v}"
                     );
                 }
-                _ => {
-                    vortex_panic!("Unexpected type after roundtrip for {name}: {read_back:?}")
-                }
+                _ => vortex_panic!("Unexpected type after roundtrip for {name}: {read_back:?}"),
             }
         }
     }

@@ -532,9 +532,10 @@ impl Mask {
 
     /// Return [`MaskValues`] if the mask is not all true or all false.
     pub fn values(&self) -> Option<&MaskValues> {
-        match self {
-            Self::Values(values) => Some(values),
-            _ => None,
+        if let Self::Values(values) = self {
+            Some(values)
+        } else {
+            None
         }
     }
 

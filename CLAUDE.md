@@ -24,7 +24,7 @@
 ## Code Style
 
 * Prefer `impl AsRef<T>` to `&T` for public interfaces where possible, e.g. `impl AsRef<Path>`
-* avoid usage of unsafe where not necessary, use zero-cost safe abstractions wherever possible,
+* Avoid usage of unsafe where not necessary, use zero-cost safe abstractions wherever possible,
   or cheap non-zero-cost abstractions.
 * Every new public API definition must have a doc comment. Examples are nice to have but not
   strictly required.
@@ -38,6 +38,9 @@
 * If you encounter clippy errors in tests that should only pertain to production code (e.g., prohibiting panic/unwrap,
   possible numerical truncation, etc.), then consider allowing those lints at the test module level.
 * Prefer naming test modules `tests`, not `test`.
+* Prefer module-scoped imports over function-scoped imports. Only use function-scoped imports in situations where it is
+  either (a) required, or (b) would be exceptionally verbose otherwise. An example where function-scoped imports is good
+  is when writing an exhaustive match statement with a branch that matches many cases.
 
 ## Other
 

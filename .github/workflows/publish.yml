@@ -11,7 +11,7 @@ jobs:
   publish-rust:
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    needs: [prepare-python, prepare-java]
+    needs: [prepare-python, prepare-java-macos, prepare-java-linux]
     steps:
       - uses: actions/checkout@v5
         with:
@@ -125,20 +125,45 @@ jobs:
           verbose: true
           skip-existing: true  # Idempotent releases
 
-  prepare-java:
+  prepare-java-macos:
+    runs-on: "macos-latest"
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v5
+        with:
+          distribution: "corretto"
+          java-version: "17"
+      - uses: ./.github/actions/setup-rust
+      - run: cargo build --release --package vortex-jni
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "libvortex_jni_aarch64-apple-darwin.zip"
+          path: "target/release/libvortex_jni.dylib"
+          retention-days: 1
+          if-no-files-found: error
+
+  prepare-java-linux:
     runs-on: ${{ matrix.target.runs-on }}
+    container:
+      image: "ubuntu:20.04"
     timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
         target:
-          - { os: macos, runs-on: "macos-latest", target: aarch64-apple-darwin }
           - { os: ubuntu, runs-on: "ubuntu-24.04-arm", target: aarch64-unknown-linux-gnu }
-          - { os: ubuntu, runs-on: "ubuntu-latest", target: x86_64-unknown-linux-gnu }
+          - { os: ubuntu, runs-on: "ubuntu-24.04", target: x86_64-unknown-linux-gnu }
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+      - run: |
+          apt update
+          apt install -y wget curl build-essential
+      - name: Print GLIBC version
+        run: ldd --version
       - uses: actions/setup-java@v5
         with:
           distribution: "corretto"
@@ -150,12 +175,12 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: "libvortex_jni_${{ matrix.target.target }}.zip"
-          path: "target/release/libvortex_jni.${{ (matrix.target.os == 'macos' && 'dylib') || 'so' }}"
+          path: "target/release/libvortex_jni.so"
           retention-days: 1
           if-no-files-found: error
 
   publish-java:
-    needs: [prepare-java]
+    needs: [prepare-java-macos, prepare-java-linux]
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:

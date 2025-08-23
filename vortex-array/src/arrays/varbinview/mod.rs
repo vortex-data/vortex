@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::{Debug, Formatter};
+use std::hash::{Hash, Hasher};
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -108,6 +109,12 @@ assert_eq_size!(BinaryView, [u8; 16]);
 assert_eq_size!(Inlined, [u8; 16]);
 assert_eq_size!(Ref, [u8; 16]);
 assert_eq_align!(BinaryView, u128);
+
+impl Hash for BinaryView {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        unsafe { std::mem::transmute::<&BinaryView, &[u8; 16]>(self) }.hash(state);
+    }
+}
 
 impl BinaryView {
     pub const MAX_INLINED_SIZE: usize = 12;
@@ -292,6 +299,7 @@ impl VTable for VarBinViewVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
+    type PipelineVTable = NotSupported;
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
@@ -393,7 +401,7 @@ impl VarBinViewArray {
                 std::str::from_utf8(string).is_ok()
             })?,
             DType::Binary(_) => Self::validate_views(views, buffers, validity, |_| true)?,
-            _ => vortex_bail!("invalid DType {dtype}"),
+            _ => vortex_bail!("invalid DType {dtype} for `VarBinViewArray`"),
         }
 
         Ok(())

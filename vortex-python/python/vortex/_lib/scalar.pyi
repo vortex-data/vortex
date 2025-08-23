@@ -2,16 +2,18 @@
 #  SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 from decimal import Decimal
-from typing import Any, final
+from typing import Any, TypeAlias, final
 
-import vortex as vx
+from .dtype import DType
 
-def scalar(value: Any, *, dtype: vx.DType | None = None) -> Scalar: ...
+ScalarPyType: TypeAlias = None | int | float | str | Decimal | bytes | list[ScalarPyType] | dict[str, ScalarPyType]
+
+def scalar(value: Any, *, dtype: DType | None = None) -> Scalar: ...  # pyright: ignore[reportAny, reportExplicitAny]
 
 class Scalar:
     @property
-    def dtype(self) -> vx.DType: ...
-    def as_py(self) -> Any: ...
+    def dtype(self) -> DType: ...
+    def as_py(self) -> ScalarPyType: ...
 
 @final
 class NullScalar:
@@ -49,5 +51,5 @@ class ListScalar:
 
 @final
 class ExtensionScalar:
-    def as_py(self) -> Any: ...
+    def as_py(self) -> ScalarPyType: ...
     def storage(self) -> Scalar: ...

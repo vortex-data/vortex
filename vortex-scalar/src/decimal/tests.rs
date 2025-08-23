@@ -473,7 +473,7 @@ fn test_decimal_i8_all_primitive_casts(#[case] ptype: PType, #[case] expected: u
             scalar.as_primitive().typed_value::<i64>().unwrap() as u64,
             expected
         ),
-        _ => panic!("Unexpected type"),
+        PType::F16 | PType::F32 | PType::F64 => panic!("Unexpected type {ptype}"),
     }
 }
 

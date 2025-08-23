@@ -17,7 +17,7 @@ use object_store::local::LocalFileSystem;
 use object_store::{ObjectStore, ObjectStoreScheme};
 use prost::Message;
 use url::Url;
-use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex::error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::proto::deserialize_expr_proto;
 use vortex::expr::{ExprRef, ExprRegistryExt};
 use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
@@ -29,7 +29,7 @@ use crate::array_iterator::vx_array_iterator;
 use crate::dtype::vx_dtype;
 use crate::error::{try_or_default, vx_error};
 use crate::session::{FileKey, vx_session};
-use crate::{RUNTIME, arc_wrapper, to_string_vec};
+use crate::{arc_wrapper, get_runtime, to_string_vec};
 
 arc_wrapper!(
     /// A handle to a Vortex file encapsulating ther footer and logic for instantiating a reader.
@@ -149,7 +149,9 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
             vortex_bail!("null uri")
         }
         let uri_str = unsafe { CStr::from_ptr(options.uri) }.to_string_lossy();
-        let uri: Url = uri_str.parse().vortex_expect("File_open: parse uri");
+        let uri: Url = uri_str
+            .parse()
+            .map_err(|e| vortex_err!("Failed to parse URI '{}': {}", uri_str, e))?;
 
         let prop_keys = unsafe { to_string_vec(options.property_keys, options.property_len) };
         let prop_vals = unsafe { to_string_vec(options.property_vals, options.property_len) };
@@ -165,7 +167,7 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
             cache_hit = true;
         }
 
-        let vxf = RUNTIME
+        let vxf = get_runtime()
             .block_on(async move { file.open_object_store(&object_store, uri.path()).await })?;
 
         if !cache_hit {
@@ -191,7 +193,7 @@ pub unsafe extern "C-unwind" fn vx_file_write_array(
     try_or_default(error_out, || {
         let path = unsafe { CStr::from_ptr(path).to_str()? };
 
-        RUNTIME.block_on(async {
+        get_runtime().block_on(async {
             VortexWriteOptions::default()
                 .write(
                     &mut tokio::fs::File::create(path).await?,
@@ -217,7 +219,10 @@ struct ScanOptions {
     row_offset: u64,
 }
 
-/// Return a borrowed reference to the DType of the file.
+/// Return the DType of the file.
+///
+/// The returned pointer is valid as long as the file is valid.
+/// Do NOT free the returned dtype pointer - it shares the lifetime of the file.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_file_dtype(file: *const vx_file) -> *const vx_dtype {
     vx_dtype::new_ref(vx_file::as_ref(file).dtype())

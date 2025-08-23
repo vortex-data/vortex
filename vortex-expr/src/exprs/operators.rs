@@ -5,7 +5,7 @@ use core::fmt;
 use std::fmt::{Display, Formatter};
 
 use vortex_array::compute;
-use vortex_error::VortexError;
+use vortex_error::{VortexError, VortexResult, vortex_bail};
 use vortex_proto::expr::binary_opts::BinaryOp;
 
 /// Equalities, inequalities, and boolean operations over possibly null values.
@@ -171,5 +171,21 @@ impl From<compute::Operator> for Operator {
             compute::Operator::Lt => Operator::Lt,
             compute::Operator::Lte => Operator::Lte,
         }
+    }
+}
+
+impl TryInto<compute::Operator> for Operator {
+    type Error = VortexError;
+
+    fn try_into(self) -> VortexResult<compute::Operator> {
+        Ok(match self {
+            Operator::Eq => compute::Operator::Eq,
+            Operator::NotEq => compute::Operator::NotEq,
+            Operator::Gt => compute::Operator::Gt,
+            Operator::Gte => compute::Operator::Gte,
+            Operator::Lt => compute::Operator::Lt,
+            Operator::Lte => compute::Operator::Lte,
+            _ => vortex_bail!("Not a compute operator: {}", self),
+        })
     }
 }

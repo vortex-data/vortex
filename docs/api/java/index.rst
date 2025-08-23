@@ -23,6 +23,22 @@ Installation
 
 The Java API can be included in your project using Gradle or Maven. Please refer to the main documentation for detailed installation instructions.
 
+
+Compatibility
+-------------
+
+The Java bindings are supported on the following architectures:
+
+* x86_64 Linux
+* ARM64 Linux
+* Apple Silicon macOS
+
+They support any Linux distribution with a GLIBC version >= 2.31. This includes
+
+* Amazon Linux 2022 or newer
+* Ubuntu 20.04 or newer
+
+
 Usage Example
 -------------
 
