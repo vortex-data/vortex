@@ -147,7 +147,7 @@ jobs:
   prepare-java-linux:
     runs-on: ${{ matrix.target.runs-on }}
     container:
-      image: "ubuntu:20.04"
+      image: "ubuntu:22.04"
     timeout-minutes: 120
     strategy:
       fail-fast: false
