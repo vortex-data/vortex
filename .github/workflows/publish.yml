@@ -5,13 +5,13 @@ concurrency:
 
 on:
   release:
-    types: [ published ]
+    types: [published]
 
 jobs:
   publish-rust:
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    needs: [ prepare-python, prepare-java-macos, prepare-java-linux ]
+    needs: [prepare-python, prepare-java-macos, prepare-java-linux]
     steps:
       - uses: actions/checkout@v5
         with:
@@ -100,7 +100,7 @@ jobs:
           path: dist/
 
   publish-python:
-    needs: [ prepare-python ]
+    needs: [prepare-python]
     runs-on: ubuntu-latest
     timeout-minutes: 120
     permissions:
@@ -182,7 +182,7 @@ jobs:
           if-no-files-found: error
 
   publish-java:
-    needs: [ prepare-java-macos, prepare-java-linux ]
+    needs: [prepare-java-macos, prepare-java-linux]
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
