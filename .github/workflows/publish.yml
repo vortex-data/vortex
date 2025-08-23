@@ -136,8 +136,6 @@ jobs:
           distribution: "corretto"
           java-version: "17"
       - uses: ./.github/actions/setup-rust
-        with:
-          targets: ${{ matrix.target.target }}
       - run: cargo build --release --package vortex-jni
       - uses: actions/upload-artifact@v4
         with:
