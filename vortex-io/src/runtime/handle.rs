@@ -62,9 +62,9 @@ impl Handle {
     }
 
     /// Opens a file whose following read requests will occur on the underlying runtime.
-    /// TODO(ngates): this API isn't quite right. We want something that takes an IoDriver and
-    ///  wraps up requests with some Arc<dyn Any> data that get pushed onto the I/O queue?
-    ///  Or maybe, we spawn multiple I/O queues that get driven on the same smol executor?
+    // TODO(ngates): this API isn't quite right. We want something that takes an IoDriver and
+    //  wraps up requests with some Arc<dyn Any> data that get pushed onto the I/O queue?
+    //  Or maybe, we spawn multiple I/O queues that get driven on the same smol executor?
     pub(crate) fn open_file(&self, file: Arc<File>) -> Arc<dyn VortexRead> {
         Arc::new(FileRead {
             file,
