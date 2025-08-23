@@ -7,7 +7,6 @@ use crossbeam_deque::{Injector, Stealer};
 use futures::Stream;
 use futures_util::future::BoxFuture;
 use futures_util::StreamExt;
-use parking_lot::RwLock;
 use smol::future::FutureExt;
 use smol::lock::Semaphore;
 use smol::{unblock, LocalExecutor};
@@ -239,34 +238,31 @@ impl<T: Send + 'static> Iterator for Worker<T> {
 
 struct WorkStealing<T> {
     injector: Arc<Injector<T>>,
+    // We use BoxCar as a lock-free append-only vec for stealers. This allows us to defer
+    // creating new workers, without paying the cost of a read-lock every time we try to steal.
     // TODO(ngates): look into BoxCar for lock-free append-only vec.
-    stealers: RwLock<Vec<Stealer<T>>>,
+    stealers: boxcar::Vec<Stealer<T>>,
 }
 
 impl<T> WorkStealing<T> {
     fn new(injector: Arc<Injector<T>>) -> Self {
         Self {
             injector,
-            stealers: RwLock::new(Vec::new()),
+            stealers: Default::default(),
         }
     }
 }
 
 impl<T> Default for WorkStealing<T> {
     fn default() -> Self {
-        Self {
-            injector: Arc::new(Injector::new()),
-            stealers: RwLock::new(Vec::new()),
-        }
+        Self::new(Arc::new(Injector::new()))
     }
 }
 
 impl<T> WorkStealing<T> {
     fn new_worker(self: &Arc<Self>) -> WorkStealingLocal<T> {
         let local = crossbeam_deque::Worker::new_fifo();
-        let mut stealers = self.stealers.write();
-        let id = stealers.len(); // Grab our ID while we hold the write lock.
-        stealers.push(local.stealer());
+        let id = self.stealers.push(local.stealer()) - 1;
         WorkStealingLocal {
             id,
             global: self.clone(),
@@ -299,9 +295,8 @@ impl<T> WorkStealingLocal<T> {
                         .or_else(|| {
                             self.global
                                 .stealers
-                                .read()
                                 .iter()
-                                .map(|s| s.steal())
+                                .map(|(_idx, s)| s.steal())
                                 .collect()
                         })
                 })

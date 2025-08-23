@@ -768,6 +768,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "boxcar"
+version = "0.2.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "36f64beae40a84da1b4b26ff2761a5b895c12adc41dc25aaee1c4f2bbfe97a6e"
+
+[[package]]
 name = "brotli"
 version = "8.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6967,6 +6973,7 @@ name = "vortex-io"
 version = "0.1.0"
 dependencies = [
  "async-task",
+ "boxcar",
  "bytes",
  "cfg-if",
  "compio",
