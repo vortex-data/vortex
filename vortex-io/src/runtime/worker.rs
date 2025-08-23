@@ -123,25 +123,6 @@ pub struct Worker<T: Send + 'static> {
     cpu: WorkStealingLocal<CpuTask>,
     io: WorkStealingLocal<FileIoRequest>,
 }
-//
-// impl<T: Send + 'static> Runtime for WorkerInner<T> {
-//     fn spawn_scheduling(&self, fut: BoxFuture<'static, ()>) {
-//         let injector = self.scheduling.injector.clone();
-//         // TODO(ngates): the problem is we _always_ end up back on the original worker's local queue!
-//         //  We could have a worker ID in the Runnable metadata so we can update it as it gets passed around?
-//         let (runnable, task) = async_task::spawn(fut, move |r| injector.push(r));
-//         task.detach();
-//         self.scheduling.injector.push(runnable);
-//     }
-//
-//     fn spawn_cpu(&self, task: CpuTask) {
-//         todo!()
-//     }
-//
-//     fn spawn_io(&self, request: FileIoRequest) {
-//         todo!()
-//     }
-// }
 
 #[derive(Debug, Clone, Copy)]
 enum WorkerRole {
