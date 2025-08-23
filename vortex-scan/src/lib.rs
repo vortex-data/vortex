@@ -20,7 +20,8 @@ use vortex_error::{vortex_bail, VortexResult};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed;
 use vortex_expr::{root, ExprRef};
-use vortex_io::runtime::{Handle, Runtime};
+use vortex_io::runtime::tokio::TokioRuntime;
+use vortex_io::runtime::Handle;
 use vortex_layout::layouts::row_idx::RowIdxLayoutReader;
 use vortex_layout::{LayoutReader, LayoutReaderRef};
 pub use vortex_layout::{TaskExecutor, TaskExecutorExt};
@@ -235,19 +236,23 @@ impl<A: 'static + Send> ScanBuilder<A> {
     #[cfg(feature = "tokio")]
     pub fn into_tokio_stream(
         self,
-    ) -> VortexResult<impl futures::Stream<Item = VortexResult<A>> + Send + 'static> {
+    ) -> impl futures::Stream<Item = VortexResult<A>> + Send + 'static {
         use futures::StreamExt;
         let tokio_handle = tokio::runtime::Handle::current();
         let num_workers = tokio_handle.metrics().num_workers();
         let concurrency = self.concurrency * num_workers;
 
-        let runtime = Runtime::default();
-        let handle = runtime.handle().clone();
-        runtime.drive_on_tokio(&tokio_handle);
+        TokioRuntime::default().drive_stream(move |handle| {
+            let items = match self.build(&handle) {
+                Ok(items) => items,
+                Err(e) => return stream::once(async move { Err(e) }).boxed(),
+            };
 
-        Ok(stream::iter(self.build(&handle)?)
-            .buffered(concurrency)
-            .filter_map(|chunk| async move { chunk.transpose() }))
+            stream::iter(items)
+                .buffered(concurrency)
+                .filter_map(|chunk| async move { chunk.transpose() })
+                .boxed()
+        })
     }
 }
 
@@ -276,20 +281,21 @@ impl ScanBuilder<ArrayRef> {
     // FIXME(ngates): this includes blocking I/O... I think we need some sort of Runtime builder
     //  to configure whether to do background I/O with foreground CPU, or all combinations thereof.
     pub fn into_array_iter(self) -> VortexResult<impl ArrayIterator + Send + 'static> {
-        let dtype = self.dtype()?;
-        let concurrency = self.concurrency;
-
-        let runtime = Runtime::default();
-        let handle = runtime.handle();
-
-        let tasks = self.build(&handle)?;
-        let stream = stream::iter(tasks)
-            .buffered(concurrency)
-            .filter_map(|result| async move { result.transpose() })
-            .boxed();
-
-        let iter = runtime.drive_stream_on_current_thread(stream);
-        Ok(ArrayIteratorAdapter::new(dtype, iter))
+        Ok(ArrayIteratorAdapter::new(DType::Null, [].into_iter()))
+        // let dtype = self.dtype()?;
+        // let concurrency = self.concurrency;
+        //
+        // let runtime = Runtime::default();
+        // let handle = runtime.handle();
+        //
+        // let tasks = self.build(&handle)?;
+        // let stream = stream::iter(tasks)
+        //     .buffered(concurrency)
+        //     .filter_map(|result| async move { result.transpose() })
+        //     .boxed();
+        //
+        // let iter = runtime.drive_stream_on_current_thread(stream);
+        // Ok(ArrayIteratorAdapter::new(dtype, iter))
     }
 
     /// Returns an `ArrayStream` with tasks spawned onto the current Tokio runtime.
@@ -302,7 +308,7 @@ impl ScanBuilder<ArrayRef> {
         self,
     ) -> VortexResult<impl vortex_array::stream::ArrayStream + Send + 'static> {
         let dtype = self.dtype()?;
-        let stream = self.into_tokio_stream()?;
+        let stream = self.into_tokio_stream();
         Ok(vortex_array::stream::ArrayStreamAdapter::new(dtype, stream))
     }
 }

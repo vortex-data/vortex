@@ -1,16 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::iter;
-use std::sync::{Arc, LazyLock};
+use std::sync::LazyLock;
 
 use crate::ScanBuilder;
-use futures::{stream, StreamExt};
+use futures::StreamExt;
 use tokio::runtime::Builder;
 use vortex_array::iter::{ArrayIterator, ArrayIteratorAdapter};
 use vortex_array::ArrayRef;
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_io::runtime::Runtime;
 
 /// We create an internal Tokio runtime used exclusively for orchestrating work-stealing
 /// of CPU-bound work for multithreaded scans.
@@ -46,36 +44,38 @@ impl ScanBuilder<ArrayRef> {
         T: 'static + Send,
         F: Fn(VortexResult<ArrayRef>) -> T + Send + Sync + 'static,
     {
-        let concurrency = self.concurrency;
-        let num_workers = CPU_RUNTIME.metrics().num_workers();
+        // let concurrency = self.concurrency;
+        // let num_workers = CPU_RUNTIME.metrics().num_workers();
 
-        let runtime = Runtime::default();
-        let handle = runtime.handle().clone();
-        runtime.drive_on_tokio(CPU_RUNTIME.handle());
-
-        let tasks = self.build(&handle)?;
-        // We need to clone and send the map_fn into each task.
-        let map_fn = Arc::new(map_fn);
-
-        let mut stream = stream::iter(tasks)
-            .map(move |task| {
-                let map_fn = map_fn.clone();
-                async move { task.await.transpose().map(|t| map_fn(t)) }
-            })
-            // TODO(ngates): this is very crude indeed. This buffered call essentially controls how
-            //  many splits we have in-flight at any given time. We multiple workers by concurrency
-            //  to configure per-thread concurrency, which essentially means each thread can make
-            //  progress on one split while waiting for the I/O of another split to complete.
-            //  In an ideal world, the number of in-flight tasks would be dynamically adjusted
-            //  based on how much I/O the tasks _actually_ require. For example, all pruning tasks
-            //  could be spawned immediately since they all use a single segment, this would allow
-            //  head-room to run ahead and figure out the I/O demands of subsequent tasks.
-            .buffered(num_workers * concurrency);
-
-        Ok(iter::from_fn(move || {
-            tokio::task::block_in_place(|| CPU_RUNTIME.handle().block_on(stream.next()))
-        })
-        .filter_map(|result| result))
+        Ok([].into_iter())
+        //
+        // let runtime = Runtime::default();
+        // let handle = runtime.handle().clone();
+        // runtime.drive_on_tokio(CPU_RUNTIME.handle());
+        //
+        // let tasks = self.build(&handle)?;
+        // // We need to clone and send the map_fn into each task.
+        // let map_fn = Arc::new(map_fn);
+        //
+        // let mut stream = stream::iter(tasks)
+        //     .map(move |task| {
+        //         let map_fn = map_fn.clone();
+        //         async move { task.await.transpose().map(|t| map_fn(t)) }
+        //     })
+        //     // TODO(ngates): this is very crude indeed. This buffered call essentially controls how
+        //     //  many splits we have in-flight at any given time. We multiple workers by concurrency
+        //     //  to configure per-thread concurrency, which essentially means each thread can make
+        //     //  progress on one split while waiting for the I/O of another split to complete.
+        //     //  In an ideal world, the number of in-flight tasks would be dynamically adjusted
+        //     //  based on how much I/O the tasks _actually_ require. For example, all pruning tasks
+        //     //  could be spawned immediately since they all use a single segment, this would allow
+        //     //  head-room to run ahead and figure out the I/O demands of subsequent tasks.
+        //     .buffered(num_workers * concurrency);
+        //
+        // Ok(iter::from_fn(move || {
+        //     tokio::task::block_in_place(|| CPU_RUNTIME.handle().block_on(stream.next()))
+        // })
+        // .filter_map(|result| result))
     }
 }
 

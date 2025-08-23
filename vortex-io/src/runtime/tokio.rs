@@ -1,88 +1,71 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::runtime::{Handle, Runtime};
-use futures::pin_mut;
-use futures_util::StreamExt;
+use crate::runtime::{CpuTask, FileIoRequest, Handle, Runtime};
+use futures::Stream;
+use futures_util::future::BoxFuture;
 use std::os::unix::fs::FileExt;
+use std::sync::Arc;
 use tokio::runtime::Handle as TokioHandle;
-use tokio::task::spawn_blocking;
 use vortex_buffer::ByteBufferMut;
-use vortex_error::{vortex_err, VortexError, VortexExpect};
+use vortex_error::VortexError;
 
-impl Runtime {
-    // FIXME(ngates): this can actually just spawn any Vortex future onto a Tokio runtime by
-    //  spawning tasks to process the runtime queues...
-    pub fn oneshot_tokio<T, Fut, F>(f: F) -> impl Future<Output = T> + Send + 'static
-    where
-        T: Send + 'static,
-        F: FnOnce(Handle) -> Fut,
-        Fut: Future<Output = T> + Send + 'static,
-    {
-        let runtime = Runtime::default();
-        let handle = runtime.handle().clone();
-        runtime.drive_on_tokio(&TokioHandle::current());
-        f(handle)
+/// A Vortex runtime that drives all work on a provided Tokio runtime.
+#[derive(Clone)]
+pub struct TokioRuntime(Arc<TokioHandle>);
+
+impl TokioRuntime {
+    pub fn new(handle: TokioHandle) -> Self {
+        TokioRuntime(Arc::new(handle))
+    }
+}
+
+impl Default for TokioRuntime {
+    fn default() -> Self {
+        Self::new(TokioHandle::current())
+    }
+}
+
+impl Runtime for TokioHandle {
+    fn spawn_scheduling(&self, fut: BoxFuture<'static, ()>) {
+        TokioHandle::spawn(self, fut);
     }
 
-    /// Drive this Runtime in the background on the given Tokio runtime. After calling this,
-    /// any futures or streams that expected to run on the Vortex Runtime can be polled by the
-    /// Tokio runtime and will be able to make progress.
-    pub fn drive_on_tokio(self, handle: &TokioHandle) {
-        // Spawn a future to spawn scheduling futures.
-        let handle2 = handle.clone();
-        handle.spawn(async move {
-            let recv = self.sched_recv.into_stream();
-            pin_mut!(recv);
+    fn spawn_cpu(&self, f: CpuTask) {
+        // We spawn CPU tasks as if they were normal async tasks on the Tokio runtime.
+        TokioHandle::spawn(self, async move { f.run() });
+    }
 
-            while let Some(fut) = recv.next().await {
-                handle2.spawn(fut);
+    fn spawn_io(&self, f: FileIoRequest) {
+        TokioHandle::spawn_blocking(self, move || {
+            let mut buffer = ByteBufferMut::with_capacity_aligned(f.length, f.alignment);
+            unsafe { buffer.set_len(f.length) };
+            match f.file.read_exact_at(&mut buffer, f.offset) {
+                Ok(()) => f.resolve(Ok(buffer.freeze())),
+                Err(e) => f.resolve(Err(VortexError::from(e))),
             }
         });
+    }
+}
 
-        // Spawn a future to process the CPU-bound tasks
-        let handle2 = handle.clone();
-        handle.spawn(async move {
-            let cpu_recv = self.cpu_recv.into_stream();
-            pin_mut!(cpu_recv);
+impl TokioRuntime {
+    /// Drive the given Vortex future on the underlying Tokio runtime.
+    pub fn drive<F, Fut, R>(self, f: F) -> impl Future<Output = R> + Send + 'static
+    where
+        F: FnOnce(Handle) -> Fut,
+        Fut: Future<Output = R> + Send + 'static,
+        R: Send + 'static,
+    {
+        f(Handle(self.0))
+    }
 
-            while let Some(task) = cpu_recv.next().await {
-                // NOTE(ngates): we run CPU tasks as normal async tasks on the Tokio runtime,
-                //  rather than spawn_blocking.
-                handle2.spawn(async move { task.run() });
-            }
-        });
-
-        // Spawn a future to process the file I/O requests
-        let recv = self.io_recv;
-        handle.spawn(
-            recv.into_stream()
-                // Take up to 4 requests at a time to spawn in a single blocking task. This
-                // reduces the overhead of spawn_blocking, but it does mean these 4 tasks will now
-                // run sequentially.
-                // TODO(ngates): we should try harder and actually look at performed vectored pread,
-                //  as well as coalesce requests that are close together.
-                .ready_chunks(4)
-                .map(|reqs| async move {
-                    spawn_blocking(move || -> () {
-                        for req in reqs {
-                            let mut buffer =
-                                ByteBufferMut::with_capacity_aligned(req.length, req.alignment);
-                            unsafe { buffer.set_len(req.length) };
-                            match req.file.read_exact_at(&mut buffer, req.offset) {
-                                Ok(()) => req.resolve(Ok(buffer.freeze())),
-                                Err(e) => req.resolve(Err(VortexError::from(e))),
-                            }
-                        }
-                    })
-                    .await
-                    .map_err(|e| vortex_err!("Failed to spawn blocking read: {}", e))
-                    .vortex_expect("Failed to spawn blocking read")
-                })
-                // We limit the number of concurrent blocking tasks to avoid overwhelming
-                // the system.
-                .buffer_unordered(16)
-                .collect::<()>(),
-        );
+    /// Drive the given Vortex stream on the underlying Tokio runtime.
+    pub fn drive_stream<F, S, R>(self, f: F) -> impl Stream<Item = R> + Send + 'static
+    where
+        F: FnOnce(Handle) -> S,
+        S: Stream<Item = R> + Send + 'static,
+        R: Send + 'static,
+    {
+        f(Handle(self.0))
     }
 }

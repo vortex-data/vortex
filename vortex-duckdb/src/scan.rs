@@ -16,8 +16,9 @@ use vortex::dtype::FieldNames;
 use vortex::error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 use vortex::expr::{and, and_collect, col, lit, root, select, ExprRef};
 use vortex::file::{VortexFile, VortexOpenOptions};
+use vortex::io::runtime::singlethread::SingleThreadRuntime;
 use vortex::io::runtime::worker::{Worker, WorkerPool};
-use vortex::io::runtime::{Handle, Runtime};
+use vortex::io::runtime::Handle;
 use vortex::{ArrayRef, ToCanonical};
 use vortex_file::GenericVortexFile;
 
@@ -232,7 +233,7 @@ impl TableFunction for VortexTableFunction {
 
         let footer_cache = FooterCache::new(ctx.object_cache());
         let entry = footer_cache.entry(first_file_url.as_ref());
-        let first_file = Runtime::oneshot(|handle| async move {
+        let first_file = SingleThreadRuntime::drive(|handle| async move {
             let options = entry.apply_to_file(VortexOpenOptions::file());
             let file = open_file(first_file_url.clone(), options, handle).await?;
             entry.put_if_absent(|| file.footer().clone());
@@ -317,7 +318,7 @@ impl TableFunction for VortexTableFunction {
         let first_file = bind_data.first_file.clone();
         let file_urls = bind_data.file_urls.clone();
 
-        let pool = Runtime::default().drive_stream_on_pool(move |handle| {
+        let pool = WorkerPool::drive_stream(move |handle| {
             let handle2 = handle.clone();
             stream::once(ready(ready(Ok(first_file)).boxed()))
                 .chain(stream::iter(file_urls).skip(1).map(move |path| {

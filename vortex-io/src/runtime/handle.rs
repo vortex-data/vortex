@@ -1,43 +1,44 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::runtime::{CpuTask, FileIoRequest, Read, ReadState, VortexRead};
-use flume::Sender;
+use crate::runtime::{CpuTask, FileIoRequest, Read, ReadState, Runtime, VortexRead};
 use futures_util::future::BoxFuture;
-use futures_util::task::{FutureObj, Spawn, SpawnError, SpawnExt};
 use futures_util::FutureExt;
 use std::fs::File;
 use std::marker::PhantomData;
 use std::os::unix::fs::MetadataExt;
 use std::sync::Arc;
 use vortex_buffer::Alignment;
-use vortex_error::{vortex_err, vortex_panic, VortexExpect, VortexResult};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 
 /// Represents a handle to a Vortex runtime that can be used to enqueue CPU- or I/O-bound tasks.
 ///
 /// Handles can be thought of like the "send" end of a channel, where the runtime is the "receive"
 /// end that is actually driven.
 #[derive(Clone)]
-pub struct Handle(pub(super) Arc<Inner>);
-
-pub(super) struct Inner {
-    pub(super) sched_send: Sender<FutureObj<'static, ()>>,
-    pub(super) cpu_send: Sender<CpuTask>,
-    pub(super) io_send: Sender<FileIoRequest>,
-}
+pub struct Handle(pub(crate) Arc<dyn Runtime>);
 
 impl Handle {
     /// Spawn a new future onto the runtime.
-    ///
-    /// If the returned future is dropped, the work is cancelled.
     pub fn spawn<F, R>(&self, f: F) -> impl Future<Output = R> + use<F, R>
     where
         F: Future<Output = R> + Send + 'static,
         R: Send + 'static,
     {
-        SpawnExt::spawn_with_handle(&self.0, f)
-            .map_err(|e| vortex_err!("Runtime dropped {e}"))
-            .vortex_expect("Failed to spawn vortex task")
+        let (send, recv) = oneshot::channel();
+        self.0.spawn_scheduling(
+            async move {
+                if let Err(e) = send.send(f.await) {
+                    log::trace!("Failed to send task result: {e}");
+                }
+            }
+            .boxed(),
+        );
+        async move {
+            recv.await
+                .map_err(|e| vortex_err!("Failed to await result, runtime dropped: {e}"))
+                .vortex_expect("Failed to await result")
+        }
     }
 
     /// Spawn a CPU-bound task for execution on the runtime.
@@ -46,18 +47,17 @@ impl Handle {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
+        // TODO(ngates): we want a droppable handle for this.
         let (send, recv) = oneshot::channel();
-        if let Err(e) = self.0.cpu_send.send(CpuTask {
+        self.0.spawn_cpu(CpuTask {
             runnable: Box::new(move || {
                 let _ = send.send(f());
             }),
-        }) {
-            vortex_panic!("Failed to send CPU task to runtime: {e}");
-        }
+        });
         async move {
             recv.await
-                .map_err(|e| vortex_err!("Sender dropped: {e}"))
-                .vortex_expect("Failed to recv from vortex task")
+                .map_err(|e| vortex_err!("Task cancelled: {e}"))
+                .vortex_expect("Task cancelled")
         }
     }
 
@@ -68,7 +68,7 @@ impl Handle {
     pub(crate) fn open_file(&self, file: Arc<File>) -> Arc<dyn VortexRead> {
         Arc::new(FileRead {
             file,
-            send: self.0.io_send.clone(),
+            runtime: self.0.clone(),
         })
     }
 
@@ -82,16 +82,6 @@ impl Handle {
     }
 }
 
-impl Spawn for Inner {
-    fn spawn_obj(&self, future: FutureObj<'static, ()>) -> Result<(), SpawnError> {
-        if let Err(_) = self.sched_send.send(future) {
-            Err(SpawnError::shutdown())
-        } else {
-            Ok(())
-        }
-    }
-}
-
 /// A handle to the result of a spawned CPU task.
 ///
 /// If the handle is dropped prior to the task being executed, it _may_ be skipped.
@@ -101,22 +91,20 @@ pub struct TaskHandle<T> {
 
 struct FileRead {
     file: Arc<File>,
-    send: Sender<FileIoRequest>,
+    // FIXME(ngates): I kind of want to get rid of the Runtime Sync bound? Do we?
+    runtime: Arc<dyn Runtime>,
 }
 
 impl VortexRead for FileRead {
     fn read(&self, offset: u64, length: usize, alignment: Alignment) -> Read {
         let (send, recv) = oneshot::channel();
-        self.send
-            .send(FileIoRequest {
-                file: self.file.clone(),
-                offset,
-                length,
-                alignment,
-                send,
-            })
-            .map_err(|e| vortex_err!("Sender dropped: {e}"))
-            .vortex_expect("Failed to send read request");
+        self.runtime.spawn_io(FileIoRequest {
+            file: self.file.clone(),
+            offset,
+            length,
+            alignment,
+            send,
+        });
         Read(ReadState::Future(recv))
     }
 

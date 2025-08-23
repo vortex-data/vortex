@@ -27,7 +27,6 @@ use vortex::dtype::arrow::FromArrowType;
 use vortex::dtype::DType;
 use vortex::error::VortexExpect;
 use vortex::file::VortexWriteOptions;
-use vortex::io::runtime::Handle;
 use vortex::stream::ArrayStreamAdapter;
 use vortex::ArrayRef;
 

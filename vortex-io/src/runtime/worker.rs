@@ -4,71 +4,21 @@
 use crate::runtime::{CpuTask, FileIoRequest, Handle, Runtime};
 use async_task::Runnable;
 use crossbeam_deque::{Injector, Stealer};
-use flume::Receiver;
-use futures::{pin_mut, Stream};
-use futures_util::future::FutureObj;
-use futures_util::stream::FuturesUnordered;
-use futures_util::task::noop_waker_ref;
+use futures::Stream;
+use futures_util::future::BoxFuture;
 use futures_util::StreamExt;
 use parking_lot::RwLock;
-use smol::unblock;
+use smol::future::FutureExt;
+use smol::lock::Semaphore;
+use smol::{unblock, LocalExecutor};
 use std::iter;
 use std::os::unix::fs::FileExt;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::task::{Context, Poll};
-use tokio::task::LocalSet;
 use vortex_buffer::ByteBufferMut;
-use vortex_error::{VortexError, VortexExpect};
+use vortex_error::VortexError;
 
-impl Runtime {
-    /// Returns a worker pool that can be used to drive the Runtime and in the process emit
-    /// items from the stream.
-    pub fn drive_stream_on_pool<F, S, R>(self, f: F) -> WorkerPool<R>
-    where
-        F: FnOnce(Handle) -> S,
-        S: Stream<Item = R> + Unpin + Send + 'static,
-        R: Send + 'static,
-    {
-        let handle = self.handle.clone();
-        let stream = f(handle.clone());
-
-        let scheduling_injector = Arc::new(Injector::<Runnable>::new());
-
-        // We create a channel for the output results and spawn a detached task to populate it.
-        // This will be driven by the scheduler.
-        let (send, recv) = crossbeam_channel::unbounded::<R>();
-        let results_fut = async move {
-            pin_mut!(stream);
-            while let Some(item) = stream.next().await {
-                if let Err(e) = send.send(item) {
-                    log::trace!("All workers disconnected: {}", e);
-                    break;
-                }
-            }
-        };
-        let scheduling_injector2 = scheduling_injector.clone();
-        let (results_runnable, results_task) =
-            async_task::spawn(results_fut, move |r| scheduling_injector2.push(r));
-        results_task.detach();
-        scheduling_injector.push(results_runnable);
-
-        WorkerPool {
-            shared: Arc::new(Shared {
-                recv_sched: self.sched_recv,
-                recv_cpu: self.cpu_recv,
-                recv_io: self.io_recv,
-                scheduling: Arc::new(WorkStealing::new(scheduling_injector)),
-                cpu: Default::default(),
-                active_io_workers: Default::default(),
-                target_io_reqs_per_worker: 32,
-                results: recv,
-            }),
-        }
-    }
-}
-
-/// A worker pool is way of driving a Vortex runtime from multiple worker threads, typically
+/// A worker pool is a Vortex runtime that can be driven from multiple worker threads, typically
 /// orchestrated by the system that is calling into Vortex.
 ///
 /// Each worker makes a decision about whether to perform I/O tasks, CPU tasks, or drive the
@@ -78,15 +28,47 @@ pub struct WorkerPool<T: Send + 'static> {
     shared: Arc<Shared<T>>,
 }
 
-struct Shared<T: Send + 'static> {
-    // The recver side of the runtime.
-    recv_sched: Receiver<FutureObj<'static, ()>>,
-    recv_cpu: Receiver<CpuTask>,
-    recv_io: Receiver<FileIoRequest>,
+impl<T: Send + 'static> WorkerPool<T> {
+    pub fn drive_stream<F, S>(f: F) -> WorkerPool<T>
+    where
+        F: FnOnce(Handle) -> S,
+        S: Stream<Item = T> + Send + 'static,
+        T: Send + 'static,
+    {
+        let (result_tx, result_rx) = crossbeam_channel::unbounded();
 
-    // The global injector for scheduling tasks.
+        let shared = Arc::new(Shared {
+            scheduling: Arc::new(WorkStealing::default()),
+            cpu: Arc::new(WorkStealing::default()),
+            io: Arc::new(WorkStealing::default()),
+            active_io_workers: AtomicUsize::new(0),
+            target_io_reqs_per_worker: 8,
+            results: result_rx,
+        });
+
+        let handle = Handle(shared.clone());
+        let stream = f(handle.clone());
+
+        // Spawn a task to drive the stream and send results to the result channel.
+        shared.spawn_scheduling(
+            async move {
+                futures_util::pin_mut!(stream);
+                while let Some(item) = stream.next().await {
+                    // Ignore send errors, which happen if the receiver is dropped.
+                    let _ = result_tx.send(item);
+                }
+            }
+            .boxed(),
+        );
+
+        WorkerPool { shared }
+    }
+}
+
+struct Shared<T: Send + 'static> {
     scheduling: Arc<WorkStealing<Runnable>>,
     cpu: Arc<WorkStealing<CpuTask>>,
+    io: Arc<WorkStealing<FileIoRequest>>,
 
     /// The current count of I/O worker threads.
     active_io_workers: AtomicUsize,
@@ -96,22 +78,38 @@ struct Shared<T: Send + 'static> {
     results: crossbeam_channel::Receiver<T>,
 }
 
+/// We implement [`Runtime`] for the worker pool's shared state, which allows us to create a handle
+/// that spawns onto the shared injector queues.
+///
+/// Note that we _also_ implement [`Runtime`] for each individual worker, which allows us to pass
+/// a handle that spawns onto a specific worker's local queues.
+impl<T: Send + 'static> Runtime for Shared<T> {
+    fn spawn_scheduling(&self, fut: BoxFuture<'static, ()>) {
+        let injector = self.scheduling.injector.clone();
+        let (runnable, task) = async_task::spawn(fut, move |r| injector.push(r));
+        task.detach();
+        self.scheduling.injector.push(runnable);
+    }
+
+    fn spawn_cpu(&self, task: CpuTask) {
+        self.cpu.injector.push(task);
+    }
+
+    fn spawn_io(&self, request: FileIoRequest) {
+        self.io.injector.push(request);
+    }
+}
+
 impl<T: Send + 'static> WorkerPool<T> {
     pub fn new_worker(&self) -> Worker<T> {
         let scheduling = self.shared.scheduling.new_worker();
-
-        let io_runtime = tokio::runtime::Builder::new_current_thread()
-            .thread_name(format!("vortex-worker-{}", scheduling.id))
-            .enable_all()
-            .build()
-            .vortex_expect("Failed to create worker I/O runtime");
 
         Worker {
             shared: self.shared.clone(),
             role: WorkerRole::Executor,
             scheduling,
             cpu: self.shared.cpu.new_worker(),
-            io_runtime,
+            io: self.shared.io.new_worker(),
         }
     }
 }
@@ -123,10 +121,27 @@ pub struct Worker<T: Send + 'static> {
 
     scheduling: WorkStealingLocal<Runnable>,
     cpu: WorkStealingLocal<CpuTask>,
-
-    // FIXME(ngates): we need to share a pool of workers that perform blocking reads...
-    io_runtime: tokio::runtime::Runtime,
+    io: WorkStealingLocal<FileIoRequest>,
 }
+//
+// impl<T: Send + 'static> Runtime for WorkerInner<T> {
+//     fn spawn_scheduling(&self, fut: BoxFuture<'static, ()>) {
+//         let injector = self.scheduling.injector.clone();
+//         // TODO(ngates): the problem is we _always_ end up back on the original worker's local queue!
+//         //  We could have a worker ID in the Runnable metadata so we can update it as it gets passed around?
+//         let (runnable, task) = async_task::spawn(fut, move |r| injector.push(r));
+//         task.detach();
+//         self.scheduling.injector.push(runnable);
+//     }
+//
+//     fn spawn_cpu(&self, task: CpuTask) {
+//         todo!()
+//     }
+//
+//     fn spawn_io(&self, request: FileIoRequest) {
+//         todo!()
+//     }
+// }
 
 #[derive(Debug, Clone, Copy)]
 enum WorkerRole {
@@ -176,61 +191,25 @@ impl<T: Send + 'static> Worker<T> {
     fn drive_io(&mut self) {
         // We should become an I/O worker until there are no in-flight requests, and no requests
         // in the queue. After that, we yield back to the worker to perform more work.
-        let file_io_recv = self.shared.recv_io.clone();
-        self.io_runtime
-            .block_on(LocalSet::new().run_until(async move {
-                // A no-op context.
-                let mut cx = Context::from_waker(noop_waker_ref());
+        let ex = LocalExecutor::new();
 
-                // Convert receiver to stream for easier polling
-                let mut file_io_stream = file_io_recv.into_stream();
-
-                // Create a FuturesUnordered to manage concurrent blocking operations
-                let mut inflight = FuturesUnordered::new();
-
-                loop {
-                    // Try to fill up to our concurrency limit with new requests
-                    let mut got_new_request = false;
-
-                    while inflight.len() < 16 {
-                        match file_io_stream.poll_next_unpin(&mut cx) {
-                            Poll::Ready(Some(req)) => {
-                                got_new_request = true;
-
-                                // Spawn a new blocking operation
-                                let fut = unblock(move || {
-                                    let mut buffer = ByteBufferMut::with_capacity_aligned(
-                                        req.length,
-                                        req.alignment,
-                                    );
-                                    unsafe { buffer.set_len(req.length) };
-                                    match req.file.read_exact_at(&mut buffer, req.offset) {
-                                        Ok(()) => req.resolve(Ok(buffer.freeze())),
-                                        Err(e) => req.resolve(Err(VortexError::from(e))),
-                                    }
-                                });
-                                inflight.push(fut);
-                            }
-                            Poll::Ready(None) => {
-                                // Channel closed
-                                break;
-                            }
-                            Poll::Pending => {
-                                // No more requests available right now
-                                break;
-                            }
-                        }
+        smol::block_on(ex.run(async move {
+            let sema = Arc::new(Semaphore::new(16));
+            while let Some(req) = self.io.find_task() {
+                let permit = sema.acquire_arc().await;
+                unblock(move || {
+                    let mut buffer =
+                        ByteBufferMut::with_capacity_aligned(req.length, req.alignment);
+                    unsafe { buffer.set_len(req.length) };
+                    match req.file.read_exact_at(&mut buffer, req.offset) {
+                        Ok(()) => req.resolve(Ok(buffer.freeze())),
+                        Err(e) => req.resolve(Err(VortexError::from(e))),
                     }
-
-                    // If we have pending operations, wait for at least one to complete
-                    if !inflight.is_empty() {
-                        while let Some(()) = inflight.next().await {}
-                    } else if !got_new_request {
-                        // No pending operations and no new requests available - terminate
-                        return;
-                    }
-                }
-            }));
+                    drop(permit)
+                })
+                .detach()
+            }
+        }));
     }
 }
 
@@ -247,18 +226,6 @@ impl<T: Send + 'static> Iterator for Worker<T> {
                 Ok(item) => return Some(item),
                 Err(crossbeam_channel::TryRecvError::Empty) => { /* No items, continue */ }
                 Err(crossbeam_channel::TryRecvError::Disconnected) => return None,
-            }
-
-            // Move globally pending tasks into our work-stealing queues.
-            while let Ok(fut) = self.shared.recv_sched.try_recv() {
-                let injector = self.shared.scheduling.injector.clone();
-                let (runnable, task) = async_task::spawn(fut, move |r| injector.push(r));
-                // TODO(ngates): I'm not sure about detaching here...
-                task.detach();
-                self.shared.scheduling.injector.push(runnable);
-            }
-            while let Ok(task) = self.shared.recv_cpu.try_recv() {
-                self.shared.cpu.injector.push(task);
             }
 
             match self.update_role() {
@@ -284,7 +251,7 @@ impl<T: Send + 'static> Iterator for Worker<T> {
             }
 
             // TODO(ngates): how to avoid busy looping here? Or maybe that's ok?
-            // std::thread::yield_now();
+            std::thread::yield_now();
         }
     }
 }
@@ -323,6 +290,7 @@ impl<T> WorkStealing<T> {
             id,
             global: self.clone(),
             local,
+            injector: Arc::new(Injector::new()),
         }
     }
 }
@@ -331,6 +299,7 @@ struct WorkStealingLocal<T> {
     id: usize,
     global: Arc<WorkStealing<T>>,
     local: crossbeam_deque::Worker<T>,
+    injector: Arc<Injector<T>>, // A local injector.
 }
 
 impl<T> WorkStealingLocal<T> {
@@ -339,19 +308,22 @@ impl<T> WorkStealingLocal<T> {
         self.local.pop().or_else(|| {
             // Otherwise, we need to look for a task elsewhere.
             iter::repeat_with(|| {
-                // Try stealing a batch of tasks from the global queue.
-                self.global
-                    .injector
-                    .steal_batch_and_pop(&self.local)
-                    // Or try stealing a task from one of the other threads.
-                    .or_else(|| {
-                        self.global
-                            .stealers
-                            .read()
-                            .iter()
-                            .map(|s| s.steal())
-                            .collect()
-                    })
+                // Try stealing a batch of tasks from our local injector.
+                self.injector.steal_batch_and_pop(&self.local).or_else(|| {
+                    // Try stealing a batch of tasks from the global queue.
+                    self.global
+                        .injector
+                        .steal_batch_and_pop(&self.local)
+                        // Or try stealing a task from one of the other threads.
+                        .or_else(|| {
+                            self.global
+                                .stealers
+                                .read()
+                                .iter()
+                                .map(|s| s.steal())
+                                .collect()
+                        })
+                })
             })
             // Loop while no task was stolen and any steal operation needs to be retried.
             .find(|s| !s.is_retry())

@@ -4,14 +4,12 @@
 pub use handle::*;
 
 mod handle;
-mod multithread;
-mod singlethread;
-mod tokio;
+pub mod multithread;
+pub mod singlethread;
+pub mod tokio;
 pub mod worker;
 
-use flume::Receiver;
 use futures_util::future::BoxFuture;
-use futures_util::task::FutureObj;
 use futures_util::FutureExt;
 use std::fs::File;
 use std::pin::Pin;
@@ -39,42 +37,21 @@ use vortex_error::{vortex_err, VortexExpect, VortexResult};
 ///
 /// The submission end of these queues is accessible via a [`Handle`], which should be cloned and
 /// passed around when constructing async futures in Vortex.
-pub struct Runtime {
-    /// Queue of scheduling futures.
-    sched_recv: Receiver<FutureObj<'static, ()>>,
-    /// Queue of exclusively CPU-bound tasks.
-    cpu_recv: Receiver<CpuTask>,
-    /// I/O queue for reading data from files.
-    io_recv: Receiver<FileIoRequest>,
+pub(crate) trait Runtime: Send + Sync {
+    /// Spawns a future to be executed on the runtime's scheduling context.
+    ///
+    /// The future will continue to be executed in the background and should pass results out via
+    /// a one-shot channel if necessary.
+    fn spawn_scheduling(&self, fut: BoxFuture<'static, ()>);
 
-    // A handle holds the "submission" side of the runtime.
-    handle: Handle,
-}
+    /// Spawns a CPU-bound task for execution on the runtime.
+    fn spawn_cpu(&self, task: CpuTask);
 
-impl Default for Runtime {
-    fn default() -> Self {
-        let (sched_send, sched_recv) = flume::unbounded();
-        let (cpu_send, cpu_recv) = flume::unbounded();
-        let (io_send, io_recv) = flume::unbounded();
+    /// Submits an I/O read request to be executed on the runtime.
+    fn spawn_io(&self, request: FileIoRequest);
 
-        Self {
-            sched_recv,
-            cpu_recv,
-            io_recv,
-            handle: Handle(Arc::new(Inner {
-                sched_send,
-                cpu_send,
-                io_send,
-            })),
-        }
-    }
-}
-
-impl Runtime {
-    /// Returns a [`Handle`] for spawning work onto this [`Runtime`].
-    pub fn handle(&self) -> &Handle {
-        &self.handle
-    }
+    // Drive an I/O future to completion on the runtime. Note that I/O futures are `!Send`.
+    // fn drive_io(&self, future: LocalBoxFuture<'static, ()>);
 }
 
 pub trait VortexRead: 'static + Send + Sync {

@@ -32,7 +32,7 @@ use vortex::dtype::arrow::FromArrowType;
 use vortex::dtype::{DType, Nullability, PType};
 use vortex::error::{vortex_err, VortexExpect, VortexResult};
 use vortex::file::VORTEX_FILE_EXTENSION;
-use vortex::io::runtime::Runtime;
+use vortex::io::runtime::tokio::TokioRuntime;
 use vortex::metrics::VortexMetrics;
 use vortex::scalar::Scalar;
 use vortex::session::VortexSession;
@@ -178,7 +178,7 @@ impl FileFormat for VortexFormat {
             .map(|o| {
                 let store = store.clone();
                 let cache = self.file_cache.clone();
-                SpawnedTask::spawn(Runtime::oneshot_tokio(|handle| async move {
+                SpawnedTask::spawn(TokioRuntime::default().drive(|handle| async move {
                     let vxf = cache.try_get(&o, store, handle).await?;
                     let inferred_schema = vxf.dtype().to_arrow_schema()?;
                     VortexResult::Ok((o.location, inferred_schema))
@@ -209,7 +209,7 @@ impl FileFormat for VortexFormat {
         let store = store.clone();
         let cache = self.file_cache.clone();
 
-        SpawnedTask::spawn(Runtime::oneshot_tokio(|handle| async move {
+        SpawnedTask::spawn(TokioRuntime::default().drive(|handle| async move {
             let vxf = cache
                 .try_get(&object, store.clone(), handle)
                 .await

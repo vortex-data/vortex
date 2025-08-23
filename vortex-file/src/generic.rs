@@ -7,8 +7,9 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_io::runtime::singlethread::SingleThreadRuntime;
+use vortex_io::runtime::Handle;
 use vortex_io::runtime::VortexRead;
-use vortex_io::runtime::{Handle, Runtime};
 use vortex_io::source::{FileIo, IoSource};
 use vortex_io::{IoDispatcher, PerformanceHint};
 use vortex_layout::segments::{SegmentEvents, SegmentId};
@@ -70,7 +71,7 @@ impl VortexOpenOptions<GenericVortexFile> {
 
     /// Blocking call to open a Vortex file using the provided [`std::path::Path`].
     pub fn open_blocking<P: AsRef<Path>>(self, read: P) -> VortexResult<VortexFile> {
-        Runtime::oneshot(|handle| self.open(read, handle))
+        SingleThreadRuntime::drive(|handle| self.open(read, handle))
     }
 
     /// Open a Vortex file using the provided [`std::path::Path`].
