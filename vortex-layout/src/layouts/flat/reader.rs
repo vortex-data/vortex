@@ -231,25 +231,35 @@ impl ArrayEvaluation for FlatEvaluation {
             mask.density(),
         );
 
+        let name = self.name.clone();
+        let expr = self.expr.clone();
+        let row_range = self.row_range.clone();
+
         // Now we await the array .
-        let mut array = self.array.clone().await?;
+        let array = self.array.clone().await?;
 
-        // Slice the array based on the row mask.
-        if self.row_range.start > 0 || self.row_range.end < array.len() {
-            array = array.slice(self.row_range.start, self.row_range.end);
-        }
+        self.handle
+            .spawn_cpu(move || {
+                let mut array = array;
 
-        // Filter the array based on the row mask.
-        if !mask.all_true() {
-            array = filter(&array, &mask)?;
-        }
+                // Slice the array based on the row mask.
+                if row_range.start > 0 || row_range.end < array.len() {
+                    array = array.slice(row_range.start, row_range.end);
+                }
 
-        // Evaluate the projection expression.
-        if !is_root(&self.expr) {
-            array = self.expr.evaluate(&Scope::new(array))?;
-        }
+                // Filter the array based on the row mask.
+                if !mask.all_true() {
+                    array = filter(&array, &mask)?;
+                }
 
-        Ok(array)
+                // Evaluate the projection expression.
+                if !is_root(&expr) {
+                    array = expr.evaluate(&Scope::new(array))?;
+                }
+
+                Ok(array)
+            })
+            .await
     }
 }
 

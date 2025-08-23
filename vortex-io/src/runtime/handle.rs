@@ -12,14 +12,17 @@ use vortex_buffer::Alignment;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 
 /// Represents a handle to a Vortex runtime that can be used to enqueue CPU- or I/O-bound tasks.
-///
-/// Handles can be thought of like the "send" end of a channel, where the runtime is the "receive"
-/// end that is actually driven.
 #[derive(Clone)]
 pub struct Handle(pub(crate) Arc<dyn Runtime>);
 
 impl Handle {
-    /// Spawn a new future onto the runtime.
+    /// Spawn a new scheduling future onto the runtime.
+    ///
+    // TODO(ngates): we should pass a new handle into a function here, then we should use handles
+    //  to carry both affinity and priority information back to the runtime.
+    //  For example, we can spawn each split of a scan operation. Each spawn on the same handle
+    //  creates a sibling task, which have sequential priority. All CPU tasks spawned from the same
+    //  handle can have the same affinity? Something like that?
     pub fn spawn<F, R>(&self, f: F) -> impl Future<Output = R> + use<F, R>
     where
         F: Future<Output = R> + Send + 'static,

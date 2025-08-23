@@ -210,9 +210,9 @@ impl<T: Send + 'static> Iterator for Worker<T> {
 
             match self.update_role() {
                 WorkerRole::Executor => {
-                    // Try to drive the scheduler if there is a task to perform.
+                    // We also perform scheduling if there is a task to perform.
                     // TODO(ngates): we probably shouldn't work-steal at this point?
-                    if let Some(runnable) = self.scheduling.find_task() {
+                    while let Some(runnable) = self.scheduling.find_task() {
                         // TODO(ngates): there's no good way to tell this runnable that anything
                         //  it spawns should be sent to the current worker's local queues? I'm
                         //  sure we can figure it out.
@@ -220,6 +220,7 @@ impl<T: Send + 'static> Iterator for Worker<T> {
                         // Start the loop again to check for more work.
                         // continue;
                     }
+
                     if let Some(task) = self.cpu.find_task() {
                         task.run();
                         continue;
@@ -227,6 +228,7 @@ impl<T: Send + 'static> Iterator for Worker<T> {
                 }
                 WorkerRole::IO => {
                     self.drive_io();
+                    continue;
                 }
             }
 
