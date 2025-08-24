@@ -37,14 +37,15 @@ impl Runtime for TokioHandle {
     }
 
     fn spawn_io(&self, f: FileIoRequest) {
-        TokioHandle::spawn_blocking(self, move || {
-            let mut buffer = ByteBufferMut::with_capacity_aligned(f.length, f.alignment);
-            unsafe { buffer.set_len(f.length) };
-            match f.file.read_exact_at(&mut buffer, f.offset) {
-                Ok(()) => f.resolve(Ok(buffer.freeze())),
-                Err(e) => f.resolve(Err(VortexError::from(e))),
-            }
-        });
+        // FIXME(ngates): the API for a Runtime is dumb.
+        // TokioHandle::spawn_blocking(self, move || {
+        let mut buffer = ByteBufferMut::with_capacity_aligned(f.length, f.alignment);
+        unsafe { buffer.set_len(f.length) };
+        match f.file.read_exact_at(&mut buffer, f.offset) {
+            Ok(()) => f.resolve(Ok(buffer.freeze())),
+            Err(e) => f.resolve(Err(VortexError::from(e))),
+        }
+        // });
     }
 }
 
