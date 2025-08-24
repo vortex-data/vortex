@@ -122,7 +122,6 @@ libfuzzer-sys = "0.4"
 linked_hash_set = "0.1.5"
 log = { version = "0.4.21" }
 loom = { version = "0.7", features = ["checkpoint"] }
-simdutf8 = "0.1.5"
 memmap2 = "0.9.5"
 mimalloc = "0.1.42"
 moka = { version = "0.12.10", default-features = false }
@@ -168,6 +167,7 @@ rustversion = "1.0"
 serde = "1.0.203"
 serde_json = "1.0.116"
 serde_test = "1.0.176"
+simdutf8 = "0.1.5"
 similar = "2.7.0"
 simplelog = "0.12"
 sketches-ddsketch = "0.3.0"
