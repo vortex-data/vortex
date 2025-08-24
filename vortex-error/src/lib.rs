@@ -101,8 +101,6 @@ pub enum VortexError {
     FmtError(fmt::Error, Box<Backtrace>),
     /// A wrapper for IO errors.
     IOError(io::Error, Box<Backtrace>),
-    /// A wrapper for UTF-8 conversion errors.
-    Utf8Error(std::str::Utf8Error, Box<Backtrace>),
     /// A wrapper for errors from the standard library when converting a slice to an array.
     TryFromSliceError(std::array::TryFromSliceError, Box<Backtrace>),
     /// A wrapper for errors from the Object Store library.
@@ -197,9 +195,6 @@ impl Display for VortexError {
                 write!(f, "{err}\nBacktrace:\n{backtrace}")
             }
             VortexError::IOError(err, backtrace) => {
-                write!(f, "{err}\nBacktrace:\n{backtrace}")
-            }
-            VortexError::Utf8Error(err, backtrace) => {
                 write!(f, "{err}\nBacktrace:\n{backtrace}")
             }
             VortexError::TryFromSliceError(err, backtrace) => {
@@ -495,12 +490,6 @@ impl From<flatbuffers::InvalidFlatbuffer> for VortexError {
 impl From<io::Error> for VortexError {
     fn from(value: io::Error) -> Self {
         VortexError::IOError(value, Box::new(Backtrace::capture()))
-    }
-}
-
-impl From<std::str::Utf8Error> for VortexError {
-    fn from(value: std::str::Utf8Error) -> Self {
-        VortexError::Utf8Error(value, Box::new(Backtrace::capture()))
     }
 }
 

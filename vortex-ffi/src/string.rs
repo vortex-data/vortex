@@ -4,7 +4,7 @@
 use std::ffi::{CStr, c_char};
 use std::slice;
 
-use vortex::error::{VortexExpect, vortex_err};
+use vortex::error::{VortexExpect, VortexUnwrap, vortex_err};
 
 use crate::arc_dyn_wrapper;
 
@@ -41,7 +41,8 @@ pub unsafe extern "C-unwind" fn vx_string_new(ptr: *const c_char, len: usize) ->
 pub unsafe extern "C-unwind" fn vx_string_new_from_cstr(ptr: *const c_char) -> *const vx_string {
     let string = unsafe { CStr::from_ptr(ptr) }
         .to_str()
-        .vortex_expect("Invalid UTF-8 string");
+        .map_err(|_| vortex_err!("Invalid UTF-8 string"))
+        .vortex_unwrap();
     vx_string::new(string.into())
 }
 
