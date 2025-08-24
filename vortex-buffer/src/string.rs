@@ -3,7 +3,8 @@
 
 use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
-use std::str::Utf8Error;
+
+use vortex_error::{VortexError, vortex_err};
 
 use crate::ByteBuffer;
 
@@ -64,10 +65,11 @@ impl From<&str> for BufferString {
 }
 
 impl TryFrom<ByteBuffer> for BufferString {
-    type Error = Utf8Error;
+    type Error = VortexError;
 
     fn try_from(value: ByteBuffer) -> Result<Self, Self::Error> {
-        let _ = std::str::from_utf8(value.as_ref())?;
+        let _ = simdutf8::basic::from_utf8(value.as_ref())
+            .map_err(|_| vortex_err!("not a valid utf-8 string"))?;
         Ok(Self(value))
     }
 }

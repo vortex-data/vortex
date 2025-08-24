@@ -122,6 +122,7 @@ libfuzzer-sys = "0.4"
 linked_hash_set = "0.1.5"
 log = { version = "0.4.21" }
 loom = { version = "0.7", features = ["checkpoint"] }
+simdutf8 = "0.1.5"
 memmap2 = "0.9.5"
 mimalloc = "0.1.42"
 moka = { version = "0.12.10", default-features = false }
