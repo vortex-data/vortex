@@ -94,6 +94,7 @@ export const CATEGORY_TAGS = {
   "TPC-H (S3) (SF=1000)": ["Queries (S3)", "TPC-H (SF=1000)"],
   "TPC-DS (NVMe) (SF=1)": ["Queries (NVMe)", "TPC-DS (SF=1)"],
   "TPC-DS (NVMe) (SF=10)": ["Queries (NVMe)", "TPC-DS (SF=10)"],
+  "Statistical and Population Genetics": ["Queries (NVMe)", "StatPopGen"],
 };
 
 // Scale factor descriptions
@@ -106,8 +107,30 @@ export const SCALE_FACTOR_DESCRIPTIONS = {
 
 // Query name transformations
 export const QUERY_NAME_MAP = {
+  "TPCH Q1": "TPC-H Q1",
+  "TPCH Q2": "TPC-H Q2",
+  "TPCH Q3": "TPC-H Q3",
+  "TPCH Q4": "TPC-H Q4",
+  "TPCH Q5": "TPC-H Q5",
+  "TPCH Q6": "TPC-H Q6",
+  "TPCH Q7": "TPC-H Q7",
+  "TPCH Q8": "TPC-H Q8",
+  "TPCH Q9": "TPC-H Q9",
+  "TPCH Q10": "TPC-H Q10",
+  "TPCH Q11": "TPC-H Q11",
+  "TPCH Q12": "TPC-H Q12",
+  "TPCH Q13": "TPC-H Q13",
+  "TPCH Q14": "TPC-H Q14",
+  "TPCH Q15": "TPC-H Q15",
+  "TPCH Q16": "TPC-H Q16",
+  "TPCH Q17": "TPC-H Q17",
+  "TPCH Q18": "TPC-H Q18",
+  "TPCH Q19": "TPC-H Q19",
+  "TPCH Q20": "TPC-H Q20",
+  "TPCH Q21": "TPC-H Q21",
+  "TPCH Q22": "TPC-H Q22",
   "VORTEX:RAW SIZE": "VORTEX COMPRESSION RATIO",
-  "VORTEX:PARQUET-ZSTD SIZE": "VORTEX:PARQUET-ZSTD SIZE RATIO",
+  "VORTEX:PARQUET-ZSTD SIZE": "VORTEX:PARQUET-ZSTD SIZE RATIO"
 };
 
 // Engine labels
@@ -135,4 +158,5 @@ export const BENCHMARK_GROUPS = [
   "TPC-H (S3) (SF=1000)",
   "TPC-DS (NVMe) (SF=1)",
   "TPC-DS (NVMe) (SF=10)",
+  "Statistical and Population Genetics"
 ];
