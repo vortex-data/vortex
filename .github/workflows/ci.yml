@@ -13,8 +13,8 @@ on:
 permissions:
   actions: read
   contents: read
-  checks: write  # audit-check creates checks
-  issues: write  # audit-check creates issues
+  checks: write # audit-check creates checks
+  issues: write # audit-check creates issues
 
 env:
   CARGO_TERM_COLOR: always
@@ -171,7 +171,7 @@ jobs:
             command: "build"
             target: wasm32-unknown-unknown
             env:
-              rustflags: "RUSTFLAGS='-A warnings --cfg getrandom_backend=\"wasm_js\"'"
+              rustflags: 'RUSTFLAGS=''-A warnings --cfg getrandom_backend="wasm_js"'''
             args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-datafusion --exclude vortex-duckdb --exclude vortex-tui --exclude vortex-zstd"
     steps:
       - uses: runs-on/action@v2
@@ -283,7 +283,7 @@ jobs:
       - tag=suite-${{ matrix.suite }}
     env:
       RUSTFLAGS: "-Cinstrument-coverage -A warnings"
-      CARGO_INCREMENTAL: 0  # Disable incremental compilation to get accurate coverage
+      CARGO_INCREMENTAL: 0 # Disable incremental compilation to get accurate coverage
       LLVM_PROFILE_FILE: "target/coverage/vortex-%p-%m.profraw"
       GRCOV_OUTPUT_FILE: "target/coverage/vortex.lcov"
     steps:
@@ -375,7 +375,10 @@ jobs:
         working-directory: ./java
 
   bench-codspeed:
-    name: Benchmark with Codspeed
+    strategy:
+      matrix:
+        shard: [1, 2]
+    name: "Benchmark with Codspeed (Shard #${{ matrix.shard }})"
     timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
@@ -383,7 +386,6 @@ jobs:
       - extras=s3-cache
       - image=ubuntu24-full-x64
       - tag=bench-codspeed
-
     steps:
       - uses: runs-on/action@v2
         with:
@@ -395,9 +397,22 @@ jobs:
         shell: bash
         run: cargo install --force cargo-codspeed --locked
 
-      - name: Build benchmarks
+      - name: Build benchmarks (shard 1)
         env:
           RUSTFLAGS: "-C target-feature=+avx2"
+        if: ${{ matrix.shard == 1 }}
+        run: |
+          cargo codspeed build --features test-harness \
+            -p vortex-buffer \
+            -p vortex-array \
+            -p vortex \
+            -p vortex-fastlanes \
+            --profile bench
+
+      - name: Build benchmarks (shard 2)
+        env:
+          RUSTFLAGS: "-C target-feature=+avx2"
+        if: ${{ matrix.shard == 2 }}
         run: |
           cargo codspeed build --features test-harness \
             --exclude bench-vortex \
@@ -407,6 +422,10 @@ jobs:
             --exclude vortex-python \
             --exclude vortex-tui \
             --exclude xtask \
+            --exclude vortex-buffer \
+            --exclude vortex-array \
+            --exclude vortex \
+            --exclude vortex-fastlanes \
             --workspace \
             --profile bench
 
