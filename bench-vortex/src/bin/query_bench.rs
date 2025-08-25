@@ -6,10 +6,12 @@ use std::path::PathBuf;
 use bench_vortex::benchmark_driver::{DriverConfig, run_benchmark};
 use bench_vortex::clickbench::{ClickBenchBenchmark, Flavor};
 use bench_vortex::display::DisplayFormat;
+use bench_vortex::statpopgen::StatPopGenBenchmark;
 use bench_vortex::tpcds::TpcDsBenchmark;
 use bench_vortex::tpch::tpch_benchmark::TpcHBenchmark;
-use bench_vortex::{Target, setup_logging_and_tracing};
+use bench_vortex::{IdempotentPath as _, Target, setup_logging_and_tracing};
 use clap::{Parser, Subcommand, value_parser};
+use url::Url;
 
 #[derive(Parser, Debug)]
 #[command(version, about = "Vortex query benchmark runner", long_about = None)]
@@ -31,6 +33,10 @@ enum Commands {
     /// Run TPC-DS queries
     #[command(name = "tpcds")]
     TpcDS(TpcDSArgs),
+
+    /// Run Statisical & Population Genetics queries
+    #[command(name = "statpopgen")]
+    StatPopGen(StatPopGenArgs),
 }
 
 /// Common arguments shared across benchmarks
@@ -153,6 +159,39 @@ struct TpcDSArgs {
     scale_factor: String,
 }
 
+#[derive(Parser, Debug)]
+struct StatPopGenArgs {
+    #[command(flatten)]
+    common: CommonArgs,
+
+    #[arg(long, value_delimiter = ',', value_parser = value_parser!(Target),
+          default_values = vec![
+              // DataFusion does not support list_aggregate and simulating it with an UNNEST and GROUP
+              // BY is _very_ slow.
+              //
+              // "datafusion:parquet",
+              // "datafusion:vortex",
+              "duckdb:parquet",
+              "duckdb:vortex",
+              // DuckDB vortex-compact files trigger an assertion in pcodec.
+              //
+              // "duckdb:vortex-compact",
+              //
+              // DuckDB native has a fixed parallelism row group size of 122,880
+              // rows. Unfortunately, this kind of list-heavy dataset is almost perfectly
+              // adversarial to that limitation.
+              //
+              // https://duckdb.org/docs/stable/guides/performance/how_to_tune_workloads.html#the-effect-of-row-groups-on-parallelism
+              //
+              // "duckdb:duckdb"
+          ]
+    )]
+    targets: Vec<Target>,
+
+    #[arg(long)]
+    scale_factor: u64,
+}
+
 fn validate_scale_factor(val: &str) -> Result<String, String> {
     match val.parse::<f32>() {
         Ok(n) if [0.01, 0.1, 1., 10., 100., 1000.].contains(&n) => {
@@ -180,6 +219,7 @@ fn main() -> anyhow::Result<()> {
         Commands::ClickBench(clickbench_args) => run_clickbench(clickbench_args),
         Commands::TpcH(tpch_args) => run_tpch(tpch_args),
         Commands::TpcDS(tpcds_args) => run_tpcds(tpcds_args),
+        Commands::StatPopGen(stat_pop_gen_args) => run_statpopgen(stat_pop_gen_args),
     }
 }
 
@@ -277,4 +317,35 @@ fn run_tpcds(args: TpcDSArgs) -> anyhow::Result<()> {
     run_benchmark(benchmark, config)?;
 
     Ok(())
+}
+
+fn run_statpopgen(args: StatPopGenArgs) -> anyhow::Result<()> {
+    setup_logging_and_tracing(args.common.verbose, args.common.tracing)?;
+
+    // Create benchmark instance
+    let data_url = Url::from_directory_path("statpopgen".to_data_path())
+        .map_err(|_| anyhow::anyhow!("bad data path?"))?;
+    let benchmark = StatPopGenBenchmark::new(data_url, args.scale_factor)?;
+
+    // Configure driver
+    let config = DriverConfig {
+        targets: args.targets,
+        iterations: args.common.iterations,
+        threads: args.common.threads,
+        display_format: args.common.display_format,
+        disable_datafusion_cache: args.common.disable_datafusion_cache,
+        delete_duckdb_database: args.common.delete_duckdb_database,
+        queries: args.common.queries,
+        exclude_queries: args.common.exclude_queries,
+        output_path: args.common.output_path,
+        emit_plan: args.common.emit_plan,
+        export_spans: args.common.export_spans,
+        show_metrics: args.common.show_metrics,
+        hide_progress_bar: args.common.hide_progress_bar,
+        track_memory: args.common.track_memory,
+        skip_generate: args.common.skip_generate,
+    };
+
+    // Run benchmark using the trait system
+    run_benchmark(benchmark, config)
 }

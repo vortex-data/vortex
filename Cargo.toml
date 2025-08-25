@@ -103,6 +103,7 @@ enum-iterator = "2.0.0"
 erased-serde = "0.4"
 fastlanes = "0.2.0"
 flatbuffers = "25.2.10"
+flate2 = "1.1.2"
 flume = "0.11"
 fsst-rs = "0.5.2"
 futures = { version = "0.3.31", default-features = false }
@@ -126,6 +127,8 @@ memmap2 = "0.9.5"
 mimalloc = "0.1.42"
 moka = { version = "0.12.10", default-features = false }
 multiversion = "0.8.0"
+noodles-bgzf = "0.42.0"
+noodles-vcf = "0.80.0"
 num-traits = "0.2.19"
 num_enum = { version = "0.7.3", default-features = false }
 object_store = { version = "0.12.3", default-features = false }
@@ -180,6 +183,7 @@ tempfile = "3"
 thiserror = "2.0.3"
 tokio = { version = "1.46" }
 tokio-stream = "0.1.17"
+tokio-util = { version = "0.7.16" }
 # replace these with releases
 tpchgen = { git = "https://github.com/clflushopt/tpchgen-rs.git", rev = "d849ff430cd52250f6891ed4d5e3adad77bb2698" }
 tpchgen-arrow = { git = "https://github.com/clflushopt/tpchgen-rs.git", rev = "d849ff430cd52250f6891ed4d5e3adad77bb2698" }

@@ -9,6 +9,7 @@ use url::Url;
 use vortex::error::VortexExpect;
 use vortex_duckdb::duckdb::{Connection, Database};
 
+use crate::statpopgen::StatPopGenBenchmark;
 use crate::{BenchmarkDataset, Format, IdempotentPath};
 
 #[derive(Debug, Clone)]
@@ -45,6 +46,9 @@ impl DuckDBCtx {
                 format!("tpcds/{scale_factor}/{}", format.name()).to_data_path()
             }
             BenchmarkDataset::PublicBi { .. } => todo!(),
+            BenchmarkDataset::StatPopGen { n_rows } => {
+                format!("statpopgen/{n_rows}/{}", format.name()).to_data_path()
+            }
         };
         std::fs::create_dir_all(&dir)?;
         let db_path = dir.join("duckdb.db");
@@ -61,6 +65,7 @@ impl DuckDBCtx {
         let db = Database::open_in_memory()?;
         let connection = db.connect()?;
         vortex_duckdb::register_table_functions(&connection)?;
+
         Ok(Self { db, connection })
     }
 
@@ -153,9 +158,9 @@ impl DuckDBCtx {
                 for table_name in &tables {
                     let table_path = format!("{base_dir}{table_name}_*.{extension}");
                     commands.push_str(&format!(
-                        "CREATE {} IF NOT EXISTS {table_name} AS SELECT * FROM read_{extension}('{table_path}');\n",
-                        duckdb_object.to_str(),
-                    ));
+                                "CREATE {} IF NOT EXISTS {table_name} AS SELECT * FROM read_{extension}('{table_path}');\n",
+                                duckdb_object.to_str(),
+                            ));
                 }
                 commands
             }
@@ -172,13 +177,20 @@ impl DuckDBCtx {
                 for table_name in tables {
                     let table_path = format!("{base_dir}{table_name}.{extension}");
                     commands.push_str(&format!(
-                        "CREATE {} IF NOT EXISTS {table_name} AS SELECT * FROM read_{extension}('{table_path}');\n",
-                        duckdb_object.to_str(),
-                    ));
+                                "CREATE {} IF NOT EXISTS {table_name} AS SELECT * FROM read_{extension}('{table_path}');\n",
+                                duckdb_object.to_str(),
+                            ));
                 }
                 commands
             }
             BenchmarkDataset::PublicBi { .. } => todo!(),
+            BenchmarkDataset::StatPopGen { .. } => {
+                let path = format!("{base_dir}{}.{extension}", StatPopGenBenchmark::FILE_NAME);
+                format!(
+                    "CREATE {} IF NOT EXISTS statpopgen AS SELECT * FROM read_{extension}('{path}');",
+                    duckdb_object.to_str()
+                )
+            }
         }
     }
 }
