@@ -188,6 +188,9 @@ fn execute_queries<B: Benchmark>(
                 let mut row_count = None;
 
                 for _ in 0..iterations {
+                    // Ensure we reopen the database to clear caches between runs.
+                    ctx.reopen()?;
+
                     let (duration, current_row_count) =
                         ctx.execute_query(query_string).unwrap_or_else(|err| {
                             vortex_panic!("query: {query_idx} failed with: {err}")
