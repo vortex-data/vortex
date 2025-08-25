@@ -1,4 +1,5 @@
 import doctest
+import os
 import re
 from pathlib import Path
 
@@ -43,7 +44,7 @@ intersphinx_mapping = {
     "pyarrow": ("https://arrow.apache.org/docs", None),
     "pandas": ("https://pandas.pydata.org/docs", None),
     "numpy": ("https://numpy.org/doc/stable", None),
-    "polars": ("https://docs.pola.rs/api/python/stable", None),
+    "polars": ("https://docs.pola.rs/api/python/stable", "polars.objects.inv"),
 }
 
 git_root = Path(__file__).parent.parent
@@ -185,6 +186,14 @@ def _post_process(app, builder):
         # TODO(ngates): enable this one we've cleaned up the entire C API.
         # log.warning("Some C references were not found: %s", ", ".join(sorted(C_DOCS)))
         C_DOCS = None  # Reset for next build
+
+
+# Most tools change their table formatting based on the perceived number of columns. Most will
+# obey the COLUMNS environment variable (because they use `shutil.get_terminal_size()`), but
+# some COUGH polars COUGH do not.
+os.environ["COLUMNS"] = "80"
+# https://github.com/pola-rs/polars/blob/8a55acce8bb822c549861c371b6d48dee6c3379f/crates/polars-core/src/fmt.rs#L720
+os.environ["POLARS_TABLE_WIDTH"] = "80"
 
 
 def setup(app):

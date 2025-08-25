@@ -40,7 +40,7 @@ impl<T> Precision<Option<T>> {
         match self {
             Exact(Some(x)) => Some(Exact(x)),
             Inexact(Some(x)) => Some(Inexact(x)),
-            _ => None,
+            Exact(None) | Inexact(None) => None,
         }
     }
 }
@@ -123,7 +123,7 @@ impl<T> Precision<T> {
         }
     }
 
-    /// Similar to `map` but handles fucntions that can fail.
+    /// Similar to `map` but handles functions that can fail.
     pub fn try_map<U, F: FnOnce(T) -> VortexResult<U>>(self, f: F) -> VortexResult<Precision<U>> {
         let precision = match self {
             Exact(value) => Exact(f(value)?),

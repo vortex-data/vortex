@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
@@ -30,6 +31,7 @@ impl DuckDBObject {
 pub struct DuckDBCtx {
     pub db: Database,
     pub connection: Connection,
+    pub db_path: Option<PathBuf>,
 }
 
 impl DuckDBCtx {
@@ -51,17 +53,40 @@ impl DuckDBCtx {
         if delete_database {
             std::fs::remove_file(&db_path)?;
         }
-        let db = Database::open(db_path)?;
+        let db = Database::open(&db_path)?;
         let connection = db.connect()?;
         vortex_duckdb::register_table_functions(&connection)?;
-        Ok(Self { db, connection })
+
+        Ok(Self {
+            db,
+            connection,
+            db_path: Some(db_path),
+        })
+    }
+
+    pub fn reopen(&mut self) -> Result<()> {
+        let mut db = match &self.db_path {
+            Some(path) => Database::open(path),
+            None => Database::open_in_memory(),
+        }?;
+        let mut connection = db.connect()?;
+        vortex_duckdb::register_table_functions(&connection)?;
+
+        std::mem::swap(&mut self.connection, &mut connection);
+        std::mem::swap(&mut self.db, &mut db);
+
+        Ok(())
     }
 
     pub fn new_in_memory() -> Result<Self> {
         let db = Database::open_in_memory()?;
         let connection = db.connect()?;
         vortex_duckdb::register_table_functions(&connection)?;
-        Ok(Self { db, connection })
+        Ok(Self {
+            db,
+            connection,
+            db_path: None,
+        })
     }
 
     /// Execute DuckDB queries for benchmarks using the internal connection

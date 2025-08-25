@@ -55,90 +55,11 @@ impl PyVortexFile {
         Ok(usize::try_from(slf.vxf.row_count())?)
     }
 
-    /// The dtype of the file.
     #[getter]
     fn dtype(slf: Bound<Self>) -> PyResult<Bound<PyDType>> {
         PyDType::init(slf.py(), slf.get().vxf.dtype().clone())
     }
 
-    /// Scan the Vortex file returning a :class:`vortex.ArrayIterator`.
-    ///
-    /// Parameters
-    /// ----------
-    /// projection : :class:`vortex.Expr` | None
-    ///     The projection expression to read, or else read all columns.
-    /// expr : :class:`vortex.Expr` | None
-    ///     The predicate used to filter rows. The filter columns do not need to be in the projection.
-    /// indices : :class:`vortex.Array` | None
-    ///     The indices of the rows to read. Must be sorted and non-null.
-    /// batch_size : :class:`int` | None
-    ///     The number of rows to read per chunk.
-    ///
-    /// Examples
-    /// --------
-    ///
-    /// Scan a file with a structured column and nulls at multiple levels and in multiple columns.
-    ///
-    ///     >>> import vortex as vx
-    ///     >>> import vortex.expr as ve
-    ///     >>> a = vx.array([
-    ///     ...     {'name': 'Joseph', 'age': 25},
-    ///     ...     {'name': None, 'age': 31},
-    ///     ...     {'name': 'Angela', 'age': None},
-    ///     ...     {'name': 'Mikhail', 'age': 57},
-    ///     ...     {'name': None, 'age': None},
-    ///     ... ])
-    ///     >>> vx.io.write(a, "a.vortex")
-    ///     >>> vxf = vx.open("a.vortex")
-    ///     >>> vxf.scan().read_all().to_arrow_array()
-    ///     <pyarrow.lib.StructArray object at ...>
-    ///     -- is_valid: all not null
-    ///     -- child 0 type: int64
-    ///       [
-    ///         25,
-    ///         31,
-    ///         null,
-    ///         57,
-    ///         null
-    ///       ]
-    ///     -- child 1 type: string_view
-    ///       [
-    ///         "Joseph",
-    ///         null,
-    ///         "Angela",
-    ///         "Mikhail",
-    ///         null
-    ///       ]
-    ///
-    /// Read just the age column:
-    ///
-    ///     >>> vxf.scan(['age']).read_all().to_arrow_array()
-    ///     <pyarrow.lib.StructArray object at ...>
-    ///     -- is_valid: all not null
-    ///     -- child 0 type: int64
-    ///       [
-    ///         25,
-    ///         31,
-    ///         null,
-    ///         57,
-    ///         null
-    ///       ]
-    ///
-    ///
-    /// Keep rows with an age above 35. This will read O(N_KEPT) rows, when the file format allows.
-    ///
-    ///     >>> vxf.scan(expr=ve.column("age") > 35).read_all().to_arrow_array()
-    ///     <pyarrow.lib.StructArray object at ...>
-    ///     -- is_valid: all not null
-    ///     -- child 0 type: int64
-    ///       [
-    ///         57
-    ///       ]
-    ///     -- child 1 type: string_view
-    ///       [
-    ///         "Mikhail"
-    ///       ]
-    ///
     #[pyo3(signature = (projection = None, *, expr = None, indices = None, batch_size = None))]
     fn scan(
         slf: Bound<Self>,
@@ -170,8 +91,6 @@ impl PyVortexFile {
         )))
     }
 
-    /// Scan the Vortex file as a :class:`pyarrow.RecordBatchReader`.
-    // TODO(ngates): columns should instead be a projection expression
     #[pyo3(signature = (projection = None, *, expr = None, batch_size = None))]
     fn to_arrow(
         slf: Bound<Self>,
@@ -199,14 +118,8 @@ impl PyVortexFile {
         rbr.into_pyarrow(slf.py())
     }
 
-    /// Scan the Vortex file using the :class:`pyarrow.dataset.Dataset` API.
-    fn to_dataset(slf: Bound<Self>) -> PyResult<Bound<PyAny>> {
-        let dataset_cls = slf
-            .py()
-            .import("vortex.dataset")?
-            .getattr("VortexDataset")?;
-        let dataset = PyVortexDataset::try_new(slf.get().vxf.clone())?;
-        dataset_cls.call1((dataset,))
+    fn to_dataset(slf: Bound<Self>) -> PyResult<PyVortexDataset> {
+        Ok(PyVortexDataset::try_new(slf.get().vxf.clone())?)
     }
 }
 

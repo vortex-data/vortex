@@ -500,11 +500,10 @@ fn test_mask_threshold_iter() {
     assert!(matches!(all_false.threshold_iter(0.5), AllOr::None));
 
     let mask = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, true, false]));
-    match mask.threshold_iter(0.7) {
-        AllOr::Some(MaskIter::Indices(indices)) => {
-            assert_eq!(indices, &[0, 2, 3]);
-        }
-        _ => panic!("Expected indices iterator"),
+    if let AllOr::Some(MaskIter::Indices(indices)) = mask.threshold_iter(0.7) {
+        assert_eq!(indices, &[0, 2, 3]);
+    } else {
+        panic!("Expected indices iterator");
     }
 }
 
@@ -668,6 +667,6 @@ fn test_intersection_indices(
         AllOr::Some(indices) if expected.is_empty() => assert!(indices.is_empty()),
         AllOr::Some(indices) => assert_eq!(indices, &expected[..]),
         AllOr::None if expected.is_empty() => {}
-        _ => panic!("Unexpected result for intersection"),
+        AllOr::None | AllOr::All => panic!("Unexpected result for intersection"),
     }
 }

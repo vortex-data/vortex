@@ -559,10 +559,9 @@ fn test_comparison_inverse_consistency(array: &dyn Array) {
         return;
     }
 
-    // Skip non-comparable types
+    // Skip non-comparable types.
     match array.dtype() {
-        DType::Null | DType::Extension(_) => return,
-        DType::Struct(..) | DType::List(..) => return,
+        DType::Null | DType::Extension(_) | DType::Struct(..) | DType::List(..) => return,
         _ => {}
     }
 
@@ -656,10 +655,9 @@ fn test_comparison_symmetry_consistency(array: &dyn Array) {
         return;
     }
 
-    // Skip non-comparable types
+    // Skip non-comparable types.
     match array.dtype() {
-        DType::Null | DType::Extension(_) => return,
-        DType::Struct(..) | DType::List(..) => return,
+        DType::Null | DType::Extension(_) | DType::Struct(..) | DType::List(..) => return,
         _ => {}
     }
 

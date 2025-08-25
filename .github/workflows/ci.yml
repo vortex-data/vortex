@@ -57,6 +57,8 @@ jobs:
         run: uv run ruff format --check .
       - name: Python Lint - Ruff
         run: uv run ruff check .
+      - name: Python Lint - PyRight
+        run: uv run basedpyright vortex-python
 
   python-test:
     name: "Python (test)"
@@ -73,25 +75,19 @@ jobs:
           sync: false
           prune-cache: false
 
-      # Ensure the stub files are up-to-date with the public API of the native module.
-      - name: Stubtest - Vortex
-        run: |
-          uv run --isolated --all-packages stubtest vortex._lib --allowlist python/vortex/_lib/mypy.allowlist
-        working-directory: vortex-python/
-
       - name: Pytest - Vortex
         run: |
-          uv run --isolated --all-packages pytest --benchmark-disable test/
+          uv run --all-packages pytest --benchmark-disable test/
         working-directory: vortex-python/
 
       - name: Doctest - PyVortex
         run: |
-          uv run --isolated --all-packages make doctest
+          uv run --all-packages make doctest
         working-directory: docs/
 
       - name: Ensure docs build - PyVortex
         run: |
-          uv run --isolated --all-packages make html
+          uv run --all-packages make html
         working-directory: docs/
 
       - uses: mlugg/setup-zig@v2
@@ -509,12 +505,14 @@ jobs:
         run: cargo +nightly miri nextest run --no-fail-fast -p vortex-buffer -p vortex-ffi
 
   generated-files:
-    name: "Check generated proto/fbs files are up to date"
+    name: "Check generated source files are up to date"
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-rust
+        with:
+          toolchain: nightly
       - uses: ./.github/actions/setup-flatc
       - name: Install Protoc
         uses: arduino/setup-protoc@v3
@@ -524,6 +522,9 @@ jobs:
         run: |
           cargo xtask generate-fbs
           cargo xtask generate-proto
+      - name: "regenerate FFI header file"
+        run: |
+          cargo +nightly build -p vortex-ffi
       - name: "Make sure no files changed after regenerating"
         run: |
           git status --porcelain

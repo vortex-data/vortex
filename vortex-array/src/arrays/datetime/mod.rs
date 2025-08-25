@@ -79,7 +79,9 @@ impl TemporalArray {
             TimeUnit::Ms => {
                 assert_width!(i64, array);
             }
-            _ => vortex_panic!("invalid TimeUnit {time_unit} for vortex.date"),
+            TimeUnit::Ns | TimeUnit::Us | TimeUnit::S => {
+                vortex_panic!("invalid TimeUnit {time_unit} for vortex.date")
+            }
         };
 
         let ext_dtype = ExtDType::new(
