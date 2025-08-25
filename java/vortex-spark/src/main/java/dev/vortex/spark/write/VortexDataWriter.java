@@ -191,19 +191,19 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
     private void populateVector(
             FieldVector vector, DataType dataType, SpecializedGetters row, int fieldIndex, int rowIndex) {
         if (dataType instanceof BooleanType) {
-            ((BitVector) vector).set(rowIndex, row.getBoolean(fieldIndex) ? 1 : 0);
+            ((BitVector) vector).setSafe(rowIndex, row.getBoolean(fieldIndex) ? 1 : 0);
         } else if (dataType instanceof ByteType) {
-            ((TinyIntVector) vector).set(rowIndex, row.getByte(fieldIndex));
+            ((TinyIntVector) vector).setSafe(rowIndex, row.getByte(fieldIndex));
         } else if (dataType instanceof ShortType) {
-            ((SmallIntVector) vector).set(rowIndex, row.getShort(fieldIndex));
+            ((SmallIntVector) vector).setSafe(rowIndex, row.getShort(fieldIndex));
         } else if (dataType instanceof IntegerType) {
-            ((IntVector) vector).set(rowIndex, row.getInt(fieldIndex));
+            ((IntVector) vector).setSafe(rowIndex, row.getInt(fieldIndex));
         } else if (dataType instanceof LongType) {
-            ((BigIntVector) vector).set(rowIndex, row.getLong(fieldIndex));
+            ((BigIntVector) vector).setSafe(rowIndex, row.getLong(fieldIndex));
         } else if (dataType instanceof FloatType) {
-            ((Float4Vector) vector).set(rowIndex, row.getFloat(fieldIndex));
+            ((Float4Vector) vector).setSafe(rowIndex, row.getFloat(fieldIndex));
         } else if (dataType instanceof DoubleType) {
-            ((Float8Vector) vector).set(rowIndex, row.getDouble(fieldIndex));
+            ((Float8Vector) vector).setSafe(rowIndex, row.getDouble(fieldIndex));
         } else if (dataType instanceof StringType) {
             UTF8String str = row.getUTF8String(fieldIndex);
             if (str != null) {
@@ -220,7 +220,7 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
                 // Use Decimal type from InternalRow
                 java.math.BigDecimal decimal = row.getDecimal(fieldIndex, decType.precision(), decType.scale())
                         .toJavaBigDecimal();
-                ((DecimalVector) vector).set(rowIndex, decimal);
+                ((DecimalVector) vector).setSafe(rowIndex, decimal);
             }
         } else if (dataType instanceof ArrayType) {
             ArrayType arrayType = (ArrayType) dataType;
