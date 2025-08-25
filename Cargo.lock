@@ -526,7 +526,7 @@ dependencies = [
  "itertools 0.14.0",
  "log",
  "mimalloc",
- "noodles-bgzf",
+ "noodles-bgzf 0.42.0",
  "noodles-vcf",
  "object_store",
  "opentelemetry",
@@ -3849,6 +3849,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "noodles-bgzf"
+version = "0.43.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a29d42d77c0d9cac346e94e788a1f5627b5721f211edcd268b3ef93a50723208"
+dependencies = [
+ "bytes",
+ "crossbeam-channel",
+ "flate2",
+ "futures",
+ "pin-project-lite",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "noodles-core"
 version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3859,27 +3874,26 @@ dependencies = [
 
 [[package]]
 name = "noodles-csi"
-version = "0.50.0"
+version = "0.51.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e055462495239a7e401d2c545c87731f9c5b909f95cea402d83149d353a69da9"
+checksum = "03338575b1537f6fa1006bb6138fafea98b73dd3dd687b96727076531de924cc"
 dependencies = [
  "bit-vec",
  "bstr",
- "byteorder",
  "indexmap",
- "noodles-bgzf",
+ "noodles-bgzf 0.43.0",
  "noodles-core",
 ]
 
 [[package]]
 name = "noodles-tabix"
-version = "0.56.0"
+version = "0.57.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "07ba0481a5ea82a7c6f87f2d7ea0404fd17b1afffb5796c4bb7f01e8322021cb"
+checksum = "caff826ea6e432861b726ae3be1100e72d07a238c7615c12ddc257ff3c23f555"
 dependencies = [
- "byteorder",
+ "bstr",
  "indexmap",
- "noodles-bgzf",
+ "noodles-bgzf 0.43.0",
  "noodles-core",
  "noodles-csi",
  "tokio",
@@ -3887,14 +3901,14 @@ dependencies = [
 
 [[package]]
 name = "noodles-vcf"
-version = "0.80.0"
+version = "0.81.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e12789efb7cdfe2b2cbb9055477b6a4375d14825d23cea73345d5668a372049"
+checksum = "f4c3edc79cf9c235cc803137a108fa20e6f9c4a3b6fa39e879c78504cc7d19d7"
 dependencies = [
  "futures",
  "indexmap",
  "memchr",
- "noodles-bgzf",
+ "noodles-bgzf 0.43.0",
  "noodles-core",
  "noodles-csi",
  "noodles-tabix",
