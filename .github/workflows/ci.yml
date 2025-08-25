@@ -228,8 +228,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-rust
         with:
-          toolchain:           toolchain: nightly-2025-06-26
-
+          toolchain: nightly-2025-06-26
       - name: Rust Lint - Format
         run: cargo +nightly fmt --all --check
       - name: Rustc check
@@ -293,6 +292,8 @@ jobs:
           sccache: s3
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-rust
+        with:
+          components: "rust-src, rustfmt, clippy, llvm-tools-preview"
       - name: Install grcov
         uses: taiki-e/install-action@grcov
       - name: Install nextest
@@ -314,7 +315,6 @@ jobs:
           cargo run -p vortex-ffi --example hello_vortex
       - name: Generate coverage report
         run: |
-          rustup component add llvm-tools-preview
           grcov . --binary-path target/debug/ -s . -t lcov --llvm --ignore-not-existing \
             --ignore '../*' --ignore '/*' --ignore 'fuzz/*' --ignore 'bench-vortex/*' \
             --ignore 'home/*' --ignore 'xtask/*' --ignore 'target/*'\
@@ -351,7 +351,6 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           toolchain: nightly-2025-06-26
-          components: "rust-src, rustfmt, clippy, llvm-tools-preview"
       - name: Install nextest
         uses: taiki-e/install-action@v2
         with:
