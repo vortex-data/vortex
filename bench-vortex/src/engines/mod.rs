@@ -11,7 +11,7 @@ use datafusion::prelude::SessionContext;
 use vortex::error::VortexExpect;
 
 pub use crate::Format;
-use crate::{BenchmarkDataset, Engine, vortex_panic};
+use crate::{vortex_panic, BenchmarkDataset, Engine};
 
 pub enum EngineCtx {
     DataFusion(df::DataFusionCtx),
