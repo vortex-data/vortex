@@ -112,7 +112,7 @@ where
         let should_fallback = match first_chunk {
             None => true, // empty stream
             Some(chunk) => {
-                let compressed = BtrBlocksCompressor.compress(&chunk)?;
+                let compressed = BtrBlocksCompressor::default().compress(&chunk)?;
                 !compressed.is_encoding(DictEncoding.id())
             }
         };
