@@ -147,7 +147,7 @@ jobs:
   prepare-java-linux:
     runs-on: ${{ matrix.target.runs-on }}
     container:
-      image: "ubuntu:24.04"
+      image: "ubuntu:20.04"
     timeout-minutes: 120
     strategy:
       fail-fast: false
@@ -164,6 +164,11 @@ jobs:
           apt install -y wget curl build-essential
       - name: Print GLIBC version
         run: ldd --version
+      - name: Verify GLIBC version
+        run: |
+          set -eux -o pipefail
+
+          ldd --version | grep 'GLIBC 2.31'
       - uses: actions/setup-java@v5
         with:
           distribution: "corretto"
