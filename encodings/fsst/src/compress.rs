@@ -10,7 +10,7 @@ use vortex_array::arrays::{VarBinVTable, VarBinViewVTable};
 use vortex_array::{Array, IntoArray};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult, VortexUnwrap};
 
 use crate::FSSTArray;
 
@@ -21,6 +21,33 @@ use crate::FSSTArray;
 /// If the `strings` array is not encoded as either [`vortex_array::arrays::VarBinArray`] or
 /// [`vortex_array::arrays::VarBinViewArray`].
 pub fn fsst_compress(strings: &dyn Array, compressor: &Compressor) -> VortexResult<FSSTArray> {
+    let len = strings.len();
+    let dtype = strings.dtype().clone();
+
+    // Compress VarBinArray
+    if let Some(varbin) = strings.as_opt::<VarBinVTable>() {
+        return varbin
+            .with_iterator(|iter| fsst_compress_iter(iter, len, dtype, compressor))
+            .map_err(|err| err.with_context("Failed to compress VarBinArray with FSST"));
+    }
+
+    // Compress VarBinViewArray
+    if let Some(varbin_view) = strings.as_opt::<VarBinViewVTable>() {
+        return varbin_view
+            .with_iterator(|iter| fsst_compress_iter(iter, len, dtype, compressor))
+            .map_err(|err| err.with_context("Failed to compress VarBinViewArray with FSST"));
+    }
+
+    vortex_bail!(
+        "cannot fsst_compress array with unsupported encoding {:?}",
+        strings.encoding_id()
+    )
+}
+
+pub fn fsst_compress_components(
+    strings: &dyn Array,
+    compressor: &Compressor,
+) -> VortexResult<FSSTArray> {
     let len = strings.len();
     let dtype = strings.dtype().clone();
 
