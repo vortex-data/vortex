@@ -3,7 +3,12 @@
 // Scoring module for benchmarks
 const scoring = {
   isQueryBenchmark(categoryName) {
-    return categoryName === "Clickbench" || categoryName.startsWith("TPC-H") || categoryName.startsWith("TPC-DS");
+    return (
+      categoryName === "Clickbench" ||
+        categoryName.startsWith("TPC-H") ||
+        categoryName.startsWith("TPC-DS") ||
+        categoryName === "Statistical and Population Genetics"
+    );
   },
 
   isRandomAccessBenchmark(categoryName) {
