@@ -2,14 +2,14 @@ name: "Setup Rust"
 description: "Toolchain setup and Initial compilation"
 
 inputs:
-  toolchain:
-    description: "optional override for the toolchain version (e.g. nightly)"
+  toolchain-file:
+    description: "optional override for the toolchain file (e.g., rust-toolchain.toml)"
     required: false
   components:
-    description: "optional override for the components to install for the step (e.g. clippy, rustfmt, miri)"
+    description: "optional override for the components to install for the step (e.g., clippy, rustfmt, miri)"
     required: false
   targets:
-    description: "optional targets override (e.g. wasm32-unknown-unknown)"
+    description: "optional targets override (e.g., wasm32-unknown-unknown)"
     required: false
 
 runs:
@@ -18,7 +18,8 @@ runs:
     - name: Rust Version
       id: rust-version
       shell: bash
-      run: echo "version=$(cat rust-toolchain.toml | grep channel | awk -F'\"' '{print $2}')" >> $GITHUB_OUTPUT
+      run: |
+        echo "version=$(cat '${{ inputs.toolchain-file || 'rust-toolchain.toml' }}' | grep channel | awk -F'\"' '{print $2}')" >> $GITHUB_OUTPUT
 
     - name: Install Mold
       uses: rui314/setup-mold@v1
@@ -28,9 +29,15 @@ runs:
       uses: dtolnay/rust-toolchain@master
       if: steps.rustup-cache.outputs.cache-hit != 'true'
       with:
-        toolchain: "${{ inputs.toolchain || steps.rust-version.outputs.version }}"
+        toolchain: "${{ steps.rust-version.outputs.version }}"
         targets: "${{inputs.targets || ''}}"
         components: "${{ inputs.components || 'clippy, rustfmt' }}"
+
+    - name: Pin Toolchain Version
+      id: pin-toolchain
+      shell: bash
+      run: |
+        rustup override set ${{ steps.rust-version.outputs.version }}
 
     - name: Rust Dependency Cache
       uses: Swatinem/rust-cache@v2
