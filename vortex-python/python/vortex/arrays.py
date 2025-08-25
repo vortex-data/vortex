@@ -41,7 +41,7 @@ Array = _arrays.Array
 
 
 def empty_arrow_table(schema: pyarrow.Schema) -> pyarrow.Table:
-    return pyarrow.Table.from_arrays([pyarrow.array([], type=t) for t in schema], schema=schema)  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType, reportUnknownArgumentType]
+    return pyarrow.Table.from_arrays([pyarrow.array([], type=t) for t in schema], schema=schema)  # pyright: ignore[reportUnknownVariableType, reportUnknownArgumentType]
 
 
 def arrow_table_from_struct_array(

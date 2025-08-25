@@ -88,7 +88,7 @@ def test_to_table(ds: pd.Dataset):
     tbl = ds.to_table(columns=["bool", "float"], filter=pc.field("float") > 100)
     # TODO(aduffy): add back once pyarrow supports casting to/from string_view
     # assert 0 == len(tbl.filter(pc.field("string") <= "10000"))
-    assert tbl.slice(0, 10) == pa.Table.from_struct_array(  # pyright: ignore[reportUnknownMemberType]
+    assert tbl.slice(0, 10) == pa.Table.from_struct_array(
         pa.array([record(x, columns={"float", "bool"}) for x in range(10001, 10011)])
     )
 
@@ -191,7 +191,7 @@ def test_fragment_to_table(ds: vx.dataset.VortexDataset):
     f = fragments[0]
 
     tbl = f.to_table(columns=["bool", "float"], filter=pc.field("float") > 100)
-    assert tbl.slice(0, 10) == pa.Table.from_struct_array(  # pyright: ignore[reportUnknownMemberType]
+    assert tbl.slice(0, 10) == pa.Table.from_struct_array(
         pa.array([record(x, columns={"float", "bool"}) for x in range(10001, 10011)])
     )
 

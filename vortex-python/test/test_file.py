@@ -58,7 +58,7 @@ def test_to_arrow_columns(vxf: VortexFile):
 def test_empty_file(tmpdir_factory):  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]
     # test for writing empty files with null columns
     # create an empty table with schema `empty: null`
-    table = pa.Table.from_pydict({"empty": []})  # pyright: ignore[reportUnknownMemberType]
+    table = pa.Table.from_pydict({"empty": []})
     assert repr(table.schema) == "empty: null"
 
     # cast to Vortex array
@@ -75,7 +75,7 @@ def test_stream_pyarrow(tmpdir_factory):  # pyright: ignore[reportUnknownParamet
     import pyarrow.parquet as pq
 
     data_dir = tmpdir_factory.mktemp("data")  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
-    table = pa.Table.from_pydict(  # pyright: ignore[reportUnknownMemberType]
+    table = pa.Table.from_pydict(
         {
             "names": ["Alice", "Bob", "Carol"],
             "ages": [21, 22, 23],
