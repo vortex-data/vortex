@@ -36,7 +36,7 @@ def arrow_array(request):  # pyright: ignore[reportUnknownParameterType, reportM
             # Create large arrays of length 100 for each column.
             r[f"col{col}"] = [1, 2, None, 4] * 25
         rows.append(r)
-    return pa.Table.from_pylist(rows)  # pyright: ignore[reportUnknownMemberType]
+    return pa.Table.from_pylist(rows)
 
 
 def test_compress_vortex(benchmark: Callable[[Callable[[], None]], None], vortex_array: vx.Array):
