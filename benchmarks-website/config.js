@@ -76,6 +76,25 @@ export const BENCHMARK_DESCRIPTIONS = {
     "ClickHouse's analytical benchmark suite testing real-world query patterns on web analytics data, run against NVMe storage",
   "TPC-DS (NVMe)":
     "TPC-DS benchmark queries executed on local NVMe storage, testing complex analytical query performance with a retail sales dataset",
+  "Statistical and Population Genetics":
+    "A suite of Statistical and Population genetics queries executed on local NVMe storage.
+
+A custom benchmark for statistical and population genetics workloads using the gnomAD v3.1.2 release of the jointly called One Thousand Genomes (1kG) and Human Genome Diversity Project (HGDP) dataset (1kG+HGDP). Only a prefix of Chromosome 21 is used for benchmarking.
+
+Data source: <https://gnomad.broadinstitute.org/>
+
+Queries test common genomics analytics patterns:
+
+- Allele frequency calculations.
+
+- Hardy-Weinberg equilibrium statistics calculation.
+
+- Variant filtering based on frequency.
+
+- Variant filtering based on locus interval.
+
+- Random access to a specific variant by contig and position.
+",
 };
 
 // Category tags mapping
