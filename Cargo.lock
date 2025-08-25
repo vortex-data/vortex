@@ -526,7 +526,7 @@ dependencies = [
  "itertools 0.14.0",
  "log",
  "mimalloc",
- "noodles-bgzf 0.42.0",
+ "noodles-bgzf",
  "noodles-vcf",
  "object_store",
  "opentelemetry",
@@ -3835,21 +3835,6 @@ dependencies = [
 
 [[package]]
 name = "noodles-bgzf"
-version = "0.42.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c1c3e3f19c4afd0c540104e596a9312074de9d0c01bedd5370ffba62ba3b439"
-dependencies = [
- "bytes",
- "crossbeam-channel",
- "flate2",
- "futures",
- "pin-project-lite",
- "tokio",
- "tokio-util",
-]
-
-[[package]]
-name = "noodles-bgzf"
 version = "0.43.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a29d42d77c0d9cac346e94e788a1f5627b5721f211edcd268b3ef93a50723208"
@@ -3881,7 +3866,7 @@ dependencies = [
  "bit-vec",
  "bstr",
  "indexmap",
- "noodles-bgzf 0.43.0",
+ "noodles-bgzf",
  "noodles-core",
 ]
 
@@ -3893,7 +3878,7 @@ checksum = "caff826ea6e432861b726ae3be1100e72d07a238c7615c12ddc257ff3c23f555"
 dependencies = [
  "bstr",
  "indexmap",
- "noodles-bgzf 0.43.0",
+ "noodles-bgzf",
  "noodles-core",
  "noodles-csi",
  "tokio",
@@ -3908,7 +3893,7 @@ dependencies = [
  "futures",
  "indexmap",
  "memchr",
- "noodles-bgzf 0.43.0",
+ "noodles-bgzf",
  "noodles-core",
  "noodles-csi",
  "noodles-tabix",
