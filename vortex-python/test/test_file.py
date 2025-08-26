@@ -44,6 +44,7 @@ def test_scan(vxf: VortexFile):
     for _ in vxf.scan():
         pass
 
+
 def test_scan_with_indices(vxf: VortexFile):
     total_rows = 0
     for rb in vxf.scan(indices=vx.array([1, 10, 1_000, 999_999])):
