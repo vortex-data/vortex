@@ -488,7 +488,7 @@ impl CoercePValue for f32 {
                     "Cannot coerce U64 value to f32: value out of range"
                 );
                 Ok(Self::from_bits(u as u32))
-            },
+            }
             PValue::F16(f) => {
                 <Self as NumCast>::from(f).ok_or_else(|| vortex_err!("Cannot convert f16 to f32"))
             }
