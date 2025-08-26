@@ -50,6 +50,7 @@ pub fn test_cast_conformance(array: &dyn Array) {
         DType::Binary(nullability) => test_cast_from_binary(array, *nullability),
         DType::Struct(_, nullability) => test_cast_from_struct(array, *nullability),
         DType::List(_, nullability) => test_cast_from_list(array, *nullability),
+        DType::FixedSizeList(..) => unimplemented!("TODO(connor)[FixedSizeList]"),
         DType::Extension(_) => test_cast_from_extension(array),
     }
 }

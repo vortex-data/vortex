@@ -102,6 +102,7 @@ impl PyScalar {
             DType::Binary(..) => Self::with_subclass(py, scalar, PyBinaryScalar),
             DType::Struct(..) => Self::with_subclass(py, scalar, PyStructScalar),
             DType::List(..) => Self::with_subclass(py, scalar, PyListScalar),
+            DType::FixedSizeList(..) => unimplemented!("TODO(connor)[FixedSizeList]"),
             DType::Extension(..) => Self::with_subclass(py, scalar, PyExtensionScalar),
         }
     }

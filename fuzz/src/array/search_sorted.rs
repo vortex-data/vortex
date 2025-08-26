@@ -124,6 +124,7 @@ pub fn search_sorted_canonical_array(
             let scalar_vals = (0..array.len()).map(|i| array.scalar_at(i)).collect_vec();
             Ok(scalar_vals.search_sorted(&scalar.cast(array.dtype())?, side))
         }
+        DType::FixedSizeList(..) => unimplemented!("TODO(connor)[FixedSizeList]"),
         d @ (DType::Null | DType::Extension(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }

@@ -276,14 +276,14 @@ mod tests {
     }
 
     #[test]
-    fn test_non_null_fails() {
+    fn test_append_empty_list() {
         let dtype: Arc<DType> = Arc::new(I32.into());
         let mut builder = ListBuilder::<u32>::with_capacity(dtype.clone(), NonNullable, 0);
 
         assert!(
             builder
                 .append_value(Scalar::list_empty(dtype, NonNullable).as_list())
-                .is_err()
+                .is_ok()
         )
     }
 

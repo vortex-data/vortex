@@ -189,7 +189,7 @@ impl Scalar {
     pub fn list_empty(element_dtype: Arc<DType>, nullability: Nullability) -> Self {
         Self::new(
             DType::List(element_dtype, nullability),
-            ScalarValue(InnerScalarValue::Null),
+            ScalarValue(InnerScalarValue::List(vec![].into())),
         )
     }
 }
@@ -237,7 +237,7 @@ mod tests {
     #[test]
     fn test_empty_list() {
         let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
-        let list_scalar = Scalar::list(element_dtype, vec![], Nullability::NonNullable);
+        let list_scalar = Scalar::list_empty(element_dtype, Nullability::NonNullable);
 
         let list = ListScalar::try_from(&list_scalar).unwrap();
         assert_eq!(list.len(), 0);
@@ -248,10 +248,9 @@ mod tests {
     #[test]
     fn test_null_list() {
         let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::Nullable));
-        let list_scalar = Scalar::list_empty(element_dtype, Nullability::Nullable);
+        let null = Scalar::null(DType::List(element_dtype, Nullability::Nullable));
 
-        let list = ListScalar::try_from(&list_scalar).unwrap();
-        assert_eq!(list.len(), 0);
+        let list = ListScalar::try_from(&null).unwrap();
         assert!(list.is_empty());
         assert!(list.is_null());
     }
@@ -318,16 +317,6 @@ mod tests {
         let display = format!("{list}");
         assert!(display.contains("1"));
         assert!(display.contains("2"));
-    }
-
-    #[test]
-    fn test_null_list_display() {
-        let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::Nullable));
-        let list_scalar = Scalar::list_empty(element_dtype, Nullability::Nullable);
-
-        let list = ListScalar::try_from(&list_scalar).unwrap();
-        let display = format!("{list}");
-        assert_eq!(display, "null");
     }
 
     #[test]
@@ -445,12 +434,12 @@ mod tests {
     }
 
     #[test]
-    fn test_vec_conversion_null_list() {
+    fn test_vec_conversion_empty_list() {
         let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::Nullable));
         let list_scalar = Scalar::list_empty(element_dtype, Nullability::Nullable);
 
-        let result: Result<Vec<i32>, VortexError> = Vec::try_from(&list_scalar);
-        assert!(result.is_err());
+        let result: VortexResult<Vec<i32>> = Vec::try_from(&list_scalar);
+        assert!(result.unwrap().is_empty());
     }
 
     #[test]
