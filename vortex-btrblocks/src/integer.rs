@@ -592,7 +592,7 @@ impl Scheme for DictScheme {
         new_excludes.extend_from_slice(excludes);
 
         let compressed_codes = IntCompressor::compress_no_dict(
-            &dict.codes().to_primitive()?,
+            &dict.codes().to_primitive()?.downcast()?,
             is_sample,
             allowed_cascading - 1,
             &new_excludes,
@@ -655,7 +655,7 @@ impl Scheme for RunEndScheme {
         new_excludes.extend_from_slice(excludes);
 
         let ends_stats = IntegerStats::generate_opts(
-            &ends,
+            &ends.to_primitive()?.downcast()?,
             GenerateStatsOptions {
                 count_distinct_values: false,
             },
