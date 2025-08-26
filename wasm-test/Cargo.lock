@@ -1449,6 +1449,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
+name = "simdutf8"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
+
+[[package]]
 name = "sketches-ddsketch"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1688,6 +1694,7 @@ dependencies = [
  "rand",
  "rustc-hash",
  "serde",
+ "simdutf8",
  "static_assertions",
  "vortex-buffer",
  "vortex-dtype",
@@ -1736,6 +1743,7 @@ dependencies = [
  "bytes",
  "itertools",
  "num-traits",
+ "simdutf8",
  "vortex-error",
 ]
 

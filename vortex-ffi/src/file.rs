@@ -193,7 +193,7 @@ pub unsafe extern "C-unwind" fn vx_file_write_array(
     try_or_default(error_out, || {
         let path = unsafe { CStr::from_ptr(path) }
             .to_str()
-            .map_err(|_| vortex_err!("invalid utf-8"))?;
+            .map_err(|e| vortex_err!("invalid utf-8: {e}"))?;
 
         get_runtime().block_on(async {
             VortexWriteOptions::default()

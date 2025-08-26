@@ -14,7 +14,7 @@ impl ScalarFunction {
             let name_ptr = cpp::duckdb_vx_sfunc_name(self.as_ptr());
             std::ffi::CStr::from_ptr(name_ptr)
                 .to_str()
-                .map_err(|_| vortex_err!("invalid utf-8"))
+                .map_err(|e| vortex_err!("invalid utf-8: {e}"))
                 .vortex_unwrap()
         }
     }

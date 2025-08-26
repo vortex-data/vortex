@@ -36,7 +36,7 @@ pub fn try_from_bound_expression(value: &Expression) -> VortexResult<Option<Expr
         ExpressionClass::BoundColumnRef(col_ref) => col(col_ref
             .name
             .to_str()
-            .map_err(|_| vortex_err!("invalid utf8"))?),
+            .map_err(|e| vortex_err!("invalid utf-8: {e}"))?),
         ExpressionClass::BoundConstant(const_) => lit(Scalar::try_from(const_.value)?),
         ExpressionClass::BoundComparison(compare) => {
             let operator: Operator = compare.op.try_into()?;
