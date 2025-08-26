@@ -267,9 +267,8 @@ mod tests {
         }
     }
 
-    // TODO(robert): This test should panic (it is storing a garbage value).
     #[test]
-    // #[should_panic]
+    #[should_panic]
     fn test_coercion_with_overflow_protection() {
         // Test that values too large for target type are not coerced
         let large_u64 = u64::MAX;

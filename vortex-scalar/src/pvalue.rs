@@ -9,7 +9,9 @@ use num_traits::NumCast;
 use paste::paste;
 use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PType, ToBytes};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{
+    VortexError, VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_err,
+};
 
 /// A primitive value that can represent any primitive type supported by Vortex.
 ///
@@ -444,8 +446,20 @@ impl CoercePValue for f16 {
         match value {
             PValue::U8(u) => Ok(Self::from_bits(u as u16)),
             PValue::U16(u) => Ok(Self::from_bits(u)),
-            PValue::U32(u) => Ok(Self::from_bits(u as u16)),
-            PValue::U64(u) => Ok(Self::from_bits(u as u16)),
+            PValue::U32(u) => {
+                vortex_ensure!(
+                    u & !((1u32 << 16) - 1) == 0,
+                    "Cannot coerce U32 value to f16: value out of range"
+                );
+                Ok(Self::from_bits(u as u16))
+            }
+            PValue::U64(u) => {
+                vortex_ensure!(
+                    u & !((1u64 << 16) - 1) == 0,
+                    "Cannot coerce U64 value to f16: value out of range"
+                );
+                Ok(Self::from_bits(u as u16))
+            }
             PValue::F16(u) => Ok(u),
             PValue::F32(f) => {
                 <Self as NumCast>::from(f).ok_or_else(|| vortex_err!("Cannot convert f32 to f16"))
@@ -468,7 +482,13 @@ impl CoercePValue for f32 {
             PValue::U8(u) => Ok(Self::from_bits(u as u32)),
             PValue::U16(u) => Ok(Self::from_bits(u as u32)),
             PValue::U32(u) => Ok(Self::from_bits(u)),
-            PValue::U64(u) => Ok(Self::from_bits(u as u32)),
+            PValue::U64(u) => {
+                vortex_ensure!(
+                    u & !((1u64 << 32) - 1) == 0,
+                    "Cannot coerce U64 value to f32: value out of range"
+                );
+                Ok(Self::from_bits(u as u32))
+            },
             PValue::F16(f) => {
                 <Self as NumCast>::from(f).ok_or_else(|| vortex_err!("Cannot convert f16 to f32"))
             }
