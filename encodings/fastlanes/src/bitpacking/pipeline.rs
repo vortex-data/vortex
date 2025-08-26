@@ -158,7 +158,6 @@ where
 
         let chunk_value_offset = self.value_offset as usize;
 
-
         // We short-circuit full unpacking logic if the mask is sufficiently sparse.
         if selected.true_count() > 8 {
             let mut output_idx = 0;
@@ -220,7 +219,7 @@ where
                 );
             }
 
-            let nvecs = (first_chunk_needs_slicing as usize ) + full_chunks_count;
+            let nvecs = (first_chunk_needs_slicing as usize) + full_chunks_count;
 
             self.packed_offset += nvecs * self.packed_stride;
 
@@ -263,19 +262,18 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::bitpack_encode;
-use arrow_buffer::BooleanBuffer;
+    use arrow_buffer::BooleanBuffer;
     use rand::prelude::StdRng;
     use rand::{Rng, SeedableRng};
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::filter;
     use vortex_array::pipeline::export_canonical_pipeline_expr;
-    use vortex_array::{ IntoArray, ToCanonical};
+    use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::BufferMut;
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
 
-    use crate::{FoRArray, bitpack_to_best_bit_width, };
+    use crate::{FoRArray, bitpack_encode, bitpack_to_best_bit_width};
 
     #[test]
     fn test_bitpacking_pipeline() {
@@ -394,7 +392,7 @@ use arrow_buffer::BooleanBuffer;
 
         // Create simple sequential values for easier debugging
         let values = (0..len).map(|i| i as i32).collect::<PrimitiveArray>();
-        let bitpacked = bitpack_encode(&values, 11, None  ).unwrap();
+        let bitpacked = bitpack_encode(&values, 11, None).unwrap();
 
         let sliced = bitpacked.slice(offset, len);
 
@@ -406,13 +404,20 @@ use arrow_buffer::BooleanBuffer;
             sliced.len(),
             sliced.to_operator().unwrap().unwrap().as_ref(),
             &mask,
-        ).unwrap().into_primitive().unwrap();
+        )
+        .unwrap()
+        .into_primitive()
+        .unwrap();
 
         // Compare with expected result
         let expect = sliced.to_primitive().unwrap();
 
         assert_eq!(result.len(), expect.len(), "Length mismatch");
-        assert_eq!(result.as_slice::<i32>(), expect.as_slice::<i32>(), "Null count mismatch");
+        assert_eq!(
+            result.as_slice::<i32>(),
+            expect.as_slice::<i32>(),
+            "Null count mismatch"
+        );
     }
 
     #[test]
@@ -422,7 +427,7 @@ use arrow_buffer::BooleanBuffer;
 
         // Create simple sequential values for easier debugging
         let values = (0..len).map(|i| i as i32).collect::<PrimitiveArray>();
-        let bitpacked = bitpack_encode(&values, 11, None  ).unwrap();
+        let bitpacked = bitpack_encode(&values, 11, None).unwrap();
 
         let sliced = bitpacked.slice(offset, len);
 
@@ -437,13 +442,21 @@ use arrow_buffer::BooleanBuffer;
             &mask,
         )
         .unwrap()
-        .into_primitive().unwrap();
+        .into_primitive()
+        .unwrap();
 
         // Compare with expected result
-        let expect = filter(sliced.to_canonical().unwrap().as_ref(), &mask).unwrap().to_primitive().unwrap();
+        let expect = filter(sliced.to_canonical().unwrap().as_ref(), &mask)
+            .unwrap()
+            .to_primitive()
+            .unwrap();
 
         assert_eq!(result.len(), expect.len(), "Length mismatch");
-        assert_eq!(result.as_slice::<i32>(), expect.as_slice::<i32>(), "Null count mismatch");
+        assert_eq!(
+            result.as_slice::<i32>(),
+            expect.as_slice::<i32>(),
+            "Null count mismatch"
+        );
     }
 
     #[test]
