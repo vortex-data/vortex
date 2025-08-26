@@ -8,7 +8,7 @@ use anyhow::Result;
 use log::trace;
 use url::Url;
 use vortex::error::VortexExpect;
-use vortex_duckdb::duckdb::{Connection, Database};
+use vortex_duckdb::duckdb::{Config, Connection, Database};
 
 use crate::statpopgen::StatPopGenBenchmark;
 use crate::{BenchmarkDataset, Format, IdempotentPath};
@@ -57,7 +57,11 @@ impl DuckDBCtx {
         if delete_database {
             std::fs::remove_file(&db_path)?;
         }
-        let db = Database::open(&db_path)?;
+        let mut config = Config::new().unwrap();
+        // enable parquet metadata cache for all benchmark runs
+        config.set("parquet_metadata_cache", "true")?;
+
+        let db = Database::open_with_config(&db_path, config)?;
         let connection = db.connect()?;
         vortex_duckdb::register_table_functions(&connection)?;
 
