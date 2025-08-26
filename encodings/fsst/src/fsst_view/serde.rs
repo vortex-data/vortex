@@ -9,7 +9,7 @@ use vortex_array::vtable::{EncodeVTable, SerdeVTable, ValidityHelper};
 use vortex_array::{Canonical, EmptyMetadata, IntoArray};
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{vortex_bail, vortex_ensure, VortexExpect, VortexResult};
+use vortex_error::{VortexResult, vortex_bail, vortex_ensure};
 
 use crate::fsst_train_compressor;
 use crate::fsst_view::{FSSTViewArray, FSSTViewEncoding, FSSTViewVTable, OutlinedStr, View};
@@ -165,18 +165,18 @@ fn compress_from_canonical(
             end - start < 8 * 1024 * 1024,
             "FSST cannot handle strings larger than 8MB at this time"
         );
-        unsafe { compressor.compress_into(&buffer[start..end], &mut reuse) };
+        let uncompressed = &buffer[start..end];
+        let uncompressed_len = uncompressed.len() as u32;
+        unsafe { compressor.compress_into(uncompressed, &mut reuse) };
 
-        let length =
-            u32::try_from(reuse.len()).vortex_expect("FSST compressed strings cannot exceed 8MB");
         codes.extend_from_slice(reuse.as_slice());
 
         let mut prefix = [0u8; 8];
-        prefix.copy_from_slice(&reuse[..8]);
+        prefix.copy_from_slice(&uncompressed[0..8]);
 
         views.push(View {
             outline: OutlinedStr {
-                len: length,
+                len: uncompressed_len,
                 index,
                 prefix,
             },
@@ -189,7 +189,7 @@ fn compress_from_canonical(
             .push(compressed_offsets.last().copied().unwrap_or(0) + reuse.len() as u32);
         // We know that plain string always < 8MB, so should fit comfortable in u32
         uncompressed_offsets
-            .push(uncompressed_offsets.last().copied().unwrap_or(0) + (end - start) as u32);
+            .push(uncompressed_offsets.last().copied().unwrap_or(0) + uncompressed_len);
     }
 
     let uncompressed_offsets = uncompressed_offsets.freeze().into_array();
@@ -208,5 +208,155 @@ fn compress_from_canonical(
             array.dtype().clone(),
             array.validity().clone(),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::arrays::builder::VarBinBuilder;
+    use vortex_array::{Array, ArrayRef};
+    use vortex_dtype::{DType, Nullability};
+
+    use crate::fsst_view::FSSTViewEncoding;
+
+    #[allow(clippy::unwrap_used)]
+    fn build_simple_fsst_view_array() -> ArrayRef {
+        let mut builder = VarBinBuilder::<i32>::with_capacity(3);
+        builder.append_value(b"hello world");
+        builder.append_value(b"this is a much longer string that exceeds the inline threshold");
+        builder.append_value(b"short");
+
+        let array = builder.finish(DType::Utf8(Nullability::NonNullable));
+
+        FSSTViewEncoding
+            .encode(&array.to_canonical().unwrap(), None)
+            .unwrap()
+            .unwrap()
+    }
+
+    #[test]
+    fn test_encode_canonicalize_roundtrip() {
+        let fsst_view = build_simple_fsst_view_array();
+        let round_trip_array = fsst_view.to_canonical().unwrap().into_varbinview().unwrap();
+
+        // Verify same length
+        assert_eq!(3, round_trip_array.len());
+
+        // Test that we can get scalars without panic
+        for i in 0..3 {
+            let scalar = round_trip_array.scalar_at(i);
+            assert!(!scalar.is_null());
+        }
+    }
+
+    #[test]
+    fn test_empty_strings() {
+        let mut builder = VarBinBuilder::<i32>::with_capacity(2);
+        builder.append_value(b"");
+        builder.append_value(b"non-empty");
+
+        let array = builder.finish(DType::Utf8(Nullability::NonNullable));
+
+        let canonical = array.to_canonical().unwrap();
+        let fsst_view = FSSTViewEncoding.encode(&canonical, None).unwrap().unwrap();
+
+        let round_trip = fsst_view.to_canonical().unwrap();
+        let round_trip_array = round_trip.into_varbinview().unwrap();
+
+        assert_eq!(2, round_trip_array.len());
+
+        // Verify scalars can be accessed
+        for i in 0..2 {
+            let scalar = round_trip_array.scalar_at(i);
+            assert!(!scalar.is_null());
+        }
+    }
+
+    #[test]
+    fn test_mixed_nulls_array() {
+        let mut builder = VarBinBuilder::<i32>::with_capacity(4);
+        builder.append_value(b"first");
+        builder.append_null();
+        builder.append_value(b"second");
+        builder.append_null();
+
+        let array = builder.finish(DType::Utf8(Nullability::Nullable));
+
+        let canonical = array.to_canonical().unwrap();
+        let fsst_view = FSSTViewEncoding.encode(&canonical, None).unwrap().unwrap();
+
+        let round_trip = fsst_view.to_canonical().unwrap();
+        let round_trip_array = round_trip.into_varbinview().unwrap();
+
+        assert_eq!(4, round_trip_array.len());
+
+        // Check that nulls are preserved
+        assert!(!round_trip_array.scalar_at(0).is_null());
+        assert!(round_trip_array.scalar_at(1).is_null());
+        assert!(!round_trip_array.scalar_at(2).is_null());
+        assert!(round_trip_array.scalar_at(3).is_null());
+    }
+
+    #[test]
+    fn test_binary_data() {
+        let mut builder = VarBinBuilder::<i32>::with_capacity(2);
+        builder.append_value([0u8, 1, 2, 3]);
+        builder.append_value([255u8, 254, 253]);
+
+        let array = builder.finish(DType::Binary(Nullability::NonNullable));
+
+        let canonical = array.to_canonical().unwrap();
+        let fsst_view = FSSTViewEncoding.encode(&canonical, None).unwrap().unwrap();
+
+        let round_trip = fsst_view.to_canonical().unwrap();
+        let round_trip_array = round_trip.into_varbinview().unwrap();
+
+        assert_eq!(2, round_trip_array.len());
+
+        // Verify scalars can be accessed
+        for i in 0..2 {
+            let scalar = round_trip_array.scalar_at(i);
+            assert!(!scalar.is_null());
+        }
+    }
+
+    #[test]
+    fn test_single_element() {
+        let mut builder = VarBinBuilder::<i32>::with_capacity(1);
+        builder.append_value(b"single");
+
+        let array = builder.finish(DType::Utf8(Nullability::NonNullable));
+
+        let canonical = array.to_canonical().unwrap();
+        let fsst_view = FSSTViewEncoding.encode(&canonical, None).unwrap().unwrap();
+
+        let round_trip = fsst_view.to_canonical().unwrap();
+        let round_trip_array = round_trip.into_varbinview().unwrap();
+
+        assert_eq!(1, round_trip_array.len());
+        assert!(!round_trip_array.scalar_at(0).is_null());
+    }
+
+    #[test]
+    fn test_all_nulls() {
+        let mut builder = VarBinBuilder::<i32>::with_capacity(3);
+        builder.append_null();
+        builder.append_null();
+        builder.append_null();
+
+        let array = builder.finish(DType::Utf8(Nullability::Nullable));
+
+        let canonical = array.to_canonical().unwrap();
+        let fsst_view = FSSTViewEncoding.encode(&canonical, None).unwrap().unwrap();
+
+        let round_trip = fsst_view.to_canonical().unwrap();
+        let round_trip_array = round_trip.into_varbinview().unwrap();
+
+        assert_eq!(3, round_trip_array.len());
+
+        // All should be null
+        for i in 0..3 {
+            assert!(round_trip_array.scalar_at(i).is_null());
+        }
     }
 }

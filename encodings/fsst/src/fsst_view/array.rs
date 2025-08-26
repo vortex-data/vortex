@@ -15,7 +15,7 @@ use vortex_array::vtable::{
 };
 use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, ToCanonical, vtable};
 use vortex_buffer::{Buffer, ByteBuffer};
-use vortex_dtype::{DType, Nullability, PType};
+use vortex_dtype::{DType, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 
 use crate::fsst_view::View;
@@ -386,7 +386,7 @@ impl CanonicalVTable<FSSTViewVTable> for FSSTViewVTable {
         Ok(Canonical::VarBinView(VarBinViewArray::new(
             views,
             Arc::new([buffer]),
-            DType::Utf8(Nullability::NonNullable),
+            array.dtype.clone(),
             array.validity.clone(),
         )))
     }
