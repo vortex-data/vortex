@@ -125,8 +125,7 @@ impl Scalar {
             DType::Utf8(_) => self.as_utf8().cast(target),
             DType::Binary(_) => self.as_binary().cast(target),
             DType::Struct(..) => self.as_struct().cast(target),
-            DType::List(..) => self.as_list().cast(target),
-            DType::FixedSizeList(..) => unimplemented!("TODO(connor)[FixedSizeList]"),
+            DType::List(..) | DType::FixedSizeList(..) => self.as_list().cast(target),
             DType::Extension(..) => self.as_extension().cast(target),
         }
     }
@@ -163,12 +162,11 @@ impl Scalar {
                 .fields()
                 .map(|fields| fields.into_iter().map(|f| f.nbytes()).sum::<usize>())
                 .unwrap_or_default(),
-            DType::List(..) => self
+            DType::List(..) | DType::FixedSizeList(..) => self
                 .as_list()
                 .elements()
                 .map(|fields| fields.into_iter().map(|f| f.nbytes()).sum::<usize>())
                 .unwrap_or_default(),
-            DType::FixedSizeList(..) => unimplemented!("TODO(connor)[FixedSizeList]"),
             DType::Extension(_ext_dtype) => self.as_extension().storage().nbytes(),
         }
     }
@@ -199,7 +197,12 @@ impl Scalar {
                 Self::struct_(DType::Struct(sf, nullability), fields)
             }
             DType::List(edt, nullability) => Self::list(edt, vec![], nullability),
-            DType::FixedSizeList(..) => unimplemented!("TODO(connor)[FixedSizeList]"),
+            DType::FixedSizeList(edt, size, nullability) => {
+                let elements = (0..size)
+                    .map(|_| Scalar::default_value(edt.as_ref().clone()))
+                    .collect();
+                Self::list(edt, elements, nullability)
+            }
             DType::Extension(dt) => {
                 let scalar = Self::default_value(dt.storage_dtype().clone());
                 Self::extension(dt, scalar)
@@ -296,6 +299,9 @@ impl Scalar {
 
     /// Returns a view of the scalar as a list scalar.
     ///
+    /// Note that we use [`ListScalar`] to represent **both** [`DType::List`] and
+    /// [`DType::FixedSizeList`].
+    ///
     /// # Panics
     ///
     /// Panics if the scalar is not a list type.
@@ -304,8 +310,11 @@ impl Scalar {
     }
 
     /// Returns a view of the scalar as a list scalar if it has a list type.
+    ///
+    /// Note that we use [`ListScalar`] to represent **both** [`DType::List`] and
+    /// [`DType::FixedSizeList`].
     pub fn as_list_opt(&self) -> Option<ListScalar<'_>> {
-        matches!(self.dtype, DType::List(..)).then(|| self.as_list())
+        matches!(self.dtype, DType::List(..) | DType::FixedSizeList(..)).then(|| self.as_list())
     }
 
     /// Returns a view of the scalar as an extension scalar.
@@ -397,8 +406,7 @@ impl PartialEq for Scalar {
             DType::Utf8(_) => self.as_utf8() == other.as_utf8(),
             DType::Binary(_) => self.as_binary() == other.as_binary(),
             DType::Struct(..) => self.as_struct() == other.as_struct(),
-            DType::List(..) => self.as_list() == other.as_list(),
-            DType::FixedSizeList(..) => unimplemented!("TODO(connor)[FixedSizeList]"),
+            DType::List(..) | DType::FixedSizeList(..) => self.as_list() == other.as_list(),
             DType::Extension(_) => self.as_extension() == other.as_extension(),
         }
     }
@@ -447,8 +455,9 @@ impl PartialOrd for Scalar {
             DType::Utf8(_) => self.as_utf8().partial_cmp(&other.as_utf8()),
             DType::Binary(_) => self.as_binary().partial_cmp(&other.as_binary()),
             DType::Struct(..) => self.as_struct().partial_cmp(&other.as_struct()),
-            DType::List(..) => self.as_list().partial_cmp(&other.as_list()),
-            DType::FixedSizeList(..) => unimplemented!("TODO(connor)[FixedSizeList]"),
+            DType::List(..) | DType::FixedSizeList(..) => {
+                self.as_list().partial_cmp(&other.as_list())
+            }
             DType::Extension(_) => self.as_extension().partial_cmp(&other.as_extension()),
         }
     }
@@ -464,8 +473,7 @@ impl Hash for Scalar {
             DType::Utf8(_) => self.as_utf8().hash(state),
             DType::Binary(_) => self.as_binary().hash(state),
             DType::Struct(..) => self.as_struct().hash(state),
-            DType::List(..) => self.as_list().hash(state),
-            DType::FixedSizeList(..) => unimplemented!("TODO(connor)[FixedSizeList]"),
+            DType::List(..) | DType::FixedSizeList(..) => self.as_list().hash(state),
             DType::Extension(_) => self.as_extension().hash(state),
         }
     }

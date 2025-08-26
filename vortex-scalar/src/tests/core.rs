@@ -228,6 +228,104 @@ mod tests {
     }
 
     #[test]
+    fn test_list_to_fixed_size_list_cast() {
+        // Create a list with 3 elements.
+        let list = Scalar::list(
+            Arc::from(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            vec![
+                Scalar::primitive(1i32, Nullability::NonNullable),
+                Scalar::primitive(2i32, Nullability::NonNullable),
+                Scalar::primitive(3i32, Nullability::NonNullable),
+            ],
+            Nullability::NonNullable,
+        );
+
+        // Cast to FixedSizeList with matching size.
+        let target = DType::FixedSizeList(
+            Arc::from(DType::Primitive(PType::I64, Nullability::NonNullable)),
+            3,
+            Nullability::NonNullable,
+        );
+        let casted = list.cast(&target).unwrap();
+        assert_eq!(casted.dtype(), &target);
+        assert_eq!(casted.as_list().len(), 3);
+    }
+
+    #[test]
+    fn test_fixed_size_list_to_list_cast() {
+        // Create a FixedSizeList with 2 elements.
+        let fixed_list = Scalar::fixed_size_list(
+            Arc::from(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            vec![
+                Scalar::primitive(10i32, Nullability::NonNullable),
+                Scalar::primitive(20i32, Nullability::NonNullable),
+            ],
+            Nullability::NonNullable,
+        );
+
+        // Cast to regular List.
+        let target = DType::List(
+            Arc::from(DType::Primitive(PType::I64, Nullability::NonNullable)),
+            Nullability::NonNullable,
+        );
+        let casted = fixed_list.cast(&target).unwrap();
+        assert_eq!(casted.dtype(), &target);
+        assert_eq!(casted.as_list().len(), 2);
+    }
+
+    #[test]
+    fn test_fixed_size_list_to_fixed_size_list_cast() {
+        // Create a FixedSizeList[4] with I32 elements.
+        let fixed_list = Scalar::fixed_size_list(
+            Arc::from(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            vec![
+                Scalar::primitive(1i32, Nullability::NonNullable),
+                Scalar::primitive(2i32, Nullability::NonNullable),
+                Scalar::primitive(3i32, Nullability::NonNullable),
+                Scalar::primitive(4i32, Nullability::NonNullable),
+            ],
+            Nullability::NonNullable,
+        );
+
+        // Cast to FixedSizeList[4] with I64 elements.
+        let target = DType::FixedSizeList(
+            Arc::from(DType::Primitive(PType::I64, Nullability::NonNullable)),
+            4,
+            Nullability::NonNullable,
+        );
+        let casted = fixed_list.cast(&target).unwrap();
+        assert_eq!(casted.dtype(), &target);
+    }
+
+    #[test]
+    fn test_fixed_size_list_size_mismatch_error() {
+        // Create a list with 2 elements.
+        let list = Scalar::list(
+            Arc::from(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            vec![
+                Scalar::primitive(1i32, Nullability::NonNullable),
+                Scalar::primitive(2i32, Nullability::NonNullable),
+            ],
+            Nullability::NonNullable,
+        );
+
+        // Try to cast to FixedSizeList[3] - should fail.
+        let target = DType::FixedSizeList(
+            Arc::from(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            3,
+            Nullability::NonNullable,
+        );
+        let result = list.cast(&target);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("tried to cast to a `FixedSizeList[3]` but had 2 elements")
+        );
+    }
+
+    #[test]
     fn test_list_cast_nested_lists() {
         // Create a list of lists.
         let inner_list1 = Scalar::list(
@@ -265,6 +363,34 @@ mod tests {
         );
         let casted = nested_list.cast(&target).unwrap();
         assert_eq!(casted.dtype(), &target);
+    }
+
+    #[test]
+    fn test_list_cast_empty_list() {
+        // Test casting empty list.
+        let empty_list = Scalar::list(
+            Arc::from(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            vec![],
+            Nullability::NonNullable,
+        );
+
+        // Cast to different element type.
+        let target = DType::List(
+            Arc::from(DType::Primitive(PType::I64, Nullability::NonNullable)),
+            Nullability::NonNullable,
+        );
+        let casted = empty_list.cast(&target).unwrap();
+        assert_eq!(casted.dtype(), &target);
+        assert_eq!(casted.as_list().len(), 0);
+
+        // Cast empty list to FixedSizeList[0].
+        let target_fixed = DType::FixedSizeList(
+            Arc::from(DType::Primitive(PType::I64, Nullability::NonNullable)),
+            0,
+            Nullability::NonNullable,
+        );
+        let casted_fixed = empty_list.cast(&target_fixed).unwrap();
+        assert_eq!(casted_fixed.dtype(), &target_fixed);
     }
 
     #[test]
