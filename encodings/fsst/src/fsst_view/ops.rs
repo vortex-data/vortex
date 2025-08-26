@@ -11,15 +11,20 @@ use crate::fsst_view::{FSSTViewArray, FSSTViewVTable};
 
 impl OperationsVTable<FSSTViewVTable> for FSSTViewVTable {
     fn slice(array: &FSSTViewArray, start: usize, stop: usize) -> ArrayRef {
-        FSSTViewArray {
-            views: array.views.slice(start..stop),
-            fsst_buffer: array.fsst_buffer.clone(),
-            compressor: array.compressor.clone(),
-            compressed_offsets: array.compressed_offsets.clone(),
-            uncompressed_offsets: array.uncompressed_offsets.clone(),
-            validity: array.validity.clone(),
+        // SAFETY: slicing views buffer doesn't modify any internal pointers.
+        unsafe {
+            FSSTViewArray::new_unchecked(
+                array.views.slice(start..stop),
+                array.fsst_buffer.clone(),
+                array.symbols.clone(),
+                array.symbol_lengths.clone(),
+                array.compressed_offsets.clone(),
+                array.uncompressed_offsets.clone(),
+                array.dtype.clone(),
+                array.validity.clone(),
+            )
+            .into_array()
         }
-        .into_array()
     }
 
     fn scalar_at(array: &FSSTViewArray, index: usize) -> Scalar {

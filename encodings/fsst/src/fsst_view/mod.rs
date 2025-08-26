@@ -20,16 +20,17 @@ const MAX_INLINE_STR: usize = 12;
 /// "View" structure that serves inlined strings, or points to compressed copies of longer strings.
 #[repr(C, align(16))]
 #[derive(Copy, Clone)]
-union View {
+pub union View {
     inline: InlinedStr,
     outline: OutlinedStr,
 }
 
 impl View {
+    #[allow(clippy::cast_possible_truncation)]
     fn new_inlined(data: &[u8]) -> Self {
         assert!(data.len() <= MAX_INLINE_STR);
         // Safe to truncate cast, always small enough.
-        let len = (data.len() & ((1 << 32) - 1)) as u32;
+        let len = data.len() as u32;
         let mut inlined_str = InlinedStr {
             len,
             bytes: [0; MAX_INLINE_STR],
@@ -58,7 +59,9 @@ impl fmt::Debug for View {
 }
 
 impl View {
-    fn is_inlined(&self) -> bool {
+    /// Returns true if the view is an inlined view
+    #[inline(always)]
+    pub fn is_inlined(&self) -> bool {
         let inner = unsafe { self.inline };
         inner.len as usize <= MAX_INLINE_STR
     }

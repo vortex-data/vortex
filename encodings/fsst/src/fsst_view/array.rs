@@ -3,17 +3,20 @@
 
 use core::fmt;
 use std::fmt::Formatter;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
-use fsst::Compressor;
+use fsst::{Compressor, Symbol};
 use vortex_array::arrays::{BinaryView, Inlined, Ref, VarBinViewArray};
+use vortex_array::compute::is_sorted;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
-use vortex_array::vtable::{ArrayVTable, NotSupported, VTable, ValidityVTableFromValidityHelper};
-use vortex_array::{vtable, Array, ArrayRef, Canonical, EncodingId, EncodingRef, ToCanonical};
+use vortex_array::vtable::{
+    ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityVTableFromValidityHelper,
+};
+use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, ToCanonical, vtable};
 use vortex_buffer::{Buffer, ByteBuffer};
-use vortex_dtype::{DType, Nullability};
-use vortex_error::VortexExpect;
+use vortex_dtype::{DType, Nullability, PType};
+use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 
 use crate::fsst_view::View;
 #[derive(Debug, Copy, Clone)]
@@ -70,8 +73,12 @@ pub struct FSSTViewArray {
     /// Offsets of all the uncompressed strings, in the original order based on the buffer
     /// type instead.
     pub(crate) uncompressed_offsets: ArrayRef,
+
+    /// A cached compressor, to amortize the cost of building over and over again
+    pub(crate) compressor: Arc<LazyLock<Compressor, Box<dyn Fn() -> Compressor + Send>>>,
     /// FSST compressor used to encode/decode the strings in the fsst_buffer
-    pub(crate) compressor: Arc<Compressor>,
+    pub(crate) symbols: Buffer<Symbol>,
+    pub(crate) symbol_lengths: ByteBuffer,
     /// Validity information, dictating presence of nulls
     pub(crate) validity: Validity,
     pub(crate) stats_set: ArrayStats,
@@ -84,6 +91,208 @@ impl fmt::Debug for FSSTViewArray {
             .field("fsst_buffer_size", &self.fsst_buffer.len())
             .field("validity", &self.validity)
             .finish()
+    }
+}
+
+impl FSSTViewArray {
+    /// Create a new `FSSTViewArray`, panicking if the components cannot construct a valid array.
+    ///
+    /// See [`FSSTViewArray::try_new`] for the validation that is performed.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        views: Buffer<View>,
+        buffer: ByteBuffer,
+        symbols: Buffer<Symbol>,
+        symbol_lengths: ByteBuffer,
+        compressed_offsets: ArrayRef,
+        uncompressed_offsets: ArrayRef,
+        dtype: DType,
+        validity: Validity,
+    ) -> Self {
+        Self::try_new(
+            views,
+            buffer,
+            symbols,
+            symbol_lengths,
+            compressed_offsets,
+            uncompressed_offsets,
+            dtype,
+            validity,
+        )
+        .vortex_expect("FSSTViewArray new")
+    }
+
+    /// Create a new FSSTView array from components, performing validation.
+    ///
+    /// # Validation
+    ///
+    /// The following preconditions must be met for the components, or an error is returned:
+    ///
+    /// * Any non-inlined `views` must point to valid indices in the buffer
+    /// * The `compressed_offsets` and `uncompressed_offsets` must be valid, sorted offset arrays
+    ///   with DType `U64`. They cannot be nullable, and must share the same length
+    /// * The last `compressed_offsets` element cannot point past the end of the `buffer` of encoded
+    ///   strings
+    /// * The provided symbol table must be a valid FSST symbol table, i.e. it must be properly
+    ///   aligned to a `u64` and must have length <= 254
+    /// * The `dtype` must be `Utf8` or `Binary`
+    /// * If a validity array is provided, it must have a length that matches the length of `views`
+    #[allow(clippy::too_many_arguments)]
+    pub fn try_new(
+        views: Buffer<View>,
+        buffer: ByteBuffer,
+        symbols: Buffer<Symbol>,
+        symbol_lengths: ByteBuffer,
+        compressed_offsets: ArrayRef,
+        uncompressed_offsets: ArrayRef,
+        dtype: DType,
+        validity: Validity,
+    ) -> VortexResult<Self> {
+        vortex_ensure!(
+            dtype.is_utf8() || dtype.is_binary(),
+            "FSSTViewArray: unexpected DType {dtype}"
+        );
+
+        vortex_ensure!(
+            symbols.len() <= 254,
+            "Symbol table cannot exceed maximum symbol 254, was {}",
+            symbols.len()
+        );
+
+        vortex_ensure!(
+            symbols.len() == symbol_lengths.len(),
+            "symbol table of size {} has invalid symbol_lengths size {}",
+            symbols.len(),
+            symbol_lengths.len()
+        );
+
+        vortex_ensure!(
+            compressed_offsets.dtype().is_primitive()
+                && !compressed_offsets.dtype().is_nullable()
+                && compressed_offsets.dtype().as_ptype() == PType::U32,
+            "Expected u32 DType for compressed offsets, was {}",
+            compressed_offsets.dtype()
+        );
+        vortex_ensure!(
+            uncompressed_offsets.dtype().is_primitive()
+                && !uncompressed_offsets.dtype().is_nullable()
+                && uncompressed_offsets.dtype().as_ptype() == PType::U32,
+            "Expected u32 DType for uncompressed offsets, was {}",
+            compressed_offsets.dtype()
+        );
+
+        vortex_ensure!(
+            compressed_offsets.len() == uncompressed_offsets.len(),
+            "compressed offsets and uncompressed offset must be same size"
+        );
+
+        vortex_ensure!(
+            !compressed_offsets.is_empty() && !uncompressed_offsets.is_empty(),
+            "offsets cannot be empty"
+        );
+
+        vortex_ensure!(
+            is_sorted(&compressed_offsets)?,
+            "compressed offsets must be sorted",
+        );
+        vortex_ensure!(
+            is_sorted(&uncompressed_offsets)?,
+            "uncompressed offsets must be sorted"
+        );
+
+        let final_offset = compressed_offsets
+            .scalar_at(compressed_offsets.len() - 1)
+            .as_primitive()
+            .as_::<u32>()
+            .vortex_expect("compressed offsets cannot contain nulls");
+        vortex_ensure!(
+            final_offset as usize <= buffer.len(),
+            "compressed offsets point beyond end of the buffer"
+        );
+
+        let max_index = compressed_offsets.len() - 1;
+        // Validate all the view pointers.
+        for view in views.iter() {
+            if !view.is_inlined() {
+                let outlined = unsafe { view.outline };
+                vortex_ensure!(
+                    (outlined.index as usize) <= max_index,
+                    "view index {} out of bounds for FSSTViewArray with {} compressed strings",
+                    outlined.index,
+                    max_index
+                );
+            }
+        }
+
+        // Verify the validity length equals the correct length
+        if let Some(validity_array) = validity.as_array() {
+            vortex_ensure!(
+                validity_array.len() == views.len(),
+                "FSSTViewArray: provided validity array of length {}, expected {}",
+                validity_array.len(),
+                views.len()
+            );
+        }
+
+        let symbols_clone = symbols.clone();
+        let symbol_lengths_clone = symbol_lengths.clone();
+
+        Ok(Self {
+            fsst_buffer: buffer,
+            views,
+            compressed_offsets,
+            uncompressed_offsets,
+            validity,
+            symbols,
+            symbol_lengths,
+            compressor: Arc::new(LazyLock::new(Box::new(move || {
+                Compressor::rebuild_from(symbols_clone.as_slice(), symbol_lengths_clone.as_slice())
+            }))),
+            dtype,
+            stats_set: Default::default(),
+        })
+    }
+
+    /// Create a new `FSSTViewArray` without checking the validation. It is
+    /// thus the caller's responsibility to ensure that the provided components adhere
+    /// to the validation contract.
+    ///
+    /// # Safety
+    ///
+    /// This is only safe if the caller previously performs the validation, OR
+    /// if building from the components of an already validated FSSTViewArray and you
+    /// have verified that whatever transformation performed on the components has
+    /// not altered the preconditions.
+    ///
+    /// See [`FSSTViewArray::try_new`] for guidance on validation that must be performed.
+    #[allow(clippy::too_many_arguments)]
+    pub unsafe fn new_unchecked(
+        views: Buffer<View>,
+        buffer: ByteBuffer,
+        symbols: Buffer<Symbol>,
+        symbol_lengths: ByteBuffer,
+        compressed_offsets: ArrayRef,
+        uncompressed_offsets: ArrayRef,
+        dtype: DType,
+        validity: Validity,
+    ) -> Self {
+        let symbols_clone = symbols.clone();
+        let symbol_lengths_clone = symbol_lengths.clone();
+
+        Self {
+            fsst_buffer: buffer,
+            views,
+            compressed_offsets,
+            uncompressed_offsets,
+            validity,
+            symbols,
+            symbol_lengths,
+            compressor: Arc::new(LazyLock::new(Box::new(move || {
+                Compressor::rebuild_from(symbols_clone.as_slice(), symbol_lengths_clone.as_slice())
+            }))),
+            dtype,
+            stats_set: Default::default(),
+        }
     }
 }
 
@@ -129,21 +338,22 @@ impl FSSTViewArray {
     }
 }
 
-impl FSSTViewArray {
-    pub fn into_canonical(self) -> Canonical {
-        let decoder = self.compressor.decompressor();
+impl CanonicalVTable<FSSTViewVTable> for FSSTViewVTable {
+    fn canonicalize(array: &FSSTViewArray) -> VortexResult<Canonical> {
+        let decoder = array.compressor.decompressor();
 
-        let buffer: ByteBuffer = decoder.decompress(self.fsst_buffer.as_slice()).into();
+        let buffer: ByteBuffer = decoder.decompress(array.fsst_buffer.as_slice()).into();
 
-        let uncompressed_offsets = self
+        let uncompressed_offsets = array
             .uncompressed_offsets
             .to_primitive()
             .vortex_expect("must implement ToCanonical as Primitive")
             .buffer::<u32>();
 
         // Rebuild the views to point at the decoded data instead.
-        let views: Buffer<BinaryView> = self
+        let views: Buffer<BinaryView> = array
             .views
+            .clone()
             .into_iter()
             .map(|view| {
                 if view.is_inlined() {
@@ -173,86 +383,40 @@ impl FSSTViewArray {
             })
             .collect();
 
-        Canonical::VarBinView(VarBinViewArray::new(
+        Ok(Canonical::VarBinView(VarBinViewArray::new(
             views,
             Arc::new([buffer]),
             DType::Utf8(Nullability::NonNullable),
-            self.validity,
-        ))
+            array.validity.clone(),
+        )))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use vortex_array::arrays::VarBinViewArray;
 
-    use vortex_array::validity::Validity;
-    use vortex_array::IntoArray;
-    use vortex_buffer::{BufferMut, ByteBufferMut};
-
-    use crate::fsst_view::array::FSSTViewArray;
-    use crate::fsst_view::{OutlinedStr, View};
+    use crate::fsst_view::FSSTViewEncoding;
 
     #[test]
     fn test_basic() {
-        let plaintext: Vec<&[u8]> = vec![
-            b"blog.spiraldb.com/1",
-            b"blog.spiraldb.com/23",
-            b"docs.vortex.dev",
-            b"bench.vortex.dev",
+        let plaintext: Vec<&str> = vec![
+            "blog.spiraldb.com/1",
+            "blog.spiraldb.com/23",
+            "docs.vortex.dev",
+            "bench.vortex.dev",
         ];
-        let compressor = fsst::Compressor::train(&plaintext);
 
-        let mut uncompressed_offsets = BufferMut::with_capacity(1024);
-        uncompressed_offsets.push(0);
+        let canonical = VarBinViewArray::from_iter_str(plaintext);
+        let compressed = FSSTViewEncoding
+            .encode(&canonical.to_canonical().unwrap(), None)
+            .unwrap()
+            .unwrap();
 
-        let mut compressed_offsets = BufferMut::with_capacity(1024);
-        compressed_offsets.push(0);
-
-        // Compress the values, make a new FSSTViewArray from it.
-        let mut views = BufferMut::with_capacity(1024);
-        let mut buffer = ByteBufferMut::with_capacity(1024);
-        for (index, &text) in plaintext.iter().enumerate() {
-            uncompressed_offsets.push(uncompressed_offsets.last().unwrap() + text.len() as u32);
-
-            let mut prefix = [0u8; 8];
-            prefix.copy_from_slice(&text[0..8]);
-
-            let view = View {
-                outline: OutlinedStr {
-                    len: u32::try_from(text.len()).unwrap(),
-                    prefix,
-                    index: u32::try_from(index).unwrap(),
-                },
-            };
-            views.push(view);
-
-            let compressed = compressor.compress(text);
-            buffer.extend_from_slice(&compressed);
-            compressed_offsets.push(
-                compressed_offsets.last().unwrap() + u32::try_from(compressed.len()).unwrap(),
-            );
-        }
-
-        // Uncompressed offsets.
-
-        let views = views.freeze();
-        let uncompressed_offsets = uncompressed_offsets.freeze().into_array();
-        let compressed_offsets = compressed_offsets.freeze().into_array();
-        let fsst_buffer = buffer.freeze();
-
-        let array = FSSTViewArray {
-            views,
-            fsst_buffer,
-            compressed_offsets,
-            uncompressed_offsets,
-            compressor: Arc::new(compressor),
-            validity: Validity::NonNullable,
-        };
-
-        for (idx, &expected) in plaintext.iter().enumerate() {
-            let actual = array.bytes_at(idx);
-            assert_eq!(actual.as_slice(), expected, "idx: {idx}");
+        for index in 0..canonical.len() {
+            let canonical_scalar = canonical.scalar_at(index);
+            let compressed_scalar = compressed.scalar_at(index);
+            assert_eq!(canonical_scalar, compressed_scalar);
         }
     }
 }
