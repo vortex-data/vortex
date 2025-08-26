@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::VortexExpr;
-
 pub enum DisplayFormat {
     Dense,
     #[cfg(feature = "pretty")]
@@ -19,13 +17,13 @@ pub trait DisplayAs {
 }
 
 #[cfg(feature = "pretty")]
-pub struct DisplayTreeExpr<'a>(pub &'a dyn VortexExpr);
+pub struct DisplayTreeExpr<'a>(pub &'a dyn crate::VortexExpr);
 
 #[cfg(feature = "pretty")]
 impl std::fmt::Display for DisplayTreeExpr<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         pub use termtree::Tree;
-        fn make_tree(expr: &dyn VortexExpr) -> Result<Tree<String>, std::fmt::Error> {
+        fn make_tree(expr: &dyn crate::VortexExpr) -> Result<Tree<String>, std::fmt::Error> {
             let node_name = TreeNodeDisplay(expr).to_string();
 
             // Get child names for display purposes
@@ -59,7 +57,7 @@ impl std::fmt::Display for DisplayTreeExpr<'_> {
 }
 
 #[cfg(feature = "pretty")]
-struct TreeNodeDisplay<'a>(&'a dyn VortexExpr);
+struct TreeNodeDisplay<'a>(&'a dyn crate::VortexExpr);
 
 #[cfg(feature = "pretty")]
 impl<'a> std::fmt::Display for TreeNodeDisplay<'a> {

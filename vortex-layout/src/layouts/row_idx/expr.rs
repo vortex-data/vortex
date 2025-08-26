@@ -7,7 +7,9 @@ use vortex_array::{ArrayRef, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_expr::{
-    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable,
+    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable,
+    display::{DisplayAs, DisplayFormat},
+    vtable,
 };
 
 vtable!(RowIdx);
@@ -19,6 +21,12 @@ impl AnalysisExpr for RowIdxExpr {}
 
 impl Display for RowIdxExpr {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        DisplayAs::fmt_as(self, DisplayFormat::Dense, f)
+    }
+}
+
+impl DisplayAs for RowIdxExpr {
+    fn fmt_as(&self, _df: DisplayFormat, f: &mut Formatter) -> std::fmt::Result {
         write!(f, "#row_idx")
     }
 }
