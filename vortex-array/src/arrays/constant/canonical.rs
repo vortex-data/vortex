@@ -128,6 +128,9 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
                     array.len(),
                 )?)
             }
+            DType::FixedSizeList(..) => {
+                unimplemented!("TODO(connor)[FixedSizeList]")
+            }
             DType::Extension(ext_dtype) => {
                 let s = ExtScalar::try_from(scalar)?;
 

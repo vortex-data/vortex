@@ -104,6 +104,7 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
             DType::List(..) => {
                 todo!("list scalar conversion")
             }
+            DType::FixedSizeList(..) => unimplemented!("TODO(connor)[FixedSizeList]"),
             DType::Extension(ext) => {
                 if is_temporal_ext_type(ext.id()) {
                     let metadata = TemporalMetadata::try_from(ext.as_ref())?;

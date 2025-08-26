@@ -59,7 +59,76 @@ mod tests {
     }
 
     #[test]
-    fn list_casts() {
+    fn test_list_cast_element_types() {
+        // Test casting list elements between different primitive types.
+        let list = Scalar::new(
+            DType::List(
+                Arc::from(DType::Primitive(PType::U16, Nullability::Nullable)),
+                Nullability::Nullable,
+            ),
+            ScalarValue(InnerScalarValue::List(Arc::from([
+                ScalarValue(InnerScalarValue::Primitive(PValue::U16(6))),
+                ScalarValue(InnerScalarValue::Primitive(PValue::U16(100))),
+            ]))),
+        );
+
+        // Cast U16 -> U32.
+        let target_u32 = DType::List(
+            Arc::from(DType::Primitive(PType::U32, Nullability::Nullable)),
+            Nullability::Nullable,
+        );
+        let casted = list.cast(&target_u32).unwrap();
+        assert_eq!(casted.dtype(), &target_u32);
+
+        // Cast U16 -> U8 (with values that fit).
+        let target_u8 = DType::List(
+            Arc::from(DType::Primitive(PType::U8, Nullability::Nullable)),
+            Nullability::Nullable,
+        );
+        let casted = list.cast(&target_u8).unwrap();
+        assert_eq!(casted.dtype(), &target_u8);
+
+        // Cast U16 -> I32.
+        let target_i32 = DType::List(
+            Arc::from(DType::Primitive(PType::I32, Nullability::Nullable)),
+            Nullability::Nullable,
+        );
+        let casted = list.cast(&target_i32).unwrap();
+        assert_eq!(casted.dtype(), &target_i32);
+    }
+
+    #[test]
+    fn test_list_cast_element_overflow() {
+        // Test that casting U16 values too large for U8 fails.
+        let list_with_large_values = Scalar::new(
+            DType::List(
+                Arc::from(DType::Primitive(PType::U16, Nullability::Nullable)),
+                Nullability::Nullable,
+            ),
+            ScalarValue(InnerScalarValue::List(Arc::from([
+                ScalarValue(InnerScalarValue::Primitive(PValue::U16(100))),
+                ScalarValue(InnerScalarValue::Primitive(PValue::U16(256))), // Too large for U8
+                ScalarValue(InnerScalarValue::Primitive(PValue::U16(1000))), // Too large for U8
+            ]))),
+        );
+
+        let target_u8 = DType::List(
+            Arc::from(DType::Primitive(PType::U8, Nullability::Nullable)),
+            Nullability::Nullable,
+        );
+
+        let result = list_with_large_values.cast(&target_u8);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Cannot cast u16 to u8")
+        );
+    }
+
+    #[test]
+    fn test_list_cast_nullability_changes() {
         let list = Scalar::new(
             DType::List(
                 Arc::from(DType::Primitive(PType::U16, Nullability::Nullable)),
@@ -70,33 +139,75 @@ mod tests {
             )]))),
         );
 
-        let target_u32 = DType::List(
-            Arc::from(DType::Primitive(PType::U32, Nullability::Nullable)),
-            Nullability::Nullable,
-        );
-        assert_eq!(list.cast(&target_u32).unwrap().dtype(), &target_u32);
-
-        let target_u32_nonnull = DType::List(
-            Arc::from(DType::Primitive(PType::U32, Nullability::NonNullable)),
+        // Change element nullability from Nullable to NonNullable.
+        let target_elem_nonnull = DType::List(
+            Arc::from(DType::Primitive(PType::U16, Nullability::NonNullable)),
             Nullability::Nullable,
         );
         assert_eq!(
-            list.cast(&target_u32_nonnull).unwrap().dtype(),
-            &target_u32_nonnull
+            list.cast(&target_elem_nonnull).unwrap().dtype(),
+            &target_elem_nonnull
         );
 
-        let target_nonnull = DType::List(
-            Arc::from(DType::Primitive(PType::U32, Nullability::Nullable)),
+        // Change list nullability from Nullable to NonNullable.
+        let target_list_nonnull = DType::List(
+            Arc::from(DType::Primitive(PType::U16, Nullability::Nullable)),
             Nullability::NonNullable,
         );
-        assert_eq!(list.cast(&target_nonnull).unwrap().dtype(), &target_nonnull);
+        assert_eq!(
+            list.cast(&target_list_nonnull).unwrap().dtype(),
+            &target_list_nonnull
+        );
 
-        let target_u8 = DType::List(
+        // Change both element and list nullability.
+        let target_both_nonnull = DType::List(
+            Arc::from(DType::Primitive(PType::U16, Nullability::NonNullable)),
+            Nullability::NonNullable,
+        );
+        assert_eq!(
+            list.cast(&target_both_nonnull).unwrap().dtype(),
+            &target_both_nonnull
+        );
+    }
+
+    #[test]
+    fn test_list_cast_with_null_elements() {
+        let list_with_null = Scalar::new(
+            DType::List(
+                Arc::from(DType::Primitive(PType::U16, Nullability::Nullable)),
+                Nullability::Nullable,
+            ),
+            ScalarValue(InnerScalarValue::List(Arc::from([
+                ScalarValue(InnerScalarValue::Primitive(PValue::U16(6))),
+                ScalarValue(InnerScalarValue::Null),
+                ScalarValue(InnerScalarValue::Primitive(PValue::U16(10))),
+            ]))),
+        );
+
+        // Cast to different element type with nullable elements - should succeed.
+        let target_u8_nullable = DType::List(
             Arc::from(DType::Primitive(PType::U8, Nullability::Nullable)),
             Nullability::Nullable,
         );
-        assert_eq!(list.cast(&target_u8).unwrap().dtype(), &target_u8);
+        assert_eq!(
+            list_with_null.cast(&target_u8_nullable).unwrap().dtype(),
+            &target_u8_nullable
+        );
 
+        // Cast to non-nullable U16 elements should fail because we have null elements.
+        let target_u16_nonnull = DType::List(
+            Arc::from(DType::Primitive(PType::U16, Nullability::NonNullable)),
+            Nullability::Nullable,
+        );
+        let result = list_with_null.cast(&target_u16_nonnull);
+        assert!(
+            result.is_err(),
+            "Expected cast to fail when casting list with null elements to non-nullable element type"
+        );
+    }
+
+    #[test]
+    fn test_list_cast_null_to_nonnull_error() {
         let list_with_null = Scalar::new(
             DType::List(
                 Arc::from(DType::Primitive(PType::U16, Nullability::Nullable)),
@@ -107,17 +218,134 @@ mod tests {
                 ScalarValue(InnerScalarValue::Null),
             ]))),
         );
-        let target_u8 = DType::List(
-            Arc::from(DType::Primitive(PType::U8, Nullability::Nullable)),
-            Nullability::Nullable,
-        );
-        assert_eq!(list_with_null.cast(&target_u8).unwrap().dtype(), &target_u8);
 
-        let target_u32_nonnull = DType::List(
+        // Casting to non-nullable element type should fail.
+        let target_nonnull = DType::List(
             Arc::from(DType::Primitive(PType::U32, Nullability::NonNullable)),
             Nullability::Nullable,
         );
-        assert!(list_with_null.cast(&target_u32_nonnull).is_err());
+        assert!(list_with_null.cast(&target_nonnull).is_err());
+    }
+
+    #[test]
+    fn test_list_cast_nested_lists() {
+        // Create a list of lists.
+        let inner_list1 = Scalar::list(
+            Arc::from(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            vec![
+                Scalar::primitive(1i32, Nullability::NonNullable),
+                Scalar::primitive(2i32, Nullability::NonNullable),
+            ],
+            Nullability::NonNullable,
+        );
+        let inner_list2 = Scalar::list(
+            Arc::from(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            vec![
+                Scalar::primitive(3i32, Nullability::NonNullable),
+                Scalar::primitive(4i32, Nullability::NonNullable),
+            ],
+            Nullability::NonNullable,
+        );
+        let nested_list = Scalar::list(
+            Arc::from(DType::List(
+                Arc::from(DType::Primitive(PType::I32, Nullability::NonNullable)),
+                Nullability::NonNullable,
+            )),
+            vec![inner_list1, inner_list2],
+            Nullability::NonNullable,
+        );
+
+        // Cast to nested list with I64 elements.
+        let target = DType::List(
+            Arc::from(DType::List(
+                Arc::from(DType::Primitive(PType::I64, Nullability::NonNullable)),
+                Nullability::NonNullable,
+            )),
+            Nullability::NonNullable,
+        );
+        let casted = nested_list.cast(&target).unwrap();
+        assert_eq!(casted.dtype(), &target);
+    }
+
+    #[test]
+    fn test_list_cast_string_elements() {
+        // Create a list of strings.
+        let string_list = Scalar::list(
+            Arc::from(DType::Utf8(Nullability::NonNullable)),
+            vec![
+                Scalar::utf8("hello", Nullability::NonNullable),
+                Scalar::utf8("world", Nullability::NonNullable),
+            ],
+            Nullability::NonNullable,
+        );
+
+        // Cast to nullable strings.
+        let target = DType::List(
+            Arc::from(DType::Utf8(Nullability::Nullable)),
+            Nullability::NonNullable,
+        );
+        let casted = string_list.cast(&target).unwrap();
+        assert_eq!(casted.dtype(), &target);
+    }
+
+    #[test]
+    fn test_list_cast_struct_elements() {
+        // Create a list of structs.
+        let struct_dtype = DType::struct_(
+            [
+                ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
+                ("b", DType::Primitive(PType::I64, Nullability::NonNullable)),
+            ],
+            Nullability::NonNullable,
+        );
+        let struct1 = Scalar::struct_(
+            struct_dtype.clone(),
+            vec![
+                Scalar::primitive(1i32, Nullability::NonNullable),
+                Scalar::primitive(10i64, Nullability::NonNullable),
+            ],
+        );
+        let struct2 = Scalar::struct_(
+            struct_dtype.clone(),
+            vec![
+                Scalar::primitive(2i32, Nullability::NonNullable),
+                Scalar::primitive(20i64, Nullability::NonNullable),
+            ],
+        );
+        let struct_list = Scalar::list(
+            Arc::from(struct_dtype),
+            vec![struct1, struct2],
+            Nullability::NonNullable,
+        );
+
+        // Cast struct fields.
+        let target_struct_dtype = DType::struct_(
+            [
+                ("a", DType::Primitive(PType::I64, Nullability::NonNullable)),
+                ("b", DType::Primitive(PType::I32, Nullability::NonNullable)),
+            ],
+            Nullability::NonNullable,
+        );
+        let target = DType::List(Arc::from(target_struct_dtype), Nullability::NonNullable);
+        let casted = struct_list.cast(&target).unwrap();
+        assert_eq!(casted.dtype(), &target);
+    }
+
+    #[test]
+    fn test_list_cast_incompatible_element_types() {
+        // Create a list of integers.
+        let int_list = Scalar::list(
+            Arc::from(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            vec![Scalar::primitive(1i32, Nullability::NonNullable)],
+            Nullability::NonNullable,
+        );
+
+        // Try to cast to list of strings - should fail.
+        let target = DType::List(
+            Arc::from(DType::Utf8(Nullability::NonNullable)),
+            Nullability::NonNullable,
+        );
+        assert!(int_list.cast(&target).is_err());
     }
 
     #[test]

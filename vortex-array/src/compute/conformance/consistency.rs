@@ -998,6 +998,9 @@ fn test_cast_slice_consistency(array: &dyn Array) {
             };
             vec![DType::List(element_type.clone(), opposite)]
         }
+        DType::FixedSizeList(..) => {
+            unimplemented!("TODO(connor)[FixedSizeList]")
+        }
         DType::Extension(_) => vec![], // Extension types typically only cast to themselves
     };
 

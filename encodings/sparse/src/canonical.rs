@@ -88,6 +88,9 @@ impl CanonicalVTable<SparseVTable> for SparseVTable {
                     *nullability,
                 )
             }
+            DType::FixedSizeList(..) => {
+                unimplemented!("TODO(connor)[FixedSizeList]")
+            }
             DType::Extension(_ext_dtype) => todo!(),
         }
     }
