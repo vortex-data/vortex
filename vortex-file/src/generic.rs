@@ -9,11 +9,12 @@ use dashmap::DashMap;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_io::runtime::singlethread::SingleThreadRuntime;
-use vortex_io::runtime::{FileIo, Handle, IoSource};
+use vortex_io::runtime::{FileIo, Handle, ObjectStoreIo};
 use vortex_io::{IoDispatcher, PerformanceHint};
 use vortex_layout::segments::{SegmentEvents, SegmentId};
 
 use crate::driver::CoalescedDriver;
+use crate::file::FileIoSource;
 use crate::segments::{
     InitialReadSegmentCache, MokaSegmentCache, NoOpSegmentCache, SegmentCache, SegmentCacheMetrics,
     SegmentCacheSourceAdapter,
@@ -82,7 +83,7 @@ impl VortexOpenOptions<GenericVortexFile> {
         // self.open_read_at(vortex_io::TokioFile::open(read)?).await
         let file = File::open(path);
         async move {
-            let source = IoSource::File(Arc::new(file?));
+            let source = FileIoSource::File(Arc::new(file?));
             self.open_source(source, handle).await
         }
     }
@@ -91,11 +92,11 @@ impl VortexOpenOptions<GenericVortexFile> {
     /// ensuring the `VortexReadAt` implementation is compatible with the chosen I/O dispatcher.
     pub(crate) async fn open_source(
         self,
-        source: IoSource,
+        source: FileIoSource,
         handle: Handle,
     ) -> VortexResult<VortexFile> {
         // Open the file so we can read it's footer.
-        let read = handle.open(source.clone());
+        let read = source.clone().open(&handle);
 
         let footer = if let Some(footer) = self.footer {
             footer
@@ -295,10 +296,10 @@ impl VortexOpenOptions<GenericVortexFile> {
             self.open(local_path, handle).await
         } else {
             self.open_source(
-                IoSource::Object {
+                FileIoSource::ObjectStore(Arc::new(ObjectStoreIo {
                     store: object_store.clone(),
-                    path: Arc::new(path.into()),
-                },
+                    path: path.into(),
+                })),
                 handle,
             )
             .await

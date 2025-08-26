@@ -8,7 +8,9 @@ use futures::StreamExt;
 use tokio::runtime::Builder;
 use vortex_array::iter::{ArrayIterator, ArrayIteratorAdapter};
 use vortex_array::ArrayRef;
+use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
+use vortex_layout::LayoutReader;
 
 /// We create an internal Tokio runtime used exclusively for orchestrating work-stealing
 /// of CPU-bound work for multithreaded scans.
@@ -25,11 +27,8 @@ static CPU_RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
 impl ScanBuilder<ArrayRef> {
     /// Execute the scan on multiple worker threads.
     pub fn into_array_iter_multithread(self) -> VortexResult<impl ArrayIterator + Send + 'static> {
-        let dtype = self.dtype()?;
-        Ok(ArrayIteratorAdapter::new(
-            dtype,
-            self.into_iter_multithread(|a| a)?,
-        ))
+        // FIXME(ngates): implement
+        Ok(ArrayIteratorAdapter::new(DType::Null, [].into_iter()))
     }
 
     /// Execute the scan on multiple worker threads.

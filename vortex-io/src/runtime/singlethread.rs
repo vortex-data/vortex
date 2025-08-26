@@ -5,8 +5,8 @@ use crate::runtime::{CpuTask, Handle, IoTask, Runtime};
 use futures::executor::block_on;
 use futures::future::BoxFuture;
 use futures::stream::{BoxStream, LocalBoxStream};
-use futures::StreamExt;
 use futures::Stream;
+use futures::StreamExt;
 use smol::Executor;
 use std::sync::Arc;
 

@@ -2,12 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub use handle::*;
-use std::fmt::{Debug, Formatter};
-use std::fs::File;
-use std::future::ready;
-use std::os::unix::fs::FileExt;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::task::{ready, Context, Poll};
 
 mod handle;
@@ -19,8 +14,8 @@ pub mod worker;
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use futures::FutureExt;
-use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
-use vortex_error::{vortex_err, VortexError, VortexExpect, VortexResult};
+use vortex_buffer::ByteBuffer;
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 
 /// A Vortex runtime provides an abstract way of scheduling mixed I/O and CPU workloads onto the
 /// various threading models supported by Vortex.
@@ -69,99 +64,23 @@ impl CpuTask {
     }
 }
 
-pub(crate) struct IoTask {
-    source: IoSource,
-    offset: u64,
-    length: usize,
-    alignment: Alignment,
-    callback: ReadCompletion,
-}
-
-impl Debug for IoTask {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("IoTask")
-            .field("source", &self.source)
-            .field("offset", &self.offset)
-            .field("length", &self.length)
-            .field("alignment", &self.alignment)
-            .finish()
-    }
-}
-
-#[derive(Clone)]
-pub enum IoSource {
-    Memory(ByteBuffer),
-    File(Arc<File>),
-    #[cfg(feature = "object_store")]
-    Object {
-        store: Arc<dyn object_store::ObjectStore>,
-        path: Arc<object_store::path::Path>,
-    },
-}
-
-impl Debug for IoSource {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            IoSource::Memory(buffer) => f
-                .debug_tuple("Memory")
-                .field(&format!("ByteBuffer(len={})", buffer.len()))
-                .finish(),
-            IoSource::File(_) => f.debug_tuple("File").field(&"File(...)").finish(),
-            #[cfg(feature = "object_store")]
-            IoSource::Object { store: _, path } => f
-                .debug_tuple("Object")
-                .field(&format!("Path({})", path))
-                .finish(),
-        }
-    }
+pub struct IoTask {
+    factory: Box<dyn FnOnce() -> BoxFuture<'static, ()> + Send + 'static>,
 }
 
 impl IoTask {
-    // TODO(ngates): ideally this future would be !Send.
-    // FIXME(ngates): the future should not be boxed.
-    pub(crate) fn run(self) -> impl Future<Output = ()> {
-        match self.source {
-            IoSource::Memory(buffer) => {
-                let offset =
-                    usize::try_from(self.offset).vortex_expect("Offset out of bounds for usize");
-                let slice = buffer
-                    .slice_unaligned(offset..offset + self.length)
-                    .aligned(self.alignment);
-                self.callback.complete(Ok(slice));
-                ready(()).boxed()
-            }
-            IoSource::File(file) => {
-                // TODO(ngates): should we spawn this onto a blocking pool? Possibly.
-                let mut buffer = ByteBufferMut::with_capacity_aligned(self.length, self.alignment);
-                unsafe { buffer.set_len(self.length) };
-                match file.read_exact_at(&mut buffer, self.offset) {
-                    Ok(()) => self.callback.complete(Ok(buffer.freeze())),
-                    Err(e) => self.callback.complete(Err(VortexError::from(e))),
-                }
-                ready(()).boxed()
-            }
-            #[cfg(feature = "object_store")]
-            IoSource::Object { store, path } => {
-                use futures::TryFutureExt;
-
-                async move {
-                    // FIXME(ngates): use get_opts and copy directly into aligned buffer to avoid double copy.
-                    let result = store
-                        .get_range(&path, self.offset..self.offset + self.length as u64)
-                        .map_ok(|data| {
-                            let mut buffer =
-                                ByteBufferMut::with_capacity_aligned(data.len(), self.alignment);
-                            unsafe { buffer.set_len(data.len()) };
-                            buffer.as_mut_slice().copy_from_slice(&data);
-                            buffer.freeze()
-                        })
-                        .map_err(VortexError::from)
-                        .await;
-                    self.callback.complete(result)
-                }
-                .boxed()
-            }
+    pub fn non_local<F, Fut>(f: F) -> Self
+    where
+        F: FnOnce() -> Fut + Send + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        IoTask {
+            factory: Box::new(move || f().boxed()),
         }
+    }
+
+    pub async fn run(self) {
+        (self.factory)().await
     }
 }
 

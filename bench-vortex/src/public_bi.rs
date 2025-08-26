@@ -33,6 +33,7 @@ use url::Url;
 use vortex::error::{vortex_err, VortexResult};
 use vortex::file::{VortexOpenOptions, VortexWriteOptions, WriteStrategyBuilder};
 use vortex::iter::ArrayIteratorExt;
+use vortex::scan::ScanBuilder;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex::ArrayRef;
 use vortex_datafusion::VortexFormat;
@@ -430,11 +431,8 @@ impl Dataset for PBIBenchmark {
             .clone();
 
         async move {
-            VortexOpenOptions::file()
-                .open_blocking(&path)?
-                .scan()?
-                .into_array_iter_multithread()?
-                .read_all()
+            let vxf = VortexOpenOptions::file().open_blocking(&path)?;
+            ScanBuilder::new().into_array_iter_multithread()?.read_all()
         }
         .await
         .expect("must be able to read table")

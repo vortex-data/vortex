@@ -22,7 +22,7 @@ use vortex_expr::transform::simplify_typed;
 use vortex_expr::{root, ExprRef};
 use vortex_io::runtime::Handle;
 use vortex_layout::layouts::row_idx::RowIdxLayoutReader;
-use vortex_layout::{LayoutReader, LayoutReaderRef};
+use vortex_layout::LayoutReader;
 pub use vortex_layout::{TaskExecutor, TaskExecutorExt};
 use vortex_metrics::VortexMetrics;
 
@@ -42,7 +42,6 @@ mod work_stealing_iter;
 
 /// A struct for building a scan operation.
 pub struct ScanBuilder<A> {
-    layout_reader: LayoutReaderRef,
     projection: ExprRef,
     filter: Option<ExprRef>,
     /// Optionally read a subset of the rows in the file.
@@ -126,8 +125,8 @@ impl<A: 'static + Send> ScanBuilder<A> {
     }
 
     /// The [`DType`] returned by the scan, after applying the projection.
-    pub fn dtype(&self) -> VortexResult<DType> {
-        self.projection.return_dtype(self.layout_reader.dtype())
+    pub fn dtype(&self, scope: &DType) -> VortexResult<DType> {
+        self.projection.return_dtype(scope)
     }
 
     /// Map each split of the scan. The function will be run on the spawned task.
@@ -137,7 +136,6 @@ impl<A: 'static + Send> ScanBuilder<A> {
     ) -> ScanBuilder<B> {
         let old_map_fn = self.map_fn;
         ScanBuilder {
-            layout_reader: self.layout_reader,
             projection: self.projection,
             filter: self.filter,
             row_range: self.row_range,
@@ -155,6 +153,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
     /// Constructs a task per row split of the scan, returned as a vector of futures.
     pub fn build(
         mut self,
+        layout_reader: Arc<dyn LayoutReader>,
         handle: &Handle,
     ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
         if self.filter.is_some() && self.limit.is_some() {
@@ -168,7 +167,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
         // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
         // conjunction splitting if a filter is provided.
-        let mut layout_reader = self.layout_reader;
+        let mut layout_reader = layout_reader;
 
         // Enrich the layout reader to support RowIdx expressions.
         // Note that this is applied below the filter layout reader since it can perform
@@ -216,10 +215,11 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
     pub fn into_stream(
         self,
+        layout_reader: Arc<dyn LayoutReader>,
         handle: Handle,
     ) -> VortexResult<impl futures::Stream<Item = VortexResult<A>> + Send + 'static> {
         let concurrency = self.concurrency;
-        Ok(stream::iter(self.build(&handle)?)
+        Ok(stream::iter(self.build(layout_reader, &handle)?)
             .map(move |fut| handle.clone().spawn(fut))
             .buffered(concurrency)
             .filter_map(|chunk| async move { chunk.transpose() }))
@@ -235,6 +235,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
     #[cfg(feature = "tokio")]
     pub fn into_tokio_stream(
         self,
+        layout_reader: Arc<dyn LayoutReader>,
     ) -> impl futures::Stream<Item = VortexResult<A>> + Send + 'static {
         use futures::StreamExt;
         use vortex_io::runtime::tokio::TokioRuntime;
@@ -244,7 +245,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
         let concurrency = self.concurrency * num_workers;
 
         TokioRuntime::default().drive_stream(move |handle| {
-            let items = match self.build(&handle) {
+            let items = match self.build(layout_reader, &handle) {
                 Ok(items) => items,
                 Err(e) => return stream::once(async move { Err(e) }).boxed(),
             };
@@ -258,9 +259,8 @@ impl<A: 'static + Send> ScanBuilder<A> {
 }
 
 impl ScanBuilder<ArrayRef> {
-    pub fn new(layout_reader: Arc<dyn LayoutReader>) -> Self {
+    pub fn new() -> Self {
         Self {
-            layout_reader,
             projection: root(),
             filter: None,
             row_range: None,
@@ -307,9 +307,10 @@ impl ScanBuilder<ArrayRef> {
     #[cfg(feature = "tokio")]
     pub fn into_tokio_array_stream(
         self,
+        layout_reader: Arc<dyn LayoutReader>,
     ) -> VortexResult<impl vortex_array::stream::ArrayStream + Send + 'static> {
-        let dtype = self.dtype()?;
-        let stream = self.into_tokio_stream();
+        let dtype = self.dtype(layout_reader.dtype())?;
+        let stream = self.into_tokio_stream(layout_reader);
         Ok(vortex_array::stream::ArrayStreamAdapter::new(dtype, stream))
     }
 }

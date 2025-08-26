@@ -4,9 +4,10 @@
 use futures::FutureExt;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
-use vortex_io::runtime::{Handle, IoSource};
+use vortex_io::runtime::Handle;
 use vortex_layout::segments::{SegmentFuture, SegmentId, SegmentSource};
 
+use crate::file::FileIoSource;
 use crate::{FileType, Footer, VortexFile, VortexOpenOptions};
 
 /// A Vortex file that is backed by an in-memory buffer.
@@ -58,7 +59,7 @@ impl VortexOpenOptions<InMemoryFileType> {
 
         Ok(VortexFile {
             footer,
-            source: IoSource::Memory(buffer),
+            source: FileIoSource::Memory(buffer),
             metrics: self.metrics,
         })
     }

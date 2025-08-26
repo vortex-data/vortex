@@ -6,15 +6,17 @@
 //! The `VortexFile` provides methods for accessing file metadata, creating segment sources for reading
 //! data from the file, and initiating scans to read the file's contents into memory as Vortex arrays.
 
+use std::fs::File;
 use std::sync::Arc;
 
 use vortex_array::stats::StatsSet;
 use vortex_array::ArrayRef;
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Field, FieldPath, FieldPathSet};
 use vortex_error::VortexResult;
 use vortex_expr::pruning::checked_pruning_expr;
 use vortex_expr::{ExprRef, Scope};
-use vortex_io::runtime::IoSource;
+use vortex_io::runtime::{FileIo, Handle, ObjectStoreIo};
 use vortex_layout::segments::SegmentSource;
 use vortex_layout::LayoutReader;
 use vortex_metrics::VortexMetrics;
@@ -35,7 +37,7 @@ pub struct VortexFile {
     /// The footer of the Vortex file, containing metadata and layout information.
     pub(crate) footer: Footer,
     /// The segment source used for reading segments from the file.
-    pub(crate) source: IoSource,
+    pub(crate) source: FileIoSource,
     /// Metrics tied to the file.
     pub(crate) metrics: VortexMetrics,
 }
@@ -69,24 +71,24 @@ impl VortexFile {
     }
 
     /// Create a new segment source for reading from the file.
-    pub fn segment_source(&self) -> Arc<dyn SegmentSource> {
+    pub fn segment_source(&self, handle: &Handle) -> Arc<dyn SegmentSource> {
         Arc::new(FileSegmentSource::new(
             self.footer.segment_map().clone(),
-            self.source.clone(),
+            self.source.clone().open(handle),
         ))
     }
 
     /// Create a new layout reader for the file.
-    pub fn layout_reader(&self) -> VortexResult<Arc<dyn LayoutReader>> {
+    pub fn layout_reader(&self, handle: &Handle) -> VortexResult<Arc<dyn LayoutReader>> {
         self.footer
             .layout()
             // TODO(ngates): we may want to allow the user pass in a name here?
-            .new_reader("".into(), self.segment_source())
+            .new_reader("".into(), self.segment_source(handle))
     }
 
     /// Initiate a scan of the file, returning a builder for configuring the scan.
     pub fn scan(&self) -> VortexResult<ScanBuilder<ArrayRef>> {
-        Ok(ScanBuilder::new(self.layout_reader()?).with_metrics(self.metrics.clone()))
+        Ok(ScanBuilder::new().with_metrics(self.metrics.clone()))
     }
 
     /// Returns true if the expression will never match any rows in the file.
@@ -133,5 +135,24 @@ impl VortexFile {
             .evaluate(&scope)?
             .as_constant()
             .is_some_and(|result| result.as_bool().value() == Some(true)))
+    }
+}
+
+#[derive(Clone)]
+pub(crate) enum FileIoSource {
+    Memory(ByteBuffer),
+    File(Arc<File>),
+    #[cfg(feature = "object_store")]
+    ObjectStore(Arc<ObjectStoreIo>),
+}
+
+impl FileIoSource {
+    pub(crate) fn open(self, handle: &Handle) -> FileIo {
+        match self {
+            FileIoSource::Memory(buffer) => handle.open(Arc::new(buffer)),
+            FileIoSource::File(file) => handle.open(file),
+            #[cfg(feature = "object_store")]
+            FileIoSource::ObjectStore(store) => handle.open(store),
+        }
     }
 }

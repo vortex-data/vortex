@@ -122,9 +122,7 @@ impl FileOpener for VortexOpener {
                         .collect::<Vec<_>>();
                     let projection_expr = select(fields, root());
 
-                    let mut scan_builder = ScanBuilder::new(vxf.layout_reader().map_err(|e| {
-                        DataFusionError::Execution(format!("Failed to create Vortex stream: {e}"))
-                    })?);
+                    let mut scan_builder = ScanBuilder::new();
                     if let Some(file_range) = file_meta.range {
                         scan_builder = apply_byte_range(
                             file_range,
@@ -160,7 +158,11 @@ impl FileOpener for VortexOpener {
                             let st = chunk.to_struct()?;
                             st.into_record_batch()
                         })
-                        .into_tokio_stream()
+                        .into_tokio_stream(vxf.layout_reader(&handle).map_err(|e| {
+                            DataFusionError::Execution(format!(
+                                "Failed to create Vortex stream: {e}"
+                            ))
+                        })?)
                         .map_ok(move |rb| {
                             // We try and slice the stream into respecting datafusion's configured batch size.
                             stream::iter(

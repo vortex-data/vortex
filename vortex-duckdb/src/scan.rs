@@ -351,13 +351,14 @@ impl TableFunction for VortexTableFunction {
                 .enumerate()
                 .map(move |(idx, vxf)| {
                     let conversion_cache = Arc::new(ConversionCache::new(idx as u64));
-                    let tasks = vxf?
+                    let vxf = vxf?;
+                    let tasks = vxf
                         .scan()?
                         .with_some_filter(filter_expr2.clone())
                         .with_projection(projection_expr.clone())
                         .with_concurrency(1024)
                         .map(move |split: ArrayRef| Ok((split, conversion_cache.clone())))
-                        .into_stream(handle2.clone())?;
+                        .into_stream(vxf.layout_reader(&handle2)?, handle2.clone())?;
                     Ok::<_, VortexError>(tasks)
                 })
                 .try_flatten()
