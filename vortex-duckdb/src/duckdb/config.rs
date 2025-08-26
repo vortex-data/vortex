@@ -15,8 +15,7 @@ use crate::{cpp, duckdb_try, wrapper};
 // Since wrapper! creates a simple struct with just the pointer, we'll use a static
 // map to track the values for each config pointer.
 // We use usize to avoid Send/Sync issues with raw pointers
-type ConfigValueMap = HashMap<usize, HashMap<String, String>>;
-static CONFIG_VALUES: LazyLock<Mutex<ConfigValueMap>> =
+static CONFIG_VALUES: LazyLock<Mutex<HashMap<usize, HashMap<String, String>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 wrapper!(
@@ -58,25 +57,64 @@ impl Config {
             value
         );
 
-        // Store the value for later retrieval
+        // Store the value in our tracking map
         let mut map = CONFIG_VALUES.lock();
-        if let Some(config_values) = map.get_mut(&(self.as_ptr() as usize)) {
-            config_values.insert(key.to_string(), value.to_string());
-        }
+        let config_values = map.entry(self.as_ptr() as usize).or_default();
+        config_values.insert(key.to_string(), value.to_string());
+
         Ok(())
     }
 
     /// Gets the value of a configuration parameter that was previously set.
     /// Returns None if the parameter was never set on this Config instance.
     pub fn get(&self, key: &str) -> Option<String> {
-        let map = CONFIG_VALUES.lock();
-        if let Some(config_values) = map.get(&(self.as_ptr() as usize)) {
-            return config_values.get(key).cloned();
+        let key_cstr = match CString::new(key) {
+            Ok(cstr) => cstr,
+            Err(_) => return None, // Invalid key with null bytes
+        };
+
+        let mut value: cpp::duckdb_value = ptr::null_mut();
+        let result = unsafe {
+            cpp::duckdb_vx_get_config_value(self.as_ptr(), key_cstr.as_ptr(), &raw mut value)
+        };
+
+        if result == cpp::duckdb_state::DuckDBSuccess && !value.is_null() {
+            // Extract the string value
+            let c_str = unsafe { cpp::duckdb_get_varchar(value) };
+            if !c_str.is_null() {
+                let rust_str = unsafe {
+                    std::ffi::CStr::from_ptr(c_str)
+                        .to_string_lossy()
+                        .into_owned()
+                };
+
+                // Clean up the value
+                unsafe { cpp::duckdb_destroy_value(&raw mut value) };
+
+                return Some(rust_str);
+            }
+
+            // Clean up the value even if we couldn't extract the string
+            unsafe { cpp::duckdb_destroy_value(&raw mut value) };
         }
+
         None
     }
 
+    /// Checks if a configuration key has been set on this config instance.
+    pub fn has_key(&self, key: &str) -> bool {
+        let key_cstr = match CString::new(key) {
+            Ok(cstr) => cstr,
+            Err(_) => return false, // Invalid key with null bytes
+        };
+
+        let result = unsafe { cpp::duckdb_vx_config_has_key(self.as_ptr(), key_cstr.as_ptr()) };
+        result == 1
+    }
+
     /// Returns all configuration parameters that have been set on this instance.
+    /// Note: This method only returns parameters that were set using the Rust wrapper,
+    /// as DuckDB doesn't provide a way to enumerate all set parameters.
     pub fn get_all(&self) -> HashMap<String, String> {
         let map = CONFIG_VALUES.lock();
         if let Some(config_values) = map.get(&(self.as_ptr() as usize)) {
@@ -280,6 +318,41 @@ mod tests {
         let invalid_option = Config::get_config_flag(999999);
         assert!(invalid_option.is_ok());
         assert!(invalid_option.unwrap().is_none());
+    }
+
+    #[test]
+    fn test_config_has_key() {
+        let mut config = Config::new().unwrap();
+
+        // Initially should not have any custom keys
+        assert!(!config.has_key("my_custom_key"));
+
+        // Set a value and check it exists
+        assert!(config.set("my_custom_key", "my_value").is_ok());
+        assert!(config.has_key("my_custom_key"));
+
+        // Check a key that was never set
+        assert!(!config.has_key("never_set_key"));
+
+        // Test invalid key with null bytes
+        assert!(!config.has_key("key\0with\0nulls"));
+    }
+
+    #[test]
+    fn test_config_get_from_duckdb() {
+        let mut config = Config::new().unwrap();
+
+        // Set a value
+        assert!(config.set("memory_limit", "1GB").is_ok());
+
+        // Get the value directly from DuckDB config object
+        assert_eq!(config.get("memory_limit"), Some("1GB".to_string()));
+
+        // Test non-existent key
+        assert_eq!(config.get("non_existent_key"), None);
+
+        // Test invalid key with null bytes
+        assert_eq!(config.get("key\0with\0nulls"), None);
     }
 
     #[test]
