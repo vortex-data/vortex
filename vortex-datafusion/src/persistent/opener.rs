@@ -123,7 +123,7 @@ impl FileOpener for VortexOpener {
             let projection_expr = select(fields, root());
 
             // We share our layout readers with others partitions in the scan, so we can only need to read each layout in each file once.
-            let layout_reader = match layout_reader.entry(file_meta.object_meta.location) {
+            let layout_reader = match layout_reader.entry(file_meta.object_meta.location.clone()) {
                 Entry::Occupied(mut occupied_entry) => {
                     if let Some(reader) = occupied_entry.get().upgrade() {
                         log::trace!("reusing layout reader for {}", occupied_entry.key());
@@ -211,7 +211,12 @@ impl FileOpener for VortexOpener {
                             .map(Ok),
                     )
                 })
-                .map_err(|e: VortexError| ArrowError::ExternalError(Box::new(e)))
+                .map_err(move |e: VortexError| {
+                    ArrowError::ExternalError(Box::new(e.with_context(format!(
+                        "Failed to read Vortex file: {}",
+                        file_meta.object_meta.location
+                    ))))
+                })
                 .try_flatten()
                 .map(move |batch| {
                     batch.and_then(|b| schema_mapping.map_batch(b).map_err(Into::into))
@@ -253,7 +258,6 @@ fn byte_range_to_row_range(byte_range: Range<u64>, row_count: u64, total_size: u
 
 #[cfg(test)]
 mod tests {
-
     use chrono::Utc;
     use datafusion::arrow;
     use datafusion::arrow::array::RecordBatch;
