@@ -4,11 +4,11 @@
 //! FSST View encoding, an analog to raw FSST encoding.
 
 mod array;
-mod serde;
+mod compute;
 mod ops;
+mod serde;
 mod validity;
 mod visitor;
-mod compute;
 
 use std::fmt;
 use std::fmt::Formatter;
@@ -17,11 +17,30 @@ pub use array::*;
 
 const MAX_INLINE_STR: usize = 12;
 
-#[repr(C, align(8))]
+/// "View" structure that serves inlined strings, or points to compressed copies of longer strings.
+#[repr(C, align(16))]
 #[derive(Copy, Clone)]
 union View {
     inline: InlinedStr,
     outline: OutlinedStr,
+}
+
+impl View {
+    fn new_inlined(data: &[u8]) -> Self {
+        assert!(data.len() <= MAX_INLINE_STR);
+        // Safe to truncate cast, always small enough.
+        let len = (data.len() & ((1 << 32) - 1)) as u32;
+        let mut inlined_str = InlinedStr {
+            len,
+            bytes: [0; MAX_INLINE_STR],
+        };
+
+        inlined_str.bytes[..data.len()].copy_from_slice(data);
+
+        Self {
+            inline: inlined_str,
+        }
+    }
 }
 
 impl fmt::Debug for View {
@@ -45,7 +64,7 @@ impl View {
     }
 }
 
-#[repr(C, align(8))]
+#[repr(C, align(16))]
 #[derive(Debug, Copy, Clone)]
 struct InlinedStr {
     /// Uncompressed string length
@@ -54,7 +73,7 @@ struct InlinedStr {
     bytes: [u8; 12],
 }
 
-#[repr(C, align(8))]
+#[repr(C, align(16))]
 #[derive(Debug, Copy, Clone)]
 struct OutlinedStr {
     /// Uncompressed string length

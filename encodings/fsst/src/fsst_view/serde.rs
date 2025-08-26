@@ -10,10 +10,10 @@ use vortex_array::vtable::{EncodeVTable, SerdeVTable, ValidityHelper};
 use vortex_array::{Canonical, DeserializeMetadata, EmptyMetadata, IntoArray};
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_ensure, VortexResult, VortexUnwrap};
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_ensure};
 
-use crate::fsst_view::{FSSTViewArray, FSSTViewEncoding, FSSTViewVTable, View};
-use crate::{fsst_compress, fsst_train_compressor, FSSTArray};
+use crate::fsst_view::{FSSTViewArray, FSSTViewEncoding, FSSTViewVTable, OutlinedStr, View};
+use crate::{FSSTArray, fsst_compress, fsst_train_compressor};
 
 impl SerdeVTable<FSSTViewVTable> for FSSTViewVTable {
     type Metadata = EmptyMetadata;
@@ -99,7 +99,7 @@ impl EncodeVTable<FSSTViewVTable> for FSSTViewVTable {
 
 /// Compress from an iterator of bytestrings using FSST.
 fn compress_from_canonical(array: &VarBinViewArray, compressor: &Arc<Compressor>) -> FSSTViewArray {
-    // TODO(aduffy): this might be too small.
+    // Pre-allocate a reusable buffer for compression
     let mut reuse = Vec::with_capacity(16 * 1024 * 1024);
     let mut codes = ByteBufferMut::with_capacity(16 * 1024 * 1024);
     let mut uncompressed_offsets: BufferMut<u32> = BufferMut::with_capacity(array.views().len());
@@ -109,22 +109,52 @@ fn compress_from_canonical(array: &VarBinViewArray, compressor: &Arc<Compressor>
     compressed_offsets.push(0);
 
     let mut views = BufferMut::with_capacity(array.views().len());
+    let mut index = 0;
 
     for idx in 0..array.len() {
         let view = array.views()[idx];
         if view.is_inlined() {
             // We only copy the outlined strings
+            // Copy the inlined string.
+            views.push(View::new_inlined(&view.as_inlined().data));
+
             continue;
         }
 
+        // Outlined views:
+        //  1. Compress the bytes, copy them into the final buffer
+        //  2. Implement the bytes
         let view = view.as_view();
         let buffer = array.buffer(view.buffer_index as usize);
         let start = view.offset() as usize;
         let end = start + view.size as usize;
 
+        // TODO(aduffy): handle strings larger than 8MB
+        assert!(
+            end - start < 8 * 1024 * 1024,
+            "FSST cannot handle strings larger than 8MB at this time"
+        );
+
         unsafe { compressor.compress_into(&buffer[start..end], &mut reuse) };
 
+        let begin =
+            u32::try_from(codes.len()).vortex_expect("FSST compressed buffer overflowed u32 range");
+        let length =
+            u32::try_from(reuse.len()).vortex_expect("FSST compressed strings cannot exceed 8MB");
         codes.extend_from_slice(reuse.as_slice());
+
+        let mut prefix = [0u8; 8];
+        prefix.copy_from_slice(&reuse[..8]);
+
+        views.push(View {
+            outline: OutlinedStr {
+                len: length,
+                index,
+                prefix,
+            },
+        });
+
+        index += 1;
 
         compressed_offsets
             .push(compressed_offsets.last().copied().unwrap_or(0) + reuse.len() as u32);
@@ -141,5 +171,7 @@ fn compress_from_canonical(array: &VarBinViewArray, compressor: &Arc<Compressor>
         validity: array.validity().clone(),
         compressed_offsets,
         uncompressed_offsets,
+        dtype: array.dtype().clone(),
+        stats_set: Default::default(),
     }
 }

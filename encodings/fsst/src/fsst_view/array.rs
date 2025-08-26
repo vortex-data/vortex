@@ -7,10 +7,9 @@ use std::sync::Arc;
 
 use fsst::Compressor;
 use vortex_array::arrays::{BinaryView, Inlined, Ref, VarBinViewArray};
+use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
-use vortex_array::vtable::{
-    NotSupported, VTable, ValidityVTableFromValidityHelper,
-};
+use vortex_array::vtable::{ArrayVTable, NotSupported, VTable, ValidityVTableFromValidityHelper};
 use vortex_array::{vtable, Array, ArrayRef, Canonical, EncodingId, EncodingRef, ToCanonical};
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{DType, Nullability};
@@ -44,10 +43,25 @@ impl VTable for FSSTViewVTable {
     }
 }
 
+impl ArrayVTable<FSSTViewVTable> for FSSTViewVTable {
+    fn len(array: &FSSTViewArray) -> usize {
+        array.views.len()
+    }
+
+    fn dtype(array: &FSSTViewArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &FSSTViewArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+}
+
 #[derive(Clone)]
 pub struct FSSTViewArray {
     /// A list of 16-byte views into the FSST buffer
     pub(crate) views: Buffer<View>,
+    pub(crate) dtype: DType,
     /// A packed buffer containing FSST-encoded string data without any internal padding
     pub(crate) fsst_buffer: ByteBuffer,
     /// `compressed_offsets[i]` is the offset into `fsst_buffer` where the `i`-th compressed
@@ -60,6 +74,7 @@ pub struct FSSTViewArray {
     pub(crate) compressor: Arc<Compressor>,
     /// Validity information, dictating presence of nulls
     pub(crate) validity: Validity,
+    pub(crate) stats_set: ArrayStats,
 }
 
 impl fmt::Debug for FSSTViewArray {
