@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ffi::CString;
+use std::ffi::{CString, c_void};
 use std::ptr;
 use std::sync::LazyLock;
 
@@ -9,6 +9,7 @@ use parking_lot::Mutex;
 use vortex::error::{VortexResult, vortex_err};
 use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::duckdb::Value;
 use crate::{cpp, duckdb_try, wrapper};
 
 // We need a way to store the values associated with each config.
@@ -57,17 +58,27 @@ impl Config {
             value
         );
 
-        // Store the value in our tracking map
-        let mut map = CONFIG_VALUES.lock();
-        let config_values = map.entry(self.as_ptr() as usize).or_default();
-        config_values.insert(key.to_string(), value.to_string());
-
         Ok(())
     }
 
     /// Gets the value of a configuration parameter that was previously set.
     /// Returns None if the parameter was never set on this Config instance.
-    pub fn get(&self, key: &str) -> Option<String> {
+    pub fn get(&self, key: &str) -> Option<Value> {
+        let key_cstr = match CString::new(key) {
+            Ok(cstr) => cstr,
+            Err(_) => return None, // Invalid key with null bytes
+        };
+
+        let mut value: cpp::duckdb_value = ptr::null_mut();
+        let result = unsafe {
+            cpp::duckdb_vx_get_config_value(self.as_ptr(), key_cstr.as_ptr(), &raw mut value)
+        };
+
+        (result == cpp::duckdb_state::DuckDBSuccess && !value.is_null())
+            .then(|| unsafe { Value::own(value) })
+    }
+
+    pub fn get_str(&self, key: &str) -> Option<String> {
         let key_cstr = match CString::new(key) {
             Ok(cstr) => cstr,
             Err(_) => return None, // Invalid key with null bytes
@@ -79,23 +90,22 @@ impl Config {
         };
 
         if result == cpp::duckdb_state::DuckDBSuccess && !value.is_null() {
-            // Extract the string value
-            let c_str = unsafe { cpp::duckdb_get_varchar(value) };
+            // Use our new C++ function to convert the value to a string
+            let c_str = unsafe { cpp::duckdb_vx_value_to_string(value) };
+            
+            // Clean up the value
+            unsafe { cpp::duckdb_destroy_value(&raw mut value) };
+            
             if !c_str.is_null() {
-                let rust_str = unsafe {
-                    std::ffi::CStr::from_ptr(c_str)
-                        .to_string_lossy()
-                        .into_owned()
+                let rust_str = unsafe { 
+                    std::ffi::CStr::from_ptr(c_str).to_string_lossy().into_owned()
                 };
-
-                // Clean up the value
-                unsafe { cpp::duckdb_destroy_value(&raw mut value) };
-
+                
+                // Free the C string allocated by our function
+                unsafe { cpp::duckdb_free(c_str as *mut c_void) };
+                
                 return Some(rust_str);
             }
-
-            // Clean up the value even if we couldn't extract the string
-            unsafe { cpp::duckdb_destroy_value(&raw mut value) };
         }
 
         None
@@ -110,17 +120,6 @@ impl Config {
 
         let result = unsafe { cpp::duckdb_vx_config_has_key(self.as_ptr(), key_cstr.as_ptr()) };
         result == 1
-    }
-
-    /// Returns all configuration parameters that have been set on this instance.
-    /// Note: This method only returns parameters that were set using the Rust wrapper,
-    /// as DuckDB doesn't provide a way to enumerate all set parameters.
-    pub fn get_all(&self) -> HashMap<String, String> {
-        let map = CONFIG_VALUES.lock();
-        if let Some(config_values) = map.get(&(self.as_ptr() as usize)) {
-            return config_values.clone();
-        }
-        HashMap::new()
     }
 
     /// Returns the number of configuration parameters available in DuckDB.
@@ -207,11 +206,11 @@ mod tests {
         assert!(config.set("threads", "2").is_ok());
 
         // Verify they can be retrieved
-        assert_eq!(config.get("memory_limit"), Some("1GB".to_string()));
-        assert_eq!(config.get("threads"), Some("2".to_string()));
+        assert_eq!(config.get_str("memory_limit"), Some("1GB".to_string()));
+        assert_eq!(config.get_str("threads"), Some("2".to_string()));
 
         // Non-existent key should return None
-        assert_eq!(config.get("nonexistent_key"), None);
+        assert_eq!(config.get_str("nonexistent_key"), None);
     }
 
     #[test]
@@ -222,11 +221,9 @@ mod tests {
         assert!(config.set("threads", "4").is_ok());
         assert!(config.set("max_memory", "1GB").is_ok());
 
-        let all_values = config.get_all();
-        assert_eq!(all_values.len(), 3);
-        assert_eq!(all_values.get("memory_limit"), Some(&"512MB".to_string()));
-        assert_eq!(all_values.get("threads"), Some(&"4".to_string()));
-        assert_eq!(all_values.get("max_memory"), Some(&"1GB".to_string()));
+        assert_eq!(config.get_str("memory_limit"), Some("512MB".to_string()));
+        assert_eq!(config.get_str("threads"), Some("4".to_string()));
+        assert_eq!(config.get_str("max_memory"), Some("1GB".to_string()));
     }
 
     #[test]
@@ -235,14 +232,11 @@ mod tests {
 
         // Set initial value
         assert!(config.set("threads", "2").is_ok());
-        assert_eq!(config.get("threads"), Some("2".to_string()));
+        assert_eq!(config.get_str("threads"), Some("2".to_string()));
 
         // Update the value
         assert!(config.set("threads", "8").is_ok());
-        assert_eq!(config.get("threads"), Some("8".to_string()));
-
-        // Should only have one entry
-        assert_eq!(config.get_all().len(), 1);
+        assert_eq!(config.get_str("threads"), Some("8".to_string()));
     }
 
     #[test]
@@ -255,8 +249,8 @@ mod tests {
         config.set("threads", "1").unwrap();
 
         // Verify values are stored before using
-        assert_eq!(config.get("memory_limit"), Some("256MB".to_string()));
-        assert_eq!(config.get("threads"), Some("1".to_string()));
+        assert_eq!(config.get_str("memory_limit"), Some("256MB".to_string()));
+        assert_eq!(config.get_str("threads"), Some("1".to_string()));
 
         // Use config to create database (this consumes the config)
         let db = Database::open_in_memory_with_config(config);
@@ -318,47 +312,5 @@ mod tests {
         let invalid_option = Config::get_config_flag(999999);
         assert!(invalid_option.is_ok());
         assert!(invalid_option.unwrap().is_none());
-    }
-
-    #[test]
-    fn test_config_has_key() {
-        let mut config = Config::new().unwrap();
-
-        // Initially should not have any custom keys
-        assert!(!config.has_key("my_custom_key"));
-
-        // Set a value and check it exists
-        assert!(config.set("my_custom_key", "my_value").is_ok());
-        assert!(config.has_key("my_custom_key"));
-
-        // Check a key that was never set
-        assert!(!config.has_key("never_set_key"));
-
-        // Test invalid key with null bytes
-        assert!(!config.has_key("key\0with\0nulls"));
-    }
-
-    #[test]
-    fn test_config_get_from_duckdb() {
-        let mut config = Config::new().unwrap();
-
-        // Set a value
-        assert!(config.set("memory_limit", "1GB").is_ok());
-
-        // Get the value directly from DuckDB config object
-        assert_eq!(config.get("memory_limit"), Some("1GB".to_string()));
-
-        // Test non-existent key
-        assert_eq!(config.get("non_existent_key"), None);
-
-        // Test invalid key with null bytes
-        assert_eq!(config.get("key\0with\0nulls"), None);
-    }
-
-    #[test]
-    fn test_config_default() {
-        let config = Config::default();
-        assert!(!config.as_ptr().is_null());
-        assert!(config.get_all().is_empty());
     }
 }

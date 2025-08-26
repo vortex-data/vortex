@@ -26,6 +26,13 @@ duckdb_state duckdb_vx_get_config_value(duckdb_config config, const char* key, d
 /// @return 1 if the key exists, 0 if it doesn't exist or on error
 int duckdb_vx_config_has_key(duckdb_config config, const char* key);
 
+/// Convert a DuckDB value to a string representation.
+/// The returned string must be freed with duckdb_free.
+///
+/// @param value The DuckDB value to convert
+/// @return A newly allocated string containing the value's string representation, or NULL on error
+char* duckdb_vx_value_to_string(duckdb_value value);
+
 #ifdef __cplusplus
 }
 #endif

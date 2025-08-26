@@ -6,7 +6,7 @@ use std::fmt::{Debug, Formatter};
 
 use num_traits::AsPrimitive;
 use vortex::buffer::{BufferString, ByteBuffer};
-use vortex::error::{VortexExpect, vortex_err, vortex_panic};
+use vortex::error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 
 use crate::cpp::DUCKDB_TYPE;
 use crate::duckdb::LogicalType;
@@ -85,6 +85,13 @@ impl Value {
         };
         string
     }
+
+    pub fn to_string(&self) -> String {
+        let debug = unsafe { cpp::duckdb_vx_value_to_string(self.as_ptr()) };
+        unsafe { CStr::from_ptr(debug) }
+            .to_string_lossy()
+            .to_string()
+    }
 }
 
 #[inline]
@@ -94,9 +101,7 @@ pub fn i128_from_parts(high: i64, low: u64) -> i128 {
 
 impl Debug for Value {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let debug = unsafe { cpp::duckdb_value_to_string(self.as_ptr()) };
-        write!(f, "{}", unsafe { CStr::from_ptr(debug).to_string_lossy() })?;
-        unsafe { cpp::duckdb_free(debug.cast()) };
+        f.write_str(&self.to_string())?;
         Ok(())
     }
 }

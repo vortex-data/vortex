@@ -5,6 +5,8 @@
 #include "duckdb.hpp"
 #include <string>
 #include <memory>
+#include <cstdlib>
+#include <cstring>
 
 using namespace duckdb;
 
@@ -76,6 +78,40 @@ int duckdb_vx_config_has_key(duckdb_config config, const char* key) {
         
     } catch (...) {
         return 0;
+    }
+}
+
+char* duckdb_vx_value_to_string(duckdb_value value) {
+    if (!value) {
+        return nullptr;
+    }
+
+    try {
+        // Cast the value to DuckDB's internal Value type
+        auto* ddb_value = reinterpret_cast<Value*>(value);
+        
+        if (!ddb_value) {
+            return nullptr;
+        }
+
+        // Use the ToString method to get the string representation
+        std::string str_value = ddb_value->ToString();
+        
+        // Allocate memory for the C string using malloc (compatible with duckdb_free)
+        size_t str_len = str_value.length() + 1;
+        char* result = static_cast<char*>(malloc(str_len));
+        if (!result) {
+            return nullptr;
+        }
+        
+        // Copy the string and null terminate
+        std::memcpy(result, str_value.c_str(), str_len);
+        return result;
+        
+    } catch (const std::exception& e) {
+        return nullptr;
+    } catch (...) {
+        return nullptr;
     }
 }
 
