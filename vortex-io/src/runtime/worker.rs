@@ -1,21 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::runtime::{CpuTask, FileIoRequest, Handle, Runtime};
+use crate::runtime::{CpuTask, Handle, IoTask, Runtime};
 use async_task::Runnable;
 use crossbeam_deque::{Injector, Stealer};
+use futures::executor::block_on;
+use futures::future::BoxFuture;
+use futures::stream::BoxStream;
 use futures::Stream;
-use futures_util::future::BoxFuture;
-use futures_util::StreamExt;
-use smol::future::FutureExt;
-use smol::lock::Semaphore;
-use smol::{unblock, LocalExecutor};
+use futures::{FutureExt, StreamExt};
+use smol::LocalExecutor;
 use std::iter;
-use std::os::unix::fs::FileExt;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use vortex_buffer::ByteBufferMut;
-use vortex_error::VortexError;
 
 /// A worker pool is a Vortex runtime that can be driven from multiple worker threads, typically
 /// orchestrated by the system that is calling into Vortex.
@@ -51,7 +48,7 @@ impl<T: Send + 'static> WorkerPool<T> {
         // Spawn a task to drive the stream and send results to the result channel.
         shared.spawn_scheduling(
             async move {
-                futures_util::pin_mut!(stream);
+                futures::pin_mut!(stream);
                 while let Some(item) = stream.next().await {
                     // Ignore send errors, which happen if the receiver is dropped.
                     let _ = result_tx.send(item);
@@ -67,7 +64,7 @@ impl<T: Send + 'static> WorkerPool<T> {
 struct Shared<T: Send + 'static> {
     scheduling: Arc<WorkStealing<Runnable>>,
     cpu: Arc<WorkStealing<CpuTask>>,
-    io: Arc<WorkStealing<FileIoRequest>>,
+    io: Arc<WorkStealing<IoTask>>,
 
     /// The current count of I/O worker threads.
     active_io_workers: AtomicUsize,
@@ -94,8 +91,18 @@ impl<T: Send + 'static> Runtime for Shared<T> {
         self.cpu.injector.push(task);
     }
 
-    fn spawn_io(&self, request: FileIoRequest) {
-        self.io.injector.push(request);
+    fn spawn_io(&self, mut stream: BoxStream<'static, IoTask>) {
+        // TODO(ngates): this is rather complicated for now...
+        // We launch a scheduling task to push I/O requests into the work stealing queue.
+        let injector = self.io.injector.clone();
+        self.spawn_scheduling(
+            async move {
+                while let Some(task) = stream.next().await {
+                    injector.push(task)
+                }
+            }
+            .boxed(),
+        )
     }
 }
 
@@ -120,7 +127,7 @@ pub struct Worker<T: Send + 'static> {
 
     scheduling: WorkStealingLocal<Runnable>,
     cpu: WorkStealingLocal<CpuTask>,
-    io: WorkStealingLocal<FileIoRequest>,
+    io: WorkStealingLocal<IoTask>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -173,23 +180,9 @@ impl<T: Send + 'static> Worker<T> {
         // in the queue. After that, we yield back to the worker to perform more work.
         let ex = LocalExecutor::new();
 
-        smol::block_on(ex.run(async move {
-            let sema = Arc::new(Semaphore::new(16));
-            while let Some(req) = self.io.find_task() {
-                let permit = sema.acquire_arc().await;
-                unblock(move || {
-                    let mut buffer =
-                        ByteBufferMut::with_capacity_aligned(req.length, req.alignment);
-                    unsafe { buffer.set_len(req.length) };
-                    match req.file.read_exact_at(&mut buffer, req.offset) {
-                        Ok(()) => req.resolve(Ok(buffer.freeze())),
-                        Err(e) => req.resolve(Err(VortexError::from(e))),
-                    }
-                    drop(permit)
-                })
-                .detach()
-            }
-        }));
+        while let Some(task) = self.io.find_task() {
+            block_on(ex.run(task.run()));
+        }
     }
 }
 

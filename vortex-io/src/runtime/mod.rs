@@ -2,6 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub use handle::*;
+use std::fs::File;
+use std::future::ready;
+use std::os::unix::fs::FileExt;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::task::{ready, Context, Poll};
 
 mod handle;
 pub mod multithread;
@@ -9,14 +15,11 @@ pub mod singlethread;
 pub mod tokio;
 pub mod worker;
 
-use futures_util::future::BoxFuture;
-use futures_util::FutureExt;
-use std::fs::File;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::task::{ready, Context, Poll};
-use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use futures::future::BoxFuture;
+use futures::stream::BoxStream;
+use futures::FutureExt;
+use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
+use vortex_error::{vortex_err, VortexError, VortexExpect, VortexResult};
 
 /// A Vortex runtime provides an abstract way of scheduling mixed I/O and CPU workloads onto the
 /// various threading models supported by Vortex.
@@ -47,18 +50,10 @@ pub(crate) trait Runtime: Send + Sync {
     /// Spawns a CPU-bound task for execution on the runtime.
     fn spawn_cpu(&self, task: CpuTask);
 
-    /// Submits an I/O read request to be executed on the runtime.
-    fn spawn_io(&self, request: FileIoRequest);
-
-    // Drive an I/O future to completion on the runtime. Note that I/O futures are `!Send`.
-    // fn drive_io(&self, future: LocalBoxFuture<'static, ()>);
-}
-
-pub trait VortexRead: 'static + Send + Sync {
-    fn read(&self, offset: u64, length: usize, alignment: Alignment) -> Read;
-
-    // FIXME(ngates): remove this.
-    fn size(&self) -> BoxFuture<'static, VortexResult<u64>>;
+    /// Submits a stream of I/O tasks to be executed on the runtime.
+    /// Note that any concurrency has already been implemented as part of the stream, so the caller
+    /// should simply drive the stream and call [`IoTask::run`] on each item.
+    fn spawn_io(&self, stream: BoxStream<'static, IoTask>);
 }
 
 pub(crate) struct CpuTask {
@@ -73,24 +68,75 @@ impl CpuTask {
     }
 }
 
-#[derive(Debug)]
-pub(crate) struct FileIoRequest {
-    file: Arc<File>,
+pub(crate) struct IoTask {
+    source: IoSource,
     offset: u64,
     length: usize,
     alignment: Alignment,
-    send: oneshot::Sender<VortexResult<ByteBuffer>>,
+    callback: ReadCompletion,
 }
 
-impl FileIoRequest {
-    pub(crate) fn resolve(self, result: VortexResult<ByteBuffer>) {
-        if let Err(e) = self.send.send(result) {
-            log::trace!("Receiver dropped {e}");
+#[derive(Clone)]
+pub enum IoSource {
+    Memory(ByteBuffer),
+    File(Arc<File>),
+    #[cfg(feature = "object_store")]
+    Object {
+        store: Arc<dyn object_store::ObjectStore>,
+        path: Arc<object_store::path::Path>,
+    },
+}
+
+impl IoTask {
+    // TODO(ngates): ideally this future would be !Send.
+    // FIXME(ngates): the future should not be boxed.
+    pub(crate) fn run(self) -> impl Future<Output = ()> {
+        match self.source {
+            IoSource::Memory(buffer) => {
+                let offset =
+                    usize::try_from(self.offset).vortex_expect("Offset out of bounds for usize");
+                let slice = buffer
+                    .slice_unaligned(offset..offset + self.length)
+                    .aligned(self.alignment);
+                self.callback.complete(Ok(slice));
+                ready(()).boxed()
+            }
+            IoSource::File(file) => {
+                // TODO(ngates): should we spawn this onto a blocking pool? Possibly.
+                let mut buffer = ByteBufferMut::with_capacity_aligned(self.length, self.alignment);
+                unsafe { buffer.set_len(self.length) };
+                match file.read_exact_at(&mut buffer, self.offset) {
+                    Ok(()) => self.callback.complete(Ok(buffer.freeze())),
+                    Err(e) => self.callback.complete(Err(VortexError::from(e))),
+                }
+                ready(()).boxed()
+            }
+            #[cfg(feature = "object_store")]
+            IoSource::Object { store, path } => {
+                use futures::TryFutureExt;
+
+                async move {
+                    // FIXME(ngates): use get_opts and copy directly into aligned buffer to avoid double copy.
+                    let result = store
+                        .get_range(&path, self.offset..self.offset + self.length as u64)
+                        .map_ok(|data| {
+                            let mut buffer =
+                                ByteBufferMut::with_capacity_aligned(data.len(), self.alignment);
+                            unsafe { buffer.set_len(data.len()) };
+                            buffer.as_mut_slice().copy_from_slice(&data);
+                            buffer.freeze()
+                        })
+                        .map_err(VortexError::from)
+                        .await;
+                    self.callback.complete(result)
+                }
+                .boxed()
+            }
         }
     }
 }
 
-pub struct Read(ReadState);
+pub struct Read(pub(super) ReadState);
 
 impl Read {
     pub fn ready(result: VortexResult<ByteBuffer>) -> Self {
@@ -103,7 +149,7 @@ impl Read {
     }
 }
 
-enum ReadState {
+pub enum ReadState {
     Ready(Option<VortexResult<ByteBuffer>>),
     Future(oneshot::Receiver<VortexResult<ByteBuffer>>),
 }
@@ -131,7 +177,9 @@ impl Future for Read {
             ),
             ReadState::Future(fut) => match ready!(fut.poll_unpin(cx)) {
                 Ok(result) => Poll::Ready(result),
-                Err(e) => Poll::Ready(Err(vortex_err!("Read failed: {e}"))),
+                Err(e) => Poll::Ready(Err(vortex_err!(
+                    "Failed to read from file, IoTask dropped by runtime: {e}"
+                ))),
             },
         }
     }

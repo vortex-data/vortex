@@ -4,8 +4,7 @@
 use futures::FutureExt;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
-use vortex_io::runtime::Handle;
-use vortex_io::source::MemoryIo;
+use vortex_io::runtime::{Handle, IoSource};
 use vortex_layout::segments::{SegmentFuture, SegmentId, SegmentSource};
 
 use crate::{FileType, Footer, VortexFile, VortexOpenOptions};
@@ -59,7 +58,7 @@ impl VortexOpenOptions<InMemoryFileType> {
 
         Ok(VortexFile {
             footer,
-            io_source: MemoryIo::new(buffer),
+            source: IoSource::Memory(buffer),
             metrics: self.metrics,
         })
     }

@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use bytes::BytesMut;
 use futures::future::try_join_all;
-use futures_util::StreamExt;
+use futures::StreamExt;
 use object_store::path::Path;
 use object_store::{
     GetOptions, GetRange, GetResultPayload, MultipartUpload, ObjectStore, ObjectStoreScheme,
@@ -197,8 +197,8 @@ impl VortexWrite for ObjectStoreWriter {
 mod tests {
     use std::sync::Arc;
 
-    use object_store::ObjectStore;
     use object_store::path::Path;
+    use object_store::ObjectStore;
 
     use super::*;
 

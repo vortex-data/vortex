@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fs::File;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -8,9 +9,7 @@ use dashmap::DashMap;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_io::runtime::singlethread::SingleThreadRuntime;
-use vortex_io::runtime::Handle;
-use vortex_io::runtime::VortexRead;
-use vortex_io::source::{FileIo, IoSource};
+use vortex_io::runtime::{FileIo, Handle, IoSource};
 use vortex_io::{IoDispatcher, PerformanceHint};
 use vortex_layout::segments::{SegmentEvents, SegmentId};
 
@@ -77,28 +76,31 @@ impl VortexOpenOptions<GenericVortexFile> {
     /// Open a Vortex file using the provided [`std::path::Path`].
     pub fn open<P: AsRef<Path>>(
         self,
-        read: P,
+        path: P,
         handle: Handle,
     ) -> impl Future<Output = VortexResult<VortexFile>> + 'static {
         // self.open_read_at(vortex_io::TokioFile::open(read)?).await
-        let io = FileIo::try_new(read);
-        async move { self.open_read_at(io?, handle).await }
+        let file = File::open(path);
+        async move {
+            let source = IoSource::File(Arc::new(file?));
+            self.open_source(source, handle).await
+        }
     }
 
     /// Low-level API for opening any [`VortexReadAt`]. Note that the user is responsible for
     /// ensuring the `VortexReadAt` implementation is compatible with the chosen I/O dispatcher.
-    pub(crate) async fn open_read_at(
+    pub(crate) async fn open_source(
         self,
-        io_source: Arc<dyn IoSource>,
+        source: IoSource,
         handle: Handle,
     ) -> VortexResult<VortexFile> {
         // Open the file so we can read it's footer.
-        let read = io_source.open(&handle);
+        let read = handle.open(source.clone());
 
         let footer = if let Some(footer) = self.footer {
             footer
         } else {
-            self.read_footer(read.clone()).await?
+            self.read_footer(&read).await?
         };
 
         let segment_cache = Arc::new(SegmentCacheMetrics::new(
@@ -145,12 +147,12 @@ impl VortexOpenOptions<GenericVortexFile> {
 
         Ok(VortexFile {
             footer,
-            io_source,
+            source,
             metrics: self.metrics,
         })
     }
 
-    async fn read_footer(&self, read: Arc<dyn VortexRead>) -> VortexResult<Footer> {
+    async fn read_footer(&self, read: &FileIo) -> VortexResult<Footer> {
         // Fetch the file size and perform the initial read.
         let file_size = match self.file_size {
             None => read.size().await?,
@@ -280,8 +282,6 @@ impl VortexOpenOptions<GenericVortexFile> {
     ) -> VortexResult<VortexFile> {
         use std::path::Path;
 
-        use vortex_io::source::ObjectStoreIo;
-
         // Object store _must_ use tokio for I/O.
         self.options.io_dispatcher = TOKIO_DISPATCHER.clone();
 
@@ -294,8 +294,11 @@ impl VortexOpenOptions<GenericVortexFile> {
             // Local disk is too fast to justify prefetching.
             self.open(local_path, handle).await
         } else {
-            self.open_read_at(
-                ObjectStoreIo::new(object_store.clone(), path.into()),
+            self.open_source(
+                IoSource::Object {
+                    store: object_store.clone(),
+                    path: Arc::new(path.into()),
+                },
                 handle,
             )
             .await

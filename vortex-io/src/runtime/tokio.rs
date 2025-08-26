@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::runtime::{CpuTask, FileIoRequest, Handle, Runtime};
+use crate::runtime::{CpuTask, Handle, IoTask, Runtime};
+use futures::future::BoxFuture;
+use futures::stream::BoxStream;
 use futures::Stream;
-use futures_util::future::BoxFuture;
-use std::os::unix::fs::FileExt;
+use futures::StreamExt;
 use std::sync::Arc;
 use tokio::runtime::Handle as TokioHandle;
-use vortex_buffer::ByteBufferMut;
-use vortex_error::VortexError;
 
 /// A Vortex runtime that drives all work on a provided Tokio runtime.
 #[derive(Clone)]
@@ -36,16 +35,12 @@ impl Runtime for TokioHandle {
         TokioHandle::spawn(self, async move { f.run() });
     }
 
-    fn spawn_io(&self, f: FileIoRequest) {
-        // FIXME(ngates): the API for a Runtime is dumb.
-        // TokioHandle::spawn_blocking(self, move || {
-        let mut buffer = ByteBufferMut::with_capacity_aligned(f.length, f.alignment);
-        unsafe { buffer.set_len(f.length) };
-        match f.file.read_exact_at(&mut buffer, f.offset) {
-            Ok(()) => f.resolve(Ok(buffer.freeze())),
-            Err(e) => f.resolve(Err(VortexError::from(e))),
-        }
-        // });
+    fn spawn_io(&self, mut stream: BoxStream<'static, IoTask>) {
+        TokioHandle::spawn(self, async move {
+            while let Some(task) = stream.next().await {
+                task.run().await;
+            }
+        });
     }
 }
 

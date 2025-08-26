@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::runtime::{CpuTask, FileIoRequest, Read, ReadState, Runtime, VortexRead};
-use futures_util::future::BoxFuture;
-use futures_util::FutureExt;
+use crate::runtime::{CpuTask, IoSource, IoTask, Read, Runtime};
+use futures::future::BoxFuture;
+use futures::{FutureExt, StreamExt};
 use std::fs::File;
-use std::marker::PhantomData;
-use std::os::unix::fs::MetadataExt;
 use std::sync::Arc;
 use vortex_buffer::Alignment;
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
@@ -64,55 +62,88 @@ impl Handle {
         }
     }
 
+    pub fn open(&self, source: IoSource) -> FileIo {
+        let (send, recv) = flume::unbounded();
+        self.0.spawn_io(recv.into_stream().boxed());
+        FileIo { source, send }
+    }
+
     /// Opens a file whose following read requests will occur on the underlying runtime.
     // TODO(ngates): this API isn't quite right. We want something that takes an IoDriver and
     //  wraps up requests with some Arc<dyn Any> data that get pushed onto the I/O queue?
     //  Or maybe, we spawn multiple I/O queues that get driven on the same smol executor?
-    pub(crate) fn open_file(&self, file: Arc<File>) -> Arc<dyn VortexRead> {
-        Arc::new(FileRead {
-            file,
-            runtime: self.0.clone(),
-        })
+    //
+    // FIXME(ngates): this API can create a channel that is used for the entire lifetime of the
+    //  file. We can then pass the other end of the channel to the runtime.
+    pub fn open_file(&self, read: Arc<File>) -> FileIo {
+        self.open(IoSource::File(read))
     }
 
+    // FIXME(ngates): similar to open-file, this creates a channel. We can decide whether or not
+    //  the channel is one per file, or one per object store? Probably the latter. In which case,
+    //  we kind of need a custom VortexObjectStore struct to pass back. Alternatively, we create
+    //  our own ObjectStore impl that holds a handle, but it's easy to misuse since its the same
+    //  type.
+    //
+    // The problem is, the scope of something like this within e.g. DataFusion is difficult to
+    // manage. We kind of want to scope the S3 object store to the DataFusion session. But we
+    // currently launch a new Vortex handle for each scan. If we use handles to manage scoping
+    // and priority of tasks, then we need the object store queue to be separated from that.
     #[cfg(feature = "object_store")]
-    pub(crate) fn open_object_store(
+    pub fn open_object_store(
         &self,
-        object_store: Arc<dyn object_store::ObjectStore>,
-        path: &object_store::path::Path,
-    ) -> Arc<dyn VortexRead> {
-        todo!()
+        store: Arc<dyn object_store::ObjectStore>,
+        path: Arc<object_store::path::Path>,
+    ) -> FileIo {
+        self.open(IoSource::Object { store, path })
     }
 }
 
-/// A handle to the result of a spawned CPU task.
+/// A file that can be read from using a Vortex runtime.
 ///
-/// If the handle is dropped prior to the task being executed, it _may_ be skipped.
-pub struct TaskHandle<T> {
-    _phantom: PhantomData<T>,
+/// This essentially provides a wrapper to bind a handle to a read interface. It is optional, but
+/// should be used carefully because the subsequent read operations must be driven on the same
+/// runtime.
+#[derive(Clone)]
+pub struct FileIo {
+    source: IoSource,
+    send: flume::Sender<IoTask>,
 }
 
-struct FileRead {
-    file: Arc<File>,
-    // FIXME(ngates): I kind of want to get rid of the Runtime Sync bound? Do we?
-    runtime: Arc<dyn Runtime>,
-}
-
-impl VortexRead for FileRead {
-    fn read(&self, offset: u64, length: usize, alignment: Alignment) -> Read {
-        let (send, recv) = oneshot::channel();
-        self.runtime.spawn_io(FileIoRequest {
-            file: self.file.clone(),
-            offset,
-            length,
-            alignment,
-            send,
-        });
-        Read(ReadState::Future(recv))
+impl FileIo {
+    pub fn read(&self, offset: u64, length: usize, alignment: Alignment) -> Read {
+        let (read, callback) = Read::future();
+        // FIXME(ngates): are these queues bounded? If so we should await here.
+        self.send
+            .send(IoTask {
+                source: self.source.clone(),
+                offset,
+                length,
+                alignment,
+                callback,
+            })
+            .map_err(|e| vortex_err!("Runtime dropped {e}"))
+            .vortex_expect("File read");
+        read
     }
 
-    fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
-        let file = self.file.clone();
-        async move { Ok(file.metadata()?.size()) }.boxed()
+    // FIXME(ngates): non-static future
+    pub fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+        match &self.source {
+            IoSource::Memory(buffer) => {
+                let size = buffer.len() as u64;
+                async move { Ok(size) }.boxed()
+            }
+            IoSource::File(file) => {
+                let file = file.clone();
+                async move { Ok(file.metadata()?.len()) }.boxed()
+            }
+            #[cfg(feature = "object_store")]
+            IoSource::Object { store, path } => {
+                let store = store.clone();
+                let path = path.clone();
+                async move { Ok(store.head(&path).await?.size) }.boxed()
+            }
+        }
     }
 }

@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::runtime::{CpuTask, FileIoRequest, Handle, Runtime};
-use futures::executor::{block_on, block_on_stream};
+use crate::runtime::{CpuTask, Handle, IoTask, Runtime};
+use futures::executor::block_on;
+use futures::future::BoxFuture;
+use futures::stream::{BoxStream, LocalBoxStream};
+use futures::StreamExt;
 use futures::Stream;
-use futures_util::future::BoxFuture;
 use smol::Executor;
-use std::os::unix::fs::FileExt;
 use std::sync::Arc;
-use vortex_buffer::ByteBufferMut;
-use vortex_error::VortexError;
 
 /// A runtime that drives all work on the current thread.
 // FIXME(ngates): use a builder to configure whether I/O runs on a separate blocking pool or not.
@@ -23,17 +22,24 @@ impl SingleThreadRuntime {
         Fut: Future<Output = R>,
         R: Send + 'static,
     {
-        block_on(f(Handle(Arc::new(Executor::new()))))
+        let ex = Arc::new(Executor::new());
+        let fut = f(Handle(ex.clone()));
+        block_on(ex.run(fut))
     }
 
     /// Drive the given Vortex stream on the underlying Tokio runtime.
     pub fn drive_stream<F, S, R>(f: F) -> impl Iterator<Item = R>
     where
         F: FnOnce(Handle) -> S,
-        S: Stream<Item = R> + Unpin,
+        S: Stream<Item = R> + Unpin + 'static,
         R: Send + 'static,
     {
-        block_on_stream(f(Handle(Arc::new(Executor::new()))))
+        let executor = Arc::new(Executor::new());
+        let stream = f(Handle(executor.clone()));
+        BlockingStream {
+            executor,
+            stream: stream.boxed_local(),
+        }
     }
 }
 
@@ -46,40 +52,49 @@ impl Runtime for Executor<'static> {
         self.spawn(async move { task.run() }).detach();
     }
 
-    fn spawn_io(&self, f: FileIoRequest) {
-        smol::unblock(move || {
-            let mut buffer = ByteBufferMut::with_capacity_aligned(f.length, f.alignment);
-            unsafe { buffer.set_len(f.length) };
-            match f.file.read_exact_at(&mut buffer, f.offset) {
-                Ok(()) => f.resolve(Ok(buffer.freeze())),
-                Err(e) => f.resolve(Err(VortexError::from(e))),
+    fn spawn_io(&self, mut stream: BoxStream<'static, IoTask>) {
+        self.spawn(async move {
+            while let Some(task) = stream.next().await {
+                task.run().await;
             }
         })
-        .detach();
+        .detach()
+    }
+}
+
+struct BlockingStream<T> {
+    executor: Arc<Executor<'static>>,
+    stream: LocalBoxStream<'static, T>,
+}
+
+impl<T> Iterator for BlockingStream<T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let fut = self.stream.next();
+        block_on(self.executor.run(fut))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::runtime::singlethread::SingleThreadRuntime;
-    use crate::source::FileIo;
+    use std::fs::File;
     use std::io::Write;
+    use std::sync::Arc;
     use vortex_buffer::Alignment;
 
     #[test]
     fn test_oneshot() {
         {
             // First, we write some dummy data to a temporary file.
-            let mut file = std::fs::File::create("test.txt").unwrap();
+            let mut file = File::create("test.txt").unwrap();
             file.write_all(b"Hello, Vortex!").unwrap();
         }
 
         let buffer = SingleThreadRuntime::drive(|handle| {
             // Now we read from the file using the handle.
-            let read = FileIo::try_new("test.txt")
-                .expect("Failed to create IoSource")
-                .open(&handle);
-
+            let read = handle.open_file(Arc::new(File::open("test.txt").unwrap()));
             read.read(0, 14, Alignment::none())
         })
         .unwrap();

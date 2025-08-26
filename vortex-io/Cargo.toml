@@ -22,15 +22,14 @@ compio = { workspace = true, features = ["bytes", "macros"], optional = true }
 crossbeam-channel = { workspace = true }
 crossbeam-deque = { workspace = true }
 flume = { workspace = true }
-futures = { workspace = true, features = ["std"] }
-futures-util = { workspace = true }
+futures = { workspace = true, features = ["executor", "std"] }
 # Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration
 getrandom_v03 = { workspace = true }
 log = { workspace = true }
 object_store = { workspace = true, optional = true, features = ["fs"] }
 oneshot = { workspace = true }
 parking_lot = { workspace = true }
-pin-project = { workspace = true }
+pin-project-lite = { workspace = true }
 smol = { workspace = true }
 # this is the maximum subset of fetaures that is safe for wasm32 targets
 tokio = { workspace = true, features = ["io-util", "rt", "sync"] }
@@ -50,7 +49,6 @@ tracing-subscriber = { workspace = true }
 
 [features]
 compio = ["dep:compio", "vortex-buffer/compio"]
-futures = ["futures-util/io"]
 object_store = ["dep:object_store", "vortex-error/object_store"]
 tokio = ["tokio/fs"]
 

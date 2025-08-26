@@ -14,7 +14,7 @@ use vortex_dtype::{DType, Field, FieldPath, FieldPathSet};
 use vortex_error::VortexResult;
 use vortex_expr::pruning::checked_pruning_expr;
 use vortex_expr::{ExprRef, Scope};
-use vortex_io::source::IoSource;
+use vortex_io::runtime::IoSource;
 use vortex_layout::segments::SegmentSource;
 use vortex_layout::LayoutReader;
 use vortex_metrics::VortexMetrics;
@@ -35,7 +35,7 @@ pub struct VortexFile {
     /// The footer of the Vortex file, containing metadata and layout information.
     pub(crate) footer: Footer,
     /// The segment source used for reading segments from the file.
-    pub(crate) io_source: Arc<dyn IoSource>,
+    pub(crate) source: IoSource,
     /// Metrics tied to the file.
     pub(crate) metrics: VortexMetrics,
 }
@@ -72,7 +72,7 @@ impl VortexFile {
     pub fn segment_source(&self) -> Arc<dyn SegmentSource> {
         Arc::new(FileSegmentSource::new(
             self.footer.segment_map().clone(),
-            self.io_source.clone(),
+            self.source.clone(),
         ))
     }
 

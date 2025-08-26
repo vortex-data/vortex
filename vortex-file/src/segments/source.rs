@@ -5,20 +5,19 @@ use crate::SegmentSpec;
 use futures::FutureExt;
 use std::sync::Arc;
 use vortex_error::vortex_err;
-use vortex_io::runtime::Handle;
-use vortex_io::source::IoSource;
+use vortex_io::runtime::{Handle, IoSource};
 use vortex_layout::segments::{SegmentFuture, SegmentId, SegmentSource};
 
 pub struct FileSegmentSource {
     segment_map: Arc<[SegmentSpec]>,
-    io_source: Arc<dyn IoSource>,
+    source: IoSource,
 }
 
 impl FileSegmentSource {
-    pub fn new(segment_map: Arc<[SegmentSpec]>, io_source: Arc<dyn IoSource>) -> Self {
+    pub fn new(segment_map: Arc<[SegmentSpec]>, source: IoSource) -> Self {
         Self {
             segment_map,
-            io_source,
+            source,
         }
     }
 }
@@ -27,7 +26,7 @@ impl SegmentSource for FileSegmentSource {
     fn request(&self, id: SegmentId, handle: &Handle) -> SegmentFuture {
         let segment_map = self.segment_map.clone();
         // FIXME(ngates): we should not have to create this each time!
-        let read = self.io_source.open(handle);
+        let read = handle.open(self.source.clone());
         async move {
             let spec = segment_map
                 .get(*id as usize)

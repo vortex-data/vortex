@@ -20,7 +20,6 @@ use vortex_error::{vortex_bail, VortexResult};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed;
 use vortex_expr::{root, ExprRef};
-use vortex_io::runtime::tokio::TokioRuntime;
 use vortex_io::runtime::Handle;
 use vortex_layout::layouts::row_idx::RowIdxLayoutReader;
 use vortex_layout::{LayoutReader, LayoutReaderRef};
@@ -238,6 +237,8 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self,
     ) -> impl futures::Stream<Item = VortexResult<A>> + Send + 'static {
         use futures::StreamExt;
+        use vortex_io::runtime::tokio::TokioRuntime;
+
         let tokio_handle = tokio::runtime::Handle::current();
         let num_workers = tokio_handle.metrics().num_workers();
         let concurrency = self.concurrency * num_workers;
