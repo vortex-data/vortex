@@ -296,10 +296,10 @@ impl VortexOpenOptions<GenericVortexFile> {
             self.open(local_path, handle).await
         } else {
             self.open_source(
-                FileIoSource::ObjectStore(Arc::new(ObjectStoreIo {
-                    store: object_store.clone(),
-                    path: path.into(),
-                })),
+                FileIoSource::ObjectStore(Arc::new(ObjectStoreIo::new(
+                    object_store.clone(),
+                    path.into(),
+                ))),
                 handle,
             )
             .await

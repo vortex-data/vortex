@@ -13,6 +13,7 @@ use std::ops::Range;
 use std::os::unix::fs::FileExt;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use tracing::Instrument;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{
     vortex_err, vortex_panic, SharedVortexResult, VortexError, VortexExpect, VortexResult,
@@ -80,25 +81,6 @@ impl Handle {
     //  file. We can then pass the other end of the channel to the runtime.
     pub fn open_file(&self, read: Arc<File>) -> FileIo {
         self.open(read)
-    }
-
-    // FIXME(ngates): similar to open-file, this creates a channel. We can decide whether or not
-    //  the channel is one per file, or one per object store? Probably the latter. In which case,
-    //  we kind of need a custom VortexObjectStore struct to pass back. Alternatively, we create
-    //  our own ObjectStore impl that holds a handle, but it's easy to misuse since its the same
-    //  type.
-    //
-    // The problem is, the scope of something like this within e.g. DataFusion is difficult to
-    // manage. We kind of want to scope the S3 object store to the DataFusion session. But we
-    // currently launch a new Vortex handle for each scan. If we use handles to manage scoping
-    // and priority of tasks, then we need the object store queue to be separated from that.
-    #[cfg(feature = "object_store")]
-    pub fn open_object_store(
-        &self,
-        store: Arc<dyn object_store::ObjectStore>,
-        path: object_store::path::Path,
-    ) -> FileIo {
-        self.open(Arc::new(ObjectStoreIo { store, path }))
     }
 
     pub fn open<D: IoDriver>(&self, driver: Arc<D>) -> FileIo {
@@ -184,9 +166,35 @@ impl IoDriver for File {
 
 #[cfg(feature = "object_store")]
 pub struct ObjectStoreIo {
-    pub store: Arc<dyn object_store::ObjectStore>,
-    pub path: object_store::path::Path,
+    store: Arc<dyn object_store::ObjectStore>,
+    path: object_store::path::Path,
+    concurrency: usize,
+    coalesce_window: u64, // In bytes
 }
+
+#[cfg(feature = "object_store")]
+impl ObjectStoreIo {
+    pub fn new(store: Arc<dyn object_store::ObjectStore>, path: object_store::path::Path) -> Self {
+        Self {
+            store,
+            path,
+            concurrency: 128,
+            coalesce_window: 1 * 1024 * 1024, // 1 MB
+        }
+    }
+
+    pub fn with_concurrency(mut self, concurrency: usize) -> Self {
+        self.concurrency = concurrency;
+        self
+    }
+
+    pub fn with_coalesce_window(mut self, window: u64) -> Self {
+        // Currently a no-op, as coalescing is always enabled with a fixed window.
+        self.coalesce_window = window;
+        self
+    }
+}
+
 #[cfg(feature = "object_store")]
 impl IoDriver for ObjectStoreIo {
     fn size(&self) -> impl Future<Output = VortexResult<u64>> + Send + 'static {
@@ -200,7 +208,7 @@ impl IoDriver for ObjectStoreIo {
         stream: impl Stream<Item = IoRequest> + Unpin + Send + 'static,
     ) -> impl Stream<Item = IoTask> + Send + 'static {
         stream! {
-            let semaphore = Arc::new(Semaphore::new(16));
+            let semaphore = Arc::new(Semaphore::new(self.concurrency));
             let mut stream = stream.fuse();
             let mut requests = CoalescedRequests::default();
 
@@ -211,11 +219,14 @@ impl IoDriver for ObjectStoreIo {
                 // We now drain any pending requests from the stream to give us maximum visibility.
                 requests.non_blocking_update(&mut stream);
 
-                if let Some(req) = requests.next_coalesced(1024 * 1024) {
+                if let Some(req) = requests.next_coalesced(self.coalesce_window) {
                     let store = self.store.clone();
                     let path = self.path.clone();
                     let range = req.range.clone();
                     let alignment = req.alignment.clone();
+
+                    let num_requests = req.requests.len();
+                    let span = tracing::debug_span!("object_store_get", ?path, ?range, ?num_requests);
 
                     // Create the IoTask for this coalesced read
                     let task = async move {
@@ -227,7 +238,7 @@ impl IoDriver for ObjectStoreIo {
                             .map_err(VortexError::from);
                         drop(guard); // Release the permit
                         req.resolve(result);
-                    };
+                    }.instrument(span);
 
                     yield IoTask::non_local(|| task);
                     continue;

@@ -64,6 +64,8 @@ impl CpuTask {
     }
 }
 
+// NOTE(ngates): we may well want to make this an enum so we have better control over the common
+//  cases of files and object store, we can always have a fallback to arbitrary futures.
 pub struct IoTask {
     factory: Box<dyn FnOnce() -> BoxFuture<'static, ()> + Send + 'static>,
 }
