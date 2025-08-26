@@ -3,14 +3,17 @@
 
 pub use handle::*;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{ready, Context, Poll};
 
+mod coalesce;
 mod handle;
 pub mod multithread;
 pub mod singlethread;
 pub mod tokio;
 pub mod worker;
 
+use crate::runtime::coalesce::CoalescedRequest;
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use futures::FutureExt;
@@ -46,10 +49,8 @@ pub(crate) trait Runtime: Send + Sync {
     /// Spawns a CPU-bound task for execution on the runtime.
     fn spawn_cpu(&self, task: CpuTask);
 
-    /// Submits a stream of I/O tasks to be executed on the runtime.
-    /// Note that any concurrency has already been implemented as part of the stream, so the caller
-    /// should simply drive the stream and call [`IoTask::run`] on each item.
-    fn spawn_io(&self, stream: BoxStream<'static, IoTask>);
+    /// Passes a stream of I/O tasks to be executed on the runtime.
+    fn spawn_io(&self, stream: BoxStream<'static, IoTask>, concurrency: usize);
 }
 
 pub(crate) struct CpuTask {
@@ -67,22 +68,52 @@ impl CpuTask {
 // NOTE(ngates): we may well want to make this an enum so we have better control over the common
 //  cases of files and object store, we can always have a fallback to arbitrary futures.
 pub struct IoTask {
-    factory: Box<dyn FnOnce() -> BoxFuture<'static, ()> + Send + 'static>,
+    source: Arc<dyn IoDriver>,
+    request: IoReq,
 }
 
 impl IoTask {
-    pub fn non_local<F, Fut>(f: F) -> Self
-    where
-        F: FnOnce() -> Fut + Send + 'static,
-        Fut: Future<Output = ()> + Send + 'static,
-    {
+    pub fn new_request(source: Arc<dyn IoDriver>, request: IoRequest) -> Self {
         IoTask {
-            factory: Box::new(move || f().boxed()),
+            source,
+            request: IoReq::Request(request),
         }
     }
 
+    pub fn new_coalesced(source: Arc<dyn IoDriver>, request: CoalescedRequest) -> Self {
+        IoTask {
+            source,
+            request: IoReq::Coalesced(request),
+        }
+    }
+}
+
+enum IoReq {
+    Request(IoRequest),
+    Coalesced(CoalescedRequest),
+}
+
+impl IoTask {
     pub async fn run(self) {
-        (self.factory)().await
+        match self.request {
+            IoReq::Request(req) => req.callback.complete(
+                self.source
+                    .read(req.offset, req.length, req.alignment)
+                    .await,
+            ),
+            IoReq::Coalesced(req) => {
+                let result = self
+                    .source
+                    .read(
+                        req.range.start,
+                        usize::try_from(req.range.end - req.range.start)
+                            .vortex_expect("too big for usize"),
+                        req.alignment,
+                    )
+                    .await;
+                req.resolve(result)
+            }
+        }
     }
 }
 

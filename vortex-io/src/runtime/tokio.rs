@@ -8,6 +8,7 @@ use futures::Stream;
 use futures::StreamExt;
 use std::sync::Arc;
 use tokio::runtime::Handle as TokioHandle;
+use tokio::task::LocalSet;
 
 /// A Vortex runtime that drives all work on a provided Tokio runtime.
 #[derive(Clone)]
@@ -35,13 +36,16 @@ impl Runtime for TokioHandle {
         TokioHandle::spawn(self, async move { f.run() });
     }
 
-    fn spawn_io(&self, stream: BoxStream<'static, IoTask>) {
+    fn spawn_io(&self, stream: BoxStream<'static, IoTask>, concurrency: usize) {
         TokioHandle::spawn(self, async move {
-            stream
-                .map(|t| t.run())
-                .buffer_unordered(32)
-                .collect::<()>()
-                .await
+            let local_set = LocalSet::new();
+            local_set.spawn_local(async move {
+                stream
+                    .map(|t: IoTask| t.run())
+                    .buffer_unordered(concurrency)
+                    .collect::<()>()
+                    .await
+            });
         });
     }
 }

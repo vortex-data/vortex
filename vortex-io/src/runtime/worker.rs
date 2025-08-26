@@ -91,7 +91,7 @@ impl<T: Send + 'static> Runtime for Shared<T> {
         self.cpu.injector.push(task);
     }
 
-    fn spawn_io(&self, mut stream: BoxStream<'static, IoTask>) {
+    fn spawn_io(&self, mut stream: BoxStream<'static, IoTask>, _concurrency: usize) {
         // TODO(ngates): this is rather complicated for now...
         // We launch a scheduling task to push I/O requests into the work stealing queue.
         let injector = self.io.injector.clone();

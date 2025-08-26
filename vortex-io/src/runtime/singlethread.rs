@@ -7,14 +7,79 @@ use futures::future::BoxFuture;
 use futures::stream::{BoxStream, LocalBoxStream};
 use futures::Stream;
 use futures::StreamExt;
-use smol::Executor;
+use smol::LocalExecutor;
+use std::rc::Rc;
 use std::sync::Arc;
+use vortex_error::vortex_panic;
 
 /// A runtime that drives all work on the current thread.
-// FIXME(ngates): use a builder to configure whether I/O runs on a separate blocking pool or not.
-pub struct SingleThreadRuntime;
+///
+/// Since the [`Handle`], and therefore [`Runtime`] implementation needs to be `Send` and `Sync`,
+/// we cannot just `impl Runtime for LocalExecutor`. Instead, we create channels that the handle
+/// can forward its work into and we drive the resulting tasks on a [`LocalExecutor`] on the
+/// calling thread.
+// TODO(ngates): use a builder to configure whether I/O runs on a separate blocking pool or not.
+pub struct SingleThreadRuntime {
+    scheduling: flume::Sender<BoxFuture<'static, ()>>,
+    cpu: flume::Sender<CpuTask>,
+    io: flume::Sender<(BoxStream<'static, IoTask>, usize)>,
+}
 
 impl SingleThreadRuntime {
+    fn new() -> (Self, Rc<LocalExecutor<'static>>) {
+        let (scheduling_send, scheduling_recv) = flume::unbounded::<BoxFuture<'static, ()>>();
+        let (cpu_send, cpu_recv) = flume::unbounded::<CpuTask>();
+        let (io_send, io_recv) = flume::unbounded::<(BoxStream<'static, IoTask>, usize)>();
+
+        let local = Rc::new(LocalExecutor::new());
+
+        // Drive scheduling tasks.
+        let local2 = local.clone();
+        local
+            .spawn(async move {
+                while let Ok(fut) = scheduling_recv.recv_async().await {
+                    local2.spawn(fut).detach();
+                }
+            })
+            .detach();
+
+        // Drive CPU tasks.
+        let local2 = local.clone();
+        local
+            .spawn(async move {
+                while let Ok(task) = cpu_recv.recv_async().await {
+                    local2.spawn(async move { task.run() }).detach();
+                }
+            })
+            .detach();
+
+        // Drive I/O tasks.
+        let local2 = local.clone();
+        local
+            .spawn(async move {
+                while let Ok((stream, concurrency)) = io_recv.recv_async().await {
+                    local2
+                        .spawn(async move {
+                            stream
+                                .map(|task| task.run())
+                                .buffer_unordered(concurrency)
+                                .collect::<()>()
+                                .await
+                        })
+                        .detach();
+                }
+            })
+            .detach();
+
+        let this = Self {
+            scheduling: scheduling_send,
+            cpu: cpu_send,
+            io: io_send,
+        };
+
+        (this, local)
+    }
+
     /// Drive the given Vortex future on the underlying Tokio runtime.
     pub fn drive<F, Fut, R>(f: F) -> R
     where
@@ -22,9 +87,9 @@ impl SingleThreadRuntime {
         Fut: Future<Output = R>,
         R: Send + 'static,
     {
-        let ex = Arc::new(Executor::new());
-        let fut = f(Handle(ex.clone()));
-        block_on(ex.run(fut))
+        let (rt, local) = Self::new();
+        let fut = f(Handle(Arc::new(rt)));
+        block_on(local.run(fut))
     }
 
     /// Drive the given Vortex stream on the underlying Tokio runtime.
@@ -34,36 +99,37 @@ impl SingleThreadRuntime {
         S: Stream<Item = R> + Unpin + 'static,
         R: Send + 'static,
     {
-        let executor = Arc::new(Executor::new());
-        let stream = f(Handle(executor.clone()));
+        let (rt, local) = Self::new();
+        let stream = f(Handle(Arc::new(rt)));
         BlockingStream {
-            executor,
+            executor: local,
             stream: stream.boxed_local(),
         }
     }
 }
 
-impl Runtime for Executor<'static> {
+impl Runtime for SingleThreadRuntime {
     fn spawn_scheduling(&self, fut: BoxFuture<'static, ()>) {
-        self.spawn(fut).detach()
+        if let Err(e) = self.scheduling.send(fut) {
+            vortex_panic!("Runtime dropped while scheduling task: {}", e);
+        }
     }
 
     fn spawn_cpu(&self, task: CpuTask) {
-        self.spawn(async move { task.run() }).detach();
+        if let Err(e) = self.cpu.send(task) {
+            vortex_panic!("Runtime dropped while scheduling CPU task: {}", e);
+        }
     }
 
-    fn spawn_io(&self, mut stream: BoxStream<'static, IoTask>) {
-        self.spawn(async move {
-            while let Some(task) = stream.next().await {
-                task.run().await;
-            }
-        })
-        .detach()
+    fn spawn_io(&self, stream: BoxStream<'static, IoTask>, concurrency: usize) {
+        if let Err(e) = self.io.send((stream, concurrency)) {
+            vortex_panic!("Runtime dropped while scheduling I/O task: {}", e);
+        }
     }
 }
 
 struct BlockingStream<T> {
-    executor: Arc<Executor<'static>>,
+    executor: Rc<LocalExecutor<'static>>,
     stream: LocalBoxStream<'static, T>,
 }
 
