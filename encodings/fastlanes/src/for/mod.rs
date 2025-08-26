@@ -118,14 +118,14 @@ impl ValidityChild<FoRVTable> for FoRVTable {
 
 impl CanonicalVTable<FoRVTable> for FoRVTable {
     fn canonicalize(array: &FoRArray) -> VortexResult<Canonical> {
-        if let Some(operator) = array.as_ref().to_operator().vortex_expect("to_operator") {
-            return export_canonical_pipeline_expr(
-                array.dtype(),
-                array.len(),
-                operator.as_ref(),
-                &array.validity_mask()?,
-            );
-        };
+        // if let Some(operator) = array.as_ref().to_operator().vortex_expect("to_operator") {
+        //     return export_canonical_pipeline_expr(
+        //         array.dtype(),
+        //         array.len(),
+        //         operator.as_ref(),
+        //         &array.validity_mask()?,
+        //     );
+        // };
         decompress(array).map(Canonical::Primitive)
     }
 }
