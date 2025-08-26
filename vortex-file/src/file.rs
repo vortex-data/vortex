@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use vortex_array::ArrayRef;
 use vortex_array::stats::StatsSet;
-use vortex_dtype::{DType, Field, FieldPath, FieldPathSet};
+use vortex_dtype::{DType, Field, FieldMask, FieldPath, FieldPathSet};
 use vortex_error::VortexResult;
 use vortex_expr::pruning::checked_pruning_expr;
 use vortex_expr::{ExprRef, Scope};
@@ -132,5 +132,20 @@ impl VortexFile {
             .evaluate(&scope)?
             .as_constant()
             .is_some_and(|result| result.as_bool().value() == Some(true)))
+    }
+
+    pub fn splits(&self) -> VortexResult<Vec<(u64, u64)>> {
+        let mut splits = Default::default();
+        self.layout_reader()?
+            .register_splits(&[FieldMask::All], 0, &mut splits)?;
+        let mut prev = 0_u64;
+        Ok(splits
+            .into_iter()
+            .map(|i| {
+                let range = (prev, i);
+                prev = i;
+                range
+            })
+            .collect())
     }
 }

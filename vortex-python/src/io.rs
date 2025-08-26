@@ -39,10 +39,15 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 /// ----------
 /// url : :class:`str`
 ///     The URL to read from.
-/// projection : :class:`list` [ :class:`str` ``|`` :class:`int` ]
+/// projection : :class:`list` [ :class:`str` ``|`` :class:`int` ], optional
 ///     The columns to read identified either by their index or name.
-/// row_filter : :class:`.Expr`
+/// row_filter : :class:`.Expr`, optional
 ///     Keep only the rows for which this expression evaluates to true.
+/// indices : :class:`.Array`, optional
+///     A list of rows to keep identified by the zero-based index within the file. NB: If row_range
+///     is specified, these indices are within the row range, not the file!
+/// row_range : tuple[int, int], optional
+///     A left-inclusive, right-exclusive range of rows to read.
 ///
 /// Examples
 /// --------
@@ -73,15 +78,16 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 ///     >>> a = vx.io.read_url("file:/path/to/dataset.vortex")  # doctest: +SKIP
 ///
 #[pyfunction]
-#[pyo3(signature = (url, *, projection = None, row_filter = None, indices = None))]
+#[pyo3(signature = (url, *, projection = None, row_filter = None, indices = None, row_range = None))]
 pub fn read_url<'py>(
     url: &str,
     projection: Option<Vec<Bound<'py, PyAny>>>,
     row_filter: Option<&Bound<'py, PyExpr>>,
     indices: Option<PyArrayRef>,
+    row_range: Option<(u64, u64)>,
 ) -> PyResult<PyArrayRef> {
     let dataset = TOKIO_RUNTIME.block_on(PyVortexDataset::from_url(url))?;
-    dataset.to_array(projection, row_filter, indices)
+    dataset.to_array(projection, row_filter, indices, row_range)
 }
 
 /// Write a vortex struct array to the local filesystem.

@@ -11,6 +11,7 @@ use vortex::ToCanonical;
 use vortex::compute::cast;
 use vortex::dtype::Nullability::NonNullable;
 use vortex::dtype::{DType, PType};
+use vortex::error::VortexResult;
 use vortex::expr::{ExprRef, root, select};
 use vortex::file::segments::MokaSegmentCache;
 use vortex::file::{VortexFile, VortexOpenOptions};
@@ -120,6 +121,11 @@ impl PyVortexFile {
 
     fn to_dataset(slf: Bound<Self>) -> PyResult<PyVortexDataset> {
         Ok(PyVortexDataset::try_new(slf.get().vxf.clone())?)
+    }
+
+    #[pyo3(signature = (*))]
+    pub fn splits(&self) -> VortexResult<Vec<(u64, u64)>> {
+        self.vxf.splits()
     }
 }
 

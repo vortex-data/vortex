@@ -201,3 +201,18 @@ def test_fragment_to_table(ds: vx.dataset.VortexDataset):
     assert f.to_table(columns=["string", "bool"]).schema == pa.schema(
         [("string", pa.string_view()), ("bool", pa.bool_())]
     )
+
+
+def test_get_fragments(ds: vx.dataset.VortexDataset):
+    assert len(list(ds.get_fragments())) == 123
+
+    assert ds.count_rows() == sum(f.count_rows() for f in ds.get_fragments())
+
+    filter_expr = vx.expr.column("string") > "5"
+    assert ds.count_rows(filter=filter_expr) == sum(f.count_rows(filter=filter_expr) for f in ds.get_fragments())
+
+    ds_filtered = ds.filter(filter_expr)
+    assert ds_filtered.count_rows() == sum(f.count_rows() for f in ds_filtered.get_fragments())
+
+    assert ds.to_table() == pa.concat_tables(f.to_table() for f in ds.get_fragments())
+    assert ds_filtered.to_table() == pa.concat_tables(f.to_table() for f in ds_filtered.get_fragments())
