@@ -167,6 +167,56 @@ impl dyn VortexExpr + '_ {
         Ok(result)
     }
 
+    /// Display the expression as a formatted tree structure.
+    ///
+    /// This provides a hierarchical view of the expression that shows the relationships
+    /// between parent and child expressions, making complex nested expressions easier
+    /// to understand and debug.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use vortex_dtype::{DType, Nullability, PType};
+    /// # use vortex_expr::{and, cast, eq, get_item, gt, lit, not, root, select, LikeExpr};
+    /// // Build a complex nested expression
+    /// let complex_expr = select(
+    ///     ["result"],
+    ///     and(
+    ///         not(eq(get_item("status", root()), lit("inactive"))),
+    ///         and(
+    ///             LikeExpr::new(get_item("name", root()), lit("%admin%"), false, false).into_expr(),
+    ///             gt(
+    ///                 cast(get_item("score", root()), DType::Primitive(PType::F64, Nullability::NonNullable)),
+    ///                 lit(75.0)
+    ///             )
+    ///         )
+    ///     )
+    /// );
+    ///
+    /// println!("{}", complex_expr.display_tree());
+    /// ```
+    ///
+    /// This produces output like:
+    ///
+    /// ```text
+    /// SelectExpr(include): {result}
+    /// └── BinaryExpr(and)
+    ///     ├── lhs: NotExpr
+    ///     │   └── BinaryExpr(=)
+    ///     │       ├── lhs: GetItemExpr(field = status)
+    ///     │       │   └── RootExpr
+    ///     │       └── rhs: LiteralExpr(value: "inactive", dtype: utf8)
+    ///     └── rhs: BinaryExpr(and)
+    ///         ├── lhs: LikeExpr
+    ///         │   ├── child: GetItemExpr(field = name)
+    ///         │   │   └── RootExpr
+    ///         │   └── pattern: LiteralExpr(value: "%admin%", dtype: utf8)
+    ///         └── rhs: BinaryExpr(>)
+    ///             ├── lhs: CastExpr(target: f64)
+    ///             │   └── GetItemExpr(field = score)
+    ///             │       └── RootExpr
+    ///             └── rhs: LiteralExpr(value: 75f64, dtype: f64)
+    /// ```
     #[cfg(feature = "pretty")]
     pub fn display_tree(&self) -> impl Display {
         display::DisplayTreeExpr(self)
