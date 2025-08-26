@@ -70,6 +70,7 @@ impl TryFrom<ByteBuffer> for BufferString {
     fn try_from(value: ByteBuffer) -> Result<Self, Self::Error> {
         let _ = simdutf8::basic::from_utf8(value.as_ref()).map_err(|_| {
             #[allow(clippy::unwrap_used)]
+            // run validation using `compat` package to get more detailed error message
             let err = simdutf8::compat::from_utf8(value.as_ref()).unwrap_err();
             vortex_err!("invalid utf-8: {err}")
         })?;
