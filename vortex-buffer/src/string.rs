@@ -68,8 +68,11 @@ impl TryFrom<ByteBuffer> for BufferString {
     type Error = VortexError;
 
     fn try_from(value: ByteBuffer) -> Result<Self, Self::Error> {
-        let _ = simdutf8::basic::from_utf8(value.as_ref())
-            .map_err(|_| vortex_err!("not a valid utf-8 string"))?;
+        let _ = simdutf8::basic::from_utf8(value.as_ref()).map_err(|_| {
+            #[allow(clippy::unwrap_used)]
+            let err = simdutf8::compat::from_utf8(value.as_ref()).unwrap_err();
+            vortex_err!("invalid utf-8: {err}")
+        })?;
         Ok(Self(value))
     }
 }

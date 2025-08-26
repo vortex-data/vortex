@@ -4,7 +4,7 @@
 use std::ffi::{CStr, c_char};
 use std::slice;
 
-use vortex::error::{VortexExpect, VortexUnwrap, vortex_err};
+use vortex::error::{VortexUnwrap, vortex_err};
 
 use crate::arc_dyn_wrapper;
 
