@@ -6,7 +6,7 @@ use std::fmt::{Debug, Formatter};
 
 use num_traits::AsPrimitive;
 use vortex::buffer::{BufferString, ByteBuffer};
-use vortex::error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
+use vortex::error::{VortexExpect, vortex_err, vortex_panic};
 
 use crate::cpp::DUCKDB_TYPE;
 use crate::duckdb::LogicalType;

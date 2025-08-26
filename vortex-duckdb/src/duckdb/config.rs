@@ -92,18 +92,20 @@ impl Config {
         if result == cpp::duckdb_state::DuckDBSuccess && !value.is_null() {
             // Use our new C++ function to convert the value to a string
             let c_str = unsafe { cpp::duckdb_vx_value_to_string(value) };
-            
+
             // Clean up the value
             unsafe { cpp::duckdb_destroy_value(&raw mut value) };
-            
+
             if !c_str.is_null() {
-                let rust_str = unsafe { 
-                    std::ffi::CStr::from_ptr(c_str).to_string_lossy().into_owned()
+                let rust_str = unsafe {
+                    std::ffi::CStr::from_ptr(c_str)
+                        .to_string_lossy()
+                        .into_owned()
                 };
-                
+
                 // Free the C string allocated by our function
                 unsafe { cpp::duckdb_free(c_str as *mut c_void) };
-                
+
                 return Some(rust_str);
             }
         }

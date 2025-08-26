@@ -57,7 +57,7 @@ impl DuckDBCtx {
         if delete_database {
             std::fs::remove_file(&db_path)?;
         }
-        let mut config = Config::new().unwrap();
+        let mut config = Config::new().vortex_expect("failed to create duckdb config")?;
         // enable parquet metadata cache for all benchmark runs
         config.set("parquet_metadata_cache", "true")?;
 
