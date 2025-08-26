@@ -26,6 +26,10 @@ impl PipelineVTable<BitPackedVTable> for BitPackedVTable {
             log::trace!("BitPackedVTable does not support nullable arrays");
             return Ok(None);
         }
+        if array.offset != 0 {
+            log::trace!("BitPackedVTable does not support offset arrays");
+            return Ok(None);
+        }
 
         Ok(Some(Rc::new(array.clone())))
     }

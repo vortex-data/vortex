@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-
 use std::fmt::Debug;
 
 pub use compress::*;
+use vortex_array::pipeline::export_canonical_pipeline_expr;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityChild, ValidityVTableFromChild,
 };
 use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, vtable};
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
 mod compress;
@@ -118,6 +118,14 @@ impl ValidityChild<FoRVTable> for FoRVTable {
 
 impl CanonicalVTable<FoRVTable> for FoRVTable {
     fn canonicalize(array: &FoRArray) -> VortexResult<Canonical> {
+        if let Some(operator) = array.as_ref().to_operator().vortex_expect("to_operator") {
+            return export_canonical_pipeline_expr(
+                array.dtype(),
+                array.len(),
+                operator.as_ref(),
+                &array.validity_mask()?,
+            );
+        };
         decompress(array).map(Canonical::Primitive)
     }
 }
