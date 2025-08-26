@@ -44,6 +44,12 @@ def test_scan(vxf: VortexFile):
     for _ in vxf.scan():
         pass
 
+def test_scan_with_indices(vxf: VortexFile):
+    total_rows = 0
+    for rb in vxf.scan(indices=vx.array([1, 10, 1_000, 999_999])):
+        total_rows += len(rb)
+    assert total_rows == 4
+
 
 def test_to_arrow_batch_size(vxf: VortexFile):
     assert len(list(vxf.to_arrow(batch_size=1_000_000))) == 1, "batch_size=1_000_000"

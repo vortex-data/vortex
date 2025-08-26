@@ -99,7 +99,6 @@ def test_to_table(ds: pd.Dataset):
         [("string", pa.string_view()), ("bool", pa.bool_())]
     )
 
-
 def test_to_record_batch_reader_with_polars(ds: pd.Dataset):
     pldf = polars.scan_pyarrow_dataset(ds).collect()  # pyright: ignore[reportUnknownMemberType]
     assert len(pldf) == 1_000_000
