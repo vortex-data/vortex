@@ -41,7 +41,7 @@ impl<T> BufferMut<T> {
         }
 
         let mut bytes = BytesMut::with_capacity((capacity * size_of::<T>()) + *alignment);
-        bytes.align_empty(alignment);
+        align_empty(&mut bytes, alignment);
 
         Self {
             bytes,
@@ -194,7 +194,7 @@ impl<T> BufferMut<T> {
         let new_capacity = new_capacity.max(self.bytes.capacity() * 2);
 
         let mut bytes = BytesMut::with_capacity(new_capacity);
-        bytes.align_empty(self.alignment);
+        align_empty(&mut bytes, self.alignment);
         bytes.extend_from_slice(&self.bytes);
         self.bytes = bytes;
     }
@@ -572,33 +572,18 @@ unsafe impl BufMut for ByteBufferMut {
     }
 }
 
-/// Extension trait for [`BytesMut`] that provides functions for aligning the buffer.
-trait AlignedBytesMut {
-    /// Align an empty `BytesMut` to the specified alignment.
-    ///
-    /// ## Panics
-    ///
-    /// Panics if the buffer is not empty, or if there is not enough capacity to align the buffer.
-    fn align_empty(&mut self, alignment: Alignment);
-}
+/// Align an empty `BytesMut` to the specified alignment.
+///
+/// ## Panics
+///
+/// Panics if the buffer is not empty, or if there is not enough capacity to align the buffer.
+fn align_empty(bytes: &mut BytesMut, alignment: Alignment) {
+    let padding = bytes.as_ptr().align_offset(*alignment);
 
-impl AlignedBytesMut for BytesMut {
-    fn align_empty(&mut self, alignment: Alignment) {
-        // TODO(joe): this is slow fixme
-        if !self.is_empty() {
-            vortex_panic!("ByteBufferMut must be empty");
-        }
-
-        let padding = self.as_ptr().align_offset(*alignment);
-        self.capacity()
-            .checked_sub(padding)
-            .vortex_expect("Not enough capacity to align buffer");
-
-        // SAFETY: We know the buffer is empty, and we know we have enough capacity, so we can
-        // safely set the length to the padding and advance the buffer to the aligned offset.
-        unsafe { self.set_len(padding) };
-        self.advance(padding);
-    }
+    // SAFETY: We know the buffer is empty, and we know we have enough capacity, so we can
+    // safely set the length to the padding and advance the buffer to the aligned offset.
+    unsafe { bytes.set_len(padding) };
+    bytes.advance(padding);
 }
 
 impl Write for ByteBufferMut {
