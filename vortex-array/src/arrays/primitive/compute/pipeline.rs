@@ -3,10 +3,10 @@
 
 use std::any::Any;
 use std::rc::Rc;
-
+use log::{info};
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{NativePType, PType, match_each_native_ptype};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexResult};
 
 use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::pipeline::bits::BitView;
@@ -18,9 +18,10 @@ use crate::vtable::ValidityHelper;
 impl PipelineVTable<PrimitiveVTable> for PrimitiveVTable {
     fn to_operator(array: &PrimitiveArray) -> VortexResult<Option<Rc<dyn Operator>>> {
         if !array.validity().all_valid()? {
-            vortex_bail!(
+            info!(
                 "PipelineVTable::to_operator is not supported for arrays with invalid values"
             );
+            return Ok(None);
         }
         Ok(Some(Rc::new(PrimitiveOperator::new(
             array.ptype(),
