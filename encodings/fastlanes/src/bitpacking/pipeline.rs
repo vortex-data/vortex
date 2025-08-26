@@ -3,6 +3,7 @@
 
 use std::any::Any;
 use std::hash::{Hash, Hasher};
+use std::mem::MaybeUninit;
 use std::rc::Rc;
 
 use fastlanes::{BitPacking, FastLanes};
@@ -15,6 +16,7 @@ use vortex_dtype::{PhysicalPType, match_each_integer_ptype};
 use vortex_error::VortexResult;
 
 use crate::{BitPackedArray, BitPackedVTable};
+
 
 impl PipelineVTable<BitPackedVTable> for BitPackedVTable {
     fn to_operator(array: &BitPackedArray) -> VortexResult<Option<Rc<dyn Operator>>> {
@@ -97,12 +99,14 @@ where
         Ok(())
     }
 
+    #[allow(clippy::unwrap_in_result, clippy::expect_used)]
     fn step(
         &mut self,
         _ctx: &KernelContext,
         selected: BitView,
         physical_out: &mut ViewMut,
     ) -> VortexResult<()> {
+        let mut temp_buffer: [MaybeUninit<<T as PhysicalPType>::Physical>; 1024] = unsafe { MaybeUninit::uninit().assume_init() };
         // We re-interpret the output view as the unsigned bitpacked type.
         physical_out.reinterpret_as::<<T as PhysicalPType>::Physical>();
 
@@ -112,39 +116,56 @@ where
         // Handle partial chunk due to value offset
         let chunk_value_offset = self.value_offset % 1024;
         let needs_partial_handling = chunk_value_offset != 0;
-
         // We compute the number of FastLanes vectors that we need.
         // If we have an offset, we need to read enough chunks to cover all the output elements
         let elements_needed = elements.len() + chunk_value_offset;
         let chunks_needed = elements_needed.div_ceil(1024);
-        let nvecs = chunks_needed.min(packed.len() / self.packed_stride).min(N / 1024);
+        let nvecs = chunks_needed
+            .min(packed.len() / self.packed_stride)
+            .min(N / 1024);
+
+        // Allocate a single temp buffer for the entire function if needed
 
         // We short-circuit full unpacking logic if the mask is sufficiently sparse.
         if selected.true_count() > 8 {
-            if needs_partial_handling {
-                // For the first chunk with offset, unpack to local buffer then copy
-                let mut local_buffer = [unsafe { std::mem::zeroed() }; 1024];
+            let first_full_chunk = if needs_partial_handling {
+                // First chunk with offset: unpack to temp buffer then copy
                 unsafe {
+                    let local_buffer = std::slice::from_raw_parts_mut(
+                        temp_buffer.as_mut_ptr() as *mut <T as PhysicalPType>::Physical,
+                        1024,
+                    );
                     BitPacking::unchecked_unpack(
                         self.width,
                         &packed[..self.packed_stride],
-                        &mut local_buffer[..],
+                        local_buffer,
+                    );
+
+                    // Copy from local buffer starting at the offset position
+                    let copy_count = (1024 - chunk_value_offset).min(elements.len());
+                    elements[..copy_count].copy_from_slice(
+                        &local_buffer[chunk_value_offset..chunk_value_offset + copy_count],
                     );
                 }
+                1
+            } else {
+                0
+            };
 
-                // Copy from local buffer starting at the offset position
-                let copy_count = (1024 - chunk_value_offset).min(elements.len());
-                elements[..copy_count].copy_from_slice(
-                    &local_buffer[chunk_value_offset..chunk_value_offset + copy_count],
-                );
+            for i in first_full_chunk..nvecs {
+                // Normal chunk unpacking (either no offset, or subsequent chunks)
+                let start_idx = if needs_partial_handling {
+                    (1024 - chunk_value_offset) + (i - 1) * 1024
+                } else {
+                    i * 1024
+                };
 
-                // Handle remaining full chunks normally
-                for i in 1..nvecs {
-                    let start_idx = copy_count + (i - 1) * 1024;
-                    let remaining_elements = elements.len().saturating_sub(start_idx);
-                    let chunk_size = remaining_elements.min(1024);
-                    
-                    if chunk_size > 0 {
+                let remaining_elements = elements.len().saturating_sub(start_idx);
+                let chunk_size = remaining_elements.min(1024);
+
+                if chunk_size > 0 {
+                    if chunk_size == 1024 {
+                        // Full chunk - unpack directly
                         unsafe {
                             BitPacking::unchecked_unpack(
                                 self.width,
@@ -152,20 +173,22 @@ where
                                 &mut elements[start_idx..start_idx + chunk_size],
                             );
                         }
-                    }
-                }
-            } else {
-                // Normal full chunk unpacking
-                for i in 0..nvecs {
-                    let start_idx = i * 1024;
-                    let end_idx = start_idx + 1024;
-                    if end_idx <= elements.len() {
+                    } else {
+                        // Partial last chunk - unpack to temp buffer then copy
                         unsafe {
+                            let temp_slice = std::slice::from_raw_parts_mut(
+                                temp_buffer.as_mut_ptr() as *mut <T as PhysicalPType>::Physical,
+                                1024,
+                            );
                             BitPacking::unchecked_unpack(
                                 self.width,
                                 &packed[(i * self.packed_stride)..][..self.packed_stride],
-                                &mut elements[start_idx..end_idx],
+                                temp_slice,
                             );
+
+                            // Copy only the needed elements
+                            elements[start_idx..start_idx + chunk_size]
+                                .copy_from_slice(&temp_slice[..chunk_size]);
                         }
                     }
                 }
@@ -255,27 +278,49 @@ mod tests {
         }
     }
 
-
     #[test]
     fn test_bitpacking_offset_simple() {
         // Test a simple case: 1024 + 10 elements, offset by 5
         let len = 1034usize;
         let offset = 5usize;
-        
+
         let values = (0..len).map(|i| i as i32).collect::<BufferMut<_>>();
         let primitive_array = values.into_array().to_primitive().unwrap();
         let bitpacked = bitpack_to_best_bit_width(&primitive_array).unwrap();
-        
+
         // Slice to get elements [5, 6, 7, ..., 1033] (1029 elements)
         let sliced = bitpacked.slice(offset, len);
-        
+
         // Just test first few elements manually
         let val0: i32 = sliced.scalar_at(0).try_into().unwrap();
         let val1: i32 = sliced.scalar_at(1).try_into().unwrap();
         let val1019: i32 = sliced.scalar_at(1019).try_into().unwrap();
         assert_eq!(val0, 5i32);
-        assert_eq!(val1, 6i32);  
+        assert_eq!(val1, 6i32);
         assert_eq!(val1019, 1024i32); // This should be from second chunk
+    }
+
+    #[test]
+    fn test_bitpacking_offset_with_partial_last_chunk() {
+        // Test case: offset + partial last chunk
+        let len = 1030usize; // 1024 + 6 elements 
+        let offset = 5usize;
+
+        let values = (0..len).map(|i| i as i32).collect::<BufferMut<_>>();
+        let primitive_array = values.into_array().to_primitive().unwrap();
+        let bitpacked = bitpack_to_best_bit_width(&primitive_array).unwrap();
+
+        // Slice to get elements [5, 6, 7, ..., 1029] (1025 elements)
+        let sliced = bitpacked.slice(offset, len);
+
+        // Test values across the boundary and in the last partial chunk
+        let val0: i32 = sliced.scalar_at(0).try_into().unwrap();
+        let val1019: i32 = sliced.scalar_at(1019).try_into().unwrap(); // First element of second chunk
+        let val1024: i32 = sliced.scalar_at(1024).try_into().unwrap(); // Last element (partial chunk)
+
+        assert_eq!(val0, 5i32); // First element
+        assert_eq!(val1019, 1024i32); // Element at chunk boundary  
+        assert_eq!(val1024, 1029i32); // Last element in partial chunk
     }
 
     #[test]
