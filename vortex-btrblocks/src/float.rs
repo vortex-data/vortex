@@ -338,7 +338,7 @@ impl Scheme for DictScheme {
         )?;
 
         let compressed_values = FloatCompressor::compress(
-            &dict_array.values().to_primitive()?,
+            &dict_array.values().to_primitive()?.downcast()?,
             is_sample,
             allowed_cascading - 1,
             &[DICT_SCHEME],
