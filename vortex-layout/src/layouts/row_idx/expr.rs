@@ -6,10 +6,9 @@ use std::fmt::{Display, Formatter};
 use vortex_array::{ArrayRef, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexResult, vortex_bail};
+use vortex_expr::display::{DisplayAs, DisplayFormat};
 use vortex_expr::{
-    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable,
-    display::{DisplayAs, DisplayFormat},
-    vtable,
+    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable,
 };
 
 vtable!(RowIdx);
