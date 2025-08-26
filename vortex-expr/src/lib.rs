@@ -215,7 +215,7 @@ impl dyn VortexExpr + '_ {
 
 impl Display for dyn VortexExpr + '_ {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        DisplayAs::fmt_as(self, DisplayFormat::Dense, f)
+        DisplayAs::fmt_as(self, DisplayFormat::Compact, f)
     }
 }
 
@@ -286,7 +286,7 @@ impl<V: VTable> Debug for ExprAdapter<V> {
 
 impl<V: VTable> Display for ExprAdapter<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        DisplayAs::fmt_as(&self.0, DisplayFormat::Dense, f)
+        DisplayAs::fmt_as(&self.0, DisplayFormat::Compact, f)
     }
 }
 

@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub enum DisplayFormat {
-    Dense,
+    Compact,
     Tree,
 }
 

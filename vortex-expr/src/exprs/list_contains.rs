@@ -121,7 +121,7 @@ pub fn list_contains(list: ExprRef, value: ExprRef) -> ExprRef {
 impl DisplayAs for ListContainsExpr {
     fn fmt_as(&self, df: DisplayFormat, f: &mut Formatter) -> std::fmt::Result {
         match df {
-            DisplayFormat::Dense => {
+            DisplayFormat::Compact => {
                 write!(f, "contains({}, {})", &self.list, &self.value)
             }
             DisplayFormat::Tree => {

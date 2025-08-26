@@ -134,7 +134,7 @@ impl BinaryExpr {
 impl DisplayAs for BinaryExpr {
     fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match df {
-            DisplayFormat::Dense => {
+            DisplayFormat::Compact => {
                 write!(f, "({} {} {})", self.lhs, self.operator, self.rhs)
             }
             DisplayFormat::Tree => {

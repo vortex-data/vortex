@@ -165,7 +165,7 @@ impl BetweenExpr {
 impl DisplayAs for BetweenExpr {
     fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match df {
-            DisplayFormat::Dense => {
+            DisplayFormat::Compact => {
                 write!(
                     f,
                     "({} {} {} {} {})",

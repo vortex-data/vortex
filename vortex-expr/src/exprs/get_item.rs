@@ -156,7 +156,7 @@ pub fn get_item(field: impl Into<FieldName>, child: ExprRef) -> ExprRef {
 impl DisplayAs for GetItemExpr {
     fn fmt_as(&self, df: DisplayFormat, f: &mut Formatter) -> std::fmt::Result {
         match df {
-            DisplayFormat::Dense => {
+            DisplayFormat::Compact => {
                 write!(f, "{}.{}", self.child, &self.field)
             }
             DisplayFormat::Tree => {

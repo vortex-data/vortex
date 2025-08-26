@@ -148,7 +148,7 @@ impl LikeExpr {
 impl DisplayAs for LikeExpr {
     fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match df {
-            DisplayFormat::Dense => {
+            DisplayFormat::Compact => {
                 write!(f, "{} LIKE {}", self.child(), self.pattern())
             }
             DisplayFormat::Tree => {
