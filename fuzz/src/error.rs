@@ -11,10 +11,6 @@ use vortex_array::search_sorted::{SearchResult, SearchSortedSide};
 use vortex_error::VortexError;
 use vortex_scalar::Scalar;
 
-fn tree_display(arr: &ArrayRef) -> impl Display {
-    arr.display_tree()
-}
-
 #[non_exhaustive]
 pub enum VortexFuzzError {
     SearchSortedError(
@@ -55,23 +51,23 @@ impl Display for VortexFuzzError {
                 write!(
                     f,
                     "Expected to find {a} at {expected} in {} from {from} but instead found it at {actual} in step {step}\nBacktrace:\n{backtrace}",
-                    tree_display(array),
+                    array.display_tree(),
                 )
             }
             VortexFuzzError::ArrayNotEqual(expected, actual, idx, lhs, rhs, step, backtrace) => {
                 write!(
                     f,
                     "{expected} != {actual} at index {idx}, lhs is {} rhs is {} in step {step}\nBacktrace:\n{backtrace}",
-                    tree_display(lhs),
-                    tree_display(rhs),
+                    lhs.display_tree(),
+                    rhs.display_tree(),
                 )
             }
             VortexFuzzError::LengthMismatch(lhs_len, rhs_len, lhs, rhs, step, backtrace) => {
                 write!(
                     f,
                     "LHS len {lhs_len} != RHS len {rhs_len}, lhs is {} rhs is {} in step {step}\nBacktrace:\n{backtrace}",
-                    tree_display(lhs),
-                    tree_display(rhs),
+                    lhs.display_tree(),
+                    rhs.display_tree(),
                 )
             }
             VortexFuzzError::VortexError(err, backtrace) => {
