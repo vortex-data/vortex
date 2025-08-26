@@ -35,11 +35,13 @@ impl Runtime for TokioHandle {
         TokioHandle::spawn(self, async move { f.run() });
     }
 
-    fn spawn_io(&self, mut stream: BoxStream<'static, IoTask>) {
+    fn spawn_io(&self, stream: BoxStream<'static, IoTask>) {
         TokioHandle::spawn(self, async move {
-            while let Some(task) = stream.next().await {
-                task.run().await;
-            }
+            stream
+                .map(|t| t.run())
+                .buffer_unordered(32)
+                .collect::<()>()
+                .await
         });
     }
 }
