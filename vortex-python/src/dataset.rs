@@ -127,25 +127,19 @@ impl PyVortexDataset {
         Ok(PyArrayRef::from(array))
     }
 
-    #[pyo3(signature = (*, columns = None, row_filter = None, indices = None, split_by = None))]
+    #[pyo3(signature = (*, columns = None, row_filter = None, split_by = None))]
     pub fn to_record_batch_reader(
         self_: PyRef<Self>,
         columns: Option<Vec<Bound<'_, PyAny>>>,
         row_filter: Option<&Bound<'_, PyExpr>>,
-        indices: Option<PyArrayRef>,
         split_by: Option<usize>,
     ) -> PyResult<PyObject> {
-        let mut scan = self_
+        let scan = self_
             .vxf
             .scan()?
             .with_projection(projection_from_python(columns)?)
             .with_some_filter(filter_from_python(row_filter))
             .with_split_by(split_by.map(SplitBy::RowCount).unwrap_or(SplitBy::Layout));
-
-        if let Some(indices) = indices.map(|i| i.inner().clone()) {
-            let indices = indices.to_primitive()?.into_buffer();
-            scan = scan.with_row_indices(indices);
-        }
 
         // TODO(ngates): should we use multi-threaded read or not?
         let schema = Arc::new(scan.dtype()?.to_arrow_schema()?);
