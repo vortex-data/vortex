@@ -26,10 +26,6 @@ impl PipelineVTable<BitPackedVTable> for BitPackedVTable {
             log::trace!("BitPackedVTable does not support nullable arrays");
             return Ok(None);
         }
-        if array.offset != 0 {
-            log::trace!("BitPackedVTable does not support offset arrays");
-            return Ok(None);
-        }
 
         Ok(Some(Rc::new(array.clone())))
     }
@@ -53,16 +49,18 @@ impl Operator for BitPackedArray {
     }
 
     fn bind(&self, _ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {
-        assert!(self.bit_width > 0, "{}", self.as_ref().display_tree());
+        assert!(self.bit_width > 0);
         match_each_integer_ptype!(self.ptype(), |T| {
+            let packed_stride =
+                self.bit_width as usize * <<T as PhysicalPType>::Physical as FastLanes>::LANES;
             Ok(Box::new(BitPackedKernel::<T> {
                 width: self.bit_width as usize,
-                packed_stride: self.bit_width as usize
-                    * <<T as PhysicalPType>::Physical as FastLanes>::LANES,
+                packed_stride,
                 buffer: Buffer::<<T as PhysicalPType>::Physical>::from_byte_buffer(
                     self.packed.clone().into_byte_buffer(),
                 ),
                 packed_offset: 0,
+                value_offset: self.offset as usize,
             }) as Box<dyn Kernel>)
         })
     }
@@ -84,6 +82,7 @@ pub(crate) struct BitPackedKernel<T: PhysicalPType<Physical: BitPacking>> {
 
     buffer: Buffer<<T as PhysicalPType>::Physical>,
     packed_offset: usize,
+    value_offset: usize,
 }
 
 impl<T> Kernel for BitPackedKernel<T>
@@ -110,18 +109,65 @@ where
         let elements = physical_out.as_slice_mut::<<T as PhysicalPType>::Physical>();
         let packed = &self.buffer.as_slice()[self.packed_offset..];
 
-        // We compute the number of FastLanes vectors that we have remaining.
-        let nvecs = (N / 1024).min(packed.len() / self.packed_stride);
+        // Handle partial chunk due to value offset
+        let chunk_value_offset = self.value_offset % 1024;
+        let needs_partial_handling = chunk_value_offset != 0;
+
+        // We compute the number of FastLanes vectors that we need.
+        // If we have an offset, we need to read enough chunks to cover all the output elements
+        let elements_needed = elements.len() + chunk_value_offset;
+        let chunks_needed = elements_needed.div_ceil(1024);
+        let nvecs = chunks_needed.min(packed.len() / self.packed_stride).min(N / 1024);
 
         // We short-circuit full unpacking logic if the mask is sufficiently sparse.
         if selected.true_count() > 8 {
-            for i in 0..nvecs {
+            if needs_partial_handling {
+                // For the first chunk with offset, unpack to local buffer then copy
+                let mut local_buffer = [unsafe { std::mem::zeroed() }; 1024];
                 unsafe {
                     BitPacking::unchecked_unpack(
                         self.width,
-                        &packed[(i * self.packed_stride)..][..self.packed_stride],
-                        &mut elements[(i * 1024)..],
+                        &packed[..self.packed_stride],
+                        &mut local_buffer[..],
                     );
+                }
+
+                // Copy from local buffer starting at the offset position
+                let copy_count = (1024 - chunk_value_offset).min(elements.len());
+                elements[..copy_count].copy_from_slice(
+                    &local_buffer[chunk_value_offset..chunk_value_offset + copy_count],
+                );
+
+                // Handle remaining full chunks normally
+                for i in 1..nvecs {
+                    let start_idx = copy_count + (i - 1) * 1024;
+                    let remaining_elements = elements.len().saturating_sub(start_idx);
+                    let chunk_size = remaining_elements.min(1024);
+                    
+                    if chunk_size > 0 {
+                        unsafe {
+                            BitPacking::unchecked_unpack(
+                                self.width,
+                                &packed[(i * self.packed_stride)..][..self.packed_stride],
+                                &mut elements[start_idx..start_idx + chunk_size],
+                            );
+                        }
+                    }
+                }
+            } else {
+                // Normal full chunk unpacking
+                for i in 0..nvecs {
+                    let start_idx = i * 1024;
+                    let end_idx = start_idx + 1024;
+                    if end_idx <= elements.len() {
+                        unsafe {
+                            BitPacking::unchecked_unpack(
+                                self.width,
+                                &packed[(i * self.packed_stride)..][..self.packed_stride],
+                                &mut elements[start_idx..end_idx],
+                            );
+                        }
+                    }
                 }
             }
 
@@ -132,9 +178,10 @@ where
         } else {
             let mut offset = 0;
             selected.iter_ones(|idx| {
-                let chunk_idx = idx / 1024;
-                let bit_idx = idx % 1024;
-                // SAFETY: we verify the bounds of the vector during construction.
+                let adjusted_idx = idx + chunk_value_offset;
+                let chunk_idx = adjusted_idx / 1024;
+                let bit_idx = adjusted_idx % 1024;
+
                 unsafe {
                     *elements.get_unchecked_mut(offset) = BitPacking::unchecked_unpack_single(
                         self.width,
@@ -206,6 +253,29 @@ mod tests {
                 );
             }
         }
+    }
+
+
+    #[test]
+    fn test_bitpacking_offset_simple() {
+        // Test a simple case: 1024 + 10 elements, offset by 5
+        let len = 1034usize;
+        let offset = 5usize;
+        
+        let values = (0..len).map(|i| i as i32).collect::<BufferMut<_>>();
+        let primitive_array = values.into_array().to_primitive().unwrap();
+        let bitpacked = bitpack_to_best_bit_width(&primitive_array).unwrap();
+        
+        // Slice to get elements [5, 6, 7, ..., 1033] (1029 elements)
+        let sliced = bitpacked.slice(offset, len);
+        
+        // Just test first few elements manually
+        let val0: i32 = sliced.scalar_at(0).try_into().unwrap();
+        let val1: i32 = sliced.scalar_at(1).try_into().unwrap();
+        let val1019: i32 = sliced.scalar_at(1019).try_into().unwrap();
+        assert_eq!(val0, 5i32);
+        assert_eq!(val1, 6i32);  
+        assert_eq!(val1019, 1024i32); // This should be from second chunk
     }
 
     #[test]

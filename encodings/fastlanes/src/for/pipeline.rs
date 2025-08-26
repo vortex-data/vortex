@@ -186,7 +186,9 @@ mod tests {
     fn test_for_pipeline() {
         let len = 8093usize;
         let mut rng = StdRng::seed_from_u64(0);
-        let prim = (0i32..i32::try_from(len).unwrap()).map(|_| rng.random_range(0..120000)).collect::<PrimitiveArray>();
+        let prim = (0i32..i32::try_from(len).unwrap())
+            .map(|_| rng.random_range(0..120000))
+            .collect::<PrimitiveArray>();
         let mask = Mask::AllTrue(len);
         let bitpack = bitpack_to_best_bit_width(&prim).unwrap();
         let array = FoRArray::try_new(bitpack.to_array(), Scalar::from(100i32)).unwrap();
