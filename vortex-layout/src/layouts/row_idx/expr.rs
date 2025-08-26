@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Display, Formatter};
+use std::fmt::Formatter;
 
 use vortex_array::{ArrayRef, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::{DType, Nullability, PType};
@@ -18,15 +18,12 @@ pub struct RowIdxExpr;
 
 impl AnalysisExpr for RowIdxExpr {}
 
-impl Display for RowIdxExpr {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        DisplayAs::fmt_as(self, DisplayFormat::Dense, f)
-    }
-}
-
 impl DisplayAs for RowIdxExpr {
-    fn fmt_as(&self, _df: DisplayFormat, f: &mut Formatter) -> std::fmt::Result {
-        write!(f, "#row_idx")
+    fn fmt_as(&self, df: DisplayFormat, f: &mut Formatter) -> std::fmt::Result {
+        match df {
+            DisplayFormat::Dense => write!(f, "#row_idx"),
+            DisplayFormat::Tree => write!(f, "RowIdxExpr"),
+        }
     }
 }
 

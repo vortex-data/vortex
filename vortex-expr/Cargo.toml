@@ -25,7 +25,7 @@ parking_lot = { workspace = true }
 paste = { workspace = true }
 prost = { workspace = true }
 serde = { workspace = true, optional = true, features = ["derive"] }
-termtree = { workspace = true, optional = true }
+termtree = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }
@@ -39,10 +39,9 @@ vortex-utils = { workspace = true }
 anyhow = { workspace = true }
 insta = { workspace = true }
 rstest = { workspace = true }
-vortex-expr = { path = ".", features = ["test-harness", "pretty"] }
+vortex-expr = { path = ".", features = ["test-harness"] }
 
 [features]
-pretty = ["dep:termtree"]
 arbitrary = [
     "dep:arbitrary",
     "vortex-scalar/arbitrary",

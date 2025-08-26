@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
 
 use vortex_array::stats::Stat;
@@ -153,19 +153,12 @@ pub fn get_item(field: impl Into<FieldName>, child: ExprRef) -> ExprRef {
     GetItemExpr::new(field, child).into_expr()
 }
 
-impl Display for GetItemExpr {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        DisplayAs::fmt_as(self, DisplayFormat::Dense, f)
-    }
-}
-
 impl DisplayAs for GetItemExpr {
     fn fmt_as(&self, df: DisplayFormat, f: &mut Formatter) -> std::fmt::Result {
         match df {
             DisplayFormat::Dense => {
                 write!(f, "{}.{}", self.child, &self.field)
             }
-            #[cfg(feature = "pretty")]
             DisplayFormat::Tree => {
                 write!(f, "GetItemExpr(field = {})", self.field)
             }

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Display;
 use std::hash::Hash;
 
 use itertools::Itertools as _;
@@ -190,12 +189,6 @@ pub fn merge(
     MergeExpr::new(values, nullability).into_expr()
 }
 
-impl Display for MergeExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        DisplayAs::fmt_as(self, DisplayFormat::Dense, f)
-    }
-}
-
 impl DisplayAs for MergeExpr {
     fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match df {
@@ -207,7 +200,6 @@ impl DisplayAs for MergeExpr {
                     self.nullability
                 )
             }
-            #[cfg(feature = "pretty")]
             DisplayFormat::Tree => {
                 write!(f, "MergeExpr")
             }

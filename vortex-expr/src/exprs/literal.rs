@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Display;
 
 use vortex_array::arrays::ConstantArray;
 use vortex_array::{ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata};
@@ -10,8 +9,7 @@ use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
 use vortex_scalar::Scalar;
 
-use crate::display::DisplayAs;
-use crate::display::DisplayFormat::Dense;
+use crate::display::{DisplayAs, DisplayFormat};
 use crate::{
     AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog, VTable, vtable,
 };
@@ -100,24 +98,13 @@ impl LiteralExpr {
     }
 }
 
-impl Display for LiteralExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        DisplayAs::fmt_as(self, Dense, f)
-    }
-}
-
 impl DisplayAs for LiteralExpr {
-    fn fmt_as(
-        &self,
-        df: crate::display::DisplayFormat,
-        f: &mut std::fmt::Formatter,
-    ) -> std::fmt::Result {
+    fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match df {
-            Dense => {
+            DisplayFormat::Dense => {
                 write!(f, "{}", self.value)
             }
-            #[cfg(feature = "pretty")]
-            crate::display::DisplayFormat::Tree => {
+            DisplayFormat::Tree => {
                 write!(
                     f,
                     "LiteralExpr(value: {}, dtype: {})",

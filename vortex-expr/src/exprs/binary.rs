@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Display;
 use std::hash::Hash;
 
 use vortex_array::compute::{Operator as ArrayOperator, add, and_kleene, compare, or_kleene, sub};
@@ -132,19 +131,12 @@ impl BinaryExpr {
     }
 }
 
-impl Display for BinaryExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        DisplayAs::fmt_as(self, DisplayFormat::Dense, f)
-    }
-}
-
 impl DisplayAs for BinaryExpr {
     fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match df {
             DisplayFormat::Dense => {
                 write!(f, "({} {} {})", self.lhs, self.operator, self.rhs)
             }
-            #[cfg(feature = "pretty")]
             DisplayFormat::Tree => {
                 write!(f, "BinaryExpr({})", self.operator)
             }

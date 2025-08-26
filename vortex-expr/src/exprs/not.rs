@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Display;
 use std::hash::Hash;
 
 use vortex_array::compute::invert;
@@ -95,19 +94,12 @@ impl NotExpr {
     }
 }
 
-impl Display for NotExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        DisplayAs::fmt_as(self, DisplayFormat::Dense, f)
-    }
-}
-
 impl DisplayAs for NotExpr {
     fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match df {
             DisplayFormat::Dense => {
                 write!(f, "(!{})", self.child)
             }
-            #[cfg(feature = "pretty")]
             DisplayFormat::Tree => {
                 write!(f, "NotExpr")
             }

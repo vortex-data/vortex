@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
 
 use vortex_array::compute::list_contains as compute_list_contains;
@@ -118,19 +118,12 @@ pub fn list_contains(list: ExprRef, value: ExprRef) -> ExprRef {
     ListContainsExpr::new(list, value).into_expr()
 }
 
-impl Display for ListContainsExpr {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        DisplayAs::fmt_as(self, DisplayFormat::Dense, f)
-    }
-}
-
 impl DisplayAs for ListContainsExpr {
     fn fmt_as(&self, df: DisplayFormat, f: &mut Formatter) -> std::fmt::Result {
         match df {
             DisplayFormat::Dense => {
                 write!(f, "contains({}, {})", &self.list, &self.value)
             }
-            #[cfg(feature = "pretty")]
             DisplayFormat::Tree => {
                 write!(f, "ListContainsExpr")
             }

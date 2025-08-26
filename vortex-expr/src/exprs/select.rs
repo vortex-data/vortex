@@ -282,7 +282,6 @@ impl DisplayAs for SelectExpr {
             DisplayFormat::Dense => {
                 write!(f, "{}{}", self.child, self.fields)
             }
-            #[cfg(feature = "pretty")]
             DisplayFormat::Tree => {
                 let field_type = if self.fields.is_include() {
                     "include"
@@ -298,12 +297,6 @@ impl DisplayAs for SelectExpr {
     fn child_names(&self) -> Option<Vec<String>> {
         // Single child - no need to name it, the tree structure makes it obvious
         None
-    }
-}
-
-impl Display for SelectExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        DisplayAs::fmt_as(self, DisplayFormat::Dense, f)
     }
 }
 

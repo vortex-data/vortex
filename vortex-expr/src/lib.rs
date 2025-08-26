@@ -77,16 +77,7 @@ pub type ExprRef = Arc<dyn VortexExpr>;
 
 /// Represents logical operation on [`ArrayRef`]s
 pub trait VortexExpr:
-    'static
-    + Send
-    + Sync
-    + Debug
-    + Display
-    + DisplayAs
-    + DynEq
-    + DynHash
-    + private::Sealed
-    + AnalysisExpr
+    'static + Send + Sync + Debug + DisplayAs + DynEq + DynHash + AnalysisExpr + private::Sealed
 {
     /// Convert expression reference to reference of [`Any`] type
     fn as_any(&self) -> &dyn Any;
@@ -160,7 +151,7 @@ impl dyn VortexExpr + '_ {
             result.dtype(),
             &self.return_dtype(scope.dtype())?,
             "Expression {} returned dtype {} but declared return_dtype of {}",
-            self,
+            &self,
             result.dtype(),
             self.return_dtype(scope.dtype())?,
         );
@@ -217,9 +208,14 @@ impl dyn VortexExpr + '_ {
     ///             │       └── RootExpr
     ///             └── rhs: LiteralExpr(value: 75f64, dtype: f64)
     /// ```
-    #[cfg(feature = "pretty")]
     pub fn display_tree(&self) -> impl Display {
         display::DisplayTreeExpr(self)
+    }
+}
+
+impl Display for dyn VortexExpr + '_ {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        DisplayAs::fmt_as(self, DisplayFormat::Dense, f)
     }
 }
 
@@ -296,11 +292,7 @@ impl<V: VTable> Display for ExprAdapter<V> {
 
 impl<V: VTable> DisplayAs for ExprAdapter<V> {
     fn fmt_as(&self, df: DisplayFormat, f: &mut Formatter) -> std::fmt::Result {
-        match df {
-            DisplayFormat::Dense => DisplayAs::fmt_as(&self.0, DisplayFormat::Dense, f),
-            #[cfg(feature = "pretty")]
-            DisplayFormat::Tree => DisplayAs::fmt_as(&self.0, DisplayFormat::Tree, f),
-        }
+        DisplayAs::fmt_as(&self.0, df, f)
     }
 
     fn child_names(&self) -> Option<Vec<String>> {

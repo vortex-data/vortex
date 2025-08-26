@@ -3,7 +3,6 @@
 
 pub enum DisplayFormat {
     Dense,
-    #[cfg(feature = "pretty")]
     Tree,
 }
 
@@ -16,10 +15,8 @@ pub trait DisplayAs {
     }
 }
 
-#[cfg(feature = "pretty")]
 pub struct DisplayTreeExpr<'a>(pub &'a dyn crate::VortexExpr);
 
-#[cfg(feature = "pretty")]
 impl std::fmt::Display for DisplayTreeExpr<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         pub use termtree::Tree;
@@ -56,10 +53,8 @@ impl std::fmt::Display for DisplayTreeExpr<'_> {
     }
 }
 
-#[cfg(feature = "pretty")]
 struct TreeNodeDisplay<'a>(&'a dyn crate::VortexExpr);
 
-#[cfg(feature = "pretty")]
 impl<'a> std::fmt::Display for TreeNodeDisplay<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt_as(DisplayFormat::Tree, f)
@@ -85,7 +80,6 @@ mod tests {
         println!("{}", expr.display_tree());
     }
 
-    #[cfg(feature = "pretty")]
     #[test]
     fn test_child_names_debug() {
         // Simple test to debug child names display
@@ -104,7 +98,6 @@ mod tests {
         println!("Between expr tree:\n{}", between_expr.display_tree());
     }
 
-    #[cfg(feature = "pretty")]
     #[test]
     fn test_display_tree() {
         use insta::assert_snapshot;

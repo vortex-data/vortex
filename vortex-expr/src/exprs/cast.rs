@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Display;
 
 use vortex_array::compute::cast as compute_cast;
 use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata};
@@ -101,19 +100,12 @@ impl CastExpr {
     }
 }
 
-impl Display for CastExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        DisplayAs::fmt_as(self, DisplayFormat::Dense, f)
-    }
-}
-
 impl DisplayAs for CastExpr {
     fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match df {
             DisplayFormat::Dense => {
                 write!(f, "cast({}, {})", self.child, self.target)
             }
-            #[cfg(feature = "pretty")]
             DisplayFormat::Tree => {
                 write!(f, "CastExpr(target: {})", self.target)
             }
