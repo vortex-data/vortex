@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub use handle::*;
+use std::fmt::{Debug, Formatter};
 use std::fs::File;
 use std::future::ready;
 use std::os::unix::fs::FileExt;
@@ -76,6 +77,17 @@ pub(crate) struct IoTask {
     callback: ReadCompletion,
 }
 
+impl Debug for IoTask {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IoTask")
+            .field("source", &self.source)
+            .field("offset", &self.offset)
+            .field("length", &self.length)
+            .field("alignment", &self.alignment)
+            .finish()
+    }
+}
+
 #[derive(Clone)]
 pub enum IoSource {
     Memory(ByteBuffer),
@@ -85,6 +97,23 @@ pub enum IoSource {
         store: Arc<dyn object_store::ObjectStore>,
         path: Arc<object_store::path::Path>,
     },
+}
+
+impl Debug for IoSource {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            IoSource::Memory(buffer) => f
+                .debug_tuple("Memory")
+                .field(&format!("ByteBuffer(len={})", buffer.len()))
+                .finish(),
+            IoSource::File(_) => f.debug_tuple("File").field(&"File(...)").finish(),
+            #[cfg(feature = "object_store")]
+            IoSource::Object { store: _, path } => f
+                .debug_tuple("Object")
+                .field(&format!("Path({})", path))
+                .finish(),
+        }
+    }
 }
 
 impl IoTask {
