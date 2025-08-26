@@ -228,6 +228,10 @@ impl DisplayAs for PackExpr {
             }
         }
     }
+
+    fn child_names(&self) -> Option<Vec<String>> {
+        Some(self.names.iter().map(|n| n.to_string()).collect())
+    }
 }
 
 impl AnalysisExpr for PackExpr {}

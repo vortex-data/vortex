@@ -177,7 +177,7 @@ impl dyn VortexExpr + '_ {
     ///
     /// ```rust
     /// # use vortex_dtype::{DType, Nullability, PType};
-    /// # use vortex_expr::{and, cast, eq, get_item, gt, lit, not, root, select, LikeExpr};
+    /// # use vortex_expr::{and, cast, eq, get_item, gt, lit, not, root, select, IntoExpr, LikeExpr};
     /// // Build a complex nested expression
     /// let complex_expr = select(
     ///     ["result"],

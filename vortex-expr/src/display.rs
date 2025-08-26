@@ -109,7 +109,7 @@ mod tests {
     fn test_display_tree() {
         use insta::assert_snapshot;
 
-        use crate::select_exclude;
+        use crate::{pack, select_exclude};
         let root_expr = root();
         assert_snapshot!(root_expr.display_tree().to_string(), @"RootExpr");
 
@@ -218,6 +218,28 @@ mod tests {
                 │   └── RootExpr
                 ├── lower (Strict): LiteralExpr(value: 50i32, dtype: i32)
                 └── upper (NonStrict): LiteralExpr(value: 100i32, dtype: i32)
+        "#);
+
+        let select_from_pack_expr = select(
+            ["fizz", "buzz"],
+            pack(
+                [
+                    ("fizz", root()),
+                    ("bar", lit(5)),
+                    ("buzz", eq(lit(42), get_item("answer", root()))),
+                ],
+                Nullability::Nullable,
+            ),
+        );
+        assert_snapshot!(select_from_pack_expr.display_tree().to_string(), @r#"
+        SelectExpr(include): ["fizz", "buzz"]
+        └── PackExpr
+            ├── fizz: RootExpr
+            ├── bar: LiteralExpr(value: 5i32, dtype: i32)
+            └── buzz: BinaryExpr(=)
+                ├── lhs: LiteralExpr(value: 42i32, dtype: i32)
+                └── rhs: GetItemExpr(field = answer)
+                    └── RootExpr
         "#);
     }
 }
