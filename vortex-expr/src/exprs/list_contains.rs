@@ -125,7 +125,7 @@ impl DisplayAs for ListContainsExpr {
                 write!(f, "contains({}, {})", &self.list, &self.value)
             }
             DisplayFormat::Tree => {
-                write!(f, "ListContainsExpr")
+                write!(f, "ListContains")
             }
         }
     }

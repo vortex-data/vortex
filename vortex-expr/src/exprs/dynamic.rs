@@ -182,7 +182,7 @@ impl DisplayAs for DynamicComparisonExpr {
                 )
             }
             DisplayFormat::Tree => {
-                write!(f, "DynamicComparisonExpr")
+                write!(f, "DynamicComparison")
             }
         }
     }

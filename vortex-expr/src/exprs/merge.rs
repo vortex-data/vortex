@@ -201,7 +201,7 @@ impl DisplayAs for MergeExpr {
                 )
             }
             DisplayFormat::Tree => {
-                write!(f, "MergeExpr")
+                write!(f, "Merge")
             }
         }
     }

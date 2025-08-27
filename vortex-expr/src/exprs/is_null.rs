@@ -95,7 +95,7 @@ impl DisplayAs for IsNullExpr {
                 write!(f, "is_null({})", self.child)
             }
             DisplayFormat::Tree => {
-                write!(f, "IsNullExpr")
+                write!(f, "IsNull")
             }
         }
     }

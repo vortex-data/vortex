@@ -289,7 +289,7 @@ impl DisplayAs for SelectExpr {
                     "exclude"
                 };
 
-                write!(f, "SelectExpr({}): {}", field_type, self.fields().fields())
+                write!(f, "Select({}): {}", field_type, self.fields().fields())
             }
         }
     }

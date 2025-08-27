@@ -138,7 +138,7 @@ impl DisplayAs for BinaryExpr {
                 write!(f, "({} {} {})", self.lhs, self.operator, self.rhs)
             }
             DisplayFormat::Tree => {
-                write!(f, "BinaryExpr({})", self.operator)
+                write!(f, "Binary({})", self.operator)
             }
         }
     }

@@ -101,7 +101,7 @@ impl DisplayAs for NotExpr {
                 write!(f, "(!{})", self.child)
             }
             DisplayFormat::Tree => {
-                write!(f, "NotExpr")
+                write!(f, "Not")
             }
         }
     }

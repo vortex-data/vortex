@@ -74,7 +74,7 @@ impl DisplayAs for RootExpr {
                 write!(f, "$")
             }
             DisplayFormat::Tree => {
-                write!(f, "RootExpr")
+                write!(f, "Root")
             }
         }
     }

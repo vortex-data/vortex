@@ -104,23 +104,23 @@ mod tests {
 
         use crate::{pack, select_exclude};
         let root_expr = root();
-        assert_snapshot!(root_expr.display_tree().to_string(), @"RootExpr");
+        assert_snapshot!(root_expr.display_tree().to_string(), @"Root");
 
         let lit_expr = lit(42);
-        assert_snapshot!(lit_expr.display_tree().to_string(), @"LiteralExpr(value: 42i32, dtype: i32)");
+        assert_snapshot!(lit_expr.display_tree().to_string(), @"Literal(value: 42i32, dtype: i32)");
 
         let get_item_expr = get_item("my_field", root());
         assert_snapshot!(get_item_expr.display_tree().to_string(), @r"
-        GetItemExpr(field = my_field)
-        └── RootExpr
+        GetItem(field = my_field)
+        └── Root
         ");
 
         let binary_expr = gt(get_item("x", root()), lit(10));
         assert_snapshot!(binary_expr.display_tree().to_string(), @r"
-        BinaryExpr(>)
-        ├── lhs: GetItemExpr(field = x)
-        │   └── RootExpr
-        └── rhs: LiteralExpr(value: 10i32, dtype: i32)
+        Binary(>)
+        ├── lhs: GetItem(field = x)
+        │   └── Root
+        └── rhs: Literal(value: 10i32, dtype: i32)
         ");
 
         let complex_binary = and(
@@ -128,27 +128,27 @@ mod tests {
             gt(get_item("age", root()), lit(18)),
         );
         assert_snapshot!(complex_binary.display_tree().to_string(), @r#"
-        BinaryExpr(and)
-        ├── lhs: BinaryExpr(=)
-        │   ├── lhs: GetItemExpr(field = name)
-        │   │   └── RootExpr
-        │   └── rhs: LiteralExpr(value: "alice", dtype: utf8)
-        └── rhs: BinaryExpr(>)
-            ├── lhs: GetItemExpr(field = age)
-            │   └── RootExpr
-            └── rhs: LiteralExpr(value: 18i32, dtype: i32)
+        Binary(and)
+        ├── lhs: Binary(=)
+        │   ├── lhs: GetItem(field = name)
+        │   │   └── Root
+        │   └── rhs: Literal(value: "alice", dtype: utf8)
+        └── rhs: Binary(>)
+            ├── lhs: GetItem(field = age)
+            │   └── Root
+            └── rhs: Literal(value: 18i32, dtype: i32)
         "#);
 
         let select_expr = select(["name", "age"], root());
         assert_snapshot!(select_expr.display_tree().to_string(), @r#"
-        SelectExpr(include): ["name", "age"]
-        └── RootExpr
+        Select(include): ["name", "age"]
+        └── Root
         "#);
 
         let select_exclude_expr = select_exclude(["internal_id", "metadata"], root());
         assert_snapshot!(select_exclude_expr.display_tree().to_string(), @r#"
-        SelectExpr(exclude): ["internal_id", "metadata"]
-        └── RootExpr
+        Select(exclude): ["internal_id", "metadata"]
+        └── Root
         "#);
 
         let cast_expr = cast(
@@ -156,18 +156,18 @@ mod tests {
             DType::Primitive(PType::I64, Nullability::NonNullable),
         );
         assert_snapshot!(cast_expr.display_tree().to_string(), @r"
-        CastExpr(target: i64)
-        └── GetItemExpr(field = value)
-            └── RootExpr
+        Cast(target: i64)
+        └── GetItem(field = value)
+            └── Root
         ");
 
         let not_expr = not(eq(get_item("active", root()), lit(true)));
         assert_snapshot!(not_expr.display_tree().to_string(), @r"
-        NotExpr
-        └── BinaryExpr(=)
-            ├── lhs: GetItemExpr(field = active)
-            │   └── RootExpr
-            └── rhs: LiteralExpr(value: true, dtype: bool)
+        Not
+        └── Binary(=)
+            ├── lhs: GetItem(field = active)
+            │   └── Root
+            └── rhs: Literal(value: true, dtype: bool)
         ");
 
         let between_expr = between(
@@ -180,11 +180,11 @@ mod tests {
             },
         );
         assert_snapshot!(between_expr.display_tree().to_string(), @r"
-        BetweenExpr
-        ├── array: GetItemExpr(field = score)
-        │   └── RootExpr
-        ├── lower (NonStrict): LiteralExpr(value: 0i32, dtype: i32)
-        └── upper (NonStrict): LiteralExpr(value: 100i32, dtype: i32)
+        Between
+        ├── array: GetItem(field = score)
+        │   └── Root
+        ├── lower (NonStrict): Literal(value: 0i32, dtype: i32)
+        └── upper (NonStrict): Literal(value: 100i32, dtype: i32)
         ");
 
         // Test nested expression
@@ -204,13 +204,13 @@ mod tests {
             ),
         );
         assert_snapshot!(nested_expr.display_tree().to_string(), @r#"
-        SelectExpr(include): ["result"]
-        └── CastExpr(target: bool)
-            └── BetweenExpr
-                ├── array: GetItemExpr(field = score)
-                │   └── RootExpr
-                ├── lower (Strict): LiteralExpr(value: 50i32, dtype: i32)
-                └── upper (NonStrict): LiteralExpr(value: 100i32, dtype: i32)
+        Select(include): ["result"]
+        └── Cast(target: bool)
+            └── Between
+                ├── array: GetItem(field = score)
+                │   └── Root
+                ├── lower (Strict): Literal(value: 50i32, dtype: i32)
+                └── upper (NonStrict): Literal(value: 100i32, dtype: i32)
         "#);
 
         let select_from_pack_expr = select(
@@ -225,14 +225,14 @@ mod tests {
             ),
         );
         assert_snapshot!(select_from_pack_expr.display_tree().to_string(), @r#"
-        SelectExpr(include): ["fizz", "buzz"]
-        └── PackExpr
-            ├── fizz: RootExpr
-            ├── bar: LiteralExpr(value: 5i32, dtype: i32)
-            └── buzz: BinaryExpr(=)
-                ├── lhs: LiteralExpr(value: 42i32, dtype: i32)
-                └── rhs: GetItemExpr(field = answer)
-                    └── RootExpr
+        Select(include): ["fizz", "buzz"]
+        └── Pack
+            ├── fizz: Root
+            ├── bar: Literal(value: 5i32, dtype: i32)
+            └── buzz: Binary(=)
+                ├── lhs: Literal(value: 42i32, dtype: i32)
+                └── rhs: GetItem(field = answer)
+                    └── Root
         "#);
     }
 }

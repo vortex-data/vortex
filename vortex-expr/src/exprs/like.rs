@@ -152,7 +152,7 @@ impl DisplayAs for LikeExpr {
                 write!(f, "{} LIKE {}", self.child(), self.pattern())
             }
             DisplayFormat::Tree => {
-                write!(f, "LikeExpr")
+                write!(f, "Like")
             }
         }
     }

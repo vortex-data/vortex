@@ -177,7 +177,7 @@ impl DisplayAs for BetweenExpr {
                 )
             }
             DisplayFormat::Tree => {
-                write!(f, "BetweenExpr")
+                write!(f, "Between")
             }
         }
     }

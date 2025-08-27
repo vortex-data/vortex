@@ -106,7 +106,7 @@ impl DisplayAs for LiteralExpr {
             DisplayFormat::Tree => {
                 write!(
                     f,
-                    "LiteralExpr(value: {}, dtype: {})",
+                    "Literal(value: {}, dtype: {})",
                     self.value,
                     self.value.dtype()
                 )

@@ -216,7 +216,7 @@ impl DisplayAs for PackExpr {
                 )
             }
             DisplayFormat::Tree => {
-                write!(f, "PackExpr")
+                write!(f, "Pack")
             }
         }
     }

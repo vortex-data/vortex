@@ -160,7 +160,7 @@ impl DisplayAs for GetItemExpr {
                 write!(f, "{}.{}", self.child, &self.field)
             }
             DisplayFormat::Tree => {
-                write!(f, "GetItemExpr(field = {})", self.field)
+                write!(f, "GetItem(field = {})", self.field)
             }
         }
     }

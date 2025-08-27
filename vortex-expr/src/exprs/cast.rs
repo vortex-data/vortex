@@ -106,7 +106,7 @@ impl DisplayAs for CastExpr {
                 write!(f, "cast({}, {})", self.child, self.target)
             }
             DisplayFormat::Tree => {
-                write!(f, "CastExpr(target: {})", self.target)
+                write!(f, "Cast(target: {})", self.target)
             }
         }
     }

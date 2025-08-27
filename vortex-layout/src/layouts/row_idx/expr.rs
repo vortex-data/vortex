@@ -22,7 +22,7 @@ impl DisplayAs for RowIdxExpr {
     fn fmt_as(&self, df: DisplayFormat, f: &mut Formatter) -> std::fmt::Result {
         match df {
             DisplayFormat::Compact => write!(f, "#row_idx"),
-            DisplayFormat::Tree => write!(f, "RowIdxExpr"),
+            DisplayFormat::Tree => write!(f, "RowIdx"),
         }
     }
 }
