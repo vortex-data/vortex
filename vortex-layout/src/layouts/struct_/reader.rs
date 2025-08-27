@@ -28,6 +28,7 @@ use crate::{
 pub struct StructReader {
     layout: StructLayout,
     name: Arc<str>,
+    child_name: Arc<str>,
     lazy_children: LazyReaderChildren,
 
     /// A `pack` expression that holds each individual field of the root DType. This expansion
@@ -62,11 +63,14 @@ impl StructReader {
         // Create an expanded root expression that contains all fields of the struct.
         let expanded_root_expr = replace_root_fields(root(), struct_dt);
 
+        let child_name = format!("{}.child", name).into();
+
         // This is where we need to do some complex things with the scan in order to split it into
         // different scans for different fields.
         Ok(Self {
             layout,
             name,
+            child_name,
             expanded_root_expr,
             lazy_children,
             field_lookup,
@@ -97,8 +101,7 @@ impl StructReader {
             .field_by_index(idx)
             .ok_or_else(|| vortex_err!("Missing field {idx}"))?;
         let name = &self.struct_fields().names()[idx];
-        self.lazy_children
-            .get(idx, &field_dtype, &format!("{}.{}", self.name, name).into())
+        self.lazy_children.get(idx, &field_dtype, &self.child_name)
     }
 
     /// Utility for partitioning an expression over the fields of a struct.
