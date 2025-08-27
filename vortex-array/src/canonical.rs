@@ -72,6 +72,7 @@ pub enum Canonical {
     Struct(StructArray),
     // TODO(joe): maybe this should be a ListView, however this will be annoying in spiral
     List(ListArray),
+    // TODO(connor)[FixedSizeList]
     VarBinView(VarBinViewArray),
     Extension(ExtensionArray),
 }

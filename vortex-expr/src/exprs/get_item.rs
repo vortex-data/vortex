@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
 
 use vortex_array::stats::Stat;
@@ -10,6 +10,7 @@ use vortex_dtype::{DType, FieldName, FieldPath};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
 
+use crate::display::{DisplayAs, DisplayFormat};
 use crate::{
     AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog, VTable, root,
     vtable,
@@ -152,12 +153,18 @@ pub fn get_item(field: impl Into<FieldName>, child: ExprRef) -> ExprRef {
     GetItemExpr::new(field, child).into_expr()
 }
 
-impl Display for GetItemExpr {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}.{}", self.child, &self.field)
+impl DisplayAs for GetItemExpr {
+    fn fmt_as(&self, df: DisplayFormat, f: &mut Formatter) -> std::fmt::Result {
+        match df {
+            DisplayFormat::Compact => {
+                write!(f, "{}.{}", self.child, &self.field)
+            }
+            DisplayFormat::Tree => {
+                write!(f, "GetItem({})", self.field)
+            }
+        }
     }
 }
-
 impl AnalysisExpr for GetItemExpr {
     fn max(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         catalog.stats_ref(&self.field_path()?, Stat::Max)

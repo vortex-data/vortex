@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Display;
 use std::hash::Hash;
 
 use vortex_array::compute::{LikeOptions, like};
@@ -10,6 +9,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_proto::expr as pb;
 
+use crate::display::{DisplayAs, DisplayFormat};
 use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
 
 vtable!(Like);
@@ -145,9 +145,20 @@ impl LikeExpr {
     }
 }
 
-impl Display for LikeExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} LIKE {}", self.child(), self.pattern())
+impl DisplayAs for LikeExpr {
+    fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match df {
+            DisplayFormat::Compact => {
+                write!(f, "{} LIKE {}", self.child(), self.pattern())
+            }
+            DisplayFormat::Tree => {
+                write!(f, "Like")
+            }
+        }
+    }
+
+    fn child_names(&self) -> Option<Vec<String>> {
+        Some(vec!["child".to_string(), "pattern".to_string()])
     }
 }
 
@@ -159,7 +170,7 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::{LikeExpr, Scope, lit, not, root};
+    use crate::{LikeExpr, Scope, get_item, lit, not, root};
 
     #[test]
     fn invert_booleans() {
@@ -186,5 +197,14 @@ mod tests {
             like_expr.return_dtype(&dtype).unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
+    }
+
+    #[test]
+    fn test_display() {
+        let expr = LikeExpr::new(get_item("name", root()), lit("%john%"), false, false);
+        assert_eq!(expr.to_string(), "$.name LIKE \"%john%\"");
+
+        let expr2 = LikeExpr::new(root(), lit("test*"), true, true);
+        assert_eq!(expr2.to_string(), "$ LIKE \"test*\"");
     }
 }

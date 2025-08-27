@@ -27,7 +27,7 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
     for (i, (action, expected)) in actions.into_iter().enumerate() {
         match action {
             Action::Compress => {
-                current_array = BtrBlocksCompressor
+                current_array = BtrBlocksCompressor::default()
                     .compress(current_array.to_canonical().vortex_unwrap().as_ref())
                     .vortex_unwrap();
                 assert_array_eq(&expected.array(), &current_array, i).unwrap();
@@ -56,7 +56,9 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
                 ])
                 .contains(&current_array.encoding_id())
                 {
-                    sorted = BtrBlocksCompressor.compress(&sorted).vortex_unwrap();
+                    sorted = BtrBlocksCompressor::default()
+                        .compress(&sorted)
+                        .vortex_unwrap();
                 }
                 assert_search_sorted(sorted, s, side, expected.search(), i).unwrap()
             }

@@ -45,9 +45,8 @@ class VortexDataset(pyarrow.dataset.Dataset):
     def schema(self) -> pyarrow.Schema:
         return self._dataset.schema()
 
-    # regarding the ignore: https://github.com/zen-xu/pyarrow-stubs/pull/258
     @override
-    def count_rows(  # pyright: ignore[reportIncompatibleMethodOverride]
+    def count_rows(
         self,
         filter: pyarrow.dataset.Expression | Expr | None = None,
         batch_size: int | None = None,
@@ -546,6 +545,7 @@ class VortexFragment(pyarrow.dataset.Fragment):
     @override
     def to_batches(
         self,
+        schema: pyarrow.Schema | None = None,
         columns: list[str] | None = None,
         filter: pyarrow.dataset.Expression | Expr | None = None,
         batch_size: int | None = None,
@@ -557,6 +557,8 @@ class VortexFragment(pyarrow.dataset.Fragment):
         memory_pool: pyarrow.MemoryPool | None = None,
     ) -> Iterator[pyarrow.RecordBatch]:
         """See :class:`vortex.dataset.VortexDataset.scanner`"""
+        if schema:
+            raise ValueError("schema is not supported")
         return self._dataset.to_batches(
             columns=columns,
             filter=filter,
@@ -572,6 +574,7 @@ class VortexFragment(pyarrow.dataset.Fragment):
     @override
     def to_table(
         self,
+        schema: pyarrow.Schema | None = None,
         columns: list[str] | None = None,
         filter: pyarrow.dataset.Expression | Expr | None = None,
         batch_size: int | None = None,
@@ -583,6 +586,8 @@ class VortexFragment(pyarrow.dataset.Fragment):
         memory_pool: pyarrow.MemoryPool | None = None,
     ) -> pyarrow.Table:
         """See :class:`vortex.dataset.VortexDataset.scanner`"""
+        if schema:
+            raise ValueError("schema is not supported")
         return self._dataset.to_table(
             columns=columns,
             filter=filter,

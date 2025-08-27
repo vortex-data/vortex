@@ -45,6 +45,13 @@ def test_scan(vxf: VortexFile):
         pass
 
 
+def test_scan_with_indices(vxf: VortexFile):
+    total_rows = 0
+    for rb in vxf.scan(indices=vx.array([1, 10, 1_000, 999_999])):
+        total_rows += len(rb)
+    assert total_rows == 4
+
+
 def test_to_arrow_batch_size(vxf: VortexFile):
     assert len(list(vxf.to_arrow(batch_size=1_000_000))) == 1, "batch_size=1_000_000"
     assert len(list(vxf.to_arrow(batch_size=1_000))) == 1_000, "batch_size=1_000"
@@ -58,7 +65,7 @@ def test_to_arrow_columns(vxf: VortexFile):
 def test_empty_file(tmpdir_factory):  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]
     # test for writing empty files with null columns
     # create an empty table with schema `empty: null`
-    table = pa.Table.from_pydict({"empty": []})  # pyright: ignore[reportUnknownMemberType]
+    table = pa.Table.from_pydict({"empty": []})
     assert repr(table.schema) == "empty: null"
 
     # cast to Vortex array
@@ -75,7 +82,7 @@ def test_stream_pyarrow(tmpdir_factory):  # pyright: ignore[reportUnknownParamet
     import pyarrow.parquet as pq
 
     data_dir = tmpdir_factory.mktemp("data")  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
-    table = pa.Table.from_pydict(  # pyright: ignore[reportUnknownMemberType]
+    table = pa.Table.from_pydict(
         {
             "names": ["Alice", "Bob", "Carol"],
             "ages": [21, 22, 23],

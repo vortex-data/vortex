@@ -398,7 +398,7 @@ impl VarBinViewArray {
 
         match dtype {
             DType::Utf8(_) => Self::validate_views(views, buffers, validity, |string| {
-                std::str::from_utf8(string).is_ok()
+                simdutf8::basic::from_utf8(string).is_ok()
             })?,
             DType::Binary(_) => Self::validate_views(views, buffers, validity, |_| true)?,
             _ => vortex_bail!("invalid DType {dtype} for `VarBinViewArray`"),

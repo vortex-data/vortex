@@ -8,7 +8,6 @@ use std::sync::Arc;
 
 use arrow_array::cast::AsArray;
 use arrow_array::{RecordBatch, RecordBatchIterator, RecordBatchReader};
-use arrow_pyarrow::IntoPyArrow;
 use arrow_schema::{ArrowError, DataType};
 use parking_lot::Mutex;
 use pyo3::prelude::*;
@@ -20,6 +19,7 @@ use vortex::iter::{ArrayIterator, ArrayIteratorAdapter, ArrayIteratorExt};
 use vortex::{Canonical, IntoArray};
 
 use crate::arrays::PyArrayRef;
+use crate::arrow::IntoPyArrow;
 use crate::dtype::PyDType;
 use crate::install_module;
 use crate::iter::python::PythonArrayIterator;

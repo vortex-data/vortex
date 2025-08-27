@@ -164,6 +164,11 @@ jobs:
           apt install -y wget curl build-essential
       - name: Print GLIBC version
         run: ldd --version
+      - name: Verify GLIBC version
+        run: |
+          set -eux
+
+          ldd --version | grep 'GLIBC 2.31'
       - uses: actions/setup-java@v5
         with:
           distribution: "corretto"

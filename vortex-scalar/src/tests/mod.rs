@@ -3,6 +3,9 @@
 
 //! Test modules for the vortex-scalar crate.
 
+mod casting;
 mod consistency;
-mod core;
+mod nested;
+mod nullability;
+mod primitives;
 mod round_trip;

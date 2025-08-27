@@ -69,130 +69,128 @@ impl FileOpener for VortexOpener {
             .create(projected_schema, logical_schema.clone());
 
         Ok(TokioRuntime::default()
-            .drive(move |handle| {
-                async move {
-                    let vxf = file_cache
-                        .try_get(&file_meta.object_meta, object_store, handle.clone())
-                        .await
-                        .map_err(|e| {
-                            DataFusionError::Execution(format!("Failed to open Vortex file {e}"))
-                        })?;
+            .drive(move |handle| async move {
+                let vxf = file_cache
+                    .try_get(&file_meta.object_meta, object_store, handle.clone())
+                    .await
+                    .map_err(|e| {
+                        DataFusionError::Execution(format!("Failed to open Vortex file {e}"))
+                    })?;
 
-                    let physical_file_schema =
-                        Arc::new(vxf.dtype().to_arrow_schema().map_err(|e| {
-                            DataFusionError::Execution(format!(
-                                "Failed to convert file schema to arrow: {e}"
-                            ))
-                        })?);
+                let layout_reader = vxf.layout_reader(&handle).map_err(|e| {
+                    DataFusionError::Execution(format!("Failed to create layout reader: {e}"))
+                })?;
 
-                    if let Some(expr_adapter_factory) = expr_adapter_factory {
-                        let partition_values = partition_fields
-                            .iter()
-                            .cloned()
-                            .zip(file.partition_values)
+                let physical_file_schema =
+                    Arc::new(vxf.dtype().to_arrow_schema().map_err(|e| {
+                        DataFusionError::Execution(format!(
+                            "Failed to convert file schema to arrow: {e}"
+                        ))
+                    })?);
+
+                if let Some(expr_adapter_factory) = expr_adapter_factory {
+                    let partition_values = partition_fields
+                        .iter()
+                        .cloned()
+                        .zip(file.partition_values)
+                        .collect::<Vec<_>>();
+
+                    // The adapter rewrites the expression to the local file schema, allowing
+                    // for schema evolution and divergence between the table's schema and individual files.
+                    filter = filter
+                        .map(|filter| {
+                            let expr = expr_adapter_factory
+                                .create(logical_schema.clone(), physical_file_schema.clone())
+                                .with_partition_values(partition_values)
+                                .rewrite(filter)?;
+
+                            // Expression might now reference columns that don't exist in the file, so we can give it
+                            // another simplification pass.
+                            PhysicalExprSimplifier::new(&physical_file_schema).simplify(expr)
+                        })
+                        .transpose()?;
+
+                    predicate_file_schema = physical_file_schema.clone();
+                }
+
+                let (schema_mapping, adapted_projections) =
+                    schema_adapter.map_schema(&physical_file_schema)?;
+
+                let fields = adapted_projections
+                    .iter()
+                    .map(|idx| {
+                        let field = logical_schema.field(*idx);
+                        FieldName::from(field.name().as_str())
+                    })
+                    .collect::<Vec<_>>();
+                let projection_expr = select(fields, root());
+
+                let mut scan_builder = ScanBuilder::new();
+                if let Some(file_range) = file_meta.range {
+                    scan_builder = apply_byte_range(
+                        file_range,
+                        file_meta.object_meta.size,
+                        vxf.row_count(),
+                        scan_builder,
+                    );
+                }
+
+                let filter = filter
+                    .and_then(|f| {
+                        let exprs = split_conjunction(&f)
+                            .into_iter()
+                            .filter(|expr| can_be_pushed_down(expr, &predicate_file_schema))
                             .collect::<Vec<_>>();
 
-                        // The adapter rewrites the expression to the local file schema, allowing
-                        // for schema evolution and divergence between the table's schema and individual files.
-                        filter = filter
-                            .map(|filter| {
-                                let expr = expr_adapter_factory
-                                    .create(logical_schema.clone(), physical_file_schema.clone())
-                                    .with_partition_values(partition_values)
-                                    .rewrite(filter)?;
+                        make_vortex_predicate(&exprs).transpose()
+                    })
+                    .transpose()
+                    .map_err(|e| DataFusionError::External(e.into()))?;
 
-                                // Expression might now reference columns that don't exist in the file, so we can give it
-                                // another simplification pass.
-                                PhysicalExprSimplifier::new(&physical_file_schema).simplify(expr)
-                            })
-                            .transpose()?;
-
-                        predicate_file_schema = physical_file_schema.clone();
-                    }
-
-                    let (schema_mapping, adapted_projections) =
-                        schema_adapter.map_schema(&physical_file_schema)?;
-
-                    let fields = adapted_projections
-                        .iter()
-                        .map(|idx| {
-                            let field = logical_schema.field(*idx);
-                            FieldName::from(field.name().as_str())
-                        })
-                        .collect::<Vec<_>>();
-                    let projection_expr = select(fields, root());
-
-                    let mut scan_builder = ScanBuilder::new();
-                    if let Some(file_range) = file_meta.range {
-                        scan_builder = apply_byte_range(
-                            file_range,
-                            file_meta.object_meta.size,
-                            vxf.row_count(),
-                            scan_builder,
-                        );
-                    }
-
-                    let filter = filter
-                        .and_then(|f| {
-                            let exprs = split_conjunction(&f)
-                                .into_iter()
-                                .filter(|expr| can_be_pushed_down(expr, &predicate_file_schema))
-                                .collect::<Vec<_>>();
-
-                            make_vortex_predicate(&exprs).transpose()
-                        })
-                        .transpose()
-                        .map_err(|e| DataFusionError::External(e.into()))?;
-
-                    if let Some(limit) = limit
-                        && filter.is_none()
-                    {
-                        scan_builder = scan_builder.with_limit(limit);
-                    }
-
-                    let stream = scan_builder
-                        .with_metrics(metrics)
-                        .with_projection(projection_expr)
-                        .with_some_filter(filter)
-                        .map(move |chunk| {
-                            let st = chunk.to_struct()?;
-                            st.into_record_batch()
-                        })
-                        .into_tokio_stream(vxf.layout_reader(&handle).map_err(|e| {
-                            DataFusionError::Execution(format!(
-                                "Failed to create Vortex stream: {e}"
-                            ))
-                        })?)
-                        .map_ok(move |rb| {
-                            // We try and slice the stream into respecting datafusion's configured batch size.
-                            stream::iter(
-                                (0..rb.num_rows().div_ceil(batch_size * 2))
-                                    .flat_map(move |block_idx| {
-                                        let offset = block_idx * batch_size * 2;
-
-                                        // If we have less than two batches worth of rows left, we keep them together as a single batch.
-                                        if rb.num_rows() - offset < 2 * batch_size {
-                                            let length = rb.num_rows() - offset;
-                                            [Some(rb.slice(offset, length)), None].into_iter()
-                                        } else {
-                                            let first = rb.slice(offset, batch_size);
-                                            let second = rb.slice(offset + batch_size, batch_size);
-                                            [Some(first), Some(second)].into_iter()
-                                        }
-                                    })
-                                    .flatten()
-                                    .map(Ok),
-                            )
-                        })
-                        .map_err(|e: VortexError| ArrowError::ExternalError(Box::new(e)))
-                        .try_flatten()
-                        .map(move |batch| {
-                            batch.and_then(|b| schema_mapping.map_batch(b).map_err(Into::into))
-                        })
-                        .boxed();
-
-                    Ok(stream)
+                if let Some(limit) = limit
+                    && filter.is_none()
+                {
+                    scan_builder = scan_builder.with_limit(limit);
                 }
+
+                let stream = scan_builder
+                    .with_metrics(metrics)
+                    .with_projection(projection_expr)
+                    .with_some_filter(filter)
+                    .map(move |chunk| {
+                        let st = chunk.to_struct()?;
+                        st.into_record_batch()
+                    })
+                    .into_tokio_stream(layout_reader)
+                    .map_ok(move |rb| {
+                        // We try and slice the stream into respecting datafusion's configured batch size.
+                        stream::iter(
+                            (0..rb.num_rows().div_ceil(batch_size * 2))
+                                .flat_map(move |block_idx| {
+                                    let offset = block_idx * batch_size * 2;
+
+                                    // If we have less than two batches worth of rows left, we keep them together as a single batch.
+                                    if rb.num_rows() - offset < 2 * batch_size {
+                                        let length = rb.num_rows() - offset;
+                                        [Some(rb.slice(offset, length)), None].into_iter()
+                                    } else {
+                                        let first = rb.slice(offset, batch_size);
+                                        let second = rb.slice(offset + batch_size, batch_size);
+                                        [Some(first), Some(second)].into_iter()
+                                    }
+                                })
+                                .flatten()
+                                .map(Ok),
+                        )
+                    })
+                    .map_err(|e: VortexError| ArrowError::ExternalError(Box::new(e)))
+                    .try_flatten()
+                    .map(move |batch| {
+                        batch.and_then(|b| schema_mapping.map_batch(b).map_err(Into::into))
+                    })
+                    .boxed();
+
+                Ok(stream)
             })
             .boxed())
     }

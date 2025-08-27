@@ -73,6 +73,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getVariant(
         DType::Binary(_) => DTYPE_BINARY,
         DType::Struct(..) => DTYPE_STRUCT,
         DType::List(..) => DTYPE_LIST,
+        DType::FixedSizeList(..) => {
+            unimplemented!("TODO(connor)[FixedSizeList]")
+        }
         DType::Extension(_) => DTYPE_EXTENSION,
     }
 }

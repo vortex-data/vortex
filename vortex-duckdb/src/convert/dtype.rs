@@ -312,6 +312,9 @@ impl TryFrom<&DType> for LogicalType {
                 let element_logical_type = LogicalType::try_from(element_dtype.as_ref())?;
                 return LogicalType::list_type(element_logical_type);
             }
+            DType::FixedSizeList(..) => {
+                unimplemented!("TODO(connor)[FixedSizeList]")
+            }
             DType::Extension(ext_dtype) => {
                 if datetime::is_temporal_ext_type(ext_dtype.id()) {
                     return LogicalType::temporal_type(ext_dtype);

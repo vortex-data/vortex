@@ -9,7 +9,6 @@ mod native;
 pub(crate) mod py;
 
 use arrow_array::{Array as ArrowArray, ArrayRef as ArrowArrayRef};
-use arrow_pyarrow::ToPyArrow;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
@@ -22,6 +21,7 @@ use vortex::{Array, ArrayRef};
 
 use crate::arrays::native::PyNativeArray;
 use crate::arrays::py::{PyPythonArray, PythonArray};
+use crate::arrow::ToPyArrow;
 use crate::dtype::PyDType;
 use crate::python_repr::PythonRepr;
 use crate::scalar::PyScalar;

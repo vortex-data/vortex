@@ -305,7 +305,7 @@ jobs:
       - name: Run TPC-H
         if: ${{ matrix.suite == 'tpc-h' }}
         run: |
-          cargo run --bin query_bench -- tpch -i1 --scale-factor 0.1
+          cargo run --bin query_bench -- tpch -i2 --scale-factor 0.1
       - name: Run FFI Example
         if: ${{ matrix.suite == 'ffi' }}
         run: |
@@ -316,7 +316,7 @@ jobs:
           rustup component add llvm-tools-preview
           grcov . --binary-path target/debug/ -s . -t lcov --llvm --ignore-not-existing \
             --ignore '../*' --ignore '/*' --ignore 'fuzz/*' --ignore 'bench-vortex/*' \
-            --ignore 'home/*' --ignore 'xtask/*' --ignore 'target/*'\
+            --ignore 'home/*' --ignore 'xtask/*' --ignore 'target/*' --ignore 'vortex-error/*' \
             --ignore 'vortex-python/*' --ignore 'vortex-jni/*' --ignore 'vortex-flatbuffers/*' \
             --ignore 'vortex-proto/*' --ignore 'vortex-tui/*' --ignore 'vortex-datafusion/examples/*' \
             --ignore 'vortex-ffi/examples/*' --ignore '*/arbitrary/*' --ignore '*/arbitrary.rs' --ignore 'vortex-cxx/*' \
@@ -375,7 +375,10 @@ jobs:
         working-directory: ./java
 
   bench-codspeed:
-    name: Benchmark with Codspeed
+    strategy:
+      matrix:
+        shard: [1, 2]
+    name: "Benchmark with Codspeed (Shard #${{ matrix.shard }})"
     timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
@@ -383,7 +386,6 @@ jobs:
       - extras=s3-cache
       - image=ubuntu24-full-x64
       - tag=bench-codspeed
-
     steps:
       - uses: runs-on/action@v2
         with:
@@ -395,9 +397,22 @@ jobs:
         shell: bash
         run: cargo install --force cargo-codspeed --locked
 
-      - name: Build benchmarks
+      - name: Build benchmarks (shard 1)
         env:
           RUSTFLAGS: "-C target-feature=+avx2"
+        if: ${{ matrix.shard == 1 }}
+        run: |
+          cargo codspeed build --features test-harness \
+            -p vortex-buffer \
+            -p vortex-array \
+            -p vortex \
+            -p vortex-fastlanes \
+            --profile bench
+
+      - name: Build benchmarks (shard 2)
+        env:
+          RUSTFLAGS: "-C target-feature=+avx2"
+        if: ${{ matrix.shard == 2 }}
         run: |
           cargo codspeed build --features test-harness \
             --exclude bench-vortex \
@@ -407,6 +422,10 @@ jobs:
             --exclude vortex-python \
             --exclude vortex-tui \
             --exclude xtask \
+            --exclude vortex-buffer \
+            --exclude vortex-array \
+            --exclude vortex \
+            --exclude vortex-fastlanes \
             --workspace \
             --profile bench
 

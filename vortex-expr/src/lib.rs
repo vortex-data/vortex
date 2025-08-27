@@ -62,6 +62,9 @@ use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail};
 use vortex_utils::aliases::hash_set::HashSet;
 pub use vtable::*;
 
+pub mod display;
+
+use crate::display::{DisplayAs, DisplayFormat};
 use crate::dyn_traits::DynEq;
 use crate::traversal::{NodeExt, ReferenceCollector};
 
@@ -74,7 +77,7 @@ pub type ExprRef = Arc<dyn VortexExpr>;
 
 /// Represents logical operation on [`ArrayRef`]s
 pub trait VortexExpr:
-    'static + Send + Sync + Debug + Display + DynEq + DynHash + private::Sealed + AnalysisExpr
+    'static + Send + Sync + Debug + DisplayAs + DynEq + DynHash + AnalysisExpr + private::Sealed
 {
     /// Convert expression reference to reference of [`Any`] type
     fn as_any(&self) -> &dyn Any;
@@ -148,11 +151,71 @@ impl dyn VortexExpr + '_ {
             result.dtype(),
             &self.return_dtype(scope.dtype())?,
             "Expression {} returned dtype {} but declared return_dtype of {}",
-            self,
+            &self,
             result.dtype(),
             self.return_dtype(scope.dtype())?,
         );
         Ok(result)
+    }
+
+    /// Display the expression as a formatted tree structure.
+    ///
+    /// This provides a hierarchical view of the expression that shows the relationships
+    /// between parent and child expressions, making complex nested expressions easier
+    /// to understand and debug.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use vortex_dtype::{DType, Nullability, PType};
+    /// # use vortex_expr::{and, cast, eq, get_item, gt, lit, not, root, select, IntoExpr, LikeExpr};
+    /// // Build a complex nested expression
+    /// let complex_expr = select(
+    ///     ["result"],
+    ///     and(
+    ///         not(eq(get_item("status", root()), lit("inactive"))),
+    ///         and(
+    ///             LikeExpr::new(get_item("name", root()), lit("%admin%"), false, false).into_expr(),
+    ///             gt(
+    ///                 cast(get_item("score", root()), DType::Primitive(PType::F64, Nullability::NonNullable)),
+    ///                 lit(75.0)
+    ///             )
+    ///         )
+    ///     )
+    /// );
+    ///
+    /// println!("{}", complex_expr.display_tree());
+    /// ```
+    ///
+    /// This produces output like:
+    ///
+    /// ```text
+    /// Select(include): {result}
+    /// └── Binary(and)
+    ///     ├── lhs: Not
+    ///     │   └── Binary(=)
+    ///     │       ├── lhs: GetItem(status)
+    ///     │       │   └── Root
+    ///     │       └── rhs: Literal(value: "inactive", dtype: utf8)
+    ///     └── rhs: Binary(and)
+    ///         ├── lhs: Like
+    ///         │   ├── child: GetItem(name)
+    ///         │   │   └── Root
+    ///         │   └── pattern: Literal(value: "%admin%", dtype: utf8)
+    ///         └── rhs: Binary(>)
+    ///             ├── lhs: Cast(target: f64)
+    ///             │   └── GetItem(score)
+    ///             │       └── Root
+    ///             └── rhs: Literal(value: 75f64, dtype: f64)
+    /// ```
+    pub fn display_tree(&self) -> impl Display {
+        display::DisplayTreeExpr(self)
+    }
+}
+
+impl Display for dyn VortexExpr + '_ {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        DisplayAs::fmt_as(self, DisplayFormat::Compact, f)
     }
 }
 
@@ -223,7 +286,17 @@ impl<V: VTable> Debug for ExprAdapter<V> {
 
 impl<V: VTable> Display for ExprAdapter<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        Display::fmt(&self.0, f)
+        DisplayAs::fmt_as(&self.0, DisplayFormat::Compact, f)
+    }
+}
+
+impl<V: VTable> DisplayAs for ExprAdapter<V> {
+    fn fmt_as(&self, df: DisplayFormat, f: &mut Formatter) -> std::fmt::Result {
+        DisplayAs::fmt_as(&self.0, df, f)
+    }
+
+    fn child_names(&self) -> Option<Vec<String>> {
+        DisplayAs::child_names(&self.0)
     }
 }
 

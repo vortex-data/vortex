@@ -4,7 +4,6 @@
 use std::sync::Arc;
 
 use arrow_array::RecordBatchReader;
-use arrow_pyarrow::IntoPyArrow;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
@@ -18,6 +17,7 @@ use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::scan::SplitBy;
 
 use crate::arrays::PyArrayRef;
+use crate::arrow::IntoPyArrow;
 use crate::dataset::PyVortexDataset;
 use crate::dtype::PyDType;
 use crate::expr::PyExpr;

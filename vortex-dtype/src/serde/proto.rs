@@ -99,6 +99,10 @@ impl From<&DType> for pb::DType {
                     element_type: Some(Box::new(l.as_ref().into())),
                     nullable: (*n).into(),
                 })),
+                DType::FixedSizeList(..) => {
+                    // TODO(connor)[FixedSizeList]
+                    unimplemented!("TODO(connor)[FixedSizeList]")
+                }
                 DType::Extension(e) => DtypeType::Extension(Box::new(pb::Extension {
                     id: e.id().as_ref().into(),
                     storage_dtype: Some(Box::new(e.storage_dtype().into())),
