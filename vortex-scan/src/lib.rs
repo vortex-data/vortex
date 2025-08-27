@@ -217,8 +217,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
     ) -> VortexResult<impl futures::Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
         let row_range = self.row_range.clone();
         let concurrency = self.concurrency;
-        let x = self.prepare()?;
-        x.into_tokio_stream(row_range, concurrency)
+        self.prepare()?.into_tokio_stream(row_range, concurrency)
     }
 }
 
