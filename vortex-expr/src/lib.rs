@@ -190,23 +190,23 @@ impl dyn VortexExpr + '_ {
     /// This produces output like:
     ///
     /// ```text
-    /// SelectExpr(include): {result}
-    /// └── BinaryExpr(and)
-    ///     ├── lhs: NotExpr
-    ///     │   └── BinaryExpr(=)
-    ///     │       ├── lhs: GetItemExpr(field = status)
-    ///     │       │   └── RootExpr
-    ///     │       └── rhs: LiteralExpr(value: "inactive", dtype: utf8)
-    ///     └── rhs: BinaryExpr(and)
-    ///         ├── lhs: LikeExpr
-    ///         │   ├── child: GetItemExpr(field = name)
-    ///         │   │   └── RootExpr
-    ///         │   └── pattern: LiteralExpr(value: "%admin%", dtype: utf8)
-    ///         └── rhs: BinaryExpr(>)
-    ///             ├── lhs: CastExpr(target: f64)
-    ///             │   └── GetItemExpr(field = score)
-    ///             │       └── RootExpr
-    ///             └── rhs: LiteralExpr(value: 75f64, dtype: f64)
+    /// Select(include): {result}
+    /// └── Binary(and)
+    ///     ├── lhs: Not
+    ///     │   └── Binary(=)
+    ///     │       ├── lhs: GetItem(status)
+    ///     │       │   └── Root
+    ///     │       └── rhs: Literal(value: "inactive", dtype: utf8)
+    ///     └── rhs: Binary(and)
+    ///         ├── lhs: Like
+    ///         │   ├── child: GetItem(name)
+    ///         │   │   └── Root
+    ///         │   └── pattern: Literal(value: "%admin%", dtype: utf8)
+    ///         └── rhs: Binary(>)
+    ///             ├── lhs: Cast(target: f64)
+    ///             │   └── GetItem(score)
+    ///             │       └── Root
+    ///             └── rhs: Literal(value: 75f64, dtype: f64)
     /// ```
     pub fn display_tree(&self) -> impl Display {
         display::DisplayTreeExpr(self)
