@@ -3,7 +3,6 @@
 
 use std::collections::VecDeque;
 use std::path::Path;
-use std::sync::Arc;
 
 use vortex::error::{VortexExpect, VortexResult};
 use vortex::file::VortexOpenOptions;
@@ -14,11 +13,11 @@ pub async fn segments(file: impl AsRef<Path>) -> VortexResult<()> {
 
     let segment_map = vxf.footer().segment_map();
 
-    let mut segment_names: Vec<Option<Arc<str>>> = vec![None; segment_map.len()];
+    let mut segment_names: Vec<Option<String>> = vec![None; segment_map.len()];
 
     let root_layout = vxf.footer().layout().clone();
 
-    let mut queue = VecDeque::<(Arc<str>, LayoutRef)>::from_iter([("".into(), root_layout)]);
+    let mut queue = VecDeque::<(String, LayoutRef)>::from_iter([("".into(), root_layout)]);
     while !queue.is_empty() {
         let (name, layout) = queue.pop_front().vortex_expect("queue is not empty");
         for segment in layout.segment_ids() {
@@ -26,7 +25,7 @@ pub async fn segments(file: impl AsRef<Path>) -> VortexResult<()> {
         }
 
         for (child_layout, child_name) in layout.children()?.into_iter().zip(layout.child_names()) {
-            queue.push_back((child_name, child_layout));
+            queue.push_back((format!("{}.{}", name, child_name), child_layout));
         }
     }
 
