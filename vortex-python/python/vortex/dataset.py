@@ -94,8 +94,8 @@ class VortexDataset(pyarrow.dataset.Dataset):
     @override
     def get_fragments(self, filter: pyarrow.dataset.Expression | Expr | None = None) -> Iterator[VortexFragment]:
         """A fragment for each file in the Dataset."""
-        for l, r in self._dataset.splits():
-            yield VortexFragment(self, (l, r))
+        for left, right in self._dataset.splits():
+            yield VortexFragment(self, (left, right))
 
     @override
     def head(
