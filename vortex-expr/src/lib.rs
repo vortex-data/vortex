@@ -228,10 +228,7 @@ pub trait VortexExprExt {
 
     fn to_operator(&self, root: &dyn Array) -> VortexResult<Option<OperatorRef>>;
 
-    fn to_operator_unoptimized(
-        &self,
-        root: &dyn Array,
-    ) -> VortexResult<Option<OperatorRef>>;
+    fn to_operator_unoptimized(&self, root: &dyn Array) -> VortexResult<Option<OperatorRef>>;
 }
 
 impl VortexExprExt for ExprRef {
@@ -249,10 +246,7 @@ impl VortexExprExt for ExprRef {
         reduce_up(operator).map(Some)
     }
 
-    fn to_operator_unoptimized(
-        &self,
-        root: &dyn Array,
-    ) -> VortexResult<Option<OperatorRef>> {
+    fn to_operator_unoptimized(&self, root: &dyn Array) -> VortexResult<Option<OperatorRef>> {
         let Some(root_op) = root.to_operator()? else {
             return Ok(None);
         };

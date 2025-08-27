@@ -10,6 +10,7 @@ mod scalar_compare;
 use std::any::Any;
 use std::fmt::Debug;
 use std::sync::Arc;
+
 pub use compare::CompareOperator;
 use dyn_hash::DynHash;
 pub use scalar_compare::ScalarCompareOperator;
@@ -18,7 +19,6 @@ use vortex_error::VortexResult;
 use crate::pipeline::Kernel;
 use crate::pipeline::types::VType;
 use crate::pipeline::vec::VectorId;
-
 
 pub type OperatorRef = Arc<dyn Operator>;
 

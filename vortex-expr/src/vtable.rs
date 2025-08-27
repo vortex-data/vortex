@@ -4,6 +4,7 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::ops::Deref;
+
 use vortex_array::pipeline::OperatorRef;
 use vortex_array::{ArrayRef, DeserializeMetadata, SerializeMetadata};
 use vortex_dtype::DType;

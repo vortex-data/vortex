@@ -10,7 +10,9 @@ use num_traits::WrappingAdd;
 use vortex_array::Array;
 use vortex_array::compute::Operator as BinaryOperator;
 use vortex_array::pipeline::bits::BitView;
-use vortex_array::pipeline::operators::{BindContext, Operator, OperatorRef, ScalarCompareOperator};
+use vortex_array::pipeline::operators::{
+    BindContext, Operator, OperatorRef, ScalarCompareOperator,
+};
 use vortex_array::pipeline::vec::VectorId;
 use vortex_array::pipeline::view::ViewMut;
 use vortex_array::pipeline::{Element, Kernel, KernelContext, PipelineVTable, VType};

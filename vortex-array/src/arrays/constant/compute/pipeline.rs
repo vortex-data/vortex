@@ -17,8 +17,7 @@ use crate::pipeline::{Element, Kernel, KernelContext, PipelineVTable, VType};
 
 impl PipelineVTable<ConstantVTable> for ConstantVTable {
     fn to_operator(array: &ConstantArray) -> VortexResult<Option<OperatorRef>> {
-        Ok(ConstantOperator::maybe_new(array.scalar.clone())
-            .map(|c| Arc::new(c) as OperatorRef))
+        Ok(ConstantOperator::maybe_new(array.scalar.clone()).map(|c| Arc::new(c) as OperatorRef))
     }
 }
 

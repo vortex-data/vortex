@@ -5,8 +5,8 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use vortex_array::compute::{add, and_kleene, compare, or_kleene, sub};
-use vortex_array::pipeline::operators::CompareOperator;
 use vortex_array::pipeline::OperatorRef;
+use vortex_array::pipeline::operators::CompareOperator;
 use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata, compute};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
@@ -14,8 +14,8 @@ use vortex_proto::expr as pb;
 
 use crate::display::{DisplayAs, DisplayFormat};
 use crate::{
-    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Operator, Scope,
-    StatsCatalog, VTable, lit, vtable,
+    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Operator, Scope, StatsCatalog,
+    VTable, lit, vtable,
 };
 
 vtable!(Binary);
@@ -111,10 +111,7 @@ impl VTable for BinaryVTable {
         Ok(DType::Bool((lhs.is_nullable() || rhs.is_nullable()).into()))
     }
 
-    fn operator(
-        expr: &BinaryExpr,
-        children: Vec<OperatorRef>,
-    ) -> Option<OperatorRef> {
+    fn operator(expr: &BinaryExpr, children: Vec<OperatorRef>) -> Option<OperatorRef> {
         let [lhs, rhs] = children
             .try_into()
             .ok()
