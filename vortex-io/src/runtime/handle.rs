@@ -282,24 +282,12 @@ impl IoDriver for ObjectStoreIo {
         let store = self.store.clone();
         let path = self.path.clone();
 
-        // We spawn onto a Tokio Runtime so that we have a local handle.
-        let (send, recv) = oneshot::channel();
-
-        TOKIO.spawn(async move {
+        async move {
             let range = offset..offset + length as u64;
             // FIXME(ngates): see object_store.rs
             let bytes = store.get_range(&path, range).await?;
             let buffer = ByteBuffer::from(bytes).aligned(alignment);
-            if let Err(e) = send.send(Ok(buffer)) {
-                log::trace!("Failed to send object store read result: {e}");
-            }
-            Ok::<_, VortexError>(())
-        });
-
-        async move {
-            recv.await
-                .map_err(|e| vortex_err!("Sender dropped {e}"))
-                .vortex_expect("Sender dropped")
+            Ok(buffer)
         }
         .boxed()
     }
