@@ -12,7 +12,7 @@ use crate::{SparseArray, SparseVTable};
 
 impl OperationsVTable<SparseVTable> for SparseVTable {
     fn slice(array: &SparseArray, range: Range<usize>) -> ArrayRef {
-        let new_patches = array.patches().slice(range.start..range.end);
+        let new_patches = array.patches().slice(range.clone());
 
         let Some(new_patches) = new_patches else {
             return ConstantArray::new(array.fill_scalar().clone(), range.len()).into_array();

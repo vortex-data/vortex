@@ -27,10 +27,10 @@ impl OperationsVTable<BitPackedVTable> for BitPackedVTable {
             BitPackedArray::new_unchecked(
                 array.packed().slice(encoded_start..encoded_stop),
                 array.dtype.clone(),
-                array.validity().slice(range.start..range.end),
+                array.validity().slice(range.clone()),
                 array
                     .patches()
-                    .and_then(|p| p.slice(range.start..range.end)),
+                    .and_then(|p| p.slice(range.clone())),
                 array.bit_width(),
                 range.len(),
                 offset as u16,
