@@ -24,14 +24,12 @@ impl SegmentSource for FileSegmentSource {
         let segment_map = self.segment_map.clone();
         let file = self.file.clone();
         async move {
-            log::info!("Requesting segment {} from {}", id, file.name());
             let spec = segment_map
                 .get(*id as usize)
                 .ok_or_else(|| vortex_err!("Segment {} not found", id))?;
             let resp = file
                 .read(spec.offset, spec.length as usize, spec.alignment)
                 .await;
-            log::info!("Finished segment {} from {}", id, file.name());
             resp
         }
         .boxed()

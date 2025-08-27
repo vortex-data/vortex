@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
@@ -9,6 +10,7 @@ use url::Url;
 use vortex::error::VortexExpect;
 use vortex_duckdb::duckdb::{Connection, Database};
 
+use crate::statpopgen::StatPopGenBenchmark;
 use crate::{BenchmarkDataset, Format, IdempotentPath};
 
 #[derive(Debug, Clone)]
@@ -30,6 +32,7 @@ impl DuckDBObject {
 pub struct DuckDBCtx {
     pub db: Database,
     pub connection: Connection,
+    pub db_path: Option<PathBuf>,
 }
 
 impl DuckDBCtx {
@@ -45,24 +48,60 @@ impl DuckDBCtx {
                 format!("tpcds/{scale_factor}/{}", format.name()).to_data_path()
             }
             BenchmarkDataset::PublicBi { .. } => todo!(),
+            BenchmarkDataset::StatPopGen { n_rows } => {
+                format!("statpopgen/{n_rows}/{}", format.name()).to_data_path()
+            }
         };
         std::fs::create_dir_all(&dir)?;
         let db_path = dir.join("duckdb.db");
         if delete_database {
             std::fs::remove_file(&db_path)?;
         }
-        let db = Database::open(db_path)?;
+        let db = Database::open(&db_path)?;
         let connection = db.connect()?;
-
         vortex_duckdb::register_table_functions(&connection)?;
-        Ok(Self { db, connection })
+
+        Ok(Self {
+            db,
+            connection,
+            db_path: Some(db_path),
+        })
+    }
+
+    pub fn reopen(&mut self) -> Result<()> {
+        // take ownership of the connection & database
+        let mut connection = unsafe { Connection::borrow(self.connection.as_ptr()) };
+        std::mem::swap(&mut self.connection, &mut connection);
+        let mut db = unsafe { Database::borrow(self.db.as_ptr()) };
+        std::mem::swap(&mut self.db, &mut db);
+
+        // drop the connection, then the database (order might be important?)
+        // NB: self.db and self.connection will be dangling pointers, which we'll fix below
+        drop(connection);
+        drop(db);
+
+        let mut db = match &self.db_path {
+            Some(path) => Database::open(path),
+            None => Database::open_in_memory(),
+        }?;
+        let mut connection = db.connect()?;
+        vortex_duckdb::register_table_functions(&connection)?;
+
+        std::mem::swap(&mut self.connection, &mut connection);
+        std::mem::swap(&mut self.db, &mut db);
+
+        Ok(())
     }
 
     pub fn new_in_memory() -> Result<Self> {
         let db = Database::open_in_memory()?;
         let connection = db.connect()?;
         vortex_duckdb::register_table_functions(&connection)?;
-        Ok(Self { db, connection })
+        Ok(Self {
+            db,
+            connection,
+            db_path: None,
+        })
     }
 
     /// Execute DuckDB queries for benchmarks using the internal connection
@@ -154,9 +193,9 @@ impl DuckDBCtx {
                 for table_name in &tables {
                     let table_path = format!("{base_dir}{table_name}_*.{extension}");
                     commands.push_str(&format!(
-                        "CREATE {} IF NOT EXISTS {table_name} AS SELECT * FROM read_{extension}('{table_path}');\n",
-                        duckdb_object.to_str(),
-                    ));
+                                "CREATE {} IF NOT EXISTS {table_name} AS SELECT * FROM read_{extension}('{table_path}');\n",
+                                duckdb_object.to_str(),
+                            ));
                 }
                 commands
             }
@@ -173,13 +212,20 @@ impl DuckDBCtx {
                 for table_name in tables {
                     let table_path = format!("{base_dir}{table_name}.{extension}");
                     commands.push_str(&format!(
-                        "CREATE {} IF NOT EXISTS {table_name} AS SELECT * FROM read_{extension}('{table_path}');\n",
-                        duckdb_object.to_str(),
-                    ));
+                                "CREATE {} IF NOT EXISTS {table_name} AS SELECT * FROM read_{extension}('{table_path}');\n",
+                                duckdb_object.to_str(),
+                            ));
                 }
                 commands
             }
             BenchmarkDataset::PublicBi { .. } => todo!(),
+            BenchmarkDataset::StatPopGen { .. } => {
+                let path = format!("{base_dir}{}.{extension}", StatPopGenBenchmark::FILE_NAME);
+                format!(
+                    "CREATE {} IF NOT EXISTS statpopgen AS SELECT * FROM read_{extension}('{path}');",
+                    duckdb_object.to_str()
+                )
+            }
         }
     }
 }

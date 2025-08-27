@@ -31,6 +31,7 @@ use vortex_error::{vortex_err, VortexExpect, VortexResult};
 ///
 /// Note: users will interact with the [`Handle`] API rather than the [`Runtime`] trait.
 ///
+/// FIXME(ngates): these should really have handles that get dropped and cancel?
 pub(crate) trait Runtime: Send + Sync {
     /// Spawns a future to be executed on the runtime's scheduling context.
     ///
