@@ -2,5 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod reduce;
+mod node;
 
 pub use reduce::*;

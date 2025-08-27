@@ -6,7 +6,6 @@
 //! Users should want to implement [`Node`] and potentially [`NodeContainer`].
 
 mod fold;
-mod operator;
 mod references;
 mod visitor;
 
