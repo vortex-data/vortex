@@ -255,6 +255,9 @@ impl FileSource for VortexSource {
             Some(predicate) => conjunction(std::iter::once(predicate).chain(supported)),
             None => conjunction(supported),
         };
+
+        println!("Updated predicate: {predicate}");
+
         source.predicate = Some(predicate);
 
         let pushdown_propagation = if source.predicate.clone().is_some() {

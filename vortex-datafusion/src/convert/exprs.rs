@@ -8,8 +8,10 @@ use datafusion_expr::Operator as DFOperator;
 use datafusion_physical_expr::{PhysicalExpr, PhysicalExprRef};
 use datafusion_physical_expr_common::physical_expr::is_dynamic_physical_expr;
 use datafusion_physical_plan::expressions as df_expr;
+use vortex::dtype::arrow::FromArrowType;
+use vortex::dtype::{DType, Nullability};
 use vortex::error::{VortexResult, vortex_bail, vortex_err};
-use vortex::expr::{BinaryExpr, ExprRef, LikeExpr, Operator, and, get_item, lit, root};
+use vortex::expr::{BinaryExpr, ExprRef, LikeExpr, Operator, and, cast, get_item, lit, root};
 use vortex::scalar::Scalar;
 
 use crate::convert::{FromDataFusion, TryFromDataFusion};
@@ -21,6 +23,7 @@ const SUPPORTED_BINARY_OPS: &[DFOperator] = &[
     DFOperator::GtEq,
     DFOperator::Lt,
     DFOperator::LtEq,
+    DFOperator::Plus,
 ];
 
 /// Tries to convert the expressions into a vortex conjunction. Will return Ok(None) iff the input conjunction is empty.
@@ -67,6 +70,12 @@ impl TryFromDataFusion<dyn PhysicalExpr> for ExprRef {
             return Ok(lit(value));
         }
 
+        if let Some(cast_expr) = df.as_any().downcast_ref::<df_expr::CastExpr>() {
+            let cast_dtype = DType::from_arrow((cast_expr.cast_type(), Nullability::Nullable));
+            let child = ExprRef::try_from_df(cast_expr.expr().as_ref())?;
+            return Ok(cast(child, cast_dtype));
+        }
+
         vortex_bail!("Couldn't convert DataFusion physical {df} expression to a vortex expression")
     }
 }
@@ -82,6 +91,7 @@ impl TryFromDataFusion<DFOperator> for Operator {
             DFOperator::GtEq => Ok(Operator::Gte),
             DFOperator::And => Ok(Operator::And),
             DFOperator::Or => Ok(Operator::Or),
+            DFOperator::Plus => Ok(Operator::Add),
             DFOperator::IsDistinctFrom
             | DFOperator::IsNotDistinctFrom
             | DFOperator::RegexMatch
@@ -100,7 +110,6 @@ impl TryFromDataFusion<DFOperator> for Operator {
             | DFOperator::StringConcat
             | DFOperator::AtArrow
             | DFOperator::ArrowAt
-            | DFOperator::Plus
             | DFOperator::Minus
             | DFOperator::Multiply
             | DFOperator::Divide
@@ -141,6 +150,8 @@ pub(crate) fn can_be_pushed_down(expr: &PhysicalExprRef, schema: &Schema) -> boo
         can_be_pushed_down(like.expr(), schema) && can_be_pushed_down(like.pattern(), schema)
     } else if let Some(lit) = expr.downcast_ref::<df_expr::Literal>() {
         supported_data_types(&lit.value().data_type())
+    } else if let Some(cast) = expr.downcast_ref::<df_expr::CastExpr>() {
+        supported_data_types(cast.cast_type()) && can_be_pushed_down(cast.expr(), schema)
     } else {
         log::debug!("DataFusion expression can't be pushed down: {expr:?}");
         false
@@ -150,9 +161,14 @@ pub(crate) fn can_be_pushed_down(expr: &PhysicalExprRef, schema: &Schema) -> boo
 fn can_binary_be_pushed_down(binary: &df_expr::BinaryExpr, schema: &Schema) -> bool {
     let is_op_supported =
         binary.op().is_logic_operator() || SUPPORTED_BINARY_OPS.contains(binary.op());
-    is_op_supported
+    let r = is_op_supported
         && can_be_pushed_down(binary.left(), schema)
-        && can_be_pushed_down(binary.right(), schema)
+        && can_be_pushed_down(binary.right(), schema);
+
+    println!("{binary}");
+    println!("r = {r}");
+
+    r
 }
 
 fn supported_data_types(dt: &DataType) -> bool {
@@ -189,8 +205,9 @@ mod tests {
     use datafusion_expr::Operator as DFOperator;
     use datafusion_physical_expr::PhysicalExpr;
     use datafusion_physical_plan::expressions as df_expr;
+    use insta::assert_snapshot;
     use rstest::rstest;
-    use vortex::expr::{BinaryVTable, ExprRef, GetItemVTable, LikeVTable, LiteralVTable, Operator};
+    use vortex::expr::{ExprRef, Operator};
 
     use super::*;
 
@@ -245,31 +262,16 @@ mod tests {
     #[case::gte(DFOperator::GtEq, Operator::Gte)]
     #[case::and(DFOperator::And, Operator::And)]
     #[case::or(DFOperator::Or, Operator::Or)]
+    #[case::plus(DFOperator::Plus, Operator::Add)]
     fn test_operator_conversion_supported(
         #[case] df_op: DFOperator,
         #[case] expected_vortex_op: Operator,
     ) {
         let result = Operator::try_from_df(&df_op).unwrap();
-        // We can't directly compare operators, so let's check they convert successfully
-        // and have the expected behavior by converting back or through other means
-        match (&result, &expected_vortex_op) {
-            (Operator::Eq, Operator::Eq) => (),
-            (Operator::NotEq, Operator::NotEq) => (),
-            (Operator::Lt, Operator::Lt) => (),
-            (Operator::Lte, Operator::Lte) => (),
-            (Operator::Gt, Operator::Gt) => (),
-            (Operator::Gte, Operator::Gte) => (),
-            (Operator::And, Operator::And) => (),
-            (Operator::Or, Operator::Or) => (),
-            _ => panic!(
-                "Operator conversion mismatch: expected {:?}, got {:?}",
-                expected_vortex_op, result
-            ),
-        }
+        assert_eq!(result, expected_vortex_op);
     }
 
     #[rstest]
-    #[case::plus(DFOperator::Plus)]
     #[case::minus(DFOperator::Minus)]
     #[case::multiply(DFOperator::Multiply)]
     #[case::divide(DFOperator::Divide)]
@@ -293,9 +295,10 @@ mod tests {
         let col_expr = df_expr::Column::new("test_column", 0);
         let result = ExprRef::try_from_df(&col_expr).unwrap();
 
-        // Verify it's a column reference (get_item expression)
-        // We can't easily inspect the internal structure, but we can verify it converts without error
-        assert!(result.is::<GetItemVTable>());
+        assert_snapshot!(result.display_tree().to_string(), @r"
+        GetItem(test_column)
+        └── Root
+        ");
     }
 
     #[test]
@@ -303,8 +306,7 @@ mod tests {
         let literal_expr = df_expr::Literal::new(ScalarValue::Int32(Some(42)));
         let result = ExprRef::try_from_df(&literal_expr).unwrap();
 
-        // Verify it's a literal expression
-        assert!(result.is::<LiteralVTable>());
+        assert_snapshot!(result.display_tree().to_string(), @"Literal(value: 42i32, dtype: i32)");
     }
 
     #[test]
@@ -316,8 +318,12 @@ mod tests {
 
         let result = ExprRef::try_from_df(&binary_expr).unwrap();
 
-        // Verify it's a binary expression
-        assert!(result.is::<BinaryVTable>());
+        assert_snapshot!(result.display_tree().to_string(), @r"
+        Binary(=)
+        ├── lhs: GetItem(left)
+        │   └── Root
+        └── rhs: Literal(value: 42i32, dtype: i32)
+        ");
     }
 
     #[rstest]
@@ -334,8 +340,12 @@ mod tests {
 
         let result = ExprRef::try_from_df(&like_expr).unwrap();
 
-        // Verify it's a like expression
-        assert!(dbg!(result).is::<LikeVTable>());
+        assert_snapshot!(result.display_tree().to_string(), @r#"
+        Like
+        ├── child: GetItem(text_col)
+        │   └── Root
+        └── pattern: Literal(value: "test%", dtype: utf8)
+        "#);
     }
 
     #[rstest]
@@ -431,7 +441,7 @@ mod tests {
         let left = Arc::new(df_expr::Column::new("id", 0)) as Arc<dyn PhysicalExpr>;
         let right =
             Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(42)))) as Arc<dyn PhysicalExpr>;
-        let binary_expr = Arc::new(df_expr::BinaryExpr::new(left, DFOperator::Plus, right))
+        let binary_expr = Arc::new(df_expr::BinaryExpr::new(left, DFOperator::Minus, right))
             as Arc<dyn PhysicalExpr>;
 
         assert!(!can_be_pushed_down(&binary_expr, &test_schema));
