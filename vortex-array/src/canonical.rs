@@ -6,7 +6,10 @@
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
-use crate::arrays::{BoolArray, DecimalArray, ExtensionArray, FixedSizeListArray, ListArray, NullArray, PrimitiveArray, StructArray, VarBinViewArray};
+use crate::arrays::{
+    BoolArray, DecimalArray, ExtensionArray, FixedSizeListArray, ListArray, NullArray,
+    PrimitiveArray, StructArray, VarBinViewArray,
+};
 use crate::builders::builder_with_capacity;
 use crate::{Array, ArrayRef, IntoArray};
 

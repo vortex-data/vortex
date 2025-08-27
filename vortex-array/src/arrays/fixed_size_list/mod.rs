@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 #![allow(unused)] // TODO(connor)[FixedSizeList]: Remove this!
 
 use std::sync::Arc;
@@ -5,12 +8,12 @@ use std::sync::Arc;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 
-use crate::{Array, ArrayRef, stats::ArrayStats, validity::Validity};
+use crate::stats::ArrayStats;
+use crate::validity::Validity;
+use crate::{Array, ArrayRef};
 
 mod vtable;
 pub use vtable::{FixedSizeListEncoding, FixedSizeListVTable};
-
-mod serde;
 
 /// The canonical encoding for fixed-size list arrays.
 #[derive(Clone, Debug)]

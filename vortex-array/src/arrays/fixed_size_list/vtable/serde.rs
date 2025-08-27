@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexResult, vortex_bail};
@@ -35,16 +38,6 @@ impl SerdeVTable<FixedSizeListVTable> for FixedSizeListVTable {
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<FixedSizeListArray> {
-        unimplemented!("TODO(connor)[FixedSizeList")
-    }
-}
-
-impl VisitorVTable<FixedSizeListVTable> for FixedSizeListVTable {
-    fn visit_buffers(_array: &FixedSizeListArray, _visitor: &mut dyn ArrayBufferVisitor) {
-        unimplemented!("TODO(connor)[FixedSizeList")
-    }
-
-    fn visit_children(array: &FixedSizeListArray, visitor: &mut dyn ArrayChildVisitor) {
         unimplemented!("TODO(connor)[FixedSizeList")
     }
 }
