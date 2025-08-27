@@ -335,6 +335,7 @@ impl BtrBlocksCompressor {
                 )?
                 .into_array())
             }
+            Canonical::FixedSizeList(_) => todo!("TODO(connor)[FixedSizeList]"),
             Canonical::VarBinView(strings) => {
                 if strings
                     .dtype()

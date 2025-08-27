@@ -6,10 +6,7 @@
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
-use crate::arrays::{
-    BoolArray, DecimalArray, ExtensionArray, ListArray, NullArray, PrimitiveArray, StructArray,
-    VarBinViewArray,
-};
+use crate::arrays::{BoolArray, DecimalArray, ExtensionArray, FixedSizeListArray, ListArray, NullArray, PrimitiveArray, StructArray, VarBinViewArray};
 use crate::builders::builder_with_capacity;
 use crate::{Array, ArrayRef, IntoArray};
 
@@ -72,7 +69,7 @@ pub enum Canonical {
     Struct(StructArray),
     // TODO(joe): maybe this should be a ListView, however this will be annoying in spiral
     List(ListArray),
-    // TODO(connor)[FixedSizeList]
+    FixedSizeList(FixedSizeListArray),
     VarBinView(VarBinViewArray),
     Extension(ExtensionArray),
 }
@@ -180,6 +177,7 @@ impl AsRef<dyn Array> for Canonical {
             Canonical::Decimal(a) => a.as_ref(),
             Canonical::Struct(a) => a.as_ref(),
             Canonical::List(a) => a.as_ref(),
+            Canonical::FixedSizeList(_) => todo!("TODO(connor)[FixedSizeList]"),
             Canonical::VarBinView(a) => a.as_ref(),
             Canonical::Extension(a) => a.as_ref(),
         }
@@ -195,6 +193,7 @@ impl IntoArray for Canonical {
             Canonical::Decimal(a) => a.into_array(),
             Canonical::Struct(a) => a.into_array(),
             Canonical::List(a) => a.into_array(),
+            Canonical::FixedSizeList(_) => todo!("TODO(connor)[FixedSizeList]"),
             Canonical::VarBinView(a) => a.into_array(),
             Canonical::Extension(a) => a.into_array(),
         }
@@ -280,6 +279,7 @@ impl From<Canonical> for ArrayRef {
             Canonical::Decimal(a) => a.into_array(),
             Canonical::Struct(a) => a.into_array(),
             Canonical::List(a) => a.into_array(),
+            Canonical::FixedSizeList(_) => todo!("TODO(connor)[FixedSizeList]"),
             Canonical::VarBinView(a) => a.into_array(),
             Canonical::Extension(a) => a.into_array(),
         }
