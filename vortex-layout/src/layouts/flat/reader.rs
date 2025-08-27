@@ -286,7 +286,7 @@ fn try_to_operator(
         );
         export_canonical_pipeline_expr_offset(
             &return_type,
-            row_range.start,
+            row_range.start / N,
             row_range.end - row_range.start,
             operator.as_ref(),
             mask,

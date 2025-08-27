@@ -1,15 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::rc::Rc;
-
 use itertools::Itertools;
-use vortex_array::pipeline::Operator;
+use vortex_array::pipeline::{Operator, OperatorRef};
 use vortex_error::VortexResult;
 
 use crate::traversal::{Node, NodeContainer, Transformed, TraversalOrder};
 
-impl<'a> NodeContainer<'a, Self> for Rc<dyn Operator> {
+impl<'a> NodeContainer<'a, Self> for OperatorRef {
     fn apply_elements<F: FnMut(&'a Self) -> VortexResult<TraversalOrder>>(
         &'a self,
         mut f: F,
@@ -25,7 +23,7 @@ impl<'a> NodeContainer<'a, Self> for Rc<dyn Operator> {
     }
 }
 
-impl Node for Rc<dyn Operator> {
+impl Node for OperatorRef {
     fn apply_children<'a, F: FnMut(&'a Self) -> VortexResult<TraversalOrder>>(
         &'a self,
         _f: F,

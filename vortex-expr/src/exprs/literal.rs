@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::rc::Rc;
+use std::sync::Arc;
 
 use vortex_array::arrays::{ConstantArray, ConstantOperator};
-use vortex_array::pipeline::Operator;
+use vortex_array::pipeline::OperatorRef;
 use vortex_array::{ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata};
 use vortex_dtype::{DType, match_each_float_ptype};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
@@ -79,10 +79,10 @@ impl VTable for LiteralVTable {
         Ok(expr.value.dtype().clone())
     }
 
-    fn operator(expr: &LiteralExpr, children: Vec<Rc<dyn Operator>>) -> Option<Rc<dyn Operator>> {
+    fn operator(expr: &LiteralExpr, children: Vec<OperatorRef>) -> Option<OperatorRef> {
         assert!(children.is_empty());
 
-        Some(Rc::new(ConstantOperator::maybe_new(expr.value().clone())?))
+        ConstantOperator::maybe_new(expr.value().clone()).map(|op| Arc::new(op) as OperatorRef)
     }
 }
 

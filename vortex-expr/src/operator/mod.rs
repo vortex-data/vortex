@@ -3,45 +3,39 @@
 
 mod reduce;
 
-use std::rc::Rc;
-
 pub use reduce::*;
-use vortex_array::Array;
-use vortex_array::pipeline::Operator;
+use vortex_array::pipeline::OperatorRef;
 use vortex_error::VortexResult;
 
 use crate::traversal::{FoldUp, NodeFolder};
 use crate::{ExprRef, RootVTable};
 
-pub struct ExprOperatorConverter<'a> {
-    root: &'a dyn Array,
+pub struct ExprOperatorConverter {
+    root: OperatorRef,
 }
 
-impl<'a> ExprOperatorConverter<'a> {
-    pub fn new(root: &'a dyn Array) -> Self {
+impl ExprOperatorConverter {
+    pub fn new(root: OperatorRef) -> Self {
         Self { root }
     }
 }
 
 // Needs a mapping from Root array to encoding -> Operator
 
-impl<'a> NodeFolder for ExprOperatorConverter<'a> {
+impl NodeFolder for ExprOperatorConverter {
     type NodeTy = ExprRef;
-    type Result = Option<Rc<dyn Operator>>;
+    type Result = Option<OperatorRef>;
 
     fn visit_up(
         &mut self,
         node: ExprRef,
-        children: Vec<Option<Rc<dyn Operator>>>,
-    ) -> VortexResult<FoldUp<Option<Rc<dyn Operator>>>> {
+        children: Vec<Option<OperatorRef>>,
+    ) -> VortexResult<FoldUp<Option<OperatorRef>>> {
         let Some(children) = children.into_iter().collect::<Option<Vec<_>>>() else {
             return Ok(FoldUp::Stop(None));
         };
         if node.as_opt::<RootVTable>().is_some() {
-            let Some(operator) = self.root.to_operator()? else {
-                return Ok(FoldUp::Stop(None));
-            };
-            return Ok(FoldUp::Continue(Some(operator)));
+            return Ok(FoldUp::Continue(Some(self.root.clone())));
         }
         let Some(operator) = node.operator(children) else {
             return Ok(FoldUp::Stop(None));

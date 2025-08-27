@@ -2,10 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use vortex_array::compute::{add, and_kleene, compare, or_kleene, sub};
 use vortex_array::pipeline::operators::CompareOperator;
+use vortex_array::pipeline::OperatorRef;
 use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata, compute};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
@@ -13,7 +14,7 @@ use vortex_proto::expr as pb;
 
 use crate::display::{DisplayAs, DisplayFormat};
 use crate::{
-    AnalysisExpr, ArrayOperator, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Operator, Scope,
+    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Operator, Scope,
     StatsCatalog, VTable, lit, vtable,
 };
 
@@ -112,15 +113,15 @@ impl VTable for BinaryVTable {
 
     fn operator(
         expr: &BinaryExpr,
-        children: Vec<Rc<dyn ArrayOperator>>,
-    ) -> Option<Rc<dyn ArrayOperator>> {
+        children: Vec<OperatorRef>,
+    ) -> Option<OperatorRef> {
         let [lhs, rhs] = children
             .try_into()
             .ok()
             .vortex_expect("Expected 2 children");
         let op = expr.operator.try_into().ok()?;
 
-        Some(Rc::new(CompareOperator::new(lhs, rhs, op)))
+        Some(Arc::new(CompareOperator::new(lhs, rhs, op)) as OperatorRef)
     }
 }
 

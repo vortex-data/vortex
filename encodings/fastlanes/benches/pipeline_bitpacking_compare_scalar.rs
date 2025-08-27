@@ -3,23 +3,20 @@
 
 #![allow(clippy::unwrap_used)]
 #![allow(unexpected_cfgs)]
-use std::rc::Rc;
 
 use arrow_buffer::BooleanBuffer;
 use divan::Bencher;
 use mimalloc::MiMalloc;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
-use vortex_array::arrays::ConstantOperator;
-use vortex_array::compute::{Operator as BinaryOperator, filter};
-use vortex_array::pipeline::operators::CompareOperator;
+use vortex_array::compute::filter;
 use vortex_array::pipeline::{Element, export_canonical_pipeline_expr};
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, NativePType};
 use vortex_error::VortexResult;
-use vortex_expr::{Scope, VortexExprExt, lit, lt, reduce_operator, root};
+use vortex_expr::{Scope, VortexExprExt, lit, lt, root};
 use vortex_fastlanes::{FoRArray, bitpack_to_best_bit_width};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
