@@ -171,7 +171,7 @@ impl MaskEvaluation for FlatEvaluation {
         // Now we await the array .
         let mut array = self.array.clone().await?;
 
-        if let Some(array) = try_to_operator(self.row_range.clone(), &array, &self.expr, &mask)? {
+        if let Some(array) = try_evaluate_using_operator(self.row_range.clone(), &array, &self.expr, &mask)? {
             let array_mask = Mask::try_from(self.expr.evaluate(&Scope::new(array))?.as_ref())?;
             let mask = mask.intersect_by_rank(&array_mask);
             return Ok(mask);
@@ -224,7 +224,7 @@ impl ArrayEvaluation for FlatEvaluation {
         // Now we await the array .
         let mut array = self.array.clone().await?;
 
-        if let Some(array) = try_to_operator(self.row_range.clone(), &array, &self.expr, &mask)? {
+        if let Some(array) = try_evaluate_using_operator(self.row_range.clone(), &array, &self.expr, &mask)? {
             return Ok(array);
         }
 
@@ -247,7 +247,7 @@ impl ArrayEvaluation for FlatEvaluation {
     }
 }
 
-fn try_to_operator(
+fn try_evaluate_using_operator(
     row_range: Range<usize>,
     array: &ArrayRef,
     expr: &ExprRef,
