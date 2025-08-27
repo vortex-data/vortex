@@ -44,7 +44,7 @@ pub union View {
 
 impl View {
     #[allow(clippy::cast_possible_truncation)]
-    fn new_inlined(data: &[u8]) -> Self {
+    pub fn new_inlined(data: &[u8]) -> Self {
         assert!(data.len() <= MAX_INLINE_STR);
 
         // Safe to truncate cast, always small enough.
@@ -59,6 +59,15 @@ impl View {
         Self {
             inline: inlined_str,
         }
+    }
+
+    pub fn len(&self) -> u32 {
+        // SAFETY: len is always first 4 bytes for either variant
+        unsafe { self.inline }.len
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 

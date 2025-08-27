@@ -17,7 +17,7 @@ mod array;
 mod canonical;
 mod compress;
 mod compute;
-pub mod fsst_view;
+mod fsst_view;
 mod ops;
 mod serde;
 #[cfg(test)]
@@ -25,3 +25,4 @@ mod tests;
 
 pub use array::*;
 pub use compress::*;
+pub use fsst_view::*;

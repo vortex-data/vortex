@@ -56,7 +56,7 @@ fn filter_primitive_indices<T: Copy>(
         .collect()
 }
 
-fn filter_primitive_slices<T: Clone>(
+fn filter_primitive_slices<T: Copy>(
     values: &[T],
     indices_len: usize,
     indices: impl Iterator<Item = (usize, usize)>,
