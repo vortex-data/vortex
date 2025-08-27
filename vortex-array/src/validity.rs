@@ -146,16 +146,6 @@ impl Validity {
         }
     }
 
-    pub fn slice_range<R>(&self, range: R) -> Self
-    where
-        R: std::ops::RangeBounds<usize>,
-    {
-        match self {
-            Self::Array(a) => Self::Array(a.slice_range(range)),
-            Self::NonNullable | Self::AllValid | Self::AllInvalid => self.clone(),
-        }
-    }
-
     pub fn take(&self, indices: &dyn Array) -> VortexResult<Self> {
         match self {
             Self::NonNullable => match indices.validity_mask()?.boolean_buffer() {
