@@ -111,14 +111,14 @@ mod tests {
 
         let get_item_expr = get_item("my_field", root());
         assert_snapshot!(get_item_expr.display_tree().to_string(), @r"
-        GetItem(field = my_field)
+        GetItem(my_field)
         └── Root
         ");
 
         let binary_expr = gt(get_item("x", root()), lit(10));
         assert_snapshot!(binary_expr.display_tree().to_string(), @r"
         Binary(>)
-        ├── lhs: GetItem(field = x)
+        ├── lhs: GetItem(x)
         │   └── Root
         └── rhs: Literal(value: 10i32, dtype: i32)
         ");
@@ -130,11 +130,11 @@ mod tests {
         assert_snapshot!(complex_binary.display_tree().to_string(), @r#"
         Binary(and)
         ├── lhs: Binary(=)
-        │   ├── lhs: GetItem(field = name)
+        │   ├── lhs: GetItem(name)
         │   │   └── Root
         │   └── rhs: Literal(value: "alice", dtype: utf8)
         └── rhs: Binary(>)
-            ├── lhs: GetItem(field = age)
+            ├── lhs: GetItem(age)
             │   └── Root
             └── rhs: Literal(value: 18i32, dtype: i32)
         "#);
@@ -157,7 +157,7 @@ mod tests {
         );
         assert_snapshot!(cast_expr.display_tree().to_string(), @r"
         Cast(target: i64)
-        └── GetItem(field = value)
+        └── GetItem(value)
             └── Root
         ");
 
@@ -165,7 +165,7 @@ mod tests {
         assert_snapshot!(not_expr.display_tree().to_string(), @r"
         Not
         └── Binary(=)
-            ├── lhs: GetItem(field = active)
+            ├── lhs: GetItem(active)
             │   └── Root
             └── rhs: Literal(value: true, dtype: bool)
         ");
@@ -181,7 +181,7 @@ mod tests {
         );
         assert_snapshot!(between_expr.display_tree().to_string(), @r"
         Between
-        ├── array: GetItem(field = score)
+        ├── array: GetItem(score)
         │   └── Root
         ├── lower (NonStrict): Literal(value: 0i32, dtype: i32)
         └── upper (NonStrict): Literal(value: 100i32, dtype: i32)
@@ -207,7 +207,7 @@ mod tests {
         Select(include): ["result"]
         └── Cast(target: bool)
             └── Between
-                ├── array: GetItem(field = score)
+                ├── array: GetItem(score)
                 │   └── Root
                 ├── lower (Strict): Literal(value: 50i32, dtype: i32)
                 └── upper (NonStrict): Literal(value: 100i32, dtype: i32)
@@ -231,7 +231,7 @@ mod tests {
             ├── bar: Literal(value: 5i32, dtype: i32)
             └── buzz: Binary(=)
                 ├── lhs: Literal(value: 42i32, dtype: i32)
-                └── rhs: GetItem(field = answer)
+                └── rhs: GetItem(answer)
                     └── Root
         "#);
     }
