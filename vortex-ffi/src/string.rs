@@ -4,7 +4,7 @@
 use std::ffi::{CStr, c_char};
 use std::slice;
 
-use vortex::error::{VortexExpect, vortex_err};
+use vortex::error::{VortexUnwrap, vortex_err};
 
 use crate::arc_dyn_wrapper;
 
@@ -31,8 +31,8 @@ impl vx_string {
 pub unsafe extern "C-unwind" fn vx_string_new(ptr: *const c_char, len: usize) -> *const vx_string {
     let slice = unsafe { slice::from_raw_parts(ptr.cast(), len) };
     let string = String::from_utf8(slice.to_vec())
-        .map_err(|e| vortex_err!("Invalid UTF-8 string {e}"))
-        .vortex_expect("Invalid UTF-8 string");
+        .map_err(|e| vortex_err!("invalid utf-8: {e}"))
+        .vortex_unwrap();
     vx_string::new(string.into())
 }
 
@@ -41,7 +41,8 @@ pub unsafe extern "C-unwind" fn vx_string_new(ptr: *const c_char, len: usize) ->
 pub unsafe extern "C-unwind" fn vx_string_new_from_cstr(ptr: *const c_char) -> *const vx_string {
     let string = unsafe { CStr::from_ptr(ptr) }
         .to_str()
-        .vortex_expect("Invalid UTF-8 string");
+        .map_err(|e| vortex_err!("invalid utf-8: {e}"))
+        .vortex_unwrap();
     vx_string::new(string.into())
 }
 

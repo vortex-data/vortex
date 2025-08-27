@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Display;
 use std::rc::Rc;
 
 use vortex_array::arrays::{ConstantArray, ConstantOperator};
@@ -12,6 +11,7 @@ use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
 use vortex_scalar::Scalar;
 
+use crate::display::{DisplayAs, DisplayFormat};
 use crate::{
     AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog, VTable, vtable,
 };
@@ -106,9 +106,21 @@ impl LiteralExpr {
     }
 }
 
-impl Display for LiteralExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.value)
+impl DisplayAs for LiteralExpr {
+    fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match df {
+            DisplayFormat::Compact => {
+                write!(f, "{}", self.value)
+            }
+            DisplayFormat::Tree => {
+                write!(
+                    f,
+                    "Literal(value: {}, dtype: {})",
+                    self.value,
+                    self.value.dtype()
+                )
+            }
+        }
     }
 }
 

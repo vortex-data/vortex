@@ -58,6 +58,9 @@ impl From<&DType> for vx_dtype_variant {
             DType::Binary(_) => vx_dtype_variant::DTYPE_BINARY,
             DType::Struct(..) => vx_dtype_variant::DTYPE_STRUCT,
             DType::List(..) => vx_dtype_variant::DTYPE_LIST,
+            DType::FixedSizeList(..) => {
+                unimplemented!("TODO(connor)[FixedSizeList]")
+            }
             DType::Extension(_) => vx_dtype_variant::DTYPE_EXTENSION,
         }
     }

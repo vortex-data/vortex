@@ -257,6 +257,10 @@ impl WriteFlatBuffer for DType {
                 )
                 .as_union_value()
             }
+            Self::FixedSizeList(..) => {
+                // TODO(connor)[FixedSizeList]: Add a `fb::FixedSizeList` type.
+                unimplemented!("TODO(connor)[FixedSizeList]")
+            }
             Self::Extension(ext) => {
                 let id = Some(fbb.create_string(ext.id().as_ref()));
                 let storage_dtype = Some(ext.storage_dtype().write_flatbuffer(fbb));
@@ -282,6 +286,9 @@ impl WriteFlatBuffer for DType {
             Self::Binary(_) => fb::Type::Binary,
             Self::Struct(..) => fb::Type::Struct_,
             Self::List(..) => fb::Type::List,
+            Self::FixedSizeList(..) => {
+                unimplemented!("TODO(connor)[FixedSizeList]")
+            }
             Self::Extension { .. } => fb::Type::Extension,
         };
 
@@ -375,6 +382,7 @@ mod test {
             Arc::new(DType::Primitive(PType::F32, Nullability::Nullable)),
             Nullability::NonNullable,
         ));
+        // TODO(connor)[FixedSizeList]
         roundtrip_dtype(DType::Struct(
             StructFields::new(
                 ["strings", "ints"].into(),

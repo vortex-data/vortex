@@ -73,12 +73,9 @@ impl TryToDataFusion<ScalarValue> for Scalar {
                     .value()
                     .map(|b| Vec::<u8>::from(b.into_inner())),
             ),
-            DType::Struct(..) => {
-                todo!("struct scalar conversion")
-            }
-            DType::List(..) => {
-                todo!("list scalar conversion")
-            }
+            DType::Struct(..) => todo!("struct scalar conversion"),
+            DType::List(..) => todo!("list scalar conversion"),
+            DType::FixedSizeList(..) => unimplemented!("TODO(connor)[FixedSizeList]"),
             DType::Extension(ext) => {
                 let storage_scalar = self.as_extension().storage();
 

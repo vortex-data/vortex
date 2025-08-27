@@ -117,10 +117,6 @@ impl Scalar {
             }
         }
 
-        if self.dtype().eq_ignore_nullability(target) {
-            return Ok(Scalar::new(target.clone(), self.value.clone()));
-        }
-
         match &self.dtype {
             DType::Null => unreachable!(), // handled by if is_null case
             DType::Bool(_) => self.as_bool().cast(target),
@@ -129,7 +125,7 @@ impl Scalar {
             DType::Utf8(_) => self.as_utf8().cast(target),
             DType::Binary(_) => self.as_binary().cast(target),
             DType::Struct(..) => self.as_struct().cast(target),
-            DType::List(..) => self.as_list().cast(target),
+            DType::List(..) | DType::FixedSizeList(..) => self.as_list().cast(target),
             DType::Extension(..) => self.as_extension().cast(target),
         }
     }
@@ -166,7 +162,7 @@ impl Scalar {
                 .fields()
                 .map(|fields| fields.into_iter().map(|f| f.nbytes()).sum::<usize>())
                 .unwrap_or_default(),
-            DType::List(_dtype, _) => self
+            DType::List(..) | DType::FixedSizeList(..) => self
                 .as_list()
                 .elements()
                 .map(|fields| fields.into_iter().map(|f| f.nbytes()).sum::<usize>())
@@ -175,6 +171,7 @@ impl Scalar {
         }
     }
 
+    // TODO(connor): This should probably take a `&DType`.
     /// Creates a "default" scalar value for the given data type.
     ///
     /// For nullable types, returns null. For non-nullable types, returns
@@ -199,7 +196,13 @@ impl Scalar {
                 let fields: Vec<_> = sf.fields().map(Scalar::default_value).collect();
                 Self::struct_(DType::Struct(sf, nullability), fields)
             }
-            DType::List(dt, nullability) => Self::list(dt, vec![], nullability),
+            DType::List(edt, nullability) => Self::list(edt, vec![], nullability),
+            DType::FixedSizeList(edt, size, nullability) => {
+                let elements = (0..size)
+                    .map(|_| Scalar::default_value(edt.as_ref().clone()))
+                    .collect();
+                Self::list(edt, elements, nullability)
+            }
             DType::Extension(dt) => {
                 let scalar = Self::default_value(dt.storage_dtype().clone());
                 Self::extension(dt, scalar)
@@ -296,6 +299,9 @@ impl Scalar {
 
     /// Returns a view of the scalar as a list scalar.
     ///
+    /// Note that we use [`ListScalar`] to represent **both** [`DType::List`] and
+    /// [`DType::FixedSizeList`].
+    ///
     /// # Panics
     ///
     /// Panics if the scalar is not a list type.
@@ -304,8 +310,11 @@ impl Scalar {
     }
 
     /// Returns a view of the scalar as a list scalar if it has a list type.
+    ///
+    /// Note that we use [`ListScalar`] to represent **both** [`DType::List`] and
+    /// [`DType::FixedSizeList`].
     pub fn as_list_opt(&self) -> Option<ListScalar<'_>> {
-        matches!(self.dtype, DType::List(..)).then(|| self.as_list())
+        matches!(self.dtype, DType::List(..) | DType::FixedSizeList(..)).then(|| self.as_list())
     }
 
     /// Returns a view of the scalar as an extension scalar.
@@ -330,7 +339,7 @@ where
     T: ScalarType,
     Scalar: From<T>,
 {
-    /// A blanket implementation for all `Option<T>`
+    /// A blanket implementation for all `Option<T>`.
     fn from(value: Option<T>) -> Self {
         value
             .map(Scalar::from)
@@ -397,7 +406,7 @@ impl PartialEq for Scalar {
             DType::Utf8(_) => self.as_utf8() == other.as_utf8(),
             DType::Binary(_) => self.as_binary() == other.as_binary(),
             DType::Struct(..) => self.as_struct() == other.as_struct(),
-            DType::List(..) => self.as_list() == other.as_list(),
+            DType::List(..) | DType::FixedSizeList(..) => self.as_list() == other.as_list(),
             DType::Extension(_) => self.as_extension() == other.as_extension(),
         }
     }
@@ -446,7 +455,9 @@ impl PartialOrd for Scalar {
             DType::Utf8(_) => self.as_utf8().partial_cmp(&other.as_utf8()),
             DType::Binary(_) => self.as_binary().partial_cmp(&other.as_binary()),
             DType::Struct(..) => self.as_struct().partial_cmp(&other.as_struct()),
-            DType::List(..) => self.as_list().partial_cmp(&other.as_list()),
+            DType::List(..) | DType::FixedSizeList(..) => {
+                self.as_list().partial_cmp(&other.as_list())
+            }
             DType::Extension(_) => self.as_extension().partial_cmp(&other.as_extension()),
         }
     }
@@ -462,7 +473,7 @@ impl Hash for Scalar {
             DType::Utf8(_) => self.as_utf8().hash(state),
             DType::Binary(_) => self.as_binary().hash(state),
             DType::Struct(..) => self.as_struct().hash(state),
-            DType::List(..) => self.as_list().hash(state),
+            DType::List(..) | DType::FixedSizeList(..) => self.as_list().hash(state),
             DType::Extension(_) => self.as_extension().hash(state),
         }
     }

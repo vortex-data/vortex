@@ -25,6 +25,7 @@ parking_lot = { workspace = true }
 paste = { workspace = true }
 prost = { workspace = true }
 serde = { workspace = true, optional = true, features = ["derive"] }
+termtree = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }
@@ -36,6 +37,7 @@ vortex-utils = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }
+insta = { workspace = true }
 rstest = { workspace = true }
 vortex-expr = { path = ".", features = ["test-harness"] }
 

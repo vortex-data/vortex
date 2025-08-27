@@ -73,6 +73,15 @@ pub enum DType {
     /// lists.
     List(Arc<DType>, Nullability),
 
+    /// A logical fixed-size list type.
+    ///
+    /// This is parameterized by a `DType` that represents the element type of the inner lists, as
+    /// well as a `u32` size that determines the fixed length of each `FixedSizeList` scalar.
+    ///
+    /// This variant has not yet been implemented. Please add a comment with
+    /// `TODO(connor)[FixedSizeList]` if you need to match against `DType`.
+    FixedSizeList(Arc<DType>, u32, Nullability),
+
     /// A logical struct type.
     ///
     /// A `Struct` type is composed of an ordered list of fields, each with a corresponding name and
@@ -89,7 +98,7 @@ pub enum DType {
 const_assert_eq!(size_of::<DType>(), 16);
 
 #[cfg(target_arch = "wasm32")]
-const_assert_eq!(size_of::<DType>(), 8);
+const_assert_eq!(size_of::<DType>(), 12);
 
 impl DType {
     /// The default `DType` for bytes.
@@ -111,7 +120,8 @@ impl DType {
             | Utf8(null)
             | Binary(null)
             | Struct(_, null)
-            | List(_, null) => matches!(null, Nullability::Nullable),
+            | List(_, null)
+            | FixedSizeList(_, _, null) => matches!(null, Nullability::Nullable),
         }
     }
 
@@ -136,6 +146,7 @@ impl DType {
             Binary(_) => Binary(nullability),
             Struct(sf, _) => Struct(sf.clone(), nullability),
             List(edt, _) => List(edt.clone(), nullability),
+            FixedSizeList(edt, size, _) => FixedSizeList(edt.clone(), *size, nullability),
             Extension(ext) => Extension(Arc::new(ext.with_nullability(nullability))),
         }
     }
@@ -156,6 +167,9 @@ impl DType {
             (Utf8(_), Utf8(_)) => true,
             (Binary(_), Binary(_)) => true,
             (List(lhs_dtype, _), List(rhs_dtype, _)) => lhs_dtype.eq_ignore_nullability(rhs_dtype),
+            (FixedSizeList(lhs_dtype, lhs_size, _), FixedSizeList(rhs_dtype, rhs_size, _)) => {
+                lhs_size == rhs_size && lhs_dtype.eq_ignore_nullability(rhs_dtype)
+            }
             (Struct(lhs_dtype, _), Struct(rhs_dtype, _)) => {
                 (lhs_dtype.names() == rhs_dtype.names())
                     && (lhs_dtype
@@ -170,14 +184,9 @@ impl DType {
         }
     }
 
-    /// Check if `self` is a `StructDType`
-    pub fn is_struct(&self) -> bool {
-        matches!(self, Struct(_, _))
-    }
-
-    /// Check if `self` is a `ListDType`
-    pub fn is_list(&self) -> bool {
-        matches!(self, List(_, _))
+    /// Check if `self` is a boolean
+    pub fn is_boolean(&self) -> bool {
+        matches!(self, Bool(_))
     }
 
     /// Check if `self` is a primitive type
@@ -226,32 +235,42 @@ impl DType {
         false
     }
 
-    /// Check if `self` is a boolean
-    pub fn is_boolean(&self) -> bool {
-        matches!(self, Bool(_))
-    }
-
-    /// Check if `self` is a binary
-    pub fn is_binary(&self) -> bool {
-        matches!(self, Binary(_))
-    }
-
-    /// Check if `self` is a utf8
-    pub fn is_utf8(&self) -> bool {
-        matches!(self, Utf8(_))
-    }
-
-    /// Check if `self` is an extension type
-    pub fn is_extension(&self) -> bool {
-        matches!(self, Extension(_))
-    }
-
-    /// Check if `self` is a decimal type
+    /// Check if `self` is a [`DType::Decimal`].
     pub fn is_decimal(&self) -> bool {
         matches!(self, Decimal(..))
     }
 
-    /// Check returns the inner decimal type if the dtype is a decimal
+    /// Check if `self` is a [`DType::Utf8`]
+    pub fn is_utf8(&self) -> bool {
+        matches!(self, Utf8(_))
+    }
+
+    /// Check if `self` is a [`DType::Binary`]
+    pub fn is_binary(&self) -> bool {
+        matches!(self, Binary(_))
+    }
+
+    /// Check if `self` is a [`DType::List`].
+    pub fn is_list(&self) -> bool {
+        matches!(self, List(_, _))
+    }
+
+    /// Check if `self` is a [`DType::FixedSizeList`],
+    pub fn is_fixed_size_list(&self) -> bool {
+        matches!(self, FixedSizeList(..))
+    }
+
+    /// Check if `self` is a [`DType::Struct`]
+    pub fn is_struct(&self) -> bool {
+        matches!(self, Struct(_, _))
+    }
+
+    /// Check if `self` is a [`DType::Extension`] type
+    pub fn is_extension(&self) -> bool {
+        matches!(self, Extension(_))
+    }
+
+    /// Check returns the inner decimal type if the dtype is a [`DType::Decimal`].
     pub fn as_decimal_opt(&self) -> Option<&DecimalDType> {
         if let Decimal(decimal, _) = self {
             Some(decimal)
@@ -260,6 +279,19 @@ impl DType {
         }
     }
 
+    /// Get the inner element dtype if `self` is a [`DType::List`] or [`DType::FixedSizeList`],
+    /// otherwise returns `None`
+    pub fn as_list_element_opt(&self) -> Option<&Arc<DType>> {
+        if let List(edt, _) = self {
+            Some(edt)
+        } else if let FixedSizeList(edt, ..) = self {
+            Some(edt)
+        } else {
+            None
+        }
+    }
+
+    // TODO(connor): This should probably be named `as_struct_fieds_opt`.
     /// Get the `StructDType` if `self` is a `StructDType`, otherwise `None`
     pub fn as_struct_opt(&self) -> Option<&StructFields> {
         if let Struct(f, _) = self {
@@ -269,9 +301,9 @@ impl DType {
         }
     }
 
-    /// Get the inner dtype if `self` is a `ListDType`, otherwise `None`
-    pub fn as_list_element_opt(&self) -> Option<&Arc<DType>> {
-        if let List(s, _) = self { Some(s) } else { None }
+    /// Convenience method for creating a [`DType::List`].
+    pub fn list(dtype: impl Into<DType>, nullability: Nullability) -> Self {
+        List(Arc::new(dtype.into()), nullability)
     }
 
     /// Convenience method for creating a [`DType::Struct`].
@@ -280,11 +312,6 @@ impl DType {
         nullability: Nullability,
     ) -> Self {
         Struct(StructFields::from_iter(iter), nullability)
-    }
-
-    /// Convenience method for creating a list dtype
-    pub fn list(dtype: impl Into<DType>, nullability: Nullability) -> Self {
-        List(Arc::new(dtype.into()), nullability)
     }
 }
 
@@ -307,6 +334,7 @@ impl Display for DType {
                     .join(", "),
             ),
             List(edt, null) => write!(f, "list({edt}){null}"),
+            FixedSizeList(edt, size, null) => write!(f, "fixed_size_list({edt})[{size}]{null}"),
             Extension(ext) => write!(
                 f,
                 "ext({}, {}{}){}",

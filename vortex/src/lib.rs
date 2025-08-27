@@ -91,7 +91,7 @@ mod test {
         let array = PrimitiveArray::new(buffer![42u64; 100_000], Validity::NonNullable);
 
         // You can compress an array in-memory with the BtrBlocks compressor
-        let compressed = BtrBlocksCompressor.compress(array.as_ref())?;
+        let compressed = BtrBlocksCompressor::default().compress(array.as_ref())?;
         println!(
             "BtrBlocks size: {} / {}",
             compressed.nbytes(),

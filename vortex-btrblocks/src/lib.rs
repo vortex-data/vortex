@@ -270,8 +270,10 @@ pub trait Compressor {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct BtrBlocksCompressor;
+#[derive(Default, Debug, Clone)]
+pub struct BtrBlocksCompressor {
+    pub exclude_int_dict_encoding: bool,
+}
 
 impl BtrBlocksCompressor {
     pub fn compress(&self, array: &dyn Array) -> VortexResult<ArrayRef> {
@@ -291,7 +293,11 @@ impl BtrBlocksCompressor {
             Canonical::Bool(bool_array) => Ok(bool_array.into_array()),
             Canonical::Primitive(primitive) => {
                 if primitive.ptype().is_int() {
-                    IntCompressor::compress(&primitive, false, MAX_CASCADE, &[])
+                    if self.exclude_int_dict_encoding {
+                        IntCompressor::compress_no_dict(&primitive, false, MAX_CASCADE, &[])
+                    } else {
+                        IntCompressor::compress(&primitive, false, MAX_CASCADE, &[])
+                    }
                 } else {
                     FloatCompressor::compress(&primitive, false, MAX_CASCADE, &[])
                 }

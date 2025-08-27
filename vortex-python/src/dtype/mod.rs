@@ -106,6 +106,9 @@ impl PyDType {
             DType::Binary(..) => Self::with_subclass(py, dtype, PyBinaryDType),
             DType::Struct(..) => Self::with_subclass(py, dtype, PyStructDType),
             DType::List(..) => Self::with_subclass(py, dtype, PyListDType),
+            DType::FixedSizeList(..) => {
+                unimplemented!("TODO(connor)[FixedSizeList]")
+            }
             DType::Extension(..) => Self::with_subclass(py, dtype, PyExtensionDType),
         }
     }
