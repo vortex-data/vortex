@@ -17,6 +17,23 @@ pub use array::*;
 
 const MAX_INLINE_STR: usize = 12;
 
+#[macro_export]
+macro_rules! view_outlined {
+    ($len:expr, $index:expr, $prefix:expr) => {
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            let mut outline = $crate::fsst_view::OutlinedStr {
+                index: $index as u32,
+                len: $len as u32,
+                prefix: [0u8; 8],
+            };
+            outline.prefix.copy_from_slice(&$prefix[0..8]);
+
+            $crate::fsst_view::View { outline }
+        }
+    };
+}
+
 /// "View" structure that serves inlined strings, or points to compressed copies of longer strings.
 #[repr(C, align(16))]
 #[derive(Copy, Clone)]

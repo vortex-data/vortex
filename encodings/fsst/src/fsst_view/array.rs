@@ -170,15 +170,15 @@ impl FSSTViewArray {
             compressed_offsets.dtype().is_primitive()
                 && !compressed_offsets.dtype().is_nullable()
                 && compressed_offsets.dtype().as_ptype() == PType::U32,
-            "Expected u32 DType for compressed offsets, was {}",
+            "expected u32 DType for compressed offsets, was {}",
             compressed_offsets.dtype()
         );
         vortex_ensure!(
             uncompressed_offsets.dtype().is_primitive()
                 && !uncompressed_offsets.dtype().is_nullable()
                 && uncompressed_offsets.dtype().as_ptype() == PType::U32,
-            "Expected u32 DType for uncompressed offsets, was {}",
-            compressed_offsets.dtype()
+            "expected u32 DType for uncompressed offsets, was {}",
+            uncompressed_offsets.dtype()
         );
 
         vortex_ensure!(
@@ -394,29 +394,71 @@ impl CanonicalVTable<FSSTViewVTable> for FSSTViewVTable {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::IntoArray;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::{Buffer, ByteBuffer, buffer};
+    use vortex_dtype::{DType, Nullability};
 
-    use crate::fsst_view::FSSTViewEncoding;
+    use crate::fsst_view::FSSTViewArray;
+    use crate::view_outlined;
 
     #[test]
-    fn test_basic() {
-        let plaintext: Vec<&str> = vec![
-            "blog.spiraldb.com/1",
-            "blog.spiraldb.com/23",
-            "docs.vortex.dev",
-            "bench.vortex.dev",
-        ];
+    #[should_panic(expected = "view index 10 out of bounds")]
+    fn test_validate_views() {
+        let _ = FSSTViewArray::new(
+            buffer![view_outlined!(14, 10, b"01234567891234")],
+            ByteBuffer::empty(),
+            Buffer::empty(),
+            ByteBuffer::empty(),
+            buffer![0u32].into_array(),
+            buffer![0u32].into_array(),
+            DType::Utf8(Nullability::NonNullable),
+            Validity::NonNullable,
+        );
+    }
 
-        let canonical = VarBinViewArray::from_iter_str(plaintext);
-        let compressed = FSSTViewEncoding
-            .encode(&canonical.to_canonical().unwrap(), None)
-            .unwrap()
-            .unwrap();
+    #[test]
+    #[should_panic(expected = "compressed offsets point beyond end of the buffer")]
+    fn test_validate_offsets() {
+        let _ = FSSTViewArray::new(
+            Buffer::empty(),                   // views
+            ByteBuffer::empty(),               // fsst_buffer
+            Buffer::empty(),                   // symbols
+            ByteBuffer::empty(),               // symbol lengths
+            buffer![0u32, 5u32].into_array(),  // compressed offsets
+            buffer![0u32, 10u32].into_array(), // uncompressed offsets
+            DType::Utf8(Nullability::NonNullable),
+            Validity::NonNullable,
+        );
+    }
 
-        for index in 0..canonical.len() {
-            let canonical_scalar = canonical.scalar_at(index);
-            let compressed_scalar = compressed.scalar_at(index);
-            assert_eq!(canonical_scalar, compressed_scalar);
-        }
+    #[test]
+    #[should_panic(expected = "expected u32 DType for compressed offsets, was u8")]
+    fn test_validate_compressed_ptype() {
+        let _ = FSSTViewArray::new(
+            Buffer::empty(),                   // views
+            ByteBuffer::empty(),               // fsst_buffer
+            Buffer::empty(),                   // symbols
+            ByteBuffer::empty(),               // symbol lengths
+            buffer![0u8, 5u8].into_array(),    // compressed offsets
+            buffer![0u32, 10u32].into_array(), // uncompressed offsets
+            DType::Utf8(Nullability::NonNullable),
+            Validity::NonNullable,
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "expected u32 DType for uncompressed offsets, was u8")]
+    fn test_validate_uncompressed_ptype() {
+        let _ = FSSTViewArray::new(
+            Buffer::empty(),                  // views
+            ByteBuffer::empty(),              // fsst_buffer
+            Buffer::empty(),                  // symbols
+            ByteBuffer::empty(),              // symbol lengths
+            buffer![0u32, 5u32].into_array(), // compressed offsets
+            buffer![0u8, 10u8].into_array(),  // uncompressed offsets
+            DType::Utf8(Nullability::NonNullable),
+            Validity::NonNullable,
+        );
     }
 }

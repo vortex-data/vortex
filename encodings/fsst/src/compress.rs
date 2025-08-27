@@ -44,33 +44,6 @@ pub fn fsst_compress(strings: &dyn Array, compressor: &Compressor) -> VortexResu
     )
 }
 
-pub fn fsst_compress_components(
-    strings: &dyn Array,
-    compressor: &Compressor,
-) -> VortexResult<FSSTArray> {
-    let len = strings.len();
-    let dtype = strings.dtype().clone();
-
-    // Compress VarBinArray
-    if let Some(varbin) = strings.as_opt::<VarBinVTable>() {
-        return varbin
-            .with_iterator(|iter| fsst_compress_iter(iter, len, dtype, compressor))
-            .map_err(|err| err.with_context("Failed to compress VarBinArray with FSST"));
-    }
-
-    // Compress VarBinViewArray
-    if let Some(varbin_view) = strings.as_opt::<VarBinViewVTable>() {
-        return varbin_view
-            .with_iterator(|iter| fsst_compress_iter(iter, len, dtype, compressor))
-            .map_err(|err| err.with_context("Failed to compress VarBinViewArray with FSST"));
-    }
-
-    vortex_bail!(
-        "cannot fsst_compress array with unsupported encoding {:?}",
-        strings.encoding_id()
-    )
-}
-
 /// Train a compressor from an array.
 ///
 /// # Panics
