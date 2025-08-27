@@ -101,18 +101,18 @@ impl VortexReadAt for ObjectStoreReadAt {
         Ok(buffer.freeze())
     }
 
-    #[tracing::instrument(skip_all)]
-    async fn size(&self) -> io::Result<u64> {
-        let object_store = self.object_store.clone();
-        let location = self.location.clone();
-        Ok(object_store.head(&location).await?.size as u64)
-    }
-
     fn performance_hint(&self) -> PerformanceHint {
         match &self.scheme {
             Some(ObjectStoreScheme::Local | ObjectStoreScheme::Memory) => PerformanceHint::local(),
             _ => PerformanceHint::object_storage(),
         }
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn size(&self) -> io::Result<u64> {
+        let object_store = self.object_store.clone();
+        let location = self.location.clone();
+        Ok(object_store.head(&location).await?.size as u64)
     }
 }
 

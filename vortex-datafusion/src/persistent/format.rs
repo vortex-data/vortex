@@ -148,10 +148,6 @@ impl FileFormat for VortexFormat {
         self
     }
 
-    fn compression_type(&self) -> Option<FileCompressionType> {
-        None
-    }
-
     fn get_ext(&self) -> String {
         VORTEX_FILE_EXTENSION.to_string()
     }
@@ -168,6 +164,10 @@ impl FileFormat for VortexFormat {
         }
     }
 
+    fn compression_type(&self) -> Option<FileCompressionType> {
+        None
+    }
+
     async fn infer_schema(
         &self,
         state: &dyn Session,
@@ -178,11 +178,11 @@ impl FileFormat for VortexFormat {
             .map(|o| {
                 let store = store.clone();
                 let cache = self.file_cache.clone();
-                SpawnedTask::spawn(TokioRuntime::default().drive(|handle| async move {
-                    let vxf = cache.try_get(&o, store, handle).await?;
+                SpawnedTask::spawn(async move {
+                    let vxf = cache.try_get(&o, store, TokioRuntime::handle()).await?;
                     let inferred_schema = vxf.dtype().to_arrow_schema()?;
                     VortexResult::Ok((o.location, inferred_schema))
-                }))
+                })
                 .map(|f| f.vortex_expect("Failed to spawn infer_schema"))
             })
             .buffer_unordered(state.config_options().execution.meta_fetch_concurrency)
@@ -209,9 +209,9 @@ impl FileFormat for VortexFormat {
         let store = store.clone();
         let cache = self.file_cache.clone();
 
-        SpawnedTask::spawn(TokioRuntime::default().drive(|handle| async move {
+        SpawnedTask::spawn(async move {
             let vxf = cache
-                .try_get(&object, store.clone(), handle)
+                .try_get(&object, store.clone(), TokioRuntime::handle())
                 .await
                 .map_err(|e| {
                     DataFusionError::Execution(format!(
@@ -323,7 +323,7 @@ impl FileFormat for VortexFormat {
                 total_byte_size,
                 column_statistics,
             })
-        }))
+        })
         .await
         .vortex_expect("Failed to spawn infer_stats")
     }

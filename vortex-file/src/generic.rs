@@ -150,6 +150,7 @@ impl VortexOpenOptions<GenericVortexFile> {
             footer,
             source,
             metrics: self.metrics,
+            handle,
         })
     }
 

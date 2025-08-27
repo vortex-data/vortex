@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::datasets::Dataset;
+use crate::tpch::tpchgen::{generate_tpch_tables, TpchGenOptions};
+use crate::{Format, IdempotentPath};
 use async_trait::async_trait;
 use glob::glob;
 use vortex::arrays::ChunkedArray;
 use vortex::dtype::Nullability::NonNullable;
 use vortex::expr::{col, pack};
 use vortex::file::VortexOpenOptions;
+use vortex::io::runtime::tokio::TokioRuntime;
 use vortex::{Array, ArrayRef, IntoArray, ToCanonical};
-
-use crate::datasets::Dataset;
-use crate::tpch::tpchgen::{TpchGenOptions, generate_tpch_tables};
-use crate::{Format, IdempotentPath};
 
 pub struct TPCHLCommentChunked;
 
@@ -46,7 +46,7 @@ impl Dataset for TPCHLCommentChunked {
         .unwrap()
         {
             let file = VortexOpenOptions::file()
-                .open(path.unwrap())
+                .open(path.unwrap(), TokioRuntime::handle())
                 .await
                 .expect("cannot open lineitem.vortex");
 

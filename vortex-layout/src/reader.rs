@@ -49,7 +49,6 @@ pub trait LayoutReader: 'static + Send + Sync {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        handle: &Handle,
     ) -> VortexResult<Box<dyn PruningEvaluation>>;
 
     /// Performs an exact evaluation of the expression against the layout reader.
@@ -57,7 +56,6 @@ pub trait LayoutReader: 'static + Send + Sync {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        handle: &Handle,
     ) -> VortexResult<Box<dyn MaskEvaluation>>;
 
     /// Evaluates the expression against the layout.
@@ -65,7 +63,6 @@ pub trait LayoutReader: 'static + Send + Sync {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        handle: &Handle,
     ) -> VortexResult<Box<dyn ArrayEvaluation>>;
 }
 
@@ -102,14 +99,14 @@ impl PruningEvaluation for NoOpPruningEvaluation {
 /// The returned mask **MUST** have been intersected with the input mask.
 #[async_trait]
 pub trait MaskEvaluation: 'static + Send + Sync {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask>;
+    async fn invoke(&self, mask: Mask, handle: &Handle) -> VortexResult<Mask>;
 }
 
 pub struct NoOpMaskEvaluation;
 
 #[async_trait]
 impl MaskEvaluation for NoOpMaskEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+    async fn invoke(&self, mask: Mask, handle: &Handle) -> VortexResult<Mask> {
         Ok(mask)
     }
 }
@@ -118,7 +115,7 @@ impl MaskEvaluation for NoOpMaskEvaluation {
 /// of the input mask.
 #[async_trait]
 pub trait ArrayEvaluation: 'static + Send + Sync {
-    async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef>;
+    async fn invoke(&self, mask: Mask, handle: &Handle) -> VortexResult<ArrayRef>;
 }
 
 pub struct LazyReaderChildren {

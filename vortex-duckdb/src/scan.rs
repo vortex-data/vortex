@@ -319,7 +319,6 @@ impl TableFunction for VortexTableFunction {
         let file_urls = bind_data.file_urls.clone();
 
         let pool = WorkerPool::drive_stream(move |handle| {
-            let handle2 = handle.clone();
             stream::once(ready(ready(Ok(first_file)).boxed()))
                 .chain(stream::iter(file_urls).skip(1).map(move |path| {
                     let handle = handle.clone();
@@ -358,7 +357,7 @@ impl TableFunction for VortexTableFunction {
                         .with_projection(projection_expr.clone())
                         .with_concurrency(1024)
                         .map(move |split: ArrayRef| Ok((split, conversion_cache.clone())))
-                        .into_stream(vxf.layout_reader(&handle2)?, handle2.clone())?;
+                        .into_stream()?;
                     Ok::<_, VortexError>(tasks)
                 })
                 .try_flatten()

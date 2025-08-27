@@ -42,6 +42,8 @@ mod work_stealing_iter;
 
 /// A struct for building a scan operation.
 pub struct ScanBuilder<A> {
+    handle: Handle,
+    layout_reader: Arc<dyn LayoutReader>,
     projection: ExprRef,
     filter: Option<ExprRef>,
     /// Optionally read a subset of the rows in the file.
@@ -125,8 +127,8 @@ impl<A: 'static + Send> ScanBuilder<A> {
     }
 
     /// The [`DType`] returned by the scan, after applying the projection.
-    pub fn dtype(&self, scope: &DType) -> VortexResult<DType> {
-        self.projection.return_dtype(scope)
+    pub fn dtype(&self) -> VortexResult<DType> {
+        self.projection.return_dtype(self.layout_reader.dtype())
     }
 
     /// Map each split of the scan. The function will be run on the spawned task.
@@ -136,6 +138,8 @@ impl<A: 'static + Send> ScanBuilder<A> {
     ) -> ScanBuilder<B> {
         let old_map_fn = self.map_fn;
         ScanBuilder {
+            handle: self.handle,
+            layout_reader: self.layout_reader,
             projection: self.projection,
             filter: self.filter,
             row_range: self.row_range,
@@ -151,11 +155,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
     }
 
     /// Constructs a task per row split of the scan, returned as a vector of futures.
-    pub fn build(
-        mut self,
-        layout_reader: Arc<dyn LayoutReader>,
-        handle: &Handle,
-    ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
+    pub fn build(mut self) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
         if self.filter.is_some() && self.limit.is_some() {
             vortex_bail!("Vortex doesn't support scans with both a filter and a limit")
         }
@@ -167,7 +167,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
         // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
         // conjunction splitting if a filter is provided.
-        let mut layout_reader = layout_reader;
+        let mut layout_reader = self.layout_reader;
 
         // Enrich the layout reader to support RowIdx expressions.
         // Note that this is applied below the filter layout reader since it can perform
@@ -189,7 +189,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
         let splits = self.split_by.splits(layout_reader.as_ref(), &field_mask)?;
 
         let ctx = Arc::new(TaskContext {
-            handle: handle.clone(),
+            handle: self.handle.clone(),
             row_range: self.row_range,
             selection: self.selection,
             filter: filter.map(|f| Arc::new(FilterExpr::new(f))),
@@ -215,12 +215,11 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
     pub fn into_stream(
         self,
-        layout_reader: Arc<dyn LayoutReader>,
-        handle: Handle,
     ) -> VortexResult<impl futures::Stream<Item = VortexResult<A>> + Send + 'static> {
         let concurrency = self.concurrency;
-        Ok(stream::iter(self.build(layout_reader, &handle)?)
-            .map(move |fut| handle.clone().spawn(fut))
+        let handle = self.handle.clone();
+        Ok(stream::iter(self.build()?)
+            .map(move |fut| handle.spawn(fut))
             .buffered(concurrency)
             .filter_map(|chunk| async move { chunk.transpose() }))
     }
@@ -235,32 +234,29 @@ impl<A: 'static + Send> ScanBuilder<A> {
     #[cfg(feature = "tokio")]
     pub fn into_tokio_stream(
         self,
-        layout_reader: Arc<dyn LayoutReader>,
     ) -> impl futures::Stream<Item = VortexResult<A>> + Send + 'static {
         use futures::StreamExt;
-        use vortex_io::runtime::tokio::TokioRuntime;
-
         let tokio_handle = tokio::runtime::Handle::current();
         let num_workers = tokio_handle.metrics().num_workers();
         let concurrency = self.concurrency * num_workers;
 
-        TokioRuntime::default().drive_stream(move |handle| {
-            let items = match self.build(layout_reader, &handle) {
-                Ok(items) => items,
-                Err(e) => return stream::once(async move { Err(e) }).boxed(),
-            };
+        let items = match self.build() {
+            Ok(items) => items,
+            Err(e) => return stream::once(async move { Err(e) }).boxed(),
+        };
 
-            stream::iter(items)
-                .buffered(concurrency)
-                .filter_map(|chunk| async move { chunk.transpose() })
-                .boxed()
-        })
+        stream::iter(items)
+            .buffered(concurrency)
+            .filter_map(|chunk| async move { chunk.transpose() })
+            .boxed()
     }
 }
 
 impl ScanBuilder<ArrayRef> {
-    pub fn new() -> Self {
+    pub fn new(layout_reader: Arc<dyn LayoutReader>, handle: Handle) -> Self {
         Self {
+            handle,
+            layout_reader,
             projection: root(),
             filter: None,
             row_range: None,
@@ -307,10 +303,9 @@ impl ScanBuilder<ArrayRef> {
     #[cfg(feature = "tokio")]
     pub fn into_tokio_array_stream(
         self,
-        layout_reader: Arc<dyn LayoutReader>,
     ) -> VortexResult<impl vortex_array::stream::ArrayStream + Send + 'static> {
-        let dtype = self.dtype(layout_reader.dtype())?;
-        let stream = self.into_tokio_stream(layout_reader);
+        let dtype = self.dtype()?;
+        let stream = self.into_tokio_stream();
         Ok(vortex_array::stream::ArrayStreamAdapter::new(dtype, stream))
     }
 }

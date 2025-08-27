@@ -164,7 +164,6 @@ struct FlatEvaluation {
     array: SharedArrayFuture,
     row_range: Range<usize>,
     expr: ExprRef,
-    handle: Handle,
 }
 
 #[async_trait]
@@ -231,7 +230,6 @@ impl ArrayEvaluation for FlatEvaluation {
             mask.density(),
         );
 
-        let name = self.name.clone();
         let expr = self.expr.clone();
         let row_range = self.row_range.clone();
 

@@ -27,7 +27,7 @@ impl VortexOpenOptions<InMemoryFileType> {
     }
 
     /// Open an in-memory file contained in the provided buffer.
-    pub fn open<B: Into<ByteBuffer>>(self, buffer: B) -> VortexResult<VortexFile> {
+    pub fn open<B: Into<ByteBuffer>>(self, buffer: B, handle: Handle) -> VortexResult<VortexFile> {
         let buffer = buffer.into();
 
         let postscript = self.parse_postscript(&buffer)?;
@@ -61,6 +61,7 @@ impl VortexOpenOptions<InMemoryFileType> {
             footer,
             source: FileIoSource::Memory(buffer),
             metrics: self.metrics,
+            handle,
         })
     }
 }

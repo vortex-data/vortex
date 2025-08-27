@@ -172,14 +172,13 @@ impl LayoutReader for ChunkedReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        handle: &Handle,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
         let mut chunk_evals = vec![];
         let mut mask_ranges = vec![];
 
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
             let chunk_reader = self.chunk_reader(chunk_idx)?;
-            let chunk_eval = chunk_reader.pruning_evaluation(&chunk_range, expr, handle)?;
+            let chunk_eval = chunk_reader.pruning_evaluation(&chunk_range, expr)?;
             chunk_evals.push(chunk_eval);
             mask_ranges.push(mask_range);
         }
@@ -195,14 +194,13 @@ impl LayoutReader for ChunkedReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        handle: &Handle,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
         let mut chunk_evals = vec![];
         let mut mask_ranges = vec![];
 
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
             let chunk_reader = self.chunk_reader(chunk_idx)?;
-            let chunk_eval = chunk_reader.filter_evaluation(&chunk_range, expr, handle)?;
+            let chunk_eval = chunk_reader.filter_evaluation(&chunk_range, expr)?;
             chunk_evals.push(chunk_eval);
             mask_ranges.push(mask_range);
         }
@@ -218,7 +216,6 @@ impl LayoutReader for ChunkedReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        handle: &Handle,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
         let dtype = expr.return_dtype(self.dtype())?;
         let mut chunk_evals = vec![];
@@ -226,7 +223,7 @@ impl LayoutReader for ChunkedReader {
 
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
             let chunk_reader = self.chunk_reader(chunk_idx)?;
-            let chunk_eval = chunk_reader.projection_evaluation(&chunk_range, expr, handle)?;
+            let chunk_eval = chunk_reader.projection_evaluation(&chunk_range, expr)?;
             chunk_evals.push(chunk_eval);
             mask_ranges.push(mask_range);
         }
@@ -290,7 +287,7 @@ struct ChunkedMaskEvaluation {
 
 #[async_trait]
 impl MaskEvaluation for ChunkedMaskEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+    async fn invoke(&self, mask: Mask, handle: &Handle) -> VortexResult<Mask> {
         log::debug!(
             "Chunked mask evaluation {} (mask = {})",
             self.name,
@@ -308,7 +305,7 @@ impl MaskEvaluation for ChunkedMaskEvaluation {
                         // If the mask is all false, we can skip the evaluation.
                         ready(Ok(mask)).boxed()
                     } else {
-                        chunk_eval.invoke(mask).boxed()
+                        chunk_eval.invoke(mask, handle).boxed()
                     }
                 }),
         )
@@ -333,7 +330,7 @@ struct ChunkedArrayEvaluation {
 
 #[async_trait]
 impl ArrayEvaluation for ChunkedArrayEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
+    async fn invoke(&self, mask: Mask, _handle: &Handle) -> VortexResult<ArrayRef> {
         // Split the mask over each chunk.
         let chunks: Vec<_> = FuturesOrdered::from_iter(
             self.mask_ranges

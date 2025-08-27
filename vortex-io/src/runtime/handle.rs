@@ -4,24 +4,45 @@
 use crate::runtime::coalesce::{CoalescedRequest, CoalescedStreamExt};
 use crate::runtime::{CpuTask, IoTask, Read, ReadCompletion, Runtime};
 use futures::future::{BoxFuture, LocalBoxFuture, Shared};
+use futures::stream::BoxStream;
 use futures::{FutureExt, StreamExt, TryFutureExt};
-use std::fmt::{Debug, Display, Formatter};
 use std::fs::File;
+use std::marker::PhantomData;
 use std::os::unix::fs::FileExt;
-use std::sync::{Arc, LazyLock};
-use tokio::runtime;
+use std::sync::Arc;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{
     vortex_err, vortex_panic, SharedVortexResult, VortexError, VortexExpect, VortexResult,
 };
 
 /// Represents a handle to a Vortex runtime that can be used to enqueue CPU- or I/O-bound tasks.
-///
-// TODO(ngates): I think the handle should probably have a lifetime tied to the runtime?
 #[derive(Clone)]
-pub struct Handle(pub(crate) Arc<dyn Runtime>);
+pub struct Handle<'handle>(pub(crate) Arc<dyn Runtime<'handle> + 'handle>);
 
-impl Handle {
+impl Handle<'static> {
+    // FIXME(ngates): remove this!
+    pub fn no_op() -> Self {
+        struct NoOp;
+
+        impl Runtime<'static> for NoOp {
+            fn spawn_scheduling(&self, _fut: BoxFuture<'static, ()>) {
+                vortex_panic!("NoOp runtime cannot spawn tasks");
+            }
+
+            fn spawn_cpu(&self, _task: CpuTask) {
+                vortex_panic!("NoOp runtime cannot spawn CPU tasks");
+            }
+
+            fn spawn_io(&self, _stream: BoxStream<'static, IoTask>, _concurrency: usize) {
+                vortex_panic!("NoOp runtime cannot spawn I/O tasks");
+            }
+        }
+
+        Self(Arc::new(NoOp))
+    }
+}
+
+impl<'handle> Handle<'handle> {
     /// Spawn a new scheduling future onto the runtime.
     ///
     // TODO(ngates): we should pass a new handle into a function here, then we should use handles
@@ -29,10 +50,10 @@ impl Handle {
     //  For example, we can spawn each split of a scan operation. Each spawn on the same handle
     //  creates a sibling task, which have sequential priority. All CPU tasks spawned from the same
     //  handle can have the same affinity? Something like that?
-    pub fn spawn<F, R>(&self, f: F) -> impl Future<Output = R> + use<F, R>
+    pub fn spawn<F, R>(&self, f: F) -> impl Future<Output = R> + use<'handle, F, R>
     where
-        F: Future<Output = R> + Send + 'static,
-        R: Send + 'static,
+        F: Future<Output = R> + Send + 'handle,
+        R: Send + 'handle,
     {
         let (send, recv) = oneshot::channel();
         self.0.spawn_scheduling(
@@ -51,8 +72,10 @@ impl Handle {
     }
 
     /// Spawn a CPU-bound task for execution on the runtime.
-    pub fn spawn_cpu<F, R>(&self, f: F) -> impl Future<Output = R> + Send + 'static
+    pub fn spawn_cpu<F, R>(&self, f: F) -> impl Future<Output = R> + Send + 'handle
     where
+        // Unlike scheduling futures, the CPU task should have a static lifetime because it
+        // doesn't need to access to handle to spawn more work.
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
@@ -77,11 +100,11 @@ impl Handle {
     //
     // FIXME(ngates): this API can create a channel that is used for the entire lifetime of the
     //  file. We can then pass the other end of the channel to the runtime.
-    pub fn open_file(&self, read: Arc<File>) -> FileIo {
+    pub fn open_file(&self, read: Arc<File>) -> FileIo<'handle> {
         self.open(read)
     }
 
-    pub fn open(&self, driver: Arc<dyn IoDriver>) -> FileIo {
+    pub fn open(&self, driver: Arc<dyn IoSource>) -> FileIo<'handle> {
         let (send, recv) = flume::unbounded();
 
         // Construct the size future in case we need it.
@@ -103,11 +126,16 @@ impl Handle {
 
         self.0.spawn_io(stream, concurrency);
 
-        FileIo { name, size, send }
+        FileIo {
+            name,
+            size,
+            send,
+            _phantom: Default::default(),
+        }
     }
 }
 
-pub trait IoDriver: Send + Sync + 'static {
+pub trait IoSource: Send + Sync + 'static {
     fn name(&self) -> String;
 
     fn coalescing_window(&self) -> Option<u64>;
@@ -117,7 +145,9 @@ pub trait IoDriver: Send + Sync + 'static {
     /// Returns a shared future that resolves to the byte size of the underlying data source.
     fn size(&self) -> Shared<BoxFuture<'static, SharedVortexResult<u64>>>;
 
-    /// Perform the actual I/O operation.
+    /// Perform a single read operation.
+    ///
+    /// The returned future must be `Send`, and should not require a specific runtime to drive it.
     fn read_send(
         &self,
         offset: u64,
@@ -135,7 +165,7 @@ pub trait IoDriver: Send + Sync + 'static {
     }
 }
 
-impl IoDriver for ByteBuffer {
+impl IoSource for ByteBuffer {
     fn name(&self) -> String {
         format!("ByteBuffer({})", self.len())
     }
@@ -175,7 +205,7 @@ impl IoDriver for ByteBuffer {
     }
 }
 
-impl IoDriver for File {
+impl IoSource for File {
     fn name(&self) -> String {
         "file".to_string()
     }
@@ -253,16 +283,7 @@ impl ObjectStoreIo {
 }
 
 #[cfg(feature = "object_store")]
-static TOKIO: LazyLock<runtime::Runtime> = LazyLock::new(|| {
-    runtime::Builder::new_multi_thread()
-        .enable_all()
-        .thread_name("vortex-object-store")
-        .build()
-        .vortex_expect("Failed to create Tokio runtime")
-});
-
-#[cfg(feature = "object_store")]
-impl IoDriver for ObjectStoreIo {
+impl IoSource for ObjectStoreIo {
     fn name(&self) -> String {
         self.path.to_string()
     }
@@ -309,73 +330,17 @@ impl IoDriver for ObjectStoreIo {
     }
 }
 
-/// Coalesces IoRequests that are within `coalesce_distance` bytes of each other
-fn coalesce_requests(
-    mut requests: Vec<IoRequest>,
-    coalesce_distance: u64,
-) -> Vec<CoalescedRequest> {
-    if requests.is_empty() {
-        return vec![];
-    }
-
-    // Sort requests by their start offset
-    requests.sort_unstable_by_key(|req| req.offset);
-
-    let mut coalesced = Vec::new();
-    let mut current_requests = Vec::new();
-    let mut current_start = requests[0].offset;
-    let mut current_end = requests[0].offset + requests[0].length as u64;
-    let mut current_alignment = requests[0].alignment.clone();
-
-    let mut requests = requests.into_iter();
-    current_requests.push(requests.next().vortex_expect("at least one"));
-
-    for req in requests {
-        let req_start = req.offset;
-        let req_end = req.offset + req.length as u64;
-
-        // Check if this request should be coalesced with the current group
-        if req_start.saturating_sub(current_end) <= coalesce_distance {
-            // Expand the current range
-            current_end = current_end.max(req_end);
-            current_requests.push(req);
-        } else {
-            // Start a new coalesced group
-            coalesced.push(CoalescedRequest {
-                range: current_start..current_end,
-                alignment: current_alignment,
-                requests: current_requests,
-            });
-
-            // Initialize the new group
-            current_start = req_start;
-            current_end = req_end;
-            current_alignment = req.alignment.clone();
-            current_requests = vec![req];
-        }
-    }
-
-    // Don't forget the last group
-    if !current_requests.is_empty() {
-        coalesced.push(CoalescedRequest {
-            range: current_start..current_end,
-            alignment: current_alignment,
-            requests: current_requests,
-        });
-    }
-
-    coalesced
-}
 /// A file that can be read from using a Vortex runtime.
 ///
 /// This essentially provides a wrapper to bind a handle to a read interface. It is optional, but
 /// should be used carefully because the subsequent read operations must be driven on the same
 /// runtime.
 #[derive(Clone)]
-pub struct FileIo {
+pub struct FileIo<'handle> {
     name: String,
     size: Shared<BoxFuture<'static, SharedVortexResult<u64>>>,
     send: flume::Sender<IoRequest>,
+    _phantom: PhantomData<&'handle ()>,
 }
 
 pub struct IoRequest {
@@ -385,7 +350,7 @@ pub struct IoRequest {
     pub callback: ReadCompletion,
 }
 
-impl FileIo {
+impl FileIo<'_> {
     pub fn name(&self) -> &str {
         &self.name
     }

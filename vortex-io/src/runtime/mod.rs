@@ -32,18 +32,18 @@ use vortex_error::{vortex_err, VortexExpect, VortexResult};
 /// Note: users will interact with the [`Handle`] API rather than the [`Runtime`] trait.
 ///
 /// FIXME(ngates): these should really have handles that get dropped and cancel?
-pub(crate) trait Runtime: Send + Sync {
+pub(crate) trait Runtime<'handle>: Send + Sync {
     /// Spawns a future to be executed on the runtime's scheduling context.
     ///
     /// The future will continue to be executed in the background and should pass results out via
     /// a one-shot channel if necessary.
-    fn spawn_scheduling(&self, fut: BoxFuture<'static, ()>);
+    fn spawn_scheduling(&self, fut: BoxFuture<'handle, ()>);
 
     /// Spawns a CPU-bound task for execution on the runtime.
     fn spawn_cpu(&self, task: CpuTask);
 
     /// Passes a stream of I/O tasks to be executed on the runtime.
-    fn spawn_io(&self, stream: BoxStream<'static, IoTask>, concurrency: usize);
+    fn spawn_io(&self, stream: BoxStream<'handle, IoTask>, concurrency: usize);
 }
 
 pub(crate) struct CpuTask {
@@ -61,19 +61,19 @@ impl CpuTask {
 // NOTE(ngates): we may well want to make this an enum so we have better control over the common
 //  cases of files and object store, we can always have a fallback to arbitrary futures.
 pub struct IoTask {
-    source: Arc<dyn IoDriver>,
+    source: Arc<dyn IoSource>,
     request: IoReq,
 }
 
 impl IoTask {
-    pub fn new_request(source: Arc<dyn IoDriver>, request: IoRequest) -> Self {
+    pub fn new_request(source: Arc<dyn IoSource>, request: IoRequest) -> Self {
         IoTask {
             source,
             request: IoReq::Request(request),
         }
     }
 
-    pub fn new_coalesced(source: Arc<dyn IoDriver>, request: CoalescedRequest) -> Self {
+    pub fn new_coalesced(source: Arc<dyn IoSource>, request: CoalescedRequest) -> Self {
         IoTask {
             source,
             request: IoReq::Coalesced(request),

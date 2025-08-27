@@ -10,14 +10,16 @@ use arrow_select::concat::concat_batches;
 use arrow_select::take::take_record_batch;
 use futures::stream;
 use itertools::Itertools;
-use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use parquet::arrow::arrow_reader::ArrowReaderOptions;
 use parquet::arrow::async_reader::AsyncFileReader;
+use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use parquet::file::metadata::RowGroupMetaData;
 use stream::StreamExt;
 use vortex::buffer::Buffer;
 use vortex::file::VortexOpenOptions;
-use vortex::iter::ArrayIteratorExt; //::rayon::ParallelArrayIteratorExt;
+//::rayon::ParallelArrayIteratorExt;
+use vortex::io::runtime::tokio::TokioRuntime;
+use vortex::iter::ArrayIteratorExt;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex::{Array, ArrayRef, IntoArray};
 
@@ -37,8 +39,9 @@ pub async fn take_parquet(path: &Path, indices: Buffer<u64>) -> anyhow::Result<R
 }
 
 async fn take_vortex(reader: impl AsRef<Path>, indices: Buffer<u64>) -> anyhow::Result<ArrayRef> {
+    let path = reader.as_ref().to_path_buf();
     Ok(VortexOpenOptions::file()
-        .open(reader)
+        .open(reader, TokioRuntime::handle())
         .await?
         .scan()?
         .with_row_indices(indices)

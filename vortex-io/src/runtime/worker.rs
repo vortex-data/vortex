@@ -6,10 +6,12 @@ use async_task::Runnable;
 use crossbeam_deque::{Injector, Stealer};
 use futures::executor::block_on;
 use futures::future::BoxFuture;
-use futures::stream::BoxStream;
+use futures::stream::{BoxStream, FuturesUnordered};
 use futures::Stream;
 use futures::{FutureExt, StreamExt};
+use itertools::Itertools;
 use smol::LocalExecutor;
+use std::fmt::Debug;
 use std::iter;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -20,16 +22,16 @@ use std::sync::Arc;
 /// Each worker makes a decision about whether to perform I/O tasks, CPU tasks, or drive the
 /// underlying stream. It is therefore expected that the stream is largely a lightweight state
 /// machine that alternates between spawning I/O and spawning CPU onto the runtime handle.
-pub struct WorkerPool<T: Send + 'static> {
+pub struct WorkerPool<T: Send> {
     shared: Arc<Shared<T>>,
 }
 
-impl<T: Send + 'static> WorkerPool<T> {
-    pub fn drive_stream<F, S>(f: F) -> WorkerPool<T>
+impl<T: Send> WorkerPool<T> {
+    pub fn drive_stream<'handle, F, S>(f: F) -> WorkerPool<T>
     where
-        F: FnOnce(Handle) -> S,
-        S: Stream<Item = T> + Send + 'static,
-        T: Send + 'static,
+        F: FnOnce(Handle<'handle>) -> S,
+        S: Stream<Item = T> + Send + 'handle,
+        T: 'handle,
     {
         let (result_tx, result_rx) = crossbeam_channel::unbounded();
 
@@ -48,8 +50,10 @@ impl<T: Send + 'static> WorkerPool<T> {
         // Spawn a task to drive the stream and send results to the result channel.
         shared.spawn_scheduling(
             async move {
+                log::info!("DRIVE STREAM");
                 futures::pin_mut!(stream);
                 while let Some(item) = stream.next().await {
+                    log::info!("RESULT");
                     // Ignore send errors, which happen if the receiver is dropped.
                     let _ = result_tx.send(item);
                 }
@@ -61,7 +65,7 @@ impl<T: Send + 'static> WorkerPool<T> {
     }
 }
 
-struct Shared<T: Send + 'static> {
+struct Shared<T: Send> {
     scheduling: Arc<WorkStealing<Runnable>>,
     cpu: Arc<WorkStealing<CpuTask>>,
     io: Arc<WorkStealing<IoTask>>,
@@ -79,28 +83,40 @@ struct Shared<T: Send + 'static> {
 ///
 /// Note that we _also_ implement [`Runtime`] for each individual worker, which allows us to pass
 /// a handle that spawns onto a specific worker's local queues.
-impl<T: Send + 'static> Runtime for Shared<T> {
-    fn spawn_scheduling(&self, fut: BoxFuture<'static, ()>) {
+impl<'handle, T: Send> Runtime<'handle> for Shared<T> {
+    fn spawn_scheduling(&self, fut: BoxFuture<'handle, ()>) {
         let injector = self.scheduling.injector.clone();
-        let (runnable, task) = async_task::spawn(fut, move |r| injector.push(r));
+
+        // SAFETY: We know that the future is `Send`, and we know that schedule is `Send` + `Sync`.
+        //  Really, we are just avoiding the 'static bound on the future because we know the handle
+        //  lifetime will out-live the future.
+        // TOOD(ngates): we should create custom function with the Send + Sync bounds,
+        let (runnable, task) =
+            unsafe { async_task::spawn_unchecked(fut, move |r| injector.push(r)) };
+
         task.detach();
-        self.scheduling.injector.push(runnable);
+        runnable.schedule();
     }
 
     fn spawn_cpu(&self, task: CpuTask) {
         self.cpu.injector.push(task);
     }
 
-    fn spawn_io(&self, mut stream: BoxStream<'static, IoTask>, _concurrency: usize) {
+    fn spawn_io(&self, stream: BoxStream<'handle, IoTask>, concurrency: usize) {
         // FIXME(ngates): this is stupid and breaks back-pressure on the stream.
         //  We should collect these streams into a Vec or similar and use a SelectAll construct.
         // We launch a scheduling task to push I/O requests into the work stealing queue.
-        let injector = self.io.injector.clone();
+        // let injector = self.io.injector.clone();
+        log::info!("Spawning I/O driver with concurrency {}", concurrency);
         self.spawn_scheduling(
             async move {
-                while let Some(task) = stream.next().await {
-                    injector.push(task)
-                }
+                println!("Spawning I/O tasks...");
+                stream
+                    // FIXME(ngates): this isn't running on the I/O driver!
+                    .map(|task| async move { task.run_send().await })
+                    .buffer_unordered(concurrency)
+                    .collect::<()>()
+                    .await
             }
             .boxed(),
         )
@@ -117,6 +133,7 @@ impl<T: Send + 'static> WorkerPool<T> {
             scheduling,
             cpu: self.shared.cpu.new_worker(),
             io: self.shared.io.new_worker(),
+            io_executor: LocalExecutor::new(),
         }
     }
 }
@@ -129,6 +146,8 @@ pub struct Worker<T: Send + 'static> {
     scheduling: WorkStealingLocal<Runnable>,
     cpu: WorkStealingLocal<CpuTask>,
     io: WorkStealingLocal<IoTask>,
+
+    io_executor: LocalExecutor<'static>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -179,11 +198,19 @@ impl<T: Send + 'static> Worker<T> {
     fn drive_io(&mut self) {
         // We should become an I/O worker until there are no in-flight requests, and no requests
         // in the queue. After that, we yield back to the worker to perform more work.
-        let ex = LocalExecutor::new();
-
-        while let Some(task) = self.io.find_task() {
-            block_on(ex.run(task.run_local()));
+        let tasks = iter::from_fn(|| self.io.find_task()).collect_vec();
+        if tasks.is_empty() {
+            return;
         }
+
+        let mut handles = Vec::with_capacity(tasks.len());
+        self.io_executor
+            .spawn_many(tasks.into_iter().map(|task| task.run_send()), &mut handles);
+
+        block_on(
+            self.io_executor
+                .run(FuturesUnordered::from_iter(handles).collect::<()>()),
+        );
     }
 }
 
@@ -206,13 +233,19 @@ impl<T: Send + 'static> Iterator for Worker<T> {
                 WorkerRole::Executor => {
                     // We also perform scheduling if there is a task to perform.
                     // TODO(ngates): we probably shouldn't work-steal at this point?
+                    // log::info!(
+                    //     "SCHED local={} injector={} stealers=[{}]",
+                    //     self.scheduling.local.len(),
+                    //     self.scheduling.global.injector.len(),
+                    //     self.scheduling
+                    //         .global
+                    //         .stealers
+                    //         .iter()
+                    //         .map(|f| format!("{}", f.1.len()))
+                    //         .join(", ")
+                    // );
                     while let Some(runnable) = self.scheduling.find_task() {
-                        // TODO(ngates): there's no good way to tell this runnable that anything
-                        //  it spawns should be sent to the current worker's local queues? I'm
-                        //  sure we can figure it out.
-                        runnable.run();
-                        // Start the loop again to check for more work.
-                        // continue;
+                        log::info!("Running scheduled task: {}", runnable.run());
                     }
 
                     if let Some(task) = self.cpu.find_task() {
@@ -240,18 +273,12 @@ struct WorkStealing<T> {
     stealers: boxcar::Vec<Stealer<T>>,
 }
 
-impl<T> WorkStealing<T> {
-    fn new(injector: Arc<Injector<T>>) -> Self {
-        Self {
-            injector,
-            stealers: Default::default(),
-        }
-    }
-}
-
 impl<T> Default for WorkStealing<T> {
     fn default() -> Self {
-        Self::new(Arc::new(Injector::new()))
+        Self {
+            injector: Arc::new(Injector::new()),
+            stealers: Default::default(),
+        }
     }
 }
 
@@ -263,7 +290,6 @@ impl<T> WorkStealing<T> {
             id,
             global: self.clone(),
             local,
-            injector: Arc::new(Injector::new()),
         }
     }
 }
@@ -272,7 +298,6 @@ struct WorkStealingLocal<T> {
     id: usize,
     global: Arc<WorkStealing<T>>,
     local: crossbeam_deque::Worker<T>,
-    injector: Arc<Injector<T>>, // A local injector.
 }
 
 impl<T> WorkStealingLocal<T> {
@@ -281,21 +306,18 @@ impl<T> WorkStealingLocal<T> {
         self.local.pop().or_else(|| {
             // Otherwise, we need to look for a task elsewhere.
             iter::repeat_with(|| {
-                // Try stealing a batch of tasks from our local injector.
-                self.injector.steal_batch_and_pop(&self.local).or_else(|| {
-                    // Try stealing a batch of tasks from the global queue.
-                    self.global
-                        .injector
-                        .steal_batch_and_pop(&self.local)
-                        // Or try stealing a task from one of the other threads.
-                        .or_else(|| {
-                            self.global
-                                .stealers
-                                .iter()
-                                .map(|(_idx, s)| s.steal())
-                                .collect()
-                        })
-                })
+                // Try stealing a batch of tasks from the global queue.
+                self.global
+                    .injector
+                    .steal_batch_and_pop(&self.local)
+                    // Or try stealing a task from one of the other threads.
+                    .or_else(|| {
+                        self.global
+                            .stealers
+                            .iter()
+                            .map(|(_idx, s)| s.steal())
+                            .collect()
+                    })
             })
             // Loop while no task was stolen and any steal operation needs to be retried.
             .find(|s| !s.is_retry())
