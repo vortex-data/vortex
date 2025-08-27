@@ -297,6 +297,29 @@ impl FSSTViewArray {
 }
 
 impl FSSTViewArray {
+    pub fn views(&self) -> &Buffer<View> {
+        &self.views
+    }
+
+    pub fn buffer(&self) -> &ByteBuffer {
+        &self.fsst_buffer
+    }
+    pub fn uncompressed_offsets(&self) -> &ArrayRef {
+        &self.uncompressed_offsets
+    }
+
+    pub fn compressed_offsets(&self) -> &ArrayRef {
+        &self.compressed_offsets
+    }
+
+    pub fn symbols(&self) -> &Buffer<Symbol> {
+        &self.symbols
+    }
+
+    pub fn symbol_lengths(&self) -> &ByteBuffer {
+        &self.symbol_lengths
+    }
+
     pub fn bytes_at(&self, index: usize) -> ByteBuffer {
         let view = self.views[index];
         // If view is a pointer to the slice, ignore it

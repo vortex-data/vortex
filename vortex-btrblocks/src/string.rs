@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::arrays::{VarBinArray, VarBinViewArray, VarBinViewVTable};
+use vortex_array::arrays::{VarBinViewArray, VarBinViewVTable};
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_dict::builders::dict_encode;
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_fsst::{FSSTArray, fsst_compress, fsst_train_compressor};
+use vortex_fsst::fsst_view::{FSSTViewArray, FSSTViewEncoding, FSSTViewVTable};
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::integer::IntCompressor;
@@ -231,38 +231,40 @@ impl Scheme for FSSTScheme {
         allowed_cascading: usize,
         _excludes: &[StringCode],
     ) -> VortexResult<ArrayRef> {
-        let compressor = fsst_train_compressor(&stats.src.clone().into_array())?;
-        let fsst = fsst_compress(&stats.src.clone().into_array(), &compressor)?;
+        let compressed = FSSTViewEncoding
+            .encode(&stats.src.to_canonical()?, None)?
+            .vortex_expect("Encoding VarBinViewArray to FSSTView must succeed");
 
-        let compressed_original_lengths = IntCompressor::compress(
-            &fsst.uncompressed_lengths().to_primitive().downcast()?,
+        let fsst_view = compressed.as_::<FSSTViewVTable>();
+
+        let compressed_offsets = IntCompressor::compress(
+            &fsst_view.compressed_offsets().to_primitive()?.downcast()?,
             is_sample,
             allowed_cascading,
             &[],
         )?;
 
-        let compressed_codes_offsets = IntCompressor::compress(
-            &fsst.codes().offsets().to_primitive().downcast()?,
+        let uncompressed_offsets = IntCompressor::compress(
+            &fsst_view
+                .uncompressed_offsets()
+                .to_primitive()?
+                .downcast()?,
             is_sample,
             allowed_cascading,
             &[],
         )?;
-        let compressed_codes = VarBinArray::try_new(
-            compressed_codes_offsets,
-            fsst.codes().bytes().clone(),
-            fsst.codes().dtype().clone(),
-            fsst.codes().validity().clone(),
-        )?;
 
-        let fsst = FSSTArray::try_new(
-            fsst.dtype().clone(),
-            fsst.symbols().clone(),
-            fsst.symbol_lengths().clone(),
-            compressed_codes,
-            compressed_original_lengths,
-        )?;
-
-        Ok(fsst.into_array())
+        Ok(FSSTViewArray::new(
+            fsst_view.views().clone(),
+            fsst_view.buffer().clone(),
+            fsst_view.symbols().clone(),
+            fsst_view.symbol_lengths().clone(),
+            compressed_offsets,
+            uncompressed_offsets,
+            fsst_view.dtype().clone(),
+            fsst_view.validity().clone(),
+        )
+        .into_array())
     }
 }
 
