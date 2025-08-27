@@ -4,10 +4,12 @@
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::ops::Deref;
+use std::rc::Rc;
 
 use vortex_array::{ArrayRef, DeserializeMetadata, SerializeMetadata};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
+use vortex_array::pipeline::Operator;
 
 use crate::{
     AnalysisExpr, ExprEncoding, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VortexExpr,
@@ -61,6 +63,10 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
 
     /// Compute the return [`DType`] of the expression if evaluated in the given scope.
     fn return_dtype(expr: &Self::Expr, scope: &DType) -> VortexResult<DType>;
+
+    fn operator(_expr: &Self::Expr, _children: Vec<Rc<dyn Operator>>) -> Option<Rc<dyn Operator>> {
+        None
+    }
 }
 
 #[macro_export]

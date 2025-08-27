@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::rc::Rc;
-
 use vortex_array::pipeline::Operator;
 use vortex_error::VortexResult;
 

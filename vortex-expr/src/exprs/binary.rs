@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::ArrayOperator;
 use std::fmt::Display;
 use std::hash::Hash;
+use std::rc::Rc;
 
-use vortex_array::compute::{Operator as ArrayOperator, add, and_kleene, compare, or_kleene, sub};
-use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata};
+use vortex_array::compute::{ add, and_kleene, compare, or_kleene, sub};
+use vortex_array::{compute, ArrayRef, DeserializeMetadata, ProstMetadata};
+use vortex_array::pipeline::operators::CompareOperator;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_proto::expr as pb;
 
 use crate::{
@@ -81,12 +84,12 @@ impl VTable for BinaryVTable {
         let rhs = expr.rhs.unchecked_evaluate(scope)?;
 
         match expr.operator {
-            Operator::Eq => compare(&lhs, &rhs, ArrayOperator::Eq),
-            Operator::NotEq => compare(&lhs, &rhs, ArrayOperator::NotEq),
-            Operator::Lt => compare(&lhs, &rhs, ArrayOperator::Lt),
-            Operator::Lte => compare(&lhs, &rhs, ArrayOperator::Lte),
-            Operator::Gt => compare(&lhs, &rhs, ArrayOperator::Gt),
-            Operator::Gte => compare(&lhs, &rhs, ArrayOperator::Gte),
+            Operator::Eq => compare(&lhs, &rhs, compute::Operator::Eq),
+            Operator::NotEq => compare(&lhs, &rhs, compute::Operator::NotEq),
+            Operator::Lt => compare(&lhs, &rhs, compute::Operator::Lt),
+            Operator::Lte => compare(&lhs, &rhs, compute::Operator::Lte),
+            Operator::Gt => compare(&lhs, &rhs, compute::Operator::Gt),
+            Operator::Gte => compare(&lhs, &rhs, compute::Operator::Gte),
             Operator::And => and_kleene(&lhs, &rhs),
             Operator::Or => or_kleene(&lhs, &rhs),
             Operator::Add => add(&lhs, &rhs),
@@ -106,6 +109,19 @@ impl VTable for BinaryVTable {
         }
 
         Ok(DType::Bool((lhs.is_nullable() || rhs.is_nullable()).into()))
+    }
+
+    fn operator(
+        expr: &BinaryExpr,
+        children: Vec<Rc<dyn ArrayOperator>>,
+    ) -> Option<Rc<dyn ArrayOperator>> {
+        let [lhs, rhs] = children
+            .try_into()
+            .ok()
+            .vortex_expect("Expected 2 children");
+        let op = expr.operator.try_into().ok()?;
+
+        Some(Rc::new(CompareOperator::new(lhs, rhs, op)))
     }
 }
 

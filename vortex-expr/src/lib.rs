@@ -13,6 +13,7 @@
 use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
+use std::rc::Rc;
 use std::sync::Arc;
 
 use dyn_hash::DynHash;
@@ -36,6 +37,7 @@ pub mod transform;
 pub mod traversal;
 mod vtable;
 
+use vortex_array::pipeline::Operator as ArrayOperator;
 pub use analysis::*;
 pub use between::*;
 pub use binary::*;
@@ -109,6 +111,11 @@ pub trait VortexExpr:
     /// Compute the type of the array returned by
     /// [`VortexExpr::evaluate`](./trait.VortexExpr.html#method.evaluate).
     fn return_dtype(&self, scope: &DType) -> VortexResult<DType>;
+
+    fn operator(
+        &self,
+        _children: Vec<Rc<dyn ArrayOperator>>,
+    ) -> Option<Rc<dyn ArrayOperator>>;
 }
 
 dyn_hash::hash_trait_object!(VortexExpr);
@@ -159,6 +166,16 @@ impl dyn VortexExpr + '_ {
 pub trait VortexExprExt {
     /// Accumulate all field references from this expression and its children in a set
     fn field_references(&self) -> HashSet<FieldName>;
+
+    fn to_operator(
+        &self,
+        root: &dyn Array,
+    ) -> VortexResult<Option<Rc<dyn ArrayOperator>>>;
+
+    fn to_operator_unoptimized(
+        &self,
+        root: &dyn Array,
+    ) -> VortexResult<Option<Rc<dyn ArrayOperator>>>;
 }
 
 impl VortexExprExt for ExprRef {
@@ -167,6 +184,24 @@ impl VortexExprExt for ExprRef {
         // The collector is infallible, so we can unwrap the result
         self.accept(&mut collector).vortex_unwrap();
         collector.into_fields()
+    }
+
+    fn to_operator(
+        &self,
+        root: &dyn Array,
+    ) -> VortexResult<Option<Rc<dyn ArrayOperator>>> {
+        let Some(operator) = self.to_operator_unoptimized(root)? else {
+            return Ok(None);
+        };
+        reduce_up(operator).map(Some)
+    }
+
+    fn to_operator_unoptimized(
+        &self,
+        root: &dyn Array,
+    ) -> VortexResult<Option<Rc<dyn ArrayOperator>>> {
+        let mut converter = ExprOperatorConverter::new(root);
+        self.clone().fold(&mut converter).map(|op| op.value())
     }
 }
 
@@ -212,6 +247,13 @@ impl<V: VTable> VortexExpr for ExprAdapter<V> {
 
     fn return_dtype(&self, scope: &DType) -> VortexResult<DType> {
         V::return_dtype(&self.0, scope)
+    }
+
+    fn operator(
+        &self,
+        children: Vec<Rc<dyn ArrayOperator>>,
+    ) -> Option<Rc<dyn ArrayOperator>> {
+        V::operator(&self.0, children)
     }
 }
 
