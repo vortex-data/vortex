@@ -134,7 +134,7 @@ impl FSSTViewArray {
     /// * The last `compressed_offsets` element cannot point past the end of the `buffer` of encoded
     ///   strings
     /// * The provided symbol table must be a valid FSST symbol table, i.e. it must be properly
-    ///   aligned to a `u64` and must have length <= 254
+    ///   aligned to a `u64` and must have length <= 255
     /// * The `dtype` must be `Utf8` or `Binary`
     /// * If a validity array is provided, it must have a length that matches the length of `views`
     #[allow(clippy::too_many_arguments)]
@@ -154,8 +154,8 @@ impl FSSTViewArray {
         );
 
         vortex_ensure!(
-            symbols.len() <= 254,
-            "Symbol table cannot exceed maximum symbol 254, was {}",
+            symbols.len() <= 255,
+            "Symbol table cannot exceed length 255, was {}",
             symbols.len()
         );
 
