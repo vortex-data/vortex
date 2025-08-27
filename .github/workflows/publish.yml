@@ -11,7 +11,6 @@ jobs:
   publish-rust:
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    needs: [prepare-python, prepare-java-macos, prepare-java-linux]
     steps:
       - uses: actions/checkout@v5
         with:
