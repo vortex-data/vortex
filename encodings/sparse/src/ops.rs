@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use vortex_array::arrays::ConstantArray;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::{Array, ArrayRef, IntoArray};
@@ -9,11 +11,11 @@ use vortex_scalar::Scalar;
 use crate::{SparseArray, SparseVTable};
 
 impl OperationsVTable<SparseVTable> for SparseVTable {
-    fn slice(array: &SparseArray, start: usize, stop: usize) -> ArrayRef {
-        let new_patches = array.patches().slice(start, stop);
+    fn slice(array: &SparseArray, range: Range<usize>) -> ArrayRef {
+        let new_patches = array.patches().slice(range.start..range.end);
 
         let Some(new_patches) = new_patches else {
-            return ConstantArray::new(array.fill_scalar().clone(), stop - start).into_array();
+            return ConstantArray::new(array.fill_scalar().clone(), range.len()).into_array();
         };
 
         // If the number of values in the sparse array matches the array length, then all
@@ -47,7 +49,7 @@ mod tests {
         let indices = buffer![0u8].into_array();
 
         let sparse = SparseArray::try_new(indices, values, 1000, 999u64.into()).unwrap();
-        let sliced = sparse.slice(0, 1000);
+        let sliced = sparse.slice(0..1000);
         let mut expected = vec![999u64; 1000];
         expected[0] = 0;
 

@@ -744,7 +744,7 @@ mod test {
     pub fn slice_array() {
         let binary_arr =
             VarBinViewArray::from_iter_str(["hello world", "hello world this is a long string"])
-                .slice(1, 2);
+                .slice(1..2);
         assert_eq!(
             binary_arr.scalar_at(0),
             Scalar::from("hello world this is a long string")

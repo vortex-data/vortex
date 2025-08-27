@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ops::Range;
+
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_error::VortexExpect;
@@ -93,7 +94,7 @@ mod test {
 
         assert!(encoded.left_parts_patches().is_some());
 
-        let decoded = encoded.slice(1, 3).to_primitive().unwrap();
+        let decoded = encoded.slice(1..4).to_primitive().unwrap();
 
         assert_eq!(decoded.as_slice::<T>(), &[b, outlier]);
     }

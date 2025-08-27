@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::iter::once;
+use std::ops::Range;
 
 use itertools::Itertools;
 use vortex_dtype::{DType, FieldName, FieldNames, StructFields};
@@ -442,17 +443,17 @@ impl CanonicalVTable<StructVTable> for StructVTable {
 }
 
 impl OperationsVTable<StructVTable> for StructVTable {
-    fn slice(array: &StructArray, start: usize, stop: usize) -> ArrayRef {
+    fn slice(array: &StructArray, range: Range<usize>) -> ArrayRef {
         let fields = array
             .fields()
             .iter()
-            .map(|field| field.slice(start, stop))
+            .map(|field| field.slice(range.clone()))
             .collect_vec();
         StructArray::new_unchecked(
             fields,
             array.struct_fields().clone(),
-            stop - start,
-            array.validity().slice(start, stop),
+            range.len(),
+            array.validity().slice(range),
         )
         .into_array()
     }

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_error::VortexExpect;
@@ -9,11 +11,13 @@ use vortex_scalar::Scalar;
 use crate::{ALPArray, ALPFloat, ALPVTable, match_each_alp_float_ptype};
 
 impl OperationsVTable<ALPVTable> for ALPVTable {
-    fn slice(array: &ALPArray, start: usize, stop: usize) -> ArrayRef {
+    fn slice(array: &ALPArray, range: Range<usize>) -> ArrayRef {
         ALPArray::new(
-            array.encoded().slice(start, stop),
+            array.encoded().slice(range.clone()),
             array.exponents(),
-            array.patches().and_then(|p| p.slice(start, stop)),
+            array
+                .patches()
+                .and_then(|p| p.slice(range)),
         )
         .into_array()
     }

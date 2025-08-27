@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use vortex_buffer::Buffer;
 use vortex_dtype::DecimalDType;
 use vortex_scalar::{DecimalValue, NativeDecimalType, Scalar, match_each_decimal_value_type};
@@ -11,12 +13,11 @@ use crate::vtable::OperationsVTable;
 use crate::{ArrayRef, IntoArray};
 
 impl OperationsVTable<DecimalVTable> for DecimalVTable {
-    fn slice(array: &DecimalArray, start: usize, stop: usize) -> ArrayRef {
+    fn slice(array: &DecimalArray, range: Range<usize>) -> ArrayRef {
         match_each_decimal_value_type!(array.values_type(), |D| {
             slice_typed(
                 array.buffer::<D>(),
-                start,
-                stop,
+                range,
                 array.decimal_dtype(),
                 array.validity.clone(),
             )
@@ -36,13 +37,12 @@ impl OperationsVTable<DecimalVTable> for DecimalVTable {
 
 fn slice_typed<T: NativeDecimalType>(
     values: Buffer<T>,
-    start: usize,
-    end: usize,
+    range: Range<usize>,
     decimal_dtype: DecimalDType,
     validity: Validity,
 ) -> ArrayRef {
-    let sliced = values.slice(start..end);
-    let validity = validity.slice(start, end);
+    let sliced = values.slice(range.clone());
+    let validity = validity.slice(range);
     DecimalArray::new(sliced, decimal_dtype, validity).into_array()
 }
 
@@ -65,7 +65,7 @@ mod tests {
         )
         .to_array();
 
-        let sliced = array.slice(1, 3);
+        let sliced = array.slice(1..3);
         assert_eq!(sliced.len(), 2);
 
         let decimal = sliced.as_::<DecimalVTable>();
@@ -81,7 +81,7 @@ mod tests {
         )
         .to_array();
 
-        let sliced = array.slice(1, 3);
+        let sliced = array.slice(1..3);
         assert_eq!(sliced.len(), 2);
     }
 

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ops::Range;
+
 use vortex_scalar::Scalar;
 
 use crate::ArrayRef;

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -62,7 +64,7 @@ impl VTable for NullVTable {
 /// let array = NullArray::new(5);
 ///
 /// // Slice the array - still contains nulls
-/// let sliced = array.slice(1, 3);
+/// let sliced = array.slice(1..4);
 /// assert_eq!(sliced.len(), 2);
 ///
 /// // All elements are null
@@ -133,8 +135,8 @@ impl CanonicalVTable<NullVTable> for NullVTable {
 }
 
 impl OperationsVTable<NullVTable> for NullVTable {
-    fn slice(_array: &NullArray, start: usize, stop: usize) -> ArrayRef {
-        NullArray::new(stop - start).into_array()
+    fn slice(_array: &NullArray, range: Range<usize>) -> ArrayRef {
+        NullArray::new(range.len()).into_array()
     }
 
     fn scalar_at(_array: &NullArray, _index: usize) -> Scalar {

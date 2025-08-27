@@ -71,7 +71,7 @@ pub unsafe extern "C-unwind" fn vx_array_slice(
     _error_out: *mut *mut vx_error,
 ) -> *const vx_array {
     let array = vx_array::as_ref(array);
-    let sliced = array.slice(start as usize, stop as usize);
+    let sliced = array.slice(start as usize..stop as usize);
     vx_array::new(sliced)
 }
 

@@ -4,6 +4,8 @@
 mod compute;
 mod serde;
 
+use std::ops::Range;
+
 use vortex_array::arrays::DecimalArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
@@ -129,11 +131,11 @@ impl CanonicalVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
 }
 
 impl OperationsVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
-    fn slice(array: &DecimalBytePartsArray, start: usize, stop: usize) -> ArrayRef {
+    fn slice(array: &DecimalBytePartsArray, range: Range<usize>) -> ArrayRef {
         // SAFETY: slicing encoded MSP does not change the encoded values
         unsafe {
             DecimalBytePartsArray::new_unchecked(
-                array.msp.slice(start, stop),
+                array.msp.slice(range),
                 *array.decimal_dtype(),
             )
             .into_array()

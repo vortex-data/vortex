@@ -166,7 +166,7 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
         let n_leading_junk_values_scalar = offsets.scalar_at(0).cast(index_dtype)?;
         let n_leading_junk_values = usize::try_from(&n_leading_junk_values_scalar)?;
 
-        let casted_offsets = cast(&offsets.slice(1, offsets.len()), index_dtype)?;
+        let casted_offsets = cast(&offsets.slice(1..offsets.len()), index_dtype)?;
         let offsets_without_leading_junk =
             sub_scalar(&casted_offsets, n_leading_junk_values_scalar)?;
         let offsets_into_builder =
@@ -174,7 +174,7 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
 
         let last_offset = offsets.scalar_at(offsets.len() - 1);
         let last_offset = usize::try_from(&last_offset)?;
-        let non_junk_values = elements.slice(n_leading_junk_values, last_offset);
+        let non_junk_values = elements.slice(n_leading_junk_values..last_offset);
 
         self.nulls.append_validity_mask(array.validity_mask()?);
         self.index_builder
@@ -339,8 +339,8 @@ mod tests {
 
         builder.extend_from_array(&list).unwrap();
         builder.extend_from_array(&list).unwrap();
-        builder.extend_from_array(&list.slice(0, 0)).unwrap();
-        builder.extend_from_array(&list.slice(1, 3)).unwrap();
+        builder.extend_from_array(&list.slice(0..0)).unwrap();
+        builder.extend_from_array(&list.slice(1..3)).unwrap();
 
         let expected = ListArray::from_iter_opt_slow::<O, _, _>(
             [

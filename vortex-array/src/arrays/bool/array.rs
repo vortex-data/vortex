@@ -36,7 +36,7 @@ use crate::vtable::{ArrayVTable, CanonicalVTable, ValidityHelper};
 /// let array: BoolArray = [true, false, true, false].into_iter().collect();
 ///
 /// // Slice the array
-/// let sliced = array.slice(1, 3);
+/// let sliced = array.slice(1..3);
 /// assert_eq!(sliced.len(), 2);
 ///
 /// // Access individual values
@@ -317,7 +317,7 @@ mod tests {
             builder.append_n(11, true);
             BoolArray::from(builder.finish())
         };
-        let sliced = arr.slice(4, 12);
+        let sliced = arr.slice(4..12);
         let sliced_len = sliced.len();
         let (values, offset) = sliced.to_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 4);
@@ -347,7 +347,7 @@ mod tests {
     #[test]
     fn slice_array_in_middle() {
         let arr = BoolArray::from(BooleanBuffer::new_set(16));
-        let sliced = arr.slice(4, 12);
+        let sliced = arr.slice(4..12);
         let sliced_len = sliced.len();
         let (values, offset) = sliced.to_bool().unwrap().into_boolean_builder();
         assert_eq!(offset, 4);

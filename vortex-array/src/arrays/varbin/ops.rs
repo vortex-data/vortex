@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use vortex_scalar::Scalar;
 
 use crate::arrays::{VarBinArray, VarBinVTable, varbin_scalar};
@@ -8,12 +10,12 @@ use crate::vtable::{OperationsVTable, ValidityHelper};
 use crate::{Array, ArrayRef, IntoArray};
 
 impl OperationsVTable<VarBinVTable> for VarBinVTable {
-    fn slice(array: &VarBinArray, start: usize, stop: usize) -> ArrayRef {
+    fn slice(array: &VarBinArray, range: Range<usize>) -> ArrayRef {
         VarBinArray::new(
-            array.offsets().slice(start, stop + 1),
+            array.offsets().slice(range.start..range.end + 1),
             array.bytes().clone(),
             array.dtype().clone(),
-            array.validity().slice(start, stop),
+            array.validity().slice(range),
         )
         .into_array()
     }

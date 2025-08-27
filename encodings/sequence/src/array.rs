@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use num_traits::cast::FromPrimitive;
 use std::ops::Range;
+
+use num_traits::cast::FromPrimitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
@@ -279,7 +280,7 @@ mod tests {
     fn test_sequence_slice_canonical() {
         let arr = SequenceArray::typed_new(2i64, 3, Nullability::NonNullable, 4)
             .unwrap()
-            .slice(2, 3);
+            .slice(2..3);
 
         let canon = PrimitiveArray::from_iter((2..3).map(|i| 2i64 + i * 3));
 

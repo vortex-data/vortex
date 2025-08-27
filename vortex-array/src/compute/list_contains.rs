@@ -217,7 +217,7 @@ fn list_contains_scalar(
 ) -> VortexResult<ArrayRef> {
     // If the list array is constant, we perform a single comparison.
     if array.len() > 1 && array.is_constant() {
-        let contains = list_contains_scalar(&array.slice(0, 1), value, nullability)?;
+        let contains = list_contains_scalar(&array.slice(0..1), value, nullability)?;
         return Ok(ConstantArray::new(contains.scalar_at(0), array.len()).into_array());
     }
 
@@ -378,7 +378,7 @@ pub fn list_elem_len(array: &dyn Array) -> VortexResult<ArrayRef> {
 
     // Short-circuit for constant list arrays.
     if array.is_constant() && array.len() > 1 {
-        let elem_lens = list_elem_len(&array.slice(0, 1))?;
+        let elem_lens = list_elem_len(&array.slice(0..1))?;
         return Ok(ConstantArray::new(elem_lens.scalar_at(0), array.len()).into_array());
     }
 
