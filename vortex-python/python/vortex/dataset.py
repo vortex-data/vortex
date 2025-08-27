@@ -581,7 +581,7 @@ class VortexFragment(pyarrow.dataset.Fragment):
         cache_metadata: bool = True,
         memory_pool: pyarrow.MemoryPool | None = None,
     ) -> Iterator[pyarrow.RecordBatch]:
-        """See :class:`vortex.dataset.VortexDataset.scanner`"""
+        """See :class:`vortex.dataset.VortexDataset.to_batches`"""
         if schema:
             raise ValueError("schema is not supported")
         return self._dataset.to_batches(
@@ -611,7 +611,7 @@ class VortexFragment(pyarrow.dataset.Fragment):
         cache_metadata: bool = True,
         memory_pool: pyarrow.MemoryPool | None = None,
     ) -> pyarrow.Table:
-        """See :class:`vortex.dataset.VortexDataset.scanner`"""
+        """See :class:`vortex.dataset.VortexDataset.to_table`"""
         if schema:
             raise ValueError("schema is not supported")
         return self._dataset.to_table(
@@ -650,7 +650,14 @@ class VortexFragment(pyarrow.dataset.Fragment):
         cache_metadata: bool = True,
         memory_pool: pyarrow.MemoryPool | None = None,
     ) -> pyarrow.Table:
-        """See :class:`vortex.dataset.VortexDataset.scanner`"""
+        """See :class:`vortex.dataset.VortexDataset.take`
+
+        Warnings
+        --------
+
+        The indices are indices into _the file_, not indices into this fragment of the file.
+
+        """
         return self._dataset.take(
             indices=indices,
             columns=columns,
@@ -679,7 +686,7 @@ class VortexFragment(pyarrow.dataset.Fragment):
         cache_metadata: bool = True,
         memory_pool: pyarrow.MemoryPool | None = None,
     ) -> pyarrow.Table:
-        """See :class:`vortex.dataset.VortexDataset.scanner`"""
+        """See :class:`vortex.dataset.VortexDataset.head`"""
         return self._dataset.head(
             num_rows=num_rows,
             columns=columns,
@@ -707,7 +714,7 @@ class VortexFragment(pyarrow.dataset.Fragment):
         cache_metadata: bool = True,
         memory_pool: pyarrow.MemoryPool | None = None,
     ) -> int:
-        """See :class:`vortex.dataset.VortexDataset.scanner`"""
+        """See :class:`vortex.dataset.VortexDataset.count_rows`"""
         return self._dataset.count_rows(
             filter=filter,
             batch_size=batch_size,

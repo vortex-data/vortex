@@ -218,7 +218,6 @@ def expression(
 def expression_reference(
     substrait_object: ExpressionReference, functions: list[Callable[..., _expr.Expr]], schema: NamedStruct
 ) -> _expr.Expr:
-    print(substrait_object)
     # https://github.com/substrait-io/substrait/blob/main/proto/substrait/extended__expression.proto#L16
     match substrait_object.WhichOneof("expr_type"):
         case "expression":
