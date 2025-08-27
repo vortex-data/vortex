@@ -51,6 +51,12 @@ table List {
     nullable: bool;
 }
 
+table FixedSizeList {
+    element_type: DType;
+    size: uint32;
+    nullable: bool;
+}
+
 table Extension {
     id: string;
     storage_dtype: DType;
@@ -67,6 +73,7 @@ union Type {
     Struct_ = 7,
     List = 8,
     Extension = 9,
+    FixedSizeList = 10, // This is after `Extension` for backwards compatibility.
 }
 
 table DType {
