@@ -14,7 +14,7 @@ use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityVTableFromValidityHelper,
 };
 use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, ToCanonical, vtable};
-use vortex_buffer::{Buffer, ByteBuffer};
+use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 
@@ -307,7 +307,10 @@ impl FSSTViewArray {
             let start = index * size_of::<View>() + 4;
             let end = start + len;
             // Return a handle to bytes pointing into the `views` buffer
-            self.views.clone().into_byte_buffer().slice(start..end)
+            self.views
+                .clone()
+                .into_byte_buffer()
+                .slice_with_alignment(start..end, Alignment::of::<u8>())
         } else {
             // Return a ByteBuffer wrapping the vector
             let outline = unsafe { view.outline };

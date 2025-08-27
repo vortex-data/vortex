@@ -149,7 +149,10 @@ fn compress_from_canonical(
         let view = array.views()[idx];
         if view.is_inlined() {
             // Push a new uncompressed string view
-            views.push(View::new_inlined(&view.as_inlined().data));
+            let inline_binary_view = view.as_inlined();
+            views.push(View::new_inlined(
+                &inline_binary_view.data[0..inline_binary_view.size as usize],
+            ));
 
             continue;
         }

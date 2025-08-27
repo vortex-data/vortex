@@ -36,3 +36,42 @@ impl OperationsVTable<FSSTViewVTable> for FSSTViewVTable {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::Array;
+    use vortex_array::arrays::VarBinViewArray;
+
+    use crate::fsst_view::FSSTViewEncoding;
+
+    #[test]
+    fn test_scalar_at() {
+        let canonical = VarBinViewArray::from_iter_str(["hello", "helloworld!!!"])
+            .to_canonical()
+            .unwrap();
+
+        let fsst_view = FSSTViewEncoding.encode(&canonical, None).unwrap().unwrap();
+        assert_eq!(fsst_view.scalar_at(0), "hello".into());
+        assert_eq!(fsst_view.scalar_at(1), "helloworld!!!".into());
+    }
+
+    #[test]
+    fn test_slice() {
+        let canonical = VarBinViewArray::from_iter_str([
+            "short1",
+            "short2",
+            "very_long_string1",
+            "short3",
+            "very_long_string2",
+        ])
+        .to_canonical()
+        .unwrap();
+
+        let fsst_view = FSSTViewEncoding.encode(&canonical, None).unwrap().unwrap();
+        let sliced = fsst_view.slice(1, 4);
+
+        assert_eq!(sliced.scalar_at(0), "short2".into());
+        assert_eq!(sliced.scalar_at(1), "very_long_string1".into());
+        assert_eq!(sliced.scalar_at(2), "short3".into());
+    }
+}

@@ -46,6 +46,7 @@ impl View {
     #[allow(clippy::cast_possible_truncation)]
     fn new_inlined(data: &[u8]) -> Self {
         assert!(data.len() <= MAX_INLINE_STR);
+
         // Safe to truncate cast, always small enough.
         let len = data.len() as u32;
         let mut inlined_str = InlinedStr {
