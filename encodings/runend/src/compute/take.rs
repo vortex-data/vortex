@@ -198,13 +198,13 @@ mod test {
     }
 
     #[rstest]
-    #[case(ree_array().slice(3..9))]
+    #[case(ree_array().slice(3..6))]
     #[case({
         let array = RunEndArray::encode(
             PrimitiveArray::from_iter([1i32, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3]).into_array(),
         )
         .unwrap();
-        array.slice(2..10)
+        array.slice(2..8)
     })]
     fn test_take_sliced_runend_conformance(#[case] sliced: ArrayRef) {
         test_take_conformance(sliced.as_ref());

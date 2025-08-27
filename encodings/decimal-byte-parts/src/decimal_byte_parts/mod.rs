@@ -134,11 +134,8 @@ impl OperationsVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
     fn slice(array: &DecimalBytePartsArray, range: Range<usize>) -> ArrayRef {
         // SAFETY: slicing encoded MSP does not change the encoded values
         unsafe {
-            DecimalBytePartsArray::new_unchecked(
-                array.msp.slice(range),
-                *array.decimal_dtype(),
-            )
-            .into_array()
+            DecimalBytePartsArray::new_unchecked(array.msp.slice(range), *array.decimal_dtype())
+                .into_array()
         }
     }
 

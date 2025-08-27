@@ -862,7 +862,7 @@ mod test {
 
         assert_eq!(primitive.as_slice::<u32>(), &[13531]);
 
-        let doubly_sliced = sliced.slice(35..71).unwrap();
+        let doubly_sliced = sliced.slice(35..36).unwrap();
         let primitive_doubly_sliced = doubly_sliced.values().to_primitive().unwrap();
 
         assert_eq!(primitive_doubly_sliced.as_slice::<u32>(), &[13531]);

@@ -15,9 +15,7 @@ impl OperationsVTable<ALPVTable> for ALPVTable {
         ALPArray::new(
             array.encoded().slice(range.clone()),
             array.exponents(),
-            array
-                .patches()
-                .and_then(|p| p.slice(range)),
+            array.patches().and_then(|p| p.slice(range)),
         )
         .into_array()
     }

@@ -64,7 +64,7 @@ impl VTable for NullVTable {
 /// let array = NullArray::new(5);
 ///
 /// // Slice the array - still contains nulls
-/// let sliced = array.slice(1..4);
+/// let sliced = array.slice(1..3);
 /// assert_eq!(sliced.len(), 2);
 ///
 /// // All elements are null
