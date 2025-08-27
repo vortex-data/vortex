@@ -6713,7 +6713,6 @@ dependencies = [
  "url",
  "vortex",
  "vortex-file",
- "vortex-utils",
  "walkdir",
  "zip",
 ]

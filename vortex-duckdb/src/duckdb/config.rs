@@ -3,21 +3,11 @@
 
 use std::ffi::{CString, c_void};
 use std::ptr;
-use std::sync::LazyLock;
 
-use parking_lot::Mutex;
 use vortex::error::{VortexResult, vortex_err};
-use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::duckdb::Value;
 use crate::{cpp, duckdb_try, wrapper};
-
-// We need a way to store the values associated with each config.
-// Since wrapper! creates a simple struct with just the pointer, we'll use a static
-// map to track the values for each config pointer.
-// We use usize to avoid Send/Sync issues with raw pointers
-static CONFIG_VALUES: LazyLock<Mutex<HashMap<usize, HashMap<String, String>>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 wrapper!(
     /// A DuckDB configuration instance.
@@ -34,10 +24,6 @@ impl Config {
             unsafe { cpp::duckdb_create_config(&raw mut ptr) },
             "Failed to create DuckDB config"
         );
-
-        // Initialize the values map for this config
-        let mut map = CONFIG_VALUES.lock();
-        map.insert(ptr as usize, HashMap::new());
 
         Ok(unsafe { Self::own(ptr) })
     }
