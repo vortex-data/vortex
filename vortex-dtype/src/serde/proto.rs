@@ -52,6 +52,19 @@ impl TryFrom<&pb::DType> for DType {
                     nullable,
                 ))
             }
+            DtypeType::FixedSizeList(fsl) => {
+                let nullable = fsl.nullable.into();
+                Ok(Self::FixedSizeList(
+                    fsl.element_type
+                        .as_ref()
+                        .ok_or_else(|| vortex_err!(InvalidSerde: "Invalid fixed-size list element type"))?
+                        .as_ref()
+                        .try_into()
+                        .map(Arc::new)?,
+                    fsl.size,
+                    nullable,
+                ))
+            }
             DtypeType::Extension(e) => Ok(Self::Extension(
                 Arc::new(ExtDType::new(
                     ExtID::from(e.id.as_str()),
@@ -72,36 +85,39 @@ impl From<&DType> for pb::DType {
         Self {
             dtype_type: Some(match value {
                 DType::Null => DtypeType::Null(pb::Null {}),
-                DType::Bool(n) => DtypeType::Bool(pb::Bool {
-                    nullable: (*n).into(),
+                DType::Bool(null) => DtypeType::Bool(pb::Bool {
+                    nullable: (*null).into(),
                 }),
-                DType::Primitive(ptype, n) => DtypeType::Primitive(pb::Primitive {
+                DType::Primitive(ptype, null) => DtypeType::Primitive(pb::Primitive {
                     r#type: pb::PType::from(*ptype).into(),
-                    nullable: (*n).into(),
+                    nullable: (*null).into(),
                 }),
-                DType::Decimal(decimal, n) => DtypeType::Decimal(pb::Decimal {
+                DType::Decimal(decimal, null) => DtypeType::Decimal(pb::Decimal {
                     precision: decimal.precision() as u32,
                     scale: decimal.scale() as i32,
-                    nullable: (*n).into(),
+                    nullable: (*null).into(),
                 }),
-                DType::Utf8(n) => DtypeType::Utf8(pb::Utf8 {
-                    nullable: (*n).into(),
+                DType::Utf8(null) => DtypeType::Utf8(pb::Utf8 {
+                    nullable: (*null).into(),
                 }),
-                DType::Binary(n) => DtypeType::Binary(pb::Binary {
-                    nullable: (*n).into(),
+                DType::Binary(null) => DtypeType::Binary(pb::Binary {
+                    nullable: (*null).into(),
                 }),
-                DType::Struct(s, n) => DtypeType::Struct(pb::Struct {
+                DType::Struct(s, null) => DtypeType::Struct(pb::Struct {
                     names: s.names().iter().map(|s| s.as_ref().to_string()).collect(),
                     dtypes: s.fields().map(|d| Self::from(&d)).collect(),
-                    nullable: (*n).into(),
+                    nullable: (*null).into(),
                 }),
-                DType::List(l, n) => DtypeType::List(Box::new(pb::List {
-                    element_type: Some(Box::new(l.as_ref().into())),
-                    nullable: (*n).into(),
+                DType::List(edt, null) => DtypeType::List(Box::new(pb::List {
+                    element_type: Some(Box::new(edt.as_ref().into())),
+                    nullable: (*null).into(),
                 })),
-                DType::FixedSizeList(..) => {
-                    // TODO(connor)[FixedSizeList]
-                    unimplemented!("TODO(connor)[FixedSizeList]")
+                DType::FixedSizeList(edt, size, null) => {
+                    DtypeType::FixedSizeList(Box::new(pb::FixedSizeList {
+                        element_type: Some(Box::new(edt.as_ref().into())),
+                        size: *size,
+                        nullable: (*null).into(),
+                    }))
                 }
                 DType::Extension(e) => DtypeType::Extension(Box::new(pb::Extension {
                     id: e.id().as_ref().into(),
@@ -259,6 +275,7 @@ mod tests {
     #[test]
     fn test_list_round_trip() {
         let list_types = vec![
+            // List types
             DType::List(
                 Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
                 Nullability::Nullable,
@@ -272,6 +289,26 @@ mod tests {
                     Arc::new(DType::Bool(Nullability::NonNullable)),
                     Nullability::Nullable,
                 )),
+                Nullability::NonNullable,
+            ),
+            // FixedSizeList types
+            DType::FixedSizeList(
+                Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+                3,
+                Nullability::Nullable,
+            ),
+            DType::FixedSizeList(
+                Arc::new(DType::Utf8(Nullability::Nullable)),
+                5,
+                Nullability::NonNullable,
+            ),
+            DType::FixedSizeList(
+                Arc::new(DType::FixedSizeList(
+                    Arc::new(DType::Primitive(PType::F64, Nullability::NonNullable)),
+                    2,
+                    Nullability::Nullable,
+                )),
+                4,
                 Nullability::NonNullable,
             ),
         ];

@@ -49,6 +49,15 @@ pub struct List {
     pub nullable: bool,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FixedSizeList {
+    #[prost(message, optional, boxed, tag = "1")]
+    pub element_type: ::core::option::Option<::prost::alloc::boxed::Box<DType>>,
+    #[prost(uint32, tag = "2")]
+    pub size: u32,
+    #[prost(bool, tag = "3")]
+    pub nullable: bool,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Extension {
     #[prost(string, tag = "1")]
     pub id: ::prost::alloc::string::String,
@@ -59,7 +68,7 @@ pub struct Extension {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DType {
-    #[prost(oneof = "d_type::DtypeType", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9")]
+    #[prost(oneof = "d_type::DtypeType", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10")]
     pub dtype_type: ::core::option::Option<d_type::DtypeType>,
 }
 /// Nested message and enum types in `DType`.
@@ -84,6 +93,9 @@ pub mod d_type {
         List(::prost::alloc::boxed::Box<super::List>),
         #[prost(message, tag = "9")]
         Extension(::prost::alloc::boxed::Box<super::Extension>),
+        /// This is after `Extension` for backwards compatibility.
+        #[prost(message, tag = "10")]
+        FixedSizeList(::prost::alloc::boxed::Box<super::FixedSizeList>),
     }
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
