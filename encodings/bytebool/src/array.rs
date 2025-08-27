@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Debug;
-
 use arrow_buffer::BooleanBuffer;
+use std::fmt::Debug;
+use std::ops::Range;
 use vortex_array::arrays::BoolArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
@@ -120,10 +120,10 @@ impl CanonicalVTable<ByteBoolVTable> for ByteBoolVTable {
 }
 
 impl OperationsVTable<ByteBoolVTable> for ByteBoolVTable {
-    fn slice(array: &ByteBoolArray, start: usize, stop: usize) -> ArrayRef {
+    fn slice(array: &ByteBoolArray, range: Range<usize>) -> ArrayRef {
         ByteBoolArray::new(
-            array.buffer().slice(start..stop),
-            array.validity().slice(start, stop),
+            array.buffer().slice(range.clone()),
+            array.validity().slice(range),
         )
         .into_array()
     }

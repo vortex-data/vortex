@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::cmp::Ordering;
-use std::fmt::Debug;
-use std::hash::Hash;
-
 use arrow_buffer::BooleanBuffer;
 use itertools::Itertools as _;
 use num_traits::{NumCast, ToPrimitive};
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
+use std::fmt::Debug;
+use std::hash::Hash;
+use std::ops::Range;
 use vortex_buffer::BufferMut;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{
@@ -356,21 +356,21 @@ impl Patches {
     }
 
     /// Slice the patches by a range of the patched array.
-    pub fn slice(&self, start: usize, stop: usize) -> Option<Self> {
-        let patch_start = self.search_index(start).to_index();
-        let patch_stop = self.search_index(stop).to_index();
+    pub fn slice(&self, range: Range<usize>) -> Option<Self> {
+        let patch_start = self.search_index(range.start).to_index();
+        let patch_stop = self.search_index(range.end).to_index();
 
         if patch_start == patch_stop {
             return None;
         }
 
         // Slice out the values and indices
-        let values = self.values().slice(patch_start, patch_stop);
-        let indices = self.indices().slice(patch_start, patch_stop);
+        let values = self.values().slice(patch_start..patch_stop);
+        let indices = self.indices().slice(patch_start..patch_stop);
 
         Some(Self::new(
-            stop - start,
-            start + self.offset(),
+            range.len(),
+            range.start + self.offset(),
             indices,
             values,
         ))

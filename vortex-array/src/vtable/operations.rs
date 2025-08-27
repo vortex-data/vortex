@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
 use vortex_scalar::Scalar;
 
 use crate::ArrayRef;
@@ -18,7 +19,7 @@ pub trait OperationsVTable<V: VTable> {
     /// ## Preconditions
     ///
     /// Bounds-checking has already been performed by the time this function is called.
-    fn slice(array: &V::Array, start: usize, stop: usize) -> ArrayRef;
+    fn slice(array: &V::Array, range: Range<usize>) -> ArrayRef;
 
     /// Fetch the scalar at the given index.
     ///

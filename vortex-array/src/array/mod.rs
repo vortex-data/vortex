@@ -6,6 +6,8 @@ mod visitor;
 
 use std::any::Any;
 use std::fmt::{Debug, Formatter};
+use std::ops::RangeBounds;
+use std::range::Bound;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -57,7 +59,7 @@ pub trait Array: 'static + private::Sealed + Send + Sync + Debug + ArrayVisitor 
     fn encoding_id(&self) -> EncodingId;
 
     /// Performs a constant-time slice of the array.
-    fn slice(&self, start: usize, end: usize) -> ArrayRef;
+    fn slice(&self, range: impl RangeBounds<usize>) -> ArrayRef;
 
     /// Fetch the scalar at the given index.
     ///
@@ -182,8 +184,8 @@ impl Array for Arc<dyn Array> {
         self.as_ref().encoding_id()
     }
 
-    fn slice(&self, start: usize, end: usize) -> ArrayRef {
-        self.as_ref().slice(start, end)
+    fn slice(&self, range: impl RangeBounds<usize>) -> ArrayRef {
+        self.as_ref().slice(range)
     }
 
     fn scalar_at(&self, index: usize) -> Scalar {
@@ -384,7 +386,19 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         V::encoding(&self.0).id()
     }
 
-    fn slice(&self, start: usize, stop: usize) -> ArrayRef {
+    fn slice(&self, range: impl RangeBounds<usize>) -> ArrayRef {
+        let start = match range.start_bound() {
+            Bound::Included(&n) => n,
+            Bound::Excluded(&n) => n.checked_add(1).vortex_expect("out of range"),
+            Bound::Unbounded => 0,
+        };
+
+        let stop = match range.end_bound() {
+            Bound::Included(&n) => n.checked_add(1).vortex_expect("out of range"),
+            Bound::Excluded(&n) => n,
+            Bound::Unbounded => self.len(),
+        };
+
         if start == 0 && stop == self.len() {
             return self.to_array();
         }
@@ -406,7 +420,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
             return Canonical::empty(self.dtype()).into_array();
         }
 
-        let sliced = <V::OperationsVTable as OperationsVTable<V>>::slice(&self.0, start, stop);
+        let sliced = <V::OperationsVTable as OperationsVTable<V>>::slice(&self.0, start..stop);
 
         assert_eq!(
             sliced.len(),

@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::cmp::min;
-
+use std::ops::Range;
 use vortex_array::vtable::{OperationsVTable, ValidityHelper};
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_error::VortexExpect;
@@ -11,9 +11,9 @@ use vortex_scalar::Scalar;
 use crate::{DeltaArray, DeltaVTable};
 
 impl OperationsVTable<DeltaVTable> for DeltaVTable {
-    fn slice(array: &DeltaArray, start: usize, stop: usize) -> ArrayRef {
-        let physical_start = start + array.offset();
-        let physical_stop = stop + array.offset();
+    fn slice(array: &DeltaArray, range: Range<usize>) -> ArrayRef {
+        let physical_start = range.start + array.offset();
+        let physical_stop = range.end + array.offset();
 
         let start_chunk = physical_start / 1024;
         let stop_chunk = physical_stop.div_ceil(1024);
@@ -24,18 +24,14 @@ impl OperationsVTable<DeltaVTable> for DeltaVTable {
         let lanes = array.lanes();
 
         let new_bases = bases.slice(
-            min(start_chunk * lanes, array.bases_len()),
-            min(stop_chunk * lanes, array.bases_len()),
+            min(start_chunk * lanes, array.bases_len())..min(stop_chunk * lanes, array.bases_len()),
         );
 
         let new_deltas = deltas.slice(
-            min(start_chunk * 1024, array.deltas_len()),
-            min(stop_chunk * 1024, array.deltas_len()),
+            min(start_chunk * 1024, array.deltas_len())..min(stop_chunk * 1024, array.deltas_len()),
         );
 
-        let new_validity = validity.slice(start, stop);
-
-        let logical_len = stop - start;
+        let new_validity = validity.slice(range.clone());
 
         // SAFETY: slicing valid bases/deltas preserves correctness
         unsafe {
@@ -44,7 +40,7 @@ impl OperationsVTable<DeltaVTable> for DeltaVTable {
                 new_deltas,
                 new_validity,
                 physical_start % 1024,
-                logical_len,
+                range.len(),
             )
             .into_array()
         }
@@ -52,7 +48,7 @@ impl OperationsVTable<DeltaVTable> for DeltaVTable {
 
     fn scalar_at(array: &DeltaArray, index: usize) -> Scalar {
         let decompressed = array
-            .slice(index, index + 1)
+            .slice(index..=index)
             .to_primitive()
             .vortex_expect("delta must decode to primitive");
         decompressed.scalar_at(0)
@@ -74,7 +70,7 @@ mod test {
 
         assert_eq!(
             delta
-                .slice(10, 250)
+                .slice(10..250)
                 .to_primitive()
                 .unwrap()
                 .as_slice::<u32>(),
@@ -102,7 +98,7 @@ mod test {
 
         assert_eq!(
             delta
-                .slice(1000, 1048)
+                .slice(1000..1048)
                 .to_primitive()
                 .unwrap()
                 .as_slice::<u32>(),

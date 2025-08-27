@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use num_traits::cast::FromPrimitive;
+use std::ops::Range;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
@@ -202,13 +203,13 @@ impl CanonicalVTable<SequenceVTable> for SequenceVTable {
 }
 
 impl OperationsVTable<SequenceVTable> for SequenceVTable {
-    fn slice(array: &SequenceArray, start: usize, stop: usize) -> ArrayRef {
+    fn slice(array: &SequenceArray, range: Range<usize>) -> ArrayRef {
         SequenceArray::unchecked_new(
-            array.index_value(start),
+            array.index_value(range.start),
             array.multiplier,
             array.ptype(),
             array.dtype().nullability(),
-            stop - start,
+            range.len(),
         )
         .to_array()
     }
