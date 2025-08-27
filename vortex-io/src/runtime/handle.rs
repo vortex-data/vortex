@@ -15,6 +15,8 @@ use vortex_error::{
 };
 
 /// Represents a handle to a Vortex runtime that can be used to enqueue CPU- or I/O-bound tasks.
+///
+// TODO(ngates): I think the handle should probably have a lifetime tied to the runtime?
 #[derive(Clone)]
 pub struct Handle(pub(crate) Arc<dyn Runtime>);
 
@@ -112,12 +114,21 @@ pub trait IoDriver: Send + Sync + 'static {
     fn size(&self) -> Shared<BoxFuture<'static, SharedVortexResult<u64>>>;
 
     /// Perform the actual I/O operation.
-    fn read(
+    fn read_send(
         &self,
         offset: u64,
         length: usize,
         alignment: Alignment,
-    ) -> LocalBoxFuture<'static, VortexResult<ByteBuffer>>;
+    ) -> BoxFuture<'static, VortexResult<ByteBuffer>>;
+
+    fn read_local(
+        &self,
+        offset: u64,
+        length: usize,
+        alignment: Alignment,
+    ) -> LocalBoxFuture<'static, VortexResult<ByteBuffer>> {
+        self.read_send(offset, length, alignment).boxed_local()
+    }
 }
 
 impl IoDriver for ByteBuffer {
@@ -134,12 +145,12 @@ impl IoDriver for ByteBuffer {
         async move { Ok(len) }.boxed().shared()
     }
 
-    fn read(
+    fn read_send(
         &self,
         offset: u64,
         length: usize,
         alignment: Alignment,
-    ) -> LocalBoxFuture<'static, VortexResult<ByteBuffer>> {
+    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
         let buffer = self.clone();
         async move {
             if offset + length as u64 > buffer.len() as u64 {
@@ -152,7 +163,7 @@ impl IoDriver for ByteBuffer {
                 .copy_from_slice(&buffer.as_slice()[offset as usize..offset as usize + length]);
             Ok(slice.freeze())
         }
-        .boxed_local()
+        .boxed()
     }
 }
 
@@ -177,12 +188,12 @@ impl IoDriver for File {
         .shared()
     }
 
-    fn read(
+    fn read_send(
         &self,
         offset: u64,
         length: usize,
         alignment: Alignment,
-    ) -> LocalBoxFuture<'static, VortexResult<ByteBuffer>> {
+    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
         let file = self
             .try_clone()
             .vortex_expect("Failed to clone file handle");
@@ -194,7 +205,7 @@ impl IoDriver for File {
                 Err(e) => Err(VortexError::from(e)),
             }
         }
-        .boxed_local()
+        .boxed()
     }
 }
 
@@ -248,12 +259,26 @@ impl IoDriver for ObjectStoreIo {
         64
     }
 
-    fn read(
+    fn size(&self) -> Shared<BoxFuture<'static, SharedVortexResult<u64>>> {
+        let store = self.store.clone();
+        let path = self.path.clone();
+        async move {
+            Ok(store
+                .head(&path)
+                .await
+                .map(|h| h.size)
+                .map_err(VortexError::from)?)
+        }
+        .boxed()
+        .shared()
+    }
+
+    fn read_send(
         &self,
         offset: u64,
         length: usize,
         alignment: Alignment,
-    ) -> LocalBoxFuture<'static, VortexResult<ByteBuffer>> {
+    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
         let store = self.store.clone();
         let path = self.path.clone();
 
@@ -276,21 +301,7 @@ impl IoDriver for ObjectStoreIo {
                 .map_err(|e| vortex_err!("Sender dropped {e}"))
                 .vortex_expect("Sender dropped")
         }
-        .boxed_local()
-    }
-
-    fn size(&self) -> Shared<BoxFuture<'static, SharedVortexResult<u64>>> {
-        let store = self.store.clone();
-        let path = self.path.clone();
-        async move {
-            Ok(store
-                .head(&path)
-                .await
-                .map(|h| h.size)
-                .map_err(VortexError::from)?)
-        }
         .boxed()
-        .shared()
     }
 }
 

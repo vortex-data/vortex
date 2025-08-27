@@ -92,7 +92,8 @@ impl<T: Send + 'static> Runtime for Shared<T> {
     }
 
     fn spawn_io(&self, mut stream: BoxStream<'static, IoTask>, _concurrency: usize) {
-        // TODO(ngates): this is rather complicated for now...
+        // FIXME(ngates): this is stupid and breaks back-pressure on the stream.
+        //  We should collect these streams into a Vec or similar and use a SelectAll construct.
         // We launch a scheduling task to push I/O requests into the work stealing queue.
         let injector = self.io.injector.clone();
         self.spawn_scheduling(
@@ -181,7 +182,7 @@ impl<T: Send + 'static> Worker<T> {
         let ex = LocalExecutor::new();
 
         while let Some(task) = self.io.find_task() {
-            block_on(ex.run(task.run()));
+            block_on(ex.run(task.run_local()));
         }
     }
 }
@@ -257,7 +258,7 @@ impl<T> Default for WorkStealing<T> {
 impl<T> WorkStealing<T> {
     fn new_worker(self: &Arc<Self>) -> WorkStealingLocal<T> {
         let local = crossbeam_deque::Worker::new_fifo();
-        let id = self.stealers.push(local.stealer()) - 1;
+        let id = self.stealers.push(local.stealer());
         WorkStealingLocal {
             id,
             global: self.clone(),

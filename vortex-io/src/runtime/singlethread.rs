@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::runtime::{CpuTask, Handle, IoTask, Runtime};
+use async_compat::Compat;
 use futures::executor::block_on;
 use futures::future::BoxFuture;
 use futures::stream::{BoxStream, LocalBoxStream};
@@ -16,7 +17,7 @@ use vortex_error::vortex_panic;
 ///
 /// Since the [`Handle`], and therefore [`Runtime`] implementation needs to be `Send` and `Sync`,
 /// we cannot just `impl Runtime for LocalExecutor`. Instead, we create channels that the handle
-/// can forward its work into and we drive the resulting tasks on a [`LocalExecutor`] on the
+/// can forward its work into, and we drive the resulting tasks on a [`LocalExecutor`] on the
 /// calling thread.
 // TODO(ngates): use a builder to configure whether I/O runs on a separate blocking pool or not.
 pub struct SingleThreadRuntime {
@@ -58,14 +59,16 @@ impl SingleThreadRuntime {
         local
             .spawn(async move {
                 while let Ok((stream, concurrency)) = io_recv.recv_async().await {
+                    // NOTE(ngates): for now, we allow arbitrary Tokio I/O and therefore wrap up
+                    //  the futures in a compatibility layer.
                     local2
-                        .spawn(async move {
+                        .spawn(Compat::new(async move {
                             stream
-                                .map(|task| task.run())
+                                .map(|task| task.run_local())
                                 .buffer_unordered(concurrency)
                                 .collect::<()>()
                                 .await
-                        })
+                        }))
                         .detach();
                 }
             })

@@ -29,16 +29,8 @@ use vortex_error::{vortex_err, VortexExpect, VortexResult};
 /// * Worker Pool: work is driven on a pool of threads provided by the caller.
 /// * Tokio: work is driven on a Tokio runtime provided by the caller.
 ///
-/// ## Implementation
+/// Note: users will interact with the [`Handle`] API rather than the [`Runtime`] trait.
 ///
-/// The runtime abstraction is largely just a collection of injection queues used to submit the
-/// three types of work: I/O, CPU, and scheduling.
-///
-/// Each threading model has some associated `drive_on_*` methods that take the receiver side of
-/// these queues and performs the actual work of driving them to completion.
-///
-/// The submission end of these queues is accessible via a [`Handle`], which should be cloned and
-/// passed around when constructing async futures in Vortex.
 pub(crate) trait Runtime: Send + Sync {
     /// Spawns a future to be executed on the runtime's scheduling context.
     ///
@@ -94,17 +86,44 @@ enum IoReq {
 }
 
 impl IoTask {
-    pub async fn run(self) {
+    /// Run this task as a `!Send` future.
+    ///
+    /// In some cases, this is more optimized than the `Send` version if the calling runtime
+    /// supports it.
+    pub async fn run_local(self) {
         match self.request {
             IoReq::Request(req) => req.callback.complete(
                 self.source
-                    .read(req.offset, req.length, req.alignment)
+                    .read_local(req.offset, req.length, req.alignment)
                     .await,
             ),
             IoReq::Coalesced(req) => {
                 let result = self
                     .source
-                    .read(
+                    .read_local(
+                        req.range.start,
+                        usize::try_from(req.range.end - req.range.start)
+                            .vortex_expect("too big for usize"),
+                        req.alignment,
+                    )
+                    .await;
+                req.resolve(result)
+            }
+        }
+    }
+
+    /// Run this task as a `Send` future.
+    pub async fn run_send(self) {
+        match self.request {
+            IoReq::Request(req) => req.callback.complete(
+                self.source
+                    .read_send(req.offset, req.length, req.alignment)
+                    .await,
+            ),
+            IoReq::Coalesced(req) => {
+                let result = self
+                    .source
+                    .read_send(
                         req.range.start,
                         usize::try_from(req.range.end - req.range.start)
                             .vortex_expect("too big for usize"),
