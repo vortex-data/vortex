@@ -165,10 +165,7 @@ jobs:
       - name: Print GLIBC version
         run: ldd --version
       - name: Verify GLIBC version
-        run: |
-          set -eux -o pipefail
-
-          ldd --version | grep 'GLIBC 2.31'
+        run: ldd --version | grep 'GLIBC 2.31'
       - uses: actions/setup-java@v5
         with:
           distribution: "corretto"
