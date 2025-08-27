@@ -119,7 +119,7 @@ fn test_mask_false_count() {
 fn test_mask_slice() {
     let mask = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, true, false]));
 
-    let sliced = mask.slice(1..3);
+    let sliced = mask.slice(1..4);
     assert_eq!(sliced.len(), 3);
     assert_eq!(sliced.true_count(), 2);
     assert!(!sliced.value(0)); // false from index 1
@@ -127,12 +127,12 @@ fn test_mask_slice() {
     assert!(sliced.value(2)); // true from index 3
 
     let all_true = Mask::new_true(10);
-    let sliced_true = all_true.slice(2..5);
+    let sliced_true = all_true.slice(2..7);
     assert!(sliced_true.all_true());
     assert_eq!(sliced_true.len(), 5);
 
     let all_false = Mask::new_false(10);
-    let sliced_false = all_false.slice(2..5);
+    let sliced_false = all_false.slice(2..7);
     assert!(sliced_false.all_false());
     assert_eq!(sliced_false.len(), 5);
 }
@@ -141,7 +141,7 @@ fn test_mask_slice() {
 #[should_panic]
 fn test_mask_slice_out_of_bounds() {
     let mask = Mask::new_true(5);
-    let _ = mask.slice(3..5); // offset + length > len
+    let _ = mask.slice(3..8); // offset + length > len
 }
 
 // Limit operations
