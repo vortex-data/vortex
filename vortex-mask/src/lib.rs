@@ -475,6 +475,27 @@ impl Mask {
         }
     }
 
+    /// Slice the mask using a range.
+    pub fn slice_range<R>(&self, range: R) -> Self
+    where
+        R: std::ops::RangeBounds<usize>,
+    {
+        use std::ops::Bound;
+        let start = match range.start_bound() {
+            Bound::Included(&n) => n,
+            Bound::Excluded(&n) => n + 1,
+            Bound::Unbounded => 0,
+        };
+        let end = match range.end_bound() {
+            Bound::Included(&n) => n + 1,
+            Bound::Excluded(&n) => n,
+            Bound::Unbounded => self.len(),
+        };
+        assert!(start <= end && end <= self.len(), "Invalid range");
+        let length = end - start;
+        self.slice(start, length)
+    }
+
     /// Return the boolean buffer representation of the mask.
     pub fn boolean_buffer(&self) -> AllOr<&BooleanBuffer> {
         match &self {

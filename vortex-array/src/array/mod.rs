@@ -6,6 +6,7 @@ mod visitor;
 
 use std::any::Any;
 use std::fmt::{Debug, Formatter};
+use std::ops::RangeBounds;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -30,6 +31,22 @@ use crate::vtable::{
     ValidityVTable, VisitorVTable,
 };
 use crate::{Canonical, EncodingId, EncodingRef, SerializeMetadata};
+
+/// Helper function to convert range bounds to (start, end) tuple
+fn range_bounds_to_start_end<R: RangeBounds<usize>>(range: R, len: usize) -> (usize, usize) {
+    use std::ops::Bound;
+    let start = match range.start_bound() {
+        Bound::Included(&n) => n,
+        Bound::Excluded(&n) => n + 1,
+        Bound::Unbounded => 0,
+    };
+    let end = match range.end_bound() {
+        Bound::Included(&n) => n + 1,
+        Bound::Excluded(&n) => n,
+        Bound::Unbounded => len,
+    };
+    (start, end)
+}
 
 /// The public API trait for all Vortex arrays.
 pub trait Array: 'static + private::Sealed + Send + Sync + Debug + ArrayVisitor {
@@ -259,6 +276,16 @@ impl ToOwned for dyn Array {
 }
 
 impl dyn Array + '_ {
+    /// Performs a constant-time slice of the array using a range.
+    pub fn slice_range<R>(&self, range: R) -> ArrayRef
+    where
+        R: RangeBounds<usize>,
+    {
+        let (start, end) = range_bounds_to_start_end(range, self.len());
+        self.slice(start, end)
+    }
+
+    // Existing methods below...
     /// Returns the array downcast to the given `A`.
     pub fn as_<V: VTable>(&self) -> &V::Array {
         self.as_opt::<V>().vortex_expect("Failed to downcast")
@@ -709,5 +736,29 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
             Ok(None) => write!(f, "<serde not supported>"),
             Ok(Some(metadata)) => Debug::fmt(&metadata, f),
         }
+    }
+}
+
+/// Helper trait to support indexing with ranges
+/// This provides an alternative to std::ops::Index that can return by value
+pub trait ArrayIndex<Idx> {
+    fn index(&self, index: Idx) -> ArrayRef;
+}
+
+impl<R> ArrayIndex<R> for dyn Array
+where
+    R: RangeBounds<usize>,
+{
+    fn index(&self, range: R) -> ArrayRef {
+        self.slice_range(range)
+    }
+}
+
+impl<R> ArrayIndex<R> for ArrayRef
+where
+    R: RangeBounds<usize>,
+{
+    fn index(&self, range: R) -> ArrayRef {
+        self.slice_range(range)
     }
 }

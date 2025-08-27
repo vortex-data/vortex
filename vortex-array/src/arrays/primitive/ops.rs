@@ -13,7 +13,7 @@ impl OperationsVTable<PrimitiveVTable> for PrimitiveVTable {
         match_each_native_ptype!(array.ptype(), |T| {
             PrimitiveArray::new(
                 array.buffer::<T>().slice(start..stop),
-                array.validity().slice(start, stop),
+                array.validity().slice_range(start..stop),
             )
             .into_array()
         })
