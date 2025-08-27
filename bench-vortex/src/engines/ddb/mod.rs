@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use log::trace;
 use url::Url;
-use vortex::error::{VortexExpect, VortexResult};
+use vortex::error::VortexExpect;
 use vortex_duckdb::duckdb::{Config, Connection, Database};
 
 use crate::statpopgen::StatPopGenBenchmark;
@@ -72,7 +72,7 @@ impl DuckDBCtx {
         // enable parquet metadata cache for all benchmark runs
         config.set("parquet_metadata_cache", "true")?;
 
-        let mut db = match path {
+        let db = match path {
             Some(path) => Database::open_with_config(path, config),
             None => Database::open_in_memory_with_config(config),
         }?;
