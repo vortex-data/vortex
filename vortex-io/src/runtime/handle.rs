@@ -5,6 +5,7 @@ use crate::runtime::coalesce::{CoalescedRequest, CoalescedStreamExt};
 use crate::runtime::{CpuTask, IoTask, Read, ReadCompletion, Runtime};
 use futures::future::{BoxFuture, LocalBoxFuture, Shared};
 use futures::{FutureExt, StreamExt, TryFutureExt};
+use std::fmt::{Debug, Display, Formatter};
 use std::fs::File;
 use std::os::unix::fs::FileExt;
 use std::sync::{Arc, LazyLock};
@@ -87,6 +88,7 @@ impl Handle {
         let size = driver.size();
 
         let concurrency = driver.concurrency();
+        let name = driver.name();
 
         let stream = recv.into_stream();
         let stream = match driver.coalescing_window() {
@@ -101,11 +103,13 @@ impl Handle {
 
         self.0.spawn_io(stream, concurrency);
 
-        FileIo { size, send }
+        FileIo { name, size, send }
     }
 }
 
 pub trait IoDriver: Send + Sync + 'static {
+    fn name(&self) -> String;
+
     fn coalescing_window(&self) -> Option<u64>;
 
     fn concurrency(&self) -> usize;
@@ -132,6 +136,10 @@ pub trait IoDriver: Send + Sync + 'static {
 }
 
 impl IoDriver for ByteBuffer {
+    fn name(&self) -> String {
+        format!("ByteBuffer({})", self.len())
+    }
+
     fn coalescing_window(&self) -> Option<u64> {
         None
     }
@@ -168,6 +176,10 @@ impl IoDriver for ByteBuffer {
 }
 
 impl IoDriver for File {
+    fn name(&self) -> String {
+        "file".to_string()
+    }
+
     fn coalescing_window(&self) -> Option<u64> {
         Some(4096) // 4 KB
     }
@@ -251,6 +263,10 @@ static TOKIO: LazyLock<runtime::Runtime> = LazyLock::new(|| {
 
 #[cfg(feature = "object_store")]
 impl IoDriver for ObjectStoreIo {
+    fn name(&self) -> String {
+        self.path.to_string()
+    }
+
     fn coalescing_window(&self) -> Option<u64> {
         Some(1024 * 1024) // 1 MB
     }
@@ -357,6 +373,7 @@ fn coalesce_requests(
 /// runtime.
 #[derive(Clone)]
 pub struct FileIo {
+    name: String,
     size: Shared<BoxFuture<'static, SharedVortexResult<u64>>>,
     send: flume::Sender<IoRequest>,
 }
@@ -369,6 +386,10 @@ pub struct IoRequest {
 }
 
 impl FileIo {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
     pub fn read(&self, offset: u64, length: usize, alignment: Alignment) -> Read {
         let (read, callback) = Read::future();
         if let Err(e) = self.send.send(IoRequest {
