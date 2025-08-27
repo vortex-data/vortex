@@ -100,7 +100,7 @@ impl StructReader {
             .struct_fields()
             .field_by_index(idx)
             .ok_or_else(|| vortex_err!("Missing field {idx}"))?;
-        let name = &self.struct_fields().names()[idx];
+        // let name = &self.struct_fields().names()[idx];
         self.lazy_children.get(idx, &field_dtype, &self.child_name)
     }
 
