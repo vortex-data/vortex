@@ -7,8 +7,8 @@ use std::rc::Rc;
 
 pub use reduce::*;
 use vortex_array::Array;
-use vortex_error::{VortexResult};
 use vortex_array::pipeline::Operator;
+use vortex_error::VortexResult;
 
 use crate::traversal::{FoldUp, NodeFolder};
 use crate::{ExprRef, RootVTable};
@@ -44,7 +44,7 @@ impl<'a> NodeFolder for ExprOperatorConverter<'a> {
             return Ok(FoldUp::Continue(Some(operator)));
         }
         let Some(operator) = node.operator(children) else {
-           return  Ok(FoldUp::Stop(None))
+            return Ok(FoldUp::Stop(None));
         };
         Ok(FoldUp::Continue(Some(operator)))
     }

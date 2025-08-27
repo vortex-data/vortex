@@ -1,21 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::ArrayOperator;
 use std::hash::Hash;
 use std::rc::Rc;
 
-use vortex_array::compute::{ add, and_kleene, compare, or_kleene, sub};
-use vortex_array::{compute, ArrayRef, DeserializeMetadata, ProstMetadata};
+use vortex_array::compute::{add, and_kleene, compare, or_kleene, sub};
 use vortex_array::pipeline::operators::CompareOperator;
+use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata, compute};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_proto::expr as pb;
 
 use crate::display::{DisplayAs, DisplayFormat};
 use crate::{
-    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Operator, Scope, StatsCatalog,
-    VTable, lit, vtable,
+    AnalysisExpr, ArrayOperator, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Operator, Scope,
+    StatsCatalog, VTable, lit, vtable,
 };
 
 vtable!(Binary);

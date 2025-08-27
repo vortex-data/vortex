@@ -4,8 +4,8 @@
 use std::rc::Rc;
 
 use vortex_array::arrays::{ConstantArray, ConstantOperator};
-use vortex_array::{ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata};
 use vortex_array::pipeline::Operator;
+use vortex_array::{ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata};
 use vortex_dtype::{DType, match_each_float_ptype};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;

@@ -8,13 +8,15 @@ use std::sync::{Arc, OnceLock};
 use async_trait::async_trait;
 use futures::FutureExt;
 use vortex_array::compute::filter;
+use vortex_array::pipeline::{
+    N, export_canonical_pipeline_expr, export_canonical_pipeline_expr_offset,
+};
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
 use vortex_array::{Array, ArrayRef, IntoArray};
-use vortex_array::pipeline::{export_canonical_pipeline_expr, export_canonical_pipeline_expr_offset, N};
 use vortex_dtype::{DType, FieldMask, Nullability};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
-use vortex_expr::{ExprRef, Scope, is_root, VortexExprExt};
+use vortex_expr::{ExprRef, Scope, VortexExprExt, is_root};
 use vortex_mask::Mask;
 
 use crate::layouts::SharedArrayFuture;
@@ -245,46 +247,53 @@ impl ArrayEvaluation for FlatEvaluation {
     }
 }
 
-fn try_to_operator(row_range: Range<usize>, array: &ArrayRef, expr: &ExprRef, mask: &Mask)-> VortexResult<Option<ArrayRef>> {
+fn try_to_operator(
+    row_range: Range<usize>,
+    array: &ArrayRef,
+    expr: &ExprRef,
+    mask: &Mask,
+) -> VortexResult<Option<ArrayRef>> {
     let Some(operator) = expr.to_operator(array)? else {
-        return Ok(None)
+        return Ok(None);
     };
 
     let return_type = expr.return_dtype(array.dtype())?;
-    if !matches!(return_type, DType::Primitive(_, Nullability::NonNullable) | DType::Bool(Nullability::NonNullable)) {
-        return Ok(None)
+    if !matches!(
+        return_type,
+        DType::Primitive(_, Nullability::NonNullable) | DType::Bool(Nullability::NonNullable)
+    ) {
+        return Ok(None);
     }
 
-        let result = if row_range.start % N != 0 {
-            // If the start is not a multiple of PIPELINE_STEP_COUNT, then we need to slice
-            // we could do mask offsets instead, but this case is rare, due to split building.
-            let array = array.slice(row_range.start, row_range.end);
-            let operator =
-                expr
-                .to_operator(array.as_ref())?
-                .vortex_expect("already converted");
-            export_canonical_pipeline_expr(
-                &return_type,
-                row_range.end - row_range.start,
-                operator.as_ref(),
-                mask,
-            )?
-                .into_array()
-        } else {
-            log::trace!(
-                    "ArrayEvaluation: export_canonical_pipeline_expr_offset {:?}",
-                    operator
-                );
-            export_canonical_pipeline_expr_offset(
-                &return_type,
-                row_range.start,
-                row_range.end - row_range.start,
-                operator.as_ref(),
-                mask,
-            )?
-                .into_array()
-        };
-        Ok(Some(result))
+    let result = if row_range.start % N != 0 {
+        // If the start is not a multiple of PIPELINE_STEP_COUNT, then we need to slice
+        // we could do mask offsets instead, but this case is rare, due to split building.
+        let array = array.slice(row_range.start, row_range.end);
+        let operator = expr
+            .to_operator(array.as_ref())?
+            .vortex_expect("already converted");
+        export_canonical_pipeline_expr(
+            &return_type,
+            row_range.end - row_range.start,
+            operator.as_ref(),
+            mask,
+        )?
+        .into_array()
+    } else {
+        log::trace!(
+            "ArrayEvaluation: export_canonical_pipeline_expr_offset {:?}",
+            operator
+        );
+        export_canonical_pipeline_expr_offset(
+            &return_type,
+            row_range.start,
+            row_range.end - row_range.start,
+            operator.as_ref(),
+            mask,
+        )?
+        .into_array()
+    };
+    Ok(Some(result))
 }
 
 #[cfg(test)]

@@ -6,10 +6,10 @@ use std::hash::Hash;
 use std::ops::Deref;
 use std::rc::Rc;
 
+use vortex_array::pipeline::Operator;
 use vortex_array::{ArrayRef, DeserializeMetadata, SerializeMetadata};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
-use vortex_array::pipeline::Operator;
 
 use crate::display::DisplayAs;
 use crate::{
