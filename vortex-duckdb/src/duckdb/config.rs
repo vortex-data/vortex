@@ -157,24 +157,6 @@ impl Config {
     }
 }
 
-// Note: The wrapper macro provides both Drop and into_ptr implementations.
-// We can't override these methods. Values for configs will remain in the static
-// map until process exit. This is acceptable since configs are typically
-// short-lived and the memory overhead is minimal (just the key-value strings).
-
-impl Default for Config {
-    fn default() -> Self {
-        // This should never fail in practice since it's just allocating the config object
-        match Self::new() {
-            Ok(config) => config,
-            Err(_) => {
-                // Use vortex_panic to follow the project's error handling patterns
-                vortex::error::vortex_panic!("Failed to create default DuckDB config")
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
