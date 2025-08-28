@@ -105,8 +105,7 @@ pub fn i128_from_parts(high: i64, low: u64) -> i128 {
 
 impl Debug for Value {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.to_string())?;
-        Ok(())
+        f.write_str(&self.to_string())
     }
 }
 

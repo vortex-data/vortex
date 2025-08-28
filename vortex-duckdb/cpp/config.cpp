@@ -44,8 +44,6 @@ duckdb_state duckdb_vx_get_config_value(duckdb_config config, const char* key, d
         // Key not found in any map
         return DuckDBError;
         
-    } catch (const std::exception& e) {
-        return DuckDBError;
     } catch (...) {
         return DuckDBError;
     }
@@ -108,8 +106,6 @@ char* duckdb_vx_value_to_string(duckdb_value value) {
         std::memcpy(result, str_value.c_str(), str_len);
         return result;
         
-    } catch (const std::exception& e) {
-        return nullptr;
     } catch (...) {
         return nullptr;
     }
