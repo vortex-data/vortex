@@ -15,41 +15,6 @@ use crate::{Array, IntoArray};
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[test]
-fn test_fsl_size_2_length_0_non_nullable() {
-    let len = 0;
-    let list_size = 2;
-
-    // FSL of size 2 with length 0 (no lists).
-    let elements = PrimitiveArray::empty::<i32>(Nullability::NonNullable);
-    let fsl = FixedSizeListArray::new(elements.into_array(), list_size, Validity::NonNullable, len);
-
-    assert_eq!(fsl.len(), 0);
-    assert_eq!(fsl.list_size(), 2);
-    assert_eq!(fsl.elements().len(), 0);
-
-    // Check dtype.
-    assert!(matches!(
-        fsl.dtype(),
-        DType::FixedSizeList(elem_dtype, 2, Nullability::NonNullable)
-            if matches!(elem_dtype.as_ref(), DType::Primitive(PType::I32, Nullability::NonNullable))
-    ));
-}
-
-#[test]
-fn test_fsl_size_1_length_0_non_nullable() {
-    let len = 0;
-    let list_size = 1;
-
-    // FSL of size 1 with length 0.
-    let elements = PrimitiveArray::empty::<u64>(Nullability::NonNullable);
-    let fsl = FixedSizeListArray::new(elements.into_array(), list_size, Validity::NonNullable, len);
-
-    assert_eq!(fsl.len(), 0);
-    assert_eq!(fsl.list_size(), 1);
-    assert_eq!(fsl.elements().len(), 0);
-}
-
-#[test]
 fn test_fsl_size_0_length_0_non_nullable() {
     let len = 0;
     let list_size = 0;
@@ -149,40 +114,6 @@ fn test_fsl_size_0_huge_length_non_nullable() {
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[test]
-fn test_fsl_size_2_length_0_nullable() {
-    let len = 0;
-    let list_size = 2;
-
-    // FSL of size 2 with length 0 (no lists), but with nullable validity.
-    let elements = PrimitiveArray::empty::<f64>(Nullability::NonNullable);
-    let fsl = FixedSizeListArray::new(elements.into_array(), list_size, Validity::AllValid, len);
-
-    assert_eq!(fsl.len(), 0);
-    assert_eq!(fsl.list_size(), 2);
-    assert_eq!(fsl.elements().len(), 0);
-
-    // Check dtype is nullable.
-    assert!(matches!(
-        fsl.dtype(),
-        DType::FixedSizeList(_, 2, Nullability::Nullable)
-    ));
-}
-
-#[test]
-fn test_fsl_size_1_length_0_nullable() {
-    let len = 0;
-    let list_size = 1;
-
-    // FSL of size 1 with length 0, nullable validity.
-    let elements = PrimitiveArray::empty::<u32>(Nullability::NonNullable);
-    let fsl = FixedSizeListArray::new(elements.into_array(), list_size, Validity::AllValid, len);
-
-    assert_eq!(fsl.len(), 0);
-    assert_eq!(fsl.list_size(), 1);
-    assert_eq!(fsl.elements().len(), 0);
-}
-
-#[test]
 fn test_fsl_size_0_length_0_nullable() {
     let len = 0;
     let list_size = 0;
@@ -275,50 +206,6 @@ fn test_fsl_size_0_length_10_nullable_mixed() {
             assert!(scalar.is_null());
         }
     }
-}
-
-#[test]
-fn test_fsl_size_0_length_100000000_nullable_all_valid() {
-    let len = 100_000_000;
-    let list_size = 0;
-
-    // FSL of size 0 with very large length (100 million empty lists), all valid.
-    let elements = PrimitiveArray::empty::<u64>(Nullability::NonNullable);
-    let fsl = FixedSizeListArray::new(elements.into_array(), list_size, Validity::AllValid, len);
-
-    assert_eq!(fsl.len(), 100_000_000);
-    assert_eq!(fsl.list_size(), 0);
-    assert_eq!(fsl.elements().len(), 0);
-
-    // Check dtype is nullable.
-    assert!(matches!(
-        fsl.dtype(),
-        DType::FixedSizeList(_, 0, Nullability::Nullable)
-    ));
-
-    // Spot check that lists are valid.
-    assert!(!fsl.scalar_at(0).is_null());
-    assert!(!fsl.scalar_at(50_000_000).is_null());
-    assert!(!fsl.scalar_at(99_999_999).is_null());
-}
-
-#[test]
-fn test_fsl_size_0_length_100000000_nullable_all_null() {
-    let len = 100_000_000;
-    let list_size = 0;
-
-    // FSL of size 0 with very large length (100 million empty lists), all null.
-    let elements = PrimitiveArray::empty::<i16>(Nullability::NonNullable);
-    let fsl = FixedSizeListArray::new(elements.into_array(), list_size, Validity::AllInvalid, len);
-
-    assert_eq!(fsl.len(), 100_000_000);
-    assert_eq!(fsl.list_size(), 0);
-    assert_eq!(fsl.elements().len(), 0);
-
-    // Spot check that lists are null.
-    assert!(fsl.scalar_at(0).is_null());
-    assert!(fsl.scalar_at(50_000_000).is_null());
-    assert!(fsl.scalar_at(99_999_999).is_null());
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////

@@ -233,7 +233,7 @@ fn test_fsl_of_list() {
             if matches!(
                 list_dtype.as_ref(),
                 DType::List(elem_dtype, Nullability::NonNullable)
-                    if matches!(elem_dtype.as_ref(), 
+                    if matches!(elem_dtype.as_ref(),
                         DType::Primitive(PType::I32, Nullability::NonNullable))
             )
     ));

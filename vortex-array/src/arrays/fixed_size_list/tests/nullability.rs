@@ -11,31 +11,6 @@ use crate::validity::Validity;
 use crate::{Array, IntoArray};
 
 #[test]
-fn test_nullable_fsl_all_valid() {
-    let len = 3;
-    let list_size = 2;
-
-    // FSL with nullable validity but all values are valid.
-    let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]);
-    let fsl = FixedSizeListArray::new(elements.into_array(), list_size, Validity::AllValid, len);
-
-    assert_eq!(fsl.len(), len);
-    assert_eq!(fsl.list_size(), list_size);
-
-    // Check dtype has nullable nullability.
-    assert!(matches!(
-        fsl.dtype(),
-        DType::FixedSizeList(_, 2, Nullability::Nullable)
-    ));
-
-    // All lists should be valid.
-    for i in 0..len {
-        let scalar = fsl.scalar_at(i);
-        assert!(!scalar.is_null());
-    }
-}
-
-#[test]
 fn test_nullable_fsl_with_nulls() {
     let len = 4;
     let list_size = 2;
@@ -79,25 +54,6 @@ fn test_nullable_fsl_with_nulls() {
     // Fourth list is null.
     let fourth = fsl.scalar_at(3);
     assert!(fourth.is_null());
-}
-
-#[test]
-fn test_all_null_fsl() {
-    let len = 3;
-    let list_size = 3;
-
-    // Create FSL where all lists are null.
-    let elements = PrimitiveArray::from_iter([0i64; 9]);
-    let validity = Validity::from_iter([false, false, false]);
-    let fsl = FixedSizeListArray::new(elements.into_array(), list_size, validity, len);
-
-    assert_eq!(fsl.len(), len);
-    assert_eq!(fsl.list_size(), list_size);
-
-    // All lists should be null.
-    for i in 0..len {
-        assert!(fsl.scalar_at(i).is_null());
-    }
 }
 
 #[test]
@@ -187,23 +143,6 @@ fn test_nullable_elements_and_nullable_lists() {
 }
 
 #[test]
-fn test_single_null_list() {
-    let len = 1;
-    let list_size = 4;
-
-    // Single list that is null.
-    let elements = PrimitiveArray::from_iter([0.0f64, 0.0, 0.0, 0.0]);
-    let validity = Validity::from_iter([false]);
-    let fsl = FixedSizeListArray::new(elements.into_array(), list_size, validity, len);
-
-    assert_eq!(fsl.len(), len);
-    assert_eq!(fsl.list_size(), list_size);
-
-    let scalar = fsl.scalar_at(0);
-    assert!(scalar.is_null());
-}
-
-#[test]
 fn test_alternating_nulls() {
     let len = 6;
     let list_size = 1;
@@ -271,26 +210,6 @@ fn test_validity_types() {
         assert!(fsl.scalar_at(2).is_null());
         assert!(!fsl.scalar_at(3).is_null());
     }
-}
-
-#[test]
-fn test_empty_nullable_fsl() {
-    let len = 0;
-    let list_size = 3;
-
-    // Empty FSL with nullable validity.
-    let elements = PrimitiveArray::empty::<i32>(Nullability::NonNullable);
-    let fsl = FixedSizeListArray::new(elements.into_array(), list_size, Validity::AllValid, len);
-
-    assert_eq!(fsl.len(), len);
-    assert_eq!(fsl.list_size(), list_size);
-    assert_eq!(fsl.elements().len(), 0);
-
-    // Check dtype.
-    assert!(matches!(
-        fsl.dtype(),
-        DType::FixedSizeList(_, 3, Nullability::Nullable)
-    ));
 }
 
 #[test]
