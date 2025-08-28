@@ -21,9 +21,9 @@ use vortex_error::vortex_panic;
 /// calling thread.
 // TODO(ngates): use a builder to configure whether I/O runs on a separate blocking pool or not.
 pub struct SingleThreadRuntime<'a> {
-    scheduling: flume::Sender<BoxFuture<'a, ()>>,
-    cpu: flume::Sender<CpuTask>,
-    io: flume::Sender<(BoxStream<'a, IoTask>, usize)>,
+    scheduling: kanal::Sender<BoxFuture<'a, ()>>,
+    cpu: kanal::Sender<CpuTask>,
+    io: kanal::Sender<(BoxStream<'a, IoTask>, usize)>,
 }
 
 impl<'a> SingleThreadRuntime<'a> {
@@ -31,9 +31,9 @@ impl<'a> SingleThreadRuntime<'a> {
     where
         'a: 'ex,
     {
-        let (scheduling_send, scheduling_recv) = flume::unbounded::<BoxFuture<'a, ()>>();
-        let (cpu_send, cpu_recv) = flume::unbounded::<CpuTask>();
-        let (io_send, io_recv) = flume::unbounded::<(BoxStream<'a, IoTask>, usize)>();
+        let (scheduling_send, scheduling_recv) = kanal::unbounded::<BoxFuture<'a, ()>>();
+        let (cpu_send, cpu_recv) = kanal::unbounded::<CpuTask>();
+        let (io_send, io_recv) = kanal::unbounded::<(BoxStream<'a, IoTask>, usize)>();
 
         let local = Rc::new(LocalExecutor::new());
         let weak_local = Rc::downgrade(&local);
@@ -42,7 +42,7 @@ impl<'a> SingleThreadRuntime<'a> {
         let weak_local2 = weak_local.clone();
         local
             .spawn(async move {
-                while let Ok(fut) = scheduling_recv.recv_async().await {
+                while let Ok(fut) = scheduling_recv.as_async().recv().await {
                     if let Some(local) = weak_local2.upgrade() {
                         local.spawn(fut).detach();
                     }
@@ -54,7 +54,7 @@ impl<'a> SingleThreadRuntime<'a> {
         let weak_local2 = weak_local.clone();
         local
             .spawn(async move {
-                while let Ok(task) = cpu_recv.recv_async().await {
+                while let Ok(task) = cpu_recv.as_async().recv().await {
                     if let Some(local) = weak_local2.upgrade() {
                         local.spawn(async move { task.run() }).detach();
                     }
@@ -66,7 +66,7 @@ impl<'a> SingleThreadRuntime<'a> {
         let weak_local2 = weak_local.clone();
         local
             .spawn(async move {
-                while let Ok((stream, concurrency)) = io_recv.recv_async().await {
+                while let Ok((stream, concurrency)) = io_recv.as_async().recv().await {
                     // NOTE(ngates): for now, we allow arbitrary Tokio I/O and therefore wrap up
                     //  the futures in a compatibility layer.
                     if let Some(local) = weak_local2.upgrade() {

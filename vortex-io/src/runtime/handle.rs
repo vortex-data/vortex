@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::kanal_ext::KanalExt;
 use crate::runtime::coalesce::{CoalescedRequest, CoalescedStreamExt};
 use crate::runtime::{CpuTask, IoTask, Read, ReadCompletion, Runtime};
 use futures::future::{BoxFuture, LocalBoxFuture, Shared};
 use futures::stream::BoxStream;
-use futures::{FutureExt, StreamExt, TryFutureExt};
-use smol::unblock;
+use futures::{pin_mut, FutureExt, StreamExt, TryFutureExt, TryStreamExt};
+use smol::{stream, unblock};
 use std::backtrace;
 use std::fs::File;
 use std::marker::PhantomData;
@@ -14,6 +15,7 @@ use std::os::fd::AsRawFd;
 use std::os::unix::fs::FileExt;
 use std::path::Path;
 use std::sync::Arc;
+use std::task::{ready, Poll};
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{
     vortex_err, vortex_panic, SharedVortexResult, VortexError, VortexExpect, VortexResult,
@@ -99,7 +101,7 @@ impl<'rt> Handle<'rt> {
 
     pub fn open<S: IoSource>(&self, source: S) -> FileIo<'rt> {
         let source = Arc::new(source);
-        let (send, recv) = flume::unbounded();
+        let (send, recv) = kanal::unbounded();
 
         // Construct the size future in case we need it.
         let size = source.size();
@@ -107,7 +109,7 @@ impl<'rt> Handle<'rt> {
         let concurrency = source.concurrency();
         let name = source.name();
 
-        let stream = recv.into_stream();
+        let stream = recv.to_async().into_stream().boxed();
         let stream = match source.coalescing_window() {
             None => stream
                 .map(move |req: IoRequest| IoTask::new_request(source.clone(), req))
@@ -347,7 +349,7 @@ impl IoSource for ObjectStoreIoSource {
 pub struct FileIo<'rt> {
     name: String,
     size: Shared<BoxFuture<'static, SharedVortexResult<u64>>>,
-    send: flume::Sender<IoRequest>,
+    send: kanal::Sender<IoRequest>,
     _phantom: PhantomData<&'rt ()>,
 }
 

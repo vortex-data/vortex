@@ -160,7 +160,7 @@ enum WorkerRole {
 
 impl<T: Send + 'static> Worker<T> {
     fn update_role(&mut self) -> WorkerRole {
-        // FIXME(ngates): this works quite well, except flume channel len requires a mutex!
+        // FIXME(ngates): this works quite well, except kanal channel len requires a mutex!
         // let queue_depth = self.shared.file_io_recv.len();
         let active_workers = self.shared.active_io_workers.load(Ordering::Relaxed);
         let target_workers = 1;

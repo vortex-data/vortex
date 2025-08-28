@@ -23,7 +23,6 @@ cfg-if = { workspace = true }
 compio = { workspace = true, features = ["bytes", "macros"], optional = true }
 crossbeam-channel = { workspace = true }
 crossbeam-deque = { workspace = true }
-flume = { workspace = true }
 futures = { workspace = true, features = ["executor", "std"] }
 # Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration
 getrandom_v03 = { workspace = true }
