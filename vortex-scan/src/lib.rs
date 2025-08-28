@@ -181,6 +181,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             filter_and_projection_masks(&projection, filter.as_ref(), layout_reader.dtype())?;
         let field_mask: Vec<_> = [filter_mask, projection_mask].concat();
         let splits = self.split_by.splits(layout_reader.as_ref(), &field_mask)?;
+
         Ok(RepeatedScan {
             layout_reader,
             projection,
