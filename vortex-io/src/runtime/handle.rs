@@ -6,6 +6,7 @@ use crate::runtime::{CpuTask, IoTask, Read, ReadCompletion, Runtime};
 use futures::future::{BoxFuture, LocalBoxFuture, Shared};
 use futures::stream::BoxStream;
 use futures::{FutureExt, StreamExt, TryFutureExt};
+use smol::unblock;
 use std::backtrace;
 use std::fs::File;
 use std::marker::PhantomData;
@@ -209,12 +210,6 @@ impl FileIoSource {
         let path = path.as_ref();
         let name = path.to_string_lossy().to_string();
         let file = File::open(path).map_err(VortexError::from)?;
-        log::info!(
-            "Opened {} as {}\n{}",
-            name,
-            file.as_raw_fd(),
-            backtrace::Backtrace::capture()
-        );
         Ok(Self {
             file: Arc::new(file),
             path: name,
@@ -232,7 +227,7 @@ impl IoSource for FileIoSource {
     }
 
     fn concurrency(&self) -> usize {
-        16
+        32
     }
 
     fn size(&self) -> Shared<BoxFuture<'static, SharedVortexResult<u64>>> {
