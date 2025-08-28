@@ -4,22 +4,22 @@
 #![allow(clippy::unwrap_used)]
 #![allow(unexpected_cfgs)]
 
-use vortex_mask::Mask;
 use arrow_buffer::BooleanBuffer;
 use divan::Bencher;
 use mimalloc::MiMalloc;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
+use vortex_array::ToCanonical;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::compute::filter;
 use vortex_array::pipeline::bits::BitView;
 use vortex_array::pipeline::view::ViewMut;
 use vortex_array::pipeline::{Element, Kernel, KernelContext, N, N_WORDS};
-use vortex_array::{ ToCanonical};
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::filter;
-use vortex_buffer::{Buffer};
+use vortex_buffer::Buffer;
 use vortex_dtype::{NativePType, PhysicalPType};
 use vortex_fastlanes::bitpack_to_best_bit_width;
 use vortex_fastlanes::pipeline::{BitPackedKernel, BitPackedUnalignedKernel};
+use vortex_mask::Mask;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -27,7 +27,6 @@ static GLOBAL: MiMalloc = MiMalloc;
 pub fn main() {
     divan::main();
 }
-
 
 #[divan::bench(types = [i8, i16, i32, i64], args = [0.01, 0.05, 0.1, 0.3, 0.5, 0.7, 0.9, 1.0])]
 pub fn aligned_step_kernel<T>(bencher: Bencher, fraction_kept: f64)
@@ -43,17 +42,12 @@ where
     let array = bitpack_to_best_bit_width(&values).unwrap();
 
     // Create the aligned kernel - offset = 0
-    let packed_stride =
-        array.bit_width() as usize * <<T as PhysicalPType>::Physical as fastlanes::FastLanes>::LANES;
+    let packed_stride = array.bit_width() as usize
+        * <<T as PhysicalPType>::Physical as fastlanes::FastLanes>::LANES;
     let buffer = Buffer::<<T as PhysicalPType>::Physical>::from_byte_buffer(
         array.packed().clone().into_byte_buffer(),
     );
-    let kernel = BitPackedKernel::<T>::new(
-        array.bit_width() as usize,
-        packed_stride,
-        buffer,
-        0,
-    );
+    let kernel = BitPackedKernel::<T>::new(array.bit_width() as usize, packed_stride, buffer, 0);
 
     let mask = (0..N)
         .map(|_| rng.random_bool(fraction_kept))
@@ -70,11 +64,11 @@ where
     let mut output_data = vec![T::default(); N];
     let mut output = ViewMut::new(&mut output_data, None);
 
-    bencher.with_inputs(|| (BitView::new(&mask_data), kernel.clone())).bench_local_values(|(bit_view, mut kernel)| {
-        kernel.step(&ctx, bit_view, &mut output).unwrap()
-    });
-
-
+    bencher
+        .with_inputs(|| (BitView::new(&mask_data), kernel.clone()))
+        .bench_local_values(|(bit_view, mut kernel)| {
+            kernel.step(&ctx, bit_view, &mut output).unwrap()
+        });
 }
 
 #[divan::bench(types = [i8, i16, i32, i64], args = [(8, 0.01), (512, 0.01), (8, 0.05), (512, 0.05), (8, 0.1), (512, 0.1), (8, 0.3), (512, 0.3), (8, 0.5), (512, 0.5), (8, 0.7), (512, 0.7), (8, 0.9), (512, 0.9), (8, 1.0), (512, 1.0)])]
@@ -90,9 +84,8 @@ where
         .collect::<PrimitiveArray>();
     let array = bitpack_to_best_bit_width(&values).unwrap();
 
-
-    let packed_stride =
-        array.bit_width() as usize * <<T as PhysicalPType>::Physical as fastlanes::FastLanes>::LANES;
+    let packed_stride = array.bit_width() as usize
+        * <<T as PhysicalPType>::Physical as fastlanes::FastLanes>::LANES;
     let buffer = Buffer::<<T as PhysicalPType>::Physical>::from_byte_buffer(
         array.packed().clone().into_byte_buffer(),
     );
@@ -108,8 +101,10 @@ where
         .map(|_| rng.random_bool(fraction_kept))
         .collect::<Mask>();
 
-
-    let expect = filter(&array.as_ref().slice(offset, offset + N), &mask).unwrap().to_primitive().unwrap();
+    let expect = filter(&array.as_ref().slice(offset, offset + N), &mask)
+        .unwrap()
+        .to_primitive()
+        .unwrap();
 
     let mut mask_data = [0usize; N_WORDS];
     for (i, chunk) in mask.to_boolean_buffer().bit_chunks().iter().enumerate() {
@@ -121,9 +116,14 @@ where
     let mut output_data = vec![T::default(); N];
     let mut output = ViewMut::new(&mut output_data, None);
 
-    bencher.with_inputs(|| (BitView::new(&mask_data), kernel.clone())).bench_local_values(|(bit_view, mut kernel)| {
-        kernel.step(&ctx, bit_view, &mut output).unwrap();
+    bencher
+        .with_inputs(|| (BitView::new(&mask_data), kernel.clone()))
+        .bench_local_values(|(bit_view, mut kernel)| {
+            kernel.step(&ctx, bit_view, &mut output).unwrap();
 
-        assert_eq!(output.as_slice::<T>()[..mask.true_count()], *expect.as_slice::<T>());
-    });
+            assert_eq!(
+                output.as_slice::<T>()[..mask.true_count()],
+                *expect.as_slice::<T>()
+            );
+        });
 }

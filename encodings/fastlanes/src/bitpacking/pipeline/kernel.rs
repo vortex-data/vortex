@@ -103,7 +103,7 @@ where
             self.packed_offset += nvecs * self.packed_stride;
         }
         physical_out.reinterpret_as::<T>();
-        
+
         Ok(())
     }
 }
