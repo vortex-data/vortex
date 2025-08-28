@@ -6,17 +6,17 @@ mod unaligned_kernel;
 
 use std::any::Any;
 use std::hash::{Hash, Hasher};
-use std::rc::Rc;
+use std::sync::Arc;
 
 use fastlanes::FastLanes;
-use vortex_array::pipeline::operators::{BindContext, Operator};
+pub use kernel::BitPackedKernel;
+pub use unaligned_kernel::BitPackedUnalignedKernel;
+use vortex_array::pipeline::operators::{BindContext, Operator, OperatorRef};
 use vortex_array::pipeline::{Kernel, PipelineVTable, VType};
 use vortex_buffer::Buffer;
 use vortex_dtype::{PhysicalPType, match_each_integer_ptype};
 use vortex_error::VortexResult;
 
-pub use kernel::BitPackedKernel;
-pub use unaligned_kernel::BitPackedUnalignedKernel;
 use crate::{BitPackedArray, BitPackedVTable};
 
 impl PipelineVTable<BitPackedVTable> for BitPackedVTable {

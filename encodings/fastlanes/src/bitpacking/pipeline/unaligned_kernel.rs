@@ -192,7 +192,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use rstest::rstest;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::pipeline::bits::BitView;
@@ -200,15 +199,17 @@ mod tests {
     use vortex_array::pipeline::{KernelContext, N, N_WORDS};
     use vortex_fastlanes::bitpack_to_best_bit_width;
 
+    use super::*;
+
     #[test]
     fn test_unaligned_kernel_step_dense() {
         let len = 2048 + 100; // More than one chunk plus extra
         let offset = 7u16;
         let values: Vec<i32> = (0..len).collect();
-        
+
         let primitive_array: PrimitiveArray = values.clone().into_iter().collect();
         let array = bitpack_to_best_bit_width(&primitive_array).unwrap();
-        
+
         // Create the unaligned kernel
         let packed_stride = array.bit_width() as usize * 32; // i32 FastLanes lanes
         let buffer = Buffer::<u32>::from_byte_buffer(array.packed().clone().into_byte_buffer());
@@ -231,7 +232,11 @@ mod tests {
 
         // Verify results - should match original values starting from offset
         let expected = &values[offset as usize..][..N];
-        assert_eq!(output.as_slice::<i32>(), expected, "Dense unaligned step failed");
+        assert_eq!(
+            output.as_slice::<i32>(),
+            expected,
+            "Dense unaligned step failed"
+        );
     }
 
     #[test]
@@ -239,10 +244,10 @@ mod tests {
         let len = 1024 + 512; // One full chunk plus partial
         let offset = 15u16;
         let values: Vec<i16> = (0..len).map(|i| (i * 3 + 7) as i16).collect();
-        
+
         let primitive_array: PrimitiveArray = values.clone().into_iter().collect();
         let array = bitpack_to_best_bit_width(&primitive_array).unwrap();
-        
+
         // Create the unaligned kernel
         let packed_stride = array.bit_width() as usize * 64; // i16 FastLanes lanes
         let buffer = Buffer::<u16>::from_byte_buffer(array.packed().clone().into_byte_buffer());
@@ -265,7 +270,7 @@ mod tests {
             }
         }
         let bit_view = BitView::new(&mask_data);
-        
+
         let ctx = KernelContext::default();
         // ViewMut requires exactly N elements
         let mut output_data = vec![0i16; N];
@@ -278,7 +283,11 @@ mod tests {
         let output_slice = output.as_slice::<i16>();
         for (i, &idx) in selected_indices.iter().enumerate() {
             let expected_value = values[offset as usize + idx];
-            assert_eq!(output_slice[i], expected_value, "Sparse unaligned step failed at index {}", i);
+            assert_eq!(
+                output_slice[i], expected_value,
+                "Sparse unaligned step failed at index {}",
+                i
+            );
         }
     }
 
@@ -287,13 +296,18 @@ mod tests {
     #[case(8u16, "byte-aligned offset")]
     #[case(63u16, "near chunk boundary")]
     #[case(100u16, "mid-chunk offset")]
-    fn test_unaligned_kernel_step_different_offsets(#[case] offset: u16, #[case] description: &str) {
+    fn test_unaligned_kernel_step_different_offsets(
+        #[case] offset: u16,
+        #[case] description: &str,
+    ) {
         let len = N + offset as usize + 100; // Ensure we have enough data
-        let values: Vec<i8> = (0..len).map(|i| ((i + offset as usize) % 127) as i8).collect();
-        
+        let values: Vec<i8> = (0..len)
+            .map(|i| ((i + offset as usize) % 127) as i8)
+            .collect();
+
         let primitive_array: PrimitiveArray = values.clone().into_iter().collect();
         let array = bitpack_to_best_bit_width(&primitive_array).unwrap();
-        
+
         // Create the unaligned kernel - use proper FastLanes lanes count
         let packed_stride = array.bit_width() as usize * 128; // i8 has 128 lanes in FastLanes
         let buffer = Buffer::<u8>::from_byte_buffer(array.packed().clone().into_byte_buffer());
