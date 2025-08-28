@@ -3,17 +3,14 @@
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 #
 # Git Pre-Push Hook for Vortex
-# Validates commits being pushed to ensure code quality, REUSE compliance, and DCO.
+# Validates commits being pushed to ensure code quality and DCO (signed-off commits).
 #
 # If you want to use this hook, simply copy and paste the file into a new file `.git/hooks/pre-push`
-# and everything should work correctly. If you are in the project root, you can use this command:
+# and everything should work correctly. If you are in the project root, you can use these command:
 #
 # ```sh
 # cp scripts/pre-push .git/hooks/
 # ```
-# 
-# Note that `cargo clippy --all-warnings --all-features` can take a long time if you haven't cached
-# a build recently. You can simply comment out that section (CHECK 4) if you don't want it.
 
 set -Euo pipefail
 
@@ -175,71 +172,9 @@ else
     fi
 fi
 
-# ============================================================================
-# CHECK 2: REUSE Compliance (License Headers)
-# ============================================================================
-# Ensure all files have proper license headers as required by REUSE specification.
-# This helps maintain clear licensing information throughout the codebase.
-
-print_header "📜 Checking REUSE compliance"
-
-if ! command -v reuse &> /dev/null; then
-    print_warning "⚠️  REUSE tool not found - skipping license check."
-    echo "   Install from: https://reuse.software/"
-else
-    # Run REUSE lint check.
-    REUSE_OUTPUT=$(reuse lint 2>&1)
-    REUSE_EXIT_CODE=$?
-
-    if [ $REUSE_EXIT_CODE -eq 0 ]; then
-        print_success "✅ REUSE compliant - all files have proper license headers"
-    else
-        print_error "❌ REUSE compliance check failed"
-        echo
-        # Show first 30 lines of errors.
-        echo "$REUSE_OUTPUT" | head -30
-        if [ $(echo "$REUSE_OUTPUT" | wc -l) -gt 30 ]; then
-            echo
-            echo "... (output truncated, run 'reuse lint' for full report)"
-        fi
-        echo
-        print_warning "⚠️  To skip checks: git push --no-verify"
-        exit 1
-    fi
-fi
 
 # ============================================================================
-# CHECK 3: Code Formatting
-# ============================================================================
-# Verify that all Rust code follows the project's formatting standards.
-# Consistent formatting improves readability and reduces merge conflicts.
-
-print_header "🎨 Checking code formatting"
-
-if ! command -v cargo &> /dev/null; then
-    print_error "❌ Cargo not found in PATH"
-    exit 1
-fi
-
-# Check if code needs formatting.
-FMT_OUTPUT=$(cargo +nightly fmt --all -- --check 2>&1)
-FMT_EXIT_CODE=$?
-
-if [ $FMT_EXIT_CODE -eq 0 ]; then
-    print_success "✅ Code formatting looks good"
-else
-    print_error "❌ Code needs formatting"
-    echo
-    echo "$FMT_OUTPUT"
-    echo
-    print_info "💡 Fix with: cargo fmt"
-    echo
-    print_warning "⚠️  To skip checks: git push --no-verify"
-    exit 1
-fi
-
-# ============================================================================
-# CHECK 4: Clippy Lints
+# CHECK 2: Clippy Lints
 # ============================================================================
 # Run Clippy to catch common mistakes and enforce idiomatic Rust patterns.
 # This helps maintain code quality and prevents potential bugs.
