@@ -9,7 +9,7 @@ use vortex_array::vtable::{EncodeVTable, SerdeVTable, ValidityHelper};
 use vortex_array::{Array, Canonical, IntoArray, ProstMetadata};
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexResult, vortex_ensure, vortex_err};
+use vortex_error::{vortex_ensure, vortex_err, VortexResult};
 
 use crate::fsst_train_compressor;
 use crate::fsst_view::{FSSTViewArray, FSSTViewEncoding, FSSTViewVTable, OutlinedStr, View};
@@ -92,7 +92,7 @@ impl SerdeVTable<FSSTViewVTable> for FSSTViewVTable {
 
         let validity = if children.len() == 3 {
             let validity = children
-                .get(2, &DType::Binary(Nullability::NonNullable), len)
+                .get(2, &DType::Bool(Nullability::NonNullable), len)
                 .map_err(|err| vortex_err!("loading child[0]: validity: {err}"))?;
             Validity::Array(validity)
         } else {
