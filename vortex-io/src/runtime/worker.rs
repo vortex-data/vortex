@@ -10,7 +10,7 @@ use futures::stream::{BoxStream, FuturesUnordered};
 use futures::Stream;
 use futures::{FutureExt, StreamExt};
 use itertools::Itertools;
-use smol::lock::Semaphore;
+use smol::lock::{Semaphore, SemaphoreGuardArc};
 use smol::LocalExecutor;
 use std::fmt::Debug;
 use std::iter;
@@ -67,7 +67,7 @@ impl<T: Send> WorkerPool<T> {
 struct Shared<T: Send> {
     scheduling: Arc<WorkStealing<Runnable>>,
     cpu: Arc<WorkStealing<CpuTask>>,
-    io: Arc<WorkStealing<IoTask>>,
+    io: Arc<WorkStealing<Guarded<IoTask>>>,
 
     /// The current count of I/O worker threads.
     active_io_workers: AtomicUsize,
@@ -75,6 +75,12 @@ struct Shared<T: Send> {
 
     // The result channel.
     results: crossbeam_channel::Receiver<T>,
+}
+
+/// A wrapper around T that holds a semaphore permit.
+struct Guarded<T> {
+    inner: T,
+    guard: SemaphoreGuardArc,
 }
 
 /// We implement [`Runtime`] for the worker pool's shared state, which allows us to create a handle
@@ -101,23 +107,21 @@ impl<'rt, T: Send> Runtime<'rt> for Shared<T> {
         self.cpu.injector.push(task);
     }
 
-    fn spawn_io(&self, stream: BoxStream<'rt, IoTask>, concurrency: usize) {
-        // FIXME(ngates): this is stupid and breaks back-pressure on the stream.
-        //  We should collect these streams into a Vec or similar and use a SelectAll construct.
-        // We launch a scheduling task to push I/O requests into the work stealing queue.
-        // let injector = self.io.injector.clone();
-        let _semaphore = Arc::new(Semaphore::new(concurrency));
+    fn spawn_io(&self, mut stream: BoxStream<'rt, IoTask>, concurrency: usize) {
+        // This is quite tricky to get right. Essentially, we want to defer pulling from the
+        // stream for as long as possible because that allows us to perform better coalescing of
+        // I/O requests. We use the given concurrency parameter to achieve this.
+        let semaphore = Arc::new(Semaphore::new(concurrency));
+        let injector = self.io.injector.clone();
         self.spawn_scheduling(
             async move {
-                stream
-                    // FIXME(ngates): this isn't running on the I/O driver!
-                    .map(|task| async move { task.run_send().await })
-                    .buffer_unordered(concurrency)
-                    .collect::<()>()
-                    .await
+                while let Some(task) = stream.next().await {
+                    let guard = semaphore.acquire_arc().await;
+                    injector.push(Guarded { inner: task, guard })
+                }
             }
             .boxed(),
-        )
+        );
     }
 }
 
@@ -143,7 +147,7 @@ pub struct Worker<T: Send + 'static> {
 
     scheduling: WorkStealingLocal<Runnable>,
     cpu: WorkStealingLocal<CpuTask>,
-    io: WorkStealingLocal<IoTask>,
+    io: WorkStealingLocal<Guarded<IoTask>>,
 
     io_executor: LocalExecutor<'static>,
 }
@@ -202,8 +206,13 @@ impl<T: Send + 'static> Worker<T> {
         }
 
         let mut handles = Vec::with_capacity(tasks.len());
-        self.io_executor
-            .spawn_many(tasks.into_iter().map(|task| task.run_send()), &mut handles);
+        self.io_executor.spawn_many(
+            tasks.into_iter().map(|task| async move {
+                task.inner.run_send().await;
+                drop(task.guard)
+            }),
+            &mut handles,
+        );
 
         block_on(
             self.io_executor
