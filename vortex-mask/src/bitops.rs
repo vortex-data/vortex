@@ -248,10 +248,13 @@ mod tests {
         let or_result = &not_a | &not_b;
 
         assert_eq!(not_and.len(), 4);
+        assert!(!not_and.value(0)); // !(true & true) = false
+        assert!(not_and.value(1)); // !(true & false) = true
+        assert!(not_and.value(2)); // !(false & true) = true
+        assert!(not_and.value(3)); // !(false & false) = true
+
         assert_eq!(or_result.len(), 4);
-        for i in 0..4 {
-            assert_eq!(not_and.value(i), or_result.value(i));
-        }
+        assert_eq!(or_result, not_and)
     }
 
     #[test]
