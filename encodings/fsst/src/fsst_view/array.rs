@@ -459,14 +459,14 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "expected u32 DType for compressed offsets, was u8")]
+    #[should_panic(expected = "expected unsigned int DType for compressed offsets, was i64")]
     fn test_validate_compressed_ptype() {
         let _ = FSSTViewArray::new(
             Buffer::empty(),                   // views
             ByteBuffer::empty(),               // fsst_buffer
             Buffer::empty(),                   // symbols
             ByteBuffer::empty(),               // symbol lengths
-            buffer![0u8, 5u8].into_array(),    // compressed offsets
+            buffer![0i64, 5i64].into_array(),  // compressed offsets
             buffer![0u32, 10u32].into_array(), // uncompressed offsets
             DType::Utf8(Nullability::NonNullable),
             Validity::NonNullable,
@@ -474,15 +474,15 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "expected u32 DType for uncompressed offsets, was u8")]
+    #[should_panic(expected = "expected unsigned int DType for uncompressed offsets, was i64")]
     fn test_validate_uncompressed_ptype() {
         let _ = FSSTViewArray::new(
-            Buffer::empty(),                  // views
-            ByteBuffer::empty(),              // fsst_buffer
-            Buffer::empty(),                  // symbols
-            ByteBuffer::empty(),              // symbol lengths
-            buffer![0u32, 5u32].into_array(), // compressed offsets
-            buffer![0u8, 10u8].into_array(),  // uncompressed offsets
+            Buffer::empty(),                   // views
+            ByteBuffer::empty(),               // fsst_buffer
+            Buffer::empty(),                   // symbols
+            ByteBuffer::empty(),               // symbol lengths
+            buffer![0u32, 5u32].into_array(),  // compressed offsets
+            buffer![0i64, 10i64].into_array(), // uncompressed offsets
             DType::Utf8(Nullability::NonNullable),
             Validity::NonNullable,
         );
