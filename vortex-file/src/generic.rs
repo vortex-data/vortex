@@ -277,7 +277,7 @@ impl VortexOpenOptions<GenericVortexFile> {
             let offset =
                 usize::try_from(segment.offset - initial_offset).vortex_expect("Invalid offset");
             let buffer = initial_read
-                .slice(offset..offset + (segment.length as usize))
+                .slice_unaligned(offset..offset + (segment.length as usize))
                 .aligned(segment.alignment);
             self.options
                 .initial_read_segments

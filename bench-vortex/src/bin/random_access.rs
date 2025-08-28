@@ -70,7 +70,13 @@ fn random_access(
 ) -> anyhow::Result<()> {
     let targets = formats
         .iter()
-        .map(|f| Target::new(Engine::Vortex, *f))
+        .map(|f| {
+            if f == &Format::Parquet {
+                Target::new(Engine::Arrow, Format::Parquet)
+            } else {
+                Target::new(Engine::Vortex, *f)
+            }
+        })
         .collect_vec();
 
     // Set up a progress bar
