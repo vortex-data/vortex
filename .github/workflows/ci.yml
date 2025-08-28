@@ -343,8 +343,8 @@ jobs:
     env:
       # Add debug symbols and enable ASAN/LSAN with better output
       RUSTFLAGS: "-A warnings -Zsanitizer=address -Zsanitizer=leak --cfg disable_loom -C debuginfo=2 -C opt-level=0 -C strip=none"
-      ASAN_OPTIONS: "symbolize=1:print_module_map=1:print_stats=1:check_initialization_order=1:detect_leaks=1:leak_check_at_exit=1"
-      LSAN_OPTIONS: "suppressions=lsan.supp:print_suppressions=1:report_objects=1:verbosity=1"
+      ASAN_OPTIONS: "symbolize=1:print_stats=1:check_initialization_order=1:detect_leaks=1:halt_on_error=0:verbosity=1:leak_check_at_exit=1"
+      LSAN_OPTIONS: "verbosity=1:report_objects=1"  # Removed suppressions option
       ASAN_SYMBOLIZER_PATH: "/usr/bin/llvm-symbolizer"
       # Keep frame pointers for better stack traces
       CARGO_PROFILE_DEV_DEBUG: "true"
@@ -375,7 +375,6 @@ jobs:
         run: |
           # Build with full debug info first (helps with caching)
           cargo +nightly build --locked --workspace --all-features --target x86_64-unknown-linux-gnu
-          
           # Run tests with sanitizers and debug output
           cargo +nightly nextest run \
             --locked \
