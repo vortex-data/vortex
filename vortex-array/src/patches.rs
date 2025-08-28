@@ -227,10 +227,8 @@ impl Patches {
         if self.indices.is_canonical() {
             let primitive = self
                 .indices
-                .to_canonical()
-                .vortex_expect("already checked canonical")
-                .into_primitive()
-                .vortex_expect("indices are always primitive");
+                .to_primitive()
+                .vortex_expect("indices are canonical and must be primitive");
             match_each_integer_ptype!(primitive.ptype(), |T| {
                 let Ok(needle) = T::try_from(index + self.offset) else {
                     // If the needle is not of type T, then it cannot possibly be in this array.
