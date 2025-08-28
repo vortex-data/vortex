@@ -291,9 +291,8 @@ impl DType {
         }
     }
 
-    // TODO(connor): This should probably be named `as_struct_fieds_opt`.
     /// Get the `StructDType` if `self` is a `StructDType`, otherwise `None`
-    pub fn as_struct_opt(&self) -> Option<&StructFields> {
+    pub fn as_struct_fields_opt(&self) -> Option<&StructFields> {
         if let Struct(f, _) = self {
             Some(f)
         } else {
