@@ -344,7 +344,7 @@ jobs:
       # Add debug symbols and enable ASAN/LSAN with better output
       RUSTFLAGS: "-A warnings -Zsanitizer=address -Zsanitizer=leak --cfg disable_loom -C debuginfo=2 -C opt-level=0 -C strip=none"
       ASAN_OPTIONS: "symbolize=1:print_stats=1:check_initialization_order=1:detect_leaks=1:halt_on_error=0:verbosity=1:leak_check_at_exit=1"
-      LSAN_OPTIONS: "verbosity=1:report_objects=1"  # Removed suppressions option
+      LSAN_OPTIONS: "verbosity=1:report_objects=1"
       ASAN_SYMBOLIZER_PATH: "/usr/bin/llvm-symbolizer"
       # Keep frame pointers for better stack traces
       CARGO_PROFILE_DEV_DEBUG: "true"
