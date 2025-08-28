@@ -39,7 +39,7 @@ impl VTable for FixedSizeListVTable {
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::new_ref("vortex.list")
+        EncodingId::new_ref("vortex.fixed_size_list")
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {

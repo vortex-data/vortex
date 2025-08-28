@@ -3,7 +3,7 @@
 
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexResult, vortex_bail, vortex_ensure};
 
 use super::{FixedSizeListArray, FixedSizeListVTable};
 use crate::arrays::FixedSizeListEncoding;
@@ -30,14 +30,47 @@ impl SerdeVTable<FixedSizeListVTable> for FixedSizeListVTable {
         })))
     }
 
+    /// Builds a [`FixedSizeListArray`].
+    ///
+    /// This method expects 1 or 2 children (a second child indicates a validity array).
     fn build(
-        encoding: &FixedSizeListEncoding,
+        _encoding: &FixedSizeListEncoding,
         dtype: &DType,
         len: usize,
         metadata: &FixedSizeListMetadata,
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<FixedSizeListArray> {
-        unimplemented!("TODO(connor)[FixedSizeList")
+        vortex_ensure!(
+            buffers.is_empty(),
+            "`FixedSizeListVTable::build` got some buffers"
+        );
+
+        let validity = {
+            if children.len() > 2 {
+                vortex_bail!("`FixedSizeListVTable::build` method expected 1 or 2 children")
+            }
+
+            if children.len() == 2 {
+                let validity = children.get(1, &Validity::DTYPE, len)?;
+                Validity::Array(validity)
+            } else {
+                debug_assert_eq!(children.len(), 1);
+                Validity::from(dtype.nullability())
+            }
+        };
+
+        let DType::FixedSizeList(element_dtype, size, _) = &dtype else {
+            vortex_bail!("Expected `DType::FixedSizeList`, got {:?}", dtype);
+        };
+        let num_elements = metadata.len * metadata.list_size as u64;
+        let elements = children.get(0, element_dtype.as_ref(), usize::try_from(num_elements)?)?;
+
+        FixedSizeListArray::try_new(
+            elements,
+            metadata.list_size,
+            validity,
+            usize::try_from(metadata.len)?,
+        )
     }
 }

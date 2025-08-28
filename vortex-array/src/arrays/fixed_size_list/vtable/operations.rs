@@ -9,21 +9,23 @@ use crate::{ArrayRef, IntoArray};
 
 impl OperationsVTable<FixedSizeListVTable> for FixedSizeListVTable {
     fn slice(array: &FixedSizeListArray, start: usize, stop: usize) -> ArrayRef {
-        let len = start - stop;
+        let new_len = stop - start;
         let list_size = array.list_size() as usize;
 
         FixedSizeListArray::new(
-            array.values().slice(start * list_size, stop * list_size),
+            array.elements().slice(start * list_size, stop * list_size),
             array.list_size(),
             array.validity().slice(start, stop),
-            len,
+            new_len,
         )
         .into_array()
     }
 
     fn scalar_at(array: &FixedSizeListArray, index: usize) -> Scalar {
         let list = array.fixed_size_list_at(index);
-        let children_elements = (0..list.len()).map(|i| list.scalar_at(i)).collect();
+        let children_elements: Vec<Scalar> = (0..list.len()).map(|i| list.scalar_at(i)).collect();
+
+        assert_eq!(children_elements.len(), array.list_size() as usize);
 
         Scalar::fixed_size_list(
             array.dtype().clone(),

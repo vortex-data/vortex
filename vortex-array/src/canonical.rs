@@ -180,7 +180,7 @@ impl AsRef<dyn Array> for Canonical {
             Canonical::Decimal(a) => a.as_ref(),
             Canonical::Struct(a) => a.as_ref(),
             Canonical::List(a) => a.as_ref(),
-            Canonical::FixedSizeList(_) => todo!("TODO(connor)[FixedSizeList]"),
+            Canonical::FixedSizeList(a) => a.as_ref(),
             Canonical::VarBinView(a) => a.as_ref(),
             Canonical::Extension(a) => a.as_ref(),
         }
@@ -196,7 +196,7 @@ impl IntoArray for Canonical {
             Canonical::Decimal(a) => a.into_array(),
             Canonical::Struct(a) => a.into_array(),
             Canonical::List(a) => a.into_array(),
-            Canonical::FixedSizeList(_) => todo!("TODO(connor)[FixedSizeList]"),
+            Canonical::FixedSizeList(a) => a.into_array(),
             Canonical::VarBinView(a) => a.into_array(),
             Canonical::Extension(a) => a.into_array(),
         }

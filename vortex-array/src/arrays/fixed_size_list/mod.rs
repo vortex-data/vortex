@@ -23,11 +23,12 @@ pub struct FixedSizeListArray {
     /// This type **must** be the variant [`DType::FixedSizeList`].
     dtype: DType,
 
-    /// The values data array, where each fixed-size list scalar is a slice of this `values` array.
+    /// The `elements` data array, where each fixed-size list scalar is a slice of this `elements`
+    /// array, and each list element is contained (contiguously) in this child array.
     ///
     /// The fixed-size list scalars (or the elements of the array) are contiguous (regardless of
     /// nullability for easy lookups), each with equal size in memory.
-    values: ArrayRef,
+    elements: ArrayRef,
 
     /// The size of each fixed-size list scalar in the array.
     ///
@@ -37,18 +38,17 @@ pub struct FixedSizeListArray {
     /// The validity / null map of the array.
     ///
     /// Note that this null map refers to the fixed-size list scalars, **not** the elements of the
-    /// _individual_ fixed-size list scalars. The `values` array will track individual value
+    /// _individual_ fixed-size list scalars. The `elements` array will track individual value
     /// nullability.
     validity: Validity,
 
-    // Would it be a good idea to make this a const generic parameter?
     /// The length of the array.
     ///
     /// Note that this is different from the size of each fixed-size list scalar (`list_size`).
     ///
     /// The main reason we need to store this (rather than calculate it on the fly via `list_size`
-    /// and `values.len()`) is because in the degenerate case where `list_size == 0`, we cannot use
-    /// `0 / 0` to determine the length.
+    /// and `elements.len()`) is because in the degenerate case where `list_size == 0`, we cannot
+    /// use `0 / 0` to determine the length.
     len: usize,
 
     /// The stats for this array.
@@ -56,24 +56,45 @@ pub struct FixedSizeListArray {
 }
 
 impl FixedSizeListArray {
-    pub fn new(values: ArrayRef, list_size: u32, validity: Validity, len: usize) -> Self {
-        Self::try_new(values, list_size, validity, len)
+    /// Creates a new `FixedSizeListArray`. This is simply a wrapper around [`try_new()`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the inputs are invalid. See
+    ///
+    /// [`try_new()`]: Self::try_new
+    pub fn new(elements: ArrayRef, list_size: u32, validity: Validity, len: usize) -> Self {
+        Self::try_new(elements, list_size, validity, len)
             .vortex_expect("FixedSizeListArray `try_new` failed")
     }
 
+    /// Attempts to create a new `FixedSizeListArray`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the inputs are invalid. The inputs are **valid** if:
+    ///
+    /// - The `list_size` is 0 and:
+    ///   - The `elements` array is empty.
+    ///   - The `len` is equal to the length of the `validity` map.
+    /// - The length of the `elements` array is a multiple of the size of the fixed-size lists
+    ///   (`list_size`).
+    /// - The `Validity` length (if it exists) times the `list_size` is equal to the length of the
+    ///   `elements` (or put another way, the length of the array divided by the size of each
+    ///   fixed-size list is equal to the length of the validity).
     pub fn try_new(
-        values: ArrayRef,
+        elements: ArrayRef,
         list_size: u32,
         validity: Validity,
         len: usize,
     ) -> VortexResult<Self> {
         let nullability = validity.nullability();
 
-        Self::validate(&values, len, list_size, &validity)?;
+        Self::validate(&elements, len, list_size, &validity)?;
 
         Ok(Self {
-            dtype: DType::FixedSizeList(Arc::new(values.dtype().clone()), list_size, nullability),
-            values,
+            dtype: DType::FixedSizeList(Arc::new(elements.dtype().clone()), list_size, nullability),
+            elements,
             list_size,
             validity,
             len,
@@ -81,9 +102,9 @@ impl FixedSizeListArray {
         })
     }
 
-    /// Returns the values array.
-    pub fn values(&self) -> &ArrayRef {
-        &self.values
+    /// Returns the elements array.
+    pub fn elements(&self) -> &ArrayRef {
+        &self.elements
     }
 
     /// The size of each fixed-size list scalar in the array.
@@ -91,28 +112,24 @@ impl FixedSizeListArray {
         self.list_size
     }
 
-    // TODO(connor)[FixedSizeList]: Don't we need to take the validity into consideration here?
     /// Returns the elements at the given index from the list array.
     pub fn fixed_size_list_at(&self, index: usize) -> ArrayRef {
+        debug_assert!(
+            self.validity
+                .is_valid(index)
+                .vortex_expect("this shouldn't be a result in the first place")
+        );
+
         let start = self.list_size as usize * index;
         let end = self.list_size as usize * (index + 1);
-        self.values().slice(start, end)
+        self.elements().slice(start, end)
     }
 
     /// Checks if the components of a `FixedSizeListArray` are valid.
     ///
-    /// A fixed-size list array is valid if:
-    ///
-    /// - The `list_size` is 0 and:
-    ///   - The `values` array is empty.
-    ///   - The `len` is equal to the length of the `validity` map.
-    /// - The length of the `values` array is a multiple of the size of the fixed-size lists
-    ///   (`list_size`).
-    /// - The `Validity` length (if it exists) times the `list_size` is equal to the length of the
-    ///   `values` (or put another way, the length of the array divided by the size of each
-    ///   fixed-size list is equal to the length of the validity).
+    /// See [`try_new()`](Self::try_new) for the validation semantics.
     fn validate(
-        values: &dyn Array,
+        elements: &dyn Array,
         len: usize,
         list_size: u32,
         validity: &Validity,
@@ -121,17 +138,17 @@ impl FixedSizeListArray {
         // support it regardless.
         if list_size == 0 {
             vortex_ensure!(
-                values.is_empty() && validity.maybe_len().is_none_or(|vlen| vlen == len),
-                "an empty `FixedSizeList` should have no values"
+                elements.is_empty() && validity.maybe_len().is_none_or(|vlen| vlen == len),
+                "an empty `FixedSizeList` should have no elements"
             );
             return Ok(());
         }
 
-        let num_values = values.len();
+        let num_elements = elements.len();
 
         vortex_ensure!(
-            len * list_size as usize == num_values,
-            "the `values` array has the incorrect number of values to construct a \
+            len * list_size as usize == num_elements,
+            "the `elements` array has the incorrect number of elements to construct a \
                 `FixedSizeList[{list_size}] array of length {len}",
         );
 
