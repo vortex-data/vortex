@@ -17,7 +17,9 @@ use crate::compute::{add_scalar, cast, sub_scalar};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 pub struct ListBuilder<O: NativePType> {
+    /// The values of the list.
     value_builder: Box<dyn ArrayBuilder>,
+    /// Represents the offsets into the values array.
     index_builder: PrimitiveBuilder<O>,
     nulls: LazyNullBufferBuilder,
     nullability: Nullability,

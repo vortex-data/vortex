@@ -152,20 +152,14 @@ impl<A: 'static + Send> ScanBuilder<A> {
         }
     }
 
-    /// Constructs a task per row split of the scan, returned as a vector of futures.
-    pub fn build(mut self) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
+    pub fn prepare(&self) -> VortexResult<PreparedScan<A>> {
         if self.filter.is_some() && self.limit.is_some() {
             vortex_bail!("Vortex doesn't support scans with both a filter and a limit")
         }
 
-        // The ultimate short circuit
-        if self.limit.is_some_and(|l| l == 0) {
-            return Ok(vec![]);
-        }
-
         // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
         // conjunction splitting if a filter is provided.
-        let mut layout_reader = self.layout_reader;
+        let mut layout_reader = self.layout_reader.clone();
 
         // Enrich the layout reader to support RowIdx expressions.
         // Note that this is applied below the filter layout reader since it can perform
@@ -186,28 +180,28 @@ impl<A: 'static + Send> ScanBuilder<A> {
         let field_mask: Vec<_> = [filter_mask, projection_mask].concat();
         let splits = self.split_by.splits(layout_reader.as_ref(), &field_mask)?;
 
-        let ctx = Arc::new(TaskContext {
-            row_range: self.row_range,
-            selection: self.selection,
-            filter: filter.map(|f| Arc::new(FilterExpr::new(f))),
-            reader: layout_reader,
+        Ok(PreparedScan {
+            dtype: self.dtype()?,
+            field_mask,
+            selection: self.selection.clone(),
+            layout_reader,
             projection,
-            mapper: self.map_fn,
-        });
+            filter,
+            splits,
+            map_fn: self.map_fn.clone(),
+            limit: self.limit,
+        })
+    }
 
-        // Create a task that executes the full scan pipeline for each split.
-        let split_tasks = splits
-            .into_iter()
-            .filter_map(|split_range| {
-                if self.limit.is_some_and(|l| l == 0) {
-                    None
-                } else {
-                    Some(split_exec(ctx.clone(), split_range, self.limit.as_mut()))
-                }
-            })
-            .try_collect()?;
+    /// Constructs a task per row split of the scan, returned as a vector of futures.
+    pub fn build(self) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
+        // The ultimate short circuit
+        if self.limit.is_some_and(|l| l == 0) {
+            return Ok(vec![]);
+        }
 
-        Ok(split_tasks)
+        let row_range = self.row_range.clone();
+        self.prepare()?.build(row_range)
     }
 
     /// Returns a [`Stream`](futures::Stream) with tasks spawned onto the current Tokio runtime.
@@ -219,22 +213,11 @@ impl<A: 'static + Send> ScanBuilder<A> {
     /// threads in the Tokio runtime.
     #[cfg(feature = "tokio")]
     pub fn into_tokio_stream(
-        self,
-    ) -> VortexResult<impl futures::Stream<Item = VortexResult<A>> + Send + 'static> {
-        use futures::StreamExt;
-        use vortex_error::vortex_err;
-
-        let handle = tokio::runtime::Handle::current();
-        let num_workers = handle.metrics().num_workers();
-        let concurrency = self.concurrency * num_workers;
-        Ok(futures::stream::iter(self.build()?)
-            .map(move |task| handle.spawn(task))
-            .buffered(concurrency)
-            .map(|task| {
-                task.map_err(|e| vortex_err!("Failed to join task: {e}"))
-                    .flatten()
-            })
-            .filter_map(|chunk| async move { chunk.transpose() }))
+        &self,
+    ) -> VortexResult<impl futures::Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
+        let row_range = self.row_range.clone();
+        let concurrency = self.concurrency;
+        self.prepare()?.into_tokio_stream(row_range, concurrency)
     }
 }
 
@@ -328,6 +311,102 @@ fn filter_and_projection_masks(
 
 fn to_field_mask(field: FieldName) -> FieldMask {
     FieldMask::Prefix(FieldPath::from(Field::Name(field)))
+}
+
+pub struct PreparedScan<A: 'static + Send> {
+    dtype: DType,
+    #[allow(dead_code)]
+    field_mask: Vec<FieldMask>,
+    selection: Selection,
+    layout_reader: Arc<dyn LayoutReader>,
+    projection: ExprRef,
+    filter: Option<ExprRef>,
+    splits: Vec<Range<u64>>,
+    map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
+    limit: Option<usize>,
+}
+
+impl<A: 'static + Send> PreparedScan<A> {
+    pub fn build(
+        &self,
+        row_range: Option<Range<u64>>,
+    ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
+        let ctx = Arc::new(TaskContext {
+            row_range,
+            selection: self.selection.clone(),
+            filter: self.filter.clone().map(|f| Arc::new(FilterExpr::new(f))),
+            reader: self.layout_reader.clone(),
+            projection: self.projection.clone(),
+            mapper: self.map_fn.clone(),
+        });
+
+        // Create a task that executes the full scan pipeline for each split.
+        let mut limit = self.limit;
+        let split_tasks = self
+            .splits
+            .iter()
+            .filter_map(|split_range| {
+                if limit.is_some_and(|l| l == 0) {
+                    None
+                } else {
+                    Some(split_exec(ctx.clone(), split_range.clone(), limit.as_mut()))
+                }
+            })
+            .try_collect()?;
+
+        Ok(split_tasks)
+    }
+
+    #[cfg(feature = "tokio")]
+    pub fn into_tokio_stream(
+        &self,
+        row_range: Option<Range<u64>>,
+        concurrency: usize,
+    ) -> VortexResult<impl futures::Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
+        use futures::StreamExt;
+        use vortex_error::vortex_err;
+
+        let handle = tokio::runtime::Handle::current();
+        let num_workers = handle.metrics().num_workers();
+        let concurrency = concurrency * num_workers;
+        Ok(futures::stream::iter(self.build(row_range)?)
+            .map(move |task| handle.spawn(task))
+            .buffered(concurrency)
+            .map(|task| {
+                task.map_err(|e| vortex_err!("Failed to join task: {e}"))
+                    .flatten()
+            })
+            .filter_map(|chunk| async move { chunk.transpose() }))
+    }
+}
+
+impl PreparedScan<ArrayRef> {
+    pub fn into_array_iter(
+        &self,
+        row_range: Option<Range<u64>>,
+        concurrency: usize,
+    ) -> VortexResult<impl ArrayIterator + Send + Clone + 'static> {
+        let dtype = self.dtype.clone();
+        let tasks = self.build(row_range)?;
+        let queue = WorkStealingQueue::new([Box::new(move || Ok(tasks)) as TaskFactory<ArrayTask>]);
+
+        Ok(WorkStealingArrayIterator::new(
+            queue,
+            Arc::new(dtype),
+            concurrency,
+        ))
+    }
+
+    #[cfg(feature = "tokio")]
+    pub fn into_tokio_array_stream(
+        &self,
+        row_range: Option<Range<u64>>,
+        concurrency: usize,
+    ) -> VortexResult<impl vortex_array::stream::ArrayStream + Send + 'static> {
+        let dtype = self.dtype.clone();
+        let stream = self.into_tokio_stream(row_range, concurrency)?;
+        Ok(vortex_array::stream::ArrayStreamAdapter::new(dtype, stream))
+    }
 }
 
 #[cfg(test)]
