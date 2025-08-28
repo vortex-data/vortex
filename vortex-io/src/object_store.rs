@@ -54,8 +54,8 @@ impl VortexReadAt for ObjectStoreReadAt {
         // Instead of calling `ObjectStore::get_range`, we expand the implementation and run it
         // ourselves to avoid a second copy to align the buffer. Instead, we can write directly
         // into the aligned buffer.
-        let better_alignment = if alignment.is_aligned_to(Alignment::new(8)) {
-            Alignment::new(8)
+        let better_alignment = if Alignment::new(16).is_aligned_to(alignment) {
+            Alignment::new(16)
         } else {
             alignment
         };

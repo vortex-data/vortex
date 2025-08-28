@@ -59,8 +59,8 @@ impl VortexReadAt for TokioFile {
         let len = usize::try_from(range.end - range.start).vortex_expect("range too big for usize");
         let this = self.clone();
 
-        let better_alignment = if alignment.is_aligned_to(Alignment::new(8)) {
-            Alignment::new(8)
+        let better_alignment = if Alignment::new(16).is_aligned_to(alignment) {
+            Alignment::new(16)
         } else {
             alignment
         };
