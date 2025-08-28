@@ -40,9 +40,10 @@ use crate::{Array, ArrayRef, IntoArray};
 /// * `BoolArray`: [`arrow_array::BooleanArray`]
 /// * `PrimitiveArray`: [`arrow_array::PrimitiveArray`]
 /// * `DecimalArray`: [`arrow_array::Decimal128Array`] and [`arrow_array::Decimal256Array`]
-/// * `StructArray`: [`arrow_array::StructArray`]
-/// * `ListArray`: [`arrow_array::ListArray`]
 /// * `VarBinViewArray`: [`arrow_array::GenericByteViewArray`]
+/// * `ListArray`: [`arrow_array::ListArray`]
+/// * `FixedSizeListArray`: [`arrow_array::FixedSizeListArray`]
+/// * `StructArray`: [`arrow_array::StructArray`]
 ///
 /// Vortex uses a logical type system, unlike Arrow which uses physical encodings for its types.
 /// As an example, there are at least six valid physical encodings for a `Utf8` array. This can

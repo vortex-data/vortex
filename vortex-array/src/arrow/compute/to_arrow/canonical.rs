@@ -147,6 +147,9 @@ impl Kernel for ToArrowCanonical {
             (Canonical::List(array), DataType::LargeList(field)) => {
                 to_arrow_list::<i64>(array, field, arrow_type_opt.is_none())
             }
+            (Canonical::FixedSizeList(..), DataType::FixedSizeList(..)) => {
+                unimplemented!("TODO(connor)[FixedSizeList]")
+            }
             (Canonical::VarBinView(array), DataType::BinaryView) if array.dtype().is_binary() => {
                 to_arrow_varbinview::<BinaryViewType>(array)
             }
@@ -484,7 +487,7 @@ mod tests {
     }
 
     #[test]
-    fn struct_to_arrow_with_schema_missmatch() {
+    fn struct_to_arrow_with_schema_mismatch() {
         let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::AllValid);
 
         let struct_a = StructArray::try_new(

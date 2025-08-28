@@ -998,8 +998,16 @@ fn test_cast_slice_consistency(array: &dyn Array) {
             };
             vec![DType::List(element_type.clone(), opposite)]
         }
-        DType::FixedSizeList(..) => {
-            unimplemented!("TODO(connor)[FixedSizeList]")
+        DType::FixedSizeList(element_type, list_size, nullability) => {
+            let opposite = match nullability {
+                Nullability::NonNullable => Nullability::Nullable,
+                Nullability::Nullable => Nullability::NonNullable,
+            };
+            vec![DType::FixedSizeList(
+                element_type.clone(),
+                *list_size,
+                opposite,
+            )]
         }
         DType::Extension(_) => vec![], // Extension types typically only cast to themselves
     };
