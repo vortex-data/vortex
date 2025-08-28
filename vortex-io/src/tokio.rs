@@ -59,8 +59,13 @@ impl VortexReadAt for TokioFile {
         let len = usize::try_from(range.end - range.start).vortex_expect("range too big for usize");
         let this = self.clone();
 
+        let better_alignment = if alignment.is_aligned_to(Alignment::new(8)) {
+            Alignment::new(8)
+        } else {
+            alignment
+        };
         spawn_blocking(move || {
-            let mut buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
+            let mut buffer = ByteBufferMut::with_capacity_aligned(len, better_alignment);
             unsafe { buffer.set_len(len) }
             this.read_exact_at(&mut buffer, range.start)?;
             Ok(buffer.freeze())

@@ -54,7 +54,12 @@ impl VortexReadAt for File {
         alignment: Alignment,
     ) -> io::Result<ByteBuffer> {
         let len = usize::try_from(range.end - range.start).vortex_expect("range too big for usize");
-        let buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
+        let better_alignment = if alignment.is_aligned_to(Alignment::new(8)) {
+            Alignment::new(8)
+        } else {
+            alignment
+        };
+        let buffer = ByteBufferMut::with_capacity_aligned(len, better_alignment);
         let BufResult(result, buffer) = self
             .read_exact_at(
                 FixedCapacityByteBufferMut {

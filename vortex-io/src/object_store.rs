@@ -54,7 +54,12 @@ impl VortexReadAt for ObjectStoreReadAt {
         // Instead of calling `ObjectStore::get_range`, we expand the implementation and run it
         // ourselves to avoid a second copy to align the buffer. Instead, we can write directly
         // into the aligned buffer.
-        let mut buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
+        let better_alignment = if alignment.is_aligned_to(Alignment::new(8)) {
+            Alignment::new(8)
+        } else {
+            alignment
+        };
+        let mut buffer = ByteBufferMut::with_capacity_aligned(len, better_alignment);
 
         let response = object_store
             .get_opts(
