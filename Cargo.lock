@@ -6724,6 +6724,7 @@ dependencies = [
  "object_store",
  "once_cell",
  "parking_lot",
+ "paste",
  "reqwest",
  "rstest",
  "tempfile",

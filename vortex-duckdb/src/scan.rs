@@ -24,7 +24,7 @@ use crate::convert::{try_from_bound_expression, try_from_table_filter};
 use crate::duckdb::footer_cache::FooterCache;
 use crate::duckdb::{
     BindInput, BindResult, Cardinality, ClientContext, DataChunk, Expression, LogicalType,
-    ObjectCache, TableFunction, TableInitInput,
+    ObjectCacheRef, TableFunction, TableInitInput,
 };
 use crate::exporter::{ArrayExporter, ConversionCache};
 use crate::utils::glob::expand_glob;
@@ -308,7 +308,8 @@ impl TableFunction for VortexTableFunction {
                 .map_or("true".to_string(), |f| f.to_string())
         );
 
-        let object_cache = init_input.client_context()?.object_cache();
+        let client_context = init_input.client_context()?;
+        let object_cache = client_context.object_cache();
 
         let closures =
             bind_data
@@ -321,7 +322,7 @@ impl TableFunction for VortexTableFunction {
                     let filter_expr = filter_expr.clone();
                     let projection_expr = projection_expr.clone();
                     let conversion_cache = Arc::new(ConversionCache::new(idx as u64));
-                    let object_cache = unsafe { ObjectCache::borrow(object_cache.as_ptr()) };
+                    let object_cache = object_cache;
 
                     move || {
                         let file = if idx == 0 {
