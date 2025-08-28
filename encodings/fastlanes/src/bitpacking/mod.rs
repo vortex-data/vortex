@@ -24,7 +24,7 @@ use crate::unpack_iter::{BitPacked, BitUnpackedChunks};
 mod compress;
 mod compute;
 mod ops;
-mod pipeline;
+pub mod pipeline;
 mod serde;
 pub mod unpack_iter;
 
