@@ -232,10 +232,16 @@ impl Patches {
                 .into_primitive()
                 .vortex_expect("indices are always primitive");
             match_each_integer_ptype!(primitive.ptype(), |T| {
-                return primitive.as_slice::<T>().search_sorted(
-                    &T::try_from(index + self.offset).vortex_expect("types must match"),
-                    SearchSortedSide::Left,
-                );
+                let Ok(needle) = T::try_from(index + self.offset) else {
+                    // If the needle is not of type T, then it cannot possibly be in this array.
+                    //
+                    // The needle is a non-negative integer (a usize); therefore, it must be larger
+                    // than all values in this size one array.
+                    return SearchResult::NotFound(1);
+                };
+                return primitive
+                    .as_slice::<T>()
+                    .search_sorted(&needle, SearchSortedSide::Left);
             });
         }
         self.indices.as_primitive_typed().search_sorted(
