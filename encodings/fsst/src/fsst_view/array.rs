@@ -6,6 +6,7 @@ use std::fmt::Formatter;
 use std::sync::{Arc, LazyLock};
 
 use fsst::{Compressor, Symbol};
+use num_traits::AsPrimitive;
 use vortex_array::arrays::{BinaryView, Inlined, Ref, VarBinViewArray};
 use vortex_array::compute::is_sorted;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
@@ -15,7 +16,7 @@ use vortex_array::vtable::{
 };
 use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, ToCanonical, vtable};
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
-use vortex_dtype::DType;
+use vortex_dtype::{DType, NativePType, match_each_unsigned_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 
 use crate::fsst_view::View;
@@ -339,18 +340,28 @@ impl FSSTViewArray {
             let outline = unsafe { view.outline };
             let buf_index = outline.index as usize;
 
-            let start = self
-                .compressed_offsets
-                .scalar_at(buf_index)
-                .as_primitive()
-                .as_::<u32>()
-                .unwrap_or_default() as usize;
-            let end = self
-                .compressed_offsets
-                .scalar_at(buf_index + 1)
-                .as_primitive()
-                .as_::<u32>()
-                .unwrap_or_default() as usize;
+            let (start, end) = match_each_unsigned_integer_ptype!(
+                self.compressed_offsets.dtype().as_ptype(),
+                |P| {
+                    let start: usize = self
+                        .compressed_offsets
+                        .scalar_at(buf_index)
+                        .as_primitive()
+                        .as_::<P>()
+                        .unwrap_or_default()
+                        .as_();
+
+                    let end = self
+                        .compressed_offsets
+                        .scalar_at(buf_index + 1)
+                        .as_primitive()
+                        .as_::<P>()
+                        .unwrap_or_default()
+                        .as_();
+
+                    (start, end)
+                }
+            );
 
             let encoded = self.fsst_buffer.slice(start..end);
 
@@ -373,41 +384,14 @@ impl CanonicalVTable<FSSTViewVTable> for FSSTViewVTable {
         let uncompressed_offsets = array
             .uncompressed_offsets
             .to_primitive()
-            .vortex_expect("must implement ToCanonical as Primitive")
-            .buffer::<u32>();
+            .vortex_expect("must implement ToCanonical as Primitive");
 
         // Rebuild the views to point at the decoded data instead.
-        let views: Buffer<BinaryView> = array
-            .views
-            .clone()
-            .into_iter()
-            .map(|view| {
-                if view.is_inlined() {
-                    let inlined = unsafe { view.inline };
-                    // Propagate the inlining directly
-                    BinaryView {
-                        inlined: Inlined {
-                            size: inlined.len,
-                            data: inlined.bytes,
-                        },
-                    }
-                } else {
-                    let outlined = unsafe { view.outline };
-                    let index = outlined.index as usize;
-
-                    // All the uncompressed lengths
-                    let mut reference = Ref {
-                        size: outlined.len,
-                        prefix: [0; 4],
-                        buffer_index: 0,
-                        offset: uncompressed_offsets[index],
-                    };
-                    reference.prefix.copy_from_slice(&outlined.prefix[..4]);
-
-                    BinaryView { _ref: reference }
-                }
-            })
-            .collect();
+        let views: Buffer<BinaryView> =
+            match_each_unsigned_integer_ptype!(uncompressed_offsets.ptype(), |P| {
+                let uncompressed_offsets = uncompressed_offsets.as_slice::<P>();
+                build_views::<P>(uncompressed_offsets, array.views().as_slice())
+            });
 
         Ok(Canonical::VarBinView(VarBinViewArray::new(
             views,
@@ -416,6 +400,42 @@ impl CanonicalVTable<FSSTViewVTable> for FSSTViewVTable {
             array.validity.clone(),
         )))
     }
+}
+
+#[inline(always)]
+fn build_views<T: NativePType + AsPrimitive<u32>>(
+    uncompressed_offsets: &[T],
+    fsst_views: &[View],
+) -> Buffer<BinaryView> {
+    fsst_views
+        .iter()
+        .map(|view| {
+            if view.is_inlined() {
+                let inlined = unsafe { view.inline };
+                // Propagate the inlining directly
+                BinaryView {
+                    inlined: Inlined {
+                        size: inlined.len,
+                        data: inlined.bytes,
+                    },
+                }
+            } else {
+                let outlined = unsafe { view.outline };
+                let index = outlined.index as usize;
+
+                // All the uncompressed lengths
+                let mut reference = Ref {
+                    size: outlined.len,
+                    prefix: [0; 4],
+                    buffer_index: 0,
+                    offset: uncompressed_offsets[index].as_(),
+                };
+                reference.prefix.copy_from_slice(&outlined.prefix[..4]);
+
+                BinaryView { _ref: reference }
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
