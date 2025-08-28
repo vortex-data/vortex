@@ -272,7 +272,7 @@ fn try_evaluate_using_operator(
     let result = if row_range.start % N != 0 {
         // If the start is not a multiple of PIPELINE_STEP_COUNT, then we need to slice
         // we could do mask offsets instead, but this case is rare, due to split building.
-        let array = array.slice(row_range.start, row_range.end);
+        let array = array.slice(row_range.clone());
         let operator = expr
             .to_operator(array.as_ref())?
             .vortex_expect("already converted");
