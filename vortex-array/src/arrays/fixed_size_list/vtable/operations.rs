@@ -28,7 +28,7 @@ impl OperationsVTable<FixedSizeListVTable> for FixedSizeListVTable {
         assert_eq!(children_elements.len(), array.list_size() as usize);
 
         Scalar::fixed_size_list(
-            array.dtype().clone(),
+            list.dtype().clone(),
             children_elements,
             array.dtype.nullability(),
         )

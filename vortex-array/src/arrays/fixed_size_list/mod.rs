@@ -15,6 +15,9 @@ use crate::{Array, ArrayRef};
 mod vtable;
 pub use vtable::{FixedSizeListEncoding, FixedSizeListVTable};
 
+#[cfg(test)]
+mod tests;
+
 /// The canonical encoding for fixed-size list arrays.
 #[derive(Clone, Debug)]
 pub struct FixedSizeListArray {
@@ -23,8 +26,8 @@ pub struct FixedSizeListArray {
     /// This type **must** be the variant [`DType::FixedSizeList`].
     dtype: DType,
 
-    /// The `elements` data array, where each fixed-size list scalar is a slice of this `elements`
-    /// array, and each list element is contained (contiguously) in this child array.
+    /// The `elements` data array, where each fixed-size list scalar is a _slice_ of the `elements`
+    /// array, and each inner list element is a _scalar_ of the `elements` array.
     ///
     /// The fixed-size list scalars (or the elements of the array) are contiguous (regardless of
     /// nullability for easy lookups), each with equal size in memory.
