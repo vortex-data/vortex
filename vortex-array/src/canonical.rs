@@ -158,7 +158,7 @@ impl Canonical {
         if let Canonical::FixedSizeList(a) = self {
             Ok(a)
         } else {
-            vortex_bail!("Cannot unwrap ListArray from {:?}", &self)
+            vortex_bail!("Cannot unwrap FixedSizeListArray from {:?}", &self)
         }
     }
 
@@ -237,6 +237,9 @@ pub trait ToCanonical {
     /// Canonicalize into a [`ListArray`] if the target is [`List`][DType::List] typed.
     fn to_list(&self) -> VortexResult<ListArray>;
 
+    /// Canonicalize into a [`ListArray`] if the target is [`List`][DType::List] typed.
+    fn to_fixed_size_list(&self) -> VortexResult<FixedSizeListArray>;
+
     /// Canonicalize into a [`VarBinViewArray`] if the target is [`Utf8`][DType::Utf8]
     /// or [`Binary`][DType::Binary] typed.
     fn to_varbinview(&self) -> VortexResult<VarBinViewArray>;
@@ -272,6 +275,10 @@ impl<A: Array + ?Sized> ToCanonical for A {
         self.to_canonical()?.into_list()
     }
 
+    fn to_fixed_size_list(&self) -> VortexResult<FixedSizeListArray> {
+        self.to_canonical()?.into_fixed_size_list()
+    }
+
     fn to_varbinview(&self) -> VortexResult<VarBinViewArray> {
         self.to_canonical()?.into_varbinview()
     }
@@ -290,7 +297,7 @@ impl From<Canonical> for ArrayRef {
             Canonical::Decimal(a) => a.into_array(),
             Canonical::Struct(a) => a.into_array(),
             Canonical::List(a) => a.into_array(),
-            Canonical::FixedSizeList(_) => todo!("TODO(connor)[FixedSizeList]"),
+            Canonical::FixedSizeList(a) => a.into_array(),
             Canonical::VarBinView(a) => a.into_array(),
             Canonical::Extension(a) => a.into_array(),
         }
