@@ -315,18 +315,31 @@ fn to_field_mask(field: FieldName) -> FieldMask {
     FieldMask::Prefix(FieldPath::from(Field::Name(field)))
 }
 
+/// A projected subset (by indices, range, and filter) of rows from a Vortex data source.
+///
+/// The method of this struct enable, possibly concurrent, scanning of multiple row ranges of this
+/// data source.
 pub struct RepeatedScan<A: 'static + Send> {
-    layout_reader: Arc<dyn LayoutReader>,
+    layout_reader: LayoutReaderRef,
     projection: ExprRef,
     filter: Option<ExprRef>,
+    /// Optionally read a subset of the rows in the file.
     row_range: Option<Range<u64>>,
+    /// The selection mask to apply to the selected row range.
+    // TODO(joe): replace this is usage of row_id selection, see
     selection: Selection,
+    /// The natural splits of the file.
     splits: Vec<Range<u64>>,
+    /// The number of splits to make progress on concurrently **per-thread**.
     concurrency: usize,
+    /// Function to apply to each [`ArrayRef`] within the spawned split tasks.
     map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
+    /// Maximal number of rows to read (after filtering)
     limit: Option<usize>,
+    /// The fields we will read.
     #[allow(dead_code)]
     field_mask: Vec<FieldMask>,
+    /// The dtype of the projected arrays.
     dtype: DType,
 }
 
