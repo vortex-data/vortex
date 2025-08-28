@@ -7,7 +7,7 @@ use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_dict::builders::dict_encode;
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_fsst::fsst_view::{FSSTViewArray, FSSTViewEncoding, FSSTViewVTable};
+use vortex_fsst::{FSSTViewArray, FSSTViewEncoding, FSSTViewVTable};
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::integer::IntCompressor;
