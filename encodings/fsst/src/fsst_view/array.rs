@@ -13,10 +13,10 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityVTableFromValidityHelper,
 };
-use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, ToCanonical, vtable};
+use vortex_array::{vtable, Array, ArrayRef, Canonical, EncodingId, EncodingRef, ToCanonical};
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
-use vortex_dtype::{DType, PType};
-use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_dtype::DType;
+use vortex_error::{vortex_ensure, VortexExpect, VortexResult};
 
 use crate::fsst_view::View;
 #[derive(Debug, Copy, Clone)]
@@ -169,15 +169,15 @@ impl FSSTViewArray {
         vortex_ensure!(
             compressed_offsets.dtype().is_primitive()
                 && !compressed_offsets.dtype().is_nullable()
-                && compressed_offsets.dtype().as_ptype() == PType::U32,
-            "expected u32 DType for compressed offsets, was {}",
+                && compressed_offsets.dtype().as_ptype().is_unsigned_int(),
+            "expected unsigned int DType for compressed offsets, was {}",
             compressed_offsets.dtype()
         );
         vortex_ensure!(
             uncompressed_offsets.dtype().is_primitive()
                 && !uncompressed_offsets.dtype().is_nullable()
-                && uncompressed_offsets.dtype().as_ptype() == PType::U32,
-            "expected u32 DType for uncompressed offsets, was {}",
+                && uncompressed_offsets.dtype().as_ptype().is_unsigned_int(),
+            "expected unsigned int DType for uncompressed offsets, was {}",
             uncompressed_offsets.dtype()
         );
 
@@ -420,9 +420,9 @@ impl CanonicalVTable<FSSTViewVTable> for FSSTViewVTable {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::IntoArray;
     use vortex_array::validity::Validity;
-    use vortex_buffer::{Buffer, ByteBuffer, buffer};
+    use vortex_array::IntoArray;
+    use vortex_buffer::{buffer, Buffer, ByteBuffer};
     use vortex_dtype::{DType, Nullability};
 
     use crate::fsst_view::FSSTViewArray;
