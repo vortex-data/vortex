@@ -299,7 +299,7 @@ fn filter_and_projection_masks(
     filter: Option<&ExprRef>,
     dtype: &DType,
 ) -> VortexResult<(Vec<FieldMask>, Vec<FieldMask>)> {
-    let Some(struct_dtype) = dtype.as_struct_opt() else {
+    let Some(struct_dtype) = dtype.as_struct_fields_opt() else {
         return Ok(match filter {
             Some(_) => (vec![FieldMask::All], vec![FieldMask::All]),
             None => (Vec::new(), vec![FieldMask::All]),
