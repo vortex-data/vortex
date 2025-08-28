@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::{BitAnd, Not};
+use std::ops::{BitAnd, BitOr, Not};
 
 use vortex_error::vortex_panic;
 
@@ -21,6 +21,24 @@ impl BitAnd for &Mask {
             (AllOr::None, _) => Mask::new_false(self.len()),
             (_, AllOr::None) => Mask::new_false(self.len()),
             (AllOr::Some(lhs), AllOr::Some(rhs)) => Mask::from_buffer(lhs & rhs),
+        }
+    }
+}
+
+impl BitOr for &Mask {
+    type Output = Mask;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        if self.len() != rhs.len() {
+            vortex_panic!("Masks must have the same length");
+        }
+
+        match (self.boolean_buffer(), rhs.boolean_buffer()) {
+            (AllOr::All, _) => Mask::new_true(self.len()),
+            (_, AllOr::All) => Mask::new_true(self.len()),
+            (AllOr::None, _) => rhs.clone(),
+            (_, AllOr::None) => self.clone(),
+            (AllOr::Some(lhs), AllOr::Some(rhs)) => Mask::from_buffer(lhs | rhs),
         }
     }
 }
@@ -219,19 +237,21 @@ mod tests {
     #[test]
     fn test_demorgan_law() {
         // Test De Morgan's law: !(A & B) = !A | !B
-        // Since we only have AND and NOT, we can't test the full law,
-        // but we can verify that !(A & B) behaves correctly
         let a = Mask::from_buffer(BooleanBuffer::from_iter([true, true, false, false]));
         let b = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, false]));
 
         let and_result = &a & &b;
         let not_and = !&and_result;
 
+        let not_a = !&a;
+        let not_b = !&b;
+        let or_result = &not_a | &not_b;
+
         assert_eq!(not_and.len(), 4);
-        assert!(!not_and.value(0)); // !(true & true) = false
-        assert!(not_and.value(1)); // !(true & false) = true
-        assert!(not_and.value(2)); // !(false & true) = true
-        assert!(not_and.value(3)); // !(false & false) = true
+        assert_eq!(or_result.len(), 4);
+        for i in 0..4 {
+            assert_eq!(not_and.value(i), or_result.value(i));
+        }
     }
 
     #[test]
@@ -303,18 +323,46 @@ mod tests {
 
     #[test]
     fn test_complex_expression() {
-        // Test a more complex expression: !((!A) & B)
+        // Test a more complex expression: (!(!A) | B) & !C
         let a = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, false]));
         let b = Mask::from_buffer(BooleanBuffer::from_iter([true, true, false, false]));
+        let c = Mask::from_buffer(BooleanBuffer::from_iter([false, true, false, true]));
 
-        let not_a = !&a;
-        let not_a_and_b = &not_a & &b;
-        let result = !&not_a_and_b;
+        let not_not_a = !(&(!&a));
+        let not_not_a_or_b = &not_not_a | &b;
+        let not_c = !&c;
+        let result = &not_not_a_or_b & &not_c;
 
         // Verify the result manually
-        assert!(result.value(0)); // !((!true) & true) = !(false & true) = !false = true
-        assert!(!result.value(1)); // !((!false) & true) = !(true & true) = !true = false
-        assert!(result.value(2)); // !((!true) & false) = !(false & false) = !false = true
-        assert!(result.value(3)); // !((!false) & false) = !(true & false) = !false = true
+        assert!(result.value(0)); // (!(!true) | true) & !false = (true | true) & true = true
+        assert!(!result.value(1)); // (!(!false) | true) & !true = (false | true) & false = false
+        assert!(result.value(2)); // (!(!true) | false) & !false = (true | false) & true = true
+        assert!(!result.value(3)); // (!(!false) | false) & !true = (false | false) & false = false
+    }
+
+    #[test]
+    fn test_bitor() {
+        // Test basic OR operations
+        let mask1 = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, false, true]));
+        let mask2 = Mask::from_buffer(BooleanBuffer::from_iter([true, true, false, false, true]));
+
+        let result = &mask1 | &mask2;
+        assert_eq!(result.len(), 5);
+        assert_eq!(result.true_count(), 4);
+        assert!(result.value(0)); // true | true = true
+        assert!(result.value(1)); // false | true = true
+        assert!(result.value(2)); // true | false = true
+        assert!(!result.value(3)); // false | false = false
+        assert!(result.value(4)); // true | true = true
+
+        // Test with AllTrue
+        let all_true = Mask::new_true(5);
+        let result = &mask1 | &all_true;
+        assert!(result.all_true());
+
+        // Test with AllFalse
+        let all_false = Mask::new_false(5);
+        let result = &mask1 | &all_false;
+        assert_eq!(result.true_count(), mask1.true_count());
     }
 }
