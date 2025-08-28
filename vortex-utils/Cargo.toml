@@ -14,8 +14,8 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [dependencies]
-hashbrown = { workspace = true }
 dashmap = { workspace = true, optional = true }
+hashbrown = { workspace = true }
 
 [lints]
 workspace = true
