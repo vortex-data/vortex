@@ -16,8 +16,8 @@ class VortexScan:
         self._scan = scan
 
     @classmethod
-    def from_file(cls, path: str) -> VortexScan:
-        return cls(_scan.open(path))
+    def from_file(cls, path: str, projection: IntoProjection = None) -> VortexScan:
+        return cls(_scan.open(path, projection))
 
     def __len__(self) -> int:
         return self._scan.__len__()
@@ -29,3 +29,6 @@ class VortexScan:
         projection: IntoProjection = None,
     ) -> Scalar:
         return self._scan.scalar_at(idx, projection)
+
+    def scalar_at_prepared(self, idx: int, *, concurrency: int = 4) -> Scalar:
+        return self._scan.scalar_at_prepared(idx, concurrency)
