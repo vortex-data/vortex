@@ -61,7 +61,7 @@ impl Config {
         };
 
         (result == cpp::duckdb_state::DuckDBSuccess && !value.is_null())
-            .then(|| unsafe { Value::borrow(value) })
+            .then(|| unsafe { Value::own(value) })
     }
 
     pub fn get_str(&self, key: &str) -> Option<String> {
