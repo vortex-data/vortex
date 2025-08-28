@@ -69,11 +69,11 @@ pub enum Canonical {
     Bool(BoolArray),
     Primitive(PrimitiveArray),
     Decimal(DecimalArray),
-    Struct(StructArray),
+    VarBinView(VarBinViewArray),
     // TODO(joe): maybe this should be a ListView, however this will be annoying in spiral
     List(ListArray),
     FixedSizeList(FixedSizeListArray),
-    VarBinView(VarBinViewArray),
+    Struct(StructArray),
     Extension(ExtensionArray),
 }
 
@@ -138,11 +138,11 @@ impl Canonical {
         }
     }
 
-    pub fn into_struct(self) -> VortexResult<StructArray> {
-        if let Canonical::Struct(a) = self {
+    pub fn into_varbinview(self) -> VortexResult<VarBinViewArray> {
+        if let Canonical::VarBinView(a) = self {
             Ok(a)
         } else {
-            vortex_bail!("Cannot unwrap StructArray from {:?}", &self)
+            vortex_bail!("Cannot unwrap VarBinViewArray from {:?}", &self)
         }
     }
 
@@ -154,11 +154,19 @@ impl Canonical {
         }
     }
 
-    pub fn into_varbinview(self) -> VortexResult<VarBinViewArray> {
-        if let Canonical::VarBinView(a) = self {
+    pub fn into_fixed_size_list(self) -> VortexResult<FixedSizeListArray> {
+        if let Canonical::FixedSizeList(a) = self {
             Ok(a)
         } else {
-            vortex_bail!("Cannot unwrap VarBinViewArray from {:?}", &self)
+            vortex_bail!("Cannot unwrap ListArray from {:?}", &self)
+        }
+    }
+
+    pub fn into_struct(self) -> VortexResult<StructArray> {
+        if let Canonical::Struct(a) = self {
+            Ok(a)
+        } else {
+            vortex_bail!("Cannot unwrap StructArray from {:?}", &self)
         }
     }
 
