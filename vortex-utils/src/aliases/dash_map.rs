@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-#![cfg(feature = "dashmap")]
 
 use crate::aliases::hash_map::RandomState;
 
