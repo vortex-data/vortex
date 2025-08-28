@@ -107,7 +107,7 @@ impl Predicate for Eq {
         // Check prefix
         if view.is_inlined() {
             // Perform exact match against the string
-            let whole = unsafe { view.inline }.bytes;
+            let whole = &unsafe { view.inline }.bytes[..needle_len as usize];
             if whole == needle {
                 MatchType::True
             } else {
@@ -149,7 +149,7 @@ impl Predicate for NotEq {
         }
 
         if view.is_inlined() {
-            let whole = unsafe { view.inline }.bytes;
+            let whole = &unsafe { view.inline }.bytes[..needle_len as usize];
             if whole == needle {
                 MatchType::False
             } else {
