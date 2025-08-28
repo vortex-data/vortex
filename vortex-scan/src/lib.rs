@@ -373,6 +373,39 @@ impl<A: 'static + Send> RepeatedScan<A> {
         Ok(split_tasks)
     }
 
+    pub async fn build_single_threaded(
+        &self,
+        row_range: Option<Range<u64>>,
+    ) -> VortexResult<Vec<A>> {
+        let row_range = intersect_ranges(self.row_range.as_ref(), row_range);
+
+        let ctx = Arc::new(TaskContext {
+            row_range,
+            selection: self.selection.clone(),
+            filter: self.filter.clone().map(|f| Arc::new(FilterExpr::new(f))),
+            reader: self.layout_reader.clone(),
+            projection: self.projection.clone(),
+            mapper: self.map_fn.clone(),
+        });
+
+        // Create a task that executes the full scan pipeline for each split.
+        let mut limit = self.limit;
+
+        let mut vec = Vec::new();
+        for range in self.splits.iter() {
+            if limit.is_some_and(|l| l == 0) {
+                break;
+            }
+
+            if let Some(maybe_value) =
+                split_exec(ctx.clone(), range.clone(), limit.as_mut())?.await?
+            {
+                vec.push(maybe_value)
+            }
+        }
+        return Ok(vec);
+    }
+
     #[cfg(feature = "tokio")]
     pub fn execute_tokio_stream(
         &self,
