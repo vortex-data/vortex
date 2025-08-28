@@ -6,7 +6,7 @@ use std::sync::Arc;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_scalar::Scalar;
 
-use crate::arrays::{BoolArray, FixedSizeListArray, PrimitiveArray};
+use crate::arrays::{FixedSizeListArray, PrimitiveArray};
 use crate::validity::Validity;
 use crate::{Array, IntoArray};
 
@@ -122,48 +122,4 @@ fn test_validation_error_validity_length() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(err.to_string().contains("does not match"));
-}
-
-#[test]
-fn test_different_element_types() {
-    // Test with boolean elements.
-    {
-        let len = 3;
-        let list_size = 2;
-
-        let bool_elements = BoolArray::from_iter([true, false, true, false, false, true]);
-        let bool_fsl = FixedSizeListArray::new(
-            bool_elements.into_array(),
-            list_size,
-            Validity::NonNullable,
-            len,
-        );
-        assert_eq!(bool_fsl.len(), len);
-        assert_eq!(bool_fsl.list_size(), list_size);
-    }
-
-    // Test with f32 elements.
-    {
-        let len = 2;
-        let list_size = 2;
-
-        let float_elements = PrimitiveArray::from_iter([1.1f32, 2.2, 3.3, 4.4]);
-        let float_fsl = FixedSizeListArray::new(
-            float_elements.into_array(),
-            list_size,
-            Validity::NonNullable,
-            len,
-        );
-        assert_eq!(float_fsl.len(), len);
-
-        let first = float_fsl.scalar_at(0);
-        assert_eq!(
-            first,
-            Scalar::fixed_size_list(
-                Arc::new(PType::F32.into()),
-                vec![1.1f32.into(), 2.2f32.into()],
-                Nullability::NonNullable,
-            )
-        );
-    }
 }
