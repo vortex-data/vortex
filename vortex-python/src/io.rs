@@ -37,16 +37,16 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 ///
 /// Parameters
 /// ----------
-/// url : :class:`str`
+/// url : str
 ///     The URL to read from.
-/// projection : :class:`list` [ :class:`str` ``|`` :class:`int` ], optional
+/// projection : list[str | int] | None
 ///     The columns to read identified either by their index or name.
-/// row_filter : :class:`.Expr`, optional
+/// row_filter : Expr | None
 ///     Keep only the rows for which this expression evaluates to true.
-/// indices : :class:`.Array`, optional
+/// indices : Array | None
 ///     A list of rows to keep identified by the zero-based index within the file. NB: If row_range
 ///     is specified, these indices are within the row range, not the file!
-/// row_range : tuple[int, int], optional
+/// row_range : tuple[int, int] | None
 ///     A left-inclusive, right-exclusive range of rows to read.
 ///
 /// Examples
@@ -94,11 +94,11 @@ pub fn read_url<'py>(
 ///
 /// Parameters
 /// ----------
-/// iter : :class:`~vortex.Array` | :class:`~vortex.ArrayIterator` | :class:`pyarrow.Table` | :class:`pyarrow.RecordBatchReader`
+/// iter : vortex.Array | vortex.ArrayIterator | pyarrow.Table | pyarrow.RecordBatchReader
 ///     The data to write. Can be a single array, an array iterator, or a PyArrow object that supports streaming.
 ///     When using PyArrow objects, data is streamed directly without loading the entire dataset into memory.
 ///
-/// path : :class:`str`
+/// path : str
 ///     The file path.
 ///
 /// Examples

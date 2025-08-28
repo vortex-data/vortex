@@ -133,7 +133,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
             Not implemented.
         use_threads : bool
             Not implemented.
-        memory_pool : :class:`.pyarrow.MemoryPool`, optional
+        memory_pool : :class:`.pyarrow.MemoryPool` | None
             Not implemented.
 
         Returns
@@ -233,7 +233,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
             Not implemented.
         use_threads : bool
             Not implemented.
-        memory_pool : :class:`.pyarrow.MemoryPool`, optional
+        memory_pool : :class:`.pyarrow.MemoryPool` | None
             Not implemented.
 
         Returns
@@ -307,7 +307,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
             Not implemented.
         cache_metadata : bool
             Not implemented.
-        memory_pool : :class:`.pyarrow.MemoryPool`, optional
+        memory_pool : :class:`.pyarrow.MemoryPool` | None
             Not implemented.
 
         Returns
@@ -354,7 +354,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
             Not implemented.
         use_threads : bool
             Not implemented.
-        memory_pool : :class:`.pyarrow.MemoryPool`, optional
+        memory_pool : :class:`.pyarrow.MemoryPool` | None
             Not implemented.
 
         Returns
@@ -414,7 +414,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
             Not implemented.
         cache_metadata : bool
             Not implemented.
-        memory_pool : :class:`.pyarrow.MemoryPool`, optional
+        memory_pool : :class:`.pyarrow.MemoryPool` | None
             Not implemented.
 
         Returns
@@ -458,7 +458,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
 
         Parameters
         ----------
-        columns : list of str, dict[str, :class:`.pyarrow.dataset.Expression`], optional
+        columns : list of str, dict[str, :class:`.pyarrow.dataset.Expression`] | None
             The columns to keep, identified by name.
         filter : :class:`.pyarrow.dataset.Expression`
             Keep only rows for which this expression evalutes to ``True``. Any rows for which
@@ -473,7 +473,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
             Not implemented.
         use_threads : bool
             Not implemented.
-        memory_pool : :class:`.pyarrow.MemoryPool`, optional
+        memory_pool : :class:`.pyarrow.MemoryPool` | None
             Not implemented.
 
         Returns
@@ -751,7 +751,7 @@ class VortexScanner(pyarrow.dataset.Scanner):
         Not implemented.
     use_threads : bool
         Not implemented.
-    memory_pool : :class:`.pyarrow.MemoryPool`, optional
+    memory_pool : :class:`.pyarrow.MemoryPool` | None
         Not implemented.
 
     Returns
