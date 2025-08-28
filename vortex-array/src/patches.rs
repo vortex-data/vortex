@@ -222,6 +222,24 @@ impl Patches {
 
     /// Return the insertion point of `index` in the [Self::indices].
     pub fn search_index(&self, index: usize) -> SearchResult {
+        if self.indices.is_canonical() {
+            let primitive = self
+                .indices
+                .to_primitive()
+                .vortex_expect("indices are canonical and must be primitive");
+            match_each_integer_ptype!(primitive.ptype(), |T| {
+                let Ok(needle) = T::try_from(index + self.offset) else {
+                    // If the needle is not of type T, then it cannot possibly be in this array.
+                    //
+                    // The needle is a non-negative integer (a usize); therefore, it must be larger
+                    // than all values in this array.
+                    return SearchResult::NotFound(primitive.len());
+                };
+                return primitive
+                    .as_slice::<T>()
+                    .search_sorted(&needle, SearchSortedSide::Left);
+            });
+        }
         self.indices.as_primitive_typed().search_sorted(
             &PValue::U64((index + self.offset) as u64),
             SearchSortedSide::Left,
