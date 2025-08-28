@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::cmp;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -152,14 +153,16 @@ impl<A: 'static + Send> ScanBuilder<A> {
         }
     }
 
-    pub fn prepare(&self) -> VortexResult<RepeatedScan<A>> {
+    pub fn prepare(self) -> VortexResult<RepeatedScan<A>> {
         if self.filter.is_some() && self.limit.is_some() {
             vortex_bail!("Vortex doesn't support scans with both a filter and a limit")
         }
 
+        let dtype = self.dtype()?;
+
         // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
         // conjunction splitting if a filter is provided.
-        let mut layout_reader = self.layout_reader.clone();
+        let mut layout_reader = self.layout_reader;
 
         // Enrich the layout reader to support RowIdx expressions.
         // Note that this is applied below the filter layout reader since it can perform
@@ -167,10 +170,9 @@ impl<A: 'static + Send> ScanBuilder<A> {
         layout_reader = Arc::new(RowIdxLayoutReader::new(self.row_offset, layout_reader));
 
         // Normalize and simplify the expressions.
-        let projection = simplify_typed(self.projection.clone(), layout_reader.dtype())?;
+        let projection = simplify_typed(self.projection, layout_reader.dtype())?;
         let filter = self
             .filter
-            .clone()
             .map(|f| simplify_typed(f, layout_reader.dtype()))
             .transpose()?;
 
@@ -179,17 +181,18 @@ impl<A: 'static + Send> ScanBuilder<A> {
             filter_and_projection_masks(&projection, filter.as_ref(), layout_reader.dtype())?;
         let field_mask: Vec<_> = [filter_mask, projection_mask].concat();
         let splits = self.split_by.splits(layout_reader.as_ref(), &field_mask)?;
-
         Ok(RepeatedScan {
-            dtype: self.dtype()?,
-            field_mask,
-            selection: self.selection.clone(),
             layout_reader,
             projection,
             filter,
+            row_range: self.row_range,
+            selection: self.selection,
             splits,
-            map_fn: self.map_fn.clone(),
+            concurrency: self.concurrency,
+            map_fn: self.map_fn,
             limit: self.limit,
+            field_mask,
+            dtype,
         })
     }
 
@@ -213,11 +216,10 @@ impl<A: 'static + Send> ScanBuilder<A> {
     /// threads in the Tokio runtime.
     #[cfg(feature = "tokio")]
     pub fn into_tokio_stream(
-        &self,
+        self,
     ) -> VortexResult<impl futures::Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
         let row_range = self.row_range.clone();
-        let concurrency = self.concurrency;
-        self.prepare()?.into_tokio_stream(row_range, concurrency)
+        self.prepare()?.into_tokio_stream(row_range)
     }
 }
 
@@ -314,16 +316,30 @@ fn to_field_mask(field: FieldName) -> FieldMask {
 }
 
 pub struct RepeatedScan<A: 'static + Send> {
-    dtype: DType,
-    #[allow(dead_code)]
-    field_mask: Vec<FieldMask>,
-    selection: Selection,
     layout_reader: Arc<dyn LayoutReader>,
     projection: ExprRef,
     filter: Option<ExprRef>,
+    row_range: Option<Range<u64>>,
+    selection: Selection,
     splits: Vec<Range<u64>>,
+    concurrency: usize,
     map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
     limit: Option<usize>,
+    #[allow(dead_code)]
+    field_mask: Vec<FieldMask>,
+    dtype: DType,
+}
+
+pub fn intersect_ranges(
+    left: Option<&Range<u64>>,
+    right: Option<Range<u64>>,
+) -> Option<Range<u64>> {
+    match (left, right) {
+        (None, None) => None,
+        (None, Some(r)) => Some(r),
+        (Some(l), None) => Some(l.clone()),
+        (Some(l), Some(r)) => Some(cmp::max(l.start, r.start)..cmp::min(l.end, r.end)),
+    }
 }
 
 impl<A: 'static + Send> RepeatedScan<A> {
@@ -331,6 +347,8 @@ impl<A: 'static + Send> RepeatedScan<A> {
         &self,
         row_range: Option<Range<u64>>,
     ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
+        let row_range = intersect_ranges(self.row_range.as_ref(), row_range);
+
         let ctx = Arc::new(TaskContext {
             row_range,
             selection: self.selection.clone(),
@@ -361,14 +379,15 @@ impl<A: 'static + Send> RepeatedScan<A> {
     pub fn into_tokio_stream(
         &self,
         row_range: Option<Range<u64>>,
-        concurrency: usize,
     ) -> VortexResult<impl futures::Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
+        let row_range = intersect_ranges(self.row_range.as_ref(), row_range);
+
         use futures::StreamExt;
         use vortex_error::vortex_err;
 
         let handle = tokio::runtime::Handle::current();
         let num_workers = handle.metrics().num_workers();
-        let concurrency = concurrency * num_workers;
+        let concurrency = self.concurrency * num_workers;
         Ok(futures::stream::iter(self.build(row_range)?)
             .map(move |task| handle.spawn(task))
             .buffered(concurrency)
@@ -384,8 +403,9 @@ impl RepeatedScan<ArrayRef> {
     pub fn into_array_iter(
         &self,
         row_range: Option<Range<u64>>,
-        concurrency: usize,
     ) -> VortexResult<impl ArrayIterator + Send + Clone + 'static> {
+        let row_range = intersect_ranges(self.row_range.as_ref(), row_range);
+
         let dtype = self.dtype.clone();
         let tasks = self.build(row_range)?;
         let queue = WorkStealingQueue::new([Box::new(move || Ok(tasks)) as TaskFactory<ArrayTask>]);
@@ -393,7 +413,7 @@ impl RepeatedScan<ArrayRef> {
         Ok(WorkStealingArrayIterator::new(
             queue,
             Arc::new(dtype),
-            concurrency,
+            self.concurrency,
         ))
     }
 
@@ -401,10 +421,11 @@ impl RepeatedScan<ArrayRef> {
     pub fn into_tokio_array_stream(
         &self,
         row_range: Option<Range<u64>>,
-        concurrency: usize,
     ) -> VortexResult<impl vortex_array::stream::ArrayStream + Send + 'static> {
+        let row_range = intersect_ranges(self.row_range.as_ref(), row_range);
+
         let dtype = self.dtype.clone();
-        let stream = self.into_tokio_stream(row_range, concurrency)?;
+        let stream = self.into_tokio_stream(row_range)?;
         Ok(vortex_array::stream::ArrayStreamAdapter::new(dtype, stream))
     }
 }
