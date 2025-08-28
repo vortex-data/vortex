@@ -11,7 +11,8 @@ use vortex_error::VortexResult;
 
 // TODO(ngates): we should try putting the const bit width as a generic here, to avoid
 //  a switch in the fastlanes library on every invocation of `unchecked_unpack`.
-pub(crate) struct BitPackedKernel<T: PhysicalPType<Physical: BitPacking>> {
+#[derive(Clone)]
+pub struct BitPackedKernel<T: PhysicalPType<Physical: BitPacking>> {
     width: usize,
     packed_stride: usize,
 
@@ -101,7 +102,8 @@ where
 
             self.packed_offset += nvecs * self.packed_stride;
         }
-
+        physical_out.reinterpret_as::<T>();
+        
         Ok(())
     }
 }

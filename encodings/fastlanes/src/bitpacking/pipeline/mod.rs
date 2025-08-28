@@ -15,8 +15,8 @@ use vortex_buffer::Buffer;
 use vortex_dtype::{PhysicalPType, match_each_integer_ptype};
 use vortex_error::VortexResult;
 
-use crate::bitpacking::pipeline::kernel::BitPackedKernel;
-use crate::bitpacking::pipeline::unaligned_kernel::BitPackedUnalignedKernel;
+pub use kernel::BitPackedKernel;
+pub use unaligned_kernel::BitPackedUnalignedKernel;
 use crate::{BitPackedArray, BitPackedVTable};
 
 impl PipelineVTable<BitPackedVTable> for BitPackedVTable {

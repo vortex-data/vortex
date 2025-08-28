@@ -13,7 +13,8 @@ use vortex_error::VortexResult;
 
 // TODO(ngates): we should try putting the const bit width as a generic here, to avoid
 //  a switch in the fastlanes library on every invocation of `unchecked_unpack`.
-pub(crate) struct BitPackedUnalignedKernel<T: PhysicalPType<Physical: BitPacking>> {
+#[derive(Clone)]
+pub struct BitPackedUnalignedKernel<T: PhysicalPType<Physical: BitPacking>> {
     width: usize,
     packed_stride: usize,
 
@@ -183,6 +184,144 @@ where
             self.packed_offset += nvecs * self.packed_stride;
         }
 
+        physical_out.reinterpret_as::<T>();
+
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::pipeline::bits::BitView;
+    use vortex_array::pipeline::view::ViewMut;
+    use vortex_array::pipeline::{KernelContext, N, N_WORDS};
+    use vortex_fastlanes::bitpack_to_best_bit_width;
+
+    #[test]
+    fn test_unaligned_kernel_step_dense() {
+        let len = 2048 + 100; // More than one chunk plus extra
+        let offset = 7u16;
+        let values: Vec<i32> = (0..len).collect();
+        
+        let primitive_array: PrimitiveArray = values.clone().into_iter().collect();
+        let array = bitpack_to_best_bit_width(&primitive_array).unwrap();
+        
+        // Create the unaligned kernel
+        let packed_stride = array.bit_width() as usize * 32; // i32 FastLanes lanes
+        let buffer = Buffer::<u32>::from_byte_buffer(array.packed().clone().into_byte_buffer());
+        let mut kernel = BitPackedUnalignedKernel::<i32>::new(
+            array.bit_width() as usize,
+            packed_stride,
+            buffer,
+            0,
+            offset,
+        );
+
+        // Test dense selection (all true)
+        let bit_view = BitView::all_true();
+        let ctx = KernelContext::default();
+        let mut output_data = vec![0i32; N];
+        let mut output = ViewMut::new(&mut output_data, None);
+
+        // Call step function
+        kernel.step(&ctx, bit_view, &mut output).unwrap();
+
+        // Verify results - should match original values starting from offset
+        let expected = &values[offset as usize..][..N];
+        assert_eq!(output.as_slice::<i32>(), expected, "Dense unaligned step failed");
+    }
+
+    #[test]
+    fn test_unaligned_kernel_step_sparse() {
+        let len = 1024 + 512; // One full chunk plus partial
+        let offset = 15u16;
+        let values: Vec<i16> = (0..len).map(|i| (i * 3 + 7) as i16).collect();
+        
+        let primitive_array: PrimitiveArray = values.clone().into_iter().collect();
+        let array = bitpack_to_best_bit_width(&primitive_array).unwrap();
+        
+        // Create the unaligned kernel
+        let packed_stride = array.bit_width() as usize * 64; // i16 FastLanes lanes
+        let buffer = Buffer::<u16>::from_byte_buffer(array.packed().clone().into_byte_buffer());
+        let mut kernel = BitPackedUnalignedKernel::<i16>::new(
+            array.bit_width() as usize,
+            packed_stride,
+            buffer,
+            0,
+            offset,
+        );
+
+        // Create sparse selection (every 64th element)
+        let selected_indices: Vec<usize> = (0..N).step_by(64).take(8).collect();
+        let mut mask_data = [0usize; N_WORDS];
+        for &idx in &selected_indices {
+            let word_idx = idx / 64;
+            let bit_idx = idx % 64;
+            if word_idx < N_WORDS {
+                mask_data[word_idx] |= 1usize << bit_idx;
+            }
+        }
+        let bit_view = BitView::new(&mask_data);
+        
+        let ctx = KernelContext::default();
+        // ViewMut requires exactly N elements
+        let mut output_data = vec![0i16; N];
+        let mut output = ViewMut::new(&mut output_data, None);
+
+        // Call step function
+        kernel.step(&ctx, bit_view, &mut output).unwrap();
+
+        // Verify results - check only the first few selected values (step function compacts them)
+        let output_slice = output.as_slice::<i16>();
+        for (i, &idx) in selected_indices.iter().enumerate() {
+            let expected_value = values[offset as usize + idx];
+            assert_eq!(output_slice[i], expected_value, "Sparse unaligned step failed at index {}", i);
+        }
+    }
+
+    #[rstest]
+    #[case(1u16, "small offset")]
+    #[case(8u16, "byte-aligned offset")]
+    #[case(63u16, "near chunk boundary")]
+    #[case(100u16, "mid-chunk offset")]
+    fn test_unaligned_kernel_step_different_offsets(#[case] offset: u16, #[case] description: &str) {
+        let len = N + offset as usize + 100; // Ensure we have enough data
+        let values: Vec<i8> = (0..len).map(|i| ((i + offset as usize) % 127) as i8).collect();
+        
+        let primitive_array: PrimitiveArray = values.clone().into_iter().collect();
+        let array = bitpack_to_best_bit_width(&primitive_array).unwrap();
+        
+        // Create the unaligned kernel - use proper FastLanes lanes count
+        let packed_stride = array.bit_width() as usize * 128; // i8 has 128 lanes in FastLanes
+        let buffer = Buffer::<u8>::from_byte_buffer(array.packed().clone().into_byte_buffer());
+        let mut kernel = BitPackedUnalignedKernel::<i8>::new(
+            array.bit_width() as usize,
+            packed_stride,
+            buffer,
+            0,
+            offset,
+        );
+
+        // Test with all true mask
+        let bit_view = BitView::all_true();
+        let ctx = KernelContext::default();
+        let mut output_data = vec![0i8; N];
+        let mut output = ViewMut::new(&mut output_data, None);
+
+        // Call step function
+        kernel.step(&ctx, bit_view, &mut output).unwrap();
+
+        // Verify results - ensure we don't go out of bounds
+        let expected = &values[offset as usize..offset as usize + N];
+        assert_eq!(
+            output.as_slice::<i8>(),
+            expected,
+            "Unaligned step failed for {}: offset={}",
+            description,
+            offset
+        );
     }
 }
