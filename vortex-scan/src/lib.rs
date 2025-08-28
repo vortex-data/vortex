@@ -319,6 +319,8 @@ fn to_field_mask(field: FieldName) -> FieldMask {
 ///
 /// The method of this struct enable, possibly concurrent, scanning of multiple row ranges of this
 /// data source.
+///
+/// See also: [ScanBuilder].
 pub struct RepeatedScan<A: 'static + Send> {
     layout_reader: LayoutReaderRef,
     projection: ExprRef,
