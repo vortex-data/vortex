@@ -134,7 +134,7 @@ impl FixedSizeListArray {
 
         let start = self.list_size as usize * index;
         let end = self.list_size as usize * (index + 1);
-        self.elements().slice(start, end)
+        self.elements().slice(start..end)
     }
 
     /// Checks if the components of a `FixedSizeListArray` are valid.
