@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::{ArrayRef, IntoArray};
 use vortex_buffer::BufferString;
@@ -10,11 +12,11 @@ use vortex_scalar::Scalar;
 use crate::fsst_view::{FSSTViewArray, FSSTViewVTable};
 
 impl OperationsVTable<FSSTViewVTable> for FSSTViewVTable {
-    fn slice(array: &FSSTViewArray, start: usize, stop: usize) -> ArrayRef {
+    fn slice(array: &FSSTViewArray, range: Range<usize>) -> ArrayRef {
         // SAFETY: slicing views buffer doesn't modify any internal pointers.
         unsafe {
             FSSTViewArray::new_unchecked(
-                array.views.slice(start..stop),
+                array.views.slice(range),
                 array.fsst_buffer.clone(),
                 array.symbols.clone(),
                 array.symbol_lengths.clone(),
@@ -68,7 +70,7 @@ mod tests {
         .unwrap();
 
         let fsst_view = FSSTViewEncoding.encode(&canonical, None).unwrap().unwrap();
-        let sliced = fsst_view.slice(1, 4);
+        let sliced = fsst_view.slice(1..4);
 
         assert_eq!(sliced.scalar_at(0), "short2".into());
         assert_eq!(sliced.scalar_at(1), "very_long_string1".into());

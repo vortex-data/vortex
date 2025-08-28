@@ -6,26 +6,46 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{EncodeVTable, SerdeVTable, ValidityHelper};
-use vortex_array::{Canonical, EmptyMetadata, IntoArray};
+use vortex_array::{Array, Canonical, IntoArray, ProstMetadata};
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexResult, vortex_bail, vortex_ensure};
+use vortex_error::{VortexResult, vortex_ensure, vortex_err};
 
 use crate::fsst_train_compressor;
 use crate::fsst_view::{FSSTViewArray, FSSTViewEncoding, FSSTViewVTable, OutlinedStr, View};
 
-impl SerdeVTable<FSSTViewVTable> for FSSTViewVTable {
-    type Metadata = EmptyMetadata;
+#[derive(Clone, prost::Message)]
+pub struct FSSTViewMetadata {
+    #[prost(enumeration = "PType", tag = "1")]
+    compressed_offsets_ptype: i32,
+    #[prost(enumeration = "PType", tag = "2")]
+    uncompressed_offsets_ptype: i32,
+    #[prost(uint32, tag = "3")]
+    offsets_len: u32,
+}
 
-    fn metadata(_: &FSSTViewArray) -> VortexResult<Option<Self::Metadata>> {
-        Ok(Some(EmptyMetadata))
+impl SerdeVTable<FSSTViewVTable> for FSSTViewVTable {
+    type Metadata = ProstMetadata<FSSTViewMetadata>;
+
+    fn metadata(array: &FSSTViewArray) -> VortexResult<Option<Self::Metadata>> {
+        let compressed_offsets_ptype = array.compressed_offsets.dtype().as_ptype();
+        let uncompressed_offsets_ptype = array.uncompressed_offsets.dtype().as_ptype();
+        let offsets_len = u32::try_from(array.compressed_offsets.len()).map_err(|_| {
+            vortex_err!("FSSTViewArray should not contain >= 2^32 compressed strings")
+        })?;
+
+        Ok(Some(ProstMetadata(FSSTViewMetadata {
+            compressed_offsets_ptype: compressed_offsets_ptype as i32,
+            uncompressed_offsets_ptype: uncompressed_offsets_ptype as i32,
+            offsets_len,
+        })))
     }
 
     fn build(
         _: &FSSTViewEncoding,
         dtype: &DType,
         len: usize,
-        _: &EmptyMetadata,
+        metadata: &FSSTViewMetadata,
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<FSSTViewArray> {
@@ -56,25 +76,27 @@ impl SerdeVTable<FSSTViewVTable> for FSSTViewVTable {
             children.len() >= 2,
             "FSSTViewArray: must have 2 or more children"
         );
-        let uncompressed_offsets = children.get(0, PType::U32.into(), len + 1)?;
-        let compressed_offsets = children.get(1, PType::U32.into(), len + 1)?;
 
-        let has_validity_array = children.len() == 3;
+        let offsets_len = metadata.offsets_len as usize;
+        let compressed_ptype = PType::try_from(metadata.compressed_offsets_ptype)
+            .map_err(|err| vortex_err!("compressed_offsets_ptype enum value: {err}"))?;
+        let uncompressed_ptype = PType::try_from(metadata.uncompressed_offsets_ptype)
+            .map_err(|err| vortex_err!("uncompressed_offsets_ptype enum value: {err}"))?;
 
-        let validity = match (has_validity_array, dtype.nullability()) {
-            // No validity array, nullable => AllValid
-            (false, Nullability::Nullable) => Validity::AllValid,
-            (false, Nullability::NonNullable) => Validity::NonNullable,
-            (true, Nullability::Nullable) => {
-                let validity_array =
-                    children.get(2, &DType::Binary(Nullability::NonNullable), len)?;
-                Validity::Array(validity_array)
-            }
-            // All other combinations invalid
-            (has, nullability) => vortex_bail!(
-                "FSSTViewVTable: build: invalid combination: has_validity_array={has} nullability={}",
-                nullability.verbose_display()
-            ),
+        let compressed_offsets = children
+            .get(0, compressed_ptype.into(), offsets_len)
+            .map_err(|err| vortex_err!("loading child[0]: compressed_offsets: {err}"))?;
+        let uncompressed_offsets = children
+            .get(1, uncompressed_ptype.into(), offsets_len)
+            .map_err(|err| vortex_err!("loading child[1]: uncompressed_offsets: {err}"))?;
+
+        let validity = if children.len() == 3 {
+            let validity = children
+                .get(2, &DType::Binary(Nullability::NonNullable), len)
+                .map_err(|err| vortex_err!("loading child[0]: validity: {err}"))?;
+            Validity::Array(validity)
+        } else {
+            Validity::from(dtype.nullability())
         };
 
         FSSTViewArray::try_new(

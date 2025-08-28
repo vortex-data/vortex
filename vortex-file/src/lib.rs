@@ -122,7 +122,7 @@ use vortex_datetime_parts::DateTimePartsEncoding;
 use vortex_decimal_byte_parts::DecimalBytePartsEncoding;
 use vortex_dict::DictEncoding;
 use vortex_fastlanes::{BitPackedEncoding, DeltaEncoding, FoREncoding};
-use vortex_fsst::FSSTEncoding;
+use vortex_fsst::{FSSTEncoding, FSSTViewEncoding};
 use vortex_pco::PcoEncoding;
 use vortex_runend::RunEndEncoding;
 use vortex_sequence::SequenceEncoding;
@@ -176,6 +176,7 @@ pub static DEFAULT_REGISTRY: LazyLock<Arc<ArrayRegistry>> = LazyLock::new(|| {
         EncodingRef::new_ref(DeltaEncoding.as_ref()),
         EncodingRef::new_ref(DictEncoding.as_ref()),
         EncodingRef::new_ref(FSSTEncoding.as_ref()),
+        EncodingRef::new_ref(FSSTViewEncoding.as_ref()),
         EncodingRef::new_ref(FoREncoding.as_ref()),
         EncodingRef::new_ref(PcoEncoding.as_ref()),
         EncodingRef::new_ref(RunEndEncoding.as_ref()),
