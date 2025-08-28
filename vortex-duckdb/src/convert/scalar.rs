@@ -321,11 +321,12 @@ mod tests {
         use vortex::dtype::{DType, ExtDType, Nullability, PType};
         use vortex::scalar::{Scalar, ScalarValue};
 
+        #[rustfmt::skip]
         let test_cases = [
-            (TimeUnit::Seconds, 1703980800i64), // 2023-12-30 16:00:00 UTC
-            (TimeUnit::Milliseconds, 1703980800123i64), // 2023-12-30 16:00:00.123 UTC
-            (TimeUnit::Microseconds, 1703980800123456i64), // 2023-12-30 16:00:00.123456 UTC
-            (TimeUnit::Nanoseconds, 1703980800123456789i64), // 2023-12-30 16:00:00.123456789 UTC
+            (TimeUnit::Seconds, 1703980800i64),                 // 2023-12-30 16:00:00 UTC
+            (TimeUnit::Milliseconds, 1703980800123i64),         // 2023-12-30 16:00:00.123 UTC
+            (TimeUnit::Microseconds, 1703980800123456i64),      // 2023-12-30 16:00:00.123456 UTC
+            (TimeUnit::Nanoseconds, 1703980800123456789i64),    // 2023-12-30 16:00:00.123456789 UTC
         ];
 
         for (time_unit, timestamp_value) in test_cases {
