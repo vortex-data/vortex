@@ -8,7 +8,16 @@ use crate::vtable::{OperationsVTable, ValidityHelper};
 use crate::{ArrayRef, IntoArray};
 
 impl OperationsVTable<FixedSizeListVTable> for FixedSizeListVTable {
+    /// # Panics
+    ///
+    /// Panics if the indices are out of bounds.
     fn slice(array: &FixedSizeListArray, start: usize, stop: usize) -> ArrayRef {
+        debug_assert!(
+            start <= stop && stop <= array.len(),
+            "slice [{start}..{stop}) out of bounds: then len is {}",
+            array.len()
+        );
+
         let new_len = stop - start;
         let list_size = array.list_size() as usize;
 
@@ -21,11 +30,14 @@ impl OperationsVTable<FixedSizeListVTable> for FixedSizeListVTable {
         .into_array()
     }
 
+    /// # Panics
+    ///
+    /// Panics if the index is out of bounds.
     fn scalar_at(array: &FixedSizeListArray, index: usize) -> Scalar {
         let list = array.fixed_size_list_at(index);
         let children_elements: Vec<Scalar> = (0..list.len()).map(|i| list.scalar_at(i)).collect();
 
-        assert_eq!(children_elements.len(), array.list_size() as usize);
+        debug_assert_eq!(children_elements.len(), array.list_size() as usize);
 
         Scalar::fixed_size_list(
             list.dtype().clone(),

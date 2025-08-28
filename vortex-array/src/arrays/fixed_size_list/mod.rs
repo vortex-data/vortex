@@ -116,7 +116,16 @@ impl FixedSizeListArray {
     }
 
     /// Returns the elements at the given index from the list array.
+    /// 
+    /// # Panics
+    /// 
+    /// Panics if the index is out of bounds.
     pub fn fixed_size_list_at(&self, index: usize) -> ArrayRef {
+        debug_assert!(
+            index < self.len,
+            "index out of bounds: the len is {} but the index is {index}",
+            self.len
+        );
         debug_assert!(
             self.validity
                 .is_valid(index)
