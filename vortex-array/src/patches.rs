@@ -224,6 +224,20 @@ impl Patches {
 
     /// Return the insertion point of `index` in the [Self::indices].
     pub fn search_index(&self, index: usize) -> SearchResult {
+        if self.indices.is_canonical() {
+            let primitive = self
+                .indices
+                .to_canonical()
+                .vortex_expect("already checked canonical")
+                .into_primitive()
+                .vortex_expect("indices are always primitive");
+            match_each_integer_ptype!(primitive.ptype(), |T| {
+                return primitive.as_slice::<T>().search_sorted(
+                    &T::try_from(index + self.offset).vortex_expect("types must match"),
+                    SearchSortedSide::Left,
+                );
+            });
+        }
         self.indices.as_primitive_typed().search_sorted(
             &PValue::U64((index + self.offset) as u64),
             SearchSortedSide::Left,
