@@ -73,13 +73,13 @@ impl TemporalArray {
     /// If any other time unit is provided, it panics.
     pub fn new_date(array: ArrayRef, time_unit: TimeUnit) -> Self {
         match time_unit {
-            TimeUnit::D => {
+            TimeUnit::Days => {
                 assert_width!(i32, array);
             }
-            TimeUnit::Ms => {
+            TimeUnit::Milliseconds => {
                 assert_width!(i64, array);
             }
-            TimeUnit::Ns | TimeUnit::Us | TimeUnit::S => {
+            TimeUnit::Nanoseconds | TimeUnit::Microseconds | TimeUnit::Seconds => {
                 vortex_panic!("invalid TimeUnit {time_unit} for vortex.date")
             }
         };
@@ -117,9 +117,9 @@ impl TemporalArray {
     /// If the time unit is nanoseconds, and the array is not of primitive I64 type, it panics.
     pub fn new_time(array: ArrayRef, time_unit: TimeUnit) -> Self {
         match time_unit {
-            TimeUnit::S | TimeUnit::Ms => assert_width!(i32, array),
-            TimeUnit::Us | TimeUnit::Ns => assert_width!(i64, array),
-            TimeUnit::D => vortex_panic!("invalid unit D for vortex.time data"),
+            TimeUnit::Seconds | TimeUnit::Milliseconds => assert_width!(i32, array),
+            TimeUnit::Microseconds | TimeUnit::Nanoseconds => assert_width!(i64, array),
+            TimeUnit::Days => vortex_panic!("invalid unit D for vortex.time data"),
         }
 
         let temporal_metadata = TemporalMetadata::Time(time_unit);

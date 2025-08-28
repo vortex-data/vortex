@@ -47,12 +47,12 @@ pub fn make_temporal_ext_dtype(data_type: &DataType) -> ExtDType {
         DataType::Date32 => ExtDType::new(
             DATE_ID.clone(),
             Arc::new(PType::I32.into()),
-            Some(TemporalMetadata::Date(TimeUnit::D).into()),
+            Some(TemporalMetadata::Date(TimeUnit::Days).into()),
         ),
         DataType::Date64 => ExtDType::new(
             DATE_ID.clone(),
             Arc::new(PType::I64.into()),
-            Some(TemporalMetadata::Date(TimeUnit::Ms).into()),
+            Some(TemporalMetadata::Date(TimeUnit::Milliseconds).into()),
         ),
         _ => unimplemented!("{data_type} conversion"),
     }
@@ -66,27 +66,33 @@ pub fn make_arrow_temporal_dtype(ext_dtype: &ExtDType) -> DataType {
         .vortex_expect("make_arrow_temporal_dtype must be called with a temporal ExtDType")
     {
         TemporalMetadata::Date(time_unit) => match time_unit {
-            TimeUnit::D => DataType::Date32,
-            TimeUnit::Ms => DataType::Date64,
-            TimeUnit::Ns | TimeUnit::Us | TimeUnit::S => {
+            TimeUnit::Days => DataType::Date32,
+            TimeUnit::Milliseconds => DataType::Date64,
+            TimeUnit::Nanoseconds | TimeUnit::Microseconds | TimeUnit::Seconds => {
                 vortex_panic!(InvalidArgument: "Invalid TimeUnit {} for {}", time_unit, ext_dtype.id())
             }
         },
         TemporalMetadata::Time(time_unit) => match time_unit {
-            TimeUnit::S => DataType::Time32(ArrowTimeUnit::Second),
-            TimeUnit::Ms => DataType::Time32(ArrowTimeUnit::Millisecond),
-            TimeUnit::Us => DataType::Time64(ArrowTimeUnit::Microsecond),
-            TimeUnit::Ns => DataType::Time64(ArrowTimeUnit::Nanosecond),
-            TimeUnit::D => {
+            TimeUnit::Seconds => DataType::Time32(ArrowTimeUnit::Second),
+            TimeUnit::Milliseconds => DataType::Time32(ArrowTimeUnit::Millisecond),
+            TimeUnit::Microseconds => DataType::Time64(ArrowTimeUnit::Microsecond),
+            TimeUnit::Nanoseconds => DataType::Time64(ArrowTimeUnit::Nanosecond),
+            TimeUnit::Days => {
                 vortex_panic!(InvalidArgument: "Invalid TimeUnit {} for {}", time_unit, ext_dtype.id())
             }
         },
         TemporalMetadata::Timestamp(time_unit, tz) => match time_unit {
-            TimeUnit::Ns => DataType::Timestamp(ArrowTimeUnit::Nanosecond, tz.map(|t| t.into())),
-            TimeUnit::Us => DataType::Timestamp(ArrowTimeUnit::Microsecond, tz.map(|t| t.into())),
-            TimeUnit::Ms => DataType::Timestamp(ArrowTimeUnit::Millisecond, tz.map(|t| t.into())),
-            TimeUnit::S => DataType::Timestamp(ArrowTimeUnit::Second, tz.map(|t| t.into())),
-            TimeUnit::D => {
+            TimeUnit::Nanoseconds => {
+                DataType::Timestamp(ArrowTimeUnit::Nanosecond, tz.map(|t| t.into()))
+            }
+            TimeUnit::Microseconds => {
+                DataType::Timestamp(ArrowTimeUnit::Microsecond, tz.map(|t| t.into()))
+            }
+            TimeUnit::Milliseconds => {
+                DataType::Timestamp(ArrowTimeUnit::Millisecond, tz.map(|t| t.into()))
+            }
+            TimeUnit::Seconds => DataType::Timestamp(ArrowTimeUnit::Second, tz.map(|t| t.into())),
+            TimeUnit::Days => {
                 vortex_panic!(InvalidArgument: "Invalid TimeUnit {} for {}", time_unit, ext_dtype.id())
             }
         },
@@ -102,10 +108,10 @@ impl From<&ArrowTimeUnit> for TimeUnit {
 impl From<ArrowTimeUnit> for TimeUnit {
     fn from(value: ArrowTimeUnit) -> Self {
         match value {
-            ArrowTimeUnit::Second => Self::S,
-            ArrowTimeUnit::Millisecond => Self::Ms,
-            ArrowTimeUnit::Microsecond => Self::Us,
-            ArrowTimeUnit::Nanosecond => Self::Ns,
+            ArrowTimeUnit::Second => Self::Seconds,
+            ArrowTimeUnit::Millisecond => Self::Milliseconds,
+            ArrowTimeUnit::Microsecond => Self::Microseconds,
+            ArrowTimeUnit::Nanosecond => Self::Nanoseconds,
         }
     }
 }
@@ -115,10 +121,10 @@ impl TryFrom<TimeUnit> for ArrowTimeUnit {
 
     fn try_from(value: TimeUnit) -> VortexResult<Self> {
         Ok(match value {
-            TimeUnit::S => Self::Second,
-            TimeUnit::Ms => Self::Millisecond,
-            TimeUnit::Us => Self::Microsecond,
-            TimeUnit::Ns => Self::Nanosecond,
+            TimeUnit::Seconds => Self::Second,
+            TimeUnit::Milliseconds => Self::Millisecond,
+            TimeUnit::Microseconds => Self::Microsecond,
+            TimeUnit::Nanoseconds => Self::Nanosecond,
             _ => vortex_bail!("Cannot convert {value} to Arrow TimeUnit"),
         })
     }
@@ -133,7 +139,7 @@ mod tests {
         let ext_dtype = ExtDType::new(
             TIMESTAMP_ID.clone(),
             Arc::new(PType::I64.into()),
-            Some(TemporalMetadata::Timestamp(TimeUnit::Ms, None).into()),
+            Some(TemporalMetadata::Timestamp(TimeUnit::Milliseconds, None).into()),
         );
         let expected_arrow_type = DataType::Timestamp(ArrowTimeUnit::Millisecond, None);
 
@@ -149,7 +155,7 @@ mod tests {
         let ext_dtype = ExtDType::new(
             TIME_ID.clone(),
             Arc::new(PType::I32.into()),
-            Some(TemporalMetadata::Time(TimeUnit::Ms).into()),
+            Some(TemporalMetadata::Time(TimeUnit::Milliseconds).into()),
         );
         let expected_arrow_type = DataType::Time32(ArrowTimeUnit::Millisecond);
         let arrow_dtype = make_arrow_temporal_dtype(&ext_dtype);
@@ -164,7 +170,7 @@ mod tests {
         let ext_dtype = ExtDType::new(
             TIME_ID.clone(),
             Arc::new(PType::I64.into()),
-            Some(TemporalMetadata::Time(TimeUnit::Us).into()),
+            Some(TemporalMetadata::Time(TimeUnit::Microseconds).into()),
         );
         let expected_arrow_type = DataType::Time64(ArrowTimeUnit::Microsecond);
         let arrow_dtype = make_arrow_temporal_dtype(&ext_dtype);
@@ -179,7 +185,7 @@ mod tests {
         let ext_dtype = ExtDType::new(
             DATE_ID.clone(),
             Arc::new(PType::I32.into()),
-            Some(TemporalMetadata::Date(TimeUnit::D).into()),
+            Some(TemporalMetadata::Date(TimeUnit::Days).into()),
         );
         let expected_arrow_type = DataType::Date32;
         let arrow_dtype = make_arrow_temporal_dtype(&ext_dtype);
@@ -194,7 +200,7 @@ mod tests {
         let ext_dtype = ExtDType::new(
             DATE_ID.clone(),
             Arc::new(PType::I64.into()),
-            Some(TemporalMetadata::Date(TimeUnit::Ms).into()),
+            Some(TemporalMetadata::Date(TimeUnit::Milliseconds).into()),
         );
         let expected_arrow_type = DataType::Date64;
         let arrow_dtype = make_arrow_temporal_dtype(&ext_dtype);

@@ -91,8 +91,11 @@ mod tests {
             validity.clone(),
         )
         .into_array();
-        let temporal_array =
-            TemporalArray::new_timestamp(milliseconds, TimeUnit::Ms, Some("UTC".to_string()));
+        let temporal_array = TemporalArray::new_timestamp(
+            milliseconds,
+            TimeUnit::Milliseconds,
+            Some("UTC".to_string()),
+        );
         let TemporalParts {
             days,
             seconds,
