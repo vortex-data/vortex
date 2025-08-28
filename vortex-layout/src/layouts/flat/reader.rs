@@ -13,7 +13,7 @@ use vortex_array::pipeline::{
 };
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
-use vortex_array::{Array, ArrayRef, IntoArray};
+use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::{DType, FieldMask, Nullability};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
 use vortex_expr::{ExprRef, Scope, VortexExprExt, is_root};
@@ -174,7 +174,7 @@ impl MaskEvaluation for FlatEvaluation {
         if let Some(array) =
             try_evaluate_using_operator(self.row_range.clone(), &array, &self.expr, &mask)?
         {
-            let array_mask = Mask::try_from(self.expr.evaluate(&Scope::new(array))?.as_ref())?;
+            let array_mask = Mask::try_from(&array.to_bool()?)?;
             let mask = mask.intersect_by_rank(&array_mask);
             return Ok(mask);
         }
@@ -288,14 +288,18 @@ fn try_evaluate_using_operator(
             "ArrayEvaluation: export_canonical_pipeline_expr_offset {:?}",
             operator
         );
-        export_canonical_pipeline_expr_offset(
+        let res = export_canonical_pipeline_expr_offset(
             &return_type,
             row_range.start / N,
             row_range.end - row_range.start,
             operator.as_ref(),
             mask,
         )?
-        .into_array()
+        .into_array();
+
+        println!("result {}", res.display_tree());
+
+        res
     };
     Ok(Some(result))
 }

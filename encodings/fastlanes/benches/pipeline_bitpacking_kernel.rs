@@ -101,7 +101,7 @@ where
         .map(|_| rng.random_bool(fraction_kept))
         .collect::<Mask>();
 
-    let expect = filter(&array.as_ref().slice(offset.. offset + N), &mask)
+    let expect = filter(&array.as_ref().slice(offset..offset + N), &mask)
         .unwrap()
         .to_primitive()
         .unwrap();
