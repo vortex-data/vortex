@@ -152,7 +152,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
         }
     }
 
-    pub fn prepare(&self) -> VortexResult<PreparedScan<A>> {
+    pub fn prepare(&self) -> VortexResult<RepeatedScan<A>> {
         if self.filter.is_some() && self.limit.is_some() {
             vortex_bail!("Vortex doesn't support scans with both a filter and a limit")
         }
@@ -180,7 +180,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
         let field_mask: Vec<_> = [filter_mask, projection_mask].concat();
         let splits = self.split_by.splits(layout_reader.as_ref(), &field_mask)?;
 
-        Ok(PreparedScan {
+        Ok(RepeatedScan {
             dtype: self.dtype()?,
             field_mask,
             selection: self.selection.clone(),
@@ -313,7 +313,7 @@ fn to_field_mask(field: FieldName) -> FieldMask {
     FieldMask::Prefix(FieldPath::from(Field::Name(field)))
 }
 
-pub struct PreparedScan<A: 'static + Send> {
+pub struct RepeatedScan<A: 'static + Send> {
     dtype: DType,
     #[allow(dead_code)]
     field_mask: Vec<FieldMask>,
@@ -326,7 +326,7 @@ pub struct PreparedScan<A: 'static + Send> {
     limit: Option<usize>,
 }
 
-impl<A: 'static + Send> PreparedScan<A> {
+impl<A: 'static + Send> RepeatedScan<A> {
     pub fn build(
         &self,
         row_range: Option<Range<u64>>,
@@ -380,7 +380,7 @@ impl<A: 'static + Send> PreparedScan<A> {
     }
 }
 
-impl PreparedScan<ArrayRef> {
+impl RepeatedScan<ArrayRef> {
     pub fn into_array_iter(
         &self,
         row_range: Option<Range<u64>>,
