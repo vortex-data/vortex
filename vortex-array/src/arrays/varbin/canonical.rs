@@ -74,8 +74,8 @@ mod test {
         let canonical = varbin.to_varbinview().unwrap();
         assert_eq!(canonical.dtype(), &dtype);
 
-        assert!(!canonical.is_valid(0).unwrap());
-        assert!(!canonical.is_valid(1).unwrap());
+        assert!(!canonical.is_valid(0));
+        assert!(!canonical.is_valid(1));
 
         // First value is inlined (12 bytes)
         assert!(canonical.views()[2].is_inlined());

@@ -25,7 +25,7 @@ impl CastKernel for PrimitiveVTable {
         } else if new_nullability == Nullability::Nullable {
             // from non-nullable to nullable
             array.validity().clone().into_nullable()
-        } else if new_nullability == Nullability::NonNullable && array.validity().all_valid()? {
+        } else if new_nullability == Nullability::NonNullable && array.validity().all_valid() {
             // from nullable but all valid, to non-nullable
             Validity::NonNullable
         } else {

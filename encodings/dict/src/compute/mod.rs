@@ -89,10 +89,7 @@ mod test {
         assert_eq!(actual.as_slice::<i32>(), expected.as_slice());
 
         let expected_valid_count = values.iter().filter(|x| x.is_some()).count();
-        assert_eq!(
-            actual.validity_mask().unwrap().true_count(),
-            expected_valid_count
-        );
+        assert_eq!(actual.validity_mask().true_count(), expected_valid_count);
     }
 
     #[test]

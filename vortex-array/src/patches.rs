@@ -15,9 +15,7 @@ use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{
     DType, NativePType, PType, match_each_integer_ptype, match_each_unsigned_integer_ptype,
 };
-use vortex_error::{
-    VortexError, VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_err,
-};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::{AllOr, Mask};
 use vortex_scalar::{PValue, Scalar};
 use vortex_utils::aliases::hash_map::HashMap;
@@ -518,7 +516,7 @@ where
             I::from(v)
                 .and_then(|v| {
                     // If we have to take nulls the take index doesn't matter, make it 0 for consistency
-                    if include_nulls && take_indices_validity.is_null(i).vortex_unwrap() {
+                    if include_nulls && take_indices_validity.is_null(i) {
                         Some(0)
                     } else {
                         indices
@@ -575,7 +573,7 @@ where
             iter.enumerate()
                 .filter_map(|(idx_in_take, ti)| {
                     // If we have to take nulls the take index doesn't matter, make it 0 for consistency
-                    if include_nulls && take_indices_validity.is_null(idx_in_take).vortex_unwrap() {
+                    if include_nulls && take_indices_validity.is_null(idx_in_take) {
                         Some((idx_in_take as u64, 0))
                     } else if ti < min_index || ti > max_index {
                         None
@@ -830,7 +828,7 @@ mod test {
         assert_eq!(taken.array_len(), 2);
         assert_eq!(primitive_values.as_slice::<i32>(), [44]);
         assert_eq!(
-            primitive_values.validity_mask().unwrap(),
+            primitive_values.validity_mask(),
             Mask::from_iter(vec![true])
         );
     }
@@ -897,9 +895,9 @@ mod test {
         // No patch values should be masked
         let masked_values = masked.values().to_primitive().unwrap();
         assert_eq!(masked_values.as_slice::<i32>(), &[100, 200, 300]);
-        assert!(masked_values.is_valid(0).unwrap());
-        assert!(masked_values.is_valid(1).unwrap());
-        assert!(masked_values.is_valid(2).unwrap());
+        assert!(masked_values.is_valid(0));
+        assert!(masked_values.is_valid(1));
+        assert!(masked_values.is_valid(2));
 
         // Indices should remain unchanged
         let indices = masked.indices().to_primitive().unwrap();
@@ -976,8 +974,8 @@ mod test {
         // Values should be the null and 300
         let masked_values = masked.values().to_primitive().unwrap();
         assert_eq!(masked_values.len(), 2);
-        assert!(!masked_values.is_valid(0).unwrap()); // the null value at index 5
-        assert!(masked_values.is_valid(1).unwrap()); // the 300 value at index 8
+        assert!(!masked_values.is_valid(0)); // the null value at index 5
+        assert!(masked_values.is_valid(1)); // the 300 value at index 8
         assert_eq!(i32::try_from(&masked_values.scalar_at(1)).unwrap(), 300i32);
     }
 

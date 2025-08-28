@@ -192,27 +192,25 @@ impl<V: VTable + FilterKernel> Kernel for FilterKernelAdapter<V> {
     }
 }
 
-impl TryFrom<&BoolArray> for Mask {
-    type Error = VortexError;
-
-    fn try_from(array: &BoolArray) -> Result<Self, Self::Error> {
+impl From<&BoolArray> for Mask {
+    fn from(array: &BoolArray) -> Self {
         if let Some(constant) = array.as_constant() {
             let bool_constant = constant.as_bool();
             if bool_constant.value().unwrap_or(false) {
-                return Ok(Self::new_true(array.len()));
+                return Self::new_true(array.len());
             } else {
-                return Ok(Self::new_false(array.len()));
+                return Self::new_false(array.len());
             }
         }
 
         // Extract a boolean buffer, treating null values to false
-        let buffer = match array.validity_mask()? {
+        let buffer = match array.validity_mask() {
             Mask::AllTrue(_) => array.boolean_buffer().clone(),
-            Mask::AllFalse(_) => return Ok(Self::new_false(array.len())),
+            Mask::AllFalse(_) => return Self::new_false(array.len()),
             Mask::Values(validity) => validity.boolean_buffer().bitand(array.boolean_buffer()),
         };
 
-        Ok(Self::from_buffer(buffer))
+        Self::from_buffer(buffer)
     }
 }
 
@@ -228,7 +226,7 @@ impl TryFrom<&dyn Array> for Mask {
         // Convert nulls to false first in case this can be done cheaply by the encoding.
         let array = fill_null(array, &Scalar::bool(false, array.dtype().nullability()))?;
 
-        Self::try_from(&array.to_bool()?)
+        Ok(Self::from(&array.to_bool()?))
     }
 }
 
@@ -259,7 +257,7 @@ mod test {
         let items =
             PrimitiveArray::from_option_iter([Some(0i32), None, Some(1i32), None, Some(2i32)])
                 .into_array();
-        let mask = Mask::try_from(&BoolArray::from_iter([true, false, true, false, true])).unwrap();
+        let mask = Mask::from(&BoolArray::from_iter([true, false, true, false, true]));
 
         let filtered = filter(&items, &mask).unwrap();
         assert_eq!(

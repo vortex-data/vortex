@@ -270,7 +270,7 @@ impl dyn Array + '_ {
                 builder.push_record(sf.names().iter().map(|name| name.to_string()));
 
                 for row_idx in 0..self.len() {
-                    if !self.is_valid(row_idx).vortex_expect("index in bounds") {
+                    if !self.is_valid(row_idx) {
                         let null_row = vec!["null".to_string(); sf.names().len()];
                         builder.push_record(null_row);
                     } else {
@@ -292,7 +292,7 @@ impl dyn Array + '_ {
                 }
 
                 for row_idx in 0..self.len() {
-                    if !self.is_valid(row_idx).vortex_expect("index is in bounds") {
+                    if !self.is_valid(row_idx) {
                         table.modify(
                             (1 + row_idx, 0),
                             tabled::settings::Span::column(sf.names().len() as isize),

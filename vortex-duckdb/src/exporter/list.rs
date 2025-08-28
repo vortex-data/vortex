@@ -30,7 +30,7 @@ pub(crate) fn new_exporter(
     let offsets = array.offsets().to_primitive()?;
     let boxed = match_each_integer_ptype!(offsets.ptype(), |T| {
         Box::new(ListExporter {
-            validity: array.validity_mask()?,
+            validity: array.validity_mask(),
             elements_exporter,
             offsets,
             offset_type: PhantomData::<T>,

@@ -4,7 +4,7 @@
 //! Defines a compaction operation for VarBinViewArrays that evicts unused buffers so they can
 //! be dropped.
 
-use vortex_error::{VortexResult, VortexUnwrap};
+use vortex_error::VortexResult;
 
 use crate::arrays::VarBinViewArray;
 use crate::builders::{ArrayBuilder, VarBinViewBuilder};
@@ -68,7 +68,7 @@ impl VarBinViewArray {
                 .iter()
                 .enumerate()
                 .map(|(idx, &view)| {
-                    if !self.is_valid(idx).vortex_unwrap() || view.is_inlined() {
+                    if !self.is_valid(idx) || view.is_inlined() {
                         0u64
                     } else {
                         view.len() as u64
@@ -84,7 +84,7 @@ impl VarBinViewArray {
 fn rebuild_nullable(array: &VarBinViewArray) -> VortexResult<VarBinViewArray> {
     let mut builder = VarBinViewBuilder::with_capacity(array.dtype().clone(), array.len());
     for i in 0..array.len() {
-        if !array.is_valid(i)? {
+        if !array.is_valid(i) {
             builder.append_null();
         } else {
             let bytes = array.bytes_at(i);

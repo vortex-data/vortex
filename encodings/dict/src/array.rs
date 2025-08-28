@@ -154,11 +154,11 @@ impl CanonicalVTable<DictVTable> for DictVTable {
 }
 
 impl ValidityVTable<DictVTable> for DictVTable {
-    fn is_valid(array: &DictArray, index: usize) -> VortexResult<bool> {
+    fn is_valid(array: &DictArray, index: usize) -> bool {
         let scalar = array.codes().scalar_at(index);
 
         if scalar.is_null() {
-            return Ok(false);
+            return false;
         };
         let values_index: usize = scalar
             .as_ref()
@@ -167,20 +167,23 @@ impl ValidityVTable<DictVTable> for DictVTable {
         array.values().is_valid(values_index)
     }
 
-    fn all_valid(array: &DictArray) -> VortexResult<bool> {
-        Ok(array.codes().all_valid()? && array.values().all_valid()?)
+    fn all_valid(array: &DictArray) -> bool {
+        array.codes().all_valid() && array.values().all_valid()
     }
 
-    fn all_invalid(array: &DictArray) -> VortexResult<bool> {
-        Ok(array.codes().all_invalid()? || array.values().all_invalid()?)
+    fn all_invalid(array: &DictArray) -> bool {
+        array.codes().all_invalid() || array.values().all_invalid()
     }
 
-    fn validity_mask(array: &DictArray) -> VortexResult<Mask> {
-        let codes_validity = array.codes().validity_mask()?;
+    fn validity_mask(array: &DictArray) -> Mask {
+        let codes_validity = array.codes().validity_mask();
         match codes_validity.boolean_buffer() {
             AllOr::All => {
-                let primitive_codes = array.codes().to_primitive()?;
-                let values_mask = array.values().validity_mask()?;
+                let primitive_codes = array
+                    .codes()
+                    .to_primitive()
+                    .vortex_expect("dict codes must be primitive");
+                let values_mask = array.values().validity_mask();
                 let is_valid_buffer = match_each_integer_ptype!(primitive_codes.ptype(), |P| {
                     let codes_slice = primitive_codes.as_slice::<P>();
                     BooleanBuffer::collect_bool(array.len(), |idx| {
@@ -188,12 +191,15 @@ impl ValidityVTable<DictVTable> for DictVTable {
                         values_mask.value(codes_slice[idx] as usize)
                     })
                 });
-                Ok(Mask::from_buffer(is_valid_buffer))
+                Mask::from_buffer(is_valid_buffer)
             }
-            AllOr::None => Ok(Mask::AllFalse(array.len())),
+            AllOr::None => Mask::AllFalse(array.len()),
             AllOr::Some(validity_buff) => {
-                let primitive_codes = array.codes().to_primitive()?;
-                let values_mask = array.values().validity_mask()?;
+                let primitive_codes = array
+                    .codes()
+                    .to_primitive()
+                    .vortex_expect("dict codes must be primitive");
+                let values_mask = array.values().validity_mask();
                 let is_valid_buffer = match_each_integer_ptype!(primitive_codes.ptype(), |P| {
                     let codes_slice = primitive_codes.as_slice::<P>();
                     #[allow(clippy::cast_possible_truncation)]
@@ -201,7 +207,7 @@ impl ValidityVTable<DictVTable> for DictVTable {
                         validity_buff.value(idx) && values_mask.value(codes_slice[idx] as usize)
                     })
                 });
-                Ok(Mask::from_buffer(is_valid_buffer))
+                Mask::from_buffer(is_valid_buffer)
             }
         }
     }
@@ -236,7 +242,7 @@ mod test {
             PrimitiveArray::new(buffer![3, 6, 9], Validity::AllValid).into_array(),
         )
         .unwrap();
-        let mask = dict.validity_mask().unwrap();
+        let mask = dict.validity_mask();
         let AllOr::Some(indices) = mask.indices() else {
             vortex_panic!("Expected indices from mask")
         };
@@ -254,7 +260,7 @@ mod test {
             .into_array(),
         )
         .unwrap();
-        let mask = dict.validity_mask().unwrap();
+        let mask = dict.validity_mask();
         let AllOr::Some(indices) = mask.indices() else {
             vortex_panic!("Expected indices from mask")
         };
@@ -276,7 +282,7 @@ mod test {
             .into_array(),
         )
         .unwrap();
-        let mask = dict.validity_mask().unwrap();
+        let mask = dict.validity_mask();
         let AllOr::Some(indices) = mask.indices() else {
             vortex_panic!("Expected indices from mask")
         };
@@ -332,8 +338,8 @@ mod test {
 
         assert_eq!(into_prim.as_slice::<u64>(), prim_into.as_slice::<u64>());
         assert_eq!(
-            into_prim.validity_mask().unwrap().boolean_buffer(),
-            prim_into.validity_mask().unwrap().boolean_buffer()
+            into_prim.validity_mask().boolean_buffer(),
+            prim_into.validity_mask().boolean_buffer()
         )
     }
 }

@@ -204,9 +204,7 @@ fn test_cast_allvalid_to_nonnullable_and_back(array: &dyn Array) {
     }
 
     // Only test if array has no nulls
-    if let Ok(null_count) = array.invalid_count()
-        && null_count == 0
-    {
+    if array.invalid_count() == 0 {
         // Test casting to NonNullable if currently Nullable
         if array.dtype().nullability() == Nullability::Nullable {
             let non_nullable_dtype = array.dtype().with_nullability(Nullability::NonNullable);

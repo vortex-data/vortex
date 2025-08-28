@@ -259,7 +259,7 @@ impl ArrayBuilder for DecimalBuilder {
             self.extend_from_buffer(&array.buffer::<D>())
         });
 
-        self.extend_with_validity_mask(array.validity_mask()?);
+        self.extend_with_validity_mask(array.validity_mask());
 
         Ok(())
     }

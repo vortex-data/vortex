@@ -178,7 +178,7 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
         let last_offset = usize::try_from(&last_offset)?;
         let non_junk_values = elements.slice(n_leading_junk_values..last_offset);
 
-        self.nulls.append_validity_mask(array.validity_mask()?);
+        self.nulls.append_validity_mask(array.validity_mask());
         self.index_builder
             .extend_from_array(&offsets_into_builder)?;
         self.value_builder.ensure_capacity(non_junk_values.len());

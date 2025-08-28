@@ -20,7 +20,7 @@ pub fn slice_canonical_array(
     stop: usize,
 ) -> VortexResult<ArrayRef> {
     let validity = if array.dtype().is_nullable() {
-        let bool_buff = array.validity_mask()?.to_boolean_buffer();
+        let bool_buff = array.validity_mask().to_boolean_buffer();
         Validity::from(bool_buff.slice(start, stop - start))
     } else {
         Validity::NonNullable

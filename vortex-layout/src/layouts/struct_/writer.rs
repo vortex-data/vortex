@@ -63,7 +63,7 @@ where
 
         let stream = stream.map(|chunk| {
             let (sequence_id, chunk) = chunk?;
-            if !chunk.all_valid()? {
+            if !chunk.all_valid() {
                 vortex_bail!("Cannot push struct chunks with top level invalid values");
             };
             Ok((sequence_id, chunk))

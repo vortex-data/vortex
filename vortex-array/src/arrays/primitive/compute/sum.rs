@@ -16,7 +16,7 @@ use crate::stats::Stat;
 
 impl SumKernel for PrimitiveVTable {
     fn sum(&self, array: &PrimitiveArray) -> VortexResult<Scalar> {
-        Ok(match array.validity_mask()?.boolean_buffer() {
+        Ok(match array.validity_mask().boolean_buffer() {
             AllOr::All => {
                 // All-valid
                 match_each_native_ptype!(

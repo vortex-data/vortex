@@ -17,7 +17,7 @@ use crate::vtable::ValidityHelper;
 
 impl PipelineVTable<PrimitiveVTable> for PrimitiveVTable {
     fn to_operator(array: &PrimitiveArray) -> VortexResult<Option<Rc<dyn Operator>>> {
-        if !array.validity().all_valid()? {
+        if !array.validity().all_valid() {
             vortex_bail!(
                 "PipelineVTable::to_operator is not supported for arrays with invalid values"
             );

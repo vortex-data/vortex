@@ -101,12 +101,12 @@ fn choose_max_dict_size(uncompressed_size: usize) -> usize {
 }
 
 fn collect_valid_primitive(parray: &PrimitiveArray) -> VortexResult<PrimitiveArray> {
-    let mask = parray.validity_mask()?;
+    let mask = parray.validity_mask();
     filter(&parray.to_array(), &mask)?.to_primitive()
 }
 
 fn collect_valid_vbv(vbv: &VarBinViewArray) -> VortexResult<(ByteBuffer, Vec<usize>)> {
-    let mask = vbv.validity_mask()?;
+    let mask = vbv.validity_mask();
     let buffer_and_value_byte_indices = match mask.boolean_buffer() {
         AllOr::None => (Buffer::empty(), Vec::new()),
         _ => {
@@ -375,7 +375,7 @@ impl ZstdArray {
         let slice_n_rows = self.slice_stop - self.slice_start;
         let slice_value_indices = self
             .unsliced_validity
-            .to_mask(self.unsliced_n_rows)?
+            .to_mask(self.unsliced_n_rows)
             .valid_counts_for_indices(&[self.slice_start, self.slice_stop])?;
 
         let slice_value_idx_start = slice_value_indices[0];

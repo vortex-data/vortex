@@ -35,7 +35,7 @@ impl SumKernel for DecimalVTable {
         let decimal_dtype = array.decimal_dtype();
         let nullability = array.dtype.nullability();
 
-        match array.validity_mask()? {
+        match array.validity_mask() {
             Mask::AllFalse(_) => {
                 vortex_bail!("invalid state, all-null array should be checked by top-level sum fn")
             }

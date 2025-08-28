@@ -108,7 +108,7 @@ where
         .to_primitive()?
         .into_buffer()
         .into_arrow_scalar_buffer();
-    let nulls = array.temporal_values().validity_mask()?.to_null_buffer();
+    let nulls = array.temporal_values().validity_mask().to_null_buffer();
     Ok(ArrowPrimitiveArray::<T>::new(values, nulls))
 }
 

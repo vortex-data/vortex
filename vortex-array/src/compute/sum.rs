@@ -129,7 +129,7 @@ pub fn sum_impl(
     }
 
     // Sum of all null is null.
-    if array.all_invalid()? {
+    if array.all_invalid() {
         return Ok(Scalar::null(sum_dtype));
     }
 
