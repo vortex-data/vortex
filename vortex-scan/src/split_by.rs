@@ -7,9 +7,8 @@ use std::ops::Range;
 use itertools::Itertools;
 use vortex_array::stats::StatBound;
 use vortex_dtype::FieldMask;
-use vortex_error::{VortexResult, vortex_err};
-
-use crate::LayoutReader;
+use vortex_error::{vortex_err, VortexResult};
+use vortex_layout::LayoutReaderRef;
 
 /// Defines how the Vortex file is split into batches for reading.
 ///
@@ -29,7 +28,7 @@ impl SplitBy {
     // TODO(ngates): remove this once layout readers are stream based.
     pub(crate) fn splits(
         &self,
-        layout_reader: &dyn LayoutReader,
+        layout_reader: &LayoutReaderRef,
         field_mask: &[FieldMask],
     ) -> VortexResult<Vec<Range<u64>>> {
         Ok(match *self {

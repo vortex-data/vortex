@@ -26,10 +26,10 @@ use crate::{
     NoOpPruningEvaluation, PruningEvaluation,
 };
 
-pub struct StructReader {
+pub struct StructReader<'handle> {
     layout: StructLayout,
     name: Arc<str>,
-    lazy_children: LazyReaderChildren,
+    lazy_children: LazyReaderChildren<'handle>,
 
     /// A `pack` expression that holds each individual field of the root DType. This expansion
     /// ensures we can correctly partition expressions over the fields of the struct.
@@ -39,11 +39,12 @@ pub struct StructReader {
     partitioned_expr_cache: DashMap<ExactExpr, Partitioned>,
 }
 
-impl StructReader {
+impl<'handle> StructReader<'handle> {
     pub(super) fn try_new(
         layout: StructLayout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
+        handle: Handle<'handle>,
     ) -> VortexResult<Self> {
         let struct_dt = layout.struct_fields();
 
@@ -58,7 +59,7 @@ impl StructReader {
         });
 
         let lazy_children =
-            LazyReaderChildren::new(layout.children.clone(), segment_source.clone());
+            LazyReaderChildren::new(layout.children.clone(), segment_source.clone(), handle);
 
         // Create an expanded root expression that contains all fields of the struct.
         let expanded_root_expr = replace_root_fields(root(), struct_dt);
@@ -81,7 +82,7 @@ impl StructReader {
     }
 
     /// Return the child reader for the field.
-    fn child(&self, name: &FieldName) -> VortexResult<&LayoutReaderRef> {
+    fn child(&self, name: &FieldName) -> VortexResult<&LayoutReaderRef<'handle>> {
         let idx = self
             .field_lookup
             .as_ref()
@@ -92,7 +93,7 @@ impl StructReader {
     }
 
     /// Return the child reader for the field, by index.
-    fn child_by_idx(&self, idx: usize) -> VortexResult<&LayoutReaderRef> {
+    fn child_by_idx(&self, idx: usize) -> VortexResult<&LayoutReaderRef<'handle>> {
         let field_dtype = self
             .struct_fields()
             .field_by_index(idx)
@@ -162,7 +163,7 @@ enum Partitioned {
     Multi(Arc<PartitionedExpr<FieldName>>),
 }
 
-impl LayoutReader for StructReader {
+impl<'handle> LayoutReader<'handle> for StructReader<'handle> {
     fn name(&self) -> &Arc<str> {
         &self.name
     }
@@ -194,13 +195,12 @@ impl LayoutReader for StructReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        handle: &Handle,
-    ) -> VortexResult<Box<dyn PruningEvaluation>> {
+    ) -> VortexResult<Box<dyn PruningEvaluation<'handle>>> {
         // Partition the expression into expressions that can be evaluated over individual fields
         match &self.partition_expr(expr.clone()) {
-            Partitioned::Single(name, partition) => self
-                .child(name)?
-                .pruning_evaluation(row_range, partition, handle),
+            Partitioned::Single(name, partition) => {
+                self.child(name)?.pruning_evaluation(row_range, partition)
+            }
             Partitioned::Multi(_) => {
                 // TODO(ngates): if all partitions are boolean, we can use a pruning evaluation. Otherwise
                 //  there's not much we can do? Maybe... it's complicated...
@@ -213,20 +213,16 @@ impl LayoutReader for StructReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        handle: &Handle,
-    ) -> VortexResult<Box<dyn MaskEvaluation>> {
+    ) -> VortexResult<Box<dyn MaskEvaluation<'handle>>> {
         // Partition the expression into expressions that can be evaluated over individual fields
         match &self.partition_expr(expr.clone()) {
-            Partitioned::Single(name, partition) => self
-                .child(name)?
-                .filter_evaluation(row_range, partition, handle),
+            Partitioned::Single(name, partition) => {
+                self.child(name)?.filter_evaluation(row_range, partition)
+            }
             Partitioned::Multi(partitioned) => Ok(Box::new(PartitionedMaskEvaluation::try_new(
                 partitioned.clone(),
-                |name, expr| self.child(name)?.filter_evaluation(row_range, expr, handle),
-                |name, expr| {
-                    self.child(name)?
-                        .projection_evaluation(row_range, expr, handle)
-                },
+                |name, expr| self.child(name)?.filter_evaluation(row_range, expr),
+                |name, expr| self.child(name)?.projection_evaluation(row_range, expr),
             )?)),
         }
     }
@@ -235,19 +231,15 @@ impl LayoutReader for StructReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        handle: &Handle,
-    ) -> VortexResult<Box<dyn ArrayEvaluation>> {
+    ) -> VortexResult<Box<dyn ArrayEvaluation<'handle>>> {
         // Partition the expression into expressions that can be evaluated over individual fields
         match &self.partition_expr(expr.clone()) {
             Partitioned::Single(name, partition) => self
                 .child(name)?
-                .projection_evaluation(row_range, partition, handle),
+                .projection_evaluation(row_range, partition),
             Partitioned::Multi(partitioned) => Ok(Box::new(PartitionedArrayEvaluation::try_new(
                 partitioned.clone(),
-                |name, expr| {
-                    self.child(name)?
-                        .projection_evaluation(row_range, expr, handle)
-                },
+                |name, expr| self.child(name)?.projection_evaluation(row_range, expr),
             )?)),
         }
     }

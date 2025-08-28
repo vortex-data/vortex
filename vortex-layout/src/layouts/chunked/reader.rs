@@ -27,19 +27,20 @@ use crate::{
 };
 
 /// A [`LayoutReader`] for chunked layouts.
-pub struct ChunkedReader {
+pub struct ChunkedReader<'handle> {
     layout: ChunkedLayout,
     name: Arc<str>,
-    lazy_children: LazyReaderChildren,
+    lazy_children: LazyReaderChildren<'handle>,
     /// Row offset for each chunk
     chunk_offsets: Vec<u64>,
 }
 
-impl ChunkedReader {
+impl<'handle> ChunkedReader<'handle> {
     pub fn new(
         layout: ChunkedLayout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
+        handle: Handle<'handle>,
     ) -> Self {
         let nchildren = layout.nchildren();
 
@@ -50,7 +51,8 @@ impl ChunkedReader {
         chunk_offsets.push(layout.row_count());
         debug_assert_eq!(chunk_offsets.len(), nchildren + 1);
 
-        let lazy_children = LazyReaderChildren::new(layout.children.clone(), segment_source);
+        let lazy_children =
+            LazyReaderChildren::new(layout.children.clone(), segment_source, handle);
 
         Self {
             layout,
@@ -61,7 +63,7 @@ impl ChunkedReader {
     }
 
     /// Return the [`LayoutReader`] for the given chunk.
-    fn chunk_reader(&self, idx: usize) -> VortexResult<&LayoutReaderRef> {
+    fn chunk_reader(&self, idx: usize) -> VortexResult<&LayoutReaderRef<'handle>> {
         self.lazy_children.get(
             idx,
             self.layout.dtype(),
@@ -139,7 +141,7 @@ impl ChunkedReader {
     }
 }
 
-impl LayoutReader for ChunkedReader {
+impl<'handle> LayoutReader<'handle> for ChunkedReader<'handle> {
     fn name(&self) -> &Arc<str> {
         &self.name
     }
@@ -172,7 +174,7 @@ impl LayoutReader for ChunkedReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn PruningEvaluation>> {
+    ) -> VortexResult<Box<dyn PruningEvaluation<'handle>>> {
         let mut chunk_evals = vec![];
         let mut mask_ranges = vec![];
 
@@ -194,7 +196,7 @@ impl LayoutReader for ChunkedReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn MaskEvaluation>> {
+    ) -> VortexResult<Box<dyn MaskEvaluation<'handle>>> {
         let mut chunk_evals = vec![];
         let mut mask_ranges = vec![];
 
@@ -216,7 +218,7 @@ impl LayoutReader for ChunkedReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn ArrayEvaluation>> {
+    ) -> VortexResult<Box<dyn ArrayEvaluation<'handle>>> {
         let dtype = expr.return_dtype(self.dtype())?;
         let mut chunk_evals = vec![];
         let mut mask_ranges = vec![];
@@ -236,14 +238,14 @@ impl LayoutReader for ChunkedReader {
     }
 }
 
-struct ChunkedPruningEvaluation {
+struct ChunkedPruningEvaluation<'handle> {
     name: Arc<str>,
-    chunk_evals: Vec<Box<dyn PruningEvaluation>>,
+    chunk_evals: Vec<Box<dyn PruningEvaluation<'handle>>>,
     mask_ranges: Vec<Range<usize>>,
 }
 
 #[async_trait]
-impl PruningEvaluation for ChunkedPruningEvaluation {
+impl<'handle> PruningEvaluation<'handle> for ChunkedPruningEvaluation<'handle> {
     async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
         log::debug!(
             "Chunked pruning evaluation {} (mask = {})",
@@ -279,15 +281,15 @@ impl PruningEvaluation for ChunkedPruningEvaluation {
     }
 }
 
-struct ChunkedMaskEvaluation {
+struct ChunkedMaskEvaluation<'handle> {
     name: Arc<str>,
-    chunk_evals: Vec<Box<dyn MaskEvaluation>>,
+    chunk_evals: Vec<Box<dyn MaskEvaluation<'handle>>>,
     mask_ranges: Vec<Range<usize>>,
 }
 
 #[async_trait]
-impl MaskEvaluation for ChunkedMaskEvaluation {
-    async fn invoke(&self, mask: Mask, handle: &Handle) -> VortexResult<Mask> {
+impl<'handle> MaskEvaluation<'handle> for ChunkedMaskEvaluation<'handle> {
+    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
         log::debug!(
             "Chunked mask evaluation {} (mask = {})",
             self.name,
@@ -305,7 +307,7 @@ impl MaskEvaluation for ChunkedMaskEvaluation {
                         // If the mask is all false, we can skip the evaluation.
                         ready(Ok(mask)).boxed()
                     } else {
-                        chunk_eval.invoke(mask, handle).boxed()
+                        chunk_eval.invoke(mask).boxed()
                     }
                 }),
         )
@@ -322,15 +324,15 @@ impl MaskEvaluation for ChunkedMaskEvaluation {
     }
 }
 
-struct ChunkedArrayEvaluation {
+struct ChunkedArrayEvaluation<'handle> {
     dtype: DType,
-    chunk_evals: Vec<Box<dyn ArrayEvaluation>>,
+    chunk_evals: Vec<Box<dyn ArrayEvaluation<'handle>>>,
     mask_ranges: Vec<Range<usize>>,
 }
 
 #[async_trait]
-impl ArrayEvaluation for ChunkedArrayEvaluation {
-    async fn invoke(&self, mask: Mask, _handle: &Handle) -> VortexResult<ArrayRef> {
+impl<'handle> ArrayEvaluation<'handle> for ChunkedArrayEvaluation<'handle> {
+    async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
         // Split the mask over each chunk.
         let chunks: Vec<_> = FuturesOrdered::from_iter(
             self.mask_ranges

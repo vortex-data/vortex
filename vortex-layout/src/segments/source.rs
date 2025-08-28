@@ -7,11 +7,11 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
 
-/// Static future resolving to a segment byte buffer.
-pub type SegmentFuture = BoxFuture<'static, VortexResult<ByteBuffer>>;
+/// Future resolving to a segment byte buffer that depends only on the runtime.
+pub type SegmentFuture<'handle> = BoxFuture<'handle, VortexResult<ByteBuffer>>;
 
 /// A trait for providing segment data to a [`crate::LayoutReader`].
 pub trait SegmentSource: 'static + Send + Sync {
     /// Request a segment, returning a future that will eventually resolve to the segment data.
-    fn request(&self, id: SegmentId, handle: &Handle) -> SegmentFuture;
+    fn request<'handle>(&self, id: SegmentId, handle: &Handle<'handle>) -> SegmentFuture<'handle>;
 }

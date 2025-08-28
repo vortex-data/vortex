@@ -22,7 +22,7 @@ use vortex::utils::aliases::DefaultHashBuilder;
 
 #[derive(Clone)]
 pub(crate) struct VortexFileCache {
-    file_cache: Cache<FileKey, VortexFile, DefaultHashBuilder>,
+    footer_cache: Cache<FileKey, Footer, DefaultHashBuilder>,
     segment_cache: Cache<SegmentKey, ByteBuffer, DefaultHashBuilder>,
     session: Arc<VortexSession>,
 }
@@ -54,12 +54,10 @@ impl VortexFileCache {
     pub fn new(size_mb: usize, segment_size_mb: usize, session: Arc<VortexSession>) -> Self {
         let file_cache = Cache::builder()
             .max_capacity(size_mb as u64 * (1 << 20))
-            .eviction_listener(|k: Arc<FileKey>, _v: VortexFile, cause| {
+            .eviction_listener(|k: Arc<FileKey>, _v: Footer, cause| {
                 log::trace!("Removed {k:?} due to {cause:?}");
             })
-            .weigher(|_k, vxf| {
-                u32::try_from(estimate_layout_size(vxf.footer())).unwrap_or(u32::MAX)
-            })
+            .weigher(|_k, footer| u32::try_from(estimate_layout_size(footer)).unwrap_or(u32::MAX))
             .build_with_hasher(DefaultHashBuilder::default());
 
         let segment_cache = Cache::builder()
@@ -71,23 +69,25 @@ impl VortexFileCache {
             .build_with_hasher(DefaultHashBuilder::default());
 
         Self {
-            file_cache,
+            footer_cache: file_cache,
             segment_cache,
             session,
         }
     }
 
-    pub async fn try_get(
+    pub async fn try_get<'handle>(
         &self,
         object: &ObjectMeta,
         object_store: Arc<dyn ObjectStore>,
-        handle: Handle,
-    ) -> VortexResult<VortexFile> {
+        handle: Handle<'handle>,
+    ) -> VortexResult<VortexFile<'handle>> {
         let file_key = FileKey::from(object);
-        self.file_cache
-            .try_get_with(
-                file_key.clone(),
-                VortexOpenOptions::file()
+        let object_store2 = object_store.clone();
+        let handle2 = handle.clone();
+        let footer = self
+            .footer_cache
+            .try_get_with(file_key.clone(), async move {
+                Ok(VortexOpenOptions::file()
                     // FIXME(ngates): we don't really want to clone on every open...
                     .with_array_registry(Arc::new(self.session.arrays().clone()))
                     .with_layout_registry(Arc::new(self.session.layouts().clone()))
@@ -97,16 +97,29 @@ impl VortexFileCache {
                             .child_with_tags([("filename", object.location.to_string())]),
                     )
                     .with_file_size(object.size)
-                    .with_segment_cache(Arc::new(VortexFileSegmentCache {
-                        file_key,
-                        segment_cache: self.segment_cache.clone(),
-                    }))
-                    .open_object_store(&object_store, object.location.as_ref(), handle),
-            )
-            .await
-            .map_err(|e: Arc<VortexError>| {
-                Arc::try_unwrap(e).unwrap_or_else(|e| vortex_err!("{}", e.to_string()))
+                    .open_object_store(object_store2, object.location.as_ref(), handle2)
+                    .await?
+                    .into_footer())
             })
+            .await?;
+
+        // We re-open the cached footer (this doesn't perform any I/O).
+        VortexOpenOptions::file()
+            // FIXME(ngates): we don't really want to clone on every open...
+            .with_array_registry(Arc::new(self.session.arrays().clone()))
+            .with_layout_registry(Arc::new(self.session.layouts().clone()))
+            .with_metrics(
+                self.session
+                    .metrics()
+                    .child_with_tags([("filename", object.location.to_string())]),
+            )
+            .with_footer(footer)
+            .with_segment_cache(Arc::new(VortexFileSegmentCache {
+                file_key,
+                segment_cache: self.segment_cache.clone(),
+            }))
+            .open_object_store(object_store, object.location.as_ref(), handle)
+            .await
     }
 }
 

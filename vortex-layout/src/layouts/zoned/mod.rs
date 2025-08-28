@@ -8,19 +8,19 @@ pub mod zone_map;
 
 use std::sync::Arc;
 
-pub use builder::{MAX_IS_TRUNCATED, MIN_IS_TRUNCATED, lower_bound, upper_bound};
-use vortex_array::stats::{Stat, as_stat_bitset_bytes, stats_from_bitset_bytes};
-use vortex_array::{ArrayContext, DeserializeMetadata, SerializeMetadata};
-use vortex_dtype::{DType, TryFromBytes};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
-
 use crate::children::LayoutChildren;
 use crate::layouts::zoned::reader::ZonedReader;
 use crate::layouts::zoned::zone_map::ZoneMap;
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{
-    LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable, vtable,
+    vtable, LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable,
 };
+pub use builder::{lower_bound, upper_bound, MAX_IS_TRUNCATED, MIN_IS_TRUNCATED};
+use vortex_array::stats::{as_stat_bitset_bytes, stats_from_bitset_bytes, Stat};
+use vortex_array::{ArrayContext, DeserializeMetadata, SerializeMetadata};
+use vortex_dtype::{DType, TryFromBytes};
+use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
+use vortex_io::runtime::Handle;
 
 vtable!(Zoned);
 
@@ -76,15 +76,17 @@ impl VTable for ZonedVTable {
         }
     }
 
-    fn new_reader(
+    fn new_reader<'handle>(
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-    ) -> VortexResult<LayoutReaderRef> {
+        handle: Handle<'handle>,
+    ) -> VortexResult<LayoutReaderRef<'handle>> {
         Ok(Arc::new(ZonedReader::try_new(
             layout.clone(),
             name,
             segment_source,
+            handle,
         )?))
     }
 
@@ -186,7 +188,6 @@ impl SerializeMetadata for ZonedMetadata {
 
 #[cfg(test)]
 mod tests {
-
     use rstest::rstest;
 
     use super::*;

@@ -31,24 +31,27 @@ use crate::{
 //  actual expression? Perhaps all expressions are given a selection mask to decide for themselves?
 const EXPR_EVAL_THRESHOLD: f64 = 0.2;
 
-pub struct FlatReader {
+pub struct FlatReader<'handle> {
     layout: FlatLayout,
     name: Arc<str>,
     segment_source: Arc<dyn SegmentSource>,
-    array: OnceLock<SharedArrayFuture>,
+    array: OnceLock<SharedArrayFuture<'handle>>,
+    handle: Handle<'handle>,
 }
 
-impl FlatReader {
+impl<'handle> FlatReader<'handle> {
     pub(crate) fn new(
         layout: FlatLayout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
+        handle: Handle<'handle>,
     ) -> Self {
         Self {
             layout,
             name,
             segment_source,
             array: Default::default(),
+            handle,
         }
     }
 
@@ -59,7 +62,7 @@ impl FlatReader {
     // TODO(ngates): caching this and ignoring SegmentReaders may be a terrible idea... we may
     //  instead want to store all segment futures and race them, so if a layout requests a
     //  projection future before a pruning future, the pruning isn't blocked.
-    fn array_future(&self, handle: &Handle) -> VortexResult<SharedArrayFuture> {
+    fn array_future(&self) -> VortexResult<SharedArrayFuture<'handle>> {
         let row_count = usize::try_from(self.layout.row_count()).vortex_unwrap();
 
         // We create the segment_fut here to ensure we give the segment reader visibility into
@@ -67,7 +70,7 @@ impl FlatReader {
         // This is gross... see the function's TODO for a maybe better solution?
         let segment_fut = self
             .segment_source
-            .request(self.layout.segment_id(), handle);
+            .request(self.layout.segment_id(), &self.handle);
 
         Ok(self
             .array
@@ -87,7 +90,7 @@ impl FlatReader {
     }
 }
 
-impl LayoutReader for FlatReader {
+impl<'handle> LayoutReader<'handle> for FlatReader<'handle> {
     fn name(&self) -> &Arc<str> {
         &self.name
     }
@@ -114,8 +117,7 @@ impl LayoutReader for FlatReader {
         &self,
         _row_range: &Range<u64>,
         _expr: &ExprRef,
-        _handle: &Handle,
-    ) -> VortexResult<Box<dyn PruningEvaluation>> {
+    ) -> VortexResult<Box<dyn PruningEvaluation<'handle>>> {
         Ok(Box::new(NoOpPruningEvaluation))
     }
 
@@ -123,8 +125,7 @@ impl LayoutReader for FlatReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        handle: &Handle,
-    ) -> VortexResult<Box<dyn MaskEvaluation>> {
+    ) -> VortexResult<Box<dyn MaskEvaluation<'handle>>> {
         let row_range = usize::try_from(row_range.start)
             .vortex_expect("Row range begin must fit within FlatLayout size")
             ..usize::try_from(row_range.end)
@@ -132,10 +133,10 @@ impl LayoutReader for FlatReader {
 
         Ok(Box::new(FlatEvaluation {
             name: self.name.clone(),
-            array: self.array_future(handle)?,
+            array: self.array_future()?,
             row_range,
             expr: expr.clone(),
-            handle: handle.clone(),
+            handle: self.handle.clone(),
         }))
     }
 
@@ -143,31 +144,32 @@ impl LayoutReader for FlatReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        handle: &Handle,
-    ) -> VortexResult<Box<dyn ArrayEvaluation>> {
+    ) -> VortexResult<Box<dyn ArrayEvaluation<'handle>>> {
         let row_range = usize::try_from(row_range.start)
             .vortex_expect("Row range begin must fit within FlatLayout size")
             ..usize::try_from(row_range.end)
                 .vortex_expect("Row range end must fit within FlatLayout size");
+
         Ok(Box::new(FlatEvaluation {
             name: self.name.clone(),
-            array: self.array_future(handle)?,
+            array: self.array_future()?,
             row_range,
             expr: expr.clone(),
-            handle: handle.clone(),
+            handle: self.handle.clone(),
         }))
     }
 }
 
-struct FlatEvaluation {
+struct FlatEvaluation<'handle> {
     name: Arc<str>,
-    array: SharedArrayFuture,
+    array: SharedArrayFuture<'handle>,
     row_range: Range<usize>,
     expr: ExprRef,
+    handle: Handle<'handle>,
 }
 
 #[async_trait]
-impl MaskEvaluation for FlatEvaluation {
+impl<'handle> MaskEvaluation<'handle> for FlatEvaluation<'handle> {
     async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
         // TODO(ngates): if the mask density is low enough, or if the mask is dense within a range
         //  (as often happens with zone map pruning), then we could slice/filter the array prior
@@ -221,7 +223,7 @@ impl MaskEvaluation for FlatEvaluation {
 }
 
 #[async_trait]
-impl ArrayEvaluation for FlatEvaluation {
+impl<'handle> ArrayEvaluation<'handle> for FlatEvaluation<'handle> {
     async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
         log::debug!(
             "Flat array evaluation {} - {} (mask = {})",

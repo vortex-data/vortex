@@ -138,7 +138,7 @@ impl SegmentCacheSourceAdapter {
 }
 
 impl SegmentSource for SegmentCacheSourceAdapter {
-    fn request(&self, id: SegmentId, handle: &Handle) -> SegmentFuture {
+    fn request<'handle>(&self, id: SegmentId, handle: &Handle<'handle>) -> SegmentFuture<'handle> {
         let cache = self.cache.clone();
         let delegate = self.source.request(id, handle);
 

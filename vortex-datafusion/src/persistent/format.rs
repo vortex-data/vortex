@@ -210,7 +210,7 @@ impl FileFormat for VortexFormat {
         let cache = self.file_cache.clone();
 
         SpawnedTask::spawn(async move {
-            let vxf = cache
+            let footer = cache
                 .try_get(&object, store.clone(), TokioRuntime::handle())
                 .await
                 .map_err(|e| {
@@ -220,17 +220,17 @@ impl FileFormat for VortexFormat {
                     ))
                 })?;
 
-            let struct_dtype = vxf
+            let struct_dtype = footer
                 .dtype()
                 .as_struct_opt()
                 .vortex_expect("dtype is not a struct");
 
             // Evaluate the statistics for each column that we are able to return to DataFusion.
-            let Some(file_stats) = vxf.file_stats() else {
+            let Some(file_stats) = footer.file_stats() else {
                 // If the file has no column stats, the best we can do is return a row count.
                 return Ok(Statistics {
                     num_rows: Precision::Exact(
-                        usize::try_from(vxf.row_count())
+                        usize::try_from(footer.row_count())
                             .map_err(|_| vortex_err!("Row count overflow"))
                             .vortex_expect("Row count overflow"),
                     ),
@@ -316,7 +316,7 @@ impl FileFormat for VortexFormat {
 
             Ok(Statistics {
                 num_rows: Precision::Exact(
-                    usize::try_from(vxf.row_count())
+                    usize::try_from(footer.row_count())
                         .map_err(|_| vortex_err!("Row count overflow"))
                         .vortex_expect("Row count overflow"),
                 ),

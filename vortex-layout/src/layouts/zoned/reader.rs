@@ -25,44 +25,49 @@ use vortex_mask::Mask;
 use crate::layouts::zoned::zone_map::ZoneMap;
 use crate::layouts::zoned::ZonedLayout;
 use crate::segments::SegmentSource;
-use crate::{ArrayEvaluation, LayoutReader, MaskEvaluation, PruningEvaluation};
+use crate::{ArrayEvaluation, LayoutReader, LayoutReaderRef, MaskEvaluation, PruningEvaluation};
 
-type SharedZoneMap = Shared<BoxFuture<'static, SharedVortexResult<ZoneMap>>>;
-type SharedPruningResult = Shared<BoxFuture<'static, SharedVortexResult<Arc<PruningResult>>>>;
+type SharedZoneMap<'handle> = Shared<BoxFuture<'handle, SharedVortexResult<ZoneMap>>>;
+type SharedPruningResult<'handle> =
+    Shared<BoxFuture<'handle, SharedVortexResult<Arc<PruningResult>>>>;
 type PredicateCache = Arc<OnceLock<Option<ExprRef>>>;
 
-pub struct ZonedReader {
+pub struct ZonedReader<'handle> {
     layout: ZonedLayout,
     name: Arc<str>,
 
     /// Data layout reader
-    data_child: Arc<dyn LayoutReader>,
+    data_child: LayoutReaderRef<'handle>,
     /// Zone map layout reader.
-    zones_child: Arc<dyn LayoutReader>,
+    zones_child: LayoutReaderRef<'handle>,
 
     /// A cache of expr -> optional pruning result (applying the pruning expr to the zone map)
-    pruning_result: DashMap<ExprRef, Option<SharedPruningResult>>,
+    pruning_result: DashMap<ExprRef, Option<SharedPruningResult<'handle>>>,
 
     /// Shared zone map
-    zone_map: OnceLock<SharedZoneMap>,
+    zone_map: OnceLock<SharedZoneMap<'handle>>,
 
     /// A cache of expr -> optional pruning predicate.
     /// This also uses the present_stats from the `ZonedLayout`
     pruning_predicates: Arc<DashMap<ExprRef, PredicateCache>>,
 }
 
-impl ZonedReader {
+impl<'handle> ZonedReader<'handle> {
     pub(super) fn try_new(
         layout: ZonedLayout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
+        handle: Handle<'handle>,
     ) -> VortexResult<Self> {
-        let data_child = layout
-            .data
-            .new_reader(name.clone(), segment_source.clone())?;
-        let zones_child = layout
-            .zones
-            .new_reader(format!("{name}.zones").into(), segment_source)?;
+        let data_child =
+            layout
+                .data
+                .new_reader(name.clone(), segment_source.clone(), handle.clone())?;
+        let zones_child = layout.zones.new_reader(
+            format!("{name}.zones").into(),
+            segment_source,
+            handle.clone(),
+        )?;
 
         Ok(Self {
             layout,
@@ -96,7 +101,7 @@ impl ZonedReader {
     ///
     /// Only the first successful caller will initialize the zone map, all other callers will
     /// resolve to the same result.
-    fn zone_map(&self, handle: &Handle) -> SharedZoneMap {
+    fn zone_map(&self) -> SharedZoneMap<'handle> {
         self.zone_map
             .get_or_init(move || {
                 let nzones = self.layout.nzones();
@@ -104,7 +109,7 @@ impl ZonedReader {
 
                 let zones_eval = self
                     .zones_child
-                    .projection_evaluation(&(0..nzones as u64), &root(), handle)
+                    .projection_evaluation(&(0..nzones as u64), &root())
                     .vortex_expect("Failed construct zone map evaluation");
 
                 async move {
@@ -123,7 +128,7 @@ impl ZonedReader {
     }
 
     /// Returns a pruning mask where `true` means the chunk _can be pruned_.
-    fn pruning_mask_future(&self, expr: ExprRef, handle: &Handle) -> Option<SharedPruningResult> {
+    fn pruning_mask_future(&self, expr: ExprRef) -> Option<SharedPruningResult<'handle>> {
         self.pruning_result
             .entry(expr.clone())
             .or_insert_with(|| match self.pruning_predicate(expr.clone()) {
@@ -133,7 +138,7 @@ impl ZonedReader {
                 }
                 Some(predicate) => {
                     log::debug!("Constructed pruning predicate for expr: {expr}: {predicate:?}");
-                    let zone_map = self.zone_map(handle);
+                    let zone_map = self.zone_map();
                     let dynamic_updates = DynamicExprUpdates::new(&expr);
 
                     Some(
@@ -173,7 +178,7 @@ impl ZonedReader {
     }
 }
 
-impl LayoutReader for ZonedReader {
+impl<'handle> LayoutReader<'handle> for ZonedReader<'handle> {
     fn name(&self) -> &Arc<str> {
         &self.name
     }
@@ -200,14 +205,11 @@ impl LayoutReader for ZonedReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        handle: &Handle,
-    ) -> VortexResult<Box<dyn PruningEvaluation>> {
+    ) -> VortexResult<Box<dyn PruningEvaluation<'handle>>> {
         log::debug!("Stats pruning evaluation: {} - {}", &self.name, expr);
-        let data_eval = self
-            .data_child
-            .pruning_evaluation(row_range, expr, handle)?;
+        let data_eval = self.data_child.pruning_evaluation(row_range, expr)?;
 
-        let Some(pruning_mask_future) = self.pruning_mask_future(expr.clone(), handle) else {
+        let Some(pruning_mask_future) = self.pruning_mask_future(expr.clone()) else {
             log::debug!("Stats pruning evaluation: not prune-able {expr}");
             return Ok(data_eval);
         };
@@ -245,40 +247,37 @@ impl LayoutReader for ZonedReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        handle: &Handle,
-    ) -> VortexResult<Box<dyn MaskEvaluation>> {
-        self.data_child.filter_evaluation(row_range, expr, handle)
+    ) -> VortexResult<Box<dyn MaskEvaluation<'handle>>> {
+        self.data_child.filter_evaluation(row_range, expr)
     }
 
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-        handle: &Handle,
-    ) -> VortexResult<Box<dyn ArrayEvaluation>> {
+    ) -> VortexResult<Box<dyn ArrayEvaluation<'handle>>> {
         // TODO(ngates): there are some projection expressions that we may also be able to
         //  short-circuit with statistics.
-        self.data_child
-            .projection_evaluation(row_range, expr, handle)
+        self.data_child.projection_evaluation(row_range, expr)
     }
 }
 
-struct ZoneMapPruningEvaluation {
+struct ZoneMapPruningEvaluation<'handle> {
     name: Arc<str>,
     expr: ExprRef,
     /// A mask indicating zones which have no matching values.
     /// A false value indicates the corresponding zone may have a matching value.
-    pruning_mask_future: SharedPruningResult,
+    pruning_mask_future: SharedPruningResult<'handle>,
     /// The set of zone IDs that are available to the evaluation.
     zone_range: Range<u64>,
     /// The lengths of each zone in the zone_range.
     zone_lengths: Vec<usize>,
     /// The evaluation of the data child.
-    data_eval: Box<dyn PruningEvaluation>,
+    data_eval: Box<dyn PruningEvaluation<'handle>>,
 }
 
 #[async_trait]
-impl PruningEvaluation for ZoneMapPruningEvaluation {
+impl<'handle> PruningEvaluation<'handle> for ZoneMapPruningEvaluation<'handle> {
     async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
         log::debug!(
             "Invoking stats pruning evaluation {}: {}",

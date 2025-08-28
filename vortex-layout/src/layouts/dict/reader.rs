@@ -26,7 +26,7 @@ use crate::{
     PruningEvaluation,
 };
 
-pub struct DictReader {
+pub struct DictReader<'handle> {
     layout: DictLayout,
     #[allow(dead_code)] // Typically used for logging
     name: Arc<str>,
@@ -34,27 +34,31 @@ pub struct DictReader {
     /// Length of the values array
     values_len: usize,
     /// Cached dict values array
-    values_array: OnceLock<SharedArrayFuture>,
+    values_array: OnceLock<SharedArrayFuture<'handle>>,
     /// Cache of expression evaluation results on the values array by expression
-    values_evals: DashMap<ExprRef, SharedArrayFuture>,
+    values_evals: DashMap<ExprRef, SharedArrayFuture<'handle>>,
 
-    values: LayoutReaderRef,
-    codes: LayoutReaderRef,
+    values: LayoutReaderRef<'handle>,
+    codes: LayoutReaderRef<'handle>,
 }
 
-impl DictReader {
+impl<'handle> DictReader<'handle> {
     pub(super) fn try_new(
         layout: DictLayout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
+        handle: Handle<'handle>,
     ) -> VortexResult<Self> {
         let values_len = usize::try_from(layout.values.row_count())?;
-        let values = layout
-            .values
-            .new_reader(format!("{name}.values").into(), segment_source.clone())?;
-        let codes = layout
-            .codes
-            .new_reader(format!("{name}.codes").into(), segment_source)?;
+        let values = layout.values.new_reader(
+            format!("{name}.values").into(),
+            segment_source.clone(),
+            handle.clone(),
+        )?;
+        let codes =
+            layout
+                .codes
+                .new_reader(format!("{name}.codes").into(), segment_source, handle)?;
 
         Ok(Self {
             layout,
@@ -67,7 +71,7 @@ impl DictReader {
         })
     }
 
-    fn values_array(&self) -> SharedArrayFuture {
+    fn values_array(&self) -> SharedArrayFuture<'handle> {
         // We capture the name, so it may be wrong if we re-use the same reader within multiple
         // different parent readers. But that's rare...
         let values_len = self.values_len;
@@ -82,7 +86,7 @@ impl DictReader {
                     // FIXME(ngates): the fact we don't have a handle is IMPORtANT! It's because
                     //  this future can be shared by two different callers. Which is dumb. Or we
                     //  make the whole evaluation have a handle lifetime?
-                    eval.invoke(Mask::new_true(values_len), handle)
+                    eval.invoke(Mask::new_true(values_len))
                         .await
                         .map_err(Arc::new)
                 }
@@ -92,7 +96,7 @@ impl DictReader {
             .clone()
     }
 
-    fn values_eval(&self, expr: ExprRef) -> SharedArrayFuture {
+    fn values_eval(&self, expr: ExprRef) -> SharedArrayFuture<'handle> {
         self.values_evals
             .entry(expr.clone())
             .or_insert_with(|| {
@@ -105,7 +109,7 @@ impl DictReader {
     }
 }
 
-impl LayoutReader for DictReader {
+impl<'handle> LayoutReader<'handle> for DictReader<'handle> {
     fn name(&self) -> &Arc<str> {
         &self.name
     }
@@ -131,7 +135,7 @@ impl LayoutReader for DictReader {
         &self,
         _row_range: &Range<u64>,
         _expr: &ExprRef,
-    ) -> VortexResult<Box<dyn PruningEvaluation>> {
+    ) -> VortexResult<Box<dyn PruningEvaluation<'handle>>> {
         // NOTE: we can get the values here, convert expression to the codes domain, and push down
         // to the codes child. We don't do that here because:
         // - Reading values only for an approx filter is expensive
@@ -143,7 +147,7 @@ impl LayoutReader for DictReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn MaskEvaluation>> {
+    ) -> VortexResult<Box<dyn MaskEvaluation<'handle>>> {
         let values_eval = self.values_eval(expr.clone());
 
         // We register interest on the entire codes row_range for now, there
@@ -161,7 +165,7 @@ impl LayoutReader for DictReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn ArrayEvaluation>> {
+    ) -> VortexResult<Box<dyn ArrayEvaluation<'handle>>> {
         let values_eval = self.values_eval(root());
         let codes_eval = self.codes.projection_evaluation(row_range, &root())?;
         Ok(Box::new(DictArrayEvaluation {
@@ -172,14 +176,14 @@ impl LayoutReader for DictReader {
     }
 }
 
-struct DictMaskEvaluation {
-    values_eval: SharedArrayFuture,
-    codes_eval: Box<dyn ArrayEvaluation>,
+struct DictMaskEvaluation<'handle> {
+    values_eval: SharedArrayFuture<'handle>,
+    codes_eval: Box<dyn ArrayEvaluation<'handle>>,
 }
 
 #[async_trait]
-impl MaskEvaluation for DictMaskEvaluation {
-    async fn invoke(&self, mask: Mask, handle: &Handle) -> VortexResult<Mask> {
+impl<'handle> MaskEvaluation<'handle> for DictMaskEvaluation<'handle> {
+    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
         if mask.all_false() {
             return Ok(mask);
         }
@@ -194,18 +198,12 @@ impl MaskEvaluation for DictMaskEvaluation {
             }
             if min.as_bool().value().unwrap_or(false) {
                 // All values are true, but we still need to respect codes validity
-                let codes = self
-                    .codes_eval
-                    .invoke(Mask::new_true(mask.len()), handle)
-                    .await?;
+                let codes = self.codes_eval.invoke(Mask::new_true(mask.len())).await?;
                 return Ok(mask.bitand(&codes.validity_mask()?));
             }
         }
 
-        let codes = self
-            .codes_eval
-            .invoke(Mask::new_true(mask.len()), handle)
-            .await?;
+        let codes = self.codes_eval.invoke(Mask::new_true(mask.len())).await?;
         // Creating a mask from the dict array would canonicalize it,
         // it should be fine for now as long as values is already canonical,
         // so different row ranges do not canonicalize to the same array
@@ -219,15 +217,15 @@ impl MaskEvaluation for DictMaskEvaluation {
     }
 }
 
-struct DictArrayEvaluation {
-    values_eval: SharedArrayFuture,
-    codes_eval: Box<dyn ArrayEvaluation>,
+struct DictArrayEvaluation<'handle> {
+    values_eval: SharedArrayFuture<'handle>,
+    codes_eval: Box<dyn ArrayEvaluation<'handle>>,
     expr: ExprRef,
 }
 
 #[async_trait]
-impl ArrayEvaluation for DictArrayEvaluation {
-    async fn invoke(&self, mask: Mask, handle: &Handle) -> VortexResult<ArrayRef> {
+impl<'handle> ArrayEvaluation<'handle> for DictArrayEvaluation<'handle> {
+    async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
         let (values_result, codes) = join!(self.values_eval.clone(), self.codes_eval.invoke(mask));
         let (values_result, codes) = (values_result?, codes?);
 

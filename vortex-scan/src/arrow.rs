@@ -10,7 +10,7 @@ use vortex_error::{VortexError, VortexResult};
 
 use crate::ScanBuilder;
 
-impl ScanBuilder<ArrayRef> {
+impl<'handle> ScanBuilder<'handle, ArrayRef> {
     /// Creates a new thread-safe `RecordBatchReader` from the scan builder.
     ///
     /// This reader can be cloned and passed to multiple threads for concurrent processing.

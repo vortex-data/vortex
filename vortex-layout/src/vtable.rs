@@ -5,16 +5,16 @@ use std::fmt::Debug;
 use std::ops::Deref;
 use std::sync::Arc;
 
-use vortex_array::{ArrayContext, DeserializeMetadata, SerializeMetadata};
-use vortex_dtype::DType;
-use vortex_error::VortexResult;
-
 use crate::children::LayoutChildren;
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{
     IntoLayout, Layout, LayoutChildType, LayoutEncoding, LayoutEncodingRef, LayoutId,
     LayoutReaderRef, LayoutRef,
 };
+use vortex_array::{ArrayContext, DeserializeMetadata, SerializeMetadata};
+use vortex_dtype::DType;
+use vortex_error::VortexResult;
+use vortex_io::runtime::Handle;
 
 pub trait VTable: 'static + Sized + Send + Sync + Debug {
     type Layout: 'static + Send + Sync + Clone + Debug + Deref<Target = dyn Layout> + IntoLayout;
@@ -49,11 +49,12 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     fn child_type(layout: &Self::Layout, idx: usize) -> LayoutChildType;
 
     /// Create a new reader for the layout.
-    fn new_reader(
+    fn new_reader<'handle>(
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-    ) -> VortexResult<LayoutReaderRef>;
+        handle: Handle<'handle>,
+    ) -> VortexResult<LayoutReaderRef<'handle>>;
 
     /// Construct a new [`Layout`] from the provided parts.
     fn build(

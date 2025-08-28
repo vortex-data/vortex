@@ -6,16 +6,16 @@ pub mod writer;
 
 use std::sync::Arc;
 
-use reader::StructReader;
-use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
-use vortex_dtype::{DType, Field, FieldMask, StructFields};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
-
 use crate::children::{LayoutChildren, OwnedLayoutChildren};
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{
-    LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable, vtable,
+    vtable, LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable,
 };
+use reader::StructReader;
+use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
+use vortex_dtype::{DType, Field, FieldMask, StructFields};
+use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexExpect, VortexResult};
+use vortex_io::runtime::Handle;
 
 vtable!(Struct);
 
@@ -72,15 +72,17 @@ impl VTable for StructVTable {
         )
     }
 
-    fn new_reader(
+    fn new_reader<'handle>(
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-    ) -> VortexResult<LayoutReaderRef> {
+        handle: Handle<'handle>,
+    ) -> VortexResult<LayoutReaderRef<'handle>> {
         Ok(Arc::new(StructReader::try_new(
             layout.clone(),
             name,
             segment_source,
+            handle,
         )?))
     }
 

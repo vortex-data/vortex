@@ -131,7 +131,7 @@ struct EventsSegmentSource {
 }
 
 impl SegmentSource for EventsSegmentSource {
-    fn request(&self, id: SegmentId, _handle: &Handle) -> SegmentFuture {
+    fn request(&self, id: SegmentId, _handle: &Handle) -> SegmentFuture<'static> {
         self.events
             .clone()
             .segment_future(id)

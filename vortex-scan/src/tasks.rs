@@ -13,14 +13,13 @@ use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_error::{VortexError, VortexResult};
 use vortex_expr::ExprRef;
-use vortex_io::runtime::Handle;
-use vortex_layout::LayoutReader;
+use vortex_layout::LayoutReaderRef;
 use vortex_mask::Mask;
 
 use crate::filter::FilterExpr;
 use crate::Selection;
 
-pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
+pub type TaskFuture<'handle, A> = BoxFuture<'handle, VortexResult<A>>;
 
 /// Logic for executing a single split reading task.
 ///
@@ -34,11 +33,11 @@ pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 ///
 /// This mask is then provided to the reader to perform a filtered projection over the split data,
 /// finally mapping the Vortex columnar record batches into some result type `A`.
-pub(super) fn split_exec<A: 'static + Send>(
-    ctx: Arc<TaskContext<A>>,
+pub(super) fn split_exec<'handle, A: 'static + Send>(
+    ctx: Arc<TaskContext<'handle, A>>,
     split: Range<u64>,
     limit: Option<&mut usize>,
-) -> VortexResult<TaskFuture<Option<A>>> {
+) -> VortexResult<TaskFuture<'handle, Option<A>>> {
     // Step 1: using the caller-provided row range and selection, attempt to disregard this split.
     let read_range = match &ctx.row_range {
         None => split,
@@ -87,14 +86,14 @@ pub(super) fn split_exec<A: 'static + Send>(
             let pruning_conjuncts: Vec<_> = filter
                 .conjuncts()
                 .iter()
-                .map(|expr| ctx.reader.pruning_evaluation(&row_range, expr, &ctx.handle))
+                .map(|expr| ctx.reader.pruning_evaluation(&row_range, expr))
                 .try_collect()?;
 
             // And one projection task per conjunct.
             let conjuncts: Vec<_> = filter
                 .conjuncts()
                 .iter()
-                .map(|expr| ctx.reader.filter_evaluation(&row_range, expr, &ctx.handle))
+                .map(|expr| ctx.reader.filter_evaluation(&row_range, expr))
                 .try_collect()?;
 
             let filter = filter.clone();
@@ -179,7 +178,7 @@ pub(super) fn split_exec<A: 'static + Send>(
     // Step 4: execute the projection, only at the mask for rows which match the filter
     let exec = ctx
         .reader
-        .projection_evaluation(&row_range, &ctx.projection, &ctx.handle)?;
+        .projection_evaluation(&row_range, &ctx.projection)?;
     let mapper = ctx.mapper.clone();
     let array_fut = async move {
         let filtered_mask = filter.await?;
@@ -194,8 +193,7 @@ pub(super) fn split_exec<A: 'static + Send>(
 }
 
 /// Information needed to execute a single split task.
-pub(super) struct TaskContext<A> {
-    pub(super) handle: Handle,
+pub(super) struct TaskContext<'handle, A> {
     /// A caller-provided range of the file to read. All tasks should intersect their reads
     /// with this range to ensure that they are split as well.
     pub(super) row_range: Option<Range<u64>>,
@@ -204,7 +202,7 @@ pub(super) struct TaskContext<A> {
     /// The shared filter expression.
     pub(super) filter: Option<Arc<FilterExpr>>,
     /// The layout reader.
-    pub(super) reader: Arc<dyn LayoutReader>,
+    pub(super) reader: LayoutReaderRef<'handle>,
     /// The projection expression to apply to gather the scanned rows.
     pub(super) projection: ExprRef,
     /// Function that maps into an A.

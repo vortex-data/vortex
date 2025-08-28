@@ -22,7 +22,7 @@ use vortex_expr::transform::simplify_typed;
 use vortex_expr::{root, ExprRef};
 use vortex_io::runtime::Handle;
 use vortex_layout::layouts::row_idx::RowIdxLayoutReader;
-use vortex_layout::LayoutReader;
+use vortex_layout::{LayoutReader, LayoutReaderRef};
 pub use vortex_layout::{TaskExecutor, TaskExecutorExt};
 use vortex_metrics::VortexMetrics;
 
@@ -41,9 +41,9 @@ mod work_queue;
 mod work_stealing_iter;
 
 /// A struct for building a scan operation.
-pub struct ScanBuilder<A> {
-    handle: Handle,
-    layout_reader: Arc<dyn LayoutReader>,
+pub struct ScanBuilder<'handle, A> {
+    handle: Handle<'handle>,
+    layout_reader: LayoutReaderRef<'handle>,
     projection: ExprRef,
     filter: Option<ExprRef>,
     /// Optionally read a subset of the rows in the file.
@@ -67,7 +67,7 @@ pub struct ScanBuilder<A> {
     row_offset: u64,
 }
 
-impl<A: 'static + Send> ScanBuilder<A> {
+impl<'handle, A: 'static + Send> ScanBuilder<'handle, A> {
     pub fn with_filter(mut self, filter: ExprRef) -> Self {
         self.filter = Some(filter);
         self
@@ -135,7 +135,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
     pub fn map<B: 'static>(
         self,
         map_fn: impl Fn(A) -> VortexResult<B> + 'static + Send + Sync,
-    ) -> ScanBuilder<B> {
+    ) -> ScanBuilder<'handle, B> {
         let old_map_fn = self.map_fn;
         ScanBuilder {
             handle: self.handle,
@@ -155,7 +155,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
     }
 
     /// Constructs a task per row split of the scan, returned as a vector of futures.
-    pub fn build(mut self) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
+    pub fn build(mut self) -> VortexResult<Vec<BoxFuture<'handle, VortexResult<Option<A>>>>> {
         if self.filter.is_some() && self.limit.is_some() {
             vortex_bail!("Vortex doesn't support scans with both a filter and a limit")
         }
@@ -186,10 +186,9 @@ impl<A: 'static + Send> ScanBuilder<A> {
         let (filter_mask, projection_mask) =
             filter_and_projection_masks(&projection, filter.as_ref(), layout_reader.dtype())?;
         let field_mask: Vec<_> = [filter_mask, projection_mask].concat();
-        let splits = self.split_by.splits(layout_reader.as_ref(), &field_mask)?;
+        let splits = self.split_by.splits(&layout_reader, &field_mask)?;
 
         let ctx = Arc::new(TaskContext {
-            handle: self.handle.clone(),
             row_range: self.row_range,
             selection: self.selection,
             filter: filter.map(|f| Arc::new(FilterExpr::new(f))),
@@ -215,7 +214,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
     pub fn into_stream(
         self,
-    ) -> VortexResult<impl futures::Stream<Item = VortexResult<A>> + Send + 'static> {
+    ) -> VortexResult<impl futures::Stream<Item = VortexResult<A>> + Send + 'handle> {
         let concurrency = self.concurrency;
         let handle = self.handle.clone();
         Ok(stream::iter(self.build()?)
@@ -234,7 +233,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
     #[cfg(feature = "tokio")]
     pub fn into_tokio_stream(
         self,
-    ) -> impl futures::Stream<Item = VortexResult<A>> + Send + 'static {
+    ) -> impl futures::Stream<Item = VortexResult<A>> + Send + 'handle {
         use futures::StreamExt;
         let tokio_handle = tokio::runtime::Handle::current();
         let num_workers = tokio_handle.metrics().num_workers();
@@ -252,8 +251,8 @@ impl<A: 'static + Send> ScanBuilder<A> {
     }
 }
 
-impl ScanBuilder<ArrayRef> {
-    pub fn new(layout_reader: Arc<dyn LayoutReader>, handle: Handle) -> Self {
+impl<'handle> ScanBuilder<'handle, ArrayRef> {
+    pub fn new(layout_reader: LayoutReaderRef<'handle>, handle: Handle<'handle>) -> Self {
         Self {
             handle,
             layout_reader,
@@ -303,7 +302,7 @@ impl ScanBuilder<ArrayRef> {
     #[cfg(feature = "tokio")]
     pub fn into_tokio_array_stream(
         self,
-    ) -> VortexResult<impl vortex_array::stream::ArrayStream + Send + 'static> {
+    ) -> VortexResult<impl vortex_array::stream::ArrayStream + Send + 'handle> {
         let dtype = self.dtype()?;
         let stream = self.into_tokio_stream();
         Ok(vortex_array::stream::ArrayStreamAdapter::new(dtype, stream))

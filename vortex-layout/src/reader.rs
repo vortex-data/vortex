@@ -6,13 +6,11 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::future::{BoxFuture, Shared};
-use futures::FutureExt;
 use once_cell::sync::OnceCell;
 use vortex_array::stats::Precision;
 use vortex_array::ArrayRef;
 use vortex_dtype::{DType, FieldMask};
-use vortex_error::{vortex_bail, SharedVortexResult, VortexError, VortexResult};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_io::runtime::Handle;
 use vortex_mask::Mask;
@@ -20,11 +18,11 @@ use vortex_mask::Mask;
 use crate::children::LayoutChildren;
 use crate::segments::SegmentSource;
 
-pub type LayoutReaderRef = Arc<dyn LayoutReader>;
+pub type LayoutReaderRef<'handle> = Arc<dyn LayoutReader<'handle> + 'handle>;
 
 /// A [`LayoutReader`] is used to read a [`crate::Layout`] in a way that can cache state across multiple
 /// evaluation operations.
-pub trait LayoutReader: 'static + Send + Sync {
+pub trait LayoutReader<'handle>: 'handle + Send + Sync {
     /// Returns the name of the layout reader for debugging.
     fn name(&self) -> &Arc<str>;
 
@@ -49,44 +47,35 @@ pub trait LayoutReader: 'static + Send + Sync {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn PruningEvaluation>>;
+    ) -> VortexResult<Box<dyn PruningEvaluation<'handle>>>;
 
     /// Performs an exact evaluation of the expression against the layout reader.
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn MaskEvaluation>>;
+    ) -> VortexResult<Box<dyn MaskEvaluation<'handle>>>;
 
     /// Evaluates the expression against the layout.
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn ArrayEvaluation>>;
-}
-
-pub type MaskFuture = Shared<BoxFuture<'static, SharedVortexResult<Mask>>>;
-
-/// Create a resolved [`MaskFuture`] from a [`Mask`].
-pub fn mask_future_ready(mask: Mask) -> MaskFuture {
-    async move { Ok::<_, Arc<VortexError>>(mask) }
-        .boxed()
-        .shared()
+    ) -> VortexResult<Box<dyn ArrayEvaluation<'handle>>>;
 }
 
 /// Returns a mask where all false values are proven to be false in the given expression.
 ///
 /// The returned mask **does not** need to have been intersected with the input mask.
 #[async_trait]
-pub trait PruningEvaluation: 'static + Send + Sync {
+pub trait PruningEvaluation<'handle>: 'handle + Send + Sync {
     async fn invoke(&self, mask: Mask) -> VortexResult<Mask>;
 }
 
 pub struct NoOpPruningEvaluation;
 
 #[async_trait]
-impl PruningEvaluation for NoOpPruningEvaluation {
+impl PruningEvaluation<'_> for NoOpPruningEvaluation {
     async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
         Ok(mask)
     }
@@ -98,15 +87,15 @@ impl PruningEvaluation for NoOpPruningEvaluation {
 ///
 /// The returned mask **MUST** have been intersected with the input mask.
 #[async_trait]
-pub trait MaskEvaluation: 'static + Send + Sync {
-    async fn invoke(&self, mask: Mask, handle: &Handle) -> VortexResult<Mask>;
+pub trait MaskEvaluation<'handle>: 'handle + Send + Sync {
+    async fn invoke(&self, mask: Mask) -> VortexResult<Mask>;
 }
 
 pub struct NoOpMaskEvaluation;
 
 #[async_trait]
-impl MaskEvaluation for NoOpMaskEvaluation {
-    async fn invoke(&self, mask: Mask, handle: &Handle) -> VortexResult<Mask> {
+impl MaskEvaluation<'_> for NoOpMaskEvaluation {
+    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
         Ok(mask)
     }
 }
@@ -114,26 +103,32 @@ impl MaskEvaluation for NoOpMaskEvaluation {
 /// Evaluates an expression against an array, returning an array equal in length to the true count
 /// of the input mask.
 #[async_trait]
-pub trait ArrayEvaluation: 'static + Send + Sync {
-    async fn invoke(&self, mask: Mask, handle: &Handle) -> VortexResult<ArrayRef>;
+pub trait ArrayEvaluation<'handle>: 'handle + Send + Sync {
+    async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef>;
 }
 
-pub struct LazyReaderChildren {
+pub struct LazyReaderChildren<'handle> {
     children: Arc<dyn LayoutChildren>,
     segment_source: Arc<dyn SegmentSource>,
+    handle: Handle<'handle>,
 
     // TODO(ngates): we may want a hash map of some sort here?
-    cache: Vec<OnceCell<LayoutReaderRef>>,
+    cache: Vec<OnceCell<LayoutReaderRef<'handle>>>,
 }
 
-impl LazyReaderChildren {
-    pub fn new(children: Arc<dyn LayoutChildren>, segment_source: Arc<dyn SegmentSource>) -> Self {
+impl<'handle> LazyReaderChildren<'handle> {
+    pub fn new(
+        children: Arc<dyn LayoutChildren>,
+        segment_source: Arc<dyn SegmentSource>,
+        handle: Handle<'handle>,
+    ) -> Self {
         let nchildren = children.nchildren();
         let cache = (0..nchildren).map(|_| OnceCell::new()).collect();
         Self {
             children,
             segment_source,
             cache,
+            handle,
         }
     }
 
@@ -142,14 +137,18 @@ impl LazyReaderChildren {
         idx: usize,
         dtype: &DType,
         name: &Arc<str>,
-    ) -> VortexResult<&LayoutReaderRef> {
+    ) -> VortexResult<&LayoutReaderRef<'handle>> {
         if idx >= self.cache.len() {
             vortex_bail!("Child index out of bounds: {} of {}", idx, self.cache.len());
         }
 
         self.cache[idx].get_or_try_init(|| {
             let child = self.children.child(idx, dtype)?;
-            child.new_reader(name.clone(), self.segment_source.clone())
+            child.new_reader(
+                name.clone(),
+                self.segment_source.clone(),
+                self.handle.clone(),
+            )
         })
     }
 }

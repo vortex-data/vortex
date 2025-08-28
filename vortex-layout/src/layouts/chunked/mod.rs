@@ -6,16 +6,16 @@ pub mod writer;
 
 use std::sync::Arc;
 
-use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
-use vortex_dtype::DType;
-use vortex_error::VortexResult;
-
 use crate::children::LayoutChildren;
 use crate::layouts::chunked::reader::ChunkedReader;
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{
-    LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable, vtable,
+    vtable, LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReader, LayoutRef, VTable,
 };
+use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
+use vortex_dtype::DType;
+use vortex_error::VortexResult;
+use vortex_io::runtime::Handle;
 
 vtable!(Chunked);
 
@@ -60,15 +60,17 @@ impl VTable for ChunkedVTable {
         LayoutChildType::Chunk((idx, layout.chunk_offsets[idx]))
     }
 
-    fn new_reader(
+    fn new_reader<'handle>(
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-    ) -> VortexResult<LayoutReaderRef> {
+        handle: Handle<'handle>,
+    ) -> VortexResult<Arc<dyn LayoutReader<'handle> + 'handle>> {
         Ok(Arc::new(ChunkedReader::new(
             layout.clone(),
             name,
             segment_source,
+            handle,
         )))
     }
 
