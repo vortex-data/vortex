@@ -12,6 +12,10 @@ use tokio::runtime::Handle as TokioHandle;
 pub struct TokioRuntime(TokioHandle);
 
 impl TokioRuntime {
+    pub fn new(handle: TokioHandle) -> Handle<'static> {
+        Handle(Arc::new(Self(handle)))
+    }
+
     /// Return the current Tokio runtime handle wrapped in a Vortex handle.
     pub fn handle() -> Handle<'static> {
         Handle(Arc::new(TokioRuntime(TokioHandle::current())))

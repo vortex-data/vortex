@@ -20,56 +20,66 @@ use vortex_error::vortex_panic;
 /// can forward its work into, and we drive the resulting tasks on a [`LocalExecutor`] on the
 /// calling thread.
 // TODO(ngates): use a builder to configure whether I/O runs on a separate blocking pool or not.
-pub struct SingleThreadRuntime {
-    scheduling: flume::Sender<BoxFuture<'static, ()>>,
+pub struct SingleThreadRuntime<'a> {
+    scheduling: flume::Sender<BoxFuture<'a, ()>>,
     cpu: flume::Sender<CpuTask>,
-    io: flume::Sender<(BoxStream<'static, IoTask>, usize)>,
+    io: flume::Sender<(BoxStream<'a, IoTask>, usize)>,
 }
 
-impl SingleThreadRuntime {
-    fn new() -> (Self, Rc<LocalExecutor<'static>>) {
-        let (scheduling_send, scheduling_recv) = flume::unbounded::<BoxFuture<'static, ()>>();
+impl<'a> SingleThreadRuntime<'a> {
+    fn new<'ex>() -> (Self, Rc<LocalExecutor<'ex>>)
+    where
+        'a: 'ex,
+    {
+        let (scheduling_send, scheduling_recv) = flume::unbounded::<BoxFuture<'a, ()>>();
         let (cpu_send, cpu_recv) = flume::unbounded::<CpuTask>();
-        let (io_send, io_recv) = flume::unbounded::<(BoxStream<'static, IoTask>, usize)>();
+        let (io_send, io_recv) = flume::unbounded::<(BoxStream<'a, IoTask>, usize)>();
 
         let local = Rc::new(LocalExecutor::new());
+        let weak_local = Rc::downgrade(&local);
 
         // Drive scheduling tasks.
-        let local2 = local.clone();
+        let weak_local2 = weak_local.clone();
         local
             .spawn(async move {
                 while let Ok(fut) = scheduling_recv.recv_async().await {
-                    local2.spawn(fut).detach();
+                    if let Some(local) = weak_local2.upgrade() {
+                        local.spawn(fut).detach();
+                    }
                 }
             })
             .detach();
 
         // Drive CPU tasks.
-        let local2 = local.clone();
+        let weak_local2 = weak_local.clone();
         local
             .spawn(async move {
                 while let Ok(task) = cpu_recv.recv_async().await {
-                    local2.spawn(async move { task.run() }).detach();
+                    if let Some(local) = weak_local2.upgrade() {
+                        local.spawn(async move { task.run() }).detach();
+                    }
                 }
             })
             .detach();
 
         // Drive I/O tasks.
-        let local2 = local.clone();
+        let weak_local2 = weak_local.clone();
         local
             .spawn(async move {
                 while let Ok((stream, concurrency)) = io_recv.recv_async().await {
                     // NOTE(ngates): for now, we allow arbitrary Tokio I/O and therefore wrap up
                     //  the futures in a compatibility layer.
-                    local2
-                        .spawn(Compat::new(async move {
-                            stream
-                                .map(|task| task.run_local())
-                                .buffer_unordered(concurrency)
-                                .collect::<()>()
-                                .await
-                        }))
-                        .detach();
+                    if let Some(local) = weak_local2.upgrade() {
+                        local
+                            .spawn(Compat::new(async move {
+                                stream
+                                    .map(|task| task.run_local())
+                                    .buffer_unordered(concurrency)
+                                    .collect::<()>()
+                                    .await
+                            }))
+                            .detach();
+                    }
                 }
             })
             .detach();
@@ -85,11 +95,10 @@ impl SingleThreadRuntime {
     }
 
     /// Drive the given Vortex future on the underlying Tokio runtime.
-    pub fn drive<'rt, 'f, F, Fut, R>(f: F) -> R
+    pub fn drive<'fut, F, Fut, R>(f: F) -> R
     where
-        F: FnOnce(Handle<'rt>) -> Fut,
-        Fut: Future<Output = R> + 'f,
-        'rt: 'f,
+        F: FnOnce(Handle<'a>) -> Fut,
+        Fut: Future<Output = R> + 'fut,
         R: Send + 'static,
     {
         let (rt, executor) = SingleThreadRuntime::new();
@@ -126,8 +135,8 @@ impl SingleThreadRuntime {
     }
 }
 
-impl Runtime<'static> for SingleThreadRuntime {
-    fn spawn_scheduling(&self, fut: BoxFuture<'static, ()>) {
+impl<'a> Runtime<'a> for SingleThreadRuntime<'a> {
+    fn spawn_scheduling(&self, fut: BoxFuture<'a, ()>) {
         if let Err(e) = self.scheduling.send(fut) {
             vortex_panic!("Runtime dropped while scheduling task: {}", e);
         }
@@ -139,7 +148,7 @@ impl Runtime<'static> for SingleThreadRuntime {
         }
     }
 
-    fn spawn_io(&self, stream: BoxStream<'static, IoTask>, concurrency: usize) {
+    fn spawn_io(&self, stream: BoxStream<'a, IoTask>, concurrency: usize) {
         if let Err(e) = self.io.send((stream, concurrency)) {
             vortex_panic!("Runtime dropped while scheduling I/O task: {}", e);
         }

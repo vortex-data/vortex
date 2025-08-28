@@ -230,6 +230,7 @@ impl TableFunction for VortexTableFunction {
 
         let footer_cache = FooterCache::new(ctx.object_cache());
         let entry = footer_cache.entry(first_file_url.as_ref());
+
         let first_file = SingleThreadRuntime::drive(|handle| async move {
             let options = entry.apply_to_file(VortexOpenOptions::file());
             let file = open_file(first_file_url, options, handle).await?;

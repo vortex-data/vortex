@@ -6,8 +6,10 @@ use crate::runtime::{CpuTask, IoTask, Read, ReadCompletion, Runtime};
 use futures::future::{BoxFuture, LocalBoxFuture, Shared};
 use futures::stream::BoxStream;
 use futures::{FutureExt, StreamExt, TryFutureExt};
+use std::backtrace;
 use std::fs::File;
 use std::marker::PhantomData;
+use std::os::fd::AsRawFd;
 use std::os::unix::fs::FileExt;
 use std::path::Path;
 use std::sync::Arc;
@@ -198,7 +200,7 @@ impl IoSource for ByteBuffer {
 }
 
 pub struct FileIoSource {
-    file: Arc<Dropper<File>>,
+    file: Arc<File>,
     path: String,
 }
 
@@ -206,26 +208,17 @@ impl FileIoSource {
     pub fn try_new<P: AsRef<Path>>(path: P) -> VortexResult<Self> {
         let path = path.as_ref();
         let name = path.to_string_lossy().to_string();
-        log::info!("Opening {}", name);
         let file = File::open(path).map_err(VortexError::from)?;
+        log::info!(
+            "Opened {} as {}\n{}",
+            name,
+            file.as_raw_fd(),
+            backtrace::Backtrace::capture()
+        );
         Ok(Self {
-            file: Arc::new(Dropper {
-                inner: file,
-                name: name.clone(),
-            }),
+            file: Arc::new(file),
             path: name,
         })
-    }
-}
-
-struct Dropper<T> {
-    inner: T,
-    name: String,
-}
-
-impl<T> Drop for Dropper<T> {
-    fn drop(&mut self) {
-        log::info!("Dropping {}", self.name);
     }
 }
 
@@ -245,7 +238,7 @@ impl IoSource for FileIoSource {
     fn size(&self) -> Shared<BoxFuture<'static, SharedVortexResult<u64>>> {
         let file = self.file.clone();
         async move {
-            let metadata = file.inner.metadata().map_err(VortexError::from)?;
+            let metadata = file.metadata().map_err(VortexError::from)?;
             Ok(metadata.len())
         }
         .boxed()
@@ -262,7 +255,7 @@ impl IoSource for FileIoSource {
         async move {
             let mut buffer = ByteBufferMut::with_capacity_aligned(length, alignment);
             unsafe { buffer.set_len(length) };
-            match file.inner.read_exact_at(&mut buffer, offset) {
+            match file.read_exact_at(&mut buffer, offset) {
                 Ok(()) => Ok(buffer.freeze()),
                 Err(e) => Err(VortexError::from(e)),
             }
