@@ -107,6 +107,7 @@ erased-serde = "0.4"
 fastlanes = "0.2.0"
 flatbuffers = "25.2.10"
 flate2 = "1.1.2"
+flume = "0.11.1"
 fsst-rs = "0.5.2"
 futures = { version = "0.3.31", default-features = false }
 futures-executor = "0.3.31"

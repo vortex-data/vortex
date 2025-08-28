@@ -248,6 +248,7 @@ mod tests {
     use vortex_array::{ArrayContext, IntoArray as _};
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
     use vortex_expr::{is_null, not, pack, root};
+    use vortex_io::runtime::singlethread::SingleThreadRuntime;
     use vortex_io::runtime::Runtime;
     use vortex_mask::Mask;
 
@@ -262,58 +263,74 @@ mod tests {
 
     #[test]
     fn reading_nested_packs_works() {
-        Runtime::oneshot(|handle| async move {
-            let strategy = DictStrategy::new(
-                FlatLayoutStrategy::default(),
-                FlatLayoutStrategy::default(),
-                FlatLayoutStrategy::default(),
-                DictLayoutOptions::default(),
-                Arc::new(LocalExecutor),
-            );
+        let strategy = DictStrategy::new(
+            FlatLayoutStrategy::default(),
+            FlatLayoutStrategy::default(),
+            FlatLayoutStrategy::default(),
+            DictLayoutOptions::default(),
+            Arc::new(LocalExecutor),
+        );
 
-            let array = VarBinArray::from_iter(
-                [
-                    Some("abc"),
-                    Some("def"),
-                    None,
-                    Some("abc"),
-                    Some("def"),
-                    None,
-                    Some("abc"),
-                    Some("def"),
-                    None,
-                ],
-                DType::Utf8(Nullability::Nullable),
-            )
-            .to_array();
-            let array_to_write = array.clone();
-            let ctx = ArrayContext::empty();
-            let segments = TestSegments::default();
-            let layout: LayoutRef = block_on(
-                strategy.write_stream(
-                    &ctx,
-                    SequenceWriter::new(Box::new(segments.clone())),
-                    SequentialStreamAdapter::new(
-                        DType::Utf8(Nullability::Nullable),
-                        stream::once(async move {
-                            Ok((SequenceId::root().downgrade(), array_to_write))
-                        }),
-                    )
-                    .sendable(),
-                ),
-            )
-            .unwrap();
+        let array = VarBinArray::from_iter(
+            [
+                Some("abc"),
+                Some("def"),
+                None,
+                Some("abc"),
+                Some("def"),
+                None,
+                Some("abc"),
+                Some("def"),
+                None,
+            ],
+            DType::Utf8(Nullability::Nullable),
+        )
+        .to_array();
+        let array_to_write = array.clone();
+        let ctx = ArrayContext::empty();
+        let segments = TestSegments::default();
+        let layout: LayoutRef = block_on(
+            strategy.write_stream(
+                &ctx,
+                SequenceWriter::new(Box::new(segments.clone())),
+                SequentialStreamAdapter::new(
+                    DType::Utf8(Nullability::Nullable),
+                    stream::once(
+                        async move { Ok((SequenceId::root().downgrade(), array_to_write)) },
+                    ),
+                )
+                .sendable(),
+            ),
+        )
+        .unwrap();
 
-            let expression = pack(
-                [(
-                    "top",
-                    pack([("one", root()), ("two", root())], Nullability::NonNullable),
-                )],
-                Nullability::NonNullable,
-            );
-            assert!(layout.encoding_id() == LayoutId::new_ref("vortex.dict"));
-            let actual = layout
+        let expression = pack(
+            [(
+                "top",
+                pack([("one", root()), ("two", root())], Nullability::NonNullable),
+            )],
+            Nullability::NonNullable,
+        );
+        assert!(layout.encoding_id() == LayoutId::new_ref("vortex.dict"));
+        let actual = SingleThreadRuntime::drive(|handle| async move {
+            layout
                 .new_reader("".into(), Arc::from(segments))
+                .unwrap()
+                .projection_evaluation(&(0..layout.row_count()), &expression)
+                .unwrap()
+                .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
+                .await
+                .unwrap();
+        });
+        let expected = StructArray::try_new(
+            FieldNames::from([FieldName::from("top")]),
+            vec![
+                StructArray::try_new(
+                    FieldNames::from([FieldName::from("one"), FieldName::from("two")]),
+                    vec![array.clone(), array],
+                    9,
+                    Validity::NonNullable,
+                )
                 .unwrap()
                 .into_array(),
             ],
