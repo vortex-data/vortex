@@ -655,7 +655,7 @@ class VortexFragment(pyarrow.dataset.Fragment):
         Warnings
         --------
 
-        The indices are indices into _the file_, not indices into this fragment of the file.
+        The indices are indices into *the file*, not indices into this fragment of the file.
 
         """
         return self._dataset.take(
