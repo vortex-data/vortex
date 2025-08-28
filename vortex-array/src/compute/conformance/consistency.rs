@@ -46,7 +46,7 @@ fn test_filter_take_consistency(array: &dyn Array) {
 
     // Create a test mask (keep elements where index % 3 != 1)
     let mask_pattern: Vec<bool> = (0..len).map(|i| i % 3 != 1).collect();
-    let mask = Mask::try_from(&BoolArray::from_iter(mask_pattern.clone())).vortex_unwrap();
+    let mask = Mask::from(&BoolArray::from_iter(mask_pattern.clone()));
 
     // Filter the array
     let filtered = filter(array, &mask).vortex_unwrap();
@@ -108,8 +108,8 @@ fn test_double_mask_consistency(array: &dyn Array) {
     let mask1_pattern: Vec<bool> = (0..len).map(|i| i % 3 == 0).collect();
     let mask2_pattern: Vec<bool> = (0..len).map(|i| i % 2 == 0).collect();
 
-    let mask1 = Mask::try_from(&BoolArray::from_iter(mask1_pattern.clone())).vortex_unwrap();
-    let mask2 = Mask::try_from(&BoolArray::from_iter(mask2_pattern.clone())).vortex_unwrap();
+    let mask1 = Mask::from(&BoolArray::from_iter(mask1_pattern.clone()));
+    let mask2 = Mask::from(&BoolArray::from_iter(mask2_pattern.clone()));
 
     // Apply masks sequentially
     let first_masked = mask(array, &mask1).vortex_unwrap();
@@ -121,7 +121,7 @@ fn test_double_mask_consistency(array: &dyn Array) {
         .zip(mask2_pattern.iter())
         .map(|(&a, &b)| a || b)
         .collect();
-    let combined_mask = Mask::try_from(&BoolArray::from_iter(combined_pattern)).vortex_unwrap();
+    let combined_mask = Mask::from(&BoolArray::from_iter(combined_pattern));
 
     // Apply combined mask directly
     let directly_masked = mask(array, &combined_mask).vortex_unwrap();
@@ -265,7 +265,7 @@ fn test_slice_filter_consistency(array: &dyn Array) {
     let mut mask_pattern = vec![false; len];
     mask_pattern[1..4.min(len)].fill(true);
 
-    let mask = Mask::try_from(&BoolArray::from_iter(mask_pattern)).vortex_unwrap();
+    let mask = Mask::from(&BoolArray::from_iter(mask_pattern));
     let filtered = filter(array, &mask).vortex_unwrap();
 
     // Slice should produce the same result
@@ -347,7 +347,7 @@ fn test_filter_preserves_order(array: &dyn Array) {
 
     // Create a mask that selects elements at indices 0, 2, 3
     let mask_pattern: Vec<bool> = (0..len).map(|i| i == 0 || i == 2 || i == 3).collect();
-    let mask = Mask::try_from(&BoolArray::from_iter(mask_pattern)).vortex_unwrap();
+    let mask = Mask::from(&BoolArray::from_iter(mask_pattern));
 
     let filtered = filter(array, &mask).vortex_unwrap();
 
@@ -386,12 +386,12 @@ fn test_mask_filter_null_consistency(array: &dyn Array) {
 
     // First mask some elements
     let mask_pattern: Vec<bool> = (0..len).map(|i| i % 2 == 0).collect();
-    let mask_array = Mask::try_from(&BoolArray::from_iter(mask_pattern)).vortex_unwrap();
+    let mask_array = Mask::from(&BoolArray::from_iter(mask_pattern));
     let masked = mask(array, &mask_array).vortex_unwrap();
 
     // Then filter to remove the nulls
     let filter_pattern: Vec<bool> = (0..len).map(|i| i % 2 != 0).collect();
-    let filter_mask = Mask::try_from(&BoolArray::from_iter(filter_pattern)).vortex_unwrap();
+    let filter_mask = Mask::from(&BoolArray::from_iter(filter_pattern));
     let filtered = filter(&masked, &filter_mask).vortex_unwrap();
 
     // This should be equivalent to directly filtering the original array
@@ -527,7 +527,7 @@ fn test_large_array_consistency(array: &dyn Array) {
 
     // Create equivalent filter mask
     let mask_pattern: Vec<bool> = (0..len).map(|i| i % 10 == 0).collect();
-    let mask = Mask::try_from(&BoolArray::from_iter(mask_pattern)).vortex_unwrap();
+    let mask = Mask::from(&BoolArray::from_iter(mask_pattern));
     let filtered = filter(array, &mask).vortex_unwrap();
 
     // Results should match
@@ -811,15 +811,14 @@ fn test_slice_aggregate_consistency(array: &dyn Array) {
     let canonical_sliced = canonical.as_ref().slice(start..end);
 
     // Test null count through invalid_count
-    if let (Ok(slice_null_count), Ok(canonical_null_count)) =
-        (sliced.invalid_count(), canonical_sliced.invalid_count())
-    {
-        assert_eq!(
-            slice_null_count, canonical_null_count,
-            "null_count on sliced array should match canonical. \
-             Sliced: {slice_null_count}, Canonical: {canonical_null_count}"
-        );
-    }
+    assert_eq!(
+        sliced.invalid_count(),
+        canonical_sliced.invalid_count(),
+        "null_count on sliced array should match canonical. \
+             Sliced: {}, Canonical: {}",
+        sliced.invalid_count(),
+        canonical_sliced.invalid_count()
+    );
 
     // Test sum for numeric types
     if !matches!(array.dtype(), DType::Primitive(..)) {

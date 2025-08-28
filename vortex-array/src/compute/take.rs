@@ -62,7 +62,7 @@ impl ComputeFnVTable for Take {
         // TODO(ngates): if indices min is quite high, we could slice self and offset the indices
         //  such that canonicalize does less work.
 
-        if indices.all_invalid()? {
+        if indices.all_invalid() {
             return Ok(ConstantArray::new(
                 Scalar::null(array.dtype().as_nullable()),
                 indices.len(),

@@ -51,7 +51,7 @@ mod tests {
         assert_eq!(s.as_bool().value(), Some(true));
 
         let s = sliced_arr.scalar_at(1);
-        assert!(!sliced_arr.is_valid(1).unwrap());
+        assert!(!sliced_arr.is_valid(1));
         assert!(s.is_null());
 
         let s = sliced_arr.scalar_at(2);

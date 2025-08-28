@@ -59,7 +59,7 @@ fn dict_equal_to(
     result_nullability: Nullability,
 ) -> VortexResult<ArrayRef> {
     let bool_result = values_compare.to_bool()?;
-    let result_validity = bool_result.validity_mask()?;
+    let result_validity = bool_result.validity_mask();
     let bool_buffer = bool_result.boolean_buffer();
     let (first_match, second_match) = match result_validity.boolean_buffer() {
         AllOr::All => {
@@ -83,7 +83,7 @@ fn dict_equal_to(
                     &ConstantArray::new(Scalar::bool(false, result_nullability), codes.len())
                         .into_array(),
                 )?;
-                result_builder.set_validity(codes.validity_mask()?);
+                result_builder.set_validity(codes.validity_mask());
                 result_builder.finish()
             }
             Mask::AllFalse(_) => ConstantArray::new(
@@ -101,7 +101,7 @@ fn dict_equal_to(
                 result_builder.set_validity(
                     Validity::from_mask(result_validity, bool_result.dtype().nullability())
                         .take(codes)?
-                        .to_mask(codes.len())?,
+                        .to_mask(codes.len()),
                 );
                 result_builder.finish()
             }
@@ -205,10 +205,7 @@ mod tests {
             vec![false, false, false]
         );
         assert_eq!(res.dtype().nullability(), Nullability::Nullable);
-        assert_eq!(
-            res.validity_mask().unwrap(),
-            Mask::from_iter([false, true, false])
-        );
+        assert_eq!(res.validity_mask(), Mask::from_iter([false, true, false]));
     }
 
     #[test]
@@ -235,9 +232,6 @@ mod tests {
             vec![false, false, false]
         );
         assert_eq!(res.dtype().nullability(), Nullability::Nullable);
-        assert_eq!(
-            res.validity_mask().unwrap(),
-            Mask::from_iter([true, true, false])
-        );
+        assert_eq!(res.validity_mask(), Mask::from_iter([true, true, false]));
     }
 }

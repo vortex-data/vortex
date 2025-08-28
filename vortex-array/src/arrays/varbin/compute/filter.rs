@@ -48,7 +48,7 @@ fn filter_select_var_bin_by_slice(
             offsets.as_slice::<O>(),
             values.bytes().as_slice(),
             mask_slices,
-            values.validity_mask()?,
+            values.validity_mask(),
             selection_count,
         )
     })
@@ -163,7 +163,7 @@ fn filter_select_var_bin_by_index_primitive_offset<O: NativePType + PrimInt>(
 ) -> VortexResult<VarBinArray> {
     let mut builder = VarBinBuilder::<O>::with_capacity(selection_count);
     for idx in mask_indices.iter().copied() {
-        if validity.is_valid(idx)? {
+        if validity.is_valid(idx) {
             let (start, end) = (
                 offsets[idx].to_usize().ok_or_else(|| {
                     vortex_err!("Failed to convert offset to usize: {}", offsets[idx])

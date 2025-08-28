@@ -157,7 +157,7 @@ pub fn runend_decode_primitive(
             runend_decode_typed_primitive(
                 trimmed_ends_iter(ends.as_slice::<E>(), offset, length),
                 values.as_slice::<P>(),
-                values.validity_mask()?,
+                values.validity_mask(),
                 values.dtype().nullability(),
                 length,
             )
@@ -175,7 +175,7 @@ pub fn runend_decode_bools(
         runend_decode_typed_bool(
             trimmed_ends_iter(ends.as_slice::<E>(), offset, length),
             values.boolean_buffer().clone(),
-            values.validity_mask()?,
+            values.validity_mask(),
             values.dtype().nullability(),
             length,
         )

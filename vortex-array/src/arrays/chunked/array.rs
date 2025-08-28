@@ -8,7 +8,6 @@
 use std::fmt::Debug;
 
 use futures_util::stream;
-use itertools::Itertools;
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult, VortexUnwrap, vortex_bail};
@@ -201,44 +200,40 @@ impl ArrayVTable<ChunkedVTable> for ChunkedVTable {
 }
 
 impl ValidityVTable<ChunkedVTable> for ChunkedVTable {
-    fn is_valid(array: &ChunkedArray, index: usize) -> VortexResult<bool> {
+    fn is_valid(array: &ChunkedArray, index: usize) -> bool {
         if !array.dtype.is_nullable() {
-            return Ok(true);
+            return true;
         }
         let (chunk, offset_in_chunk) = array.find_chunk_idx(index);
         array.chunk(chunk).is_valid(offset_in_chunk)
     }
 
-    fn all_valid(array: &ChunkedArray) -> VortexResult<bool> {
+    fn all_valid(array: &ChunkedArray) -> bool {
         if !array.dtype().is_nullable() {
-            return Ok(true);
+            return true;
         }
         for chunk in array.non_empty_chunks() {
-            if !chunk.all_valid()? {
-                return Ok(false);
+            if !chunk.all_valid() {
+                return false;
             }
         }
-        Ok(true)
+        true
     }
 
-    fn all_invalid(array: &ChunkedArray) -> VortexResult<bool> {
+    fn all_invalid(array: &ChunkedArray) -> bool {
         if !array.dtype().is_nullable() {
-            return Ok(false);
+            return false;
         }
         for chunk in array.non_empty_chunks() {
-            if !chunk.all_invalid()? {
-                return Ok(false);
+            if !chunk.all_invalid() {
+                return false;
             }
         }
-        Ok(true)
+        true
     }
 
-    fn validity_mask(array: &ChunkedArray) -> VortexResult<Mask> {
-        array
-            .chunks()
-            .iter()
-            .map(|a| a.validity_mask())
-            .try_collect()
+    fn validity_mask(array: &ChunkedArray) -> Mask {
+        array.chunks().iter().map(|a| a.validity_mask()).collect()
     }
 }
 
@@ -376,8 +371,8 @@ mod test {
             ChunkedArray::try_new(chunks, DType::Primitive(PType::U64, Nullability::Nullable))?;
 
         // Should be all_valid since all non-empty chunks are all_valid
-        assert!(chunked.all_valid()?);
-        assert!(!chunked.all_invalid()?);
+        assert!(chunked.all_valid());
+        assert!(!chunked.all_invalid());
 
         Ok(())
     }
@@ -396,8 +391,8 @@ mod test {
             ChunkedArray::try_new(chunks, DType::Primitive(PType::U64, Nullability::Nullable))?;
 
         // Should be all_invalid since all non-empty chunks are all_invalid
-        assert!(!chunked.all_valid()?);
-        assert!(chunked.all_invalid()?);
+        assert!(!chunked.all_valid());
+        assert!(chunked.all_invalid());
 
         Ok(())
     }
@@ -416,8 +411,8 @@ mod test {
             ChunkedArray::try_new(chunks, DType::Primitive(PType::U64, Nullability::Nullable))?;
 
         // Should be neither all_valid nor all_invalid
-        assert!(!chunked.all_valid()?);
-        assert!(!chunked.all_invalid()?);
+        assert!(!chunked.all_valid());
+        assert!(!chunked.all_invalid());
 
         Ok(())
     }

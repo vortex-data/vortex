@@ -90,38 +90,34 @@ impl Validity {
         }
     }
 
-    pub fn all_valid(&self) -> VortexResult<bool> {
-        Ok(match self {
+    pub fn all_valid(&self) -> bool {
+        match self {
             Validity::NonNullable | Validity::AllValid => true,
             Validity::AllInvalid => false,
-            Validity::Array(array) => sum(array)
-                .map(|v| {
-                    v.as_primitive()
-                        .typed_value::<u64>()
-                        .map(|count| count == array.len() as u64)
-                })?
-                .ok_or_else(|| vortex_err!("Failed to compute sum for validity array"))?,
-        })
+            Validity::Array(array) => {
+                usize::try_from(&sum(array).vortex_expect("must have sum for bool array"))
+                    .vortex_expect("sum must be a usize")
+                    == array.len()
+            }
+        }
     }
 
-    pub fn all_invalid(&self) -> VortexResult<bool> {
-        Ok(match self {
+    pub fn all_invalid(&self) -> bool {
+        match self {
             Validity::NonNullable | Validity::AllValid => false,
             Validity::AllInvalid => true,
-            Validity::Array(array) => sum(array)
-                .map(|v| {
-                    v.as_primitive()
-                        .typed_value::<u64>()
-                        .map(|count| count == 0u64)
-                })?
-                .ok_or_else(|| vortex_err!("Failed to compute sum for validity array"))?,
-        })
+            Validity::Array(array) => {
+                usize::try_from(&sum(array).vortex_expect("must have sum for bool array"))
+                    .vortex_expect("sum must be a usize")
+                    == 0
+            }
+        }
     }
 
     /// Returns whether the `index` item is valid.
     #[inline]
-    pub fn is_valid(&self, index: usize) -> VortexResult<bool> {
-        Ok(match self {
+    pub fn is_valid(&self, index: usize) -> bool {
+        match self {
             Self::NonNullable | Self::AllValid => true,
             Self::AllInvalid => false,
             Self::Array(a) => {
@@ -131,12 +127,12 @@ impl Validity {
                     .value()
                     .vortex_expect("Validity must be non-nullable")
             }
-        })
+        }
     }
 
     #[inline]
-    pub fn is_null(&self, index: usize) -> VortexResult<bool> {
-        Ok(!self.is_valid(index)?)
+    pub fn is_null(&self, index: usize) -> bool {
+        !self.is_valid(index)
     }
 
     pub fn slice(&self, range: Range<usize>) -> Self {
@@ -148,7 +144,7 @@ impl Validity {
 
     pub fn take(&self, indices: &dyn Array) -> VortexResult<Self> {
         match self {
-            Self::NonNullable => match indices.validity_mask()?.boolean_buffer() {
+            Self::NonNullable => match indices.validity_mask().boolean_buffer() {
                 AllOr::All => {
                     if indices.dtype().is_nullable() {
                         Ok(Self::AllValid)
@@ -159,7 +155,7 @@ impl Validity {
                 AllOr::None => Ok(Self::AllInvalid),
                 AllOr::Some(buf) => Ok(Validity::from(buf.clone())),
             },
-            Self::AllValid => match indices.validity_mask()?.boolean_buffer() {
+            Self::AllValid => match indices.validity_mask().boolean_buffer() {
                 AllOr::All => Ok(Self::AllValid),
                 AllOr::None => Ok(Self::AllInvalid),
                 AllOr::Some(buf) => Ok(Validity::from(buf.clone())),
@@ -209,8 +205,8 @@ impl Validity {
         }
     }
 
-    pub fn to_mask(&self, length: usize) -> VortexResult<Mask> {
-        Ok(match self {
+    pub fn to_mask(&self, length: usize) -> Mask {
+        match self {
             Self::NonNullable | Self::AllValid => Mask::AllTrue(length),
             Self::AllInvalid => Mask::AllFalse(length),
             Self::Array(is_valid) => {
@@ -221,9 +217,13 @@ impl Validity {
                     is_valid.len(),
                     length,
                 );
-                Mask::try_from(&is_valid.to_bool()?)?
+                Mask::from(
+                    &is_valid
+                        .to_bool()
+                        .vortex_expect("validity array must be bool"),
+                )
             }
-        })
+        }
     }
 
     /// Logically & two Validity values of the same length
@@ -350,7 +350,7 @@ impl Validity {
     /// Create Validity by copying the given array's validity.
     pub fn copy_from_array(array: &dyn Array) -> VortexResult<Self> {
         Ok(Validity::from_mask(
-            array.validity_mask()?,
+            array.validity_mask(),
             array.dtype().nullability(),
         ))
     }

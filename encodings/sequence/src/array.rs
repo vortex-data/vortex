@@ -224,20 +224,20 @@ impl OperationsVTable<SequenceVTable> for SequenceVTable {
 }
 
 impl ValidityVTable<SequenceVTable> for SequenceVTable {
-    fn is_valid(_array: &SequenceArray, _index: usize) -> VortexResult<bool> {
-        Ok(true)
+    fn is_valid(_array: &SequenceArray, _index: usize) -> bool {
+        true
     }
 
-    fn all_valid(_array: &SequenceArray) -> VortexResult<bool> {
-        Ok(true)
+    fn all_valid(_array: &SequenceArray) -> bool {
+        true
     }
 
-    fn all_invalid(_array: &SequenceArray) -> VortexResult<bool> {
-        Ok(false)
+    fn all_invalid(_array: &SequenceArray) -> bool {
+        false
     }
 
-    fn validity_mask(array: &SequenceArray) -> VortexResult<Mask> {
-        Ok(Mask::AllTrue(array.len()))
+    fn validity_mask(array: &SequenceArray) -> Mask {
+        Mask::AllTrue(array.len())
     }
 }
 

@@ -97,7 +97,7 @@ impl ComputeFnVTable for ListContains {
             );
         };
 
-        if value.all_invalid()? || array.all_invalid()? {
+        if value.all_invalid() || array.all_invalid() {
             return Ok(Output::Array(
                 ConstantArray::new(
                     Scalar::null(DType::Bool(Nullability::Nullable)),

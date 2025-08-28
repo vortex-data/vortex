@@ -102,7 +102,6 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
 
 #[cfg(test)]
 mod test {
-
     use rstest::rstest;
     use vortex_array::arrays::{PrimitiveArray, TemporalArray};
     use vortex_array::validity::Validity;
@@ -136,8 +135,8 @@ mod test {
         .unwrap();
 
         assert_eq!(
-            date_times.validity_mask().unwrap(),
-            validity.to_mask(date_times.len()).unwrap()
+            date_times.validity_mask(),
+            validity.to_mask(date_times.len())
         );
 
         let primitive_values = decode_to_temporal(&date_times)

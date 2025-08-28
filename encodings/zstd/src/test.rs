@@ -124,12 +124,9 @@ fn test_validity_vtable() {
         Validity::Array(BoolArray::from_iter(mask_bools.clone()).to_array()),
     );
     let compressed = ZstdArray::from_primitive(&array, 3, 0).unwrap();
+    assert_eq!(compressed.validity_mask(), Mask::from_iter(mask_bools));
     assert_eq!(
-        compressed.validity_mask().unwrap(),
-        Mask::from_iter(mask_bools)
-    );
-    assert_eq!(
-        compressed.slice(1..4).validity_mask().unwrap(),
+        compressed.slice(1..4).validity_mask(),
         Mask::from_iter(vec![true, true, false])
     );
 }

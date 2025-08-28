@@ -110,24 +110,24 @@ impl OperationsVTable<ArrowVTable> for ArrowVTable {
 }
 
 impl ValidityVTable<ArrowVTable> for ArrowVTable {
-    fn is_valid(array: &ArrowArray, index: usize) -> VortexResult<bool> {
-        Ok(array.inner.is_valid(index))
+    fn is_valid(array: &ArrowArray, index: usize) -> bool {
+        array.inner.is_valid(index)
     }
 
-    fn all_valid(array: &ArrowArray) -> VortexResult<bool> {
-        Ok(array.inner.logical_null_count() == 0)
+    fn all_valid(array: &ArrowArray) -> bool {
+        array.inner.logical_null_count() == 0
     }
 
-    fn all_invalid(array: &ArrowArray) -> VortexResult<bool> {
-        Ok(array.inner.logical_null_count() == array.inner.len())
+    fn all_invalid(array: &ArrowArray) -> bool {
+        array.inner.logical_null_count() == array.inner.len()
     }
 
-    fn validity_mask(array: &ArrowArray) -> VortexResult<Mask> {
-        Ok(array
+    fn validity_mask(array: &ArrowArray) -> Mask {
+        array
             .inner
             .logical_nulls()
             .map(|null_buffer| Mask::from_buffer(null_buffer.inner().clone()))
-            .unwrap_or_else(|| Mask::new_true(array.inner.len())))
+            .unwrap_or_else(|| Mask::new_true(array.inner.len()))
     }
 }
 

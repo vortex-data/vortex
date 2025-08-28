@@ -22,7 +22,7 @@ pub(crate) fn new_exporter(array: &PrimitiveArray) -> VortexResult<Box<dyn Colum
         Box::new(PrimitiveExporter {
             array: array.clone(),
             array_type: PhantomData::<T>,
-            validity: array.validity_mask()?,
+            validity: array.validity_mask(),
         })
     }))
 }
