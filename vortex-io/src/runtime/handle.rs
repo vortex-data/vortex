@@ -9,6 +9,7 @@ use futures::{FutureExt, StreamExt, TryFutureExt};
 use std::fs::File;
 use std::marker::PhantomData;
 use std::os::unix::fs::FileExt;
+use std::path::Path;
 use std::sync::Arc;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{
@@ -93,34 +94,24 @@ impl<'rt> Handle<'rt> {
         }
     }
 
-    /// Opens a file whose following read requests will occur on the underlying runtime.
-    // TODO(ngates): this API isn't quite right. We want something that takes an IoDriver and
-    //  wraps up requests with some Arc<dyn Any> data that get pushed onto the I/O queue?
-    //  Or maybe, we spawn multiple I/O queues that get driven on the same smol executor?
-    //
-    // FIXME(ngates): this API can create a channel that is used for the entire lifetime of the
-    //  file. We can then pass the other end of the channel to the runtime.
-    pub fn open_file(&self, read: Arc<File>) -> FileIo<'rt> {
-        self.open(read)
-    }
-
-    pub fn open(&self, driver: Arc<dyn IoSource>) -> FileIo<'rt> {
+    pub fn open<S: IoSource>(&self, source: S) -> FileIo<'rt> {
+        let source = Arc::new(source);
         let (send, recv) = flume::unbounded();
 
         // Construct the size future in case we need it.
-        let size = driver.size();
+        let size = source.size();
 
-        let concurrency = driver.concurrency();
-        let name = driver.name();
+        let concurrency = source.concurrency();
+        let name = source.name();
 
         let stream = recv.into_stream();
-        let stream = match driver.coalescing_window() {
+        let stream = match source.coalescing_window() {
             None => stream
-                .map(move |req: IoRequest| IoTask::new_request(driver.clone(), req))
+                .map(move |req: IoRequest| IoTask::new_request(source.clone(), req))
                 .boxed(),
             Some(window) => stream
                 .coalesce(window)
-                .map(move |req: CoalescedRequest| IoTask::new_coalesced(driver.clone(), req))
+                .map(move |req: CoalescedRequest| IoTask::new_coalesced(source.clone(), req))
                 .boxed(),
         };
 
@@ -136,6 +127,7 @@ impl<'rt> Handle<'rt> {
 }
 
 pub trait IoSource: Send + Sync + 'static {
+    // FIXME(ngates): non-owned
     fn name(&self) -> String;
 
     fn coalescing_window(&self) -> Option<u64>;
@@ -205,9 +197,41 @@ impl IoSource for ByteBuffer {
     }
 }
 
-impl IoSource for File {
+pub struct FileIoSource {
+    file: Arc<Dropper<File>>,
+    path: String,
+}
+
+impl FileIoSource {
+    pub fn try_new<P: AsRef<Path>>(path: P) -> VortexResult<Self> {
+        let path = path.as_ref();
+        let name = path.to_string_lossy().to_string();
+        log::info!("Opening {}", name);
+        let file = File::open(path).map_err(VortexError::from)?;
+        Ok(Self {
+            file: Arc::new(Dropper {
+                inner: file,
+                name: name.clone(),
+            }),
+            path: name,
+        })
+    }
+}
+
+struct Dropper<T> {
+    inner: T,
+    name: String,
+}
+
+impl<T> Drop for Dropper<T> {
+    fn drop(&mut self) {
+        log::info!("Dropping {}", self.name);
+    }
+}
+
+impl IoSource for FileIoSource {
     fn name(&self) -> String {
-        "file".to_string()
+        self.path.clone()
     }
 
     fn coalescing_window(&self) -> Option<u64> {
@@ -219,11 +243,9 @@ impl IoSource for File {
     }
 
     fn size(&self) -> Shared<BoxFuture<'static, SharedVortexResult<u64>>> {
-        let file = self
-            .try_clone()
-            .vortex_expect("Failed to clone file handle");
+        let file = self.file.clone();
         async move {
-            let metadata = file.metadata().map_err(VortexError::from)?;
+            let metadata = file.inner.metadata().map_err(VortexError::from)?;
             Ok(metadata.len())
         }
         .boxed()
@@ -236,13 +258,11 @@ impl IoSource for File {
         length: usize,
         alignment: Alignment,
     ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
-        let file = self
-            .try_clone()
-            .vortex_expect("Failed to clone file handle");
+        let file = self.file.clone();
         async move {
             let mut buffer = ByteBufferMut::with_capacity_aligned(length, alignment);
             unsafe { buffer.set_len(length) };
-            match file.read_exact_at(&mut buffer, offset) {
+            match file.inner.read_exact_at(&mut buffer, offset) {
                 Ok(()) => Ok(buffer.freeze()),
                 Err(e) => Err(VortexError::from(e)),
             }
@@ -252,7 +272,7 @@ impl IoSource for File {
 }
 
 #[cfg(feature = "object_store")]
-pub struct ObjectStoreIo {
+pub struct ObjectStoreIoSource {
     store: Arc<dyn object_store::ObjectStore>,
     path: object_store::path::Path,
     concurrency: usize,
@@ -260,7 +280,7 @@ pub struct ObjectStoreIo {
 }
 
 #[cfg(feature = "object_store")]
-impl ObjectStoreIo {
+impl ObjectStoreIoSource {
     pub fn new(store: Arc<dyn object_store::ObjectStore>, path: object_store::path::Path) -> Self {
         Self {
             store,
@@ -283,7 +303,7 @@ impl ObjectStoreIo {
 }
 
 #[cfg(feature = "object_store")]
-impl IoSource for ObjectStoreIo {
+impl IoSource for ObjectStoreIoSource {
     fn name(&self) -> String {
         self.path.to_string()
     }

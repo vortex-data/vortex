@@ -6,17 +6,15 @@
 //! The `VortexFile` provides methods for accessing file metadata, creating segment sources for reading
 //! data from the file, and initiating scans to read the file's contents into memory as Vortex arrays.
 
-use std::fs::File;
 use std::sync::Arc;
 
 use vortex_array::stats::StatsSet;
 use vortex_array::ArrayRef;
-use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Field, FieldPath, FieldPathSet};
 use vortex_error::VortexResult;
 use vortex_expr::pruning::checked_pruning_expr;
 use vortex_expr::{ExprRef, Scope};
-use vortex_io::runtime::{FileIo, Handle, ObjectStoreIo};
+use vortex_io::runtime::{FileIo, Handle};
 use vortex_layout::segments::SegmentSourceRef;
 use vortex_layout::LayoutReaderRef;
 use vortex_metrics::VortexMetrics;
@@ -145,24 +143,5 @@ impl<'rt> VortexFile<'rt> {
             .evaluate(&scope)?
             .as_constant()
             .is_some_and(|result| result.as_bool().value() == Some(true)))
-    }
-}
-
-#[derive(Clone)]
-pub(crate) enum FileIoSource {
-    Memory(ByteBuffer),
-    File(Arc<File>),
-    #[cfg(feature = "object_store")]
-    ObjectStore(Arc<ObjectStoreIo>),
-}
-
-impl FileIoSource {
-    pub(crate) fn open<'rt>(self, handle: &Handle<'rt>) -> FileIo<'rt> {
-        match self {
-            FileIoSource::Memory(buffer) => handle.open(Arc::new(buffer)),
-            FileIoSource::File(file) => handle.open(file),
-            #[cfg(feature = "object_store")]
-            FileIoSource::ObjectStore(store) => handle.open(store),
-        }
     }
 }

@@ -11,7 +11,6 @@ use moka::policy::EvictionPolicy;
 use rustc_hash::FxBuildHasher;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_io::runtime::Handle;
 use vortex_layout::segments::{SegmentFuture, SegmentId, SegmentSource, SegmentSourceRef};
 use vortex_metrics::{Counter, VortexMetrics};
 

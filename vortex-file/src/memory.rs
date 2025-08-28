@@ -7,7 +7,6 @@ use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_io::runtime::Handle;
 use vortex_layout::segments::{SegmentFuture, SegmentId, SegmentSource};
 
-use crate::file::FileIoSource;
 use crate::{FileType, Footer, VortexFile, VortexOpenOptions};
 
 /// A Vortex file that is backed by an in-memory buffer.
@@ -59,7 +58,7 @@ impl VortexOpenOptions<InMemoryFileType> {
 
         Ok(VortexFile {
             footer,
-            file: FileIoSource::Memory(buffer).open(&handle),
+            file: handle.open(buffer),
             metrics: self.metrics,
             handle,
         })

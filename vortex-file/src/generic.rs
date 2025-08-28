@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fs::File;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -9,12 +8,11 @@ use dashmap::DashMap;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_io::runtime::singlethread::SingleThreadRuntime;
-use vortex_io::runtime::{FileIo, Handle, ObjectStoreIo};
+use vortex_io::runtime::{FileIo, FileIoSource, Handle, IoSource, ObjectStoreIoSource};
 use vortex_io::{IoDispatcher, PerformanceHint};
 use vortex_layout::segments::{SegmentEvents, SegmentId};
 
 use crate::driver::CoalescedDriver;
-use crate::file::FileIoSource;
 use crate::segments::{
     InitialReadSegmentCache, MokaSegmentCache, NoOpSegmentCache, SegmentCache, SegmentCacheMetrics,
     SegmentCacheSourceAdapter,
@@ -69,11 +67,6 @@ impl VortexOpenOptions<GenericVortexFile> {
         self
     }
 
-    /// Blocking call to open a Vortex file using the provided [`std::path::Path`].
-    pub fn open_blocking<P: AsRef<Path>>(self, read: P) -> VortexResult<VortexFile<'static>> {
-        SingleThreadRuntime::drive(|handle| self.open(read, handle))
-    }
-
     /// Open a Vortex file using the provided [`std::path::Path`].
     pub fn open<'rt, P: AsRef<Path>>(
         self,
@@ -81,22 +74,19 @@ impl VortexOpenOptions<GenericVortexFile> {
         handle: Handle<'rt>,
     ) -> impl Future<Output = VortexResult<VortexFile<'rt>>> + 'rt {
         // self.open_read_at(vortex_io::TokioFile::open(read)?).await
-        let file = File::open(path);
-        async move {
-            let source = FileIoSource::File(Arc::new(file?));
-            self.open_source(source, handle).await
-        }
+        let source = FileIoSource::try_new(path);
+        async move { self.open_source(source?, handle).await }
     }
 
     /// Low-level API for opening any [`VortexReadAt`]. Note that the user is responsible for
     /// ensuring the `VortexReadAt` implementation is compatible with the chosen I/O dispatcher.
-    pub(crate) async fn open_source<'rt>(
+    pub(crate) async fn open_source<'rt, S: IoSource>(
         self,
-        source: FileIoSource,
+        source: S,
         handle: Handle<'rt>,
     ) -> VortexResult<VortexFile<'rt>> {
         // Open the file so we can read its footer.
-        let read = source.clone().open(&handle);
+        let read = handle.open(source);
 
         let footer = if let Some(footer) = self.footer {
             footer
@@ -296,11 +286,8 @@ impl VortexOpenOptions<GenericVortexFile> {
             // Local disk is too fast to justify prefetching.
             self.open(local_path, handle).await
         } else {
-            self.open_source(
-                FileIoSource::ObjectStore(Arc::new(ObjectStoreIo::new(object_store, path.into()))),
-                handle,
-            )
-            .await
+            self.open_source(ObjectStoreIoSource::new(object_store, path.into()), handle)
+                .await
         }
     }
 }

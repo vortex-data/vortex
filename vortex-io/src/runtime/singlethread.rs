@@ -20,17 +20,19 @@ use vortex_error::vortex_panic;
 /// can forward its work into, and we drive the resulting tasks on a [`LocalExecutor`] on the
 /// calling thread.
 // TODO(ngates): use a builder to configure whether I/O runs on a separate blocking pool or not.
-pub struct SingleThreadRuntime<'rt> {
-    scheduling: flume::Sender<BoxFuture<'rt, ()>>,
+pub struct SingleThreadRuntime {
+    scheduling: flume::Sender<BoxFuture<'static, ()>>,
     cpu: flume::Sender<CpuTask>,
-    io: flume::Sender<(BoxStream<'rt, IoTask>, usize)>,
+    io: flume::Sender<(BoxStream<'static, IoTask>, usize)>,
 }
 
-impl<'rt> SingleThreadRuntime<'rt> {
-    fn new(local: Rc<LocalExecutor<'rt>>) -> Self {
-        let (scheduling_send, scheduling_recv) = flume::unbounded::<BoxFuture<'rt, ()>>();
+impl SingleThreadRuntime {
+    fn new() -> (Self, Rc<LocalExecutor<'static>>) {
+        let (scheduling_send, scheduling_recv) = flume::unbounded::<BoxFuture<'static, ()>>();
         let (cpu_send, cpu_recv) = flume::unbounded::<CpuTask>();
-        let (io_send, io_recv) = flume::unbounded::<(BoxStream<'rt, IoTask>, usize)>();
+        let (io_send, io_recv) = flume::unbounded::<(BoxStream<'static, IoTask>, usize)>();
+
+        let local = Rc::new(LocalExecutor::new());
 
         // Drive scheduling tasks.
         let local2 = local.clone();
@@ -72,58 +74,60 @@ impl<'rt> SingleThreadRuntime<'rt> {
             })
             .detach();
 
-        Self {
-            scheduling: scheduling_send,
-            cpu: cpu_send,
-            io: io_send,
-        }
+        (
+            Self {
+                scheduling: scheduling_send,
+                cpu: cpu_send,
+                io: io_send,
+            },
+            local,
+        )
     }
 
     /// Drive the given Vortex future on the underlying Tokio runtime.
-    pub fn drive<F, Fut, R>(f: F) -> R
+    pub fn drive<'rt, 'f, F, Fut, R>(f: F) -> R
     where
         F: FnOnce(Handle<'rt>) -> Fut,
-        Fut: Future<Output = R> + 'rt,
-        R: Send + 'rt,
+        Fut: Future<Output = R> + 'f,
+        'rt: 'f,
+        R: Send + 'static,
     {
-        let executor = Rc::new(LocalExecutor::new());
-        let rt = Arc::new(SingleThreadRuntime::new(executor.clone()));
-        let fut = f(Handle(rt));
+        let (rt, executor) = SingleThreadRuntime::new();
+        let fut = f(Handle(Arc::new(rt)));
         block_on(executor.run(fut))
     }
 
     /// Drive the given Vortex stream on the underlying Tokio runtime.
     pub fn drive_stream<F, S, R>(f: F) -> impl Iterator<Item = R>
     where
-        F: FnOnce(Handle<'rt>) -> S,
-        S: Stream<Item = R> + Unpin + 'rt,
-        R: Send + 'rt,
+        F: FnOnce(Handle) -> S,
+        S: Stream<Item = R> + Unpin,
+        R: Send + 'static,
     {
         // Create a new static executor.
-        let executor = Rc::new(LocalExecutor::new());
-        let rt = Arc::new(SingleThreadRuntime::new(executor.clone()));
-        let stream = f(Handle(rt));
+        let (rt, executor) = SingleThreadRuntime::new();
+        let stream = f(Handle(Arc::new(rt)));
 
         // SAFETY: The stream contains references to `rt` with lifetime 'rt.
         // We're transmuting this to 'static, which is sound because:
         // 1. Both `rt` and `stream` will be moved into BlockingStream
         // 2. BlockingStream will drop them in the correct order (stream first, then rt)
         // 3. The stream will never outlive the runtime it references
-        let executor: Rc<LocalExecutor> = unsafe {
-            std::mem::transmute::<Rc<LocalExecutor<'_>>, Rc<LocalExecutor<'static>>>(executor)
-        };
         let stream: LocalBoxStream<'static, R> = unsafe {
             std::mem::transmute::<LocalBoxStream<'_, R>, LocalBoxStream<'static, R>>(
                 stream.boxed_local(),
             )
         };
 
-        BlockingStream { executor, stream }
+        BlockingStream {
+            executor,
+            stream: stream.boxed_local(),
+        }
     }
 }
 
-impl<'rt> Runtime<'rt> for SingleThreadRuntime<'rt> {
-    fn spawn_scheduling(&self, fut: BoxFuture<'rt, ()>) {
+impl Runtime<'static> for SingleThreadRuntime {
+    fn spawn_scheduling(&self, fut: BoxFuture<'static, ()>) {
         if let Err(e) = self.scheduling.send(fut) {
             vortex_panic!("Runtime dropped while scheduling task: {}", e);
         }
@@ -135,7 +139,7 @@ impl<'rt> Runtime<'rt> for SingleThreadRuntime<'rt> {
         }
     }
 
-    fn spawn_io(&self, stream: BoxStream<'rt, IoTask>, concurrency: usize) {
+    fn spawn_io(&self, stream: BoxStream<'static, IoTask>, concurrency: usize) {
         if let Err(e) = self.io.send((stream, concurrency)) {
             vortex_panic!("Runtime dropped while scheduling I/O task: {}", e);
         }
@@ -159,9 +163,9 @@ impl<T> Iterator for BlockingStream<T> {
 #[cfg(test)]
 mod tests {
     use crate::runtime::singlethread::SingleThreadRuntime;
+    use crate::runtime::FileIoSource;
     use std::fs::File;
     use std::io::Write;
-    use std::sync::Arc;
     use vortex_buffer::Alignment;
 
     #[test]
@@ -174,7 +178,7 @@ mod tests {
 
         let buffer = SingleThreadRuntime::drive(|handle| {
             // Now we read from the file using the handle.
-            let read = handle.open_file(Arc::new(File::open("test.txt").unwrap()));
+            let read = handle.open(FileIoSource::try_new("test.txt").unwrap());
             read.read(0, 14, Alignment::none())
         })
         .unwrap();

@@ -4,7 +4,6 @@
 use futures::{stream, FutureExt, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use num_traits::AsPrimitive;
-use std::alloc::handle_alloc_error;
 use std::cmp::max;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
@@ -12,7 +11,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::task::block_in_place;
 use url::Url;
-use vortex::dtype::FieldNames;
+use vortex::dtype::{DType, FieldNames};
 use vortex::error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 use vortex::expr::{and, and_collect, col, lit, root, select, ExprRef};
 use vortex::file::{VortexFile, VortexOpenOptions};
@@ -81,12 +80,10 @@ pub struct VortexLocalData {
 #[derive(Debug)]
 pub struct VortexTableFunction;
 
-/// Extracts the schema from a Vortex file.
-fn extract_schema_from_vortex_file(
-    file: &VortexFile,
+/// Extracts the schema from a Vortex dtype.
+fn extract_schema_from_vortex_dtype(
+    dtype: &DType,
 ) -> VortexResult<(Vec<String>, Vec<LogicalType>)> {
-    let dtype = file.dtype();
-
     // For now, we assume the top-level type to be a struct.
     let struct_dtype = dtype
         .as_struct_opt()
@@ -237,10 +234,10 @@ impl TableFunction for VortexTableFunction {
             let options = entry.apply_to_file(VortexOpenOptions::file());
             let file = open_file(first_file_url, options, handle).await?;
             entry.put_if_absent(|| file.footer().clone());
-            VortexResult::Ok(file)
+            VortexResult::Ok(file.into_footer())
         })?;
 
-        let (column_names, column_types) = extract_schema_from_vortex_file(&first_file)?;
+        let (column_names, column_types) = extract_schema_from_vortex_dtype(first_file.dtype())?;
 
         // Add result columns based on the extracted schema.
         for (column_name, column_type) in column_names.iter().zip(&column_types) {
@@ -249,7 +246,7 @@ impl TableFunction for VortexTableFunction {
 
         Ok(VortexBindData {
             file_urls,
-            first_file: first_file.into_footer(),
+            first_file,
             filter_exprs: vec![],
             column_names,
             column_types,
