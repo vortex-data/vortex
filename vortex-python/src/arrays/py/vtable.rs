@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use pyo3::{Python, intern};
@@ -69,7 +71,7 @@ impl CanonicalVTable<PythonVTable> for PythonVTable {
 }
 
 impl OperationsVTable<PythonVTable> for PythonVTable {
-    fn slice(_array: &PythonArray, _start: usize, _stop: usize) -> ArrayRef {
+    fn slice(_array: &PythonArray, _range: Range<usize>) -> ArrayRef {
         todo!()
     }
 

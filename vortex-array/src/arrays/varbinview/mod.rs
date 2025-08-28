@@ -398,7 +398,7 @@ impl VarBinViewArray {
 
         match dtype {
             DType::Utf8(_) => Self::validate_views(views, buffers, validity, |string| {
-                std::str::from_utf8(string).is_ok()
+                simdutf8::basic::from_utf8(string).is_ok()
             })?,
             DType::Binary(_) => Self::validate_views(views, buffers, validity, |_| true)?,
             _ => vortex_bail!("invalid DType {dtype} for `VarBinViewArray`"),
@@ -744,7 +744,7 @@ mod test {
     pub fn slice_array() {
         let binary_arr =
             VarBinViewArray::from_iter_str(["hello world", "hello world this is a long string"])
-                .slice(1, 2);
+                .slice(1..2);
         assert_eq!(
             binary_arr.scalar_at(0),
             Scalar::from("hello world this is a long string")

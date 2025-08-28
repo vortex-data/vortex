@@ -88,6 +88,9 @@ impl CanonicalVTable<SparseVTable> for SparseVTable {
                     *nullability,
                 )
             }
+            DType::FixedSizeList(..) => {
+                unimplemented!("TODO(connor)[FixedSizeList]")
+            }
             DType::Extension(_ext_dtype) => todo!(),
         }
     }
@@ -218,7 +221,7 @@ fn canonicalize_sparse_lists_inner<I: NativePType, SmallestViableOffsetType: Off
         for _ in next_index..next_patched_index {
             builder.extend_from_array(&fill_value_array)?;
         }
-        builder.extend_from_array(&values.slice(patch_values_index, patch_values_index + 1))?;
+        builder.extend_from_array(&values.slice(patch_values_index..patch_values_index + 1))?;
         next_index = next_patched_index + 1;
     }
 
@@ -1047,7 +1050,7 @@ mod test {
         let lists = ListArray::try_new(elements, offsets, Validity::AllValid)
             .unwrap()
             .into_array();
-        let lists = lists.slice(2, 6);
+        let lists = lists.slice(2..6);
 
         let indices = buffer![0u8, 3u8, 4u8, 5u8].into_array();
         let fill_value = Scalar::null(lists.dtype().clone());

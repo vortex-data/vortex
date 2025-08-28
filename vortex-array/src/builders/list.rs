@@ -17,7 +17,9 @@ use crate::compute::{add_scalar, cast, sub_scalar};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 pub struct ListBuilder<O: NativePType> {
+    /// The values of the list.
     value_builder: Box<dyn ArrayBuilder>,
+    /// Represents the offsets into the values array.
     index_builder: PrimitiveBuilder<O>,
     nulls: LazyNullBufferBuilder,
     nullability: Nullability,
@@ -166,7 +168,7 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
         let n_leading_junk_values_scalar = offsets.scalar_at(0).cast(index_dtype)?;
         let n_leading_junk_values = usize::try_from(&n_leading_junk_values_scalar)?;
 
-        let casted_offsets = cast(&offsets.slice(1, offsets.len()), index_dtype)?;
+        let casted_offsets = cast(&offsets.slice(1..offsets.len()), index_dtype)?;
         let offsets_without_leading_junk =
             sub_scalar(&casted_offsets, n_leading_junk_values_scalar)?;
         let offsets_into_builder =
@@ -174,7 +176,7 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
 
         let last_offset = offsets.scalar_at(offsets.len() - 1);
         let last_offset = usize::try_from(&last_offset)?;
-        let non_junk_values = elements.slice(n_leading_junk_values, last_offset);
+        let non_junk_values = elements.slice(n_leading_junk_values..last_offset);
 
         self.nulls.append_validity_mask(array.validity_mask()?);
         self.index_builder
@@ -276,14 +278,14 @@ mod tests {
     }
 
     #[test]
-    fn test_non_null_fails() {
+    fn test_append_empty_list() {
         let dtype: Arc<DType> = Arc::new(I32.into());
         let mut builder = ListBuilder::<u32>::with_capacity(dtype.clone(), NonNullable, 0);
 
         assert!(
             builder
                 .append_value(Scalar::list_empty(dtype, NonNullable).as_list())
-                .is_err()
+                .is_ok()
         )
     }
 
@@ -339,8 +341,8 @@ mod tests {
 
         builder.extend_from_array(&list).unwrap();
         builder.extend_from_array(&list).unwrap();
-        builder.extend_from_array(&list.slice(0, 0)).unwrap();
-        builder.extend_from_array(&list.slice(1, 3)).unwrap();
+        builder.extend_from_array(&list.slice(0..0)).unwrap();
+        builder.extend_from_array(&list.slice(1..3)).unwrap();
 
         let expected = ListArray::from_iter_opt_slow::<O, _, _>(
             [

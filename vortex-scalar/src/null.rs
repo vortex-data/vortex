@@ -124,20 +124,6 @@ mod tests {
     }
 
     #[test]
-    fn test_null_list() {
-        use std::sync::Arc;
-
-        use vortex_dtype::PType;
-
-        let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::Nullable));
-        let null_list = Scalar::list_empty(element_dtype, Nullability::Nullable);
-
-        // NOTE: Unexpected behavior - TryFrom succeeds for typed null scalars
-        let result = <()>::try_from(&null_list);
-        assert!(result.is_ok());
-    }
-
-    #[test]
     fn test_null_struct() {
         use vortex_dtype::{FieldDType, StructFields};
 

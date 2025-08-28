@@ -133,10 +133,10 @@ impl flatbuffers::SimpleToVerifyInSlice for PType {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_TYPE: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_TYPE: u8 = 9;
+pub const ENUM_MAX_TYPE: u8 = 10;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_TYPE: [Type; 10] = [
+pub const ENUM_VALUES_TYPE: [Type; 11] = [
   Type::NONE,
   Type::Null,
   Type::Bool,
@@ -147,6 +147,7 @@ pub const ENUM_VALUES_TYPE: [Type; 10] = [
   Type::Struct_,
   Type::List,
   Type::Extension,
+  Type::FixedSizeList,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -164,9 +165,10 @@ impl Type {
   pub const Struct_: Self = Self(7);
   pub const List: Self = Self(8);
   pub const Extension: Self = Self(9);
+  pub const FixedSizeList: Self = Self(10);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 9;
+  pub const ENUM_MAX: u8 = 10;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::NONE,
     Self::Null,
@@ -178,6 +180,7 @@ impl Type {
     Self::Struct_,
     Self::List,
     Self::Extension,
+    Self::FixedSizeList,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -192,6 +195,7 @@ impl Type {
       Self::Struct_ => Some("Struct_"),
       Self::List => Some("List"),
       Self::Extension => Some("Extension"),
+      Self::FixedSizeList => Some("FixedSizeList"),
       _ => None,
     }
   }
@@ -1109,6 +1113,137 @@ impl core::fmt::Debug for List<'_> {
       ds.finish()
   }
 }
+pub enum FixedSizeListOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct FixedSizeList<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for FixedSizeList<'a> {
+  type Inner = FixedSizeList<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: flatbuffers::Table::new(buf, loc) }
+  }
+}
+
+impl<'a> FixedSizeList<'a> {
+  pub const VT_ELEMENT_TYPE: flatbuffers::VOffsetT = 4;
+  pub const VT_SIZE: flatbuffers::VOffsetT = 6;
+  pub const VT_NULLABLE: flatbuffers::VOffsetT = 8;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    FixedSizeList { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args FixedSizeListArgs<'args>
+  ) -> flatbuffers::WIPOffset<FixedSizeList<'bldr>> {
+    let mut builder = FixedSizeListBuilder::new(_fbb);
+    builder.add_size(args.size);
+    if let Some(x) = args.element_type { builder.add_element_type(x); }
+    builder.add_nullable(args.nullable);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn element_type(&self) -> Option<DType<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<DType>>(FixedSizeList::VT_ELEMENT_TYPE, None)}
+  }
+  #[inline]
+  pub fn size(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(FixedSizeList::VT_SIZE, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn nullable(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(FixedSizeList::VT_NULLABLE, Some(false)).unwrap()}
+  }
+}
+
+impl flatbuffers::Verifiable for FixedSizeList<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<flatbuffers::ForwardsUOffset<DType>>("element_type", Self::VT_ELEMENT_TYPE, false)?
+     .visit_field::<u32>("size", Self::VT_SIZE, false)?
+     .visit_field::<bool>("nullable", Self::VT_NULLABLE, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct FixedSizeListArgs<'a> {
+    pub element_type: Option<flatbuffers::WIPOffset<DType<'a>>>,
+    pub size: u32,
+    pub nullable: bool,
+}
+impl<'a> Default for FixedSizeListArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    FixedSizeListArgs {
+      element_type: None,
+      size: 0,
+      nullable: false,
+    }
+  }
+}
+
+pub struct FixedSizeListBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> FixedSizeListBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_element_type(&mut self, element_type: flatbuffers::WIPOffset<DType<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<DType>>(FixedSizeList::VT_ELEMENT_TYPE, element_type);
+  }
+  #[inline]
+  pub fn add_size(&mut self, size: u32) {
+    self.fbb_.push_slot::<u32>(FixedSizeList::VT_SIZE, size, 0);
+  }
+  #[inline]
+  pub fn add_nullable(&mut self, nullable: bool) {
+    self.fbb_.push_slot::<bool>(FixedSizeList::VT_NULLABLE, nullable, false);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> FixedSizeListBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    FixedSizeListBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<FixedSizeList<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for FixedSizeList<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("FixedSizeList");
+      ds.field("element_type", &self.element_type());
+      ds.field("size", &self.size());
+      ds.field("nullable", &self.nullable());
+      ds.finish()
+  }
+}
 pub enum ExtensionOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -1424,6 +1559,21 @@ impl<'a> DType<'a> {
     }
   }
 
+  #[inline]
+  #[allow(non_snake_case)]
+  pub fn type__as_fixed_size_list(&self) -> Option<FixedSizeList<'a>> {
+    if self.type_type() == Type::FixedSizeList {
+      self.type_().map(|t| {
+       // Safety:
+       // Created from a valid Table for this object
+       // Which contains a valid union in this slot
+       unsafe { FixedSizeList::init_from_table(t) }
+     })
+    } else {
+      None
+    }
+  }
+
 }
 
 impl flatbuffers::Verifiable for DType<'_> {
@@ -1444,6 +1594,7 @@ impl flatbuffers::Verifiable for DType<'_> {
           Type::Struct_ => v.verify_union_variant::<flatbuffers::ForwardsUOffset<Struct_>>("Type::Struct_", pos),
           Type::List => v.verify_union_variant::<flatbuffers::ForwardsUOffset<List>>("Type::List", pos),
           Type::Extension => v.verify_union_variant::<flatbuffers::ForwardsUOffset<Extension>>("Type::Extension", pos),
+          Type::FixedSizeList => v.verify_union_variant::<flatbuffers::ForwardsUOffset<FixedSizeList>>("Type::FixedSizeList", pos),
           _ => Ok(()),
         }
      })?
@@ -1556,6 +1707,13 @@ impl core::fmt::Debug for DType<'_> {
         },
         Type::Extension => {
           if let Some(x) = self.type__as_extension() {
+            ds.field("type_", &x)
+          } else {
+            ds.field("type_", &"InvalidFlatbuffer: Union discriminant does not match value.")
+          }
+        },
+        Type::FixedSizeList => {
+          if let Some(x) = self.type__as_fixed_size_list() {
             ds.field("type_", &x)
           } else {
             ds.field("type_", &"InvalidFlatbuffer: Union discriminant does not match value.")

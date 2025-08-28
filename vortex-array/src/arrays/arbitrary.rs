@@ -124,6 +124,9 @@ fn random_array(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Resu
                     .into_array())
                 }
                 DType::List(ldt, n) => random_list(u, ldt, *n, chunk_len),
+                DType::FixedSizeList(..) => {
+                    unimplemented!("TODO(connor)[FixedSizeList]: Create canonical fixed-size list")
+                }
                 DType::Extension(..) => {
                     todo!("Extension arrays are not implemented")
                 }

@@ -3,6 +3,7 @@
 
 use std::cmp;
 use std::fmt::Debug;
+use std::ops::Range;
 
 use pco::data_types::{Number, NumberType};
 use pco::errors::PcoError;
@@ -242,7 +243,7 @@ impl PcoArray {
             values_byte_buffer,
             self.dtype.as_ptype(),
             self.unsliced_validity
-                .slice(self.slice_start, self.slice_stop),
+                .slice(self.slice_start..self.slice_stop),
             self.slice_stop - self.slice_start,
         )?;
         Ok(primitive.into_array())
@@ -370,8 +371,8 @@ impl CanonicalVTable<PcoVTable> for PcoVTable {
 }
 
 impl OperationsVTable<PcoVTable> for PcoVTable {
-    fn slice(array: &PcoArray, start: usize, stop: usize) -> ArrayRef {
-        array._slice(start, stop).into_array()
+    fn slice(array: &PcoArray, range: Range<usize>) -> ArrayRef {
+        array._slice(range.start, range.end).into_array()
     }
 
     fn scalar_at(array: &PcoArray, index: usize) -> Scalar {

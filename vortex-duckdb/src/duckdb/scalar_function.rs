@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex::error::VortexExpect;
+use vortex::error::{VortexUnwrap, vortex_err};
 
 use crate::duckdb::LogicalType;
 use crate::{cpp, wrapper};
@@ -14,7 +14,8 @@ impl ScalarFunction {
             let name_ptr = cpp::duckdb_vx_sfunc_name(self.as_ptr());
             std::ffi::CStr::from_ptr(name_ptr)
                 .to_str()
-                .vortex_expect("invalid utf-8")
+                .map_err(|e| vortex_err!("invalid utf-8: {e}"))
+                .vortex_unwrap()
         }
     }
 

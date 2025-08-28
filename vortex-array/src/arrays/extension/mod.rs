@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_dtype::{DType, ExtDType, ExtID};
@@ -190,12 +191,8 @@ impl CanonicalVTable<ExtensionVTable> for ExtensionVTable {
 }
 
 impl OperationsVTable<ExtensionVTable> for ExtensionVTable {
-    fn slice(array: &ExtensionArray, start: usize, stop: usize) -> ArrayRef {
-        ExtensionArray::new(
-            array.ext_dtype().clone(),
-            array.storage().slice(start, stop),
-        )
-        .into_array()
+    fn slice(array: &ExtensionArray, range: Range<usize>) -> ArrayRef {
+        ExtensionArray::new(array.ext_dtype().clone(), array.storage().slice(range)).into_array()
     }
 
     fn scalar_at(array: &ExtensionArray, index: usize) -> Scalar {

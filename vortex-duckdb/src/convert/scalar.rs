@@ -59,7 +59,7 @@ impl ToDuckDBScalar for Scalar {
             DType::Extension(..) => self.as_extension().try_to_duckdb_scalar(),
             DType::Utf8(_) => self.as_utf8().try_to_duckdb_scalar(),
             DType::Binary(_) => self.as_binary().try_to_duckdb_scalar(),
-            DType::Struct(..) | DType::List(..) => todo!(),
+            DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) => todo!(),
         }
     }
 }
@@ -156,7 +156,7 @@ impl ToDuckDBScalar for ExtScalar<'_> {
                     vortex_err!("Cannot have a temporal time type not packed by a primitive scalar")
                 })?
                 .as_::<i64>()
-                .ok_or_else(|| vortex_err!("temporal types must be convertable to i64"))
+                .ok_or_else(|| vortex_err!("temporal types must be convertible to i64"))
         };
         match time {
             TemporalMetadata::Time(unit) => match unit {

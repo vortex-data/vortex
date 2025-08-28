@@ -124,6 +124,7 @@ pub fn take_canonical_array(
             }
             Ok(builder.finish())
         }
+        DType::FixedSizeList(..) => unimplemented!("TODO(connor)[FixedSizeList]"),
         d @ (DType::Null | DType::Extension(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }

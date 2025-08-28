@@ -3,7 +3,8 @@
 
 use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
-use std::str::Utf8Error;
+
+use vortex_error::{VortexError, vortex_err};
 
 use crate::ByteBuffer;
 
@@ -64,10 +65,15 @@ impl From<&str> for BufferString {
 }
 
 impl TryFrom<ByteBuffer> for BufferString {
-    type Error = Utf8Error;
+    type Error = VortexError;
 
     fn try_from(value: ByteBuffer) -> Result<Self, Self::Error> {
-        let _ = std::str::from_utf8(value.as_ref())?;
+        let _ = simdutf8::basic::from_utf8(value.as_ref()).map_err(|_| {
+            #[allow(clippy::unwrap_used)]
+            // run validation using `compat` package to get more detailed error message
+            let err = simdutf8::compat::from_utf8(value.as_ref()).unwrap_err();
+            vortex_err!("invalid utf-8: {err}")
+        })?;
         Ok(Self(value))
     }
 }

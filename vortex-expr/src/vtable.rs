@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 use std::hash::Hash;
 use std::ops::Deref;
 
@@ -9,6 +9,7 @@ use vortex_array::{ArrayRef, DeserializeMetadata, SerializeMetadata};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
+use crate::display::DisplayAs;
 use crate::{
     AnalysisExpr, ExprEncoding, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VortexExpr,
 };
@@ -19,7 +20,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         + Sync
         + Clone
         + Debug
-        + Display
+        + DisplayAs
         + PartialEq
         + Eq
         + Hash

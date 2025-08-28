@@ -86,6 +86,7 @@ pub fn slice_canonical_array(
             .into_array();
             ListArray::try_new(elements, offsets, validity).map(|a| a.into_array())
         }
+        DType::FixedSizeList(..) => unimplemented!("TODO(connor)[FixedSizeList]"),
         DType::Decimal(decimal_dtype, _) => {
             let decimal_array = array.to_decimal()?;
             Ok(

@@ -269,7 +269,7 @@ fn test_slice_filter_consistency(array: &dyn Array) {
     let filtered = filter(array, &mask).vortex_unwrap();
 
     // Slice should produce the same result
-    let sliced = array.slice(1, 4.min(len));
+    let sliced = array.slice(1..4.min(len));
 
     assert_eq!(
         filtered.len(),
@@ -316,7 +316,7 @@ fn test_take_slice_consistency(array: &dyn Array) {
     let taken = take(array, &indices).vortex_unwrap();
 
     // Slice from 1 to end
-    let sliced = array.slice(1, end);
+    let sliced = array.slice(1..end);
 
     assert_eq!(
         taken.len(),
@@ -420,7 +420,7 @@ fn test_empty_operations_consistency(array: &dyn Array) {
 
     // Empty slice (if array is non-empty)
     if len > 0 {
-        let empty_slice = array.slice(0, 0);
+        let empty_slice = array.slice(0..0);
         assert_eq!(empty_slice.len(), 0);
         assert_eq!(empty_slice.dtype(), array.dtype());
     }
@@ -806,9 +806,9 @@ fn test_slice_aggregate_consistency(array: &dyn Array) {
     let end = (len - 1).min(start + 10); // Take up to 10 elements
 
     // Get sliced array and canonical slice
-    let sliced = array.slice(start, end);
+    let sliced = array.slice(start..end);
     let canonical = array.to_canonical().vortex_unwrap();
-    let canonical_sliced = canonical.as_ref().slice(start, end);
+    let canonical_sliced = canonical.as_ref().slice(start..end);
 
     // Test null count through invalid_count
     if let (Ok(slice_null_count), Ok(canonical_null_count)) =
@@ -998,13 +998,16 @@ fn test_cast_slice_consistency(array: &dyn Array) {
             };
             vec![DType::List(element_type.clone(), opposite)]
         }
+        DType::FixedSizeList(..) => {
+            unimplemented!("TODO(connor)[FixedSizeList]")
+        }
         DType::Extension(_) => vec![], // Extension types typically only cast to themselves
     };
 
     // Test each target dtype
     for target_dtype in target_dtypes {
         // Slice the array
-        let sliced = array.slice(start, end);
+        let sliced = array.slice(start..end);
 
         // Try to cast the sliced array
         let slice_then_cast = match cast(&sliced, &target_dtype) {
@@ -1054,7 +1057,7 @@ fn test_cast_slice_consistency(array: &dyn Array) {
             Ok(result) => result,
             Err(_) => continue, // Skip if cast fails
         };
-        let cast_then_slice = casted.slice(start, end);
+        let cast_then_slice = casted.slice(start..end);
 
         // Verify the two approaches produce identical results
         assert_eq!(

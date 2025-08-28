@@ -17,6 +17,7 @@ use vortex_array::stream::ArrayStreamExt;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, ByteBufferMut, buffer};
+use vortex_dict::{DictEncoding, DictVTable};
 use vortex_dtype::PType::I32;
 use vortex_dtype::{DType, DecimalDType, Nullability, PType, StructFields};
 use vortex_error::VortexResult;
@@ -1181,5 +1182,28 @@ async fn test_into_tokio_array_stream() -> VortexResult<()> {
 
     assert_eq!(array.len(), 8);
 
+    Ok(())
+}
+
+#[test]
+fn test_array_stream_no_double_dict_encode() -> VortexResult<()> {
+    let num_vals = 2048;
+    let mut values = Vec::<i64>::with_capacity(num_vals);
+    values.extend(iter::repeat_n(0, num_vals / 2));
+    values.extend(iter::repeat_n(1, num_vals / 2));
+
+    let array = PrimitiveArray::from_iter(values).into_array();
+    let buf = VortexWriteOptions::default().write_blocking(Vec::new(), array.to_array_stream())?;
+    let file = VortexOpenOptions::in_memory().open(buf)?;
+    let read_array = file.scan()?.into_array_iter()?.read_all()?;
+
+    let dict = read_array
+        .as_opt::<DictVTable>()
+        .expect("expected root to be dictionary");
+    assert_ne!(
+        dict.codes().encoding().id(),
+        DictEncoding.id(),
+        "dictionary codes should not be dictionary encoded"
+    );
     Ok(())
 }

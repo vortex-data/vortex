@@ -157,14 +157,16 @@ fn decode_timestamp_metadata(ext_meta: &ExtMetadata) -> VortexResult<TemporalMet
     let tag = ext_meta.as_ref()[0];
     let time_unit = TimeUnit::try_from(tag)?;
     let tz_len_bytes = &ext_meta.as_ref()[1..3];
-    let tz_len = u16::from_le_bytes(tz_len_bytes.try_into()?);
+    let tz_len = u16::from_le_bytes(tz_len_bytes.try_into()?) as usize;
     if tz_len == 0 {
         return Ok(TemporalMetadata::Timestamp(time_unit, None));
     }
 
     // Attempt to load from len-prefixed bytes
-    let tz_bytes = &ext_meta.as_ref()[3..(3 + (tz_len as usize))];
-    let tz = String::from_utf8_lossy(tz_bytes).to_string();
+    let tz_bytes = &ext_meta.as_ref()[3..][..tz_len];
+    let tz = str::from_utf8(tz_bytes)
+        .map_err(|e| vortex_err!("timezone is not valid utf8 string: {e}"))?
+        .to_string();
     Ok(TemporalMetadata::Timestamp(time_unit, Some(tz)))
 }
 

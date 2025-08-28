@@ -4,6 +4,7 @@
 use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::ops::Range;
 
 use arrow_buffer::BooleanBuffer;
 use itertools::Itertools as _;
@@ -356,21 +357,21 @@ impl Patches {
     }
 
     /// Slice the patches by a range of the patched array.
-    pub fn slice(&self, start: usize, stop: usize) -> Option<Self> {
-        let patch_start = self.search_index(start).to_index();
-        let patch_stop = self.search_index(stop).to_index();
+    pub fn slice(&self, range: Range<usize>) -> Option<Self> {
+        let patch_start = self.search_index(range.start).to_index();
+        let patch_stop = self.search_index(range.end).to_index();
 
         if patch_start == patch_stop {
             return None;
         }
 
         // Slice out the values and indices
-        let values = self.values().slice(patch_start, patch_stop);
-        let indices = self.indices().slice(patch_start, patch_stop);
+        let values = self.values().slice(patch_start..patch_stop);
+        let indices = self.indices().slice(patch_start..patch_stop);
 
         Some(Self::new(
-            stop - start,
-            start + self.offset(),
+            range.len(),
+            range.start + self.offset(),
             indices,
             values,
         ))
@@ -764,7 +765,7 @@ mod test {
 
     #[rstest]
     fn search_sliced(patches: Patches) {
-        let sliced = patches.slice(7, 20).unwrap();
+        let sliced = patches.slice(7..20).unwrap();
         assert_eq!(
             sliced.search_sorted(22, SearchSortedSide::Left).unwrap(),
             SearchResult::NotFound(2)
@@ -841,7 +842,7 @@ mod test {
 
         let patches = Patches::new(101, 0, indices, values);
 
-        let sliced = patches.slice(15, 100).unwrap();
+        let sliced = patches.slice(15..100).unwrap();
         assert_eq!(sliced.array_len(), 100 - 15);
         let primitive = sliced.values().to_primitive().unwrap();
 
@@ -855,13 +856,13 @@ mod test {
 
         let patches = Patches::new(101, 0, indices, values);
 
-        let sliced = patches.slice(15, 100).unwrap();
+        let sliced = patches.slice(15..100).unwrap();
         assert_eq!(sliced.array_len(), 100 - 15);
         let primitive = sliced.values().to_primitive().unwrap();
 
         assert_eq!(primitive.as_slice::<u32>(), &[13531]);
 
-        let doubly_sliced = sliced.slice(35, 36).unwrap();
+        let doubly_sliced = sliced.slice(35..36).unwrap();
         let primitive_doubly_sliced = doubly_sliced.values().to_primitive().unwrap();
 
         assert_eq!(primitive_doubly_sliced.as_slice::<u32>(), &[13531]);
@@ -1042,7 +1043,7 @@ mod test {
             buffer![100i32, 200, 300].into_array(),
         );
 
-        let sliced = patches.slice(0, 10).unwrap();
+        let sliced = patches.slice(0..10).unwrap();
 
         let indices = sliced.indices().to_primitive().unwrap();
         let values = sliced.values().to_primitive().unwrap();
@@ -1060,7 +1061,7 @@ mod test {
         );
 
         // Slice from 3 to 8 (includes patch at 5)
-        let sliced = patches.slice(3, 8).unwrap();
+        let sliced = patches.slice(3..8).unwrap();
 
         let indices = sliced.indices().to_primitive().unwrap();
         let values = sliced.values().to_primitive().unwrap();
@@ -1080,7 +1081,7 @@ mod test {
         );
 
         // Slice from 6 to 7 (no patches in this range)
-        let sliced = patches.slice(6, 7);
+        let sliced = patches.slice(6..7);
         assert!(sliced.is_none());
     }
 
@@ -1094,7 +1095,7 @@ mod test {
         );
 
         // Slice from 3 to 8 (includes patch at actual index 5)
-        let sliced = patches.slice(3, 8).unwrap();
+        let sliced = patches.slice(3..8).unwrap();
 
         let indices = sliced.indices().to_primitive().unwrap();
         let values = sliced.values().to_primitive().unwrap();

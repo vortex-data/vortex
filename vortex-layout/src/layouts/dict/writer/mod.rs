@@ -112,7 +112,7 @@ where
         let should_fallback = match first_chunk {
             None => true, // empty stream
             Some(chunk) => {
-                let compressed = BtrBlocksCompressor.compress(&chunk)?;
+                let compressed = BtrBlocksCompressor::default().compress(&chunk)?;
                 !compressed.is_encoding(DictEncoding.id())
             }
         };
@@ -491,5 +491,5 @@ fn encode_chunk(
 }
 
 fn remainder(array: &dyn Array, encoded_len: usize) -> Option<ArrayRef> {
-    (encoded_len < array.len()).then(|| array.slice(encoded_len, array.len()))
+    (encoded_len < array.len()).then(|| array.slice(encoded_len..array.len()))
 }
