@@ -143,7 +143,7 @@ fn test_offset_to_0() {
             .as_list(),
         )
         .vortex_unwrap();
-    let list = builder.finish().slice(2, 4);
+    let list = builder.finish().slice(2..4);
     let list = list.as_::<ListVTable>().reset_offsets().unwrap();
     assert_eq!(list.len(), 2);
     assert_eq!(list.offsets().len(), 3);
@@ -349,7 +349,7 @@ fn test_list_of_lists() {
     assert_eq!(list_scalar.len(), 2);
 
     // Test slicing.
-    let sliced = list_of_lists.slice(1, 3);
+    let sliced = list_of_lists.slice(1..3);
     let sliced_list = sliced.as_::<ListVTable>();
     assert_eq!(sliced_list.len(), 2);
 

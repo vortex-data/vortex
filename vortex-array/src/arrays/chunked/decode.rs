@@ -106,7 +106,7 @@ fn pack_lists(
         elements.push(
             chunk
                 .elements()
-                .slice(first_offset_value, last_offset_value),
+                .slice(first_offset_value..last_offset_value),
         );
 
         let adjustment_from_previous = *offsets

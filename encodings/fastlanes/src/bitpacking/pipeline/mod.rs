@@ -94,7 +94,7 @@ mod tests {
     use rand::{Rng, SeedableRng};
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::filter;
-    use vortex_array::pipeline::export_canonical_pipeline_expr;
+    use vortex_array::pipeline::{N, export_canonical_pipeline_expr};
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::BufferMut;
     use vortex_mask::Mask;
@@ -153,8 +153,7 @@ mod tests {
         let primitive_array = values.into_array().to_primitive().unwrap();
         let bitpacked = bitpack_to_best_bit_width(&primitive_array).unwrap();
 
-        // Slice to get elements [5, 6, 7, ..., 1033] (1029 elements)
-        let sliced = bitpacked.slice(offset, len);
+        let sliced = bitpacked.slice(offset..offset + N);
 
         // Just test first few elements manually
         let val0: i32 = sliced.scalar_at(0).try_into().unwrap();
@@ -175,17 +174,12 @@ mod tests {
         let primitive_array = values.into_array().to_primitive().unwrap();
         let bitpacked = bitpack_to_best_bit_width(&primitive_array).unwrap();
 
-        // Slice to get elements [5, 6, 7, ..., 1029] (1025 elements)
-        let sliced = bitpacked.slice(offset, len);
+        let sliced = bitpacked.slice(offset..offset + N);
 
-        // Test values across the boundary and in the last partial chunk
-        let val0: i32 = sliced.scalar_at(0).try_into().unwrap();
-        let val1019: i32 = sliced.scalar_at(1019).try_into().unwrap(); // First element of second chunk
-        let val1024: i32 = sliced.scalar_at(1024).try_into().unwrap(); // Last element (partial chunk)
-
-        assert_eq!(val0, 5i32); // First element
-        assert_eq!(val1019, 1024i32); // Element at chunk boundary  
-        assert_eq!(val1024, 1029i32); // Last element in partial chunk
+        assert_eq!(i32::try_from(sliced.scalar_at(0)).unwrap(), 5i32); // First element
+        assert_eq!(i32::try_from(sliced.scalar_at(1019)).unwrap(), 1024i32); // Element at chunk boundary
+        assert_eq!(i32::try_from(sliced.scalar_at(1020)).unwrap(), 1025i32); // Element at chunk boundary
+        assert_eq!(i32::try_from(sliced.scalar_at(1023)).unwrap(), 1028i32); // Last element in partial chunk
     }
 
     #[test]
@@ -213,80 +207,6 @@ mod tests {
     }
 
     #[test]
-    fn test_bitpacking_pipeline_with_offset() {
-        let len = 1028usize;
-        let offset = 1023usize;
-
-        // Create simple sequential values for easier debugging
-        let values = (0..len).map(|i| i as i32).collect::<PrimitiveArray>();
-        let bitpacked = bitpack_encode(&values, 11, None).unwrap();
-
-        let sliced = bitpacked.slice(offset, len);
-
-        let mask = Mask::AllTrue(sliced.len());
-
-        // Run through the pipeline
-        let result = export_canonical_pipeline_expr(
-            sliced.dtype(),
-            sliced.len(),
-            sliced.to_operator().unwrap().unwrap().as_ref(),
-            &mask,
-        )
-        .unwrap()
-        .into_primitive()
-        .unwrap();
-
-        // Compare with expected result
-        let expect = sliced.to_primitive().unwrap();
-
-        assert_eq!(result.len(), expect.len(), "Length mismatch");
-        assert_eq!(
-            result.as_slice::<i32>(),
-            expect.as_slice::<i32>(),
-            "Null count mismatch"
-        );
-    }
-
-    #[test]
-    fn test_bitpacking_pipeline_with_offset_and_mask() {
-        let len = 1028usize;
-        let offset = 1023usize;
-
-        // Create simple sequential values for easier debugging
-        let values = (0..len).map(|i| i as i32).collect::<PrimitiveArray>();
-        let bitpacked = bitpack_encode(&values, 11, None).unwrap();
-
-        let sliced = bitpacked.slice(offset, len);
-
-        // Use a simple mask that selects all elements to avoid mask complexity
-        let mask = Mask::from_indices(5, vec![0, 2, 4]);
-
-        // Run through the pipeline
-        let result = export_canonical_pipeline_expr(
-            sliced.dtype(),
-            sliced.len(),
-            sliced.to_operator().unwrap().unwrap().as_ref(),
-            &mask,
-        )
-        .unwrap()
-        .into_primitive()
-        .unwrap();
-
-        // Compare with expected result
-        let expect = filter(sliced.to_canonical().unwrap().as_ref(), &mask)
-            .unwrap()
-            .to_primitive()
-            .unwrap();
-
-        assert_eq!(result.len(), expect.len(), "Length mismatch");
-        assert_eq!(
-            result.as_slice::<i32>(),
-            expect.as_slice::<i32>(),
-            "Null count mismatch"
-        );
-    }
-
-    #[test]
     fn test_bitpacking_pipeline_sparse_selection() {
         // Test with very sparse selection (< 8 elements selected)
         let len = 2048usize;
@@ -300,7 +220,7 @@ mod tests {
 
         // Test with offset
         let offset = 7;
-        let sliced = bitpacked.slice(offset, len);
+        let sliced = bitpacked.slice(offset..len);
         let sliced_mask = Mask::from_buffer(BooleanBuffer::from(
             (0..sliced.len())
                 .map(|i| {

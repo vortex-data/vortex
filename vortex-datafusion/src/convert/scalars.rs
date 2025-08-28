@@ -75,7 +75,7 @@ impl TryToDataFusion<ScalarValue> for Scalar {
             ),
             DType::Struct(..) => todo!("struct scalar conversion"),
             DType::List(..) => todo!("list scalar conversion"),
-            DType::FixedSizeList(..) => unimplemented!("TODO(connor)[FixedSizeList]"),
+            DType::FixedSizeList(..) => todo!("fixed-size list scalar conversion"),
             DType::Extension(ext) => {
                 let storage_scalar = self.as_extension().storage();
 

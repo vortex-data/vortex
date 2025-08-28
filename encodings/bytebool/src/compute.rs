@@ -86,7 +86,7 @@ mod tests {
         let original = vec![Some(true), Some(true), None, Some(false), None];
         let vortex_arr = ByteBoolArray::from(original);
 
-        let sliced_arr = vortex_arr.slice(1, 4);
+        let sliced_arr = vortex_arr.slice(1..4);
         let sliced_arr = sliced_arr.as_::<ByteBoolVTable>();
 
         let s = sliced_arr.scalar_at(0);

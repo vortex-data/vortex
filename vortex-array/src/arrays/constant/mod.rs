@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 pub use compute::ConstantOperator;
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
@@ -91,8 +93,8 @@ impl ArrayVTable<ConstantVTable> for ConstantVTable {
 }
 
 impl OperationsVTable<ConstantVTable> for ConstantVTable {
-    fn slice(array: &ConstantArray, start: usize, stop: usize) -> ArrayRef {
-        ConstantArray::new(array.scalar.clone(), stop - start).into_array()
+    fn slice(array: &ConstantArray, range: Range<usize>) -> ArrayRef {
+        ConstantArray::new(array.scalar.clone(), range.len()).into_array()
     }
 
     fn scalar_at(array: &ConstantArray, _index: usize) -> Scalar {

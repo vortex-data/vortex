@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use num_traits::cast::FromPrimitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
@@ -202,13 +204,13 @@ impl CanonicalVTable<SequenceVTable> for SequenceVTable {
 }
 
 impl OperationsVTable<SequenceVTable> for SequenceVTable {
-    fn slice(array: &SequenceArray, start: usize, stop: usize) -> ArrayRef {
+    fn slice(array: &SequenceArray, range: Range<usize>) -> ArrayRef {
         SequenceArray::unchecked_new(
-            array.index_value(start),
+            array.index_value(range.start),
             array.multiplier,
             array.ptype(),
             array.dtype().nullability(),
-            stop - start,
+            range.len(),
         )
         .to_array()
     }
@@ -278,7 +280,7 @@ mod tests {
     fn test_sequence_slice_canonical() {
         let arr = SequenceArray::typed_new(2i64, 3, Nullability::NonNullable, 4)
             .unwrap()
-            .slice(2, 3);
+            .slice(2..3);
 
         let canon = PrimitiveArray::from_iter((2..3).map(|i| 2i64 + i * 3));
 

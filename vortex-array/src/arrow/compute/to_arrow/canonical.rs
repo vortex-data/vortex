@@ -39,14 +39,17 @@ pub(super) struct ToArrowCanonical;
 impl Kernel for ToArrowCanonical {
     #[allow(clippy::cognitive_complexity)]
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
-        let ToArrowArgs { array, arrow_type } = ToArrowArgs::try_from(args)?;
+        let ToArrowArgs {
+            array,
+            arrow_type: arrow_type_opt,
+        } = ToArrowArgs::try_from(args)?;
         if !array.is_canonical() {
             // Not handled by this kernel
             return Ok(None);
         }
 
         // Figure out the target Arrow type, or use the canonical type
-        let arrow_type = arrow_type
+        let arrow_type = arrow_type_opt
             .cloned()
             .map(Ok)
             .unwrap_or_else(|| array.dtype().to_arrow_dtype())?;
@@ -136,11 +139,13 @@ impl Kernel for ToArrowCanonical {
                 to_arrow_decimal256(array)
             }
             (Canonical::Struct(array), DataType::Struct(fields)) => {
-                to_arrow_struct(array, fields.as_ref())
+                to_arrow_struct(array, fields.as_ref(), arrow_type_opt.is_none())
             }
-            (Canonical::List(array), DataType::List(field)) => to_arrow_list::<i32>(array, field),
+            (Canonical::List(array), DataType::List(field)) => {
+                to_arrow_list::<i32>(array, field, arrow_type_opt.is_none())
+            }
             (Canonical::List(array), DataType::LargeList(field)) => {
-                to_arrow_list::<i64>(array, field)
+                to_arrow_list::<i64>(array, field, arrow_type_opt.is_none())
             }
             (Canonical::VarBinView(array), DataType::BinaryView) if array.dtype().is_binary() => {
                 to_arrow_varbinview::<BinaryViewType>(array)
@@ -277,7 +282,11 @@ fn to_arrow_decimal256(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
     ))
 }
 
-fn to_arrow_struct(array: StructArray, fields: &[FieldRef]) -> VortexResult<ArrowArrayRef> {
+fn to_arrow_struct(
+    array: StructArray,
+    fields: &[FieldRef],
+    to_preferred: bool,
+) -> VortexResult<ArrowArrayRef> {
     if array.fields().len() != fields.len() {
         vortex_bail!(
             "StructArray has {} fields, but target Arrow type has {} fields",
@@ -301,9 +310,12 @@ fn to_arrow_struct(array: StructArray, fields: &[FieldRef]) -> VortexResult<Arro
                 );
             }
 
-            arr.clone()
-                .into_arrow(field.data_type())
-                .map_err(|err| err.with_context(format!("Failed to canonicalize field {field}")))
+            let result = if to_preferred {
+                arr.clone().into_arrow_preferred()
+            } else {
+                arr.clone().into_arrow(field.data_type())
+            };
+            result.map_err(|err| err.with_context(format!("Failed to canonicalize field {field}")))
         })
         .collect::<VortexResult<Vec<_>>>()?;
 
@@ -341,6 +353,7 @@ fn to_arrow_struct(array: StructArray, fields: &[FieldRef]) -> VortexResult<Arro
 fn to_arrow_list<O: NativePType + OffsetSizeTrait>(
     array: ListArray,
     element: &FieldRef,
+    to_preferred: bool,
 ) -> VortexResult<ArrowArrayRef> {
     // First we cast the offsets into the correct width.
     let offsets_dtype = DType::Primitive(O::PTYPE, array.dtype().nullability());
@@ -348,7 +361,11 @@ fn to_arrow_list<O: NativePType + OffsetSizeTrait>(
         .map_err(|err| err.with_context(format!("Failed to cast offsets to {offsets_dtype}")))?
         .to_primitive()?;
 
-    let values = array.elements().clone().into_arrow(element.data_type())?;
+    let values = if to_preferred {
+        array.elements().clone().into_arrow_preferred()?
+    } else {
+        array.elements().clone().into_arrow(element.data_type())?
+    };
     let nulls = array.validity_mask()?.to_null_buffer();
 
     Ok(Arc::new(GenericListArray::new(

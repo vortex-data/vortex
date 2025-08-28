@@ -181,7 +181,7 @@ impl MaskEvaluation for FlatEvaluation {
 
         // Slice the array based on the row mask.
         if self.row_range.start > 0 || self.row_range.end < array.len() {
-            array = array.slice(self.row_range.start, self.row_range.end);
+            array = array.slice(self.row_range.clone());
         }
 
         // TODO(ngates): the mask may actually be dense within a range, as is often the case when
@@ -234,7 +234,7 @@ impl ArrayEvaluation for FlatEvaluation {
 
         // Slice the array based on the row mask.
         if self.row_range.start > 0 || self.row_range.end < array.len() {
-            array = array.slice(self.row_range.start, self.row_range.end);
+            array = array.slice(self.row_range.clone());
         }
 
         // Filter the array based on the row mask.

@@ -491,5 +491,5 @@ fn encode_chunk(
 }
 
 fn remainder(array: &dyn Array, encoded_len: usize) -> Option<ArrayRef> {
-    (encoded_len < array.len()).then(|| array.slice(encoded_len, array.len()))
+    (encoded_len < array.len()).then(|| array.slice(encoded_len..array.len()))
 }

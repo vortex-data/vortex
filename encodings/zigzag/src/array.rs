@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityChild,
@@ -103,8 +105,8 @@ impl CanonicalVTable<ZigZagVTable> for ZigZagVTable {
 }
 
 impl OperationsVTable<ZigZagVTable> for ZigZagVTable {
-    fn slice(array: &ZigZagArray, start: usize, stop: usize) -> ArrayRef {
-        ZigZagArray::new(array.encoded().slice(start, stop)).into_array()
+    fn slice(array: &ZigZagArray, range: Range<usize>) -> ArrayRef {
+        ZigZagArray::new(array.encoded().slice(range)).into_array()
     }
 
     fn scalar_at(array: &ZigZagArray, index: usize) -> Scalar {
@@ -160,7 +162,7 @@ mod test {
             array.statistics().compute_is_constant()
         );
 
-        let sliced = zigzag.slice(0, 2);
+        let sliced = zigzag.slice(0..2);
         let sliced = sliced.as_::<ZigZagVTable>();
         assert_eq!(sliced.scalar_at(sliced.len() - 1), Scalar::from(-5i32));
 

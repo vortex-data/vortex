@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dtype::match_each_integer_ptype;
@@ -10,11 +12,11 @@ use vortex_scalar::Scalar;
 use crate::{FoRArray, FoRVTable};
 
 impl OperationsVTable<FoRVTable> for FoRVTable {
-    fn slice(array: &FoRArray, start: usize, stop: usize) -> ArrayRef {
+    fn slice(array: &FoRArray, range: Range<usize>) -> ArrayRef {
         // SAFETY: just slicing encoded data does not affect FOR
         unsafe {
             FoRArray::new_unchecked(
-                array.encoded().slice(start, stop),
+                array.encoded().slice(range),
                 array.reference_scalar().clone(),
             )
             .into_array()

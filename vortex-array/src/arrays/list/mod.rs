@@ -4,6 +4,7 @@
 mod compute;
 mod serde;
 
+use std::ops::Range;
 use std::sync::Arc;
 
 #[cfg(feature = "test-harness")]
@@ -177,14 +178,14 @@ impl ListArray {
     pub fn elements_at(&self, index: usize) -> ArrayRef {
         let start = self.offset_at(index);
         let end = self.offset_at(index + 1);
-        self.elements().slice(start, end)
+        self.elements().slice(start..end)
     }
 
     /// Returns elements of the list array referenced by the offsets array
     pub fn sliced_elements(&self) -> ArrayRef {
         let start = self.offset_at(0);
         let end = self.offset_at(self.len());
-        self.elements().slice(start, end)
+        self.elements().slice(start..end)
     }
 
     /// Returns the offsets array.
@@ -295,11 +296,11 @@ impl ArrayVTable<ListVTable> for ListVTable {
 }
 
 impl OperationsVTable<ListVTable> for ListVTable {
-    fn slice(array: &ListArray, start: usize, stop: usize) -> ArrayRef {
+    fn slice(array: &ListArray, range: Range<usize>) -> ArrayRef {
         ListArray::new(
             array.elements().clone(),
-            array.offsets().slice(start, stop + 1),
-            array.validity().slice(start, stop),
+            array.offsets().slice(range.start..range.end + 1),
+            array.validity().slice(range),
         )
         .into_array()
     }

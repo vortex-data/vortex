@@ -78,7 +78,7 @@ where
                 let mut offset = 0;
                 while offset < chunk.len() {
                     let end = (offset + options.block_len_multiple).min(chunk.len());
-                    let sliced = chunk.slice(offset, end);
+                    let sliced = chunk.slice(offset..end);
                     chunks.push_back(sliced);
                     offset = end;
 
@@ -153,8 +153,8 @@ impl ChunksBuffer {
             let len = chunk.len();
 
             if len > remaining {
-                let left = chunk.slice(0, remaining);
-                let right = chunk.slice(remaining, len);
+                let left = chunk.slice(0..remaining);
+                let right = chunk.slice(remaining..len);
                 self.push_front(right);
                 res.push(left);
                 remaining = 0;
