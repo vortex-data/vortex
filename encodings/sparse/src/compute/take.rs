@@ -77,7 +77,7 @@ mod test {
     #[test]
     fn take_with_non_zero_offset() {
         let sparse = sparse_array();
-        let sparse = sparse.slice(30, 40);
+        let sparse = sparse.slice(30..40);
         let sparse = take(&sparse, &buffer![6, 7, 8].into_array()).unwrap();
         assert_eq!(sparse.scalar_at(0), test_array_fill_value());
         assert_eq!(sparse.scalar_at(1), Scalar::from(Some(0.47)));

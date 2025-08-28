@@ -38,7 +38,7 @@ impl TakeKernel for ChunkedVTable {
                 // Start a new chunk
                 let indices_in_chunk_array = PrimitiveArray::new(
                     indices_in_chunk.clone().freeze(),
-                    Validity::from_mask(indices_mask.slice(start, stop - start), nullability),
+                    Validity::from_mask(indices_mask.slice(start..stop), nullability),
                 );
                 chunks.push(take(
                     array.chunk(prev_chunk_idx),
@@ -56,7 +56,7 @@ impl TakeKernel for ChunkedVTable {
         if !indices_in_chunk.is_empty() {
             let indices_in_chunk_array = PrimitiveArray::new(
                 indices_in_chunk.freeze(),
-                Validity::from_mask(indices_mask.slice(start, stop - start), nullability),
+                Validity::from_mask(indices_mask.slice(start..stop), nullability),
             );
             chunks.push(take(
                 array.chunk(prev_chunk_idx),

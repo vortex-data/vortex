@@ -29,6 +29,7 @@ futures = { workspace = true, features = ["executor", "std"] }
 getrandom_v03 = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
+kanal = { workspace = true }
 object_store = { workspace = true, optional = true, features = ["fs"] }
 oneshot = { workspace = true }
 parking_lot = { workspace = true }

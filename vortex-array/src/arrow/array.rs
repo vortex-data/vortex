@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::ops::Range;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
 use vortex_dtype::arrow::FromArrowType;
@@ -93,8 +94,8 @@ impl CanonicalVTable<ArrowVTable> for ArrowVTable {
 }
 
 impl OperationsVTable<ArrowVTable> for ArrowVTable {
-    fn slice(array: &ArrowArray, start: usize, stop: usize) -> ArrayRef {
-        let inner = array.inner.slice(start, stop - start);
+    fn slice(array: &ArrowArray, range: Range<usize>) -> ArrayRef {
+        let inner = array.inner.slice(range.start, range.len());
         let new_array = ArrowArray {
             inner,
             dtype: array.dtype.clone(),

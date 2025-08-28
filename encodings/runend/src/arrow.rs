@@ -41,8 +41,8 @@ where
                 + 1;
 
             (
-                ends.slice(slice_begin, slice_end),
-                values.slice(slice_begin, slice_end),
+                ends.slice(slice_begin..slice_end),
+                values.slice(slice_begin..slice_end),
             )
         };
 

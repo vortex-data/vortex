@@ -185,8 +185,8 @@ impl<'rt> MaskEvaluation<'rt> for FlatEvaluation<'rt> {
                 let mut array = array;
 
                 // Slice the array based on the row mask.
-                if row_range.start > 0 || row_range.end < array.len() {
-                    array = array.slice(row_range.start, row_range.end);
+                if self.row_range.start > 0 || self.row_range.end < array.len() {
+                    array = array.slice(self.row_range.clone());
                 }
 
                 // TODO(ngates): the mask may actually be dense within a range, as is often the case when
@@ -241,8 +241,8 @@ impl<'rt> ArrayEvaluation<'rt> for FlatEvaluation<'rt> {
                 let mut array = array;
 
                 // Slice the array based on the row mask.
-                if row_range.start > 0 || row_range.end < array.len() {
-                    array = array.slice(row_range.start, row_range.end);
+                if self.row_range.start > 0 || self.row_range.end < array.len() {
+                    array = array.slice(self.row_range.clone());
                 }
 
                 // Filter the array based on the row mask.

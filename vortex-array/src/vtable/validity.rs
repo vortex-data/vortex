@@ -73,7 +73,7 @@ pub trait ValiditySliceHelper {
 
     fn sliced_validity(&self) -> Validity {
         let (unsliced_validity, start, stop) = self.unsliced_validity_and_slice();
-        unsliced_validity.slice(start, stop)
+        unsliced_validity.slice(start..stop)
     }
 }
 

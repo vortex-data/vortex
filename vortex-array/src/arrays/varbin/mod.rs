@@ -315,7 +315,7 @@ mod test {
 
     #[rstest]
     pub fn slice_array(binary_array: ArrayRef) {
-        let binary_arr = binary_array.slice(1, 2);
+        let binary_arr = binary_array.slice(1..2);
         assert_eq!(
             binary_arr.scalar_at(0),
             "hello world this is a long string".into()

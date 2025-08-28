@@ -8,7 +8,7 @@ use std::thread::JoinHandle;
 use futures::channel::oneshot;
 use tokio::task::{JoinHandle as TokioJoinHandle, LocalSet};
 use tracing::Instrument;
-use vortex_error::{VortexResult, vortex_bail, vortex_panic};
+use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 
 use super::{Dispatch, JoinHandle as VortexJoinHandle};
 
@@ -19,23 +19,20 @@ trait TokioSpawn {
 /// A [dispatcher][Dispatch] of IO operations that runs tasks on one of several
 /// Tokio `current_thread` runtimes.
 #[derive(Debug)]
-pub struct TokioDispatcher {
-    submitter: flume::Sender<Box<dyn TokioSpawn + Send>>,
+pub(super) struct TokioDispatcher {
+    submitter: kanal::Sender<Box<dyn TokioSpawn + Send>>,
     threads: Vec<JoinHandle<()>>,
 }
 
 impl TokioDispatcher {
     pub fn new(num_threads: usize) -> Self {
-        Self::new_with_prefix(num_threads, "tokio-dispatcher")
-    }
-
-    pub fn new_with_prefix(num_threads: usize, prefix: &str) -> Self {
-        let (submitter, rx) = flume::unbounded();
+        let (submitter, rx) = kanal::unbounded();
+        let rx = rx.to_async();
         let threads: Vec<_> = (0..num_threads)
             .map(|tid| {
-                let worker_thread = std::thread::Builder::new().name(format!("{prefix}-{tid}"));
-                let rx: flume::Receiver<Box<dyn TokioSpawn + Send>> = rx.clone();
-
+                let worker_thread =
+                    std::thread::Builder::new().name(format!("tokio-dispatch-{tid}"));
+                let rx: kanal::AsyncReceiver<Box<dyn TokioSpawn + Send>> = rx.clone();
                 worker_thread
                     .spawn(move || {
                         // Create a runtime-per-thread
@@ -51,7 +48,7 @@ impl TokioDispatcher {
                             // spawning !Send futures.
                             LocalSet::new()
                                 .run_until(async {
-                                    while let Ok(task) = rx.recv_async().await {
+                                    while let Ok(task) = rx.recv().await {
                                         task.spawn();
                                     }
                                 })
@@ -126,8 +123,8 @@ impl Dispatch for TokioDispatcher {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::Arc;
 
     use super::TokioDispatcher;
     use crate::dispatcher::Dispatch;
@@ -149,7 +146,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_span_propagation() {
-        use tracing::{Span, info_span};
+        use tracing::{info_span, Span};
         use tracing_subscriber;
 
         tracing_subscriber::fmt().with_test_writer().init();

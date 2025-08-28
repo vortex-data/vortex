@@ -4,7 +4,7 @@
 //! Array validity and nullability behavior, used by arrays and compute functions.
 
 use std::fmt::Debug;
-use std::ops::{BitAnd, Not};
+use std::ops::{BitAnd, Not, Range};
 
 use arrow_buffer::{BooleanBuffer, NullBuffer};
 use vortex_dtype::{DType, Nullability};
@@ -139,9 +139,9 @@ impl Validity {
         Ok(!self.is_valid(index)?)
     }
 
-    pub fn slice(&self, start: usize, stop: usize) -> Self {
+    pub fn slice(&self, range: Range<usize>) -> Self {
         match self {
-            Self::Array(a) => Self::Array(a.slice(start, stop)),
+            Self::Array(a) => Self::Array(a.slice(range)),
             Self::NonNullable | Self::AllValid | Self::AllInvalid => self.clone(),
         }
     }

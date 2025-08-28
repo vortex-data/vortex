@@ -315,33 +315,18 @@ mod tests {
             let actual = layout
                 .new_reader("".into(), Arc::from(segments))
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &expression, &handle)
-                .unwrap()
-                .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
-                .await
-                .unwrap();
-            let expected = StructArray::try_new(
-                FieldNames::from([FieldName::from("top")]),
-                vec![
-                    StructArray::try_new(
-                        FieldNames::from([FieldName::from("one"), FieldName::from("two")]),
-                        vec![array.clone(), array],
-                        9,
-                        Validity::NonNullable,
-                    )
-                    .unwrap()
-                    .into_array(),
-                ],
-                9,
-                Validity::NonNullable,
-            )
-            .unwrap()
-            .into_array();
-            let actual = actual.into_arrow_preferred().unwrap();
-            let expected = expected.into_arrow_preferred().unwrap();
-            assert_eq!(actual.data_type(), expected.data_type());
-            assert_eq!(&actual, &expected);
-        })
+                .into_array(),
+            ],
+            9,
+            Validity::NonNullable,
+        )
+        .unwrap()
+        .into_array();
+        let actual = actual.into_arrow_preferred().unwrap();
+        let expected_arrow_dtype = expected.dtype().to_arrow_dtype().unwrap();
+        let expected = expected.into_arrow(&expected_arrow_dtype).unwrap();
+        assert_eq!(actual.data_type(), expected.data_type());
+        assert_eq!(&actual, &expected);
     }
 
     #[rstest]
@@ -351,7 +336,7 @@ mod tests {
         vec![true, false, true], // Expected: nulls excluded, all dict values match
     )]
     #[case::all_false_case(
-        vec![Some("x"), None, Some("x")], // Dict values: ["x"] 
+        vec![Some("x"), None, Some("x")], // Dict values: ["x"]
         "", // Filter for empty string
         vec![false, false, false], // Expected: all false, no dict values match
     )]

@@ -8,36 +8,6 @@ on:
     types: [published]
 
 jobs:
-  publish-rust:
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-    needs: [prepare-python, prepare-java-macos, prepare-java-linux]
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-
-      - uses: ./.github/actions/setup-rust
-
-      - name: Cargo Set Version
-        run: |
-          cargo install cargo-edit
-          cargo set-version --workspace ${{ github.event.release.tag_name || github.event.inputs.version }}
-
-      - name: Release
-        run: |
-          cargo +nightly publish -Zpublish-timeout --no-verify --allow-dirty --workspace \
-          --exclude bench-vortex \
-          --exclude vortex-python \
-          --exclude vortex-duckdb \
-          --exclude vortex-ffi \
-          --exclude vortex-fuzz \
-          --exclude vortex-jni \
-          --exclude xtask
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-
   prepare-python:
     runs-on: ${{ matrix.target.runs-on }}
     timeout-minutes: 120
@@ -99,32 +69,6 @@ jobs:
           name: "wheels-${{ matrix.target.target }}.zip"
           path: dist/
 
-  publish-python:
-    needs: [prepare-python]
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-    permissions:
-      id-token: write  # IMPORTANT: mandatory for trusted publishing
-    environment:
-      name: push-to-pypi
-      url: https://pypi.org/p/vortex-data
-    steps:
-      - uses: actions/download-artifact@v5
-        with:
-          pattern: wheels-*.zip
-          # https://github.com/actions/download-artifact?tab=readme-ov-file#download-all-artifacts
-          # "To download them to the same directory:"
-          path: dist/
-          merge-multiple: true
-      - name: Display structure of downloaded files
-        run: ls -R dist/
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          attestations: true
-          verbose: true
-          skip-existing: true  # Idempotent releases
-
   prepare-java-macos:
     runs-on: "macos-latest"
     steps:
@@ -184,8 +128,70 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+  prepare-all:
+    needs: [prepare-python, prepare-java-macos, prepare-java-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo built  # GitHub requires at least one step.
+
+  publish-rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    needs: [prepare-all]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-rust
+
+      - name: Cargo Set Version
+        run: |
+          cargo install cargo-edit
+          cargo set-version --workspace ${{ github.event.release.tag_name || github.event.inputs.version }}
+
+      - name: Release
+        run: |
+          cargo +nightly publish -Zpublish-timeout --no-verify --allow-dirty --workspace \
+          --exclude bench-vortex \
+          --exclude vortex-python \
+          --exclude vortex-duckdb \
+          --exclude vortex-ffi \
+          --exclude vortex-fuzz \
+          --exclude vortex-jni \
+          --exclude xtask
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  publish-python:
+    needs: [prepare-all]
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      id-token: write  # IMPORTANT: mandatory for trusted publishing
+    environment:
+      name: push-to-pypi
+      url: https://pypi.org/p/vortex-data
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: wheels-*.zip
+          # https://github.com/actions/download-artifact?tab=readme-ov-file#download-all-artifacts
+          # "To download them to the same directory:"
+          path: dist/
+          merge-multiple: true
+      - name: Display structure of downloaded files
+        run: ls -R dist/
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          attestations: true
+          verbose: true
+          skip-existing: true  # Idempotent releases
+
   publish-java:
-    needs: [prepare-java-macos, prepare-java-linux]
+    needs: [prepare-all]
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:

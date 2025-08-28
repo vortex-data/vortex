@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use itertools::Itertools;
 use vortex_scalar::Scalar;
 
@@ -10,10 +12,12 @@ use crate::vtable::OperationsVTable;
 use crate::{Array, ArrayRef, IntoArray};
 
 impl OperationsVTable<ChunkedVTable> for ChunkedVTable {
-    fn slice(array: &ChunkedArray, start: usize, stop: usize) -> ArrayRef {
+    fn slice(array: &ChunkedArray, range: Range<usize>) -> ArrayRef {
         assert!(
-            !array.is_empty() || (start > 0 && stop > 0),
-            "Empty chunked array can't be sliced from {start} to {stop}"
+            !array.is_empty() || (range.start > 0 && range.end > 0),
+            "Empty chunked array can't be sliced from {} to {}",
+            range.start,
+            range.end
         );
 
         if array.is_empty() {
@@ -23,25 +27,25 @@ impl OperationsVTable<ChunkedVTable> for ChunkedVTable {
             }
         }
 
-        let (offset_chunk, offset_in_first_chunk) = array.find_chunk_idx(start);
-        let (length_chunk, length_in_last_chunk) = array.find_chunk_idx(stop);
+        let (offset_chunk, offset_in_first_chunk) = array.find_chunk_idx(range.start);
+        let (length_chunk, length_in_last_chunk) = array.find_chunk_idx(range.end);
 
         if length_chunk == offset_chunk {
             let chunk = array.chunk(offset_chunk);
-            return chunk.slice(offset_in_first_chunk, length_in_last_chunk);
+            return chunk.slice(offset_in_first_chunk..length_in_last_chunk);
         }
 
         let mut chunks = (offset_chunk..length_chunk + 1)
             .map(|i| array.chunk(i).clone())
             .collect_vec();
         if let Some(c) = chunks.first_mut() {
-            *c = c.slice(offset_in_first_chunk, c.len());
+            *c = c.slice(offset_in_first_chunk..c.len());
         }
 
         if length_in_last_chunk == 0 {
             chunks.pop();
         } else if let Some(c) = chunks.last_mut() {
-            *c = c.slice(0, length_in_last_chunk);
+            *c = c.slice(0..length_in_last_chunk);
         }
 
         // SAFETY: all chunks still have same DType
@@ -91,38 +95,38 @@ mod tests {
 
     #[test]
     fn slice_middle() {
-        assert_equal_slices(&chunked_array().slice(2, 5), &[3u64, 4, 5])
+        assert_equal_slices(&chunked_array().slice(2..5), &[3u64, 4, 5])
     }
 
     #[test]
     fn slice_begin() {
-        assert_equal_slices(&chunked_array().slice(1, 3), &[2u64, 3]);
+        assert_equal_slices(&chunked_array().slice(1..3), &[2u64, 3]);
     }
 
     #[test]
     fn slice_aligned() {
-        assert_equal_slices(&chunked_array().slice(3, 6), &[4u64, 5, 6]);
+        assert_equal_slices(&chunked_array().slice(3..6), &[4u64, 5, 6]);
     }
 
     #[test]
     fn slice_many_aligned() {
-        assert_equal_slices(&chunked_array().slice(0, 6), &[1u64, 2, 3, 4, 5, 6]);
+        assert_equal_slices(&chunked_array().slice(0..6), &[1u64, 2, 3, 4, 5, 6]);
     }
 
     #[test]
     fn slice_end() {
-        assert_equal_slices(&chunked_array().slice(7, 8), &[8u64]);
+        assert_equal_slices(&chunked_array().slice(7..8), &[8u64]);
     }
 
     #[test]
     fn slice_exactly_end() {
-        assert_equal_slices(&chunked_array().slice(6, 9), &[7u64, 8, 9]);
+        assert_equal_slices(&chunked_array().slice(6..9), &[7u64, 8, 9]);
     }
 
     #[test]
     fn slice_empty() {
         let chunked = ChunkedArray::try_new(vec![], PType::U32.into()).unwrap();
-        let sliced = chunked.slice(0, 0);
+        let sliced = chunked.slice(0..0);
 
         assert!(sliced.is_empty());
     }

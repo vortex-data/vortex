@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use vortex_array::arrays::{VarBinVTable, varbin_scalar};
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::{Array, ArrayRef, IntoArray};
@@ -11,7 +13,7 @@ use vortex_scalar::Scalar;
 use crate::{FSSTArray, FSSTVTable};
 
 impl OperationsVTable<FSSTVTable> for FSSTVTable {
-    fn slice(array: &FSSTArray, start: usize, stop: usize) -> ArrayRef {
+    fn slice(array: &FSSTArray, range: Range<usize>) -> ArrayRef {
         // SAFETY: slicing the `codes` leaves the symbol table intact
         unsafe {
             FSSTArray::new_unchecked(
@@ -20,10 +22,10 @@ impl OperationsVTable<FSSTVTable> for FSSTVTable {
                 array.symbol_lengths().clone(),
                 array
                     .codes()
-                    .slice(start, stop)
+                    .slice(range.clone())
                     .as_::<VarBinVTable>()
                     .clone(),
-                array.uncompressed_lengths().slice(start, stop),
+                array.uncompressed_lengths().slice(range),
             )
             .into_array()
         }

@@ -33,14 +33,14 @@ fn test_zstd_compress_decompress() {
     assert_eq!(decompressed.as_slice::<i32>(), &data);
 
     // check slicing works
-    let slice = compressed.slice(100, 105);
+    let slice = compressed.slice(100..105);
     for i in 0_i32..5 {
         assert_nth_scalar!(slice, i as usize, 100 + i);
     }
     let primitive = slice.to_primitive().unwrap();
     assert_eq!(primitive.as_slice::<i32>(), &[100, 101, 102, 103, 104]);
 
-    let slice = compressed.slice(200, 200);
+    let slice = compressed.slice(200..200);
     let primitive = slice.to_primitive().unwrap();
     assert_eq!(primitive.as_slice::<i32>(), &Vec::<i32>::new());
 }
@@ -84,7 +84,7 @@ fn test_zstd_with_validity_and_multi_frame() {
     assert_eq!(decompressed.validity(), array.validity());
 
     // check slicing works
-    let slice = compressed.slice(176, 179);
+    let slice = compressed.slice(176..179);
     let primitive = slice.to_primitive().unwrap();
     assert_eq!(primitive.as_slice::<i32>()[1], 177);
     assert_eq!(
@@ -111,7 +111,7 @@ fn test_zstd_with_dict() {
     assert_eq!(decompressed.validity(), array.validity());
 
     // check slicing works
-    let slice = compressed.slice(176, 179);
+    let slice = compressed.slice(176..179);
     let primitive = slice.to_primitive().unwrap();
     assert_eq!(primitive.as_slice::<i32>(), &[176, 177, 178]);
 }
@@ -129,7 +129,7 @@ fn test_validity_vtable() {
         Mask::from_iter(mask_bools)
     );
     assert_eq!(
-        compressed.slice(1, 4).validity_mask().unwrap(),
+        compressed.slice(1..4).validity_mask().unwrap(),
         Mask::from_iter(vec![true, true, false])
     );
 }
@@ -153,7 +153,7 @@ fn test_zstd_var_bin_view() {
     assert_nth_scalar!(compressed, 3, "Lorem ipsum dolor sit amet");
     assert_nth_scalar!(compressed, 4, "baz");
 
-    let sliced = compressed.slice(1, 4);
+    let sliced = compressed.slice(1..4);
     assert_nth_scalar!(sliced, 0, "bar");
     assert_nth_scalar!(sliced, 1, None::<String>);
     assert_nth_scalar!(sliced, 2, "Lorem ipsum dolor sit amet");
