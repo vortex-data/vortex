@@ -19,7 +19,7 @@ use vortex_mask::Mask;
 use crate::filter::FilterExpr;
 use crate::Selection;
 
-pub type TaskFuture<'handle, A> = BoxFuture<'handle, VortexResult<A>>;
+pub type TaskFuture<'rt, A> = BoxFuture<'rt, VortexResult<A>>;
 
 /// Logic for executing a single split reading task.
 ///
@@ -33,11 +33,11 @@ pub type TaskFuture<'handle, A> = BoxFuture<'handle, VortexResult<A>>;
 ///
 /// This mask is then provided to the reader to perform a filtered projection over the split data,
 /// finally mapping the Vortex columnar record batches into some result type `A`.
-pub(super) fn split_exec<'handle, A: 'static + Send>(
-    ctx: Arc<TaskContext<'handle, A>>,
+pub(super) fn split_exec<'rt, A: 'static + Send>(
+    ctx: Arc<TaskContext<'rt, A>>,
     split: Range<u64>,
     limit: Option<&mut usize>,
-) -> VortexResult<TaskFuture<'handle, Option<A>>> {
+) -> VortexResult<TaskFuture<'rt, Option<A>>> {
     // Step 1: using the caller-provided row range and selection, attempt to disregard this split.
     let read_range = match &ctx.row_range {
         None => split,
@@ -193,7 +193,7 @@ pub(super) fn split_exec<'handle, A: 'static + Send>(
 }
 
 /// Information needed to execute a single split task.
-pub(super) struct TaskContext<'handle, A> {
+pub(super) struct TaskContext<'rt, A> {
     /// A caller-provided range of the file to read. All tasks should intersect their reads
     /// with this range to ensure that they are split as well.
     pub(super) row_range: Option<Range<u64>>,
@@ -202,7 +202,7 @@ pub(super) struct TaskContext<'handle, A> {
     /// The shared filter expression.
     pub(super) filter: Option<Arc<FilterExpr>>,
     /// The layout reader.
-    pub(super) reader: LayoutReaderRef<'handle>,
+    pub(super) reader: LayoutReaderRef<'rt>,
     /// The projection expression to apply to gather the scanned rows.
     pub(super) projection: ExprRef,
     /// Function that maps into an A.

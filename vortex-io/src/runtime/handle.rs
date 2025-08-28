@@ -17,7 +17,7 @@ use vortex_error::{
 
 /// Represents a handle to a Vortex runtime that can be used to enqueue CPU- or I/O-bound tasks.
 #[derive(Clone)]
-pub struct Handle<'handle>(pub(crate) Arc<dyn Runtime<'handle> + 'handle>);
+pub struct Handle<'rt>(pub(crate) Arc<dyn Runtime<'rt> + 'rt>);
 
 impl Handle<'static> {
     // FIXME(ngates): remove this!
@@ -42,7 +42,7 @@ impl Handle<'static> {
     }
 }
 
-impl<'handle> Handle<'handle> {
+impl<'rt> Handle<'rt> {
     /// Spawn a new scheduling future onto the runtime.
     ///
     // TODO(ngates): we should pass a new handle into a function here, then we should use handles
@@ -50,10 +50,10 @@ impl<'handle> Handle<'handle> {
     //  For example, we can spawn each split of a scan operation. Each spawn on the same handle
     //  creates a sibling task, which have sequential priority. All CPU tasks spawned from the same
     //  handle can have the same affinity? Something like that?
-    pub fn spawn<F, R>(&self, f: F) -> impl Future<Output = R> + use<'handle, F, R>
+    pub fn spawn<F, R>(&self, f: F) -> impl Future<Output = R> + use<'rt, F, R>
     where
-        F: Future<Output = R> + Send + 'handle,
-        R: Send + 'handle,
+        F: Future<Output = R> + Send + 'rt,
+        R: Send + 'rt,
     {
         let (send, recv) = oneshot::channel();
         self.0.spawn_scheduling(
@@ -72,7 +72,7 @@ impl<'handle> Handle<'handle> {
     }
 
     /// Spawn a CPU-bound task for execution on the runtime.
-    pub fn spawn_cpu<F, R>(&self, f: F) -> impl Future<Output = R> + Send + 'handle
+    pub fn spawn_cpu<F, R>(&self, f: F) -> impl Future<Output = R> + Send + 'rt
     where
         // Unlike scheduling futures, the CPU task should have a static lifetime because it
         // doesn't need to access to handle to spawn more work.
@@ -100,11 +100,11 @@ impl<'handle> Handle<'handle> {
     //
     // FIXME(ngates): this API can create a channel that is used for the entire lifetime of the
     //  file. We can then pass the other end of the channel to the runtime.
-    pub fn open_file(&self, read: Arc<File>) -> FileIo<'handle> {
+    pub fn open_file(&self, read: Arc<File>) -> FileIo<'rt> {
         self.open(read)
     }
 
-    pub fn open(&self, driver: Arc<dyn IoSource>) -> FileIo<'handle> {
+    pub fn open(&self, driver: Arc<dyn IoSource>) -> FileIo<'rt> {
         let (send, recv) = flume::unbounded();
 
         // Construct the size future in case we need it.
@@ -336,11 +336,11 @@ impl IoSource for ObjectStoreIo {
 /// should be used carefully because the subsequent read operations must be driven on the same
 /// runtime.
 #[derive(Clone)]
-pub struct FileIo<'handle> {
+pub struct FileIo<'rt> {
     name: String,
     size: Shared<BoxFuture<'static, SharedVortexResult<u64>>>,
     send: flume::Sender<IoRequest>,
-    _phantom: PhantomData<&'handle ()>,
+    _phantom: PhantomData<&'rt ()>,
 }
 
 pub struct IoRequest {

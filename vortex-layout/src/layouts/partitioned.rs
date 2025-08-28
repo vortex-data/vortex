@@ -21,16 +21,16 @@ use vortex_mask::Mask;
 use crate::{ArrayEvaluation, MaskEvaluation};
 
 /// An implementation of [`MaskEvaluation`] for partitioned expressions.
-pub struct PartitionedMaskEvaluation<'handle, P> {
+pub struct PartitionedMaskEvaluation<'rt, P> {
     partitioned: Arc<PartitionedExpr<P>>,
-    field_evals: Vec<PartitionEval<'handle>>,
+    field_evals: Vec<PartitionEval<'rt>>,
 }
 
-impl<'handle, P> PartitionedMaskEvaluation<'handle, P> {
+impl<'rt, P> PartitionedMaskEvaluation<'rt, P> {
     pub fn try_new(
         partitioned: Arc<PartitionedExpr<P>>,
-        filter_evaluation: impl Fn(&P, &ExprRef) -> VortexResult<Box<dyn MaskEvaluation<'handle>>>,
-        projection_evaluation: impl Fn(&P, &ExprRef) -> VortexResult<Box<dyn ArrayEvaluation<'handle>>>,
+        filter_evaluation: impl Fn(&P, &ExprRef) -> VortexResult<Box<dyn MaskEvaluation<'rt>>>,
+        projection_evaluation: impl Fn(&P, &ExprRef) -> VortexResult<Box<dyn ArrayEvaluation<'rt>>>,
     ) -> VortexResult<Self> {
         // Construct evaluations for each child.
         let field_evals: Vec<_> = partitioned
@@ -59,15 +59,13 @@ impl<'handle, P> PartitionedMaskEvaluation<'handle, P> {
     }
 }
 
-enum PartitionEval<'handle> {
-    Mask(Box<dyn MaskEvaluation<'handle>>),
-    Array(Box<dyn ArrayEvaluation<'handle>>),
+enum PartitionEval<'rt> {
+    Mask(Box<dyn MaskEvaluation<'rt>>),
+    Array(Box<dyn ArrayEvaluation<'rt>>),
 }
 
 #[async_trait]
-impl<'handle, P: 'static + Send + Sync> MaskEvaluation<'handle>
-    for PartitionedMaskEvaluation<'handle, P>
-{
+impl<'rt, P: 'static + Send + Sync> MaskEvaluation<'rt> for PartitionedMaskEvaluation<'rt, P> {
     async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
         // TODO(ngates): ideally we'd spawn these so the CPU can be utilized more effectively.
         let field_arrays: Vec<_> = FuturesOrdered::from_iter(self.field_evals.iter().map(|eval| {
@@ -103,15 +101,15 @@ impl<'handle, P: 'static + Send + Sync> MaskEvaluation<'handle>
 }
 
 /// An implementation of [`ArrayEvaluation`] for partitioned expressions.
-pub struct PartitionedArrayEvaluation<'handle, P> {
+pub struct PartitionedArrayEvaluation<'rt, P> {
     partitioned: Arc<PartitionedExpr<P>>,
-    field_evals: Vec<Box<dyn ArrayEvaluation<'handle>>>,
+    field_evals: Vec<Box<dyn ArrayEvaluation<'rt>>>,
 }
 
-impl<'handle, P> PartitionedArrayEvaluation<'handle, P> {
+impl<'rt, P> PartitionedArrayEvaluation<'rt, P> {
     pub fn try_new(
         partitioned: Arc<PartitionedExpr<P>>,
-        projection_evaluation: impl Fn(&P, &ExprRef) -> VortexResult<Box<dyn ArrayEvaluation<'handle>>>,
+        projection_evaluation: impl Fn(&P, &ExprRef) -> VortexResult<Box<dyn ArrayEvaluation<'rt>>>,
     ) -> VortexResult<Self> {
         // Construct evaluations for each child.
         let field_evals: Vec<_> = partitioned
@@ -129,8 +127,8 @@ impl<'handle, P> PartitionedArrayEvaluation<'handle, P> {
 }
 
 #[async_trait]
-impl<'handle, P: 'static + Send + Sync + Display> ArrayEvaluation<'handle>
-    for PartitionedArrayEvaluation<'handle, P>
+impl<'rt, P: 'static + Send + Sync + Display> ArrayEvaluation<'rt>
+    for PartitionedArrayEvaluation<'rt, P>
 {
     async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
         let field_arrays: Vec<_> = FuturesOrdered::from_iter(

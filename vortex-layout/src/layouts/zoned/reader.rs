@@ -24,40 +24,39 @@ use vortex_mask::Mask;
 
 use crate::layouts::zoned::zone_map::ZoneMap;
 use crate::layouts::zoned::ZonedLayout;
-use crate::segments::SegmentSource;
+use crate::segments::SegmentSourceRef;
 use crate::{ArrayEvaluation, LayoutReader, LayoutReaderRef, MaskEvaluation, PruningEvaluation};
 
-type SharedZoneMap<'handle> = Shared<BoxFuture<'handle, SharedVortexResult<ZoneMap>>>;
-type SharedPruningResult<'handle> =
-    Shared<BoxFuture<'handle, SharedVortexResult<Arc<PruningResult>>>>;
+type SharedZoneMap<'rt> = Shared<BoxFuture<'rt, SharedVortexResult<ZoneMap>>>;
+type SharedPruningResult<'rt> = Shared<BoxFuture<'rt, SharedVortexResult<Arc<PruningResult>>>>;
 type PredicateCache = Arc<OnceLock<Option<ExprRef>>>;
 
-pub struct ZonedReader<'handle> {
+pub struct ZonedReader<'rt> {
     layout: ZonedLayout,
     name: Arc<str>,
 
     /// Data layout reader
-    data_child: LayoutReaderRef<'handle>,
+    data_child: LayoutReaderRef<'rt>,
     /// Zone map layout reader.
-    zones_child: LayoutReaderRef<'handle>,
+    zones_child: LayoutReaderRef<'rt>,
 
     /// A cache of expr -> optional pruning result (applying the pruning expr to the zone map)
-    pruning_result: DashMap<ExprRef, Option<SharedPruningResult<'handle>>>,
+    pruning_result: DashMap<ExprRef, Option<SharedPruningResult<'rt>>>,
 
     /// Shared zone map
-    zone_map: OnceLock<SharedZoneMap<'handle>>,
+    zone_map: OnceLock<SharedZoneMap<'rt>>,
 
     /// A cache of expr -> optional pruning predicate.
     /// This also uses the present_stats from the `ZonedLayout`
     pruning_predicates: Arc<DashMap<ExprRef, PredicateCache>>,
 }
 
-impl<'handle> ZonedReader<'handle> {
+impl<'rt> ZonedReader<'rt> {
     pub(super) fn try_new(
         layout: ZonedLayout,
         name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
-        handle: Handle<'handle>,
+        segment_source: SegmentSourceRef<'rt>,
+        handle: Handle<'rt>,
     ) -> VortexResult<Self> {
         let data_child =
             layout
@@ -101,7 +100,7 @@ impl<'handle> ZonedReader<'handle> {
     ///
     /// Only the first successful caller will initialize the zone map, all other callers will
     /// resolve to the same result.
-    fn zone_map(&self) -> SharedZoneMap<'handle> {
+    fn zone_map(&self) -> SharedZoneMap<'rt> {
         self.zone_map
             .get_or_init(move || {
                 let nzones = self.layout.nzones();
@@ -128,7 +127,7 @@ impl<'handle> ZonedReader<'handle> {
     }
 
     /// Returns a pruning mask where `true` means the chunk _can be pruned_.
-    fn pruning_mask_future(&self, expr: ExprRef) -> Option<SharedPruningResult<'handle>> {
+    fn pruning_mask_future(&self, expr: ExprRef) -> Option<SharedPruningResult<'rt>> {
         self.pruning_result
             .entry(expr.clone())
             .or_insert_with(|| match self.pruning_predicate(expr.clone()) {
@@ -178,7 +177,7 @@ impl<'handle> ZonedReader<'handle> {
     }
 }
 
-impl<'handle> LayoutReader<'handle> for ZonedReader<'handle> {
+impl<'rt> LayoutReader<'rt> for ZonedReader<'rt> {
     fn name(&self) -> &Arc<str> {
         &self.name
     }
@@ -205,7 +204,7 @@ impl<'handle> LayoutReader<'handle> for ZonedReader<'handle> {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn PruningEvaluation<'handle>>> {
+    ) -> VortexResult<Box<dyn PruningEvaluation<'rt>>> {
         log::debug!("Stats pruning evaluation: {} - {}", &self.name, expr);
         let data_eval = self.data_child.pruning_evaluation(row_range, expr)?;
 
@@ -247,7 +246,7 @@ impl<'handle> LayoutReader<'handle> for ZonedReader<'handle> {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn MaskEvaluation<'handle>>> {
+    ) -> VortexResult<Box<dyn MaskEvaluation<'rt>>> {
         self.data_child.filter_evaluation(row_range, expr)
     }
 
@@ -255,29 +254,29 @@ impl<'handle> LayoutReader<'handle> for ZonedReader<'handle> {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn ArrayEvaluation<'handle>>> {
+    ) -> VortexResult<Box<dyn ArrayEvaluation<'rt>>> {
         // TODO(ngates): there are some projection expressions that we may also be able to
         //  short-circuit with statistics.
         self.data_child.projection_evaluation(row_range, expr)
     }
 }
 
-struct ZoneMapPruningEvaluation<'handle> {
+struct ZoneMapPruningEvaluation<'rt> {
     name: Arc<str>,
     expr: ExprRef,
     /// A mask indicating zones which have no matching values.
     /// A false value indicates the corresponding zone may have a matching value.
-    pruning_mask_future: SharedPruningResult<'handle>,
+    pruning_mask_future: SharedPruningResult<'rt>,
     /// The set of zone IDs that are available to the evaluation.
     zone_range: Range<u64>,
     /// The lengths of each zone in the zone_range.
     zone_lengths: Vec<usize>,
     /// The evaluation of the data child.
-    data_eval: Box<dyn PruningEvaluation<'handle>>,
+    data_eval: Box<dyn PruningEvaluation<'rt>>,
 }
 
 #[async_trait]
-impl<'handle> PruningEvaluation<'handle> for ZoneMapPruningEvaluation<'handle> {
+impl<'rt> PruningEvaluation<'rt> for ZoneMapPruningEvaluation<'rt> {
     async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
         log::debug!(
             "Invoking stats pruning evaluation {}: {}",
@@ -387,12 +386,12 @@ mod test {
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
-    use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
+    use crate::segments::{SequenceWriter, TestSegments};
     use crate::{LayoutRef, LayoutStrategy, LocalExecutor};
 
     #[fixture]
     /// Create a stats layout with three chunks of primitive arrays.
-    fn stats_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
+    fn stats_layout() -> (SegmentSourceRef<'rt>, LayoutRef) {
         let ctx = ArrayContext::empty();
         let segments = TestSegments::default();
         let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
@@ -420,7 +419,7 @@ mod test {
 
     #[rstest]
     fn test_stats_evaluator(
-        #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+        #[from(stats_layout)] (segments, layout): (SegmentSourceRef<'rt>, LayoutRef),
     ) {
         Runtime::oneshot(|handle| async move {
             let result = layout
@@ -441,7 +440,7 @@ mod test {
 
     #[rstest]
     fn test_stats_pruning_mask(
-        #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+        #[from(stats_layout)] (segments, layout): (SegmentSourceRef<'rt>, LayoutRef),
     ) {
         Runtime::oneshot(|handle| async move {
             let row_count = layout.row_count();

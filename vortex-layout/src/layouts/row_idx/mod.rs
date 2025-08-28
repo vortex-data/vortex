@@ -29,16 +29,16 @@ use crate::{
     NoOpPruningEvaluation, PruningEvaluation,
 };
 
-pub struct RowIdxLayoutReader<'handle> {
+pub struct RowIdxLayoutReader<'rt> {
     name: Arc<str>,
     row_offset: u64,
-    child: LayoutReaderRef<'handle>,
+    child: LayoutReaderRef<'rt>,
 
     partition_cache: DashMap<ExactExpr, Partitioning>,
 }
 
-impl<'handle> RowIdxLayoutReader<'handle> {
-    pub fn new(row_offset: u64, child: LayoutReaderRef<'handle>) -> Self {
+impl<'rt> RowIdxLayoutReader<'rt> {
+    pub fn new(row_offset: u64, child: LayoutReaderRef<'rt>) -> Self {
         Self {
             name: child.name().clone(),
             row_offset,
@@ -111,7 +111,7 @@ impl Display for Partition {
     }
 }
 
-impl<'handle> LayoutReader<'handle> for RowIdxLayoutReader<'handle> {
+impl<'rt> LayoutReader<'rt> for RowIdxLayoutReader<'rt> {
     fn name(&self) -> &Arc<str> {
         &self.name
     }
@@ -137,7 +137,7 @@ impl<'handle> LayoutReader<'handle> for RowIdxLayoutReader<'handle> {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn PruningEvaluation<'handle>>> {
+    ) -> VortexResult<Box<dyn PruningEvaluation<'rt>>> {
         match &self.partition_expr(expr) {
             Partitioning::RowIdx(expr) => Ok(Box::new(RowIdxEvaluation::new(
                 self.row_offset,
@@ -153,7 +153,7 @@ impl<'handle> LayoutReader<'handle> for RowIdxLayoutReader<'handle> {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn MaskEvaluation<'handle>>> {
+    ) -> VortexResult<Box<dyn MaskEvaluation<'rt>>> {
         match &self.partition_expr(expr) {
             // Since this is run during pruning, we skip re-evaluating the row index expression
             // during the filter evaluation.
@@ -185,7 +185,7 @@ impl<'handle> LayoutReader<'handle> for RowIdxLayoutReader<'handle> {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn ArrayEvaluation<'handle>>> {
+    ) -> VortexResult<Box<dyn ArrayEvaluation<'rt>>> {
         match &self.partition_expr(expr) {
             Partitioning::RowIdx(expr) => Ok(Box::new(RowIdxEvaluation::new(
                 self.row_offset,
@@ -286,7 +286,7 @@ mod tests {
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::row_idx::{row_idx, RowIdxLayoutReader};
-    use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
+    use crate::segments::{SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
     use crate::{LayoutReader, LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt};
 
@@ -310,7 +310,7 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
+            let segments: SegmentSourceRef<'rt> = Arc::new(segments);
 
             let expr = eq(root(), lit(3i32));
             let result =
@@ -350,7 +350,7 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
+            let segments: SegmentSourceRef<'rt> = Arc::new(segments);
 
             let expr = gt(row_idx(), lit(3u64));
             let result =
@@ -390,7 +390,7 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
+            let segments: SegmentSourceRef<'rt> = Arc::new(segments);
 
             let expr = or(
                 eq(root(), lit(3i32)),

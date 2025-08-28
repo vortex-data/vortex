@@ -17,7 +17,7 @@ use vortex_error::VortexResult;
 use vortex_expr::pruning::checked_pruning_expr;
 use vortex_expr::{ExprRef, Scope};
 use vortex_io::runtime::{FileIo, Handle, ObjectStoreIo};
-use vortex_layout::segments::SegmentSource;
+use vortex_layout::segments::SegmentSourceRef;
 use vortex_layout::LayoutReaderRef;
 use vortex_metrics::VortexMetrics;
 use vortex_scan::ScanBuilder;
@@ -33,7 +33,7 @@ use crate::segments::FileSegmentSource;
 /// It provides methods for accessing file metadata (such as row count, data type, and statistics)
 /// and for initiating scans to read the file's contents.
 #[derive(Clone)]
-pub struct VortexFile<'handle> {
+pub struct VortexFile<'rt> {
     /// The footer of the Vortex file, containing metadata and layout information.
     pub(crate) footer: Footer,
     /// The segment source used for reading segments from the file.
@@ -43,10 +43,10 @@ pub struct VortexFile<'handle> {
     /// The handle to use for I/O operations.
     /// FIXME(ngates): this shoud have a lifetime? Then the user should be encouraged to stash
     ///  the footer if they care about cheap re-opening of a VortexFile.
-    pub(crate) handle: Handle<'handle>,
+    pub(crate) handle: Handle<'rt>,
 }
 
-impl<'handle> VortexFile<'handle> {
+impl<'rt> VortexFile<'rt> {
     /// Returns a reference to the file's footer, which contains metadata and layout information.
     pub fn footer(&self) -> &Footer {
         &self.footer
@@ -80,15 +80,15 @@ impl<'handle> VortexFile<'handle> {
     }
 
     /// Create a new segment source for reading from the file.
-    pub fn segment_source(&self) -> Arc<dyn SegmentSource> {
+    pub fn segment_source(&self) -> SegmentSourceRef<'rt> {
         Arc::new(FileSegmentSource::new(
             self.footer.segment_map().clone(),
-            self.source.clone(),
+            self.source.clone().open(&self.handle),
         ))
     }
 
     /// Create a new layout reader for the file.
-    pub fn layout_reader(&self) -> VortexResult<LayoutReaderRef<'handle>> {
+    pub fn layout_reader(&self) -> VortexResult<LayoutReaderRef<'rt>> {
         self.footer
             .layout()
             // TODO(ngates): we may want to allow the user pass in a name here?
@@ -96,7 +96,7 @@ impl<'handle> VortexFile<'handle> {
     }
 
     /// Initiate a scan of the file, returning a builder for configuring the scan.
-    pub fn scan(&self) -> VortexResult<ScanBuilder<'handle, ArrayRef>> {
+    pub fn scan(&self) -> VortexResult<ScanBuilder<'rt, ArrayRef>> {
         Ok(ScanBuilder::new(self.layout_reader()?, self.handle.clone())
             .with_metrics(self.metrics.clone()))
     }
@@ -157,7 +157,7 @@ pub(crate) enum FileIoSource {
 }
 
 impl FileIoSource {
-    pub(crate) fn open<'handle>(self, handle: &Handle<'handle>) -> FileIo<'handle> {
+    pub(crate) fn open<'rt>(self, handle: &Handle<'rt>) -> FileIo<'rt> {
         match self {
             FileIoSource::Memory(buffer) => handle.open(Arc::new(buffer)),
             FileIoSource::File(file) => handle.open(file),

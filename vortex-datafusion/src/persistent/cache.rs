@@ -75,12 +75,12 @@ impl VortexFileCache {
         }
     }
 
-    pub async fn try_get<'handle>(
+    pub async fn try_get<'rt>(
         &self,
         object: &ObjectMeta,
         object_store: Arc<dyn ObjectStore>,
-        handle: Handle<'handle>,
-    ) -> VortexResult<VortexFile<'handle>> {
+        handle: Handle<'rt>,
+    ) -> VortexResult<VortexFile<'rt>> {
         let file_key = FileKey::from(object);
         let object_store2 = object_store.clone();
         let handle2 = handle.clone();

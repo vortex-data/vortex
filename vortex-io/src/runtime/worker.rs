@@ -10,6 +10,7 @@ use futures::stream::{BoxStream, FuturesUnordered};
 use futures::Stream;
 use futures::{FutureExt, StreamExt};
 use itertools::Itertools;
+use smol::lock::Semaphore;
 use smol::LocalExecutor;
 use std::fmt::Debug;
 use std::iter;
@@ -27,11 +28,11 @@ pub struct WorkerPool<T: Send> {
 }
 
 impl<T: Send> WorkerPool<T> {
-    pub fn drive_stream<'handle, F, S>(f: F) -> WorkerPool<T>
+    pub fn drive_stream<'rt, F, S>(f: F) -> WorkerPool<T>
     where
-        F: FnOnce(Handle<'handle>) -> S,
-        S: Stream<Item = T> + Send + 'handle,
-        T: 'handle,
+        F: FnOnce(Handle<'rt>) -> S,
+        S: Stream<Item = T> + Send + 'rt,
+        T: 'rt,
     {
         let (result_tx, result_rx) = crossbeam_channel::unbounded();
 
@@ -50,10 +51,8 @@ impl<T: Send> WorkerPool<T> {
         // Spawn a task to drive the stream and send results to the result channel.
         shared.spawn_scheduling(
             async move {
-                log::info!("DRIVE STREAM");
                 futures::pin_mut!(stream);
                 while let Some(item) = stream.next().await {
-                    log::info!("RESULT");
                     // Ignore send errors, which happen if the receiver is dropped.
                     let _ = result_tx.send(item);
                 }
@@ -83,8 +82,8 @@ struct Shared<T: Send> {
 ///
 /// Note that we _also_ implement [`Runtime`] for each individual worker, which allows us to pass
 /// a handle that spawns onto a specific worker's local queues.
-impl<'handle, T: Send> Runtime<'handle> for Shared<T> {
-    fn spawn_scheduling(&self, fut: BoxFuture<'handle, ()>) {
+impl<'rt, T: Send> Runtime<'rt> for Shared<T> {
+    fn spawn_scheduling(&self, fut: BoxFuture<'rt, ()>) {
         let injector = self.scheduling.injector.clone();
 
         // SAFETY: We know that the future is `Send`, and we know that schedule is `Send` + `Sync`.
@@ -102,15 +101,14 @@ impl<'handle, T: Send> Runtime<'handle> for Shared<T> {
         self.cpu.injector.push(task);
     }
 
-    fn spawn_io(&self, stream: BoxStream<'handle, IoTask>, concurrency: usize) {
+    fn spawn_io(&self, stream: BoxStream<'rt, IoTask>, concurrency: usize) {
         // FIXME(ngates): this is stupid and breaks back-pressure on the stream.
         //  We should collect these streams into a Vec or similar and use a SelectAll construct.
         // We launch a scheduling task to push I/O requests into the work stealing queue.
         // let injector = self.io.injector.clone();
-        log::info!("Spawning I/O driver with concurrency {}", concurrency);
+        let _semaphore = Arc::new(Semaphore::new(concurrency));
         self.spawn_scheduling(
             async move {
-                println!("Spawning I/O tasks...");
                 stream
                     // FIXME(ngates): this isn't running on the I/O driver!
                     .map(|task| async move { task.run_send().await })
@@ -245,7 +243,7 @@ impl<T: Send + 'static> Iterator for Worker<T> {
                     //         .join(", ")
                     // );
                     while let Some(runnable) = self.scheduling.find_task() {
-                        log::info!("Running scheduled task: {}", runnable.run());
+                        runnable.run();
                     }
 
                     if let Some(task) = self.cpu.find_task() {

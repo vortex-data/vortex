@@ -21,26 +21,26 @@ use vortex_mask::Mask;
 
 use crate::layouts::chunked::ChunkedLayout;
 use crate::reader::LayoutReader;
-use crate::segments::SegmentSource;
+use crate::segments::SegmentSourceRef;
 use crate::{
     ArrayEvaluation, LayoutReaderRef, LazyReaderChildren, MaskEvaluation, PruningEvaluation,
 };
 
 /// A [`LayoutReader`] for chunked layouts.
-pub struct ChunkedReader<'handle> {
+pub struct ChunkedReader<'rt> {
     layout: ChunkedLayout,
     name: Arc<str>,
-    lazy_children: LazyReaderChildren<'handle>,
+    lazy_children: LazyReaderChildren<'rt>,
     /// Row offset for each chunk
     chunk_offsets: Vec<u64>,
 }
 
-impl<'handle> ChunkedReader<'handle> {
+impl<'rt> ChunkedReader<'rt> {
     pub fn new(
         layout: ChunkedLayout,
         name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
-        handle: Handle<'handle>,
+        segment_source: SegmentSourceRef<'rt>,
+        handle: Handle<'rt>,
     ) -> Self {
         let nchildren = layout.nchildren();
 
@@ -63,7 +63,7 @@ impl<'handle> ChunkedReader<'handle> {
     }
 
     /// Return the [`LayoutReader`] for the given chunk.
-    fn chunk_reader(&self, idx: usize) -> VortexResult<&LayoutReaderRef<'handle>> {
+    fn chunk_reader(&self, idx: usize) -> VortexResult<&LayoutReaderRef<'rt>> {
         self.lazy_children.get(
             idx,
             self.layout.dtype(),
@@ -141,7 +141,7 @@ impl<'handle> ChunkedReader<'handle> {
     }
 }
 
-impl<'handle> LayoutReader<'handle> for ChunkedReader<'handle> {
+impl<'rt> LayoutReader<'rt> for ChunkedReader<'rt> {
     fn name(&self) -> &Arc<str> {
         &self.name
     }
@@ -174,7 +174,7 @@ impl<'handle> LayoutReader<'handle> for ChunkedReader<'handle> {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn PruningEvaluation<'handle>>> {
+    ) -> VortexResult<Box<dyn PruningEvaluation<'rt>>> {
         let mut chunk_evals = vec![];
         let mut mask_ranges = vec![];
 
@@ -196,7 +196,7 @@ impl<'handle> LayoutReader<'handle> for ChunkedReader<'handle> {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn MaskEvaluation<'handle>>> {
+    ) -> VortexResult<Box<dyn MaskEvaluation<'rt>>> {
         let mut chunk_evals = vec![];
         let mut mask_ranges = vec![];
 
@@ -218,7 +218,7 @@ impl<'handle> LayoutReader<'handle> for ChunkedReader<'handle> {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn ArrayEvaluation<'handle>>> {
+    ) -> VortexResult<Box<dyn ArrayEvaluation<'rt>>> {
         let dtype = expr.return_dtype(self.dtype())?;
         let mut chunk_evals = vec![];
         let mut mask_ranges = vec![];
@@ -238,14 +238,14 @@ impl<'handle> LayoutReader<'handle> for ChunkedReader<'handle> {
     }
 }
 
-struct ChunkedPruningEvaluation<'handle> {
+struct ChunkedPruningEvaluation<'rt> {
     name: Arc<str>,
-    chunk_evals: Vec<Box<dyn PruningEvaluation<'handle>>>,
+    chunk_evals: Vec<Box<dyn PruningEvaluation<'rt>>>,
     mask_ranges: Vec<Range<usize>>,
 }
 
 #[async_trait]
-impl<'handle> PruningEvaluation<'handle> for ChunkedPruningEvaluation<'handle> {
+impl<'rt> PruningEvaluation<'rt> for ChunkedPruningEvaluation<'rt> {
     async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
         log::debug!(
             "Chunked pruning evaluation {} (mask = {})",
@@ -281,14 +281,14 @@ impl<'handle> PruningEvaluation<'handle> for ChunkedPruningEvaluation<'handle> {
     }
 }
 
-struct ChunkedMaskEvaluation<'handle> {
+struct ChunkedMaskEvaluation<'rt> {
     name: Arc<str>,
-    chunk_evals: Vec<Box<dyn MaskEvaluation<'handle>>>,
+    chunk_evals: Vec<Box<dyn MaskEvaluation<'rt>>>,
     mask_ranges: Vec<Range<usize>>,
 }
 
 #[async_trait]
-impl<'handle> MaskEvaluation<'handle> for ChunkedMaskEvaluation<'handle> {
+impl<'rt> MaskEvaluation<'rt> for ChunkedMaskEvaluation<'rt> {
     async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
         log::debug!(
             "Chunked mask evaluation {} (mask = {})",
@@ -324,14 +324,14 @@ impl<'handle> MaskEvaluation<'handle> for ChunkedMaskEvaluation<'handle> {
     }
 }
 
-struct ChunkedArrayEvaluation<'handle> {
+struct ChunkedArrayEvaluation<'rt> {
     dtype: DType,
-    chunk_evals: Vec<Box<dyn ArrayEvaluation<'handle>>>,
+    chunk_evals: Vec<Box<dyn ArrayEvaluation<'rt>>>,
     mask_ranges: Vec<Range<usize>>,
 }
 
 #[async_trait]
-impl<'handle> ArrayEvaluation<'handle> for ChunkedArrayEvaluation<'handle> {
+impl<'rt> ArrayEvaluation<'rt> for ChunkedArrayEvaluation<'rt> {
     async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
         // Split the mask over each chunk.
         let chunks: Vec<_> = FuturesOrdered::from_iter(
@@ -372,13 +372,13 @@ mod test {
 
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
+    use crate::segments::{SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
     use crate::{LayoutRef, LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt as _};
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
-    fn chunked_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
+    fn chunked_layout() -> (SegmentSourceRef<'rt>, LayoutRef) {
         let ctx = ArrayContext::empty();
         let segments = TestSegments::default();
         let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
@@ -406,7 +406,7 @@ mod test {
 
     #[rstest]
     fn test_chunked_evaluator(
-        #[from(chunked_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+        #[from(chunked_layout)] (segments, layout): (SegmentSourceRef<'rt>, LayoutRef),
     ) {
         Runtime::oneshot(|handle| async move {
             let result = layout

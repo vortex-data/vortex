@@ -7,7 +7,7 @@ pub mod writer;
 use std::sync::Arc;
 
 use crate::children::{LayoutChildren, OwnedLayoutChildren};
-use crate::segments::{SegmentId, SegmentSource};
+use crate::segments::{SegmentId, SegmentSourceRef};
 use crate::{
     vtable, LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable,
 };
@@ -72,12 +72,12 @@ impl VTable for StructVTable {
         )
     }
 
-    fn new_reader<'handle>(
+    fn new_reader<'rt>(
         layout: &Self::Layout,
         name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
-        handle: Handle<'handle>,
-    ) -> VortexResult<LayoutReaderRef<'handle>> {
+        segment_source: SegmentSourceRef<'rt>,
+        handle: Handle<'rt>,
+    ) -> VortexResult<LayoutReaderRef<'rt>> {
         Ok(Arc::new(StructReader::try_new(
             layout.clone(),
             name,

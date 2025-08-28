@@ -22,7 +22,7 @@ static CPU_RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
         .vortex_expect("Failed to create a new Tokio runtime")
 });
 
-impl<'handle> ScanBuilder<'handle, ArrayRef> {
+impl<'rt> ScanBuilder<'rt, ArrayRef> {
     /// Execute the scan on multiple worker threads.
     pub fn into_array_iter_multithread(self) -> VortexResult<impl ArrayIterator + Send + 'static> {
         // FIXME(ngates): implement

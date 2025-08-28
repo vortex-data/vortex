@@ -21,4 +21,4 @@ pub mod row_idx;
 pub mod struct_;
 pub mod zoned;
 
-type SharedArrayFuture<'handle> = Shared<BoxFuture<'handle, SharedVortexResult<ArrayRef>>>;
+type SharedArrayFuture<'rt> = Shared<BoxFuture<'rt, SharedVortexResult<ArrayRef>>>;

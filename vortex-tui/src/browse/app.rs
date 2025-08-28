@@ -10,10 +10,10 @@ use ratatui::widgets::ListState;
 use vortex::dtype::DType;
 use vortex::error::{VortexExpect, VortexResult, VortexUnwrap};
 use vortex::file::{Footer, SegmentSpec, VortexFile, VortexOpenOptions};
-use vortex::layout::LayoutRef;
 use vortex::layout::layouts::flat::FlatVTable;
 use vortex::layout::layouts::zoned::ZonedVTable;
 use vortex::layout::segments::{SegmentId, SegmentSource};
+use vortex::layout::LayoutRef;
 use vortex::serde::ArrayParts;
 
 use crate::browse::ui::SegmentGridState;
@@ -38,11 +38,11 @@ pub struct LayoutCursor {
     footer: Footer,
     layout: LayoutRef,
     segment_map: Arc<[SegmentSpec]>,
-    segment_source: Arc<dyn SegmentSource>,
+    segment_source: SegmentSourceRef<'rt>,
 }
 
 impl LayoutCursor {
-    pub fn new(footer: Footer, segment_source: Arc<dyn SegmentSource>) -> Self {
+    pub fn new(footer: Footer, segment_source: SegmentSourceRef<'rt>) -> Self {
         Self {
             path: Vec::new(),
             layout: footer.layout().clone(),
@@ -54,7 +54,7 @@ impl LayoutCursor {
 
     pub fn new_with_path(
         footer: Footer,
-        segment_source: Arc<dyn SegmentSource>,
+        segment_source: SegmentSourceRef<'rt>,
         path: Vec<usize>,
     ) -> Self {
         let mut layout = footer.layout().clone();

@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use crate::children::LayoutChildren;
 use crate::layouts::chunked::reader::ChunkedReader;
-use crate::segments::{SegmentId, SegmentSource};
+use crate::segments::{SegmentId, SegmentSourceRef};
 use crate::{
     vtable, LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReader, LayoutRef, VTable,
 };
@@ -60,12 +60,12 @@ impl VTable for ChunkedVTable {
         LayoutChildType::Chunk((idx, layout.chunk_offsets[idx]))
     }
 
-    fn new_reader<'handle>(
+    fn new_reader<'rt>(
         layout: &Self::Layout,
         name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
-        handle: Handle<'handle>,
-    ) -> VortexResult<Arc<dyn LayoutReader<'handle> + 'handle>> {
+        segment_source: SegmentSourceRef<'rt>,
+        handle: Handle<'rt>,
+    ) -> VortexResult<Arc<dyn LayoutReader<'rt> + 'rt>> {
         Ok(Arc::new(ChunkedReader::new(
             layout.clone(),
             name,

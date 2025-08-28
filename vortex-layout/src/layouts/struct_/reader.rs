@@ -20,16 +20,16 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::layouts::partitioned::{PartitionedArrayEvaluation, PartitionedMaskEvaluation};
 use crate::layouts::struct_::StructLayout;
-use crate::segments::SegmentSource;
+use crate::segments::SegmentSourceRef;
 use crate::{
     ArrayEvaluation, LayoutReader, LayoutReaderRef, LazyReaderChildren, MaskEvaluation,
     NoOpPruningEvaluation, PruningEvaluation,
 };
 
-pub struct StructReader<'handle> {
+pub struct StructReader<'rt> {
     layout: StructLayout,
     name: Arc<str>,
-    lazy_children: LazyReaderChildren<'handle>,
+    lazy_children: LazyReaderChildren<'rt>,
 
     /// A `pack` expression that holds each individual field of the root DType. This expansion
     /// ensures we can correctly partition expressions over the fields of the struct.
@@ -39,12 +39,12 @@ pub struct StructReader<'handle> {
     partitioned_expr_cache: DashMap<ExactExpr, Partitioned>,
 }
 
-impl<'handle> StructReader<'handle> {
+impl<'rt> StructReader<'rt> {
     pub(super) fn try_new(
         layout: StructLayout,
         name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
-        handle: Handle<'handle>,
+        segment_source: SegmentSourceRef<'rt>,
+        handle: Handle<'rt>,
     ) -> VortexResult<Self> {
         let struct_dt = layout.struct_fields();
 
@@ -82,7 +82,7 @@ impl<'handle> StructReader<'handle> {
     }
 
     /// Return the child reader for the field.
-    fn child(&self, name: &FieldName) -> VortexResult<&LayoutReaderRef<'handle>> {
+    fn child(&self, name: &FieldName) -> VortexResult<&LayoutReaderRef<'rt>> {
         let idx = self
             .field_lookup
             .as_ref()
@@ -93,7 +93,7 @@ impl<'handle> StructReader<'handle> {
     }
 
     /// Return the child reader for the field, by index.
-    fn child_by_idx(&self, idx: usize) -> VortexResult<&LayoutReaderRef<'handle>> {
+    fn child_by_idx(&self, idx: usize) -> VortexResult<&LayoutReaderRef<'rt>> {
         let field_dtype = self
             .struct_fields()
             .field_by_index(idx)
@@ -163,7 +163,7 @@ enum Partitioned {
     Multi(Arc<PartitionedExpr<FieldName>>),
 }
 
-impl<'handle> LayoutReader<'handle> for StructReader<'handle> {
+impl<'rt> LayoutReader<'rt> for StructReader<'rt> {
     fn name(&self) -> &Arc<str> {
         &self.name
     }
@@ -195,7 +195,7 @@ impl<'handle> LayoutReader<'handle> for StructReader<'handle> {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn PruningEvaluation<'handle>>> {
+    ) -> VortexResult<Box<dyn PruningEvaluation<'rt>>> {
         // Partition the expression into expressions that can be evaluated over individual fields
         match &self.partition_expr(expr.clone()) {
             Partitioned::Single(name, partition) => {
@@ -213,7 +213,7 @@ impl<'handle> LayoutReader<'handle> for StructReader<'handle> {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn MaskEvaluation<'handle>>> {
+    ) -> VortexResult<Box<dyn MaskEvaluation<'rt>>> {
         // Partition the expression into expressions that can be evaluated over individual fields
         match &self.partition_expr(expr.clone()) {
             Partitioned::Single(name, partition) => {
@@ -231,7 +231,7 @@ impl<'handle> LayoutReader<'handle> for StructReader<'handle> {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn ArrayEvaluation<'handle>>> {
+    ) -> VortexResult<Box<dyn ArrayEvaluation<'rt>>> {
         // Partition the expression into expressions that can be evaluated over individual fields
         match &self.partition_expr(expr.clone()) {
             Partitioned::Single(name, partition) => self
@@ -265,13 +265,13 @@ mod tests {
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::struct_::writer::StructStrategy;
-    use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
+    use crate::segments::{SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
     use crate::{LayoutRef, LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt as _};
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
-    fn struct_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
+    fn struct_layout() -> (SegmentSourceRef<'rt>, LayoutRef) {
         let ctx = ArrayContext::empty();
         let segments = TestSegments::default();
         let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
@@ -314,7 +314,7 @@ mod tests {
 
     #[rstest]
     fn test_struct_layout_or(
-        #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+        #[from(struct_layout)] (segments, layout): (SegmentSourceRef<'rt>, LayoutRef),
     ) {
         let reader = layout.new_reader("".into(), segments).unwrap();
         let filt = or(
@@ -337,7 +337,7 @@ mod tests {
 
     #[rstest]
     fn test_struct_layout(
-        #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+        #[from(struct_layout)] (segments, layout): (SegmentSourceRef<'rt>, LayoutRef),
     ) {
         let reader = layout.new_reader("".into(), segments).unwrap();
         let expr = gt(get_item("a", root()), get_item("b", root()));
@@ -362,7 +362,7 @@ mod tests {
 
     #[rstest]
     fn test_struct_layout_row_mask(
-        #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+        #[from(struct_layout)] (segments, layout): (SegmentSourceRef<'rt>, LayoutRef),
     ) {
         let reader = layout.new_reader("".into(), segments).unwrap();
         let expr = gt(get_item("a", root()), get_item("b", root()));
@@ -390,7 +390,7 @@ mod tests {
 
     #[rstest]
     fn test_struct_layout_select(
-        #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+        #[from(struct_layout)] (segments, layout): (SegmentSourceRef<'rt>, LayoutRef),
     ) {
         let reader = layout.new_reader("".into(), segments).unwrap();
         let expr = pack(

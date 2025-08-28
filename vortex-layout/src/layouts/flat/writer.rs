@@ -150,7 +150,7 @@ mod tests {
     use vortex_mask::{AllOr, Mask};
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
+    use crate::segments::{SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
     use crate::{
         LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter, SequentialStreamExt as _,
@@ -178,7 +178,7 @@ mod tests {
                 .write_stream(&ctx, sequence_writer, stream_only(array.to_array()))
                 .await
                 .unwrap();
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
+            let segments: SegmentSourceRef<'rt> = Arc::new(segments);
 
             let result = layout
                 .new_reader("".into(), segments)
@@ -219,7 +219,7 @@ mod tests {
                 .write_stream(&ctx, sequence_writer, stream_only(array.to_array()))
                 .await
                 .unwrap();
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
+            let segments: SegmentSourceRef<'rt> = Arc::new(segments);
 
             let result = layout
                 .new_reader("".into(), segments)
@@ -277,7 +277,7 @@ mod tests {
                     .await
                     .unwrap();
 
-                (layout, Arc::new(segments) as Arc<dyn SegmentSource>)
+                (layout, Arc::new(segments) as SegmentSourceRef<'rt>)
             };
 
             // We should be able to read the array we just wrote.

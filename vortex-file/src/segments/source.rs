@@ -1,33 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::file::FileIoSource;
 use crate::SegmentSpec;
 use futures::FutureExt;
 use std::sync::Arc;
 use vortex_error::vortex_err;
-use vortex_io::runtime::Handle;
+use vortex_io::runtime::FileIo;
 use vortex_layout::segments::{SegmentFuture, SegmentId, SegmentSource};
 
-pub struct FileSegmentSource {
+pub struct FileSegmentSource<'rt> {
     segment_map: Arc<[SegmentSpec]>,
-    file: FileIoSource,
+    file: FileIo<'rt>,
 }
 
-impl FileSegmentSource {
-    pub fn new(segment_map: Arc<[SegmentSpec]>, file: FileIoSource) -> Self {
+impl<'rt> FileSegmentSource<'rt> {
+    pub fn new(segment_map: Arc<[SegmentSpec]>, file: FileIo<'rt>) -> Self {
         Self { segment_map, file }
     }
 }
 
-impl SegmentSource for FileSegmentSource {
-    fn request<'handle>(&self, id: SegmentId, handle: &Handle<'handle>) -> SegmentFuture<'handle> {
+impl<'rt> SegmentSource<'rt> for FileSegmentSource<'rt> {
+    fn request(&self, id: SegmentId) -> SegmentFuture<'rt> {
         let segment_map = self.segment_map.clone();
-
-        // FIXME(ngates): if we want to avoid opening this every time, we need SegmentSource
-        //  have a handle lifetime.
-        let file = self.file.clone().open(&handle);
-
+        let file = self.file.clone();
         async move {
             let spec = segment_map
                 .get(*id as usize)

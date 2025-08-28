@@ -5,7 +5,7 @@ use std::any::Any;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
-use crate::segments::{SegmentId, SegmentSource};
+use crate::segments::{SegmentId, SegmentSourceRef};
 use crate::{LayoutEncodingId, LayoutEncodingRef, LayoutReaderRef, VTable};
 use arcref::ArcRef;
 use itertools::Itertools;
@@ -50,12 +50,12 @@ pub trait Layout: 'static + Send + Sync + Debug + private::Sealed {
     /// Get the segment IDs for this layout.
     fn segment_ids(&self) -> Vec<SegmentId>;
 
-    fn new_reader<'handle>(
+    fn new_reader<'rt>(
         &self,
         name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
-        handle: Handle<'handle>,
-    ) -> VortexResult<LayoutReaderRef<'handle>>;
+        segment_source: SegmentSourceRef<'rt>,
+        handle: Handle<'rt>,
+    ) -> VortexResult<LayoutReaderRef<'rt>>;
 }
 
 pub trait IntoLayout {
@@ -246,12 +246,12 @@ impl<V: VTable> Layout for LayoutAdapter<V> {
         V::segment_ids(&self.0)
     }
 
-    fn new_reader<'handle>(
+    fn new_reader<'rt>(
         &self,
         name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
-        handle: Handle<'handle>,
-    ) -> VortexResult<LayoutReaderRef<'handle>> {
+        segment_source: SegmentSourceRef<'rt>,
+        handle: Handle<'rt>,
+    ) -> VortexResult<LayoutReaderRef<'rt>> {
         V::new_reader(&self.0, name, segment_source, handle)
     }
 }

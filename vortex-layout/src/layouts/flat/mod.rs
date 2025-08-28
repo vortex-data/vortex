@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use crate::children::LayoutChildren;
 use crate::layouts::flat::reader::FlatReader;
-use crate::segments::{SegmentId, SegmentSource};
+use crate::segments::{SegmentId, SegmentSourceRef};
 use crate::{
     vtable, LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable,
 };
@@ -60,12 +60,12 @@ impl VTable for FlatVTable {
         vortex_panic!("Flat layout has no children");
     }
 
-    fn new_reader<'handle>(
+    fn new_reader<'rt>(
         layout: &Self::Layout,
         name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
-        handle: Handle<'handle>,
-    ) -> VortexResult<LayoutReaderRef<'handle>> {
+        segment_source: SegmentSourceRef<'rt>,
+        handle: Handle<'rt>,
+    ) -> VortexResult<LayoutReaderRef<'rt>> {
         Ok(Arc::new(FlatReader::new(
             layout.clone(),
             name,

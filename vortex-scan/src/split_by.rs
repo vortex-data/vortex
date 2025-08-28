@@ -72,7 +72,7 @@ mod test {
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, FieldPath, PType};
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
-    use vortex_layout::segments::{SegmentSource, SequenceWriter, TestSegments};
+    use vortex_layout::segments::{SequenceWriter, TestSegments};
     use vortex_layout::sequence::SequenceId;
     use vortex_layout::{LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt as _};
 
@@ -99,7 +99,7 @@ mod test {
         )
         .unwrap();
 
-        let segments: Arc<dyn SegmentSource> = Arc::new(segments);
+        let segments: SegmentSourceRef<'rt> = Arc::new(segments);
         let reader = layout.new_reader("".into(), segments).unwrap();
 
         let splits = SplitBy::Layout
@@ -129,7 +129,7 @@ mod test {
         )
         .unwrap();
 
-        let segments: Arc<dyn SegmentSource> = Arc::new(segments);
+        let segments: SegmentSourceRef<'rt> = Arc::new(segments);
         let reader = layout.new_reader("".into(), segments).unwrap();
 
         let splits = SplitBy::RowCount(3)

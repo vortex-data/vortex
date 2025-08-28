@@ -32,18 +32,18 @@ use vortex_error::{vortex_err, VortexExpect, VortexResult};
 /// Note: users will interact with the [`Handle`] API rather than the [`Runtime`] trait.
 ///
 /// FIXME(ngates): these should really have handles that get dropped and cancel?
-pub(crate) trait Runtime<'handle>: Send + Sync {
+pub(crate) trait Runtime<'rt>: Send + Sync {
     /// Spawns a future to be executed on the runtime's scheduling context.
     ///
     /// The future will continue to be executed in the background and should pass results out via
     /// a one-shot channel if necessary.
-    fn spawn_scheduling(&self, fut: BoxFuture<'handle, ()>);
+    fn spawn_scheduling(&self, fut: BoxFuture<'rt, ()>);
 
     /// Spawns a CPU-bound task for execution on the runtime.
     fn spawn_cpu(&self, task: CpuTask);
 
     /// Passes a stream of I/O tasks to be executed on the runtime.
-    fn spawn_io(&self, stream: BoxStream<'handle, IoTask>, concurrency: usize);
+    fn spawn_io(&self, stream: BoxStream<'rt, IoTask>, concurrency: usize);
 }
 
 pub(crate) struct CpuTask {

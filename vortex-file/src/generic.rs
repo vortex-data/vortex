@@ -75,11 +75,11 @@ impl VortexOpenOptions<GenericVortexFile> {
     }
 
     /// Open a Vortex file using the provided [`std::path::Path`].
-    pub fn open<'handle, P: AsRef<Path>>(
+    pub fn open<'rt, P: AsRef<Path>>(
         self,
         path: P,
-        handle: Handle<'handle>,
-    ) -> impl Future<Output = VortexResult<VortexFile<'handle>>> + 'handle {
+        handle: Handle<'rt>,
+    ) -> impl Future<Output = VortexResult<VortexFile<'rt>>> + 'rt {
         // self.open_read_at(vortex_io::TokioFile::open(read)?).await
         let file = File::open(path);
         async move {
@@ -90,12 +90,12 @@ impl VortexOpenOptions<GenericVortexFile> {
 
     /// Low-level API for opening any [`VortexReadAt`]. Note that the user is responsible for
     /// ensuring the `VortexReadAt` implementation is compatible with the chosen I/O dispatcher.
-    pub(crate) async fn open_source<'handle>(
+    pub(crate) async fn open_source<'rt>(
         self,
         source: FileIoSource,
-        handle: Handle<'handle>,
-    ) -> VortexResult<VortexFile<'handle>> {
-        // Open the file so we can read it's footer.
+        handle: Handle<'rt>,
+    ) -> VortexResult<VortexFile<'rt>> {
+        // Open the file so we can read its footer.
         let read = source.clone().open(&handle);
 
         let footer = if let Some(footer) = self.footer {
@@ -276,12 +276,12 @@ impl VortexOpenOptions<GenericVortexFile> {
 
 #[cfg(feature = "object_store")]
 impl VortexOpenOptions<GenericVortexFile> {
-    pub async fn open_object_store<'handle>(
+    pub async fn open_object_store<'rt>(
         mut self,
         object_store: Arc<dyn object_store::ObjectStore>,
         path: &str,
-        handle: Handle<'handle>,
-    ) -> VortexResult<VortexFile<'handle>> {
+        handle: Handle<'rt>,
+    ) -> VortexResult<VortexFile<'rt>> {
         use std::path::Path;
 
         // Object store _must_ use tokio for I/O.

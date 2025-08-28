@@ -6,7 +6,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use crate::children::LayoutChildren;
-use crate::segments::{SegmentId, SegmentSource};
+use crate::segments::{SegmentId, SegmentSourceRef};
 use crate::{
     IntoLayout, Layout, LayoutChildType, LayoutEncoding, LayoutEncodingRef, LayoutId,
     LayoutReaderRef, LayoutRef,
@@ -49,12 +49,12 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     fn child_type(layout: &Self::Layout, idx: usize) -> LayoutChildType;
 
     /// Create a new reader for the layout.
-    fn new_reader<'handle>(
+    fn new_reader<'rt>(
         layout: &Self::Layout,
         name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
-        handle: Handle<'handle>,
-    ) -> VortexResult<LayoutReaderRef<'handle>>;
+        segment_source: SegmentSourceRef<'rt>,
+        handle: Handle<'rt>,
+    ) -> VortexResult<LayoutReaderRef<'rt>>;
 
     /// Construct a new [`Layout`] from the provided parts.
     fn build(

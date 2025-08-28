@@ -41,9 +41,9 @@ mod work_queue;
 mod work_stealing_iter;
 
 /// A struct for building a scan operation.
-pub struct ScanBuilder<'handle, A> {
-    handle: Handle<'handle>,
-    layout_reader: LayoutReaderRef<'handle>,
+pub struct ScanBuilder<'rt, A> {
+    handle: Handle<'rt>,
+    layout_reader: LayoutReaderRef<'rt>,
     projection: ExprRef,
     filter: Option<ExprRef>,
     /// Optionally read a subset of the rows in the file.
@@ -67,7 +67,7 @@ pub struct ScanBuilder<'handle, A> {
     row_offset: u64,
 }
 
-impl<'handle, A: 'static + Send> ScanBuilder<'handle, A> {
+impl<'rt, A: 'static + Send> ScanBuilder<'rt, A> {
     pub fn with_filter(mut self, filter: ExprRef) -> Self {
         self.filter = Some(filter);
         self
@@ -135,7 +135,7 @@ impl<'handle, A: 'static + Send> ScanBuilder<'handle, A> {
     pub fn map<B: 'static>(
         self,
         map_fn: impl Fn(A) -> VortexResult<B> + 'static + Send + Sync,
-    ) -> ScanBuilder<'handle, B> {
+    ) -> ScanBuilder<'rt, B> {
         let old_map_fn = self.map_fn;
         ScanBuilder {
             handle: self.handle,
@@ -155,7 +155,7 @@ impl<'handle, A: 'static + Send> ScanBuilder<'handle, A> {
     }
 
     /// Constructs a task per row split of the scan, returned as a vector of futures.
-    pub fn build(mut self) -> VortexResult<Vec<BoxFuture<'handle, VortexResult<Option<A>>>>> {
+    pub fn build(mut self) -> VortexResult<Vec<BoxFuture<'rt, VortexResult<Option<A>>>>> {
         if self.filter.is_some() && self.limit.is_some() {
             vortex_bail!("Vortex doesn't support scans with both a filter and a limit")
         }
@@ -214,7 +214,7 @@ impl<'handle, A: 'static + Send> ScanBuilder<'handle, A> {
 
     pub fn into_stream(
         self,
-    ) -> VortexResult<impl futures::Stream<Item = VortexResult<A>> + Send + 'handle> {
+    ) -> VortexResult<impl futures::Stream<Item = VortexResult<A>> + Send + 'rt> {
         let concurrency = self.concurrency;
         let handle = self.handle.clone();
         Ok(stream::iter(self.build()?)
@@ -231,9 +231,7 @@ impl<'handle, A: 'static + Send> ScanBuilder<'handle, A> {
     /// Task concurrency is the product of the `concurrency` parameter and the number of worker
     /// threads in the Tokio runtime.
     #[cfg(feature = "tokio")]
-    pub fn into_tokio_stream(
-        self,
-    ) -> impl futures::Stream<Item = VortexResult<A>> + Send + 'handle {
+    pub fn into_tokio_stream(self) -> impl futures::Stream<Item = VortexResult<A>> + Send + 'rt {
         use futures::StreamExt;
         let tokio_handle = tokio::runtime::Handle::current();
         let num_workers = tokio_handle.metrics().num_workers();
@@ -251,8 +249,8 @@ impl<'handle, A: 'static + Send> ScanBuilder<'handle, A> {
     }
 }
 
-impl<'handle> ScanBuilder<'handle, ArrayRef> {
-    pub fn new(layout_reader: LayoutReaderRef<'handle>, handle: Handle<'handle>) -> Self {
+impl<'rt> ScanBuilder<'rt, ArrayRef> {
+    pub fn new(layout_reader: LayoutReaderRef<'rt>, handle: Handle<'rt>) -> Self {
         Self {
             handle,
             layout_reader,
@@ -302,7 +300,7 @@ impl<'handle> ScanBuilder<'handle, ArrayRef> {
     #[cfg(feature = "tokio")]
     pub fn into_tokio_array_stream(
         self,
-    ) -> VortexResult<impl vortex_array::stream::ArrayStream + Send + 'handle> {
+    ) -> VortexResult<impl vortex_array::stream::ArrayStream + Send + 'rt> {
         let dtype = self.dtype()?;
         let stream = self.into_tokio_stream();
         Ok(vortex_array::stream::ArrayStreamAdapter::new(dtype, stream))

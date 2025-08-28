@@ -72,8 +72,8 @@ struct InMemorySegmentReader {
     footer: Footer,
 }
 
-impl SegmentSource for InMemorySegmentReader {
-    fn request(&self, id: SegmentId, _handle: &Handle) -> SegmentFuture<'static> {
+impl SegmentSource<'static> for InMemorySegmentReader {
+    fn request(&self, id: SegmentId) -> SegmentFuture<'static> {
         let Some(spec) = self.footer.segment_map().get(*id as usize) else {
             return async move { vortex_bail!("segment not found {id}") }.boxed();
         };

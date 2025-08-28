@@ -19,7 +19,7 @@ use vortex_mask::Mask;
 
 use crate::layouts::flat::FlatLayout;
 use crate::layouts::SharedArrayFuture;
-use crate::segments::SegmentSource;
+use crate::segments::SegmentSourceRef;
 use crate::{
     ArrayEvaluation, LayoutReader, MaskEvaluation, NoOpPruningEvaluation, PruningEvaluation,
 };
@@ -31,20 +31,20 @@ use crate::{
 //  actual expression? Perhaps all expressions are given a selection mask to decide for themselves?
 const EXPR_EVAL_THRESHOLD: f64 = 0.2;
 
-pub struct FlatReader<'handle> {
+pub struct FlatReader<'rt> {
     layout: FlatLayout,
     name: Arc<str>,
-    segment_source: Arc<dyn SegmentSource>,
-    array: OnceLock<SharedArrayFuture<'handle>>,
-    handle: Handle<'handle>,
+    segment_source: SegmentSourceRef<'rt>,
+    array: OnceLock<SharedArrayFuture<'rt>>,
+    handle: Handle<'rt>,
 }
 
-impl<'handle> FlatReader<'handle> {
+impl<'rt> FlatReader<'rt> {
     pub(crate) fn new(
         layout: FlatLayout,
         name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
-        handle: Handle<'handle>,
+        segment_source: SegmentSourceRef<'rt>,
+        handle: Handle<'rt>,
     ) -> Self {
         Self {
             layout,
@@ -62,15 +62,13 @@ impl<'handle> FlatReader<'handle> {
     // TODO(ngates): caching this and ignoring SegmentReaders may be a terrible idea... we may
     //  instead want to store all segment futures and race them, so if a layout requests a
     //  projection future before a pruning future, the pruning isn't blocked.
-    fn array_future(&self) -> VortexResult<SharedArrayFuture<'handle>> {
+    fn array_future(&self) -> VortexResult<SharedArrayFuture<'rt>> {
         let row_count = usize::try_from(self.layout.row_count()).vortex_unwrap();
 
         // We create the segment_fut here to ensure we give the segment reader visibility into
         // how to prioritize this segment, even if the `array` future has already been initialized.
         // This is gross... see the function's TODO for a maybe better solution?
-        let segment_fut = self
-            .segment_source
-            .request(self.layout.segment_id(), &self.handle);
+        let segment_fut = self.segment_source.request(self.layout.segment_id());
 
         Ok(self
             .array
@@ -90,7 +88,7 @@ impl<'handle> FlatReader<'handle> {
     }
 }
 
-impl<'handle> LayoutReader<'handle> for FlatReader<'handle> {
+impl<'rt> LayoutReader<'rt> for FlatReader<'rt> {
     fn name(&self) -> &Arc<str> {
         &self.name
     }
@@ -117,7 +115,7 @@ impl<'handle> LayoutReader<'handle> for FlatReader<'handle> {
         &self,
         _row_range: &Range<u64>,
         _expr: &ExprRef,
-    ) -> VortexResult<Box<dyn PruningEvaluation<'handle>>> {
+    ) -> VortexResult<Box<dyn PruningEvaluation<'rt>>> {
         Ok(Box::new(NoOpPruningEvaluation))
     }
 
@@ -125,7 +123,7 @@ impl<'handle> LayoutReader<'handle> for FlatReader<'handle> {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn MaskEvaluation<'handle>>> {
+    ) -> VortexResult<Box<dyn MaskEvaluation<'rt>>> {
         let row_range = usize::try_from(row_range.start)
             .vortex_expect("Row range begin must fit within FlatLayout size")
             ..usize::try_from(row_range.end)
@@ -144,7 +142,7 @@ impl<'handle> LayoutReader<'handle> for FlatReader<'handle> {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn ArrayEvaluation<'handle>>> {
+    ) -> VortexResult<Box<dyn ArrayEvaluation<'rt>>> {
         let row_range = usize::try_from(row_range.start)
             .vortex_expect("Row range begin must fit within FlatLayout size")
             ..usize::try_from(row_range.end)
@@ -160,16 +158,16 @@ impl<'handle> LayoutReader<'handle> for FlatReader<'handle> {
     }
 }
 
-struct FlatEvaluation<'handle> {
+struct FlatEvaluation<'rt> {
     name: Arc<str>,
-    array: SharedArrayFuture<'handle>,
+    array: SharedArrayFuture<'rt>,
     row_range: Range<usize>,
     expr: ExprRef,
-    handle: Handle<'handle>,
+    handle: Handle<'rt>,
 }
 
 #[async_trait]
-impl<'handle> MaskEvaluation<'handle> for FlatEvaluation<'handle> {
+impl<'rt> MaskEvaluation<'rt> for FlatEvaluation<'rt> {
     async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
         // TODO(ngates): if the mask density is low enough, or if the mask is dense within a range
         //  (as often happens with zone map pruning), then we could slice/filter the array prior
@@ -223,7 +221,7 @@ impl<'handle> MaskEvaluation<'handle> for FlatEvaluation<'handle> {
 }
 
 #[async_trait]
-impl<'handle> ArrayEvaluation<'handle> for FlatEvaluation<'handle> {
+impl<'rt> ArrayEvaluation<'rt> for FlatEvaluation<'rt> {
     async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
         log::debug!(
             "Flat array evaluation {} - {} (mask = {})",
@@ -278,7 +276,7 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
+    use crate::segments::{SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
     use crate::{LayoutStrategy as _, SequentialStreamAdapter, SequentialStreamExt};
 
@@ -302,7 +300,7 @@ mod test {
                 )
                 .await
                 .unwrap();
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
+            let segments: SegmentSourceRef<'rt> = Arc::new(segments);
 
             let result = layout
                 .new_reader("".into(), segments)
@@ -342,7 +340,7 @@ mod test {
                 )
                 .await
                 .unwrap();
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
+            let segments: SegmentSourceRef<'rt> = Arc::new(segments);
 
             let expr = gt(root(), lit(3i32));
             let result = layout
@@ -383,7 +381,7 @@ mod test {
                 )
                 .await
                 .unwrap();
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
+            let segments: SegmentSourceRef<'rt> = Arc::new(segments);
 
             let result = layout
                 .new_reader("".into(), segments)

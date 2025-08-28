@@ -12,7 +12,7 @@ use rustc_hash::FxBuildHasher;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_io::runtime::Handle;
-use vortex_layout::segments::{SegmentFuture, SegmentId, SegmentSource};
+use vortex_layout::segments::{SegmentFuture, SegmentId, SegmentSource, SegmentSourceRef};
 use vortex_metrics::{Counter, VortexMetrics};
 
 /// A cache for storing and retrieving individual segment data.
@@ -126,21 +126,21 @@ impl<C: SegmentCache> SegmentCache for SegmentCacheMetrics<C> {
     }
 }
 
-pub struct SegmentCacheSourceAdapter {
+pub struct SegmentCacheSourceAdapter<'rt> {
     cache: Arc<dyn SegmentCache>,
-    source: Arc<dyn SegmentSource>,
+    source: SegmentSourceRef<'rt>,
 }
 
-impl SegmentCacheSourceAdapter {
-    pub fn new(cache: Arc<dyn SegmentCache>, source: Arc<dyn SegmentSource>) -> Self {
+impl<'rt> SegmentCacheSourceAdapter<'rt> {
+    pub fn new(cache: Arc<dyn SegmentCache>, source: SegmentSourceRef<'rt>) -> Self {
         Self { cache, source }
     }
 }
 
-impl SegmentSource for SegmentCacheSourceAdapter {
-    fn request<'handle>(&self, id: SegmentId, handle: &Handle<'handle>) -> SegmentFuture<'handle> {
+impl<'rt> SegmentSource<'rt> for SegmentCacheSourceAdapter<'rt> {
+    fn request(&self, id: SegmentId) -> SegmentFuture<'rt> {
         let cache = self.cache.clone();
-        let delegate = self.source.request(id, handle);
+        let delegate = self.source.request(id);
 
         async move {
             if let Ok(Some(segment)) = cache.get(id).await {

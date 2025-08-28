@@ -170,11 +170,11 @@ fn extract_table_filter_expr(
 }
 
 /// Helper function to open a Vortex file from either a local or S3 URL
-async fn open_file<'handle>(
+async fn open_file<'rt>(
     url: Url,
     options: VortexOpenOptions<GenericVortexFile>,
-    handle: Handle<'handle>,
-) -> VortexResult<VortexFile<'handle>> {
+    handle: Handle<'rt>,
+) -> VortexResult<VortexFile<'rt>> {
     if url.scheme() == "s3" {
         assert!(url.scheme() == "s3");
         let bucket = url
