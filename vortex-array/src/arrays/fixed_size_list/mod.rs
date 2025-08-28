@@ -91,15 +91,19 @@ impl FixedSizeListArray {
     ) -> VortexResult<Self> {
         Self::validate(&elements, len, list_size, &validity)?;
 
-        Ok(Self::new_unchecked(elements, list_size, validity, len))
+        // SAFETY: we validate that the inputs are valid above.
+        Ok(unsafe { Self::new_unchecked(elements, list_size, validity, len) })
     }
 
     /// Creates a new `FixedSizeListArray`, assuming that the caller has validated the inputs.
     ///
-    /// See [`try_new()`] for more details on what the validity requirements are.
+    /// # Safety
+    ///
+    /// This function is only safe to call if the inputs are valid. See [`try_new()`] for more
+    /// details on what the validity requirements are.
     ///
     /// [`try_new()`]: Self::try_new
-    pub fn new_unchecked(
+    pub unsafe fn new_unchecked(
         elements: ArrayRef,
         list_size: u32,
         validity: Validity,

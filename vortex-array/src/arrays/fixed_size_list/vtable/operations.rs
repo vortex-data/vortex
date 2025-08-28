@@ -23,14 +23,19 @@ impl OperationsVTable<FixedSizeListVTable> for FixedSizeListVTable {
         let new_len = end - start;
         let list_size = array.list_size() as usize;
 
-        // We assume that the existing `FixedSizeListArray` is valid, which makes this subslice
-        // valid as well.
-        FixedSizeListArray::new_unchecked(
-            array.elements().slice(start * list_size..end * list_size),
-            array.list_size(),
-            array.validity().slice(range),
-            new_len,
-        )
+        // SAFETY:
+        // - If the `list_size` is 0, then the elements slice has length 0
+        // - The length of the sliced elements must be a multiple of the `list_size` since we
+        //   multiply both ends by `list_size`
+        // - The validity is sliced with equal length to `new_len`
+        unsafe {
+            FixedSizeListArray::new_unchecked(
+                array.elements().slice(start * list_size..end * list_size),
+                array.list_size(),
+                array.validity().slice(range),
+                new_len,
+            )
+        }
         .into_array()
     }
 
