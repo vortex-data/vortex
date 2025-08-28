@@ -236,8 +236,8 @@ impl Patches {
                     // If the needle is not of type T, then it cannot possibly be in this array.
                     //
                     // The needle is a non-negative integer (a usize); therefore, it must be larger
-                    // than all values in this size one array.
-                    return SearchResult::NotFound(1);
+                    // than all values in this array.
+                    return SearchResult::NotFound(primitive.len());
                 };
                 return primitive
                     .as_slice::<T>()
