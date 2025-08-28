@@ -61,26 +61,26 @@ impl Config {
         };
 
         (result == cpp::duckdb_state::DuckDBSuccess && !value.is_null())
-            .then(|| unsafe { Value::own(value) })
+            .then(|| unsafe { Value::borrow(value) })
     }
 
     pub fn get_str(&self, key: &str) -> Option<String> {
-        let key_cstr = match CString::new(key) {
-            Ok(cstr) => cstr,
-            Err(_) => return None, // Invalid key with null bytes
-        };
+        let key_cstr = CString::new(key).ok()?;
 
         let mut value: cpp::duckdb_value = ptr::null_mut();
         let result = unsafe {
             cpp::duckdb_vx_get_config_value(self.as_ptr(), key_cstr.as_ptr(), &raw mut value)
         };
 
-        if result == cpp::duckdb_state::DuckDBSuccess && !value.is_null() {
-            // Use our new C++ function to convert the value to a string
-            let c_str = unsafe { cpp::duckdb_vx_value_to_string(value) };
+        if value.is_null() {
+            return None;
+        }
 
-            // Clean up the value
-            unsafe { cpp::duckdb_destroy_value(&raw mut value) };
+        let value = unsafe { Value::own(value) };
+
+        if result == cpp::duckdb_state::DuckDBSuccess {
+            // Use our new C++ function to convert the value to a string
+            let c_str = unsafe { cpp::duckdb_vx_value_to_string(value.as_ptr()) };
 
             if !c_str.is_null() {
                 let rust_str = unsafe {
@@ -101,9 +101,8 @@ impl Config {
 
     /// Checks if a configuration key has been set on this config instance.
     pub fn has_key(&self, key: &str) -> bool {
-        let key_cstr = match CString::new(key) {
-            Ok(cstr) => cstr,
-            Err(_) => return false, // Invalid key with null bytes
+        let Ok(key_cstr) = CString::new(key) else {
+            return false;
         };
 
         let result = unsafe { cpp::duckdb_vx_config_has_key(self.as_ptr(), key_cstr.as_ptr()) };
