@@ -6614,7 +6614,6 @@ dependencies = [
  "arrow-schema",
  "async-trait",
  "chrono",
- "dashmap",
  "datafusion",
  "datafusion-catalog",
  "datafusion-common",
@@ -6635,6 +6634,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "vortex",
+ "vortex-utils",
 ]
 
 [[package]]
@@ -6724,7 +6724,6 @@ dependencies = [
  "bitvec",
  "cbindgen",
  "cc",
- "dashmap",
  "futures",
  "glob",
  "itertools 0.14.0",
@@ -6742,6 +6741,7 @@ dependencies = [
  "url",
  "vortex",
  "vortex-file",
+ "vortex-utils",
  "walkdir",
  "zip",
 ]
@@ -6842,7 +6842,6 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "bytes",
- "dashmap",
  "flatbuffers",
  "futures",
  "getrandom 0.3.3",
@@ -6997,7 +6996,6 @@ dependencies = [
  "arrow-buffer",
  "async-stream",
  "async-trait",
- "dashmap",
  "flatbuffers",
  "futures",
  "getrandom 0.3.3",
@@ -7217,6 +7215,7 @@ dependencies = [
 name = "vortex-utils"
 version = "0.1.0"
 dependencies = [
+ "dashmap",
  "hashbrown 0.15.5",
 ]
 

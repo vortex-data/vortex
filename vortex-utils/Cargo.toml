@@ -15,6 +15,7 @@ version = { workspace = true }
 
 [dependencies]
 hashbrown = { workspace = true }
+dashmap = { workspace = true, optional = true }
 
 [lints]
 workspace = true

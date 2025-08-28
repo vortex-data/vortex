@@ -10,7 +10,6 @@ use std::sync::Arc;
 
 use Nullability::NonNullable;
 use async_trait::async_trait;
-use dashmap::DashMap;
 pub use expr::*;
 use vortex_array::compute::filter;
 use vortex_array::stats::Precision;
@@ -22,6 +21,7 @@ use vortex_expr::{ExactExpr, ExprRef, Scope, is_root, root};
 use vortex_mask::Mask;
 use vortex_scalar::PValue;
 use vortex_sequence::SequenceArray;
+use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::layouts::partitioned::{PartitionedArrayEvaluation, PartitionedMaskEvaluation};
 use crate::{
@@ -43,7 +43,7 @@ impl RowIdxLayoutReader {
             name: child.name().clone(),
             row_offset,
             child,
-            partition_cache: DashMap::new(),
+            partition_cache: DashMap::with_hasher(Default::default()),
         }
     }
 

@@ -5,7 +5,6 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
 
-use dashmap::DashMap;
 use itertools::Itertools;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
@@ -15,6 +14,7 @@ use vortex_expr::transform::{
     PartitionedExpr, partition, replace, replace_root_fields, simplify_typed,
 };
 use vortex_expr::{ExactExpr, ExprRef, col, root};
+use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::layouts::partitioned::{PartitionedArrayEvaluation, PartitionedMaskEvaluation};

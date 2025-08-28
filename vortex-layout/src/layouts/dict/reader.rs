@@ -6,7 +6,6 @@ use std::ops::{BitAnd, Range};
 use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
-use dashmap::DashMap;
 use futures::{FutureExt, join};
 use vortex_array::ArrayRef;
 use vortex_array::compute::{MinMaxResult, min_max};
@@ -16,6 +15,7 @@ use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::{ExprRef, Scope, root};
 use vortex_mask::Mask;
+use vortex_utils::aliases::dash_map::DashMap;
 
 use super::DictLayout;
 use crate::layouts::SharedArrayFuture;

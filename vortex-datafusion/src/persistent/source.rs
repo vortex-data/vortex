@@ -6,7 +6,6 @@ use std::fmt::Formatter;
 use std::sync::{Arc, Weak};
 
 use arrow_schema::SchemaRef;
-use dashmap::DashMap;
 use datafusion_common::config::ConfigOptions;
 use datafusion_common::{Result as DFResult, Statistics};
 use datafusion_datasource::file::FileSource;
@@ -28,6 +27,7 @@ use vortex::error::VortexExpect as _;
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::layout::LayoutReader;
 use vortex::metrics::VortexMetrics;
+use vortex_utils::aliases::dash_map::DashMap;
 
 use super::cache::VortexFileCache;
 use super::metrics::PARTITION_LABEL;
