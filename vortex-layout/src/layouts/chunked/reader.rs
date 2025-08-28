@@ -29,6 +29,7 @@ use crate::{
 pub struct ChunkedReader {
     layout: ChunkedLayout,
     name: Arc<str>,
+    children_names: Vec<Arc<str>>,
     lazy_children: LazyReaderChildren,
     /// Row offset for each chunk
     chunk_offsets: Vec<u64>,
@@ -50,10 +51,14 @@ impl ChunkedReader {
         debug_assert_eq!(chunk_offsets.len(), nchildren + 1);
 
         let lazy_children = LazyReaderChildren::new(layout.children.clone(), segment_source);
+        let children_names = (0..nchildren)
+            .map(|idx| format!("{}.[{}]", name, idx).into())
+            .collect();
 
         Self {
             layout,
             name,
+            children_names,
             lazy_children,
             chunk_offsets,
         }
@@ -61,11 +66,8 @@ impl ChunkedReader {
 
     /// Return the [`LayoutReader`] for the given chunk.
     fn chunk_reader(&self, idx: usize) -> VortexResult<&LayoutReaderRef> {
-        self.lazy_children.get(
-            idx,
-            self.layout.dtype(),
-            &format!("{}.[{}]", self.name, idx).into(),
-        )
+        self.lazy_children
+            .get(idx, self.layout.dtype(), &self.children_names[idx])
     }
 
     fn chunk_offset(&self, idx: usize) -> u64 {
