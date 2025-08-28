@@ -671,7 +671,7 @@ fn test_intersection_indices(
     }
 }
 
-// Zip operation tests
+// Concat operation tests
 #[test]
 fn test_mask_concat_empty() {
     let masks: Vec<Mask> = vec![];
