@@ -354,7 +354,6 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v5
-
       # Install llvm-symbolizer for better stack traces
       - name: Install debug tools
         run: |
@@ -364,17 +363,14 @@ jobs:
           # Verify symbolizer is working
           which llvm-symbolizer
           llvm-symbolizer --version
-
       - uses: ./.github/actions/setup-rust
         with:
           toolchain: nightly
           components: "rust-src, rustfmt, clippy, llvm-tools-preview"
-
       - name: Install nextest
         uses: taiki-e/install-action@v2
         with:
           tool: nextest@0.9.98
-
       - name: Rust Tests
         run: |
           # Build with full debug info first (helps with caching)
