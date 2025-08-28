@@ -6,28 +6,17 @@ use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_ensure};
 
 use super::{FixedSizeListArray, FixedSizeListVTable};
-use crate::ProstMetadata;
+use crate::EmptyMetadata;
 use crate::arrays::FixedSizeListEncoding;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::SerdeVTable;
 
-#[derive(Clone, prost::Message)]
-pub struct FixedSizeListMetadata {
-    #[prost(uint64, tag = "1")]
-    len: u64,
-    #[prost(uint32, tag = "2")]
-    list_size: u32,
-}
-
 impl SerdeVTable<FixedSizeListVTable> for FixedSizeListVTable {
-    type Metadata = ProstMetadata<FixedSizeListMetadata>;
+    type Metadata = EmptyMetadata;
 
-    fn metadata(array: &FixedSizeListArray) -> VortexResult<Option<Self::Metadata>> {
-        Ok(Some(ProstMetadata(FixedSizeListMetadata {
-            len: array.len() as u64,
-            list_size: array.list_size(),
-        })))
+    fn metadata(_array: &FixedSizeListArray) -> VortexResult<Option<Self::Metadata>> {
+        Ok(Some(EmptyMetadata))
     }
 
     /// Builds a [`FixedSizeListArray`].
@@ -37,7 +26,7 @@ impl SerdeVTable<FixedSizeListVTable> for FixedSizeListVTable {
         _encoding: &FixedSizeListEncoding,
         dtype: &DType,
         len: usize,
-        metadata: &FixedSizeListMetadata,
+        _metadata: &EmptyMetadata,
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<FixedSizeListArray> {
@@ -60,22 +49,13 @@ impl SerdeVTable<FixedSizeListVTable> for FixedSizeListVTable {
             }
         };
 
-        let DType::FixedSizeList(element_dtype, size, _) = &dtype else {
+        let DType::FixedSizeList(element_dtype, list_size, _) = &dtype else {
             vortex_bail!("Expected `DType::FixedSizeList`, got {:?}", dtype);
         };
-        debug_assert_eq!(
-            metadata.list_size, *size,
-            "metadata list size is different from dtype"
-        );
 
-        let num_elements = metadata.len * metadata.list_size as u64;
-        let elements = children.get(0, element_dtype.as_ref(), usize::try_from(num_elements)?)?;
+        let num_elements = len * (*list_size as usize);
+        let elements = children.get(0, element_dtype.as_ref(), num_elements)?;
 
-        FixedSizeListArray::try_new(
-            elements,
-            metadata.list_size,
-            validity,
-            usize::try_from(metadata.len)?,
-        )
+        FixedSizeListArray::try_new(elements, *list_size, validity, len)
     }
 }
