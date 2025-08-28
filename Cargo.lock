@@ -6935,7 +6935,6 @@ dependencies = [
  "bytes",
  "cfg-if",
  "compio",
- "flume",
  "futures",
  "futures-util",
  "getrandom 0.3.3",
