@@ -358,6 +358,13 @@ impl Patches {
 
     /// Slice the patches by a range of the patched array.
     pub fn slice(&self, range: Range<usize>) -> Option<Self> {
+        if range.len() == 1 {
+            let patch_index = self.search_index(range.start).to_found()?;
+            let values = self.values.slice(patch_index..patch_index + 1);
+            let indices = self.indices.slice(patch_index..patch_index + 1);
+            return Some(Self::new(1, range.start + self.offset(), indices, values));
+        }
+
         let patch_start = self.search_index(range.start).to_index();
         let patch_stop = self.search_index(range.end).to_index();
 
