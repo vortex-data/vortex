@@ -151,11 +151,31 @@ pub enum KeyMode {
     Search,
 }
 
+/// What is displayed for the array type
+#[derive(Default, Copy, Clone, PartialEq, Eq)]
+pub enum ArrayMode {
+    /// Show a tree display of an array
+    #[default]
+    Tree,
+    /// Show a table display of an array
+    Table,
+}
+
+impl ArrayMode {
+    pub fn toggle(self) -> Self {
+        match self {
+            Self::Tree => Self::Table,
+            Self::Table => Self::Tree,
+        }
+    }
+}
+
 /// State saved across all Tabs.
 ///
 /// Holding them all allows us to switch between tabs without resetting view state.
 pub struct AppState<'a> {
     pub key_mode: KeyMode,
+    pub array_mode: ArrayMode,
     pub search_filter: String,
     pub filter: Option<Vec<bool>>,
 
@@ -186,6 +206,7 @@ pub async fn create_file_app<'a>(path: impl AsRef<Path>) -> VortexResult<AppStat
         vxf,
         cursor,
         key_mode: KeyMode::default(),
+        array_mode: ArrayMode::default(),
         search_filter: String::new(),
         filter: None,
         current_tab: Tab::default(),

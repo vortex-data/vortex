@@ -49,6 +49,9 @@ fn handle_normal_mode(app: &mut AppState, event: Event) -> HandleResult {
                 // Close the process down.
                 return HandleResult::Exit;
             }
+            (KeyCode::Char('t'), _) => {
+                app.array_mode = app.array_mode.toggle();
+            }
             (KeyCode::Tab, _) => {
                 // toggle between tabs
                 app.current_tab = match app.current_tab {

@@ -9,7 +9,7 @@ use vortex_array::vtable::{EncodeVTable, SerdeVTable, ValidityHelper};
 use vortex_array::{Array, Canonical, IntoArray, ProstMetadata};
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{vortex_ensure, vortex_err, VortexResult};
+use vortex_error::{VortexResult, vortex_ensure, vortex_err};
 
 use crate::fsst_train_compressor;
 use crate::fsst_view::{FSSTViewArray, FSSTViewEncoding, FSSTViewVTable, OutlinedStr, View};

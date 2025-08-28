@@ -17,7 +17,7 @@ use vortex::mask::Mask;
 use vortex::{Array, ArrayRef, ToCanonical};
 
 use crate::TOKIO_RUNTIME;
-use crate::browse::app::{AppState, LayoutCursor};
+use crate::browse::app::{AppState, ArrayMode, LayoutCursor};
 
 /// Render the Layouts tab.
 pub fn render_layouts(app_state: &mut AppState, area: Rect, buf: &mut Buffer) {
@@ -179,7 +179,12 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
             .split(widget_area);
         let table = Table::new(rows, [Constraint::Min(6), Constraint::Min(6)]).header(header);
         // Tree-display the active array
-        let tree = Paragraph::new(array.display_tree().to_string()).wrap(Wrap { trim: false });
+        let inner = match app.array_mode {
+            ArrayMode::Tree => array.display_tree().to_string(),
+            ArrayMode::Table => array.display_table().to_string(),
+        };
+
+        let tree = Paragraph::new(inner).wrap(Wrap { trim: false });
 
         let stats_container = Block::new()
             .title("Statistics")
