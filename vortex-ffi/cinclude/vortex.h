@@ -352,7 +352,7 @@ const vx_array *vx_array_slice(const vx_array *array,
                                uint32_t stop,
                                vx_error **_error_out);
 
-bool vx_array_is_null(const vx_array *array, uint32_t index, vx_error **error_out);
+bool vx_array_is_null(const vx_array *array, uint32_t index, vx_error **_error_out);
 
 uint32_t vx_array_null_count(const vx_array *array, vx_error **error_out);
 
