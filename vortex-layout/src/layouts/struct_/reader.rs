@@ -98,7 +98,7 @@ impl StructReader {
             .ok_or_else(|| vortex_err!("Missing field {idx}"))?;
         let name = &self.struct_fields().names()[idx];
         self.lazy_children
-            .get(idx, &field_dtype, &format!("{}.{}", self.name, name).into());
+            .get(idx, &field_dtype, &format!("{}.{}", self.name, name).into())
     }
 
     /// Utility for partitioning an expression over the fields of a struct.
