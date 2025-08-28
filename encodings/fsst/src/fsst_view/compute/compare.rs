@@ -4,7 +4,9 @@
 use vortex_array::arrays::{BoolArray, BooleanBufferBuilder, ConstantArray};
 use vortex_array::compute::{CompareKernel, CompareKernelAdapter, Operator};
 use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
+use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect, VortexResult};
+use vortex_scalar::Scalar;
 
 use crate::{FSSTViewArray, FSSTViewVTable, View};
 
@@ -57,7 +59,10 @@ impl CompareKernel for FSSTViewVTable {
         if let Some(constant) = rhs.as_constant() {
             // Compare to NULL returns all-NULL
             if constant.is_null() {
-                return Ok(Some(ConstantArray::new(constant, lhs.len()).into_array()));
+                return Ok(Some(
+                    ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), lhs.len())
+                        .into_array(),
+                ));
             }
 
             let needle = if let Some(n) = constant.as_utf8_opt() {
