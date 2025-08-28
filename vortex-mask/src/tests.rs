@@ -673,7 +673,7 @@ fn test_intersection_indices(
 
 // Zip operation tests
 #[test]
-fn test_mask_zip_empty() {
+fn test_mask_concat_empty() {
     let masks: Vec<Mask> = vec![];
     let result = Mask::concat(masks.iter()).unwrap();
     assert_eq!(result.len(), 0);
@@ -681,7 +681,7 @@ fn test_mask_zip_empty() {
 }
 
 #[test]
-fn test_mask_zip_all_true() {
+fn test_mask_concat_all_true() {
     let masks = [Mask::new_true(3), Mask::new_true(2)];
     let result = Mask::concat(masks.iter()).unwrap();
     assert_eq!(result.len(), 5);
@@ -689,7 +689,7 @@ fn test_mask_zip_all_true() {
 }
 
 #[test]
-fn test_mask_zip_all_false() {
+fn test_mask_concat_all_false() {
     let masks = [Mask::new_false(3), Mask::new_false(2)];
     let result = Mask::concat(masks.iter()).unwrap();
     assert_eq!(result.len(), 5);
@@ -697,7 +697,7 @@ fn test_mask_zip_all_false() {
 }
 
 #[test]
-fn test_mask_zip_mixed_types() {
+fn test_mask_concat_mixed_types() {
     let masks = [
         Mask::from_buffer(BooleanBuffer::from_iter([true, false, true])),
         Mask::new_true(2),
