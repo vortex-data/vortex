@@ -255,7 +255,7 @@ impl VortexOpenOptions<GenericVortexFile> {
         Ok(self
             .options
             .io_dispatcher
-            .dispatch(move || async move { read.read_byte_range(range, Alignment::new(8)).await })?
+            .dispatch(move || async move { read.read_byte_range(range, Alignment::new(16)).await })?
             .await??)
     }
 
