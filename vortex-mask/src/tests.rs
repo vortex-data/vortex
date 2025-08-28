@@ -682,7 +682,7 @@ fn test_mask_zip_empty() {
 
 #[test]
 fn test_mask_zip_all_true() {
-    let masks = vec![Mask::new_true(3), Mask::new_true(2)];
+    let masks = [Mask::new_true(3), Mask::new_true(2)];
     let result = Mask::concat(masks.iter()).unwrap();
     assert_eq!(result.len(), 5);
     assert!(result.all_true());
@@ -690,7 +690,7 @@ fn test_mask_zip_all_true() {
 
 #[test]
 fn test_mask_zip_all_false() {
-    let masks = vec![Mask::new_false(3), Mask::new_false(2)];
+    let masks = [Mask::new_false(3), Mask::new_false(2)];
     let result = Mask::concat(masks.iter()).unwrap();
     assert_eq!(result.len(), 5);
     assert!(result.all_false());
