@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(unused)] // TODO(connor)[FixedSizeList]: Remove this!
-
 use std::sync::Arc;
 
 use vortex_dtype::DType;

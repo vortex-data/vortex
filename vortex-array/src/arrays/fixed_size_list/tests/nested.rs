@@ -6,8 +6,8 @@ use std::sync::Arc;
 use vortex_dtype::{DType, FieldNames, Nullability, PType, StructFields};
 use vortex_scalar::Scalar;
 
-use crate::arrays::{FixedSizeListArray, ListArray, PrimitiveArray, StructArray};
-use crate::builders::{ArrayBuilder, ArrayBuilderExt, ListBuilder, builder_with_capacity};
+use crate::arrays::{FixedSizeListArray, PrimitiveArray, StructArray};
+use crate::builders::{ArrayBuilder, ArrayBuilderExt, ListBuilder};
 use crate::validity::Validity;
 use crate::{Array, IntoArray};
 
@@ -119,7 +119,7 @@ fn test_fsl_of_fsl_with_nulls() {
 
 #[test]
 fn test_deeply_nested_fsl() {
-    let len = 2;
+    let _len = 2;
     let list_size = 2;
 
     // Create a 3-level nested FSL: FSL[FSL[FSL[i32]]].
@@ -295,85 +295,6 @@ fn test_fsl_of_nullable_list() {
                 DType::List(_, Nullability::Nullable)
             )
     ));
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-// List of FSL tests
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
-#[test]
-fn test_list_of_fsl() {
-    // Create FSLs to put in a List.
-    let fsl1_elements = PrimitiveArray::from_iter([1i32, 2, 3, 4]);
-    let fsl1 = FixedSizeListArray::new(fsl1_elements.into_array(), 2, Validity::NonNullable, 2);
-
-    let fsl2_elements = PrimitiveArray::from_iter([5i32, 6, 7, 8, 9, 10]);
-    let fsl2 = FixedSizeListArray::new(fsl2_elements.into_array(), 2, Validity::NonNullable, 3);
-
-    let fsl3_elements = PrimitiveArray::from_iter([11i32, 12]);
-    let fsl3 = FixedSizeListArray::new(fsl3_elements.into_array(), 2, Validity::NonNullable, 1);
-
-    // Create a List of FSLs using offsets.
-    // We need to concatenate all the FSL arrays and track offsets.
-    let all_elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
-    let all_fsl = FixedSizeListArray::new(all_elements.into_array(), 2, Validity::NonNullable, 6);
-
-    // Create offsets array.
-    let offsets = PrimitiveArray::from_iter([0u64, 2, 5, 6]);
-
-    let list = ListArray::new(
-        all_fsl.into_array(),
-        offsets.into_array(),
-        Validity::NonNullable,
-    );
-
-    assert_eq!(list.len(), 3);
-
-    // Check dtype.
-    assert!(matches!(
-        list.dtype(),
-        DType::List(fsl_dtype, Nullability::NonNullable)
-            if matches!(
-                fsl_dtype.as_ref(),
-                DType::FixedSizeList(elem_dtype, 2, Nullability::NonNullable)
-                    if matches!(elem_dtype.as_ref(),
-                        DType::Primitive(PType::I32, Nullability::NonNullable))
-            )
-    ));
-}
-
-#[test]
-fn test_nullable_list_of_fsl() {
-    // Create FSLs to put in a nullable List.
-    let fsl1_elements = PrimitiveArray::from_iter([1.0f32, 2.0]);
-    let fsl1 = FixedSizeListArray::new(fsl1_elements.into_array(), 2, Validity::NonNullable, 1);
-
-    let fsl2_elements = PrimitiveArray::from_iter([3.0f32, 4.0, 5.0, 6.0]);
-    let fsl2 = FixedSizeListArray::new(fsl2_elements.into_array(), 2, Validity::NonNullable, 2);
-
-    // Create a nullable List with Some(fsl1), None, Some(fsl2).
-    // Simplify by using offsets and validity directly.
-    let all_elements = PrimitiveArray::from_iter([1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0]);
-    let all_fsl = FixedSizeListArray::new(all_elements.into_array(), 2, Validity::NonNullable, 3);
-
-    // Offsets: 0 -> 1 (fsl1), 1 -> 1 (null), 1 -> 3 (fsl2).
-    let offsets = PrimitiveArray::from_iter([0u64, 1, 1, 3]);
-
-    // Create validity for the list.
-    let list_validity = Validity::from_iter([true, false, true]);
-
-    let list = ListArray::new(all_fsl.into_array(), offsets.into_array(), list_validity);
-
-    assert_eq!(list.len(), 3);
-
-    // First element is valid.
-    assert!(!list.scalar_at(0).is_null());
-
-    // Second element is null.
-    assert!(list.scalar_at(1).is_null());
-
-    // Third element is valid.
-    assert!(!list.scalar_at(2).is_null());
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////

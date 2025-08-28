@@ -1,16 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::{DType, Nullability};
-use vortex_scalar::Scalar;
-
 use crate::arrays::FixedSizeListArray;
-use crate::stats::StatsSetRef;
-use crate::vtable::{
-    ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityHelper,
-    ValidityVTableFromValidityHelper,
-};
-use crate::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable};
+use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
+use crate::{EncodingId, EncodingRef, vtable};
 
 mod array;
 mod canonical;

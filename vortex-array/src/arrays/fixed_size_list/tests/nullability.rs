@@ -6,9 +6,9 @@ use std::sync::Arc;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_scalar::Scalar;
 
+use crate::IntoArray;
 use crate::arrays::{BoolArray, FixedSizeListArray, PrimitiveArray};
 use crate::validity::Validity;
-use crate::{Array, IntoArray};
 
 #[test]
 fn test_nullable_fsl_with_nulls() {

@@ -2,15 +2,15 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, Nullability, PType};
+use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_ensure};
 
 use super::{FixedSizeListArray, FixedSizeListVTable};
+use crate::ProstMetadata;
 use crate::arrays::FixedSizeListEncoding;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::{SerdeVTable, ValidityHelper, VisitorVTable};
-use crate::{Array, ArrayBufferVisitor, ArrayChildVisitor, ProstMetadata};
+use crate::vtable::SerdeVTable;
 
 #[derive(Clone, prost::Message)]
 pub struct FixedSizeListMetadata {
@@ -63,6 +63,11 @@ impl SerdeVTable<FixedSizeListVTable> for FixedSizeListVTable {
         let DType::FixedSizeList(element_dtype, size, _) = &dtype else {
             vortex_bail!("Expected `DType::FixedSizeList`, got {:?}", dtype);
         };
+        debug_assert_eq!(
+            metadata.list_size, *size,
+            "metadata list size is different from dtype"
+        );
+
         let num_elements = metadata.len * metadata.list_size as u64;
         let elements = children.get(0, element_dtype.as_ref(), usize::try_from(num_elements)?)?;
 
