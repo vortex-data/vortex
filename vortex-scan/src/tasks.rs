@@ -11,9 +11,9 @@ use futures::FutureExt;
 use futures::future::{BoxFuture, ok};
 use itertools::Itertools;
 use vortex_array::ArrayRef;
-use vortex_error::{VortexError, VortexResult};
+use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
-use vortex_layout::LayoutReader;
+use vortex_layout::{LayoutReader, MaskEvaluation, PruningEvaluation};
 use vortex_mask::Mask;
 
 use crate::Selection;
@@ -98,80 +98,7 @@ pub(super) fn split_exec<A: 'static + Send>(
 
             let filter = filter.clone();
 
-            async move {
-                let mut mask = row_mask;
-                let mut dynamic_versions = vec![None; filter.conjuncts().len()];
-
-                // Debug assertion to ensure the pruning_conjuncts and conjuncts have the same length
-                // as filter.conjuncts() to prevent index out of bounds
-                assert_eq!(
-                    pruning_conjuncts.len(),
-                    filter.conjuncts().len(),
-                    "pruning_conjuncts length ({}) != filter.conjuncts().len() ({})",
-                    pruning_conjuncts.len(),
-                    filter.conjuncts().len()
-                );
-                assert_eq!(
-                    conjuncts.len(),
-                    filter.conjuncts().len(),
-                    "conjuncts length ({}) != filter.conjuncts().len() ({})",
-                    conjuncts.len(),
-                    filter.conjuncts().len()
-                );
-
-                // TODO(ngates): we could use FuturedUnordered to intersect the masks in parallel.
-                for (idx, conjunct) in pruning_conjuncts.iter().enumerate() {
-                    if mask.all_false() {
-                        return Ok(mask);
-                    }
-
-                    // Store the latest version of the dynamic expression prior to pruning.
-                    // We will re-run the pruning later if the version has changed in the meantime.
-                    dynamic_versions[idx] = filter.dynamic_updates(idx).map(|du| du.version());
-
-                    let conjunct_mask = conjunct.invoke(mask.clone()).await?;
-                    mask = mask.bitand(&conjunct_mask);
-                }
-
-                // Now we loop through the conjuncts in the preferred order and evaluate them.
-                let mut remaining = BitVec::from_elem(conjuncts.len(), true);
-                while let Some(idx) = filter.next_conjunct(&remaining) {
-                    remaining.set(idx, false);
-
-                    if mask.all_false() {
-                        return Ok(mask);
-                    }
-
-                    // If the dynamic expression has changed since pruning, re-run the pruning.
-                    // Store the dynamic update once to avoid TOCTOU race condition
-                    let current_version = filter.dynamic_updates(idx).map(|du| du.version());
-                    if let Some(dv) = current_version
-                        && dynamic_versions[idx].is_none_or(|v| v < dv)
-                    {
-                        // The dynamic expression has been updated, re-run the pruning.
-                        dynamic_versions[idx] = Some(dv);
-                        let conjunct_mask = pruning_conjuncts[idx].invoke(mask.clone()).await?;
-                        mask = mask.bitand(&conjunct_mask);
-                    }
-
-                    if mask.all_false() {
-                        return Ok(mask);
-                    }
-
-                    let conjunct_mask = conjuncts[idx].invoke(mask.clone()).await?;
-
-                    // TODO(ngates): what selectivity should we report?
-                    let selectivity = conjunct_mask.true_count() as f64 / mask.len() as f64;
-                    //let selectivity = conjunct_mask.true_count() as f64 / mask.true_count() as f64;
-                    filter.report_selectivity(idx, selectivity);
-
-                    // Filter evaluations return a mask already intersected with the input mask.
-                    mask = conjunct_mask;
-                }
-
-                Ok::<_, VortexError>(mask)
-            }
-            .boxed()
+            filter_row_mask(filter, pruning_conjuncts, conjuncts, row_mask).boxed()
         }
     };
 
@@ -253,77 +180,7 @@ pub(super) async fn split_exec_direct<A: 'static + Send>(
 
             let filter = filter.clone();
 
-            let mut mask = row_mask;
-            let mut dynamic_versions = vec![None; filter.conjuncts().len()];
-
-            // Debug assertion to ensure the pruning_conjuncts and conjuncts have the same length
-            // as filter.conjuncts() to prevent index out of bounds
-            assert_eq!(
-                pruning_conjuncts.len(),
-                filter.conjuncts().len(),
-                "pruning_conjuncts length ({}) != filter.conjuncts().len() ({})",
-                pruning_conjuncts.len(),
-                filter.conjuncts().len()
-            );
-            assert_eq!(
-                conjuncts.len(),
-                filter.conjuncts().len(),
-                "conjuncts length ({}) != filter.conjuncts().len() ({})",
-                conjuncts.len(),
-                filter.conjuncts().len()
-            );
-
-            // TODO(ngates): we could use FuturedUnordered to intersect the masks in parallel.
-            for (idx, conjunct) in pruning_conjuncts.iter().enumerate() {
-                if mask.all_false() {
-                    return Ok(mask);
-                }
-
-                // Store the latest version of the dynamic expression prior to pruning.
-                // We will re-run the pruning later if the version has changed in the meantime.
-                dynamic_versions[idx] = filter.dynamic_updates(idx).map(|du| du.version());
-
-                let conjunct_mask = conjunct.invoke(mask.clone()).await?;
-                mask = mask.bitand(&conjunct_mask);
-            }
-
-            // Now we loop through the conjuncts in the preferred order and evaluate them.
-            let mut remaining = BitVec::from_elem(conjuncts.len(), true);
-            while let Some(idx) = filter.next_conjunct(&remaining) {
-                remaining.set(idx, false);
-
-                if mask.all_false() {
-                    return Ok(mask);
-                }
-
-                // If the dynamic expression has changed since pruning, re-run the pruning.
-                // Store the dynamic update once to avoid TOCTOU race condition
-                let current_version = filter.dynamic_updates(idx).map(|du| du.version());
-                if let Some(dv) = current_version
-                    && dynamic_versions[idx].is_none_or(|v| v < dv)
-                {
-                    // The dynamic expression has been updated, re-run the pruning.
-                    dynamic_versions[idx] = Some(dv);
-                    let conjunct_mask = pruning_conjuncts[idx].invoke(mask.clone()).await?;
-                    mask = mask.bitand(&conjunct_mask);
-                }
-
-                if mask.all_false() {
-                    return Ok(mask);
-                }
-
-                let conjunct_mask = conjuncts[idx].invoke(mask.clone()).await?;
-
-                // TODO(ngates): what selectivity should we report?
-                let selectivity = conjunct_mask.true_count() as f64 / mask.len() as f64;
-                //let selectivity = conjunct_mask.true_count() as f64 / mask.true_count() as f64;
-                filter.report_selectivity(idx, selectivity);
-
-                // Filter evaluations return a mask already intersected with the input mask.
-                mask = conjunct_mask;
-            }
-
-            mask
+            filter_row_mask(filter, pruning_conjuncts, conjuncts, row_mask).await?
         }
     };
 
@@ -331,12 +188,90 @@ pub(super) async fn split_exec_direct<A: 'static + Send>(
     let exec = ctx
         .reader
         .projection_evaluation(&row_range, &ctx.projection)?;
-    let filtered_mask = filter.await?;
-    if filtered_mask.all_false() {
+    if row_mask.all_false() {
         return Ok(None);
     }
-    let array_ref = exec.invoke(filtered_mask).await?;
-    ctx.mapper(array_ref).map(Some)
+    let array_ref = exec.invoke(row_mask).await?;
+    (ctx.mapper)(array_ref).map(Some)
+}
+
+pub async fn filter_row_mask(
+    filter: Arc<FilterExpr>,
+    pruning_conjuncts: Vec<Box<dyn PruningEvaluation>>,
+    conjuncts: Vec<Box<dyn MaskEvaluation>>,
+    row_mask: Mask,
+) -> VortexResult<Mask> {
+    let mut mask = row_mask;
+    let mut dynamic_versions = vec![None; filter.conjuncts().len()];
+
+    // Debug assertion to ensure the pruning_conjuncts and conjuncts have the same length
+    // as filter.conjuncts() to prevent index out of bounds
+    assert_eq!(
+        pruning_conjuncts.len(),
+        filter.conjuncts().len(),
+        "pruning_conjuncts length ({}) != filter.conjuncts().len() ({})",
+        pruning_conjuncts.len(),
+        filter.conjuncts().len()
+    );
+    assert_eq!(
+        conjuncts.len(),
+        filter.conjuncts().len(),
+        "conjuncts length ({}) != filter.conjuncts().len() ({})",
+        conjuncts.len(),
+        filter.conjuncts().len()
+    );
+
+    // TODO(ngates): we could use FuturedUnordered to intersect the masks in parallel.
+    for (idx, conjunct) in pruning_conjuncts.iter().enumerate() {
+        if mask.all_false() {
+            return Ok(mask);
+        }
+
+        // Store the latest version of the dynamic expression prior to pruning.
+        // We will re-run the pruning later if the version has changed in the meantime.
+        dynamic_versions[idx] = filter.dynamic_updates(idx).map(|du| du.version());
+
+        let conjunct_mask = conjunct.invoke(mask.clone()).await?;
+        mask = mask.bitand(&conjunct_mask);
+    }
+
+    // Now we loop through the conjuncts in the preferred order and evaluate them.
+    let mut remaining = BitVec::from_elem(conjuncts.len(), true);
+    while let Some(idx) = filter.next_conjunct(&remaining) {
+        remaining.set(idx, false);
+
+        if mask.all_false() {
+            return Ok(mask);
+        }
+
+        // If the dynamic expression has changed since pruning, re-run the pruning.
+        // Store the dynamic update once to avoid TOCTOU race condition
+        let current_version = filter.dynamic_updates(idx).map(|du| du.version());
+        if let Some(dv) = current_version
+            && dynamic_versions[idx].is_none_or(|v| v < dv)
+        {
+            // The dynamic expression has been updated, re-run the pruning.
+            dynamic_versions[idx] = Some(dv);
+            let conjunct_mask = pruning_conjuncts[idx].invoke(mask.clone()).await?;
+            mask = mask.bitand(&conjunct_mask);
+        }
+
+        if mask.all_false() {
+            return Ok(mask);
+        }
+
+        let conjunct_mask = conjuncts[idx].invoke(mask.clone()).await?;
+
+        // TODO(ngates): what selectivity should we report?
+        let selectivity = conjunct_mask.true_count() as f64 / mask.len() as f64;
+        //let selectivity = conjunct_mask.true_count() as f64 / mask.true_count() as f64;
+        filter.report_selectivity(idx, selectivity);
+
+        // Filter evaluations return a mask already intersected with the input mask.
+        mask = conjunct_mask;
+    }
+
+    Ok(mask)
 }
 
 /// Information needed to execute a single split task.
