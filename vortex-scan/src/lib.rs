@@ -162,7 +162,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
         // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
         // conjunction splitting if a filter is provided.
-        let mut layout_reader = self.layout_reader.clone();
+        let mut layout_reader = self.layout_reader;
 
         // Enrich the layout reader to support RowIdx expressions.
         // Note that this is applied below the filter layout reader since it can perform
@@ -181,7 +181,6 @@ impl<A: 'static + Send> ScanBuilder<A> {
             filter_and_projection_masks(&projection, filter.as_ref(), layout_reader.dtype())?;
         let field_mask: Vec<_> = [filter_mask, projection_mask].concat();
         let splits = self.split_by.splits(layout_reader.as_ref(), &field_mask)?;
-
         Ok(RepeatedScan {
             layout_reader,
             projection,
@@ -378,8 +377,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
     pub fn execute_tokio_stream(
         &self,
         row_range: Option<Range<u64>>,
-    ) -> VpportexResult<impl futures::Stream<Item = VortexResult<A>> + Send + 'static + use<A>>
-    {
+    ) -> VortexResult<impl futures::Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
         let row_range = intersect_ranges(self.row_range.as_ref(), row_range);
 
         use futures::StreamExt;
