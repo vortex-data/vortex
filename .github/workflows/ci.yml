@@ -354,15 +354,10 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v5
-      # Install llvm-symbolizer for better stack traces
-      - name: Install debug tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y llvm-18 llvm-18-dev
-          sudo ln -sf /usr/bin/llvm-symbolizer-18 /usr/bin/llvm-symbolizer
-          # Verify symbolizer is working
-          which llvm-symbolizer
-          llvm-symbolizer --version
+      - name: Install llvm
+        uses: aminya/setup-cpp@v1
+        with:
+          compiler: llvm
       - uses: ./.github/actions/setup-rust
         with:
           toolchain: nightly
