@@ -36,8 +36,8 @@ use crate::segments::FileSegmentSource;
 pub struct VortexFile<'rt> {
     /// The footer of the Vortex file, containing metadata and layout information.
     pub(crate) footer: Footer,
-    /// The segment source used for reading segments from the file.
-    pub(crate) source: FileIoSource,
+    /// The file containing the segments.
+    pub(crate) file: FileIo<'rt>,
     /// Metrics tied to the file.
     pub(crate) metrics: VortexMetrics,
     /// The handle to use for I/O operations.
@@ -83,7 +83,7 @@ impl<'rt> VortexFile<'rt> {
     pub fn segment_source(&self) -> SegmentSourceRef<'rt> {
         Arc::new(FileSegmentSource::new(
             self.footer.segment_map().clone(),
-            self.source.clone().open(&self.handle),
+            self.file.clone(),
         ))
     }
 

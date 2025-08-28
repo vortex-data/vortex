@@ -8,7 +8,6 @@ use std::alloc::handle_alloc_error;
 use std::cmp::max;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
-use std::future::ready;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::task::block_in_place;

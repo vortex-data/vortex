@@ -59,7 +59,7 @@ impl VortexOpenOptions<InMemoryFileType> {
 
         Ok(VortexFile {
             footer,
-            source: FileIoSource::Memory(buffer),
+            file: FileIoSource::Memory(buffer).open(&handle),
             metrics: self.metrics,
             handle,
         })

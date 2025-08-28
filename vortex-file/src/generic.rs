@@ -148,7 +148,7 @@ impl VortexOpenOptions<GenericVortexFile> {
 
         Ok(VortexFile {
             footer,
-            source,
+            file: read,
             metrics: self.metrics,
             handle,
         })
