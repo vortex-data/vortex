@@ -6,6 +6,7 @@
 //! The `VortexFile` provides methods for accessing file metadata, creating segment sources for reading
 //! data from the file, and initiating scans to read the file's contents into memory as Vortex arrays.
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use vortex_array::ArrayRef;
@@ -135,16 +136,15 @@ impl VortexFile {
     }
 
     pub fn splits(&self) -> VortexResult<Vec<(u64, u64)>> {
-        let mut splits = Default::default();
+        let mut splits = BTreeSet::<u64>::default();
         self.layout_reader()?
             .register_splits(&[FieldMask::All], 0, &mut splits)?;
-        let mut prev = 0_u64;
         Ok(splits
             .into_iter()
-            .map(|i| {
-                let range = (prev, i);
-                prev = i;
-                range
+            .scan(0_u64, |prev, i| {
+                let range = (*prev, i);
+                *prev = i;
+                Some(range)
             })
             .collect())
     }
