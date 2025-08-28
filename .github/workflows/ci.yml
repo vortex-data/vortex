@@ -6,9 +6,9 @@ concurrency:
 
 on:
   push:
-    branches: ["develop"]
-  pull_request: {}
-  workflow_dispatch: {}
+    branches: [ "develop" ]
+  pull_request: { }
+  workflow_dispatch: { }
 
 permissions:
   actions: read
@@ -341,24 +341,53 @@ jobs:
       - extras=s3-cache
       - tag=rust-test-sanitizer
     env:
-      RUSTFLAGS: "-A warnings -Zsanitizer=address --cfg disable_loom"
+      # Add debug symbols and enable ASAN/LSAN with better output
+      RUSTFLAGS: "-A warnings -Zsanitizer=address -Zsanitizer=leak --cfg disable_loom -C debuginfo=2 -C opt-level=0 -C strip=none"
+      ASAN_OPTIONS: "symbolize=1:print_module_map=1:print_stats=1:check_initialization_order=1:detect_leaks=1:leak_check_at_exit=1"
+      LSAN_OPTIONS: "suppressions=lsan.supp:print_suppressions=1:report_objects=1:verbosity=1"
+      ASAN_SYMBOLIZER_PATH: "/usr/bin/llvm-symbolizer"
+      # Keep frame pointers for better stack traces
+      CARGO_PROFILE_DEV_DEBUG: "true"
+      CARGO_PROFILE_TEST_DEBUG: "true"
     steps:
       - uses: runs-on/action@v2
         with:
           sccache: s3
       - uses: actions/checkout@v5
+
+      # Install llvm-symbolizer for better stack traces
+      - name: Install debug tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y llvm-18 llvm-18-dev
+          sudo ln -sf /usr/bin/llvm-symbolizer-18 /usr/bin/llvm-symbolizer
+          # Verify symbolizer is working
+          which llvm-symbolizer
+          llvm-symbolizer --version
+
       - uses: ./.github/actions/setup-rust
         with:
           toolchain: nightly
           components: "rust-src, rustfmt, clippy, llvm-tools-preview"
+
       - name: Install nextest
         uses: taiki-e/install-action@v2
         with:
           tool: nextest@0.9.98
+
       - name: Rust Tests
-        # vortex-duckdb-ext currently fails linking for cargo test targets.
         run: |
-          cargo +nightly nextest run --locked --workspace --all-features --no-fail-fast --target x86_64-unknown-linux-gnu
+          # Build with full debug info first (helps with caching)
+          cargo +nightly build --locked --workspace --all-features --target x86_64-unknown-linux-gnu
+          
+          # Run tests with sanitizers and debug output
+          cargo +nightly nextest run \
+            --locked \
+            --workspace \
+            --all-features \
+            --no-fail-fast \
+            --target x86_64-unknown-linux-gnu \
+            --verbose
 
   build-java:
     name: "Java"
@@ -377,7 +406,7 @@ jobs:
   bench-codspeed:
     strategy:
       matrix:
-        shard: [1, 2]
+        shard: [ 1, 2 ]
     name: "Benchmark with Codspeed (Shard #${{ matrix.shard }})"
     timeout-minutes: 120
     runs-on:
