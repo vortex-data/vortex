@@ -28,7 +28,11 @@ trait Predicate {
 
 // Compare function that will prune operands that do not match at all.
 // Then for any of the ones that MAY match, we perform a direct comparison in encoded space.
-fn compare_scalar<P: Predicate>(needle: &[u8], haystack: &FSSTViewArray) -> VortexResult<ArrayRef> {
+fn compare_scalar<P: Predicate>(
+    needle: &[u8],
+    haystack: &FSSTViewArray,
+    result_nullability: Nullability,
+) -> VortexResult<ArrayRef> {
     let mut result = BooleanBufferBuilder::new(haystack.len());
     for (index, &view) in haystack.views().iter().enumerate() {
         match P::eval_view(needle, view) {
@@ -46,7 +50,13 @@ fn compare_scalar<P: Predicate>(needle: &[u8], haystack: &FSSTViewArray) -> Vort
         }
     }
 
-    Ok(BoolArray::new(result.finish(), haystack.validity.clone()).into_array())
+    // Cast the validity to the appropriate nullability.
+    let result_validity = haystack
+        .validity
+        .clone()
+        .cast_nullability(result_nullability)?;
+
+    Ok(BoolArray::new(result.finish(), result_validity).into_array())
 }
 
 impl CompareKernel for FSSTViewVTable {
@@ -77,9 +87,13 @@ impl CompareKernel for FSSTViewVTable {
 
             let needle = needle.as_ref();
 
+            let result_nullability = lhs.dtype.nullability() | constant.dtype().nullability();
+
             return match operator {
-                Operator::Eq => compare_scalar::<Eq>(needle, lhs).map(Some),
-                Operator::NotEq => compare_scalar::<NotEq>(needle, lhs).map(Some),
+                Operator::Eq => compare_scalar::<Eq>(needle, lhs, result_nullability).map(Some),
+                Operator::NotEq => {
+                    compare_scalar::<NotEq>(needle, lhs, result_nullability).map(Some)
+                }
                 Operator::Gt | Operator::Gte | Operator::Lt | Operator::Lte => {
                     // Other operators not supported
                     // TODO(aduffy): support pushdown of the other operators onto views
