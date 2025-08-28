@@ -100,7 +100,7 @@ mod tests {
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
 
-    use crate::{FoRArray, bitpack_encode, bitpack_to_best_bit_width};
+    use crate::{FoRArray, bitpack_to_best_bit_width};
 
     #[test]
     fn test_bitpacking_pipeline() {
