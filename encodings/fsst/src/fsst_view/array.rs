@@ -13,10 +13,10 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityVTableFromValidityHelper,
 };
-use vortex_array::{vtable, Array, ArrayRef, Canonical, EncodingId, EncodingRef, ToCanonical};
+use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, ToCanonical, vtable};
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_dtype::DType;
-use vortex_error::{vortex_ensure, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
 
 use crate::fsst_view::View;
 #[derive(Debug, Copy, Clone)]
@@ -38,7 +38,7 @@ impl VTable for FSSTViewVTable {
     type PipelineVTable = NotSupported;
 
     fn id(_: &Self::Encoding) -> EncodingId {
-        FSSTViewEncoding.id()
+        EncodingId::new_ref("vortex.fsstview")
     }
 
     fn encoding(_: &Self::Array) -> EncodingRef {
@@ -420,9 +420,9 @@ impl CanonicalVTable<FSSTViewVTable> for FSSTViewVTable {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::validity::Validity;
     use vortex_array::IntoArray;
-    use vortex_buffer::{buffer, Buffer, ByteBuffer};
+    use vortex_array::validity::Validity;
+    use vortex_buffer::{Buffer, ByteBuffer, buffer};
     use vortex_dtype::{DType, Nullability};
 
     use crate::fsst_view::FSSTViewArray;
