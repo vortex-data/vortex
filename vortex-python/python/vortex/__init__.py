@@ -67,6 +67,7 @@ from ._lib.scalar import (  # pyright: ignore[reportMissingModuleSource]
 from ._lib.serde import ArrayContext, ArrayParts  # pyright: ignore[reportMissingModuleSource]
 from .arrays import Array, PyArray, array
 from .file import VortexFile, open
+from .scan import VortexScan
 
 assert _lib, "Ensure we eagerly import the Vortex native library"
 
@@ -149,6 +150,7 @@ __all__ = [
     "open",
     # Iterator
     "ArrayIterator",
+    "VortexScan",
 ]
 
 #: The default registry for Vortex

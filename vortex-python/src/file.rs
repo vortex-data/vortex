@@ -123,7 +123,7 @@ impl PyVortexFile {
     }
 }
 
-pub struct PyIntoProjection(ExprRef);
+pub struct PyIntoProjection(pub ExprRef);
 
 impl<'py> FromPyObject<'py> for PyIntoProjection {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
