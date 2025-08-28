@@ -50,7 +50,7 @@ impl Config {
     /// Gets the value of a configuration parameter that was previously set.
     /// Returns None if the parameter was never set on this Config instance.
     pub fn get(&self, key: &str) -> Option<Value> {
-        let key_cstr = match CString::new(key).ok()?;
+        let key_cstr = CString::new(key).ok()?;
 
         let mut value: cpp::duckdb_value = ptr::null_mut();
         let result = unsafe {
@@ -62,7 +62,6 @@ impl Config {
     }
 
     pub fn get_str(&self, key: &str) -> Option<String> {
-
         self.get(key).and_then(|value| {
             let c_str = unsafe { cpp::duckdb_vx_value_to_string(value.as_ptr()) };
 
@@ -76,7 +75,7 @@ impl Config {
                 // Free the C string allocated by our function
                 unsafe { cpp::duckdb_free(c_str as *mut c_void) };
 
-               return  Some(rust_str);
+                return Some(rust_str);
             }
             None
         })
