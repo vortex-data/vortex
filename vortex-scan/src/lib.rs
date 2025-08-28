@@ -398,7 +398,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
             }
 
             if let Some(maybe_value) =
-                split_exec(ctx.clone(), range.clone(), limit.as_mut())?.await?
+                split_exec_direct(ctx.clone(), range.clone(), limit.as_mut()).await?
             {
                 vec.push(maybe_value)
             }
