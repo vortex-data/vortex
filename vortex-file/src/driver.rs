@@ -416,7 +416,12 @@ impl CoalescedSegmentRequest {
             let start = usize::try_from(spec.offset - self.byte_range.start)
                 .vortex_expect("start too large");
             let stop = start + spec.length as usize;
-            request.resolve(Ok(buffer.slice(start..stop).aligned(spec.alignment)))
+            let buf = if buffer.is_aligned(spec.alignment) {
+                buffer.slice_with_alignment(start..stop, spec.alignment)
+            } else {
+                buffer.slice(start..stop).aligned(spec.alignment)
+            };
+            request.resolve(Ok(buf))
         }
     }
 

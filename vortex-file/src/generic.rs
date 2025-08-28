@@ -276,9 +276,10 @@ impl VortexOpenOptions<GenericVortexFile> {
                 SegmentId::from(u32::try_from(idx).vortex_expect("Invalid segment ID"));
             let offset =
                 usize::try_from(segment.offset - initial_offset).vortex_expect("Invalid offset");
-            let buffer = initial_read
-                .slice(offset..offset + (segment.length as usize))
-                .aligned(segment.alignment);
+            let buffer = initial_read.slice_with_alignment(
+                offset..offset + (segment.length as usize),
+                segment.alignment,
+            );
             self.options
                 .initial_read_segments
                 .insert(segment_id, buffer);
