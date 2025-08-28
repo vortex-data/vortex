@@ -11,8 +11,6 @@ use vortex_error::{VortexError, vortex_bail, vortex_err};
 use crate::Scalar;
 use crate::decimal::DecimalValue;
 
-// TODO(connor): All `Array` types here seem to implement common methods (`new_scalar` and
-// `new_null`), but they are not actually grouped together by a trait.
 macro_rules! value_to_arrow_scalar {
     ($V:expr, $AR:ty) => {
         Ok(std::sync::Arc::new(
