@@ -13,6 +13,7 @@ mod tests;
 
 use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter};
+use std::ops::Range;
 use std::sync::{Arc, OnceLock};
 
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, NullBuffer};
@@ -466,12 +467,14 @@ impl Mask {
     }
 
     /// Slice the mask.
-    pub fn slice(&self, offset: usize, length: usize) -> Self {
-        assert!(offset + length <= self.len());
+    pub fn slice(&self, range: Range<usize>) -> Self {
+        assert!(range.end <= self.len());
         match &self {
-            Self::AllTrue(_) => Self::new_true(length),
-            Self::AllFalse(_) => Self::new_false(length),
-            Self::Values(values) => Self::from_buffer(values.buffer.slice(offset, length)),
+            Self::AllTrue(_) => Self::new_true(range.len()),
+            Self::AllFalse(_) => Self::new_false(range.len()),
+            Self::Values(values) => {
+                Self::from_buffer(values.buffer.slice(range.start, range.len()))
+            }
         }
     }
 

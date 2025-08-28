@@ -501,7 +501,7 @@ impl PyArray {
     #[pyo3(signature = (start, end))]
     fn slice(slf: Bound<Self>, start: usize, end: usize) -> PyResult<PyArrayRef> {
         let slf = PyArrayRef::extract_bound(slf.as_any())?.into_inner();
-        let inner = slf.slice(start, end);
+        let inner = slf.slice(start..end);
         Ok(PyArrayRef::from(inner))
     }
 

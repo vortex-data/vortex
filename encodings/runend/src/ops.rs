@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use vortex_array::arrays::ConstantArray;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::{Array, ArrayRef, IntoArray};
@@ -9,11 +11,11 @@ use vortex_scalar::Scalar;
 use crate::{RunEndArray, RunEndVTable};
 
 impl OperationsVTable<RunEndVTable> for RunEndVTable {
-    fn slice(array: &RunEndArray, start: usize, stop: usize) -> ArrayRef {
-        let new_length = stop - start;
+    fn slice(array: &RunEndArray, range: Range<usize>) -> ArrayRef {
+        let new_length = range.len();
 
-        let slice_begin = array.find_physical_index(start);
-        let slice_end = array.find_physical_index(stop) + 1;
+        let slice_begin = array.find_physical_index(range.start);
+        let slice_end = array.find_physical_index(range.end) + 1;
 
         // If the sliced range contains only a single run, opt to return a ConstantArray.
         if slice_begin + 1 == slice_end {
@@ -24,9 +26,9 @@ impl OperationsVTable<RunEndVTable> for RunEndVTable {
         // SAFETY: we maintain the ends invariant in our slice implementation
         unsafe {
             RunEndArray::new_unchecked(
-                array.ends().slice(slice_begin, slice_end),
-                array.values().slice(slice_begin, slice_end),
-                start + array.offset(),
+                array.ends().slice(slice_begin..slice_end),
+                array.values().slice(slice_begin..slice_end),
+                range.start + array.offset(),
                 new_length,
             )
             .into_array()
@@ -54,7 +56,7 @@ mod tests {
             buffer![1i32, 2, 3].into_array(),
         )
         .unwrap()
-        .slice(3, 8);
+        .slice(3..8);
         assert_eq!(
             arr.dtype(),
             &DType::Primitive(PType::I32, Nullability::NonNullable)
@@ -74,10 +76,10 @@ mod tests {
             buffer![1i32, 2, 3].into_array(),
         )
         .unwrap()
-        .slice(3, 8);
+        .slice(3..8);
         assert_eq!(arr.len(), 5);
 
-        let doubly_sliced = arr.slice(0, 3);
+        let doubly_sliced = arr.slice(0..3);
 
         assert_eq!(
             doubly_sliced.to_primitive().unwrap().as_slice::<i32>(),
@@ -92,7 +94,7 @@ mod tests {
             buffer![1i32, 2, 3].into_array(),
         )
         .unwrap()
-        .slice(4, 10);
+        .slice(4..10);
         assert_eq!(
             arr.dtype(),
             &DType::Primitive(PType::I32, Nullability::NonNullable)
@@ -115,7 +117,7 @@ mod tests {
 
         assert_eq!(re_array.len(), 10);
 
-        let sliced_array = re_array.slice(re_array.len(), re_array.len());
+        let sliced_array = re_array.slice(re_array.len()..re_array.len());
         assert!(sliced_array.is_empty());
     }
 
@@ -129,7 +131,7 @@ mod tests {
 
         assert_eq!(re_array.len(), 10);
 
-        let sliced_array = re_array.slice(2, 5);
+        let sliced_array = re_array.slice(2..5);
 
         assert!(sliced_array.is_constant())
     }

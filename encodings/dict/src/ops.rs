@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use vortex_array::arrays::{ConstantArray, ConstantVTable};
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::{Array, ArrayRef, IntoArray};
@@ -10,8 +12,8 @@ use vortex_scalar::Scalar;
 use crate::{DictArray, DictVTable};
 
 impl OperationsVTable<DictVTable> for DictVTable {
-    fn slice(array: &DictArray, start: usize, stop: usize) -> ArrayRef {
-        let sliced_code = array.codes().slice(start, stop);
+    fn slice(array: &DictArray, range: Range<usize>) -> ArrayRef {
+        let sliced_code = array.codes().slice(range);
         if sliced_code.is::<ConstantVTable>() {
             let code = &sliced_code.scalar_at(0).as_primitive().as_::<usize>();
             return if let Some(code) = code {
@@ -55,12 +57,12 @@ mod tests {
 
         assert_eq!(
             Some(Scalar::new(dict.dtype().clone(), 0i32.into())),
-            dict.slice(0, 1).as_constant()
+            dict.slice(0..1).as_constant()
         );
 
         assert_eq!(
             Some(Scalar::null(dict.dtype().clone())),
-            dict.slice(1, 2).as_constant()
+            dict.slice(1..2).as_constant()
         );
     }
 }

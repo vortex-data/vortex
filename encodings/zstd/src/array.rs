@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_array::accessor::ArrayAccessor;
@@ -442,7 +443,7 @@ impl ZstdArray {
         // Last, we slice the exact values requested out of the decompressed data.
         let slice_validity = self
             .unsliced_validity
-            .slice(self.slice_start, self.slice_stop);
+            .slice(self.slice_start..self.slice_stop);
 
         match &self.dtype {
             DType::Primitive(..) => {
@@ -539,8 +540,8 @@ impl CanonicalVTable<ZstdVTable> for ZstdVTable {
 }
 
 impl OperationsVTable<ZstdVTable> for ZstdVTable {
-    fn slice(array: &ZstdArray, start: usize, stop: usize) -> ArrayRef {
-        array._slice(start, stop).into_array()
+    fn slice(array: &ZstdArray, range: Range<usize>) -> ArrayRef {
+        array._slice(range.start, range.end).into_array()
     }
 
     fn scalar_at(array: &ZstdArray, index: usize) -> Scalar {
