@@ -1,8 +1,12 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::mem::MaybeUninit;
+
 use fastlanes::BitPacking;
-use vortex_array::pipeline::{Element, Kernel, KernelContext, N};
 use vortex_array::pipeline::bits::BitView;
 use vortex_array::pipeline::view::ViewMut;
+use vortex_array::pipeline::{Element, Kernel, KernelContext, N};
 use vortex_buffer::Buffer;
 use vortex_dtype::PhysicalPType;
 use vortex_error::VortexResult;
@@ -24,7 +28,7 @@ where
     T: Element,
     <T as PhysicalPType>::Physical: Element,
 {
-pub     fn new(
+    pub fn new(
         width: usize,
         packed_stride: usize,
         buffer: Buffer<<T as PhysicalPType>::Physical>,
@@ -96,17 +100,14 @@ where
 
             // Pre-calculate what we need to do
             let first_chunk_needs_slicing = chunk_value_offset > 0;
-            let elements_from_first_chunk =
-                (1024 - chunk_value_offset).min(elements.len());
+            let elements_from_first_chunk = (1024 - chunk_value_offset).min(elements.len());
 
             let elements_after_first = elements.len() - elements_from_first_chunk;
             let full_chunks_count = elements_after_first / 1024;
             let final_chunk_size = elements_after_first % 1024;
             let final_chunk_needs_slicing = final_chunk_size > 0;
 
-            let total_chunks_needed = 1
-                + full_chunks_count
-                + (final_chunk_needs_slicing as usize);
+            let total_chunks_needed = 1 + full_chunks_count + (final_chunk_needs_slicing as usize);
             let available_chunks = packed.len() / self.packed_stride;
             let actual_chunks_to_process = total_chunks_needed.min(available_chunks);
 
@@ -124,9 +125,7 @@ where
             // Part 2: Handle all non-sliced full chunks (for loop)
             let last_full_chunk_idx = full_chunks_count + 1;
 
-            for packed_idx in
-                1..last_full_chunk_idx.min(actual_chunks_to_process)
-            {
+            for packed_idx in 1..last_full_chunk_idx.min(actual_chunks_to_process) {
                 unsafe {
                     BitPacking::unchecked_unpack(
                         self.width,

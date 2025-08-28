@@ -8,16 +8,16 @@ use std::any::Any;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
-use fastlanes::{FastLanes};
+use fastlanes::FastLanes;
 use vortex_array::pipeline::operators::{BindContext, Operator};
 use vortex_array::pipeline::{Kernel, PipelineVTable, VType};
 use vortex_buffer::Buffer;
 use vortex_dtype::{PhysicalPType, match_each_integer_ptype};
 use vortex_error::VortexResult;
 
-use crate::{BitPackedArray, BitPackedVTable};
 use crate::bitpacking::pipeline::kernel::BitPackedKernel;
 use crate::bitpacking::pipeline::unaligned_kernel::BitPackedUnalignedKernel;
+use crate::{BitPackedArray, BitPackedVTable};
 
 impl PipelineVTable<BitPackedVTable> for BitPackedVTable {
     fn to_operator(array: &BitPackedArray) -> VortexResult<Option<Rc<dyn Operator>>> {

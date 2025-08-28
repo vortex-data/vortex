@@ -1,7 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use fastlanes::BitPacking;
-use vortex_array::pipeline::{Element, Kernel, KernelContext, N};
 use vortex_array::pipeline::bits::BitView;
 use vortex_array::pipeline::view::ViewMut;
+use vortex_array::pipeline::{Element, Kernel, KernelContext, N};
 use vortex_buffer::Buffer;
 use vortex_dtype::PhysicalPType;
 use vortex_error::VortexResult;
@@ -22,7 +25,7 @@ where
     T: Element,
     <T as PhysicalPType>::Physical: Element,
 {
-pub     fn new(
+    pub fn new(
         width: usize,
         packed_stride: usize,
         buffer: Buffer<<T as PhysicalPType>::Physical>,
