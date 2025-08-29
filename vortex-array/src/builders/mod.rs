@@ -217,7 +217,7 @@ pub trait ArrayBuilderExt: ArrayBuilder {
                 .as_any_mut()
                 .downcast_mut::<BoolBuilder>()
                 .ok_or_else(|| vortex_err!("Cannot append bool scalar to non-bool builder"))?
-                .append_option(BoolScalar::try_from(scalar)?.value()),
+                .append_bool_opt(BoolScalar::try_from(scalar)?.value()),
             DType::Primitive(ptype, ..) => {
                 match_each_native_ptype!(ptype, |P| {
                     self.as_any_mut()
@@ -238,7 +238,7 @@ pub trait ArrayBuilderExt: ArrayBuilder {
                 match scalar.as_decimal().decimal_value() {
                     None => builder.append_null(),
                     Some(v) => match_each_decimal_value!(v, |dec_val| {
-                        builder.append_value(dec_val);
+                        builder.append_decimal(dec_val);
                     }),
                 }
             }
