@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::{Entry, HashMap};
 
@@ -209,8 +209,8 @@ impl ArrayBuilder for VarBinViewBuilder {
         self.nulls.append_n_nulls(n);
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) -> VortexResult<()> {
-        let array = array.to_varbinview()?;
+    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+        let array = array.to_varbinview();
         self.flush_in_progress();
 
         let new_indices = self.completed.extend_from_slice(array.buffers());
@@ -234,8 +234,6 @@ impl ArrayBuilder for VarBinViewBuilder {
         }
 
         self.push_only_validity_mask(array.validity_mask());
-
-        Ok(())
     }
 
     fn ensure_capacity(&mut self, capacity: usize) {
@@ -437,11 +435,11 @@ mod tests {
         let mut builder = VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
 
         builder.append_option(Some("Hello1"));
-        builder.extend_from_array(&array).unwrap();
+        builder.extend_from_array(&array);
         builder.append_nulls(2);
         builder.append_value("Hello3");
 
-        let arr = builder.finish().to_varbinview().unwrap();
+        let arr = builder.finish().to_varbinview();
 
         let arr = arr
             .with_iterator(|iter| {
@@ -477,11 +475,11 @@ mod tests {
         let mut builder =
             VarBinViewBuilder::with_buffer_deduplication(DType::Utf8(Nullability::Nullable), 10);
 
-        array.append_to_builder(&mut builder).unwrap();
+        array.append_to_builder(&mut builder);
         assert_eq!(builder.completed_block_count(), 1);
 
-        array.slice(1..2).append_to_builder(&mut builder).unwrap();
-        array.slice(0..1).append_to_builder(&mut builder).unwrap();
+        array.slice(1..2).append_to_builder(&mut builder);
+        array.slice(0..1).append_to_builder(&mut builder);
         assert_eq!(builder.completed_block_count(), 1);
 
         let array2 = {
@@ -491,11 +489,11 @@ mod tests {
             builder.finish_into_varbinview()
         };
 
-        array2.append_to_builder(&mut builder).unwrap();
+        array2.append_to_builder(&mut builder);
         assert_eq!(builder.completed_block_count(), 2);
 
-        array.slice(0..1).append_to_builder(&mut builder).unwrap();
-        array2.slice(0..1).append_to_builder(&mut builder).unwrap();
+        array.slice(0..1).append_to_builder(&mut builder);
+        array2.slice(0..1).append_to_builder(&mut builder);
         assert_eq!(builder.completed_block_count(), 2);
     }
 }

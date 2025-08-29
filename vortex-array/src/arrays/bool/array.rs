@@ -264,11 +264,11 @@ impl ArrayVTable<BoolVTable> for BoolVTable {
 }
 
 impl CanonicalVTable<BoolVTable> for BoolVTable {
-    fn canonicalize(array: &BoolArray) -> VortexResult<Canonical> {
-        Ok(Canonical::Bool(array.clone()))
+    fn canonicalize(array: &BoolArray) -> Canonical {
+        Canonical::Bool(array.clone())
     }
 
-    fn append_to_builder(array: &BoolArray, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+    fn append_to_builder(array: &BoolArray, builder: &mut dyn ArrayBuilder) {
         builder.extend_from_array(array.as_ref())
     }
 }
@@ -350,7 +350,7 @@ mod tests {
         };
         let sliced = arr.slice(4..12);
         let sliced_len = sliced.len();
-        let (values, offset) = sliced.to_bool().unwrap().into_boolean_builder();
+        let (values, offset) = sliced.to_bool().into_boolean_builder();
         assert_eq!(offset, 4);
         assert_eq!(values.as_slice(), &[254, 15]);
 
@@ -361,15 +361,15 @@ mod tests {
             buffer![4u32].into_array(), // This creates a non-nullable array
             BoolArray::from(BooleanBuffer::new_unset(1)).into_array(),
         );
-        let arr = arr.patch(&patches).unwrap();
+        let arr = arr.patch(&patches);
         let arr_len = arr.len();
-        let (values, offset) = arr.to_bool().unwrap().into_boolean_builder();
+        let (values, offset) = arr.to_bool().into_boolean_builder();
         assert_eq!(offset, 0);
         assert_eq!(values.len(), arr_len + offset);
         assert_eq!(values.as_slice(), &[238, 15]);
 
         // the slice should be unchanged
-        let (values, offset) = sliced.to_bool().unwrap().into_boolean_builder();
+        let (values, offset) = sliced.to_bool().into_boolean_builder();
         assert_eq!(offset, 4);
         assert_eq!(values.len(), sliced_len + offset);
         assert_eq!(values.as_slice(), &[254, 15]); // unchanged
@@ -380,7 +380,7 @@ mod tests {
         let arr = BoolArray::from(BooleanBuffer::new_set(16));
         let sliced = arr.slice(4..12);
         let sliced_len = sliced.len();
-        let (values, offset) = sliced.to_bool().unwrap().into_boolean_builder();
+        let (values, offset) = sliced.to_bool().into_boolean_builder();
         assert_eq!(offset, 4);
         assert_eq!(values.len(), sliced_len + offset);
         assert_eq!(values.as_slice(), &[255, 15]);
@@ -400,10 +400,10 @@ mod tests {
             PrimitiveArray::new(buffer![0u32], Validity::AllValid).into_array(),
             BoolArray::from(BooleanBuffer::new_unset(1)).into_array(),
         );
-        let arr = arr.patch(&patches).unwrap();
+        let arr = arr.patch(&patches);
         assert_eq!(arr.boolean_buffer().sliced().as_ptr(), buf_ptr);
 
-        let (values, _byte_bit_offset) = arr.to_bool().unwrap().into_boolean_builder();
+        let (values, _byte_bit_offset) = arr.to_bool().into_boolean_builder();
         assert_eq!(values.as_slice(), &[254, 127]);
     }
 }

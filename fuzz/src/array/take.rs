@@ -52,7 +52,7 @@ pub fn take_canonical_array(
 
     match array.dtype() {
         DType::Bool(_) => {
-            let bool_array = array.to_bool()?;
+            let bool_array = array.to_bool();
             let vec_values = bool_array.boolean_buffer().iter().collect::<Vec<_>>();
             Ok(BoolArray::new(
                 indices_slice_non_opt
@@ -64,7 +64,7 @@ pub fn take_canonical_array(
             .into_array())
         }
         DType::Primitive(p, _) => {
-            let primitive_array = array.to_primitive()?;
+            let primitive_array = array.to_primitive();
             match_each_native_ptype!(p, |P| {
                 Ok(take_primitive::<P>(
                     primitive_array,
@@ -74,7 +74,7 @@ pub fn take_canonical_array(
             })
         }
         DType::Decimal(d, _) => {
-            let decimal_array = array.to_decimal()?;
+            let decimal_array = array.to_decimal();
 
             match_each_decimal_value_type!(decimal_array.values_type(), |D| {
                 Ok(take_decimal::<D>(
@@ -86,7 +86,7 @@ pub fn take_canonical_array(
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
-            let utf8 = array.to_varbinview()?;
+            let utf8 = array.to_varbinview();
             let values =
                 utf8.with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>())?;
             Ok(VarBinViewArray::from_iter(
@@ -98,7 +98,7 @@ pub fn take_canonical_array(
             .into_array())
         }
         DType::Struct(..) => {
-            let struct_array = array.to_struct()?;
+            let struct_array = array.to_struct();
             let taken_children = struct_array
                 .fields()
                 .iter()

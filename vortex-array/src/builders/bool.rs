@@ -5,7 +5,7 @@ use std::any::Any;
 
 use arrow_buffer::BooleanBufferBuilder;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 
 use crate::arrays::BoolArray;
@@ -76,15 +76,11 @@ impl ArrayBuilder for BoolBuilder {
         self.nulls.append_n_nulls(n)
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) -> VortexResult<()> {
-        let bool_array = array
-            .to_bool()
-            .vortex_expect("we checked that the array had `DType` boolean");
+    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+        let bool_array = array.to_bool();
 
         self.inner.append_buffer(bool_array.boolean_buffer());
         self.nulls.append_validity_mask(bool_array.validity_mask());
-
-        Ok(())
     }
 
     fn ensure_capacity(&mut self, capacity: usize) {
@@ -149,15 +145,10 @@ mod tests {
         let chunk = make_opt_bool_chunks(len, chunk_count);
 
         let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
-        chunk.clone().append_to_builder(builder.as_mut()).unwrap();
-        let canon_into = builder
-            .finish()
-            .to_canonical()
-            .unwrap()
-            .into_bool()
-            .unwrap();
+        chunk.clone().append_to_builder(builder.as_mut());
+        let canon_into = builder.finish().to_bool();
 
-        let into_canon = chunk.to_bool().unwrap();
+        let into_canon = chunk.to_bool();
 
         assert_eq!(canon_into.validity(), into_canon.validity());
         assert_eq!(canon_into.boolean_buffer(), into_canon.boolean_buffer());

@@ -82,7 +82,7 @@ impl EncodeVTable<FSSTVTable> for FSSTVTable {
         canonical: &Canonical,
         like: Option<&FSSTArray>,
     ) -> VortexResult<Option<FSSTArray>> {
-        let array = canonical.clone().into_varbinview()?;
+        let array = canonical.clone().into_varbinview();
 
         let compressor = match like {
             Some(like) => Compressor::rebuild_from(like.symbols(), like.symbol_lengths()),

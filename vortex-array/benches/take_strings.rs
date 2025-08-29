@@ -26,7 +26,7 @@ fn varbin(bencher: Bencher) {
 
 #[divan::bench]
 fn varbinview(bencher: Bencher) {
-    let array = fixture(65_535).to_varbinview().unwrap();
+    let array = fixture(65_535).to_varbinview();
     let indices = indices(1024);
 
     bencher

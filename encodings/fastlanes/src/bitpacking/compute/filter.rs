@@ -56,8 +56,8 @@ fn filter_primitive<T: NativePType + BitPacking>(
         // with a "Cascade Lake" CPU.
     };
     if mask.density() >= full_decompression_threshold {
-        let decompressed_array = array.to_primitive()?;
-        filter(decompressed_array.as_ref(), mask)?.to_primitive()
+        let decompressed_array = array.to_primitive();
+        Ok(filter(decompressed_array.as_ref(), mask)?.to_primitive())
     } else {
         filter_primitive_no_decompression::<T>(array, mask)
     }
@@ -90,7 +90,7 @@ fn filter_primitive_no_decompression<T: NativePType + BitPacking>(
 
     let mut values = PrimitiveArray::new(values, validity).reinterpret_cast(array.ptype());
     if let Some(patches) = patches {
-        values = values.patch(&patches)?;
+        values = values.patch(&patches);
     }
     Ok(values)
 }
@@ -168,10 +168,7 @@ mod test {
 
         let mask = Mask::from_indices(bitpacked.len(), vec![0, 125, 2047, 2049, 2151, 2790]);
 
-        let primitive_result = filter(bitpacked.as_ref(), &mask)
-            .unwrap()
-            .to_primitive()
-            .unwrap();
+        let primitive_result = filter(bitpacked.as_ref(), &mask).unwrap().to_primitive();
         let res_bytes = primitive_result.as_slice::<u8>();
         assert_eq!(res_bytes, &[0, 62, 31, 33, 9, 18]);
     }
@@ -185,7 +182,7 @@ mod test {
 
         let mask = Mask::from_indices(sliced.len(), vec![1919, 1921]);
 
-        let primitive_result = filter(&sliced, &mask).unwrap().to_primitive().unwrap();
+        let primitive_result = filter(&sliced, &mask).unwrap().to_primitive();
         let res_bytes = primitive_result.as_slice::<u8>();
         assert_eq!(res_bytes, &[31, 33]);
     }
@@ -200,7 +197,7 @@ mod test {
         )
         .unwrap();
         assert_eq!(
-            filtered.to_primitive().unwrap().as_slice::<u8>(),
+            filtered.to_primitive().as_slice::<u8>(),
             (0..1024).map(|i| (i % 63) as u8).collect::<Vec<_>>()
         );
     }
@@ -215,8 +212,7 @@ mod test {
             &Mask::from_indices(values.len(), (0..250).collect()),
         )
         .unwrap()
-        .to_primitive()
-        .unwrap();
+        .to_primitive();
 
         assert_eq!(filtered.as_slice::<i64>(), &values[0..250]);
     }

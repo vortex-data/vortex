@@ -85,10 +85,10 @@ mod tests {
         if let Some(arr) = arr.as_opt::<ChunkedVTable>() {
             arr.chunks()
                 .iter()
-                .map(|a| a.to_primitive().unwrap())
+                .map(|a| a.to_primitive())
                 .for_each(|a| values.extend_from_slice(a.as_slice::<T>()));
         } else {
-            values.extend_from_slice(arr.to_primitive().unwrap().as_slice::<T>());
+            values.extend_from_slice(arr.to_primitive().as_slice::<T>());
         }
         assert_eq!(values, slice);
     }

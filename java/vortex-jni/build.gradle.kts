@@ -123,7 +123,6 @@ tasks.register("makeTestFiles") {
         val execOps = serviceOf<ExecOperations>()
 
         // Build the JNI lib
-
         execOps.exec {
             workingDir = rootProject.projectDir.absoluteFile.parentFile
             executable = "cargo"

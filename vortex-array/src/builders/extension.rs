@@ -94,9 +94,9 @@ impl ArrayBuilder for ExtensionBuilder {
         self.storage.append_nulls(n)
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) -> VortexResult<()> {
-        let ext_array = array.to_extension()?;
-        self.storage.extend_from_array(ext_array.storage())
+    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+        self.storage
+            .extend_from_array(array.to_extension().storage())
     }
 
     fn ensure_capacity(&mut self, capacity: usize) {

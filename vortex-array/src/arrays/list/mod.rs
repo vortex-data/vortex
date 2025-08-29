@@ -128,8 +128,6 @@ impl ListArray {
         offsets: ArrayRef,
         validity: Validity,
     ) -> VortexResult<Self> {
-        let nullability = validity.nullability();
-
         if !offsets.dtype().is_int() || offsets.dtype().is_nullable() {
             vortex_bail!(
                 "Expected offsets to be an non-nullable integer type, got {:?}",
@@ -143,13 +141,19 @@ impl ListArray {
 
         Self::validate(&elements, &offsets, &validity)?;
 
-        Ok(Self {
-            dtype: DType::List(Arc::new(elements.dtype().clone()), nullability),
+        Ok(unsafe { Self::new_unchecked(elements, offsets, validity) })
+    }
+
+    /// # Safety
+    /// This method is safe too call if the arguments passed wouldn't cause an error when calling [`Self::try_new`]
+    pub unsafe fn new_unchecked(elements: ArrayRef, offsets: ArrayRef, validity: Validity) -> Self {
+        Self {
+            dtype: DType::List(Arc::new(elements.dtype().clone()), validity.nullability()),
             elements,
             offsets,
             validity,
             stats_set: Default::default(),
-        })
+        }
     }
 
     /// Returns the offset at the given index from the list array.
@@ -327,8 +331,8 @@ impl OperationsVTable<ListVTable> for ListVTable {
 }
 
 impl CanonicalVTable<ListVTable> for ListVTable {
-    fn canonicalize(array: &ListArray) -> VortexResult<Canonical> {
-        Ok(Canonical::List(array.clone()))
+    fn canonicalize(array: &ListArray) -> Canonical {
+        Canonical::List(array.clone())
     }
 }
 

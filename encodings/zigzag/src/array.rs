@@ -99,8 +99,8 @@ impl ArrayVTable<ZigZagVTable> for ZigZagVTable {
 }
 
 impl CanonicalVTable<ZigZagVTable> for ZigZagVTable {
-    fn canonicalize(array: &ZigZagArray) -> VortexResult<Canonical> {
-        zigzag_decode(array.encoded().to_primitive()?).map(Canonical::Primitive)
+    fn canonicalize(array: &ZigZagArray) -> Canonical {
+        Canonical::Primitive(zigzag_decode(array.encoded().to_primitive()))
     }
 }
 
@@ -146,7 +146,7 @@ mod test {
     #[test]
     fn test_compute_statistics() {
         let array = buffer![1i32, -5i32, 2, 3, 4, 5, 6, 7, 8, 9, 10].into_array();
-        let canonical = array.to_canonical().unwrap();
+        let canonical = array.to_canonical();
         let zigzag = ZigZagEncoding.encode(&canonical, None).unwrap().unwrap();
 
         assert_eq!(

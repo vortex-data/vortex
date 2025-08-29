@@ -90,7 +90,7 @@ mod test {
         let filtered_array = filtered_array.as_::<SparseVTable>();
 
         assert_eq!(filtered_array.len(), 4);
-        let primitive = filtered_array.patches().indices().to_primitive().unwrap();
+        let primitive = filtered_array.patches().indices().to_primitive();
 
         assert_eq!(primitive.as_slice::<u64>(), &[1, 3]);
     }

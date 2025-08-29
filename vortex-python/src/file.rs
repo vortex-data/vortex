@@ -159,7 +159,7 @@ impl PyVortexFile {
 
         if let Some(indices) = indices {
             let indices = cast(indices.as_ref(), &DType::Primitive(PType::U64, NonNullable))?
-                .to_primitive()?
+                .to_primitive()
                 .into_buffer::<u64>();
             builder = builder.with_row_indices(indices);
         }

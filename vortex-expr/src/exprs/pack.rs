@@ -262,11 +262,11 @@ mod tests {
             vortex_bail!("empty field path");
         };
 
-        let mut array = array.to_struct()?.field_by_name(field)?.clone();
+        let mut array = array.to_struct().field_by_name(field)?.clone();
         for field in field_path {
-            array = array.to_struct()?.field_by_name(field)?.clone();
+            array = array.to_struct().field_by_name(field)?.clone();
         }
-        Ok(array.to_primitive().unwrap())
+        Ok(array.to_primitive())
     }
 
     #[test]
@@ -277,10 +277,7 @@ mod tests {
         let test_array = test_array();
         let actual_array = expr.evaluate(&Scope::new(test_array.clone())).unwrap();
         assert_eq!(actual_array.len(), test_array.len());
-        assert_eq!(
-            actual_array.to_struct().unwrap().struct_fields().nfields(),
-            0
-        );
+        assert_eq!(actual_array.to_struct().struct_fields().nfields(), 0);
     }
 
     #[test]
@@ -295,8 +292,7 @@ mod tests {
         let actual_array = expr
             .evaluate(&Scope::new(test_array()))
             .unwrap()
-            .to_struct()
-            .unwrap();
+            .to_struct();
 
         assert_eq!(actual_array.names(), ["one", "two", "three"]);
         assert_eq!(actual_array.validity(), &Validity::NonNullable);
@@ -343,8 +339,7 @@ mod tests {
         let actual_array = expr
             .evaluate(&Scope::new(test_array()))
             .unwrap()
-            .to_struct()
-            .unwrap();
+            .to_struct();
 
         assert_eq!(actual_array.names(), ["one", "two", "three"]);
 
@@ -386,8 +381,7 @@ mod tests {
         let actual_array = expr
             .evaluate(&Scope::new(test_array()))
             .unwrap()
-            .to_struct()
-            .unwrap();
+            .to_struct();
 
         assert_eq!(actual_array.names(), ["one", "two", "three"]);
         assert_eq!(actual_array.validity(), &Validity::AllValid);

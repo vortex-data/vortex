@@ -189,21 +189,19 @@ impl ArrayBuilder for FixedSizeListBuilder {
 
     /// This will increase the capacity if extending with this `array` would go past the original
     /// capacity.
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) -> VortexResult<()> {
-        let fsl = array.to_fixed_size_list()?;
+    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+        let fsl = array.to_fixed_size_list();
         if fsl.is_empty() {
-            return Ok(());
+            return;
         }
 
         let new_elements = fsl.elements();
 
         self.elements_builder
             .ensure_capacity(self.elements_len() + new_elements.len());
-        self.elements_builder.extend_from_array(new_elements)?;
+        self.elements_builder.extend_from_array(new_elements);
 
         self.nulls.append_validity_mask(array.validity_mask());
-
-        Ok(())
     }
 
     fn ensure_capacity(&mut self, capacity: usize) {
@@ -278,7 +276,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 2);
 
-        let fsl_array = fsl.to_fixed_size_list().unwrap();
+        let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.elements().len(), 6);
         assert_eq!(fsl_array.list_size(), 3);
     }
@@ -299,7 +297,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 100);
 
-        let fsl_array = fsl.to_fixed_size_list().unwrap();
+        let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.list_size(), 0);
         // The elements array should be empty since list_size is 0.
         assert_eq!(fsl_array.elements().len(), 0);
@@ -327,7 +325,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 100);
 
-        let fsl_array = fsl.to_fixed_size_list().unwrap();
+        let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.list_size(), 0);
         assert_eq!(fsl_array.elements().len(), 0);
     }
@@ -355,7 +353,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 5);
 
-        let fsl_array = fsl.to_fixed_size_list().unwrap();
+        let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.elements().len(), 10);
     }
 
@@ -368,7 +366,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 0);
 
-        let fsl_array = fsl.to_fixed_size_list().unwrap();
+        let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.list_size(), 100000000);
         assert_eq!(fsl_array.elements().len(), 0);
     }
@@ -396,7 +394,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 3);
 
-        let fsl_array = fsl.to_fixed_size_list().unwrap();
+        let fsl_array = fsl.to_fixed_size_list();
         assert!(fsl_array.validity().is_valid(0));
         assert!(!fsl_array.validity().is_valid(1));
         assert!(fsl_array.validity().is_valid(2));
@@ -440,7 +438,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 2);
 
-        let fsl_array = fsl.to_fixed_size_list().unwrap();
+        let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.elements().len(), 6);
     }
 
@@ -454,12 +452,12 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 5);
 
-        let fsl_array = fsl.to_fixed_size_list().unwrap();
+        let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.list_size(), 3);
         assert_eq!(fsl_array.elements().len(), 15);
 
         // Check that all elements are zeros.
-        let elements_array = fsl_array.elements().to_primitive().unwrap();
+        let elements_array = fsl_array.elements().to_primitive();
         let elements = elements_array.as_slice::<i32>();
         assert!(elements.iter().all(|&x| x == 0));
     }
@@ -477,7 +475,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 3);
 
-        let fsl_array = fsl.to_fixed_size_list().unwrap();
+        let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.list_size(), 2);
 
         // Check that all lists are null.
@@ -498,7 +496,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 1000);
 
-        let fsl_array = fsl.to_fixed_size_list().unwrap();
+        let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.list_size(), 0);
         assert_eq!(fsl_array.elements().len(), 0);
     }
@@ -542,13 +540,13 @@ mod tests {
         let mut builder = FixedSizeListBuilder::with_capacity(dtype, 2, Nullable, 0);
 
         let source_array = source.into_array();
-        builder.extend_from_array(&source_array).unwrap();
-        builder.extend_from_array(&source_array).unwrap();
+        builder.extend_from_array(&source_array);
+        builder.extend_from_array(&source_array);
 
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 6);
 
-        let fsl_array = fsl.to_fixed_size_list().unwrap();
+        let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.elements().len(), 12);
 
         // Check validity pattern is repeated.
@@ -581,13 +579,13 @@ mod tests {
 
         let mut builder = FixedSizeListBuilder::with_capacity(dtype, 0, Nullable, 0);
 
-        builder.extend_from_array(&source1.into_array()).unwrap();
-        builder.extend_from_array(&source2.into_array()).unwrap();
+        builder.extend_from_array(&source1.into_array());
+        builder.extend_from_array(&source2.into_array());
 
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 5);
 
-        let fsl_array = fsl.to_fixed_size_list().unwrap();
+        let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.list_size(), 0);
         assert_eq!(fsl_array.elements().len(), 0);
 
@@ -626,7 +624,7 @@ mod tests {
             .unwrap();
 
         // Extend with empty array (should be no-op).
-        builder.extend_from_array(&source.into_array()).unwrap();
+        builder.extend_from_array(&source.into_array());
 
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 1);
@@ -663,12 +661,12 @@ mod tests {
             Validity::AllValid,
             1,
         );
-        builder.extend_from_array(&source.into_array()).unwrap();
+        builder.extend_from_array(&source.into_array());
 
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 6);
 
-        let fsl_array = fsl.to_fixed_size_list().unwrap();
+        let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.elements().len(), 12);
 
         // Check validity.

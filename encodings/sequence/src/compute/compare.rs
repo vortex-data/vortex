@@ -111,7 +111,7 @@ mod tests {
         let result = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
         assert_eq!(
-            result.to_bool().unwrap().boolean_buffer(),
+            result.to_bool().boolean_buffer(),
             BoolArray::from_iter(vec![false, false, true, false]).boolean_buffer(),
         )
     }
@@ -125,7 +125,7 @@ mod tests {
         let result = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
         assert_eq!(
-            result.to_bool().unwrap().boolean_buffer(),
+            result.to_bool().boolean_buffer(),
             BoolArray::from_iter(vec![false, false, true, false]).boolean_buffer(),
         )
     }
@@ -139,7 +139,7 @@ mod tests {
         let result = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
         assert_eq!(
-            result.to_bool().unwrap().boolean_buffer(),
+            result.to_bool().boolean_buffer(),
             BoolArray::from_iter(vec![false, false, false, false]).boolean_buffer(),
         )
     }

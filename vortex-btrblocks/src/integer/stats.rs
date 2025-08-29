@@ -145,9 +145,7 @@ impl CompressorStats for IntegerStats {
     }
 
     fn sample_opts(&self, sample_size: u32, sample_count: u32, opts: GenerateStatsOptions) -> Self {
-        let sampled = sample(self.src.as_ref(), sample_size, sample_count)
-            .to_primitive()
-            .vortex_expect("primitive");
+        let sampled = sample(self.src.as_ref(), sample_size, sample_count).to_primitive();
 
         Self::generate_opts(&sampled, opts)
     }

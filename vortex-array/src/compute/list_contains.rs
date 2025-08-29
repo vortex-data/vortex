@@ -60,7 +60,7 @@ static LIST_CONTAINS_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
 /// let list_array = ListArray::try_new(elements, offsets, Validity::NonNullable).unwrap();
 ///
 /// let matches = list_contains(list_array.as_ref(), ConstantArray::new(Scalar::from("b"), list_array.len()).as_ref()).unwrap();
-/// let to_vec: Vec<bool> = matches.to_bool().unwrap().boolean_buffer().iter().collect();
+/// let to_vec: Vec<bool> = matches.to_bool().boolean_buffer().iter().collect();
 /// assert_eq!(to_vec, vec![false, true, false]);
 /// ```
 pub fn list_contains(array: &dyn Array, value: &dyn Array) -> VortexResult<ArrayRef> {
@@ -223,7 +223,7 @@ fn list_contains_scalar(
 
     // Canonicalize to a list array.
     // NOTE(ngates): we may wish to add elements and offsets accessors to the ListArrayTrait.
-    let list_array = array.to_list()?;
+    let list_array = array.to_list();
 
     let elems = list_array.elements();
     if elems.is_empty() {
@@ -233,7 +233,7 @@ fn list_contains_scalar(
 
     let rhs = ConstantArray::new(value.clone(), elems.len());
     let matching_elements = compare(elems, rhs.as_ref(), Operator::Eq)?;
-    let matches = matching_elements.to_bool()?;
+    let matches = matching_elements.to_bool();
 
     // Fast path: no elements match.
     if let Some(pred) = matches.as_constant() {
@@ -264,7 +264,7 @@ fn list_contains_scalar(
         };
     }
 
-    let ends = list_array.offsets().to_primitive()?;
+    let ends = list_array.offsets().to_primitive();
     match_each_integer_ptype!(ends.ptype(), |T| {
         Ok(reduce_with_ends(
             ends.as_slice::<T>(),
@@ -317,7 +317,7 @@ fn list_is_not_empty(list_array: &ListArray, nullability: Nullability) -> Vortex
         .into_array());
     }
 
-    let offsets = list_array.offsets().to_primitive()?;
+    let offsets = list_array.offsets().to_primitive();
     let buffer = match_each_integer_ptype!(offsets.ptype(), |T| {
         element_is_not_empty(offsets.as_slice::<T>())
     });
@@ -382,8 +382,8 @@ pub fn list_elem_len(array: &dyn Array) -> VortexResult<ArrayRef> {
         return Ok(ConstantArray::new(elem_lens.scalar_at(0), array.len()).into_array());
     }
 
-    let list_array = array.to_list()?;
-    let offsets = list_array.offsets().to_primitive()?;
+    let list_array = array.to_list();
+    let offsets = list_array.offsets().to_primitive();
     let lens_array = match_each_integer_ptype!(offsets.ptype(), |T| {
         element_lens(offsets.as_slice::<T>()).into_array()
     });
@@ -514,7 +514,7 @@ mod tests {
         };
         let elem = ConstantArray::new(scalar, list_array.len());
         let result = list_contains(&list_array, elem.as_ref()).expect("list_contains failed");
-        let bool_result = result.to_bool().expect("to_bool failed");
+        let bool_result = result.to_bool();
         assert_eq!(
             bool_result.opt_bool_vec().unwrap(),
             expected.opt_bool_vec().unwrap()
@@ -541,12 +541,7 @@ mod tests {
         .unwrap();
         assert!(contains.is::<ConstantVTable>(), "Expected constant result");
         assert_eq!(
-            contains
-                .to_bool()
-                .unwrap()
-                .boolean_buffer()
-                .iter()
-                .collect_vec(),
+            contains.to_bool().boolean_buffer().iter().collect_vec(),
             vec![true, true],
         );
     }
@@ -570,10 +565,7 @@ mod tests {
         assert!(contains.is::<ConstantVTable>(), "Expected constant result");
 
         assert_eq!(contains.len(), 5);
-        assert_eq!(
-            contains.to_bool().unwrap().validity(),
-            &Validity::AllInvalid
-        );
+        assert_eq!(contains.to_bool().validity(), &Validity::AllInvalid);
     }
 
     #[test]
@@ -592,7 +584,7 @@ mod tests {
 
         assert_eq!(contains.len(), 7);
         assert_eq!(
-            contains.to_bool().unwrap().opt_bool_vec().unwrap(),
+            contains.to_bool().opt_bool_vec().unwrap(),
             vec![
                 Some(false),
                 Some(true),

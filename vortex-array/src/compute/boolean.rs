@@ -321,7 +321,7 @@ mod tests {
     fn test_or(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) {
         let r = or(&lhs, &rhs).unwrap();
 
-        let r = r.to_bool().unwrap().into_array();
+        let r = r.to_bool().into_array();
 
         let v0 = r.scalar_at(0).as_bool().value();
         let v1 = r.scalar_at(1).as_bool().value();
@@ -341,7 +341,7 @@ mod tests {
     #[case(BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array(),
         BoolArray::from_iter([Some(true), Some(true), Some(false), Some(false)].into_iter()).into_array())]
     fn test_and(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) {
-        let r = and(&lhs, &rhs).unwrap().to_bool().unwrap().into_array();
+        let r = and(&lhs, &rhs).unwrap().to_bool().into_array();
 
         let v0 = r.scalar_at(0).as_bool().value();
         let v1 = r.scalar_at(1).as_bool().value();

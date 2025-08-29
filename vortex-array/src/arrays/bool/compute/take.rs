@@ -27,7 +27,7 @@ impl TakeKernel for BoolVTable {
             }
             Mask::Values(_) => fill_null(indices, &Scalar::from(0).cast(indices.dtype())?)?,
         };
-        let indices_nulls_zeroed = indices_nulls_zeroed.to_primitive()?;
+        let indices_nulls_zeroed = indices_nulls_zeroed.to_primitive();
         let buffer = match_each_integer_ptype!(indices_nulls_zeroed.ptype(), |I| {
             take_valid_indices(array.boolean_buffer(), indices_nulls_zeroed.as_slice::<I>())
         });
@@ -94,8 +94,7 @@ mod test {
             PrimitiveArray::from_iter([0, 3, 4]).as_ref(),
         )
         .unwrap()
-        .to_bool()
-        .unwrap();
+        .to_bool();
         assert_eq!(
             b.boolean_buffer(),
             BoolArray::from_iter([Some(false), None, Some(false)]).boolean_buffer()

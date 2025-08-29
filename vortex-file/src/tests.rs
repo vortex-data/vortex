@@ -227,9 +227,8 @@ fn test_read_projection() {
         )
     );
 
-    let actual = array.to_struct().unwrap().fields()[0]
+    let actual = array.to_struct().fields()[0]
         .to_varbinview()
-        .unwrap()
         .with_iterator(|x| {
             x.map(|x| unsafe { String::from_utf8_unchecked(x.unwrap().to_vec()) })
                 .collect::<Vec<_>>()
@@ -254,9 +253,7 @@ fn test_read_projection() {
         )
     );
 
-    let primitive_array = array.to_struct().unwrap().fields()[0]
-        .to_primitive()
-        .unwrap();
+    let primitive_array = array.to_struct().fields()[0].to_primitive();
     let actual = primitive_array.as_slice::<u32>();
     assert_eq!(actual, numbers_expected);
 }
@@ -297,11 +294,9 @@ fn unequal_batches() {
 
         let numbers = array
             .to_struct()
-            .unwrap()
             .field_by_name("numbers")
             .unwrap()
-            .to_primitive()
-            .unwrap();
+            .to_primitive();
         assert_eq!(numbers.ptype(), PType::U32);
     }
     assert_eq!(item_count, 10);
@@ -411,11 +406,10 @@ fn filter_string() {
         .unwrap();
 
     assert_eq!(result.len(), 1);
-    let names = result[0].to_struct().unwrap().fields()[0].clone();
+    let names = result[0].to_struct().fields()[0].clone();
     assert_eq!(
         names
             .to_varbinview()
-            .unwrap()
             .with_iterator(|iter| iter
                 .flatten()
                 .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })
@@ -423,8 +417,8 @@ fn filter_string() {
             .unwrap(),
         vec!["Joseph".to_string()]
     );
-    let ages = result[0].to_struct().unwrap().fields()[1].clone();
-    assert_eq!(ages.to_primitive().unwrap().as_slice::<i32>(), vec![25]);
+    let ages = result[0].to_struct().fields()[1].clone();
+    assert_eq!(ages.to_primitive().as_slice::<i32>(), vec![25]);
 }
 
 #[test]
@@ -466,11 +460,10 @@ fn filter_or() {
         .unwrap();
 
     assert_eq!(result.len(), 1);
-    let names = result[0].to_struct().unwrap().fields()[0].clone();
+    let names = result[0].to_struct().fields()[0].clone();
     assert_eq!(
         names
             .to_varbinview()
-            .unwrap()
             .with_iterator(|iter| iter
                 .flatten()
                 .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })
@@ -478,10 +471,9 @@ fn filter_or() {
             .unwrap(),
         vec!["Joseph".to_string(), "Angela".to_string()]
     );
-    let ages = result[0].to_struct().unwrap().fields()[1].clone();
+    let ages = result[0].to_struct().fields()[1].clone();
     assert_eq!(
         ages.to_primitive()
-            .unwrap()
             .with_iterator(|iter| iter.map(|x| x.cloned()).collect::<Vec<_>>())
             .unwrap(),
         vec![Some(25), None]
@@ -524,19 +516,18 @@ fn filter_and() {
         .unwrap();
 
     assert_eq!(result.len(), 1);
-    let names = result[0].to_struct().unwrap().fields()[0].clone();
+    let names = result[0].to_struct().fields()[0].clone();
     assert_eq!(
         names
             .to_varbinview()
-            .unwrap()
             .with_iterator(|iter| iter
                 .map(|s| s.map(|st| unsafe { String::from_utf8_unchecked(st.to_vec()) }))
                 .collect::<Vec<_>>())
             .unwrap(),
         vec![Some("Joseph".to_string()), None]
     );
-    let ages = result[0].to_struct().unwrap().fields()[1].clone();
-    assert_eq!(ages.to_primitive().unwrap().as_slice::<i32>(), vec![25, 31]);
+    let ages = result[0].to_struct().fields()[1].clone();
+    assert_eq!(ages.to_primitive().as_slice::<i32>(), vec![25, 31]);
 }
 
 #[test]
@@ -571,8 +562,7 @@ fn test_with_indices_simple() {
         .unwrap()
         .read_all()
         .unwrap()
-        .to_struct()
-        .unwrap();
+        .to_struct();
 
     assert_eq!(actual_kept_array.len(), 0);
 
@@ -587,9 +577,8 @@ fn test_with_indices_simple() {
         .unwrap()
         .read_all()
         .unwrap()
-        .to_struct()
-        .unwrap();
-    let actual_kept_numbers_array = actual_kept_array.fields()[0].to_primitive().unwrap();
+        .to_struct();
+    let actual_kept_numbers_array = actual_kept_array.fields()[0].to_primitive();
 
     let expected_kept_numbers: Vec<i16> = kept_indices
         .iter()
@@ -608,9 +597,8 @@ fn test_with_indices_simple() {
         .unwrap()
         .read_all()
         .unwrap()
-        .to_struct()
-        .unwrap();
-    let actual_numbers_array = actual_array.fields()[0].to_primitive().unwrap();
+        .to_struct();
+    let actual_numbers_array = actual_array.fields()[0].to_primitive();
     let actual_numbers = actual_numbers_array.as_slice::<i16>();
 
     assert_eq!(expected_numbers, actual_numbers);
@@ -650,13 +638,10 @@ fn test_with_indices_on_two_columns() {
         .read_all()
         .unwrap()
         .to_struct()
-        .unwrap()
-        .to_struct()
-        .unwrap();
+        .to_struct();
 
     let strings_actual = array.fields()[0]
         .to_varbinview()
-        .unwrap()
         .with_iterator(|x| {
             x.map(|x| unsafe { String::from_utf8_unchecked(x.unwrap().to_vec()) })
                 .collect::<Vec<_>>()
@@ -670,7 +655,7 @@ fn test_with_indices_on_two_columns() {
             .collect::<Vec<_>>()
     );
 
-    let numbers_actual_array = array.fields()[1].to_primitive().unwrap();
+    let numbers_actual_array = array.fields()[1].to_primitive();
     let numbers_actual = numbers_actual_array.as_slice::<u32>();
     assert_eq!(
         numbers_actual,
@@ -713,8 +698,7 @@ fn test_with_indices_and_with_row_filter_simple() {
         .unwrap()
         .read_all()
         .unwrap()
-        .to_struct()
-        .unwrap();
+        .to_struct();
 
     assert_eq!(actual_kept_array.len(), 0);
 
@@ -730,10 +714,9 @@ fn test_with_indices_and_with_row_filter_simple() {
         .unwrap()
         .read_all()
         .unwrap()
-        .to_struct()
-        .unwrap();
+        .to_struct();
 
-    let actual_kept_numbers_array = actual_kept_array.fields()[0].to_primitive().unwrap();
+    let actual_kept_numbers_array = actual_kept_array.fields()[0].to_primitive();
 
     let expected_kept_numbers: Buffer<i16> = kept_indices
         .iter()
@@ -754,10 +737,9 @@ fn test_with_indices_and_with_row_filter_simple() {
         .unwrap()
         .read_all()
         .unwrap()
-        .to_struct()
-        .unwrap();
+        .to_struct();
 
-    let actual_numbers_array = actual_array.fields()[0].to_primitive().unwrap();
+    let actual_numbers_array = actual_array.fields()[0].to_primitive();
     let actual_numbers = actual_numbers_array.as_slice::<i16>();
 
     assert_eq!(
@@ -813,15 +795,13 @@ fn filter_string_chunked() {
         .unwrap()
         .read_all()
         .unwrap()
-        .to_struct()
-        .unwrap();
+        .to_struct();
 
     assert_eq!(actual_array.len(), 1);
     let names = &actual_array.fields()[0];
     assert_eq!(
         names
             .to_varbinview()
-            .unwrap()
             .with_iterator(|iter| iter
                 .flatten()
                 .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })
@@ -830,7 +810,7 @@ fn filter_string_chunked() {
         vec!["Joseph".to_string()]
     );
     let ages = &actual_array.fields()[1];
-    assert_eq!(ages.to_primitive().unwrap().as_slice::<i32>(), vec![25]);
+    assert_eq!(ages.to_primitive().as_slice::<i32>(), vec![25]);
 }
 
 #[test]
@@ -906,15 +886,13 @@ fn test_pruning_with_or() {
         .unwrap()
         .read_all()
         .unwrap()
-        .to_struct()
-        .unwrap();
+        .to_struct();
 
     assert_eq!(actual_array.len(), 10);
     let letters = &actual_array.fields()[0];
     assert_eq!(
         letters
             .to_varbinview()
-            .unwrap()
             .with_iterator(|iter| iter
                 .map(|opt| opt.map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) }))
                 .collect::<Vec<_>>())
@@ -987,8 +965,7 @@ fn test_repeated_projection() {
         .unwrap()
         .read_all()
         .unwrap()
-        .to_struct()
-        .unwrap();
+        .to_struct();
 
     assert_eq!(
         (0..actual.len())
@@ -1017,7 +994,7 @@ fn chunked_file() -> VortexResult<VortexFile> {
 #[test]
 fn basic_file_roundtrip() -> VortexResult<()> {
     let vxf = chunked_file()?;
-    let result = vxf.scan()?.into_array_iter()?.read_all()?.to_primitive()?;
+    let result = vxf.scan()?.into_array_iter()?.read_all()?.to_primitive();
 
     assert_eq!(result.as_slice::<i32>(), &[0, 1, 2, 3, 4, 5, 6, 7, 8]);
 
@@ -1060,7 +1037,7 @@ fn file_take() -> VortexResult<()> {
         .with_row_indices(buffer![0, 1, 8])
         .into_array_iter()?
         .read_all()?
-        .to_primitive()?;
+        .to_primitive();
 
     assert_eq!(result.as_slice::<i32>(), &[0, 1, 8]);
 
@@ -1126,13 +1103,13 @@ fn write_nullable_nested_struct() -> VortexResult<()> {
     )?
     .into_array();
 
-    let result = round_trip(&array, Ok)?.to_struct()?;
+    let result = round_trip(&array, Ok)?.to_struct();
 
     assert_eq!(result.len(), 3);
     assert_eq!(result.fields().len(), 1);
     assert!(result.all_valid());
 
-    let nested_struct = result.field_by_name("struct")?.to_struct()?;
+    let nested_struct = result.field_by_name("struct")?.to_struct();
     assert_eq!(nested_struct.dtype(), &nested_dtype);
     assert_eq!(nested_struct.len(), 3);
     assert!(nested_struct.all_invalid());

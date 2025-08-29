@@ -20,7 +20,7 @@ use vortex_array::vtable::{
 use vortex_array::{ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable};
 use vortex_buffer::{BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::{DType, PType, half};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
+use vortex_error::{VortexError, VortexResult, VortexUnwrap, vortex_err};
 use vortex_scalar::Scalar;
 
 use crate::serde::PcoMetadata;
@@ -89,7 +89,7 @@ fn number_type_from_dtype(dtype: &DType) -> NumberType {
 
 fn collect_valid(parray: &PrimitiveArray) -> VortexResult<PrimitiveArray> {
     let mask = parray.validity_mask();
-    filter(&parray.to_array(), &mask)?.to_primitive()
+    Ok(filter(&parray.to_array(), &mask)?.to_primitive())
 }
 
 fn vortex_err_from_pco(err: PcoError) -> VortexError {
@@ -228,7 +228,7 @@ impl PcoArray {
         }
     }
 
-    pub fn decompress(&self) -> VortexResult<ArrayRef> {
+    pub fn decompress(&self) -> PrimitiveArray {
         // To start, we figure out which chunks and pages we need to decompress, and with
         // what value offset into the first such page.
         let number_type = number_type_from_dtype(&self.dtype);
@@ -237,33 +237,33 @@ impl PcoArray {
             NumberType<T> => {
               self.decompress_values_typed::<T>()
             }
-        )?;
+        );
 
-        let primitive = PrimitiveArray::from_values_byte_buffer(
+        PrimitiveArray::from_values_byte_buffer(
             values_byte_buffer,
             self.dtype.as_ptype(),
             self.unsliced_validity
                 .slice(self.slice_start..self.slice_stop),
             self.slice_stop - self.slice_start,
-        )?;
-        Ok(primitive.into_array())
+        )
     }
 
     #[allow(clippy::unwrap_in_result, clippy::unwrap_used)]
-    fn decompress_values_typed<T: Number>(&self) -> VortexResult<ByteBuffer> {
+    fn decompress_values_typed<T: Number>(&self) -> ByteBuffer {
         // To start, we figure out what range of values we need to decompress.
         let slice_n_rows = self.slice_stop - self.slice_start;
         let slice_value_indices = self
             .unsliced_validity
             .to_mask(self.unsliced_n_rows)
-            .valid_counts_for_indices(&[self.slice_start, self.slice_stop])?;
+            .valid_counts_for_indices(&[self.slice_start, self.slice_stop]);
         let slice_value_start = slice_value_indices[0];
         let slice_value_stop = slice_value_indices[1];
 
         // Then we decompress those pages into a buffer. Note that these values
         // may exceed the bounds of the slice, so we need to slice later.
-        let (fd, _) =
-            FileDecompressor::new(self.metadata.header.as_slice()).map_err(vortex_err_from_pco)?;
+        let (fd, _) = FileDecompressor::new(self.metadata.header.as_slice())
+            .map_err(vortex_err_from_pco)
+            .vortex_unwrap();
         let mut decompressed_values = BufferMut::<T>::with_capacity(slice_n_rows);
         let mut page_idx = 0;
         let mut page_value_start = 0;
@@ -291,16 +291,19 @@ impl PcoArray {
                     if cd.is_none() {
                         let (new_cd, _) = fd
                             .chunk_decompressor(chunk_meta_bytes)
-                            .map_err(vortex_err_from_pco)?;
+                            .map_err(vortex_err_from_pco)
+                            .vortex_unwrap();
                         cd = Some(new_cd);
                     }
                     let mut pd = cd
                         .as_mut()
                         .unwrap()
                         .page_decompressor(page, page_n_values)
-                        .map_err(vortex_err_from_pco)?;
+                        .map_err(vortex_err_from_pco)
+                        .vortex_unwrap();
                     pd.decompress(&mut decompressed_values[old_len..new_len])
-                        .map_err(vortex_err_from_pco)?;
+                        .map_err(vortex_err_from_pco)
+                        .vortex_unwrap();
                 } else {
                     n_skipped_values += page_n_values;
                 }
@@ -312,10 +315,10 @@ impl PcoArray {
 
         // Slice only the values requested.
         let value_offset = slice_value_start - n_skipped_values;
-        Ok(decompressed_values
+        decompressed_values
             .freeze()
             .slice(value_offset..value_offset + slice_n_rows)
-            .into_byte_buffer())
+            .into_byte_buffer()
     }
 
     pub(crate) fn _slice(&self, start: usize, stop: usize) -> Self {
@@ -365,8 +368,8 @@ impl ArrayVTable<PcoVTable> for PcoVTable {
 }
 
 impl CanonicalVTable<PcoVTable> for PcoVTable {
-    fn canonicalize(array: &PcoArray) -> VortexResult<Canonical> {
-        array.decompress()?.to_canonical()
+    fn canonicalize(array: &PcoArray) -> Canonical {
+        array.decompress().to_canonical()
     }
 }
 
@@ -376,10 +379,6 @@ impl OperationsVTable<PcoVTable> for PcoVTable {
     }
 
     fn scalar_at(array: &PcoArray, index: usize) -> Scalar {
-        array
-            ._slice(index, index + 1)
-            .decompress()
-            .vortex_expect("pcodec decompress")
-            .scalar_at(0)
+        array._slice(index, index + 1).decompress().scalar_at(0)
     }
 }

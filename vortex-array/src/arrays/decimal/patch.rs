@@ -5,7 +5,7 @@ use itertools::Itertools as _;
 use num_traits::AsPrimitive;
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{DecimalDType, NativePType, match_each_integer_ptype};
-use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
+use vortex_error::{VortexExpect as _, vortex_panic};
 use vortex_scalar::{BigCast, NativeDecimalType, match_each_decimal_value_type};
 
 use super::{DecimalArray, compatible_storage_type};
@@ -16,17 +16,17 @@ use crate::vtable::ValidityHelper;
 
 impl DecimalArray {
     #[allow(clippy::cognitive_complexity)]
-    pub fn patch(self, patches: &Patches) -> VortexResult<Self> {
+    pub fn patch(self, patches: &Patches) -> Self {
         let offset = patches.offset();
-        let patch_indices = patches.indices().to_primitive()?;
-        let patch_values = patches.values().to_decimal()?;
+        let patch_indices = patches.indices().to_primitive();
+        let patch_values = patches.values().to_decimal();
 
         let patched_validity = self.validity().clone().patch(
             self.len(),
             offset,
             patch_indices.as_ref(),
             patch_values.validity(),
-        )?;
+        );
         assert_eq!(self.decimal_dtype(), patch_values.decimal_dtype());
 
         match_each_integer_ptype!(patch_indices.ptype(), |I| {
@@ -56,14 +56,14 @@ fn patch_typed<I, ValuesDVT, PatchDVT>(
     patch_indices_offset: usize,
     patch_values: Buffer<PatchDVT>,
     patched_validity: Validity,
-) -> VortexResult<DecimalArray>
+) -> DecimalArray
 where
     I: NativePType + AsPrimitive<usize>,
     PatchDVT: NativeDecimalType,
     ValuesDVT: NativeDecimalType,
 {
     if !compatible_storage_type(ValuesDVT::VALUES_TYPE, decimal_dtype) {
-        vortex_bail!(
+        vortex_panic!(
             "patch_typed: {:?} cannot represent every value in {}.",
             ValuesDVT::VALUES_TYPE,
             decimal_dtype
@@ -76,9 +76,5 @@ where
         );
     }
 
-    Ok(DecimalArray::new(
-        buffer.freeze(),
-        decimal_dtype,
-        patched_validity,
-    ))
+    DecimalArray::new(buffer.freeze(), decimal_dtype, patched_validity)
 }

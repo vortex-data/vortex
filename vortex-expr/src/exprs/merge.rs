@@ -96,7 +96,7 @@ impl VTable for MergeVTable {
                 vortex_bail!("merge expects non-nullable struct input");
             }
 
-            let struct_array = value_array.to_struct()?;
+            let struct_array = value_array.to_struct();
 
             for (i, field_name) in struct_array.names().iter().enumerate() {
                 let array = struct_array.fields()[i].clone();
@@ -226,11 +226,11 @@ mod tests {
             vortex_bail!("empty field path");
         };
 
-        let mut array = array.to_struct()?.field_by_name(field)?.clone();
+        let mut array = array.to_struct().field_by_name(field)?.clone();
         for field in field_path {
-            array = array.to_struct()?.field_by_name(field)?.clone();
+            array = array.to_struct().field_by_name(field)?.clone();
         }
-        array.to_primitive()
+        Ok(array.to_primitive())
     }
 
     #[test]
@@ -367,15 +367,13 @@ mod tests {
         let actual_array = expr
             .evaluate(&Scope::new(test_array.clone()))
             .unwrap()
-            .to_struct()
-            .unwrap();
+            .to_struct();
 
         assert_eq!(
             actual_array
                 .field_by_name("a")
                 .unwrap()
                 .to_struct()
-                .unwrap()
                 .names()
                 .iter()
                 .map(|name| name.as_ref())
@@ -416,8 +414,7 @@ mod tests {
         let actual_array = expr
             .evaluate(&Scope::new(test_array.clone()))
             .unwrap()
-            .to_struct()
-            .unwrap();
+            .to_struct();
 
         assert_eq!(actual_array.names(), ["a", "c", "b", "d"]);
     }

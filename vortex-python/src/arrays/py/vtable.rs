@@ -65,7 +65,7 @@ impl ArrayVTable<PythonVTable> for PythonVTable {
 }
 
 impl CanonicalVTable<PythonVTable> for PythonVTable {
-    fn canonicalize(_array: &PythonArray) -> VortexResult<Canonical> {
+    fn canonicalize(_array: &PythonArray) -> Canonical {
         todo!()
     }
 }

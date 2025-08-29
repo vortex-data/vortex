@@ -142,18 +142,17 @@ impl ArrayBuilder for StructBuilder {
         self.nulls.append_null();
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) -> VortexResult<()> {
-        let array = array.to_struct()?;
+    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+        let array = array.to_struct();
 
         for (a, builder) in (0..array.struct_fields().nfields())
             .map(|i| &array.fields()[i])
             .zip_eq(self.builders.iter_mut())
         {
-            a.append_to_builder(builder.as_mut())?;
+            a.append_to_builder(builder.as_mut());
         }
 
         self.nulls.append_validity_mask(array.validity_mask());
-        Ok(())
     }
 
     fn ensure_capacity(&mut self, capacity: usize) {

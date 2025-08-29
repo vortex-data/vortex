@@ -27,7 +27,7 @@ pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Op
                 #[allow(clippy::cast_possible_truncation)]
                 PrimitiveArray::new(
                     array
-                        .to_primitive()?
+                        .to_primitive()
                         .as_slice::<In>()
                         .iter()
                         .map(|v| *v as Out)

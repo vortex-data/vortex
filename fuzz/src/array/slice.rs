@@ -28,12 +28,12 @@ pub fn slice_canonical_array(
 
     match array.dtype() {
         DType::Bool(_) => {
-            let bool_array = array.to_bool()?;
+            let bool_array = array.to_bool();
             let sliced_bools = bool_array.boolean_buffer().slice(start, stop - start);
             Ok(BoolArray::new(sliced_bools, validity).into_array())
         }
         DType::Primitive(p, _) => {
-            let primitive_array = array.to_primitive()?;
+            let primitive_array = array.to_primitive();
             match_each_native_ptype!(p, |P| {
                 Ok(
                     PrimitiveArray::new(primitive_array.buffer::<P>().slice(start..stop), validity)
@@ -42,7 +42,7 @@ pub fn slice_canonical_array(
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
-            let utf8 = array.to_varbinview()?;
+            let utf8 = array.to_varbinview();
             let values =
                 utf8.with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>())?;
             Ok(VarBinViewArray::from_iter(
@@ -52,7 +52,7 @@ pub fn slice_canonical_array(
             .into_array())
         }
         DType::Struct(..) => {
-            let struct_array = array.to_struct()?;
+            let struct_array = array.to_struct();
             let sliced_children = struct_array
                 .fields()
                 .iter()
@@ -67,9 +67,9 @@ pub fn slice_canonical_array(
             .map(|a| a.into_array())
         }
         DType::List(..) => {
-            let list_array = array.to_list()?;
+            let list_array = array.to_list();
             let offsets =
-                slice_canonical_array(list_array.offsets(), start, stop + 1)?.to_primitive()?;
+                slice_canonical_array(list_array.offsets(), start, stop + 1)?.to_primitive();
 
             let (start, end) = match_each_integer_ptype!(offsets.ptype(), |P| {
                 let offset_slice = offsets.as_slice::<P>();
@@ -88,7 +88,7 @@ pub fn slice_canonical_array(
         }
         DType::FixedSizeList(..) => unimplemented!("TODO(connor)[FixedSizeList]"),
         DType::Decimal(decimal_dtype, _) => {
-            let decimal_array = array.to_decimal()?;
+            let decimal_array = array.to_decimal();
             Ok(
                 match_each_decimal_value_type!(decimal_array.values_type(), |D| {
                     DecimalArray::new(

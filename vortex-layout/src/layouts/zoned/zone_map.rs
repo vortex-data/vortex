@@ -266,17 +266,11 @@ mod tests {
             ]
         );
         assert_eq!(
-            stats_table.array.fields()[1]
-                .to_bool()
-                .vortex_unwrap()
-                .boolean_buffer(),
+            stats_table.array.fields()[1].to_bool().boolean_buffer(),
             &BooleanBuffer::from(vec![false, true])
         );
         assert_eq!(
-            stats_table.array.fields()[3]
-                .to_bool()
-                .vortex_unwrap()
-                .boolean_buffer(),
+            stats_table.array.fields()[3].to_bool().boolean_buffer(),
             &BooleanBuffer::from(vec![true, false])
         );
     }
@@ -298,17 +292,11 @@ mod tests {
             ]
         );
         assert_eq!(
-            stats_table.array.fields()[1]
-                .to_bool()
-                .vortex_unwrap()
-                .boolean_buffer(),
+            stats_table.array.fields()[1].to_bool().boolean_buffer(),
             &BooleanBuffer::from(vec![false])
         );
         assert_eq!(
-            stats_table.array.fields()[3]
-                .to_bool()
-                .vortex_unwrap()
-                .boolean_buffer(),
+            stats_table.array.fields()[3].to_bool().boolean_buffer(),
             &BooleanBuffer::from(vec![false])
         );
     }

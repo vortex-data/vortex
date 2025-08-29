@@ -188,7 +188,7 @@ impl ArrayVTable<SequenceVTable> for SequenceVTable {
 }
 
 impl CanonicalVTable<SequenceVTable> for SequenceVTable {
-    fn canonicalize(array: &SequenceArray) -> VortexResult<Canonical> {
+    fn canonicalize(array: &SequenceArray) -> Canonical {
         let prim = match_each_native_ptype!(array.ptype(), |P| {
             let base = array.base().as_primitive::<P>();
             let multiplier = array.multiplier().as_primitive::<P>();
@@ -199,7 +199,7 @@ impl CanonicalVTable<SequenceVTable> for SequenceVTable {
             PrimitiveArray::new(values, array.dtype.nullability().into())
         });
 
-        Ok(Canonical::Primitive(prim))
+        Canonical::Primitive(prim)
     }
 }
 
@@ -254,6 +254,7 @@ pub struct SequenceEncoding;
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_dtype::Nullability;
     use vortex_scalar::{Scalar, ScalarValue};
@@ -267,11 +268,7 @@ mod tests {
         let canon = PrimitiveArray::from_iter((0..4).map(|i| 2i64 + i * 3));
 
         assert_eq!(
-            arr.to_canonical()
-                .unwrap()
-                .into_primitive()
-                .unwrap()
-                .as_slice::<i64>(),
+            arr.to_primitive().as_slice::<i64>(),
             canon.as_slice::<i64>()
         )
     }
@@ -285,11 +282,7 @@ mod tests {
         let canon = PrimitiveArray::from_iter((2..3).map(|i| 2i64 + i * 3));
 
         assert_eq!(
-            arr.to_canonical()
-                .unwrap()
-                .into_primitive()
-                .unwrap()
-                .as_slice::<i64>(),
+            arr.to_primitive().as_slice::<i64>(),
             canon.as_slice::<i64>()
         )
     }

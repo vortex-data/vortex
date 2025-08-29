@@ -52,7 +52,7 @@ fn compress(bencher: Bencher, (length, run_step): (usize, usize)) {
 
     bencher
         .with_inputs(|| values.clone())
-        .bench_refs(|values| runend_encode(values).unwrap());
+        .bench_refs(|values| runend_encode(values));
 }
 
 #[divan::bench(types = [u8, u16, u32, u64], args = BENCH_ARGS)]
@@ -72,7 +72,7 @@ fn decompress<T: NativePType + PrimInt>(bencher: Bencher, (length, run_step): (u
 
     bencher
         .with_inputs(|| run_end_array.to_array())
-        .bench_values(|array| array.to_canonical().unwrap());
+        .bench_values(|array| array.to_canonical());
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -87,7 +87,7 @@ fn take_indices(bencher: Bencher, (length, run_step): (usize, usize)) {
     );
 
     let source_array = PrimitiveArray::from_iter(0..(length as i32)).into_array();
-    let (ends, values) = runend_encode(&values).unwrap();
+    let (ends, values) = runend_encode(&values);
     let runend_array = RunEndArray::try_new(ends.into_array(), values).unwrap();
 
     bencher

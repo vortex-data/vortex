@@ -806,7 +806,7 @@ fn test_slice_aggregate_consistency(array: &dyn Array) {
 
     // Get sliced array and canonical slice
     let sliced = array.slice(start..end);
-    let canonical = array.to_canonical().vortex_unwrap();
+    let canonical = array.to_canonical();
     let canonical_sliced = canonical.as_ref().slice(start..end);
 
     // Test null count through invalid_count
@@ -895,7 +895,7 @@ fn test_cast_slice_consistency(array: &dyn Array) {
     let end = 7.min(len - 2).max(start + 1); // Ensure we have at least 1 element
 
     // Get canonical form of the original array
-    let canonical = array.to_canonical().vortex_unwrap();
+    let canonical = array.to_canonical();
 
     // Choose appropriate target dtype based on the array's type
     let target_dtypes = match array.dtype() {

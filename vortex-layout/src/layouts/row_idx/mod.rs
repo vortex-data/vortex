@@ -319,8 +319,7 @@ mod tests {
                     .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                     .await
                     .unwrap()
-                    .to_bool()
-                    .unwrap();
+                    .to_bool();
 
             assert_eq!(
                 &BooleanBuffer::from_iter([false, false, true, false, false]),
@@ -359,8 +358,7 @@ mod tests {
                     .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                     .await
                     .unwrap()
-                    .to_bool()
-                    .unwrap();
+                    .to_bool();
 
             assert_eq!(
                 &BooleanBuffer::from_iter([false, false, false, false, true]),
@@ -403,8 +401,7 @@ mod tests {
                     .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                     .await
                     .unwrap()
-                    .to_bool()
-                    .unwrap();
+                    .to_bool();
 
             assert_eq!(
                 vec![true, false, true, false, true],

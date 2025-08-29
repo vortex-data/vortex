@@ -73,8 +73,7 @@ mod test {
 
         let taken = take(encoded.as_ref(), PrimitiveArray::from_iter([0, 2]).as_ref())
             .unwrap()
-            .to_primitive()
-            .unwrap();
+            .to_primitive();
 
         assert_eq!(taken.as_slice::<T>(), &[a, outlier]);
     }
@@ -100,8 +99,7 @@ mod test {
             PrimitiveArray::from_option_iter([Some(0), Some(2), None]).as_ref(),
         )
         .unwrap()
-        .to_primitive()
-        .unwrap();
+        .to_primitive();
 
         assert_eq!(taken.as_slice::<T>()[0], a);
         assert_eq!(taken.as_slice::<T>()[1], outlier);

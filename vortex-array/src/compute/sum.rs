@@ -156,7 +156,7 @@ pub fn sum_impl(
             array.encoding_id()
         );
     }
-    sum(array.to_canonical()?.as_ref())
+    sum(array.to_canonical().as_ref())
 }
 
 #[cfg(test)]

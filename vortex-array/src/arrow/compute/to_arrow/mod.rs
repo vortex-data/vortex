@@ -111,7 +111,7 @@ impl ComputeFnVTable for ToArrow {
 
         // Fall back to canonicalizing and then converting.
         if !array.is_canonical() {
-            let canonical_array = array.to_canonical()?;
+            let canonical_array = array.to_canonical();
             let arrow_array = to_arrow_opts(
                 canonical_array.as_ref(),
                 &ToArrowOptions {

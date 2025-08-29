@@ -155,10 +155,8 @@ impl ArrayBuilder for DecimalBuilder {
         self.nulls.append_n_nulls(n);
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) -> VortexResult<()> {
-        let decimal_array = array
-            .to_decimal()
-            .vortex_expect("we checked that the array had `DType::Decimal`");
+    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+        let decimal_array = array.to_decimal();
 
         match_each_decimal_value_type!(decimal_array.values_type(), |D| {
             // Extends the values buffer from another buffer of type D where D can be coerced to the
@@ -169,8 +167,6 @@ impl ArrayBuilder for DecimalBuilder {
 
         self.nulls
             .append_validity_mask(decimal_array.validity_mask());
-
-        Ok(())
     }
 
     fn ensure_capacity(&mut self, capacity: usize) {
@@ -268,7 +264,7 @@ mod tests {
         let i8s = i8s.finish();
 
         let mut i128s = DecimalBuilder::new::<i128>(2, 1, false.into());
-        i128s.extend_from_array(&i8s).unwrap();
+        i128s.extend_from_array(&i8s);
         let i128s = i128s.finish();
 
         for i in 0..i8s.len() {

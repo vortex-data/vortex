@@ -118,7 +118,7 @@ impl EncodeVTable<ALPRDVTable> for ALPRDVTable {
         canonical: &Canonical,
         like: Option<&ALPRDArray>,
     ) -> VortexResult<Option<ALPRDArray>> {
-        let parray = canonical.clone().into_primitive()?;
+        let parray = canonical.clone().into_primitive();
 
         let alprd_array = match like {
             None => {

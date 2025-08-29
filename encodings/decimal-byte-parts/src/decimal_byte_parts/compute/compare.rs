@@ -149,11 +149,7 @@ mod tests {
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
         assert_eq!(
-            res.to_bool()
-                .unwrap()
-                .boolean_buffer()
-                .iter()
-                .collect::<Vec<_>>(),
+            res.to_bool().boolean_buffer().iter().collect::<Vec<_>>(),
             vec![false, false, true]
         );
     }
@@ -210,22 +206,13 @@ mod tests {
 
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
-        assert_eq!(
-            res.to_bool().unwrap().bool_vec().unwrap(),
-            vec![false, false, false]
-        );
+        assert_eq!(res.to_bool().bool_vec().unwrap(), vec![false, false, false]);
 
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Gt).unwrap();
-        assert_eq!(
-            res.to_bool().unwrap().bool_vec().unwrap(),
-            vec![true, true, true]
-        );
+        assert_eq!(res.to_bool().bool_vec().unwrap(), vec![true, true, true]);
 
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Lt).unwrap();
-        assert_eq!(
-            res.to_bool().unwrap().bool_vec().unwrap(),
-            vec![false, false, false]
-        );
+        assert_eq!(res.to_bool().bool_vec().unwrap(), vec![false, false, false]);
 
         // This cannot be converted to a i32.
         let rhs = ConstantArray::new(
@@ -235,21 +222,12 @@ mod tests {
 
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
-        assert_eq!(
-            res.to_bool().unwrap().bool_vec().unwrap(),
-            vec![false, false, false]
-        );
+        assert_eq!(res.to_bool().bool_vec().unwrap(), vec![false, false, false]);
 
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Gt).unwrap();
-        assert_eq!(
-            res.to_bool().unwrap().bool_vec().unwrap(),
-            vec![false, false, false]
-        );
+        assert_eq!(res.to_bool().bool_vec().unwrap(), vec![false, false, false]);
 
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Lt).unwrap();
-        assert_eq!(
-            res.to_bool().unwrap().bool_vec().unwrap(),
-            vec![true, true, true]
-        );
+        assert_eq!(res.to_bool().bool_vec().unwrap(), vec![true, true, true]);
     }
 }

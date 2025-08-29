@@ -33,7 +33,7 @@
 use std::any::Any;
 
 use vortex_dtype::{DType, match_each_native_ptype};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexResult, vortex_bail, vortex_err, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::{
     BinaryScalar, BoolScalar, DecimalValue, ExtScalar, ListScalar, PrimitiveScalar, Scalar,
@@ -232,14 +232,14 @@ pub trait ArrayBuilder: Send {
     ///
     /// The array that must have an equal [`DType`] to the array builder's `DType` (with nullability
     /// superset semantics).
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) -> VortexResult<()>;
+    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array);
 
     /// Extends the array with the provided array, canonicalizing if necessary.
     ///
     /// Implementors must validate that the passed in [`Array`] has the correct [`DType`].
-    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
+    fn extend_from_array(&mut self, array: &dyn Array) {
         if !self.dtype().eq_with_nullability_superset(array.dtype()) {
-            vortex_bail!(
+            vortex_panic!(
                 "tried to extend a builder with `DType` {} with an array with `DType {}",
                 self.dtype(),
                 array.dtype()

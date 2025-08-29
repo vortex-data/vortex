@@ -57,7 +57,7 @@ pub(crate) fn new_exporter(
         }
     };
 
-    let codes = array.codes().to_primitive()?;
+    let codes = array.codes().to_primitive();
     match_each_integer_ptype!(codes.ptype(), |I| {
         Ok(Box::new(DictExporter {
             values_vector,

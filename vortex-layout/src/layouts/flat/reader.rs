@@ -355,11 +355,10 @@ mod test {
                 .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await
                 .unwrap()
-                .to_primitive()
-                .unwrap();
+                .to_primitive();
 
             assert_eq!(
-                array.to_primitive().unwrap().as_slice::<i32>(),
+                array.to_primitive().as_slice::<i32>(),
                 result.as_slice::<i32>()
             );
         })
@@ -396,8 +395,7 @@ mod test {
                 .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await
                 .unwrap()
-                .to_bool()
-                .unwrap();
+                .to_bool();
 
             assert_eq!(
                 &BooleanBuffer::from_iter([false, false, false, true, true]),
@@ -436,8 +434,7 @@ mod test {
                 .invoke(Mask::new_true(2))
                 .await
                 .unwrap()
-                .to_primitive()
-                .unwrap();
+                .to_primitive();
 
             assert_eq!(result.as_slice::<i32>(), &[3, 4],);
         })

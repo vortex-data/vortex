@@ -4,7 +4,6 @@
 use std::any::Any;
 
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::arrays::NullArray;
@@ -53,9 +52,8 @@ impl ArrayBuilder for NullBuilder {
         self.length += n;
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) -> VortexResult<()> {
+    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
         self.append_nulls(array.len());
-        Ok(())
     }
 
     fn ensure_capacity(&mut self, _capacity: usize) {}

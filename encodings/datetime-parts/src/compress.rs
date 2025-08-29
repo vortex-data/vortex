@@ -22,14 +22,14 @@ pub struct TemporalParts {
 /// Splitting the components by granularity creates more small values, which enables better
 /// cascading compression.
 pub fn split_temporal(array: TemporalArray) -> VortexResult<TemporalParts> {
-    let temporal_values = array.temporal_values().to_primitive()?;
+    let temporal_values = array.temporal_values().to_primitive();
 
     // After this operation, timestamps will be a PrimitiveArray<i64>
     let timestamps = cast(
         temporal_values.as_ref(),
         &DType::Primitive(PType::I64, temporal_values.dtype().nullability()),
     )?
-    .to_primitive()?;
+    .to_primitive();
 
     let length = timestamps.len();
     let mut days = BufferMut::with_capacity(length);
@@ -101,14 +101,8 @@ mod tests {
             seconds,
             subseconds,
         } = split_temporal(temporal_array).unwrap();
-        assert_eq!(days.to_primitive().unwrap().validity(), &validity);
-        assert_eq!(
-            seconds.to_primitive().unwrap().validity(),
-            &Validity::NonNullable
-        );
-        assert_eq!(
-            subseconds.to_primitive().unwrap().validity(),
-            &Validity::NonNullable
-        );
+        assert_eq!(days.to_primitive().validity(), &validity);
+        assert_eq!(seconds.to_primitive().validity(), &Validity::NonNullable);
+        assert_eq!(subseconds.to_primitive().validity(), &Validity::NonNullable);
     }
 }

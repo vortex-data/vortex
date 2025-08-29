@@ -73,7 +73,7 @@ fn random_array_chunk(
     u: &mut Unstructured<'_>,
     dtype: &DType,
     chunk_len: Option<usize>,
-) -> std::result::Result<Arc<dyn Array + 'static>, arbitrary::Error> {
+) -> Result<ArrayRef> {
     match dtype {
         DType::Null => Ok(NullArray::new(
             chunk_len

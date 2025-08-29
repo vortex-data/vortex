@@ -8,7 +8,7 @@ use vortex_array::vtable::ValidityHelper;
 use vortex_array::{IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{NativePType, match_each_integer_ptype};
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 use crate::FoRArray;
 
@@ -42,19 +42,19 @@ fn compress_primitive<T: NativePType + WrappingSub + PrimInt>(
     })
 }
 
-pub fn decompress(array: &FoRArray) -> VortexResult<PrimitiveArray> {
+pub fn decompress(array: &FoRArray) -> PrimitiveArray {
     let ptype = array.ptype();
 
     // TODO(ngates): do we need this to be into_encoded() somehow?
-    let encoded = array.encoded().to_primitive()?;
+    let encoded = array.encoded().to_primitive();
     let validity = encoded.validity().clone();
 
-    Ok(match_each_integer_ptype!(ptype, |T| {
+    match_each_integer_ptype!(ptype, |T| {
         let min = array
             .reference_scalar()
             .as_primitive()
             .typed_value::<T>()
-            .ok_or_else(|| vortex_err!("expected reference to be non-null"))?;
+            .vortex_expect("reference must be non-null");
         if min == 0 {
             encoded
         } else {
@@ -63,7 +63,7 @@ pub fn decompress(array: &FoRArray) -> VortexResult<PrimitiveArray> {
                 validity,
             )
         }
-    }))
+    })
 }
 
 fn decompress_primitive<T: NativePType + WrappingAdd + PrimInt>(
@@ -90,7 +90,7 @@ mod test {
         let compressed = FoRArray::encode(array.clone()).unwrap();
         assert_eq!(i32::try_from(compressed.reference_scalar()).unwrap(), 1);
 
-        let decompressed = compressed.to_primitive().unwrap();
+        let decompressed = compressed.to_primitive();
         assert_eq!(decompressed.as_slice::<i32>(), array.as_slice::<i32>());
     }
 
@@ -128,7 +128,7 @@ mod test {
         // Create a range offset by a million
         let array = PrimitiveArray::from_iter((0u32..100_000).step_by(1024).map(|v| v + 1_000_000));
         let compressed = FoRArray::encode(array.clone()).unwrap();
-        let decompressed = compressed.to_primitive().unwrap();
+        let decompressed = compressed.to_primitive();
         assert_eq!(decompressed.as_slice::<u32>(), array.as_slice::<u32>());
     }
 
@@ -148,13 +148,12 @@ mod test {
         let encoded = compressed
             .encoded()
             .to_primitive()
-            .unwrap()
             .reinterpret_cast(PType::U8);
         let encoded_bytes: &[u8] = encoded.as_slice::<u8>();
         let unsigned: Vec<u8> = (0..=u8::MAX).collect_vec();
         assert_eq!(encoded_bytes, unsigned.as_slice());
 
-        let decompressed = compressed.to_primitive().unwrap();
+        let decompressed = compressed.to_primitive();
         assert_eq!(decompressed.as_slice::<i8>(), array.as_slice::<i8>());
         array
             .as_slice::<i8>()

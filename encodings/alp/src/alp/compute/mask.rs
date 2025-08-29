@@ -51,7 +51,7 @@ mod test {
     ].into_array())]
     fn test_mask_alp_conformance(#[case] array: vortex_array::ArrayRef) {
         let alp = ALPEncoding
-            .encode(&array.to_canonical().unwrap(), None)
+            .encode(&array.to_canonical(), None)
             .unwrap()
             .unwrap();
         test_mask_conformance(alp.as_ref());

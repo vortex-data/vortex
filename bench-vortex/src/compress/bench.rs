@@ -13,7 +13,6 @@ use serde::Serialize;
 use tokio::runtime::Runtime;
 use vortex::arrays::{ChunkedArray, ChunkedVTable};
 use vortex::builders::builder_with_capacity;
-use vortex::error::VortexUnwrap;
 use vortex::{Array, IntoArray};
 
 use crate::Format;
@@ -77,7 +76,7 @@ pub fn benchmark_compress(
             .iter()
             .map(|chunk| {
                 let mut builder = builder_with_capacity(chunk.dtype(), chunk.len());
-                chunk.append_to_builder(builder.as_mut()).vortex_unwrap();
+                chunk.append_to_builder(builder.as_mut());
                 builder.finish()
             }),
     )

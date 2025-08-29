@@ -116,7 +116,7 @@ impl ValidityChild<FoRVTable> for FoRVTable {
 }
 
 impl CanonicalVTable<FoRVTable> for FoRVTable {
-    fn canonicalize(array: &FoRArray) -> VortexResult<Canonical> {
-        decompress(array).map(Canonical::Primitive)
+    fn canonicalize(array: &FoRArray) -> Canonical {
+        Canonical::Primitive(decompress(array))
     }
 }

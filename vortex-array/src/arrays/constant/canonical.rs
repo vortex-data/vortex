@@ -6,7 +6,7 @@ use std::sync::Arc;
 use arrow_buffer::BooleanBuffer;
 use vortex_buffer::{Buffer, buffer};
 use vortex_dtype::{DType, Nullability, PType, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexExpect;
 use vortex_scalar::{
     BinaryScalar, BoolScalar, DecimalValue, ExtScalar, ListScalar, Scalar, ScalarValue,
     StructScalar, Utf8Scalar, match_each_decimal_value, match_each_decimal_value_type,
@@ -24,7 +24,7 @@ use crate::vtable::CanonicalVTable;
 use crate::{Canonical, IntoArray};
 
 impl CanonicalVTable<ConstantVTable> for ConstantVTable {
-    fn canonicalize(array: &ConstantArray) -> VortexResult<Canonical> {
+    fn canonicalize(array: &ConstantArray) -> Canonical {
         let scalar = array.scalar();
 
         let validity = match array.dtype().nullability() {
@@ -35,10 +35,14 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
             },
         };
 
-        Ok(match array.dtype() {
+        match array.dtype() {
             DType::Null => Canonical::Null(NullArray::new(array.len())),
             DType::Bool(..) => Canonical::Bool(BoolArray::new(
-                if BoolScalar::try_from(scalar)?.value().unwrap_or_default() {
+                if BoolScalar::try_from(scalar)
+                    .vortex_expect("must be bool")
+                    .value()
+                    .unwrap_or_default()
+                {
                     BooleanBuffer::new_set(array.len())
                 } else {
                     BooleanBuffer::new_unset(array.len())
@@ -68,7 +72,7 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
                     let all_null = match_each_decimal_value_type!(size, |D| {
                         DecimalArray::new(Buffer::<D>::zeroed(array.len()), *decimal_type, validity)
                     });
-                    return Ok(Canonical::Decimal(all_null));
+                    return Canonical::Decimal(all_null);
                 };
 
                 let decimal_array = match_each_decimal_value!(value, |value| {
@@ -77,25 +81,21 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
                 Canonical::Decimal(decimal_array)
             }
             DType::Utf8(_) => {
-                let value = Utf8Scalar::try_from(scalar)?.value();
+                let value = Utf8Scalar::try_from(scalar)
+                    .vortex_expect("Must be a utf8 scalar")
+                    .value();
                 let const_value = value.as_ref().map(|v| v.as_bytes());
-                Canonical::VarBinView(canonical_byte_view(
-                    const_value,
-                    array.dtype(),
-                    array.len(),
-                )?)
+                Canonical::VarBinView(canonical_byte_view(const_value, array.dtype(), array.len()))
             }
             DType::Binary(_) => {
-                let value = BinaryScalar::try_from(scalar)?.value();
+                let value = BinaryScalar::try_from(scalar)
+                    .vortex_expect("must be a binary scalar")
+                    .value();
                 let const_value = value.as_ref().map(|v| v.as_slice());
-                Canonical::VarBinView(canonical_byte_view(
-                    const_value,
-                    array.dtype(),
-                    array.len(),
-                )?)
+                Canonical::VarBinView(canonical_byte_view(const_value, array.dtype(), array.len()))
             }
             DType::Struct(struct_dtype, _) => {
-                let value = StructScalar::try_from(scalar)?;
+                let value = StructScalar::try_from(scalar).vortex_expect("must be struct");
                 let fields: Vec<_> = match value.fields() {
                     Some(fields) => fields
                         .into_iter()
@@ -112,53 +112,49 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
                             .collect()
                     }
                 };
-                Canonical::Struct(StructArray::try_new_with_dtype(
+                Canonical::Struct(StructArray::new_unchecked(
                     fields,
                     struct_dtype.clone(),
                     array.len(),
                     validity,
-                )?)
+                ))
             }
             DType::List(..) => {
-                let value = ListScalar::try_from(scalar)?;
+                let value = ListScalar::try_from(scalar).vortex_expect("must be list");
                 Canonical::List(canonical_list_array(
                     value.elements(),
                     value.element_dtype(),
                     value.dtype().nullability(),
                     array.len(),
-                )?)
+                ))
             }
             DType::FixedSizeList(..) => {
                 unimplemented!("TODO(connor)[FixedSizeList]")
             }
             DType::Extension(ext_dtype) => {
-                let s = ExtScalar::try_from(scalar)?;
+                let s = ExtScalar::try_from(scalar).vortex_expect("must be an extension scalar");
 
                 let storage_scalar = s.storage();
                 let storage_self = ConstantArray::new(storage_scalar, array.len()).into_array();
                 Canonical::Extension(ExtensionArray::new(ext_dtype.clone(), storage_self))
             }
-        })
+        }
     }
 }
 
-fn canonical_byte_view(
-    scalar_bytes: Option<&[u8]>,
-    dtype: &DType,
-    len: usize,
-) -> VortexResult<VarBinViewArray> {
+fn canonical_byte_view(scalar_bytes: Option<&[u8]>, dtype: &DType, len: usize) -> VarBinViewArray {
     match scalar_bytes {
         None => {
             let views = buffer![BinaryView::from(0_u128); len];
 
             // SAFETY: for all-null the views and buffers are just zeroed, never accessed.
             unsafe {
-                Ok(VarBinViewArray::new_unchecked(
+                VarBinViewArray::new_unchecked(
                     views,
                     Default::default(),
                     dtype.clone(),
                     Validity::AllInvalid,
-                ))
+                )
             }
         }
         Some(scalar_bytes) => {
@@ -175,12 +171,12 @@ fn canonical_byte_view(
 
             // SAFETY: all the views are identical and point to a constant value.
             unsafe {
-                Ok(VarBinViewArray::new_unchecked(
+                VarBinViewArray::new_unchecked(
                     views,
                     Arc::from(buffers),
                     dtype.clone(),
                     Validity::from(dtype.nullability()),
-                ))
+                )
             }
         }
     }
@@ -191,25 +187,29 @@ fn canonical_list_array(
     element_dtype: &DType,
     list_nullability: Nullability,
     len: usize,
-) -> VortexResult<ListArray> {
+) -> ListArray {
     match values {
-        None => ListArray::try_new(
-            Canonical::empty(element_dtype).into_array(),
-            ConstantArray::new(
-                Scalar::new(
-                    DType::Primitive(PType::U64, Nullability::NonNullable),
-                    ScalarValue::from(0),
-                ),
-                len + 1,
+        None => unsafe {
+            ListArray::new_unchecked(
+                Canonical::empty(element_dtype).into_array(),
+                ConstantArray::new(
+                    Scalar::new(
+                        DType::Primitive(PType::U64, Nullability::NonNullable),
+                        ScalarValue::from(0),
+                    ),
+                    len + 1,
+                )
+                .into_array(),
+                Validity::AllInvalid,
             )
-            .into_array(),
-            Validity::AllInvalid,
-        ),
+        },
         Some(vs) => {
             let mut elements_builder = builder_with_capacity(element_dtype, len * vs.len());
             for _ in 0..len {
                 for v in &vs {
-                    elements_builder.append_scalar(v)?;
+                    elements_builder
+                        .append_scalar(v)
+                        .vortex_expect("must be a same dtype");
                 }
             }
             let offsets = if vs.is_empty() {
@@ -220,11 +220,13 @@ fn canonical_list_array(
                 )
             };
 
-            ListArray::try_new(
-                elements_builder.finish(),
-                offsets.into_array(),
-                Validity::from(list_nullability),
-            )
+            unsafe {
+                ListArray::new_unchecked(
+                    elements_builder.finish(),
+                    offsets.into_array(),
+                    Validity::from(list_nullability),
+                )
+            }
         }
     }
 }
@@ -247,7 +249,7 @@ mod tests {
     #[test]
     fn test_canonicalize_null() {
         let const_null = ConstantArray::new(Scalar::null(DType::Null), 42);
-        let actual = const_null.to_null().unwrap();
+        let actual = const_null.to_null();
         assert_eq!(actual.len(), 42);
         assert_eq!(actual.scalar_at(33), Scalar::null(DType::Null));
     }
@@ -257,7 +259,7 @@ mod tests {
         let const_array = ConstantArray::new("four".to_string(), 4);
 
         // Check all values correct.
-        let canonical = const_array.to_varbinview().unwrap();
+        let canonical = const_array.to_varbinview();
 
         assert_eq!(canonical.len(), 4);
 
@@ -274,7 +276,7 @@ mod tests {
             .statistics()
             .compute_all(&all::<Stat>().collect_vec())
             .unwrap();
-        let canonical = const_array.to_canonical().unwrap();
+        let canonical = const_array.to_canonical();
         let canonical_stats = canonical.as_ref().statistics();
 
         let stats_ref = stats.as_typed_ref(canonical.as_ref().dtype());
@@ -298,7 +300,7 @@ mod tests {
 
         // Create a ConstantArray with the f16 scalar
         let const_array = ConstantArray::new(f16_scalar.clone(), 1).into_array();
-        let canonical_const = const_array.to_primitive().unwrap();
+        let canonical_const = const_array.to_primitive();
 
         // Verify the scalar value is preserved through canonicalization
         assert_eq!(canonical_const.scalar_at(0), f16_scalar);
@@ -312,21 +314,13 @@ mod tests {
             Nullability::NonNullable,
         );
         let const_array = ConstantArray::new(list_scalar, 2).into_array();
-        let canonical_const = const_array.to_list().unwrap();
+        let canonical_const = const_array.to_list();
         assert_eq!(
-            canonical_const
-                .elements()
-                .to_primitive()
-                .unwrap()
-                .as_slice::<u64>(),
+            canonical_const.elements().to_primitive().as_slice::<u64>(),
             [1u64, 2, 1, 2]
         );
         assert_eq!(
-            canonical_const
-                .offsets()
-                .to_primitive()
-                .unwrap()
-                .as_slice::<u64>(),
+            canonical_const.offsets().to_primitive().as_slice::<u64>(),
             [0u64, 2, 4]
         );
     }
@@ -339,20 +333,10 @@ mod tests {
             Nullability::NonNullable,
         );
         let const_array = ConstantArray::new(list_scalar, 2).into_array();
-        let canonical_const = const_array.to_list().unwrap();
-        assert!(
-            canonical_const
-                .elements()
-                .to_primitive()
-                .unwrap()
-                .is_empty()
-        );
+        let canonical_const = const_array.to_list();
+        assert!(canonical_const.elements().to_primitive().is_empty());
         assert_eq!(
-            canonical_const
-                .offsets()
-                .to_primitive()
-                .unwrap()
-                .as_slice::<u64>(),
+            canonical_const.offsets().to_primitive().as_slice::<u64>(),
             [0u64, 0, 0]
         );
     }
@@ -364,20 +348,10 @@ mod tests {
             Nullability::Nullable,
         ));
         let const_array = ConstantArray::new(list_scalar, 2).into_array();
-        let canonical_const = const_array.to_list().unwrap();
-        assert!(
-            canonical_const
-                .elements()
-                .to_primitive()
-                .unwrap()
-                .is_empty()
-        );
+        let canonical_const = const_array.to_list();
+        assert!(canonical_const.elements().to_primitive().is_empty());
         assert_eq!(
-            canonical_const
-                .offsets()
-                .to_primitive()
-                .unwrap()
-                .as_slice::<u64>(),
+            canonical_const.offsets().to_primitive().as_slice::<u64>(),
             [0u64, 0, 0]
         );
     }
@@ -395,7 +369,7 @@ mod tests {
             3,
         );
 
-        let struct_array = array.to_struct().unwrap();
+        let struct_array = array.to_struct();
         assert_eq!(struct_array.len(), 3);
         assert_eq!(struct_array.valid_count(), 0);
 

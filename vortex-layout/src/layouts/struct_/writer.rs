@@ -84,7 +84,7 @@ where
         let columns_vec_stream = stream.map(|chunk| {
             let (sequence_id, chunk) = chunk?;
             let mut sequence_pointer = sequence_id.descend();
-            let struct_chunk = chunk.to_struct()?;
+            let struct_chunk = chunk.to_struct();
             let columns: Vec<_> = (0..struct_chunk.struct_fields().nfields())
                 .map(|idx| {
                     (

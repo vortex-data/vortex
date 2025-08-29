@@ -54,7 +54,7 @@ impl ArrayIteratorExporter {
             if self.array_exporter.is_none() {
                 if let Some(array) = self.iter.next() {
                     // Create a new array exporter for the current array.
-                    let array = array?.to_struct()?;
+                    let array = array?.to_struct();
                     self.array_exporter = Some(ArrayExporter::try_new(&array, &self.cache)?);
                 } else {
                     // No more arrays to export.
@@ -160,8 +160,7 @@ fn new_array_exporter(
     }
 
     // Otherwise, we fall back to canonical
-    let array = array.to_canonical()?;
-    match array {
+    match array.to_canonical() {
         Canonical::Null(_) => todo!("no null exporter"),
         Canonical::Bool(array) => bool::new_exporter(&array),
         Canonical::Primitive(array) => primitive::new_exporter(&array),

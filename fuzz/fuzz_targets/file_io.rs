@@ -40,10 +40,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
             .unwrap_or_else(|| lit(true))
             .evaluate(&Scope::new(array_data.clone()))
             .vortex_unwrap();
-        let mask = bool_mask
-            .to_bool()
-            .vortex_unwrap()
-            .to_mask_fill_null_false();
+        let mask = bool_mask.to_bool().to_mask_fill_null_false();
         let filtered = filter(&array_data, &mask).vortex_unwrap();
         projection_expr
             .clone()
@@ -95,8 +92,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
     } else {
         let bool_result = compare(&expected_array, &output_array, Operator::Eq)
             .vortex_unwrap()
-            .to_bool()
-            .vortex_unwrap();
+            .to_bool();
         let true_count = bool_result.boolean_buffer().count_set_bits();
         if true_count != expected_array.len()
             && (bool_result.all_valid() || expected_array.all_valid())

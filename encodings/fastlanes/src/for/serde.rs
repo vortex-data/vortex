@@ -53,7 +53,7 @@ impl EncodeVTable<FoRVTable> for FoRVTable {
         canonical: &Canonical,
         _like: Option<&FoRArray>,
     ) -> VortexResult<Option<FoRArray>> {
-        let parray = canonical.clone().into_primitive()?;
+        let parray = canonical.clone().into_primitive();
         Ok(Some(FoRArray::encode(parray)?))
     }
 }

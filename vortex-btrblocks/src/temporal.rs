@@ -21,19 +21,19 @@ pub fn compress_temporal(array: TemporalArray) -> VortexResult<ArrayRef> {
     } = split_temporal(array)?;
 
     let days = IntCompressor::compress(
-        &days.to_primitive()?.downcast()?,
+        &days.to_primitive().downcast()?,
         false,
         MAX_CASCADE - 1,
         &[],
     )?;
     let seconds = IntCompressor::compress(
-        &seconds.to_primitive()?.downcast()?,
+        &seconds.to_primitive().downcast()?,
         false,
         MAX_CASCADE - 1,
         &[],
     )?;
     let subseconds = IntCompressor::compress(
-        &subseconds.to_primitive()?.downcast()?,
+        &subseconds.to_primitive().downcast()?,
         false,
         MAX_CASCADE - 1,
         &[],

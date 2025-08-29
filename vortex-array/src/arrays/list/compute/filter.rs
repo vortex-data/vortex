@@ -18,7 +18,7 @@ use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 impl FilterKernel for ListVTable {
     fn filter(&self, array: &Self::Array, mask: &Mask) -> VortexResult<ArrayRef> {
-        let offsets = array.offsets.to_primitive()?;
+        let offsets = array.offsets.to_primitive();
 
         match array.validity_mask() {
             Mask::AllTrue(_) => {

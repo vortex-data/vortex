@@ -74,9 +74,7 @@ impl CompressorStats for FloatStats {
     }
 
     fn sample_opts(&self, sample_size: u32, sample_count: u32, opts: GenerateStatsOptions) -> Self {
-        let sampled = sample(self.src.as_ref(), sample_size, sample_count)
-            .to_primitive()
-            .vortex_expect("primitive");
+        let sampled = sample(self.src.as_ref(), sample_size, sample_count).to_primitive();
 
         Self::generate_opts(&sampled, opts)
     }
@@ -212,7 +210,7 @@ mod tests {
     #[test]
     fn test_float_stats() {
         let floats = buffer![0.0f32, 1.0f32, 2.0f32].into_array();
-        let floats = floats.to_primitive().unwrap();
+        let floats = floats.to_primitive();
 
         let stats = FloatStats::generate(&floats);
 

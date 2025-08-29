@@ -7,7 +7,7 @@ use std::ops::{Deref, DerefMut};
 
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, NativePType, Nullability};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::arrays::PrimitiveArray;
@@ -149,16 +149,14 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         self.nulls.append_n_nulls(n);
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) -> VortexResult<()> {
-        let array = array.to_primitive()?;
+    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+        let array = array.to_primitive();
         if array.ptype() != T::PTYPE {
-            vortex_bail!("Cannot extend from array with different ptype");
+            vortex_panic!("Cannot extend from array with different ptype");
         }
 
         self.values.extend_from_slice(array.as_slice::<T>());
         self.nulls.append_validity_mask(array.validity_mask());
-
-        Ok(())
     }
 
     fn ensure_capacity(&mut self, capacity: usize) {

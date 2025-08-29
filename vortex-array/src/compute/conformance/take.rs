@@ -58,18 +58,14 @@ fn test_take_all(array: &dyn Array) {
     assert_eq!(result.dtype(), array.dtype());
 
     // Verify elements match
-    if let Ok(orig_canonical) = array.to_canonical()
-        && let Ok(result_canonical) = result.to_canonical()
-    {
-        match (&orig_canonical, &result_canonical) {
-            (Canonical::Primitive(orig_prim), Canonical::Primitive(result_prim)) => {
-                assert_eq!(orig_prim.byte_buffer(), result_prim.byte_buffer());
-            }
-            _ => {
-                // For non-primitive types, check scalar values
-                for i in 0..len {
-                    assert_eq!(array.scalar_at(i), result.scalar_at(i));
-                }
+    match (&array.to_canonical(), &result.to_canonical()) {
+        (Canonical::Primitive(orig_prim), Canonical::Primitive(result_prim)) => {
+            assert_eq!(orig_prim.byte_buffer(), result_prim.byte_buffer());
+        }
+        _ => {
+            // For non-primitive types, check scalar values
+            for i in 0..len {
+                assert_eq!(array.scalar_at(i), result.scalar_at(i));
             }
         }
     }

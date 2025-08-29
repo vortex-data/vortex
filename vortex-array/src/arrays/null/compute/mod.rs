@@ -34,7 +34,7 @@ register_kernel!(MaskKernelAdapter(NullVTable).lift());
 impl TakeKernel for NullVTable {
     #[allow(clippy::cast_possible_truncation)]
     fn take(&self, array: &NullArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let indices = indices.to_primitive()?;
+        let indices = indices.to_primitive();
 
         // Enforce all indices are valid
         match_each_integer_ptype!(indices.ptype(), |T| {
@@ -75,7 +75,7 @@ mod test {
     #[test]
     fn test_slice_nulls() {
         let nulls = NullArray::new(10);
-        let sliced = nulls.slice(0..4).to_null().unwrap();
+        let sliced = nulls.slice(0..4).to_null();
 
         assert_eq!(sliced.len(), 4);
         assert!(matches!(sliced.validity_mask(), Mask::AllFalse(4)));
@@ -86,8 +86,7 @@ mod test {
         let nulls = NullArray::new(10);
         let taken = take(nulls.as_ref(), &buffer![0u64, 2, 4, 6, 8].into_array())
             .unwrap()
-            .to_null()
-            .unwrap();
+            .to_null();
 
         assert_eq!(taken.len(), 5);
         assert!(matches!(taken.validity_mask(), Mask::AllFalse(5)));

@@ -170,7 +170,7 @@ fn take_impl(
     // Otherwise, canonicalize and try again.
     if !array.is_canonical() {
         log::debug!("No take implementation found for {}", array.encoding_id());
-        let canonical = array.to_canonical()?;
+        let canonical = array.to_canonical();
         return take(canonical.as_ref(), indices);
     }
 

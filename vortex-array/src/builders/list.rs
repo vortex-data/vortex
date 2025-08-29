@@ -176,15 +176,15 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
         self.nulls.append_n_nulls(n);
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) -> VortexResult<()> {
-        let list = array.to_list()?;
+    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+        let list = array.to_list();
         if list.is_empty() {
-            return Ok(());
+            return;
         }
 
         let n_already_added_values = self.value_builder.len();
         let Some(n_already_added_values) = O::from_usize(n_already_added_values) else {
-            vortex_bail!(
+            vortex_panic!(
                 "cannot convert length {} to type {:?}",
                 n_already_added_values,
                 O::PTYPE
@@ -196,26 +196,30 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
 
         let index_dtype = self.index_builder.dtype();
 
-        let n_leading_junk_values_scalar = offsets.scalar_at(0).cast(index_dtype)?;
-        let n_leading_junk_values = usize::try_from(&n_leading_junk_values_scalar)?;
+        let n_leading_junk_values_scalar = offsets
+            .scalar_at(0)
+            .cast(index_dtype)
+            .vortex_expect("Must cast to index dtype");
+        let n_leading_junk_values =
+            usize::try_from(&n_leading_junk_values_scalar).vortex_expect("Offset must be a usize");
 
-        let casted_offsets = cast(&offsets.slice(1..offsets.len()), index_dtype)?;
+        let casted_offsets = cast(&offsets.slice(1..offsets.len()), index_dtype)
+            .vortex_expect("Offsets must be an index dtype");
         let offsets_without_leading_junk =
-            sub_scalar(&casted_offsets, n_leading_junk_values_scalar)?;
+            sub_scalar(&casted_offsets, n_leading_junk_values_scalar)
+                .vortex_expect("Offsets must be able to subtract leading offset");
         let offsets_into_builder =
-            add_scalar(&offsets_without_leading_junk, n_already_added_values.into())?;
+            add_scalar(&offsets_without_leading_junk, n_already_added_values.into())
+                .vortex_expect("Offsets must be able to add existing values offsets");
 
         let last_offset = offsets.scalar_at(offsets.len() - 1);
-        let last_offset = usize::try_from(&last_offset)?;
+        let last_offset = usize::try_from(&last_offset).vortex_expect("Offset must be a usize");
         let non_junk_values = elements.slice(n_leading_junk_values..last_offset);
 
         self.nulls.append_validity_mask(array.validity_mask());
-        self.index_builder
-            .extend_from_array(&offsets_into_builder)?;
+        self.index_builder.extend_from_array(&offsets_into_builder);
         self.value_builder.ensure_capacity(non_junk_values.len());
-        self.value_builder.extend_from_array(&non_junk_values)?;
-
-        Ok(())
+        self.value_builder.extend_from_array(&non_junk_values);
     }
 
     fn ensure_capacity(&mut self, capacity: usize) {
@@ -290,7 +294,7 @@ mod tests {
         let list = builder.finish();
         assert_eq!(list.len(), 2);
 
-        let list_array = list.to_list().unwrap();
+        let list_array = list.to_list();
 
         assert_eq!(list_array.elements_at(0).len(), 3);
         assert_eq!(list_array.elements_at(1).len(), 3);
@@ -342,7 +346,7 @@ mod tests {
         let list = builder.finish();
         assert_eq!(list.len(), 3);
 
-        let list_array = list.to_list().unwrap();
+        let list_array = list.to_list();
 
         assert_eq!(list_array.elements_at(0).len(), 3);
         assert_eq!(list_array.elements_at(1).len(), 0);
@@ -358,10 +362,10 @@ mod tests {
 
         let mut builder = ListBuilder::<O>::with_capacity(Arc::new(I32.into()), Nullable, 6);
 
-        builder.extend_from_array(&list).unwrap();
-        builder.extend_from_array(&list).unwrap();
-        builder.extend_from_array(&list.slice(0..0)).unwrap();
-        builder.extend_from_array(&list.slice(1..3)).unwrap();
+        builder.extend_from_array(&list);
+        builder.extend_from_array(&list);
+        builder.extend_from_array(&list.slice(0..0));
+        builder.extend_from_array(&list.slice(1..3));
 
         let expected = ListArray::from_iter_opt_slow::<O, _, _>(
             [
@@ -377,28 +381,18 @@ mod tests {
             Arc::new(DType::Primitive(I32, NonNullable)),
         )
         .unwrap()
-        .to_list()
-        .unwrap();
+        .to_list();
 
-        let actual = builder
-            .finish()
-            .to_canonical()
-            .unwrap()
-            .into_list()
-            .unwrap();
+        let actual = builder.finish().to_list();
 
         assert_eq!(
-            actual.elements().to_primitive().unwrap().as_slice::<i32>(),
-            expected
-                .elements()
-                .to_primitive()
-                .unwrap()
-                .as_slice::<i32>()
+            actual.elements().to_primitive().as_slice::<i32>(),
+            expected.elements().to_primitive().as_slice::<i32>()
         );
 
         assert_eq!(
-            actual.offsets().to_primitive().unwrap().as_slice::<O>(),
-            expected.offsets().to_primitive().unwrap().as_slice::<O>()
+            actual.offsets().to_primitive().as_slice::<O>(),
+            expected.offsets().to_primitive().as_slice::<O>()
         );
 
         assert_eq!(actual.validity(), expected.validity())
@@ -441,7 +435,7 @@ mod tests {
             DType::List(Arc::new(DType::Primitive(I32, NonNullable)), NonNullable),
         );
 
-        let canon_values = chunked_list.unwrap().to_list().unwrap();
+        let canon_values = chunked_list.unwrap().to_list();
 
         assert_eq!(
             one_trailing_unused_element.scalar_at(0),

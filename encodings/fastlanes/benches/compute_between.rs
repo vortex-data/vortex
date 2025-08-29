@@ -45,7 +45,7 @@ fn generate_alp_bit_pack_primitive_array<T: NativePType + NumCast>(
 
     let alp = alp_encode(&a, None).vortex_expect("");
 
-    let encoded = alp.encoded().to_primitive().vortex_expect("");
+    let encoded = alp.encoded().to_primitive();
 
     let bp = bitpack_to_best_bit_width(&encoded)
         .vortex_expect("")

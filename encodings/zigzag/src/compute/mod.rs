@@ -79,9 +79,7 @@ mod tests {
     pub fn nullable_scalar_at() {
         let zigzag = ZigZagEncoding
             .encode(
-                &PrimitiveArray::new(buffer![-189, -160, 1], Validity::AllValid)
-                    .to_canonical()
-                    .unwrap(),
+                &PrimitiveArray::new(buffer![-189, -160, 1], Validity::AllValid).to_canonical(),
                 None,
             )
             .unwrap()
@@ -95,44 +93,33 @@ mod tests {
     #[test]
     fn take_zigzag() {
         let zigzag = ZigZagEncoding
-            .encode(
-                &buffer![-189, -160, 1].into_array().to_canonical().unwrap(),
-                None,
-            )
+            .encode(&buffer![-189, -160, 1].into_array().to_canonical(), None)
             .unwrap()
             .unwrap();
 
         let indices = buffer![0, 2].into_array();
-        let actual = take(&zigzag, &indices).unwrap().to_primitive().unwrap();
+        let actual = take(&zigzag, &indices).unwrap().to_primitive();
         let expected = ZigZagEncoding
-            .encode(&buffer![-189, 1].into_array().to_canonical().unwrap(), None)
+            .encode(&buffer![-189, 1].into_array().to_canonical(), None)
             .unwrap()
             .unwrap()
-            .to_primitive()
-            .unwrap();
+            .to_primitive();
         assert_eq!(actual.as_slice::<i32>(), expected.as_slice::<i32>());
     }
 
     #[test]
     fn filter_zigzag() {
         let zigzag = ZigZagEncoding
-            .encode(
-                &buffer![-189, -160, 1].into_array().to_canonical().unwrap(),
-                None,
-            )
+            .encode(&buffer![-189, -160, 1].into_array().to_canonical(), None)
             .unwrap()
             .unwrap();
         let filter_mask = BooleanBuffer::from(vec![true, false, true]).into();
-        let actual = filter(&zigzag, &filter_mask)
-            .unwrap()
-            .to_primitive()
-            .unwrap();
+        let actual = filter(&zigzag, &filter_mask).unwrap().to_primitive();
         let expected = ZigZagEncoding
-            .encode(&buffer![-189, 1].into_array().to_canonical().unwrap(), None)
+            .encode(&buffer![-189, 1].into_array().to_canonical(), None)
             .unwrap()
             .unwrap()
-            .to_primitive()
-            .unwrap();
+            .to_primitive();
         assert_eq!(actual.as_slice::<i32>(), expected.as_slice::<i32>());
     }
 
@@ -145,8 +132,7 @@ mod tests {
             .encode(
                 &buffer![-189i32, -160, 1, 42, -73]
                     .into_array()
-                    .to_canonical()
-                    .unwrap(),
+                    .to_canonical(),
                 None,
             )
             .unwrap()
@@ -158,8 +144,7 @@ mod tests {
             .encode(
                 &buffer![1000i64, -2000, 3000, -4000, 5000]
                     .into_array()
-                    .to_canonical()
-                    .unwrap(),
+                    .to_canonical(),
                 None,
             )
             .unwrap()
@@ -170,7 +155,7 @@ mod tests {
         let array =
             PrimitiveArray::from_option_iter([Some(-10i16), None, Some(20), Some(-30), None]);
         let zigzag = ZigZagEncoding
-            .encode(&array.to_canonical().unwrap(), None)
+            .encode(&array.to_canonical(), None)
             .unwrap()
             .unwrap();
         test_filter_conformance(zigzag.as_ref());
@@ -185,8 +170,7 @@ mod tests {
             .encode(
                 &buffer![-100i32, 200, -300, 400, -500]
                     .into_array()
-                    .to_canonical()
-                    .unwrap(),
+                    .to_canonical(),
                 None,
             )
             .unwrap()
@@ -196,10 +180,7 @@ mod tests {
         // Test with i8 values
         let zigzag = ZigZagEncoding
             .encode(
-                &buffer![-127i8, 0, 127, -1, 1]
-                    .into_array()
-                    .to_canonical()
-                    .unwrap(),
+                &buffer![-127i8, 0, 127, -1, 1].into_array().to_canonical(),
                 None,
             )
             .unwrap()
@@ -216,7 +197,7 @@ mod tests {
         use vortex_array::compute::conformance::take::test_take_conformance;
 
         let zigzag = ZigZagEncoding
-            .encode(&array.to_canonical().unwrap(), None)
+            .encode(&array.to_canonical(), None)
             .unwrap()
             .unwrap();
         test_take_conformance(zigzag.as_ref());

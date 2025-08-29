@@ -54,7 +54,7 @@ pub fn search_sorted_canonical_array(
 ) -> VortexResult<SearchResult> {
     match array.dtype() {
         DType::Bool(_) => {
-            let bool_array = array.to_bool()?;
+            let bool_array = array.to_bool();
             let validity = bool_array.validity_mask().to_boolean_buffer();
             let opt_values = bool_array
                 .boolean_buffer()
@@ -66,7 +66,7 @@ pub fn search_sorted_canonical_array(
             Ok(SearchNullableSlice(opt_values).search_sorted(&Some(to_find), side))
         }
         DType::Primitive(p, _) => {
-            let primitive_array = array.to_primitive()?;
+            let primitive_array = array.to_primitive();
             let validity = primitive_array.validity_mask().to_boolean_buffer();
             match_each_native_ptype!(p, |P| {
                 let opt_values = primitive_array
@@ -81,7 +81,7 @@ pub fn search_sorted_canonical_array(
             })
         }
         DType::Decimal(d, _) => {
-            let decimal_array = array.to_decimal()?;
+            let decimal_array = array.to_decimal();
             let validity = decimal_array.validity_mask().to_boolean_buffer();
             match_each_decimal_value_type!(decimal_array.values_type(), |D| {
                 let buf = decimal_array.buffer::<D>();
@@ -106,7 +106,7 @@ pub fn search_sorted_canonical_array(
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
-            let utf8 = array.to_varbinview()?;
+            let utf8 = array.to_varbinview();
             let opt_values =
                 utf8.with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>())?;
             let to_find = if matches!(array.dtype(), DType::Utf8(_)) {

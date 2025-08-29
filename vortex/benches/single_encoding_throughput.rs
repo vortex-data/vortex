@@ -54,12 +54,10 @@ fn setup_primitive_arrays() -> (PrimitiveArray, PrimitiveArray, PrimitiveArray) 
         PrimitiveArray::from_iter((0..NUM_VALUES).map(|_| rng.random_range(42u32..256)));
     let int_array = cast(uint_array.as_ref(), PType::I32.into())
         .unwrap()
-        .to_primitive()
-        .unwrap();
+        .to_primitive();
     let float_array = cast(uint_array.as_ref(), PType::F64.into())
         .unwrap()
-        .to_primitive()
-        .unwrap();
+        .to_primitive();
     (uint_array, int_array, float_array)
 }
 
@@ -102,7 +100,7 @@ fn bench_bitpacked_decompress_u32(bencher: Bencher) {
 
     with_counter!(bencher, NUM_VALUES * 4)
         .with_inputs(|| compressed.clone())
-        .bench_values(|a| a.to_canonical().unwrap());
+        .bench_values(|a| a.to_canonical());
 }
 
 #[divan::bench(name = "runend_compress_u32")]
@@ -121,7 +119,7 @@ fn bench_runend_decompress_u32(bencher: Bencher) {
 
     with_counter!(bencher, NUM_VALUES * 4)
         .with_inputs(|| compressed.clone())
-        .bench_values(|a| a.to_canonical().unwrap());
+        .bench_values(|a| a.to_canonical());
 }
 
 #[divan::bench(name = "delta_compress_u32")]
@@ -154,7 +152,7 @@ fn bench_delta_decompress_u32(bencher: Bencher) {
 
     with_counter!(bencher, NUM_VALUES * 4)
         .with_inputs(|| compressed.clone())
-        .bench_values(|a| a.to_canonical().unwrap());
+        .bench_values(|a| a.to_canonical());
 }
 
 #[divan::bench(name = "for_compress_i32")]
@@ -173,7 +171,7 @@ fn bench_for_decompress_i32(bencher: Bencher) {
 
     with_counter!(bencher, NUM_VALUES * 4)
         .with_inputs(|| compressed.clone())
-        .bench_values(|a| a.to_canonical().unwrap());
+        .bench_values(|a| a.to_canonical());
 }
 
 #[divan::bench(name = "dict_compress_u32")]
@@ -192,7 +190,7 @@ fn bench_dict_decompress_u32(bencher: Bencher) {
 
     with_counter!(bencher, NUM_VALUES * 4)
         .with_inputs(|| compressed.clone())
-        .bench_values(|a| a.to_canonical().unwrap());
+        .bench_values(|a| a.to_canonical());
 }
 
 #[divan::bench(name = "zigzag_compress_i32")]
@@ -211,7 +209,7 @@ fn bench_zigzag_decompress_i32(bencher: Bencher) {
 
     with_counter!(bencher, NUM_VALUES * 4)
         .with_inputs(|| compressed.clone())
-        .bench_values(|a| a.to_canonical().unwrap());
+        .bench_values(|a| a.to_canonical());
 }
 
 #[divan::bench(name = "alp_compress_f64")]
@@ -230,7 +228,7 @@ fn bench_alp_decompress_f64(bencher: Bencher) {
 
     with_counter!(bencher, NUM_VALUES * 8)
         .with_inputs(|| compressed.clone())
-        .bench_values(|a| a.to_canonical().unwrap());
+        .bench_values(|a| a.to_canonical());
 }
 
 #[divan::bench(name = "alp_rd_compress_f64")]
@@ -253,7 +251,7 @@ fn bench_alp_rd_decompress_f64(bencher: Bencher) {
 
     with_counter!(bencher, NUM_VALUES * 8)
         .with_inputs(|| compressed.clone())
-        .bench_values(|a| a.to_canonical().unwrap());
+        .bench_values(|a| a.to_canonical());
 }
 
 #[divan::bench(name = "pcodec_compress_f64")]
@@ -272,7 +270,7 @@ fn bench_pcodec_decompress_f64(bencher: Bencher) {
 
     with_counter!(bencher, NUM_VALUES * 8)
         .with_inputs(|| compressed.clone())
-        .bench_values(|a| a.to_canonical().unwrap());
+        .bench_values(|a| a.to_canonical());
 }
 
 #[cfg(feature = "zstd")]
@@ -293,7 +291,7 @@ fn bench_zstd_decompress_u32(bencher: Bencher) {
 
     with_counter!(bencher, NUM_VALUES * 4)
         .with_inputs(|| compressed.clone())
-        .bench_values(|a| a.to_canonical().unwrap());
+        .bench_values(|a| a.to_canonical());
 }
 
 // String compression benchmarks
@@ -315,7 +313,7 @@ fn bench_dict_decompress_string(bencher: Bencher) {
 
     with_counter!(bencher, nbytes)
         .with_inputs(|| dict.clone())
-        .bench_values(|a| a.to_canonical().unwrap());
+        .bench_values(|a| a.to_canonical());
 }
 
 #[divan::bench(name = "fsst_compress_string")]
@@ -338,7 +336,7 @@ fn bench_fsst_decompress_string(bencher: Bencher) {
 
     with_counter!(bencher, nbytes)
         .with_inputs(|| fsst_array.clone())
-        .bench_values(|a| a.to_canonical().unwrap());
+        .bench_values(|a| a.to_canonical());
 }
 
 #[cfg(feature = "zstd")]
@@ -361,5 +359,5 @@ fn bench_zstd_decompress_string(bencher: Bencher) {
 
     with_counter!(bencher, nbytes)
         .with_inputs(|| compressed.clone())
-        .bench_values(|a| a.to_canonical().unwrap());
+        .bench_values(|a| a.to_canonical());
 }

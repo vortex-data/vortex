@@ -56,8 +56,7 @@ mod test {
         // The first two values need no patching
         let filtered = filter(encoded.as_ref(), &Mask::from_iter([true, false, true]))
             .unwrap()
-            .to_primitive()
-            .unwrap();
+            .to_primitive();
         assert_eq!(filtered.as_slice::<T>(), &[a, outlier]);
     }
 
