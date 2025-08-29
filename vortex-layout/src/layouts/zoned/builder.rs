@@ -234,7 +234,7 @@ impl<T: ScalarTruncation> StatsArrayBuilder for TruncatedMaxBinaryStatsBuilder<T
 
         if let Some(upper_bound) = value {
             ArrayBuilderExt::append_scalar(self.values.as_mut(), &upper_bound)?;
-            self.is_truncated.append_value(truncated);
+            self.is_truncated.append_bool(truncated);
         } else {
             self.append_null()
         }
@@ -243,7 +243,7 @@ impl<T: ScalarTruncation> StatsArrayBuilder for TruncatedMaxBinaryStatsBuilder<T
 
     fn append_null(&mut self) {
         ArrayBuilder::append_null(self.values.as_mut());
-        self.is_truncated.append_value(false);
+        self.is_truncated.append_bool(false);
     }
 
     fn finish(&mut self) -> NamedArrays {
@@ -265,13 +265,13 @@ impl<T: ScalarTruncation> StatsArrayBuilder for TruncatedMinBinaryStatsBuilder<T
     fn append_scalar(&mut self, value: Scalar) -> VortexResult<()> {
         let (value, truncated) = lower_bound::<T>(value, self.max_value_length)?;
         ArrayBuilderExt::append_scalar(self.values.as_mut(), &value)?;
-        self.is_truncated.append_value(truncated);
+        self.is_truncated.append_bool(truncated);
         Ok(())
     }
 
     fn append_null(&mut self) {
         ArrayBuilder::append_null(self.values.as_mut());
-        self.is_truncated.append_value(false);
+        self.is_truncated.append_bool(false);
     }
 
     fn finish(&mut self) -> NamedArrays {

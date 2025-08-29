@@ -5,49 +5,72 @@ use std::any::Any;
 
 use arrow_buffer::BooleanBufferBuilder;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::arrays::BoolArray;
-use crate::builders::ArrayBuilder;
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
-use crate::{Array, ArrayRef, Canonical, IntoArray};
+use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY};
+use crate::{Array, ArrayRef, IntoArray};
 
+/// The builder for building a [`BoolArray`].
 pub struct BoolBuilder {
+    dtype: DType,
     inner: BooleanBufferBuilder,
     nulls: LazyNullBufferBuilder,
-    nullability: Nullability,
-    dtype: DType,
 }
 
 impl BoolBuilder {
+    /// Creates a new `BoolBuilder` with a capacity of [`DEFAULT_BUILDER_CAPACITY`].
     pub fn new(nullability: Nullability) -> Self {
-        Self::with_capacity(nullability, 1024) // Same as Arrow builders
+        Self::with_capacity(nullability, DEFAULT_BUILDER_CAPACITY)
     }
 
+    /// Creates a new `BoolBuilder` with the given `capacity`.
     pub fn with_capacity(nullability: Nullability, capacity: usize) -> Self {
         Self {
+            dtype: DType::Bool(nullability),
             inner: BooleanBufferBuilder::new(capacity),
             nulls: LazyNullBufferBuilder::new(capacity),
-            nullability,
-            dtype: DType::Bool(nullability),
         }
     }
 
-    pub fn append_value(&mut self, value: bool) {
-        self.append_values(value, 1)
+    /// Appends a boolean `value` to the builder.
+    pub fn append_bool(&mut self, value: bool) {
+        self.append_bools(value, 1)
     }
 
-    pub fn append_values(&mut self, value: bool, n: usize) {
+    /// Appends `n` boolean `value`s to the builder.
+    pub fn append_bools(&mut self, value: bool, n: usize) {
         self.inner.append_n(n, value);
         self.nulls.append_n_non_nulls(n)
     }
 
-    pub fn append_option(&mut self, value: Option<bool>) {
+    /// Appends an optional boolean (representing a nullable boolean) to the builder.
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if the input is `None` and the builder is non-nullable.
+    pub fn append_bool_opt(&mut self, value: Option<bool>) {
         match value {
-            Some(value) => self.append_value(value),
+            Some(value) => self.append_bool(value),
             None => self.append_null(),
         }
+    }
+
+    /// Finishes the builder directly into a [`BoolArray`].
+    pub fn finish_into_bool(&mut self) -> BoolArray {
+        assert_eq!(
+            self.nulls.len(),
+            self.inner.len(),
+            "Null count and value count should match when calling BoolBuilder::finish."
+        );
+
+        BoolArray::new(
+            self.inner.finish(),
+            self.nulls
+                .finish_with_nullability(self.dtype().nullability()),
+        )
     }
 }
 
@@ -69,7 +92,7 @@ impl ArrayBuilder for BoolBuilder {
     }
 
     fn append_zeros(&mut self, n: usize) {
-        self.append_values(false, n)
+        self.append_bools(false, n)
     }
 
     fn append_nulls(&mut self, n: usize) {
@@ -78,10 +101,13 @@ impl ArrayBuilder for BoolBuilder {
     }
 
     fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
-        let array = array.to_canonical()?;
-        let Canonical::Bool(array) = array else {
-            vortex_bail!("Expected Canonical::Bool, found {:?}", array);
-        };
+        assert_eq!(
+            &self.dtype,
+            array.dtype(),
+            "tried to extend a builder with an array of different `DType`"
+        );
+
+        let array = array.to_canonical()?.into_bool()?;
 
         self.inner.append_buffer(array.boolean_buffer());
         self.nulls.append_validity_mask(array.validity_mask());
@@ -102,17 +128,7 @@ impl ArrayBuilder for BoolBuilder {
     }
 
     fn finish(&mut self) -> ArrayRef {
-        assert_eq!(
-            self.nulls.len(),
-            self.inner.len(),
-            "Null count and value count should match when calling BoolBuilder::finish."
-        );
-
-        BoolArray::new(
-            self.inner.finish(),
-            self.nulls.finish_with_nullability(self.nullability),
-        )
-        .into_array()
+        self.finish_into_bool().into_array()
     }
 }
 
