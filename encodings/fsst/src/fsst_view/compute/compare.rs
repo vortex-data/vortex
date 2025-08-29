@@ -39,7 +39,7 @@ fn compare_scalar<P: Predicate>(
             MatchType::False => result.append(false),
             MatchType::True => result.append(true),
             MatchType::Maybe => {
-                if haystack.is_valid(index)? {
+                if haystack.is_valid(index) {
                     let full = haystack.bytes_at(index);
                     result.append(P::eval_full(needle, full.as_ref()))
                 } else {
