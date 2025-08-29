@@ -374,7 +374,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         Ok(split_tasks)
     }
 
-    pub async fn build_single_threaded(
+    pub async fn execute_single_threaded(
         &self,
         row_range: Option<Range<u64>>,
     ) -> VortexResult<Vec<A>> {
@@ -404,7 +404,8 @@ impl<A: 'static + Send> RepeatedScan<A> {
                 vec.push(maybe_value)
             }
         }
-        return Ok(vec);
+
+        Ok(vec)
     }
 
     #[cfg(feature = "tokio")]
