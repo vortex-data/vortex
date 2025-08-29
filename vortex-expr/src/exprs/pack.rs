@@ -109,12 +109,9 @@ impl VTable for PackVTable {
             .iter()
             .zip_eq(expr.names.iter())
             .map(|(value_expr, name)| {
-                value_expr.unchecked_evaluate(scope).map_err(|e| {
-                    e.with_context(format!(
-                        "Can't evaluate '{name}'\nvalues:{}'",
-                        scope.display_values()
-                    ))
-                })
+                value_expr
+                    .unchecked_evaluate(scope)
+                    .map_err(|e| e.with_context(format!("Can't evaluate '{name}'")))
             })
             .process_results(|it| it.collect::<Vec<_>>())?;
         let validity = match expr.nullability {
