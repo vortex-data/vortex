@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-from . import _lib, arrays, dataset, expr, file, io, ray, scan
+from . import _lib, arrays, dataset, expr, io, ray, scan, file  # isort: skip
 from ._lib.arrays import (  # pyright: ignore[reportMissingModuleSource]
     AlpArray,
     AlpRdArray,
