@@ -3,9 +3,9 @@
 
 use std::sync::Arc;
 
-use dashmap::DashMap;
 use parking_lot::Mutex;
 use vortex::ArrayRef;
+use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::duckdb::Vector;
 

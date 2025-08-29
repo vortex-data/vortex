@@ -88,7 +88,7 @@ fn number_type_from_dtype(dtype: &DType) -> NumberType {
 }
 
 fn collect_valid(parray: &PrimitiveArray) -> VortexResult<PrimitiveArray> {
-    let mask = parray.validity_mask()?;
+    let mask = parray.validity_mask();
     filter(&parray.to_array(), &mask)?.to_primitive()
 }
 
@@ -255,7 +255,7 @@ impl PcoArray {
         let slice_n_rows = self.slice_stop - self.slice_start;
         let slice_value_indices = self
             .unsliced_validity
-            .to_mask(self.unsliced_n_rows)?
+            .to_mask(self.unsliced_n_rows)
             .valid_counts_for_indices(&[self.slice_start, self.slice_stop])?;
         let slice_value_start = slice_value_indices[0];
         let slice_value_stop = slice_value_indices[1];

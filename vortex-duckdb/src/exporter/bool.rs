@@ -17,7 +17,7 @@ struct BoolExporter {
 pub(crate) fn new_exporter(array: &BoolArray) -> VortexResult<Box<dyn ColumnExporter>> {
     Ok(Box::new(BoolExporter {
         array: array.clone(),
-        validity: array.validity_mask()?,
+        validity: array.validity_mask(),
     }))
 }
 

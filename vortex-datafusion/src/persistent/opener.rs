@@ -5,7 +5,6 @@ use std::ops::Range;
 use std::sync::{Arc, Weak};
 
 use arrow_schema::{ArrowError, Field, SchemaRef};
-use dashmap::{DashMap, Entry};
 use datafusion_common::{DataFusionError, Result as DFResult};
 use datafusion_datasource::file_meta::FileMeta;
 use datafusion_datasource::file_stream::{FileOpenFuture, FileOpener};
@@ -24,6 +23,7 @@ use vortex::layout::LayoutReader;
 use vortex::metrics::VortexMetrics;
 use vortex::scan::ScanBuilder;
 use vortex::{ArrayRef, ToCanonical};
+use vortex_utils::aliases::dash_map::{DashMap, Entry};
 
 use super::cache::VortexFileCache;
 use crate::convert::exprs::{can_be_pushed_down, make_vortex_predicate};

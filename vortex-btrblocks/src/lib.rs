@@ -5,7 +5,9 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use itertools::Itertools;
-use vortex_array::arrays::{ExtensionArray, ListArray, StructArray, TemporalArray};
+use vortex_array::arrays::{
+    ExtensionArray, FixedSizeListArray, ListArray, StructArray, TemporalArray,
+};
 use vortex_array::vtable::{VTable, ValidityHelper};
 use vortex_array::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
 use vortex_dtype::datetime::TemporalMetadata;
@@ -332,6 +334,17 @@ impl BtrBlocksCompressor {
                     compressed_elems,
                     compressed_offsets,
                     list_array.validity().clone(),
+                )?
+                .into_array())
+            }
+            Canonical::FixedSizeList(fsl_array) => {
+                let compressed_elems = self.compress(fsl_array.elements())?;
+
+                Ok(FixedSizeListArray::try_new(
+                    compressed_elems,
+                    fsl_array.list_size(),
+                    fsl_array.validity().clone(),
+                    fsl_array.len(),
                 )?
                 .into_array())
             }

@@ -50,7 +50,9 @@ pub fn test_cast_conformance(array: &dyn Array) {
         DType::Binary(nullability) => test_cast_from_binary(array, *nullability),
         DType::Struct(_, nullability) => test_cast_from_struct(array, *nullability),
         DType::List(_, nullability) => test_cast_from_list(array, *nullability),
-        DType::FixedSizeList(..) => unimplemented!("TODO(connor)[FixedSizeList]"),
+        DType::FixedSizeList(.., nullability) => {
+            test_cast_from_fixed_size_list(array, *nullability)
+        }
         DType::Extension(_) => test_cast_from_extension(array),
     }
 }
@@ -187,6 +189,23 @@ fn test_cast_from_list(array: &dyn Array, nullability: Nullability) {
     }
 }
 
+fn test_cast_from_fixed_size_list(array: &dyn Array, nullability: Nullability) {
+    // Test nullability changes for the same fixed-size list type
+    if let DType::FixedSizeList(element_type, list_size, ..) = array.dtype() {
+        test_cast_nullability_changes(
+            array,
+            &DType::FixedSizeList(element_type.clone(), *list_size, Nullability::Nullable),
+        );
+        if nullability == Nullability::Nullable {
+            // Try casting to non-nullable (may fail if nulls present)
+            let _ = cast(
+                array,
+                &DType::FixedSizeList(element_type.clone(), *list_size, Nullability::NonNullable),
+            );
+        }
+    }
+}
+
 fn test_cast_from_extension(array: &dyn Array) {
     // Extension types typically only cast to themselves
     // The specific casting rules depend on the extension type
@@ -204,9 +223,7 @@ fn test_cast_allvalid_to_nonnullable_and_back(array: &dyn Array) {
     }
 
     // Only test if array has no nulls
-    if let Ok(null_count) = array.invalid_count()
-        && null_count == 0
-    {
+    if array.invalid_count() == 0 {
         // Test casting to NonNullable if currently Nullable
         if array.dtype().nullability() == Nullability::Nullable {
             let non_nullable_dtype = array.dtype().with_nullability(Nullability::NonNullable);

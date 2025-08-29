@@ -93,7 +93,7 @@ impl VortexFile {
         let Some((stats, fields)) = self
             .footer
             .statistics()
-            .zip(self.footer.dtype().as_struct_opt())
+            .zip(self.footer.dtype().as_struct_fields_opt())
         else {
             return Ok(false);
         };

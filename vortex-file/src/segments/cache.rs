@@ -4,7 +4,6 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use dashmap::DashMap;
 use futures::FutureExt;
 use moka::future::{Cache, CacheBuilder};
 use moka::policy::EvictionPolicy;
@@ -13,6 +12,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_layout::segments::{SegmentFuture, SegmentId, SegmentSource};
 use vortex_metrics::{Counter, VortexMetrics};
+use vortex_utils::aliases::dash_map::DashMap;
 
 /// A cache for storing and retrieving individual segment data.
 #[async_trait]

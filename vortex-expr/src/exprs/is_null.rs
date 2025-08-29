@@ -66,7 +66,7 @@ impl VTable for IsNullVTable {
 
     fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
         let array = expr.child.unchecked_evaluate(scope)?;
-        match array.validity_mask()? {
+        match array.validity_mask() {
             Mask::AllTrue(len) => Ok(ConstantArray::new(false, len).into_array()),
             Mask::AllFalse(len) => Ok(ConstantArray::new(true, len).into_array()),
             Mask::Values(mask) => Ok(BoolArray::from(mask.boolean_buffer().not()).into_array()),

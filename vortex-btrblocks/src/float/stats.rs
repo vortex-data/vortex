@@ -103,7 +103,7 @@ where
             }
             .into(),
         };
-    } else if array.all_invalid().vortex_expect("all_invalid") {
+    } else if array.all_invalid() {
         return FloatStats {
             src: array.clone(),
             null_count: array.len().try_into().vortex_expect("null_count"),
@@ -131,7 +131,7 @@ where
         HashSet::with_hasher(FxBuildHasher)
     };
 
-    let validity = array.validity_mask().vortex_expect("logical_validity");
+    let validity = array.validity_mask();
 
     let mut runs = 1;
     let head_idx = validity

@@ -93,7 +93,7 @@ impl VTable for GetItemVTable {
     fn return_dtype(expr: &Self::Expr, scope: &DType) -> VortexResult<DType> {
         let input = expr.child.return_dtype(scope)?;
         input
-            .as_struct_opt()
+            .as_struct_fields_opt()
             .and_then(|st| st.field(expr.field()))
             .ok_or_else(|| {
                 vortex_err!(

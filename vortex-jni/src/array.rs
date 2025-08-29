@@ -234,7 +234,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getNull(
 ) -> jboolean {
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
     try_or_throw(&mut env, |_| {
-        let is_null = array_ref.inner.is_invalid(index as usize)?;
+        let is_null = array_ref.inner.is_invalid(index as usize);
         if is_null { Ok(JNI_TRUE) } else { Ok(JNI_FALSE) }
     })
 }
@@ -247,7 +247,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getNullCount(
 ) -> jint {
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
     try_or_throw(&mut env, |_| {
-        let count = array_ref.inner.invalid_count()?;
+        let count = array_ref.inner.invalid_count();
         Ok(jint::try_from(count).unwrap_or(-1))
     })
 }

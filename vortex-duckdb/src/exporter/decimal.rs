@@ -22,7 +22,7 @@ struct DecimalExporter<D: NativeDecimalType, N: NativeDecimalType> {
 }
 
 pub(crate) fn new_exporter(array: &DecimalArray) -> VortexResult<Box<dyn ColumnExporter>> {
-    let validity = array.validity_mask()?;
+    let validity = array.validity_mask();
     let dest_values_type = precision_to_duckdb_storage_size(&array.decimal_dtype())?;
 
     match_each_decimal_value_type!(array.values_type(), |D| {

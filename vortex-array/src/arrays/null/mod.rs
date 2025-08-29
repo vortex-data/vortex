@@ -145,19 +145,19 @@ impl OperationsVTable<NullVTable> for NullVTable {
 }
 
 impl ValidityVTable<NullVTable> for NullVTable {
-    fn is_valid(_array: &NullArray, _index: usize) -> VortexResult<bool> {
-        Ok(false)
+    fn is_valid(_array: &NullArray, _index: usize) -> bool {
+        false
     }
 
-    fn all_valid(array: &NullArray) -> VortexResult<bool> {
-        Ok(array.is_empty())
+    fn all_valid(array: &NullArray) -> bool {
+        array.is_empty()
     }
 
-    fn all_invalid(array: &NullArray) -> VortexResult<bool> {
-        Ok(!array.is_empty())
+    fn all_invalid(array: &NullArray) -> bool {
+        !array.is_empty()
     }
 
-    fn validity_mask(array: &NullArray) -> VortexResult<Mask> {
-        Ok(Mask::AllFalse(array.len))
+    fn validity_mask(array: &NullArray) -> Mask {
+        Mask::AllFalse(array.len)
     }
 }

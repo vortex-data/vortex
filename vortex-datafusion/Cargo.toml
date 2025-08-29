@@ -17,7 +17,6 @@ version = { workspace = true }
 arrow-schema = { workspace = true }
 async-trait = { workspace = true }
 chrono = { workspace = true }
-dashmap = { workspace = true }
 datafusion-catalog = { workspace = true }
 datafusion-common = { workspace = true }
 datafusion-common-runtime = { workspace = true }
@@ -35,6 +34,7 @@ tokio = { workspace = true, features = ["rt-multi-thread", "fs"] }
 tokio-stream = { workspace = true }
 tracing = { workspace = true }
 vortex = { workspace = true, features = ["object_store", "tokio"] }
+vortex-utils = { workspace = true, features = ["dashmap"] }
 
 [dev-dependencies]
 anyhow = { workspace = true }
