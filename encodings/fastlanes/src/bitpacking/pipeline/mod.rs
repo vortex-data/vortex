@@ -111,7 +111,7 @@ mod tests {
             .map(|_| rng.random_range(0..100))
             .collect::<BufferMut<_>>();
 
-        let primitive_array = values.clone().into_array().to_primitive().unwrap();
+        let primitive_array = values.into_array().to_primitive().unwrap();
         let bitpacked = bitpack_to_best_bit_width(&primitive_array).unwrap();
 
         let mask = (0..len)

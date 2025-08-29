@@ -217,7 +217,7 @@ mod tests {
         let values = (0i16..len)
             .map(|_| rng.random_range(50..150))
             .collect::<BufferMut<_>>();
-        let array = create_for_bitpacked_array(values.clone()).unwrap();
+        let array = create_for_bitpacked_array(values).unwrap();
 
         let mask = (0..len)
             .map(|_| rng.random_bool(frac))
