@@ -28,16 +28,3 @@ pub fn demonstrate_operator_to_string(op: &LogicalOperator) -> VortexResult<()> 
 
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_operator_to_string_demo_exists() {
-        // This test just verifies the function exists and can be called
-        // Actual testing would require creating LogicalOperator instances,
-        // which requires a DuckDB connection and is better done in integration tests
-        println!("✅ LogicalOperator to_string demo function exists");
-    }
-}

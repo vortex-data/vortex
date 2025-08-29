@@ -24,11 +24,8 @@ impl Expression {
     /// Expression depth represents how many query levels deep a column reference is.
     /// Depth 0 = current query level, depth 1 = parent query (correlated), etc.
     pub fn get_expression_depth(&self) -> Option<u64> {
-        if self.as_class_id() == DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_COLUMN_REF {
-            Some(unsafe { duckdb_vx_expr_get_bound_column_ref_depth(self.as_ptr()) })
-        } else {
-            None
-        }
+        (self.as_class_id() == DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_COLUMN_REF)
+            .then(|| unsafe { duckdb_vx_expr_get_bound_column_ref_depth(self.as_ptr()) })
     }
 
     /// Match the subclass of the expression.
@@ -298,7 +295,7 @@ pub enum LogicalExpressionType {
 }
 
 /// Column binding information for logical plans
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ColumnBinding {
     pub table_index: u64,
     pub column_index: u64,

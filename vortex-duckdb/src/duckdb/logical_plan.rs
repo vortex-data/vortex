@@ -5,7 +5,7 @@
 
 use vortex::error::VortexResult;
 
-use crate::duckdb::expr::{Expression, LogicalExpressionType as ExpressionType};
+use crate::duckdb::expr::LogicalExpressionType as ExpressionType;
 use crate::duckdb::logical_operator::{LogicalOperator, LogicalOperatorType};
 
 /// Utility functions for visiting and manipulating logical plans

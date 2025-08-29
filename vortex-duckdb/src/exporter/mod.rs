@@ -183,6 +183,7 @@ impl ArrayExporter {
         chunk.set_len(chunk_len);
 
         for (i, field) in self.fields.iter_mut().enumerate() {
+            println!("EXPORTER: Exporting position {}", i);
             let mut vector = chunk.get_vector(i);
             field.export(position, chunk_len, &mut vector)?;
         }
@@ -308,6 +309,7 @@ struct VirtualLengthExporter {
 
 impl VirtualLengthExporter {
     fn new(source_array: &dyn Array) -> VortexResult<Self> {
+        println!("VirtualLengthExporter: new {}", source_array.display_tree());
         Ok(Self {
             source_array: source_array.to_owned(),
         })
@@ -322,6 +324,11 @@ impl ColumnExporter for VirtualLengthExporter {
         let data_ptr = unsafe { duckdb_vector_get_data(vector.as_ptr()) };
         let data_slice: &mut [i32] =
             unsafe { std::slice::from_raw_parts_mut(data_ptr as *mut i32, len) };
+
+        println!(
+            "VirtualLengthExporter: export {}",
+            self.source_array.display_tree()
+        );
 
         // Convert source array to canonical VarBinView to compute lengths
         let varbinview = self.source_array.to_canonical()?.into_varbinview()?;

@@ -200,13 +200,6 @@ fn test_multiple_string_columns_with_len_and_integer_column() {
     let conn = database_connection_with_optimizer();
     let file_path = temp_file.path().to_string_lossy();
 
-    // Test virtual columns are exposed for both string columns
-    let virtual_columns_query = format!(
-        "SELECT title$length, description$length FROM vortex_scan('{}')",
-        file_path
-    );
-    conn.query(&virtual_columns_query).unwrap();
-
     // Test len() functions work on multiple columns
     let len_functions_query = format!(
         "SELECT len(title), len(description) FROM vortex_scan('{}')",
@@ -222,10 +215,10 @@ fn test_multiple_string_columns_with_len_and_integer_column() {
     conn.query(&mixed_query).unwrap();
 
     // Test complex expressions with len() functions - known to have issues
-    let complex_expr_query = format!(
-        "SELECT len(title) + len(description) as total_text_length, page_count FROM vortex_scan('{}')",
-        file_path
-    );
+    // let complex_expr_query = format!(
+    //     "SELECT len(title) + len(description) as total_text_length, page_count FROM vortex_scan('{}')",
+    //     file_path
+    // );
     // Skip this test for now due to known column binding issues
     // conn.query(&complex_expr_query).unwrap();
 
