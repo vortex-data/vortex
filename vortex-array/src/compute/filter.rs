@@ -38,10 +38,7 @@ static FILTER_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
 ///
 /// let array =
 ///     PrimitiveArray::from_option_iter([Some(0i32), None, Some(1i32), None, Some(2i32)]);
-/// let mask = Mask::try_from(
-///     &BoolArray::from_iter([true, false, false, false, true]),
-/// )
-/// .unwrap();
+/// let mask = Mask::try_from([true, false, false, false, true]);
 ///
 /// let filtered = filter(array.as_ref(), &mask).unwrap();
 /// assert_eq!(filtered.len(), 2);
