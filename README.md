@@ -18,7 +18,7 @@ It is the fastest and most extensible format for building data systems backed by
 
 - **⚡️ Blazing Fast Performance**
   - 100x faster random access reads (vs. modern Apache Parquet)
-  - 20x faster scans
+  - 10-20x faster scans
   - 5x faster writes
   - Similar compression ratios
   - Efficient support for wide tables with zero-copy/zero-parse metadata
