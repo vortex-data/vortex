@@ -28,9 +28,8 @@ class RepeatedScan:
 
         Parameters
         ----------
-        row_range : tuple[int, int] | slice | None
-            If tuple, it is interpreted as [start, stop).
-            If slice, must not have a step.
+        row_range : tuple[int, int] | None
+            Tuple is interpreted as [start, stop).
 
         Examples
         --------
