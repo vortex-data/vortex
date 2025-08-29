@@ -4,6 +4,7 @@
 use std::any::Any;
 use std::sync::Arc;
 
+use log::info;
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{NativePType, PType, match_each_native_ptype};
 use vortex_error::{VortexResult, vortex_bail};
@@ -18,9 +19,8 @@ use crate::vtable::ValidityHelper;
 impl PipelineVTable<PrimitiveVTable> for PrimitiveVTable {
     fn to_operator(array: &PrimitiveArray) -> VortexResult<Option<OperatorRef>> {
         if !array.validity().all_valid() {
-            vortex_bail!(
-                "PipelineVTable::to_operator is not supported for arrays with invalid values"
-            );
+            info!("PipelineVTable::to_operator is not supported for arrays with invalid values");
+            return Ok(None);
         }
         Ok(Some(Arc::new(PrimitiveOperator::new(
             array.ptype(),
