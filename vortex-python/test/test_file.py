@@ -35,7 +35,7 @@ def test_open(tmpdir_factory) -> vx.VortexFile:
     if not os.path.exists(fname):
         a = pa.array([record(x) for x in range(1_000)])
         vx.io.write(vx.array(a), str(fname))
-    return vx.open(str(fname), segment_cache_size_bytes=0)
+    return vx.open(str(fname), without_segment_cache=True)
 
 
 def test_dtype(vxf: VortexFile):

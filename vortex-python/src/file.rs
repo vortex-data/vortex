@@ -12,10 +12,11 @@ use vortex::dtype::Nullability::NonNullable;
 use vortex::dtype::{DType, PType};
 use vortex::error::VortexResult;
 use vortex::expr::{ExprRef, root, select};
+use vortex::file::segments::MokaSegmentCache;
 use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::scan::{ScanBuilder, SplitBy};
 use vortex::{ArrayRef, ToCanonical};
-use vortex::file::segments::MokaSegmentCache;
+
 use crate::arrays::PyArrayRef;
 use crate::arrow::IntoPyArrow;
 use crate::dataset::PyVortexDataset;
@@ -37,16 +38,15 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 }
 
 #[pyfunction]
-#[pyo3(signature = (path, *, segment_cache_size_bytes = 256 << 20))]
-pub fn open(path: &str, segment_cache_size_bytes: u64) -> PyResult<PyVortexFile> {
+#[pyo3(signature = (path, *, without_segment_cache = false))]
+pub fn open(path: &str, without_segment_cache: bool) -> PyResult<PyVortexFile> {
     let mut options = VortexOpenOptions::file();
-    if segment_cache_size_bytes > 0 {
-        options = options.with_segment_cache(Arc::new(MokaSegmentCache::new(
-            segment_cache_size_bytes,
-        )));
-    } else {
+    if without_segment_cache {
         options = options.without_segment_cache();
+    } else {
+        options = options.with_segment_cache(Arc::new(MokaSegmentCache::new(256 << 20)));
     }
+
     let vxf = options.open_blocking(path)?;
     Ok(PyVortexFile { vxf })
 }

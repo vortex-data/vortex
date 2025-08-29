@@ -29,8 +29,8 @@ def open(path: str, **kwargs) -> VortexFile:
     ----------
     path : :class:`str`
         A local path or URL to the Vortex file.
-    **kwargs
-        Additional keyword arguments passed to the underlying implementation.
+    kwargs : keyword arguments
+        Additional keyword arguments passed to the underlying file openner.
 
     Examples
     --------
