@@ -6,7 +6,7 @@ use std::rc::Rc;
 
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{NativePType, PType, match_each_native_ptype};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 
 use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::pipeline::bits::BitView;
