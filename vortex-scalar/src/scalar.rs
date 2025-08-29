@@ -21,13 +21,26 @@ use super::*;
 /// natural ordering of the scalar value.
 #[derive(Debug, Clone)]
 pub struct Scalar {
-    pub(crate) dtype: DType,
-    pub(crate) value: ScalarValue,
+    /// The type of the scalar.
+    dtype: DType,
+
+    /// The value of the scalar.
+    ///
+    /// Invariant: If the `dtype` is non-nullable, then this value _cannot_ be equal to
+    /// [`ScalarValue::null()`](ScalarValue::null).
+    value: ScalarValue,
 }
 
 impl Scalar {
     /// Creates a new scalar with the given data type and value.
     pub fn new(dtype: DType, value: ScalarValue) -> Self {
+        if !dtype.is_nullable() {
+            assert!(
+                !value.is_null(),
+                "Tried to construct a null scalar when the `DType` is non-nullable: {dtype}",
+            );
+        }
+
         Self { dtype, value }
     }
 
@@ -49,7 +62,13 @@ impl Scalar {
         (self.dtype, self.value)
     }
 
-    /// Consumes the scalar and returns its underlying value.
+    /// Consumes the scalar and returns its underlying [`DType`].
+    #[inline]
+    pub fn into_dtype(self) -> DType {
+        self.dtype
+    }
+
+    /// Consumes the scalar and returns its underlying [`ScalarValue`].
     #[inline]
     pub fn into_value(self) -> ScalarValue {
         self.value
@@ -73,8 +92,9 @@ impl Scalar {
     pub fn null(dtype: DType) -> Self {
         assert!(
             dtype.is_nullable(),
-            "Creating null scalar for non-nullable DType {dtype}"
+            "Tried to construct a null scalar when the `DType` is non-nullable: {dtype}"
         );
+
         Self {
             dtype,
             value: ScalarValue(InnerScalarValue::Null),
@@ -106,19 +126,17 @@ impl Scalar {
 
     fn cast_to_non_extension(&self, target: &DType) -> VortexResult<Self> {
         assert!(!matches!(target, DType::Extension(..)));
+
         if self.is_null() {
             if target.is_nullable() {
                 return Ok(Scalar::new(target.clone(), self.value.clone()));
-            } else {
-                vortex_bail!(
-                    "Cannot cast null to {}: target type is non-nullable",
-                    target
-                )
             }
+
+            vortex_bail!("Cannot cast null to {target}: target type is non-nullable")
         }
 
         match &self.dtype {
-            DType::Null => unreachable!(), // handled by if is_null case
+            DType::Null => unreachable!(), // Handled by `if self.is_null()` case.
             DType::Bool(_) => self.as_bool().cast(target),
             DType::Primitive(..) => self.as_primitive().cast(target),
             DType::Decimal(..) => self.as_decimal().cast(target),
@@ -173,8 +191,25 @@ impl Scalar {
 
     /// Creates a "default" scalar value for the given data type.
     ///
-    /// For nullable types, returns null. For non-nullable types, returns
-    /// an appropriate zero/empty value.
+    /// For nullable types, returns null. For non-nullable types, returns an appropriate zero/empty
+    /// value.
+    ///
+    /// # Default Values
+    ///
+    /// Here is the list of default values for each [`DType`] (when the [`DType`] is non-nullable):
+    ///
+    /// - `Null`: `null`
+    /// - `Bool`: `false`
+    /// - `Primitive`: `0`
+    /// - `Decimal`: `0`
+    /// - `Utf8`: `""`
+    /// - `Binary`: An empty buffer
+    /// - `List`: An empty list
+    /// - `FixedSizeList`: A list (with correct size) of default values, which is determined by the
+    ///   element [`DType`]
+    /// - `Struct`: A struct where each field has a default value, which is determined by the field
+    ///   [`DType`]
+    /// - `Extension`: The default value of the storage [`DType`]
     pub fn default_value(dtype: DType) -> Self {
         if dtype.is_nullable() {
             return Self::null(dtype);
@@ -191,16 +226,16 @@ impl Scalar {
             }
             DType::Utf8(nullability) => Self::utf8("", nullability),
             DType::Binary(nullability) => Self::binary(Buffer::empty(), nullability),
-            DType::Struct(sf, nullability) => {
-                let fields: Vec<_> = sf.fields().map(Scalar::default_value).collect();
-                Self::struct_(DType::Struct(sf, nullability), fields)
-            }
             DType::List(edt, nullability) => Self::list(edt, vec![], nullability),
             DType::FixedSizeList(edt, size, nullability) => {
                 let elements = (0..size)
                     .map(|_| Scalar::default_value(edt.as_ref().clone()))
                     .collect();
                 Self::list(edt, elements, nullability)
+            }
+            DType::Struct(sf, nullability) => {
+                let fields: Vec<_> = sf.fields().map(Scalar::default_value).collect();
+                Self::struct_(DType::Struct(sf, nullability), fields)
             }
             DType::Extension(dt) => {
                 let scalar = Self::default_value(dt.storage_dtype().clone());

@@ -123,6 +123,7 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
 
     fn append_zeros(&mut self, n: usize) {
         let count = self.value_builder.len();
+        // TODO(connor): this is incorrect, as it creates lists of size 1 instead of 0.
         self.value_builder.append_zeros(n);
         for i in 0..n {
             self.append_index(

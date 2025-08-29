@@ -204,10 +204,10 @@ impl Scalar {
     where
         B: TryInto<BufferString>,
     {
-        Ok(Self {
-            dtype: DType::Utf8(nullability),
-            value: ScalarValue(InnerScalarValue::BufferString(Arc::new(str.try_into()?))),
-        })
+        Ok(Self::new(
+            DType::Utf8(nullability),
+            ScalarValue(InnerScalarValue::BufferString(Arc::new(str.try_into()?))),
+        ))
     }
 }
 
@@ -220,7 +220,7 @@ impl<'a> TryFrom<&'a Scalar> for Utf8Scalar<'a> {
         }
         Ok(Self {
             dtype: value.dtype(),
-            value: value.value.as_buffer_string()?,
+            value: value.value().as_buffer_string()?,
         })
     }
 }
@@ -243,39 +243,39 @@ impl TryFrom<Scalar> for String {
 
 impl From<&str> for Scalar {
     fn from(value: &str) -> Self {
-        Self {
-            dtype: DType::Utf8(NonNullable),
-            value: ScalarValue(InnerScalarValue::BufferString(Arc::new(
+        Self::new(
+            DType::Utf8(NonNullable),
+            ScalarValue(InnerScalarValue::BufferString(Arc::new(
                 value.to_string().into(),
             ))),
-        }
+        )
     }
 }
 
 impl From<String> for Scalar {
     fn from(value: String) -> Self {
-        Self {
-            dtype: DType::Utf8(NonNullable),
-            value: ScalarValue(InnerScalarValue::BufferString(Arc::new(value.into()))),
-        }
+        Self::new(
+            DType::Utf8(NonNullable),
+            ScalarValue(InnerScalarValue::BufferString(Arc::new(value.into()))),
+        )
     }
 }
 
 impl From<BufferString> for Scalar {
     fn from(value: BufferString) -> Self {
-        Self {
-            dtype: DType::Utf8(NonNullable),
-            value: ScalarValue(InnerScalarValue::BufferString(Arc::new(value))),
-        }
+        Self::new(
+            DType::Utf8(NonNullable),
+            ScalarValue(InnerScalarValue::BufferString(Arc::new(value))),
+        )
     }
 }
 
 impl From<Arc<BufferString>> for Scalar {
     fn from(value: Arc<BufferString>) -> Self {
-        Self {
-            dtype: DType::Utf8(NonNullable),
-            value: ScalarValue(InnerScalarValue::BufferString(value)),
-        }
+        Self::new(
+            DType::Utf8(NonNullable),
+            ScalarValue(InnerScalarValue::BufferString(value)),
+        )
     }
 }
 

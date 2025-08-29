@@ -323,7 +323,12 @@ impl Scalar {
     /// Panics if the scalar is not a primitive type or if the types have different byte widths.
     pub fn reinterpret_cast(&self, ptype: PType) -> Self {
         let primitive = PrimitiveScalar::try_from(self).unwrap_or_else(|e| {
-            vortex_panic!(e, "Failed to reinterpret cast {} to {}", self.dtype, ptype)
+            vortex_panic!(
+                e,
+                "Failed to reinterpret cast {} to {}",
+                self.dtype(),
+                ptype
+            )
         });
         if primitive.ptype() == ptype {
             return self.clone();
@@ -336,7 +341,7 @@ impl Scalar {
         );
 
         Scalar::new(
-            DType::Primitive(ptype, self.dtype.nullability()),
+            DType::Primitive(ptype, self.dtype().nullability()),
             primitive
                 .pvalue
                 .map(|p| p.reinterpret_cast(ptype))

@@ -168,10 +168,10 @@ impl<'a> BinaryScalar<'a> {
 impl Scalar {
     /// Creates a new binary scalar from a byte buffer.
     pub fn binary(buffer: impl Into<ByteBuffer>, nullability: Nullability) -> Self {
-        Self {
-            dtype: DType::Binary(nullability),
-            value: ScalarValue(InnerScalarValue::Buffer(Arc::new(buffer.into()))),
-        }
+        Self::new(
+            DType::Binary(nullability),
+            ScalarValue(InnerScalarValue::Buffer(Arc::new(buffer.into()))),
+        )
     }
 }
 
@@ -184,7 +184,7 @@ impl<'a> TryFrom<&'a Scalar> for BinaryScalar<'a> {
         }
         Ok(Self {
             dtype: value.dtype(),
-            value: value.value.as_buffer()?,
+            value: value.value().as_buffer()?,
         })
     }
 }
@@ -238,19 +238,16 @@ impl From<&[u8]> for Scalar {
 
 impl From<ByteBuffer> for Scalar {
     fn from(value: ByteBuffer) -> Self {
-        Self {
-            dtype: DType::Binary(Nullability::NonNullable),
-            value: value.into(),
-        }
+        Self::new(DType::Binary(Nullability::NonNullable), value.into())
     }
 }
 
 impl From<Arc<ByteBuffer>> for Scalar {
     fn from(value: Arc<ByteBuffer>) -> Self {
-        Self {
-            dtype: DType::Binary(Nullability::NonNullable),
-            value: ScalarValue(InnerScalarValue::Buffer(value)),
-        }
+        Self::new(
+            DType::Binary(Nullability::NonNullable),
+            ScalarValue(InnerScalarValue::Buffer(value)),
+        )
     }
 }
 

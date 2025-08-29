@@ -1,10 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#[cfg(test)]
-mod tests;
-mod value;
-
 use std::cmp::Ordering;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
@@ -14,9 +10,14 @@ use num_traits::ToPrimitive as NumToPrimitive;
 use vortex_dtype::{DType, DecimalDType, Nullability, PType};
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 
-pub use crate::decimal::value::{DecimalValue, DecimalValueType};
 use crate::scalar_value::InnerScalarValue;
 use crate::{BigCast, Scalar, ScalarValue, i256, match_each_decimal_value};
+
+mod value;
+pub use value::{DecimalValue, DecimalValueType};
+
+#[cfg(test)]
+mod tests;
 
 /// Type of decimal scalar values.
 ///
@@ -290,7 +291,7 @@ impl<'a> TryFrom<&'a Scalar> for DecimalScalar<'a> {
     type Error = VortexError;
 
     fn try_from(scalar: &'a Scalar) -> Result<Self, Self::Error> {
-        DecimalScalar::try_new(&scalar.dtype, &scalar.value)
+        DecimalScalar::try_new(scalar.dtype(), scalar.value())
     }
 }
 
