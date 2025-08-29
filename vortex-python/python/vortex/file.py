@@ -14,6 +14,7 @@ from ._lib.dtype import DType  # pyright: ignore[reportMissingModuleSource]
 from ._lib.expr import Expr  # pyright: ignore[reportMissingModuleSource]
 from ._lib.iter import ArrayIterator  # pyright: ignore[reportMissingModuleSource]
 from .dataset import VortexDataset
+from .scan import RepeatedScan
 from .type_aliases import IntoProjection, RecordBatchReader
 
 if TYPE_CHECKING:
@@ -143,6 +144,29 @@ class VortexFile:
           ]
         """
         return self._file.scan(projection, expr=expr, indices=indices, batch_size=batch_size)
+
+    def prepare(
+        self,
+        projection: IntoProjection = None,
+        *,
+        expr: Expr | None = None,
+        indices: Array | None = None,
+        batch_size: int | None = None,
+    ) -> RepeatedScan:
+        """Prepare a scan of Vortex file, for repeated reads, returning a :class:`vortex.RepeatedScan`.
+
+        Parameters
+        ----------
+        projection : :class:`vortex.Expr` | list[str] | None
+            The projection expression to read, or else read all columns.
+        expr : :class:`vortex.Expr` | None
+            The predicate used to filter rows. The filter columns do not need to be in the projection.
+        indices : :class:`vortex.Array` | None
+            The indices of the rows to read. Must be sorted and non-null.
+        batch_size : :class:`int` | None
+            The number of rows to read per chunk.
+        """
+        return RepeatedScan(self._file.prepare(projection, expr=expr, indices=indices, batch_size=batch_size))
 
     def to_arrow(
         self,

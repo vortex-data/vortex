@@ -22,6 +22,7 @@ mod object_store_urls;
 mod python_repr;
 mod registry;
 pub(crate) mod scalar;
+mod scan;
 mod serde;
 
 use log::LevelFilter;
@@ -62,6 +63,7 @@ fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     registry::init(py, m)?;
     scalar::init(py, m)?;
     serde::init(py, m)?;
+    scan::init(py, m)?;
 
     Ok(())
 }
