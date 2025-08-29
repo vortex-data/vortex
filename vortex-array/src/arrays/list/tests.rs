@@ -571,7 +571,9 @@ fn test_empty_offsets_array() {
 }
 
 #[test]
-#[should_panic(expected = "Expected offsets to be an non-nullable integer type, got Primitive(F32, NonNullable)")]
+#[should_panic(
+    expected = "Expected offsets to be an non-nullable integer type, got Primitive(F32, NonNullable)"
+)]
 fn test_non_integer_offsets() {
     let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
     let offsets = PrimitiveArray::from_iter([0.0f32, 2.0, 4.0, 5.0]);
