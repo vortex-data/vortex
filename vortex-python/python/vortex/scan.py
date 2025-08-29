@@ -19,26 +19,6 @@ class RepeatedScan:
     def __init__(self, scan: _scan.RepeatedScan):
         self._scan = scan
 
-    def __getitem__(self, item):
-        """Get rows from the scan. Returns a :class:`vortex.ArrayIterator`
-        if item is a slice or a :class:`vortex.Scalar` if item is an int.
-
-        Parameters
-        ----------
-        item : slice | int
-            If slice, must not have a step.
-        """
-        if isinstance(item, slice):
-            if item.step is not None:
-                raise ValueError("slice step is not supported")
-            start = item.start
-            stop = item.stop
-            return self.execute(row_range=(start, stop))
-        elif isinstance(item, int):
-            return self.scalar_at(item)
-        else:
-            raise TypeError(f"unexpected type for item: {type(item)}")
-
     def execute(
         self,
         *,
