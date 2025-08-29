@@ -14,8 +14,8 @@ const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
 impl FilterKernel for FSSTViewVTable {
     fn filter(&self, array: &FSSTViewArray, mask: &Mask) -> VortexResult<ArrayRef> {
-        // Apply the mask to the views alone.
         // TODO(aduffy): do we want to compact the buffer if the filter is below some threshold?
+        // Apply the mask to the views alone.
         let validity = array.validity().filter(mask)?;
 
         let mask_values = mask

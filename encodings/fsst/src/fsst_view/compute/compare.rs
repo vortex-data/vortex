@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::arrays::{BoolArray, BooleanBufferBuilder, ConstantArray};
+use vortex_array::arrays::{BoolArray, BooleanBuffer, BooleanBufferBuilder, ConstantArray};
 use vortex_array::compute::{CompareKernel, CompareKernelAdapter, Operator};
 use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
+use crate::fsst_view::MAX_INLINE_STR;
 use crate::{FSSTViewArray, FSSTViewVTable, View};
 
 enum MatchType {
@@ -19,29 +20,46 @@ enum MatchType {
     Maybe,
 }
 
-trait Predicate {
-    /// Perform an inexact match against a view
-    fn eval_view(needle: &[u8], view: View) -> MatchType;
-    /// Perform a complete match against an entire string
-    fn eval_full(v1: &[u8], v2: &[u8]) -> bool;
+// Compare inline, when we know that the needle fits in an inlined `View`.
+// This is a fast path where we can do straight-line, fixed-width comparisons without touching
+// or decoding the string buffer.
+fn compare_inline<F>(needle_view: View, haystack: &FSSTViewArray, cmp: F) -> BooleanBuffer
+where
+    F: Fn(View, View) -> bool,
+{
+    // Create one for every boolean buffer instead.
+    let mut result = BooleanBufferBuilder::new(haystack.len());
+
+    for &view in haystack.views.iter() {
+        result.append(cmp(needle_view, view));
+    }
+
+    result.finish()
 }
 
-// Compare function that will prune operands that do not match at all.
-// Then for any of the ones that MAY match, we perform a direct comparison in encoded space.
-fn compare_scalar<P: Predicate>(
+fn compare_outlined<V, F>(
     needle: &[u8],
     haystack: &FSSTViewArray,
-    result_nullability: Nullability,
-) -> VortexResult<ArrayRef> {
+    cmp_view: V,
+    cmp_full: F,
+) -> BooleanBuffer
+where
+    V: Fn(View, View) -> MatchType,
+    F: Fn(&[u8], &[u8]) -> bool,
+{
     let mut result = BooleanBufferBuilder::new(haystack.len());
+
+    // use dummy buffer index of zero, comparison functions will chop off the `index` component
+    let needle_view = View::new_outlined(needle, 0);
+
     for (index, &view) in haystack.views().iter().enumerate() {
-        match P::eval_view(needle, view) {
+        match cmp_view(needle_view, view) {
             MatchType::False => result.append(false),
             MatchType::True => result.append(true),
             MatchType::Maybe => {
                 if haystack.is_valid(index) {
                     let full = haystack.bytes_at(index);
-                    result.append(P::eval_full(needle, full.as_ref()))
+                    result.append(cmp_full(needle, full.as_ref()))
                 } else {
                     // Null value, doesn't matter anyway
                     result.append(false);
@@ -50,13 +68,7 @@ fn compare_scalar<P: Predicate>(
         }
     }
 
-    // Cast the validity to the appropriate nullability.
-    let result_validity = haystack
-        .validity
-        .clone()
-        .cast_nullability(result_nullability)?;
-
-    Ok(BoolArray::new(result.finish(), result_validity).into_array())
+    result.finish()
 }
 
 impl CompareKernel for FSSTViewVTable {
@@ -85,106 +97,68 @@ impl CompareKernel for FSSTViewVTable {
                     .vortex_expect("constant checked to be non-null")
             };
 
-            let needle = needle.as_ref();
-
             let result_nullability = lhs.dtype.nullability() | constant.dtype().nullability();
+            let validity = lhs.validity.clone().cast_nullability(result_nullability)?;
 
-            return match operator {
-                Operator::Eq => compare_scalar::<Eq>(needle, lhs, result_nullability).map(Some),
-                Operator::NotEq => {
-                    compare_scalar::<NotEq>(needle, lhs, result_nullability).map(Some)
-                }
-                Operator::Gt | Operator::Gte | Operator::Lt | Operator::Lte => {
-                    // Other operators not supported
-                    // TODO(aduffy): support pushdown of the other operators onto views
-                    Ok(None)
-                }
+            let needle = needle.as_ref();
+            let comparison = if needle.len() <= MAX_INLINE_STR {
+                let needle_view = View::new_inlined(needle);
+
+                let buffer = match operator {
+                    Operator::Eq => {
+                        compare_inline(needle_view, lhs, |n, v| n.to_u128() == v.to_u128())
+                    }
+                    Operator::NotEq => {
+                        compare_inline(needle_view, lhs, |n, v| n.to_u128() != v.to_u128())
+                    }
+                    // TODO(aduffy): support <, >, etc.
+                    _ => return Ok(None),
+                };
+
+                BoolArray::new(buffer, validity).into_array()
+            } else {
+                // Perform a full compare using the operator.
+                let buffer = match operator {
+                    Operator::Eq => compare_outlined(needle, lhs, eq, |n, v| n == v),
+                    Operator::NotEq => compare_outlined(needle, lhs, not_eq, |n, v| n != v),
+                    // TODO(aduffy): support <, >, etc.
+                    _ => return Ok(None),
+                };
+
+                BoolArray::new(buffer, validity).into_array()
             };
-        }
 
-        Ok(None)
+            Ok(Some(comparison))
+        } else {
+            Ok(None)
+        }
     }
 }
 
-// Equality
-struct Eq;
+#[inline(always)]
+fn eq(needle: View, view: View) -> MatchType {
+    // Shift off the last 4 bytes which are the buffer index. Keep only the len (4B) and prefix (8B)
+    let shifted_needle = needle.to_u128() >> 32;
+    let shifted_view = view.to_u128() >> 32;
 
-impl Predicate for Eq {
-    #[inline(always)]
-    #[allow(clippy::cast_possible_truncation)]
-    fn eval_view(needle: &[u8], view: View) -> MatchType {
-        let needle_len = needle.len() as u32;
-        if needle_len != view.len() {
-            return MatchType::False;
-        }
-
-        // Check prefix
-        if view.is_inlined() {
-            // Perform exact match against the string
-            let whole = &unsafe { view.inline }.bytes[..needle_len as usize];
-            if whole == needle {
-                MatchType::True
-            } else {
-                MatchType::False
-            }
-        } else {
-            // Check if the prefix matches
-
-            // SAFETY: we check !is_inlined
-            let outlined = unsafe { view.outline };
-            let needle_prefix = &needle[..8];
-            if needle_prefix == outlined.prefix {
-                // If prefix matches, then MAYBE these are the same string.
-                // We need to perform a complete comparison to see.
-                MatchType::Maybe
-            } else {
-                MatchType::False
-            }
-        }
-    }
-
-    #[inline(always)]
-    fn eval_full(v1: &[u8], v2: &[u8]) -> bool {
-        v1 == v2
+    if shifted_needle == shifted_view {
+        MatchType::Maybe
+    } else {
+        MatchType::False
     }
 }
 
-// Inequality
-struct NotEq;
+#[inline(always)]
+fn not_eq(needle: View, view: View) -> MatchType {
+    // Shift off the last 4 bytes which are the buffer index. Keep only the len (4B) and prefix (8B)
+    let shifted_needle = needle.to_u128() >> 32;
+    let shifted_view = view.to_u128() >> 32;
 
-impl Predicate for NotEq {
-    #[inline(always)]
-    #[allow(clippy::cast_possible_truncation)]
-    fn eval_view(needle: &[u8], view: View) -> MatchType {
-        let needle_len = needle.len() as u32;
-        // If lengths don't match, strings won't match
-        if needle_len != view.len() {
-            return MatchType::True;
-        }
-
-        if view.is_inlined() {
-            let whole = &unsafe { view.inline }.bytes[..needle_len as usize];
-            if whole == needle {
-                MatchType::False
-            } else {
-                MatchType::True
-            }
-        } else {
-            let needle_prefix = &needle[..8];
-            let prefix = unsafe { view.outline }.prefix;
-
-            if prefix != needle_prefix {
-                MatchType::True
-            } else {
-                // If prefixes match, it's still possible full string won't match
-                MatchType::Maybe
-            }
-        }
-    }
-
-    #[inline(always)]
-    fn eval_full(v1: &[u8], v2: &[u8]) -> bool {
-        v1 != v2
+    if shifted_needle == shifted_view {
+        // If the views match, it's possible that the full values do not match
+        MatchType::Maybe
+    } else {
+        MatchType::True
     }
 }
 

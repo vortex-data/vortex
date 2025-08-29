@@ -191,7 +191,7 @@ impl Validity {
                 assert_eq!(
                     is_valid.len(),
                     length,
-                    "Validity::Array length must equal to_logical's argument: {}, {}.",
+                    "Validity::Array length must equal to_mask's argument: {}, {}.",
                     is_valid.len(),
                     length,
                 );

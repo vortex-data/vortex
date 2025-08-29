@@ -64,6 +64,22 @@ impl View {
         }
     }
 
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn new_outlined(data: &[u8], index: u32) -> Self {
+        assert!(data.len() > MAX_INLINE_STR && data.len() < u32::MAX as usize);
+
+        let len = data.len() as u32;
+        let mut outline = OutlinedStr {
+            len,
+            index,
+            prefix: [0; 8],
+        };
+
+        outline.prefix.copy_from_slice(&data[0..8]);
+
+        Self { outline }
+    }
+
     pub fn len(&self) -> u32 {
         // SAFETY: len is always first 4 bytes for either variant
         unsafe { self.inline }.len
