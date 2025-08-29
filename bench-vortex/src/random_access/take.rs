@@ -18,7 +18,6 @@ use stream::StreamExt;
 use vortex::buffer::Buffer;
 use vortex::file::VortexOpenOptions;
 use vortex::iter::ArrayIteratorExt;
-//::rayon::ParallelArrayIteratorExt;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex::{Array, ArrayRef, IntoArray};
 
