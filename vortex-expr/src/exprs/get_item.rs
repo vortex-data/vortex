@@ -3,10 +3,12 @@
 
 use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
-
+use std::ops::Not;
+use vortex_array::compute::{cast, mask};
 use vortex_array::stats::Stat;
-use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata, ToCanonical};
-use vortex_dtype::{DType, FieldName, FieldPath};
+use vortex_array::vtable::ValidityHelper;
+use vortex_array::{Array, ArrayRef, DeserializeMetadata, ProstMetadata, ToCanonical};
+use vortex_dtype::{DType, FieldName, FieldPath, Nullability};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
 
@@ -83,11 +85,18 @@ impl VTable for GetItemVTable {
     }
 
     fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
-        expr.child
-            .unchecked_evaluate(scope)?
-            .to_struct()?
-            .field_by_name(expr.field())
-            .cloned()
+        let input = expr.child.unchecked_evaluate(scope)?.to_struct()?;
+        let field = input.field_by_name(expr.field()).cloned()?;
+
+        match input.dtype().nullability() {
+            Nullability::NonNullable => Ok(field),
+            Nullability::Nullable => {
+                let result = mask(&field, &input.validity_mask().not())?;
+                // if mask is empty, it will return the original array without changing its nullability,
+                // but we already promised a nullable output...
+                cast(&result, &result.dtype().as_nullable())
+            }
+        }
     }
 
     fn return_dtype(expr: &Self::Expr, scope: &DType) -> VortexResult<DType> {
@@ -95,6 +104,7 @@ impl VTable for GetItemVTable {
         input
             .as_struct_fields_opt()
             .and_then(|st| st.field(expr.field()))
+            .map(|f| f.union_nullability(input.nullability()))
             .ok_or_else(|| {
                 vortex_err!(
                     "Couldn't find the {} field in the input scope",
@@ -187,14 +197,17 @@ impl AnalysisExpr for GetItemExpr {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::IntoArray;
+    use crate::get_item::get_item;
+    use crate::{Scope, root};
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
+    use vortex_array::validity::Validity;
+    use vortex_array::{Array, IntoArray};
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
     use vortex_dtype::PType::I32;
-
-    use crate::get_item::get_item;
-    use crate::{Scope, root};
+    use vortex_dtype::{FieldNames, Nullability};
+    use vortex_scalar::Scalar;
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[
@@ -205,7 +218,7 @@ mod tests {
     }
 
     #[test]
-    pub fn get_item_by_name() {
+    fn get_item_by_name() {
         let st = test_array();
         let get_item = get_item("a", root());
         let item = get_item.evaluate(&Scope::new(st.to_array())).unwrap();
@@ -213,9 +226,28 @@ mod tests {
     }
 
     #[test]
-    pub fn get_item_by_name_none() {
+    fn get_item_by_name_none() {
         let st = test_array();
         let get_item = get_item("c", root());
         assert!(get_item.evaluate(&Scope::new(st.to_array())).is_err());
+    }
+
+    #[test]
+    fn get_nullable_field() {
+        let st = StructArray::try_new(
+            FieldNames::from(["a"]),
+            vec![PrimitiveArray::from_iter([1i32]).to_array()],
+            1,
+            Validity::AllInvalid,
+        )
+        .unwrap()
+        .to_array();
+
+        let get_item = get_item("a", root());
+        let item = get_item.evaluate(&Scope::new(st)).unwrap();
+        assert_eq!(
+            item.scalar_at(0),
+            Scalar::null(DType::Primitive(I32, Nullability::Nullable))
+        );
     }
 }
