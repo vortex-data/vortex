@@ -84,8 +84,20 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:  # pyright: ignore[repor
         elif "Float" in scalar:
             value = scalar["Float"]  # pyright: ignore[reportAny]
             dtype = "Float64"
+        elif "Float32" in scalar:
+            value = scalar["Float32"]  # pyright: ignore[reportAny]
+            dtype = "Float32"
+        elif "Float64" in scalar:
+            value = scalar["Float64"]  # pyright: ignore[reportAny]
+            dtype = "Float64"
+        elif "Int32" in scalar:
+            value = scalar["Int32"]  # pyright: ignore[reportAny]
+            dtype = "Int32"
+        elif "Int64" in scalar:
+            value = scalar["Int64"]  # pyright: ignore[reportAny]
+            dtype = "Int64"
         else:
-            raise ValueError(f"Unsupported Polars scalar value type {scalar}")
+            raise ValueError(f"Cannot convert to Vortex: unsupported Polars scalar value type {scalar}")
 
         return ve.literal(_LITERAL_TYPES[dtype](value), value)
 
