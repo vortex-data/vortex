@@ -142,11 +142,7 @@ impl FixedSizeListArray {
             "index out of bounds: the len is {} but the index is {index}",
             self.len
         );
-        debug_assert!(
-            self.validity
-                .is_valid(index)
-                .vortex_expect("this shouldn't be a result in the first place")
-        );
+        debug_assert!(self.validity.is_valid(index));
 
         let start = self.list_size as usize * index;
         let end = self.list_size as usize * (index + 1);
