@@ -12,8 +12,8 @@ use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::{Entry, HashMap};
 
 use crate::arrays::{BinaryView, VarBinViewArray};
-use crate::builders::ArrayBuilder;
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
+use crate::builders::{ArrayBuilder, builder_can_be_extended_by};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 pub struct VarBinViewBuilder {
@@ -213,6 +213,11 @@ impl ArrayBuilder for VarBinViewBuilder {
 
     #[inline]
     fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
+        assert!(
+            builder_can_be_extended_by(&self.dtype, array.dtype()),
+            "tried to extend a builder with an array of different `DType`"
+        );
+
         let array = array.to_varbinview()?;
         self.flush_in_progress();
 

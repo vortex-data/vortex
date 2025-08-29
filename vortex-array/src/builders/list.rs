@@ -12,7 +12,10 @@ use vortex_scalar::ListScalar;
 
 use crate::arrays::{ListArray, OffsetPType};
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
-use crate::builders::{ArrayBuilder, ArrayBuilderExt, PrimitiveBuilder, builder_with_capacity};
+use crate::builders::{
+    ArrayBuilder, ArrayBuilderExt, PrimitiveBuilder, builder_can_be_extended_by,
+    builder_with_capacity,
+};
 use crate::compute::{add_scalar, cast, sub_scalar};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
@@ -148,6 +151,11 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
     }
 
     fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
+        assert!(
+            builder_can_be_extended_by(&self.dtype, array.dtype()),
+            "tried to extend a builder with an array of different `DType`"
+        );
+
         let list = array.to_list()?;
         if list.is_empty() {
             return Ok(());

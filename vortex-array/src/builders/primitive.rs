@@ -7,12 +7,12 @@ use std::ops::{Deref, DerefMut};
 
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, NativePType, Nullability};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::arrays::PrimitiveArray;
-use crate::builders::ArrayBuilder;
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
+use crate::builders::{ArrayBuilder, builder_can_be_extended_by};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 /// Builder for [`PrimitiveArray`].
@@ -147,10 +147,12 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
     }
 
     fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
+        assert!(
+            builder_can_be_extended_by(&self.dtype, array.dtype()),
+            "tried to extend a builder with an array of different `DType`"
+        );
+
         let array = array.to_primitive()?;
-        if array.ptype() != T::PTYPE {
-            vortex_bail!("Cannot extend from array with different ptype");
-        }
 
         self.values.extend_from_slice(array.as_slice::<T>());
 

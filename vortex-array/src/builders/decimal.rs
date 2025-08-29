@@ -11,7 +11,7 @@ use vortex_scalar::{BigCast, NativeDecimalType, i256, match_each_decimal_value_t
 
 use crate::arrays::DecimalArray;
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
-use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY};
+use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, builder_can_be_extended_by};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 /// An [`ArrayBuilder`] for `Decimal` typed arrays.
@@ -169,9 +169,8 @@ impl ArrayBuilder for DecimalBuilder {
     }
 
     fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
-        assert_eq!(
-            &self.dtype,
-            array.dtype(),
+        assert!(
+            builder_can_be_extended_by(&self.dtype, array.dtype()),
             "tried to extend a builder with an array of different `DType`"
         );
 

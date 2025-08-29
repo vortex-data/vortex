@@ -10,7 +10,7 @@ use vortex_mask::Mask;
 
 use crate::arrays::BoolArray;
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
-use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY};
+use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, builder_can_be_extended_by};
 use crate::{Array, ArrayRef, IntoArray};
 
 /// The builder for building a [`BoolArray`].
@@ -101,9 +101,8 @@ impl ArrayBuilder for BoolBuilder {
     }
 
     fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
-        assert_eq!(
-            &self.dtype,
-            array.dtype(),
+        assert!(
+            builder_can_be_extended_by(&self.dtype, array.dtype()),
             "tried to extend a builder with an array of different `DType`"
         );
 

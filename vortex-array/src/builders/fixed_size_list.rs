@@ -11,7 +11,9 @@ use vortex_scalar::ListScalar;
 
 use crate::arrays::FixedSizeListArray;
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
-use crate::builders::{ArrayBuilder, ArrayBuilderExt, builder_with_capacity};
+use crate::builders::{
+    ArrayBuilder, ArrayBuilderExt, builder_can_be_extended_by, builder_with_capacity,
+};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 /// An [`ArrayBuilder`] for creating [`FixedSizeListArray`].
@@ -176,6 +178,11 @@ impl ArrayBuilder for FixedSizeListBuilder {
     /// This will increase the capacity if extending with this `array` would go past the original
     /// capacity.
     fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
+        assert!(
+            builder_can_be_extended_by(&self.dtype, array.dtype()),
+            "tried to extend a builder with an array of different `DType`"
+        );
+
         let fsl = array.to_fixed_size_list()?;
         if fsl.is_empty() {
             return Ok(());

@@ -11,7 +11,9 @@ use vortex_scalar::StructScalar;
 
 use crate::arrays::StructArray;
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
-use crate::builders::{ArrayBuilder, ArrayBuilderExt, builder_with_capacity};
+use crate::builders::{
+    ArrayBuilder, ArrayBuilderExt, builder_can_be_extended_by, builder_with_capacity,
+};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 pub struct StructBuilder {
@@ -98,15 +100,12 @@ impl ArrayBuilder for StructBuilder {
     }
 
     fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
-        let array = array.to_struct()?;
+        assert!(
+            builder_can_be_extended_by(&self.dtype, array.dtype()),
+            "tried to extend a builder with an array of different `DType`"
+        );
 
-        if array.dtype() != self.dtype() {
-            vortex_bail!(
-                "Cannot extend from array with different dtype: expected {}, found {}",
-                self.dtype(),
-                array.dtype()
-            );
-        }
+        let array = array.to_struct()?;
 
         for (a, builder) in (0..array.struct_fields().nfields())
             .map(|i| &array.fields()[i])

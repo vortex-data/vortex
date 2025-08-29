@@ -72,8 +72,11 @@ pub trait ArrayBuilder: Send {
 
     fn as_any_mut(&mut self) -> &mut dyn Any;
 
+    /// The [`DType`] of the array that the builder is building.
     fn dtype(&self) -> &DType;
 
+    /// The current length of the builder (such that if the builder were to call `finish`, this
+    /// would be the length of the new array).
     fn len(&self) -> usize;
 
     fn is_empty(&self) -> bool {
@@ -98,15 +101,16 @@ pub trait ArrayBuilder: Send {
     /// Appends n "null" values to the array.
     fn append_nulls(&mut self, n: usize);
 
-    // TODO(connor): Document the fact that the passed in `array` is validated to have the correct
-    // dtype via the VTable.
     /// Extends the array with the provided array, canonicalizing if necessary.
+    ///
+    /// Implementations should assert that the input `array`'s [`DType`] should be equal to the
+    /// builder's [`DType`].
     fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()>;
 
-    /// Ensure that the builder can hold at least `capacity` number of items
+    /// Ensures that the builder can hold at least `capacity` number of items.
     fn ensure_capacity(&mut self, capacity: usize);
 
-    /// Override builders validity with the one provided
+    /// Override builders validity with the one provided.
     fn set_validity(&mut self, validity: Mask);
 
     /// Constructs an Array from the builder components.
@@ -119,6 +123,16 @@ pub trait ArrayBuilder: Send {
     /// [PrimitiveBuilder]'s [vortex_buffer::BufferMut] does not match the number of validity bits,
     /// the PrimitiveBuilder's [Self::finish] will panic.
     fn finish(&mut self) -> ArrayRef;
+}
+
+// TODO(connor): Should this be in `vortex-dtype`?
+/// Checks if the given `array_dtype` can extend a builder with `builder_dtype`.
+fn builder_can_be_extended_by(builder_dtype: &DType, array_dtype: &DType) -> bool {
+    if builder_dtype.is_nullable() {
+        builder_dtype.eq_ignore_nullability(array_dtype)
+    } else {
+        builder_dtype == array_dtype
+    }
 }
 
 /// Construct a new canonical builder for the given [`DType`].
@@ -188,6 +202,7 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
 }
 
 pub trait ArrayBuilderExt: ArrayBuilder {
+    // TODO(connor): Remove this method.
     /// A generic function to append a scalar value to the builder.
     fn append_scalar_value(&mut self, value: ScalarValue) -> VortexResult<()> {
         if value.is_null() {
@@ -198,6 +213,7 @@ pub trait ArrayBuilderExt: ArrayBuilder {
         }
     }
 
+    // TODO(connor): Does this really need to be fallible?
     /// A generic function to append a scalar to the builder.
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
         if scalar.dtype() != self.dtype() {
@@ -207,7 +223,8 @@ pub trait ArrayBuilderExt: ArrayBuilder {
                 scalar.dtype()
             )
         }
-        match scalar.dtype() {
+
+        match self.dtype() {
             DType::Null => self
                 .as_any_mut()
                 .downcast_mut::<NullBuilder>()
@@ -271,7 +288,7 @@ pub trait ArrayBuilderExt: ArrayBuilder {
                 .ok_or_else(|| {
                     vortex_err!("Cannot append extension scalar to non-extension builder")
                 })?
-                .append_value(ExtScalar::try_from(scalar)?)?,
+                .append_ext(ExtScalar::try_from(scalar)?)?,
         }
         Ok(())
     }
