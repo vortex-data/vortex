@@ -247,6 +247,7 @@ def _convert_python_fenced_blocks_from_rust_to_valid_reST_blocks(app, what, name
             lines[i] = ""
             in_block = False
 
+
 def setup(app):
     app.connect("hawkmoth-process-docstring", _replace_rust_references)
     app.connect("write-started", _post_process)
