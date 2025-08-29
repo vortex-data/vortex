@@ -81,7 +81,13 @@ impl VTable for CastVTable {
 
     fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
         let array = expr.child.evaluate(scope)?;
-        compute_cast(&array, &expr.target)
+        compute_cast(&array, &expr.target).map_err(|e| {
+            e.with_context(format!(
+                "Failed to cast array of dtype {} to {}",
+                array.dtype(),
+                expr.target
+            ))
+        })
     }
 
     fn return_dtype(expr: &Self::Expr, _scope: &DType) -> VortexResult<DType> {
