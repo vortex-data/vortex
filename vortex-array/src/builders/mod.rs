@@ -31,6 +31,7 @@
 mod bool;
 mod decimal;
 mod extension;
+mod fixed_size_list;
 mod lazy_validity_builder;
 mod list;
 mod null;
@@ -43,6 +44,7 @@ use std::any::Any;
 pub use bool::*;
 pub use decimal::*;
 pub use extension::*;
+pub use fixed_size_list::*;
 pub use list::*;
 pub use null::*;
 pub use primitive::*;

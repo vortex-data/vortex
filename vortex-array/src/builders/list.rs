@@ -22,6 +22,7 @@ pub struct ListBuilder<O: NativePType> {
     /// Represents the offsets into the values array.
     index_builder: PrimitiveBuilder<O>,
     nulls: LazyNullBufferBuilder,
+    // TODO(connor): This can probably be removed since we store it in the `dtype` field as well.
     nullability: Nullability,
     dtype: DType,
 }
@@ -85,8 +86,8 @@ impl<O: OffsetPType> ListBuilder<O> {
             }
             Some(elements) => {
                 for scalar in elements {
-                    // TODO(joe): This is slow, we should be able to append multiple values at once,
-                    // or the list scalar should hold an Array
+                    // TODO(connor): This is slow, we should be able to append multiple values at
+                    // once, or the list scalar should hold an Array
                     self.value_builder.append_scalar(&scalar)?;
                 }
                 self.nulls.append_non_null();
@@ -146,6 +147,12 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
     }
 
     fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
+        assert_eq!(
+            self.dtype(),
+            array.dtype(),
+            "tried to extend an array with an array of a different `DType`"
+        );
+
         let list = array.to_list()?;
         if list.is_empty() {
             return Ok(());
@@ -205,6 +212,7 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
             "Indices length must be one more than nulls length."
         );
 
+        // TODO(connor): Use `new_unchecked` here.
         ListArray::try_new(
             self.value_builder.finish(),
             self.index_builder.finish(),
