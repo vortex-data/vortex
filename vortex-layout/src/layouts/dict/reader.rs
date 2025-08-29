@@ -7,9 +7,9 @@ use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
 use futures::{FutureExt, join};
+use vortex_array::ArrayRef;
 use vortex_array::compute::{MinMaxResult, min_max, take};
 use vortex_array::stats::Precision;
-use vortex_array::ArrayRef;
 use vortex_dict::DictArray;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult};
