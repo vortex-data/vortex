@@ -207,25 +207,24 @@ fn test_multiple_string_columns_with_len_and_integer_column() {
     );
     conn.query(&len_functions_query).unwrap();
 
-    // Test mixing string columns, virtual columns, and integer column
-    let mixed_query = format!(
-        "SELECT title, len(title), description$length, page_count FROM vortex_scan('{}')",
-        file_path
-    );
-    conn.query(&mixed_query).unwrap();
-
-    // Test complex expressions with len() functions - known to have issues
-    // let complex_expr_query = format!(
-    //     "SELECT len(title) + len(description) as total_text_length, page_count FROM vortex_scan('{}')",
-    //     file_path
-    // );
-    // Skip this test for now due to known column binding issues
-    // conn.query(&complex_expr_query).unwrap();
-
     // Test WHERE clause with len() function
     let where_clause_query = format!(
         "SELECT title FROM vortex_scan('{}') WHERE len(title) > 25",
         file_path
     );
     conn.query(&where_clause_query).unwrap();
+}
+
+#[test]
+fn test_multiple_string_columns_with_len_and_integer_column_complex() {
+    let temp_file = RUNTIME.block_on(create_complex_test_vortex_file());
+    let conn = database_connection_with_optimizer();
+    let file_path = temp_file.path().to_string_lossy();
+
+    // Test mixing string columns, virtual columns, and integer column
+    let mixed_query = format!(
+        "SELECT title, len(title), description$length, page_count FROM vortex_scan('{}')",
+        file_path
+    );
+    conn.query(&mixed_query).unwrap();
 }

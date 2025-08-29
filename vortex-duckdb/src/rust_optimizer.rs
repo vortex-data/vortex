@@ -381,9 +381,16 @@ impl RustLengthOptimizer {
                 }
             }
 
-            // Step 2: Create ordered column_ids list
-            let mut new_column_ids: Vec<u64> = required_columns.into_iter().collect();
-            new_column_ids.sort();
+            // Step 2: Create column_ids list in the order they're needed by projections
+            // Don't sort - preserve the order projections need them in
+            let mut new_column_ids = Vec::new();
+            let mut seen_columns = HashSet::new();
+            for &col_id in &projection_mappings {
+                if !seen_columns.contains(&col_id) {
+                    new_column_ids.push(col_id);
+                    seen_columns.insert(col_id);
+                }
+            }
 
             // Step 3: Create mapping from column_id to position in new_column_ids
             let column_to_position: HashMap<u64, usize> = new_column_ids
@@ -476,6 +483,8 @@ impl RustLengthOptimizer {
             }
 
             // Create projection_ids that map each projection to its position in column_ids
+            println!("🔍 Projection mappings (column each projection needs): {:?}", projection_mappings);
+            println!("🔍 Column to position mapping: {:?}", column_to_position);
             let projection_ids: Vec<u64> = projection_mappings
                 .iter()
                 .map(|&col_id| column_to_position.get(&col_id).copied().unwrap_or(0) as u64)
@@ -483,6 +492,16 @@ impl RustLengthOptimizer {
 
             let _ = get_op.update_projection_ids(&projection_ids);
             println!("🔍 Final projection_ids: {:?}", projection_ids);
+            
+            // Debug: Print final projection expressions
+            println!("🔍 Final projection expressions:");
+            for (i, expr) in proj.projections().enumerate() {
+                if let Some(expr) = expr {
+                    println!("  [{}]: {}", i, expr);
+                } else {
+                    println!("  [{}]: None", i);
+                }
+            }
         }
 
         Some(())
