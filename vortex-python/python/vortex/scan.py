@@ -63,13 +63,9 @@ class RepeatedScan:
           ]
         """
         if row_range is None:
-            start = None
-            stop = None
-        elif isinstance(row_range, tuple):
-            start, stop = row_range
+            start, stop = None, None
         else:
-            raise TypeError(f"unexpected type for rows: {type(row_range)}")
-
+            start, stop = row_range
         return self._scan.execute(start=start, stop=stop)
 
     def scalar_at(self, index: int) -> Scalar:
