@@ -19,7 +19,6 @@ use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
 use vortex_expr::{Scope, lit, root};
 use vortex_file::{VortexOpenOptions, VortexWriteOptions};
 use vortex_fuzz::FuzzFileAction;
-use vortex_mask::Mask;
 use vortex_utils::aliases::DefaultHashBuilder;
 use vortex_utils::aliases::hash_set::HashSet;
 

@@ -8,12 +8,13 @@ use arrow_array::BooleanArray;
 use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
+use vortex_scalar::Scalar;
 
 use crate::arrays::ConstantArray;
 use crate::arrow::{FromArrowArray, IntoArrowArray};
-use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output};
+use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, fill_null};
 use crate::vtable::VTable;
-use crate::{Array, ArrayRef, Canonical, IntoArray};
+use crate::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
 
 /// The filter [`ComputeFn`].
 static FILTER_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
@@ -190,21 +191,19 @@ impl<V: VTable + FilterKernel> Kernel for FilterKernelAdapter<V> {
     }
 }
 
-// impl TryFrom<&dyn Array> for Mask {
-//     type Error = VortexError;
-//
-//     /// Converts from a possible nullable boolean array. Null values are treated as false.
-//     fn try_from(array: &dyn Array) -> Result<Self, Self::Error> {
-//         if !matches!(array.dtype(), DType::Bool(_)) {
-//             vortex_bail!("mask must be bool array, has dtype {}", array.dtype());
-//         }
-//
-//         // Convert nulls to false first in case this can be done cheaply by the encoding.
-//         let array = fill_null(array, &Scalar::bool(false, array.dtype().nullability()))?;
-//
-//         Ok(array.to_bool()?.to_mask_null_false())
-//     }
-// }
+impl dyn Array + '_ {
+    /// Converts from a possible nullable boolean array. Null values are treated as false.
+    pub fn try_to_mask_fill_null_false(&self) -> VortexResult<Mask> {
+        if !matches!(self.dtype(), DType::Bool(_)) {
+            vortex_bail!("mask must be bool array, has dtype {}", self.dtype());
+        }
+
+        // Convert nulls to false first in case this can be done cheaply by the encoding.
+        let array = fill_null(self, &Scalar::bool(false, self.dtype().nullability()))?;
+
+        Ok(array.to_bool()?.to_mask_fill_null_false())
+    }
+}
 
 pub fn arrow_filter_fn(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
     let values = match &mask {

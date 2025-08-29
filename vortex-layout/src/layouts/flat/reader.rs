@@ -10,7 +10,7 @@ use futures::FutureExt;
 use vortex_array::compute::filter;
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
-use vortex_array::{Array, ArrayRef, ToCanonical};
+use vortex_array::{Array, ArrayRef};
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
 use vortex_expr::{ExprRef, Scope, is_root};
@@ -181,16 +181,18 @@ impl MaskEvaluation for FlatEvaluation {
         let array_mask = if mask.density() < EXPR_EVAL_THRESHOLD {
             // Evaluate only the selected rows of the mask.
             array = filter(&array, &mask)?;
-            let filter_value = self.expr.evaluate(&Scope::new(array))?.to_bool()?;
             // TODO(joe): fixme casting null to false is *VERY* unsound, if the expression in the filter
             // can inspect nulls (e.g. `is_null`).
             // you will need to call the array evaluation instead of the mask evaluation.
-            let array_mask = filter_value.to_mask_fill_null_false();
+            let array_mask = self
+                .expr
+                .evaluate(&Scope::new(array))?
+                .try_to_mask_fill_null_false()?;
             mask.intersect_by_rank(&array_mask)
         } else {
             // Evaluate all rows, avoiding the more expensive rank intersection.
             array = self.expr.evaluate(&Scope::new(array))?;
-            let array_mask = array.to_bool()?.to_mask();
+            let array_mask = array.try_to_mask_fill_null_false()?;
             mask.bitand(&array_mask)
         };
 
