@@ -4,6 +4,7 @@
 use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
 use std::ops::Not;
+
 use vortex_array::compute::{cast, mask};
 use vortex_array::stats::Stat;
 use vortex_array::vtable::ValidityHelper;
@@ -197,17 +198,16 @@ impl AnalysisExpr for GetItemExpr {
 
 #[cfg(test)]
 mod tests {
-    use crate::get_item::get_item;
-    use crate::{Scope, root};
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrays::StructArray;
+    use vortex_array::arrays::{PrimitiveArray, StructArray};
     use vortex_array::validity::Validity;
     use vortex_array::{Array, IntoArray};
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{FieldNames, Nullability};
+    use vortex_dtype::{DType, FieldNames, Nullability};
     use vortex_scalar::Scalar;
+
+    use crate::get_item::get_item;
+    use crate::{Scope, root};
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[
