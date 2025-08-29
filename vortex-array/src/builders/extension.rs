@@ -40,7 +40,7 @@ impl ExtensionBuilder {
         self.storage.append_scalar(&value.storage())
     }
 
-    /// Appends a optional `value` (representing a nullable decimal) with an extension type to the
+    /// Appends a optional `value` (representing a nullable value) with an extension type to the
     /// builder.
     ///
     /// # Panics

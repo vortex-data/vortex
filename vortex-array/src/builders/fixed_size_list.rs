@@ -12,7 +12,8 @@ use vortex_scalar::ListScalar;
 use crate::arrays::FixedSizeListArray;
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::{
-    ArrayBuilder, ArrayBuilderExt, builder_can_be_extended_by, builder_with_capacity,
+    ArrayBuilder, ArrayBuilderExt, DEFAULT_BUILDER_CAPACITY, builder_can_be_extended_by,
+    builder_with_capacity,
 };
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
@@ -33,7 +34,17 @@ pub struct FixedSizeListBuilder {
 }
 
 impl FixedSizeListBuilder {
-    /// Creates a new [`FixedSizeListArray`] builder.
+    /// Creates a new `FixedSizeListBuilder` with a capacity of [`DEFAULT_BUILDER_CAPACITY`].
+    pub fn new(element_dtype: Arc<DType>, list_size: u32, nullability: Nullability) -> Self {
+        Self::with_capacity(
+            element_dtype,
+            list_size,
+            nullability,
+            DEFAULT_BUILDER_CAPACITY,
+        )
+    }
+
+    /// Creates a new `BoolBuilder` with the given `capacity`.
     pub fn with_capacity(
         element_dtype: Arc<DType>,
         list_size: u32,
@@ -53,13 +64,13 @@ impl FixedSizeListBuilder {
         }
     }
 
-    /// Adds a value to the [`FixedSizeListArray`] that we are building.
+    /// Appends a list scalar `value` to the builder.
     ///
     /// Note that a [`ListScalar`] can represent both a [`ListArray`] scalar **and** a
     /// [`FixedSizeListArray`] scalar.
     ///
     /// [`ListArray`]: crate::arrays::ListArray
-    pub fn append_value(&mut self, value: ListScalar) -> VortexResult<()> {
+    pub fn append_fixed_size_list(&mut self, value: ListScalar) -> VortexResult<()> {
         // Validate that the list scalar has an equal size to our `list_size`.
 
         if value.len() != self.list_size() as usize {
@@ -70,6 +81,7 @@ impl FixedSizeListBuilder {
             );
         }
 
+        // TODO(connor): This is incorrect, since the current builder could be non-nullable.
         let Some(elements) = value.elements() else {
             // If `elements` is `None`, then the `value` is a null value.
             self.append_null();
@@ -86,8 +98,24 @@ impl FixedSizeListBuilder {
         Ok(())
     }
 
-    /// The [`DType`] of the inner elements. Note that this is **not** the same as the [`DType`] of
-    /// the outer `FixedSizeList`.
+    /// Appends an optional fixed-size list (representing a nullable list) to the builder.
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if the input is `None` and the builder is non-nullable.
+    pub fn append_fixed_size_list_opt(&mut self, value: Option<ListScalar>) -> VortexResult<()> {
+        match value {
+            Some(value) => self.append_fixed_size_list(value),
+            None => {
+                self.append_null();
+                Ok(())
+            }
+        }
+    }
+
+    /// The [`DType`] of the inner elements.
+    ///
+    /// Note that this is **not** the same as the [`DType`] of the outer `FixedSizeList`.
     pub fn element_dtype(&self) -> &DType {
         let DType::FixedSizeList(element_dtype, ..) = &self.dtype else {
             vortex_panic!(
@@ -109,17 +137,6 @@ impl FixedSizeListBuilder {
         };
 
         list_size
-    }
-
-    pub fn nullability(&self) -> Nullability {
-        let DType::FixedSizeList(_, _, nullability) = self.dtype else {
-            vortex_panic!(
-                "`FixedSizeListBuilder` has an incorrect dtype: {}",
-                self.dtype
-            );
-        };
-
-        nullability
     }
 
     /// Returns the current length of underlying `elements` array.
@@ -222,7 +239,8 @@ impl ArrayBuilder for FixedSizeListBuilder {
         FixedSizeListArray::try_new(
             self.elements_builder.finish(),
             self.list_size(),
-            self.nulls.finish_with_nullability(self.nullability()),
+            self.nulls
+                .finish_with_nullability(self.dtype().nullability()),
             final_len,
         )
         .vortex_expect("tried to create an invalid `FixedSizeListArray` from a builder")
@@ -262,7 +280,7 @@ mod tests {
         let mut builder = FixedSizeListBuilder::with_capacity(dtype.clone(), 3, NonNullable, 0);
 
         builder
-            .append_value(
+            .append_fixed_size_list(
                 Scalar::fixed_size_list(
                     dtype.clone(),
                     vec![1i32.into(), 2i32.into(), 3i32.into()],
@@ -273,7 +291,7 @@ mod tests {
             .unwrap();
 
         builder
-            .append_value(
+            .append_fixed_size_list(
                 Scalar::fixed_size_list(
                     dtype,
                     vec![4i32.into(), 5i32.into(), 6i32.into()],
@@ -300,7 +318,9 @@ mod tests {
         // Append multiple "empty" lists.
         for _ in 0..100 {
             builder
-                .append_value(Scalar::fixed_size_list(dtype.clone(), vec![], NonNullable).as_list())
+                .append_fixed_size_list(
+                    Scalar::fixed_size_list(dtype.clone(), vec![], NonNullable).as_list(),
+                )
                 .unwrap();
         }
 
@@ -323,7 +343,7 @@ mod tests {
         for i in 0..100 {
             if i % 2 == 0 {
                 builder
-                    .append_value(
+                    .append_fixed_size_list(
                         Scalar::fixed_size_list(dtype.clone(), vec![], Nullable).as_list(),
                     )
                     .unwrap();
@@ -349,7 +369,7 @@ mod tests {
         // Add more items than initial capacity.
         for i in 0..5 {
             builder
-                .append_value(
+                .append_fixed_size_list(
                     Scalar::fixed_size_list(
                         dtype.clone(),
                         vec![(i * 2).into(), (i * 2 + 1).into()],
@@ -387,7 +407,7 @@ mod tests {
         let mut builder = FixedSizeListBuilder::with_capacity(dtype.clone(), 2, Nullable, 0);
 
         builder
-            .append_value(
+            .append_fixed_size_list(
                 Scalar::fixed_size_list(dtype.clone(), vec![1i32.into(), 2i32.into()], Nullable)
                     .as_list(),
             )
@@ -396,7 +416,7 @@ mod tests {
         builder.append_null();
 
         builder
-            .append_value(
+            .append_fixed_size_list(
                 Scalar::fixed_size_list(dtype, vec![3i32.into(), 4i32.into()], Nullable).as_list(),
             )
             .unwrap();
@@ -416,7 +436,7 @@ mod tests {
         let mut builder = FixedSizeListBuilder::with_capacity(dtype.clone(), 3, NonNullable, 0);
 
         builder
-            .append_value(
+            .append_fixed_size_list(
                 Scalar::fixed_size_list(
                     dtype.clone(),
                     vec![
@@ -431,7 +451,7 @@ mod tests {
             .unwrap();
 
         builder
-            .append_value(
+            .append_fixed_size_list(
                 Scalar::fixed_size_list(
                     dtype,
                     vec![
@@ -478,7 +498,7 @@ mod tests {
         let dtype: Arc<DType> = Arc::new(DType::Primitive(I32, Nullable));
         let mut builder = FixedSizeListBuilder::with_capacity(dtype, 2, Nullable, 0);
 
-        assert_eq!(builder.nullability(), Nullable);
+        assert_eq!(builder.dtype().nullability(), Nullable);
         builder.append_nulls(3);
         assert_eq!(builder.len(), 3);
 
@@ -517,7 +537,7 @@ mod tests {
         let mut builder = FixedSizeListBuilder::with_capacity(dtype.clone(), 3, NonNullable, 0);
 
         // Try to append a list with wrong size.
-        let result = builder.append_value(
+        let result = builder.append_fixed_size_list(
             Scalar::fixed_size_list(
                 dtype,
                 vec![1i32.into(), 2i32.into()], // Only 2 elements, not 3.
@@ -623,7 +643,7 @@ mod tests {
 
         // Add some initial data.
         builder
-            .append_value(
+            .append_fixed_size_list(
                 Scalar::fixed_size_list(
                     dtype,
                     vec![1i32.into(), 2i32.into(), 3i32.into()],
@@ -648,7 +668,7 @@ mod tests {
 
         // Mix of operations.
         builder
-            .append_value(
+            .append_fixed_size_list(
                 Scalar::fixed_size_list(
                     dtype,
                     vec![
