@@ -16,8 +16,8 @@ use vortex_expr::ExprRef;
 use vortex_layout::{LayoutReader, MaskEvaluation, PruningEvaluation};
 use vortex_mask::Mask;
 
-use crate::Selection;
 use crate::filter::FilterExpr;
+use crate::{Selection, intersect_ranges};
 
 pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 
@@ -39,18 +39,8 @@ pub(super) fn split_exec<A: 'static + Send>(
     limit: Option<&mut usize>,
 ) -> VortexResult<TaskFuture<Option<A>>> {
     // Step 1: using the caller-provided row range and selection, attempt to disregard this split.
-    let read_range = match &ctx.row_range {
-        None => split,
-        Some(row_range) => {
-            if row_range.start >= split.end || row_range.end < split.start {
-                // No overlap for this task
-                return Ok(ok(None).boxed());
-            }
-
-            let intersect_start = row_range.start.max(split.start);
-            let intersect_end = row_range.end.min(split.end);
-            intersect_start..intersect_end
-        }
+    let Some(read_range) = intersect_ranges(ctx.row_range.as_ref(), Some(split)) else {
+        return Ok(ok(None).boxed());
     };
 
     // Apply the selection to calculate a read mask
