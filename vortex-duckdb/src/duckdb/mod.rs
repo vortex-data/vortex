@@ -19,6 +19,7 @@ mod table_filter;
 mod table_function;
 mod value;
 mod vector;
+mod macro_;
 
 use std::ffi::c_void;
 use std::ptr;
