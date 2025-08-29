@@ -35,7 +35,6 @@ vtable!(Pack);
 /// let packed = example.evaluate(&Scope::new(buffer![100, 110, 200].into_array())).unwrap();
 /// let x_copy = packed
 ///     .to_struct()
-///     .unwrap()
 ///     .field_by_name("x copy")
 ///     .unwrap()
 ///     .clone();
