@@ -192,9 +192,11 @@ impl<V: VTable + FilterKernel> Kernel for FilterKernelAdapter<V> {
     }
 }
 
+// TODO(joe): This is not the correct behaviour for a mask, you can only convert a non-nullable bool
+// array into a mask.
+// Note: we might want this in the vortex scanner.
 impl From<&BoolArray> for Mask {
     fn from(array: &BoolArray) -> Self {
-        // This should in fact be non-nullable.
         assert!(array.all_valid());
         if let Some(constant) = array.as_constant() {
             let bool_constant = constant.as_bool();
