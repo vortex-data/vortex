@@ -104,42 +104,41 @@ mod tests {
 
     #[test]
     fn test_bitpacking_pipeline() {
-        for frac in [0.5] {
-            let len = 10;
-            let mut rng = StdRng::seed_from_u64(0);
-            let values = (0i16..len)
-                .map(|_| rng.random_range(0..100))
-                .collect::<BufferMut<_>>();
+        let fraac = 0.5;
+        let len = 10;
+        let mut rng = StdRng::seed_from_u64(0);
+        let values = (0i16..len)
+            .map(|_| rng.random_range(0..100))
+            .collect::<BufferMut<_>>();
 
-            let primitive_array = values.clone().into_array().to_primitive().unwrap();
-            let bitpacked = bitpack_to_best_bit_width(&primitive_array).unwrap();
+        let primitive_array = values.clone().into_array().to_primitive().unwrap();
+        let bitpacked = bitpack_to_best_bit_width(&primitive_array).unwrap();
 
-            let mask = (0..len)
-                .map(|_| rng.random_bool(frac))
-                .collect::<BooleanBuffer>();
-            let mask = Mask::from_buffer(mask);
+        let mask = (0..len)
+            .map(|_| rng.random_bool(frac))
+            .collect::<BooleanBuffer>();
+        let mask = Mask::from_buffer(mask);
 
-            let result = export_canonical_pipeline_expr(
-                bitpacked.dtype(),
-                bitpacked.len(),
-                bitpacked.to_operator().unwrap().unwrap().as_ref(),
-                &mask,
-            )
-            .unwrap()
-            .into_array();
+        let result = export_canonical_pipeline_expr(
+            bitpacked.dtype(),
+            bitpacked.len(),
+            bitpacked.to_operator().unwrap().unwrap().as_ref(),
+            &mask,
+        )
+        .unwrap()
+        .into_array();
 
-            let expect = filter(bitpacked.to_canonical().unwrap().as_ref(), &mask).unwrap();
+        let expect = filter(bitpacked.to_canonical().unwrap().as_ref(), &mask).unwrap();
 
-            assert_eq!(result.len(), expect.len());
+        assert_eq!(result.len(), expect.len());
 
-            for i in 0..mask.true_count() {
-                assert_eq!(
-                    result.scalar_at(i),
-                    expect.scalar_at(i),
-                    "mismatch at index {}",
-                    i,
-                );
-            }
+        for i in 0..mask.true_count() {
+            assert_eq!(
+                result.scalar_at(i),
+                expect.scalar_at(i),
+                "mismatch at index {}",
+                i,
+            );
         }
     }
 
