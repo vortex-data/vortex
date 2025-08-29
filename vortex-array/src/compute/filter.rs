@@ -194,6 +194,8 @@ impl<V: VTable + FilterKernel> Kernel for FilterKernelAdapter<V> {
 
 impl From<&BoolArray> for Mask {
     fn from(array: &BoolArray) -> Self {
+        // This should in fact be non-nullable.
+        assert!(array.all_valid());
         if let Some(constant) = array.as_constant() {
             let bool_constant = constant.as_bool();
             if bool_constant.value().unwrap_or(false) {
