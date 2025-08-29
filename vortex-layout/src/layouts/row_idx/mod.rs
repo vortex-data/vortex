@@ -13,9 +13,9 @@ use async_trait::async_trait;
 pub use expr::*;
 use vortex_array::compute::filter;
 use vortex_array::stats::Precision;
-use vortex_array::{ArrayRef, IntoArray};
+use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::{DType, FieldMask, Nullability, PType};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::{PartitionedExpr, partition, replace};
 use vortex_expr::{ExactExpr, ExprRef, Scope, is_root, root};
 use vortex_mask::Mask;
@@ -239,11 +239,13 @@ impl RowIdxEvaluation {
 impl PruningEvaluation for RowIdxEvaluation {
     async fn invoke(&self, _mask: Mask) -> VortexResult<Mask> {
         // TODO(ngates): we could optimize this if the mask was already quite sparse.
-        Mask::try_from(
-            self.expr
-                .evaluate(&Scope::new(self.array.clone()))?
-                .as_ref(),
-        )
+        // TODO(joe): fixme casting null to false is *VERY* unsound, see `FlatEvaluation` for more details.
+        self.expr
+            .evaluate(&Scope::new(self.array.clone()))?
+            .as_ref()
+            .to_bool()?
+            .maybe_to_mask()
+            .ok_or_else(|| vortex_err!("failed to convert to mask"))
     }
 }
 
@@ -251,11 +253,13 @@ impl PruningEvaluation for RowIdxEvaluation {
 impl MaskEvaluation for RowIdxEvaluation {
     async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
         // TODO(ngates): we could optimize this if the mask was already quite sparse.
-        let result = Mask::try_from(
-            self.expr
-                .evaluate(&Scope::new(self.array.clone()))?
-                .as_ref(),
-        )?;
+        // TODO(joe): fixme casting null to false is *VERY* unsound, see `FlatEvaluation` for more details.
+        let result = self
+            .expr
+            .evaluate(&Scope::new(self.array.clone()))?
+            .as_ref()
+            .to_bool()?
+            .to_mask_fill_null_false();
 
         // Note that mask evaluation requires an intersection with the input mask, whereas
         // pruning evaluation does not.

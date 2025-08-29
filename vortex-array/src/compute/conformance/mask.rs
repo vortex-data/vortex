@@ -37,7 +37,7 @@ fn test_heterogenous_mask(array: &dyn Array) {
 
     // Create a pattern where roughly half the values are masked
     let mask_pattern: Vec<bool> = (0..len).map(|i| i % 3 != 1).collect();
-    let mask_array = Mask::from(&BoolArray::from_iter(mask_pattern.clone()));
+    let mask_array = Mask::from_iter(mask_pattern.clone());
 
     let masked = mask(array, &mask_array).vortex_unwrap();
     assert_eq!(masked.len(), array.len());
@@ -56,7 +56,7 @@ fn test_heterogenous_mask(array: &dyn Array) {
 fn test_empty_mask(array: &dyn Array) {
     let len = array.len();
     let all_unmasked = vec![false; len];
-    let mask_array = Mask::from(&BoolArray::from_iter(all_unmasked));
+    let mask_array = Mask::from_iter(all_unmasked);
 
     let masked = mask(array, &mask_array).vortex_unwrap();
     assert_eq!(masked.len(), array.len());
@@ -71,7 +71,7 @@ fn test_empty_mask(array: &dyn Array) {
 fn test_full_mask(array: &dyn Array) {
     let len = array.len();
     let all_masked = vec![true; len];
-    let mask_array = Mask::from(&BoolArray::from_iter(all_masked));
+    let mask_array = Mask::from_iter(all_masked);
 
     let masked = mask(array, &mask_array).vortex_unwrap();
     assert_eq!(masked.len(), array.len());
@@ -86,7 +86,7 @@ fn test_full_mask(array: &dyn Array) {
 fn test_alternating_mask(array: &dyn Array) {
     let len = array.len();
     let pattern: Vec<bool> = (0..len).map(|i| i % 2 == 0).collect();
-    let mask_array = Mask::from(&BoolArray::from_iter(pattern));
+    let mask_array = Mask::from_iter(pattern);
 
     let masked = mask(array, &mask_array).vortex_unwrap();
     assert_eq!(masked.len(), array.len());
@@ -109,7 +109,7 @@ fn test_sparse_mask(array: &dyn Array) {
 
     // Mask only about 10% of elements
     let pattern: Vec<bool> = (0..len).map(|i| i % 10 == 0).collect();
-    let mask_array = Mask::from(&BoolArray::from_iter(pattern.clone()));
+    let mask_array = Mask::from_iter(pattern.clone());
 
     let masked = mask(array, &mask_array).vortex_unwrap();
     assert_eq!(masked.len(), array.len());
@@ -134,7 +134,7 @@ fn test_single_element_mask(array: &dyn Array) {
     // Mask only the first element
     let mut pattern = vec![false; len];
     pattern[0] = true;
-    let mask_array = Mask::from(&BoolArray::from_iter(pattern));
+    let mask_array = Mask::from_iter(pattern);
 
     let masked = mask(array, &mask_array).vortex_unwrap();
     assert!(!masked.is_valid(0));
@@ -152,8 +152,8 @@ fn test_double_mask(array: &dyn Array) {
     let mask1_pattern: Vec<bool> = (0..len).map(|i| i % 3 == 0).collect();
     let mask2_pattern: Vec<bool> = (0..len).map(|i| i % 2 == 0).collect();
 
-    let mask1 = Mask::from(&BoolArray::from_iter(mask1_pattern.clone()));
-    let mask2 = Mask::from(&BoolArray::from_iter(mask2_pattern.clone()));
+    let mask1 = Mask::from_iter(mask1_pattern.clone());
+    let mask2 = Mask::from_iter(mask2_pattern.clone());
 
     let first_masked = mask(array, &mask1).vortex_unwrap();
     let double_masked = mask(&first_masked, &mask2).vortex_unwrap();
@@ -186,7 +186,7 @@ fn test_nullable_mask_input(array: &dyn Array) {
     let validity = crate::validity::Validity::from_iter(validity_values.clone());
     let nullable_mask = BoolArray::new(bool_array.boolean_buffer().clone(), validity);
 
-    let mask_array = Mask::from(&nullable_mask);
+    let mask_array = nullable_mask.to_mask_fill_null_false();
     let masked = mask(array, &mask_array).vortex_unwrap();
 
     // Elements are masked only if the mask is true AND valid

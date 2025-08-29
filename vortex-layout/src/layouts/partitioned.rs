@@ -11,7 +11,7 @@ use futures::stream::FuturesOrdered;
 use itertools::Itertools;
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayRef, IntoArray};
+use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexError, VortexResult};
 use vortex_expr::transform::PartitionedExpr;
@@ -88,12 +88,13 @@ impl<P: 'static + Send + Sync> MaskEvaluation for PartitionedMaskEvaluation<P> {
         )?
         .into_array();
 
-        let root_mask = Mask::try_from(
-            self.partitioned
-                .root
-                .evaluate(&Scope::new(root_scope))?
-                .as_ref(),
-        )?;
+        let root_mask = self
+            .partitioned
+            .root
+            .evaluate(&Scope::new(root_scope))?
+            .as_ref()
+            .to_bool()?
+            .to_mask_fill_null_false();
         let mask = mask.bitand(&root_mask);
 
         Ok(mask)

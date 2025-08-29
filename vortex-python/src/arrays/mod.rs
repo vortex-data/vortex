@@ -17,7 +17,7 @@ use vortex::arrow::IntoArrowArray;
 use vortex::compute::{Operator, compare, take};
 use vortex::error::VortexError;
 use vortex::mask::Mask;
-use vortex::{Array, ArrayRef};
+use vortex::{Array, ArrayRef, ToCanonical};
 
 use crate::arrays::native::PyNativeArray;
 use crate::arrays::py::{PyPythonArray, PythonArray};
@@ -377,7 +377,8 @@ impl PyArray {
     ///     ]
     fn filter(slf: Bound<Self>, mask: PyArrayRef) -> PyResult<PyArrayRef> {
         let slf = PyArrayRef::extract_bound(slf.as_any())?.into_inner();
-        let inner = vortex::compute::filter(&*slf, &Mask::try_from(&*mask as &dyn Array)?)?;
+        let mask = (&*mask as &dyn Array).to_bool()?.to_mask_fill_null_false();
+        let inner = vortex::compute::filter(&*slf, &mask)?;
         Ok(PyArrayRef::from(inner))
     }
 

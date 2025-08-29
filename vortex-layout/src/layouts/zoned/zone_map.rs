@@ -8,7 +8,7 @@ use vortex_array::arrays::StructArray;
 use vortex_array::compute::sum;
 use vortex_array::stats::{Precision, Stat, StatsSet};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef};
+use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dtype::{DType, Nullability, PType, StructFields};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_expr::{ExprRef, Scope};
@@ -131,11 +131,11 @@ impl ZoneMap {
     ///
     /// All zones where the predicate evaluates to `true` can be skipped entirely.
     pub fn prune(&self, predicate: &ExprRef) -> VortexResult<Mask> {
-        Mask::try_from(
-            predicate
-                .evaluate(&Scope::new(self.array.to_array()))?
-                .as_ref(),
-        )
+        Ok(predicate
+            .evaluate(&Scope::new(self.array.to_array()))?
+            .as_ref()
+            .to_bool()?
+            .to_mask_fill_null_false())
     }
 }
 
