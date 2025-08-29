@@ -67,7 +67,7 @@ class RepeatedScan:
         ...     {'name': None, 'age': None},
         ... ])
         >>> vx.io.write(a, "a.vortex")
-        >>> scan = vx.open("a.vortex").prepare()
+        >>> scan = vx.open("a.vortex").to_repeated_scan()
         >>> scan.execute(row_range=(1, 3)).read_all().to_arrow_array()
         <pyarrow.lib.StructArray object at ...>
         -- is_valid: all not null
@@ -116,7 +116,7 @@ class RepeatedScan:
         ...     {'name': None, 'age': None},
         ... ])
         >>> vx.io.write(a, "a.vortex")
-        >>> scan = vx.open("a.vortex").prepare()
+        >>> scan = vx.open("a.vortex").to_repeated_scan()
         >>> scan.scalar_at(1)
         <vortex.Scalar object at ...>
         """

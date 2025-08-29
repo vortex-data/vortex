@@ -30,6 +30,14 @@ def vxf(tmpdir_factory) -> vx.VortexFile:  # pyright: ignore[reportUnknownParame
     return vx.open(str(fname))  # pyright: ignore[reportUnknownArgumentType]
 
 
+def test_open(tmpdir_factory) -> vx.VortexFile:
+    fname = tmpdir_factory.mktemp("data") / "foo.vortex"
+    if not os.path.exists(fname):
+        a = pa.array([record(x) for x in range(1_000)])
+        vx.io.write(vx.array(a), str(fname))
+    return vx.open(str(fname), segment_cache_size_bytes=0)
+
+
 def test_dtype(vxf: VortexFile):
     assert vxf.dtype.to_arrow_schema() == pa.schema(
         [("bool", pa.bool_()), ("float", pa.float64()), ("index", pa.int64()), ("string", pa.string_view())]

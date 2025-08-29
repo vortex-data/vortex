@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     import polars
 
 
-def open(path: str) -> VortexFile:
+def open(path: str, **kwargs) -> VortexFile:
     """
     Lazily open a Vortex file located at the given path or URL.
 
@@ -29,6 +29,8 @@ def open(path: str) -> VortexFile:
     ----------
     path : :class:`str`
         A local path or URL to the Vortex file.
+    **kwargs
+        Additional keyword arguments passed to the underlying implementation.
 
     Examples
     --------
@@ -41,7 +43,7 @@ def open(path: str) -> VortexFile:
     See also: :class:`vortex.dataset.VortexDataset`
     """
 
-    return VortexFile(_file.open(path))
+    return VortexFile(_file.open(path, **kwargs))
 
 
 @final
@@ -145,7 +147,7 @@ class VortexFile:
         """
         return self._file.scan(projection, expr=expr, indices=indices, batch_size=batch_size)
 
-    def prepare(
+    def to_repeated_scan(
         self,
         projection: IntoProjection = None,
         *,

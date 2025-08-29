@@ -58,7 +58,7 @@ impl PyRepeatedScan {
 
         for batch in slf.get().scan.execute_array_iter(Some(index..index + 1))? {
             let array = batch?;
-            if array.len() == 0 {
+            if array.is_empty() {
                 continue;
             }
             let scalar = array.scalar_at(0);

@@ -15,7 +15,7 @@ use vortex::expr::{ExprRef, root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::scan::{ScanBuilder, SplitBy};
 use vortex::{ArrayRef, ToCanonical};
-
+use vortex::file::segments::MokaSegmentCache;
 use crate::arrays::PyArrayRef;
 use crate::arrow::IntoPyArrow;
 use crate::dataset::PyVortexDataset;
@@ -37,10 +37,17 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 }
 
 #[pyfunction]
-pub fn open(path: &str) -> PyResult<PyVortexFile> {
-    let vxf = VortexOpenOptions::file()
-        .without_segment_cache()
-        .open_blocking(path)?;
+#[pyo3(signature = (path, *, segment_cache_size_bytes = 256 << 20))]
+pub fn open(path: &str, segment_cache_size_bytes: u64) -> PyResult<PyVortexFile> {
+    let mut options = VortexOpenOptions::file();
+    if segment_cache_size_bytes > 0 {
+        options = options.with_segment_cache(Arc::new(MokaSegmentCache::new(
+            segment_cache_size_bytes,
+        )));
+    } else {
+        options = options.without_segment_cache();
+    }
+    let vxf = options.open_blocking(path)?;
     Ok(PyVortexFile { vxf })
 }
 

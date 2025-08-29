@@ -27,7 +27,7 @@ def vxscan(tmpdir_factory) -> vx.RepeatedScan:  # pyright: ignore[reportUnknownP
         a = pa.array([record(x) for x in range(1_000)])
         arr = vx.compress(vx.array(a))
         vx.io.write(arr, str(fname))  # pyright: ignore[reportUnknownArgumentType]
-    return vx.open(str(fname)).prepare()  # pyright: ignore[reportUnknownArgumentType]
+    return vx.open(str(fname)).to_repeated_scan()  # pyright: ignore[reportUnknownArgumentType]
 
 
 def test_execute(vxscan: RepeatedScan):
