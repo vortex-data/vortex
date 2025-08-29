@@ -27,6 +27,8 @@ use crate::{InnerScalarValue, Scalar, ScalarValue};
 pub struct ListScalar<'a> {
     dtype: &'a DType,
     element_dtype: &'a Arc<DType>,
+    // TODO(connor): This can only be `None` if the dtype is nullable.
+    // Right now there is no way to create a null list scalar.
     elements: Option<Arc<[ScalarValue]>>,
 }
 
