@@ -159,7 +159,7 @@ The Vortex project benefits enormously from groundbreaking work from the academi
 ### Research in Vortex
 
 - [BtrBlocks](https://www.cs.cit.tum.de/fileadmin/w00cfj/dis/papers/btrblocks.pdf) - Efficient columnar compression
-- [FastLanes](https://www.vldb.org/pvldb/vol16/p2132-afroozeh.pdf) - High-performance integer compression
+- [FastLanes](https://www.vldb.org/pvldb/vol16/p2132-afroozeh.pdf) & [FastLanes on GPU](https://dbdbd2023.ugent.be/abstracts/felius_fastlanes.pdf) - High-performance integer compression
 - [FSST](https://www.vldb.org/pvldb/vol13/p2649-boncz.pdf) - Fast random access string compression
 - [ALP](https://ir.cwi.nl/pub/33334/33334.pdf) & [G-ALP](https://dl.acm.org/doi/pdf/10.1145/3736227.3736242) - Adaptive lossless floating-point compression
 - [Procella](https://dl.acm.org/citation.cfm?id=3360438) - YouTube's unified data system
