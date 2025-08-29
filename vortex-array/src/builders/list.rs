@@ -147,12 +147,6 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
     }
 
     fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
-        assert_eq!(
-            self.dtype(),
-            array.dtype(),
-            "tried to extend an array with an array of a different `DType`"
-        );
-
         let list = array.to_list()?;
         if list.is_empty() {
             return Ok(());

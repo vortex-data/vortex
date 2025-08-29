@@ -74,6 +74,8 @@ pub trait ArrayBuilder: Send {
         self.len() == 0
     }
 
+    // TODO(connor): We should probably merge these 4 methods to `append_defaults`.
+
     /// Append a "zero" value to the array.
     fn append_zero(&mut self) {
         self.append_zeros(1)
@@ -90,6 +92,8 @@ pub trait ArrayBuilder: Send {
     /// Appends n "null" values to the array.
     fn append_nulls(&mut self, n: usize);
 
+    // TODO(connor): Document the fact that the passed in `array` is validated to have the correct
+    // dtype via the VTable.
     /// Extends the array with the provided array, canonicalizing if necessary.
     fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()>;
 

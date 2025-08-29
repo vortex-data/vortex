@@ -141,6 +141,7 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         self.nulls.append_n_non_nulls(n);
     }
 
+    // TODO(connor): Shouldn't this check if the dtype is nullable? Otherwise this is just wrong...
     fn append_nulls(&mut self, n: usize) {
         self.values.push_n(T::default(), n);
         self.nulls.append_n_nulls(n);
