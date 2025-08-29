@@ -155,7 +155,7 @@ class VortexFile:
         indices: Array | None = None,
         batch_size: int | None = None,
     ) -> RepeatedScan:
-        """Prepare a scan of Vortex file, for repeated reads, returning a :class:`vortex.RepeatedScan`.
+        """Prepare a scan of the Vortex file for repeated reads, returning a :class:`vortex.RepeatedScan`.
 
         Parameters
         ----------
