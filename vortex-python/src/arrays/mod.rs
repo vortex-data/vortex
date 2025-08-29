@@ -16,7 +16,6 @@ use vortex::arrays::ChunkedVTable;
 use vortex::arrow::IntoArrowArray;
 use vortex::compute::{Operator, compare, take};
 use vortex::error::VortexError;
-use vortex::mask::Mask;
 use vortex::{Array, ArrayRef, ToCanonical};
 
 use crate::arrays::native::PyNativeArray;
