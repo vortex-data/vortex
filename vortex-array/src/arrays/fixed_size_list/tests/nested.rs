@@ -9,7 +9,7 @@ use vortex_scalar::Scalar;
 use crate::arrays::{FixedSizeListArray, PrimitiveArray, StructArray};
 use crate::builders::{ArrayBuilder, ArrayBuilderExt, ListBuilder};
 use crate::validity::Validity;
-use crate::{Array, IntoArray};
+use crate::{Array, IntoArray, ToCanonical};
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // FSL of FSL tests
@@ -64,6 +64,61 @@ fn test_fsl_of_fsl_basic() {
     // We can check by slicing and examining scalars.
     let first_scalar = outer_fsl.scalar_at(0);
     assert!(!first_scalar.is_null());
+
+    // Check the actual values in the nested structure.
+    // First outer list contains: [[1,2], [3,4], [5,6]].
+    let first_outer_list = outer_fsl.fixed_size_list_at(0);
+
+    // Check first inner list [1,2].
+    let inner_list_0 = first_outer_list
+        .to_fixed_size_list()
+        .unwrap()
+        .fixed_size_list_at(0);
+    assert_eq!(inner_list_0.scalar_at(0), 1i32.into());
+    assert_eq!(inner_list_0.scalar_at(1), 2i32.into());
+
+    // Check second inner list [3,4].
+    let inner_list_1 = first_outer_list
+        .to_fixed_size_list()
+        .unwrap()
+        .fixed_size_list_at(1);
+    assert_eq!(inner_list_1.scalar_at(0), 3i32.into());
+    assert_eq!(inner_list_1.scalar_at(1), 4i32.into());
+
+    // Check third inner list [5,6].
+    let inner_list_2 = first_outer_list
+        .to_fixed_size_list()
+        .unwrap()
+        .fixed_size_list_at(2);
+    assert_eq!(inner_list_2.scalar_at(0), 5i32.into());
+    assert_eq!(inner_list_2.scalar_at(1), 6i32.into());
+
+    // Second outer list contains: [[7,8], [9,10], [11,12]].
+    let second_outer_list = outer_fsl.fixed_size_list_at(1);
+
+    // Check first inner list [7,8].
+    let inner_list_0 = second_outer_list
+        .to_fixed_size_list()
+        .unwrap()
+        .fixed_size_list_at(0);
+    assert_eq!(inner_list_0.scalar_at(0), 7i32.into());
+    assert_eq!(inner_list_0.scalar_at(1), 8i32.into());
+
+    // Check second inner list [9,10].
+    let inner_list_1 = second_outer_list
+        .to_fixed_size_list()
+        .unwrap()
+        .fixed_size_list_at(1);
+    assert_eq!(inner_list_1.scalar_at(0), 9i32.into());
+    assert_eq!(inner_list_1.scalar_at(1), 10i32.into());
+
+    // Check third inner list [11,12].
+    let inner_list_2 = second_outer_list
+        .to_fixed_size_list()
+        .unwrap()
+        .fixed_size_list_at(2);
+    assert_eq!(inner_list_2.scalar_at(0), 11i32.into());
+    assert_eq!(inner_list_2.scalar_at(1), 12i32.into());
 }
 
 #[test]
@@ -153,6 +208,36 @@ fn test_deeply_nested_fsl() {
                     )
             )
     ));
+
+    // Check the actual deeply nested values.
+    // Structure: [[[1,2],[3,4]],[[5,6],[7,8]]].
+    let top_level = level3.fixed_size_list_at(0);
+    let level2_0 = top_level
+        .to_fixed_size_list()
+        .unwrap()
+        .fixed_size_list_at(0);
+    let level2_1 = top_level
+        .to_fixed_size_list()
+        .unwrap()
+        .fixed_size_list_at(1);
+
+    // First level-2 list: [[1,2],[3,4]].
+    let level1_0_0 = level2_0.to_fixed_size_list().unwrap().fixed_size_list_at(0);
+    assert_eq!(level1_0_0.scalar_at(0), 1i32.into());
+    assert_eq!(level1_0_0.scalar_at(1), 2i32.into());
+
+    let level1_0_1 = level2_0.to_fixed_size_list().unwrap().fixed_size_list_at(1);
+    assert_eq!(level1_0_1.scalar_at(0), 3i32.into());
+    assert_eq!(level1_0_1.scalar_at(1), 4i32.into());
+
+    // Second level-2 list: [[5,6],[7,8]].
+    let level1_1_0 = level2_1.to_fixed_size_list().unwrap().fixed_size_list_at(0);
+    assert_eq!(level1_1_0.scalar_at(0), 5i32.into());
+    assert_eq!(level1_1_0.scalar_at(1), 6i32.into());
+
+    let level1_1_1 = level2_1.to_fixed_size_list().unwrap().fixed_size_list_at(1);
+    assert_eq!(level1_1_1.scalar_at(0), 7i32.into());
+    assert_eq!(level1_1_1.scalar_at(1), 8i32.into());
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////

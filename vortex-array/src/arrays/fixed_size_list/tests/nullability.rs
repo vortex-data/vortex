@@ -35,6 +35,11 @@ fn test_nullable_fsl_with_nulls() {
         )
     );
 
+    // Check individual elements of the first list.
+    let first_list = fsl.fixed_size_list_at(0);
+    assert_eq!(first_list.scalar_at(0), 1i32.into());
+    assert_eq!(first_list.scalar_at(1), 2i32.into());
+
     // Second list is null.
     let second = fsl.scalar_at(1);
     assert!(second.is_null());
@@ -50,6 +55,11 @@ fn test_nullable_fsl_with_nulls() {
             Nullability::Nullable,
         )
     );
+
+    // Check individual elements of the third list.
+    let third_list = fsl.fixed_size_list_at(2);
+    assert_eq!(third_list.scalar_at(0), 5i32.into());
+    assert_eq!(third_list.scalar_at(1), 6i32.into());
 
     // Fourth list is null.
     let fourth = fsl.scalar_at(3);
@@ -125,6 +135,11 @@ fn test_nullable_elements_and_nullable_lists() {
         )
     );
 
+    // Check individual elements of the first list.
+    let first_list = fsl.fixed_size_list_at(0);
+    assert_eq!(first_list.scalar_at(0), Some(10u16).into());
+    assert_eq!(first_list.scalar_at(1), None::<u16>.into());
+
     // Second list is null (but elements would be [Some(20), Some(30)]).
     let second = fsl.scalar_at(1);
     assert!(second.is_null());
@@ -140,6 +155,11 @@ fn test_nullable_elements_and_nullable_lists() {
             Nullability::Nullable,
         )
     );
+
+    // Check individual elements of the third list.
+    let third_list = fsl.fixed_size_list_at(2);
+    assert_eq!(third_list.scalar_at(0), None::<u16>.into());
+    assert_eq!(third_list.scalar_at(1), None::<u16>.into());
 }
 
 #[test]

@@ -163,8 +163,7 @@ impl ArrayBuilder for FixedSizeListBuilder {
     fn append_nulls(&mut self, n: usize) {
         let element_count = n * self.list_size() as usize;
 
-        // TODO(connor): Does the behavior of `append_nulls` make sense here?
-        // Use nulls if the element type is nullable, otherwise use zeros.
+        // TODO(connor): `append_default()`
         if self.element_dtype().is_nullable() {
             self.elements_builder.append_nulls(element_count);
         } else {
