@@ -54,12 +54,12 @@ class RepeatedScan:
         -- child 0 type: int64
           [
             31,
-            null,
+            null
           ]
         -- child 1 type: string_view
           [
             null,
-            "Angela",
+            "Angela"
           ]
         """
         if row_range is None:
@@ -94,6 +94,6 @@ class RepeatedScan:
         >>> vx.io.write(a, "a.vortex")
         >>> scan = vx.open("a.vortex").to_repeated_scan()
         >>> scan.scalar_at(1)
-        <vortex.Scalar object at ...>
+        <vortex.StructScalar object at ...>
         """
         return self._scan.scalar_at(index)
