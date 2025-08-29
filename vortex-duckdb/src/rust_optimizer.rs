@@ -483,7 +483,10 @@ impl RustLengthOptimizer {
             }
 
             // Create projection_ids that map each projection to its position in column_ids
-            println!("🔍 Projection mappings (column each projection needs): {:?}", projection_mappings);
+            println!(
+                "🔍 Projection mappings (column each projection needs): {:?}",
+                projection_mappings
+            );
             println!("🔍 Column to position mapping: {:?}", column_to_position);
             let projection_ids: Vec<u64> = projection_mappings
                 .iter()
@@ -492,7 +495,7 @@ impl RustLengthOptimizer {
 
             let _ = get_op.update_projection_ids(&projection_ids);
             println!("🔍 Final projection_ids: {:?}", projection_ids);
-            
+
             // Debug: Print final projection expressions
             println!("🔍 Final projection expressions:");
             for (i, expr) in proj.projections().enumerate() {

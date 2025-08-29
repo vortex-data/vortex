@@ -67,7 +67,7 @@ impl Debug for VortexBindData {
 pub struct VortexGlobalData {
     scan: MultiScan<(ArrayRef, Arc<ConversionCache>)>,
     batch_id: AtomicU64,
-    virtual_column_requests: Vec<(usize, usize)>, // (projection_idx, source_column_idx)
+    virtual_column_requests: Vec<(usize, String)>, // (projection_idx, source_column_name)
 }
 
 pub struct VortexLocalData {
@@ -107,7 +107,7 @@ fn extract_schema_from_vortex_file(
 /// Returns both the projection expression for real columns and indices of virtual columns
 fn extract_projection_expr(
     init: &TableInitInput<VortexTableFunction>,
-) -> (ExprRef, Vec<(usize, usize)>) {
+) -> (ExprRef, Vec<(usize, String)>) {
     let projection_ids = init.projection_ids().unwrap_or(&[]);
     let column_ids = init.column_ids();
     let bind_data = init.bind_data();
@@ -140,8 +140,12 @@ fn extract_projection_expr(
             .iter()
             .find(|(virt_idx, _)| *virt_idx == col_idx)
         {
-            // This is a virtual column, track it and mark source column as needed
-            virtual_column_requests.push((proj_idx, *source_idx));
+            // This is a virtual column, track it with the source column name
+            let source_col_name = bind_data
+                .column_names
+                .get(*source_idx)
+                .vortex_expect("source column must exist");
+            virtual_column_requests.push((proj_idx, source_col_name.clone()));
             needed_source_columns.insert(*source_idx);
         } else if col_idx < bind_data.column_names.len() - bind_data.virtual_column_mappings.len() {
             // This is a real column

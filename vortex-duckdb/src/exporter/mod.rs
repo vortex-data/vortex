@@ -13,6 +13,7 @@ mod sequence;
 mod temporal;
 mod varbinview;
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use bitvec::prelude::Lsb0;
@@ -100,7 +101,7 @@ impl ArrayExporter {
     pub fn try_new_with_virtual_columns(
         array: &StructArray,
         cache: &ConversionCache,
-        virtual_column_requests: &[(usize, usize)],
+        virtual_column_requests: &[(usize, String)],
         total_columns: usize,
     ) -> VortexResult<Self> {
         log::debug!(
@@ -114,40 +115,66 @@ impl ArrayExporter {
             virtual_column_requests
         );
 
+        // Create a mapping from field names to indices in the struct array
+        let field_name_to_idx: HashMap<String, usize> = array
+            .names()
+            .iter()
+            .enumerate()
+            .map(|(idx, name)| (name.as_ref().to_string(), idx))
+            .collect();
+
         // Create exporters for exactly the columns that are projected
         let mut fields: Vec<Box<dyn ColumnExporter>> = Vec::with_capacity(total_columns);
+
+        // Track which real columns have been used
+        let mut next_real_field_idx = 0;
 
         // The key insight: we need to place exporters at the exact projection positions
         // If a position corresponds to a virtual column, use a virtual exporter
         // If a position corresponds to a real column, use a real exporter
         for i in 0..total_columns {
             // Check if this projection position is a virtual column request
-            if let Some((_, source_col_idx)) = virtual_column_requests
+            if let Some((_, source_col_name)) = virtual_column_requests
                 .iter()
                 .find(|(proj_idx, _)| *proj_idx == i)
             {
                 // This position needs a virtual column exporter
                 log::debug!(
-                    "EXPORTER: Position {} is virtual column from source {}",
+                    "EXPORTER: Position {} is virtual column from source '{}'",
                     i,
-                    source_col_idx
+                    source_col_name
                 );
-                if *source_col_idx < array.fields().len() {
-                    let source_field = &array.fields()[*source_col_idx];
+
+                // Find the field by name
+                if let Some(&field_idx) = field_name_to_idx.get(source_col_name) {
+                    let source_field = &array.fields()[field_idx];
                     fields.push(new_virtual_length_exporter(source_field.as_ref())?);
                 } else {
-                    // Fallback for invalid source index
+                    // Fallback for missing field
+                    log::warn!(
+                        "EXPORTER: Could not find field '{}' in struct array",
+                        source_col_name
+                    );
                     fields.push(new_virtual_length_exporter(array.fields()[0].as_ref())?);
                 }
             } else {
                 // This position needs a real column exporter
-                // Use the i-th field, or fallback to first field if out of bounds
-                log::debug!("EXPORTER: Position {} is real column", i);
-                let field_idx = if i < array.fields().len() { i } else { 0 };
-                fields.push(new_array_exporter(
-                    array.fields()[field_idx].as_ref(),
-                    cache,
-                )?);
+                // Use the next available real field
+                log::debug!(
+                    "EXPORTER: Position {} is real column, using field {}",
+                    i,
+                    next_real_field_idx
+                );
+                if next_real_field_idx < array.fields().len() {
+                    fields.push(new_array_exporter(
+                        array.fields()[next_real_field_idx].as_ref(),
+                        cache,
+                    )?);
+                    next_real_field_idx += 1;
+                } else {
+                    // Fallback if we run out of fields (shouldn't happen normally)
+                    fields.push(new_array_exporter(array.fields()[0].as_ref(), cache)?);
+                }
             }
         }
 
