@@ -2,27 +2,27 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::rc::Rc;
+use std::sync::Arc;
 
+use log::info;
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{NativePType, PType, match_each_native_ptype};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::VortexResult;
 
 use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::pipeline::bits::BitView;
-use crate::pipeline::operators::{BindContext, Operator};
+use crate::pipeline::operators::{BindContext, Operator, OperatorRef};
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{Element, Kernel, KernelContext, N, PipelineVTable, VType};
 use crate::vtable::ValidityHelper;
 
 impl PipelineVTable<PrimitiveVTable> for PrimitiveVTable {
-    fn to_operator(array: &PrimitiveArray) -> VortexResult<Option<Rc<dyn Operator>>> {
+    fn to_operator(array: &PrimitiveArray) -> VortexResult<Option<OperatorRef>> {
         if !array.validity().all_valid() {
-            vortex_bail!(
-                "PipelineVTable::to_operator is not supported for arrays with invalid values"
-            );
+            info!("PipelineVTable::to_operator is not supported for arrays with invalid values");
+            return Ok(None);
         }
-        Ok(Some(Rc::new(PrimitiveOperator::new(
+        Ok(Some(Arc::new(PrimitiveOperator::new(
             array.ptype(),
             array.byte_buffer().clone(),
         ))))
@@ -51,12 +51,12 @@ impl Operator for PrimitiveOperator {
         VType::Primitive(self.ptype)
     }
 
-    fn children(&self) -> &[Rc<dyn Operator>] {
+    fn children(&self) -> &[OperatorRef] {
         &[]
     }
 
-    fn with_children(&self, _children: Vec<Rc<dyn Operator>>) -> Rc<dyn Operator> {
-        Rc::new(self.clone())
+    fn with_children(&self, _children: Vec<OperatorRef>) -> OperatorRef {
+        Arc::new(self.clone())
     }
 
     fn bind(&self, _ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {

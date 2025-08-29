@@ -4,13 +4,15 @@
 use std::any::Any;
 use std::hash::Hash;
 use std::marker::PhantomData;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use num_traits::WrappingAdd;
 use vortex_array::Array;
 use vortex_array::compute::Operator as BinaryOperator;
 use vortex_array::pipeline::bits::BitView;
-use vortex_array::pipeline::operators::{BindContext, Operator, ScalarCompareOperator};
+use vortex_array::pipeline::operators::{
+    BindContext, Operator, OperatorRef, ScalarCompareOperator,
+};
 use vortex_array::pipeline::vec::VectorId;
 use vortex_array::pipeline::view::ViewMut;
 use vortex_array::pipeline::{Element, Kernel, KernelContext, PipelineVTable, VType};
@@ -21,11 +23,11 @@ use vortex_scalar::Scalar;
 use crate::{FoRArray, FoRVTable};
 
 impl PipelineVTable<FoRVTable> for FoRVTable {
-    fn to_operator(array: &FoRArray) -> VortexResult<Option<Rc<dyn Operator>>> {
+    fn to_operator(array: &FoRArray) -> VortexResult<Option<OperatorRef>> {
         let Some(op) = array.encoded.to_operator()? else {
             return Ok(None);
         };
-        Ok(Some(Rc::new(FoROperator {
+        Ok(Some(Arc::new(FoROperator {
             child: [op],
             reference: array.reference.clone(),
             ptype: array.ptype(),
@@ -36,7 +38,7 @@ impl PipelineVTable<FoRVTable> for FoRVTable {
 
 #[derive(Debug, Hash)]
 pub struct FoROperator {
-    child: [Rc<dyn Operator>; 1],
+    child: [OperatorRef; 1],
     reference: Scalar,
     ptype: PType,
     encoded_ptype: PType,
@@ -51,13 +53,13 @@ impl Operator for FoROperator {
         VType::Primitive(self.ptype)
     }
 
-    fn children(&self) -> &[Rc<dyn Operator>] {
+    fn children(&self) -> &[OperatorRef] {
         &self.child
     }
 
-    fn with_children(&self, mut children: Vec<Rc<dyn Operator>>) -> Rc<dyn Operator> {
+    fn with_children(&self, mut children: Vec<OperatorRef>) -> OperatorRef {
         assert_eq!(children.len(), 1);
-        Rc::new(FoROperator {
+        Arc::new(FoROperator {
             child: [children.remove(0)],
             reference: self.reference.clone(),
             ptype: self.ptype,
@@ -90,7 +92,7 @@ impl Operator for FoROperator {
         })
     }
 
-    fn reduce_parent(&self, parent: Rc<dyn Operator>) -> Option<Rc<dyn Operator>> {
+    fn reduce_parent(&self, parent: OperatorRef) -> Option<OperatorRef> {
         let compare = parent.as_any().downcast_ref::<ScalarCompareOperator>()?;
         if compare.op != BinaryOperator::Eq && compare.op != BinaryOperator::NotEq {
             return None;
@@ -111,7 +113,7 @@ impl Operator for FoROperator {
             Scalar::from(compare.wrapping_sub(reference))
         });
 
-        Some(Rc::new(ScalarCompareOperator::new(
+        Some(Arc::new(ScalarCompareOperator::new(
             self.children()[0].clone(),
             compare.op,
             new_ref,

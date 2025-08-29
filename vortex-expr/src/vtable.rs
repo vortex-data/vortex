@@ -5,6 +5,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::ops::Deref;
 
+use vortex_array::pipeline::OperatorRef;
 use vortex_array::{ArrayRef, DeserializeMetadata, SerializeMetadata};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -62,6 +63,10 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
 
     /// Compute the return [`DType`] of the expression if evaluated in the given scope.
     fn return_dtype(expr: &Self::Expr, scope: &DType) -> VortexResult<DType>;
+
+    fn operator(_expr: &Self::Expr, _children: Vec<OperatorRef>) -> Option<OperatorRef> {
+        None
+    }
 }
 
 #[macro_export]

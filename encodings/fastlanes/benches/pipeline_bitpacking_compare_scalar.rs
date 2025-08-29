@@ -3,23 +3,20 @@
 
 #![allow(clippy::unwrap_used)]
 #![allow(unexpected_cfgs)]
-use std::rc::Rc;
 
 use arrow_buffer::BooleanBuffer;
 use divan::Bencher;
 use mimalloc::MiMalloc;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
-use vortex_array::arrays::ConstantOperator;
-use vortex_array::compute::{Operator as BinaryOperator, filter};
-use vortex_array::pipeline::operators::{CompareOperator, ScalarCompareOperator};
+use vortex_array::compute::filter;
 use vortex_array::pipeline::{Element, export_canonical_pipeline_expr};
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, NativePType};
 use vortex_error::VortexResult;
-use vortex_expr::{Scope, lit, lt, reduce_operator, root};
+use vortex_expr::{Scope, VortexExprExt, lit, lt, root};
 use vortex_fastlanes::{FoRArray, bitpack_to_best_bit_width};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
@@ -91,16 +88,8 @@ pub fn pipeline<T: Element + NativePType + Into<Scalar>>(bencher: Bencher, fract
         .map(|_| rng.random_bool(fraction_kept))
         .collect::<BooleanBuffer>();
 
-    // Get the operator from the FoR+BitPacked array
-    let array_operator = array.to_operator().unwrap().unwrap();
-    let constant_operator = Rc::new(ConstantOperator::new(T::from_i32(2).unwrap().into()));
-
-    // Create scalar compare operator: array < T::from_i32(2)
-    let operator = Rc::new(CompareOperator::new(
-        array_operator,
-        constant_operator,
-        BinaryOperator::Lt,
-    ));
+    let expr = lt(root(), lit(T::from_i32(2).unwrap()));
+    let operator = expr.to_operator_unoptimized(&array).unwrap().unwrap();
 
     bencher
         .with_inputs(|| Mask::from_buffer(mask.clone()))
@@ -127,19 +116,8 @@ pub fn pipeline_opt<T: Element + NativePType + Into<Scalar>>(bencher: Bencher, f
         .map(|_| rng.random_bool(fraction_kept))
         .collect::<BooleanBuffer>();
 
-    // Get the operator from the FoR+BitPacked array
-    let array_operator = array.to_operator().unwrap().unwrap();
-
-    // Create scalar compare operator: array < T::from_i32(2)
-    let compare_scalar = T::from_i32(2).unwrap().into();
-    let unoptimized_operator = Rc::new(ScalarCompareOperator::new(
-        array_operator,
-        BinaryOperator::Lt,
-        compare_scalar,
-    ));
-
-    // Apply optimizations
-    let operator = reduce_operator(unoptimized_operator).unwrap();
+    let expr = lt(root(), lit(T::from_i32(2).unwrap()));
+    let operator = expr.to_operator(&array).unwrap().unwrap();
 
     bencher
         .with_inputs(|| (Mask::from_buffer(mask.clone()), operator.clone()))

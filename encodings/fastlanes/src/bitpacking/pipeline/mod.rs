@@ -6,12 +6,12 @@ mod unaligned_kernel;
 
 use std::any::Any;
 use std::hash::{Hash, Hasher};
-use std::rc::Rc;
+use std::sync::Arc;
 
 use fastlanes::FastLanes;
 pub use kernel::BitPackedKernel;
 pub use unaligned_kernel::BitPackedUnalignedKernel;
-use vortex_array::pipeline::operators::{BindContext, Operator};
+use vortex_array::pipeline::operators::{BindContext, Operator, OperatorRef};
 use vortex_array::pipeline::{Kernel, PipelineVTable, VType};
 use vortex_buffer::Buffer;
 use vortex_dtype::{PhysicalPType, match_each_integer_ptype};
@@ -20,7 +20,7 @@ use vortex_error::VortexResult;
 use crate::{BitPackedArray, BitPackedVTable};
 
 impl PipelineVTable<BitPackedVTable> for BitPackedVTable {
-    fn to_operator(array: &BitPackedArray) -> VortexResult<Option<Rc<dyn Operator>>> {
+    fn to_operator(array: &BitPackedArray) -> VortexResult<Option<OperatorRef>> {
         if array.dtype.is_nullable() {
             log::trace!("BitPackedVTable does not support nullable arrays");
             return Ok(None);
@@ -30,7 +30,7 @@ impl PipelineVTable<BitPackedVTable> for BitPackedVTable {
             return Ok(None);
         }
 
-        Ok(Some(Rc::new(array.clone())))
+        Ok(Some(Arc::new(array.clone())))
     }
 }
 
@@ -43,12 +43,12 @@ impl Operator for BitPackedArray {
         VType::Primitive(self.ptype())
     }
 
-    fn children(&self) -> &[Rc<dyn Operator>] {
+    fn children(&self) -> &[OperatorRef] {
         &[]
     }
 
-    fn with_children(&self, _children: Vec<Rc<dyn Operator>>) -> Rc<dyn Operator> {
-        Rc::new(self.clone())
+    fn with_children(&self, _children: Vec<OperatorRef>) -> OperatorRef {
+        Arc::new(self.clone())
     }
 
     fn bind(&self, _ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {

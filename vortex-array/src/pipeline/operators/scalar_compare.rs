@@ -3,7 +3,7 @@
 
 use std::any::Any;
 use std::marker::PhantomData;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
@@ -12,8 +12,8 @@ use vortex_scalar::Scalar;
 use crate::compute::Operator as BinaryOperator;
 use crate::match_each_compare_op;
 use crate::pipeline::bits::BitView;
-use crate::pipeline::operators::BindContext;
 use crate::pipeline::operators::compare::CompareOp;
+use crate::pipeline::operators::{BindContext, OperatorRef};
 use crate::pipeline::types::{Element, VType};
 use crate::pipeline::vec::VectorId;
 use crate::pipeline::view::ViewMut;
@@ -22,13 +22,13 @@ use crate::pipeline::{Kernel, KernelContext, Operator};
 /// Pipeline operator for comparing an array against a scalar value.
 #[derive(Debug, Hash)]
 pub struct ScalarCompareOperator {
-    children: [Rc<dyn Operator>; 1],
+    children: [OperatorRef; 1],
     pub op: BinaryOperator,
     pub scalar: Scalar,
 }
 
 impl ScalarCompareOperator {
-    pub fn new(child: Rc<dyn Operator>, op: BinaryOperator, scalar: Scalar) -> Self {
+    pub fn new(child: OperatorRef, op: BinaryOperator, scalar: Scalar) -> Self {
         assert_eq!(child.vtype(), VType::Primitive(scalar.dtype().as_ptype()));
         Self {
             children: [child],
@@ -43,7 +43,7 @@ impl Operator for ScalarCompareOperator {
         self
     }
 
-    fn children(&self) -> &[Rc<dyn Operator>] {
+    fn children(&self) -> &[OperatorRef] {
         &self.children
     }
 
@@ -75,8 +75,8 @@ impl Operator for ScalarCompareOperator {
         }
     }
 
-    fn with_children(&self, mut children: Vec<Rc<dyn Operator>>) -> Rc<dyn Operator> {
-        Rc::new(ScalarCompareOperator::new(
+    fn with_children(&self, mut children: Vec<OperatorRef>) -> OperatorRef {
+        Arc::new(ScalarCompareOperator::new(
             children.remove(0),
             self.op,
             self.scalar.clone(),

@@ -11,6 +11,7 @@ mod database;
 mod expr;
 pub mod footer_cache;
 mod logical_type;
+mod macro_;
 mod object_cache;
 mod query_result;
 mod scalar_function;
@@ -45,83 +46,6 @@ pub use vector::*;
 use vortex::error::VortexResult;
 
 use crate::cpp;
-
-#[macro_export]
-macro_rules! duckdb_try {
-    // Pattern: duckdb_try!(function_call)
-    ($call:expr) => {
-        if $call != $crate::cpp::duckdb_state::DuckDBSuccess {
-            vortex::error::vortex_bail!("DuckDB operation failed");
-        }
-    };
-
-    // Pattern: duckdb_try!(function_call, "error message")
-    ($call:expr, $msg:expr) => {
-        if $call != $crate::cpp::duckdb_state::DuckDBSuccess {
-            vortex::error::vortex_bail!($msg);
-        }
-    };
-
-    // Pattern: duckdb_try!(function_call, "error message with {}", args...)
-    ($call:expr, $msg:expr, $($args:expr),+) => {
-        if $call != $crate::cpp::duckdb_state::DuckDBSuccess {
-            vortex::error::vortex_bail!($msg, $($args),+);
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! wrapper {
-    ($(#[$meta:meta])* $Name:ident, $ffi_type:ty, $destructor:expr) => {
-        $(#[$meta])*
-        pub struct $Name {
-            ptr: $ffi_type,
-            owned: bool,
-        }
-
-        #[allow(dead_code)]
-        impl $Name {
-            /// Takes ownership of the memory. The Rust wrapper becomes
-            /// responsible for calling the destructor when dropped.
-            pub unsafe fn own(ptr: $ffi_type) -> Self {
-                if ptr.is_null() {
-                    vortex::error::vortex_panic!("Attempted to create a wrapper from a null pointer");
-                }
-                Self { ptr, owned: true }
-            }
-
-            /// Borrows the pointer without taking ownership.
-            pub unsafe fn borrow(ptr: $ffi_type) -> Self {
-                if ptr.is_null() {
-                    vortex::error::vortex_panic!("Attempted to create a wrapper from a null pointer");
-                }
-                Self { ptr, owned: false }
-            }
-
-            /// Returns the raw pointer.
-            pub fn as_ptr(&self) -> $ffi_type {
-                self.ptr
-            }
-
-            /// Release ownership and return the raw pointer.
-            pub fn into_ptr(mut self) -> $ffi_type {
-                assert!(self.owned, "Cannot take ownership of unowned ptr");
-                self.owned = false; // Prevent destructor from being called
-                self.ptr
-            }
-        }
-
-        impl Drop for $Name {
-            fn drop(&mut self) {
-                if self.owned {
-                    let destructor = $destructor;
-                    #[allow(unused_unsafe)]
-                    unsafe { destructor(&mut self.ptr) }
-                }
-            }
-        }
-    };
-}
 
 /// Try to execute a Rust function, or else return a null pointer and set the error.
 #[inline]

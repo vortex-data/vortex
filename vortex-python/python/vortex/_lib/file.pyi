@@ -13,6 +13,7 @@ from .dataset import VortexDataset
 from .dtype import DType
 from .expr import Expr
 from .iter import ArrayIterator
+from .scan import RepeatedScan
 
 @final
 class VortexFile:
@@ -27,6 +28,14 @@ class VortexFile:
         indices: Array | None = None,
         batch_size: int | None = None,
     ) -> ArrayIterator: ...
+    def prepare(
+        self,
+        projection: IntoProjection = None,
+        *,
+        expr: Expr | None = None,
+        indices: Array | None = None,
+        batch_size: int | None = None,
+    ) -> RepeatedScan: ...
     def to_arrow(
         self,
         projection: IntoProjection = None,
@@ -37,4 +46,4 @@ class VortexFile:
     def to_dataset(self) -> VortexDataset: ...
     def to_polars(self) -> pl.LazyFrame: ...
 
-def open(path: str) -> VortexFile: ...
+def open(path: str, *, without_segment_cache: bool = False) -> VortexFile: ...

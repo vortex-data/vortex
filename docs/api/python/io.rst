@@ -9,6 +9,7 @@ HTTP, S3, Google Cloud Storage, and Azure Blob Storage.
 
    ~vortex.open
    ~vortex.VortexFile
+   ~vortex.RepeatedScan
    ~vortex.io.read_url
    ~vortex.io.write
 
@@ -19,6 +20,9 @@ HTTP, S3, Google Cloud Storage, and Azure Blob Storage.
 .. autofunction:: vortex.open
 
 .. autoclass:: vortex.VortexFile
+   :members:
+
+.. autoclass:: vortex.RepeatedScan
    :members:
 
 .. automodule:: vortex.io

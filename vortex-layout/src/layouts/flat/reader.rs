@@ -8,12 +8,15 @@ use std::sync::{Arc, OnceLock};
 use async_trait::async_trait;
 use futures::FutureExt;
 use vortex_array::compute::filter;
+use vortex_array::pipeline::{
+    N, export_canonical_pipeline_expr, export_canonical_pipeline_expr_offset,
+};
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
-use vortex_array::{Array, ArrayRef};
-use vortex_dtype::{DType, FieldMask};
+use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+use vortex_dtype::{DType, FieldMask, Nullability};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
-use vortex_expr::{ExprRef, Scope, is_root};
+use vortex_expr::{ExprRef, Scope, VortexExprExt, is_root};
 use vortex_mask::Mask;
 
 use crate::layouts::SharedArrayFuture;
@@ -168,6 +171,14 @@ impl MaskEvaluation for FlatEvaluation {
         // Now we await the array .
         let mut array = self.array.clone().await?;
 
+        if let Some(array) =
+            try_evaluate_using_operator(self.row_range.clone(), &array, &self.expr, &mask)?
+        {
+            let array_mask = Mask::from(&array.to_bool()?);
+            let mask = mask.intersect_by_rank(&array_mask);
+            return Ok(mask);
+        }
+
         // Slice the array based on the row mask.
         if self.row_range.start > 0 || self.row_range.end < array.len() {
             array = array.slice(self.row_range.clone());
@@ -215,6 +226,12 @@ impl ArrayEvaluation for FlatEvaluation {
         // Now we await the array .
         let mut array = self.array.clone().await?;
 
+        if let Some(array) =
+            try_evaluate_using_operator(self.row_range.clone(), &array, &self.expr, &mask)?
+        {
+            return Ok(array);
+        }
+
         // Slice the array based on the row mask.
         if self.row_range.start > 0 || self.row_range.end < array.len() {
             array = array.slice(self.row_range.clone());
@@ -232,6 +249,59 @@ impl ArrayEvaluation for FlatEvaluation {
 
         Ok(array)
     }
+}
+
+fn try_evaluate_using_operator(
+    row_range: Range<usize>,
+    array: &ArrayRef,
+    expr: &ExprRef,
+    mask: &Mask,
+) -> VortexResult<Option<ArrayRef>> {
+    let Some(operator) = expr.to_operator(array)? else {
+        return Ok(None);
+    };
+
+    let return_type = expr.return_dtype(array.dtype())?;
+    if !matches!(
+        return_type,
+        DType::Primitive(_, Nullability::NonNullable) | DType::Bool(Nullability::NonNullable)
+    ) {
+        return Ok(None);
+    }
+
+    let result = if row_range.start % N != 0 {
+        // If the start is not a multiple of PIPELINE_STEP_COUNT, then we need to slice
+        // we could do mask offsets instead, but this case is rare, due to split building.
+        let array = array.slice(row_range.clone());
+        let operator = expr
+            .to_operator(array.as_ref())?
+            .vortex_expect("already converted");
+        export_canonical_pipeline_expr(
+            &return_type,
+            row_range.end - row_range.start,
+            operator.as_ref(),
+            mask,
+        )?
+        .into_array()
+    } else {
+        log::trace!(
+            "ArrayEvaluation: export_canonical_pipeline_expr_offset {:?}",
+            operator
+        );
+        let res = export_canonical_pipeline_expr_offset(
+            &return_type,
+            row_range.start / N,
+            row_range.end - row_range.start,
+            operator.as_ref(),
+            mask,
+        )?
+        .into_array();
+
+        println!("result {}", res.display_tree());
+
+        res
+    };
+    Ok(Some(result))
 }
 
 #[cfg(test)]

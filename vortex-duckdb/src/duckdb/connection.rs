@@ -283,7 +283,8 @@ mod tests {
     #[test]
     fn test_object_cache_put_get() {
         let conn = test_connection().unwrap();
-        let cache = conn.client_context().unwrap().object_cache();
+        let client_context = conn.client_context().unwrap();
+        let cache = client_context.object_cache();
 
         // Test with a simple struct
         let test_entry = TestCacheEntry {
@@ -306,7 +307,8 @@ mod tests {
     #[test]
     fn test_object_cache_get_nonexistent() {
         let conn = test_connection().unwrap();
-        let cache = conn.client_context().unwrap().object_cache();
+        let client_context = conn.client_context().unwrap();
+        let cache = client_context.object_cache();
 
         // Try to get a non-existent key
         let result = cache.get::<TestCacheEntry>("nonexistent_key");

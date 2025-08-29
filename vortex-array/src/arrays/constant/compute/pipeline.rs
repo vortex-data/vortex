@@ -3,7 +3,7 @@
 
 use std::any::Any;
 use std::hash::Hash;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use vortex_dtype::{DType, NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult};
@@ -11,14 +11,13 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::{ConstantArray, ConstantVTable};
 use crate::pipeline::bits::BitView;
-use crate::pipeline::operators::{BindContext, Operator};
+use crate::pipeline::operators::{BindContext, Operator, OperatorRef};
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{Element, Kernel, KernelContext, PipelineVTable, VType};
 
 impl PipelineVTable<ConstantVTable> for ConstantVTable {
-    fn to_operator(array: &ConstantArray) -> VortexResult<Option<Rc<dyn Operator>>> {
-        Ok(ConstantOperator::maybe_new(array.scalar.clone())
-            .map(|c| Rc::new(c) as Rc<dyn Operator>))
+    fn to_operator(array: &ConstantArray) -> VortexResult<Option<OperatorRef>> {
+        Ok(ConstantOperator::maybe_new(array.scalar.clone()).map(|c| Arc::new(c) as OperatorRef))
     }
 }
 
@@ -56,12 +55,12 @@ impl Operator for ConstantOperator {
         }
     }
 
-    fn children(&self) -> &[Rc<dyn Operator>] {
+    fn children(&self) -> &[OperatorRef] {
         &[]
     }
 
-    fn with_children(&self, _children: Vec<Rc<dyn Operator>>) -> Rc<dyn Operator> {
-        Rc::new(ConstantOperator::new(self.scalar.clone()))
+    fn with_children(&self, _children: Vec<OperatorRef>) -> OperatorRef {
+        Arc::new(ConstantOperator::new(self.scalar.clone()))
     }
 
     fn bind(&self, _ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {

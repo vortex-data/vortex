@@ -23,7 +23,7 @@ pub fn try_from_table_filter(
 ) -> VortexResult<Option<ExprRef>> {
     Ok(Some(match value.as_class() {
         TableFilterClass::ConstantComparison(const_) => {
-            let scalar: Scalar = (&const_.value).try_into()?;
+            let scalar: Scalar = const_.value.try_into()?;
             BinaryExpr::new_expr(col.clone(), const_.operator.try_into()?, lit(scalar))
         }
         TableFilterClass::ConjunctionAnd(conj_and) => {
@@ -95,7 +95,7 @@ pub fn try_from_table_filter(
                 op,
                 move || {
                     let value = data.latest()?;
-                    let scalar = Scalar::try_from(&value)
+                    let scalar = Scalar::try_from(value.as_ref())
                         .vortex_expect("failed to convert dynamic filter value to scalar");
                     Some(scalar.into_value())
                 },
