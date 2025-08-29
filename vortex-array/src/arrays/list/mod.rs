@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 #[cfg(feature = "test-harness")]
 use itertools::Itertools;
-use num_traits::{AsPrimitive, NumCast, PrimInt};
+use num_traits::{AsPrimitive, PrimInt};
 use vortex_dtype::{DType, NativePType, match_each_integer_ptype, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_ensure};
 use vortex_scalar::Scalar;
@@ -241,7 +241,8 @@ impl ListArray {
         // the elements array.
         if let Some(min_max) = min_max(offsets)? {
             match_each_integer_ptype!(offsets_ptype, |P| {
-                let max_offset = <P as NumCast>::from(elements.len()).unwrap_or(P::MAX);
+                let max_offset = P::try_from(offsets.scalar_at(offsets.len() - 1))
+                    .vortex_expect("Offsets type must fit offsets values");
 
                 #[allow(clippy::absurd_extreme_comparisons, unused_comparisons)]
                 {
@@ -259,6 +260,14 @@ impl ListArray {
                         )
                     }
                 }
+
+                vortex_ensure!(
+                    max_offset
+                        <= P::try_from(elements.len())
+                            .vortex_expect("Offsets type must be able to fit elements length"),
+                    "Max offset {max_offset} is beyond the length of the elements array {}",
+                    elements.len()
+                );
             })
         } else {
             // TODO(aduffy): fallback to slower validation pathway?
