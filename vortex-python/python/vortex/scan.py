@@ -13,7 +13,7 @@ from ._lib.scalar import Scalar  # pyright: ignore[reportMissingModuleSource]
 @final
 class RepeatedScan:
     """
-    A prepared scan that is optimized fro repeated execution.
+    A prepared scan that is optimized for repeated execution.
     """
 
     def __init__(self, scan: _scan.RepeatedScan):
