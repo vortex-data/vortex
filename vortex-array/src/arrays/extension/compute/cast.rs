@@ -56,7 +56,7 @@ mod tests {
         let ext_dtype = Arc::new(ExtDType::new(
             TIMESTAMP_ID.clone(),
             Arc::new(PType::I64.into()),
-            Some(TemporalMetadata::Timestamp(TimeUnit::Ms, None).into()),
+            Some(TemporalMetadata::Timestamp(TimeUnit::Milliseconds, None).into()),
         ));
         let storage = PrimitiveArray::from_iter(Vec::<i64>::new()).into_array();
 
@@ -73,7 +73,7 @@ mod tests {
         let ext_dtype = Arc::new(ExtDType::new(
             TIMESTAMP_ID.clone(),
             Arc::new(PType::I64.into()),
-            Some(TemporalMetadata::Timestamp(TimeUnit::Ms, None).into()),
+            Some(TemporalMetadata::Timestamp(TimeUnit::Milliseconds, None).into()),
         ));
         let storage = PrimitiveArray::from_iter(Vec::<i64>::new()).into_array();
 
@@ -93,13 +93,13 @@ mod tests {
         let original_dtype = Arc::new(ExtDType::new(
             TIMESTAMP_ID.clone(),
             Arc::new(PType::I64.into()),
-            Some(TemporalMetadata::Timestamp(TimeUnit::Ms, None).into()),
+            Some(TemporalMetadata::Timestamp(TimeUnit::Milliseconds, None).into()),
         ));
         let target_dtype = Arc::new(ExtDType::new(
             TIMESTAMP_ID.clone(),
             Arc::new(PType::I64.into()),
             // Note NS here instead of MS
-            Some(TemporalMetadata::Timestamp(TimeUnit::Ns, None).into()),
+            Some(TemporalMetadata::Timestamp(TimeUnit::Nanoseconds, None).into()),
         ));
 
         let storage = PrimitiveArray::from_iter(Vec::<i64>::new()).into_array();
@@ -109,10 +109,10 @@ mod tests {
     }
 
     #[rstest]
-    #[case(create_timestamp_array(TimeUnit::Ms, false))]
-    #[case(create_timestamp_array(TimeUnit::Us, true))]
-    #[case(create_timestamp_array(TimeUnit::Ns, false))]
-    #[case(create_timestamp_array(TimeUnit::S, true))]
+    #[case(create_timestamp_array(TimeUnit::Milliseconds, false))]
+    #[case(create_timestamp_array(TimeUnit::Microseconds, true))]
+    #[case(create_timestamp_array(TimeUnit::Nanoseconds, false))]
+    #[case(create_timestamp_array(TimeUnit::Seconds, true))]
     fn test_cast_extension_conformance(#[case] array: ExtensionArray) {
         test_cast_conformance(array.as_ref());
     }

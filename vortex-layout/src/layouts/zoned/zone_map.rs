@@ -201,10 +201,7 @@ impl StatsAccumulator {
             let values = builder.finish();
 
             // We drop any all-null stats columns
-            if values
-                .all_invalid()
-                .vortex_expect("failed to get invalid count")
-            {
+            if values.all_invalid() {
                 continue;
             }
 

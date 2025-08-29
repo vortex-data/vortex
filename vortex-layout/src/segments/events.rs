@@ -7,13 +7,13 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, atomic};
 use std::task::{Context, Poll};
 
-use dashmap::{DashMap, Entry};
 use futures::channel::{mpsc, oneshot};
 use futures::future::{BoxFuture, Shared, WeakShared};
 use futures::stream::BoxStream;
 use futures::{FutureExt, StreamExt, TryFutureExt};
 use vortex_buffer::ByteBuffer;
 use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult, vortex_err};
+use vortex_utils::aliases::dash_map::{DashMap, Entry};
 
 use crate::segments::{SegmentFuture, SegmentId, SegmentSource};
 

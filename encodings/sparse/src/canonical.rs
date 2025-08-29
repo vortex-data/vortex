@@ -160,9 +160,7 @@ fn canonicalize_sparse_lists(
     let n_filled = array.len() - resolved_patches.num_patches();
     let total_canonical_values = values.elements().len() + fill_value.len() * n_filled;
 
-    let validity = array
-        .validity_mask()
-        .map(|x| Validity::from_mask(x, nullability))?;
+    let validity = Validity::from_mask(array.validity_mask(), nullability);
 
     match_each_integer_ptype!(indices.ptype(), |I| {
         match_smallest_offset_type!(total_canonical_values, |O| {
@@ -341,7 +339,7 @@ fn canonicalize_sparse_struct(
             unresolved_patches.offset(),
             unresolved_patches.indices(),
             &Validity::from_mask(
-                unresolved_patches.values().validity_mask()?,
+                unresolved_patches.values().validity_mask(),
                 Nullability::Nullable,
             ),
         )?
@@ -403,9 +401,7 @@ fn canonicalize_varbin(
     let patches = array.resolved_patches()?;
     let indices = patches.indices().to_primitive()?;
     let values = patches.values().to_varbinview()?;
-    let validity = array
-        .validity_mask()
-        .map(|x| Validity::from_mask(x, dtype.nullability()))?;
+    let validity = Validity::from_mask(array.validity_mask(), dtype.nullability());
     let len = array.len();
 
     match_each_integer_ptype!(indices.ptype(), |I| {
@@ -507,18 +503,15 @@ mod test {
         assert_eq!(flat_bools.validity(), expected.validity());
 
         assert!(flat_bools.boolean_buffer().value(0));
-        assert!(flat_bools.validity().is_valid(0).unwrap());
+        assert!(flat_bools.validity().is_valid(0));
         assert_eq!(
             flat_bools.boolean_buffer().value(1),
             fill_value.unwrap_or_default()
         );
-        assert!(!flat_bools.validity().is_valid(1).unwrap());
-        assert_eq!(
-            flat_bools.validity().is_valid(2).unwrap(),
-            fill_value.is_some()
-        );
+        assert!(!flat_bools.validity().is_valid(1));
+        assert_eq!(flat_bools.validity().is_valid(2), fill_value.is_some());
         assert!(!flat_bools.boolean_buffer().value(7));
-        assert!(flat_bools.validity().is_valid(7).unwrap());
+        assert!(flat_bools.validity().is_valid(7));
     }
 
     fn bool_array_from_nullable_vec(
@@ -563,19 +556,16 @@ mod test {
         assert_eq!(flat_ints.validity(), expected.validity());
 
         assert_eq!(flat_ints.as_slice::<i32>()[0], 0);
-        assert!(flat_ints.validity().is_valid(0).unwrap());
+        assert!(flat_ints.validity().is_valid(0));
         assert_eq!(flat_ints.as_slice::<i32>()[1], 0);
-        assert!(!flat_ints.validity().is_valid(1).unwrap());
+        assert!(!flat_ints.validity().is_valid(1));
         assert_eq!(
             flat_ints.as_slice::<i32>()[2],
             fill_value.unwrap_or_default()
         );
-        assert_eq!(
-            flat_ints.validity().is_valid(2).unwrap(),
-            fill_value.is_some()
-        );
+        assert_eq!(flat_ints.validity().is_valid(2), fill_value.is_some());
         assert_eq!(flat_ints.as_slice::<i32>()[7], 1);
-        assert!(flat_ints.validity().is_valid(7).unwrap());
+        assert!(flat_ints.validity().is_valid(7));
     }
 
     #[test]

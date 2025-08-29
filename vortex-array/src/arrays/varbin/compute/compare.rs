@@ -150,7 +150,7 @@ mod test {
         .unwrap();
 
         assert_eq!(
-            &result.validity_mask().unwrap().to_boolean_buffer(),
+            &result.validity_mask().to_boolean_buffer(),
             &BooleanBuffer::from_iter([true, false, true])
         );
         assert_eq!(
@@ -175,7 +175,7 @@ mod test {
             .unwrap();
 
         assert_eq!(
-            &result.validity_mask().unwrap().to_boolean_buffer(),
+            &result.validity_mask().to_boolean_buffer(),
             &BooleanBuffer::from_iter([false, false, true])
         );
         assert_eq!(

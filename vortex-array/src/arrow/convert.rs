@@ -169,8 +169,8 @@ where
         }
         DataType::Time32(time_unit) => TemporalArray::new_time(arr, time_unit.into()).into(),
         DataType::Time64(time_unit) => TemporalArray::new_time(arr, time_unit.into()).into(),
-        DataType::Date32 => TemporalArray::new_date(arr, TimeUnit::D).into(),
-        DataType::Date64 => TemporalArray::new_date(arr, TimeUnit::Ms).into(),
+        DataType::Date32 => TemporalArray::new_date(arr, TimeUnit::Days).into(),
+        DataType::Date64 => TemporalArray::new_date(arr, TimeUnit::Milliseconds).into(),
         DataType::Duration(_) => unimplemented!(),
         DataType::Interval(_) => unimplemented!(),
         _ => vortex_panic!("Invalid temporal type: {}", value.data_type()),
@@ -775,13 +775,16 @@ mod tests {
 
         // Verify metadata - should be TemporalArray with Second time unit
         let temporal_array = TemporalArray::try_from(vortex_array.clone()).unwrap();
-        assert_eq!(temporal_array.temporal_metadata().time_unit(), TimeUnit::S);
+        assert_eq!(
+            temporal_array.temporal_metadata().time_unit(),
+            TimeUnit::Seconds
+        );
 
         let temporal_array_non_null =
             TemporalArray::try_from(vortex_array_non_null.clone()).unwrap();
         assert_eq!(
             temporal_array_non_null.temporal_metadata().time_unit(),
-            TimeUnit::S
+            TimeUnit::Seconds
         );
     }
 
@@ -830,7 +833,10 @@ mod tests {
             &DType::Extension(Arc::new(ExtDType::new(
                 TIMESTAMP_ID.clone(),
                 Arc::new(DType::Primitive(PType::I64, Nullability::Nullable)),
-                Some(TemporalMetadata::Timestamp(TimeUnit::Us, Some("UTC".to_string())).into())
+                Some(
+                    TemporalMetadata::Timestamp(TimeUnit::Microseconds, Some("UTC".to_string()))
+                        .into()
+                )
             )))
         );
         assert_eq!(vortex_array_non_null.len(), 4);
@@ -839,7 +845,10 @@ mod tests {
             &DType::Extension(Arc::new(ExtDType::new(
                 TIMESTAMP_ID.clone(),
                 Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
-                Some(TemporalMetadata::Timestamp(TimeUnit::Us, Some("UTC".to_string())).into())
+                Some(
+                    TemporalMetadata::Timestamp(TimeUnit::Microseconds, Some("UTC".to_string()))
+                        .into()
+                )
             )))
         );
     }
@@ -870,13 +879,16 @@ mod tests {
 
         // Verify metadata - should be TemporalArray with Second time unit
         let temporal_array = TemporalArray::try_from(vortex_array.clone()).unwrap();
-        assert_eq!(temporal_array.temporal_metadata().time_unit(), TimeUnit::S);
+        assert_eq!(
+            temporal_array.temporal_metadata().time_unit(),
+            TimeUnit::Seconds
+        );
 
         let temporal_array_non_null =
             TemporalArray::try_from(vortex_array_non_null.clone()).unwrap();
         assert_eq!(
             temporal_array_non_null.temporal_metadata().time_unit(),
-            TimeUnit::S
+            TimeUnit::Seconds
         );
     }
 

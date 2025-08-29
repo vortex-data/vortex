@@ -215,8 +215,7 @@ mod tests {
 
     #[test]
     fn test_zip_basic() {
-        let mask =
-            Mask::try_from(&BoolArray::from_iter([true, false, false, true, false])).unwrap();
+        let mask = Mask::from(&BoolArray::from_iter([true, false, false, true, false]));
         let if_true = PrimitiveArray::from_iter([10, 20, 30, 40, 50]).into_array();
         let if_false = PrimitiveArray::from_iter([1, 2, 3, 4, 5]).into_array();
 

@@ -267,10 +267,10 @@ fn test_non_temporal_extension_to_arrow_todo() {
 }
 
 #[rstest]
-#[case(TimeUnit::Ns, PType::I64, 123456789i64)]
-#[case(TimeUnit::Us, PType::I64, 123456789i64)]
-#[case(TimeUnit::Ms, PType::I32, 123456i64)]
-#[case(TimeUnit::S, PType::I32, 1234i64)]
+#[case(TimeUnit::Nanoseconds, PType::I64, 123456789i64)]
+#[case(TimeUnit::Microseconds, PType::I64, 123456789i64)]
+#[case(TimeUnit::Milliseconds, PType::I32, 123456i64)]
+#[case(TimeUnit::Seconds, PType::I32, 1234i64)]
 fn test_temporal_time_to_arrow(
     #[case] time_unit: TimeUnit,
     #[case] ptype: PType,
@@ -301,7 +301,7 @@ fn test_temporal_time_to_arrow(
 
 #[test]
 fn test_temporal_time_d_unsupported() {
-    let metadata = TemporalMetadata::Time(TimeUnit::D);
+    let metadata = TemporalMetadata::Time(TimeUnit::Days);
     let ext_dtype = Arc::new(ExtDType::new(
         TIME_ID.clone(),
         Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
@@ -318,8 +318,8 @@ fn test_temporal_time_d_unsupported() {
 }
 
 #[rstest]
-#[case(TimeUnit::Ms, PType::I64, 1234567890000i64)]
-#[case(TimeUnit::D, PType::I32, 19000i64)]
+#[case(TimeUnit::Milliseconds, PType::I64, 1234567890000i64)]
+#[case(TimeUnit::Days, PType::I32, 19000i64)]
 fn test_temporal_date_to_arrow(
     #[case] time_unit: TimeUnit,
     #[case] ptype: PType,
@@ -349,9 +349,9 @@ fn test_temporal_date_to_arrow(
 }
 
 #[rstest]
-#[case(TimeUnit::Ns, PType::I64)]
-#[case(TimeUnit::Us, PType::I64)]
-#[case(TimeUnit::S, PType::I32)]
+#[case(TimeUnit::Nanoseconds, PType::I64)]
+#[case(TimeUnit::Microseconds, PType::I64)]
+#[case(TimeUnit::Seconds, PType::I32)]
 fn test_temporal_date_unsupported(#[case] time_unit: TimeUnit, #[case] ptype: PType) {
     let metadata = TemporalMetadata::Date(time_unit);
     let ext_dtype = Arc::new(ExtDType::new(
@@ -377,10 +377,10 @@ fn test_temporal_date_unsupported(#[case] time_unit: TimeUnit, #[case] ptype: PT
 }
 
 #[rstest]
-#[case(TimeUnit::Ns, 1234567890000000000i64)]
-#[case(TimeUnit::Us, 1234567890000000i64)]
-#[case(TimeUnit::Ms, 1234567890000i64)]
-#[case(TimeUnit::S, 1234567890i64)]
+#[case(TimeUnit::Nanoseconds, 1234567890000000000i64)]
+#[case(TimeUnit::Microseconds, 1234567890000000i64)]
+#[case(TimeUnit::Milliseconds, 1234567890000i64)]
+#[case(TimeUnit::Seconds, 1234567890i64)]
 fn test_temporal_timestamp_to_arrow(#[case] time_unit: TimeUnit, #[case] value: i64) {
     let metadata = TemporalMetadata::Timestamp(time_unit, None);
     let ext_dtype = Arc::new(ExtDType::new(
@@ -400,7 +400,7 @@ fn test_temporal_timestamp_to_arrow(#[case] time_unit: TimeUnit, #[case] value: 
 
 #[test]
 fn test_temporal_timestamp_d_unsupported() {
-    let metadata = TemporalMetadata::Timestamp(TimeUnit::D, None);
+    let metadata = TemporalMetadata::Timestamp(TimeUnit::Days, None);
     let ext_dtype = Arc::new(ExtDType::new(
         TIMESTAMP_ID.clone(),
         Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
@@ -421,7 +421,7 @@ fn test_temporal_timestamp_d_unsupported() {
 
 #[test]
 fn test_temporal_with_null_value() {
-    let metadata = TemporalMetadata::Time(TimeUnit::Ns);
+    let metadata = TemporalMetadata::Time(TimeUnit::Nanoseconds);
     let ext_dtype = Arc::new(ExtDType::new(
         TIME_ID.clone(),
         Arc::new(DType::Primitive(PType::I64, Nullability::Nullable)),
@@ -439,7 +439,7 @@ fn test_temporal_with_null_value() {
 
 #[test]
 fn test_temporal_non_primitive_storage_error() {
-    let metadata = TemporalMetadata::Time(TimeUnit::Ns);
+    let metadata = TemporalMetadata::Time(TimeUnit::Nanoseconds);
     let ext_dtype = Arc::new(ExtDType::new(
         TIME_ID.clone(),
         Arc::new(DType::Utf8(Nullability::NonNullable)),

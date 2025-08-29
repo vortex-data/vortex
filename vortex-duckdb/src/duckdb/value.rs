@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ffi::CStr;
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 
 use num_traits::AsPrimitive;
 use vortex::buffer::{BufferString, ByteBuffer};
@@ -87,6 +87,17 @@ impl Value {
     }
 }
 
+impl Display for Value {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let debug = unsafe { cpp::duckdb_vx_value_to_string(self.as_ptr()) };
+        let str = unsafe { CStr::from_ptr(debug) }
+            .to_string_lossy()
+            .to_string();
+        f.write_str(&str)?;
+        Ok(())
+    }
+}
+
 #[inline]
 pub fn i128_from_parts(high: i64, low: u64) -> i128 {
     ((high as i128) << 64) | (low as i128)
@@ -94,10 +105,7 @@ pub fn i128_from_parts(high: i64, low: u64) -> i128 {
 
 impl Debug for Value {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let debug = unsafe { cpp::duckdb_value_to_string(self.as_ptr()) };
-        write!(f, "{}", unsafe { CStr::from_ptr(debug).to_string_lossy() })?;
-        unsafe { cpp::duckdb_free(debug.cast()) };
-        Ok(())
+        f.write_str(&self.to_string())
     }
 }
 

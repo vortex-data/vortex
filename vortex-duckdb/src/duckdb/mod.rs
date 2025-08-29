@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod client_context;
+mod config;
 mod connection;
 mod copy_function;
 mod data;
@@ -24,6 +25,7 @@ use std::ffi::c_void;
 use std::ptr;
 
 pub use client_context::*;
+pub use config::*;
 pub use connection::*;
 pub use copy_function::*;
 pub use data::*;

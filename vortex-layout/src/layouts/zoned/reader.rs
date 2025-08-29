@@ -7,7 +7,6 @@ use std::sync::{Arc, OnceLock};
 
 use arrow_buffer::BooleanBufferBuilder;
 use async_trait::async_trait;
-use dashmap::DashMap;
 use futures::future::{BoxFuture, Shared};
 use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
@@ -20,6 +19,7 @@ use vortex_expr::dynamic::DynamicExprUpdates;
 use vortex_expr::pruning::checked_pruning_expr;
 use vortex_expr::{ExprRef, root};
 use vortex_mask::Mask;
+use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::ZoneMap;

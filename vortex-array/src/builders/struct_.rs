@@ -115,7 +115,7 @@ impl ArrayBuilder for StructBuilder {
             a.append_to_builder(builder.as_mut())?;
         }
 
-        self.validity.append_validity_mask(array.validity_mask()?);
+        self.validity.append_validity_mask(array.validity_mask());
         Ok(())
     }
 

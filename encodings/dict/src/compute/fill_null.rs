@@ -81,6 +81,6 @@ mod tests {
         .vortex_unwrap();
         let filled_primitive = filled.to_primitive().vortex_unwrap();
         assert_eq!(filled_primitive.as_slice::<i32>(), [10, 20, 20]);
-        assert!(filled_primitive.all_valid().vortex_unwrap());
+        assert!(filled_primitive.all_valid());
     }
 }

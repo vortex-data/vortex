@@ -41,7 +41,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
             .unwrap_or_else(|| lit(true))
             .evaluate(&Scope::new(array_data.clone()))
             .vortex_unwrap();
-        let mask = Mask::try_from(&bool_mask.to_bool().vortex_unwrap()).vortex_unwrap();
+        let mask = Mask::from(&bool_mask.to_bool().vortex_unwrap());
         let filtered = filter(&array_data, &mask).vortex_unwrap();
         projection_expr
             .clone()
@@ -97,8 +97,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
             .vortex_unwrap();
         let true_count = bool_result.boolean_buffer().count_set_bits();
         if true_count != expected_array.len()
-            && (bool_result.all_valid().vortex_unwrap()
-                || expected_array.all_valid().vortex_unwrap())
+            && (bool_result.all_valid() || expected_array.all_valid())
         {
             vortex_panic!(
                 "Failed to match original array {}with{}",
@@ -133,7 +132,7 @@ fn compare_struct(expected: ArrayRef, actual: ArrayRef) {
 fn has_nullable_struct(dtype: &DType) -> bool {
     dtype.is_struct() && dtype.is_nullable()
         || dtype
-            .as_struct_opt()
+            .as_struct_fields_opt()
             .map(|sdt| sdt.fields().any(|dtype| has_nullable_struct(&dtype)))
             .unwrap_or(false)
         || dtype
@@ -143,7 +142,7 @@ fn has_nullable_struct(dtype: &DType) -> bool {
 }
 
 fn has_duplicate_field_names(dtype: &DType) -> bool {
-    if let Some(struct_dtype) = dtype.as_struct_opt() {
+    if let Some(struct_dtype) = dtype.as_struct_fields_opt() {
         struct_has_duplicate_names(struct_dtype)
     } else if let Some(list_elem) = dtype.as_list_element_opt() {
         has_duplicate_field_names(list_elem)

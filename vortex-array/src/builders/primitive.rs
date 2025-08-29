@@ -154,7 +154,7 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
 
         self.values.extend_from_slice(array.as_slice::<T>());
 
-        self.extend_with_validity_mask(array.validity_mask()?);
+        self.extend_with_validity_mask(array.validity_mask());
 
         Ok(())
     }

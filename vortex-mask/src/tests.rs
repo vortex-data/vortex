@@ -670,3 +670,51 @@ fn test_intersection_indices(
         AllOr::None | AllOr::All => panic!("Unexpected result for intersection"),
     }
 }
+
+// Concat operation tests
+#[test]
+fn test_mask_concat_empty() {
+    let masks: Vec<Mask> = vec![];
+    let result = Mask::concat(masks.iter()).unwrap();
+    assert_eq!(result.len(), 0);
+    assert!(result.is_empty());
+}
+
+#[test]
+fn test_mask_concat_all_true() {
+    let masks = [Mask::new_true(3), Mask::new_true(2)];
+    let result = Mask::concat(masks.iter()).unwrap();
+    assert_eq!(result.len(), 5);
+    assert!(result.all_true());
+}
+
+#[test]
+fn test_mask_concat_all_false() {
+    let masks = [Mask::new_false(3), Mask::new_false(2)];
+    let result = Mask::concat(masks.iter()).unwrap();
+    assert_eq!(result.len(), 5);
+    assert!(result.all_false());
+}
+
+#[test]
+fn test_mask_concat_mixed_types() {
+    let masks = [
+        Mask::from_buffer(BooleanBuffer::from_iter([true, false, true])),
+        Mask::new_true(2),
+        Mask::new_false(3),
+    ];
+
+    let result = Mask::concat(masks.iter()).unwrap();
+    assert_eq!(result.len(), 8);
+    assert_eq!(result.true_count(), 4);
+
+    // Verify the concatenated values
+    assert!(result.value(0)); // from buffer
+    assert!(!result.value(1)); // from buffer
+    assert!(result.value(2)); // from buffer
+    assert!(result.value(3)); // from all_true
+    assert!(result.value(4)); // from all_true
+    assert!(!result.value(5)); // from all_false
+    assert!(!result.value(6)); // from all_false
+    assert!(!result.value(7)); // from all_false
+}

@@ -43,20 +43,21 @@ where
 
 #[derive(Debug)]
 pub(super) struct CompioDispatcher {
-    submitter: flume::Sender<Box<dyn CompioSpawn + Send>>,
+    submitter: kanal::Sender<Box<dyn CompioSpawn + Send>>,
     threads: Vec<JoinHandle<()>>,
     shutdown_flag: Arc<AtomicBool>,
 }
 
 impl CompioDispatcher {
     pub fn new(num_threads: usize) -> Self {
-        let (submitter, rx) = flume::unbounded();
+        let (submitter, rx) = kanal::unbounded();
+        let rx = rx.to_async();
         let shutdown_flag = Arc::new(AtomicBool::new(false));
         let threads: Vec<_> = (0..num_threads)
             .map(|tid| {
                 let worker_thread = std::thread::Builder::new();
                 let worker_thread = worker_thread.name(format!("compio-dispatch-{tid}"));
-                let rx: flume::Receiver<Box<dyn CompioSpawn + Send>> = rx.clone();
+                let rx: kanal::AsyncReceiver<Box<dyn CompioSpawn + Send>> = rx.clone();
                 let shutdown = shutdown_flag.clone();
 
                 worker_thread
@@ -75,7 +76,7 @@ impl CompioDispatcher {
                                 }
 
                                 // Try to receive with a timeout
-                                match rx.recv_async().await {
+                                match rx.recv().await {
                                     Ok(task) => task.spawn().detach(),
                                     Err(_) => {
                                         // Channel closed, exit gracefully

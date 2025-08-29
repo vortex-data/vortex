@@ -171,6 +171,7 @@ fn new_array_exporter(
             vortex_bail!("Struct arrays are not supported in DuckDB export yet");
         }
         Canonical::List(array) => list::new_exporter(&array, cache),
+        Canonical::FixedSizeList(_) => todo!("TODO(connor)[FixedSizeList]"),
         Canonical::VarBinView(array) => varbinview::new_exporter(&array),
         Canonical::Extension(ext) => {
             if is_temporal_ext_type(ext.id()) {

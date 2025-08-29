@@ -79,19 +79,20 @@ pub unsafe extern "C-unwind" fn vx_array_slice(
 pub unsafe extern "C-unwind" fn vx_array_is_null(
     array: *const vx_array,
     index: u32,
-    error_out: *mut *mut vx_error,
+    _error_out: *mut *mut vx_error,
 ) -> bool {
     let array = vx_array::as_ref(array);
-    try_or_default(error_out, || array.is_invalid(index as usize))
+    array.is_invalid(index as usize)
 }
 
+// TODO(robert): Make this return usize and remove error
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_null_count(
     array: *const vx_array,
     error_out: *mut *mut vx_error,
 ) -> u32 {
     let array = vx_array::as_ref(array);
-    try_or_default(error_out, || Ok(array.invalid_count()?.try_into()?))
+    try_or_default(error_out, || Ok(array.invalid_count().try_into()?))
 }
 
 macro_rules! ffiarray_get_ptype {

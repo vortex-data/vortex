@@ -213,33 +213,32 @@ mod tests {
 
     #[test]
     fn test_for_pipeline2() {
-        for frac in [0.99] {
-            let len = 10;
-            let mut rng = StdRng::seed_from_u64(0);
-            let values = (0i16..len)
-                .map(|_| rng.random_range(50..150))
-                .collect::<BufferMut<_>>();
-            let array = create_for_bitpacked_array(values.clone()).unwrap();
+        let frac = 0.99;
+        let len = 10;
+        let mut rng = StdRng::seed_from_u64(0);
+        let values = (0i16..len)
+            .map(|_| rng.random_range(50..150))
+            .collect::<BufferMut<_>>();
+        let array = create_for_bitpacked_array(values).unwrap();
 
-            let mask = (0..len)
-                .map(|_| rng.random_bool(frac))
-                .collect::<BooleanBuffer>();
-            let mask = Mask::from_buffer(mask);
+        let mask = (0..len)
+            .map(|_| rng.random_bool(frac))
+            .collect::<BooleanBuffer>();
+        let mask = Mask::from_buffer(mask);
 
-            let result = export_canonical_pipeline_expr(
-                array.dtype(),
-                array.len(),
-                array.to_operator().unwrap().unwrap().as_ref(),
-                &mask,
-            )
-            .unwrap()
-            .into_array();
+        let result = export_canonical_pipeline_expr(
+            array.dtype(),
+            array.len(),
+            array.to_operator().unwrap().unwrap().as_ref(),
+            &mask,
+        )
+        .unwrap()
+        .into_array();
 
-            let expect = filter(array.to_canonical().unwrap().as_ref(), &mask).unwrap();
+        let expect = filter(array.to_canonical().unwrap().as_ref(), &mask).unwrap();
 
-            for i in 0..mask.true_count() {
-                assert_eq!(result.scalar_at(i), expect.scalar_at(i), "{}, {}", i, frac);
-            }
+        for i in 0..mask.true_count() {
+            assert_eq!(result.scalar_at(i), expect.scalar_at(i), "{}, {}", i, frac);
         }
     }
 }

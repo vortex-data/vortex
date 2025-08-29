@@ -23,46 +23,46 @@ mod tests {
     // Basic datetime arrays
     #[case::datetime_seconds(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
         PrimitiveArray::from_iter([0i64, 86400, 172800, 259200, 345600]).into_array(),
-        TimeUnit::S,
+        TimeUnit::Seconds,
         Some("UTC".to_string()),
     )).unwrap())]
     #[case::datetime_millis(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
         PrimitiveArray::from_iter([0i64, 86400000, 172800000]).into_array(),
-        TimeUnit::Ms,
+        TimeUnit::Milliseconds,
         Some("UTC".to_string()),
     )).unwrap())]
     #[case::datetime_micros(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
         PrimitiveArray::from_iter([0i64, 86400000000, 172800000000]).into_array(),
-        TimeUnit::Us,
+        TimeUnit::Microseconds,
         Some("UTC".to_string()),
     )).unwrap())]
     #[case::datetime_nanos(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
         PrimitiveArray::from_iter([0i64, 86400000000000]).into_array(),
-        TimeUnit::Ns,
+        TimeUnit::Nanoseconds,
         Some("UTC".to_string()),
     )).unwrap())]
     // Nullable arrays
     #[case::datetime_nullable_seconds(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
         PrimitiveArray::from_option_iter([Some(0i64), None, Some(86400), Some(172800), None]).into_array(),
-        TimeUnit::S,
+        TimeUnit::Seconds,
         Some("UTC".to_string()),
     )).unwrap())]
     // Edge cases
     #[case::datetime_single(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
         buffer![1234567890i64].into_array(),
-        TimeUnit::S,
+        TimeUnit::Seconds,
         Some("UTC".to_string()),
     )).unwrap())]
     // Large arrays (> 1024 elements)
     #[case::datetime_large(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
         PrimitiveArray::from_iter((0..1500).map(|i| i as i64 * 86400)).into_array(),
-        TimeUnit::S,
+        TimeUnit::Seconds,
         Some("UTC".to_string()),
     )).unwrap())]
     // Different time patterns
     #[case::datetime_with_subseconds(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
         PrimitiveArray::from_iter([123456789i64, 234567890, 345678901, 456789012, 567890123]).into_array(),
-        TimeUnit::Ms,
+        TimeUnit::Milliseconds,
         Some("UTC".to_string()),
     )).unwrap())]
 

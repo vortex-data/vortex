@@ -86,36 +86,40 @@ impl TryToDataFusion<ScalarValue> for Scalar {
                     let pv = storage_scalar.as_primitive();
                     return Ok(match metadata {
                         TemporalMetadata::Time(u) => match u {
-                            TimeUnit::Ns => ScalarValue::Time64Nanosecond(pv.as_::<i64>()),
-                            TimeUnit::Us => ScalarValue::Time64Microsecond(pv.as_::<i64>()),
-                            TimeUnit::Ms => ScalarValue::Time32Millisecond(pv.as_::<i32>()),
-                            TimeUnit::S => ScalarValue::Time32Second(pv.as_::<i32>()),
-                            TimeUnit::D => {
+                            TimeUnit::Nanoseconds => ScalarValue::Time64Nanosecond(pv.as_::<i64>()),
+                            TimeUnit::Microseconds => {
+                                ScalarValue::Time64Microsecond(pv.as_::<i64>())
+                            }
+                            TimeUnit::Milliseconds => {
+                                ScalarValue::Time32Millisecond(pv.as_::<i32>())
+                            }
+                            TimeUnit::Seconds => ScalarValue::Time32Second(pv.as_::<i32>()),
+                            TimeUnit::Days => {
                                 unreachable!("Unsupported TimeUnit {u} for {}", ext.id())
                             }
                         },
                         TemporalMetadata::Date(u) => match u {
-                            TimeUnit::Ms => ScalarValue::Date64(pv.as_::<i64>()),
-                            TimeUnit::D => ScalarValue::Date32(pv.as_::<i32>()),
+                            TimeUnit::Milliseconds => ScalarValue::Date64(pv.as_::<i64>()),
+                            TimeUnit::Days => ScalarValue::Date32(pv.as_::<i32>()),
                             _ => unreachable!("Unsupported TimeUnit {u} for {}", ext.id()),
                         },
                         TemporalMetadata::Timestamp(u, tz) => match u {
-                            TimeUnit::Ns => ScalarValue::TimestampNanosecond(
+                            TimeUnit::Nanoseconds => ScalarValue::TimestampNanosecond(
                                 pv.as_::<i64>(),
                                 tz.map(|t| t.into()),
                             ),
-                            TimeUnit::Us => ScalarValue::TimestampMicrosecond(
+                            TimeUnit::Microseconds => ScalarValue::TimestampMicrosecond(
                                 pv.as_::<i64>(),
                                 tz.map(|t| t.into()),
                             ),
-                            TimeUnit::Ms => ScalarValue::TimestampMillisecond(
+                            TimeUnit::Milliseconds => ScalarValue::TimestampMillisecond(
                                 pv.as_::<i64>(),
                                 tz.map(|t| t.into()),
                             ),
-                            TimeUnit::S => {
+                            TimeUnit::Seconds => {
                                 ScalarValue::TimestampSecond(pv.as_::<i64>(), tz.map(|t| t.into()))
                             }
-                            TimeUnit::D => {
+                            TimeUnit::Days => {
                                 unreachable!("Unsupported TimeUnit {u} for {}", ext.id())
                             }
                         },

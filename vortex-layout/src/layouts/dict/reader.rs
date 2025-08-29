@@ -6,7 +6,6 @@ use std::ops::{BitAnd, Range};
 use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
-use dashmap::DashMap;
 use futures::{FutureExt, join};
 use vortex_array::ArrayRef;
 use vortex_array::compute::{MinMaxResult, min_max};
@@ -16,6 +15,7 @@ use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::{ExprRef, Scope, root};
 use vortex_mask::Mask;
+use vortex_utils::aliases::dash_map::DashMap;
 
 use super::DictLayout;
 use crate::layouts::SharedArrayFuture;
@@ -191,7 +191,7 @@ impl MaskEvaluation for DictMaskEvaluation {
             if min.as_bool().value().unwrap_or(false) {
                 // All values are true, but we still need to respect codes validity
                 let codes = self.codes_eval.invoke(Mask::new_true(mask.len())).await?;
-                return Ok(mask.bitand(&codes.validity_mask()?));
+                return Ok(mask.bitand(&codes.validity_mask()));
             }
         }
 
@@ -451,7 +451,7 @@ mod tests {
             .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
             .await
             .unwrap();
-        let expected = array.validity_mask().unwrap().into_array();
+        let expected = array.validity_mask().into_array();
         let actual = actual.into_arrow_preferred().unwrap();
         let expected = expected.into_arrow_preferred().unwrap();
         assert_eq!(actual.data_type(), expected.data_type());
