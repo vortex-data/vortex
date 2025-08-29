@@ -5,9 +5,9 @@ use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
 use std::ops::Not;
 
-use vortex_array::compute::{cast, mask};
+use vortex_array::compute::mask;
 use vortex_array::stats::Stat;
-use vortex_array::{Array, ArrayRef, DeserializeMetadata, ProstMetadata, ToCanonical};
+use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata, ToCanonical};
 use vortex_dtype::{DType, FieldName, FieldPath, Nullability};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
