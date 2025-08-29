@@ -1479,9 +1479,9 @@ dependencies = [
 
 [[package]]
 name = "cxx"
-version = "1.0.172"
+version = "1.0.173"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "84871906cc80e398db50f5bed3fb0e7490fe8a0eb68f28415729ab605e32bc6a"
+checksum = "6c64ed3da1c337cbaae7223cdcff8b4dddf698d188cd3eaddd1116f6b0295950"
 dependencies = [
  "cc",
  "cxxbridge-cmd",
@@ -1493,9 +1493,9 @@ dependencies = [
 
 [[package]]
 name = "cxx-build"
-version = "1.0.172"
+version = "1.0.173"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "45e2ef20f70fc65876d8794a7a038cafe9e752f3a5e5c161ab3dc506ef621fd9"
+checksum = "ae0a26a75a05551f5ae3d75b3557543d06682284eaa7419113162d602cb45766"
 dependencies = [
  "cc",
  "codespan-reporting",
@@ -1508,9 +1508,9 @@ dependencies = [
 
 [[package]]
 name = "cxxbridge-cmd"
-version = "1.0.172"
+version = "1.0.173"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3418b613906b5e19e490d66570d62293bea0b8b77cb81c66023f009649100148"
+checksum = "952d408b6002b7db4b36da07c682a9cbb34f2db0efa03e976ae50a388414e16c"
 dependencies = [
  "clap",
  "codespan-reporting",
@@ -1522,15 +1522,15 @@ dependencies = [
 
 [[package]]
 name = "cxxbridge-flags"
-version = "1.0.172"
+version = "1.0.173"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee40460a87a8e94bf92568a6445c2d9f7af6f4f594e7ef23ca96bcc624e6ecd8"
+checksum = "ccbd201b471c75c6abb6321cace706d1982d270e308b891c11a3262d320f5265"
 
 [[package]]
 name = "cxxbridge-macro"
-version = "1.0.172"
+version = "1.0.173"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9592600994958fdf2319c779add8e29819c1ec4bb839f66e4d5eb30419482d9"
+checksum = "2bea8b915bbc4cb4288f242aa7ca18b23ecc6965e4d6e7c1b07905e3fe2e0c41"
 dependencies = [
  "indexmap",
  "proc-macro2",
@@ -2267,7 +2267,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
