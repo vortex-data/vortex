@@ -180,9 +180,11 @@ impl PyExpr {
 /// Examples
 /// --------
 ///
-///     >>> import vortex.expr as ve
-///     >>> ve.literal(vx.int_(), 42)
-///     <vortex.Expr object at ...>
+/// ```python
+/// >>> import vortex.expr as ve
+/// >>> ve.literal(vx.int_(), 42)
+/// <vortex.Expr object at ...>
+/// ```
 // TODO(ngates): make dtype optional, casting if necessary.
 #[pyfunction]
 pub fn literal<'py>(
@@ -203,9 +205,11 @@ pub fn literal<'py>(
 /// Examples
 /// --------
 ///
-///     >>> import vortex.expr as ve
-///     >>> ve.root()
-///     <vortex.Expr object at ...>
+/// ```python
+/// >>> import vortex.expr as ve
+/// >>> ve.root()
+/// <vortex.Expr object at ...>
+/// ```
 #[pyfunction]
 pub fn root() -> PyExpr {
     PyExpr {
@@ -227,9 +231,11 @@ pub fn root() -> PyExpr {
 /// Examples
 /// --------
 ///
-///     >>> import vortex.expr as ve
-///     >>> ve.column("age")
-///     <vortex.Expr object at ...>
+/// ```python
+/// >>> import vortex.expr as ve
+/// >>> ve.column("age")
+/// <vortex.Expr object at ...>
+/// ```
 #[pyfunction]
 pub fn column<'py>(name: &Bound<'py, PyString>) -> PyResult<Bound<'py, PyExpr>> {
     let py = name.py();
@@ -272,10 +278,12 @@ pub fn get_item(field: String, child: PyExpr) -> PyResult<PyExpr> {
 /// Examples
 /// --------
 ///
-///     >>> import vortex.expr as ve
-///     >>> import vortex as vx
-///     >>> ve.not_(ve.literal(vx.int_(), 42) == ve.literal(vx.int_(), 42))
-///     <vortex.Expr object at ...>
+/// ```python
+/// >>> import vortex.expr as ve
+/// >>> import vortex as vx
+/// >>> ve.not_(ve.literal(vx.int_(), 42) == ve.literal(vx.int_(), 42))
+/// <vortex.Expr object at ...>
+/// ```
 #[pyfunction]
 pub fn not_(child: PyExpr) -> PyResult<PyExpr> {
     Ok(PyExpr {
@@ -297,10 +305,12 @@ pub fn not_(child: PyExpr) -> PyResult<PyExpr> {
 /// Examples
 /// --------
 ///
-///     >>> import vortex.expr as ve
-///     >>> import vortex as vx
-///     >>> ve.and_(ve.literal(vx.bool_(), True), ve.literal(vx.bool_(), True))
-///     <vortex.Expr object at ...>
+/// ```python
+/// >>> import vortex.expr as ve
+/// >>> import vortex as vx
+/// >>> ve.and_(ve.literal(vx.bool_(), True), ve.literal(vx.bool_(), True))
+/// <vortex.Expr object at ...>
+/// ```
 #[pyfunction]
 pub fn and_(left: PyExpr, right: PyExpr) -> PyResult<PyExpr> {
     Ok(PyExpr {
