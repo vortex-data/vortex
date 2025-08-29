@@ -223,11 +223,10 @@ impl FSSTViewArray {
         }
 
         // Verify the validity length equals the correct length
-        if let Some(validity_array) = validity.as_array() {
+        if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure!(
-                validity_array.len() == views.len(),
-                "FSSTViewArray: provided validity array of length {}, expected {}",
-                validity_array.len(),
+                validity_len == views.len(),
+                "FSSTViewArray: provided validity array of length {validity_len}, expected {}",
                 views.len()
             );
         }

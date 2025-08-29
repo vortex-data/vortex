@@ -23,6 +23,7 @@ enum MatchType {
 // Compare inline, when we know that the needle fits in an inlined `View`.
 // This is a fast path where we can do straight-line, fixed-width comparisons without touching
 // or decoding the string buffer.
+#[inline]
 fn compare_inline<F>(needle_view: View, haystack: &FSSTViewArray, cmp: F) -> BooleanBuffer
 where
     F: Fn(View, View) -> bool,
@@ -37,15 +38,16 @@ where
     result.finish()
 }
 
-fn compare_outlined<V, F>(
+#[inline]
+fn compare_outlined<V, B>(
     needle: &[u8],
     haystack: &FSSTViewArray,
-    cmp_view: V,
-    cmp_full: F,
+    cmp_views: V,
+    cmp_bytes: B,
 ) -> BooleanBuffer
 where
     V: Fn(View, View) -> MatchType,
-    F: Fn(&[u8], &[u8]) -> bool,
+    B: Fn(&[u8], &[u8]) -> bool,
 {
     let mut result = BooleanBufferBuilder::new(haystack.len());
 
@@ -53,13 +55,13 @@ where
     let needle_view = View::new_outlined(needle, 0);
 
     for (index, &view) in haystack.views().iter().enumerate() {
-        match cmp_view(needle_view, view) {
+        match cmp_views(needle_view, view) {
             MatchType::False => result.append(false),
             MatchType::True => result.append(true),
             MatchType::Maybe => {
                 if haystack.is_valid(index) {
                     let full = haystack.bytes_at(index);
-                    result.append(cmp_full(needle, full.as_ref()))
+                    result.append(cmp_bytes(needle, full.as_ref()))
                 } else {
                     // Null value, doesn't matter anyway
                     result.append(false);

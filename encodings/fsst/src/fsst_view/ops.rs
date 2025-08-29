@@ -16,14 +16,14 @@ impl OperationsVTable<FSSTViewVTable> for FSSTViewVTable {
         // SAFETY: slicing views buffer doesn't modify any internal pointers.
         unsafe {
             FSSTViewArray::new_unchecked(
-                array.views.slice(range),
+                array.views.slice(range.clone()),
                 array.fsst_buffer.clone(),
                 array.symbols.clone(),
                 array.symbol_lengths.clone(),
                 array.compressed_offsets.clone(),
                 array.uncompressed_offsets.clone(),
                 array.dtype.clone(),
-                array.validity.clone(),
+                array.validity.slice(range),
             )
             .into_array()
         }

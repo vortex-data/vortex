@@ -389,6 +389,14 @@ impl VarBinViewArray {
         dtype: &DType,
         validity: &Validity,
     ) -> VortexResult<()> {
+        if let Some(validity_len) = validity.maybe_len() {
+            vortex_ensure!(
+                validity_len == views.len(),
+                "Validity had length {validity_len}, expected {}",
+                views.len()
+            );
+        }
+
         vortex_ensure!(
             validity.nullability() == dtype.nullability(),
             "validity {:?} incompatible with nullability {:?}",
