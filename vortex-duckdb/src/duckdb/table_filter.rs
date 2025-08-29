@@ -226,7 +226,7 @@ struct ValuesIterator<'a> {
     _phantom: PhantomData<&'a ()>,
 }
 
-impl <'a> Iterator for ValuesIterator<'a> {
+impl<'a> Iterator for ValuesIterator<'a> {
     type Item = ValueRef<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -240,7 +240,7 @@ impl <'a> Iterator for ValuesIterator<'a> {
     }
 }
 
-impl <'a> Values<'a> {
+impl<'a> Values<'a> {
     pub fn iter(&self) -> impl Iterator<Item = ValueRef<'a>> {
         ValuesIterator {
             values: self.values,

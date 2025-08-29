@@ -74,7 +74,7 @@ macro_rules! lifetime_wrapper_generate_owned_type {
 // Generate owned implementation
 #[macro_export]
 macro_rules! lifetime_wrapper_generate_owned_impl {
-    ($(#[$meta:meta])* $Name:ident, $ffi_type:ty, $destructor:expr, [owned $(, $rest:ident)*]) => {
+    ($(#[$meta:meta])* $Name:ident, $ffi_type:ty, $destructor:expr,[owned $(, $rest:ident)*]) => {
         #[allow(dead_code)]
         impl $Name {
             /// Takes ownership of the memory. The Rust wrapper becomes
@@ -82,7 +82,9 @@ macro_rules! lifetime_wrapper_generate_owned_impl {
             /// This is the only constructor for the owned variant.
             pub unsafe fn own(ptr: $ffi_type) -> Self {
                 if ptr.is_null() {
-                    vortex::error::vortex_panic!("Attempted to create a wrapper from a null pointer");
+                    vortex::error::vortex_panic!(
+                        "Attempted to create a wrapper from a null pointer"
+                    );
                 }
                 Self { ptr, owned: true }
             }
@@ -105,15 +107,16 @@ macro_rules! lifetime_wrapper_generate_owned_impl {
                 if self.owned {
                     let destructor = $destructor;
                     #[allow(unused_unsafe)]
-                    unsafe { destructor(&mut self.ptr) }
+                    unsafe {
+                        destructor(&mut self.ptr)
+                    }
                 }
             }
         }
     };
     // Skip if 'owned' is not in the list
-    ($(#[$meta:meta])* $Name:ident, $ffi_type:ty, $destructor:expr, [$($other:ident),*]) => {};
+    ($(#[$meta:meta])* $Name:ident, $ffi_type:ty, $destructor:expr,[$($other:ident),*]) => {};
 }
-
 
 // Generate ref type definition only
 #[macro_export]
@@ -258,8 +261,6 @@ macro_rules! lifetime_wrapper_generate_mut_ref_impl {
     ($(#[$meta:meta])* $Name:ident, $ffi_type:ty, [$($other:ident),*]) => {};
 }
 
-
-
 // Generate cross-type relationships (Deref, conversion methods, etc.)
 #[macro_export]
 macro_rules! lifetime_wrapper_generate_relationships {
@@ -315,7 +316,6 @@ macro_rules! lifetime_wrapper_generate_as_ref_if_needed {
     };
     ($Name:ident, []) => {};
 }
-
 
 // Generate as_mut_ref method if both owned and mut_ref exist
 #[macro_export]
@@ -393,7 +393,6 @@ macro_rules! lifetime_wrapper_generate_deref {
         }
     };
 }
-
 
 // TODO(joe): replace with lifetime_wrapper!
 #[macro_export]

@@ -216,8 +216,9 @@ impl TableFunction for VortexTableFunction {
             .get_parameter(0)
             .ok_or_else(|| vortex_err!("Missing file glob parameter"))?;
 
-        let (file_urls, _metadata) =
-            block_in_place(|| RUNTIME.block_on(expand_glob(file_glob_string.as_ref().as_string())))?;
+        let (file_urls, _metadata) = block_in_place(|| {
+            RUNTIME.block_on(expand_glob(file_glob_string.as_ref().as_string()))
+        })?;
 
         // The first file is skipped in `create_file_paths_queue`.
         let Some(first_file_url) = file_urls.first() else {

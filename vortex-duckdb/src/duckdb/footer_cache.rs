@@ -32,7 +32,7 @@ impl Entry<'_> {
     }
 }
 
-impl <'a> FooterCache<'a> {
+impl<'a> FooterCache<'a> {
     pub fn new(object_cache: ObjectCacheRef<'a>) -> Self {
         Self { object_cache }
     }

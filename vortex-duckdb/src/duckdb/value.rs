@@ -27,7 +27,6 @@ impl<'a> ValueRef<'a> {
         string
     }
 
-
     /// Extracts the value from the DuckDB `Value` into a `Val`.
     pub fn extract(&self) -> ExtractedValue {
         if unsafe { cpp::duckdb_is_null_value(self.as_ptr()) } {
@@ -97,18 +96,18 @@ impl<'a> ValueRef<'a> {
             DUCKDB_TYPE::DUCKDB_TYPE_TIME => {
                 ExtractedValue::Time(unsafe { cpp::duckdb_get_time(self.as_ptr()).micros })
             }
-            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_NS => {
-                ExtractedValue::TimestampNs(unsafe { cpp::duckdb_get_timestamp_ns(self.as_ptr()).nanos })
-            }
-            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP => {
-                ExtractedValue::Timestamp(unsafe { cpp::duckdb_get_timestamp(self.as_ptr()).micros })
-            }
-            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS => {
-                ExtractedValue::TimestampMs(unsafe { cpp::duckdb_get_timestamp_ms(self.as_ptr()).millis })
-            }
-            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S => {
-                ExtractedValue::TimestampS(unsafe { cpp::duckdb_get_timestamp_s(self.as_ptr()).seconds })
-            }
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_NS => ExtractedValue::TimestampNs(unsafe {
+                cpp::duckdb_get_timestamp_ns(self.as_ptr()).nanos
+            }),
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP => ExtractedValue::Timestamp(unsafe {
+                cpp::duckdb_get_timestamp(self.as_ptr()).micros
+            }),
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS => ExtractedValue::TimestampMs(unsafe {
+                cpp::duckdb_get_timestamp_ms(self.as_ptr()).millis
+            }),
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S => ExtractedValue::TimestampS(unsafe {
+                cpp::duckdb_get_timestamp_s(self.as_ptr()).seconds
+            }),
             DUCKDB_TYPE::DUCKDB_TYPE_DECIMAL => {
                 let decimal = unsafe { cpp::duckdb_get_decimal(self.as_ptr()) };
                 let value = i128_from_parts(decimal.value.upper, decimal.value.lower);
@@ -197,7 +196,6 @@ impl Value {
     pub fn new_date(days: i32) -> Self {
         unsafe { Self::own(cpp::duckdb_create_date(cpp::duckdb_date { days })) }
     }
-
 }
 
 #[inline]

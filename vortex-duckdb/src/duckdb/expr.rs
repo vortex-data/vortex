@@ -41,7 +41,9 @@ impl Expression {
                 }
                 cpp::DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_CONSTANT => {
                     let value = unsafe {
-                        ValueRef::borrow(cpp::duckdb_vx_expr_bound_constant_get_value(self.as_ptr()))
+                        ValueRef::borrow(cpp::duckdb_vx_expr_bound_constant_get_value(
+                            self.as_ptr(),
+                        ))
                     };
                     ExpressionClass::BoundConstant(BoundConstant { value })
                 }

@@ -22,7 +22,6 @@ unsafe extern "C-unwind" fn rust_box_deleter<T>(ptr: *mut c_void) {
 // context which is never owned.
 lifetime_wrapper!(ObjectCache, cpp::duckdb_vx_object_cache, |_| {}, [ref]);
 
-
 impl ObjectCacheRef<'_> {
     /// Store an entry in the object cache with the given key.
     /// The entry will be converted to an opaque pointer and stored.

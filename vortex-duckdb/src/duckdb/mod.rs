@@ -10,6 +10,7 @@ mod database;
 mod expr;
 pub mod footer_cache;
 mod logical_type;
+mod macro_;
 mod object_cache;
 mod query_result;
 mod scalar_function;
@@ -19,7 +20,6 @@ mod table_filter;
 mod table_function;
 mod value;
 mod vector;
-mod macro_;
 
 use std::ffi::c_void;
 use std::ptr;
@@ -44,7 +44,6 @@ pub use vector::*;
 use vortex::error::VortexResult;
 
 use crate::cpp;
-
 
 /// Try to execute a Rust function, or else return a null pointer and set the error.
 #[inline]

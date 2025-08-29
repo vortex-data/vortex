@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::duckdb::ObjectCacheRef;
 use vortex::error::vortex_panic;
 
+use crate::duckdb::ObjectCacheRef;
 use crate::{cpp, wrapper};
 
 wrapper!(
