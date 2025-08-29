@@ -54,7 +54,7 @@ fn fsst_decode_views(fsst_array: &FSSTArray, buf_index: u32) -> (ByteBuffer, Buf
 
     let uncompressed_lens_array = fsst_array.uncompressed_lengths().to_primitive();
 
-    // Decompres the full dataset.
+    // Decompress the full dataset.
     #[allow(clippy::cast_possible_truncation)]
     let total_size: usize = match_each_integer_ptype!(uncompressed_lens_array.ptype(), |P| {
         uncompressed_lens_array

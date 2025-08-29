@@ -126,7 +126,7 @@ impl VarBinViewBuilder {
 
     // Pushes an array of values into the buffer, where the buffers are sections of a
     // VarBinView and the views are the BinaryView's of the VarBinView *already with their*
-    // buffers adjusted.
+    // buffer pointers adjusted.
     // The views must all point to sections of the buffers and the validity length must match
     // the view length.
     /// ## Panics

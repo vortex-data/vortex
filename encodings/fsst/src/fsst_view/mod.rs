@@ -4,6 +4,7 @@
 //! FSST View encoding, an analog to raw FSST encoding.
 
 mod array;
+mod canonical;
 mod compute;
 mod ops;
 mod serde;
@@ -40,6 +41,8 @@ macro_rules! view_outlined {
 pub union View {
     inline: InlinedStr,
     outline: OutlinedStr,
+    // little-endian bytes representation
+    le_bytes: [u8; 16],
 }
 
 impl View {
@@ -68,6 +71,10 @@ impl View {
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    pub fn to_u128(self) -> u128 {
+        u128::from_le_bytes(unsafe { self.le_bytes })
     }
 }
 
