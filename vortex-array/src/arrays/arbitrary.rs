@@ -10,7 +10,7 @@ use builders::ListBuilder;
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, NativePType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexUnwrap};
-use vortex_scalar::arbitrary::{random_decimal, random_scalar};
+use vortex_scalar::arbitrary::random_scalar;
 use vortex_scalar::{Scalar, match_each_decimal_value_type};
 
 use super::{
@@ -84,9 +84,10 @@ fn random_array(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Resu
                         let mut builder =
                             DecimalBuilder::new::<DVT>(decimal.precision(), decimal.scale(), *n);
                         for _i in 0..elem_len {
-                            builder
-                                .append_scalar_value(random_decimal(u, decimal)?)
-                                .vortex_unwrap();
+                            let random_decimal = random_scalar(u, &DType::Decimal(*decimal, *n))?;
+                            builder.append_scalar(&random_decimal).vortex_expect(
+                                "was somehow unable to append a decimal to a decimal builder",
+                            );
                         }
                         Ok(builder.finish())
                     })
