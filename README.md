@@ -17,9 +17,9 @@ Vortex is a next-generation columnar file format and toolkit designed for high-p
 It is the fastest and most extensible format for building data systems backed by object storage. It provides:
 
 - **⚡️ Blazing Fast Performance**
-  - 200x faster random access reads (vs. modern Apache Parquet)
-  - 2-10x faster scans
-  - 2-10x faster writes
+  - 100x faster random access reads (vs. modern Apache Parquet)
+  - 20x faster scans
+  - 5x faster writes
   - Similar compression ratios
   - Efficient support for wide tables with zero-copy/zero-parse metadata
 
