@@ -428,10 +428,7 @@ impl RepeatedScan<ArrayRef> {
     }
 }
 
-fn intersect_ranges(
-    left: Option<&Range<u64>>,
-    right: Option<Range<u64>>,
-) -> Option<Range<u64>> {
+fn intersect_ranges(left: Option<&Range<u64>>, right: Option<Range<u64>>) -> Option<Range<u64>> {
     match (left, right) {
         (None, None) => None,
         (None, Some(r)) => Some(r),
