@@ -4,7 +4,7 @@
 use itertools::Itertools;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
 use super::ChunkedEncoding;
 use crate::arrays::{ChunkedArray, ChunkedVTable, PrimitiveArray};
@@ -41,8 +41,7 @@ impl SerdeVTable<ChunkedVTable> for ChunkedVTable {
                 &DType::Primitive(PType::U64, Nullability::NonNullable),
                 // 1 extra offset for the end of the last chunk
                 nchunks + 1,
-            )
-            .vortex_expect("must have child")
+            )?
             .to_primitive()
             .buffer::<u64>();
 

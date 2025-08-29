@@ -55,7 +55,7 @@ impl EncodeVTable<ZigZagVTable> for ZigZagVTable {
             )
         }
 
-        Some(zigzag_encode(parray)).transpose()
+        Ok(Some(zigzag_encode(parray)?))
     }
 }
 

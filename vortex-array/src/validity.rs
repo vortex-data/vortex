@@ -8,7 +8,7 @@ use std::ops::{BitAnd, Not, Range};
 
 use arrow_buffer::{BooleanBuffer, NullBuffer};
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err, vortex_panic};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_err, vortex_panic};
 use vortex_mask::{AllOr, Mask, MaskValues};
 use vortex_scalar::Scalar;
 
@@ -33,28 +33,6 @@ pub enum Validity {
 impl Validity {
     /// The [`DType`] of the underlying validity array (if it exists).
     pub const DTYPE: DType = DType::Bool(Nullability::NonNullable);
-
-    pub fn null_count(&self, length: usize) -> VortexResult<usize> {
-        match self {
-            Self::NonNullable | Self::AllValid => Ok(0),
-            Self::AllInvalid => Ok(length),
-            Self::Array(a) => {
-                let validity_len = a.len();
-                if validity_len != length {
-                    vortex_bail!(
-                        "Validity array length {} doesn't match array length {}",
-                        validity_len,
-                        length
-                    )
-                }
-                let true_count = sum(a)?
-                    .as_primitive()
-                    .as_::<usize>()
-                    .ok_or_else(|| vortex_err!("Failed to compute true count"))?;
-                Ok(length - true_count)
-            }
-        }
-    }
 
     /// If Validity is [`Validity::Array`], returns the array, otherwise returns `None`.
     pub fn into_array(self) -> Option<ArrayRef> {
@@ -187,11 +165,11 @@ impl Validity {
     /// Set to false any entries for which the mask is true.
     ///
     /// The result is always nullable. The result has the same length as self.
-    pub fn mask(&self, mask: &Mask) -> VortexResult<Self> {
+    pub fn mask(&self, mask: &Mask) -> Self {
         match mask.boolean_buffer() {
-            AllOr::All => Ok(Validity::AllInvalid),
-            AllOr::None => Ok(self.clone()),
-            AllOr::Some(make_invalid) => Ok(match self {
+            AllOr::All => Validity::AllInvalid,
+            AllOr::None => self.clone(),
+            AllOr::Some(make_invalid) => match self {
                 Validity::NonNullable | Validity::AllValid => {
                     Validity::Array(BoolArray::from(make_invalid.not()).into_array())
                 }
@@ -201,7 +179,7 @@ impl Validity {
                     let keep_valid = make_invalid.not();
                     Validity::from(is_valid.boolean_buffer().bitand(&keep_valid))
                 }
-            }),
+            },
         }
     }
 
@@ -371,10 +349,6 @@ impl Validity {
         } else {
             0
         }
-    }
-
-    pub fn is_array(&self) -> bool {
-        matches!(self, Validity::Array(_))
     }
 }
 
