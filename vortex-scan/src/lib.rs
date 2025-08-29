@@ -191,7 +191,6 @@ impl<A: 'static + Send> ScanBuilder<A> {
             concurrency: self.concurrency,
             map_fn: self.map_fn,
             limit: self.limit,
-            field_mask,
             dtype,
         })
     }
@@ -204,7 +203,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
         }
 
         let row_range = self.row_range.clone();
-        self.prepare()?.build(row_range)
+        self.prepare()?.execute(row_range)
     }
 
     /// Returns a [`Stream`](futures::Stream) with tasks spawned onto the current Tokio runtime.
@@ -219,7 +218,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self,
     ) -> VortexResult<impl futures::Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
         let row_range = self.row_range.clone();
-        self.prepare()?.into_tokio_stream(row_range)
+        self.prepare()?.execute_tokio_stream(row_range)
     }
 }
 
@@ -328,7 +327,6 @@ pub struct RepeatedScan<A: 'static + Send> {
     /// Optionally read a subset of the rows in the file.
     row_range: Option<Range<u64>>,
     /// The selection mask to apply to the selected row range.
-    // TODO(joe): replace this is usage of row_id selection, see
     selection: Selection,
     /// The natural splits of the file.
     splits: Vec<Range<u64>>,
@@ -338,27 +336,12 @@ pub struct RepeatedScan<A: 'static + Send> {
     map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
     /// Maximal number of rows to read (after filtering)
     limit: Option<usize>,
-    /// The fields we will read.
-    #[allow(dead_code)]
-    field_mask: Vec<FieldMask>,
     /// The dtype of the projected arrays.
     dtype: DType,
 }
 
-pub fn intersect_ranges(
-    left: Option<&Range<u64>>,
-    right: Option<Range<u64>>,
-) -> Option<Range<u64>> {
-    match (left, right) {
-        (None, None) => None,
-        (None, Some(r)) => Some(r),
-        (Some(l), None) => Some(l.clone()),
-        (Some(l), Some(r)) => Some(cmp::max(l.start, r.start)..cmp::min(l.end, r.end)),
-    }
-}
-
 impl<A: 'static + Send> RepeatedScan<A> {
-    pub fn build(
+    pub fn execute(
         &self,
         row_range: Option<Range<u64>>,
     ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
@@ -391,7 +374,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
     }
 
     #[cfg(feature = "tokio")]
-    pub fn into_tokio_stream(
+    pub fn execute_tokio_stream(
         &self,
         row_range: Option<Range<u64>>,
     ) -> VortexResult<impl futures::Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
@@ -403,7 +386,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         let handle = tokio::runtime::Handle::current();
         let num_workers = handle.metrics().num_workers();
         let concurrency = self.concurrency * num_workers;
-        Ok(futures::stream::iter(self.build(row_range)?)
+        Ok(futures::stream::iter(self.execute(row_range)?)
             .map(move |task| handle.spawn(task))
             .buffered(concurrency)
             .map(|task| {
@@ -415,14 +398,14 @@ impl<A: 'static + Send> RepeatedScan<A> {
 }
 
 impl RepeatedScan<ArrayRef> {
-    pub fn into_array_iter(
+    pub fn execute_array_iter(
         &self,
         row_range: Option<Range<u64>>,
     ) -> VortexResult<impl ArrayIterator + Send + Clone + 'static> {
         let row_range = intersect_ranges(self.row_range.as_ref(), row_range);
 
         let dtype = self.dtype.clone();
-        let tasks = self.build(row_range)?;
+        let tasks = self.execute(row_range)?;
         let queue = WorkStealingQueue::new([Box::new(move || Ok(tasks)) as TaskFactory<ArrayTask>]);
 
         Ok(WorkStealingArrayIterator::new(
@@ -433,15 +416,27 @@ impl RepeatedScan<ArrayRef> {
     }
 
     #[cfg(feature = "tokio")]
-    pub fn into_tokio_array_stream(
+    pub fn execute_tokio_array_stream(
         &self,
         row_range: Option<Range<u64>>,
     ) -> VortexResult<impl vortex_array::stream::ArrayStream + Send + 'static> {
         let row_range = intersect_ranges(self.row_range.as_ref(), row_range);
 
         let dtype = self.dtype.clone();
-        let stream = self.into_tokio_stream(row_range)?;
+        let stream = self.execute_tokio_stream(row_range)?;
         Ok(vortex_array::stream::ArrayStreamAdapter::new(dtype, stream))
+    }
+}
+
+fn intersect_ranges(
+    left: Option<&Range<u64>>,
+    right: Option<Range<u64>>,
+) -> Option<Range<u64>> {
+    match (left, right) {
+        (None, None) => None,
+        (None, Some(r)) => Some(r),
+        (Some(l), None) => Some(l.clone()),
+        (Some(l), Some(r)) => Some(cmp::max(l.start, r.start)..cmp::min(l.end, r.end)),
     }
 }
 
