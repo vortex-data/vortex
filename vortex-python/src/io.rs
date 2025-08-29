@@ -119,7 +119,7 @@ pub fn read_url<'py>(
 ///
 /// Stream from a PyArrow RecordBatchReader:
 ///
-///     >>> import pyarrow as pa
+///     >>> import pyarrow as pa do we run this in the ci?
 ///     >>> import vortex as vx
 ///     >>> reader = pa.RecordBatchReader.from_batches(schema, batches) # doctest: +SKIP
 ///     >>> vx.io.write(reader, "streamed.vortex")  # doctest: +SKIP
