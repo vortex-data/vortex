@@ -7,7 +7,7 @@ use std::sync::Arc;
 use log::info;
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{NativePType, PType, match_each_native_ptype};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::VortexResult;
 
 use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::pipeline::bits::BitView;
