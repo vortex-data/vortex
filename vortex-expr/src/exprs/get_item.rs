@@ -90,12 +90,7 @@ impl VTable for GetItemVTable {
 
         match input.dtype().nullability() {
             Nullability::NonNullable => Ok(field),
-            Nullability::Nullable => {
-                let result = mask(&field, &input.validity_mask().not())?;
-                // if mask is empty, it will return the original array without changing its nullability,
-                // but we already promised a nullable output...
-                cast(&result, &result.dtype().as_nullable())
-            }
+            Nullability::Nullable => mask(&field, &input.validity_mask().not()),
         }
     }
 
