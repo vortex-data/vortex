@@ -116,7 +116,7 @@ where
             if actual_chunks_to_process > 0 {
                 Self::unpack_sliced_chunk(
                     self.width,
-                    &packed[0..self.packed_stride.clone()],
+                    &packed[0..self.packed_stride],
                     &mut self.temp_buffer,
                     &mut elements[output_idx..output_idx + elements_from_first_chunk],
                     chunk_value_offset,
