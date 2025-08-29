@@ -603,6 +603,32 @@ impl Mask {
             }
         }
     }
+
+    /// Concatenate multiple masks together into a single mask.
+    pub fn concat<'a>(masks: impl Iterator<Item = &'a Self>) -> VortexResult<Self> {
+        let masks: Vec<_> = masks.collect();
+        let len = masks.iter().map(|t| t.len()).sum();
+
+        if masks.iter().all(|t| t.all_true()) {
+            return Ok(Mask::AllTrue(len));
+        }
+
+        if masks.iter().all(|t| t.all_false()) {
+            return Ok(Mask::AllFalse(len));
+        }
+
+        let mut builder = BooleanBufferBuilder::new(len);
+
+        for mask in masks {
+            match mask {
+                Mask::AllTrue(n) => builder.append_n(*n, true),
+                Mask::AllFalse(n) => builder.append_n(*n, false),
+                Mask::Values(v) => builder.append_buffer(v.boolean_buffer()),
+            }
+        }
+
+        Ok(Mask::from_buffer(builder.finish()))
+    }
 }
 
 /// Iterator over the indices or slices of a mask.

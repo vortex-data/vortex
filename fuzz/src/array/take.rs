@@ -36,7 +36,7 @@ pub fn take_canonical_array(
     };
 
     let validity = if array.dtype().is_nullable() || nullable == Nullability::Nullable {
-        let validity_idx = array.validity_mask()?.to_boolean_buffer();
+        let validity_idx = array.validity_mask().to_boolean_buffer();
 
         Validity::from_iter(
             indices

@@ -197,7 +197,7 @@ pub fn gather_patches(
     };
 
     let array_len = parray.len();
-    let validity_mask = parray.validity_mask()?;
+    let validity_mask = parray.validity_mask();
 
     let patches = if array_len < u8::MAX as usize {
         match_each_integer_ptype!(parray.ptype(), |T| {
@@ -294,7 +294,7 @@ pub(crate) fn unpack_into<T: BitPacked>(
     builder: &mut PrimitiveBuilder<T>,
 ) -> VortexResult<()> {
     // Append a dense null Mask.
-    builder.append_mask(array.validity_mask()?);
+    builder.append_mask(array.validity_mask());
 
     let mut uninit = builder.uninit_range(array.len());
     let mut bit_packed_iter = array.unpacked_chunks();
@@ -323,7 +323,7 @@ fn apply_patches<T: NativePType>(dst: &mut UninitRange<T>, patches: &Patches) ->
 
     let indices = patches.indices().to_primitive()?;
     let values = patches.values().to_primitive()?;
-    let validity = values.validity_mask()?;
+    let validity = values.validity_mask();
     let values = values.as_slice::<T>();
     match_each_unsigned_integer_ptype!(indices.ptype(), |P| {
         insert_values_and_validity_at_indices(
@@ -458,7 +458,7 @@ fn bit_width_histogram_typed<T: NativePType + PrimInt>(
         |v: T| (8 * size_of::<T>()) - (PrimInt::leading_zeros(v) as usize);
 
     let mut bit_widths = vec![0usize; size_of::<T>() * 8 + 1];
-    match array.validity_mask()?.boolean_buffer() {
+    match array.validity_mask().boolean_buffer() {
         AllOr::All => {
             // All values are valid.
             for v in array.as_slice::<T>() {
@@ -668,7 +668,6 @@ mod test {
             (0..(1 << 4)).collect::<Vec<_>>(),
             compressed
                 .validity_mask()
-                .unwrap()
                 .to_null_buffer()
                 .unwrap()
                 .into_inner()

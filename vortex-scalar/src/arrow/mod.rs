@@ -11,8 +11,6 @@ use vortex_error::{VortexError, vortex_bail, vortex_err};
 use crate::Scalar;
 use crate::decimal::DecimalValue;
 
-// TODO(connor): All `Array` types here seem to implement common methods (`new_scalar` and
-// `new_null`), but they are not actually grouped together by a trait.
 macro_rules! value_to_arrow_scalar {
     ($V:expr, $AR:ty) => {
         Ok(std::sync::Arc::new(
@@ -117,53 +115,53 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
 
                     return match metadata {
                         TemporalMetadata::Time(u) => match u {
-                            TimeUnit::Ns => value_to_arrow_scalar!(
+                            TimeUnit::Nanoseconds => value_to_arrow_scalar!(
                                 primitive.as_::<i64>(),
                                 Time64NanosecondArray
                             ),
-                            TimeUnit::Us => value_to_arrow_scalar!(
+                            TimeUnit::Microseconds => value_to_arrow_scalar!(
                                 primitive.as_::<i64>(),
                                 Time64MicrosecondArray
                             ),
-                            TimeUnit::Ms => value_to_arrow_scalar!(
+                            TimeUnit::Milliseconds => value_to_arrow_scalar!(
                                 primitive.as_::<i32>(),
                                 Time32MillisecondArray
                             ),
-                            TimeUnit::S => {
+                            TimeUnit::Seconds => {
                                 value_to_arrow_scalar!(primitive.as_::<i32>(), Time32SecondArray)
                             }
-                            TimeUnit::D => {
+                            TimeUnit::Days => {
                                 vortex_bail!("Unsupported TimeUnit {u} for {}", ext.id())
                             }
                         },
                         TemporalMetadata::Date(u) => match u {
-                            TimeUnit::Ms => {
+                            TimeUnit::Milliseconds => {
                                 value_to_arrow_scalar!(primitive.as_::<i64>(), Date64Array)
                             }
-                            TimeUnit::D => {
+                            TimeUnit::Days => {
                                 value_to_arrow_scalar!(primitive.as_::<i32>(), Date32Array)
                             }
-                            TimeUnit::Ns | TimeUnit::Us | TimeUnit::S => {
+                            TimeUnit::Nanoseconds | TimeUnit::Microseconds | TimeUnit::Seconds => {
                                 vortex_bail!("Unsupported TimeUnit {u} for {}", ext.id())
                             }
                         },
                         TemporalMetadata::Timestamp(u, _) => match u {
-                            TimeUnit::Ns => value_to_arrow_scalar!(
+                            TimeUnit::Nanoseconds => value_to_arrow_scalar!(
                                 primitive.as_::<i64>(),
                                 TimestampNanosecondArray
                             ),
-                            TimeUnit::Us => value_to_arrow_scalar!(
+                            TimeUnit::Microseconds => value_to_arrow_scalar!(
                                 primitive.as_::<i64>(),
                                 TimestampMicrosecondArray
                             ),
-                            TimeUnit::Ms => value_to_arrow_scalar!(
+                            TimeUnit::Milliseconds => value_to_arrow_scalar!(
                                 primitive.as_::<i64>(),
                                 TimestampMillisecondArray
                             ),
-                            TimeUnit::S => {
+                            TimeUnit::Seconds => {
                                 value_to_arrow_scalar!(primitive.as_::<i64>(), TimestampSecondArray)
                             }
-                            TimeUnit::D => {
+                            TimeUnit::Days => {
                                 vortex_bail!("Unsupported TimeUnit {u} for {}", ext.id())
                             }
                         },

@@ -18,7 +18,6 @@ arcref = { workspace = true }
 arrow-buffer = { workspace = true }
 async-stream = { workspace = true }
 async-trait = { workspace = true }
-dashmap = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await", "executor"] }
 getrandom_v03 = { workspace = true }
@@ -44,7 +43,7 @@ vortex-mask = { workspace = true }
 vortex-pco = { workspace = true }
 vortex-scalar = { workspace = true }
 vortex-sequence = { workspace = true }
-vortex-utils = { workspace = true }
+vortex-utils = { workspace = true, features = ["dashmap"] }
 vortex-zstd = { workspace = true, optional = true }
 
 [dev-dependencies]

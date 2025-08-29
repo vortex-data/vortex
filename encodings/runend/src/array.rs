@@ -299,21 +299,21 @@ impl ArrayVTable<RunEndVTable> for RunEndVTable {
 }
 
 impl ValidityVTable<RunEndVTable> for RunEndVTable {
-    fn is_valid(array: &RunEndArray, index: usize) -> VortexResult<bool> {
+    fn is_valid(array: &RunEndArray, index: usize) -> bool {
         let physical_idx = array.find_physical_index(index);
         array.values().is_valid(physical_idx)
     }
 
-    fn all_valid(array: &RunEndArray) -> VortexResult<bool> {
+    fn all_valid(array: &RunEndArray) -> bool {
         array.values().all_valid()
     }
 
-    fn all_invalid(array: &RunEndArray) -> VortexResult<bool> {
+    fn all_invalid(array: &RunEndArray) -> bool {
         array.values().all_invalid()
     }
 
-    fn validity_mask(array: &RunEndArray) -> VortexResult<Mask> {
-        Ok(match array.values().validity_mask()? {
+    fn validity_mask(array: &RunEndArray) -> Mask {
+        match array.values().validity_mask() {
             Mask::AllTrue(_) => Mask::AllTrue(array.len()),
             Mask::AllFalse(_) => Mask::AllFalse(array.len()),
             Mask::Values(values) => {
@@ -328,9 +328,15 @@ impl ValidityVTable<RunEndVTable> for RunEndVTable {
                     )
                     .into_array()
                 };
-                Mask::from_buffer(ree_validity.to_bool()?.boolean_buffer().clone())
+                Mask::from_buffer(
+                    ree_validity
+                        .to_bool()
+                        .vortex_expect("must be a bool array")
+                        .boolean_buffer()
+                        .clone(),
+                )
             }
-        })
+        }
     }
 }
 

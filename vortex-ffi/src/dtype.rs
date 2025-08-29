@@ -181,7 +181,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_struct_dtype(
     dtype: *const vx_dtype,
 ) -> *const vx_struct_fields {
     let struct_dtype = vx_dtype::as_ref(dtype)
-        .as_struct_opt()
+        .as_struct_fields_opt()
         .vortex_expect("not a struct dtype");
     vx_struct_fields::new_ref(struct_dtype)
 }

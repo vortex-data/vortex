@@ -8,7 +8,7 @@ use anyhow::Result;
 use log::trace;
 use url::Url;
 use vortex::error::VortexExpect;
-use vortex_duckdb::duckdb::{Connection, Database};
+use vortex_duckdb::duckdb::{Config, Connection, Database};
 
 use crate::statpopgen::StatPopGenBenchmark;
 use crate::{BenchmarkDataset, Format, IdempotentPath};
@@ -57,15 +57,29 @@ impl DuckDBCtx {
         if delete_database {
             std::fs::remove_file(&db_path)?;
         }
-        let db = Database::open(&db_path)?;
-        let connection = db.connect()?;
-        vortex_duckdb::register_table_functions(&connection)?;
+
+        let (db, connection) = Self::open_and_setup_database(Some(db_path.clone()))?;
 
         Ok(Self {
             db,
             connection,
             db_path: Some(db_path),
         })
+    }
+
+    pub fn open_and_setup_database(path: Option<PathBuf>) -> Result<(Database, Connection)> {
+        let mut config = Config::new().vortex_expect("failed to create duckdb config");
+        // enable parquet metadata cache for all benchmark runs
+        config.set("parquet_metadata_cache", "true")?;
+
+        let db = match path {
+            Some(path) => Database::open_with_config(path, config),
+            None => Database::open_in_memory_with_config(config),
+        }?;
+        let connection = db.connect()?;
+        vortex_duckdb::register_table_functions(&connection)?;
+
+        Ok((db, connection))
     }
 
     pub fn reopen(&mut self) -> Result<()> {
@@ -80,12 +94,7 @@ impl DuckDBCtx {
         drop(connection);
         drop(db);
 
-        let mut db = match &self.db_path {
-            Some(path) => Database::open(path),
-            None => Database::open_in_memory(),
-        }?;
-        let mut connection = db.connect()?;
-        vortex_duckdb::register_table_functions(&connection)?;
+        let (mut db, mut connection) = Self::open_and_setup_database(self.db_path.clone())?;
 
         std::mem::swap(&mut self.connection, &mut connection);
         std::mem::swap(&mut self.db, &mut db);

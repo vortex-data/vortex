@@ -171,7 +171,6 @@ impl Scalar {
         }
     }
 
-    // TODO(connor): This should probably take a `&DType`.
     /// Creates a "default" scalar value for the given data type.
     ///
     /// For nullable types, returns null. For non-nullable types, returns

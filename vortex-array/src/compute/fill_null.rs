@@ -71,7 +71,7 @@ impl ComputeFnVTable for FillNull {
             return Ok(array.to_array().into());
         }
 
-        if array.all_valid()? {
+        if array.all_valid() {
             return Ok(cast(array, fill_value.dtype())?.into());
         }
 

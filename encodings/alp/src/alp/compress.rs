@@ -71,7 +71,7 @@ where
 
     let encoded_array = PrimitiveArray::new(encoded, values.validity().clone()).into_array();
 
-    let validity = values.validity_mask()?;
+    let validity = values.validity_mask();
     // exceptional_positions may contain exceptions at invalid positions (which contain garbage
     // data). We remove null exceptions in order to keep the Patches small.
     let (valid_exceptional_positions, valid_exceptional_values): (Buffer<u64>, Buffer<T>) =
@@ -204,7 +204,7 @@ mod tests {
         let decoded = decompress(&encoded).unwrap();
         assert_eq!(decoded.scalar_at(0), array.scalar_at(0));
         assert_eq!(decoded.scalar_at(1), array.scalar_at(1));
-        assert!(!decoded.is_valid(2).unwrap());
+        assert!(!decoded.is_valid(2));
         assert_eq!(decoded.scalar_at(3), array.scalar_at(3));
     }
 
@@ -228,7 +228,7 @@ mod tests {
             assert!(s.is_valid());
         }
 
-        assert!(!encoded.is_valid(4).unwrap());
+        assert!(!encoded.is_valid(4));
         let s = encoded.scalar_at(4);
         assert!(s.is_null());
 

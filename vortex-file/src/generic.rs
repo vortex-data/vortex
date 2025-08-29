@@ -4,12 +4,12 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use dashmap::DashMap;
 use futures::{StreamExt, pin_mut};
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_io::{Dispatch, InstrumentedReadAt, IoDispatcher, VortexReadAt};
 use vortex_layout::segments::{SegmentEvents, SegmentId};
+use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::driver::CoalescedDriver;
 use crate::segments::{

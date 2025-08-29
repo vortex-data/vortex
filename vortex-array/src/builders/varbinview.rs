@@ -236,7 +236,7 @@ impl ArrayBuilder for VarBinViewBuilder {
             }
         }
 
-        self.push_only_validity_mask(array.validity_mask()?);
+        self.push_only_validity_mask(array.validity_mask());
 
         Ok(())
     }

@@ -38,7 +38,7 @@ impl CanonicalVTable<FSSTVTable> for FSSTVTable {
 
         let (buffer, views) = fsst_decode_views(array, builder.completed_block_count());
 
-        builder.push_buffer_and_adjusted_views(&[buffer], &views, array.validity_mask()?);
+        builder.push_buffer_and_adjusted_views(&[buffer], &views, array.validity_mask());
         Ok(())
     }
 }

@@ -341,12 +341,23 @@ jobs:
       - extras=s3-cache
       - tag=rust-test-sanitizer
     env:
-      RUSTFLAGS: "-A warnings -Zsanitizer=address --cfg disable_loom"
+      # Add debug symbols and enable ASAN/LSAN with better output
+      RUSTFLAGS: "-A warnings -Zsanitizer=address -Zsanitizer=leak --cfg disable_loom -C debuginfo=2 -C opt-level=0 -C strip=none"
+      ASAN_OPTIONS: "symbolize=1:print_stats=1:check_initialization_order=1:detect_leaks=1:halt_on_error=0:verbosity=1:leak_check_at_exit=1"
+      LSAN_OPTIONS: "verbosity=1:report_objects=1"
+      ASAN_SYMBOLIZER_PATH: "/usr/bin/llvm-symbolizer"
+      # Keep frame pointers for better stack traces
+      CARGO_PROFILE_DEV_DEBUG: "true"
+      CARGO_PROFILE_TEST_DEBUG: "true"
     steps:
       - uses: runs-on/action@v2
         with:
           sccache: s3
       - uses: actions/checkout@v5
+      - name: Install llvm
+        uses: aminya/setup-cpp@v1
+        with:
+          compiler: llvm
       - uses: ./.github/actions/setup-rust
         with:
           toolchain: nightly
@@ -356,9 +367,17 @@ jobs:
         with:
           tool: nextest@0.9.98
       - name: Rust Tests
-        # vortex-duckdb-ext currently fails linking for cargo test targets.
         run: |
-          cargo +nightly nextest run --locked --workspace --all-features --no-fail-fast --target x86_64-unknown-linux-gnu
+          # Build with full debug info first (helps with caching)
+          cargo +nightly build --locked --workspace --all-features --target x86_64-unknown-linux-gnu
+          # Run tests with sanitizers and debug output
+          cargo +nightly nextest run \
+            --locked \
+            --workspace \
+            --all-features \
+            --no-fail-fast \
+            --target x86_64-unknown-linux-gnu \
+            --verbose
 
   build-java:
     name: "Java"

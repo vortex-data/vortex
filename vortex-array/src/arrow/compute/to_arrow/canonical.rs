@@ -147,6 +147,9 @@ impl Kernel for ToArrowCanonical {
             (Canonical::List(array), DataType::LargeList(field)) => {
                 to_arrow_list::<i64>(array, field, arrow_type_opt.is_none())
             }
+            (Canonical::FixedSizeList(..), DataType::FixedSizeList(..)) => {
+                unimplemented!("TODO(connor)[FixedSizeList]")
+            }
             (Canonical::VarBinView(array), DataType::BinaryView) if array.dtype().is_binary() => {
                 to_arrow_varbinview::<BinaryViewType>(array)
             }
@@ -200,12 +203,12 @@ fn to_arrow_null(array: NullArray) -> VortexResult<ArrowArrayRef> {
 fn to_arrow_bool(array: BoolArray) -> VortexResult<ArrowArrayRef> {
     Ok(Arc::new(ArrowBoolArray::new(
         array.boolean_buffer().clone(),
-        array.validity_mask()?.to_null_buffer(),
+        array.validity_mask().to_null_buffer(),
     )))
 }
 
 fn to_arrow_primitive<T: ArrowPrimitiveType>(array: PrimitiveArray) -> VortexResult<ArrowArrayRef> {
-    let null_buffer = array.validity_mask()?.to_null_buffer();
+    let null_buffer = array.validity_mask().to_null_buffer();
     let len = array.len();
     let buffer = array.into_byte_buffer().into_arrow_buffer();
     Ok(Arc::new(ArrowPrimitiveArray::<T>::new(
@@ -215,7 +218,7 @@ fn to_arrow_primitive<T: ArrowPrimitiveType>(array: PrimitiveArray) -> VortexRes
 }
 
 fn to_arrow_decimal128(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
-    let null_buffer = array.validity_mask()?.to_null_buffer();
+    let null_buffer = array.validity_mask().to_null_buffer();
     let buffer: Buffer<i128> = match array.values_type() {
         DecimalValueType::I8 => {
             Buffer::from_trusted_len_iter(array.buffer::<i8>().into_iter().map(|x| x.as_()))
@@ -250,7 +253,7 @@ fn to_arrow_decimal128(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
 }
 
 fn to_arrow_decimal256(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
-    let null_buffer = array.validity_mask()?.to_null_buffer();
+    let null_buffer = array.validity_mask().to_null_buffer();
     let buffer: Buffer<i256> = match array.values_type() {
         DecimalValueType::I8 => {
             Buffer::from_trusted_len_iter(array.buffer::<i8>().into_iter().map(|x| x.as_()))
@@ -302,7 +305,7 @@ fn to_arrow_struct(
             // We check that the Vortex array nullability is compatible with the field
             // nullability. In other words, make sure we don't return any nulls for a
             // non-nullable field.
-            if arr.dtype().is_nullable() && !field.is_nullable() && !arr.all_valid()? {
+            if arr.dtype().is_nullable() && !field.is_nullable() && !arr.all_valid() {
                 vortex_bail!(
                     "Field {} is non-nullable but has nulls {}",
                     field,
@@ -319,7 +322,7 @@ fn to_arrow_struct(
         })
         .collect::<VortexResult<Vec<_>>>()?;
 
-    let nulls = array.validity_mask()?.to_null_buffer();
+    let nulls = array.validity_mask().to_null_buffer();
 
     if field_arrays.is_empty() {
         return Ok(Arc::new(ArrowStructArray::new_empty_fields(
@@ -366,7 +369,7 @@ fn to_arrow_list<O: NativePType + OffsetSizeTrait>(
     } else {
         array.elements().clone().into_arrow(element.data_type())?
     };
-    let nulls = array.validity_mask()?.to_null_buffer();
+    let nulls = array.validity_mask().to_null_buffer();
 
     Ok(Arc::new(GenericListArray::new(
         element.clone(),
@@ -384,10 +387,7 @@ fn to_arrow_varbinview<T: ByteViewType>(array: VarBinViewArray) -> VortexResult<
         .iter()
         .map(|buffer| buffer.clone().into_arrow_buffer())
         .collect();
-    let nulls = array
-        .validity_mask()
-        .vortex_expect("VarBinViewArray: failed to get logical validity")
-        .to_null_buffer();
+    let nulls = array.validity_mask().to_null_buffer();
 
     // SAFETY: our own VarBinView array is considered safe.
     Ok(Arc::new(unsafe {
@@ -484,7 +484,7 @@ mod tests {
     }
 
     #[test]
-    fn struct_to_arrow_with_schema_missmatch() {
+    fn struct_to_arrow_with_schema_mismatch() {
         let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::AllValid);
 
         let struct_a = StructArray::try_new(

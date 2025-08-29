@@ -51,7 +51,7 @@ where
         stream: SendableSequentialStream,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
-        let Some(struct_dtype) = stream.dtype().as_struct_opt().cloned() else {
+        let Some(struct_dtype) = stream.dtype().as_struct_fields_opt().cloned() else {
             // nothing we can do if dtype is not struct
             return self.child.write_stream(ctx, sequence_writer, stream).await;
         };
@@ -63,7 +63,7 @@ where
 
         let stream = stream.map(|chunk| {
             let (sequence_id, chunk) = chunk?;
-            if !chunk.all_valid()? {
+            if !chunk.all_valid() {
                 vortex_bail!("Cannot push struct chunks with top level invalid values");
             };
             Ok((sequence_id, chunk))

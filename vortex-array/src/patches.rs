@@ -15,9 +15,7 @@ use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{
     DType, NativePType, PType, match_each_integer_ptype, match_each_unsigned_integer_ptype,
 };
-use vortex_error::{
-    VortexError, VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_err,
-};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::{AllOr, Mask};
 use vortex_scalar::{PValue, Scalar};
 use vortex_utils::aliases::hash_map::HashMap;
@@ -224,6 +222,24 @@ impl Patches {
 
     /// Return the insertion point of `index` in the [Self::indices].
     pub fn search_index(&self, index: usize) -> SearchResult {
+        if self.indices.is_canonical() {
+            let primitive = self
+                .indices
+                .to_primitive()
+                .vortex_expect("indices are canonical and must be primitive");
+            match_each_integer_ptype!(primitive.ptype(), |T| {
+                let Ok(needle) = T::try_from(index + self.offset) else {
+                    // If the needle is not of type T, then it cannot possibly be in this array.
+                    //
+                    // The needle is a non-negative integer (a usize); therefore, it must be larger
+                    // than all values in this array.
+                    return SearchResult::NotFound(primitive.len());
+                };
+                return primitive
+                    .as_slice::<T>()
+                    .search_sorted(&needle, SearchSortedSide::Left);
+            });
+        }
         self.indices.as_primitive_typed().search_sorted(
             &PValue::U64((index + self.offset) as u64),
             SearchSortedSide::Left,
@@ -358,6 +374,13 @@ impl Patches {
 
     /// Slice the patches by a range of the patched array.
     pub fn slice(&self, range: Range<usize>) -> Option<Self> {
+        if range.len() == 1 {
+            let patch_index = self.search_index(range.start).to_found()?;
+            let values = self.values.slice(patch_index..patch_index + 1);
+            let indices = self.indices.slice(patch_index..patch_index + 1);
+            return Some(Self::new(1, range.start + self.offset(), indices, values));
+        }
+
         let patch_start = self.search_index(range.start).to_index();
         let patch_stop = self.search_index(range.end).to_index();
 
@@ -518,7 +541,7 @@ where
             I::from(v)
                 .and_then(|v| {
                     // If we have to take nulls the take index doesn't matter, make it 0 for consistency
-                    if include_nulls && take_indices_validity.is_null(i).vortex_unwrap() {
+                    if include_nulls && take_indices_validity.is_null(i) {
                         Some(0)
                     } else {
                         indices
@@ -575,7 +598,7 @@ where
             iter.enumerate()
                 .filter_map(|(idx_in_take, ti)| {
                     // If we have to take nulls the take index doesn't matter, make it 0 for consistency
-                    if include_nulls && take_indices_validity.is_null(idx_in_take).vortex_unwrap() {
+                    if include_nulls && take_indices_validity.is_null(idx_in_take) {
                         Some((idx_in_take as u64, 0))
                     } else if ti < min_index || ti > max_index {
                         None
@@ -830,7 +853,7 @@ mod test {
         assert_eq!(taken.array_len(), 2);
         assert_eq!(primitive_values.as_slice::<i32>(), [44]);
         assert_eq!(
-            primitive_values.validity_mask().unwrap(),
+            primitive_values.validity_mask(),
             Mask::from_iter(vec![true])
         );
     }
@@ -897,9 +920,9 @@ mod test {
         // No patch values should be masked
         let masked_values = masked.values().to_primitive().unwrap();
         assert_eq!(masked_values.as_slice::<i32>(), &[100, 200, 300]);
-        assert!(masked_values.is_valid(0).unwrap());
-        assert!(masked_values.is_valid(1).unwrap());
-        assert!(masked_values.is_valid(2).unwrap());
+        assert!(masked_values.is_valid(0));
+        assert!(masked_values.is_valid(1));
+        assert!(masked_values.is_valid(2));
 
         // Indices should remain unchanged
         let indices = masked.indices().to_primitive().unwrap();
@@ -976,8 +999,8 @@ mod test {
         // Values should be the null and 300
         let masked_values = masked.values().to_primitive().unwrap();
         assert_eq!(masked_values.len(), 2);
-        assert!(!masked_values.is_valid(0).unwrap()); // the null value at index 5
-        assert!(masked_values.is_valid(1).unwrap()); // the 300 value at index 8
+        assert!(!masked_values.is_valid(0)); // the null value at index 5
+        assert!(masked_values.is_valid(1)); // the 300 value at index 8
         assert_eq!(i32::try_from(&masked_values.scalar_at(1)).unwrap(), 300i32);
     }
 

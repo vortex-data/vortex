@@ -7,8 +7,8 @@ use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::arrays::{
-    BoolArray, DecimalArray, ExtensionArray, ListArray, NullArray, PrimitiveArray, StructArray,
-    VarBinViewArray,
+    BoolArray, DecimalArray, ExtensionArray, FixedSizeListArray, ListArray, NullArray,
+    PrimitiveArray, StructArray, VarBinViewArray,
 };
 use crate::builders::builder_with_capacity;
 use crate::{Array, ArrayRef, IntoArray};
@@ -40,9 +40,10 @@ use crate::{Array, ArrayRef, IntoArray};
 /// * `BoolArray`: [`arrow_array::BooleanArray`]
 /// * `PrimitiveArray`: [`arrow_array::PrimitiveArray`]
 /// * `DecimalArray`: [`arrow_array::Decimal128Array`] and [`arrow_array::Decimal256Array`]
-/// * `StructArray`: [`arrow_array::StructArray`]
-/// * `ListArray`: [`arrow_array::ListArray`]
 /// * `VarBinViewArray`: [`arrow_array::GenericByteViewArray`]
+/// * `ListArray`: [`arrow_array::ListArray`]
+/// * `FixedSizeListArray`: [`arrow_array::FixedSizeListArray`]
+/// * `StructArray`: [`arrow_array::StructArray`]
 ///
 /// Vortex uses a logical type system, unlike Arrow which uses physical encodings for its types.
 /// As an example, there are at least six valid physical encodings for a `Utf8` array. This can
@@ -69,11 +70,11 @@ pub enum Canonical {
     Bool(BoolArray),
     Primitive(PrimitiveArray),
     Decimal(DecimalArray),
-    Struct(StructArray),
+    VarBinView(VarBinViewArray),
     // TODO(joe): maybe this should be a ListView, however this will be annoying in spiral
     List(ListArray),
-    // TODO(connor)[FixedSizeList]
-    VarBinView(VarBinViewArray),
+    FixedSizeList(FixedSizeListArray),
+    Struct(StructArray),
     Extension(ExtensionArray),
 }
 
@@ -138,11 +139,11 @@ impl Canonical {
         }
     }
 
-    pub fn into_struct(self) -> VortexResult<StructArray> {
-        if let Canonical::Struct(a) = self {
+    pub fn into_varbinview(self) -> VortexResult<VarBinViewArray> {
+        if let Canonical::VarBinView(a) = self {
             Ok(a)
         } else {
-            vortex_bail!("Cannot unwrap StructArray from {:?}", &self)
+            vortex_bail!("Cannot unwrap VarBinViewArray from {:?}", &self)
         }
     }
 
@@ -154,11 +155,19 @@ impl Canonical {
         }
     }
 
-    pub fn into_varbinview(self) -> VortexResult<VarBinViewArray> {
-        if let Canonical::VarBinView(a) = self {
+    pub fn into_fixed_size_list(self) -> VortexResult<FixedSizeListArray> {
+        if let Canonical::FixedSizeList(a) = self {
             Ok(a)
         } else {
-            vortex_bail!("Cannot unwrap VarBinViewArray from {:?}", &self)
+            vortex_bail!("Cannot unwrap FixedSizeListArray from {:?}", &self)
+        }
+    }
+
+    pub fn into_struct(self) -> VortexResult<StructArray> {
+        if let Canonical::Struct(a) = self {
+            Ok(a)
+        } else {
+            vortex_bail!("Cannot unwrap StructArray from {:?}", &self)
         }
     }
 
@@ -180,6 +189,7 @@ impl AsRef<dyn Array> for Canonical {
             Canonical::Decimal(a) => a.as_ref(),
             Canonical::Struct(a) => a.as_ref(),
             Canonical::List(a) => a.as_ref(),
+            Canonical::FixedSizeList(a) => a.as_ref(),
             Canonical::VarBinView(a) => a.as_ref(),
             Canonical::Extension(a) => a.as_ref(),
         }
@@ -195,6 +205,7 @@ impl IntoArray for Canonical {
             Canonical::Decimal(a) => a.into_array(),
             Canonical::Struct(a) => a.into_array(),
             Canonical::List(a) => a.into_array(),
+            Canonical::FixedSizeList(a) => a.into_array(),
             Canonical::VarBinView(a) => a.into_array(),
             Canonical::Extension(a) => a.into_array(),
         }
@@ -226,6 +237,9 @@ pub trait ToCanonical {
 
     /// Canonicalize into a [`ListArray`] if the target is [`List`][DType::List] typed.
     fn to_list(&self) -> VortexResult<ListArray>;
+
+    /// Canonicalize into a [`ListArray`] if the target is [`List`][DType::List] typed.
+    fn to_fixed_size_list(&self) -> VortexResult<FixedSizeListArray>;
 
     /// Canonicalize into a [`VarBinViewArray`] if the target is [`Utf8`][DType::Utf8]
     /// or [`Binary`][DType::Binary] typed.
@@ -262,6 +276,10 @@ impl<A: Array + ?Sized> ToCanonical for A {
         self.to_canonical()?.into_list()
     }
 
+    fn to_fixed_size_list(&self) -> VortexResult<FixedSizeListArray> {
+        self.to_canonical()?.into_fixed_size_list()
+    }
+
     fn to_varbinview(&self) -> VortexResult<VarBinViewArray> {
         self.to_canonical()?.into_varbinview()
     }
@@ -280,6 +298,7 @@ impl From<Canonical> for ArrayRef {
             Canonical::Decimal(a) => a.into_array(),
             Canonical::Struct(a) => a.into_array(),
             Canonical::List(a) => a.into_array(),
+            Canonical::FixedSizeList(a) => a.into_array(),
             Canonical::VarBinView(a) => a.into_array(),
             Canonical::Extension(a) => a.into_array(),
         }

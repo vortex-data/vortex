@@ -207,7 +207,7 @@ mod test {
     ) -> DateTimePartsArray {
         DateTimePartsArray::try_from(TemporalArray::new_timestamp(
             PrimitiveArray::new(buffer![value], validity).into_array(),
-            TimeUnit::S,
+            TimeUnit::Seconds,
             Some("UTC".to_string()),
         ))
         .expect("Failed to construct DateTimePartsArray from TemporalArray")
@@ -282,7 +282,7 @@ mod test {
     ) {
         let temporal_array = TemporalArray::new_timestamp(
             PrimitiveArray::new(buffer![0i64], lhs_validity.clone()).into_array(),
-            TimeUnit::S,
+            TimeUnit::Seconds,
             Some("UTC".to_string()),
         );
 

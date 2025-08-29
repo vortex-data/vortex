@@ -105,7 +105,7 @@ mod test {
 
         assert_eq!(taken.as_slice::<T>()[0], a);
         assert_eq!(taken.as_slice::<T>()[1], outlier);
-        assert!(!taken.validity_mask().unwrap().value(2));
+        assert!(!taken.validity_mask().value(2));
     }
 
     #[rstest]
