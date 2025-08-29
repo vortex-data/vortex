@@ -104,7 +104,7 @@ mod tests {
 
     #[test]
     fn test_bitpacking_pipeline() {
-        let fraac = 0.5;
+        let frac = 0.5;
         let len = 10;
         let mut rng = StdRng::seed_from_u64(0);
         let values = (0i16..len)
