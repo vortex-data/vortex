@@ -107,7 +107,15 @@ impl VTable for PackVTable {
         let value_arrays = expr
             .values
             .iter()
-            .map(|value_expr| value_expr.unchecked_evaluate(scope))
+            .zip_eq(expr.names.iter())
+            .map(|(value_expr, name)| {
+                value_expr.unchecked_evaluate(scope).map_err(|e| {
+                    e.with_context(format!(
+                        "Can't evaluate '{name}'\nvalues:{}'",
+                        scope.display_values()
+                    ))
+                })
+            })
             .process_results(|it| it.collect::<Vec<_>>())?;
         let validity = match expr.nullability {
             Nullability::NonNullable => Validity::NonNullable,
