@@ -24,7 +24,7 @@ use crate::convert::{try_from_bound_expression, try_from_table_filter};
 use crate::duckdb::footer_cache::FooterCache;
 use crate::duckdb::{
     BindInput, BindResult, Cardinality, ClientContext, DataChunk, Expression, LogicalType,
-    ObjectCacheRef, TableFunction, TableInitInput,
+    TableFunction, TableInitInput,
 };
 use crate::exporter::{ArrayExporter, ConversionCache};
 use crate::utils::glob::expand_glob;
@@ -217,7 +217,7 @@ impl TableFunction for VortexTableFunction {
             .ok_or_else(|| vortex_err!("Missing file glob parameter"))?;
 
         let (file_urls, _metadata) =
-            block_in_place(|| RUNTIME.block_on(expand_glob(&file_glob_string.as_string())))?;
+            block_in_place(|| RUNTIME.block_on(expand_glob(file_glob_string.as_ref().as_string())))?;
 
         // The first file is skipped in `create_file_paths_queue`.
         let Some(first_file_url) = file_urls.first() else {

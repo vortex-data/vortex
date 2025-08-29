@@ -84,23 +84,40 @@ macro_rules! lifetime_wrapper {
 #[macro_export]
 macro_rules! lifetime_wrapper_impl {
     ($(#[$meta:meta])* $Name:ident, $ffi_type:ty, $destructor:expr, [$($variant:ident),*]) => {
-        $crate::lifetime_wrapper_generate_owned!($(#[$meta])* $Name, $ffi_type, $destructor, [$($variant),*]);
-        $crate::lifetime_wrapper_generate_ref!($(#[$meta])* $Name, $ffi_type, [$($variant),*]);
-        $crate::lifetime_wrapper_generate_mut_ref!($(#[$meta])* $Name, $ffi_type, [$($variant),*]);
+        // Step 1: Generate all type definitions first
+        $crate::lifetime_wrapper_generate_owned_type!($(#[$meta])* $Name, $ffi_type, [$($variant),*]);
+        $crate::lifetime_wrapper_generate_ref_type!($(#[$meta])* $Name, $ffi_type, [$($variant),*]);
+        $crate::lifetime_wrapper_generate_mut_ref_type!($(#[$meta])* $Name, $ffi_type, [$($variant),*]);
+        
+        // Step 2: Generate all implementations that may reference other types
+        $crate::lifetime_wrapper_generate_owned_impl!($(#[$meta])* $Name, $ffi_type, $destructor, [$($variant),*]);
+        $crate::lifetime_wrapper_generate_ref_impl!($(#[$meta])* $Name, $ffi_type, [$($variant),*]);
+        $crate::lifetime_wrapper_generate_mut_ref_impl!($(#[$meta])* $Name, $ffi_type, [$($variant),*]);
+        
+        // Step 3: Generate cross-type relationships (Deref, etc.)
+        $crate::lifetime_wrapper_generate_relationships!($(#[$meta])* $Name, $ffi_type, [$($variant),*]);
     };
 }
 
-// Generate owned type
+// Generate owned type definition only
 #[macro_export]
-macro_rules! lifetime_wrapper_generate_owned {
-    ($(#[$meta:meta])* $Name:ident, $ffi_type:ty, $destructor:expr, [owned $(, $rest:ident)*]) => {
+macro_rules! lifetime_wrapper_generate_owned_type {
+    ($(#[$meta:meta])* $Name:ident, $ffi_type:ty, [owned $(, $rest:ident)*]) => {
         // Owned version that manages the FFI pointer's lifetime
         $(#[$meta])*
         pub struct $Name {
             ptr: $ffi_type,
             owned: bool,
         }
+    };
+    // Skip if 'owned' is not in the list
+    ($(#[$meta:meta])* $Name:ident, $ffi_type:ty, [$($other:ident),*]) => {};
+}
 
+// Generate owned implementation
+#[macro_export]
+macro_rules! lifetime_wrapper_generate_owned_impl {
+    ($(#[$meta:meta])* $Name:ident, $ffi_type:ty, $destructor:expr, [owned $(, $rest:ident)*]) => {
         #[allow(dead_code)]
         impl $Name {
             /// Takes ownership of the memory. The Rust wrapper becomes
@@ -124,8 +141,6 @@ macro_rules! lifetime_wrapper_generate_owned {
                 self.owned = false; // Prevent destructor from being called
                 self.ptr
             }
-
-            $crate::lifetime_wrapper_owned_methods!($Name, [$($rest),*]);
         }
 
         impl Drop for $Name {
@@ -142,42 +157,10 @@ macro_rules! lifetime_wrapper_generate_owned {
     ($(#[$meta:meta])* $Name:ident, $ffi_type:ty, $destructor:expr, [$($other:ident),*]) => {};
 }
 
-// Generate methods for owned type based on what other variants are available
-#[macro_export]
-macro_rules! lifetime_wrapper_owned_methods {
-    ($Name:ident, [ref $(, $rest:ident)*]) => {
-        paste::paste! {
-            /// Convert to a borrowed reference with explicit lifetime
-            pub fn as_ref(&self) -> [<$Name Ref>]<'_> {
-                [<$Name Ref>] {
-                    ptr: self.ptr,
-                    _lifetime: std::marker::PhantomData,
-                }
-            }
-        }
-        $crate::lifetime_wrapper_owned_methods!($Name, [$($rest),*]);
-    };
-    ($Name:ident, [mut_ref $(, $rest:ident)*]) => {
-        paste::paste! {
-            /// Convert to a mutable borrowed reference with explicit lifetime
-            pub fn as_mut_ref(&mut self) -> [<$Name MutRef>]<'_> {
-                [<$Name MutRef>] {
-                    ptr: self.ptr,
-                    _lifetime: std::marker::PhantomData,
-                }
-            }
-        }
-        $crate::lifetime_wrapper_owned_methods!($Name, [$($rest),*]);
-    };
-    ($Name:ident, [$first:ident $(, $rest:ident)*]) => {
-        $crate::lifetime_wrapper_owned_methods!($Name, [$($rest),*]);
-    };
-    ($Name:ident, []) => {};
-}
 
-// Generate ref type
+// Generate ref type definition only
 #[macro_export]
-macro_rules! lifetime_wrapper_generate_ref {
+macro_rules! lifetime_wrapper_generate_ref_type {
     ($(#[$meta:meta])* $Name:ident, $ffi_type:ty, [ref $(, $rest:ident)*]) => {
         paste::paste! {
             // Borrowed version with explicit lifetime parameter
@@ -186,7 +169,58 @@ macro_rules! lifetime_wrapper_generate_ref {
                 ptr: $ffi_type,
                 _lifetime: std::marker::PhantomData<&'a ()>,
             }
+        }
+    };
+    ($(#[$meta:meta])* $Name:ident, $ffi_type:ty, [owned, ref $(, $rest:ident)*]) => {
+        paste::paste! {
+            // Borrowed version with explicit lifetime parameter
+            $(#[$meta])*
+            pub struct [<$Name Ref>]<'a> {
+                ptr: $ffi_type,
+                _lifetime: std::marker::PhantomData<&'a ()>,
+            }
+        }
+    };
+    // Skip if 'ref' is not in the list
+    ($(#[$meta:meta])* $Name:ident, $ffi_type:ty, [$($other:ident),*]) => {};
+}
 
+// Generate ref implementation
+#[macro_export]
+macro_rules! lifetime_wrapper_generate_ref_impl {
+    ($(#[$meta:meta])* $Name:ident, $ffi_type:ty, [ref $(, $rest:ident)*]) => {
+        paste::paste! {
+            #[allow(dead_code)]
+            impl<'a> [<$Name Ref>]<'a> {
+                /// Borrows the pointer without taking ownership.
+                /// This is the only constructor for the ref variant.
+                pub unsafe fn borrow(ptr: $ffi_type) -> Self {
+                    if ptr.is_null() {
+                        vortex::error::vortex_panic!("Attempted to create a wrapper ref from a null pointer");
+                    }
+                    Self {
+                        ptr,
+                        _lifetime: std::marker::PhantomData,
+                    }
+                }
+
+                /// Returns the raw pointer.
+                pub fn as_ptr(&self) -> $ffi_type {
+                    self.ptr
+                }
+            }
+            
+            // Ref versions can be Copy since they're just borrowed pointers
+            impl<'a> Copy for [<$Name Ref>]<'a> {}
+            impl<'a> Clone for [<$Name Ref>]<'a> {
+                fn clone(&self) -> Self {
+                    *self
+                }
+            }
+        }
+    };
+    ($(#[$meta:meta])* $Name:ident, $ffi_type:ty, [owned, ref $(, $rest:ident)*]) => {
+        paste::paste! {
             #[allow(dead_code)]
             impl<'a> [<$Name Ref>]<'a> {
                 /// Borrows the pointer without taking ownership.
@@ -220,9 +254,9 @@ macro_rules! lifetime_wrapper_generate_ref {
     ($(#[$meta:meta])* $Name:ident, $ffi_type:ty, [$($other:ident),*]) => {};
 }
 
-// Generate mut_ref type
+// Generate mut_ref type definition only
 #[macro_export]
-macro_rules! lifetime_wrapper_generate_mut_ref {
+macro_rules! lifetime_wrapper_generate_mut_ref_type {
     ($(#[$meta:meta])* $Name:ident, $ffi_type:ty, [mut_ref $(, $rest:ident)*]) => {
         paste::paste! {
             // Mutable borrowed version with explicit lifetime parameter
@@ -231,7 +265,17 @@ macro_rules! lifetime_wrapper_generate_mut_ref {
                 ptr: $ffi_type,
                 _lifetime: std::marker::PhantomData<&'a mut ()>,
             }
+        }
+    };
+    // Skip if 'mut_ref' is not in the list
+    ($(#[$meta:meta])* $Name:ident, $ffi_type:ty, [$($other:ident),*]) => {};
+}
 
+// Generate mut_ref implementation
+#[macro_export]
+macro_rules! lifetime_wrapper_generate_mut_ref_impl {
+    ($(#[$meta:meta])* $Name:ident, $ffi_type:ty, [mut_ref $(, $rest:ident)*]) => {
+        paste::paste! {
             #[allow(dead_code)]
             impl<'a> [<$Name MutRef>]<'a> {
                 /// Borrows the pointer mutably without taking ownership.
@@ -250,43 +294,132 @@ macro_rules! lifetime_wrapper_generate_mut_ref {
                 pub fn as_ptr(&self) -> $ffi_type {
                     self.ptr
                 }
-
-                $crate::lifetime_wrapper_mut_ref_methods!($Name, [$($rest),*]);
             }
-            
-            // Check if we should implement Deref to Ref
-            $crate::lifetime_wrapper_mut_ref_deref!($Name, [$($rest),*]);
         }
     };
     // Skip if 'mut_ref' is not in the list
     ($(#[$meta:meta])* $Name:ident, $ffi_type:ty, [$($other:ident),*]) => {};
 }
 
-// Generate methods for mut_ref type based on what other variants are available
+
+
+// Generate cross-type relationships (Deref, conversion methods, etc.)
 #[macro_export]
-macro_rules! lifetime_wrapper_mut_ref_methods {
-    ($Name:ident, [ref $(, $rest:ident)*]) => {
+macro_rules! lifetime_wrapper_generate_relationships {
+    ($(#[$meta:meta])* $Name:ident, $ffi_type:ty, [$($variant:ident),*]) => {
+        // Generate Deref from MutRef to Ref if both exist
+        $crate::lifetime_wrapper_mut_ref_deref_if_both_exist!($Name, [$($variant),*]);
+        
+        // Generate owned methods that reference other types
+        $crate::lifetime_wrapper_owned_cross_methods!($Name, [$($variant),*]);
+    };
+}
+
+// Generate methods for owned type that reference other types
+#[macro_export]
+macro_rules! lifetime_wrapper_owned_cross_methods {
+    ($Name:ident, [$($variant:ident),*]) => {
+        $crate::lifetime_wrapper_generate_as_ref_if_needed!($Name, [$($variant),*]);
+        $crate::lifetime_wrapper_generate_as_mut_ref_if_needed!($Name, [$($variant),*]);
+    };
+}
+
+// Generate as_ref method if both owned and ref exist
+#[macro_export]
+macro_rules! lifetime_wrapper_generate_as_ref_if_needed {
+    ($Name:ident, [owned, ref $(, $rest:ident)*]) => {
         paste::paste! {
-            /// Convert to immutable reference
-            pub fn as_ref(&self) -> [<$Name Ref>]<'a> {
-                [<$Name Ref>] {
-                    ptr: self.ptr,
-                    _lifetime: std::marker::PhantomData,
+            impl $Name {
+                /// Convert to a borrowed reference with explicit lifetime
+                pub fn as_ref(&self) -> [<$Name Ref>]<'_> {
+                    [<$Name Ref>] {
+                        ptr: self.ptr,
+                        _lifetime: std::marker::PhantomData,
+                    }
                 }
             }
         }
-        $crate::lifetime_wrapper_mut_ref_methods!($Name, [$($rest),*]);
+    };
+    ($Name:ident, [ref, owned $(, $rest:ident)*]) => {
+        paste::paste! {
+            impl $Name {
+                /// Convert to a borrowed reference with explicit lifetime
+                pub fn as_ref(&self) -> [<$Name Ref>]<'_> {
+                    [<$Name Ref>] {
+                        ptr: self.ptr,
+                        _lifetime: std::marker::PhantomData,
+                    }
+                }
+            }
+        }
     };
     ($Name:ident, [$first:ident $(, $rest:ident)*]) => {
-        $crate::lifetime_wrapper_mut_ref_methods!($Name, [$($rest),*]);
+        $crate::lifetime_wrapper_generate_as_ref_if_needed!($Name, [$($rest),*]);
+    };
+    ($Name:ident, []) => {};
+}
+
+
+// Generate as_mut_ref method if both owned and mut_ref exist  
+#[macro_export]
+macro_rules! lifetime_wrapper_generate_as_mut_ref_if_needed {
+    ($Name:ident, [owned, mut_ref $(, $rest:ident)*]) => {
+        paste::paste! {
+            impl $Name {
+                /// Convert to a mutable borrowed reference with explicit lifetime
+                pub fn as_mut_ref(&mut self) -> [<$Name MutRef>]<'_> {
+                    [<$Name MutRef>] {
+                        ptr: self.ptr,
+                        _lifetime: std::marker::PhantomData,
+                    }
+                }
+            }
+        }
+    };
+    ($Name:ident, [mut_ref, owned $(, $rest:ident)*]) => {
+        paste::paste! {
+            impl $Name {
+                /// Convert to a mutable borrowed reference with explicit lifetime
+                pub fn as_mut_ref(&mut self) -> [<$Name MutRef>]<'_> {
+                    [<$Name MutRef>] {
+                        ptr: self.ptr,
+                        _lifetime: std::marker::PhantomData,
+                    }
+                }
+            }
+        }
+    };
+    ($Name:ident, [$first:ident $(, $rest:ident)*]) => {
+        $crate::lifetime_wrapper_generate_as_mut_ref_if_needed!($Name, [$($rest),*]);
     };
     ($Name:ident, []) => {};
 }
 
 // Generate Deref implementation for MutRef -> Ref if both exist
 #[macro_export]
-macro_rules! lifetime_wrapper_mut_ref_deref {
+macro_rules! lifetime_wrapper_mut_ref_deref_if_both_exist {
+    ($Name:ident, [mut_ref, ref $(, $rest:ident)*]) => {
+        $crate::lifetime_wrapper_generate_deref!($Name);
+    };
+    ($Name:ident, [ref, mut_ref $(, $rest:ident)*]) => {
+        $crate::lifetime_wrapper_generate_deref!($Name);
+    };
+    ($Name:ident, [mut_ref $(, $rest:ident)*]) => {
+        $crate::lifetime_wrapper_mut_ref_deref_if_both_exist!($Name, [$($rest),*]);
+    };
     ($Name:ident, [ref $(, $rest:ident)*]) => {
+        $crate::lifetime_wrapper_mut_ref_deref_if_both_exist!($Name, [$($rest),*]);
+    };
+    ($Name:ident, [$first:ident $(, $rest:ident)*]) => {
+        $crate::lifetime_wrapper_mut_ref_deref_if_both_exist!($Name, [$($rest),*]);
+    };
+    ($Name:ident, []) => {};
+}
+
+// Actually generate the Deref implementation
+#[macro_export]
+macro_rules! lifetime_wrapper_generate_deref {
+    ($Name:ident) => {
         paste::paste! {
             // MutRef can deref to Ref for convenient immutable access
             impl<'a> std::ops::Deref for [<$Name MutRef>]<'a> {
@@ -302,13 +435,10 @@ macro_rules! lifetime_wrapper_mut_ref_deref {
             }
         }
     };
-    // Skip if 'ref' is not in the list
-    ($Name:ident, [$first:ident $(, $rest:ident)*]) => {
-        $crate::lifetime_wrapper_mut_ref_deref!($Name, [$($rest),*]);
-    };
-    ($Name:ident, []) => {};
 }
 
+
+// TODO(joe): replace with lifetime_wrapper!
 #[macro_export]
 macro_rules! wrapper {
     ($(#[$meta:meta])* $Name:ident, $ffi_type:ty, $destructor:expr) => {
