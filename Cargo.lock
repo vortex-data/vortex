@@ -1479,9 +1479,9 @@ dependencies = [
 
 [[package]]
 name = "cxx"
-version = "1.0.170"
+version = "1.0.172"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77377ef8d2a668ad5ad5c58a1d0b172836495dffd3b10e0488a41c9b288b3a0e"
+checksum = "84871906cc80e398db50f5bed3fb0e7490fe8a0eb68f28415729ab605e32bc6a"
 dependencies = [
  "cc",
  "cxxbridge-cmd",
@@ -1493,9 +1493,9 @@ dependencies = [
 
 [[package]]
 name = "cxx-build"
-version = "1.0.170"
+version = "1.0.172"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3579771cb1e6b9cd41903887f3ea98bc2e0761f975bf55adcc0c1e62ab4521f"
+checksum = "45e2ef20f70fc65876d8794a7a038cafe9e752f3a5e5c161ab3dc506ef621fd9"
 dependencies = [
  "cc",
  "codespan-reporting",
@@ -1508,9 +1508,9 @@ dependencies = [
 
 [[package]]
 name = "cxxbridge-cmd"
-version = "1.0.170"
+version = "1.0.172"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dea3ad43f199bbb9df0547f5db39896604b9554784d963d73a8c7f83fc6fecb1"
+checksum = "3418b613906b5e19e490d66570d62293bea0b8b77cb81c66023f009649100148"
 dependencies = [
  "clap",
  "codespan-reporting",
@@ -1522,15 +1522,15 @@ dependencies = [
 
 [[package]]
 name = "cxxbridge-flags"
-version = "1.0.170"
+version = "1.0.172"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e213bf54b95ba7bceebbbdaf923dfe32fdbd630c685fedf5c47132da64df6aa1"
+checksum = "ee40460a87a8e94bf92568a6445c2d9f7af6f4f594e7ef23ca96bcc624e6ecd8"
 
 [[package]]
 name = "cxxbridge-macro"
-version = "1.0.170"
+version = "1.0.172"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9caa03943851c364d0ff229bd11ba07f3144673cca9feb52b9ca09817c8a239e"
+checksum = "a9592600994958fdf2319c779add8e29819c1ec4bb839f66e4d5eb30419482d9"
 dependencies = [
  "indexmap",
  "proc-macro2",
@@ -2267,7 +2267,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.60.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2400,7 +2400,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "778e2ac28f6c47af28e4907f13ffd1e1ddbd400980a9abd7c8df189bf578a5ad"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -5201,7 +5201,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.9.4",
- "windows-sys 0.60.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -5830,7 +5830,7 @@ dependencies = [
  "getrandom 0.3.3",
  "once_cell",
  "rustix 1.0.8",
- "windows-sys 0.60.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -7425,7 +7425,7 @@ version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0978bf7171b3d90bac376700cb56d606feb40f251a475a5d6634613564460b22"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
