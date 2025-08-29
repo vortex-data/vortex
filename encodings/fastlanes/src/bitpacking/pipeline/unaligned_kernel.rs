@@ -21,6 +21,7 @@ pub struct BitPackedUnalignedKernel<T: PhysicalPType<Physical: BitPacking>> {
     buffer: Buffer<<T as PhysicalPType>::Physical>,
     packed_offset: usize,
     value_offset: u16,
+    temp_buffer: [MaybeUninit<<T as PhysicalPType>::Physical>; 1024],
 }
 
 impl<T> BitPackedUnalignedKernel<T>
@@ -43,11 +44,12 @@ where
             buffer,
             packed_offset,
             value_offset,
+            temp_buffer: [const { MaybeUninit::uninit() }; 1024],
         }
     }
 
     fn unpack_sliced_chunk(
-        &self,
+        width: usize,
         packed_chunk: &[<T as PhysicalPType>::Physical],
         temp_buffer: &mut [MaybeUninit<<T as PhysicalPType>::Physical>; 1024],
         output: &mut [<T as PhysicalPType>::Physical],
@@ -58,7 +60,7 @@ where
                 temp_buffer.as_mut_ptr() as *mut <T as PhysicalPType>::Physical,
                 1024,
             );
-            BitPacking::unchecked_unpack(self.width, packed_chunk, temp_slice);
+            BitPacking::unchecked_unpack(width, packed_chunk, temp_slice);
 
             let copy_count = output.len();
             output.copy_from_slice(&temp_slice[source_offset..source_offset + copy_count]);
@@ -85,8 +87,6 @@ where
         selected: BitView,
         physical_out: &mut ViewMut,
     ) -> VortexResult<()> {
-        let mut temp_buffer: [MaybeUninit<<T as PhysicalPType>::Physical>; 1024] =
-            [const { MaybeUninit::uninit() }; 1024];
         // We re-interpret the output view as the unsigned bitpacked type.
         physical_out.reinterpret_as::<<T as PhysicalPType>::Physical>();
 
@@ -114,9 +114,10 @@ where
 
             // Part 1: Handle first sliced chunk (if there's a value_offset)
             if actual_chunks_to_process > 0 {
-                self.unpack_sliced_chunk(
-                    &packed[0..self.packed_stride],
-                    &mut temp_buffer,
+                Self::unpack_sliced_chunk(
+                    self.width,
+                    &packed[0..self.packed_stride.clone()],
+                    &mut self.temp_buffer,
                     &mut elements[output_idx..output_idx + elements_from_first_chunk],
                     chunk_value_offset,
                 );
@@ -139,9 +140,10 @@ where
 
             // Part 3: Handle final sliced chunk (if needed)
             if last_full_chunk_idx < actual_chunks_to_process {
-                self.unpack_sliced_chunk(
+                Self::unpack_sliced_chunk(
+                    self.width,
                     &packed[(last_full_chunk_idx * self.packed_stride)..][..self.packed_stride],
-                    &mut temp_buffer,
+                    &mut self.temp_buffer,
                     &mut elements[output_idx..output_idx + final_chunk_size],
                     0,
                 );
