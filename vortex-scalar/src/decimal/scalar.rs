@@ -83,10 +83,11 @@ impl<'a> DecimalScalar<'a> {
                         })
                     })?;
 
-                    // Apply scale to get the actual value
+                    // Apply scale to get the actual value.
                     let actual_value = scaled_value as f64 / scale_factor as f64;
 
-                    // Cast to target primitive type
+                    // Cast to target primitive type. Note that the `as` keyword does **MORE** than
+                    // a simple bitcast / memory transmuation.
                     #[allow(clippy::cast_possible_truncation)]
                     let primitive_scalar = match ptype {
                         PType::U8 => {
