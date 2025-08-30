@@ -78,13 +78,14 @@ impl VTable for ZonedVTable {
 
     fn new_reader(
         layout: &Self::Layout,
-        name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
+        #[cfg(feature = "layout_names")] name: Arc<str>,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(ZonedReader::try_new(
             layout.clone(),
-            name,
             segment_source,
+            #[cfg(feature = "layout_names")]
+            name,
         )?))
     }
 
@@ -186,7 +187,6 @@ impl SerializeMetadata for ZonedMetadata {
 
 #[cfg(test)]
 mod tests {
-
     use rstest::rstest;
 
     use super::*;

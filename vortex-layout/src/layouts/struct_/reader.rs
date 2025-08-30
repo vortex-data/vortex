@@ -27,7 +27,6 @@ use crate::{
 
 pub struct StructReader {
     layout: StructLayout,
-    name: Arc<str>,
     lazy_children: LazyReaderChildren,
 
     /// A `pack` expression that holds each individual field of the root DType. This expansion
@@ -36,13 +35,16 @@ pub struct StructReader {
 
     field_lookup: Option<HashMap<FieldName, usize>>,
     partitioned_expr_cache: DashMap<ExactExpr, Partitioned>,
+
+    #[cfg(feature = "layout_names")]
+    name: Arc<str>,
 }
 
 impl StructReader {
     pub(super) fn try_new(
         layout: StructLayout,
-        name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
+        #[cfg(feature = "layout_names")] name: Arc<str>,
     ) -> VortexResult<Self> {
         let struct_dt = layout.struct_fields();
 
@@ -66,11 +68,12 @@ impl StructReader {
         // different scans for different fields.
         Ok(Self {
             layout,
-            name,
             expanded_root_expr,
             lazy_children,
             field_lookup,
             partitioned_expr_cache: Default::default(),
+            #[cfg(feature = "layout_names")]
+            name,
         })
     }
 
@@ -96,9 +99,12 @@ impl StructReader {
             .struct_fields()
             .field_by_index(idx)
             .ok_or_else(|| vortex_err!("Missing field {idx}"))?;
-        let name = &self.struct_fields().names()[idx];
-        self.lazy_children
-            .get(idx, &field_dtype, &format!("{}.{}", self.name, name).into())
+        self.lazy_children.get(
+            idx,
+            &field_dtype,
+            #[cfg(feature = "layout_names")]
+            &format!("{}.{}", self.name, &self.struct_fields().names()[idx]).into(),
+        )
     }
 
     /// Utility for partitioning an expression over the fields of a struct.
@@ -162,6 +168,7 @@ enum Partitioned {
 }
 
 impl LayoutReader for StructReader {
+    #[cfg(feature = "layout_names")]
     fn name(&self) -> &Arc<str> {
         &self.name
     }
@@ -313,7 +320,13 @@ mod tests {
     fn test_struct_layout_or(
         #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        let reader = layout.new_reader("".into(), segments).unwrap();
+        let reader = layout
+            .new_reader(
+                segments,
+                #[cfg(feature = "layout_names")]
+                "".into(),
+            )
+            .unwrap();
         let filt = or(
             eq(col("a"), lit(7)),
             or(eq(col("b"), lit(5)), eq(col("a"), lit(3))),
@@ -335,7 +348,13 @@ mod tests {
     fn test_struct_layout(
         #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        let reader = layout.new_reader("".into(), segments).unwrap();
+        let reader = layout
+            .new_reader(
+                segments,
+                #[cfg(feature = "layout_names")]
+                "".into(),
+            )
+            .unwrap();
         let expr = gt(get_item("a", root()), get_item("b", root()));
         let result = block_on(
             reader
@@ -359,7 +378,13 @@ mod tests {
     fn test_struct_layout_row_mask(
         #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        let reader = layout.new_reader("".into(), segments).unwrap();
+        let reader = layout
+            .new_reader(
+                segments,
+                #[cfg(feature = "layout_names")]
+                "".into(),
+            )
+            .unwrap();
         let expr = gt(get_item("a", root()), get_item("b", root()));
         let result = block_on(
             reader
@@ -386,7 +411,13 @@ mod tests {
     fn test_struct_layout_select(
         #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        let reader = layout.new_reader("".into(), segments).unwrap();
+        let reader = layout
+            .new_reader(
+                segments,
+                #[cfg(feature = "layout_names")]
+                "".into(),
+            )
+            .unwrap();
         let expr = pack(
             [("a", get_item("a", root())), ("b", get_item("b", root()))],
             NonNullable,

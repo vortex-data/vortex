@@ -28,17 +28,18 @@ use crate::{
 /// A [`LayoutReader`] for chunked layouts.
 pub struct ChunkedReader {
     layout: ChunkedLayout,
-    name: Arc<str>,
     lazy_children: LazyReaderChildren,
     /// Row offset for each chunk
     chunk_offsets: Vec<u64>,
+    #[cfg(feature = "layout_names")]
+    name: Arc<str>,
 }
 
 impl ChunkedReader {
     pub fn new(
         layout: ChunkedLayout,
-        name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
+        #[cfg(feature = "layout_names")] name: Arc<str>,
     ) -> Self {
         let nchildren = layout.nchildren();
 
@@ -53,9 +54,10 @@ impl ChunkedReader {
 
         Self {
             layout,
-            name,
             lazy_children,
             chunk_offsets,
+            #[cfg(feature = "layout_names")]
+            name,
         }
     }
 
@@ -64,6 +66,7 @@ impl ChunkedReader {
         self.lazy_children.get(
             idx,
             self.layout.dtype(),
+            #[cfg(feature = "layout_names")]
             &format!("{}.[{}]", self.name, idx).into(),
         )
     }
@@ -139,6 +142,7 @@ impl ChunkedReader {
 }
 
 impl LayoutReader for ChunkedReader {
+    #[cfg(feature = "layout_names")]
     fn name(&self) -> &Arc<str> {
         &self.name
     }
@@ -183,6 +187,7 @@ impl LayoutReader for ChunkedReader {
         }
 
         Ok(Box::new(ChunkedPruningEvaluation {
+            #[cfg(feature = "layout_names")]
             name: self.name.clone(),
             chunk_evals,
             mask_ranges,
@@ -205,6 +210,7 @@ impl LayoutReader for ChunkedReader {
         }
 
         Ok(Box::new(ChunkedMaskEvaluation {
+            #[cfg(feature = "layout_names")]
             name: self.name.clone(),
             chunk_evals,
             mask_ranges,
@@ -236,14 +242,16 @@ impl LayoutReader for ChunkedReader {
 }
 
 struct ChunkedPruningEvaluation {
-    name: Arc<str>,
     chunk_evals: Vec<Box<dyn PruningEvaluation>>,
     mask_ranges: Vec<Range<usize>>,
+    #[cfg(feature = "layout_names")]
+    name: Arc<str>,
 }
 
 #[async_trait]
 impl PruningEvaluation for ChunkedPruningEvaluation {
     async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+        #[cfg(feature = "layout_names")]
         log::debug!(
             "Chunked pruning evaluation {} (mask = {})",
             self.name,
@@ -279,14 +287,16 @@ impl PruningEvaluation for ChunkedPruningEvaluation {
 }
 
 struct ChunkedMaskEvaluation {
-    name: Arc<str>,
     chunk_evals: Vec<Box<dyn MaskEvaluation>>,
     mask_ranges: Vec<Range<usize>>,
+    #[cfg(feature = "layout_names")]
+    name: Arc<str>,
 }
 
 #[async_trait]
 impl MaskEvaluation for ChunkedMaskEvaluation {
     async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+        #[cfg(feature = "layout_names")]
         log::debug!(
             "Chunked mask evaluation {} (mask = {})",
             self.name,
@@ -406,7 +416,11 @@ mod test {
     ) {
         block_on(async {
             let result = layout
-                .new_reader("".into(), segments)
+                .new_reader(
+                    segments,
+                    #[cfg(feature = "layout_names")]
+                    "".into(),
+                )
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()

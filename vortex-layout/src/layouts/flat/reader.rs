@@ -35,22 +35,24 @@ const EXPR_EVAL_THRESHOLD: f64 = 0.2;
 
 pub struct FlatReader {
     layout: FlatLayout,
-    name: Arc<str>,
     segment_source: Arc<dyn SegmentSource>,
     array: OnceLock<SharedArrayFuture>,
+    #[cfg(feature = "layout_names")]
+    name: Arc<str>,
 }
 
 impl FlatReader {
     pub(crate) fn new(
         layout: FlatLayout,
-        name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
+        #[cfg(feature = "layout_names")] name: Arc<str>,
     ) -> Self {
         Self {
             layout,
-            name,
             segment_source,
             array: Default::default(),
+            #[cfg(feature = "layout_names")]
+            name,
         }
     }
 
@@ -88,6 +90,7 @@ impl FlatReader {
 }
 
 impl LayoutReader for FlatReader {
+    #[cfg(feature = "layout_names")]
     fn name(&self) -> &Arc<str> {
         &self.name
     }
@@ -129,10 +132,11 @@ impl LayoutReader for FlatReader {
                 .vortex_expect("Row range end must fit within FlatLayout size");
 
         Ok(Box::new(FlatEvaluation {
-            name: self.name.clone(),
             array: self.array_future()?,
             row_range,
             expr: expr.clone(),
+            #[cfg(feature = "layout_names")]
+            name: self.name.clone(),
         }))
     }
 
@@ -146,19 +150,21 @@ impl LayoutReader for FlatReader {
             ..usize::try_from(row_range.end)
                 .vortex_expect("Row range end must fit within FlatLayout size");
         Ok(Box::new(FlatEvaluation {
-            name: self.name.clone(),
             array: self.array_future()?,
             row_range,
             expr: expr.clone(),
+            #[cfg(feature = "layout_names")]
+            name: self.name.clone(),
         }))
     }
 }
 
 struct FlatEvaluation {
-    name: Arc<str>,
     array: SharedArrayFuture,
     row_range: Range<usize>,
     expr: ExprRef,
+    #[cfg(feature = "layout_names")]
+    name: Arc<str>,
 }
 
 #[async_trait]
@@ -201,6 +207,7 @@ impl MaskEvaluation for FlatEvaluation {
             mask.bitand(&array_mask)
         };
 
+        #[cfg(feature = "layout_names")]
         log::debug!(
             "Flat mask evaluation {} - {} (mask = {}) => {}",
             self.name,
@@ -216,6 +223,7 @@ impl MaskEvaluation for FlatEvaluation {
 #[async_trait]
 impl ArrayEvaluation for FlatEvaluation {
     async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
+        #[cfg(feature = "layout_names")]
         log::debug!(
             "Flat array evaluation {} - {} (mask = {})",
             self.name,
@@ -346,7 +354,11 @@ mod test {
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let result = layout
-                .new_reader("".into(), segments)
+                .new_reader(
+                    segments,
+                    #[cfg(feature = "layout_names")]
+                    "".into(),
+                )
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()
@@ -387,7 +399,11 @@ mod test {
 
             let expr = gt(root(), lit(3i32));
             let result = layout
-                .new_reader("".into(), segments)
+                .new_reader(
+                    segments,
+                    #[cfg(feature = "layout_names")]
+                    "".into(),
+                )
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &expr)
                 .unwrap()
@@ -427,7 +443,11 @@ mod test {
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let result = layout
-                .new_reader("".into(), segments)
+                .new_reader(
+                    segments,
+                    #[cfg(feature = "layout_names")]
+                    "".into(),
+                )
                 .unwrap()
                 .projection_evaluation(&(2..4), &root())
                 .unwrap()

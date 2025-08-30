@@ -24,6 +24,7 @@ pub type LayoutReaderRef = Arc<dyn LayoutReader>;
 /// A [`LayoutReader`] is used to read a [`crate::Layout`] in a way that can cache state across multiple
 /// evaluation operations.
 pub trait LayoutReader: 'static + Send + Sync {
+    #[cfg(feature = "layout_names")]
     /// Returns the name of the layout reader for debugging.
     fn name(&self) -> &Arc<str>;
 
@@ -140,7 +141,7 @@ impl LazyReaderChildren {
         &self,
         idx: usize,
         dtype: &DType,
-        name: &Arc<str>,
+        #[cfg(feature = "layout_names")] name: &Arc<str>,
     ) -> VortexResult<&LayoutReaderRef> {
         if idx >= self.cache.len() {
             vortex_bail!("Child index out of bounds: {} of {}", idx, self.cache.len());
@@ -148,7 +149,11 @@ impl LazyReaderChildren {
 
         self.cache[idx].get_or_try_init(|| {
             let child = self.children.child(idx, dtype)?;
-            child.new_reader(name.clone(), self.segment_source.clone())
+            child.new_reader(
+                self.segment_source.clone(),
+                #[cfg(feature = "layout_names")]
+                name.clone(),
+            )
         })
     }
 }

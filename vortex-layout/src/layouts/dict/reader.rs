@@ -27,8 +27,6 @@ use crate::{
 
 pub struct DictReader {
     layout: DictLayout,
-    #[allow(dead_code)] // Typically used for logging
-    name: Arc<str>,
 
     /// Length of the values array
     values_len: usize,
@@ -39,30 +37,38 @@ pub struct DictReader {
 
     values: LayoutReaderRef,
     codes: LayoutReaderRef,
+
+    #[cfg(feature = "layout_names")]
+    name: Arc<str>,
 }
 
 impl DictReader {
     pub(super) fn try_new(
         layout: DictLayout,
-        name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
+        #[cfg(feature = "layout_names")] name: Arc<str>,
     ) -> VortexResult<Self> {
         let values_len = usize::try_from(layout.values.row_count())?;
-        let values = layout
-            .values
-            .new_reader(format!("{name}.values").into(), segment_source.clone())?;
-        let codes = layout
-            .codes
-            .new_reader(format!("{name}.codes").into(), segment_source)?;
+        let values = layout.values.new_reader(
+            segment_source.clone(),
+            #[cfg(feature = "layout_names")]
+            format!("{name}.values").into(),
+        )?;
+        let codes = layout.codes.new_reader(
+            segment_source,
+            #[cfg(feature = "layout_names")]
+            format!("{name}.codes").into(),
+        )?;
 
         Ok(Self {
             layout,
-            name,
             values_len,
             values_array: Default::default(),
             values_evals: Default::default(),
             values,
             codes,
+            #[cfg(feature = "layout_names")]
+            name,
         })
     }
 
@@ -102,6 +108,7 @@ impl DictReader {
 }
 
 impl LayoutReader for DictReader {
+    #[cfg(feature = "layout_names")]
     fn name(&self) -> &Arc<str> {
         &self.name
     }
@@ -303,7 +310,11 @@ mod tests {
         );
         assert!(layout.encoding_id() == LayoutId::new_ref("vortex.dict"));
         let actual = layout
-            .new_reader("".into(), Arc::from(segments))
+            .new_reader(
+                Arc::from(segments),
+                #[cfg(feature = "layout_names")]
+                "".into(),
+            )
             .unwrap()
             .projection_evaluation(&(0..layout.row_count()), &expression)
             .unwrap()
@@ -384,7 +395,11 @@ mod tests {
             )),
         );
         let mask = layout
-            .new_reader("".into(), Arc::from(segments))
+            .new_reader(
+                Arc::from(segments),
+                #[cfg(feature = "layout_names")]
+                "".into(),
+            )
             .unwrap()
             .filter_evaluation(&(0..3), &filter)
             .unwrap()
@@ -444,7 +459,11 @@ mod tests {
         let expression = not(is_null(root())); // easier to test not_is_null b/c that's the validity array
         assert!(layout.encoding_id() == LayoutId::new_ref("vortex.dict"));
         let actual = layout
-            .new_reader("".into(), Arc::from(segments))
+            .new_reader(
+                Arc::from(segments),
+                #[cfg(feature = "layout_names")]
+                "".into(),
+            )
             .unwrap()
             .projection_evaluation(&(0..layout.row_count()), &expression)
             .unwrap()

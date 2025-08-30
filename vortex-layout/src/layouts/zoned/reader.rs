@@ -32,8 +32,6 @@ type PredicateCache = Arc<OnceLock<Option<ExprRef>>>;
 
 pub struct ZonedReader {
     layout: ZonedLayout,
-    name: Arc<str>,
-
     /// Data layout reader
     data_child: Arc<dyn LayoutReader>,
     /// Zone map layout reader.
@@ -48,29 +46,37 @@ pub struct ZonedReader {
     /// A cache of expr -> optional pruning predicate.
     /// This also uses the present_stats from the `ZonedLayout`
     pruning_predicates: Arc<DashMap<ExprRef, PredicateCache>>,
+
+    #[cfg(feature = "layout_names")]
+    name: Arc<str>,
 }
 
 impl ZonedReader {
     pub(super) fn try_new(
         layout: ZonedLayout,
-        name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
+        #[cfg(feature = "layout_names")] name: Arc<str>,
     ) -> VortexResult<Self> {
-        let data_child = layout
-            .data
-            .new_reader(name.clone(), segment_source.clone())?;
-        let zones_child = layout
-            .zones
-            .new_reader(format!("{name}.zones").into(), segment_source)?;
+        let data_child = layout.data.new_reader(
+            segment_source.clone(),
+            #[cfg(feature = "layout_names")]
+            name.clone(),
+        )?;
+        let zones_child = layout.zones.new_reader(
+            segment_source,
+            #[cfg(feature = "layout_names")]
+            format!("{name}.zones").into(),
+        )?;
 
         Ok(Self {
             layout,
-            name,
             data_child,
             zones_child,
             pruning_result: Default::default(),
             zone_map: Default::default(),
             pruning_predicates: Default::default(),
+            #[cfg(feature = "layout_names")]
+            name,
         })
     }
 
@@ -173,6 +179,7 @@ impl ZonedReader {
 }
 
 impl LayoutReader for ZonedReader {
+    #[cfg(feature = "layout_names")]
     fn name(&self) -> &Arc<str> {
         &self.name
     }
@@ -200,6 +207,7 @@ impl LayoutReader for ZonedReader {
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
+        #[cfg(feature = "layout_names")]
         log::debug!("Stats pruning evaluation: {} - {}", &self.name, expr);
         let data_eval = self.data_child.pruning_evaluation(row_range, expr)?;
 
@@ -228,7 +236,9 @@ impl LayoutReader for ZonedReader {
             .try_collect()?;
 
         Ok(Box::new(ZoneMapPruningEvaluation {
+            #[cfg(feature = "layout_names")]
             name: self.name.clone(),
+            #[cfg(feature = "layout_names")]
             expr: expr.clone(),
             pruning_mask_future,
             zone_range,
@@ -257,7 +267,9 @@ impl LayoutReader for ZonedReader {
 }
 
 struct ZoneMapPruningEvaluation {
+    #[cfg(feature = "layout_names")]
     name: Arc<str>,
+    #[cfg(feature = "layout_names")]
     expr: ExprRef,
     /// A mask indicating zones which have no matching values.
     /// A false value indicates the corresponding zone may have a matching value.
@@ -273,6 +285,7 @@ struct ZoneMapPruningEvaluation {
 #[async_trait]
 impl PruningEvaluation for ZoneMapPruningEvaluation {
     async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+        #[cfg(feature = "layout_names")]
         log::debug!(
             "Invoking stats pruning evaluation {}: {}",
             self.name,
@@ -298,6 +311,7 @@ impl PruningEvaluation for ZoneMapPruningEvaluation {
             stats_mask = stats_mask.bitand(&data_mask);
         }
 
+        #[cfg(feature = "layout_names")]
         log::debug!(
             "Stats evaluation approx {} - {} (mask = {}) => {}",
             self.name,
@@ -417,7 +431,11 @@ mod test {
     ) {
         block_on(async {
             let result = layout
-                .new_reader("".into(), segments)
+                .new_reader(
+                    segments,
+                    #[cfg(feature = "layout_names")]
+                    "".into(),
+                )
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()
@@ -438,7 +456,13 @@ mod test {
     ) {
         block_on(async {
             let row_count = layout.row_count();
-            let reader = layout.new_reader("".into(), segments).unwrap();
+            let reader = layout
+                .new_reader(
+                    segments,
+                    #[cfg(feature = "layout_names")]
+                    "".into(),
+                )
+                .unwrap();
 
             // Choose a prune-able expression
             let expr = gt(root(), lit(7));

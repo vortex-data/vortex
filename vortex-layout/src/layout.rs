@@ -52,8 +52,8 @@ pub trait Layout: 'static + Send + Sync + Debug + private::Sealed {
 
     fn new_reader(
         &self,
-        name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
+        #[cfg(feature = "layout_names")] name: Arc<str>,
     ) -> VortexResult<LayoutReaderRef>;
 }
 
@@ -247,10 +247,15 @@ impl<V: VTable> Layout for LayoutAdapter<V> {
 
     fn new_reader(
         &self,
-        name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
+        #[cfg(feature = "layout_names")] name: Arc<str>,
     ) -> VortexResult<LayoutReaderRef> {
-        V::new_reader(&self.0, name, segment_source)
+        V::new_reader(
+            &self.0,
+            segment_source,
+            #[cfg(feature = "layout_names")]
+            name,
+        )
     }
 }
 

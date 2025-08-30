@@ -30,16 +30,19 @@ use crate::{
 };
 
 pub struct RowIdxLayoutReader {
-    name: Arc<str>,
     row_offset: u64,
     child: Arc<dyn LayoutReader>,
 
     partition_cache: DashMap<ExactExpr, Partitioning>,
+
+    #[cfg(feature = "layout_names")]
+    name: Arc<str>,
 }
 
 impl RowIdxLayoutReader {
     pub fn new(row_offset: u64, child: Arc<dyn LayoutReader>) -> Self {
         Self {
+            #[cfg(feature = "layout_names")]
             name: child.name().clone(),
             row_offset,
             child,
@@ -112,6 +115,7 @@ impl Display for Partition {
 }
 
 impl LayoutReader for RowIdxLayoutReader {
+    #[cfg(feature = "layout_names")]
     fn name(&self) -> &Arc<str> {
         &self.name
     }
@@ -313,15 +317,23 @@ mod tests {
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let expr = eq(root(), lit(3i32));
-            let result =
-                RowIdxLayoutReader::new(0, layout.new_reader("".into(), segments).unwrap())
-                    .projection_evaluation(&(0..layout.row_count()), &expr)
-                    .unwrap()
-                    .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
-                    .await
-                    .unwrap()
-                    .to_bool()
-                    .unwrap();
+            let result = RowIdxLayoutReader::new(
+                0,
+                layout
+                    .new_reader(
+                        segments,
+                        #[cfg(feature = "layout_names")]
+                        "".into(),
+                    )
+                    .unwrap(),
+            )
+            .projection_evaluation(&(0..layout.row_count()), &expr)
+            .unwrap()
+            .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
+            .await
+            .unwrap()
+            .to_bool()
+            .unwrap();
 
             assert_eq!(
                 &BooleanBuffer::from_iter([false, false, true, false, false]),
@@ -353,15 +365,23 @@ mod tests {
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let expr = gt(row_idx(), lit(3u64));
-            let result =
-                RowIdxLayoutReader::new(0, layout.new_reader("".into(), segments).unwrap())
-                    .projection_evaluation(&(0..layout.row_count()), &expr)
-                    .unwrap()
-                    .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
-                    .await
-                    .unwrap()
-                    .to_bool()
-                    .unwrap();
+            let result = RowIdxLayoutReader::new(
+                0,
+                layout
+                    .new_reader(
+                        segments,
+                        #[cfg(feature = "layout_names")]
+                        "".into(),
+                    )
+                    .unwrap(),
+            )
+            .projection_evaluation(&(0..layout.row_count()), &expr)
+            .unwrap()
+            .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
+            .await
+            .unwrap()
+            .to_bool()
+            .unwrap();
 
             assert_eq!(
                 &BooleanBuffer::from_iter([false, false, false, false, true]),
@@ -397,15 +417,23 @@ mod tests {
                 or(gt(row_idx(), lit(3u64)), eq(root(), lit(1i32))),
             );
 
-            let result =
-                RowIdxLayoutReader::new(0, layout.new_reader("".into(), segments).unwrap())
-                    .projection_evaluation(&(0..layout.row_count()), &expr)
-                    .unwrap()
-                    .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
-                    .await
-                    .unwrap()
-                    .to_bool()
-                    .unwrap();
+            let result = RowIdxLayoutReader::new(
+                0,
+                layout
+                    .new_reader(
+                        segments,
+                        #[cfg(feature = "layout_names")]
+                        "".into(),
+                    )
+                    .unwrap(),
+            )
+            .projection_evaluation(&(0..layout.row_count()), &expr)
+            .unwrap()
+            .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
+            .await
+            .unwrap()
+            .to_bool()
+            .unwrap();
 
             assert_eq!(
                 vec![true, false, true, false, true],

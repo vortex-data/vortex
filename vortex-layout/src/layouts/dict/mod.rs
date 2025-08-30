@@ -72,13 +72,14 @@ impl VTable for DictVTable {
 
     fn new_reader(
         layout: &Self::Layout,
-        name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
+        #[cfg(feature = "layout_names")] name: Arc<str>,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(DictReader::try_new(
             layout.clone(),
-            name,
             segment_source,
+            #[cfg(feature = "layout_names")]
+            name,
         )?))
     }
 
