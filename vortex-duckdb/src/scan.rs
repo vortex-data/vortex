@@ -21,6 +21,7 @@ use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::io::runtime::singlethread::SingleThreadRuntime;
 use vortex::io::runtime::worker::{Worker, WorkerPool};
 use vortex::io::runtime::Handle;
+use vortex::scan::FilterExpr;
 use vortex::{ArrayRef, ToCanonical};
 use vortex_file::{Footer, GenericVortexFile};
 
@@ -305,13 +306,14 @@ impl TableFunction for VortexTableFunction {
     fn init_global(init_input: &TableInitInput<Self>) -> VortexResult<Self::GlobalState> {
         let bind_data = init_input.bind_data();
         let projection_expr = extract_projection_expr(init_input);
-        let filter_expr = extract_table_filter_expr(init_input, init_input.column_ids())?;
+        let filter = extract_table_filter_expr(init_input, init_input.column_ids())?;
+        let filter_expr = filter.clone().map(FilterExpr::new).map(Arc::new);
         let filter_expr2 = filter_expr.clone();
 
         log::trace!(
             "Global init Vortex scan SELECT {} WHERE {}",
             &projection_expr,
-            filter_expr
+            filter
                 .as_ref()
                 .map_or("true".to_string(), |f| f.to_string())
         );
@@ -367,7 +369,7 @@ impl TableFunction for VortexTableFunction {
                 let filter_expr = filter_expr.clone();
                 async move {
                     if let Some(filter) = filter_expr.as_ref() {
-                        if vxf.can_prune(filter)? {
+                        if vxf.can_prune(filter.expr())? {
                             return Ok(None);
                         }
                     }
@@ -383,7 +385,7 @@ impl TableFunction for VortexTableFunction {
                 // FIXME(ngates): we should share the conjunction reordering across all scans.
                 let tasks = vxf
                     .scan()?
-                    .with_some_filter(filter_expr2.clone())
+                    .with_some_filter_expr(filter_expr2.clone())
                     .with_projection(projection_expr.clone())
                     .map(move |split: ArrayRef| {
                         log::info!(

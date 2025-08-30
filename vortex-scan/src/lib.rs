@@ -5,6 +5,7 @@ use std::cmp;
 use std::ops::Range;
 use std::sync::Arc;
 
+pub use filter::*;
 use futures::future::BoxFuture;
 use futures::{stream, StreamExt};
 use itertools::Itertools;
@@ -27,8 +28,6 @@ use vortex_layout::{LayoutReader, LayoutReaderRef};
 pub use vortex_layout::{TaskExecutor, TaskExecutorExt};
 use vortex_metrics::VortexMetrics;
 
-use crate::filter::FilterExpr;
-
 mod arrow;
 mod filter;
 mod multi_scan;
@@ -46,7 +45,7 @@ pub struct ScanBuilder<'rt, A> {
     handle: Handle<'rt>,
     layout_reader: LayoutReaderRef<'rt>,
     projection: ExprRef,
-    filter: Option<ExprRef>,
+    filter: Option<Arc<FilterExpr>>,
     /// Optionally read a subset of the rows in the file.
     row_range: Option<Range<u64>>,
     /// The selection mask to apply to the selected row range.
@@ -70,11 +69,21 @@ pub struct ScanBuilder<'rt, A> {
 
 impl<'rt, A: 'static + Send> ScanBuilder<'rt, A> {
     pub fn with_filter(mut self, filter: ExprRef) -> Self {
-        self.filter = Some(filter);
+        self.filter = Some(Arc::new(FilterExpr::new(filter)));
         self
     }
 
     pub fn with_some_filter(mut self, filter: Option<ExprRef>) -> Self {
+        self.filter = filter.map(FilterExpr::new).map(Arc::new);
+        self
+    }
+
+    pub fn with_filter_expr(mut self, filter: Arc<FilterExpr>) -> Self {
+        self.filter = Some(filter);
+        self
+    }
+
+    pub fn with_some_filter_expr(mut self, filter: Option<Arc<FilterExpr>>) -> Self {
         self.filter = filter;
         self
     }
@@ -173,14 +182,14 @@ impl<'rt, A: 'static + Send> ScanBuilder<'rt, A> {
 
         // Normalize and simplify the expressions.
         let projection = simplify_typed(self.projection, layout_reader.dtype())?;
-        let filter = self
-            .filter
-            .map(|f| simplify_typed(f, layout_reader.dtype()))
-            .transpose()?;
+        let filter = self.filter;
 
         // Construct field masks and compute the row splits of the scan.
-        let (filter_mask, projection_mask) =
-            filter_and_projection_masks(&projection, filter.as_ref(), layout_reader.dtype())?;
+        let (filter_mask, projection_mask) = filter_and_projection_masks(
+            &projection,
+            filter.as_ref().map(|f| f.expr()),
+            layout_reader.dtype(),
+        )?;
         let field_mask: Vec<_> = [filter_mask, projection_mask].concat();
 
         let splits = self.split_by.splits(&layout_reader, &field_mask)?;
@@ -352,7 +361,7 @@ fn to_field_mask(field: FieldName) -> FieldMask {
 pub struct RepeatedScan<'rt, A: 'rt + Send> {
     layout_reader: LayoutReaderRef<'rt>,
     projection: ExprRef,
-    filter: Option<ExprRef>,
+    filter: Option<Arc<FilterExpr>>,
     /// Optionally read a subset of the rows in the file.
     row_range: Option<Range<u64>>,
     /// The selection mask to apply to the selected row range.
@@ -379,7 +388,7 @@ impl<'rt, A: 'rt + Send> RepeatedScan<'rt, A> {
         let ctx = Arc::new(TaskContext {
             row_range,
             selection: self.selection.clone(),
-            filter: self.filter.clone().map(|f| Arc::new(FilterExpr::new(f))),
+            filter: self.filter.clone(),
             reader: self.layout_reader.clone(),
             projection: self.projection.clone(),
             mapper: self.map_fn.clone(),
