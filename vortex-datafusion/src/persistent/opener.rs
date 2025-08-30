@@ -24,7 +24,6 @@ use vortex::io::runtime::tokio::TokioRuntime;
 use vortex::metrics::VortexMetrics;
 use vortex::scan::ScanBuilder;
 use vortex::{ArrayRef, ToCanonical};
-use vortex_utils::aliases::dash_map::{DashMap, Entry};
 
 #[derive(Clone)]
 pub(crate) struct VortexOpener {

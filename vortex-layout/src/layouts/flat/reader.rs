@@ -315,18 +315,14 @@ fn try_evaluate_using_operator(
             "ArrayEvaluation: export_canonical_pipeline_expr_offset {:?}",
             operator
         );
-        let res = export_canonical_pipeline_expr_offset(
+        export_canonical_pipeline_expr_offset(
             &return_type,
             row_range.start / N,
             row_range.end - row_range.start,
             operator.as_ref(),
             mask,
         )?
-        .into_array();
-
-        println!("result {}", res.display_tree());
-
-        res
+        .into_array()
     };
     Ok(Some(result))
 }

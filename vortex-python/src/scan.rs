@@ -22,7 +22,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 
 #[pyclass(name = "RepeatedScan", module = "vortex", frozen)]
 pub struct PyRepeatedScan {
-    pub scan: RepeatedScan<ArrayRef>,
+    pub scan: RepeatedScan<'static, ArrayRef>,
     pub row_count: u64,
 }
 

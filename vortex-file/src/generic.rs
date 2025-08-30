@@ -4,7 +4,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use futures::{pin_mut, StreamExt};
+use futures::pin_mut;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_io::runtime::singlethread::SingleThreadRuntime;
