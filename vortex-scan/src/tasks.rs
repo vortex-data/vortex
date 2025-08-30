@@ -33,7 +33,7 @@ pub type TaskFuture<'rt, A> = BoxFuture<'rt, VortexResult<A>>;
 ///
 /// This mask is then provided to the reader to perform a filtered projection over the split data,
 /// finally mapping the Vortex columnar record batches into some result type `A`.
-pub(super) fn split_exec<'rt, A: 'static + Send>(
+pub(super) fn split_exec<'rt, A: 'rt + Send>(
     ctx: Arc<TaskContext<'rt, A>>,
     split: Range<u64>,
     limit: Option<&mut usize>,

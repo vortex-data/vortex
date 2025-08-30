@@ -11,7 +11,7 @@ use std::sync::Arc;
 use crate::children::LayoutChildren;
 use crate::layouts::zoned::reader::ZonedReader;
 use crate::layouts::zoned::zone_map::ZoneMap;
-use crate::segments::{SegmentId, SegmentSource, SegmentSourceRef};
+use crate::segments::{SegmentId, SegmentSourceRef};
 use crate::{
     vtable, LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable,
 };

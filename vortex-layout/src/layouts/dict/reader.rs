@@ -6,8 +6,8 @@ use std::ops::{BitAnd, Range};
 use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
-use futures::{FutureExt, join};
-use vortex_array::compute::{MinMaxResult, min_max};
+use futures::{join, FutureExt};
+use vortex_array::compute::{min_max, MinMaxResult};
 use vortex_array::stats::Precision;
 use vortex_array::ArrayRef;
 use vortex_dict::DictArray;
@@ -247,7 +247,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayContext, IntoArray as _};
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
-    use vortex_expr::{is_null, not, pack, root};
+    use vortex_expr::{pack, root};
     use vortex_io::runtime::singlethread::SingleThreadRuntime;
     use vortex_io::runtime::Runtime;
     use vortex_mask::Mask;
@@ -456,10 +456,11 @@ mod tests {
             )
             .unwrap();
 
-        let expected = array.validity_mask().into_array();
-        let actual = actual.into_arrow_preferred().unwrap();
-        let expected = expected.into_arrow_preferred().unwrap();
-        assert_eq!(actual.data_type(), expected.data_type());
-        assert_eq!(&actual, &expected);
+            let expected = array.validity_mask().into_array();
+            let actual = actual.into_arrow_preferred().unwrap();
+            let expected = expected.into_arrow_preferred().unwrap();
+            assert_eq!(actual.data_type(), expected.data_type());
+            assert_eq!(&actual, &expected);
+        });
     }
 }

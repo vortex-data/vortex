@@ -155,7 +155,7 @@ impl<'rt, A: 'static + Send> ScanBuilder<'rt, A> {
         }
     }
 
-    pub fn prepare(self) -> VortexResult<RepeatedScan<A>> {
+    pub fn prepare(self) -> VortexResult<RepeatedScan<'rt, A>> {
         if self.filter.is_some() && self.limit.is_some() {
             vortex_bail!("Vortex doesn't support scans with both a filter and a limit")
         }
@@ -183,7 +183,7 @@ impl<'rt, A: 'static + Send> ScanBuilder<'rt, A> {
             filter_and_projection_masks(&projection, filter.as_ref(), layout_reader.dtype())?;
         let field_mask: Vec<_> = [filter_mask, projection_mask].concat();
 
-        let splits = self.split_by.splits(layout_reader.as_ref(), &field_mask)?;
+        let splits = self.split_by.splits(&layout_reader, &field_mask)?;
         Ok(RepeatedScan {
             layout_reader,
             projection,
@@ -199,7 +199,7 @@ impl<'rt, A: 'static + Send> ScanBuilder<'rt, A> {
     }
 
     /// Constructs a task per row split of the scan, returned as a vector of futures.
-    pub fn build(self) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
+    pub fn build(self) -> VortexResult<Vec<BoxFuture<'rt, VortexResult<Option<A>>>>> {
         // The ultimate short circuit
         if self.limit.is_some_and(|l| l == 0) {
             return Ok(vec![]);
@@ -369,11 +369,11 @@ pub struct RepeatedScan<'rt, A: 'rt + Send> {
     dtype: DType,
 }
 
-impl<A: 'static + Send> RepeatedScan<A> {
+impl<'rt, A: 'rt + Send> RepeatedScan<'rt, A> {
     pub fn execute(
         &self,
         row_range: Option<Range<u64>>,
-    ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
+    ) -> VortexResult<Vec<BoxFuture<'rt, VortexResult<Option<A>>>>> {
         let row_range = intersect_ranges(self.row_range.as_ref(), row_range);
 
         let ctx = Arc::new(TaskContext {
@@ -401,7 +401,9 @@ impl<A: 'static + Send> RepeatedScan<A> {
 
         Ok(split_tasks)
     }
+}
 
+impl<A: 'static + Send> RepeatedScan<'static, A> {
     #[cfg(feature = "tokio")]
     pub fn execute_tokio_stream(
         &self,
@@ -415,7 +417,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         let handle = tokio::runtime::Handle::current();
         let num_workers = handle.metrics().num_workers();
         let concurrency = self.concurrency * num_workers;
-        Ok(futures::stream::iter(self.execute(row_range)?)
+        Ok(stream::iter(self.execute(row_range)?)
             .map(move |task| handle.spawn(task))
             .buffered(concurrency)
             .map(|task| {
@@ -426,12 +428,12 @@ impl<A: 'static + Send> RepeatedScan<A> {
     }
 }
 
-impl RepeatedScan<ArrayRef> {
+impl RepeatedScan<'static, ArrayRef> {
     pub fn execute_array_iter(
         &self,
-        row_range: Option<Range<u64>>,
-    ) -> VortexResult<impl ArrayIterator + Send + Clone + 'static> {
-        vortex_bail!("Not supported")
+        _row_range: Option<Range<u64>>,
+    ) -> VortexResult<impl ArrayIterator + Send + 'static> {
+        Ok(ArrayIteratorAdapter::new(DType::Null, [].into_iter()))
     }
 
     #[cfg(feature = "tokio")]

@@ -188,7 +188,7 @@ impl<'rt> MaskEvaluation<'rt> for FlatEvaluation<'rt> {
                 let mut array = array;
 
                 if let Some(array) =
-                    try_evaluate_using_operator(self.row_range.clone(), &array, &self.expr, &mask)?
+                    try_evaluate_using_operator(row_range.clone(), &array, &expr, &mask)?
                 {
                     let array_mask = Mask::from(&array.to_bool()?);
                     let mask = mask.intersect_by_rank(&array_mask);
