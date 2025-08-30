@@ -25,12 +25,12 @@ use vortex::dtype::datetime::is_temporal_ext_type;
 use vortex::encodings::dict::DictVTable;
 use vortex::encodings::runend::RunEndVTable;
 use vortex::encodings::sequence::SequenceVTable;
-use vortex::error::{VortexExpect, VortexResult, vortex_bail};
+use vortex::error::{vortex_bail, VortexExpect, VortexResult};
 use vortex::iter::ArrayIterator;
 use vortex::mask::Mask;
 use vortex::{Array, Canonical, ToCanonical};
 
-use crate::duckdb::{DUCKDB_STANDARD_VECTOR_SIZE, DataChunk, Vector};
+use crate::duckdb::{DataChunk, Vector, DUCKDB_STANDARD_VECTOR_SIZE};
 
 /// DuckDB exporter for an [`ArrayIterator`], sharing state and caches.
 pub struct ArrayIteratorExporter {
@@ -40,10 +40,10 @@ pub struct ArrayIteratorExporter {
 }
 
 impl ArrayIteratorExporter {
-    pub fn new(iter: Box<dyn ArrayIterator>, id: u64) -> Self {
+    pub fn new(iter: Box<dyn ArrayIterator>) -> Self {
         Self {
             iter,
-            cache: Arc::new(ConversionCache::new(id)),
+            cache: Arc::new(ConversionCache::new()),
             array_exporter: None,
         }
     }

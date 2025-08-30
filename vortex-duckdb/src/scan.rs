@@ -1,14 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use futures::{stream, FutureExt, StreamExt, TryStreamExt};
+use bitvec::ptr::Mut;
+use futures::stream::{BoxStream, SelectAll};
+use futures::{stream, FutureExt, Stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use std::cmp::max;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
+use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::task::{Context, Poll};
 use tokio::task::block_in_place;
 use url::Url;
 use vortex::dtype::{DType, FieldNames};
@@ -318,8 +322,16 @@ impl TableFunction for VortexTableFunction {
         let file_urls = bind_data.file_urls.clone();
 
         let pool = WorkerPool::drive_stream(move |handle| {
+            // Estimate the number of workers.
+            // TODO(ngates): we could implement a custom StreamExt::buffered which takes an
+            //  atomic usize and we tie it to the actual number of workers.
+            let num_workers = std::thread::available_parallelism()
+                .vortex_expect("available_parallelism")
+                .get();
+
             let handle2 = handle.clone();
-            stream::iter([async move {
+
+            let scan_streams = stream::iter([async move {
                 let file = open_file(
                     first_file_url,
                     // By passing the cached footer, we avoid any I/O here it.
@@ -331,20 +343,22 @@ impl TableFunction for VortexTableFunction {
             }
             .boxed()])
             .chain(stream::iter(file_urls).skip(1).map(move |path| {
-                let handle = handle.clone();
-                async move {
-                    // let cache = FooterCache::new(object_cache);
-                    // let entry = cache.entry(path.as_ref());
-                    // let options = entry.apply_to_file(VortexOpenOptions::file());
-                    // let file = open_file(path.clone(), options, handle.clone()).await?;
-                    // entry.put_if_absent(|| file.footer().clone());
-                    let file = open_file(path.clone(), VortexOpenOptions::file(), handle).await?;
-                    Ok::<_, VortexError>(file)
-                }
-                .boxed()
+                let handle2 = handle.clone();
+                handle
+                    .spawn(async move {
+                        // let cache = FooterCache::new(object_cache);
+                        // let entry = cache.entry(path.as_ref());
+                        // let options = entry.apply_to_file(VortexOpenOptions::file());
+                        // let file = open_file(path.clone(), options, handle.clone()).await?;
+                        // entry.put_if_absent(|| file.footer().clone());
+                        let file =
+                            open_file(path.clone(), VortexOpenOptions::file(), handle2).await?;
+                        Ok::<_, VortexError>(file)
+                    })
+                    .boxed()
             }))
             // We make sure we're N files ahead in terms of opening and parsing footers.
-            .buffered(16)
+            .buffered(num_workers * 2)
             .try_filter_map(move |vxf| {
                 let filter_expr = filter_expr.clone();
                 async move {
@@ -358,7 +372,7 @@ impl TableFunction for VortexTableFunction {
             })
             .enumerate()
             .map(move |(idx, vxf)| {
-                let conversion_cache = Arc::new(ConversionCache::new(idx as u64));
+                let conversion_cache = Arc::new(ConversionCache::new());
                 let vxf = vxf?;
                 let tasks = vxf
                     .scan()?
@@ -366,10 +380,16 @@ impl TableFunction for VortexTableFunction {
                     .with_projection(projection_expr.clone())
                     .with_concurrency(1024)
                     .map(move |split: ArrayRef| Ok((split, conversion_cache.clone())))
-                    .into_stream()?;
+                    .into_stream()?
+                    .boxed();
                 Ok::<_, VortexError>(tasks)
-            })
-            .try_flatten()
+            });
+
+            MultiScan {
+                streams: scan_streams.boxed(),
+                select_all: Default::default(),
+                concurrency: num_workers,
+            }
             .boxed()
         });
 
@@ -442,5 +462,47 @@ impl TableFunction for VortexTableFunction {
         // NOTE: Projection is already printed by the planner.
 
         Some(result)
+    }
+}
+
+struct MultiScan<'rt, T> {
+    // A stream-of-streams of scan results.
+    streams: BoxStream<'rt, VortexResult<BoxStream<'rt, VortexResult<T>>>>,
+    // The SelectAll used to drive the inner streams.
+    select_all: SelectAll<BoxStream<'rt, VortexResult<T>>>,
+    // The target number of streams to be driving concurrently.
+    concurrency: usize,
+}
+
+impl<'rt, T: 'rt> Stream for MultiScan<'rt, T> {
+    type Item = VortexResult<T>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = &mut *self;
+
+        // First, try to fill up the SelectAll to reach the target concurrency
+        while this.select_all.len() < this.concurrency {
+            match Pin::new(&mut this.streams).poll_next(cx) {
+                Poll::Ready(Some(Ok(stream))) => {
+                    // Add the new stream to SelectAll
+                    this.select_all.push(stream);
+                }
+                Poll::Ready(Some(Err(e))) => {
+                    // Error opening one of the streams
+                    return Poll::Ready(Some(Err(e)));
+                }
+                Poll::Ready(None) => {
+                    // No more streams available from the source
+                    break;
+                }
+                Poll::Pending => {
+                    // Can't get more streams right now
+                    break;
+                }
+            }
+        }
+
+        // Now poll the SelectAll for items
+        this.select_all.poll_next_unpin(cx)
     }
 }

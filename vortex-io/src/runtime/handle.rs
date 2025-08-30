@@ -6,16 +6,14 @@ use crate::runtime::coalesce::{CoalescedRequest, CoalescedStreamExt};
 use crate::runtime::{CpuTask, IoTask, Read, ReadCompletion, Runtime};
 use futures::future::{BoxFuture, LocalBoxFuture, Shared};
 use futures::stream::BoxStream;
-use futures::{pin_mut, FutureExt, StreamExt, TryFutureExt, TryStreamExt};
-use smol::{stream, unblock};
-use std::backtrace;
+use futures::{FutureExt, StreamExt, TryFutureExt};
+use smol::unblock;
 use std::fs::File;
 use std::marker::PhantomData;
-use std::os::fd::AsRawFd;
 use std::os::unix::fs::FileExt;
 use std::path::Path;
 use std::sync::Arc;
-use std::task::{ready, Poll};
+use std::task::Poll;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{
     vortex_err, vortex_panic, SharedVortexResult, VortexError, VortexExpect, VortexResult,
@@ -56,9 +54,9 @@ impl<'rt> Handle<'rt> {
     //  For example, we can spawn each split of a scan operation. Each spawn on the same handle
     //  creates a sibling task, which have sequential priority. All CPU tasks spawned from the same
     //  handle can have the same affinity? Something like that?
-    pub fn spawn<F, R>(&self, f: F) -> impl Future<Output = R> + use<'rt, F, R>
+    pub fn spawn<Fut, R>(&self, f: Fut) -> impl Future<Output = R> + use<'rt, Fut, R>
     where
-        F: Future<Output = R> + Send + 'rt,
+        Fut: Future<Output = R> + Send + 'rt,
         R: Send + 'rt,
     {
         let (send, recv) = oneshot::channel();
@@ -249,14 +247,14 @@ impl IoSource for FileIoSource {
         alignment: Alignment,
     ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
         let file = self.file.clone();
-        async move {
+        unblock(move || {
             let mut buffer = ByteBufferMut::with_capacity_aligned(length, alignment);
             unsafe { buffer.set_len(length) };
             match file.read_exact_at(&mut buffer, offset) {
                 Ok(()) => Ok(buffer.freeze()),
                 Err(e) => Err(VortexError::from(e)),
             }
-        }
+        })
         .boxed()
     }
 }

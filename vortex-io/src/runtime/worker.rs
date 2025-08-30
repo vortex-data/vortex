@@ -12,7 +12,8 @@ use futures::{FutureExt, StreamExt};
 use itertools::Itertools;
 use smol::lock::{Semaphore, SemaphoreGuardArc};
 use smol::LocalExecutor;
-use std::fmt::Debug;
+use std::any::type_name;
+use std::fmt::{Debug, Formatter};
 use std::iter;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -204,6 +205,7 @@ impl<T: Send + 'static> Worker<T> {
         if tasks.is_empty() {
             return;
         }
+        log::trace!("Driving {} I/O tasks", tasks.len());
 
         let mut handles = Vec::with_capacity(tasks.len());
         self.io_executor.spawn_many(
@@ -251,13 +253,14 @@ impl<T: Send + 'static> Iterator for Worker<T> {
                     //         .map(|f| format!("{}", f.1.len()))
                     //         .join(", ")
                     // );
-                    while let Some(runnable) = self.scheduling.find_task() {
+                    log::trace!("Driving scheduling: {:?}", self.scheduling);
+                    if let Some(runnable) = self.scheduling.find_task() {
                         runnable.run();
                     }
 
+                    log::trace!("Driving CPU: {:?}", self.scheduling);
                     if let Some(task) = self.cpu.find_task() {
                         task.run();
-                        continue;
                     }
                 }
                 WorkerRole::IO => {
@@ -305,6 +308,25 @@ struct WorkStealingLocal<T> {
     id: usize,
     global: Arc<WorkStealing<T>>,
     local: crossbeam_deque::Worker<T>,
+}
+
+impl<T> Debug for WorkStealingLocal<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct(&format!("WorkStealingLocal<{}>", type_name::<T>()))
+            .field("id", &self.id)
+            .field("local_len", &self.local.len())
+            .field("injector_len", &self.global.injector.len())
+            .field(
+                "stealers_lens",
+                &self
+                    .global
+                    .stealers
+                    .iter()
+                    .map(|(_idx, s)| s.len())
+                    .collect_vec(),
+            )
+            .finish()
+    }
 }
 
 impl<T> WorkStealingLocal<T> {

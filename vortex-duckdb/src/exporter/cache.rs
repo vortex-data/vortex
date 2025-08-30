@@ -4,10 +4,13 @@
 use dashmap::DashMap;
 use parking_lot::Mutex;
 use std::fmt::Debug;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use vortex::ArrayRef;
 
 use crate::duckdb::Vector;
+
+static NEXT_ID: AtomicU64 = AtomicU64::new(0);
 
 /// Cache for array conversions from Vortex to DuckDB.
 ///
@@ -30,9 +33,9 @@ impl Debug for ConversionCache {
 }
 
 impl ConversionCache {
-    pub fn new(id: u64) -> Self {
+    pub fn new() -> Self {
         Self {
-            instance_id: id,
+            instance_id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
             ..Self::default()
         }
     }
