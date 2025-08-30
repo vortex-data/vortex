@@ -9,7 +9,7 @@ use std::cmp::max;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::task::{ready, Context, Poll};
 use tokio::task::block_in_place;
@@ -344,6 +344,10 @@ impl TableFunction for VortexTableFunction {
             .boxed()])
             .chain(stream::iter(file_urls).skip(1).map(move |path| {
                 let handle2 = handle.clone();
+                // We spawn tasks such that we continue to open files even if the scan is not
+                // yet requesting more files to be opened. Since we buffer 2 * workers, and the
+                // multi-scan only operates on 1 * workers, we should have an extra file open per
+                // worker in the background.
                 handle
                     .spawn(async move {
                         // let cache = FooterCache::new(object_cache);
@@ -370,14 +374,25 @@ impl TableFunction for VortexTableFunction {
                     Ok::<_, VortexError>(Some(vxf))
                 }
             })
-            .map(move |vxf| {
+            .enumerate()
+            .map(move |(idx, vxf)| {
+                log::info!("Starting scan of file {}", idx);
                 let conversion_cache = Arc::new(ConversionCache::new());
                 let vxf = vxf?;
+                let split_idx = AtomicUsize::new(0);
+                // FIXME(ngates): we should share the conjunction reordering across all scans.
                 let tasks = vxf
                     .scan()?
                     .with_some_filter(filter_expr2.clone())
                     .with_projection(projection_expr.clone())
-                    .map(move |split: ArrayRef| Ok((split, conversion_cache.clone())))
+                    .map(move |split: ArrayRef| {
+                        log::info!(
+                            "Completed scan of split {} from file {}",
+                            split_idx.fetch_add(1, Ordering::Relaxed),
+                            idx
+                        );
+                        Ok((split, conversion_cache.clone()))
+                    })
                     .into_stream()?
                     .boxed();
                 Ok::<_, VortexError>(tasks)
