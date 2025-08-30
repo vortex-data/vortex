@@ -35,9 +35,9 @@ impl Default for DecimalBuffer {
 }
 
 macro_rules! impl_from_buffer {
-    ($typ:ty, $variant:ident) => {
-        impl From<BufferMut<$typ>> for DecimalBuffer {
-            fn from(buffer: BufferMut<$typ>) -> Self {
+    ($T:ty, $variant:ident) => {
+        impl From<BufferMut<$T>> for DecimalBuffer {
+            fn from(buffer: BufferMut<$T>) -> Self {
                 Self::$variant(buffer)
             }
         }
@@ -241,19 +241,15 @@ impl ArrayBuilder for DecimalBuilder {
     }
 
     fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
-        let array = array.to_decimal()?;
-
-        let DType::Decimal(decimal_dtype, _) = self.dtype else {
-            vortex_panic!("DecimalBuilder must have Decimal DType");
-        };
-
-        if array.decimal_dtype() != decimal_dtype {
+        if !self.dtype.is_superset_of(array.dtype()) {
             vortex_bail!(
-                "Cannot extend from array with different decimal type: {:?} != {:?}",
-                array.decimal_dtype(),
-                decimal_dtype
+                "tried to extend a builder with `DType` {} with an array with `DType {}",
+                self.dtype,
+                array.dtype()
             );
         }
+
+        let array = array.to_decimal()?;
 
         match_each_decimal_value_type!(array.values_type(), |D| {
             self.extend_from_buffer(&array.buffer::<D>())
