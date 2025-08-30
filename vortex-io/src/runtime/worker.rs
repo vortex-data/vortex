@@ -163,13 +163,14 @@ enum WorkerRole {
 impl<T: Send + 'static> Worker<T> {
     fn update_role(&mut self) -> WorkerRole {
         // FIXME(ngates): this works quite well, except kanal channel len requires a mutex!
-        // let queue_depth = self.shared.file_io_recv.len();
+        // We should maintain our own atomic counter of queue depth.
+        // let queue_depth = self.shared.io.injector.len();
         let active_workers = self.shared.active_io_workers.load(Ordering::Relaxed);
-        let target_workers = 1;
 
         // Simple heuristic: need more I/O workers if queue is backing up
+        let target_workers = 1;
         // let target_workers = (queue_depth / self.shared.target_io_reqs_per_worker).max(1);
-        // log::trace!(
+        // log::info!(
         //     "Queue depth: {}, Active I/O workers: {}, Target I/O workers: {}",
         //     queue_depth,
         //     active_workers,
@@ -199,15 +200,11 @@ impl<T: Send + 'static> Worker<T> {
     }
 
     /// Perform the role of the I/O driver.
-    fn drive_io(&mut self) {
+    fn drive_io(&mut self, tasks: Vec<Guarded<IoTask>>) {
         // We should become an I/O worker until there are no in-flight requests, and no requests
         // in the queue. After that, we yield back to the worker to perform more work.
-        let tasks = iter::from_fn(|| self.io.find_task()).collect_vec();
-        if tasks.is_empty() {
-            return;
-        }
-        log::trace!("Driving {} I/O tasks", tasks.len());
 
+        // log::trace!("Driving {} I/O tasks", tasks.len());
         let mut handles = Vec::with_capacity(tasks.len());
         self.io_executor.spawn_many(
             tasks.into_iter().map(|task| async move {
@@ -231,47 +228,43 @@ impl<T: Send + 'static> Iterator for Worker<T> {
     #[inline(never)]
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            // Try to emit an item from the results channel.
-            // TODO(ngates): can we essentially round-robin these? Should we even?
-            match self.shared.results.try_recv() {
-                Ok(item) => return Some(item),
-                Err(crossbeam_channel::TryRecvError::Empty) => { /* No items, continue */ }
-                Err(crossbeam_channel::TryRecvError::Disconnected) => return None,
+            // 1. FIRST: Try to execute scheduling tasks
+            //    These spawn new work and keep pipelines full
+            if let Some(runnable) = self.scheduling.find_task() {
+                runnable.run();
+                continue; // Keep pipeline primed before emitting
             }
 
-            match self.update_role() {
-                WorkerRole::Executor => {
-                    // We also perform scheduling if there is a task to perform.
-                    // TODO(ngates): we probably shouldn't work-steal at this point?
-                    // log::info!(
-                    //     "SCHED local={} injector={} stealers=[{}]",
-                    //     self.scheduling.local.len(),
-                    //     self.scheduling.global.injector.len(),
-                    //     self.scheduling
-                    //         .global
-                    //         .stealers
-                    //         .iter()
-                    //         .map(|f| format!("{}", f.1.len()))
-                    //         .join(", ")
-                    // );
-                    log::trace!("Driving scheduling: {:?}", self.scheduling);
-                    if let Some(runnable) = self.scheduling.find_task() {
-                        runnable.run();
-                    }
+            let role = self.update_role();
 
-                    log::trace!("Driving CPU: {:?}", self.scheduling);
-                    if let Some(task) = self.cpu.find_task() {
-                        task.run();
-                    }
-                }
-                WorkerRole::IO => {
-                    self.drive_io();
+            if matches!(role, WorkerRole::IO) {
+                // 2. SECOND: Check for I/O work (if role appropriate)
+                //    Keep I/O pipeline moving
+                let tasks = iter::from_fn(|| self.io.find_task()).collect_vec();
+                if !tasks.is_empty() {
+                    self.drive_io(tasks);
                     continue;
                 }
             }
 
-            // TODO(ngates): how to avoid busy looping here? Or maybe that's ok?
-            // std::thread::yield_now();
+            // 3. THIRD: Emit results prior to performing our own CPU work.
+            //    This hands control back to the caller
+            match self.shared.results.try_recv() {
+                Ok(item) => return Some(item),
+                Err(crossbeam_channel::TryRecvError::Empty) => {}
+                Err(crossbeam_channel::TryRecvError::Disconnected) => return None,
+            }
+
+            if matches!(role, WorkerRole::Executor) {}
+            // 4. FOURTH: Execute CPU tasks
+            //    Complete in-flight computations
+            log::trace!("Driving CPU: {:?}", self.scheduling);
+            if let Some(task) = self.cpu.find_task() {
+                task.run();
+                continue;
+            }
+
+            std::thread::yield_now()
         }
     }
 }

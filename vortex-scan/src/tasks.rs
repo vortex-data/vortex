@@ -7,7 +7,7 @@ use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
 use bit_vec::BitVec;
-use futures::future::{ok, BoxFuture};
+use futures::future::{ok, try_join_all, BoxFuture};
 use futures::FutureExt;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
@@ -119,18 +119,24 @@ pub(super) fn split_exec<'rt, A: 'rt + Send>(
                     filter.conjuncts().len()
                 );
 
-                // TODO(ngates): we could use FuturedUnordered to intersect the masks in parallel.
-                for (idx, conjunct) in pruning_conjuncts.iter().enumerate() {
-                    if mask.all_false() {
-                        return Ok(mask);
-                    }
-
-                    // Store the latest version of the dynamic expression prior to pruning.
-                    // We will re-run the pruning later if the version has changed in the meantime.
+                // Store the latest version of the dynamic expression prior to pruning.
+                // We will re-run the pruning later if the version has changed in the meantime.
+                for idx in 0..pruning_conjuncts.len() {
                     dynamic_versions[idx] = filter.dynamic_updates(idx).map(|du| du.version());
+                }
 
-                    let conjunct_mask = conjunct.invoke(mask.clone()).await?;
-                    mask = mask.bitand(&conjunct_mask);
+                // Run all pruning in parallel, then AND the results together.
+                mask = try_join_all(
+                    pruning_conjuncts
+                        .iter()
+                        .map(|conjunct| conjunct.invoke(mask.clone())),
+                )
+                .await?
+                .into_iter()
+                .fold(mask, |acc, m| acc.bitand(&m));
+
+                if mask.all_false() {
+                    return Ok(mask);
                 }
 
                 // Now we loop through the conjuncts in the preferred order and evaluate them.

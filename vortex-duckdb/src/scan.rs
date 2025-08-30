@@ -377,7 +377,6 @@ impl TableFunction for VortexTableFunction {
                     .scan()?
                     .with_some_filter(filter_expr2.clone())
                     .with_projection(projection_expr.clone())
-                    .with_concurrency(1024)
                     .map(move |split: ArrayRef| Ok((split, conversion_cache.clone())))
                     .into_stream()?
                     .boxed();
