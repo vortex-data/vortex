@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ffi::CStr;
+use std::fmt::{Debug, Formatter};
 use std::ptr;
-
-use vortex::error::{VortexError, VortexExpect, vortex_bail};
+use vortex::error::{vortex_bail, VortexError, VortexExpect};
 
 use crate::cpp::{duckdb_logical_type, duckdb_vx_error};
 use crate::duckdb::{LogicalType, Vector};
@@ -15,6 +15,19 @@ wrapper!(
     cpp::duckdb_data_chunk,
     cpp::duckdb_destroy_data_chunk
 );
+
+impl Debug for DataChunk {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let err = ptr::null_mut();
+        let debug = unsafe { cpp::duckdb_data_chunk_to_string(self.as_ptr(), err) };
+        if !err.is_null() {
+            return write!(f, "Error generating DataChunk debug string",);
+        }
+        write!(f, "{}", unsafe { CStr::from_ptr(debug).to_string_lossy() })?;
+        unsafe { cpp::duckdb_free(debug.cast_mut().cast()) };
+        Ok(())
+    }
+}
 
 impl DataChunk {
     /// Create a new data chunk using a list of logical dtypes

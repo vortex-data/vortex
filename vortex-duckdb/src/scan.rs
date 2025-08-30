@@ -11,7 +11,7 @@ use std::fmt::{Debug, Formatter};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::task::{Context, Poll};
+use std::task::{ready, Context, Poll};
 use tokio::task::block_in_place;
 use url::Url;
 use vortex::dtype::{DType, FieldNames};
@@ -386,6 +386,7 @@ impl TableFunction for VortexTableFunction {
 
             MultiScan {
                 streams: scan_streams.boxed(),
+                streams_finished: false,
                 select_all: Default::default(),
                 concurrency: num_workers,
             }
@@ -467,6 +468,7 @@ impl TableFunction for VortexTableFunction {
 struct MultiScan<'rt, T> {
     // A stream-of-streams of scan results.
     streams: BoxStream<'rt, VortexResult<BoxStream<'rt, VortexResult<T>>>>,
+    streams_finished: bool,
     // The SelectAll used to drive the inner streams.
     select_all: SelectAll<BoxStream<'rt, VortexResult<T>>>,
     // The target number of streams to be driving concurrently.
@@ -480,28 +482,42 @@ impl<'rt, T: 'rt> Stream for MultiScan<'rt, T> {
         let this = &mut *self;
 
         // First, try to fill up the SelectAll to reach the target concurrency
-        while this.select_all.len() < this.concurrency {
-            match Pin::new(&mut this.streams).poll_next(cx) {
-                Poll::Ready(Some(Ok(stream))) => {
-                    // Add the new stream to SelectAll
-                    this.select_all.push(stream);
-                }
-                Poll::Ready(Some(Err(e))) => {
-                    // Error opening one of the streams
-                    return Poll::Ready(Some(Err(e)));
-                }
-                Poll::Ready(None) => {
-                    // No more streams available from the source
-                    break;
-                }
-                Poll::Pending => {
-                    // Can't get more streams right now
-                    break;
+        if !this.streams_finished {
+            while this.select_all.len() < this.concurrency {
+                match Pin::new(&mut this.streams).poll_next(cx) {
+                    Poll::Ready(Some(Ok(stream))) => {
+                        // Add the new stream to SelectAll
+                        this.select_all.push(stream);
+                    }
+                    Poll::Ready(Some(Err(e))) => {
+                        // Error opening one of the streams
+                        return Poll::Ready(Some(Err(e)));
+                    }
+                    Poll::Ready(None) => {
+                        // No more streams available from the source
+                        this.streams_finished = true;
+                        break;
+                    }
+                    Poll::Pending => {
+                        // Can't get more streams right now
+                        break;
+                    }
                 }
             }
         }
 
         // Now poll the SelectAll for items
-        this.select_all.poll_next_unpin(cx)
+        match ready!(this.select_all.poll_next_unpin(cx)) {
+            None => {
+                if this.streams_finished {
+                    // All streams are done
+                    Poll::Ready(None)
+                } else {
+                    // Still waiting for more streams to be added
+                    Poll::Pending
+                }
+            }
+            Some(result) => Poll::Ready(Some(result)),
+        }
     }
 }

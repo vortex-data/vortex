@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::runtime::{CpuTask, Handle, IoTask, Runtime};
+use async_compat::Compat;
 use async_task::Runnable;
 use crossbeam_deque::{Injector, Stealer};
 use futures::executor::block_on;
@@ -210,7 +211,7 @@ impl<T: Send + 'static> Worker<T> {
         let mut handles = Vec::with_capacity(tasks.len());
         self.io_executor.spawn_many(
             tasks.into_iter().map(|task| async move {
-                task.inner.run_send().await;
+                Compat::new(task.inner.run_send()).await;
                 drop(task.guard)
             }),
             &mut handles,
@@ -270,7 +271,7 @@ impl<T: Send + 'static> Iterator for Worker<T> {
             }
 
             // TODO(ngates): how to avoid busy looping here? Or maybe that's ok?
-            std::thread::yield_now();
+            // std::thread::yield_now();
         }
     }
 }

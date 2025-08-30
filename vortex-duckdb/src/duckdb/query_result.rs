@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ffi::CStr;
-
-use vortex::error::{VortexResult, vortex_bail, vortex_err};
+use std::fmt::Debug;
+use vortex::error::{vortex_bail, vortex_err, VortexResult};
 
 use crate::duckdb::DataChunk;
 use crate::{cpp, wrapper};

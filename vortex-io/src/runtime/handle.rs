@@ -227,7 +227,7 @@ impl IoSource for FileIoSource {
     }
 
     fn concurrency(&self) -> usize {
-        32
+        128
     }
 
     fn size(&self) -> Shared<BoxFuture<'static, SharedVortexResult<u64>>> {
