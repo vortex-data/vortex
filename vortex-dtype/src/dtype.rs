@@ -184,6 +184,40 @@ impl DType {
         }
     }
 
+    /// Returns `true` if `self` is a subset type of `other, otherwise `false`.
+    ///
+    /// If `self` is nullable, this means that the other `DType` must also be nullable (since a
+    /// nullable type represents more values than a non-nullable type) and equal.
+    ///
+    /// If `self` is non-nullable, then the other `DType` must be equal ignoring nullabillity.
+    ///
+    /// We implement this functionality as a complement to `is_superset_of`.
+    pub fn is_subset_of(&self, other: &Self) -> bool {
+        if self.is_nullable() {
+            self == other
+        } else {
+            self.eq_ignore_nullability(other)
+        }
+    }
+
+    /// Returns `true` if `self` is a superset type of `other, otherwise `false`.
+    ///
+    /// If `self` is non-nullable, this means that the other `DType` must also be non-nullable
+    /// (since a non-nullable type represents less values than a nullable type) and equal.
+    ///
+    /// If `self` is nullable, then the other `DType` must be equal ignoring nullabillity.
+    ///
+    /// This function is useful (in the `vortex-array` crate) for determining if an `Array` can
+    /// extend a given `ArrayBuilder`: it can only extend it if the `DType` of the builder is a
+    /// superset of the `Array`.
+    pub fn is_superset_of(&self, other: &Self) -> bool {
+        if self.is_nullable() {
+            self.eq_ignore_nullability(other)
+        } else {
+            self == other
+        }
+    }
+
     /// Check if `self` is a boolean
     pub fn is_boolean(&self) -> bool {
         matches!(self, Bool(_))
