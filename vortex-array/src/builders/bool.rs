@@ -78,6 +78,14 @@ impl ArrayBuilder for BoolBuilder {
     }
 
     fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
+        if !self.dtype.is_superset_of(array.dtype()) {
+            vortex_bail!(
+                "tried to extend a builder with `DType` {} with an array with `DType {}",
+                self.dtype,
+                array.dtype()
+            );
+        }
+
         let array = array.to_canonical()?;
         let Canonical::Bool(array) = array else {
             vortex_bail!("Expected Canonical::Bool, found {:?}", array);

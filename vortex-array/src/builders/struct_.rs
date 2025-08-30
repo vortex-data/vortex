@@ -98,15 +98,15 @@ impl ArrayBuilder for StructBuilder {
     }
 
     fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
-        let array = array.to_struct()?;
-
-        if array.dtype() != self.dtype() {
+        if !self.dtype.is_superset_of(array.dtype()) {
             vortex_bail!(
-                "Cannot extend from array with different dtype: expected {}, found {}",
-                self.dtype(),
+                "tried to extend a builder with `DType` {} with an array with `DType {}",
+                self.dtype,
                 array.dtype()
             );
         }
+
+        let array = array.to_struct()?;
 
         for (a, builder) in (0..array.struct_fields().nfields())
             .map(|i| &array.fields()[i])

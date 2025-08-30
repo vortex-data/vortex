@@ -147,6 +147,14 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
     }
 
     fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
+        if !self.dtype.is_superset_of(array.dtype()) {
+            vortex_bail!(
+                "tried to extend a builder with `DType` {} with an array with `DType {}",
+                self.dtype,
+                array.dtype()
+            );
+        }
+
         let array = array.to_primitive()?;
         if array.ptype() != T::PTYPE {
             vortex_bail!("Cannot extend from array with different ptype");

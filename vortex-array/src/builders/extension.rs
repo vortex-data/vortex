@@ -11,7 +11,7 @@ use vortex_scalar::ExtScalar;
 
 use crate::arrays::ExtensionArray;
 use crate::builders::{ArrayBuilder, ArrayBuilderExt, builder_with_capacity};
-use crate::{Array, ArrayRef, Canonical, IntoArray};
+use crate::{Array, ArrayRef, IntoArray};
 
 pub struct ExtensionBuilder {
     storage: Box<dyn ArrayBuilder>,
@@ -79,10 +79,15 @@ impl ArrayBuilder for ExtensionBuilder {
     }
 
     fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
-        let array = array.to_canonical()?;
-        let Canonical::Extension(array) = array else {
-            vortex_bail!("Expected Extension array, got {:?}", array);
-        };
+        if !self.dtype.is_superset_of(array.dtype()) {
+            vortex_bail!(
+                "tried to extend a builder with `DType` {} with an array with `DType {}",
+                self.dtype,
+                array.dtype()
+            );
+        }
+
+        let array = array.to_canonical()?.into_extension()?;
         array.storage().append_to_builder(self.storage.as_mut())
     }
 
