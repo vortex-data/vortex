@@ -148,7 +148,7 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
     }
 
     fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
-        if !self.dtype.is_superset_of(array.dtype()) {
+        if !self.dtype.eq_with_nullability_superset(array.dtype()) {
             vortex_bail!(
                 "tried to extend a builder with `DType` {} with an array with `DType {}",
                 self.dtype,
