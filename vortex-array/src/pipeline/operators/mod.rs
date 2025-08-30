@@ -9,7 +9,7 @@ mod scalar_compare;
 
 use std::any::Any;
 use std::fmt::Debug;
-use std::rc::Rc;
+use std::sync::Arc;
 
 pub use compare::CompareOperator;
 use dyn_hash::DynHash;
@@ -20,17 +20,19 @@ use crate::pipeline::Kernel;
 use crate::pipeline::types::VType;
 use crate::pipeline::vec::VectorId;
 
+pub type OperatorRef = Arc<dyn Operator>;
+
 /// An operator represents a node in a logical query plan.
-pub trait Operator: Debug + DynHash + 'static {
+pub trait Operator: Debug + DynHash + Send + Sync + 'static {
     fn as_any(&self) -> &dyn Any;
 
     /// The output [`VType`] of this operator.
     fn vtype(&self) -> VType;
 
     /// The children of this operator.
-    fn children(&self) -> &[Rc<dyn Operator>];
+    fn children(&self) -> &[OperatorRef];
 
-    fn with_children(&self, children: Vec<Rc<dyn Operator>>) -> Rc<dyn Operator>;
+    fn with_children(&self, children: Vec<OperatorRef>) -> OperatorRef;
 
     /// Whether this operator works by mutating its first child in-place.
     ///
@@ -58,13 +60,13 @@ pub trait Operator: Debug + DynHash + 'static {
     /// the comparison constant to work directly on encoded values.
     /// Given a set of reduced children, try and reduce the current node.
     /// If Keep is returned then the children of this node as still updated.
-    fn reduce_children(&self, children: &[Rc<dyn Operator>]) -> Option<Rc<dyn Operator>> {
+    fn reduce_children(&self, children: &[OperatorRef]) -> Option<OperatorRef> {
         None
     }
 
     /// Given a reduced parent, try and reduce the current node.
     /// If `Replace` is returned then  the parent node and this node and replaced by the returned node.
-    fn reduce_parent(&self, parent: Rc<dyn Operator>) -> Option<Rc<dyn Operator>> {
+    fn reduce_parent(&self, parent: OperatorRef) -> Option<OperatorRef> {
         None
     }
 }

@@ -9,7 +9,6 @@ use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use dashmap::DashMap;
 pub use expr::*;
 use vortex_array::compute::filter;
 use vortex_array::stats::Precision;
@@ -21,6 +20,7 @@ use vortex_expr::{is_root, root, ExactExpr, ExprRef, Scope};
 use vortex_mask::Mask;
 use vortex_scalar::PValue;
 use vortex_sequence::SequenceArray;
+use vortex_utils::aliases::dash_map::DashMap;
 use Nullability::NonNullable;
 
 use crate::layouts::partitioned::{PartitionedArrayEvaluation, PartitionedMaskEvaluation};
@@ -43,7 +43,7 @@ impl<'rt> RowIdxLayoutReader<'rt> {
             name: child.name().clone(),
             row_offset,
             child,
-            partition_cache: DashMap::new(),
+            partition_cache: DashMap::with_hasher(Default::default()),
         }
     }
 

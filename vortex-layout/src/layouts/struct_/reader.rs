@@ -5,7 +5,13 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
 
-use dashmap::DashMap;
+use crate::layouts::partitioned::{PartitionedArrayEvaluation, PartitionedMaskEvaluation};
+use crate::layouts::struct_::StructLayout;
+use crate::segments::SegmentSourceRef;
+use crate::{
+    ArrayEvaluation, LayoutReader, LayoutReaderRef, LazyReaderChildren, MaskEvaluation,
+    NoOpPruningEvaluation, PruningEvaluation,
+};
 use itertools::Itertools;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
@@ -16,15 +22,8 @@ use vortex_expr::transform::{
 };
 use vortex_expr::{col, root, ExactExpr, ExprRef};
 use vortex_io::runtime::Handle;
+use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::hash_map::HashMap;
-
-use crate::layouts::partitioned::{PartitionedArrayEvaluation, PartitionedMaskEvaluation};
-use crate::layouts::struct_::StructLayout;
-use crate::segments::SegmentSourceRef;
-use crate::{
-    ArrayEvaluation, LayoutReader, LayoutReaderRef, LazyReaderChildren, MaskEvaluation,
-    NoOpPruningEvaluation, PruningEvaluation,
-};
 
 pub struct StructReader<'rt> {
     layout: StructLayout,
@@ -120,7 +119,7 @@ impl<'rt> StructReader<'rt> {
                     self.dtype(),
                     annotate_scope_access(
                         self.dtype()
-                            .as_struct_opt()
+                            .as_struct_fields_opt()
                             .vortex_expect("We know it's a struct DType"),
                     ),
                 )

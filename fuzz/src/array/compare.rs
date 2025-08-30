@@ -37,7 +37,7 @@ pub fn compare_canonical_array(
                     .to_bool()?
                     .boolean_buffer()
                     .iter()
-                    .zip(array.validity_mask()?.to_boolean_buffer().iter())
+                    .zip(array.validity_mask().to_boolean_buffer().iter())
                     .map(|(b, v)| v.then_some(b)),
                 bool,
                 operator,
@@ -55,7 +55,7 @@ pub fn compare_canonical_array(
                         .as_slice::<P>()
                         .iter()
                         .copied()
-                        .zip(array.validity_mask()?.to_boolean_buffer().iter())
+                        .zip(array.validity_mask().to_boolean_buffer().iter())
                         .map(|(b, v)| v.then_some(b)),
                     pval,
                     operator,
@@ -76,7 +76,7 @@ pub fn compare_canonical_array(
                     buf.as_slice()
                         .iter()
                         .copied()
-                        .zip(array.validity_mask()?.to_boolean_buffer().iter())
+                        .zip(array.validity_mask().to_boolean_buffer().iter())
                         .map(|(b, v)| v.then_some(b)),
                     dval,
                     operator,

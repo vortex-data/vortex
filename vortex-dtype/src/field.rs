@@ -22,7 +22,7 @@ use crate::{DType, FieldName};
 pub enum Field {
     /// Address a field of a [`crate::DType::Struct`].
     Name(FieldName),
-    // TODO(connor): Actually make use of this variant.
+    // TODO(connor): Actually make use of this variant after `FixedSizeList` is implemented.
     /// Address the element type of a [`crate::DType::List`] or [`crate::DType::FixedSizeList`].
     ElementType,
 }

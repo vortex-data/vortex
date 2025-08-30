@@ -7,14 +7,15 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{atomic, Arc};
 use std::task::{Context, Poll};
 
-use crate::segments::{SegmentFuture, SegmentId, SegmentSource, SegmentSourceRef};
-use dashmap::{DashMap, Entry};
 use futures::channel::{mpsc, oneshot};
 use futures::future::{BoxFuture, Shared, WeakShared};
 use futures::stream::BoxStream;
 use futures::{FutureExt, StreamExt, TryFutureExt};
 use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_err, SharedVortexResult, VortexError, VortexExpect, VortexResult};
+use vortex_utils::aliases::dash_map::{DashMap, Entry};
+
+use crate::segments::{SegmentFuture, SegmentId, SegmentSource, SegmentSourceRef};
 
 /// A utility for turning a [`SegmentSource`] into a stream of [`SegmentEvent`]s.
 ///

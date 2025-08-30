@@ -291,7 +291,7 @@ mod tests {
                 .unwrap();
 
             assert_eq!(
-                result.validity_mask().unwrap().boolean_buffer(),
+                result.validity_mask().boolean_buffer(),
                 AllOr::Some(&validity_boolean_buffer)
             );
             assert_eq!(

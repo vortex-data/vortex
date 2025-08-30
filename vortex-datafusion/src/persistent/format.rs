@@ -222,7 +222,7 @@ impl FileFormat for VortexFormat {
 
             let struct_dtype = footer
                 .dtype()
-                .as_struct_opt()
+                .as_struct_fields_opt()
                 .vortex_expect("dtype is not a struct");
 
             // Evaluate the statistics for each column that we are able to return to DataFusion.

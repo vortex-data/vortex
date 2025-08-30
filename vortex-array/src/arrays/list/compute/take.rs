@@ -25,8 +25,8 @@ impl TakeKernel for ListVTable {
                     array,
                     offsets.as_slice::<O>(),
                     &indices,
-                    array.validity_mask()?,
-                    indices.validity_mask()?,
+                    array.validity_mask(),
+                    indices.validity_mask(),
                 )
             })
         })
@@ -206,7 +206,7 @@ mod test {
 
         let element_dtype: Arc<DType> = Arc::new(I32.into());
 
-        assert!(result.is_valid(0).unwrap());
+        assert!(result.is_valid(0));
         assert_eq!(
             result.scalar_at(0),
             Scalar::list(
@@ -216,9 +216,9 @@ mod test {
             )
         );
 
-        assert!(result.is_invalid(1).unwrap());
+        assert!(result.is_invalid(1));
 
-        assert!(result.is_valid(2).unwrap());
+        assert!(result.is_valid(2));
         assert_eq!(
             result.scalar_at(2),
             Scalar::list(
@@ -228,7 +228,7 @@ mod test {
             )
         );
 
-        assert!(result.is_valid(3).unwrap());
+        assert!(result.is_valid(3));
         assert_eq!(
             result.scalar_at(3),
             Scalar::list(element_dtype, vec![], Nullability::Nullable)
@@ -286,7 +286,7 @@ mod test {
 
         let element_dtype: Arc<DType> = Arc::new(I32.into());
 
-        assert!(result.is_valid(0).unwrap());
+        assert!(result.is_valid(0));
         assert_eq!(
             result.scalar_at(0),
             Scalar::list(
@@ -296,7 +296,7 @@ mod test {
             )
         );
 
-        assert!(result.is_valid(1).unwrap());
+        assert!(result.is_valid(1));
         assert_eq!(
             result.scalar_at(1),
             Scalar::list(
@@ -306,7 +306,7 @@ mod test {
             )
         );
 
-        assert!(result.is_valid(2).unwrap());
+        assert!(result.is_valid(2));
         assert_eq!(
             result.scalar_at(2),
             Scalar::list(element_dtype, vec![], Nullability::NonNullable)

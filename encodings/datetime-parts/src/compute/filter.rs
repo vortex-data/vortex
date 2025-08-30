@@ -42,8 +42,11 @@ mod test {
         ])
         .into_array();
 
-        let temporal =
-            TemporalArray::new_timestamp(timestamps, TimeUnit::Ms, Some("UTC".to_string()));
+        let temporal = TemporalArray::new_timestamp(
+            timestamps,
+            TimeUnit::Milliseconds,
+            Some("UTC".to_string()),
+        );
 
         let array = DateTimePartsArray::try_from(temporal).unwrap();
         test_filter_conformance(array.as_ref());
@@ -58,8 +61,11 @@ mod test {
         ])
         .into_array();
 
-        let temporal =
-            TemporalArray::new_timestamp(timestamps, TimeUnit::Ms, Some("UTC".to_string()));
+        let temporal = TemporalArray::new_timestamp(
+            timestamps,
+            TimeUnit::Milliseconds,
+            Some("UTC".to_string()),
+        );
 
         let array = DateTimePartsArray::try_from(temporal).unwrap();
         test_filter_conformance(array.as_ref());

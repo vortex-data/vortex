@@ -7,7 +7,7 @@
 [![Crates.io](https://img.shields.io/crates/v/vortex.svg)](https://crates.io/crates/vortex)
 [![PyPI - Version](https://img.shields.io/pypi/v/vortex-data)](https://pypi.org/project/vortex-data/)
 [![Maven - Version](https://img.shields.io/maven-central/v/dev.vortex/vortex-spark)](https://central.sonatype.com/artifact/dev.vortex/vortex-spark)
-[![codecov](https://codecov.io/github/vortex-data/vortex/graph/badge.svg?token=KU27V0K5W9)](https://codecov.io/github/vortex-data/vortex)
+[![codecov](https://codecov.io/github/vortex-data/vortex/graph/badge.svg)](https://codecov.io/github/vortex-data/vortex)
 
 📚 [Documentation](https://docs.vortex.dev/) | 📊 [Performance Benchmarks](https://bench.vortex.dev)
 
@@ -17,9 +17,9 @@ Vortex is a next-generation columnar file format and toolkit designed for high-p
 It is the fastest and most extensible format for building data systems backed by object storage. It provides:
 
 - **⚡️ Blazing Fast Performance**
-  - 200x faster random access reads (vs. modern Apache Parquet)
-  - 2-10x faster scans
-  - 2-10x faster writes
+  - 100x faster random access reads (vs. modern Apache Parquet)
+  - 10-20x faster scans
+  - 5x faster writes
   - Similar compression ratios
   - Efficient support for wide tables with zero-copy/zero-parse metadata
 
@@ -159,13 +159,15 @@ The Vortex project benefits enormously from groundbreaking work from the academi
 ### Research in Vortex
 
 - [BtrBlocks](https://www.cs.cit.tum.de/fileadmin/w00cfj/dis/papers/btrblocks.pdf) - Efficient columnar compression
-- [FastLanes](https://www.vldb.org/pvldb/vol16/p2132-afroozeh.pdf) - High-performance integer compression
+- [FastLanes](https://www.vldb.org/pvldb/vol16/p2132-afroozeh.pdf) & [FastLanes on GPU](https://dbdbd2023.ugent.be/abstracts/felius_fastlanes.pdf) - High-performance integer compression
 - [FSST](https://www.vldb.org/pvldb/vol13/p2649-boncz.pdf) - Fast random access string compression
-- [ALP](https://ir.cwi.nl/pub/33334/33334.pdf) - Adaptive lossless floating-point compression
+- [ALP](https://ir.cwi.nl/pub/33334/33334.pdf) & [G-ALP](https://dl.acm.org/doi/pdf/10.1145/3736227.3736242) - Adaptive lossless floating-point compression
 - [Procella](https://dl.acm.org/citation.cfm?id=3360438) - YouTube's unified data system
 - [Anyblob](https://www.durner.dev/app/media/papers/anyblob-vldb23.pdf) - High-performance
   access to object storage
 - [ClickHouse](https://www.vldb.org/pvldb/vol17/p3731-schulze.pdf) - Fast analytics for everyone
+- [Morsel-Driven Parallelism](https://db.in.tum.de/~leis/papers/morsels.pdf): A NUMA-Aware Query Evaluation Format for the Many-Core Age
+- [The FastLanes File Format](https://github.com/cwida/FastLanes/blob/dev/docs/specification.pdf) - Expression Operators
 
 ### Vortex in Research
 

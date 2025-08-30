@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+#
+# Git Pre-Commit Hook for Vortex
+# Validates commits to ensure code formatting and REUSE compliance.
+#
+# If you want to use this hook, simply copy and paste the file into a new file
+# `.git/hooks/pre-commit` and everything should work correctly. If you are in the project root, you
+# can use these command:
+#
+# ```sh
+# cp scripts/pre-commit .git/hooks/
+# ```
+
+set -Euo pipefail
+
+# Configuration.
+MAIN_BRANCH="develop"  # The main branch name for vortex.
+
+# Color codes for terminal output.
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+BOLD='\033[1m'
+RESET='\033[0m'
+
+# Output helper functions.
+print_error() {
+    echo -e "${RED}$1${RESET}"
+}
+
+print_success() {
+    echo -e "${GREEN}$1${RESET}"
+}
+
+print_warning() {
+    echo -e "${YELLOW}$1${RESET}"
+}
+
+print_info() {
+    echo -e "${BLUE}$1${RESET}"
+}
+
+print_header() {
+    echo -e "\n${BOLD}$1${RESET}"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+}
+
+# Navigate to repository root to ensure consistent execution.
+ROOT_DIR="$(git rev-parse --show-toplevel)"
+cd "$ROOT_DIR"
+
+# ============================================================================
+# CHECK 1: REUSE Compliance (License Headers)
+# ============================================================================
+# Ensure all files have proper license headers as required by REUSE specification.
+# This helps maintain clear licensing information throughout the codebase.
+
+print_header "📜 Checking REUSE compliance"
+
+if ! command -v reuse &> /dev/null; then
+    print_warning "⚠️  REUSE tool not found - skipping license check."
+    echo "   Install from: https://reuse.software/"
+else
+    # Run REUSE lint check.
+    REUSE_OUTPUT=$(reuse lint 2>&1)
+    REUSE_EXIT_CODE=$?
+
+    if [ $REUSE_EXIT_CODE -eq 0 ]; then
+        print_success "✅ REUSE compliant - all files have proper license headers"
+    else
+        print_error "❌ REUSE compliance check failed"
+        echo
+        # Show first 30 lines of errors.
+        echo "$REUSE_OUTPUT" | head -30
+        if [ $(echo "$REUSE_OUTPUT" | wc -l) -gt 30 ]; then
+            echo
+            echo "... (output truncated, run 'reuse lint' for full report)"
+        fi
+        echo
+        print_warning "⚠️  To skip checks: git push --no-verify"
+        exit 1
+    fi
+fi
+
+# ============================================================================
+# CHECK 2: Code Formatting
+# ============================================================================
+# Verify that all Rust code follows the project's formatting standards.
+# Consistent formatting improves readability and reduces merge conflicts.
+
+print_header "🎨 Checking code formatting"
+
+if ! command -v cargo &> /dev/null; then
+    print_error "❌ Cargo not found in PATH"
+    exit 1
+fi
+
+# Check if code needs formatting.
+FMT_OUTPUT=$(cargo +nightly fmt --all -- --check 2>&1)
+FMT_EXIT_CODE=$?
+
+if [ $FMT_EXIT_CODE -eq 0 ]; then
+    print_success "✅ Code formatting looks good"
+else
+    print_error "❌ Code needs formatting"
+    echo
+    echo "$FMT_OUTPUT"
+    echo
+    print_info "💡 Fix with: cargo fmt"
+    echo
+    print_warning "⚠️  To skip checks: git push --no-verify"
+    exit 1
+fi
+
+# ============================================================================
+# Success
+# ============================================================================
+
+echo
+print_success "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+print_success "🎉 All pre-commit checks passed! Proceeding with push..."
+print_success "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo
+
+exit 0

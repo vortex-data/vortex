@@ -29,6 +29,7 @@ include_directories(include ../duckdb/duckdb-1.3.2/src/include)
 # Add library with source files
 add_library(vortex
         client_context.cpp
+        config.cpp
         data.cpp
         error.cpp
         expr.cpp

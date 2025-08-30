@@ -102,7 +102,7 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
                         .map(|s| ConstantArray::new(s, array.len()).into_array())
                         .collect(),
                     None => {
-                        assert!(validity.all_invalid()?);
+                        assert!(validity.all_invalid());
                         struct_dtype
                             .fields()
                             .map(|dt| {
@@ -397,7 +397,7 @@ mod tests {
 
         let struct_array = array.to_struct().unwrap();
         assert_eq!(struct_array.len(), 3);
-        assert_eq!(struct_array.valid_count().unwrap(), 0);
+        assert_eq!(struct_array.valid_count(), 0);
 
         let field = struct_array.field_by_name("non_null_field").unwrap();
 

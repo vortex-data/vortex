@@ -21,7 +21,7 @@ pub(crate) fn new_exporter(array: &VarBinViewArray) -> VortexResult<Box<dyn Colu
     Ok(Box::new(VarBinViewExporter {
         views: array.views().clone(),
         buffers: array.buffers().to_vec(),
-        validity: array.validity_mask()?,
+        validity: array.validity_mask(),
     }))
 }
 

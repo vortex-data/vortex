@@ -24,7 +24,7 @@ use crate::unpack_iter::{BitPacked, BitUnpackedChunks};
 mod compress;
 mod compute;
 mod ops;
-mod pipeline;
+pub mod pipeline;
 mod serde;
 pub mod unpack_iter;
 
@@ -55,6 +55,8 @@ impl VTable for BitPackedVTable {
 
 #[derive(Clone, Debug)]
 pub struct BitPackedArray {
+    /// The offset within the first block (created with a slice).
+    /// 0 <= offset < 1024
     offset: u16,
     len: usize,
     dtype: DType,

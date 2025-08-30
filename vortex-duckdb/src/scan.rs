@@ -90,7 +90,7 @@ fn extract_schema_from_vortex_dtype(
 ) -> VortexResult<(Vec<String>, Vec<LogicalType>)> {
     // For now, we assume the top-level type to be a struct.
     let struct_dtype = dtype
-        .as_struct_opt()
+        .as_struct_fields_opt()
         .ok_or_else(|| vortex_err!("Vortex file must contain a struct array at the top level"))?;
 
     let mut column_names = Vec::new();
@@ -224,8 +224,9 @@ impl TableFunction for VortexTableFunction {
             .ok_or_else(|| vortex_err!("Missing file glob parameter"))?;
 
         // FIXME(ngates): move expand_glob over to Vortex S3 filesystem / object store.
-        let (file_urls, _metadata) =
-            block_in_place(|| RUNTIME.block_on(expand_glob(&file_glob_string.as_string())))?;
+        let (file_urls, _metadata) = block_in_place(|| {
+            RUNTIME.block_on(expand_glob(&file_glob_string.as_ref().as_string()))
+        })?;
 
         // The first file is skipped in `create_file_paths_queue`.
         let Some(first_file_url) = file_urls.first().cloned() else {

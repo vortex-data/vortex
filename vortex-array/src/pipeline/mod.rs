@@ -35,10 +35,9 @@ pub const N: usize = 1024;
 pub const N_WORDS: usize = N / usize::BITS as usize;
 
 use std::cell::RefCell;
-use std::rc::Rc;
 
 pub use canonical::*;
-pub use operators::Operator;
+pub use operators::{Operator, OperatorRef};
 pub use types::*;
 use vec::{VectorId, VectorRef};
 use vortex_error::VortexResult;
@@ -123,11 +122,11 @@ use crate::vtable::{NotSupported, VTable};
 pub trait PipelineVTable<V: VTable> {
     /// Convert the current array into a [`Operator`].
     /// Returns `None` if the array cannot be converted to an operator.
-    fn to_operator(array: &V::Array) -> VortexResult<Option<Rc<dyn Operator>>>;
+    fn to_operator(array: &V::Array) -> VortexResult<Option<OperatorRef>>;
 }
 
 impl<V: VTable> PipelineVTable<V> for NotSupported {
-    fn to_operator(_array: &V::Array) -> VortexResult<Option<Rc<dyn Operator>>> {
+    fn to_operator(_array: &V::Array) -> VortexResult<Option<OperatorRef>> {
         Ok(None)
     }
 }

@@ -1137,12 +1137,12 @@ fn write_nullable_nested_struct() -> VortexResult<()> {
 
     assert_eq!(result.len(), 3);
     assert_eq!(result.fields().len(), 1);
-    assert!(result.all_valid()?);
+    assert!(result.all_valid());
 
     let nested_struct = result.field_by_name("struct")?.to_struct()?;
     assert_eq!(nested_struct.dtype(), &nested_dtype);
     assert_eq!(nested_struct.len(), 3);
-    assert!(nested_struct.all_invalid()?);
+    assert!(nested_struct.all_invalid());
 
     Ok(())
 }

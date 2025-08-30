@@ -21,5 +21,3 @@ rootProject.name = "vortex-root"
 include("vortex-jni")
 include("vortex-spark")
 
-// Integration tests
-// include("ete")

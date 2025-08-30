@@ -3,12 +3,12 @@
 
 use std::any::Any;
 use std::hash::Hash;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
 
 use crate::pipeline::bits::BitView;
-use crate::pipeline::operators::{BindContext, Operator};
+use crate::pipeline::operators::{BindContext, Operator, OperatorRef};
 use crate::pipeline::types::VType;
 use crate::pipeline::vec::VectorId;
 use crate::pipeline::view::ViewMut;
@@ -24,12 +24,12 @@ pub enum BoolOp {
 /// Pipeline operator for binary boolean operations (AND, OR) on two boolean arrays.
 #[derive(Debug, Hash)]
 pub struct BinaryBoolOpOperator {
-    children: [Rc<dyn Operator>; 2],
+    children: [OperatorRef; 2],
     op: BoolOp,
 }
 
 impl BinaryBoolOpOperator {
-    fn new(left: Rc<dyn Operator>, right: Rc<dyn Operator>, op: BoolOp) -> Self {
+    fn new(left: OperatorRef, right: OperatorRef, op: BoolOp) -> Self {
         // Verify both children are boolean type
         let VType::Bool = left.vtype() else {
             vortex_panic!("BinaryBoolOpOperator left child must be boolean type");
@@ -44,11 +44,11 @@ impl BinaryBoolOpOperator {
         }
     }
 
-    pub fn and(left: Rc<dyn Operator>, right: Rc<dyn Operator>) -> Self {
+    pub fn and(left: OperatorRef, right: OperatorRef) -> Self {
         Self::new(left, right, BoolOp::And)
     }
 
-    pub fn or(left: Rc<dyn Operator>, right: Rc<dyn Operator>) -> Self {
+    pub fn or(left: OperatorRef, right: OperatorRef) -> Self {
         Self::new(left, right, BoolOp::Or)
     }
 }
@@ -62,16 +62,16 @@ impl Operator for BinaryBoolOpOperator {
         VType::Bool
     }
 
-    fn children(&self) -> &[Rc<dyn Operator>] {
+    fn children(&self) -> &[OperatorRef] {
         &self.children
     }
 
-    fn with_children(&self, children: Vec<Rc<dyn Operator>>) -> Rc<dyn Operator> {
+    fn with_children(&self, children: Vec<OperatorRef>) -> OperatorRef {
         let [left, right] = children
             .try_into()
             .ok()
             .vortex_expect("Expected 2 children");
-        Rc::new(BinaryBoolOpOperator::new(left, right, self.op))
+        Arc::new(BinaryBoolOpOperator::new(left, right, self.op))
     }
 
     fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {
@@ -142,7 +142,7 @@ impl Kernel for BinaryBoolOpKernel {
 
 #[cfg(test)]
 mod tests {
-    use std::rc::Rc;
+    use std::sync::Arc;
 
     use vortex_buffer::BufferMut;
     use vortex_dtype::Nullability;
@@ -173,19 +173,19 @@ mod tests {
         let right_primitive_op = right_primitive_array.to_operator().unwrap().unwrap();
 
         let zero_scalar = Scalar::primitive(0i32, Nullability::NonNullable);
-        let left_bool_op = Rc::new(ScalarCompareOperator::new(
+        let left_bool_op = Arc::new(ScalarCompareOperator::new(
             left_primitive_op,
             BinaryOperator::Gt,
             zero_scalar.clone(),
         ));
-        let right_bool_op = Rc::new(ScalarCompareOperator::new(
+        let right_bool_op = Arc::new(ScalarCompareOperator::new(
             right_primitive_op,
             BinaryOperator::Gt,
             zero_scalar,
         ));
 
         // Create binary AND operator: left_bool AND right_bool
-        let binary_and_op = Rc::new(BinaryBoolOpOperator::and(left_bool_op, right_bool_op));
+        let binary_and_op = Arc::new(BinaryBoolOpOperator::and(left_bool_op, right_bool_op));
 
         // Create query plan from the operator
         let plan = QueryPlan::new(binary_and_op.as_ref()).unwrap();
@@ -230,19 +230,19 @@ mod tests {
 
         // Create comparisons to generate boolean values: value > 0
         let zero_scalar = Scalar::primitive(0i32, Nullability::NonNullable);
-        let left_bool_op = Rc::new(ScalarCompareOperator::new(
+        let left_bool_op = Arc::new(ScalarCompareOperator::new(
             left_primitive_op,
             BinaryOperator::Gt,
             zero_scalar.clone(),
         ));
-        let right_bool_op = Rc::new(ScalarCompareOperator::new(
+        let right_bool_op = Arc::new(ScalarCompareOperator::new(
             right_primitive_op,
             BinaryOperator::Gt,
             zero_scalar,
         ));
 
         // Create binary OR operator: left_bool OR right_bool
-        let binary_or_op = Rc::new(BinaryBoolOpOperator::or(left_bool_op, right_bool_op));
+        let binary_or_op = Arc::new(BinaryBoolOpOperator::or(left_bool_op, right_bool_op));
 
         // Create query plan from the operator
         let plan = QueryPlan::new(binary_or_op.as_ref()).unwrap();
@@ -295,12 +295,12 @@ mod tests {
         use crate::pipeline::operators::scalar_compare::ScalarCompareOperator;
 
         let zero_scalar = Scalar::primitive(0i32, Nullability::NonNullable);
-        let x_bool_op = Rc::new(ScalarCompareOperator::new(
+        let x_bool_op = Arc::new(ScalarCompareOperator::new(
             x_primitive_op,
             BinaryOperator::Gt,
             zero_scalar.clone(),
         ));
-        let y_bool_op = Rc::new(ScalarCompareOperator::new(
+        let y_bool_op = Arc::new(ScalarCompareOperator::new(
             y_primitive_op,
             BinaryOperator::Gt,
             zero_scalar,
@@ -313,8 +313,8 @@ mod tests {
             .unwrap();
 
         // Build pipeline: (x AND y) OR true
-        let x_and_y = Rc::new(BinaryBoolOpOperator::and(x_bool_op, y_bool_op));
-        let final_op = Rc::new(BinaryBoolOpOperator::or(x_and_y, constant_true));
+        let x_and_y = Arc::new(BinaryBoolOpOperator::and(x_bool_op, y_bool_op));
+        let final_op = Arc::new(BinaryBoolOpOperator::or(x_and_y, constant_true));
 
         // Create query plan
         let plan = QueryPlan::new(final_op.as_ref()).unwrap();

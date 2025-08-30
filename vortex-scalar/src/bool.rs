@@ -111,7 +111,7 @@ impl<'a> TryFrom<&'a Scalar> for BoolScalar<'a> {
         }
         Ok(Self {
             dtype: value.dtype(),
-            value: value.value.as_bool()?,
+            value: value.value().as_bool()?,
         })
     }
 }

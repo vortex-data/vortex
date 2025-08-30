@@ -7,14 +7,15 @@ use arrow_array::RecordBatchReader;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
-use vortex::ToCanonical;
 use vortex::compute::cast;
 use vortex::dtype::Nullability::NonNullable;
 use vortex::dtype::{DType, PType};
+use vortex::error::VortexResult;
 use vortex::expr::{ExprRef, root, select};
 use vortex::file::segments::MokaSegmentCache;
 use vortex::file::{VortexFile, VortexOpenOptions};
-use vortex::scan::SplitBy;
+use vortex::scan::{ScanBuilder, SplitBy};
+use vortex::{ArrayRef, ToCanonical};
 
 use crate::arrays::PyArrayRef;
 use crate::arrow::IntoPyArrow;
@@ -23,6 +24,7 @@ use crate::dtype::PyDType;
 use crate::expr::PyExpr;
 use crate::install_module;
 use crate::iter::PyArrayIterator;
+use crate::scan::PyRepeatedScan;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "file")?;
@@ -36,11 +38,17 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 }
 
 #[pyfunction]
-pub fn open(path: &str) -> PyResult<PyVortexFile> {
-    let vxf = VortexOpenOptions::file()
+#[pyo3(signature = (path, *, without_segment_cache = false))]
+pub fn open(path: &str, without_segment_cache: bool) -> PyResult<PyVortexFile> {
+    let mut options = VortexOpenOptions::file();
+    if without_segment_cache {
+        options = options.without_segment_cache();
+    } else {
         // TODO(ngates): use a globally shared segment cache for all files
-        .with_segment_cache(Arc::new(MokaSegmentCache::new(256 << 20)))
-        .open_blocking(path)?;
+        options = options.with_segment_cache(Arc::new(MokaSegmentCache::new(256 << 20)));
+    }
+
+    let vxf = options.open_blocking(path)?;
     Ok(PyVortexFile { vxf })
 }
 
@@ -68,27 +76,39 @@ impl PyVortexFile {
         indices: Option<PyArrayRef>,
         batch_size: Option<usize>,
     ) -> PyResult<PyArrayIterator> {
-        let mut builder = slf
-            .get()
-            .vxf
-            .scan()?
-            .with_some_filter(expr.map(|e| e.into_inner()))
-            .with_projection(projection.map(|p| p.0).unwrap_or_else(root));
-
-        if let Some(indices) = indices {
-            let indices = cast(indices.inner(), &DType::Primitive(PType::U64, NonNullable))?
-                .to_primitive()?
-                .into_buffer::<u64>();
-            builder = builder.with_row_indices(indices);
-        }
-
-        if let Some(batch_size) = batch_size {
-            builder = builder.with_split_by(SplitBy::RowCount(batch_size));
-        }
+        let builder = slf.get().scan_builder(
+            projection.map(|p| p.0),
+            expr.map(|e| e.into_inner()),
+            indices.map(|i| i.into_inner()),
+            batch_size,
+        )?;
 
         Ok(PyArrayIterator::new(Box::new(
             builder.into_array_iter_multithread()?,
         )))
+    }
+
+    #[pyo3(signature = (projection = None, *, expr = None, indices = None, batch_size = None))]
+    fn prepare(
+        slf: Bound<Self>,
+        projection: Option<PyIntoProjection>,
+        expr: Option<PyExpr>,
+        indices: Option<PyArrayRef>,
+        batch_size: Option<usize>,
+    ) -> PyResult<PyRepeatedScan> {
+        let builder = slf.get().scan_builder(
+            projection.map(|p| p.0),
+            expr.map(|e| e.into_inner()),
+            indices.map(|i| i.into_inner()),
+            batch_size,
+        )?;
+
+        let scan = builder.prepare()?;
+
+        Ok(PyRepeatedScan {
+            scan,
+            row_count: slf.get().vxf.row_count(),
+        })
     }
 
     #[pyo3(signature = (projection = None, *, expr = None, batch_size = None))]
@@ -120,6 +140,35 @@ impl PyVortexFile {
 
     fn to_dataset(slf: Bound<Self>) -> PyResult<PyVortexDataset> {
         Ok(PyVortexDataset::try_new(slf.get().vxf.clone())?)
+    }
+}
+
+impl PyVortexFile {
+    fn scan_builder(
+        &self,
+        projection: Option<ExprRef>,
+        expr: Option<ExprRef>,
+        indices: Option<ArrayRef>,
+        batch_size: Option<usize>,
+    ) -> VortexResult<ScanBuilder<ArrayRef>> {
+        let mut builder = self
+            .vxf
+            .scan()?
+            .with_some_filter(expr)
+            .with_projection(projection.unwrap_or_else(root));
+
+        if let Some(indices) = indices {
+            let indices = cast(indices.as_ref(), &DType::Primitive(PType::U64, NonNullable))?
+                .to_primitive()?
+                .into_buffer::<u64>();
+            builder = builder.with_row_indices(indices);
+        }
+
+        if let Some(batch_size) = batch_size {
+            builder = builder.with_split_by(SplitBy::RowCount(batch_size));
+        }
+
+        Ok(builder)
     }
 }
 

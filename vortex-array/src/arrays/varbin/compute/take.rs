@@ -29,8 +29,8 @@ impl TakeKernel for VarBinVTable {
                     offsets.as_slice::<O>(),
                     data.as_slice(),
                     indices.as_slice::<I>(),
-                    array.validity_mask()?,
-                    indices.validity_mask()?,
+                    array.validity_mask(),
+                    indices.validity_mask(),
                 )?
                 .into_array())
             })

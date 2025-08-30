@@ -83,21 +83,21 @@ impl TemporalMetadata {
     /// Convert a timestamp value to a Jiff value.
     pub fn to_jiff(&self, v: i64) -> VortexResult<TemporalJiff> {
         match self {
-            TemporalMetadata::Time(TimeUnit::D) => {
+            TemporalMetadata::Time(TimeUnit::Days) => {
                 vortex_bail!("Invalid TimeUnit TimeUnit::D for TemporalMetadata::Time")
             }
             TemporalMetadata::Time(unit) => Ok(TemporalJiff::Time(
                 Time::MIN.checked_add(unit.to_jiff_span(v)?)?,
             )),
             TemporalMetadata::Date(unit) => match unit {
-                TimeUnit::D | TimeUnit::Ms => Ok(TemporalJiff::Date(
+                TimeUnit::Days | TimeUnit::Milliseconds => Ok(TemporalJiff::Date(
                     Date::new(1970, 1, 1)?.checked_add(unit.to_jiff_span(v)?)?,
                 )),
-                TimeUnit::Ns | TimeUnit::Us | TimeUnit::S => {
+                TimeUnit::Nanoseconds | TimeUnit::Microseconds | TimeUnit::Seconds => {
                     vortex_bail!("Invalid TimeUnit {} for TemporalMetadata::Time", unit)
                 }
             },
-            TemporalMetadata::Timestamp(TimeUnit::D, _) => {
+            TemporalMetadata::Timestamp(TimeUnit::Days, _) => {
                 vortex_bail!("Invalid TimeUnit TimeUnit::D for TemporalMetadata::Timestamp")
             }
             TemporalMetadata::Timestamp(unit, None) => Ok(TemporalJiff::Unzoned(
@@ -218,7 +218,7 @@ mod tests {
     #[test]
     fn test_roundtrip_metadata() {
         let meta: ExtMetadata =
-            TemporalMetadata::Timestamp(TimeUnit::Ms, Some("UTC".to_string())).into();
+            TemporalMetadata::Timestamp(TimeUnit::Milliseconds, Some("UTC".to_string())).into();
 
         assert_eq!(
             meta.as_ref(),
@@ -239,7 +239,7 @@ mod tests {
 
         assert_eq!(
             temporal_metadata,
-            TemporalMetadata::Timestamp(TimeUnit::Ms, Some("UTC".to_string()))
+            TemporalMetadata::Timestamp(TimeUnit::Milliseconds, Some("UTC".to_string()))
         );
     }
 }

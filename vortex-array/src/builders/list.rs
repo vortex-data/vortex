@@ -22,6 +22,7 @@ pub struct ListBuilder<O: NativePType> {
     /// Represents the offsets into the values array.
     index_builder: PrimitiveBuilder<O>,
     nulls: LazyNullBufferBuilder,
+    // TODO(connor): This can probably be removed since we store it in the `dtype` field as well.
     nullability: Nullability,
     dtype: DType,
 }
@@ -85,8 +86,8 @@ impl<O: OffsetPType> ListBuilder<O> {
             }
             Some(elements) => {
                 for scalar in elements {
-                    // TODO(joe): This is slow, we should be able to append multiple values at once,
-                    // or the list scalar should hold an Array
+                    // TODO(connor): This is slow, we should be able to append multiple values at
+                    // once, or the list scalar should hold an Array
                     self.value_builder.append_scalar(&scalar)?;
                 }
                 self.nulls.append_non_null();
@@ -122,6 +123,7 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
 
     fn append_zeros(&mut self, n: usize) {
         let count = self.value_builder.len();
+        // TODO(connor): this is incorrect, as it creates lists of size 1 instead of 0.
         self.value_builder.append_zeros(n);
         for i in 0..n {
             self.append_index(
@@ -178,7 +180,7 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
         let last_offset = usize::try_from(&last_offset)?;
         let non_junk_values = elements.slice(n_leading_junk_values..last_offset);
 
-        self.nulls.append_validity_mask(array.validity_mask()?);
+        self.nulls.append_validity_mask(array.validity_mask());
         self.index_builder
             .extend_from_array(&offsets_into_builder)?;
         self.value_builder.ensure_capacity(non_junk_values.len());
@@ -205,6 +207,7 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
             "Indices length must be one more than nulls length."
         );
 
+        // TODO(connor): Use `new_unchecked` here.
         ListArray::try_new(
             self.value_builder.finish(),
             self.index_builder.finish(),

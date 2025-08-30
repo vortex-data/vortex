@@ -4,13 +4,15 @@
 use std::any::Any;
 use std::hash::Hash;
 use std::marker::PhantomData;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use num_traits::WrappingAdd;
 use vortex_array::Array;
 use vortex_array::compute::Operator as BinaryOperator;
 use vortex_array::pipeline::bits::BitView;
-use vortex_array::pipeline::operators::{BindContext, Operator, ScalarCompareOperator};
+use vortex_array::pipeline::operators::{
+    BindContext, Operator, OperatorRef, ScalarCompareOperator,
+};
 use vortex_array::pipeline::vec::VectorId;
 use vortex_array::pipeline::view::ViewMut;
 use vortex_array::pipeline::{Element, Kernel, KernelContext, PipelineVTable, VType};
@@ -21,11 +23,11 @@ use vortex_scalar::Scalar;
 use crate::{FoRArray, FoRVTable};
 
 impl PipelineVTable<FoRVTable> for FoRVTable {
-    fn to_operator(array: &FoRArray) -> VortexResult<Option<Rc<dyn Operator>>> {
+    fn to_operator(array: &FoRArray) -> VortexResult<Option<OperatorRef>> {
         let Some(op) = array.encoded.to_operator()? else {
             return Ok(None);
         };
-        Ok(Some(Rc::new(FoROperator {
+        Ok(Some(Arc::new(FoROperator {
             child: [op],
             reference: array.reference.clone(),
             ptype: array.ptype(),
@@ -36,7 +38,7 @@ impl PipelineVTable<FoRVTable> for FoRVTable {
 
 #[derive(Debug, Hash)]
 pub struct FoROperator {
-    child: [Rc<dyn Operator>; 1],
+    child: [OperatorRef; 1],
     reference: Scalar,
     ptype: PType,
     encoded_ptype: PType,
@@ -51,13 +53,13 @@ impl Operator for FoROperator {
         VType::Primitive(self.ptype)
     }
 
-    fn children(&self) -> &[Rc<dyn Operator>] {
+    fn children(&self) -> &[OperatorRef] {
         &self.child
     }
 
-    fn with_children(&self, mut children: Vec<Rc<dyn Operator>>) -> Rc<dyn Operator> {
+    fn with_children(&self, mut children: Vec<OperatorRef>) -> OperatorRef {
         assert_eq!(children.len(), 1);
-        Rc::new(FoROperator {
+        Arc::new(FoROperator {
             child: [children.remove(0)],
             reference: self.reference.clone(),
             ptype: self.ptype,
@@ -90,7 +92,7 @@ impl Operator for FoROperator {
         })
     }
 
-    fn reduce_parent(&self, parent: Rc<dyn Operator>) -> Option<Rc<dyn Operator>> {
+    fn reduce_parent(&self, parent: OperatorRef) -> Option<OperatorRef> {
         let compare = parent.as_any().downcast_ref::<ScalarCompareOperator>()?;
         if compare.op != BinaryOperator::Eq && compare.op != BinaryOperator::NotEq {
             return None;
@@ -111,7 +113,7 @@ impl Operator for FoROperator {
             Scalar::from(compare.wrapping_sub(reference))
         });
 
-        Some(Rc::new(ScalarCompareOperator::new(
+        Some(Arc::new(ScalarCompareOperator::new(
             self.children()[0].clone(),
             compare.op,
             new_ref,
@@ -184,9 +186,12 @@ mod tests {
 
     #[test]
     fn test_for_pipeline() {
-        let len = 1024;
-        let prim = (0i32..len).map(|x| x % 32).collect::<PrimitiveArray>();
-        let mask = (0..len).map(|i| i % 32 != 0).collect::<Mask>();
+        let len = 8093usize;
+        let mut rng = StdRng::seed_from_u64(0);
+        let prim = (0i32..i32::try_from(len).unwrap())
+            .map(|_| rng.random_range(0..120000))
+            .collect::<PrimitiveArray>();
+        let mask = Mask::AllTrue(len);
         let bitpack = bitpack_to_best_bit_width(&prim).unwrap();
         let array = FoRArray::try_new(bitpack.to_array(), Scalar::from(100i32)).unwrap();
 
@@ -208,33 +213,32 @@ mod tests {
 
     #[test]
     fn test_for_pipeline2() {
-        for frac in [0.99] {
-            let len = 10;
-            let mut rng = StdRng::seed_from_u64(0);
-            let values = (0i16..len)
-                .map(|_| rng.random_range(50..150))
-                .collect::<BufferMut<_>>();
-            let array = create_for_bitpacked_array(values.clone()).unwrap();
+        let frac = 0.99;
+        let len = 10;
+        let mut rng = StdRng::seed_from_u64(0);
+        let values = (0i16..len)
+            .map(|_| rng.random_range(50..150))
+            .collect::<BufferMut<_>>();
+        let array = create_for_bitpacked_array(values).unwrap();
 
-            let mask = (0..len)
-                .map(|_| rng.random_bool(frac))
-                .collect::<BooleanBuffer>();
-            let mask = Mask::from_buffer(mask);
+        let mask = (0..len)
+            .map(|_| rng.random_bool(frac))
+            .collect::<BooleanBuffer>();
+        let mask = Mask::from_buffer(mask);
 
-            let result = export_canonical_pipeline_expr(
-                array.dtype(),
-                array.len(),
-                array.to_operator().unwrap().unwrap().as_ref(),
-                &mask,
-            )
-            .unwrap()
-            .into_array();
+        let result = export_canonical_pipeline_expr(
+            array.dtype(),
+            array.len(),
+            array.to_operator().unwrap().unwrap().as_ref(),
+            &mask,
+        )
+        .unwrap()
+        .into_array();
 
-            let expect = filter(array.to_canonical().unwrap().as_ref(), &mask).unwrap();
+        let expect = filter(array.to_canonical().unwrap().as_ref(), &mask).unwrap();
 
-            for i in 0..mask.true_count() {
-                assert_eq!(result.scalar_at(i), expect.scalar_at(i), "{}, {}", i, frac);
-            }
+        for i in 0..mask.true_count() {
+            assert_eq!(result.scalar_at(i), expect.scalar_at(i), "{}, {}", i, frac);
         }
     }
 }

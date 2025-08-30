@@ -33,7 +33,7 @@ use vortex::scalar::{
 };
 
 use crate::convert::dtype::FromLogicalType;
-use crate::duckdb::Value;
+use crate::duckdb::{Value, ValueRef};
 
 /// Trait for converting Vortex scalars to DuckDB values.
 pub trait ToDuckDBScalar {
@@ -160,15 +160,15 @@ impl ToDuckDBScalar for ExtScalar<'_> {
         };
         match time {
             TemporalMetadata::Time(unit) => match unit {
-                TimeUnit::Us => Ok(Value::new_time(value()?)),
-                TimeUnit::Ms => Ok(Value::new_time(value()? * 1000)),
-                TimeUnit::S => Ok(Value::new_time(value()? * 1000 * 1000)),
-                TimeUnit::Ns | TimeUnit::D => {
+                TimeUnit::Microseconds => Ok(Value::new_time(value()?)),
+                TimeUnit::Milliseconds => Ok(Value::new_time(value()? * 1000)),
+                TimeUnit::Seconds => Ok(Value::new_time(value()? * 1000 * 1000)),
+                TimeUnit::Nanoseconds | TimeUnit::Days => {
                     vortex_bail!("cannot convert timeunit {unit} to a duckdb MS time")
                 }
             },
             TemporalMetadata::Date(unit) => match unit {
-                TimeUnit::D => Ok(self
+                TimeUnit::Days => Ok(self
                     .storage()
                     .as_primitive_opt()
                     .ok_or_else(|| {
@@ -184,11 +184,11 @@ impl ToDuckDBScalar for ExtScalar<'_> {
                     todo!("timezones to duckdb scalar")
                 }
                 match unit {
-                    TimeUnit::Ns => Ok(Value::new_timestamp_ns(value()?)),
-                    TimeUnit::Us => Ok(Value::new_timestamp_us(value()?)),
-                    TimeUnit::Ms => Ok(Value::new_timestamp_ms(value()?)),
-                    TimeUnit::S => Ok(Value::new_timestamp_s(value()?)),
-                    TimeUnit::D => {
+                    TimeUnit::Nanoseconds => Ok(Value::new_timestamp_ns(value()?)),
+                    TimeUnit::Microseconds => Ok(Value::new_timestamp_us(value()?)),
+                    TimeUnit::Milliseconds => Ok(Value::new_timestamp_ms(value()?)),
+                    TimeUnit::Seconds => Ok(Value::new_timestamp_s(value()?)),
+                    TimeUnit::Days => {
                         vortex_bail!("timestamp(d) is cannot be converted to duckdb scalar")
                     }
                 }
@@ -201,83 +201,83 @@ impl TryFrom<Value> for Scalar {
     type Error = VortexError;
 
     fn try_from(value: Value) -> Result<Self, Self::Error> {
-        Scalar::try_from(&value)
+        Scalar::try_from(value.as_ref())
     }
 }
 
-impl TryFrom<&Value> for Scalar {
+impl<'a> TryFrom<ValueRef<'a>> for Scalar {
     type Error = VortexError;
 
-    fn try_from(value: &Value) -> Result<Self, Self::Error> {
-        use crate::duckdb::Val;
+    fn try_from(value: ValueRef<'a>) -> Result<Self, Self::Error> {
+        use crate::duckdb::ExtractedValue;
         let dtype = DType::from_logical_type(value.logical_type(), Nullable)?;
         match value.extract() {
-            Val::Null => Ok(Scalar::null(dtype)),
-            Val::Boolean(b) => Ok(Scalar::bool(b, Nullable)),
-            Val::TinyInt(v) => Ok(Scalar::primitive(v, Nullable)),
-            Val::SmallInt(v) => Ok(Scalar::primitive(v, Nullable)),
-            Val::Integer(v) => Ok(Scalar::primitive(v, Nullable)),
-            Val::BigInt(v) => Ok(Scalar::primitive(v, Nullable)),
-            Val::HugeInt(_) => {
+            ExtractedValue::Null => Ok(Scalar::null(dtype)),
+            ExtractedValue::Boolean(b) => Ok(Scalar::bool(b, Nullable)),
+            ExtractedValue::TinyInt(v) => Ok(Scalar::primitive(v, Nullable)),
+            ExtractedValue::SmallInt(v) => Ok(Scalar::primitive(v, Nullable)),
+            ExtractedValue::Integer(v) => Ok(Scalar::primitive(v, Nullable)),
+            ExtractedValue::BigInt(v) => Ok(Scalar::primitive(v, Nullable)),
+            ExtractedValue::HugeInt(_) => {
                 vortex_bail!("DuckDB HugeInt is not yet supported in Vortex");
             }
-            Val::UTinyInt(v) => Ok(Scalar::primitive(v, Nullable)),
-            Val::USmallInt(v) => Ok(Scalar::primitive(v, Nullable)),
-            Val::UInteger(v) => Ok(Scalar::primitive(v, Nullable)),
-            Val::UBigInt(v) => Ok(Scalar::primitive(v, Nullable)),
-            Val::Float(v) => Ok(Scalar::primitive(v, Nullable)),
-            Val::Double(v) => Ok(Scalar::primitive(v, Nullable)),
-            Val::Varchar(s) => Ok(Scalar::utf8(s, Nullable)),
-            Val::Blob(b) => Ok(Scalar::binary(b, Nullable)),
-            Val::Date(days) => Ok(Scalar::extension(
+            ExtractedValue::UTinyInt(v) => Ok(Scalar::primitive(v, Nullable)),
+            ExtractedValue::USmallInt(v) => Ok(Scalar::primitive(v, Nullable)),
+            ExtractedValue::UInteger(v) => Ok(Scalar::primitive(v, Nullable)),
+            ExtractedValue::UBigInt(v) => Ok(Scalar::primitive(v, Nullable)),
+            ExtractedValue::Float(v) => Ok(Scalar::primitive(v, Nullable)),
+            ExtractedValue::Double(v) => Ok(Scalar::primitive(v, Nullable)),
+            ExtractedValue::Varchar(s) => Ok(Scalar::utf8(s, Nullable)),
+            ExtractedValue::Blob(b) => Ok(Scalar::binary(b, Nullable)),
+            ExtractedValue::Date(days) => Ok(Scalar::extension(
                 Arc::new(ExtDType::new(
                     DATE_ID.clone(),
                     Arc::new(DType::Primitive(I32, Nullable)),
-                    Some(TemporalMetadata::Date(TimeUnit::D).into()),
+                    Some(TemporalMetadata::Date(TimeUnit::Days).into()),
                 )),
                 Scalar::new(DType::Primitive(I32, Nullable), ScalarValue::from(days)),
             )),
-            Val::Time(micros) => Ok(Scalar::extension(
+            ExtractedValue::Time(micros) => Ok(Scalar::extension(
                 Arc::new(ExtDType::new(
                     TIME_ID.clone(),
                     Arc::new(DType::Primitive(I64, Nullable)),
-                    Some(TemporalMetadata::Time(TimeUnit::Us).into()),
+                    Some(TemporalMetadata::Time(TimeUnit::Microseconds).into()),
                 )),
                 Scalar::new(DType::Primitive(I64, Nullable), ScalarValue::from(micros)),
             )),
-            Val::TimestampNs(nanos) => Ok(Scalar::extension(
+            ExtractedValue::TimestampNs(nanos) => Ok(Scalar::extension(
                 Arc::new(ExtDType::new(
                     TIMESTAMP_ID.clone(),
                     Arc::new(DType::Primitive(I64, Nullable)),
-                    Some(TemporalMetadata::Timestamp(TimeUnit::Ns, None).into()),
+                    Some(TemporalMetadata::Timestamp(TimeUnit::Nanoseconds, None).into()),
                 )),
                 Scalar::new(DType::Primitive(I64, Nullable), ScalarValue::from(nanos)),
             )),
-            Val::Timestamp(micros) => Ok(Scalar::extension(
+            ExtractedValue::Timestamp(micros) => Ok(Scalar::extension(
                 Arc::new(ExtDType::new(
                     TIMESTAMP_ID.clone(),
                     Arc::new(DType::Primitive(I64, Nullable)),
-                    Some(TemporalMetadata::Timestamp(TimeUnit::Us, None).into()),
+                    Some(TemporalMetadata::Timestamp(TimeUnit::Microseconds, None).into()),
                 )),
                 Scalar::new(DType::Primitive(I64, Nullable), ScalarValue::from(micros)),
             )),
-            Val::TimestampMs(millis) => Ok(Scalar::extension(
+            ExtractedValue::TimestampMs(millis) => Ok(Scalar::extension(
                 Arc::new(ExtDType::new(
                     TIMESTAMP_ID.clone(),
                     Arc::new(DType::Primitive(I64, Nullable)),
-                    Some(TemporalMetadata::Timestamp(TimeUnit::Ms, None).into()),
+                    Some(TemporalMetadata::Timestamp(TimeUnit::Milliseconds, None).into()),
                 )),
                 Scalar::new(DType::Primitive(I64, Nullable), ScalarValue::from(millis)),
             )),
-            Val::TimestampS(seconds) => Ok(Scalar::extension(
+            ExtractedValue::TimestampS(seconds) => Ok(Scalar::extension(
                 Arc::new(ExtDType::new(
                     TIMESTAMP_ID.clone(),
                     Arc::new(DType::Primitive(I64, Nullable)),
-                    Some(TemporalMetadata::Timestamp(TimeUnit::S, None).into()),
+                    Some(TemporalMetadata::Timestamp(TimeUnit::Seconds, None).into()),
                 )),
                 Scalar::new(DType::Primitive(I64, Nullable), ScalarValue::from(seconds)),
             )),
-            Val::Decimal(precision, scale, value) => Ok(Scalar::decimal(
+            ExtractedValue::Decimal(precision, scale, value) => Ok(Scalar::decimal(
                 DecimalValue::I128(value),
                 DecimalDType::try_new(precision, scale)?,
                 Nullable,
@@ -321,11 +321,12 @@ mod tests {
         use vortex::dtype::{DType, ExtDType, Nullability, PType};
         use vortex::scalar::{Scalar, ScalarValue};
 
+        #[rustfmt::skip]
         let test_cases = [
-            (TimeUnit::S, 1703980800i64),           // 2023-12-30 16:00:00 UTC
-            (TimeUnit::Ms, 1703980800123i64),       // 2023-12-30 16:00:00.123 UTC
-            (TimeUnit::Us, 1703980800123456i64),    // 2023-12-30 16:00:00.123456 UTC
-            (TimeUnit::Ns, 1703980800123456789i64), // 2023-12-30 16:00:00.123456789 UTC
+            (TimeUnit::Seconds, 1703980800i64),                 // 2023-12-30 16:00:00 UTC
+            (TimeUnit::Milliseconds, 1703980800123i64),         // 2023-12-30 16:00:00.123 UTC
+            (TimeUnit::Microseconds, 1703980800123456i64),      // 2023-12-30 16:00:00.123456 UTC
+            (TimeUnit::Nanoseconds, 1703980800123456789i64),    // 2023-12-30 16:00:00.123456789 UTC
         ];
 
         for (time_unit, timestamp_value) in test_cases {

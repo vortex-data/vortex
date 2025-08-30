@@ -7,13 +7,12 @@ mod visitor;
 use std::any::Any;
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
-use std::rc::Rc;
 use std::sync::Arc;
 
 pub use visitor::*;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
@@ -23,7 +22,7 @@ use crate::arrays::{
 };
 use crate::builders::ArrayBuilder;
 use crate::compute::{ComputeFn, Cost, InvocationArgs, IsConstantOpts, Output, is_constant_opts};
-use crate::pipeline::{Operator, PipelineVTable};
+use crate::pipeline::{OperatorRef, PipelineVTable};
 use crate::serde::ArrayChildren;
 use crate::stats::{Precision, Stat, StatsProviderExt, StatsSetRef};
 use crate::vtable::{
@@ -94,29 +93,29 @@ pub trait Array: 'static + private::Sealed + Send + Sync + Debug + ArrayVisitor 
     }
 
     /// Returns whether the item at `index` is valid.
-    fn is_valid(&self, index: usize) -> VortexResult<bool>;
+    fn is_valid(&self, index: usize) -> bool;
 
     /// Returns whether the item at `index` is invalid.
-    fn is_invalid(&self, index: usize) -> VortexResult<bool>;
+    fn is_invalid(&self, index: usize) -> bool;
 
     /// Returns whether all items in the array are valid.
     ///
     /// This is usually cheaper than computing a precise `valid_count`.
-    fn all_valid(&self) -> VortexResult<bool>;
+    fn all_valid(&self) -> bool;
 
     /// Returns whether the array is all invalid.
     ///
     /// This is usually cheaper than computing a precise `invalid_count`.
-    fn all_invalid(&self) -> VortexResult<bool>;
+    fn all_invalid(&self) -> bool;
 
     /// Returns the number of valid elements in the array.
-    fn valid_count(&self) -> VortexResult<usize>;
+    fn valid_count(&self) -> usize;
 
     /// Returns the number of invalid elements in the array.
-    fn invalid_count(&self) -> VortexResult<usize>;
+    fn invalid_count(&self) -> usize;
 
     /// Returns the canonical validity mask for the array.
-    fn validity_mask(&self) -> VortexResult<Mask>;
+    fn validity_mask(&self) -> Mask;
 
     /// Returns the canonical representation of the array.
     fn to_canonical(&self) -> VortexResult<Canonical>;
@@ -155,7 +154,7 @@ pub trait Array: 'static + private::Sealed + Send + Sync + Debug + ArrayVisitor 
     /// Convert the array to a pipeline operator if supported by the encoding.
     ///
     /// Returns `None` if the encoding does not support pipeline operations.
-    fn to_operator(&self) -> VortexResult<Option<Rc<dyn Operator>>>;
+    fn to_operator(&self) -> VortexResult<Option<OperatorRef>>;
 }
 
 impl Array for Arc<dyn Array> {
@@ -191,31 +190,31 @@ impl Array for Arc<dyn Array> {
         self.as_ref().scalar_at(index)
     }
 
-    fn is_valid(&self, index: usize) -> VortexResult<bool> {
+    fn is_valid(&self, index: usize) -> bool {
         self.as_ref().is_valid(index)
     }
 
-    fn is_invalid(&self, index: usize) -> VortexResult<bool> {
+    fn is_invalid(&self, index: usize) -> bool {
         self.as_ref().is_invalid(index)
     }
 
-    fn all_valid(&self) -> VortexResult<bool> {
+    fn all_valid(&self) -> bool {
         self.as_ref().all_valid()
     }
 
-    fn all_invalid(&self) -> VortexResult<bool> {
+    fn all_invalid(&self) -> bool {
         self.as_ref().all_invalid()
     }
 
-    fn valid_count(&self) -> VortexResult<usize> {
+    fn valid_count(&self) -> usize {
         self.as_ref().valid_count()
     }
 
-    fn invalid_count(&self) -> VortexResult<usize> {
+    fn invalid_count(&self) -> usize {
         self.as_ref().invalid_count()
     }
 
-    fn validity_mask(&self) -> VortexResult<Mask> {
+    fn validity_mask(&self) -> Mask {
         self.as_ref().validity_mask()
     }
 
@@ -243,7 +242,7 @@ impl Array for Arc<dyn Array> {
         self.as_ref().invoke(compute_fn, args)
     }
 
-    fn to_operator(&self) -> VortexResult<Option<Rc<dyn Operator>>> {
+    fn to_operator(&self) -> VortexResult<Option<OperatorRef>> {
         self.as_ref().to_operator()
     }
 }
@@ -449,7 +448,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
 
     fn scalar_at(&self, index: usize) -> Scalar {
         assert!(index < self.len(), "index {index} out of bounds");
-        if self.is_invalid(index).vortex_expect("index out of bounds") {
+        if self.is_invalid(index) {
             return Scalar::null(self.dtype().clone());
         }
         let scalar = <V::OperationsVTable as OperationsVTable<V>>::scalar_at(&self.0, index);
@@ -457,61 +456,61 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         scalar
     }
 
-    fn is_valid(&self, index: usize) -> VortexResult<bool> {
+    fn is_valid(&self, index: usize) -> bool {
         if index >= self.len() {
-            vortex_bail!(OutOfBounds: index, 0, self.len());
+            vortex_panic!(OutOfBounds: index, 0, self.len());
         }
         <V::ValidityVTable as ValidityVTable<V>>::is_valid(&self.0, index)
     }
 
-    fn is_invalid(&self, index: usize) -> VortexResult<bool> {
-        self.is_valid(index).map(|valid| !valid)
+    fn is_invalid(&self, index: usize) -> bool {
+        !self.is_valid(index)
     }
 
-    fn all_valid(&self) -> VortexResult<bool> {
+    fn all_valid(&self) -> bool {
         <V::ValidityVTable as ValidityVTable<V>>::all_valid(&self.0)
     }
 
-    fn all_invalid(&self) -> VortexResult<bool> {
+    fn all_invalid(&self) -> bool {
         <V::ValidityVTable as ValidityVTable<V>>::all_invalid(&self.0)
     }
 
-    fn valid_count(&self) -> VortexResult<usize> {
+    fn valid_count(&self) -> usize {
         if let Some(Precision::Exact(invalid_count)) =
             self.statistics().get_as::<usize>(Stat::NullCount)
         {
-            return Ok(self.len() - invalid_count);
+            return self.len() - invalid_count;
         }
 
-        let count = <V::ValidityVTable as ValidityVTable<V>>::valid_count(&self.0)?;
+        let count = <V::ValidityVTable as ValidityVTable<V>>::valid_count(&self.0);
         assert!(count <= self.len(), "Valid count exceeds array length");
 
         self.statistics()
             .set(Stat::NullCount, Precision::exact(self.len() - count));
 
-        Ok(count)
+        count
     }
 
-    fn invalid_count(&self) -> VortexResult<usize> {
+    fn invalid_count(&self) -> usize {
         if let Some(Precision::Exact(invalid_count)) =
             self.statistics().get_as::<usize>(Stat::NullCount)
         {
-            return Ok(invalid_count);
+            return invalid_count;
         }
 
-        let count = <V::ValidityVTable as ValidityVTable<V>>::invalid_count(&self.0)?;
+        let count = <V::ValidityVTable as ValidityVTable<V>>::invalid_count(&self.0);
         assert!(count <= self.len(), "Invalid count exceeds array length");
 
         self.statistics()
             .set(Stat::NullCount, Precision::exact(count));
 
-        Ok(count)
+        count
     }
 
-    fn validity_mask(&self) -> VortexResult<Mask> {
-        let mask = <V::ValidityVTable as ValidityVTable<V>>::validity_mask(&self.0)?;
+    fn validity_mask(&self) -> Mask {
+        let mask = <V::ValidityVTable as ValidityVTable<V>>::validity_mask(&self.0);
         assert_eq!(mask.len(), self.len(), "Validity mask length mismatch");
-        Ok(mask)
+        mask
     }
 
     fn to_canonical(&self) -> VortexResult<Canonical> {
@@ -618,7 +617,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         <V::ComputeVTable as ComputeVTable<V>>::invoke(&self.0, compute_fn, args)
     }
 
-    fn to_operator(&self) -> VortexResult<Option<Rc<dyn Operator>>> {
+    fn to_operator(&self) -> VortexResult<Option<OperatorRef>> {
         <V::PipelineVTable as PipelineVTable<V>>::to_operator(&self.0)
     }
 }

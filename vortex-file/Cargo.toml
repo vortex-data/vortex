@@ -16,7 +16,6 @@ version = { workspace = true }
 [dependencies]
 async-trait = { workspace = true }
 bytes = { workspace = true }
-dashmap = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["std", "async-await"] }
 # Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration
@@ -52,7 +51,7 @@ vortex-scalar = { workspace = true }
 vortex-scan = { workspace = true }
 vortex-sequence = { workspace = true }
 vortex-sparse = { workspace = true }
-vortex-utils = { workspace = true }
+vortex-utils = { workspace = true, features = ["dashmap"] }
 vortex-zigzag = { workspace = true }
 vortex-zstd = { workspace = true, optional = true }
 

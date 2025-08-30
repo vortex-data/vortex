@@ -25,6 +25,7 @@ use object_store::ObjectStore;
 use vortex::error::VortexExpect as _;
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::metrics::VortexMetrics;
+use vortex_utils::aliases::dash_map::DashMap;
 
 use super::cache::VortexFileCache;
 use super::metrics::PARTITION_LABEL;

@@ -3,15 +3,15 @@
 
 use std::sync::{Arc, OnceLock};
 
-use dashmap::DashMap;
 use object_store::ObjectStore;
 use object_store::aws::AmazonS3Builder;
 use vortex::error::{VortexResult, vortex_err};
+use vortex_utils::aliases::dash_map::DashMap;
 
 // Global S3 object store cache.
 pub fn s3_store(bucket: &str) -> VortexResult<Arc<dyn ObjectStore>> {
     static S3_STORES: OnceLock<DashMap<String, Arc<dyn ObjectStore>>> = OnceLock::new();
-    let stores = S3_STORES.get_or_init(DashMap::new);
+    let stores = S3_STORES.get_or_init(|| DashMap::with_hasher(Default::default()));
 
     fn create_s3_object_store(bucket: &str) -> VortexResult<Arc<dyn ObjectStore>> {
         Ok(Arc::new(
