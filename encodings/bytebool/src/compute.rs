@@ -40,7 +40,7 @@ register_kernel!(CastKernelAdapter(ByteBoolVTable).lift());
 
 impl MaskKernel for ByteBoolVTable {
     fn mask(&self, array: &ByteBoolArray, mask: &Mask) -> VortexResult<ArrayRef> {
-        Ok(ByteBoolArray::new(array.buffer().clone(), array.validity().mask(mask)?).into_array())
+        Ok(ByteBoolArray::new(array.buffer().clone(), array.validity().mask(mask)).into_array())
     }
 }
 

@@ -5,7 +5,6 @@ use std::any::Any;
 
 use arrow_buffer::BooleanBufferBuilder;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 
 use crate::arrays::BoolArray;
