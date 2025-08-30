@@ -370,8 +370,7 @@ impl TableFunction for VortexTableFunction {
                     Ok::<_, VortexError>(Some(vxf))
                 }
             })
-            .enumerate()
-            .map(move |(idx, vxf)| {
+            .map(move |vxf| {
                 let conversion_cache = Arc::new(ConversionCache::new());
                 let vxf = vxf?;
                 let tasks = vxf
