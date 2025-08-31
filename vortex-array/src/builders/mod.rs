@@ -55,7 +55,7 @@ use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 use vortex_scalar::{
     BinaryScalar, BoolScalar, DecimalValue, ExtScalar, ListScalar, PrimitiveScalar, Scalar,
-    ScalarValue, StructScalar, Utf8Scalar, match_each_decimal_value, match_each_decimal_value_type,
+    StructScalar, Utf8Scalar, match_each_decimal_value, match_each_decimal_value_type,
 };
 
 use crate::arrays::smallest_storage_type;
@@ -182,16 +182,6 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
 }
 
 pub trait ArrayBuilderExt: ArrayBuilder {
-    /// A generic function to append a scalar value to the builder.
-    fn append_scalar_value(&mut self, value: ScalarValue) -> VortexResult<()> {
-        if value.is_null() {
-            self.append_null();
-            Ok(())
-        } else {
-            self.append_scalar(&Scalar::new(self.dtype().clone(), value))
-        }
-    }
-
     /// A generic function to append a scalar to the builder.
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
         if scalar.dtype() != self.dtype() {
