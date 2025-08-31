@@ -11,7 +11,7 @@ use vortex_scalar::ExtScalar;
 
 use crate::arrays::ExtensionArray;
 use crate::builders::{ArrayBuilder, ArrayBuilderExt, builder_with_capacity};
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 pub struct ExtensionBuilder {
     storage: Box<dyn ArrayBuilder>,
@@ -87,8 +87,8 @@ impl ArrayBuilder for ExtensionBuilder {
             );
         }
 
-        let array = array.to_canonical()?.into_extension()?;
-        array.storage().append_to_builder(self.storage.as_mut())
+        let ext_array = array.to_extension()?;
+        self.storage.extend_from_array(ext_array.storage())
     }
 
     fn ensure_capacity(&mut self, capacity: usize) {
