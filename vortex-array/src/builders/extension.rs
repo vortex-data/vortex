@@ -10,7 +10,9 @@ use vortex_mask::Mask;
 use vortex_scalar::ExtScalar;
 
 use crate::arrays::ExtensionArray;
-use crate::builders::{ArrayBuilder, ArrayBuilderExt, builder_with_capacity};
+use crate::builders::{
+    ArrayBuilder, ArrayBuilderExt, DEFAULT_BUILDER_CAPACITY, builder_with_capacity,
+};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 pub struct ExtensionBuilder {
@@ -20,7 +22,7 @@ pub struct ExtensionBuilder {
 
 impl ExtensionBuilder {
     pub fn new(ext_dtype: Arc<ExtDType>) -> Self {
-        Self::with_capacity(ext_dtype, 1024)
+        Self::with_capacity(ext_dtype, DEFAULT_BUILDER_CAPACITY)
     }
 
     pub fn with_capacity(ext_dtype: Arc<ExtDType>, capacity: usize) -> Self {

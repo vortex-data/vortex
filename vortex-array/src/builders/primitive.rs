@@ -11,8 +11,8 @@ use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
 use crate::arrays::PrimitiveArray;
-use crate::builders::ArrayBuilder;
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
+use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 /// Builder for [`PrimitiveArray`].
@@ -24,7 +24,7 @@ pub struct PrimitiveBuilder<T> {
 
 impl<T: NativePType> PrimitiveBuilder<T> {
     pub fn new(nullability: Nullability) -> Self {
-        Self::with_capacity(nullability, 1024) // Same as Arrow builders
+        Self::with_capacity(nullability, DEFAULT_BUILDER_CAPACITY)
     }
 
     pub fn with_capacity(nullability: Nullability, capacity: usize) -> Self {
