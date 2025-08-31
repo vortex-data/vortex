@@ -246,7 +246,7 @@ pub trait ArrayBuilderExt: ArrayBuilder {
                 .as_any_mut()
                 .downcast_mut::<StructBuilder>()
                 .ok_or_else(|| vortex_err!("Cannot append struct scalar to non-struct builder"))?
-                .append_value(StructScalar::try_from(scalar)?)?,
+                .append_struct(StructScalar::try_from(scalar)?)?,
             DType::List(..) => self
                 .as_any_mut()
                 .downcast_mut::<ListBuilder<u64>>()

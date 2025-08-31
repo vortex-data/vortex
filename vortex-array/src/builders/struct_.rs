@@ -5,24 +5,30 @@ use std::any::Any;
 
 use itertools::Itertools;
 use vortex_dtype::{DType, Nullability, StructFields};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::StructScalar;
 
 use crate::arrays::StructArray;
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
-use crate::builders::{ArrayBuilder, ArrayBuilderExt, builder_with_capacity};
+use crate::builders::{
+    ArrayBuilder, ArrayBuilderExt, DEFAULT_BUILDER_CAPACITY, builder_with_capacity,
+};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 pub struct StructBuilder {
+    dtype: DType,
     builders: Vec<Box<dyn ArrayBuilder>>,
     validity: LazyNullBufferBuilder,
-    struct_dtype: StructFields,
-    nullability: Nullability,
-    dtype: DType,
 }
 
 impl StructBuilder {
+    /// Creates a new `StructBuilder` with a capacity of [`DEFAULT_BUILDER_CAPACITY`].
+    pub fn new(struct_dtype: StructFields, nullability: Nullability) -> Self {
+        Self::with_capacity(struct_dtype, nullability, DEFAULT_BUILDER_CAPACITY)
+    }
+
+    /// Creates a new `StructBuilder` with the given `capacity`.
     pub fn with_capacity(
         struct_dtype: StructFields,
         nullability: Nullability,
@@ -36,19 +42,23 @@ impl StructBuilder {
         Self {
             builders,
             validity: LazyNullBufferBuilder::new(capacity),
-            struct_dtype: struct_dtype.clone(),
-            nullability,
             dtype: DType::Struct(struct_dtype, nullability),
         }
     }
 
-    pub fn append_value(&mut self, struct_scalar: StructScalar) -> VortexResult<()> {
-        if struct_scalar.dtype() != &DType::Struct(self.struct_dtype.clone(), self.nullability) {
+    /// Appends a struct `value` to the builder.
+    pub fn append_struct(&mut self, struct_scalar: StructScalar) -> VortexResult<()> {
+        if !self.dtype.is_nullable() && struct_scalar.is_null() {
+            vortex_bail!("Tried to append a null `StructScalar` to a non-nullable struct builder",);
+        }
+
+        if struct_scalar.struct_fields() != self.struct_fields() {
             vortex_bail!(
-                "Expected struct scalar with dtype {:?}, found {:?}",
-                self.struct_dtype,
-                struct_scalar.dtype()
-            )
+                "Tried to append a `StructScalar` with fields {} to a \
+                    struct builder with fields {}",
+                struct_scalar.struct_fields(),
+                self.struct_fields()
+            );
         }
 
         if let Some(fields) = struct_scalar.fields() {
@@ -61,6 +71,43 @@ impl StructBuilder {
         }
 
         Ok(())
+    }
+
+    /// Finishes the builder directly into a [`StructArray`].
+    pub fn finish_into_struct(&mut self) -> StructArray {
+        let len = self.len();
+        let fields = self
+            .builders
+            .iter_mut()
+            .map(|builder| builder.finish())
+            .collect::<Vec<_>>();
+
+        if fields.len() > 1 {
+            let expected_length = fields[0].len();
+            for (index, field) in fields[1..].iter().enumerate() {
+                assert_eq!(
+                    field.len(),
+                    expected_length,
+                    "Field {index} does not have expected length {expected_length}"
+                );
+            }
+        }
+
+        let validity = self
+            .validity
+            .finish_with_nullability(self.dtype.nullability());
+
+        StructArray::try_new_with_dtype(fields, self.struct_fields().clone(), len, validity)
+            .vortex_expect("Fields must all have same length.")
+    }
+
+    /// The [`StructFields`] of this struct builder.
+    pub fn struct_fields(&self) -> &StructFields {
+        let DType::Struct(struct_fields, _) = &self.dtype else {
+            vortex_panic!("`StructBuilder` somehow had dtype {}", self.dtype);
+        };
+
+        struct_fields
     }
 }
 
@@ -132,29 +179,7 @@ impl ArrayBuilder for StructBuilder {
     }
 
     fn finish(&mut self) -> ArrayRef {
-        let len = self.len();
-        let fields = self
-            .builders
-            .iter_mut()
-            .map(|builder| builder.finish())
-            .collect::<Vec<_>>();
-
-        if fields.len() > 1 {
-            let expected_length = fields[0].len();
-            for (index, field) in fields[1..].iter().enumerate() {
-                assert_eq!(
-                    field.len(),
-                    expected_length,
-                    "Field {index} does not have expected length {expected_length}"
-                );
-            }
-        }
-
-        let validity = self.validity.finish_with_nullability(self.nullability);
-
-        StructArray::try_new_with_dtype(fields, self.struct_dtype.clone(), len, validity)
-            .vortex_expect("Fields must all have same length.")
-            .into_array()
+        self.finish_into_struct().into_array()
     }
 }
 
@@ -179,7 +204,7 @@ mod tests {
         let mut builder = StructBuilder::with_capacity(sdt, Nullability::NonNullable, 0);
 
         builder
-            .append_value(Scalar::struct_(dtype.clone(), vec![1.into(), 2.into()]).as_struct())
+            .append_struct(Scalar::struct_(dtype.clone(), vec![1.into(), 2.into()]).as_struct())
             .unwrap();
 
         let struct_ = builder.finish();
@@ -197,7 +222,7 @@ mod tests {
         let mut builder = StructBuilder::with_capacity(sdt, Nullability::Nullable, 0);
 
         builder
-            .append_value(Scalar::struct_(dtype.clone(), vec![1.into(), 2.into()]).as_struct())
+            .append_struct(Scalar::struct_(dtype.clone(), vec![1.into(), 2.into()]).as_struct())
             .unwrap();
 
         let struct_ = builder.finish();
