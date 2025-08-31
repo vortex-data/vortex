@@ -103,7 +103,7 @@ impl DecimalBuilder {
     }
 
     /// Appends a decimal `value` to the builder.
-    pub fn append_value<V: NativeDecimalType>(&mut self, value: V) {
+    pub fn append_decimal<V: NativeDecimalType>(&mut self, value: V) {
         self.values.push(value);
         self.nulls.append_non_null();
     }
@@ -113,9 +113,9 @@ impl DecimalBuilder {
     /// # Panics
     ///
     /// This method will panic if the input is `None` and the builder is non-nullable.
-    pub fn append_option<V: NativeDecimalType>(&mut self, value: Option<V>) {
+    pub fn append_decimal_opt<V: NativeDecimalType>(&mut self, value: Option<V>) {
         match value {
-            Some(value) => self.append_value(value),
+            Some(value) => self.append_decimal(value),
             None => self.append_null(),
         }
     }
@@ -177,7 +177,9 @@ impl ArrayBuilder for DecimalBuilder {
             );
         }
 
-        let decimal_array = array.to_decimal()?;
+        let decimal_array = array
+            .to_decimal()
+            .vortex_expect("we checked that the array had `DType::Decimal`");
 
         match_each_decimal_value_type!(decimal_array.values_type(), |D| {
             // Extends the values buffer from another buffer of type D where D can be coerced to the
@@ -282,7 +284,7 @@ mod tests {
 
         let mut i8s = DecimalBuilder::new::<i8>(2, 1, false.into());
         for v in 0..values {
-            i8s.append_value(v);
+            i8s.append_decimal(v);
         }
         let i8s = i8s.finish();
 
