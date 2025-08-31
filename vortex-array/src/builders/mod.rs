@@ -261,7 +261,7 @@ pub trait ArrayBuilderExt: ArrayBuilder {
                 .ok_or_else(|| {
                     vortex_err!("Cannot append extension scalar to non-extension builder")
                 })?
-                .append_value(ExtScalar::try_from(scalar)?)?,
+                .append_ext(ExtScalar::try_from(scalar)?)?,
         }
         Ok(())
     }
