@@ -6,23 +6,21 @@ use std::cmp::max;
 use std::sync::Arc;
 
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer, ByteBufferMut};
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::{Entry, HashMap};
 
 use crate::arrays::{BinaryView, VarBinViewArray};
-use crate::builders::ArrayBuilder;
-use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
+use crate::builders::{ArrayBuilder, LazyNullBufferBuilder};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 pub struct VarBinViewBuilder {
+    dtype: DType,
     views_builder: BufferMut<BinaryView>,
-    pub null_buffer_builder: LazyNullBufferBuilder,
+    nulls: LazyNullBufferBuilder,
     completed: CompletedBuffers,
     in_progress: ByteBufferMut,
-    nullability: Nullability,
-    dtype: DType,
 }
 
 impl VarBinViewBuilder {
@@ -48,10 +46,9 @@ impl VarBinViewBuilder {
         );
         Self {
             views_builder: BufferMut::<BinaryView>::with_capacity(capacity),
-            null_buffer_builder: LazyNullBufferBuilder::new(capacity),
+            nulls: LazyNullBufferBuilder::new(capacity),
             completed,
             in_progress: ByteBufferMut::empty(),
-            nullability: dtype.nullability(),
             dtype,
         }
     }
@@ -85,7 +82,7 @@ impl VarBinViewBuilder {
     #[inline]
     pub fn append_value<S: AsRef<[u8]>>(&mut self, value: S) {
         self.append_value_view(value.as_ref());
-        self.null_buffer_builder.append_non_null();
+        self.nulls.append_non_null();
     }
 
     #[inline]
@@ -144,7 +141,7 @@ impl VarBinViewBuilder {
         self.views_builder.extend_trusted(views.iter().copied());
         self.push_only_validity_mask(validity_mask);
 
-        debug_assert_eq!(self.null_buffer_builder.len(), self.views_builder.len())
+        debug_assert_eq!(self.nulls.len(), self.views_builder.len())
     }
 
     pub fn finish_into_varbinview(&mut self) -> VarBinViewArray {
@@ -153,13 +150,11 @@ impl VarBinViewBuilder {
 
         assert_eq!(
             self.views_builder.len(),
-            self.null_buffer_builder.len(),
+            self.nulls.len(),
             "View and validity length must match"
         );
 
-        let validity = self
-            .null_buffer_builder
-            .finish_with_nullability(self.nullability);
+        let validity = self.nulls.finish_with_nullability(self.dtype.nullability());
 
         // SAFETY: the builder methods check safety at each step.
         unsafe {
@@ -176,7 +171,7 @@ impl VarBinViewBuilder {
 impl VarBinViewBuilder {
     // Pushes a validity mask into the builder not affecting the views or buffers
     fn push_only_validity_mask(&mut self, validity_mask: Mask) {
-        self.null_buffer_builder.append_validity_mask(validity_mask);
+        self.nulls.append_validity_mask(validity_mask);
     }
 }
 
@@ -196,19 +191,19 @@ impl ArrayBuilder for VarBinViewBuilder {
 
     #[inline]
     fn len(&self) -> usize {
-        self.null_buffer_builder.len()
+        self.nulls.len()
     }
 
     #[inline]
     fn append_zeros(&mut self, n: usize) {
         self.views_builder.push_n(BinaryView::empty_view(), n);
-        self.null_buffer_builder.append_n_non_nulls(n);
+        self.nulls.append_n_non_nulls(n);
     }
 
     #[inline]
     fn append_nulls(&mut self, n: usize) {
         self.views_builder.push_n(BinaryView::empty_view(), n);
-        self.null_buffer_builder.append_n_nulls(n);
+        self.nulls.append_n_nulls(n);
     }
 
     #[inline]
@@ -253,13 +248,13 @@ impl ArrayBuilder for VarBinViewBuilder {
         if capacity > self.views_builder.capacity() {
             self.views_builder
                 .reserve(capacity - self.views_builder.len());
-            self.null_buffer_builder.ensure_capacity(capacity);
+            self.nulls.ensure_capacity(capacity);
         }
     }
 
     fn set_validity(&mut self, validity: Mask) {
-        self.null_buffer_builder = LazyNullBufferBuilder::new(validity.len());
-        self.null_buffer_builder.append_validity_mask(validity);
+        self.nulls = LazyNullBufferBuilder::new(validity.len());
+        self.nulls.append_validity_mask(validity);
     }
 
     fn finish(&mut self) -> ArrayRef {

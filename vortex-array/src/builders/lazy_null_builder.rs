@@ -65,15 +65,6 @@ impl LazyNullBufferBuilder {
     }
 
     #[inline]
-    pub fn append(&mut self, not_null: bool) {
-        if not_null {
-            self.append_non_null()
-        } else {
-            self.append_null()
-        }
-    }
-
-    #[inline]
     pub fn append_buffer(&mut self, bool_buffer: &BooleanBuffer) {
         self.materialize_if_needed();
         self.inner
@@ -101,21 +92,6 @@ impl LazyNullBufferBuilder {
     pub fn len(&self) -> usize {
         // self.len is the length of the builder if the inner buffer is not materialized
         self.inner.as_ref().map(|i| i.len()).unwrap_or(self.len)
-    }
-
-    pub fn truncate(&mut self, len: usize) {
-        if let Some(b) = self.inner.as_mut() {
-            b.truncate(len)
-        }
-        self.len = len;
-    }
-
-    pub fn reserve(&mut self, n: usize) {
-        self.materialize_if_needed();
-        self.inner
-            .as_mut()
-            .vortex_expect("buffer just materialized")
-            .reserve(n);
     }
 
     fn finish(&mut self) -> Option<NullBuffer> {

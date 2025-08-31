@@ -41,11 +41,13 @@ use vortex_scalar::{
 use crate::arrays::smallest_storage_type;
 use crate::{Array, ArrayRef};
 
+mod lazy_null_builder;
+use lazy_null_builder::LazyNullBufferBuilder;
+
 mod bool;
 mod decimal;
 mod extension;
 mod fixed_size_list;
-mod lazy_validity_builder;
 mod list;
 mod null;
 mod primitive;

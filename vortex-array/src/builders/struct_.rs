@@ -10,16 +10,16 @@ use vortex_mask::Mask;
 use vortex_scalar::StructScalar;
 
 use crate::arrays::StructArray;
-use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::{
-    ArrayBuilder, ArrayBuilderExt, DEFAULT_BUILDER_CAPACITY, builder_with_capacity,
+    ArrayBuilder, ArrayBuilderExt, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder,
+    builder_with_capacity,
 };
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 pub struct StructBuilder {
     dtype: DType,
     builders: Vec<Box<dyn ArrayBuilder>>,
-    validity: LazyNullBufferBuilder,
+    nulls: LazyNullBufferBuilder,
 }
 
 impl StructBuilder {
@@ -41,7 +41,7 @@ impl StructBuilder {
 
         Self {
             builders,
-            validity: LazyNullBufferBuilder::new(capacity),
+            nulls: LazyNullBufferBuilder::new(capacity),
             dtype: DType::Struct(struct_dtype, nullability),
         }
     }
@@ -65,7 +65,7 @@ impl StructBuilder {
             for (builder, field) in self.builders.iter_mut().zip_eq(fields) {
                 builder.append_scalar(&field)?;
             }
-            self.validity.append_non_null();
+            self.nulls.append_non_null();
         } else {
             self.append_null()
         }
@@ -93,9 +93,7 @@ impl StructBuilder {
             }
         }
 
-        let validity = self
-            .validity
-            .finish_with_nullability(self.dtype.nullability());
+        let validity = self.nulls.finish_with_nullability(self.dtype.nullability());
 
         StructArray::try_new_with_dtype(fields, self.struct_fields().clone(), len, validity)
             .vortex_expect("Fields must all have same length.")
@@ -125,14 +123,14 @@ impl ArrayBuilder for StructBuilder {
     }
 
     fn len(&self) -> usize {
-        self.validity.len()
+        self.nulls.len()
     }
 
     fn append_zeros(&mut self, n: usize) {
         self.builders
             .iter_mut()
             .for_each(|builder| builder.append_zeros(n));
-        self.validity.append_n_non_nulls(n);
+        self.nulls.append_n_non_nulls(n);
     }
 
     fn append_nulls(&mut self, n: usize) {
@@ -141,7 +139,7 @@ impl ArrayBuilder for StructBuilder {
             // We push zero values into our children when appending a null in case the children are
             // themselves non-nullable.
             .for_each(|builder| builder.append_zeros(n));
-        self.validity.append_null();
+        self.nulls.append_null();
     }
 
     fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
@@ -162,7 +160,7 @@ impl ArrayBuilder for StructBuilder {
             a.append_to_builder(builder.as_mut())?;
         }
 
-        self.validity.append_validity_mask(array.validity_mask());
+        self.nulls.append_validity_mask(array.validity_mask());
         Ok(())
     }
 
@@ -170,12 +168,12 @@ impl ArrayBuilder for StructBuilder {
         self.builders.iter_mut().for_each(|builder| {
             builder.ensure_capacity(capacity);
         });
-        self.validity.ensure_capacity(capacity);
+        self.nulls.ensure_capacity(capacity);
     }
 
     fn set_validity(&mut self, validity: Mask) {
-        self.validity = LazyNullBufferBuilder::new(validity.len());
-        self.validity.append_validity_mask(validity);
+        self.nulls = LazyNullBufferBuilder::new(validity.len());
+        self.nulls.append_validity_mask(validity);
     }
 
     fn finish(&mut self) -> ArrayRef {

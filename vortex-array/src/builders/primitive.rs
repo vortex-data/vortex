@@ -11,8 +11,7 @@ use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
 use crate::arrays::PrimitiveArray;
-use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
-use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY};
+use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 /// Builder for [`PrimitiveArray`].

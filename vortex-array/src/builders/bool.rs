@@ -9,8 +9,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
 use crate::arrays::BoolArray;
-use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
-use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY};
+use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 pub struct BoolBuilder {
@@ -98,8 +97,8 @@ impl ArrayBuilder for BoolBuilder {
 
     fn ensure_capacity(&mut self, capacity: usize) {
         if capacity > self.inner.capacity() {
-            self.nulls.ensure_capacity(capacity);
             self.inner.reserve(capacity - self.inner.capacity());
+            self.nulls.ensure_capacity(capacity);
         }
     }
 

@@ -10,9 +10,9 @@ use vortex_mask::Mask;
 use vortex_scalar::ListScalar;
 
 use crate::arrays::FixedSizeListArray;
-use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::{
-    ArrayBuilder, ArrayBuilderExt, DEFAULT_BUILDER_CAPACITY, builder_with_capacity,
+    ArrayBuilder, ArrayBuilderExt, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder,
+    builder_with_capacity,
 };
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 

@@ -10,8 +10,7 @@ use vortex_mask::Mask;
 use vortex_scalar::{BigCast, NativeDecimalType, i256, match_each_decimal_value_type};
 
 use crate::arrays::DecimalArray;
-use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
-use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY};
+use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 /// An [`ArrayBuilder`] for `Decimal` typed arrays.

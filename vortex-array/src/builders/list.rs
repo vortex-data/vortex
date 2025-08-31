@@ -11,10 +11,9 @@ use vortex_mask::Mask;
 use vortex_scalar::ListScalar;
 
 use crate::arrays::{ListArray, OffsetPType};
-use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::{
-    ArrayBuilder, ArrayBuilderExt, DEFAULT_BUILDER_CAPACITY, PrimitiveBuilder,
-    builder_with_capacity,
+    ArrayBuilder, ArrayBuilderExt, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder,
+    PrimitiveBuilder, builder_with_capacity,
 };
 use crate::compute::{add_scalar, cast, sub_scalar};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
@@ -228,8 +227,8 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
     }
 
     fn ensure_capacity(&mut self, capacity: usize) {
-        self.index_builder.ensure_capacity(capacity);
         self.value_builder.ensure_capacity(capacity);
+        self.index_builder.ensure_capacity(capacity);
         self.nulls.ensure_capacity(capacity);
     }
 
