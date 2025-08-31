@@ -17,16 +17,18 @@ use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 /// Builder for [`PrimitiveArray`].
 pub struct PrimitiveBuilder<T> {
+    dtype: DType,
     values: BufferMut<T>,
     nulls: LazyNullBufferBuilder,
-    dtype: DType,
 }
 
 impl<T: NativePType> PrimitiveBuilder<T> {
+    /// Creates a new `PrimitiveBuilder` with a capacity of [`DEFAULT_BUILDER_CAPACITY`].
     pub fn new(nullability: Nullability) -> Self {
         Self::with_capacity(nullability, DEFAULT_BUILDER_CAPACITY)
     }
 
+    /// Creates a new `PrimitiveBuilder` with the given `capacity`.
     pub fn with_capacity(nullability: Nullability, capacity: usize) -> Self {
         Self {
             values: BufferMut::with_capacity(capacity),
@@ -35,26 +37,33 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         }
     }
 
-    /// Append a `Mask` to the null buffer.
+    /// Append a [`Mask`] to this builder's null buffer.
     pub fn append_mask(&mut self, mask: Mask) {
         self.nulls.append_validity_mask(mask);
     }
 
-    pub fn append_value(&mut self, value: T) {
+    /// Appends a primitive `value` to the builder.
+    pub fn append_primitive(&mut self, value: T) {
         self.values.push(value);
-        self.nulls.append(true);
+        self.nulls.append_non_null();
     }
 
-    pub fn append_option(&mut self, value: Option<T>) {
+    /// Appends an optional primitive (representing a nullable primitive) to the builder.
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if the input is `None` and the builder is non-nullable.
+    pub fn append_primitive_opt(&mut self, value: Option<T>) {
         match value {
             Some(value) => {
                 self.values.push(value);
-                self.nulls.append(true);
+                self.nulls.append_non_null();
             }
             None => self.append_null(),
         }
     }
 
+    /// Returns the raw primitive values in this builder as a slice.
     pub fn values(&self) -> &[T] {
         self.values.as_ref()
     }
@@ -64,7 +73,6 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     /// All reads/writes through the handle to the values buffer or the validity buffer will operate
     /// on indices relative to the start of the range.
     ///
-    ///
     /// ## Example
     ///
     /// ```
@@ -73,7 +81,8 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     /// use vortex_dtype::Nullability;
     ///
     /// // Create a new builder.
-    /// let mut builder: PrimitiveBuilder<i32> = PrimitiveBuilder::with_capacity(Nullability::NonNullable, 5);
+    /// let mut builder: PrimitiveBuilder<i32> =
+    ///     PrimitiveBuilder::with_capacity(Nullability::NonNullable, 5);
     ///
     /// // Populate the values in reverse order.
     /// let mut range = builder.uninit_range(5);
@@ -101,6 +110,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         }
     }
 
+    /// Finishes the builder directly into a [`PrimitiveArray`].
     pub fn finish_into_primitive(&mut self) -> PrimitiveArray {
         let validity = self
             .nulls
@@ -109,13 +119,10 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         PrimitiveArray::new(std::mem::take(&mut self.values).freeze(), validity)
     }
 
+    /// Extends the primitive array with an iterator.
     pub fn extend_with_iterator(&mut self, iter: impl IntoIterator<Item = T>, mask: Mask) {
         self.values.extend(iter);
-        self.extend_with_validity_mask(mask)
-    }
-
-    fn extend_with_validity_mask(&mut self, validity_mask: Mask) {
-        self.nulls.append_validity_mask(validity_mask);
+        self.nulls.append_validity_mask(mask);
     }
 }
 
@@ -161,8 +168,7 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         }
 
         self.values.extend_from_slice(array.as_slice::<T>());
-
-        self.extend_with_validity_mask(array.validity_mask());
+        self.nulls.append_validity_mask(array.validity_mask());
 
         Ok(())
     }

@@ -215,7 +215,7 @@ pub trait ArrayBuilderExt: ArrayBuilder {
                         .ok_or_else(|| {
                             vortex_err!("Cannot append primitive scalar to non-primitive builder")
                         })?
-                        .append_option(PrimitiveScalar::try_from(scalar)?.typed_value::<P>())
+                        .append_primitive_opt(PrimitiveScalar::try_from(scalar)?.typed_value::<P>())
                 })
             }
             DType::Decimal(..) => {

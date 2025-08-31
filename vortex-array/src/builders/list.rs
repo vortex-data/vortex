@@ -98,7 +98,7 @@ impl<O: OffsetPType> ListBuilder<O> {
                 }
 
                 self.nulls.append_non_null();
-                self.index_builder.append_value(
+                self.index_builder.append_primitive(
                     O::from_usize(self.value_builder.len())
                         .vortex_expect("Failed to convert from usize to O"),
                 );
@@ -158,7 +158,7 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
         // TODO(connor): this is incorrect, as it creates lists of size 1 instead of 0.
         self.value_builder.append_zeros(n);
         for i in 0..n {
-            self.index_builder.append_value(
+            self.index_builder.append_primitive(
                 O::from_usize(count + i + 1).vortex_expect("Failed to convert from usize to <O>"),
             )
         }
@@ -170,7 +170,7 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
         for _ in 0..n {
             // A list with a null element is can be a list with a zero-span offset and a validity
             // bit set
-            self.index_builder.append_value(
+            self.index_builder.append_primitive(
                 O::from_usize(count).vortex_expect("Failed to convert from usize to <O>"),
             )
         }
