@@ -185,7 +185,7 @@ fn random_list_offset<O: OffsetPType>(
             builder.append_null();
         } else {
             builder
-                .append_value(random_list_scalar(u, ldt, n)?.as_list())
+                .append_list(random_list_scalar(u, ldt, n)?.as_list())
                 .vortex_expect("can append value");
         }
     }

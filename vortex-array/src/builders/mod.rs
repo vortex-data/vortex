@@ -251,7 +251,7 @@ pub trait ArrayBuilderExt: ArrayBuilder {
                 .as_any_mut()
                 .downcast_mut::<ListBuilder<u64>>()
                 .ok_or_else(|| vortex_err!("Cannot append list scalar to non-list builder"))?
-                .append_value(ListScalar::try_from(scalar)?)?,
+                .append_list(ListScalar::try_from(scalar)?)?,
             DType::FixedSizeList(..) => {
                 unimplemented!("TODO(connor)[FixedSizeList]")
             }

@@ -94,7 +94,7 @@ fn test_offset_to_0() {
     let mut builder =
         ListBuilder::<u32>::with_capacity(Arc::new(I32.into()), Nullability::NonNullable, 5);
     builder
-        .append_value(
+        .append_list(
             Scalar::list(
                 Arc::new(I32.into()),
                 vec![1.into(), 2.into(), 3.into()],
@@ -104,7 +104,7 @@ fn test_offset_to_0() {
         )
         .vortex_unwrap();
     builder
-        .append_value(
+        .append_list(
             Scalar::list(
                 Arc::new(I32.into()),
                 vec![4.into(), 5.into(), 6.into()],
@@ -114,7 +114,7 @@ fn test_offset_to_0() {
         )
         .vortex_unwrap();
     builder
-        .append_value(
+        .append_list(
             Scalar::list(
                 Arc::new(I32.into()),
                 vec![7.into(), 8.into(), 9.into()],
@@ -124,7 +124,7 @@ fn test_offset_to_0() {
         )
         .vortex_unwrap();
     builder
-        .append_value(
+        .append_list(
             Scalar::list(
                 Arc::new(I32.into()),
                 vec![10.into(), 11.into(), 12.into()],
@@ -134,7 +134,7 @@ fn test_offset_to_0() {
         )
         .vortex_unwrap();
     builder
-        .append_value(
+        .append_list(
             Scalar::list(
                 Arc::new(I32.into()),
                 vec![13.into(), 14.into(), 15.into()],

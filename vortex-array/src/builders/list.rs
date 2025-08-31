@@ -6,44 +6,51 @@ use std::sync::Arc;
 
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, NativePType, Nullability};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::ListScalar;
 
 use crate::arrays::{ListArray, OffsetPType};
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
-use crate::builders::{ArrayBuilder, ArrayBuilderExt, PrimitiveBuilder, builder_with_capacity};
+use crate::builders::{
+    ArrayBuilder, ArrayBuilderExt, DEFAULT_BUILDER_CAPACITY, PrimitiveBuilder,
+    builder_with_capacity,
+};
 use crate::compute::{add_scalar, cast, sub_scalar};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
+/// The builder for building a [`ListBuilder`], parametrized by the `PType` of the offsets buffer.
 pub struct ListBuilder<O: NativePType> {
+    dtype: DType,
     /// The values of the list.
     value_builder: Box<dyn ArrayBuilder>,
     /// Represents the offsets into the values array.
     index_builder: PrimitiveBuilder<O>,
     nulls: LazyNullBufferBuilder,
-    // TODO(connor): This can probably be removed since we store it in the `dtype` field as well.
-    nullability: Nullability,
-    dtype: DType,
 }
 
 impl<O: OffsetPType> ListBuilder<O> {
-    /// Create a ListBuilder with the specified capacity for indices.
+    /// Creates a new `FixedSizeListBuilder` with a capacity of [`DEFAULT_BUILDER_CAPACITY`].
+    pub fn new(value_dtype: Arc<DType>, nullability: Nullability) -> Self {
+        Self::with_capacity(value_dtype, nullability, DEFAULT_BUILDER_CAPACITY)
+    }
+
+    /// Creates a new `ListBuilder` with the given `capacity`.
     ///
     /// # Notes
     ///
     /// The number of indices is one more than the number of lists in the array!
     ///
-    /// See also: [ListBuilder::with_values_and_index_capacity].
+    /// See also: [`ListBuilder::with_values_and_index_capacity`].
     pub fn with_capacity(
         value_dtype: Arc<DType>,
         nullability: Nullability,
         index_capacity: usize,
     ) -> Self {
-        // I would expect the list to have more than one value per index
         Self::with_values_and_index_capacity(
             value_dtype,
             nullability,
+            // We choose an arbitrary capacity for values since we can't know the true capacity.
             2 * index_capacity,
             index_capacity,
         )
@@ -61,7 +68,7 @@ impl<O: OffsetPType> ListBuilder<O> {
         index_capacity: usize,
     ) -> Self {
         let value_builder = builder_with_capacity(value_dtype.as_ref(), values_capacity);
-        let mut index_builder = PrimitiveBuilder::with_capacity(NonNullable, index_capacity);
+        let mut index_builder = PrimitiveBuilder::<O>::with_capacity(NonNullable, index_capacity);
 
         // The first index of the list, which is always 0 and represents an empty list.
         index_builder.append_zero();
@@ -70,19 +77,18 @@ impl<O: OffsetPType> ListBuilder<O> {
             value_builder,
             index_builder,
             nulls: LazyNullBufferBuilder::new(index_capacity),
-            nullability,
             dtype: DType::List(value_dtype, nullability),
         }
     }
 
-    pub fn append_value(&mut self, value: ListScalar) -> VortexResult<()> {
+    /// Appends a list `value` to the builder.
+    pub fn append_list(&mut self, value: ListScalar) -> VortexResult<()> {
         match value.elements() {
             None => {
-                if self.nullability == NonNullable {
+                if self.dtype.nullability() == NonNullable {
                     vortex_bail!("Cannot append null value to non-nullable list");
                 }
                 self.append_null();
-                Ok(())
             }
             Some(elements) => {
                 for scalar in elements {
@@ -90,17 +96,43 @@ impl<O: OffsetPType> ListBuilder<O> {
                     // once, or the list scalar should hold an Array
                     self.value_builder.append_scalar(&scalar)?;
                 }
+
                 self.nulls.append_non_null();
-                self.append_index(
+                self.index_builder.append_value(
                     O::from_usize(self.value_builder.len())
                         .vortex_expect("Failed to convert from usize to O"),
-                )
+                );
             }
         }
+
+        Ok(())
     }
 
-    fn append_index(&mut self, index: O) -> VortexResult<()> {
-        self.index_builder.append_scalar(&index.into())
+    /// Finishes the builder directly into a [`ListArray`].
+    pub fn finish_into_list(&mut self) -> ListArray {
+        assert_eq!(
+            self.index_builder.len(),
+            self.nulls.len() + 1,
+            "Indices length must be one more than nulls length."
+        );
+
+        // TODO(connor): Use `new_unchecked` here.
+        ListArray::try_new(
+            self.value_builder.finish(),
+            self.index_builder.finish(),
+            self.nulls.finish_with_nullability(self.dtype.nullability()),
+        )
+        .vortex_expect("Buffer, offsets, and validity must have same length.")
+    }
+
+    /// The [`DType`] of the inner elements. Note that this is **not** the same as the [`DType`] of
+    /// the outer `List`.
+    pub fn element_dtype(&self) -> &DType {
+        let DType::List(element_dtype, _) = &self.dtype else {
+            vortex_panic!("`ListBuilder` has an incorrect dtype: {}", self.dtype);
+        };
+
+        element_dtype
     }
 }
 
@@ -126,10 +158,9 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
         // TODO(connor): this is incorrect, as it creates lists of size 1 instead of 0.
         self.value_builder.append_zeros(n);
         for i in 0..n {
-            self.append_index(
+            self.index_builder.append_value(
                 O::from_usize(count + i + 1).vortex_expect("Failed to convert from usize to <O>"),
             )
-            .vortex_expect("Failed to append index");
         }
         self.nulls.append_n_non_nulls(n);
     }
@@ -139,10 +170,9 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
         for _ in 0..n {
             // A list with a null element is can be a list with a zero-span offset and a validity
             // bit set
-            self.append_index(
+            self.index_builder.append_value(
                 O::from_usize(count).vortex_expect("Failed to convert from usize to <O>"),
             )
-            .vortex_expect("Failed to append index");
         }
         self.nulls.append_n_nulls(n);
     }
@@ -209,20 +239,7 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
     }
 
     fn finish(&mut self) -> ArrayRef {
-        assert_eq!(
-            self.index_builder.len(),
-            self.nulls.len() + 1,
-            "Indices length must be one more than nulls length."
-        );
-
-        // TODO(connor): Use `new_unchecked` here.
-        ListArray::try_new(
-            self.value_builder.finish(),
-            self.index_builder.finish(),
-            self.nulls.finish_with_nullability(self.nullability),
-        )
-        .vortex_expect("Buffer, offsets, and validity must have same length.")
-        .into_array()
+        self.finish_into_list().into_array()
     }
 }
 
@@ -258,7 +275,7 @@ mod tests {
         let mut builder = ListBuilder::<u32>::with_capacity(dtype.clone(), NonNullable, 0);
 
         builder
-            .append_value(
+            .append_list(
                 Scalar::list(
                     dtype.clone(),
                     vec![1i32.into(), 2i32.into(), 3i32.into()],
@@ -269,7 +286,7 @@ mod tests {
             .unwrap();
 
         builder
-            .append_value(
+            .append_list(
                 Scalar::list(
                     dtype,
                     vec![4i32.into(), 5i32.into(), 6i32.into()],
@@ -295,7 +312,7 @@ mod tests {
 
         assert!(
             builder
-                .append_value(Scalar::list_empty(dtype, NonNullable).as_list())
+                .append_list(Scalar::list_empty(dtype, NonNullable).as_list())
                 .is_ok()
         )
     }
@@ -306,7 +323,7 @@ mod tests {
         let mut builder = ListBuilder::<u32>::with_capacity(dtype.clone(), Nullable, 0);
 
         builder
-            .append_value(
+            .append_list(
                 Scalar::list(
                     dtype.clone(),
                     vec![1i32.into(), 2i32.into(), 3i32.into()],
@@ -317,11 +334,11 @@ mod tests {
             .unwrap();
 
         builder
-            .append_value(Scalar::list_empty(dtype.clone(), NonNullable).as_list())
+            .append_list(Scalar::list_empty(dtype.clone(), NonNullable).as_list())
             .unwrap();
 
         builder
-            .append_value(
+            .append_list(
                 Scalar::list(
                     dtype,
                     vec![4i32.into(), 5i32.into(), 6i32.into()],
