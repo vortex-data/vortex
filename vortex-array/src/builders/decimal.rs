@@ -13,7 +13,7 @@ use crate::arrays::DecimalArray;
 use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
-/// An [`ArrayBuilder`] for `Decimal` typed arrays.
+/// The builder for building a [`DecimalArray`].
 ///
 /// The output will be a new [`DecimalArray`] holding values of `T`. Any value that is a valid
 /// [decimal type][NativeDecimalType] can be appended to the builder and it will be immediately

@@ -28,6 +28,7 @@ impl LazyNullBufferBuilder {
         }
     }
 
+    /// Appends `n` non-null values to the builder.
     #[inline]
     pub fn append_n_non_nulls(&mut self, n: usize) {
         if let Some(buf) = self.inner.as_mut() {
@@ -37,6 +38,7 @@ impl LazyNullBufferBuilder {
         }
     }
 
+    /// Appends a single non-null value to the builder.
     #[inline]
     pub fn append_non_null(&mut self) {
         if let Some(buf) = self.inner.as_mut() {
@@ -46,6 +48,7 @@ impl LazyNullBufferBuilder {
         }
     }
 
+    /// Appends `n` null values to the builder.
     #[inline]
     pub fn append_n_nulls(&mut self, n: usize) {
         self.materialize_if_needed();
@@ -55,6 +58,7 @@ impl LazyNullBufferBuilder {
             .append_n(n, false);
     }
 
+    /// Appends a single null value to the builder.
     #[inline]
     pub fn append_null(&mut self) {
         self.materialize_if_needed();
@@ -64,6 +68,7 @@ impl LazyNullBufferBuilder {
             .append(false);
     }
 
+    /// Appends values from a boolean buffer where `true` indicates non-null.
     #[inline]
     pub fn append_buffer(&mut self, bool_buffer: &BooleanBuffer) {
         self.materialize_if_needed();
@@ -73,6 +78,7 @@ impl LazyNullBufferBuilder {
             .append_buffer(bool_buffer);
     }
 
+    /// Appends values from a validity mask.
     pub fn append_validity_mask(&mut self, validity_mask: Mask) {
         match validity_mask {
             Mask::AllTrue(len) => self.append_n_non_nulls(len),
@@ -81,6 +87,7 @@ impl LazyNullBufferBuilder {
         }
     }
 
+    /// Sets the validity bit at the given index.
     pub fn set_bit(&mut self, index: usize, v: bool) {
         self.materialize_if_needed();
         self.inner
@@ -89,6 +96,7 @@ impl LazyNullBufferBuilder {
             .set_bit(index, v);
     }
 
+    /// Returns the current length of the builder.
     pub fn len(&self) -> usize {
         // self.len is the length of the builder if the inner buffer is not materialized
         self.inner.as_ref().map(|i| i.len()).unwrap_or(self.len)
@@ -99,6 +107,7 @@ impl LazyNullBufferBuilder {
         Some(NullBuffer::new(self.inner.take()?.finish()))
     }
 
+    /// Finishes the builder and returns a `Validity` based on the given nullability.
     pub fn finish_with_nullability(&mut self, nullability: Nullability) -> Validity {
         let nulls = self.finish();
 
@@ -110,6 +119,7 @@ impl LazyNullBufferBuilder {
         }
     }
 
+    /// Ensures the builder has at least the specified capacity.
     pub fn ensure_capacity(&mut self, capacity: usize) {
         if self.inner.is_none() {
             self.capacity = capacity;

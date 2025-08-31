@@ -14,7 +14,7 @@ use crate::arrays::PrimitiveArray;
 use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
-/// Builder for [`PrimitiveArray`].
+/// The builder for building a [`PrimitiveArray`], parametrized by the `PType`.
 pub struct PrimitiveBuilder<T> {
     dtype: DType,
     values: BufferMut<T>,
@@ -189,6 +189,7 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
     }
 }
 
+/// A range of uninitialized values in the primitive builder that can be filled.
 pub struct UninitRange<'a, T> {
     offset: usize,
     len: usize,

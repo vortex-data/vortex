@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+// TODO(connor): Bring this file more in line with the rest of the builders.
+
 use std::any::Any;
 use std::cmp::max;
 use std::sync::Arc;
@@ -15,6 +17,7 @@ use crate::arrays::{BinaryView, VarBinViewArray};
 use crate::builders::{ArrayBuilder, LazyNullBufferBuilder};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
+/// The builder for building a [`VarBinViewArray`].
 pub struct VarBinViewBuilder {
     dtype: DType,
     views_builder: BufferMut<BinaryView>,
@@ -79,12 +82,18 @@ impl VarBinViewBuilder {
         self.views_builder.push(view);
     }
 
+    /// Appends a value to the builder.
     #[inline]
     pub fn append_value<S: AsRef<[u8]>>(&mut self, value: S) {
         self.append_value_view(value.as_ref());
         self.nulls.append_non_null();
     }
 
+    /// Appends an optional value to the builder.
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if the input is `None` and the builder is non-nullable.
     #[inline]
     pub fn append_option<S: AsRef<[u8]>>(&mut self, value: Option<S>) {
         match value {
@@ -144,6 +153,7 @@ impl VarBinViewBuilder {
         debug_assert_eq!(self.nulls.len(), self.views_builder.len())
     }
 
+    /// Finishes the builder directly into a [`VarBinViewArray`].
     pub fn finish_into_varbinview(&mut self) -> VarBinViewArray {
         self.flush_in_progress();
         let buffers = std::mem::take(&mut self.completed);

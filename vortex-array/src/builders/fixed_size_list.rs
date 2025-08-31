@@ -16,7 +16,7 @@ use crate::builders::{
 };
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
-/// The builder for building a [`FixedSizeListBuilder`].
+/// The builder for building a [`FixedSizeListArray`].
 pub struct FixedSizeListBuilder {
     /// The [`DType`] of the `FixedSizeList`. This **must** be a [`DType::FixedSizeList`].
     dtype: DType,
@@ -43,7 +43,7 @@ impl FixedSizeListBuilder {
         )
     }
 
-    /// Creates a new `ExtensionBuilder` with the given `capacity`.
+    /// Creates a new `FixedSizeListBuilder` with the given `capacity`.
     pub fn with_capacity(
         element_dtype: Arc<DType>,
         list_size: u32,

@@ -16,6 +16,7 @@ use crate::builders::{
 };
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
+/// The builder for building a [`StructArray`].
 pub struct StructBuilder {
     dtype: DType,
     builders: Vec<Box<dyn ArrayBuilder>>,

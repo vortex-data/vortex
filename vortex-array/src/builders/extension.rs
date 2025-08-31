@@ -35,7 +35,7 @@ impl ExtensionBuilder {
         }
     }
 
-    /// Appends a extension `value` to the builder.
+    /// Appends an extension `value` to the builder.
     pub fn append_ext(&mut self, value: ExtScalar) -> VortexResult<()> {
         self.storage.append_scalar(&value.storage())
     }

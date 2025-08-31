@@ -18,7 +18,7 @@ use crate::builders::{
 use crate::compute::{add_scalar, cast, sub_scalar};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
-/// The builder for building a [`ListBuilder`], parametrized by the `PType` of the offsets buffer.
+/// The builder for building a [`ListArray`], parametrized by the `PType` of the offsets buffer.
 pub struct ListBuilder<O: NativePType> {
     dtype: DType,
     /// The values of the list.
@@ -29,7 +29,7 @@ pub struct ListBuilder<O: NativePType> {
 }
 
 impl<O: OffsetPType> ListBuilder<O> {
-    /// Creates a new `FixedSizeListBuilder` with a capacity of [`DEFAULT_BUILDER_CAPACITY`].
+    /// Creates a new `ListBuilder` with a capacity of [`DEFAULT_BUILDER_CAPACITY`].
     pub fn new(value_dtype: Arc<DType>, nullability: Nullability) -> Self {
         Self::with_capacity(value_dtype, nullability, DEFAULT_BUILDER_CAPACITY)
     }
