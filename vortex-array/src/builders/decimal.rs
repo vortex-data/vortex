@@ -10,8 +10,8 @@ use vortex_mask::Mask;
 use vortex_scalar::{BigCast, NativeDecimalType, i256, match_each_decimal_value_type};
 
 use crate::arrays::DecimalArray;
-use crate::builders::ArrayBuilder;
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
+use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 /// Wrapper around the typed builder.
@@ -138,8 +138,6 @@ pub struct DecimalBuilder {
     nulls: LazyNullBufferBuilder,
     dtype: DType,
 }
-
-const DEFAULT_BUILDER_CAPACITY: usize = 1024;
 
 impl DecimalBuilder {
     pub fn new<T: NativeDecimalType>(precision: u8, scale: i8, nullability: Nullability) -> Self {
