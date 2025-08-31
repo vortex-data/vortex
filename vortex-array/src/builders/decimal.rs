@@ -249,13 +249,13 @@ impl ArrayBuilder for DecimalBuilder {
             );
         }
 
-        let array = array.to_decimal()?;
+        let decimal_array = array.to_decimal()?;
 
-        match_each_decimal_value_type!(array.values_type(), |D| {
-            self.extend_from_buffer(&array.buffer::<D>())
+        match_each_decimal_value_type!(decimal_array.values_type(), |D| {
+            self.extend_from_buffer(&decimal_array.buffer::<D>())
         });
 
-        self.extend_with_validity_mask(array.validity_mask());
+        self.extend_with_validity_mask(decimal_array.validity_mask());
 
         Ok(())
     }
