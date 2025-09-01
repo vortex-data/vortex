@@ -9,7 +9,7 @@ use vortex_array::vtable::{EncodeVTable, SerdeVTable, ValidityHelper};
 use vortex_array::{Array, Canonical, IntoArray, ProstMetadata};
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexResult, vortex_ensure, vortex_err};
+use vortex_error::{VortexResult, vortex_bail, vortex_ensure, vortex_err};
 
 use crate::fsst_train_compressor;
 use crate::fsst_view::{FSSTViewArray, FSSTViewEncoding, FSSTViewVTable, OutlinedStr, View};
@@ -55,8 +55,17 @@ impl SerdeVTable<FSSTViewVTable> for FSSTViewVTable {
             "FSSTViewArray can only be built for utf8 or binary data type, not {dtype}"
         );
 
-        // First buffer are the views.
-        let views = Buffer::<View>::from_byte_buffer(buffers[0].clone());
+        let [
+            views_buffer,
+            symbols_buffer,
+            symbol_lengths_buffer,
+            fsst_buffer,
+        ] = buffers
+        else {
+            vortex_bail!("FSSTViewVTable: build requires exactly four buffers");
+        };
+
+        let views = Buffer::<View>::from_byte_buffer(views_buffer.clone());
 
         vortex_ensure!(
             views.len() == len,
@@ -65,12 +74,12 @@ impl SerdeVTable<FSSTViewVTable> for FSSTViewVTable {
         );
 
         // Second buffer are the symbol table
-        let symbols = Buffer::<Symbol>::from_byte_buffer(buffers[1].clone());
+        let symbols = Buffer::<Symbol>::from_byte_buffer(symbols_buffer.clone());
         // Third buffer: symbol lengths
-        let symbol_lengths = buffers[2].clone();
+        let symbol_lengths = symbol_lengths_buffer.clone();
 
         // Fourth buffer: compressed strings
-        let fsst_buffer = buffers[3].clone();
+        let fsst_buffer = fsst_buffer.clone();
 
         vortex_ensure!(
             children.len() >= 2,
