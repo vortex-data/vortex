@@ -90,6 +90,9 @@ impl VarBinViewBuilder {
 
     /// Appends an optional value to the builder.
     ///
+    /// If the value is `Some`, it appends the varbin view value. If the value is `None`, it appends
+    /// a null.
+    ///
     /// # Panics
     ///
     /// This method will panic if the input is `None` and the builder is non-nullable.

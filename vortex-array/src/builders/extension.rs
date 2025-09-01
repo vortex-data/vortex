@@ -38,7 +38,10 @@ impl ExtensionBuilder {
         self.storage.append_scalar(&value.storage())
     }
 
-    /// Appends an optional extension (representing a nullable extension value) to the builder.
+    /// Appends an optional extension value to the builder.
+    ///
+    /// If the value is `Some`, it appends the extension value. If the value is `None`, it appends a
+    /// null.
     ///
     /// # Panics
     ///
@@ -95,8 +98,8 @@ impl ArrayBuilder for ExtensionBuilder {
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
-        self.storage
-            .extend_from_array(array.to_extension().storage())
+        let ext_array = array.to_extension();
+        self.storage.extend_from_array(ext_array.storage())
     }
 
     fn ensure_capacity(&mut self, capacity: usize) {
