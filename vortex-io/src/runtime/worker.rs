@@ -7,9 +7,7 @@ use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use futures::Stream;
 use futures::{FutureExt, StreamExt};
-use smol::lock::SemaphoreGuardArc;
 use smol::Executor;
-use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
 /// A worker pool is a Vortex runtime that can be driven from multiple worker threads, typically
@@ -58,18 +56,10 @@ impl<T: Send> WorkerPool<T> {
     }
 }
 
-type WorkerAffinity = Arc<AtomicUsize>;
-
 struct Shared<'rt, T: Send> {
     executor: Arc<Executor<'rt>>,
     // The result channel.
     results: crossbeam_channel::Receiver<T>,
-}
-
-/// A wrapper around T that holds a semaphore permit.
-struct Guarded<T> {
-    inner: T,
-    guard: SemaphoreGuardArc,
 }
 
 /// We implement [`Runtime`] for the worker pool's shared state, which allows us to create a handle
@@ -126,15 +116,10 @@ impl<T: Send + 'static> Iterator for Worker<T> {
                 Err(TryRecvError::Empty) => {}
             }
 
-            while self.shared.executor.try_tick() {
-                // Keep ticking the executor while there is work to do.
+            // Keep ticking the executor while there is work to do.
+            if !self.shared.executor.try_tick() {
+                std::thread::yield_now();
             }
-
-            // if !self.shared.executor.try_tick() {
-            // If there is no work to do, then we yield the thread.
-            std::thread::yield_now();
-            // continue;
-            // }
         }
     }
 }
