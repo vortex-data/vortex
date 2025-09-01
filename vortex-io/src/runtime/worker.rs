@@ -29,7 +29,6 @@ impl<T: Send> WorkerPool<T> {
         T: 'rt,
     {
         let (result_tx, result_rx) = kanal::unbounded();
-        let (shutdown_tx, shutdown_rx) = kanal::unbounded::<()>();
 
         let shared = Arc::new(Shared {
             executor: Arc::new(Executor::<'rt>::new()),
@@ -47,28 +46,12 @@ impl<T: Send> WorkerPool<T> {
                     // Ignore send errors, which happen if the receiver is dropped.
                     let _ = result_tx.send(item);
                 }
-                drop(shutdown_tx);
             }
             .boxed(),
         );
 
         let shared =
             unsafe { std::mem::transmute::<Arc<Shared<'rt, T>>, Arc<Shared<'static, T>>>(shared) };
-
-        // Spawn an extra thread just to pick up slack in the background.
-        {
-            let ex = shared.executor.clone();
-            std::thread::spawn(move || {
-                block_on(async {
-                    loop {
-                        ex.tick().await;
-                        if shutdown_rx.is_closed() {
-                            break;
-                        }
-                    }
-                });
-            });
-        }
 
         WorkerPool { shared }
     }

@@ -3,12 +3,12 @@
 
 //! Split scanning task implementation.
 
-use std::ops::{BitAnd, Range};
-use std::sync::Arc;
-
+use bit_vec::BitVec;
 use futures::future::{ok, try_join_all, BoxFuture};
 use futures::FutureExt;
 use itertools::Itertools;
+use std::ops::{BitAnd, Range};
+use std::sync::Arc;
 use vortex_array::ArrayRef;
 use vortex_error::{VortexError, VortexResult};
 use vortex_expr::ExprRef;
@@ -140,45 +140,40 @@ pub(super) fn split_exec<'rt, A: 'rt + Send>(
                 }
 
                 // Now we loop through the conjuncts in the preferred order and evaluate them.
-                let mask = try_join_all(conjuncts.iter().map(|eval| eval.invoke(mask.clone())))
-                    .await?
-                    .into_iter()
-                    .fold(mask, |acc, m| acc.bitand(&m));
+                let mut remaining = BitVec::from_elem(conjuncts.len(), true);
+                while let Some(idx) = filter.next_conjunct(&remaining) {
+                    remaining.set(idx, false);
 
-                // let mut remaining = BitVec::from_elem(conjuncts.len(), true);
-                // while let Some(idx) = filter.next_conjunct(&remaining) {
-                //     remaining.set(idx, false);
-                //
-                //     if mask.all_false() {
-                //         return Ok(mask);
-                //     }
-                //
-                //     // If the dynamic expression has changed since pruning, re-run the pruning.
-                //     // Store the dynamic update once to avoid TOCTOU race condition
-                //     let current_version = filter.dynamic_updates(idx).map(|du| du.version());
-                //     if let Some(dv) = current_version
-                //         && dynamic_versions[idx].is_none_or(|v| v < dv)
-                //     {
-                //         // The dynamic expression has been updated, re-run the pruning.
-                //         dynamic_versions[idx] = Some(dv);
-                //         let conjunct_mask = pruning_conjuncts[idx].invoke(mask.clone()).await?;
-                //         mask = mask.bitand(&conjunct_mask);
-                //     }
-                //
-                //     if mask.all_false() {
-                //         return Ok(mask);
-                //     }
-                //
-                //     let conjunct_mask = conjuncts[idx].invoke(mask.clone()).await?;
-                //
-                //     // TODO(ngates): what selectivity should we report?
-                //     let selectivity = conjunct_mask.true_count() as f64 / mask.len() as f64;
-                //     //let selectivity = conjunct_mask.true_count() as f64 / mask.true_count() as f64;
-                //     filter.report_selectivity(idx, selectivity);
-                //
-                //     // Filter evaluations return a mask already intersected with the input mask.
-                //     mask = conjunct_mask;
-                // }
+                    if mask.all_false() {
+                        return Ok(mask);
+                    }
+
+                    // If the dynamic expression has changed since pruning, re-run the pruning.
+                    // Store the dynamic update once to avoid TOCTOU race condition
+                    let current_version = filter.dynamic_updates(idx).map(|du| du.version());
+                    if let Some(dv) = current_version
+                        && dynamic_versions[idx].is_none_or(|v| v < dv)
+                    {
+                        // The dynamic expression has been updated, re-run the pruning.
+                        dynamic_versions[idx] = Some(dv);
+                        let conjunct_mask = pruning_conjuncts[idx].invoke(mask.clone()).await?;
+                        mask = mask.bitand(&conjunct_mask);
+                    }
+
+                    if mask.all_false() {
+                        return Ok(mask);
+                    }
+
+                    let conjunct_mask = conjuncts[idx].invoke(mask.clone()).await?;
+
+                    // TODO(ngates): what selectivity should we report?
+                    let selectivity = conjunct_mask.true_count() as f64 / mask.len() as f64;
+                    //let selectivity = conjunct_mask.true_count() as f64 / mask.true_count() as f64;
+                    filter.report_selectivity(idx, selectivity);
+
+                    // Filter evaluations return a mask already intersected with the input mask.
+                    mask = conjunct_mask;
+                }
 
                 Ok::<_, VortexError>(mask)
             }
