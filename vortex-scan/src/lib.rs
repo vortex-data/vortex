@@ -218,40 +218,18 @@ impl<'rt, A: 'static + Send> ScanBuilder<'rt, A> {
         self.prepare()?.execute(row_range)
     }
 
-    pub fn into_stream(
-        self,
-    ) -> VortexResult<impl futures::Stream<Item = VortexResult<A>> + Send + 'rt> {
+    pub fn into_stream(self) -> impl futures::Stream<Item = VortexResult<A>> + Send + 'rt {
         let concurrency = self.concurrency;
         let handle = self.handle.clone();
-        Ok(stream::iter(self.build()?)
-            .map(move |fut| handle.spawn(fut))
-            .buffered(concurrency)
-            .filter_map(|chunk| async move { chunk.transpose() }))
-    }
 
-    /// Returns a [`Stream`](futures::Stream) with tasks spawned onto the current Tokio runtime.
-    ///
-    /// The stream performs CPU work on the polling thread, with I/O operations dispatched as
-    /// per the Vortex I/O traits.
-    ///
-    /// Task concurrency is the product of the `concurrency` parameter and the number of worker
-    /// threads in the Tokio runtime.
-    #[cfg(feature = "tokio")]
-    pub fn into_tokio_stream(self) -> impl futures::Stream<Item = VortexResult<A>> + Send + 'rt {
-        use futures::StreamExt;
-        let tokio_handle = tokio::runtime::Handle::current();
-        let num_workers = tokio_handle.metrics().num_workers();
-        let concurrency = self.concurrency * num_workers;
-
-        let items = match self.build() {
-            Ok(items) => items,
-            Err(e) => return stream::once(async move { Err(e) }).boxed(),
-        };
-
-        stream::iter(items)
-            .buffered(concurrency)
-            .filter_map(|chunk| async move { chunk.transpose() })
-            .boxed()
+        match self.build() {
+            Ok(tasks) => stream::iter(tasks)
+                .map(move |fut| handle.spawn(fut))
+                .buffered(concurrency)
+                .filter_map(|chunk| async move { chunk.transpose() })
+                .boxed(),
+            Err(e) => stream::once(async move { Err(e) }).boxed(),
+        }
     }
 }
 
@@ -296,20 +274,6 @@ impl<'rt> ScanBuilder<'rt, ArrayRef> {
         //
         // let iter = runtime.drive_stream_on_current_thread(stream);
         // Ok(ArrayIteratorAdapter::new(dtype, iter))
-    }
-
-    /// Returns an `ArrayStream` with tasks spawned onto the current Tokio runtime.
-    ///
-    /// See [`ScanBuilder::into_tokio_stream`] for more details.
-    ///
-    /// [`ArrayStream`]: vortex_array::stream::ArrayStreamAdapter
-    #[cfg(feature = "tokio")]
-    pub fn into_tokio_array_stream(
-        self,
-    ) -> VortexResult<impl vortex_array::stream::ArrayStream + Send + 'rt> {
-        let dtype = self.dtype()?;
-        let stream = self.into_tokio_stream();
-        Ok(vortex_array::stream::ArrayStreamAdapter::new(dtype, stream))
     }
 }
 
@@ -412,49 +376,12 @@ impl<'rt, A: 'rt + Send> RepeatedScan<'rt, A> {
     }
 }
 
-impl<A: 'static + Send> RepeatedScan<'static, A> {
-    #[cfg(feature = "tokio")]
-    pub fn execute_tokio_stream(
-        &self,
-        row_range: Option<Range<u64>>,
-    ) -> VortexResult<impl futures::Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
-        let row_range = intersect_ranges(self.row_range.as_ref(), row_range);
-
-        use futures::StreamExt;
-        use vortex_error::vortex_err;
-
-        let handle = tokio::runtime::Handle::current();
-        let num_workers = handle.metrics().num_workers();
-        let concurrency = self.concurrency * num_workers;
-        Ok(stream::iter(self.execute(row_range)?)
-            .map(move |task| handle.spawn(task))
-            .buffered(concurrency)
-            .map(|task| {
-                task.map_err(|e| vortex_err!("Failed to join task: {e}"))
-                    .flatten()
-            })
-            .filter_map(|chunk| async move { chunk.transpose() }))
-    }
-}
-
 impl RepeatedScan<'static, ArrayRef> {
     pub fn execute_array_iter(
         &self,
         _row_range: Option<Range<u64>>,
     ) -> VortexResult<impl ArrayIterator + Send + 'static> {
         Ok(ArrayIteratorAdapter::new(DType::Null, [].into_iter()))
-    }
-
-    #[cfg(feature = "tokio")]
-    pub fn execute_tokio_array_stream(
-        &self,
-        row_range: Option<Range<u64>>,
-    ) -> VortexResult<impl vortex_array::stream::ArrayStream + Send + 'static> {
-        let row_range = intersect_ranges(self.row_range.as_ref(), row_range);
-
-        let dtype = self.dtype.clone();
-        let stream = self.execute_tokio_stream(row_range)?;
-        Ok(vortex_array::stream::ArrayStreamAdapter::new(dtype, stream))
     }
 }
 

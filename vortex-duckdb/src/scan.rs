@@ -360,7 +360,7 @@ impl TableFunction for VortexTableFunction {
                             .with_some_filter_expr(filter_expr.clone())
                             .with_projection(projection_expr.clone())
                             .map(move |split: ArrayRef| Ok((split, conversion_cache.clone())))
-                            .into_stream()?
+                            .into_stream()
                             .boxed();
 
                         Ok(Some(scan_stream))

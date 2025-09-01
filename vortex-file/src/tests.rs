@@ -24,6 +24,7 @@ use vortex_dtype::PType::I32;
 use vortex_dtype::{DType, DecimalDType, Nullability, PType, StructFields};
 use vortex_error::VortexResult;
 use vortex_expr::{and, eq, get_item, gt, gt_eq, lit, lt, lt_eq, or, root, select, PackExpr};
+use vortex_io::runtime::tokio::TokioRuntime;
 use vortex_scalar::Scalar;
 use vortex_scan::ScanBuilder;
 
@@ -1183,8 +1184,8 @@ async fn test_into_tokio_array_stream() -> VortexResult<()> {
         .write_blocking(ByteBufferMut::empty(), st.to_array_stream())
         .unwrap();
 
-    let file = VortexOpenOptions::in_memory().open(buf)?;
-    let stream = file.scan().unwrap().into_tokio_array_stream()?;
+    let file = VortexOpenOptions::in_memory().open(buf, TokioRuntime::handle())?;
+    let stream = file.scan().unwrap().into_stream()?;
     let array = stream.read_all().await?;
 
     assert_eq!(array.len(), 8);

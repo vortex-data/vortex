@@ -154,7 +154,7 @@ impl FileOpener for VortexOpener {
                     let st = chunk.to_struct()?;
                     st.into_record_batch()
                 })
-                .into_tokio_stream()
+                .into_stream()
                 .map_ok(move |rb| {
                     // We try and slice the stream into respecting datafusion's configured batch size.
                     stream::iter(
