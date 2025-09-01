@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use signpost::{categories, Signpost};
 use std::fs::File;
 use std::io::IsTerminal;
 use tracing::level_filters::LevelFilter;
@@ -13,8 +12,6 @@ use tracing_subscriber::EnvFilter;
 pub fn setup_logging_and_tracing(verbose: bool, tracing: bool) -> anyhow::Result<()> {
     let filter = default_env_filter(verbose);
 
-    Signpost::configure("dev.vortex", categories::POINTS_OF_INTEREST);
-
     let fmt_layer = tracing_subscriber::fmt::layer()
         .with_writer(std::io::stderr)
         .with_level(true)
@@ -24,7 +21,6 @@ pub fn setup_logging_and_tracing(verbose: bool, tracing: bool) -> anyhow::Result
 
     tracing_subscriber::registry()
         .with(filter)
-        .with(signpost::TracingSubscriber::new())
         .with(
             tracing
                 .then(|| {

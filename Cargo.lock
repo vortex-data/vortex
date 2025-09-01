@@ -656,7 +656,6 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "signpost",
  "similar",
  "sysinfo",
  "tabled",
@@ -5623,29 +5622,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b2a4719bff48cee6b39d12c020eeb490953ad2443b7055bd0b21fca26bd8c28b"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "signpost"
-version = "0.1.0"
-source = "git+https://github.com/spiraldb/os-signpost?branch=develop#ab2196ab7bad63b03b97e1762ab164d37c1c46f5"
-dependencies = [
- "bindgen",
- "dashmap",
- "signpost_derive",
- "tracing",
- "tracing-core",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "signpost_derive"
-version = "0.1.0"
-source = "git+https://github.com/spiraldb/os-signpost?branch=develop#ab2196ab7bad63b03b97e1762ab164d37c1c46f5"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.106",
 ]
 
 [[package]]
