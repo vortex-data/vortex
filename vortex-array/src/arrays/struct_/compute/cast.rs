@@ -51,8 +51,7 @@ register_kernel!(CastKernelAdapter(StructVTable).lift());
 mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::PType;
-    use vortex_dtype::{DType, FieldNames, Nullability};
+    use vortex_dtype::{DType, FieldNames, Nullability, PType};
 
     use crate::IntoArray;
     use crate::arrays::{PrimitiveArray, StructArray, VarBinArray};
