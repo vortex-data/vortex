@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::BitAnd;
+
 use arrow_array::BooleanArray;
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, MutableBuffer};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_ensure};
+use vortex_error::{VortexExpect, VortexResult, vortex_ensure};
+use vortex_mask::Mask;
 
 use crate::Canonical;
 use crate::arrays::{BoolVTable, bool};
@@ -186,6 +189,34 @@ impl BoolArray {
             BooleanBufferBuilder::new_from_buffer(mutable_buf, offset + len),
             offset,
         )
+    }
+
+    pub fn to_mask(&self) -> Mask {
+        self.maybe_to_mask()
+            .vortex_expect("cannot convert nullable boolean array to mask")
+    }
+
+    pub fn maybe_to_mask(&self) -> Option<Mask> {
+        self.all_valid()
+            .then(|| Mask::from_buffer(self.boolean_buffer().clone()))
+    }
+
+    pub fn to_mask_fill_null_false(&self) -> Mask {
+        if let Some(constant) = self.as_constant() {
+            let bool_constant = constant.as_bool();
+            if bool_constant.value().unwrap_or(false) {
+                return Mask::new_true(self.len());
+            } else {
+                return Mask::new_false(self.len());
+            }
+        }
+        // Extract a boolean buffer, treating null values to false
+        let buffer = match self.validity_mask() {
+            Mask::AllTrue(_) => self.boolean_buffer().clone(),
+            Mask::AllFalse(_) => return Mask::new_false(self.len()),
+            Mask::Values(validity) => validity.boolean_buffer().bitand(self.boolean_buffer()),
+        };
+        Mask::from_buffer(buffer)
     }
 }
 
