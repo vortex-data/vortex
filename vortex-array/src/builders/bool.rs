@@ -5,7 +5,7 @@ use std::any::Any;
 
 use arrow_buffer::BooleanBufferBuilder;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
 use crate::arrays::BoolArray;
@@ -71,25 +71,12 @@ impl ArrayBuilder for BoolBuilder {
         self.append_values(false, n)
     }
 
-    fn append_nulls(&mut self, n: usize) {
-        assert!(
-            self.dtype.is_nullable(),
-            "tried to append {n} nulls to a non-nullable array builder"
-        );
-
+    unsafe fn append_nulls_unchecked(&mut self, n: usize) {
         self.inner.append_n(n, false);
         self.nulls.append_n_nulls(n)
     }
 
-    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
-        if !self.dtype.eq_with_nullability_superset(array.dtype()) {
-            vortex_bail!(
-                "tried to extend a builder with `DType` {} with an array with `DType {}",
-                self.dtype,
-                array.dtype()
-            );
-        }
-
+    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) -> VortexResult<()> {
         let bool_array = array
             .to_bool()
             .vortex_expect("we checked that the array had `DType` boolean");

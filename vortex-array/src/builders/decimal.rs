@@ -5,7 +5,7 @@ use std::any::Any;
 
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, DecimalDType, Nullability};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::{BigCast, NativeDecimalType, i256, match_each_decimal_value_type};
 
@@ -150,25 +150,12 @@ impl ArrayBuilder for DecimalBuilder {
         self.nulls.append_n_non_nulls(n);
     }
 
-    fn append_nulls(&mut self, n: usize) {
-        assert!(
-            self.dtype.is_nullable(),
-            "tried to append {n} nulls to a non-nullable array builder"
-        );
-
+    unsafe fn append_nulls_unchecked(&mut self, n: usize) {
         self.values.push_n(0, n);
         self.nulls.append_n_nulls(n);
     }
 
-    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
-        if !self.dtype.eq_with_nullability_superset(array.dtype()) {
-            vortex_bail!(
-                "tried to extend a builder with `DType` {} with an array with `DType {}",
-                self.dtype,
-                array.dtype()
-            );
-        }
-
+    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) -> VortexResult<()> {
         let decimal_array = array
             .to_decimal()
             .vortex_expect("we checked that the array had `DType::Decimal`");

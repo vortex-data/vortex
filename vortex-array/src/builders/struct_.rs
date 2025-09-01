@@ -133,12 +133,7 @@ impl ArrayBuilder for StructBuilder {
         self.nulls.append_n_non_nulls(n);
     }
 
-    fn append_nulls(&mut self, n: usize) {
-        assert!(
-            self.dtype.is_nullable(),
-            "tried to append {n} nulls to a non-nullable array builder"
-        );
-
+    unsafe fn append_nulls_unchecked(&mut self, n: usize) {
         self.builders
             .iter_mut()
             // We push zero values into our children when appending a null in case the children are
@@ -147,15 +142,7 @@ impl ArrayBuilder for StructBuilder {
         self.nulls.append_null();
     }
 
-    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
-        if !self.dtype.eq_with_nullability_superset(array.dtype()) {
-            vortex_bail!(
-                "tried to extend a builder with `DType` {} with an array with `DType {}",
-                self.dtype,
-                array.dtype()
-            );
-        }
-
+    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) -> VortexResult<()> {
         let array = array.to_struct()?;
 
         for (a, builder) in (0..array.struct_fields().nfields())

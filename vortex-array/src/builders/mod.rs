@@ -106,10 +106,27 @@ pub trait ArrayBuilder: Send {
         self.append_nulls(1)
     }
 
+    /// The inner part of `append_nulls`.
+    ///
+    /// # Safety
+    ///
+    /// The array builder must be nullable.
+    unsafe fn append_nulls_unchecked(&mut self, n: usize);
+
     /// Appends n "null" values to the array.
     ///
     /// Implementors should panic if this method is called on a non-nullable [`ArrayBuilder`].
-    fn append_nulls(&mut self, n: usize);
+    fn append_nulls(&mut self, n: usize) {
+        assert!(
+            self.dtype().is_nullable(),
+            "tried to append {n} nulls to a non-nullable array builder"
+        );
+
+        // SAFETY: We check above that the array builder is nullable.
+        unsafe {
+            self.append_nulls_unchecked(n);
+        }
+    }
 
     /// Appends a default value to the array.
     fn append_default(&mut self) {
@@ -209,10 +226,29 @@ pub trait ArrayBuilder: Send {
         Ok(())
     }
 
+    /// The inner part of `extend_from_array`.
+    ///
+    /// # Safety
+    ///
+    /// The array that must have an equal [`DType`] to the array builder's `DType` (with nullability
+    /// superset semantics).
+    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) -> VortexResult<()>;
+
     /// Extends the array with the provided array, canonicalizing if necessary.
     ///
     /// Implementors must validate that the passed in [`Array`] has the correct [`DType`].
-    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()>;
+    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
+        if !self.dtype().eq_with_nullability_superset(array.dtype()) {
+            vortex_bail!(
+                "tried to extend a builder with `DType` {} with an array with `DType {}",
+                self.dtype(),
+                array.dtype()
+            );
+        }
+
+        // SAFETY: We checked that the array had a valid `DType` above.
+        unsafe { self.extend_from_array_unchecked(array) }
+    }
 
     /// Ensure that the builder can hold at least `capacity` number of items
     fn ensure_capacity(&mut self, capacity: usize);

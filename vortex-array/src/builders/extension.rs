@@ -5,7 +5,7 @@ use std::any::Any;
 use std::sync::Arc;
 
 use vortex_dtype::{DType, ExtDType};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::ExtScalar;
 
@@ -90,24 +90,11 @@ impl ArrayBuilder for ExtensionBuilder {
         self.storage.append_zeros(n)
     }
 
-    fn append_nulls(&mut self, n: usize) {
-        assert!(
-            self.dtype.is_nullable(),
-            "tried to append {n} nulls to a non-nullable array builder"
-        );
-
+    unsafe fn append_nulls_unchecked(&mut self, n: usize) {
         self.storage.append_nulls(n)
     }
 
-    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
-        if !self.dtype.eq_with_nullability_superset(array.dtype()) {
-            vortex_bail!(
-                "tried to extend a builder with `DType` {} with an array with `DType {}",
-                self.dtype,
-                array.dtype()
-            );
-        }
-
+    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) -> VortexResult<()> {
         let ext_array = array.to_extension()?;
         self.storage.extend_from_array(ext_array.storage())
     }
