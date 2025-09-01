@@ -120,14 +120,21 @@ impl VortexOpenOptions<GenericVortexFile> {
 
         // Spawn an I/O driver onto the dispatcher.
         let io_concurrency = self.options.io_concurrency;
+        let io_dispatcher = self.options.io_dispatcher.clone();
         self.options
             .io_dispatcher
             .dispatch(move || {
                 async move {
                     // Drive the segment event stream.
                     let stream = driver
-                        .map(|coalesced_req| coalesced_req.launch(&read))
-                        .buffer_unordered(io_concurrency);
+                        .map(|coalesced_req| {
+                            let read = read.clone();
+                            io_dispatcher
+                                .dispatch(move || coalesced_req.launch(read))
+                                .vortex_expect("Failed to dispatch I/O request")
+                        })
+                        .buffer_unordered(io_concurrency)
+                        .map(|result| result.vortex_expect("infallible"));
                     pin_mut!(stream);
 
                     // Drive the stream to completion.
