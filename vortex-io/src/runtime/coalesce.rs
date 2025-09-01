@@ -161,12 +161,11 @@ impl CoalescedRequests {
         let mut next_valid_key = None;
         while let Some(next_id) = self.priority_queue.pop_front() {
             if let Some(&key) = self.id_to_key.get(&next_id) {
-                next_valid_key = Some(key);
-
                 // Skip any cancelled requests
                 if let Some(req) = self.requests_by_offset.get(&key) {
                     // Throw away any requests that have been canceled
                     if !req.callback.is_canceled() {
+                        next_valid_key = Some(key);
                         break;
                     }
                 }
@@ -201,7 +200,7 @@ impl CoalescedRequests {
         {
             // Skip any cancelled requests
             if req.callback.is_canceled() {
-                keys_to_remove.push(key);
+                keys_to_remove.push((key, false));
                 continue;
             }
 
@@ -212,17 +211,19 @@ impl CoalescedRequests {
             if (req_offset <= current_end + coalesce_distance && req_end >= current_start)
                 || (req_end + coalesce_distance >= current_start && req_offset <= current_end)
             {
-                keys_to_remove.push(key);
+                keys_to_remove.push((key, true));
                 current_start = current_start.min(req_offset);
                 current_end = current_end.max(req_end);
             }
         }
 
         // Remove the coalesced requests
-        for key in keys_to_remove {
+        for (key, should_include) in keys_to_remove {
             let (_, req_id) = key;
             if let Some(req) = self.requests_by_offset.remove(&key) {
-                requests.push(req);
+                if should_include {
+                    requests.push(req);
+                }
                 self.id_to_key.remove(&req_id);
                 // Remove from priority queue (this is O(n) but queue should be small)
                 self.priority_queue.retain(|&id| id != req_id);
