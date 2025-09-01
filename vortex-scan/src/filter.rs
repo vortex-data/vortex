@@ -72,6 +72,7 @@ impl FilterExpr {
     /// Returns the next preferred conjunct to evaluate.
     pub fn next_conjunct(&self, remaining: &BitVec) -> Option<usize> {
         let read = self.ordering.read();
+        log::debug!("Conjunct ordering: {:?}", read);
         // Take the first remaining conjunct in the ordered list.
         read.iter().find(|&idx| remaining[*idx]).copied()
     }

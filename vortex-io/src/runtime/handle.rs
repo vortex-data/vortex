@@ -223,7 +223,7 @@ impl IoSource for FileIoSource {
     }
 
     fn coalescing_window(&self) -> Option<u64> {
-        Some(4096) // 4 KB
+        Some(8192) // 8 KB
     }
 
     fn concurrency(&self) -> usize {

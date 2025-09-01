@@ -378,7 +378,7 @@ impl TableFunction for VortexTableFunction {
             })
             .enumerate()
             .map(move |(idx, vxf)| {
-                log::info!("Starting scan of file {}", idx);
+                log::debug!("Starting scan of file {}", idx);
                 let conversion_cache = Arc::new(ConversionCache::new());
                 let vxf = vxf?;
                 let split_idx = AtomicUsize::new(0);
@@ -388,7 +388,7 @@ impl TableFunction for VortexTableFunction {
                     .with_some_filter_expr(filter_expr2.clone())
                     .with_projection(projection_expr.clone())
                     .map(move |split: ArrayRef| {
-                        log::info!(
+                        log::debug!(
                             "Completed scan of split {} from file {}",
                             split_idx.fetch_add(1, Ordering::Relaxed),
                             idx

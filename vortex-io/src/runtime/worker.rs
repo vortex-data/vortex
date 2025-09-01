@@ -66,8 +66,10 @@ impl<T: Send> WorkerPool<T> {
     }
 }
 
+type WorkerAffinity = Arc<AtomicUsize>;
+
 struct Shared<T: Send> {
-    scheduling: Arc<WorkStealing<Runnable>>,
+    scheduling: Arc<WorkStealing<Runnable<WorkerAffinity>>>,
     cpu: Arc<WorkStealing<CpuTask>>,
     io: Arc<WorkStealing<Guarded<IoTask>>>,
 
@@ -82,7 +84,7 @@ struct Shared<T: Send> {
 /// A wrapper around T that holds a semaphore permit.
 struct Guarded<T> {
     inner: T,
-    guard: SemaphoreGuardArc,
+    guard: Option<SemaphoreGuardArc>,
 }
 
 /// We implement [`Runtime`] for the worker pool's shared state, which allows us to create a handle
@@ -92,14 +94,35 @@ struct Guarded<T> {
 /// a handle that spawns onto a specific worker's local queues.
 impl<'rt, T: Send> Runtime<'rt> for Shared<T> {
     fn spawn_scheduling(&self, fut: BoxFuture<'rt, ()>) {
-        let injector = self.scheduling.injector.clone();
+        // We use an atomic to track worker affinity, where usize::MAX means no affinity.
+        let affinity = Arc::new(AtomicUsize::new(usize::MAX));
+
+        // We create a custom schedule that spawns the tasks with worker affinity.
+        let scheduling = self.scheduling.clone();
+        let affinity2 = affinity.clone();
+        let schedule = move |r: Runnable<WorkerAffinity>| {
+            // If we have an affinity, we try to push to that worker's local queue.
+            let worker_id = affinity2.load(Ordering::Relaxed);
+            if worker_id != usize::MAX {
+                log::debug!("Scheduling task with affinity to worker {}", worker_id);
+                if let Some(injector) = scheduling.injectors.get(worker_id) {
+                    injector.push(r);
+                    return;
+                }
+            } else {
+                log::debug!("Scheduling task without affinity");
+                scheduling.injector.push(r);
+            }
+        };
 
         // SAFETY: We know that the future is `Send`, and we know that schedule is `Send` + `Sync`.
         //  Really, we are just avoiding the 'static bound on the future because we know the handle
         //  lifetime will out-live the future.
-        // TOOD(ngates): we should create custom function with the Send + Sync bounds,
-        let (runnable, task) =
-            unsafe { async_task::spawn_unchecked(fut, move |r| injector.push(r)) };
+        let (runnable, task) = unsafe {
+            async_task::Builder::new()
+                .metadata(affinity)
+                .spawn_unchecked(move |_| fut, schedule)
+        };
 
         task.detach();
         runnable.schedule();
@@ -113,13 +136,16 @@ impl<'rt, T: Send> Runtime<'rt> for Shared<T> {
         // This is quite tricky to get right. Essentially, we want to defer pulling from the
         // stream for as long as possible because that allows us to perform better coalescing of
         // I/O requests. We use the given concurrency parameter to achieve this.
-        let semaphore = Arc::new(Semaphore::new(concurrency));
+        // let _semaphore = Arc::new(Semaphore::new(concurrency * 10000));
         let injector = self.io.injector.clone();
         self.spawn_scheduling(
             async move {
                 while let Some(task) = stream.next().await {
-                    let guard = semaphore.acquire_arc().await;
-                    injector.push(Guarded { inner: task, guard })
+                    // let _guard = semaphore.acquire_arc().await;
+                    injector.push(Guarded {
+                        inner: task,
+                        guard: None,
+                    })
                 }
             }
             .boxed(),
@@ -147,7 +173,7 @@ pub struct Worker<T: Send + 'static> {
 
     role: WorkerRole,
 
-    scheduling: WorkStealingLocal<Runnable>,
+    scheduling: WorkStealingLocal<Runnable<WorkerAffinity>>,
     cpu: WorkStealingLocal<CpuTask>,
     io: WorkStealingLocal<Guarded<IoTask>>,
 
@@ -231,6 +257,17 @@ impl<T: Send + 'static> Iterator for Worker<T> {
             // 1. FIRST: Try to execute scheduling tasks
             //    These spawn new work and keep pipelines full
             if let Some(runnable) = self.scheduling.find_task() {
+                // Update the affinity to point to this worker
+                let prev_id = runnable
+                    .metadata()
+                    .swap(self.scheduling.id, Ordering::Relaxed);
+                if prev_id != usize::MAX && prev_id != self.scheduling.id {
+                    log::warn!(
+                        "Task affinity changed from {} to {}",
+                        prev_id,
+                        self.scheduling.id
+                    );
+                }
                 runnable.run();
                 continue; // Keep pipeline primed before emitting
             }
@@ -255,13 +292,14 @@ impl<T: Send + 'static> Iterator for Worker<T> {
                 Err(crossbeam_channel::TryRecvError::Disconnected) => return None,
             }
 
-            if matches!(role, WorkerRole::Executor) {}
-            // 4. FOURTH: Execute CPU tasks
-            //    Complete in-flight computations
-            log::trace!("Driving CPU: {:?}", self.scheduling);
-            if let Some(task) = self.cpu.find_task() {
-                task.run();
-                continue;
+            if matches!(role, WorkerRole::Executor) {
+                // 4. FOURTH: Execute CPU tasks
+                //    Complete in-flight computations
+                log::trace!("Driving CPU: {:?}", self.scheduling);
+                if let Some(task) = self.cpu.find_task() {
+                    task.run();
+                    continue;
+                }
             }
 
             std::thread::yield_now()
@@ -275,6 +313,7 @@ struct WorkStealing<T> {
     // creating new workers, without paying the cost of a read-lock every time we try to steal.
     // TODO(ngates): look into BoxCar for lock-free append-only vec.
     stealers: boxcar::Vec<Stealer<T>>,
+    injectors: boxcar::Vec<Injector<T>>,
 }
 
 impl<T> Default for WorkStealing<T> {
@@ -282,14 +321,17 @@ impl<T> Default for WorkStealing<T> {
         Self {
             injector: Arc::new(Injector::new()),
             stealers: Default::default(),
+            injectors: Default::default(),
         }
     }
 }
 
 impl<T> WorkStealing<T> {
     fn new_worker(self: &Arc<Self>) -> WorkStealingLocal<T> {
+        self.injectors.push(Injector::new());
         let local = crossbeam_deque::Worker::new_fifo();
         let id = self.stealers.push(local.stealer());
+
         WorkStealingLocal {
             id,
             global: self.clone(),
@@ -329,17 +371,20 @@ impl<T> WorkStealingLocal<T> {
         self.local.pop().or_else(|| {
             // Otherwise, we need to look for a task elsewhere.
             iter::repeat_with(|| {
-                // Try stealing a batch of tasks from the global queue.
-                self.global
-                    .injector
+                // Pull tasks from our worker's injector.
+                self.global.injectors[self.id]
                     .steal_batch_and_pop(&self.local)
-                    // Or try stealing a task from one of the other threads.
                     .or_else(|| {
-                        self.global
-                            .stealers
-                            .iter()
-                            .map(|(_idx, s)| s.steal())
-                            .collect()
+                        // Try stealing a batch of tasks from the global queue.
+                        self.global.injector.steal_batch_and_pop(&self.local)
+                        // Or try stealing a task from one of the other threads.
+                        // .or_else(|| {
+                        //     self.global
+                        //         .stealers
+                        //         .iter()
+                        //         .map(|(_idx, s)| s.steal())
+                        //         .collect()
+                        // })
                     })
             })
             // Loop while no task was stolen and any steal operation needs to be retried.
