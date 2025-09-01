@@ -151,6 +151,11 @@ impl ArrayBuilder for DecimalBuilder {
     }
 
     fn append_nulls(&mut self, n: usize) {
+        assert!(
+            self.dtype.is_nullable(),
+            "tried to append {n} nulls to a non-nullable array builder"
+        );
+
         self.values.push_n(0, n);
         self.nulls.append_n_nulls(n);
     }

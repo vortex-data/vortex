@@ -135,11 +135,16 @@ impl ArrayBuilder for StructBuilder {
     }
 
     fn append_nulls(&mut self, n: usize) {
+        assert!(
+            self.dtype.is_nullable(),
+            "tried to append {n} nulls to a non-nullable array builder"
+        );
+
         self.builders
             .iter_mut()
             // We push zero values into our children when appending a null in case the children are
             // themselves non-nullable.
-            .for_each(|builder| builder.append_zeros(n));
+            .for_each(|builder| builder.append_defaults(n));
         self.nulls.append_null();
     }
 

@@ -52,7 +52,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     /// # Panics
     ///
     /// This method will panic if the input is `None` and the builder is non-nullable.
-    pub fn append_option(&mut self, value: Option<T>) {
+    pub(crate) fn append_option(&mut self, value: Option<T>) {
         match value {
             Some(value) => self.append_value(value),
             None => self.append_null(),
@@ -145,6 +145,11 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
     }
 
     fn append_nulls(&mut self, n: usize) {
+        assert!(
+            self.dtype.is_nullable(),
+            "tried to append {n} nulls to a non-nullable array builder"
+        );
+
         self.values.push_n(T::default(), n);
         self.nulls.append_n_nulls(n);
     }

@@ -165,6 +165,11 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
     }
 
     fn append_nulls(&mut self, n: usize) {
+        assert!(
+            self.dtype.is_nullable(),
+            "tried to append {n} nulls to a non-nullable array builder"
+        );
+
         let count = self.value_builder.len();
         for _ in 0..n {
             // A list with a null element is can be a list with a zero-span offset and a validity

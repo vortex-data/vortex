@@ -181,15 +181,14 @@ impl ArrayBuilder for FixedSizeListBuilder {
     /// - If elements are nullable, we use null values
     /// - If elements are non-nullable, we use zero values
     fn append_nulls(&mut self, n: usize) {
+        assert!(
+            self.dtype.is_nullable(),
+            "tried to append {n} nulls to a non-nullable array builder"
+        );
+
         let element_count = n * self.list_size() as usize;
 
-        // TODO(connor): `append_default()`
-        if self.element_dtype().is_nullable() {
-            self.elements_builder.append_nulls(element_count);
-        } else {
-            self.elements_builder.append_zeros(element_count);
-        }
-
+        self.elements_builder.append_defaults(element_count);
         self.nulls.append_n_nulls(n);
     }
 

@@ -84,27 +84,50 @@ pub trait ArrayBuilder: Send {
         self.len() == 0
     }
 
-    // TODO(connor): We should probably merge these 4 methods to `append_defaults`.
-
     /// Append a "zero" value to the array.
+    ///
+    /// Zero values are generally determined by [`Scalar::default_value`].
     fn append_zero(&mut self) {
         self.append_zeros(1)
     }
 
     /// Appends n "zero" values to the array.
+    ///
+    /// Zero values are generally determined by [`Scalar::default_value`].
     fn append_zeros(&mut self, n: usize);
 
     /// Append a "null" value to the array.
+    ///
+    /// Implementors should panic if this method is called on a non-nullable [`ArrayBuilder`].
     fn append_null(&mut self) {
         self.append_nulls(1)
     }
 
     /// Appends n "null" values to the array.
+    ///
+    /// Implementors should panic if this method is called on a non-nullable [`ArrayBuilder`].
     fn append_nulls(&mut self, n: usize);
 
-    // TODO(connor): Document the fact that the passed in `array` is validated to have the correct
-    // dtype via the VTable.
+    /// Appends a default value to the array.
+    fn append_default(&mut self) {
+        self.append_defaults(1)
+    }
+
+    /// Appends n default values to the array.
+    ///
+    /// If the array builder is nullable, then this has the behavior of `self.append_nulls(n)`.
+    /// If the array builder is non-nullable, then it has the behavior of `self.append_zeros(n)`.
+    fn append_defaults(&mut self, n: usize) {
+        if self.dtype().is_nullable() {
+            self.append_nulls(n);
+        } else {
+            self.append_zeros(n);
+        }
+    }
+
     /// Extends the array with the provided array, canonicalizing if necessary.
+    ///
+    /// Implementors must validate that the passed in [`Array`] has the correct [`DType`].
     fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()>;
 
     /// Ensure that the builder can hold at least `capacity` number of items

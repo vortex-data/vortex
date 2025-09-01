@@ -212,6 +212,11 @@ impl ArrayBuilder for VarBinViewBuilder {
 
     #[inline]
     fn append_nulls(&mut self, n: usize) {
+        assert!(
+            self.dtype.is_nullable(),
+            "tried to append {n} nulls to a non-nullable array builder"
+        );
+
         self.views_builder.push_n(BinaryView::empty_view(), n);
         self.nulls.append_n_nulls(n);
     }
