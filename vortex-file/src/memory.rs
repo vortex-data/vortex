@@ -64,7 +64,7 @@ impl VortexOpenOptions<InMemoryFileType> {
             file: handle.open(buffer),
             metrics: self.metrics,
             handle,
-            span: tracing::span!(tracing::Level::INFO, "VortexFile", name = ?name),
+            _span: tracing::span!(tracing::Level::INFO, "VortexFile", name = ?name),
         })
     }
 }

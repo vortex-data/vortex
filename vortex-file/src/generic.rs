@@ -7,10 +7,10 @@ use std::sync::Arc;
 use futures::pin_mut;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_io::runtime::io::{FileIoSource, IoSource, ObjectStoreIoSource};
 use vortex_io::runtime::singlethread::SingleThreadRuntime;
-use vortex_io::runtime::Handle;
+use vortex_io::runtime::{FileIo, Handle};
 use vortex_io::{IoDispatcher, PerformanceHint};
-use vortex_io::runtime::io::{FileIo, FileIoSource, IoSource, ObjectStoreIoSource};
 use vortex_layout::segments::{SegmentEvents, SegmentId};
 use vortex_utils::aliases::dash_map::DashMap;
 
@@ -145,7 +145,7 @@ impl VortexOpenOptions<GenericVortexFile> {
             file: read,
             metrics: self.metrics,
             handle,
-            span: tracing::span!(tracing::Level::INFO, "VortexFile", name = ?name),
+            _span: tracing::span!(tracing::Level::INFO, "VortexFile", name = ?name),
         })
     }
 

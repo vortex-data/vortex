@@ -14,8 +14,7 @@ use vortex_dtype::{DType, Field, FieldPath, FieldPathSet};
 use vortex_error::VortexResult;
 use vortex_expr::pruning::checked_pruning_expr;
 use vortex_expr::{ExprRef, Scope};
-use vortex_io::runtime::io::FileIo;
-use vortex_io::runtime::Handle;
+use vortex_io::runtime::{FileIo, Handle};
 use vortex_layout::segments::SegmentSourceRef;
 use vortex_layout::LayoutReaderRef;
 use vortex_metrics::VortexMetrics;
@@ -44,7 +43,7 @@ pub struct VortexFile<'rt> {
     ///  the footer if they care about cheap re-opening of a VortexFile.
     pub(crate) handle: Handle<'rt>,
     /// A span that lives for the lifetime of the file.
-    pub(crate) span: tracing::Span,
+    pub(crate) _span: tracing::Span,
 }
 
 impl<'rt> VortexFile<'rt> {
