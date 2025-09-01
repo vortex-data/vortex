@@ -10,15 +10,16 @@ extern "C" {
 #endif
 
 typedef struct duckdb_vx_expr_ *duckdb_vx_expr;
+typedef void* duckdb_vx_string;
 
 /// Return the string representation of the expression. Must be freed with `duckdb_vx_free`.
 const char *duckdb_vx_expr_to_string(duckdb_vx_expr expr);
 
-/// Return a detailed debug string representation of the expression. Must be freed with `duckdb_vx_free`.
-char *duckdb_vx_expr_to_debug_string(duckdb_vx_expr expr);
+/// Return a detailed debug string representation of the expression
+duckdb_vx_string duckdb_vx_expr_to_debug_string(duckdb_vx_expr expr);
 
 /// Legacy alias for backwards compatibility with optimizer_rule.h
-char *duckdb_vx_expression_to_string(duckdb_vx_expr expr);
+duckdb_vx_string duckdb_vx_expression_to_string(duckdb_vx_expr expr);
 
 void duckdb_vx_destroy_expr(duckdb_vx_expr *expr);
 
@@ -263,6 +264,22 @@ typedef struct {
 } duckdb_vx_expr_bound_function;
 
 void duckdb_vx_expr_get_bound_function(duckdb_vx_expr expr, duckdb_vx_expr_bound_function *out);
+
+// ==============================================
+// String Wrapper Functions
+// ==============================================
+
+// Create a string wrapper from std::string
+duckdb_vx_string duckdb_vx_create_string(const char* str);
+
+// Get length of wrapped string
+uint64_t duckdb_vx_string_length(duckdb_vx_string str);
+
+// Get C string data from wrapped string
+const char* duckdb_vx_string_data(duckdb_vx_string str);
+
+// Free wrapped string
+void duckdb_vx_string_free(duckdb_vx_string str);
 
 #ifdef __cplusplus /* End C ABI */
 }

@@ -24,7 +24,7 @@ extern "C" const char *duckdb_vx_expr_to_string(duckdb_vx_expr ffi_expr) {
 }
 
 // Get detailed debug string representation of expression
-extern "C" char *duckdb_vx_expr_to_debug_string(duckdb_vx_expr ffi_expr) {
+extern "C" duckdb_vx_string duckdb_vx_expr_to_debug_string(duckdb_vx_expr ffi_expr) {
     try {
         if (!ffi_expr) {
             return nullptr;
@@ -89,20 +89,28 @@ extern "C" char *duckdb_vx_expr_to_debug_string(duckdb_vx_expr ffi_expr) {
             break;
         }
 
-        // Allocate C string and copy
-        char *result = static_cast<char *>(malloc(debug_str.length() + 1));
-        if (result) {
-            strcpy(result, debug_str.c_str());
-        }
-        return result;
+        // Create string wrapper
+        return new std::string(debug_str);
     } catch (...) {
         return nullptr;
     }
 }
 
 // Legacy alias for backwards compatibility with optimizer_rule.h
-extern "C" char *duckdb_vx_expression_to_string(duckdb_vx_expr ffi_expr) {
-    return const_cast<char *>(duckdb_vx_expr_to_string(ffi_expr));
+extern "C" duckdb_vx_string duckdb_vx_expression_to_string(duckdb_vx_expr ffi_expr) {
+    try {
+        if (!ffi_expr) {
+            return nullptr;
+        }
+
+        auto expr = reinterpret_cast<Expression *>(ffi_expr);
+        std::string str = expr->ToString();
+
+        // Create string wrapper
+        return new std::string(str);
+    } catch (...) {
+        return nullptr;
+    }
 }
 
 //! Create a DuckDB vortex error.

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! Pure Rust implementation of the length optimization logic
 //!
 //! This module implements the length optimization using the generic logical plan API.

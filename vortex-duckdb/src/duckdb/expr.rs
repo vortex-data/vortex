@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ffi::{CStr, CString, c_void};
+use std::ffi::{CString, c_void};
 use std::fmt::{Debug, Display, Formatter};
 use std::ptr;
 
 use vortex::error::{VortexResult, vortex_bail, vortex_err};
 
 use crate::cpp::*;
+use crate::duckdb::string::{c_string_to_rust_string, VxString};
 use crate::duckdb::{ScalarFunction, Value};
 use crate::{duckdb, wrapper};
 
@@ -244,13 +245,7 @@ impl BoundFunction<'_> {
     pub fn function_name(&self) -> Option<String> {
         unsafe {
             let name_ptr = duckdb_vx_get_function_name_from_expr(self.expr.as_ptr());
-            if name_ptr.is_null() {
-                None
-            } else {
-                let name = CStr::from_ptr(name_ptr).to_string_lossy().into_owned();
-                duckdb_vx_free_string(name_ptr);
-                Some(name)
-            }
+            c_string_to_rust_string(name_ptr)
         }
     }
 
@@ -339,13 +334,11 @@ impl Expression {
     /// Get string representation using legacy function name
     pub fn to_string_legacy(&self) -> VortexResult<String> {
         unsafe {
-            let str_ptr = duckdb_vx_expression_to_string(self.as_ptr());
-            if str_ptr.is_null() {
-                vortex_bail!("Failed to convert expression to string");
+            let vx_string_ptr = duckdb_vx_expression_to_string(self.as_ptr());
+            match VxString::from_raw(vx_string_ptr) {
+                Some(vx_string) => Ok(vx_string.to_string()),
+                None => vortex_bail!("Failed to convert expression to string"),
             }
-            let result = CStr::from_ptr(str_ptr).to_string_lossy().into_owned();
-            duckdb_vx_free_string(str_ptr);
-            Ok(result)
         }
     }
 
@@ -357,13 +350,7 @@ impl Expression {
         // {
         unsafe {
             let alias_ptr = duckdb_vx_get_column_alias(self.as_ptr());
-            if alias_ptr.is_null() {
-                Ok(None)
-            } else {
-                let alias = CStr::from_ptr(alias_ptr).to_string_lossy().into_owned();
-                duckdb_vx_free_string(alias_ptr);
-                Ok(Some(alias))
-            }
+            Ok(c_string_to_rust_string(alias_ptr))
         }
         // } else {
         //     Ok(None)
@@ -413,13 +400,11 @@ impl Expression {
     /// Get detailed debug string representation of this expression
     pub fn to_debug_string(&self) -> VortexResult<String> {
         unsafe {
-            let str_ptr = duckdb_vx_expr_to_debug_string(self.as_ptr());
-            if str_ptr.is_null() {
-                vortex_bail!("Failed to convert expression to debug string");
+            let vx_string_ptr = duckdb_vx_expr_to_debug_string(self.as_ptr());
+            match VxString::from_raw(vx_string_ptr) {
+                Some(vx_string) => Ok(vx_string.to_string()),
+                None => vortex_bail!("Failed to convert expression to debug string"),
             }
-            let result = CStr::from_ptr(str_ptr).to_string_lossy().into_owned();
-            duckdb_vx_free_string(str_ptr);
-            Ok(result)
         }
     }
 }

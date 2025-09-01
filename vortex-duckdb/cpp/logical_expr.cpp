@@ -225,7 +225,7 @@ extern "C" void duckdb_vx_clear_column_ids(duckdb_vx_logical_operator get_op) {
 }
 
 // Get detailed string representation of LogicalGet operator
-extern "C" char *duckdb_vx_logical_get_to_string(duckdb_vx_logical_operator get_op) {
+extern "C" duckdb_vx_string duckdb_vx_logical_get_to_string(duckdb_vx_logical_operator get_op) {
     try {
         if (!get_op) {
             return nullptr;
@@ -273,19 +273,15 @@ extern "C" char *duckdb_vx_logical_get_to_string(duckdb_vx_logical_operator get_
         }
         str += "]";
 
-        // Allocate C string and copy
-        char *result = static_cast<char *>(malloc(str.length() + 1));
-        if (result) {
-            strcpy(result, str.c_str());
-        }
-        return result;
+        // Create string wrapper
+        return new std::string(str);
     } catch (...) {
         return nullptr;
     }
 }
 
 // Get detailed string representation of LogicalProjection operator
-extern "C" char *duckdb_vx_logical_projection_to_string(duckdb_vx_logical_operator proj_op) {
+extern "C" duckdb_vx_string duckdb_vx_logical_projection_to_string(duckdb_vx_logical_operator proj_op) {
     try {
         if (!proj_op) {
             return nullptr;
@@ -305,12 +301,8 @@ extern "C" char *duckdb_vx_logical_projection_to_string(duckdb_vx_logical_operat
         }
         str += "  ]";
 
-        // Allocate C string and copy
-        char *result = static_cast<char *>(malloc(str.length() + 1));
-        if (result) {
-            strcpy(result, str.c_str());
-        }
-        return result;
+        // Create string wrapper
+        return new std::string(str);
     } catch (...) {
         return nullptr;
     }
@@ -479,11 +471,46 @@ extern "C" void duckdb_vx_free_string(char *str) {
         free(str);
 }
 
+// String utility functions for C strings
+extern "C" uint64_t duckdb_vx_c_string_length(const char *str) {
+    if (!str)
+        return 0;
+    return strlen(str);
+}
+
+// ==============================================
+// String Wrapper Functions
+// ==============================================
+
+extern "C" duckdb_vx_string duckdb_vx_create_string(const char* str) {
+    if (!str) return nullptr;
+    return new std::string(str);
+}
+
+extern "C" uint64_t duckdb_vx_string_length(duckdb_vx_string str) {
+    if (!str) return 0;
+    auto* std_str = static_cast<std::string*>(str);
+    return std_str->length();
+}
+
+extern "C" const char* duckdb_vx_string_data(duckdb_vx_string str) {
+    if (!str) return nullptr;
+    auto* std_str = static_cast<std::string*>(str);
+    return std_str->c_str();
+}
+
+extern "C" void duckdb_vx_string_free(duckdb_vx_string str) {
+    if (str) {
+        auto* std_str = static_cast<std::string*>(str);
+        delete std_str;
+    }
+}
+
 
 
 
 // Get string representation of logical operator
-extern "C" char *duckdb_vx_logical_operator_to_string(duckdb_vx_logical_operator op) {
+extern "C" duckdb_vx_string duckdb_vx_logical_operator_to_string(duckdb_vx_logical_operator op) {
     try {
         if (!op) {
             return nullptr;
@@ -492,12 +519,8 @@ extern "C" char *duckdb_vx_logical_operator_to_string(duckdb_vx_logical_operator
         auto *logical_op = reinterpret_cast<duckdb::LogicalOperator *>(op);
         std::string str = logical_op->ToString();
 
-        // Allocate C string and copy
-        char *result = static_cast<char *>(malloc(str.length() + 1));
-        if (result) {
-            strcpy(result, str.c_str());
-        }
-        return result;
+        // Create string wrapper
+        return new std::string(str);
     } catch (...) {
         return nullptr;
     }

@@ -7,7 +7,6 @@
 //! following a similar pattern to the Expression API with downcasting to specific
 //! operator types for type-safe manipulation.
 
-use std::ffi::CStr;
 use std::fmt::{Debug, Display, Formatter};
 
 use itertools::Itertools;
@@ -15,6 +14,7 @@ use vortex::error::{VortexResult, vortex_bail};
 
 use crate::cpp::*;
 use crate::duckdb::expr::Expression;
+use crate::duckdb::string::{c_string_to_rust_string, VxString};
 use crate::wrapper;
 
 wrapper!(LogicalOperator, duckdb_vx_logical_operator, |_ptr| {
@@ -80,13 +80,11 @@ impl LogicalOperator {
     /// Get string representation of this operator for debugging
     pub fn to_debug_string(&self) -> VortexResult<String> {
         unsafe {
-            let str_ptr = duckdb_vx_logical_operator_to_string(self.as_ptr());
-            if str_ptr.is_null() {
-                vortex_bail!("Failed to convert logical operator to string");
+            let vx_string_ptr = duckdb_vx_logical_operator_to_string(self.as_ptr());
+            match VxString::from_raw(vx_string_ptr) {
+                Some(vx_string) => Ok(vx_string.to_string()),
+                None => vortex_bail!("Failed to convert logical operator to string")
             }
-            let result = CStr::from_ptr(str_ptr).to_string_lossy().into_owned();
-            duckdb_vx_free_string(str_ptr);
-            Ok(result)
         }
     }
 
@@ -150,13 +148,7 @@ impl<'a> LogicalGet<'a> {
     pub fn function_name(&self) -> VortexResult<Option<String>> {
         unsafe {
             let name_ptr = duckdb_vx_get_function_name(self.op.as_ptr());
-            if name_ptr.is_null() {
-                Ok(None)
-            } else {
-                let name = CStr::from_ptr(name_ptr).to_string_lossy().into_owned();
-                duckdb_vx_free_string(name_ptr);
-                Ok(Some(name))
-            }
+            Ok(c_string_to_rust_string(name_ptr))
         }
     }
 
@@ -180,10 +172,8 @@ impl<'a> LogicalGet<'a> {
             let mut names = Vec::with_capacity(count as usize);
             for i in 0..count {
                 let name_ptr = duckdb_vx_get_column_name(self.op.as_ptr(), i);
-                if !name_ptr.is_null() {
-                    let name = CStr::from_ptr(name_ptr).to_string_lossy().into_owned();
+                if let Some(name) = c_string_to_rust_string(name_ptr) {
                     names.push(name);
-                    duckdb_vx_free_string(name_ptr);
                 }
             }
 
@@ -235,13 +225,11 @@ impl<'a> LogicalGet<'a> {
     /// Get detailed string representation of this LogicalGet operator
     pub fn to_string(&self) -> VortexResult<String> {
         unsafe {
-            let str_ptr = duckdb_vx_logical_get_to_string(self.op.as_ptr());
-            if str_ptr.is_null() {
-                vortex_bail!("Failed to convert LogicalGet to string");
+            let vx_string_ptr = duckdb_vx_logical_get_to_string(self.op.as_ptr());
+            match VxString::from_raw(vx_string_ptr) {
+                Some(vx_string) => Ok(vx_string.to_string()),
+                None => vortex_bail!("Failed to convert LogicalGet to string")
             }
-            let result = CStr::from_ptr(str_ptr).to_string_lossy().into_owned();
-            duckdb_vx_free_string(str_ptr);
-            Ok(result)
         }
     }
 }
@@ -274,13 +262,11 @@ impl<'a> LogicalProjection<'a> {
     /// Get detailed string representation of this LogicalProjection operator
     pub fn to_string(&self) -> VortexResult<String> {
         unsafe {
-            let str_ptr = duckdb_vx_logical_projection_to_string(self.op.as_ptr());
-            if str_ptr.is_null() {
-                vortex_bail!("Failed to convert LogicalProjection to string");
+            let vx_string_ptr = duckdb_vx_logical_projection_to_string(self.op.as_ptr());
+            match VxString::from_raw(vx_string_ptr) {
+                Some(vx_string) => Ok(vx_string.to_string()),
+                None => vortex_bail!("Failed to convert LogicalProjection to string")
             }
-            let result = CStr::from_ptr(str_ptr).to_string_lossy().into_owned();
-            duckdb_vx_free_string(str_ptr);
-            Ok(result)
         }
     }
 }

@@ -16,6 +16,7 @@ extern "C" {
 
 // Forward declarations for DuckDB types - opaque pointers
 typedef void* duckdb_vx_logical_operator;
+typedef void* duckdb_vx_string;
 
 // ==============================================
 // Type Definitions
@@ -56,7 +57,7 @@ typedef void (*duckdb_vx_rust_visitor_callback)(duckdb_vx_logical_operator op, v
 DUCKDB_VX_LOGICAL_OPERATOR_TYPE duckdb_vx_get_operator_type(duckdb_vx_logical_operator op);
 
 // Get string representation of operator
-char* duckdb_vx_logical_operator_to_string(duckdb_vx_logical_operator op);
+duckdb_vx_string duckdb_vx_logical_operator_to_string(duckdb_vx_logical_operator op);
 
 // Get operator children count
 uint64_t duckdb_vx_get_children_count(duckdb_vx_logical_operator op);
@@ -104,14 +105,14 @@ void duckdb_vx_add_column_id(duckdb_vx_logical_operator get_op, uint64_t column_
 void duckdb_vx_clear_column_ids(duckdb_vx_logical_operator get_op);
 
 // Get detailed string representation of LogicalGet operator
-char* duckdb_vx_logical_get_to_string(duckdb_vx_logical_operator get_op);
+duckdb_vx_string duckdb_vx_logical_get_to_string(duckdb_vx_logical_operator get_op);
 
 // ==============================================
 // LogicalProjection Functions
 // ==============================================
 
 // Get detailed string representation of LogicalProjection operator
-char* duckdb_vx_logical_projection_to_string(duckdb_vx_logical_operator proj_op);
+duckdb_vx_string duckdb_vx_logical_projection_to_string(duckdb_vx_logical_operator proj_op);
 
 // ==============================================
 // Expression Functions
@@ -146,11 +147,30 @@ void duckdb_vx_register_rust_optimizer(duckdb_database db_handle,
                                        void* user_data);
 
 // ==============================================
+// String Wrapper Functions
+// ==============================================
+
+// Create a string wrapper from std::string
+duckdb_vx_string duckdb_vx_create_string(const char* str);
+
+// Get length of wrapped string
+uint64_t duckdb_vx_string_length(duckdb_vx_string str);
+
+// Get C string data from wrapped string
+const char* duckdb_vx_string_data(duckdb_vx_string str);
+
+// Free wrapped string
+void duckdb_vx_string_free(duckdb_vx_string str);
+
+// ==============================================
 // Memory Management
 // ==============================================
 
 // Memory management functions
 void duckdb_vx_free_string(char* str);
+
+// String utility functions for C strings
+uint64_t duckdb_vx_c_string_length(const char* str);
 
 #ifdef __cplusplus
 }
