@@ -11,6 +11,7 @@ use vortex_scalar::Scalar;
 use crate::fsst_view::MAX_INLINE_STR;
 use crate::{FSSTViewArray, FSSTViewVTable, View};
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum MatchType {
     /// The operator evaluates to false for the predicate
     False,
@@ -140,11 +141,16 @@ impl CompareKernel for FSSTViewVTable {
 #[inline(always)]
 fn eq(needle: View, view: View) -> MatchType {
     // Shift off the last 4 bytes which are the buffer index. Keep only the len (4B) and prefix (8B)
-    let shifted_needle = needle.to_u128() >> 32;
-    let shifted_view = view.to_u128() >> 32;
+    let shifted_needle = needle.to_u128() << 32;
+    let shifted_view = view.to_u128() << 32;
 
     if shifted_needle == shifted_view {
-        MatchType::Maybe
+        // Short-circuit full match if needle and view are both inlined
+        if needle.is_inlined() && view.is_inlined() {
+            MatchType::True
+        } else {
+            MatchType::Maybe
+        }
     } else {
         MatchType::False
     }
@@ -152,16 +158,84 @@ fn eq(needle: View, view: View) -> MatchType {
 
 #[inline(always)]
 fn not_eq(needle: View, view: View) -> MatchType {
-    // Shift off the last 4 bytes which are the buffer index. Keep only the len (4B) and prefix (8B)
-    let shifted_needle = needle.to_u128() >> 32;
-    let shifted_view = view.to_u128() >> 32;
+    // Shift off the top 4 bytes which are the buffer index. Keep only the len (4B) and prefix (8B)
+    let shifted_needle = needle.to_u128() << 32;
+    let shifted_view = view.to_u128() << 32;
 
     if shifted_needle == shifted_view {
         // If the views match, it's possible that the full values do not match
-        MatchType::Maybe
+        if needle.is_inlined() && view.is_inlined() {
+            MatchType::False
+        } else {
+            MatchType::Maybe
+        }
     } else {
         MatchType::True
     }
 }
 
 register_kernel!(CompareKernelAdapter(FSSTViewVTable).lift());
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::{MatchType, eq, not_eq};
+    use crate::View;
+
+    // Check that
+    #[rstest]
+    #[case::outline_eq1(
+        View::new_outlined(b"hello world 1234", 1),
+        View::new_outlined(b"hello world 1235", 10),
+        MatchType::Maybe
+    )]
+    #[case::outline_eq2(
+        View::new_outlined(b"hello world 123", 10),
+        View::new_outlined(b"hello world 1234", 10),
+        MatchType::False
+    )]
+    #[case::inline_eq1(
+        View::new_inlined(b"hello world"),
+        View::new_outlined(b"hello world     ", 10),
+        MatchType::False
+    )]
+    #[case::inline_eq2(
+        View::new_inlined(b"hello world"),
+        View::new_inlined(b"hello world"),
+        MatchType::True
+    )]
+    fn test_eq_kernel(#[case] needle: View, #[case] view: View, #[case] match_type: MatchType) {
+        assert_eq!(eq(needle, view), match_type);
+    }
+
+    #[rstest]
+    #[case::outline_neq1(
+        View::new_outlined(b"hello world 12345", 1),
+        View::new_outlined(b"hello world 1", 1),
+        MatchType::True
+    )]
+    #[case::outline_neq2(
+        View::new_outlined(b"hello world 12345", 1),
+        View::new_outlined(b"hello world 12346", 1),
+        MatchType::Maybe
+    )]
+    #[case::outline_neq3(
+        View::new_outlined(b"hello world 12345", 1),
+        View::new_outlined(b"hello world 12345", 1),
+        MatchType::Maybe
+    )]
+    #[case::inline_neq1(
+        View::new_inlined(b"hello world"),
+        View::new_inlined(b"HELLO world"),
+        MatchType::True
+    )]
+    #[case::inline_neq1(
+        View::new_inlined(b"hello world"),
+        View::new_inlined(b"hello world"),
+        MatchType::False
+    )]
+    fn test_not_eq_kernel(#[case] needle: View, #[case] view: View, #[case] match_type: MatchType) {
+        assert_eq!(not_eq(needle, view), match_type);
+    }
+}
