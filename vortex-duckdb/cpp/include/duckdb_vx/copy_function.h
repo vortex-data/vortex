@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 /**
  * We redefine a C API for DuckDB Copy Functions used to copy/write values from duckdb to a vortex file.
  * See table_filter.h for more info

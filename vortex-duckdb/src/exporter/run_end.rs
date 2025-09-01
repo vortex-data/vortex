@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::marker::PhantomData;
 
 use num_traits::{FromPrimitive, ToPrimitive};
@@ -25,7 +28,7 @@ struct RunEndExporter<E: NativePType> {
 
 pub(crate) fn new_exporter(
     array: &RunEndArray,
-    cache: &mut ConversionCache,
+    cache: &ConversionCache,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     let ends = array.ends().to_primitive()?;
     let values = array.values().clone();
@@ -68,7 +71,7 @@ impl<E: NativePType + Ord + FromPrimitive + ToPrimitive> ColumnExporter for RunE
         if start_run_idx == end_run_idx {
             // NOTE(ngates): would be great if we could just export and set type == CONSTANT
             // self.values_exporter.export(start_run_idx, 1, vector, cache);
-            let constant = self.values.scalar_at(start_run_idx)?;
+            let constant = self.values.scalar_at(start_run_idx);
             let value = constant.try_to_duckdb_scalar()?;
             vector.reference_value(&value);
             return Ok(());

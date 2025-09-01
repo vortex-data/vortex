@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 syntax = "proto3";
 
 package vortex.expr;
@@ -8,59 +11,34 @@ import "dtype.proto";
 option java_package = "dev.vortex.proto";
 option java_outer_classname = "ExprProtos";
 
+// Captures a generic representation of expressions in Vortex.
+// Expression deserializers can be registered with a Vortex session to handle parsing this into
+// an in-memory expression for execution.
 message Expr {
   string id = 1;
   repeated Expr children = 2;
-  // See warning message below.
-  Kind kind = 3;
+  optional bytes metadata = 3;
 }
 
-message Kind {
-  // This enum is very unstable, and will likely be replaced with something more extensible.
-  oneof kind {
-    Literal literal = 1;
-    BinaryOp binary_op = 2;
-    GetItem get_item = 3;
-    Identity identity = 4;
-    Var var = 13;
-    Merge merge = 5;
-    Not not = 6;
-    Pack pack = 7;
-    Between between = 8;
-    Like like = 9;
-    IsNull is_null = 10;
-    Cast cast = 11;
-    ListContains list_contains = 12;
-  }
+// Options for `vortex.literal`
+message LiteralOpts {
+  vortex.scalar.Scalar value = 1;
+}
 
-  message Literal {
-    vortex.scalar.Scalar value = 1;
-  }
+// Options for `vortex.pack`
+message PackOpts {
+  repeated string paths = 1;
+  bool nullable = 2;
+}
 
-  message Not {
+// Options for `vortex.getitem`
+message GetItemOpts {
+  string path = 1;
+}
 
-  }
-
-  message Identity {
-
-  }
-
-  message Var {
-    string var = 1;
-  }
-
-  message Merge {
-
-  }
-
-  message Pack {
-    repeated string paths = 1;
-    bool nullable = 2;
-  }
-
-  message GetItem {
-    string path = 1;
-  }
+// Options for `vortex.binary`
+message BinaryOpts {
+  BinaryOp op = 1;
 
   enum BinaryOp {
     Eq = 0;
@@ -72,27 +50,31 @@ message Kind {
     And = 6;
     Or = 7;
     Add = 8;
-  }
-
-  message Between {
-    bool lower_strict = 1;
-    bool upper_strict = 2;
-  }
-
-  message Like {
-    bool negated = 1;
-    bool case_insensitive = 2;
-  }
-
-  message IsNull {
-  }
-
-  message Cast {
-    vortex.dtype.DType target = 1;
-  }
-
-  message ListContains {
+    Sub = 9;
   }
 }
 
+message BetweenOpts {
+  bool lower_strict = 1;
+  bool upper_strict = 2;
+}
 
+message LikeOpts {
+  bool negated = 1;
+  bool case_insensitive = 2;
+}
+
+message CastOpts {
+  vortex.dtype.DType target = 1;
+}
+
+message FieldNames {
+  repeated string names = 1;
+}
+
+message SelectOpts {
+  oneof opts {
+    FieldNames include = 1;
+    FieldNames exclude = 2;
+  }
+}

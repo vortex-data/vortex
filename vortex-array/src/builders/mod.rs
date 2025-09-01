@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+// TODO(connor): Make the methods on all builders consistent (`_opt` methods).
+
 //! Builders for Vortex arrays.
 //!
 //! Every logical type in Vortex has a canonical (uncompressed) in-memory encoding. This module
@@ -19,42 +24,52 @@
 //!
 //! let strings = builder.finish();
 //!
-//! assert_eq!(strings.scalar_at(0).unwrap(), "a".into());
-//! assert_eq!(strings.scalar_at(1).unwrap(), "b".into());
-//! assert_eq!(strings.scalar_at(2).unwrap(), "c".into());
-//! assert_eq!(strings.scalar_at(3).unwrap(), "d".into());
+//! assert_eq!(strings.scalar_at(0), "a".into());
+//! assert_eq!(strings.scalar_at(1), "b".into());
+//! assert_eq!(strings.scalar_at(2), "c".into());
+//! assert_eq!(strings.scalar_at(3), "d".into());
 //! ```
+
+use std::any::Any;
+
+use vortex_dtype::{DType, match_each_native_ptype};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_mask::Mask;
+use vortex_scalar::{
+    BinaryScalar, BoolScalar, DecimalValue, ExtScalar, ListScalar, PrimitiveScalar, Scalar,
+    StructScalar, Utf8Scalar, match_each_decimal_value, match_each_decimal_value_type,
+};
+
+use crate::arrays::smallest_storage_type;
+use crate::{Array, ArrayRef};
+
+mod lazy_null_builder;
+use lazy_null_builder::LazyNullBufferBuilder;
 
 mod bool;
 mod decimal;
 mod extension;
-mod lazy_validity_builder;
+mod fixed_size_list;
 mod list;
 mod null;
 mod primitive;
 mod struct_;
 mod varbinview;
 
-use std::any::Any;
-
 pub use bool::*;
 pub use decimal::*;
 pub use extension::*;
+pub use fixed_size_list::*;
 pub use list::*;
 pub use null::*;
 pub use primitive::*;
 pub use struct_::*;
 pub use varbinview::*;
-use vortex_dtype::{DType, match_each_native_ptype};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
-use vortex_mask::Mask;
-use vortex_scalar::{
-    BinaryScalar, BoolScalar, DecimalValue, ExtScalar, ListScalar, PrimitiveScalar, Scalar,
-    ScalarValue, StructScalar, Utf8Scalar, match_each_decimal_value, match_each_decimal_value_type,
-};
 
-use crate::arrays::smallest_storage_type;
-use crate::{Array, ArrayRef};
+/// The default capacity for builders.
+///
+/// This is equal to the default capacity for Arrow Arrays.
+pub const DEFAULT_BUILDER_CAPACITY: usize = 1024;
 
 pub trait ArrayBuilder: Send {
     fn as_any(&self) -> &dyn Any;
@@ -68,6 +83,8 @@ pub trait ArrayBuilder: Send {
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    // TODO(connor): We should probably merge these 4 methods to `append_defaults`.
 
     /// Append a "zero" value to the array.
     fn append_zero(&mut self) {
@@ -85,6 +102,8 @@ pub trait ArrayBuilder: Send {
     /// Appends n "null" values to the array.
     fn append_nulls(&mut self, n: usize);
 
+    // TODO(connor): Document the fact that the passed in `array` is validated to have the correct
+    // dtype via the VTable.
     /// Extends the array with the provided array, canonicalizing if necessary.
     fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()>;
 
@@ -125,10 +144,10 @@ pub trait ArrayBuilder: Send {
 ///
 /// let strings = builder.finish();
 ///
-/// assert_eq!(strings.scalar_at(0).unwrap(), "a".into());
-/// assert_eq!(strings.scalar_at(1).unwrap(), "b".into());
-/// assert_eq!(strings.scalar_at(2).unwrap(), "c".into());
-/// assert_eq!(strings.scalar_at(3).unwrap(), "d".into());
+/// assert_eq!(strings.scalar_at(0), "a".into());
+/// assert_eq!(strings.scalar_at(1), "b".into());
+/// assert_eq!(strings.scalar_at(2), "c".into());
+/// assert_eq!(strings.scalar_at(3), "d".into());
 /// ```
 pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBuilder> {
     match dtype {
@@ -163,6 +182,9 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
             *n,
             capacity,
         )),
+        DType::FixedSizeList(..) => {
+            unimplemented!("TODO(connor)[FixedSizeList]")
+        }
         DType::Extension(ext_dtype) => {
             Box::new(ExtensionBuilder::with_capacity(ext_dtype.clone(), capacity))
         }
@@ -170,16 +192,6 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
 }
 
 pub trait ArrayBuilderExt: ArrayBuilder {
-    /// A generic function to append a scalar value to the builder.
-    fn append_scalar_value(&mut self, value: ScalarValue) -> VortexResult<()> {
-        if value.is_null() {
-            self.append_null();
-            Ok(())
-        } else {
-            self.append_scalar(&Scalar::new(self.dtype().clone(), value))
-        }
-    }
-
     /// A generic function to append a scalar to the builder.
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
         if scalar.dtype() != self.dtype() {
@@ -220,7 +232,7 @@ pub trait ArrayBuilderExt: ArrayBuilder {
                 match scalar.as_decimal().decimal_value() {
                     None => builder.append_null(),
                     Some(v) => match_each_decimal_value!(v, |dec_val| {
-                        builder.append_value(*dec_val);
+                        builder.append_value(dec_val);
                     }),
                 }
             }
@@ -244,6 +256,9 @@ pub trait ArrayBuilderExt: ArrayBuilder {
                 .downcast_mut::<ListBuilder<u64>>()
                 .ok_or_else(|| vortex_err!("Cannot append list scalar to non-list builder"))?
                 .append_value(ListScalar::try_from(scalar)?)?,
+            DType::FixedSizeList(..) => {
+                unimplemented!("TODO(connor)[FixedSizeList]")
+            }
             DType::Extension(..) => self
                 .as_any_mut()
                 .downcast_mut::<ExtensionBuilder>()

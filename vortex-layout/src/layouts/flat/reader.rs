@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::collections::BTreeSet;
 use std::ops::{BitAnd, Range};
 use std::sync::{Arc, OnceLock};
@@ -5,12 +8,15 @@ use std::sync::{Arc, OnceLock};
 use async_trait::async_trait;
 use futures::FutureExt;
 use vortex_array::compute::filter;
+use vortex_array::pipeline::{
+    N, export_canonical_pipeline_expr, export_canonical_pipeline_expr_offset,
+};
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
-use vortex_array::{Array, ArrayContext, ArrayRef};
-use vortex_dtype::{DType, FieldMask};
+use vortex_array::{Array, ArrayRef, IntoArray};
+use vortex_dtype::{DType, FieldMask, Nullability};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
-use vortex_expr::{ExprRef, Scope, ScopeDType, is_root};
+use vortex_expr::{ExprRef, Scope, VortexExprExt, is_root};
 use vortex_mask::Mask;
 
 use crate::layouts::SharedArrayFuture;
@@ -31,7 +37,6 @@ pub struct FlatReader {
     layout: FlatLayout,
     name: Arc<str>,
     segment_source: Arc<dyn SegmentSource>,
-    ctx: ArrayContext,
     array: OnceLock<SharedArrayFuture>,
 }
 
@@ -40,13 +45,11 @@ impl FlatReader {
         layout: FlatLayout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-        ctx: ArrayContext,
     ) -> Self {
         Self {
             layout,
             name,
             segment_source,
-            ctx,
             array: Default::default(),
         }
     }
@@ -64,14 +67,12 @@ impl FlatReader {
         // We create the segment_fut here to ensure we give the segment reader visibility into
         // how to prioritize this segment, even if the `array` future has already been initialized.
         // This is gross... see the function's TODO for a maybe better solution?
-        let segment_fut = self
-            .segment_source
-            .request(self.layout.segment_id(), &self.name);
+        let segment_fut = self.segment_source.request(self.layout.segment_id());
 
         Ok(self
             .array
             .get_or_init(|| {
-                let ctx = self.ctx.clone();
+                let ctx = self.layout.ctx.clone();
                 let dtype = self.layout.dtype().clone();
                 async move {
                     let segment = segment_fut.await?;
@@ -93,10 +94,6 @@ impl LayoutReader for FlatReader {
 
     fn dtype(&self) -> &DType {
         self.layout.dtype()
-    }
-
-    fn scope_dtype(&self) -> &ScopeDType {
-        self.layout.scope_dtype()
     }
 
     fn row_count(&self) -> Precision<u64> {
@@ -174,9 +171,17 @@ impl MaskEvaluation for FlatEvaluation {
         // Now we await the array .
         let mut array = self.array.clone().await?;
 
+        if let Some(array) =
+            try_evaluate_using_operator(self.row_range.clone(), &array, &self.expr, &mask)?
+        {
+            let array_mask = array.try_to_mask_fill_null_false()?;
+            let mask = mask.intersect_by_rank(&array_mask);
+            return Ok(mask);
+        }
+
         // Slice the array based on the row mask.
         if self.row_range.start > 0 || self.row_range.end < array.len() {
-            array = array.slice(self.row_range.start, self.row_range.end)?;
+            array = array.slice(self.row_range.clone());
         }
 
         // TODO(ngates): the mask may actually be dense within a range, as is often the case when
@@ -187,12 +192,18 @@ impl MaskEvaluation for FlatEvaluation {
         let array_mask = if mask.density() < EXPR_EVAL_THRESHOLD {
             // Evaluate only the selected rows of the mask.
             array = filter(&array, &mask)?;
-            let array_mask = Mask::try_from(self.expr.evaluate(&Scope::new(array))?.as_ref())?;
+            // TODO(joe): fixme casting null to false is *VERY* unsound, if the expression in the filter
+            // can inspect nulls (e.g. `is_null`).
+            // you will need to call the array evaluation instead of the mask evaluation.
+            let array_mask = self
+                .expr
+                .evaluate(&Scope::new(array))?
+                .try_to_mask_fill_null_false()?;
             mask.intersect_by_rank(&array_mask)
         } else {
             // Evaluate all rows, avoiding the more expensive rank intersection.
             array = self.expr.evaluate(&Scope::new(array))?;
-            let array_mask = Mask::try_from(array.as_ref())?;
+            let array_mask = array.try_to_mask_fill_null_false()?;
             mask.bitand(&array_mask)
         };
 
@@ -221,9 +232,15 @@ impl ArrayEvaluation for FlatEvaluation {
         // Now we await the array .
         let mut array = self.array.clone().await?;
 
+        if let Some(array) =
+            try_evaluate_using_operator(self.row_range.clone(), &array, &self.expr, &mask)?
+        {
+            return Ok(array);
+        }
+
         // Slice the array based on the row mask.
         if self.row_range.start > 0 || self.row_range.end < array.len() {
-            array = array.slice(self.row_range.start, self.row_range.end)?;
+            array = array.slice(self.row_range.clone());
         }
 
         // Filter the array based on the row mask.
@@ -238,6 +255,55 @@ impl ArrayEvaluation for FlatEvaluation {
 
         Ok(array)
     }
+}
+
+fn try_evaluate_using_operator(
+    row_range: Range<usize>,
+    array: &ArrayRef,
+    expr: &ExprRef,
+    mask: &Mask,
+) -> VortexResult<Option<ArrayRef>> {
+    let Some(operator) = expr.to_operator(array)? else {
+        return Ok(None);
+    };
+
+    let return_type = expr.return_dtype(array.dtype())?;
+    if !matches!(
+        return_type,
+        DType::Primitive(_, Nullability::NonNullable) | DType::Bool(Nullability::NonNullable)
+    ) {
+        return Ok(None);
+    }
+
+    let result = if row_range.start % N != 0 {
+        // If the start is not a multiple of PIPELINE_STEP_COUNT, then we need to slice
+        // we could do mask offsets instead, but this case is rare, due to split building.
+        let array = array.slice(row_range.clone());
+        let operator = expr
+            .to_operator(array.as_ref())?
+            .vortex_expect("already converted");
+        export_canonical_pipeline_expr(
+            &return_type,
+            row_range.end - row_range.start,
+            operator.as_ref(),
+            mask,
+        )?
+        .into_array()
+    } else {
+        log::trace!(
+            "ArrayEvaluation: export_canonical_pipeline_expr_offset {:?}",
+            operator
+        );
+        export_canonical_pipeline_expr_offset(
+            &return_type,
+            row_range.start / N,
+            row_range.end - row_range.start,
+            operator.as_ref(),
+            mask,
+        )?
+        .into_array()
+    };
+    Ok(Some(result))
 }
 
 #[cfg(test)]
@@ -282,7 +348,7 @@ mod test {
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let result = layout
-                .new_reader("".into(), segments, ctx)
+                .new_reader("".into(), segments)
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()
@@ -323,7 +389,7 @@ mod test {
 
             let expr = gt(root(), lit(3i32));
             let result = layout
-                .new_reader("".into(), segments, ctx)
+                .new_reader("".into(), segments)
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &expr)
                 .unwrap()
@@ -363,7 +429,7 @@ mod test {
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let result = layout
-                .new_reader("".into(), segments, ctx)
+                .new_reader("".into(), segments)
                 .unwrap()
                 .projection_evaluation(&(2..4), &root())
                 .unwrap()

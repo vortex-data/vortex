@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 mod reader;
 pub mod writer;
 
@@ -5,8 +8,7 @@ use std::sync::Arc;
 
 use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_panic};
-use vortex_expr::{Identifier, ScopeDType};
+use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 
 use crate::children::LayoutChildren;
 use crate::layouts::flat::reader::FlatReader;
@@ -35,14 +37,7 @@ impl VTable for FlatVTable {
     }
 
     fn dtype(layout: &Self::Layout) -> &DType {
-        layout
-            .scope_dtype
-            .dtype(&Identifier::Identity)
-            .vortex_expect("flat layout always has an identity")
-    }
-
-    fn scope_dtype(layout: &Self::Layout) -> &ScopeDType {
-        &layout.scope_dtype
+        &layout.dtype
     }
 
     fn metadata(_layout: &Self::Layout) -> Self::Metadata {
@@ -69,13 +64,11 @@ impl VTable for FlatVTable {
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-        ctx: ArrayContext,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(FlatReader::new(
             layout.clone(),
             name,
             segment_source,
-            ctx,
         )))
     }
 
@@ -86,15 +79,16 @@ impl VTable for FlatVTable {
         _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         segment_ids: Vec<SegmentId>,
         _children: &dyn LayoutChildren,
+        ctx: ArrayContext,
     ) -> VortexResult<Self::Layout> {
         if segment_ids.len() != 1 {
             vortex_bail!("Flat layout must have exactly one segment ID");
         }
-        let scope_dtype = ScopeDType::new(dtype.clone());
         Ok(FlatLayout {
             row_count,
-            scope_dtype,
+            dtype: dtype.clone(),
             segment_id: segment_ids[0],
+            ctx,
         })
     }
 }
@@ -105,17 +99,18 @@ pub struct FlatLayoutEncoding;
 #[derive(Clone, Debug)]
 pub struct FlatLayout {
     row_count: u64,
-    scope_dtype: ScopeDType,
+    dtype: DType,
     segment_id: SegmentId,
+    ctx: ArrayContext,
 }
 
 impl FlatLayout {
-    pub fn new(row_count: u64, dtype: DType, segment_id: SegmentId) -> Self {
-        let scope_dtype = ScopeDType::new(dtype);
+    pub fn new(row_count: u64, dtype: DType, segment_id: SegmentId, ctx: ArrayContext) -> Self {
         Self {
             row_count,
-            scope_dtype,
+            dtype,
             segment_id,
+            ctx,
         }
     }
 

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_array::compute::{TakeKernel, TakeKernelAdapter, fill_null, take};
 use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
 use vortex_error::VortexResult;
@@ -47,6 +50,7 @@ mod test {
     use rstest::rstest;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_array::compute::take;
 
     use crate::{ALPRDFloat, RDEncoder};
@@ -101,6 +105,34 @@ mod test {
 
         assert_eq!(taken.as_slice::<T>()[0], a);
         assert_eq!(taken.as_slice::<T>()[1], outlier);
-        assert!(!taken.validity_mask().unwrap().value(2));
+        assert!(!taken.validity_mask().value(2));
+    }
+
+    #[rstest]
+    #[case(0.1f32, 0.2f32, 3e25f32)]
+    #[case(0.1f64, 0.2f64, 3e100f64)]
+    fn test_take_conformance_alprd<T: ALPRDFloat>(#[case] a: T, #[case] b: T, #[case] outlier: T) {
+        test_take_conformance(
+            &RDEncoder::new(&[a, b])
+                .encode(&PrimitiveArray::from_iter([a, b, outlier, b, outlier]))
+                .to_array(),
+        );
+    }
+
+    #[rstest]
+    #[case(0.1f32, 3e25f32)]
+    #[case(0.5f64, 1e100f64)]
+    fn test_take_with_nulls_conformance<T: ALPRDFloat>(#[case] a: T, #[case] outlier: T) {
+        test_take_conformance(
+            &RDEncoder::new(&[a])
+                .encode(&PrimitiveArray::from_option_iter([
+                    Some(a),
+                    None,
+                    Some(outlier),
+                    Some(a),
+                    None,
+                ]))
+                .to_array(),
+        );
     }
 }

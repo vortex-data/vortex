@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::hash::Hash;
 
 use arrow_buffer::BooleanBuffer;
@@ -9,7 +12,7 @@ use vortex_array::stats::Stat;
 use vortex_dtype::{NativePType, match_each_integer_ptype};
 use vortex_error::{VortexError, VortexExpect, VortexUnwrap};
 use vortex_mask::AllOr;
-use vortex_scalar::{PValue, ScalarValue};
+use vortex_scalar::{PValue, Scalar};
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::sample::sample;
@@ -152,7 +155,7 @@ impl CompressorStats for IntegerStats {
 
 fn typed_int_stats<T>(array: &PrimitiveArray, count_distinct_values: bool) -> IntegerStats
 where
-    T: NativePType + PrimInt + for<'a> TryFrom<&'a ScalarValue, Error = VortexError>,
+    T: NativePType + PrimInt + for<'a> TryFrom<&'a Scalar, Error = VortexError>,
     TypedStats<T>: Into<ErasedStats>,
     NativeValue<T>: Eq + Hash,
 {
@@ -173,7 +176,7 @@ where
             }
             .into(),
         };
-    } else if array.all_invalid().vortex_expect("all_invalid") {
+    } else if array.all_invalid() {
         return IntegerStats {
             src: array.clone(),
             null_count: array.len().try_into().vortex_expect("null_count"),
@@ -191,7 +194,7 @@ where
         };
     }
 
-    let validity = array.validity_mask().vortex_expect("logical_validity");
+    let validity = array.validity_mask();
     let null_count = validity.false_count();
     let value_count = validity.true_count();
 

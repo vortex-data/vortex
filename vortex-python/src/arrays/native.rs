@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::ops::Deref;
 
 use pyo3::PyClass;
@@ -14,11 +17,12 @@ use vortex::encodings::dict::DictVTable;
 use vortex::encodings::fastlanes::{BitPackedVTable, DeltaVTable, FoRVTable};
 use vortex::encodings::fsst::FSSTVTable;
 use vortex::encodings::runend::RunEndVTable;
+use vortex::encodings::sequence::SequenceVTable;
 use vortex::encodings::sparse::SparseVTable;
 use vortex::encodings::zigzag::ZigZagVTable;
 use vortex::error::VortexExpect;
 use vortex::vtable::VTable;
-use vortex::{Array, ArrayRef};
+use vortex::{Array, ArrayAdapter, ArrayRef};
 
 use crate::arrays::PyArray;
 use crate::arrays::builtins::{
@@ -28,7 +32,7 @@ use crate::arrays::builtins::{
 };
 use crate::arrays::compressed::{
     PyAlpArray, PyAlpRdArray, PyDateTimePartsArray, PyDictArray, PyFsstArray, PyRunEndArray,
-    PySparseArray, PyZigZagArray,
+    PySequenceArray, PySparseArray, PyZigZagArray,
 };
 use crate::arrays::fastlanes::{
     PyFastLanesBitPackedArray, PyFastLanesDeltaArray, PyFastLanesFoRArray,
@@ -142,6 +146,10 @@ impl PyNativeArray {
             return Self::with_subclass(py, array, PyDecimalArray);
         }
 
+        if array.is::<SequenceVTable>() {
+            return Self::with_subclass(py, array, PySequenceArray);
+        }
+
         Err(PyTypeError::new_err(format!(
             "Unrecognized native array {}",
             array.encoding_id()
@@ -190,7 +198,7 @@ impl PyNativeArray {
 
     /// Returns the number of bytes used by this array.
     #[getter]
-    fn nbytes(&self) -> usize {
+    fn nbytes(&self) -> u64 {
         self.0.nbytes()
     }
 
@@ -215,7 +223,8 @@ impl<V: EncodingSubclass> AsArrayRef<<V::VTable as VTable>::Array> for PyRef<'_,
         self.as_super()
             .inner()
             .as_any()
-            .downcast_ref::<<V::VTable as VTable>::Array>()
+            .downcast_ref::<ArrayAdapter<V::VTable>>()
             .vortex_expect("Failed to downcast array")
+            .as_inner()
     }
 }

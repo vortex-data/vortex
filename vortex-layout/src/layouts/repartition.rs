@@ -1,7 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::collections::VecDeque;
 
-use arcref::ArcRef;
 use async_stream::try_stream;
+use async_trait::async_trait;
 use futures::{StreamExt as _, pin_mut};
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
@@ -9,14 +12,14 @@ use vortex_error::{VortexExpect, VortexResult};
 
 use crate::segments::SequenceWriter;
 use crate::{
-    LayoutStrategy, SendableLayoutWriter, SendableSequentialStream, SequentialStreamAdapter,
+    LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
     SequentialStreamExt,
 };
 
 #[derive(Clone)]
 pub struct RepartitionWriterOptions {
     /// The minimum uncompressed size in bytes for a block.
-    pub block_size_minimum: usize,
+    pub block_size_minimum: u64,
     /// The multiple of the number of rows in each block.
     pub block_len_multiple: usize,
 }
@@ -25,24 +28,32 @@ pub struct RepartitionWriterOptions {
 ///
 /// Each emitted block (except the last) is at least `block_size_minimum` bytes and contains a
 /// multiple of `block_len_multiple` rows.
-pub struct RepartitionStrategy {
+#[derive(Clone)]
+pub struct RepartitionStrategy<S> {
+    child: S,
     options: RepartitionWriterOptions,
-    child: ArcRef<dyn LayoutStrategy>,
 }
 
-impl RepartitionStrategy {
-    pub fn new(child: ArcRef<dyn LayoutStrategy>, options: RepartitionWriterOptions) -> Self {
-        Self { options, child }
+impl<S> RepartitionStrategy<S>
+where
+    S: LayoutStrategy,
+{
+    pub fn new(child: S, options: RepartitionWriterOptions) -> Self {
+        Self { child, options }
     }
 }
 
-impl LayoutStrategy for RepartitionStrategy {
-    fn write_stream(
+#[async_trait]
+impl<S> LayoutStrategy for RepartitionStrategy<S>
+where
+    S: LayoutStrategy,
+{
+    async fn write_stream(
         &self,
         ctx: &ArrayContext,
         sequence_writer: SequenceWriter,
         stream: SendableSequentialStream,
-    ) -> SendableLayoutWriter {
+    ) -> VortexResult<LayoutRef> {
         // TODO(os): spawn stream below like:
         // canon_stream = stream.map(async {to_canonical}).map(spawn).buffered(parallelism)
         let dtype = stream.dtype().clone();
@@ -67,7 +78,7 @@ impl LayoutStrategy for RepartitionStrategy {
                 let mut offset = 0;
                 while offset < chunk.len() {
                     let end = (offset + options.block_len_multiple).min(chunk.len());
-                    let sliced = chunk.slice(offset, end)?;
+                    let sliced = chunk.slice(offset..end);
                     chunks.push_back(sliced);
                     offset = end;
 
@@ -75,7 +86,7 @@ impl LayoutStrategy for RepartitionStrategy {
                         let output_chunks = chunks.collect_exact_blocks()?;
                         assert!(!output_chunks.is_empty());
                         let chunked =
-                            ChunkedArray::new_unchecked(output_chunks, dtype_clone.clone());
+                            ChunkedArray::try_new(output_chunks, dtype_clone.clone())?;
                         if !chunked.is_empty() {
                             yield (
                                 sequence_pointer.advance(),
@@ -85,10 +96,10 @@ impl LayoutStrategy for RepartitionStrategy {
                     }
                 }
                 if canonical_stream.as_mut().peek().await.is_none() {
-                    let to_flush = ChunkedArray::new_unchecked(
+                    let to_flush = ChunkedArray::try_new(
                         chunks.data.drain(..).collect(),
                         dtype_clone.clone(),
-                    );
+                    )?;
                     if !to_flush.is_empty() {
                         yield (
                             sequence_pointer.advance(),
@@ -99,18 +110,20 @@ impl LayoutStrategy for RepartitionStrategy {
             }
         };
 
-        self.child.write_stream(
-            ctx,
-            sequence_writer,
-            SequentialStreamAdapter::new(dtype, repartitioned_stream).sendable(),
-        )
+        self.child
+            .write_stream(
+                ctx,
+                sequence_writer,
+                SequentialStreamAdapter::new(dtype, repartitioned_stream).sendable(),
+            )
+            .await
     }
 }
 
 struct ChunksBuffer {
     data: VecDeque<ArrayRef>,
     row_count: usize,
-    nbytes: usize,
+    nbytes: u64,
     options: RepartitionWriterOptions,
 }
 
@@ -140,8 +153,8 @@ impl ChunksBuffer {
             let len = chunk.len();
 
             if len > remaining {
-                let left = chunk.slice(0, remaining)?;
-                let right = chunk.slice(remaining, len)?;
+                let left = chunk.slice(0..remaining);
+                let right = chunk.slice(remaining..len);
                 self.push_front(right);
                 res.push(left);
                 remaining = 0;

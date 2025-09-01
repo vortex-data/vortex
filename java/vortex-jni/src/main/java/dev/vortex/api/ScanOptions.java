@@ -1,18 +1,6 @@
-/**
- * (c) Copyright 2025 SpiralDB Inc. All rights reserved.
- * <p>
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- * <p>
- * http://www.apache.org/licenses/LICENSE-2.0
- * <p>
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 package dev.vortex.api;
 
 import java.util.List;
@@ -46,10 +34,20 @@ public interface ScanOptions {
      */
     Optional<long[]> rowIndices();
 
+    /**
+     * Creates a new ScanOptions instance with default values.
+     *
+     * @return a ScanOptions instance with empty columns list, no predicate, no row range, and no row indices
+     */
     static ScanOptions of() {
         return ImmutableScanOptions.builder().build();
     }
 
+    /**
+     * Creates a new builder for constructing ScanOptions instances.
+     *
+     * @return a new builder instance that can be used to configure and build ScanOptions
+     */
     static ImmutableScanOptions.Builder builder() {
         return ImmutableScanOptions.builder();
     }

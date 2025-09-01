@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_error::VortexResult;
 
 use crate::arrays::{ChunkedArray, ChunkedVTable};
@@ -21,7 +24,7 @@ impl CompareKernel for ChunkedVTable {
         );
 
         for chunk in lhs.non_empty_chunks() {
-            let sliced = rhs.slice(idx, idx + chunk.len())?;
+            let sliced = rhs.slice(idx..idx + chunk.len());
             let cmp_result = compare(chunk, &sliced, operator)?;
 
             bool_builder.extend_from_array(&cmp_result)?;

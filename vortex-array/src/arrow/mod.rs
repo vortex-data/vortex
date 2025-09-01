@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! Utilities to work with `Arrow` data and types.
 
 use arrow_array::ArrayRef as ArrowArrayRef;
@@ -8,9 +11,12 @@ mod array;
 pub mod compute;
 mod convert;
 mod datum;
+mod iter;
 mod record_batch;
 
+pub use array::*;
 pub use datum::*;
+pub use iter::*;
 
 use crate::arrow::compute::ToArrowOptions;
 

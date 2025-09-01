@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -16,3 +19,21 @@ impl MaskKernel for BoolVTable {
 }
 
 register_kernel!(MaskKernelAdapter(BoolVTable).lift());
+
+#[cfg(test)]
+mod test {
+    use rstest::rstest;
+
+    use crate::arrays::BoolArray;
+    use crate::compute::conformance::mask::test_mask_conformance;
+
+    #[rstest]
+    #[case(BoolArray::from_iter([true, false, true, true, false]))]
+    #[case(BoolArray::from_iter([Some(true), None, Some(false), Some(true), None]))]
+    #[case(BoolArray::from_iter([true]))]
+    #[case(BoolArray::from_iter([false, false]))]
+    #[case(BoolArray::from_iter((0..100).map(|i| i % 2 == 0)))]
+    fn test_mask_bool_conformance(#[case] array: BoolArray) {
+        test_mask_conformance(array.as_ref());
+    }
+}

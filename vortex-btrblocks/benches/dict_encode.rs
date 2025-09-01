@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 #![allow(clippy::unwrap_used)]
 
 use divan::Bencher;
@@ -35,7 +38,7 @@ fn encode_generic(bencher: Bencher) {
 fn encode_specialized(bencher: Bencher) {
     bencher
         .with_inputs(|| IntegerStats::generate(&make_array()))
-        .bench_values(|stats| dictionary_encode(&stats).unwrap());
+        .bench_values(|stats| dictionary_encode(&stats));
 }
 
 fn main() {

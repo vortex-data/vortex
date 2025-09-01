@@ -1,18 +1,6 @@
-/**
- * (c) Copyright 2025 SpiralDB Inc. All rights reserved.
- * <p>
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- * <p>
- * http://www.apache.org/licenses/LICENSE-2.0
- * <p>
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 package dev.vortex.jni;
 
 import java.util.List;
@@ -24,6 +12,20 @@ public final class NativeFileMethods {
     }
 
     private NativeFileMethods() {}
+
+    /**
+     * List all Vortex files underneath the current file path.
+     *
+     * @param uri     The URI describing both the object store and the path to the file
+     * @param options Any options required to initialize the object store client
+     * @return A list of URIs for the Vortex files below the provided path
+     */
+    public static native List<String> listVortexFiles(String uri, Map<String, String> options);
+
+    /**
+     * Delete the files at the provided URIs. Use the options to configure an object store client.
+     */
+    public static native void delete(String[] uris, Map<String, String> options);
 
     /**
      * Open a file using the native library with the provided URI and options.

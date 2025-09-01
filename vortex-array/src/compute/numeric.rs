@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::any::Any;
 use std::sync::LazyLock;
 
@@ -11,6 +14,14 @@ use crate::arrow::{Datum, from_arrow_array_with_len};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef, IntoArray};
+
+static NUMERIC_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("numeric".into(), ArcRef::new_ref(&Numeric));
+    for kernel in inventory::iter::<NumericKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
 
 /// Point-wise add two numeric arrays.
 ///
@@ -112,14 +123,6 @@ impl<V: VTable + NumericKernel> Kernel for NumericKernelAdapter<V> {
         Ok(V::numeric(&self.0, lhs, inputs.rhs, inputs.operator)?.map(|array| array.into()))
     }
 }
-
-pub static NUMERIC_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("numeric".into(), ArcRef::new_ref(&Numeric));
-    for kernel in inventory::iter::<NumericKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
 
 struct Numeric;
 
@@ -257,7 +260,7 @@ fn arrow_numeric(
         NumericOperator::RDiv => arrow_arith::numeric::div(&right, &left)?,
     };
 
-    from_arrow_array_with_len(array.as_ref(), len, nullable)
+    Ok(from_arrow_array_with_len(array.as_ref(), len, nullable))
 }
 
 #[cfg(test)]
@@ -303,7 +306,7 @@ mod test {
             .unwrap();
 
         let actual = (0..result.len())
-            .map(|index| result.scalar_at(index).unwrap())
+            .map(|index| result.scalar_at(index))
             .collect::<Vec<_>>();
         assert_eq!(
             actual,

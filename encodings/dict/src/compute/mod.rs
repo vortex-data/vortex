@@ -1,4 +1,8 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 mod binary_numeric;
+mod cast;
 mod compare;
 mod fill_null;
 mod is_constant;
@@ -23,7 +27,10 @@ impl TakeKernel for DictVTable {
             .values()
             .dtype()
             .union_nullability(codes.dtype().nullability());
-        DictArray::try_new(codes, cast(array.values(), &values_dtype)?).map(|a| a.into_array())
+        // SAFETY: selecting codes doesn't change the invariants of DictArray
+        unsafe {
+            Ok(DictArray::new_unchecked(codes, cast(array.values(), &values_dtype)?).into_array())
+        }
     }
 }
 
@@ -32,7 +39,9 @@ register_kernel!(TakeKernelAdapter(DictVTable).lift());
 impl FilterKernel for DictVTable {
     fn filter(&self, array: &DictArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let codes = filter(array.codes(), mask)?;
-        DictArray::try_new(codes, array.values().clone()).map(|a| a.into_array())
+
+        // SAFETY: filtering codes doesn't change invariants
+        unsafe { Ok(DictArray::new_unchecked(codes, array.values().clone()).into_array()) }
     }
 }
 
@@ -42,7 +51,9 @@ register_kernel!(FilterKernelAdapter(DictVTable).lift());
 mod test {
     use vortex_array::accessor::ArrayAccessor;
     use vortex_array::arrays::{ConstantArray, PrimitiveArray, VarBinArray, VarBinViewArray};
-    use vortex_array::compute::conformance::mask::test_mask;
+    use vortex_array::compute::conformance::filter::test_filter_conformance;
+    use vortex_array::compute::conformance::mask::test_mask_conformance;
+    use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_array::compute::{Operator, compare, take};
     use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
     use vortex_dtype::PType::I32;
@@ -78,10 +89,7 @@ mod test {
         assert_eq!(actual.as_slice::<i32>(), expected.as_slice());
 
         let expected_valid_count = values.iter().filter(|x| x.is_some()).count();
-        assert_eq!(
-            actual.validity_mask().unwrap().true_count(),
-            expected_valid_count
-        );
+        assert_eq!(actual.validity_mask().true_count(), expected_valid_count);
     }
 
     #[test]
@@ -141,7 +149,7 @@ mod test {
             Some(5),
         ]);
         let dict = dict_encode(reference.as_ref()).unwrap();
-        dict.slice(1, 4).unwrap()
+        dict.slice(1..4)
     }
 
     #[test]
@@ -150,15 +158,15 @@ mod test {
         let compared = compare(&sliced, ConstantArray::new(42, 3).as_ref(), Operator::Eq).unwrap();
 
         assert_eq!(
-            compared.scalar_at(0).unwrap(),
+            compared.scalar_at(0),
             Scalar::bool(false, Nullability::Nullable)
         );
         assert_eq!(
-            compared.scalar_at(1).unwrap(),
+            compared.scalar_at(1),
             Scalar::null(DType::Bool(Nullability::Nullable))
         );
         assert_eq!(
-            compared.scalar_at(2).unwrap(),
+            compared.scalar_at(2),
             Scalar::bool(true, Nullability::Nullable)
         );
     }
@@ -166,13 +174,13 @@ mod test {
     #[test]
     fn test_mask_dict_array() {
         let array = dict_encode(&PrimitiveArray::from_iter([2, 0, 2, 0, 10]).into_array()).unwrap();
-        test_mask(array.as_ref());
+        test_mask_conformance(array.as_ref());
 
         let array = dict_encode(
             PrimitiveArray::from_option_iter([Some(2), None, Some(2), Some(0), Some(10)]).as_ref(),
         )
         .unwrap();
-        test_mask(array.as_ref());
+        test_mask_conformance(array.as_ref());
 
         let array = dict_encode(
             &VarBinArray::from_iter(
@@ -188,7 +196,35 @@ mod test {
             .into_array(),
         )
         .unwrap();
-        test_mask(array.as_ref());
+        test_mask_conformance(array.as_ref());
+    }
+
+    #[test]
+    fn test_filter_dict_array() {
+        let array = dict_encode(&PrimitiveArray::from_iter([2, 0, 2, 0, 10]).into_array()).unwrap();
+        test_filter_conformance(array.as_ref());
+
+        let array = dict_encode(
+            PrimitiveArray::from_option_iter([Some(2), None, Some(2), Some(0), Some(10)]).as_ref(),
+        )
+        .unwrap();
+        test_filter_conformance(array.as_ref());
+
+        let array = dict_encode(
+            &VarBinArray::from_iter(
+                [
+                    Some("hello"),
+                    None,
+                    Some("hello"),
+                    Some("good"),
+                    Some("good"),
+                ],
+                DType::Utf8(Nullability::Nullable),
+            )
+            .into_array(),
+        )
+        .unwrap();
+        test_filter_conformance(array.as_ref());
     }
 
     #[test]
@@ -204,5 +240,74 @@ mod test {
             .dtype(),
             &DType::Primitive(I32, Nullability::Nullable)
         );
+    }
+
+    #[test]
+    fn test_take_dict_conformance() {
+        let array = dict_encode(&PrimitiveArray::from_iter([2, 0, 2, 0, 10]).into_array()).unwrap();
+        test_take_conformance(array.as_ref());
+
+        let array = dict_encode(
+            PrimitiveArray::from_option_iter([Some(2), None, Some(2), Some(0), Some(10)]).as_ref(),
+        )
+        .unwrap();
+        test_take_conformance(array.as_ref());
+
+        let array = dict_encode(
+            &VarBinArray::from_iter(
+                [
+                    Some("hello"),
+                    None,
+                    Some("hello"),
+                    Some("good"),
+                    Some("good"),
+                ],
+                DType::Utf8(Nullability::Nullable),
+            )
+            .into_array(),
+        )
+        .unwrap();
+        test_take_conformance(array.as_ref());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vortex_array::IntoArray;
+    use vortex_array::arrays::{PrimitiveArray, VarBinArray};
+    use vortex_array::compute::conformance::consistency::test_array_consistency;
+    use vortex_dtype::{DType, Nullability};
+
+    use crate::DictArray;
+    use crate::builders::dict_encode;
+
+    #[rstest]
+    // Primitive arrays
+    #[case::dict_i32(dict_encode(&PrimitiveArray::from_iter([1i32, 2, 3, 2, 1]).into_array()).unwrap())]
+    #[case::dict_nullable_i32(dict_encode(
+        PrimitiveArray::from_option_iter([Some(1i32), None, Some(2), Some(1), None]).as_ref()
+    ).unwrap())]
+    #[case::dict_u64(dict_encode(&PrimitiveArray::from_iter([100u64, 200, 100, 300, 200]).into_array()).unwrap())]
+    // String arrays
+    #[case::dict_str(dict_encode(
+        &VarBinArray::from_iter(
+            ["hello", "world", "hello", "test", "world"].map(Some),
+            DType::Utf8(Nullability::NonNullable),
+        ).into_array()
+    ).unwrap())]
+    #[case::dict_nullable_str(dict_encode(
+        &VarBinArray::from_iter(
+            [Some("hello"), None, Some("world"), Some("hello"), None],
+            DType::Utf8(Nullability::Nullable),
+        ).into_array()
+    ).unwrap())]
+    // Edge cases
+    #[case::dict_single(dict_encode(&PrimitiveArray::from_iter([42i32]).into_array()).unwrap())]
+    #[case::dict_all_same(dict_encode(&PrimitiveArray::from_iter([5i32, 5, 5, 5, 5]).into_array()).unwrap())]
+    #[case::dict_large(dict_encode(&PrimitiveArray::from_iter((0..1000).map(|i| i % 10)).into_array()).unwrap())]
+
+    fn test_dict_consistency(#[case] array: DictArray) {
+        test_array_consistency(array.as_ref());
     }
 }

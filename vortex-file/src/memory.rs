@@ -1,13 +1,14 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::sync::Arc;
 
 use futures::FutureExt;
-use futures::future::BoxFuture;
 use vortex_buffer::ByteBuffer;
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
-use vortex_layout::segments::{SegmentId, SegmentSource};
-use vortex_metrics::VortexMetrics;
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_layout::segments::{SegmentFuture, SegmentId, SegmentSource};
 
-use crate::{FileType, Footer, SegmentSourceFactory, SegmentSpec, VortexFile, VortexOpenOptions};
+use crate::{FileType, Footer, VortexFile, VortexOpenOptions};
 
 /// A Vortex file that is backed by an in-memory buffer.
 ///
@@ -26,7 +27,7 @@ impl VortexOpenOptions<InMemoryFileType> {
     }
 
     /// Open an in-memory file contained in the provided buffer.
-    pub async fn open<B: Into<ByteBuffer>>(self, buffer: B) -> VortexResult<VortexFile> {
+    pub fn open<B: Into<ByteBuffer>>(self, buffer: B) -> VortexResult<VortexFile> {
         let buffer = buffer.into();
 
         let postscript = self.parse_postscript(&buffer)?;
@@ -56,14 +57,14 @@ impl VortexOpenOptions<InMemoryFileType> {
             file_stats,
         )?;
 
-        let segment_source_factory = Arc::new(InMemorySegmentReader {
+        let segment_source = Arc::new(InMemorySegmentReader {
             buffer,
             footer: footer.clone(),
         });
 
         Ok(VortexFile {
             footer,
-            segment_source_factory,
+            segment_source,
             metrics: self.metrics,
         })
     }
@@ -75,32 +76,16 @@ struct InMemorySegmentReader {
     footer: Footer,
 }
 
-impl SegmentSourceFactory for InMemorySegmentReader {
-    fn segment_source(&self, _metrics: VortexMetrics) -> Arc<dyn SegmentSource> {
-        Arc::new(self.clone())
-    }
-}
-
 impl SegmentSource for InMemorySegmentReader {
-    fn request(
-        &self,
-        id: SegmentId,
-        _for_whom: &Arc<str>,
-    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
-        let segment_map = self.footer.segment_map().clone();
-        let buffer = self.buffer.clone();
+    fn request(&self, id: SegmentId) -> SegmentFuture {
+        let Some(spec) = self.footer.segment_map().get(*id as usize) else {
+            return async move { vortex_bail!("segment not found {id}") }.boxed();
+        };
 
-        async move {
-            let segment: &SegmentSpec = segment_map
-                .get(*id as usize)
-                .ok_or_else(|| vortex_err!("segment not found {id}"))?;
+        let start = usize::try_from(spec.offset).vortex_expect("segment offset larger than usize");
+        let end = start + spec.length as usize;
+        let buffer = self.buffer.slice(start..end);
 
-            let start =
-                usize::try_from(segment.offset).vortex_expect("segment offset larger than usize");
-            let end = start + segment.length as usize;
-
-            Ok(buffer.slice(start..end))
-        }
-        .boxed()
+        async move { Ok(buffer) }.boxed()
     }
 }

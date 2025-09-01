@@ -1,30 +1,33 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::any::Any;
 use std::mem::MaybeUninit;
 use std::ops::{Deref, DerefMut};
 
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, NativePType, Nullability};
-use vortex_error::{VortexResult, vortex_bail, vortex_panic};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
-use crate::arrays::{BoolArray, PrimitiveArray};
-use crate::builders::ArrayBuilder;
-use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
-use crate::validity::Validity;
+use crate::arrays::PrimitiveArray;
+use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
-/// Builder for [`PrimitiveArray`].
+/// The builder for building a [`PrimitiveArray`], parametrized by the `PType`.
 pub struct PrimitiveBuilder<T> {
+    dtype: DType,
     values: BufferMut<T>,
     nulls: LazyNullBufferBuilder,
-    dtype: DType,
 }
 
 impl<T: NativePType> PrimitiveBuilder<T> {
+    /// Creates a new `PrimitiveBuilder` with a capacity of [`DEFAULT_BUILDER_CAPACITY`].
     pub fn new(nullability: Nullability) -> Self {
-        Self::with_capacity(nullability, 1024) // Same as Arrow builders
+        Self::with_capacity(nullability, DEFAULT_BUILDER_CAPACITY)
     }
 
+    /// Creates a new `PrimitiveBuilder` with the given `capacity`.
     pub fn with_capacity(nullability: Nullability, capacity: usize) -> Self {
         Self {
             values: BufferMut::with_capacity(capacity),
@@ -33,26 +36,30 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         }
     }
 
-    /// Append a `Mask` to the null buffer.
+    /// Append a [`Mask`] to this builder's null buffer.
     pub fn append_mask(&mut self, mask: Mask) {
         self.nulls.append_validity_mask(mask);
     }
 
+    /// Appends a primitive `value` to the builder.
     pub fn append_value(&mut self, value: T) {
         self.values.push(value);
-        self.nulls.append(true);
+        self.nulls.append_non_null();
     }
 
+    /// Appends an optional primitive (representing a nullable primitive) to the builder.
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if the input is `None` and the builder is non-nullable.
     pub fn append_option(&mut self, value: Option<T>) {
         match value {
-            Some(value) => {
-                self.values.push(value);
-                self.nulls.append(true);
-            }
+            Some(value) => self.append_value(value),
             None => self.append_null(),
         }
     }
 
+    /// Returns the raw primitive values in this builder as a slice.
     pub fn values(&self) -> &[T] {
         self.values.as_ref()
     }
@@ -62,7 +69,6 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     /// All reads/writes through the handle to the values buffer or the validity buffer will operate
     /// on indices relative to the start of the range.
     ///
-    ///
     /// ## Example
     ///
     /// ```
@@ -71,7 +77,8 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     /// use vortex_dtype::Nullability;
     ///
     /// // Create a new builder.
-    /// let mut builder: PrimitiveBuilder<i32> = PrimitiveBuilder::with_capacity(Nullability::NonNullable, 5);
+    /// let mut builder: PrimitiveBuilder<i32> =
+    ///     PrimitiveBuilder::with_capacity(Nullability::NonNullable, 5);
     ///
     /// // Populate the values in reverse order.
     /// let mut range = builder.uninit_range(5);
@@ -84,7 +91,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     ///
     /// assert_eq!(built.as_slice::<i32>(), &[0i32, 1, 2, 3, 4]);
     /// ```
-    pub fn uninit_range(&mut self, len: usize) -> UninitRange<T> {
+    pub fn uninit_range(&mut self, len: usize) -> UninitRange<'_, T> {
         let offset = self.values.len();
         assert!(
             offset + len <= self.values.capacity(),
@@ -99,42 +106,19 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         }
     }
 
+    /// Finishes the builder directly into a [`PrimitiveArray`].
     pub fn finish_into_primitive(&mut self) -> PrimitiveArray {
-        let nulls = self.nulls.finish();
-
-        if let Some(null_buf) = nulls.as_ref() {
-            assert_eq!(
-                null_buf.len(),
-                self.values.len(),
-                "null buffer length must equal value buffer length"
-            );
-        }
-
-        let validity = match (nulls, self.dtype().nullability()) {
-            (None, Nullability::NonNullable) => Validity::NonNullable,
-            (Some(_), Nullability::NonNullable) => {
-                vortex_panic!("Non-nullable builder has null values")
-            }
-            (None, Nullability::Nullable) => Validity::AllValid,
-            (Some(nulls), Nullability::Nullable) => {
-                if nulls.null_count() == nulls.len() {
-                    Validity::AllInvalid
-                } else {
-                    Validity::Array(BoolArray::from(nulls.into_inner()).into_array())
-                }
-            }
-        };
+        let validity = self
+            .nulls
+            .finish_with_nullability(self.dtype().nullability());
 
         PrimitiveArray::new(std::mem::take(&mut self.values).freeze(), validity)
     }
 
+    /// Extends the primitive array with an iterator.
     pub fn extend_with_iterator(&mut self, iter: impl IntoIterator<Item = T>, mask: Mask) {
         self.values.extend(iter);
-        self.extend_with_validity_mask(mask)
-    }
-
-    fn extend_with_validity_mask(&mut self, validity_mask: Mask) {
-        self.nulls.append_validity_mask(validity_mask);
+        self.nulls.append_validity_mask(mask);
     }
 }
 
@@ -166,14 +150,21 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
     }
 
     fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
+        if !self.dtype.eq_with_nullability_superset(array.dtype()) {
+            vortex_bail!(
+                "tried to extend a builder with `DType` {} with an array with `DType {}",
+                self.dtype,
+                array.dtype()
+            );
+        }
+
         let array = array.to_primitive()?;
         if array.ptype() != T::PTYPE {
             vortex_bail!("Cannot extend from array with different ptype");
         }
 
         self.values.extend_from_slice(array.as_slice::<T>());
-
-        self.extend_with_validity_mask(array.validity_mask()?);
+        self.nulls.append_validity_mask(array.validity_mask());
 
         Ok(())
     }
@@ -195,6 +186,7 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
     }
 }
 
+/// A range of uninitialized values in the primitive builder that can be filled.
 pub struct UninitRange<'a, T> {
     offset: usize,
     len: usize,

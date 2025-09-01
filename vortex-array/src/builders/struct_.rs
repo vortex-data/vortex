@@ -1,25 +1,35 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::any::Any;
 
 use itertools::Itertools;
 use vortex_dtype::{DType, Nullability, StructFields};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::StructScalar;
 
 use crate::arrays::StructArray;
-use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
-use crate::builders::{ArrayBuilder, ArrayBuilderExt, builder_with_capacity};
+use crate::builders::{
+    ArrayBuilder, ArrayBuilderExt, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder,
+    builder_with_capacity,
+};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
+/// The builder for building a [`StructArray`].
 pub struct StructBuilder {
-    builders: Vec<Box<dyn ArrayBuilder>>,
-    validity: LazyNullBufferBuilder,
-    struct_dtype: StructFields,
-    nullability: Nullability,
     dtype: DType,
+    builders: Vec<Box<dyn ArrayBuilder>>,
+    nulls: LazyNullBufferBuilder,
 }
 
 impl StructBuilder {
+    /// Creates a new `StructBuilder` with a capacity of [`DEFAULT_BUILDER_CAPACITY`].
+    pub fn new(struct_dtype: StructFields, nullability: Nullability) -> Self {
+        Self::with_capacity(struct_dtype, nullability, DEFAULT_BUILDER_CAPACITY)
+    }
+
+    /// Creates a new `StructBuilder` with the given `capacity`.
     pub fn with_capacity(
         struct_dtype: StructFields,
         nullability: Nullability,
@@ -32,103 +42,40 @@ impl StructBuilder {
 
         Self {
             builders,
-            validity: LazyNullBufferBuilder::new(capacity),
-            struct_dtype: struct_dtype.clone(),
-            nullability,
+            nulls: LazyNullBufferBuilder::new(capacity),
             dtype: DType::Struct(struct_dtype, nullability),
         }
     }
 
+    /// Appends a struct `value` to the builder.
     pub fn append_value(&mut self, struct_scalar: StructScalar) -> VortexResult<()> {
-        if struct_scalar.dtype() != &DType::Struct(self.struct_dtype.clone(), self.nullability) {
+        if !self.dtype.is_nullable() && struct_scalar.is_null() {
+            vortex_bail!("Tried to append a null `StructScalar` to a non-nullable struct builder",);
+        }
+
+        if struct_scalar.struct_fields() != self.struct_fields() {
             vortex_bail!(
-                "Expected struct scalar with dtype {:?}, found {:?}",
-                self.struct_dtype,
-                struct_scalar.dtype()
-            )
+                "Tried to append a `StructScalar` with fields {} to a \
+                    struct builder with fields {}",
+                struct_scalar.struct_fields(),
+                self.struct_fields()
+            );
         }
 
         if let Some(fields) = struct_scalar.fields() {
             for (builder, field) in self.builders.iter_mut().zip_eq(fields) {
                 builder.append_scalar(&field)?;
             }
-            self.validity.append_non_null();
+            self.nulls.append_non_null();
         } else {
             self.append_null()
         }
 
         Ok(())
     }
-}
 
-impl ArrayBuilder for StructBuilder {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
-    fn dtype(&self) -> &DType {
-        &self.dtype
-    }
-
-    fn len(&self) -> usize {
-        self.validity.len()
-    }
-
-    fn append_zeros(&mut self, n: usize) {
-        self.builders
-            .iter_mut()
-            .for_each(|builder| builder.append_zeros(n));
-        self.validity.append_n_non_nulls(n);
-    }
-
-    fn append_nulls(&mut self, n: usize) {
-        self.builders
-            .iter_mut()
-            // We push zero values into our children when appending a null in case the children are
-            // themselves non-nullable.
-            .for_each(|builder| builder.append_zeros(n));
-        self.validity.append_null();
-    }
-
-    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
-        let array = array.to_struct()?;
-
-        if array.dtype() != self.dtype() {
-            vortex_bail!(
-                "Cannot extend from array with different dtype: expected {}, found {}",
-                self.dtype(),
-                array.dtype()
-            );
-        }
-
-        for (a, builder) in (0..array.struct_fields().nfields())
-            .map(|i| &array.fields()[i])
-            .zip_eq(self.builders.iter_mut())
-        {
-            a.append_to_builder(builder.as_mut())?;
-        }
-
-        self.validity.append_validity_mask(array.validity_mask()?);
-        Ok(())
-    }
-
-    fn ensure_capacity(&mut self, capacity: usize) {
-        self.builders.iter_mut().for_each(|builder| {
-            builder.ensure_capacity(capacity);
-        });
-        self.validity.ensure_capacity(capacity);
-    }
-
-    fn set_validity(&mut self, validity: Mask) {
-        self.validity = LazyNullBufferBuilder::new(validity.len());
-        self.validity.append_validity_mask(validity);
-    }
-
-    fn finish(&mut self) -> ArrayRef {
+    /// Finishes the builder directly into a [`StructArray`].
+    pub fn finish_into_struct(&mut self) -> StructArray {
         let len = self.len();
         let fields = self
             .builders
@@ -147,11 +94,91 @@ impl ArrayBuilder for StructBuilder {
             }
         }
 
-        let validity = self.validity.finish_with_nullability(self.nullability);
+        let validity = self.nulls.finish_with_nullability(self.dtype.nullability());
 
-        StructArray::try_new_with_dtype(fields, self.struct_dtype.clone(), len, validity)
+        StructArray::try_new_with_dtype(fields, self.struct_fields().clone(), len, validity)
             .vortex_expect("Fields must all have same length.")
-            .into_array()
+    }
+
+    /// The [`StructFields`] of this struct builder.
+    pub fn struct_fields(&self) -> &StructFields {
+        let DType::Struct(struct_fields, _) = &self.dtype else {
+            vortex_panic!("`StructBuilder` somehow had dtype {}", self.dtype);
+        };
+
+        struct_fields
+    }
+}
+
+impl ArrayBuilder for StructBuilder {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    fn len(&self) -> usize {
+        self.nulls.len()
+    }
+
+    fn append_zeros(&mut self, n: usize) {
+        self.builders
+            .iter_mut()
+            .for_each(|builder| builder.append_zeros(n));
+        self.nulls.append_n_non_nulls(n);
+    }
+
+    fn append_nulls(&mut self, n: usize) {
+        self.builders
+            .iter_mut()
+            // We push zero values into our children when appending a null in case the children are
+            // themselves non-nullable.
+            .for_each(|builder| builder.append_zeros(n));
+        self.nulls.append_null();
+    }
+
+    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
+        if !self.dtype.eq_with_nullability_superset(array.dtype()) {
+            vortex_bail!(
+                "tried to extend a builder with `DType` {} with an array with `DType {}",
+                self.dtype,
+                array.dtype()
+            );
+        }
+
+        let array = array.to_struct()?;
+
+        for (a, builder) in (0..array.struct_fields().nfields())
+            .map(|i| &array.fields()[i])
+            .zip_eq(self.builders.iter_mut())
+        {
+            a.append_to_builder(builder.as_mut())?;
+        }
+
+        self.nulls.append_validity_mask(array.validity_mask());
+        Ok(())
+    }
+
+    fn ensure_capacity(&mut self, capacity: usize) {
+        self.builders.iter_mut().for_each(|builder| {
+            builder.ensure_capacity(capacity);
+        });
+        self.nulls.ensure_capacity(capacity);
+    }
+
+    fn set_validity(&mut self, validity: Mask) {
+        self.nulls = LazyNullBufferBuilder::new(validity.len());
+        self.nulls.append_validity_mask(validity);
+    }
+
+    fn finish(&mut self) -> ArrayRef {
+        self.finish_into_struct().into_array()
     }
 }
 

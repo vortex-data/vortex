@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, Nullability, PType, StructFields};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
@@ -18,6 +21,7 @@ impl CanonicalVTable<ChunkedVTable> for ChunkedVTable {
         if array.nchunks() == 1 {
             return array.chunks()[0].to_canonical();
         }
+
         match array.dtype() {
             DType::Struct(struct_dtype, _) => {
                 let struct_array = swizzle_struct_chunks(
@@ -27,10 +31,10 @@ impl CanonicalVTable<ChunkedVTable> for ChunkedVTable {
                 )?;
                 Ok(Canonical::Struct(struct_array))
             }
-            DType::List(elem, _) => Ok(Canonical::List(pack_lists(
+            DType::List(elem_dtype, _) => Ok(Canonical::List(pack_lists(
                 array.chunks(),
                 Validity::copy_from_array(array.as_ref())?,
-                elem,
+                elem_dtype,
             )?)),
             _ => {
                 let mut builder = builder_with_capacity(array.dtype(), array.len());
@@ -96,19 +100,19 @@ fn pack_lists(
         )?
         .to_primitive()?;
 
-        let first_offset_value: usize = usize::try_from(&offsets_arr.scalar_at(0)?)?;
+        let first_offset_value: usize = usize::try_from(&offsets_arr.scalar_at(0))?;
         let last_offset_value: usize =
-            usize::try_from(&offsets_arr.scalar_at(offsets_arr.len() - 1)?)?;
+            usize::try_from(&offsets_arr.scalar_at(offsets_arr.len() - 1))?;
         elements.push(
             chunk
                 .elements()
-                .slice(first_offset_value, last_offset_value)?,
+                .slice(first_offset_value..last_offset_value),
         );
 
         let adjustment_from_previous = *offsets
             .last()
             .ok_or_else(|| vortex_err!("List offsets must have at least one element"))?;
-        offsets.extend(
+        offsets.extend_trusted(
             offsets_arr
                 .as_slice::<i64>()
                 .iter()
@@ -190,7 +194,7 @@ mod tests {
 
         let canon_values = chunked_list.unwrap().to_list().unwrap();
 
-        assert_eq!(l1.scalar_at(0).unwrap(), canon_values.scalar_at(0).unwrap());
-        assert_eq!(l2.scalar_at(0).unwrap(), canon_values.scalar_at(1).unwrap());
+        assert_eq!(l1.scalar_at(0), canon_values.scalar_at(0));
+        assert_eq!(l2.scalar_at(0), canon_values.scalar_at(1));
     }
 }

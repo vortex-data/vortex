@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::sync::LazyLock;
 
 use arcref::ArcRef;
@@ -7,8 +10,16 @@ use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::Array;
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, UnaryArgs};
-use crate::stats::{Precision, Stat};
+use crate::stats::{Precision, Stat, StatsProviderExt};
 use crate::vtable::VTable;
+
+static NAN_COUNT_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("nan_count".into(), ArcRef::new_ref(&NaNCount));
+    for kernel in inventory::iter::<NaNCountKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
 
 /// Computes the number of NaN values in the array.
 pub fn nan_count(array: &dyn Array) -> VortexResult<usize> {
@@ -19,7 +30,7 @@ pub fn nan_count(array: &dyn Array) -> VortexResult<usize> {
         })?
         .unwrap_scalar()?
         .as_primitive()
-        .as_::<usize>()?
+        .as_::<usize>()
         .vortex_expect("NaN count should not return null"))
 }
 
@@ -65,14 +76,6 @@ pub trait NaNCountKernel: VTable {
     fn nan_count(&self, array: &Self::Array) -> VortexResult<usize>;
 }
 
-pub static NAN_COUNT_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("nan_count".into(), ArcRef::new_ref(&NaNCount));
-    for kernel in inventory::iter::<NaNCountKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
-
 pub struct NaNCountKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(NaNCountKernelRef);
 
@@ -97,7 +100,7 @@ impl<V: VTable + NaNCountKernel> Kernel for NaNCountKernelAdapter<V> {
 }
 
 fn nan_count_impl(array: &dyn Array, kernels: &[ArcRef<dyn Kernel>]) -> VortexResult<usize> {
-    if array.is_empty() || array.valid_count()? == 0 {
+    if array.is_empty() || array.valid_count() == 0 {
         return Ok(0);
     }
 
@@ -120,7 +123,7 @@ fn nan_count_impl(array: &dyn Array, kernels: &[ArcRef<dyn Kernel>]) -> VortexRe
             return output
                 .unwrap_scalar()?
                 .as_primitive()
-                .as_::<usize>()?
+                .as_::<usize>()
                 .ok_or_else(|| vortex_err!("NaN count should not return null"));
         }
     }
@@ -128,7 +131,7 @@ fn nan_count_impl(array: &dyn Array, kernels: &[ArcRef<dyn Kernel>]) -> VortexRe
         return output
             .unwrap_scalar()?
             .as_primitive()
-            .as_::<usize>()?
+            .as_::<usize>()
             .ok_or_else(|| vortex_err!("NaN count should not return null"));
     }
 

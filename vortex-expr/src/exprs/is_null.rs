@@ -1,113 +1,118 @@
-use std::any::Any;
-use std::fmt::Display;
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::ops::Not;
-use std::sync::Arc;
 
 use vortex_array::arrays::{BoolArray, ConstantArray};
-use vortex_array::{Array, ArrayRef, IntoArray};
+use vortex_array::{Array, ArrayRef, DeserializeMetadata, EmptyMetadata, IntoArray};
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
-use crate::{AnalysisExpr, ExprRef, Scope, ScopeDType, VortexExpr};
+use crate::display::{DisplayAs, DisplayFormat};
+use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
 
-#[derive(Debug, Eq, Hash)]
+vtable!(IsNull);
+
 #[allow(clippy::derived_hash_with_manual_eq)]
-pub struct IsNull {
+#[derive(Clone, Debug, Hash, Eq)]
+pub struct IsNullExpr {
     child: ExprRef,
 }
 
-impl IsNull {
-    pub fn new_expr(child: ExprRef) -> ExprRef {
-        Arc::new(Self { child })
-    }
-}
-
-impl PartialEq for IsNull {
+impl PartialEq for IsNullExpr {
     fn eq(&self, other: &Self) -> bool {
         self.child.eq(&other.child)
     }
 }
 
-impl Display for IsNull {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "is_null({})", self.child)
+pub struct IsNullExprEncoding;
+
+impl VTable for IsNullVTable {
+    type Expr = IsNullExpr;
+    type Encoding = IsNullExprEncoding;
+    type Metadata = EmptyMetadata;
+
+    fn id(_encoding: &Self::Encoding) -> ExprId {
+        ExprId::new_ref("is_null")
     }
-}
 
-#[cfg(feature = "proto")]
-pub(crate) mod proto {
-    use vortex_error::{VortexResult, vortex_bail};
-    use vortex_proto::expr::kind;
-    use vortex_proto::expr::kind::Kind;
+    fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
+        ExprEncodingRef::new_ref(IsNullExprEncoding.as_ref())
+    }
 
-    use crate::is_null::IsNull;
-    use crate::{ExprDeserialize, ExprRef, ExprSerializable, Id};
+    fn metadata(_expr: &Self::Expr) -> Option<Self::Metadata> {
+        Some(EmptyMetadata)
+    }
 
-    pub(crate) struct IsNullSerde;
+    fn children(expr: &Self::Expr) -> Vec<&ExprRef> {
+        vec![&expr.child]
+    }
 
-    impl Id for IsNullSerde {
-        fn id(&self) -> &'static str {
-            "is_null"
+    fn with_children(_expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
+        Ok(IsNullExpr::new(children[0].clone()))
+    }
+
+    fn build(
+        _encoding: &Self::Encoding,
+        _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        children: Vec<ExprRef>,
+    ) -> VortexResult<Self::Expr> {
+        if children.len() != 1 {
+            vortex_bail!("IsNull expects exactly one child, got {}", children.len());
         }
+        Ok(IsNullExpr::new(children[0].clone()))
     }
 
-    impl ExprDeserialize for IsNullSerde {
-        fn deserialize(&self, kind: &Kind, children: Vec<ExprRef>) -> VortexResult<ExprRef> {
-            let Kind::IsNull(kind::IsNull {}) = kind else {
-                vortex_bail!("wrong kind {:?}, want is_null", kind)
-            };
-
-            Ok(IsNull::new_expr(children[0].clone()))
-        }
-    }
-
-    impl ExprSerializable for IsNull {
-        fn id(&self) -> &'static str {
-            IsNullSerde.id()
-        }
-
-        fn serialize_kind(&self) -> VortexResult<Kind> {
-            Ok(Kind::IsNull(kind::IsNull {}))
-        }
-    }
-}
-
-impl AnalysisExpr for IsNull {}
-
-impl VortexExpr for IsNull {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn unchecked_evaluate(&self, ctx: &Scope) -> VortexResult<ArrayRef> {
-        let array = self.child.unchecked_evaluate(ctx)?;
-        match array.validity_mask()? {
+    fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
+        let array = expr.child.unchecked_evaluate(scope)?;
+        match array.validity_mask() {
             Mask::AllTrue(len) => Ok(ConstantArray::new(false, len).into_array()),
             Mask::AllFalse(len) => Ok(ConstantArray::new(true, len).into_array()),
             Mask::Values(mask) => Ok(BoolArray::from(mask.boolean_buffer().not()).into_array()),
         }
     }
 
-    fn children(&self) -> Vec<&ExprRef> {
-        vec![&self.child]
-    }
-
-    fn replacing_children(self: Arc<Self>, mut children: Vec<ExprRef>) -> ExprRef {
-        Self::new_expr(
-            children
-                .pop()
-                .vortex_expect("IsNull::replacing_children should have one child"),
-        )
-    }
-
-    fn return_dtype(&self, _ctx: &ScopeDType) -> VortexResult<DType> {
+    fn return_dtype(_expr: &Self::Expr, _scope: &DType) -> VortexResult<DType> {
         Ok(DType::Bool(Nullability::NonNullable))
     }
 }
 
+impl IsNullExpr {
+    pub fn new(child: ExprRef) -> Self {
+        Self { child }
+    }
+
+    pub fn new_expr(child: ExprRef) -> ExprRef {
+        Self::new(child).into_expr()
+    }
+}
+
+impl DisplayAs for IsNullExpr {
+    fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match df {
+            DisplayFormat::Compact => {
+                write!(f, "is_null({})", self.child)
+            }
+            DisplayFormat::Tree => {
+                write!(f, "IsNull")
+            }
+        }
+    }
+}
+
+impl AnalysisExpr for IsNullExpr {}
+
+/// Creates an expression that checks for null values.
+///
+/// Returns a boolean array indicating which positions contain null values.
+///
+/// ```rust
+/// # use vortex_expr::{is_null, root};
+/// let expr = is_null(root());
+/// ```
 pub fn is_null(child: ExprRef) -> ExprRef {
-    IsNull::new_expr(child)
+    IsNullExpr::new(child).into_expr()
 }
 
 #[cfg(test)]
@@ -118,15 +123,13 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use crate::is_null::is_null;
-    use crate::{Scope, ScopeDType, get_item, root, test_harness};
+    use crate::{Scope, get_item, root, test_harness};
 
     #[test]
     fn dtype() {
         let dtype = test_harness::struct_dtype();
         assert_eq!(
-            is_null(root())
-                .return_dtype(&ScopeDType::new(dtype))
-                .unwrap(),
+            is_null(root()).return_dtype(&dtype).unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
     }
@@ -134,7 +137,7 @@ mod tests {
     #[test]
     fn replace_children() {
         let expr = is_null(root());
-        let _ = expr.replacing_children(vec![root()]);
+        let _ = expr.with_children(vec![root()]);
     }
 
     #[test]
@@ -153,7 +156,7 @@ mod tests {
 
         for (i, expected_value) in expected.iter().enumerate() {
             assert_eq!(
-                result.scalar_at(i).unwrap(),
+                result.scalar_at(i),
                 Scalar::bool(*expected_value, Nullability::NonNullable)
             );
         }
@@ -211,9 +214,18 @@ mod tests {
 
         for (i, expected_value) in expected.iter().enumerate() {
             assert_eq!(
-                result.scalar_at(i).unwrap(),
+                result.scalar_at(i),
                 Scalar::bool(*expected_value, Nullability::NonNullable)
             );
         }
+    }
+
+    #[test]
+    fn test_display() {
+        let expr = is_null(get_item("name", root()));
+        assert_eq!(expr.to_string(), "is_null($.name)");
+
+        let expr2 = is_null(root());
+        assert_eq!(expr2.to_string(), "is_null($)");
     }
 }

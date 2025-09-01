@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 #pragma once
 
 #include "duckdb.h"
@@ -10,6 +13,10 @@ extern "C" {
 /// Slice to a dictionary vector.
 void duckdb_vx_vector_slice_to_dictionary(duckdb_vector ffi_vector, duckdb_selection_vector selection_vector,
                                           idx_t selection_vector_length);
+
+void duckdb_vx_set_dictionary_vector_id(duckdb_vector dict, const char *id, unsigned int id_len);
+
+void duckdb_vx_set_dictionary_vector_length(duckdb_vector dict, unsigned int len);
 
 // Add the buffer to the string vector (basically, keep it alive as long as the vector).
 void duckdb_vx_string_vector_add_buffer(duckdb_vector ffi_vector, duckdb_vx_data buffer);

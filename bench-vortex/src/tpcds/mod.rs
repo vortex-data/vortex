@@ -1,23 +1,20 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::fs;
 use std::path::Path;
 
-use datafusion::prelude::SessionContext;
-use url::Url;
+pub mod duckdb;
+pub mod tpcds_benchmark;
 
-use crate::Format;
-use crate::df::get_session_context;
-
-pub async fn load_datasets(_base_dir: &Url, _format: Format) -> anyhow::Result<SessionContext> {
-    let context = get_session_context(true);
-    Ok(context)
-}
+pub use tpcds_benchmark::TpcDsBenchmark;
 
 pub fn tpcds_queries() -> impl Iterator<Item = (usize, String)> {
-    (1..=99).map(|idx| (idx, tpch_query(idx)))
+    (1..=99).map(|idx| (idx, tpcds_query(idx)))
 }
 
-// A few tpch queries have multiple statements, this handles that
-fn tpch_query(query_idx: usize) -> String {
+// A few tpcds queries have multiple statements, this handles that
+fn tpcds_query(query_idx: usize) -> String {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tpcds")
         .join(format!("{query_idx:02}"))

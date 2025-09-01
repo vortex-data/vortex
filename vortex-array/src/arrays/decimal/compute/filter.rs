@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::{Mask, MaskIter};
@@ -72,4 +75,33 @@ fn filter_primitive_slices<T: Clone>(
         output.extend_from_slice(&values[start..end]);
     }
     output.freeze()
+}
+
+#[cfg(test)]
+mod test {
+    use vortex_dtype::DecimalDType;
+
+    use crate::arrays::DecimalArray;
+    use crate::compute::conformance::filter::test_filter_conformance;
+
+    #[test]
+    fn test_filter_decimal_array() {
+        // Test Decimal128 with scale 2
+        let decimal_dtype = DecimalDType::new(38, 2);
+        let values = vec![
+            Some(12345i128),
+            Some(67890),
+            Some(-12345),
+            Some(0),
+            Some(99999),
+        ];
+        let array = DecimalArray::from_option_iter(values, decimal_dtype);
+        test_filter_conformance(array.as_ref());
+
+        // Test Decimal128 with nullable values
+        let decimal_dtype = DecimalDType::new(38, 4);
+        let values = vec![Some(12345i128), None, Some(-12345), Some(0), None];
+        let array = DecimalArray::from_option_iter(values, decimal_dtype);
+        test_filter_conformance(array.as_ref());
+    }
 }

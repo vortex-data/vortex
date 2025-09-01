@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
@@ -12,6 +15,8 @@ use crate::{ZstdArray, ZstdEncoding, ZstdVTable};
 pub struct ZstdFrameMetadata {
     #[prost(uint64, tag = "1")]
     pub uncompressed_size: u64,
+    #[prost(uint64, tag = "2")]
+    pub n_values: u64,
 }
 
 #[derive(Clone, prost::Message)]
@@ -72,9 +77,7 @@ impl EncodeVTable<ZstdVTable> for ZstdVTable {
         canonical: &vortex_array::Canonical,
         _like: Option<&ZstdArray>,
     ) -> VortexResult<Option<ZstdArray>> {
-        let parray = canonical.clone().into_primitive()?;
-
-        Ok(Some(ZstdArray::from_primitive(&parray, 3, 0)?))
+        ZstdArray::from_canonical(canonical, 3, 0)
     }
 }
 

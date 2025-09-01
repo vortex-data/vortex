@@ -1,12 +1,19 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use pyo3::prelude::*;
 use vortex::encodings::alp::{ALPRDVTable, ALPVTable};
 use vortex::encodings::datetime_parts::DateTimePartsVTable;
 use vortex::encodings::dict::DictVTable;
 use vortex::encodings::fsst::FSSTVTable;
 use vortex::encodings::runend::RunEndVTable;
+use vortex::encodings::sequence::SequenceVTable;
 use vortex::encodings::sparse::SparseVTable;
-use vortex::encodings::zigzag::ZigZagVTable;
+use vortex::encodings::zigzag::{ZigZagVTable, zigzag_encode};
+use vortex::{IntoArray, ToCanonical};
 
+use crate::PyVortex;
+use crate::arrays::PyArrayRef;
 use crate::arrays::native::{EncodingSubclass, PyNativeArray};
 
 /// Concrete class for arrays with `vortex.alp` encoding.
@@ -71,4 +78,22 @@ pub(crate) struct PyZigZagArray;
 
 impl EncodingSubclass for PyZigZagArray {
     type VTable = ZigZagVTable;
+}
+
+#[pymethods]
+impl PyZigZagArray {
+    #[staticmethod]
+    pub fn encode(array: PyArrayRef) -> PyResult<PyArrayRef> {
+        Ok(PyVortex(
+            zigzag_encode(array.inner().clone().to_primitive()?)?.into_array(),
+        ))
+    }
+}
+
+/// Concrete class for arrays with `vortex.sequence` encoding.
+#[pyclass(name = "SequenceArray", module = "vortex", extends=PyNativeArray, frozen)]
+pub(crate) struct PySequenceArray;
+
+impl EncodingSubclass for PySequenceArray {
+    type VTable = SequenceVTable;
 }

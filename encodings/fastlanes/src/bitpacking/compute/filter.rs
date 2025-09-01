@@ -1,7 +1,9 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::mem;
 use std::mem::MaybeUninit;
 
-use arrow_buffer::ArrowNativeType;
 use fastlanes::BitPacking;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::{FilterKernel, FilterKernelAdapter, filter};
@@ -40,12 +42,12 @@ register_kernel!(FilterKernelAdapter(BitPackedVTable).lift());
 /// FastLanes decompression is so fast and the bookkeepping necessary to decompress individual
 /// elements is relatively slow. If you prefer to never fully decompress, use
 /// [filter_primitive_no_decompression].
-fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
+fn filter_primitive<T: NativePType + BitPacking>(
     array: &BitPackedArray,
     mask: &Mask,
 ) -> VortexResult<PrimitiveArray> {
     // Short-circuit if the selectivity is high enough.
-    let full_decompression_threshold = match T::get_byte_width() {
+    let full_decompression_threshold = match size_of::<T>() {
         1 => 0.03,
         2 => 0.03,
         4 => 0.075,
@@ -64,7 +66,7 @@ fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
 /// Filter a bit-packed array, without using full decompression.
 ///
 /// You should probably use [filter_primitive].
-fn filter_primitive_no_decompression<T: NativePType + BitPacking + ArrowNativeType>(
+fn filter_primitive_no_decompression<T: NativePType + BitPacking>(
     array: &BitPackedArray,
     mask: &Mask,
 ) -> VortexResult<PrimitiveArray> {
@@ -93,7 +95,7 @@ fn filter_primitive_no_decompression<T: NativePType + BitPacking + ArrowNativeTy
     Ok(values)
 }
 
-fn filter_indices<T: NativePType + BitPacking + ArrowNativeType>(
+fn filter_indices<T: NativePType + BitPacking>(
     array: &BitPackedArray,
     indices_len: usize,
     indices: impl Iterator<Item = usize>,
@@ -130,14 +132,14 @@ fn filter_indices<T: NativePType + BitPacking + ArrowNativeType>(
                 let dst: &mut [T] = mem::transmute(dst);
                 BitPacking::unchecked_unpack(bit_width, packed, dst);
             }
-            values.extend(
+            values.extend_trusted(
                 indices_within_chunk
                     .iter()
                     .map(|&idx| unsafe { unpacked.get_unchecked(idx).assume_init() }),
             );
         } else {
             // Otherwise, unpack each element individually.
-            values.extend(indices_within_chunk.iter().map(|&idx| unsafe {
+            values.extend_trusted(indices_within_chunk.iter().map(|&idx| unsafe {
                 BitPacking::unchecked_unpack_single(bit_width, packed, idx)
             }));
         }
@@ -149,6 +151,7 @@ fn filter_indices<T: NativePType + BitPacking + ArrowNativeType>(
 #[cfg(test)]
 mod test {
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::compute::filter;
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ToCanonical};
@@ -178,7 +181,7 @@ mod test {
         // Create a u8 array modulo 63.
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
-        let sliced = bitpacked.slice(128, 2050).unwrap();
+        let sliced = bitpacked.slice(128..2050);
 
         let mask = Mask::from_indices(sliced.len(), vec![1919, 1921]);
 
@@ -216,5 +219,23 @@ mod test {
         .unwrap();
 
         assert_eq!(filtered.as_slice::<i64>(), &values[0..250]);
+    }
+
+    #[test]
+    fn test_filter_bitpacked_conformance() {
+        // Test with u8 values
+        let unpacked = PrimitiveArray::from_iter([1u8, 2, 3, 4, 5]);
+        let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 3).unwrap();
+        test_filter_conformance(bitpacked.as_ref());
+
+        // Test with u32 values
+        let unpacked = PrimitiveArray::from_iter([100u32, 200, 300, 400, 500]);
+        let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 9).unwrap();
+        test_filter_conformance(bitpacked.as_ref());
+
+        // Test with nullable values
+        let unpacked = PrimitiveArray::from_option_iter([Some(1u16), None, Some(3), Some(4), None]);
+        let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 3).unwrap();
+        test_filter_conformance(bitpacked.as_ref());
     }
 }

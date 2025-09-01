@@ -1,10 +1,13 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::cmp::Ordering;
 
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{BoolArray, DecimalArray, PrimitiveArray, VarBinViewArray};
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::{DType, NativePType, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::match_each_decimal_value_type;
 
 use crate::array::take_canonical_array_non_nullable_indices;
@@ -16,7 +19,7 @@ pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
             let mut opt_values = bool_array
                 .boolean_buffer()
                 .iter()
-                .zip(bool_array.validity_mask()?.to_boolean_buffer().iter())
+                .zip(bool_array.validity_mask().to_boolean_buffer().iter())
                 .map(|(b, v)| v.then_some(b))
                 .collect::<Vec<_>>();
             opt_values.sort();
@@ -29,7 +32,7 @@ pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
                     .as_slice::<P>()
                     .iter()
                     .copied()
-                    .zip(primitive_array.validity_mask()?.to_boolean_buffer().iter())
+                    .zip(primitive_array.validity_mask().to_boolean_buffer().iter())
                     .map(|(p, v)| v.then_some(p))
                     .collect::<Vec<_>>();
                 sort_primitive_slice(&mut opt_values);
@@ -44,7 +47,7 @@ pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
                     .as_slice()
                     .iter()
                     .copied()
-                    .zip(decimal_array.validity_mask()?.to_boolean_buffer().iter())
+                    .zip(decimal_array.validity_mask().to_boolean_buffer().iter())
                     .map(|(p, v)| v.then_some(p))
                     .collect::<Vec<_>>();
                 opt_values.sort();
@@ -63,8 +66,7 @@ pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
             sort_indices.sort_by(|a, b| {
                 array
                     .scalar_at(*a)
-                    .vortex_unwrap()
-                    .partial_cmp(&array.scalar_at(*b).vortex_unwrap())
+                    .partial_cmp(&array.scalar_at(*b))
                     .vortex_expect("must be a valid comparison")
             });
             take_canonical_array_non_nullable_indices(array, &sort_indices)
@@ -74,12 +76,12 @@ pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
             sort_indices.sort_by(|a, b| {
                 array
                     .scalar_at(*a)
-                    .vortex_unwrap()
-                    .partial_cmp(&array.scalar_at(*b).vortex_unwrap())
+                    .partial_cmp(&array.scalar_at(*b))
                     .vortex_expect("must be a valid comparison")
             });
             take_canonical_array_non_nullable_indices(array, &sort_indices)
         }
+        DType::FixedSizeList(..) => unimplemented!("TODO(connor)[FixedSizeList]"),
         d @ (DType::Null | DType::Extension(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }

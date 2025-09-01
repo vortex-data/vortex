@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 import pytest
 
 import vortex as vx
@@ -20,7 +23,9 @@ import vortex as vx
         ([0, 1], vx.ListScalar),
     ],
 )
-def test_round_trip(value, scalar_cls: type[vx.Scalar]):
+def test_round_trip(
+    value: bool | int | float | bytes | str | list[int] | dict[str, str] | None, scalar_cls: type[vx.Scalar]
+):
     scalar = vx.scalar(value)
     assert isinstance(scalar, scalar_cls)
     assert scalar.as_py() == value

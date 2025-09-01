@@ -20,15 +20,16 @@ workspace = true
 arbitrary = { workspace = true, optional = true }
 arcref = { workspace = true }
 arrow-arith = { workspace = true }
-arrow-array = { workspace = true }
+arrow-array = { workspace = true, features = ["ffi"] }
 arrow-buffer = { workspace = true }
-arrow-cast = { workspace = true }
 arrow-data = { workspace = true }
 arrow-ord = { workspace = true }
 arrow-schema = { workspace = true }
 arrow-select = { workspace = true }
 arrow-string = { workspace = true }
+bitvec = { workspace = true }
 cfg-if = { workspace = true }
+dyn-hash = { workspace = true }
 enum-iterator = { workspace = true }
 flatbuffers = { workspace = true }
 futures-util = { workspace = true }
@@ -50,7 +51,11 @@ rstest = { workspace = true, optional = true }
 rstest_reuse = { workspace = true, optional = true }
 rustc-hash = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+simdutf8 = { workspace = true }
 static_assertions = { workspace = true }
+tabled = { workspace = true, optional = true, default-features = false, features = [
+    "std",
+] }
 vortex-buffer = { workspace = true, features = ["arrow"] }
 vortex-dtype = { workspace = true, features = ["arrow", "serde"] }
 vortex-error = { workspace = true, features = ["prost"] }
@@ -66,9 +71,11 @@ arbitrary = [
     "vortex-scalar/arbitrary",
 ]
 canonical_counter = []
+table-display = ["dep:tabled"]
 test-harness = ["dep:goldenfile", "dep:rstest", "dep:rstest_reuse"]
 
 [dev-dependencies]
+arrow-cast = { workspace = true }
 divan = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { path = ".", features = ["test-harness"] }

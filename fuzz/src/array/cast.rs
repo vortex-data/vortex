@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, ToCanonical};
@@ -29,7 +32,7 @@ pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Op
                         .iter()
                         .map(|v| *v as Out)
                         .collect::<Buffer<Out>>(),
-                    Validity::from_mask(array.validity_mask()?, target.nullability()),
+                    Validity::from_mask(array.validity_mask(), target.nullability()),
                 )
                 .to_array()
             })

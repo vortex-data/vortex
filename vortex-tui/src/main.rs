@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 #![allow(clippy::expect_used)]
 mod browse;
 mod convert;
@@ -12,8 +15,6 @@ use clap::{CommandFactory, Parser};
 use tokio::runtime::Runtime;
 use tree::exec_tree;
 use vortex::error::VortexExpect;
-
-use crate::convert::{Flags, exec_convert};
 
 static TOKIO_RUNTIME: LazyLock<Runtime> =
     LazyLock::new(|| Runtime::new().expect("Tokio Runtime::new()"));
@@ -31,14 +32,7 @@ enum Commands {
         file: PathBuf,
     },
     /// Convert a Parquet file to a Vortex file. Chunking occurs on Parquet RowGroup boundaries.
-    Convert {
-        /// Path to the Parquet file on disk to convert to Vortex
-        file: PathBuf,
-
-        /// Execute quietly. No output will be printed.
-        #[arg(short, long)]
-        quiet: bool,
-    },
+    Convert(#[command(flatten)] convert::Flags),
     /// Interactively browse the Vortex file.
     Browse {
         file: PathBuf,
@@ -51,15 +45,17 @@ enum Commands {
 impl Commands {
     fn file_path(&self) -> &PathBuf {
         match self {
-            Commands::Tree { file }
-            | Commands::Convert { file, .. }
-            | Commands::Browse { file }
-            | Commands::Segments { file } => file,
+            Commands::Tree { file } | Commands::Browse { file } | Commands::Segments { file } => {
+                file
+            }
+            Commands::Convert(flags) => &flags.file,
         }
     }
 }
 
 fn main() -> anyhow::Result<()> {
+    env_logger::init();
+
     let cli = Cli::parse();
 
     let path = cli.command.file_path();
@@ -76,10 +72,8 @@ fn main() -> anyhow::Result<()> {
     }
 
     match cli.command {
-        Commands::Tree { file } => TOKIO_RUNTIME.block_on(exec_tree(file))?,
-        Commands::Convert { file, quiet } => {
-            TOKIO_RUNTIME.block_on(exec_convert(file, Flags { quiet }))?
-        }
+        Commands::Tree { file } => exec_tree(file)?,
+        Commands::Convert(flags) => TOKIO_RUNTIME.block_on(convert::exec_convert(flags))?,
         Commands::Browse { file } => exec_tui(file)?,
         Commands::Segments { file } => TOKIO_RUNTIME.block_on(segments::segments(file))?,
     };

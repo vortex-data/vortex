@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::sync::Arc;
 
 use flatbuffers::{FlatBufferBuilder, Follow, WIPOffset};
@@ -49,7 +52,6 @@ impl StructFields {
             .names()
             .ok_or_else(|| vortex_err!("failed to parse struct names from flatbuffer"))?
             .iter()
-            .map(|n| (*n).into())
             .collect();
 
         let dtypes = fb_struct
@@ -98,7 +100,7 @@ impl TryFrom<ViewedDType> for DType {
                     .type__as_decimal()
                     .ok_or_else(|| vortex_err!("failed to parse decimal dtype from flatbuffer"))?;
                 Ok(Self::Decimal(
-                    DecimalDType::new(fb_decimal.precision(), fb_decimal.scale()),
+                    DecimalDType::try_new(fb_decimal.precision(), fb_decimal.scale())?,
                     fb_decimal.nullable().into(),
                 ))
             }
@@ -129,6 +131,24 @@ impl TryFrom<ViewedDType> for DType {
                 Ok(Self::List(
                     Arc::new(element_dtype),
                     fb_list.nullable().into(),
+                ))
+            }
+            fb::Type::FixedSizeList => {
+                let fb_fixed_size_list = fb.type__as_fixed_size_list().ok_or_else(|| {
+                    vortex_err!("failed to parse fixed-size list from flatbuffer")
+                })?;
+
+                let list_element = fb_fixed_size_list.element_type().ok_or_else(|| {
+                    vortex_err!("failed to parse list element type from flatbuffer")
+                })?;
+                let element_dtype = Self::try_from(ViewedDType::from_fb_loc(
+                    list_element._tab.loc(),
+                    vfdt.buffer().clone(),
+                ))?;
+                Ok(Self::FixedSizeList(
+                    Arc::new(element_dtype),
+                    fb_fixed_size_list.size(),
+                    fb_fixed_size_list.nullable().into(),
                 ))
             }
             fb::Type::Struct_ => {
@@ -165,7 +185,7 @@ impl TryFrom<ViewedDType> for DType {
             }
             // This is here to fail to compile if another variant is included.
             #[allow(clippy::wildcard_in_or_patterns)]
-            fb::Type(10) => Err(vortex_err!("Unknown DType variant")),
+            fb::Type(11) => Err(vortex_err!("Unknown DType variant")),
             _ => Err(vortex_err!("Unknown DType variant")),
         }
     }
@@ -255,6 +275,18 @@ impl WriteFlatBuffer for DType {
                 )
                 .as_union_value()
             }
+            Self::FixedSizeList(edt, size, n) => {
+                let element_type = Some(edt.as_ref().write_flatbuffer(fbb));
+                fb::FixedSizeList::create(
+                    fbb,
+                    &fb::FixedSizeListArgs {
+                        element_type,
+                        size: *size,
+                        nullable: (*n).into(),
+                    },
+                )
+                .as_union_value()
+            }
             Self::Extension(ext) => {
                 let id = Some(fbb.create_string(ext.id().as_ref()));
                 let storage_dtype = Some(ext.storage_dtype().write_flatbuffer(fbb));
@@ -280,6 +312,7 @@ impl WriteFlatBuffer for DType {
             Self::Binary(_) => fb::Type::Binary,
             Self::Struct(..) => fb::Type::Struct_,
             Self::List(..) => fb::Type::List,
+            Self::FixedSizeList(..) => fb::Type::FixedSizeList,
             Self::Extension { .. } => fb::Type::Extension,
         };
 
@@ -373,9 +406,14 @@ mod test {
             Arc::new(DType::Primitive(PType::F32, Nullability::Nullable)),
             Nullability::NonNullable,
         ));
+        roundtrip_dtype(DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::F32, Nullability::Nullable)),
+            2,
+            Nullability::NonNullable,
+        ));
         roundtrip_dtype(DType::Struct(
             StructFields::new(
-                ["strings".into(), "ints".into()].into(),
+                ["strings", "ints"].into(),
                 vec![
                     DType::Utf8(Nullability::NonNullable),
                     DType::Primitive(PType::U16, Nullability::Nullable),

@@ -1,9 +1,13 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::fmt::Debug;
+use std::ops::Range;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
 use vortex_dtype::arrow::FromArrowType;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexResult, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
@@ -30,6 +34,7 @@ impl VTable for ArrowVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
+    type PipelineVTable = NotSupported;
     type SerdeVTable = NotSupported;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
@@ -89,40 +94,40 @@ impl CanonicalVTable<ArrowVTable> for ArrowVTable {
 }
 
 impl OperationsVTable<ArrowVTable> for ArrowVTable {
-    fn slice(array: &ArrowArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        let inner = array.inner.slice(start, stop - start);
+    fn slice(array: &ArrowArray, range: Range<usize>) -> ArrayRef {
+        let inner = array.inner.slice(range.start, range.len());
         let new_array = ArrowArray {
             inner,
             dtype: array.dtype.clone(),
             stats_set: Default::default(),
         };
-        Ok(new_array.into_array())
+        new_array.into_array()
     }
 
-    fn scalar_at(_array: &ArrowArray, _index: usize) -> VortexResult<Scalar> {
-        vortex_bail!("Not supported")
+    fn scalar_at(_array: &ArrowArray, _index: usize) -> Scalar {
+        vortex_panic!("Not supported")
     }
 }
 
 impl ValidityVTable<ArrowVTable> for ArrowVTable {
-    fn is_valid(array: &ArrowArray, index: usize) -> VortexResult<bool> {
-        Ok(array.inner.is_valid(index))
+    fn is_valid(array: &ArrowArray, index: usize) -> bool {
+        array.inner.is_valid(index)
     }
 
-    fn all_valid(array: &ArrowArray) -> VortexResult<bool> {
-        Ok(array.inner.logical_null_count() == 0)
+    fn all_valid(array: &ArrowArray) -> bool {
+        array.inner.logical_null_count() == 0
     }
 
-    fn all_invalid(array: &ArrowArray) -> VortexResult<bool> {
-        Ok(array.inner.logical_null_count() == array.inner.len())
+    fn all_invalid(array: &ArrowArray) -> bool {
+        array.inner.logical_null_count() == array.inner.len()
     }
 
-    fn validity_mask(array: &ArrowArray) -> VortexResult<Mask> {
-        Ok(array
+    fn validity_mask(array: &ArrowArray) -> Mask {
+        array
             .inner
             .logical_nulls()
             .map(|null_buffer| Mask::from_buffer(null_buffer.inner().clone()))
-            .unwrap_or_else(|| Mask::new_true(array.inner.len())))
+            .unwrap_or_else(|| Mask::new_true(array.inner.len()))
     }
 }
 

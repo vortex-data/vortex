@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 mod reader;
 pub mod writer;
 
@@ -7,7 +10,6 @@ use reader::StructReader;
 use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::{DType, Field, FieldMask, StructFields};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
-use vortex_expr::{Identifier, ScopeDType};
 
 use crate::children::{LayoutChildren, OwnedLayoutChildren};
 use crate::segments::{SegmentId, SegmentSource};
@@ -35,14 +37,7 @@ impl VTable for StructVTable {
     }
 
     fn dtype(layout: &Self::Layout) -> &DType {
-        layout
-            .scope_dtype
-            .dtype(&Identifier::Identity)
-            .vortex_expect("flat layout always has an identity")
-    }
-
-    fn scope_dtype(layout: &Self::Layout) -> &ScopeDType {
-        &layout.scope_dtype
+        &layout.dtype
     }
 
     fn metadata(_layout: &Self::Layout) -> Self::Metadata {
@@ -81,13 +76,11 @@ impl VTable for StructVTable {
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-        ctx: ArrayContext,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(StructReader::try_new(
             layout.clone(),
             name,
             segment_source,
-            ctx,
         )?))
     }
 
@@ -98,9 +91,10 @@ impl VTable for StructVTable {
         _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         _segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
+        _ctx: ArrayContext,
     ) -> VortexResult<Self::Layout> {
         let struct_dt = dtype
-            .as_struct()
+            .as_struct_fields_opt()
             .ok_or_else(|| vortex_err!("Expected struct dtype"))?;
         if children.nchildren() != struct_dt.nfields() {
             vortex_bail!(
@@ -109,10 +103,9 @@ impl VTable for StructVTable {
                 struct_dt.nfields()
             );
         }
-        let scope_dtype = ScopeDType::new(dtype.clone());
         Ok(StructLayout {
             row_count,
-            scope_dtype,
+            dtype: dtype.clone(),
             children: children.to_arc(),
         })
     }
@@ -124,16 +117,15 @@ pub struct StructLayoutEncoding;
 #[derive(Clone, Debug)]
 pub struct StructLayout {
     row_count: u64,
-    scope_dtype: ScopeDType,
+    dtype: DType,
     children: Arc<dyn LayoutChildren>,
 }
 
 impl StructLayout {
     pub fn new(row_count: u64, dtype: DType, children: Vec<LayoutRef>) -> Self {
-        let scope_dtype = ScopeDType::new(dtype);
         Self {
             row_count,
-            scope_dtype,
+            dtype,
             children: OwnedLayoutChildren::layout_children(children),
         }
     }

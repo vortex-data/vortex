@@ -1,22 +1,11 @@
-/**
- * (c) Copyright 2025 SpiralDB Inc. All rights reserved.
- * <p>
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- * <p>
- * http://www.apache.org/licenses/LICENSE-2.0
- * <p>
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 package dev.vortex.spark;
 
 import com.google.common.collect.Streams;
 import dev.vortex.api.DType;
+import java.util.Optional;
 import org.apache.spark.sql.connector.catalog.Column;
 import org.apache.spark.sql.types.*;
 
@@ -25,6 +14,65 @@ import org.apache.spark.sql.types.*;
  */
 public final class SparkTypes {
     private SparkTypes() {}
+
+    public static DType toDType(StructType schema) {
+
+        String[] fieldNames = new String[schema.length()];
+        DType[] fieldTypes = new DType[schema.length()];
+
+        for (int i = 0; i < schema.length(); i++) {
+            StructField field = schema.fields()[i];
+            fieldNames[i] = field.name();
+            fieldTypes[i] = convertField(field.dataType(), field.nullable());
+        }
+
+        return DType.newStruct(fieldNames, fieldTypes, false);
+    }
+
+    // Convert field type to Vortex type.
+    static DType convertField(DataType dataType, boolean isNullable) {
+        if (dataType instanceof ByteType) {
+            return DType.newByte(isNullable);
+        } else if (dataType instanceof ShortType) {
+            return DType.newShort(isNullable);
+        } else if (dataType instanceof IntegerType) {
+            return DType.newInt(isNullable);
+        } else if (dataType instanceof LongType) {
+            return DType.newLong(isNullable);
+        } else if (dataType instanceof FloatType) {
+            return DType.newFloat(isNullable);
+        } else if (dataType instanceof DoubleType) {
+            return DType.newDouble(isNullable);
+        } else if (dataType instanceof DecimalType) {
+            DecimalType decimalType = (DecimalType) dataType;
+            return DType.newDecimal(decimalType.precision(), decimalType.scale(), isNullable);
+        } else if (dataType instanceof BooleanType) {
+            return DType.newBinary(isNullable);
+        } else if (dataType instanceof StringType) {
+            return DType.newUtf8(isNullable);
+        } else if (dataType instanceof BinaryType) {
+            return DType.newBinary(isNullable);
+        } else if (dataType instanceof ArrayType) {
+            ArrayType arrayType = ((ArrayType) dataType);
+            DType elementType = convertField(arrayType.elementType(), arrayType.containsNull());
+            return DType.newList(elementType, isNullable);
+        } else if (dataType instanceof StructType) {
+            StructType structType = (StructType) dataType;
+            return toDType(structType);
+        } else if (dataType instanceof TimestampType) {
+            // Spark emits timestamps with UTC timezone and microsecond precision.
+            return DType.newTimestamp(DType.TimeUnit.MICROSECONDS, Optional.of("UTC"), isNullable);
+        } else if (dataType instanceof TimestampNTZType) {
+            // TimestampNTZ is microsecond timestamp without zone
+            return DType.newTimestamp(DType.TimeUnit.MICROSECONDS, Optional.empty(), isNullable);
+        } else if (dataType instanceof DateType) {
+            // TODO(aduffy): any problems with the date values since they're refed to
+            //  gregorian proleptic?
+            return DType.newDate(DType.TimeUnit.DAYS, isNullable);
+        } else {
+            throw new IllegalArgumentException("Unsupported data type for Vortex: " + dataType);
+        }
+    }
 
     /**
      * Convert a STRUCT Vortex type to a Spark {@link DataType}.
@@ -72,15 +120,12 @@ public final class SparkTypes {
                 /*
                  * Spark does not have a direct equivalent for many of the temporal types we support in Vortex or Arrow.
                  * Notably, there is no DATE type, and timestamps can have at most µs-level precision.
-                 *
                  * This means that we need to "cheat" a little in how we convert into Spark's type system. We support
                  * the following conversions:
-                 *
                  *  1. Vortex DATE -> Spark TIMESTAMP (with 00:00:00 time and local timezone)
                  *  2. Vortex TIMSTAMP -> Spark TIMESTAMP, with precision truncated to µs
                  *  3. Vortex TIME -> not supported
                  */
-
                 if (dType.isTime()) {
                     throw new IllegalArgumentException("Spark does not support Vortex TIME data type");
                 }

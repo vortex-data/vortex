@@ -1,85 +1,94 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use core::fmt;
 use std::fmt::{Display, Formatter};
 
 use vortex_array::compute;
+use vortex_error::{VortexError, VortexResult, vortex_bail};
+use vortex_proto::expr::binary_opts::BinaryOp;
 
 /// Equalities, inequalities, and boolean operations over possibly null values.
 ///
-/// For the equalities and inequalities, if either side is null, the result is null. The Boolean
-/// operators obey [Kleene (three-valued) logic](https://en.wikipedia.org/wiki/Three-valued_logic#Kleene_and_Priest_logics).
+/// For most operations, if either side is null, the result is null.
+///
+/// The Boolean operators (And, Or) obey [Kleene (three-valued) logic](https://en.wikipedia.org/wiki/Three-valued_logic#Kleene_and_Priest_logics).
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Operator {
-    // comparison
+    /// Expressions are equal.
     Eq,
+    /// Expressions are not equal.
     NotEq,
+    /// Expression is greater than another
     Gt,
+    /// Expression is greater or equal to another
     Gte,
+    /// Expression is less than another
     Lt,
+    /// Expression is less or equal to another
     Lte,
-    // boolean algebra
+    /// Boolean AND (∧).
     And,
+    /// Boolean OR (∨).
     Or,
-    // arithmetic
     /// The sum of the arguments.
+    ///
+    /// Errs at runtime if the sum would overflow or underflow.
+    Add,
+    /// The difference between the arguments.
     ///
     /// Errs at runtime if the sum would overflow or underflow.
     ///
     /// The result is null at any index that either input is null.
-    Add,
+    Sub,
 }
 
-#[cfg(feature = "proto")]
-mod proto {
-    use vortex_error::VortexError;
-    use vortex_proto::expr::kind::BinaryOp;
+impl From<Operator> for i32 {
+    fn from(value: Operator) -> Self {
+        let op: BinaryOp = value.into();
+        op.into()
+    }
+}
 
-    use crate::Operator;
-
-    impl From<Operator> for i32 {
-        fn from(value: Operator) -> Self {
-            let op: BinaryOp = value.into();
-            op.into()
+impl From<Operator> for BinaryOp {
+    fn from(value: Operator) -> Self {
+        match value {
+            Operator::Eq => BinaryOp::Eq,
+            Operator::NotEq => BinaryOp::NotEq,
+            Operator::Gt => BinaryOp::Gt,
+            Operator::Gte => BinaryOp::Gte,
+            Operator::Lt => BinaryOp::Lt,
+            Operator::Lte => BinaryOp::Lte,
+            Operator::And => BinaryOp::And,
+            Operator::Or => BinaryOp::Or,
+            Operator::Add => BinaryOp::Add,
+            Operator::Sub => BinaryOp::Sub,
         }
     }
+}
 
-    impl From<Operator> for BinaryOp {
-        fn from(value: Operator) -> Self {
-            match value {
-                Operator::Eq => BinaryOp::Eq,
-                Operator::NotEq => BinaryOp::NotEq,
-                Operator::Gt => BinaryOp::Gt,
-                Operator::Gte => BinaryOp::Gte,
-                Operator::Lt => BinaryOp::Lt,
-                Operator::Lte => BinaryOp::Lte,
-                Operator::And => BinaryOp::And,
-                Operator::Or => BinaryOp::Or,
-                Operator::Add => BinaryOp::Add,
-            }
-        }
+impl TryFrom<i32> for Operator {
+    type Error = VortexError;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        Ok(BinaryOp::try_from(value)?.into())
     }
+}
 
-    impl TryFrom<i32> for Operator {
-        type Error = VortexError;
-
-        fn try_from(value: i32) -> Result<Self, Self::Error> {
-            Ok(BinaryOp::try_from(value)?.into())
-        }
-    }
-
-    impl From<BinaryOp> for Operator {
-        fn from(value: BinaryOp) -> Self {
-            match value {
-                BinaryOp::Eq => Operator::Eq,
-                BinaryOp::NotEq => Operator::NotEq,
-                BinaryOp::Gt => Operator::Gt,
-                BinaryOp::Gte => Operator::Gte,
-                BinaryOp::Lt => Operator::Lt,
-                BinaryOp::Lte => Operator::Lte,
-                BinaryOp::And => Operator::And,
-                BinaryOp::Or => Operator::Or,
-                BinaryOp::Add => Operator::Add,
-            }
+impl From<BinaryOp> for Operator {
+    fn from(value: BinaryOp) -> Self {
+        match value {
+            BinaryOp::Eq => Operator::Eq,
+            BinaryOp::NotEq => Operator::NotEq,
+            BinaryOp::Gt => Operator::Gt,
+            BinaryOp::Gte => Operator::Gte,
+            BinaryOp::Lt => Operator::Lt,
+            BinaryOp::Lte => Operator::Lte,
+            BinaryOp::And => Operator::And,
+            BinaryOp::Or => Operator::Or,
+            BinaryOp::Add => Operator::Add,
+            BinaryOp::Sub => Operator::Sub,
         }
     }
 }
@@ -95,7 +104,8 @@ impl Display for Operator {
             Operator::Lte => "<=",
             Operator::And => "and",
             Operator::Or => "or",
-            Operator::Add => "+w",
+            Operator::Add => "+",
+            Operator::Sub => "-",
         };
         Display::fmt(display, f)
     }
@@ -110,7 +120,7 @@ impl Operator {
             Operator::Gte => Some(Operator::Lt),
             Operator::Lt => Some(Operator::Gte),
             Operator::Lte => Some(Operator::Gt),
-            Operator::And | Operator::Or | Operator::Add => None,
+            Operator::And | Operator::Or | Operator::Add | Operator::Sub => None,
         }
     }
 
@@ -134,6 +144,7 @@ impl Operator {
             Operator::And => Operator::And,
             Operator::Or => Operator::Or,
             Operator::Add => Operator::Add,
+            Operator::Sub => Operator::Sub,
         }
     }
 
@@ -160,5 +171,21 @@ impl From<compute::Operator> for Operator {
             compute::Operator::Lt => Operator::Lt,
             compute::Operator::Lte => Operator::Lte,
         }
+    }
+}
+
+impl TryInto<compute::Operator> for Operator {
+    type Error = VortexError;
+
+    fn try_into(self) -> VortexResult<compute::Operator> {
+        Ok(match self {
+            Operator::Eq => compute::Operator::Eq,
+            Operator::NotEq => compute::Operator::NotEq,
+            Operator::Gt => compute::Operator::Gt,
+            Operator::Gte => compute::Operator::Gte,
+            Operator::Lt => compute::Operator::Lt,
+            Operator::Lte => compute::Operator::Lte,
+            _ => vortex_bail!("Not a compute operator: {}", self),
+        })
     }
 }

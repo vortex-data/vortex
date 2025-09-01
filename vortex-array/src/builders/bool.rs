@@ -1,14 +1,16 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::any::Any;
 
 use arrow_buffer::BooleanBufferBuilder;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
 use crate::arrays::BoolArray;
-use crate::builders::ArrayBuilder;
-use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
-use crate::{Array, ArrayRef, Canonical, IntoArray};
+use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 pub struct BoolBuilder {
     inner: BooleanBufferBuilder,
@@ -19,7 +21,7 @@ pub struct BoolBuilder {
 
 impl BoolBuilder {
     pub fn new(nullability: Nullability) -> Self {
-        Self::with_capacity(nullability, 1024) // Same as Arrow builders
+        Self::with_capacity(nullability, DEFAULT_BUILDER_CAPACITY)
     }
 
     pub fn with_capacity(nullability: Nullability, capacity: usize) -> Self {
@@ -75,21 +77,28 @@ impl ArrayBuilder for BoolBuilder {
     }
 
     fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
-        let array = array.to_canonical()?;
-        let Canonical::Bool(array) = array else {
-            vortex_bail!("Expected Canonical::Bool, found {:?}", array);
-        };
+        if !self.dtype.eq_with_nullability_superset(array.dtype()) {
+            vortex_bail!(
+                "tried to extend a builder with `DType` {} with an array with `DType {}",
+                self.dtype,
+                array.dtype()
+            );
+        }
 
-        self.inner.append_buffer(array.boolean_buffer());
-        self.nulls.append_validity_mask(array.validity_mask()?);
+        let bool_array = array
+            .to_bool()
+            .vortex_expect("we checked that the array had `DType` boolean");
+
+        self.inner.append_buffer(bool_array.boolean_buffer());
+        self.nulls.append_validity_mask(bool_array.validity_mask());
 
         Ok(())
     }
 
     fn ensure_capacity(&mut self, capacity: usize) {
         if capacity > self.inner.capacity() {
-            self.nulls.ensure_capacity(capacity);
             self.inner.reserve(capacity - self.inner.capacity());
+            self.nulls.ensure_capacity(capacity);
         }
     }
 

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{
     BoolArray, BooleanBuffer, DecimalArray, PrimitiveArray, StructArray, VarBinViewArray,
@@ -13,7 +16,7 @@ use crate::array::take_canonical_array_non_nullable_indices;
 
 pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResult<ArrayRef> {
     let validity = if array.dtype().is_nullable() {
-        let validity_buff = array.validity_mask()?.to_boolean_buffer();
+        let validity_buff = array.validity_mask().to_boolean_buffer();
         Validity::from_iter(
             filter
                 .iter()
@@ -105,6 +108,7 @@ pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResul
             }
             take_canonical_array_non_nullable_indices(array, indices.as_slice())
         }
+        DType::FixedSizeList(..) => unimplemented!("TODO(connor)[FixedSizeList]"),
         d @ (DType::Null | DType::Extension(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }

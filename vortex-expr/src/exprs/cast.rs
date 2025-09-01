@@ -1,116 +1,136 @@
-use std::any::Any;
-use std::fmt::Display;
-use std::sync::Arc;
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::ArrayRef;
 use vortex_array::compute::cast as compute_cast;
+use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata};
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_proto::expr as pb;
 
-use crate::{AnalysisExpr, ExprRef, Scope, ScopeDType, VortexExpr};
+use crate::display::{DisplayAs, DisplayFormat};
+use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
 
-#[derive(Debug, Eq, Hash)]
+vtable!(Cast);
+
 #[allow(clippy::derived_hash_with_manual_eq)]
-pub struct Cast {
+#[derive(Debug, Clone, Hash, Eq)]
+pub struct CastExpr {
     target: DType,
     child: ExprRef,
 }
 
-impl Cast {
-    pub fn new_expr(child: ExprRef, target: DType) -> ExprRef {
-        Arc::new(Self { target, child })
-    }
-}
-
-impl PartialEq for Cast {
+impl PartialEq for CastExpr {
     fn eq(&self, other: &Self) -> bool {
-        self.target.eq(&other.target) && self.child.eq(&other.child)
+        self.target == other.target && self.child.eq(&other.child)
     }
 }
 
-impl Display for Cast {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "cast({}, {})", self.child, self.target)
+pub struct CastExprEncoding;
+
+impl VTable for CastVTable {
+    type Expr = CastExpr;
+    type Encoding = CastExprEncoding;
+    type Metadata = ProstMetadata<pb::CastOpts>;
+
+    fn id(_encoding: &Self::Encoding) -> ExprId {
+        ExprId::new_ref("cast")
+    }
+
+    fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
+        ExprEncodingRef::new_ref(CastExprEncoding.as_ref())
+    }
+
+    fn metadata(expr: &Self::Expr) -> Option<Self::Metadata> {
+        Some(ProstMetadata(pb::CastOpts {
+            target: Some((&expr.target).into()),
+        }))
+    }
+
+    fn children(expr: &Self::Expr) -> Vec<&ExprRef> {
+        vec![&expr.child]
+    }
+
+    fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
+        Ok(CastExpr {
+            target: expr.target.clone(),
+            child: children[0].clone(),
+        })
+    }
+
+    fn build(
+        _encoding: &Self::Encoding,
+        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        children: Vec<ExprRef>,
+    ) -> VortexResult<Self::Expr> {
+        if children.len() != 1 {
+            vortex_bail!(
+                "Cast expression must have exactly 1 child, got {}",
+                children.len()
+            );
+        }
+        let target: DType = metadata
+            .target
+            .as_ref()
+            .ok_or_else(|| vortex_err!("missing target dtype in CastOpts"))?
+            .try_into()?;
+        Ok(CastExpr {
+            target,
+            child: children[0].clone(),
+        })
+    }
+
+    fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
+        let array = expr.child.evaluate(scope)?;
+        compute_cast(&array, &expr.target).map_err(|e| {
+            e.with_context(format!(
+                "Failed to cast array of dtype {} to {}",
+                array.dtype(),
+                expr.target
+            ))
+        })
+    }
+
+    fn return_dtype(expr: &Self::Expr, _scope: &DType) -> VortexResult<DType> {
+        Ok(expr.target.clone())
     }
 }
 
-#[cfg(feature = "proto")]
-pub(crate) mod proto {
-    use vortex_dtype::DType;
-    use vortex_error::{VortexResult, vortex_bail, vortex_err};
-    use vortex_proto::expr::kind;
-    use vortex_proto::expr::kind::Kind;
-
-    use crate::cast::Cast;
-    use crate::{ExprDeserialize, ExprRef, ExprSerializable, Id};
-
-    pub(crate) struct CastSerde;
-
-    impl Id for CastSerde {
-        fn id(&self) -> &'static str {
-            "cast"
-        }
+impl CastExpr {
+    pub fn new(child: ExprRef, target: DType) -> Self {
+        Self { target, child }
     }
 
-    impl ExprDeserialize for CastSerde {
-        fn deserialize(&self, kind: &Kind, children: Vec<ExprRef>) -> VortexResult<ExprRef> {
-            let Kind::Cast(kind::Cast { target }) = kind else {
-                vortex_bail!("wrong kind {:?}, want cast", kind)
-            };
-            let target: DType = target
-                .as_ref()
-                .ok_or_else(|| vortex_err!("empty target dtype"))?
-                .try_into()?;
-
-            Ok(Cast::new_expr(children[0].clone(), target))
-        }
+    pub fn new_expr(child: ExprRef, target: DType) -> ExprRef {
+        Self::new(child, target).into_expr()
     }
+}
 
-    impl ExprSerializable for Cast {
-        fn id(&self) -> &'static str {
-            CastSerde.id()
-        }
-
-        fn serialize_kind(&self) -> VortexResult<Kind> {
-            Ok(Kind::Cast(kind::Cast {
-                target: Some((&self.target).into()),
-            }))
+impl DisplayAs for CastExpr {
+    fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match df {
+            DisplayFormat::Compact => {
+                write!(f, "cast({}, {})", self.child, self.target)
+            }
+            DisplayFormat::Tree => {
+                write!(f, "Cast(target: {})", self.target)
+            }
         }
     }
 }
 
-impl AnalysisExpr for Cast {}
+impl AnalysisExpr for CastExpr {}
 
-impl VortexExpr for Cast {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn unchecked_evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {
-        let array = self.child.evaluate(scope)?;
-        compute_cast(&array, &self.target)
-    }
-
-    fn children(&self) -> Vec<&ExprRef> {
-        vec![&self.child]
-    }
-
-    fn replacing_children(self: Arc<Self>, mut children: Vec<ExprRef>) -> ExprRef {
-        Self::new_expr(
-            children
-                .pop()
-                .vortex_expect("Cast::replacing_children should have one child"),
-            self.target.clone(),
-        )
-    }
-
-    fn return_dtype(&self, _scope_dtype: &ScopeDType) -> VortexResult<DType> {
-        Ok(self.target.clone())
-    }
-}
-
+/// Creates an expression that casts values to a target data type.
+///
+/// Converts the input expression's values to the specified target type.
+///
+/// ```rust
+/// # use vortex_dtype::{DType, Nullability, PType};
+/// # use vortex_expr::{cast, root};
+/// let expr = cast(root(), DType::Primitive(PType::I64, Nullability::NonNullable));
+/// ```
 pub fn cast(child: ExprRef, target: DType) -> ExprRef {
-    Cast::new_expr(child, target)
+    CastExpr::new(child, target).into_expr()
 }
 
 #[cfg(test)]
@@ -120,14 +140,14 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
-    use crate::{ExprRef, Scope, ScopeDType, cast, get_item, root, test_harness};
+    use crate::{ExprRef, Scope, cast, get_item, root, test_harness};
 
     #[test]
     fn dtype() {
         let dtype = test_harness::struct_dtype();
         assert_eq!(
             cast(root(), DType::Bool(Nullability::NonNullable))
-                .return_dtype(&ScopeDType::new(dtype))
+                .return_dtype(&dtype)
                 .unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
@@ -136,7 +156,7 @@ mod tests {
     #[test]
     fn replace_children() {
         let expr = cast(root(), DType::Bool(Nullability::Nullable));
-        let _ = expr.replacing_children(vec![root()]);
+        let _ = expr.with_children(vec![root()]);
     }
 
     #[test]
@@ -158,5 +178,17 @@ mod tests {
             result.dtype(),
             &DType::Primitive(PType::I64, Nullability::NonNullable)
         );
+    }
+
+    #[test]
+    fn test_display() {
+        let expr = cast(
+            get_item("value", root()),
+            DType::Primitive(PType::I64, Nullability::NonNullable),
+        );
+        assert_eq!(expr.to_string(), "cast($.value, i64)");
+
+        let expr2 = cast(root(), DType::Bool(Nullability::Nullable));
+        assert_eq!(expr2.to_string(), "cast($, bool?)");
     }
 }

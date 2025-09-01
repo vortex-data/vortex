@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::ops::Deref;
 
 use num_traits::AsPrimitive;
@@ -15,7 +18,7 @@ impl TakeKernel for VarBinViewVTable {
     fn take(&self, array: &VarBinViewArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         // Compute the new validity
 
-        // This is valid since all elements (of all arrays) even null values are inside must be the
+        // This is valid since all elements (of all arrays) even null values must be inside
         // min-max valid range.
         let validity = array.validity().take(indices)?;
         let indices = indices.to_primitive()?;
@@ -25,15 +28,18 @@ impl TakeKernel for VarBinViewVTable {
             take_views(array.views(), indices.as_slice::<I>())
         });
 
-        Ok(VarBinViewArray::try_new(
-            views_buffer,
-            array.buffers().to_vec(),
-            array
-                .dtype()
-                .union_nullability(indices.dtype().nullability()),
-            validity,
-        )?
-        .into_array())
+        // SAFETY: taking all components at same indices maintains invariants
+        unsafe {
+            Ok(VarBinViewArray::new_unchecked(
+                views_buffer,
+                array.buffers().clone(),
+                array
+                    .dtype()
+                    .union_nullability(indices.dtype().nullability()),
+                validity,
+            )
+            .into_array())
+        }
     }
 }
 
@@ -50,6 +56,7 @@ fn take_views<I: AsPrimitive<usize>>(
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability::NonNullable;
@@ -59,6 +66,7 @@ mod tests {
     use crate::array::Array;
     use crate::arrays::{PrimitiveArray, VarBinViewArray};
     use crate::canonical::ToCanonical;
+    use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
 
     #[test]
@@ -108,5 +116,26 @@ mod tests {
                 .unwrap(),
             [Some("two".to_string()), None]
         );
+    }
+
+    #[rstest]
+    #[case(VarBinViewArray::from_iter(
+        ["hello", "world", "test", "data", "array"].map(Some),
+        DType::Utf8(NonNullable),
+    ))]
+    #[case(VarBinViewArray::from_iter_nullable_str([
+        Some("hello"),
+        None,
+        Some("test"),
+        Some("data"),
+        None,
+    ]))]
+    #[case(VarBinViewArray::from_iter(
+        [b"hello".as_slice(), b"world", b"test", b"data", b"array"].map(Some),
+        DType::Binary(NonNullable),
+    ))]
+    #[case(VarBinViewArray::from_iter(["single"].map(Some), DType::Utf8(NonNullable)))]
+    fn test_take_varbinview_conformance(#[case] array: VarBinViewArray) {
+        test_take_conformance(array.as_ref());
     }
 }

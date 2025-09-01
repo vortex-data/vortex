@@ -1,11 +1,15 @@
-import vortex as vx
-import vortex.expr
+#  SPDX-License-Identifier: Apache-2.0
+#  SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+from ..type_aliases import IntoArrayIterator
+from .arrays import Array
+from .expr import Expr
 
 def read_url(
     url: str,
     *,
-    projection=None,
-    row_filter: vortex.expr.Expr | None = None,
-    indices: vx.Array | None = None,
-) -> vx.Array: ...
-def write(iter: vx.file.IntoArrayIterator, path: str): ...
+    projection: list[str] | list[int] | None = None,
+    row_filter: Expr | None = None,
+    indices: Array | None = None,
+) -> Array: ...
+def write(iter: IntoArrayIterator, path: str) -> None: ...

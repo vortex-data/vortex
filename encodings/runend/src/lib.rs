@@ -1,7 +1,12 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 pub use array::*;
 pub use iter::trimmed_ends_iter;
 
 mod array;
+#[cfg(feature = "arrow")]
+mod arrow;
 pub mod compress;
 mod compute;
 mod iter;

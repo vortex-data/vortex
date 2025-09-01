@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::any::Any;
 use std::sync::LazyLock;
 
@@ -11,6 +14,14 @@ use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef};
+
+static BOOLEAN_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("boolean".into(), ArcRef::new_ref(&Boolean));
+    for kernel in inventory::iter::<BooleanKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
 
 /// Point-wise logical _and_ between two Boolean arrays.
 ///
@@ -89,14 +100,6 @@ impl<V: VTable + BooleanKernel> Kernel for BooleanKernelAdapter<V> {
         Ok(V::boolean(&self.0, array, inputs.rhs, inputs.operator)?.map(|array| array.into()))
     }
 }
-
-pub static BOOLEAN_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("boolean".into(), ArcRef::new_ref(&Boolean));
-    for kernel in inventory::iter::<BooleanKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
 
 struct Boolean;
 
@@ -320,10 +323,10 @@ mod tests {
 
         let r = r.to_bool().unwrap().into_array();
 
-        let v0 = r.scalar_at(0).unwrap().as_bool().value();
-        let v1 = r.scalar_at(1).unwrap().as_bool().value();
-        let v2 = r.scalar_at(2).unwrap().as_bool().value();
-        let v3 = r.scalar_at(3).unwrap().as_bool().value();
+        let v0 = r.scalar_at(0).as_bool().value();
+        let v1 = r.scalar_at(1).as_bool().value();
+        let v2 = r.scalar_at(2).as_bool().value();
+        let v3 = r.scalar_at(3).as_bool().value();
 
         assert!(v0.unwrap());
         assert!(v1.unwrap());
@@ -340,10 +343,10 @@ mod tests {
     fn test_and(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) {
         let r = and(&lhs, &rhs).unwrap().to_bool().unwrap().into_array();
 
-        let v0 = r.scalar_at(0).unwrap().as_bool().value();
-        let v1 = r.scalar_at(1).unwrap().as_bool().value();
-        let v2 = r.scalar_at(2).unwrap().as_bool().value();
-        let v3 = r.scalar_at(3).unwrap().as_bool().value();
+        let v0 = r.scalar_at(0).as_bool().value();
+        let v1 = r.scalar_at(1).as_bool().value();
+        let v2 = r.scalar_at(2).as_bool().value();
+        let v3 = r.scalar_at(3).as_bool().value();
 
         assert!(v0.unwrap());
         assert!(!v1.unwrap());

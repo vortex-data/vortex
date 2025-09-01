@@ -1,4 +1,8 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::fmt::Debug;
+use std::ops::Range;
 
 use arrow_buffer::BooleanBuffer;
 use vortex_array::arrays::BoolArray;
@@ -28,6 +32,7 @@ impl VTable for ByteBoolVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
     type SerdeVTable = Self;
+    type PipelineVTable = NotSupported;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.bytebool")
@@ -52,14 +57,14 @@ pub struct ByteBoolEncoding;
 impl ByteBoolArray {
     pub fn new(buffer: ByteBuffer, validity: Validity) -> Self {
         let length = buffer.len();
-        if let Some(vlen) = validity.maybe_len() {
-            if length != vlen {
-                vortex_panic!(
-                    "Buffer length ({}) does not match validity length ({})",
-                    length,
-                    vlen
-                );
-            }
+        if let Some(vlen) = validity.maybe_len()
+            && length != vlen
+        {
+            vortex_panic!(
+                "Buffer length ({}) does not match validity length ({})",
+                length,
+                vlen
+            );
         }
         Self {
             dtype: DType::Bool(validity.nullability()),
@@ -116,19 +121,16 @@ impl CanonicalVTable<ByteBoolVTable> for ByteBoolVTable {
 }
 
 impl OperationsVTable<ByteBoolVTable> for ByteBoolVTable {
-    fn slice(array: &ByteBoolArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        Ok(ByteBoolArray::new(
-            array.buffer().slice(start..stop),
-            array.validity().slice(start, stop)?,
+    fn slice(array: &ByteBoolArray, range: Range<usize>) -> ArrayRef {
+        ByteBoolArray::new(
+            array.buffer().slice(range.clone()),
+            array.validity().slice(range),
         )
-        .into_array())
+        .into_array()
     }
 
-    fn scalar_at(array: &ByteBoolArray, index: usize) -> VortexResult<Scalar> {
-        Ok(Scalar::bool(
-            array.buffer()[index] == 1,
-            array.dtype().nullability(),
-        ))
+    fn scalar_at(array: &ByteBoolArray, index: usize) -> Scalar {
+        Scalar::bool(array.buffer()[index] == 1, array.dtype().nullability())
     }
 }
 
@@ -173,14 +175,14 @@ mod tests {
         assert_eq!(v_len, arr.len());
 
         for idx in 0..arr.len() {
-            assert!(arr.is_valid(idx).unwrap());
+            assert!(arr.is_valid(idx));
         }
 
         let v = vec![Some(true), None, Some(false)];
         let arr = ByteBoolArray::from(v);
-        assert!(arr.is_valid(0).unwrap());
-        assert!(!arr.is_valid(1).unwrap());
-        assert!(arr.is_valid(2).unwrap());
+        assert!(arr.is_valid(0));
+        assert!(!arr.is_valid(1));
+        assert!(arr.is_valid(2));
         assert_eq!(arr.len(), 3);
 
         let v: Vec<Option<bool>> = vec![None, None];
@@ -190,7 +192,7 @@ mod tests {
         assert_eq!(v_len, arr.len());
 
         for idx in 0..arr.len() {
-            assert!(!arr.is_valid(idx).unwrap());
+            assert!(!arr.is_valid(idx));
         }
         assert_eq!(arr.len(), 2);
     }

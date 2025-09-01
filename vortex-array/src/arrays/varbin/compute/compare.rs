@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use arrow_array::{BinaryArray, StringArray};
 use arrow_buffer::BooleanBuffer;
 use arrow_ord::cmp;
@@ -39,11 +42,9 @@ impl CompareKernel for VarBinVTable {
 
             if rhs_is_empty {
                 let buffer = match operator {
-                    // Every possible value is gte ""
-                    Operator::Gte => BooleanBuffer::new_set(len),
-                    // No value is lt ""
-                    Operator::Lt => BooleanBuffer::new_unset(len),
-                    _ => {
+                    Operator::Gte => BooleanBuffer::new_set(len), // Every possible value is >= ""
+                    Operator::Lt => BooleanBuffer::new_unset(len), // No value is < ""
+                    Operator::Eq | Operator::NotEq | Operator::Gt | Operator::Lte => {
                         let lhs_offsets = lhs.offsets().to_canonical()?.into_primitive()?;
                         match_each_native_ptype!(lhs_offsets.ptype(), |P| {
                             compare_offsets_to_empty::<P>(lhs_offsets, operator)
@@ -92,7 +93,7 @@ impl CompareKernel for VarBinVTable {
             }
             .map_err(|err| vortex_err!("Failed to compare VarBin array: {}", err))?;
 
-            Ok(Some(from_arrow_array_with_len(&array, len, nullable)?))
+            Ok(Some(from_arrow_array_with_len(&array, len, nullable)))
         } else if !rhs.is::<VarBinVTable>() {
             // NOTE: If the rhs is not a VarBin array it will be canonicalized to a VarBinView
             // Arrow doesn't support comparing VarBin to VarBinView arrays, so we convert ourselves
@@ -149,7 +150,7 @@ mod test {
         .unwrap();
 
         assert_eq!(
-            &result.validity_mask().unwrap().to_boolean_buffer(),
+            &result.validity_mask().to_boolean_buffer(),
             &BooleanBuffer::from_iter([true, false, true])
         );
         assert_eq!(
@@ -174,7 +175,7 @@ mod test {
             .unwrap();
 
         assert_eq!(
-            &result.validity_mask().unwrap().to_boolean_buffer(),
+            &result.validity_mask().to_boolean_buffer(),
             &BooleanBuffer::from_iter([false, false, true])
         );
         assert_eq!(

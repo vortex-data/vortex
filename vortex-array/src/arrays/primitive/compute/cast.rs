@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{DType, NativePType, Nullability, match_each_native_ptype};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
@@ -10,9 +13,9 @@ use crate::vtable::ValidityHelper;
 use crate::{ArrayRef, IntoArray, register_kernel};
 
 impl CastKernel for PrimitiveVTable {
-    fn cast(&self, array: &PrimitiveArray, dtype: &DType) -> VortexResult<ArrayRef> {
+    fn cast(&self, array: &PrimitiveArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         let DType::Primitive(new_ptype, new_nullability) = dtype else {
-            vortex_bail!(MismatchedTypes: "primitive type", dtype);
+            return Ok(None);
         };
         let (new_ptype, new_nullability) = (*new_ptype, *new_nullability);
 
@@ -22,7 +25,7 @@ impl CastKernel for PrimitiveVTable {
         } else if new_nullability == Nullability::Nullable {
             // from non-nullable to nullable
             array.validity().clone().into_nullable()
-        } else if new_nullability == Nullability::NonNullable && array.validity().all_valid()? {
+        } else if new_nullability == Nullability::NonNullable && array.validity().all_valid() {
             // from nullable but all valid, to non-nullable
             Validity::NonNullable
         } else {
@@ -33,17 +36,21 @@ impl CastKernel for PrimitiveVTable {
 
         // If the bit width is the same, we can short-circuit and simply update the validity
         if array.ptype() == new_ptype {
-            return Ok(PrimitiveArray::from_byte_buffer(
-                array.byte_buffer().clone(),
-                array.ptype(),
-                new_validity,
-            )
-            .into_array());
+            return Ok(Some(
+                PrimitiveArray::from_byte_buffer(
+                    array.byte_buffer().clone(),
+                    array.ptype(),
+                    new_validity,
+                )
+                .into_array(),
+            ));
         }
 
         // Otherwise, we need to cast the values one-by-one
         match_each_native_ptype!(new_ptype, |T| {
-            Ok(PrimitiveArray::new(cast::<T>(array)?, new_validity).into_array())
+            Ok(Some(
+                PrimitiveArray::new(cast::<T>(array)?, new_validity).into_array(),
+            ))
         })
     }
 }
@@ -66,6 +73,7 @@ fn cast<T: NativePType>(array: &PrimitiveArray) -> VortexResult<Buffer<T>> {
 
 #[cfg(test)]
 mod test {
+    use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_error::VortexError;
@@ -74,6 +82,7 @@ mod test {
     use crate::arrays::PrimitiveArray;
     use crate::canonical::ToCanonical;
     use crate::compute::cast;
+    use crate::compute::conformance::cast::test_cast_conformance;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
 
@@ -165,5 +174,23 @@ mod test {
             s.to_string(),
             "invalid cast from nullable to non-nullable, since source array actually contains nulls"
         );
+    }
+
+    #[rstest]
+    #[case(buffer![0u8, 1, 2, 3, 255].into_array())]
+    #[case(buffer![0u16, 100, 1000, 65535].into_array())]
+    #[case(buffer![0u32, 100, 1000, 1000000].into_array())]
+    #[case(buffer![0u64, 100, 1000, 1000000000].into_array())]
+    #[case(buffer![-128i8, -1, 0, 1, 127].into_array())]
+    #[case(buffer![-1000i16, -1, 0, 1, 1000].into_array())]
+    #[case(buffer![-1000000i32, -1, 0, 1, 1000000].into_array())]
+    #[case(buffer![-1000000000i64, -1, 0, 1, 1000000000].into_array())]
+    #[case(buffer![0.0f32, 1.5, -2.5, 100.0, 1e6].into_array())]
+    #[case(buffer![0.0f64, 1.5, -2.5, 100.0, 1e12].into_array())]
+    #[case(PrimitiveArray::from_option_iter([Some(1u8), None, Some(255), Some(0), None]).into_array())]
+    #[case(PrimitiveArray::from_option_iter([Some(1i32), None, Some(-100), Some(0), None]).into_array())]
+    #[case(buffer![42u32].into_array())]
+    fn test_cast_primitive_conformance(#[case] array: crate::ArrayRef) {
+        test_cast_conformance(array.as_ref());
     }
 }

@@ -1,18 +1,6 @@
-/**
- * (c) Copyright 2025 SpiralDB Inc. All rights reserved.
- * <p>
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- * <p>
- * http://www.apache.org/licenses/LICENSE-2.0
- * <p>
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 package dev.vortex.spark;
 
 import dev.vortex.relocated.org.apache.arrow.vector.types.DateUnit;
@@ -26,9 +14,26 @@ import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.Metadata;
 import org.apache.spark.sql.types.StructField;
 
+/**
+ * Utility class for converting Arrow types to Spark SQL data types.
+ * <p>
+ * This class provides static methods to convert Arrow field definitions and type definitions
+ * into their corresponding Spark SQL DataType representations. It handles the mapping between
+ * Arrow's type system and Spark's type system, including complex types like structs and arrays.
+ */
 public final class ArrowUtils {
     private ArrowUtils() {}
 
+    /**
+     * Converts an Arrow Field to a Spark SQL DataType.
+     * <p>
+     * This method handles complex types like structs and arrays by recursively converting
+     * their child fields. For primitive types, it delegates to {@link #fromArrowType(ArrowType)}.
+     *
+     * @param field the Arrow field to convert
+     * @return the corresponding Spark SQL DataType
+     * @throws UnsupportedOperationException if the Arrow type is not supported
+     */
     public static DataType fromArrowField(Field field) {
         switch (field.getType().getTypeID()) {
             case Struct:
@@ -48,6 +53,18 @@ public final class ArrowUtils {
         }
     }
 
+    /**
+     * Converts an Arrow type to a Spark SQL DataType.
+     * <p>
+     * This method maps primitive Arrow types to their corresponding Spark SQL types.
+     * It supports most common Arrow types including integers, floating point numbers,
+     * strings, binary data, dates, timestamps, decimals, and nulls.
+     *
+     * @param dt the Arrow type to convert
+     * @return the corresponding Spark SQL DataType
+     * @throws UnsupportedOperationException if the Arrow type configuration is not supported
+     * @throws RuntimeException if the Arrow type is not recognized
+     */
     public static DataType fromArrowType(ArrowType dt) {
         switch (dt.getTypeID()) {
             case Bool:

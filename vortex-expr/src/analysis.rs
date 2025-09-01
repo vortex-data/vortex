@@ -1,11 +1,20 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_array::stats::Stat;
+use vortex_dtype::FieldPath;
 
-use crate::{AccessPath, ExprRef};
+use crate::ExprRef;
 
+/// A catalog of available stats that are associated with field paths.
 pub trait StatsCatalog {
-    /// Given an id, field and stat return an expression that when evaluated will return that stat
-    /// this would be a column reference or a literal value, if the value is known at planning time.
-    fn stats_ref(&mut self, _access_path: &AccessPath, _stat: Stat) -> Option<ExprRef> {
+    /// Given a field path and statistic, return an expression that when evaluated over the catalog
+    /// will return that stat for the referenced field.
+    ///
+    /// This is likely to be a column expression, or a literal.
+    ///
+    /// Returns `None` if the stat is not available for the field path.
+    fn stats_ref(&mut self, _field_path: &FieldPath, _stat: Stat) -> Option<ExprRef> {
         None
     }
 }
@@ -20,7 +29,7 @@ pub trait AnalysisExpr {
     /// necessarily true: even if the falsification evaluates to false, `e` need not evaluate to
     /// true on all records.
     ///
-    /// The `StatsCatalog` can be used to constrain or rename stats used in the final expr.
+    /// The [`StatsCatalog`] can be used to constrain or rename stats used in the final expr.
     ///
     /// # Examples
     ///
@@ -53,7 +62,14 @@ pub trait AnalysisExpr {
         None
     }
 
-    fn field_path(&self) -> Option<AccessPath> {
+    /// An expression for the NaN count for a column, if available.
+    ///
+    /// This method returns `None` if the NaNCount stat is unknown.
+    fn nan_count(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+        None
+    }
+
+    fn field_path(&self) -> Option<FieldPath> {
         None
     }
 

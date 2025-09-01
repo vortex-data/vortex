@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! Float-specific dictionary encoding implementation.
 
 use vortex_array::IntoArray;
@@ -7,7 +10,6 @@ use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 use vortex_dict::DictArray;
 use vortex_dtype::half::f16;
-use vortex_error::VortexResult;
 
 use crate::float::stats::{ErasedDistinctValues, FloatStats};
 
@@ -36,11 +38,12 @@ macro_rules! typed_encode {
         };
         let values = PrimitiveArray::new(values, values_validity).into_array();
 
-        DictArray::try_new(codes, values)
+        // SAFETY: enforced by the DictEncoder
+        unsafe { DictArray::new_unchecked(codes, values) }
     }};
 }
 
-pub fn dictionary_encode(stats: &FloatStats) -> VortexResult<DictArray> {
+pub fn dictionary_encode(stats: &FloatStats) -> DictArray {
     let validity = stats.src.validity();
     match &stats.distinct_values {
         ErasedDistinctValues::F16(typed) => typed_encode!(stats, typed, validity, f16),
@@ -109,7 +112,7 @@ mod tests {
         let array = PrimitiveArray::new(values, validity);
 
         let stats = FloatStats::generate(&array);
-        let dict_array = dictionary_encode(&stats).unwrap();
+        let dict_array = dictionary_encode(&stats);
         assert_eq!(dict_array.values().len(), 2);
         assert_eq!(dict_array.codes().len(), 5);
 

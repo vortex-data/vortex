@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use bytes::Buf;
 use vortex_error::VortexExpect;
 
@@ -21,11 +24,9 @@ pub trait AlignedBuf: Buf {
         // When the underlying `copy_to_bytes` is zero-copy, this may perform one copy to align
         // the bytes. When the underlying `copy_to_bytes` is not zero-copy, this may perform two
         // copies.
-        //
         // The only way to fix this would be to invert the implementation so `copy_to_bytes`
         // invokes `copy_to_aligned` with an alignment of 1. But we cannot override this in the
         // default trait.
-        //
         // In practice, we tend to only call this function on `ByteBuffer: AlignedBuf`, and
         // therefore we have a maximum of one copy, so I'm not too worried about it.
         ByteBuffer::from(self.copy_to_bytes(len)).aligned(alignment)

@@ -1,6 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 #![deny(missing_docs)]
-#![feature(min_specialization)]
-#![feature(trusted_len)]
 
 //! A library for working with custom aligned buffers of sized values.
 //!
@@ -64,8 +65,8 @@ mod debug;
 mod macros;
 #[cfg(feature = "memmap2")]
 mod memmap2;
-mod spec_extend;
 mod string;
+mod trusted_len;
 
 /// An immutable buffer of u8.
 pub type ByteBuffer = Buffer<u8>;

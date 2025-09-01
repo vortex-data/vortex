@@ -1,0 +1,11 @@
+version = 1
+
+[[annotations]]
+path = "**/*.sql"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "**/*.csv"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "Apache-2.0"

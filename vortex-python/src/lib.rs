@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 #![allow(unsafe_op_in_unsafe_fn)]
 
 use std::ops::Deref;
@@ -7,6 +10,7 @@ use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 
 pub(crate) mod arrays;
+mod arrow;
 mod compress;
 mod dataset;
 pub(crate) mod dtype;
@@ -16,9 +20,9 @@ mod io;
 mod iter;
 mod object_store_urls;
 mod python_repr;
-mod record_batch_reader;
 mod registry;
 pub(crate) mod scalar;
+mod scan;
 mod serde;
 
 use log::LevelFilter;
@@ -59,6 +63,7 @@ fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     registry::init(py, m)?;
     scalar::init(py, m)?;
     serde::init(py, m)?;
+    scan::init(py, m)?;
 
     Ok(())
 }

@@ -1,23 +1,29 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+// TODO(connor): Bring this file more in line with the rest of the builders.
+
 use std::any::Any;
 use std::cmp::max;
+use std::sync::Arc;
 
-use vortex_buffer::{BufferMut, ByteBuffer, ByteBufferMut};
-use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_buffer::{Buffer, BufferMut, ByteBuffer, ByteBufferMut};
+use vortex_dtype::DType;
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::Mask;
+use vortex_utils::aliases::hash_map::{Entry, HashMap};
 
 use crate::arrays::{BinaryView, VarBinViewArray};
-use crate::builders::ArrayBuilder;
-use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
+use crate::builders::{ArrayBuilder, LazyNullBufferBuilder};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
+/// The builder for building a [`VarBinViewArray`].
 pub struct VarBinViewBuilder {
-    views_builder: BufferMut<BinaryView>,
-    pub null_buffer_builder: LazyNullBufferBuilder,
-    completed: Vec<ByteBuffer>,
-    in_progress: ByteBufferMut,
-    nullability: Nullability,
     dtype: DType,
+    views_builder: BufferMut<BinaryView>,
+    nulls: LazyNullBufferBuilder,
+    completed: CompletedBuffers,
+    in_progress: ByteBufferMut,
 }
 
 impl VarBinViewBuilder {
@@ -25,16 +31,27 @@ impl VarBinViewBuilder {
     const BLOCK_SIZE: u32 = 8 * 8 * 1024;
 
     pub fn with_capacity(dtype: DType, capacity: usize) -> Self {
+        Self::new(dtype, capacity, Default::default())
+    }
+
+    pub fn with_buffer_deduplication(dtype: DType, capacity: usize) -> Self {
+        Self::new(
+            dtype,
+            capacity,
+            CompletedBuffers::Deduplicated(Default::default()),
+        )
+    }
+
+    fn new(dtype: DType, capacity: usize, completed: CompletedBuffers) -> Self {
         assert!(
             matches!(dtype, DType::Utf8(_) | DType::Binary(_)),
             "VarBinViewBuilder DType must be Utf8 or Binary."
         );
         Self {
             views_builder: BufferMut::<BinaryView>::with_capacity(capacity),
-            null_buffer_builder: LazyNullBufferBuilder::new(capacity),
-            completed: vec![],
+            nulls: LazyNullBufferBuilder::new(capacity),
+            completed,
             in_progress: ByteBufferMut::empty(),
-            nullability: dtype.nullability(),
             dtype,
         }
     }
@@ -59,18 +76,24 @@ impl VarBinViewBuilder {
         let view = BinaryView::make_view(
             value,
             // buffer offset
-            u32::try_from(self.completed.len()).vortex_expect("too many buffers"),
+            self.completed.len(),
             offset,
         );
         self.views_builder.push(view);
     }
 
+    /// Appends a value to the builder.
     #[inline]
     pub fn append_value<S: AsRef<[u8]>>(&mut self, value: S) {
         self.append_value_view(value.as_ref());
-        self.null_buffer_builder.append_non_null();
+        self.nulls.append_non_null();
     }
 
+    /// Appends an optional value to the builder.
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if the input is `None` and the builder is non-nullable.
     #[inline]
     pub fn append_option<S: AsRef<[u8]>>(&mut self, value: Option<S>) {
         match value {
@@ -81,19 +104,23 @@ impl VarBinViewBuilder {
 
     #[inline]
     fn flush_in_progress(&mut self) {
-        if !self.in_progress.is_empty() {
-            let block = std::mem::take(&mut self.in_progress).freeze();
-            self.push_completed(block)
+        if self.in_progress.is_empty() {
+            return;
         }
-    }
+        let block = std::mem::take(&mut self.in_progress).freeze();
 
-    fn push_completed(&mut self, block: ByteBuffer) {
         assert!(block.len() < u32::MAX as usize, "Block too large");
-        assert!(self.completed.len() < u32::MAX as usize, "Too many blocks");
+
+        let initial_len = self.completed.len();
         self.completed.push(block);
+        assert_eq!(
+            self.completed.len(),
+            initial_len + 1,
+            "Invalid state, just completed block already exists"
+        );
     }
 
-    pub fn completed_block_count(&self) -> usize {
+    pub fn completed_block_count(&self) -> u32 {
         self.completed.len()
     }
 
@@ -102,24 +129,59 @@ impl VarBinViewBuilder {
     // buffers adjusted.
     // The views must all point to sections of the buffers and the validity length must match
     // the view length.
+    /// ## Panics
+    /// Panics if this builder deduplicates buffers and if any of the given buffers already
+    /// exists on this builder
     pub fn push_buffer_and_adjusted_views(
         &mut self,
-        buffer: impl IntoIterator<Item = ByteBuffer>,
-        views: impl IntoIterator<Item = BinaryView>,
+        buffer: &[ByteBuffer],
+        views: &Buffer<BinaryView>,
         validity_mask: Mask,
     ) {
         self.flush_in_progress();
 
-        self.completed.extend(buffer);
-        self.views_builder.extend(views);
+        let expected_completed_len = self.completed.len() as usize + buffer.len();
+        self.completed.extend_from_slice(buffer);
+        assert_eq!(
+            self.completed.len() as usize,
+            expected_completed_len,
+            "Some buffers already exist",
+        );
+        self.views_builder.extend_trusted(views.iter().copied());
         self.push_only_validity_mask(validity_mask);
 
-        debug_assert_eq!(self.null_buffer_builder.len(), self.views_builder.len())
+        debug_assert_eq!(self.nulls.len(), self.views_builder.len())
     }
 
+    /// Finishes the builder directly into a [`VarBinViewArray`].
+    pub fn finish_into_varbinview(&mut self) -> VarBinViewArray {
+        self.flush_in_progress();
+        let buffers = std::mem::take(&mut self.completed);
+
+        assert_eq!(
+            self.views_builder.len(),
+            self.nulls.len(),
+            "View and validity length must match"
+        );
+
+        let validity = self.nulls.finish_with_nullability(self.dtype.nullability());
+
+        // SAFETY: the builder methods check safety at each step.
+        unsafe {
+            VarBinViewArray::new_unchecked(
+                std::mem::take(&mut self.views_builder).freeze(),
+                buffers.finish(),
+                std::mem::replace(&mut self.dtype, DType::Null),
+                validity,
+            )
+        }
+    }
+}
+
+impl VarBinViewBuilder {
     // Pushes a validity mask into the builder not affecting the views or buffers
     fn push_only_validity_mask(&mut self, validity_mask: Mask) {
-        self.null_buffer_builder.append_validity_mask(validity_mask);
+        self.nulls.append_validity_mask(validity_mask);
     }
 }
 
@@ -139,37 +201,55 @@ impl ArrayBuilder for VarBinViewBuilder {
 
     #[inline]
     fn len(&self) -> usize {
-        self.null_buffer_builder.len()
+        self.nulls.len()
     }
 
     #[inline]
     fn append_zeros(&mut self, n: usize) {
         self.views_builder.push_n(BinaryView::empty_view(), n);
-        self.null_buffer_builder.append_n_non_nulls(n);
+        self.nulls.append_n_non_nulls(n);
     }
 
     #[inline]
     fn append_nulls(&mut self, n: usize) {
         self.views_builder.push_n(BinaryView::empty_view(), n);
-        self.null_buffer_builder.append_n_nulls(n);
+        self.nulls.append_n_nulls(n);
     }
 
     #[inline]
     fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
+        if !self.dtype.eq_with_nullability_superset(array.dtype()) {
+            vortex_bail!(
+                "tried to extend a builder with `DType` {} with an array with `DType {}",
+                self.dtype,
+                array.dtype()
+            );
+        }
+
         let array = array.to_varbinview()?;
         self.flush_in_progress();
 
-        let buffers_offset = u32::try_from(self.completed.len())?;
-        self.completed.extend_from_slice(array.buffers());
+        let new_indices = self.completed.extend_from_slice(array.buffers());
 
-        self.views_builder.extend(
-            array
-                .views()
-                .iter()
-                .map(|view| view.offset_view(buffers_offset)),
-        );
+        match new_indices {
+            NewIndices::ConstantOffset(offset) => {
+                self.views_builder
+                    .extend_trusted(array.views().iter().map(|view| view.offset_view(offset)));
+            }
+            NewIndices::LookupArray(lookup) => {
+                self.views_builder
+                    .extend_trusted(array.views().iter().map(|view| {
+                        if view.is_inlined() {
+                            *view
+                        } else {
+                            let new_buffer_idx = lookup[view.as_view().buffer_index() as usize];
+                            view.with_buffer_idx(new_buffer_idx)
+                        }
+                    }));
+            }
+        }
 
-        self.push_only_validity_mask(array.validity_mask()?);
+        self.push_only_validity_mask(array.validity_mask());
 
         Ok(())
     }
@@ -178,37 +258,136 @@ impl ArrayBuilder for VarBinViewBuilder {
         if capacity > self.views_builder.capacity() {
             self.views_builder
                 .reserve(capacity - self.views_builder.len());
-            self.null_buffer_builder.ensure_capacity(capacity);
+            self.nulls.ensure_capacity(capacity);
         }
     }
 
     fn set_validity(&mut self, validity: Mask) {
-        self.null_buffer_builder = LazyNullBufferBuilder::new(validity.len());
-        self.null_buffer_builder.append_validity_mask(validity);
+        self.nulls = LazyNullBufferBuilder::new(validity.len());
+        self.nulls.append_validity_mask(validity);
     }
 
     fn finish(&mut self) -> ArrayRef {
-        self.flush_in_progress();
-        let buffers = std::mem::take(&mut self.completed);
+        self.finish_into_varbinview().into_array()
+    }
+}
 
-        assert_eq!(
-            self.views_builder.len(),
-            self.null_buffer_builder.len(),
-            "View and validity length must match"
-        );
+enum CompletedBuffers {
+    Default(Vec<ByteBuffer>),
+    Deduplicated(DeduplicatedBuffers),
+}
 
-        let validity = self
-            .null_buffer_builder
-            .finish_with_nullability(self.nullability);
+impl Default for CompletedBuffers {
+    fn default() -> Self {
+        Self::Default(Vec::new())
+    }
+}
 
-        VarBinViewArray::try_new(
-            std::mem::take(&mut self.views_builder).freeze(),
-            buffers,
-            std::mem::replace(&mut self.dtype, DType::Null),
-            validity,
-        )
-        .vortex_expect("VarBinViewArray components should be valid.")
-        .into_array()
+// Self::push enforces len < u32::max
+#[allow(clippy::cast_possible_truncation)]
+impl CompletedBuffers {
+    fn len(&self) -> u32 {
+        match self {
+            Self::Default(buffers) => buffers.len() as u32,
+            Self::Deduplicated(buffers) => buffers.len(),
+        }
+    }
+
+    fn push(&mut self, block: ByteBuffer) -> u32 {
+        match self {
+            Self::Default(buffers) => {
+                assert!(buffers.len() < u32::MAX as usize, "Too many blocks");
+                buffers.push(block);
+                self.len()
+            }
+            Self::Deduplicated(buffers) => buffers.push(block),
+        }
+    }
+
+    fn extend_from_slice(&mut self, new_buffers: &[ByteBuffer]) -> NewIndices {
+        match self {
+            Self::Default(buffers) => {
+                let offset = buffers.len() as u32;
+                buffers.extend_from_slice(new_buffers);
+                NewIndices::ConstantOffset(offset)
+            }
+            Self::Deduplicated(buffers) => {
+                NewIndices::LookupArray(buffers.extend_from_slice(new_buffers))
+            }
+        }
+    }
+
+    fn finish(self) -> Arc<[ByteBuffer]> {
+        match self {
+            Self::Default(buffers) => Arc::from(buffers),
+            Self::Deduplicated(buffers) => buffers.finish(),
+        }
+    }
+}
+
+enum NewIndices {
+    // add a constant offset to get the new idx
+    ConstantOffset(u32),
+    // lookup from the given array to get the new idx
+    LookupArray(Vec<u32>),
+}
+
+#[derive(Default)]
+struct DeduplicatedBuffers {
+    buffers: Vec<ByteBuffer>,
+    buffer_to_idx: HashMap<BufferId, u32>,
+}
+
+impl DeduplicatedBuffers {
+    // Self::push enforces len < u32::max
+    #[allow(clippy::cast_possible_truncation)]
+    fn len(&self) -> u32 {
+        self.buffers.len() as u32
+    }
+
+    /// Push a new block if not seen before. Returns the idx of the block.
+    fn push(&mut self, block: ByteBuffer) -> u32 {
+        assert!(self.buffers.len() < u32::MAX as usize, "Too many blocks");
+
+        let initial_len = self.len();
+        let id = BufferId::from(&block);
+        match self.buffer_to_idx.entry(id) {
+            Entry::Occupied(idx) => *idx.get(),
+            Entry::Vacant(entry) => {
+                let idx = initial_len;
+                entry.insert(idx);
+                self.buffers.push(block);
+                idx
+            }
+        }
+    }
+
+    fn extend_from_slice(&mut self, buffers: &[ByteBuffer]) -> Vec<u32> {
+        buffers
+            .iter()
+            .map(|buffer| self.push(buffer.clone()))
+            .collect()
+    }
+
+    fn finish(self) -> Arc<[ByteBuffer]> {
+        Arc::from(self.buffers)
+    }
+}
+
+#[derive(PartialEq, Eq, Hash)]
+struct BufferId {
+    // *const u8 stored as usize for `Send`
+    ptr: usize,
+    len: usize,
+}
+
+impl BufferId {
+    fn from(buffer: &ByteBuffer) -> Self {
+        let slice = buffer.as_slice();
+        Self {
+            ptr: slice.as_ptr() as usize,
+            len: slice.len(),
+        }
     }
 }
 
@@ -261,6 +440,7 @@ mod tests {
             ]
         );
     }
+
     #[test]
     fn test_utf8_builder_with_extend() {
         let array = {
@@ -297,5 +477,41 @@ mod tests {
                 Some("Hello3".to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn test_buffer_deduplication() {
+        let array = {
+            let mut builder =
+                VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
+            builder.append_value("This is a long string that should not be inlined");
+            builder.append_value("short string");
+            builder.finish_into_varbinview()
+        };
+
+        assert_eq!(array.buffers().len(), 1);
+        let mut builder =
+            VarBinViewBuilder::with_buffer_deduplication(DType::Utf8(Nullability::Nullable), 10);
+
+        array.append_to_builder(&mut builder).unwrap();
+        assert_eq!(builder.completed_block_count(), 1);
+
+        array.slice(1..2).append_to_builder(&mut builder).unwrap();
+        array.slice(0..1).append_to_builder(&mut builder).unwrap();
+        assert_eq!(builder.completed_block_count(), 1);
+
+        let array2 = {
+            let mut builder =
+                VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
+            builder.append_value("This is a long string that should not be inlined");
+            builder.finish_into_varbinview()
+        };
+
+        array2.append_to_builder(&mut builder).unwrap();
+        assert_eq!(builder.completed_block_count(), 2);
+
+        array.slice(0..1).append_to_builder(&mut builder).unwrap();
+        array2.slice(0..1).append_to_builder(&mut builder).unwrap();
+        assert_eq!(builder.completed_block_count(), 2);
     }
 }

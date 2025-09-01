@@ -1,4 +1,6 @@
-use arrow_buffer::ArrowNativeType;
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{BoolArray, DecimalArray, PrimitiveArray, StructArray, VarBinViewArray};
 use vortex_array::builders::{ArrayBuilderExt, builder_with_capacity};
@@ -34,7 +36,7 @@ pub fn take_canonical_array(
     };
 
     let validity = if array.dtype().is_nullable() || nullable == Nullability::Nullable {
-        let validity_idx = array.validity_mask()?.to_boolean_buffer();
+        let validity_idx = array.validity_mask().to_boolean_buffer();
 
         Validity::from_iter(
             indices
@@ -115,20 +117,21 @@ pub fn take_canonical_array(
             let mut builder = builder_with_capacity(array.dtype(), indices_slice_non_opt.len());
             for idx in indices {
                 if let Some(idx) = idx {
-                    builder.append_scalar(&array.scalar_at(*idx)?)?;
+                    builder.append_scalar(&array.scalar_at(*idx))?;
                 } else {
                     builder.append_null()
                 }
             }
             Ok(builder.finish())
         }
+        DType::FixedSizeList(..) => unimplemented!("TODO(connor)[FixedSizeList]"),
         d @ (DType::Null | DType::Extension(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }
     }
 }
 
-fn take_primitive<T: NativePType + ArrowNativeType>(
+fn take_primitive<T: NativePType>(
     primitive_array: PrimitiveArray,
     validity: Validity,
     indices: &[usize],

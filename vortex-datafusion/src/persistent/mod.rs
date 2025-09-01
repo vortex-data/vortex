@@ -1,6 +1,8 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! Persistent implementation of a Vortex table provider.
 mod cache;
-mod config;
 mod format;
 pub mod metrics;
 mod opener;
@@ -8,6 +10,7 @@ mod sink;
 mod source;
 
 pub use format::{VortexFormat, VortexFormatFactory, VortexFormatOptions};
+pub use source::VortexSource;
 
 #[cfg(test)]
 /// Utility function to register Vortex with a [`SessionStateBuilder`]
@@ -66,7 +69,7 @@ mod tests {
         .into_array();
 
         let st = StructArray::try_new(
-            ["strings".into(), "numbers".into()].into(),
+            ["strings", "numbers"].into(),
             vec![strings, numbers],
             8,
             Validity::NonNullable,

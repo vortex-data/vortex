@@ -1,7 +1,9 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use dashmap::DashMap;
 use futures::FutureExt;
 use moka::future::{Cache, CacheBuilder};
 use moka::policy::EvictionPolicy;
@@ -10,6 +12,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_layout::segments::{SegmentFuture, SegmentId, SegmentSource};
 use vortex_metrics::{Counter, VortexMetrics};
+use vortex_utils::aliases::dash_map::DashMap;
 
 /// A cache for storing and retrieving individual segment data.
 #[async_trait]
@@ -134,24 +137,18 @@ impl SegmentCacheSourceAdapter {
 }
 
 impl SegmentSource for SegmentCacheSourceAdapter {
-    fn request(&self, id: SegmentId, for_whom: &Arc<str>) -> SegmentFuture {
+    fn request(&self, id: SegmentId) -> SegmentFuture {
         let cache = self.cache.clone();
-        let delegate = self.source.request(id, for_whom);
-        let for_whom = for_whom.clone();
+        let delegate = self.source.request(id);
 
         async move {
             if let Ok(Some(segment)) = cache.get(id).await {
-                log::debug!("Resolved segment {} for {} from cache", id, &for_whom);
+                log::debug!("Resolved segment {} from cache", id);
                 return Ok(segment);
             }
             let result = delegate.await?;
             if let Err(e) = cache.put(id, result.clone()).await {
-                log::warn!(
-                    "Failed to store segment {} for {} in cache: {}",
-                    id,
-                    &for_whom,
-                    e
-                );
+                log::warn!("Failed to store segment {} in cache: {}", id, e);
             }
             Ok(result)
         }

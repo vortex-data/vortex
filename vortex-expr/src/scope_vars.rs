@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::any::{Any, TypeId};
 use std::hash::{BuildHasherDefault, Hasher};
 
@@ -28,7 +31,7 @@ impl Hasher for IdHasher {
     }
 }
 
-/// A trait for scope variables that can be stored in a `ScopeVars` map.
+/// This traits defines variables that can be stored inside of an execution's [`Scope`](crate::Scope).
 pub trait ScopeVar: Any + Send + Sync {
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;

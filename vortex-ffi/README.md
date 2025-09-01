@@ -24,10 +24,19 @@ Constructors will generally allocate rust memory, and destructors free that memo
 The FFI API is documented in `docs/api/c` with explicit inclusion of types, enums, and functions, etc. Note that an
 item cannot be referenced in the documentation if it does not have a documentation comment.
 
-## Updating
+## Updating Headers
 
-To rebuild the header run
+To rebuild the header file (requires nightly toolchain):
 
 ```shell
-cbindgen --config cbindgen.toml --crate vortex-ffi --output cinclude/vortex.h
+cargo +nightly build -p vortex-ffi
 ```
+
+The header generation uses cbindgen's macro expansion feature which requires nightly.
+Stable builds use the checked-in header file at `cinclude/vortex.h`.
+
+### Development Workflow
+
+- **For header changes**: Use nightly toolchain to regenerate headers after modifying FFI code
+- **For regular development**: Stable toolchain builds work with existing checked-in headers
+- **CI validation**: Automated checks verify header freshness using nightly toolchain

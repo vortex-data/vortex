@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 mod decimal_byte_parts;
 
 /// This encoding allow compression of decimals using integer compression schemes.

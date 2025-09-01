@@ -1,6 +1,8 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::mem::MaybeUninit;
 
-use arrow_buffer::ArrowNativeType;
 use fastlanes::BitPacking;
 use itertools::Itertools;
 use num_traits::{AsPrimitive, PrimInt};
@@ -65,16 +67,17 @@ pub fn bitpack_encode(
         .transpose()?
         .flatten();
 
-    // SAFETY: values already checked to be non-negative.
+    // SAFETY: all components validated above
     unsafe {
-        BitPackedArray::new_unchecked(
+        Ok(BitPackedArray::new_unchecked(
             packed,
-            array.ptype(),
+            array.dtype().clone(),
             array.validity().clone(),
             patches,
             bit_width,
             array.len(),
-        )
+            0,
+        ))
     }
 }
 
@@ -91,17 +94,19 @@ pub unsafe fn bitpack_encode_unchecked(
     bit_width: u8,
 ) -> VortexResult<BitPackedArray> {
     // SAFETY: non-negativity of input checked by caller.
-    unsafe {
-        let packed = bitpack_unchecked(&array, bit_width)?;
+    let packed = unsafe { bitpack_unchecked(&array, bit_width)? };
 
-        BitPackedArray::new_unchecked(
+    // SAFETY: checked by bitpack_unchecked
+    unsafe {
+        Ok(BitPackedArray::new_unchecked(
             packed,
-            array.ptype(),
+            array.dtype().clone(),
             array.validity().clone(),
             None,
             bit_width,
             array.len(),
-        )
+            0,
+        ))
     }
 }
 
@@ -130,10 +135,7 @@ pub unsafe fn bitpack_unchecked(
 /// Bitpack a slice of primitives down to the given width.
 ///
 /// See `bitpack` for more caller information.
-pub fn bitpack_primitive<T: NativePType + BitPacking + ArrowNativeType>(
-    array: &[T],
-    bit_width: u8,
-) -> Buffer<T> {
+pub fn bitpack_primitive<T: NativePType + BitPacking>(array: &[T], bit_width: u8) -> Buffer<T> {
     if bit_width == 0 {
         return Buffer::<T>::empty();
     }
@@ -195,7 +197,7 @@ pub fn gather_patches(
     };
 
     let array_len = parray.len();
-    let validity_mask = parray.validity_mask()?;
+    let validity_mask = parray.validity_mask();
 
     let patches = if array_len < u8::MAX as usize {
         match_each_integer_ptype!(parray.ptype(), |T| {
@@ -292,7 +294,7 @@ pub(crate) fn unpack_into<T: BitPacked>(
     builder: &mut PrimitiveBuilder<T>,
 ) -> VortexResult<()> {
     // Append a dense null Mask.
-    builder.append_mask(array.validity_mask()?);
+    builder.append_mask(array.validity_mask());
 
     let mut uninit = builder.uninit_range(array.len());
     let mut bit_packed_iter = array.unpacked_chunks();
@@ -321,7 +323,7 @@ fn apply_patches<T: NativePType>(dst: &mut UninitRange<T>, patches: &Patches) ->
 
     let indices = patches.indices().to_primitive()?;
     let values = patches.values().to_primitive()?;
-    let validity = values.validity_mask()?;
+    let validity = values.validity_mask();
     let values = values.as_slice::<T>();
     match_each_unsigned_integer_ptype!(indices.ptype(), |P| {
         insert_values_and_validity_at_indices(
@@ -366,7 +368,7 @@ fn insert_values_and_validity_at_indices<
     }
 }
 
-pub fn unpack_single(array: &BitPackedArray, index: usize) -> VortexResult<Scalar> {
+pub fn unpack_single(array: &BitPackedArray, index: usize) -> Scalar {
     let bit_width = array.bit_width() as usize;
     let ptype = array.ptype();
     // let packed = array.packed().into_primitive()?;
@@ -378,7 +380,7 @@ pub fn unpack_single(array: &BitPackedArray, index: usize) -> VortexResult<Scala
         }
     });
     // Cast to fix signedness and nullability
-    scalar.cast(array.dtype())
+    scalar.cast(array.dtype()).vortex_expect("cast failure")
 }
 
 /// # Safety
@@ -456,7 +458,7 @@ fn bit_width_histogram_typed<T: NativePType + PrimInt>(
         |v: T| (8 * size_of::<T>()) - (PrimInt::leading_zeros(v) as usize);
 
     let mut bit_widths = vec![0usize; size_of::<T>() * 8 + 1];
-    match array.validity_mask()?.boolean_buffer() {
+    match array.validity_mask().boolean_buffer() {
         AllOr::All => {
             // All values are valid.
             for v in array.as_slice::<T>() {
@@ -620,7 +622,7 @@ mod test {
         let bitpacked = bitpack_encode(&zeros, 10, None).unwrap();
         assert_eq!(bitpacked.len(), 1025);
         assert!(bitpacked.patches().is_some());
-        let bitpacked = bitpacked.slice(1023, 1025).unwrap();
+        let bitpacked = bitpacked.slice(1023..1025);
         let actual = unpack(bitpacked.as_::<BitPackedVTable>()).unwrap();
         let actual = actual.as_slice::<u16>();
         assert_eq!(actual, &[1535, 1536]);
@@ -635,7 +637,7 @@ mod test {
         let bitpacked = bitpack_encode(&zeros, 10, None).unwrap();
         assert_eq!(bitpacked.len(), 2229);
         assert!(bitpacked.patches().is_some());
-        let bitpacked = bitpacked.slice(1023, 2049).unwrap();
+        let bitpacked = bitpacked.slice(1023..2049);
         let actual = unpack(bitpacked.as_::<BitPackedVTable>()).unwrap();
         let actual = actual.as_slice::<u16>();
         assert_eq!(actual, &(1023..2049).map(|x| x + 512).collect::<Vec<_>>());
@@ -666,7 +668,6 @@ mod test {
             (0..(1 << 4)).collect::<Vec<_>>(),
             compressed
                 .validity_mask()
-                .unwrap()
                 .to_null_buffer()
                 .unwrap()
                 .into_inner()
@@ -699,7 +700,7 @@ mod test {
             .iter()
             .enumerate()
             .for_each(|(i, v)| {
-                let scalar: u16 = unpack_single(&compressed, i).unwrap().try_into().unwrap();
+                let scalar: u16 = unpack_single(&compressed, i).try_into().unwrap();
                 assert_eq!(scalar, *v);
             });
     }

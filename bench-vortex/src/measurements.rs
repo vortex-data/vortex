@@ -1,17 +1,22 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::ops::{Add, Div, Sub};
 use std::time::Duration;
 
+use itertools::Itertools;
 use serde::{Serialize, Serializer};
-use vortex::error::vortex_panic;
+use target_lexicon::Triple;
+use vortex::error::{VortexExpect, vortex_panic};
 
 use crate::engines::df::GIT_COMMIT_ID;
-use crate::{Engine, Format, Target};
+use crate::{BenchmarkDataset, Engine, Format, Target};
 
 pub trait ToJson {
-    fn to_json(&self) -> JsonValue;
+    fn to_json(&self) -> Box<dyn erased_serde::Serialize>;
 }
 
 pub trait ToTable {
@@ -172,8 +177,8 @@ impl ToTable for TimingMeasurement {
 }
 
 impl ToJson for TimingMeasurement {
-    fn to_json(&self) -> JsonValue {
-        JsonValue {
+    fn to_json(&self) -> Box<dyn erased_serde::Serialize> {
+        Box::new(JsonValue {
             name: self.name.clone(),
             storage: Some(self.storage.clone()),
             unit: Some(Cow::from("ns")),
@@ -182,7 +187,7 @@ impl ToJson for TimingMeasurement {
             time: None,
             commit_id: Cow::from(GIT_COMMIT_ID.as_str()),
             target: self.target,
-        }
+        })
     }
 }
 
@@ -190,32 +195,65 @@ impl ToJson for TimingMeasurement {
 pub struct QueryMeasurement {
     pub query_idx: usize,
     pub target: Target,
+    pub benchmark_dataset: BenchmarkDataset,
     /// The storage backend against which this test was run. One of: s3, gcs, nvme.
     pub storage: String,
-    pub fastest_run: Duration,
-    pub dataset: String,
+    pub runs: Vec<Duration>,
+}
+
+impl QueryMeasurement {
+    pub fn fastest_run(&self) -> Duration {
+        *self.runs.iter().min().vortex_expect("cannot have no runs")
+    }
+}
+
+#[derive(Serialize)]
+pub struct QueryMeasurementJson {
+    pub name: String,
+    pub storage: String,
+    pub dataset: BenchmarkDataset,
+    pub unit: String,
+    pub value: u128,
+    pub all_runtimes: Vec<u128>,
+    pub target: Target,
+    pub commit_id: String,
+    pub env_triple: TripleJson,
+}
+
+#[derive(Serialize)]
+pub struct TripleJson {
+    pub architecture: String,
+    pub operating_system: String,
+    pub environment: String,
 }
 
 impl ToJson for QueryMeasurement {
-    fn to_json(&self) -> JsonValue {
+    fn to_json(&self) -> Box<dyn erased_serde::Serialize> {
         let name = format!(
             "{dataset}_q{query_idx:02}/{engine}:{format}",
-            dataset = self.dataset,
+            dataset = self.benchmark_dataset.name(),
             engine = self.target.engine,
             format = self.target.format.name(),
             query_idx = self.query_idx
         );
 
-        JsonValue {
+        let host = Triple::host();
+
+        Box::new(QueryMeasurementJson {
             name,
-            storage: Some(self.storage.clone()),
-            unit: Some(Cow::from("ns")),
-            value: MeasurementValue::Int(self.fastest_run.as_nanos()),
-            bytes: None,
-            time: None,
-            commit_id: Cow::from(GIT_COMMIT_ID.as_str()),
+            storage: self.storage.clone(),
+            dataset: self.benchmark_dataset.clone(),
+            unit: "ns".to_string(),
+            value: self.fastest_run().as_nanos(),
+            all_runtimes: self.runs.iter().map(|r| r.as_nanos()).collect_vec(),
+            commit_id: GIT_COMMIT_ID.to_string(),
             target: self.target,
-        }
+            env_triple: TripleJson {
+                architecture: host.architecture.to_string(),
+                operating_system: host.operating_system.to_string(),
+                environment: host.environment.to_string(),
+            },
+        })
     }
 }
 
@@ -226,7 +264,7 @@ impl ToTable for QueryMeasurement {
             name: self.query_idx.to_string(),
             target: self.target,
             unit: Cow::from("μs"),
-            value: MeasurementValue::Int(self.fastest_run.as_micros()),
+            value: MeasurementValue::Int(self.fastest_run().as_micros()),
         }
     }
 }
@@ -239,7 +277,7 @@ pub struct CompressionTimingMeasurement {
 }
 
 impl ToJson for CompressionTimingMeasurement {
-    fn to_json(&self) -> JsonValue {
+    fn to_json(&self) -> Box<dyn erased_serde::Serialize> {
         let name = match self.format {
             Format::OnDiskVortex => self.name.to_string(),
             Format::Parquet => format!("parquet_rs-zstd {}", self.name),
@@ -248,7 +286,7 @@ impl ToJson for CompressionTimingMeasurement {
             ),
         };
 
-        JsonValue {
+        Box::new(JsonValue {
             name,
             storage: None,
             unit: Some(Cow::from("ns")),
@@ -257,7 +295,7 @@ impl ToJson for CompressionTimingMeasurement {
             bytes: None,
             commit_id: Cow::from(GIT_COMMIT_ID.as_str()),
             target: Target::new(Engine::Vortex, self.format),
-        }
+        })
     }
 }
 
@@ -282,8 +320,8 @@ pub struct CustomUnitMeasurement {
 }
 
 impl ToJson for CustomUnitMeasurement {
-    fn to_json(&self) -> JsonValue {
-        JsonValue {
+    fn to_json(&self) -> Box<dyn erased_serde::Serialize> {
+        Box::new(JsonValue {
             name: self.name.clone(),
             storage: None,
             unit: Some(self.unit.clone()),
@@ -293,7 +331,7 @@ impl ToJson for CustomUnitMeasurement {
             bytes: None,
             commit_id: Cow::from(GIT_COMMIT_ID.as_str()),
             target: Target::new(Engine::Vortex, self.format),
-        }
+        })
     }
 }
 
@@ -307,4 +345,73 @@ impl ToTable for CustomUnitMeasurement {
             value: MeasurementValue::Float(self.value),
         }
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct MemoryMeasurement {
+    pub query_idx: usize,
+    pub target: Target,
+    pub benchmark_dataset: BenchmarkDataset,
+    pub storage: String,
+    pub physical_memory_delta: i64,
+    pub virtual_memory_delta: i64,
+    pub peak_physical_memory: u64,
+    pub peak_virtual_memory: u64,
+}
+
+impl ToJson for MemoryMeasurement {
+    fn to_json(&self) -> Box<dyn erased_serde::Serialize> {
+        let name = format!(
+            "{dataset}_q{query_idx:02}_memory/{engine}:{format}",
+            dataset = self.benchmark_dataset.name(),
+            engine = self.target.engine,
+            format = self.target.format.name(),
+            query_idx = self.query_idx
+        );
+
+        let host = Triple::host();
+
+        Box::new(MemoryMeasurementJson {
+            name,
+            storage: self.storage.clone(),
+            dataset: self.benchmark_dataset.clone(),
+            physical_memory_delta: self.physical_memory_delta,
+            virtual_memory_delta: self.virtual_memory_delta,
+            peak_physical_memory: self.peak_physical_memory,
+            peak_virtual_memory: self.peak_virtual_memory,
+            commit_id: GIT_COMMIT_ID.to_string(),
+            target: self.target,
+            env_triple: TripleJson {
+                architecture: host.architecture.to_string(),
+                operating_system: host.operating_system.to_string(),
+                environment: host.environment.to_string(),
+            },
+        })
+    }
+}
+
+impl ToTable for MemoryMeasurement {
+    fn to_table(&self) -> TableValue {
+        TableValue {
+            id: Some(self.query_idx),
+            name: format!("q{}_peak", self.query_idx),
+            target: self.target,
+            unit: Cow::from("MB"),
+            value: MeasurementValue::Float(self.peak_physical_memory as f64 / 1024.0 / 1024.0),
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct MemoryMeasurementJson {
+    pub name: String,
+    pub storage: String,
+    pub dataset: BenchmarkDataset,
+    pub physical_memory_delta: i64,
+    pub virtual_memory_delta: i64,
+    pub peak_physical_memory: u64,
+    pub peak_virtual_memory: u64,
+    pub commit_id: String,
+    pub target: Target,
+    pub env_triple: TripleJson,
 }

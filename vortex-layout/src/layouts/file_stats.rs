@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::future;
 use std::sync::Arc;
 
@@ -41,7 +44,7 @@ pub struct FileStatsAccumulator {
 
 impl FileStatsAccumulator {
     fn new(dtype: &DType, stats: Arc<[Stat]>, max_variable_length_statistics_size: usize) -> Self {
-        let accumulators = Arc::new(Mutex::new(match dtype.as_struct() {
+        let accumulators = Arc::new(Mutex::new(match dtype.as_struct_fields_opt() {
             Some(struct_dtype) => {
                 if dtype.nullability() == Nullability::Nullable {
                     // top level dtype could be nullable, but we don't support it yet

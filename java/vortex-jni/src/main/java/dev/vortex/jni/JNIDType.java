@@ -1,18 +1,6 @@
-/**
- * (c) Copyright 2025 SpiralDB Inc. All rights reserved.
- * <p>
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- * <p>
- * http://www.apache.org/licenses/LICENSE-2.0
- * <p>
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 package dev.vortex.jni;
 
 import com.google.common.base.Preconditions;
@@ -23,13 +11,31 @@ import java.util.Optional;
 import java.util.OptionalLong;
 
 public final class JNIDType implements DType {
-    private final boolean shouldFree;
-    private OptionalLong pointer;
+    OptionalLong pointer;
+    final boolean isOwned; // True if this object owns the native memory
 
-    public JNIDType(long pointer, boolean shouldFree) {
+    /**
+     * Creates a JNIDType that borrows a native pointer.
+     * The caller is responsible for ensuring the pointer remains valid.
+     */
+    public JNIDType(long pointer) {
+        this(pointer, false);
+    }
+
+    public long getPointer() {
+        return pointer.getAsLong();
+    }
+
+    /**
+     * Creates a JNIDType with explicit ownership.
+     *
+     * @param pointer the native pointer
+     * @param isOwned true if this object owns the native memory and should free it
+     */
+    public JNIDType(long pointer, boolean isOwned) {
         Preconditions.checkArgument(pointer > 0, "Invalid pointer address: " + pointer);
         this.pointer = OptionalLong.of(pointer);
-        this.shouldFree = shouldFree;
+        this.isOwned = isOwned;
     }
 
     @Override
@@ -49,14 +55,13 @@ public final class JNIDType implements DType {
 
     @Override
     public List<DType> getFieldTypes() {
-        return Lists.transform(
-                NativeDTypeMethods.getFieldTypes(pointer.getAsLong()), typePtr -> new JNIDType(typePtr, false));
+        return Lists.transform(NativeDTypeMethods.getFieldTypes(pointer.getAsLong()), JNIDType::new);
     }
 
     @Override
     public DType getElementType() {
-        // How to propagate the Borrow checker rules to Java side.
-        return new JNIDType(NativeDTypeMethods.getElementType(pointer.getAsLong()), false);
+        // Returns a borrowed reference - the parent DType owns this memory
+        return new JNIDType(NativeDTypeMethods.getElementType(pointer.getAsLong()));
     }
 
     @Override
@@ -101,9 +106,17 @@ public final class JNIDType implements DType {
 
     @Override
     public void close() {
-        if (shouldFree) {
+        if (isOwned && pointer.isPresent()) {
             NativeDTypeMethods.free(pointer.getAsLong());
             pointer = OptionalLong.empty();
         }
+    }
+
+    /**
+     * Creates a JNIDType that owns its native memory.
+     * This should only be used when receiving a newly allocated pointer from Rust.
+     */
+    public static JNIDType ownedDType(long pointer) {
+        return new JNIDType(pointer, true);
     }
 }

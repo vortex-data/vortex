@@ -1,4 +1,11 @@
-use flatbuffers::{FlatBufferBuilder, WIPOffset, root};
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use std::env;
+use std::sync::LazyLock;
+
+use flatbuffers::{FlatBufferBuilder, VerifierOptions, WIPOffset, root_with_opts};
+use vortex_array::ArrayContext;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, layout};
@@ -7,20 +14,43 @@ use crate::children::ViewedLayoutChildren;
 use crate::segments::SegmentId;
 use crate::{Layout, LayoutContext, LayoutRef};
 
+static LAYOUT_VERIFIER: LazyLock<VerifierOptions> = LazyLock::new(|| {
+    VerifierOptions {
+        // Overriden
+        max_tables: env::var("VORTEX_MAX_LAYOUT_TABLES")
+            .ok()
+            .and_then(|lmt| lmt.parse::<usize>().ok())
+            .unwrap_or(1000000),
+        max_depth: env::var("VORTEX_MAX_LAYOUT_DEPTH")
+            .ok()
+            .and_then(|lmt| lmt.parse::<usize>().ok())
+            .unwrap_or(64),
+        // Defaults from flatbuffers
+        max_apparent_size: 1 << 31,
+        ignore_missing_null_terminator: false,
+    }
+});
+
 /// Parse a [`LayoutRef`] from a layout flatbuffer.
 pub fn layout_from_flatbuffer(
     flatbuffer: FlatBuffer,
     dtype: &DType,
-    ctx: &LayoutContext,
+    layout_ctx: &LayoutContext,
+    array_ctx: &ArrayContext,
 ) -> VortexResult<LayoutRef> {
-    let fb_layout = root::<layout::Layout>(&flatbuffer)?;
-    let encoding = ctx
+    let fb_layout = root_with_opts::<layout::Layout>(&LAYOUT_VERIFIER, &flatbuffer)?;
+    let encoding = layout_ctx
         .lookup_encoding(fb_layout.encoding())
         .ok_or_else(|| vortex_err!("Invalid encoding ID: {}", fb_layout.encoding()))?;
 
     // SAFETY: we validate the flatbuffer above in the `root` call, and extract a loc.
     let viewed_children = unsafe {
-        ViewedLayoutChildren::new_unchecked(flatbuffer.clone(), fb_layout._tab.loc(), ctx.clone())
+        ViewedLayoutChildren::new_unchecked(
+            flatbuffer.clone(),
+            fb_layout._tab.loc(),
+            array_ctx.clone(),
+            layout_ctx.clone(),
+        )
     };
 
     let layout = encoding.build(
@@ -37,6 +67,7 @@ pub fn layout_from_flatbuffer(
             .map(SegmentId::from)
             .collect(),
         &viewed_children,
+        array_ctx.clone(),
     )?;
 
     Ok(layout)

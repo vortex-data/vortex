@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_dtype::{NativePType, match_each_float_ptype};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -9,7 +12,7 @@ use crate::register_kernel;
 impl NaNCountKernel for PrimitiveVTable {
     fn nan_count(&self, array: &PrimitiveArray) -> VortexResult<usize> {
         Ok(match_each_float_ptype!(array.ptype(), |F| {
-            compute_nan_count_with_validity(array.as_slice::<F>(), array.validity_mask()?)
+            compute_nan_count_with_validity(array.as_slice::<F>(), array.validity_mask())
         }))
     }
 }

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::ops::Range;
 
 use itertools::Itertools;
@@ -87,10 +90,10 @@ fn bitpacked_is_constant<T: BitPacked, const WIDTH: usize>(
                 return Ok(false);
             }
         } else {
-            if let Some(header_value) = header_constant_value {
-                if header_value != chunk[0] {
-                    return Ok(false);
-                }
+            if let Some(header_value) = header_constant_value
+                && header_value != chunk[0]
+            {
+                return Ok(false);
             }
             first_chunk_value = Some(chunk[0]);
         }
@@ -114,10 +117,10 @@ fn bitpacked_is_constant<T: BitPacked, const WIDTH: usize>(
             return Ok(false);
         }
 
-        if let Some(previous_const_value) = header_constant_value.or(first_chunk_value) {
-            if previous_const_value != trailer[0] {
-                return Ok(false);
-            }
+        if let Some(previous_const_value) = header_constant_value.or(first_chunk_value)
+            && previous_const_value != trailer[0]
+        {
+            return Ok(false);
         }
     }
 

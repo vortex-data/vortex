@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! List-related compute operations.
 
 use std::sync::LazyLock;
@@ -19,6 +22,14 @@ use crate::compute::{
 use crate::validity::Validity;
 use crate::vtable::{VTable, ValidityHelper};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
+
+static LIST_CONTAINS_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("list_contains".into(), ArcRef::new_ref(&ListContains));
+    for kernel in inventory::iter::<ListContainsKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
 
 /// Compute a `Bool`-typed array the same length as `array` where elements is `true` if the list
 /// item contains the `value`, `false` otherwise.
@@ -86,7 +97,7 @@ impl ComputeFnVTable for ListContains {
             );
         };
 
-        if value.all_invalid()? || array.all_invalid()? {
+        if value.all_invalid() || array.all_invalid() {
             return Ok(Output::Array(
                 ConstantArray::new(
                     Scalar::null(DType::Bool(Nullability::Nullable)),
@@ -170,14 +181,6 @@ impl<V: VTable + ListContainsKernel> Kernel for ListContainsKernelAdapter<V> {
     }
 }
 
-pub static LIST_CONTAINS_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("list_contains".into(), ArcRef::new_ref(&ListContains));
-    for kernel in inventory::iter::<ListContainsKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
-
 // Then there is a constant list scalar (haystack) being compared to an array of needles.
 fn constant_list_scalar_contains(
     list_scalar: &ListScalar,
@@ -214,8 +217,8 @@ fn list_contains_scalar(
 ) -> VortexResult<ArrayRef> {
     // If the list array is constant, we perform a single comparison.
     if array.len() > 1 && array.is_constant() {
-        let contains = list_contains_scalar(&array.slice(0, 1)?, value, nullability)?;
-        return Ok(ConstantArray::new(contains.scalar_at(0)?, array.len()).into_array());
+        let contains = list_contains_scalar(&array.slice(0..1), value, nullability)?;
+        return Ok(ConstantArray::new(contains.scalar_at(0), array.len()).into_array());
     }
 
     // Canonicalize to a list array.
@@ -364,9 +367,9 @@ fn reduce_with_ends<T: NativePType + AsPrimitive<usize>>(
 /// let list_array = ListArray::try_new(elements, offsets, Validity::NonNullable).unwrap();
 ///
 /// let lens = list_elem_len(list_array.as_ref()).unwrap();
-/// assert_eq!(lens.scalar_at(0).unwrap(), 1u32.into());
-/// assert_eq!(lens.scalar_at(1).unwrap(), 2u32.into());
-/// assert_eq!(lens.scalar_at(2).unwrap(), 2u32.into());
+/// assert_eq!(lens.scalar_at(0), 1u32.into());
+/// assert_eq!(lens.scalar_at(1), 2u32.into());
+/// assert_eq!(lens.scalar_at(2), 2u32.into());
 /// ```
 pub fn list_elem_len(array: &dyn Array) -> VortexResult<ArrayRef> {
     if !matches!(array.dtype(), DType::List(..)) {
@@ -375,8 +378,8 @@ pub fn list_elem_len(array: &dyn Array) -> VortexResult<ArrayRef> {
 
     // Short-circuit for constant list arrays.
     if array.is_constant() && array.len() > 1 {
-        let elem_lens = list_elem_len(&array.slice(0, 1)?)?;
-        return Ok(ConstantArray::new(elem_lens.scalar_at(0)?, array.len()).into_array());
+        let elem_lens = list_elem_len(&array.slice(0..1))?;
+        return Ok(ConstantArray::new(elem_lens.scalar_at(0), array.len()).into_array());
     }
 
     let list_array = array.to_list()?;
@@ -500,7 +503,11 @@ mod tests {
         #[case] value: Option<&str>,
         #[case] expected: BoolArray,
     ) {
-        let element_nullability = list_array.dtype().as_list_element().unwrap().nullability();
+        let element_nullability = list_array
+            .dtype()
+            .as_list_element_opt()
+            .unwrap()
+            .nullability();
         let scalar = match value {
             None => Scalar::null(DType::Utf8(Nullability::Nullable)),
             Some(v) => Scalar::utf8(v, element_nullability),

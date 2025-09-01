@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use jni::JNIEnv;
 use jni::objects::JObject;
 use jni::sys::{JNI_FALSE, jboolean, jobject};
@@ -75,6 +78,7 @@ impl JNIDefault for jobject {
 
 /// Run the provided function inside of the JNIEnv context. Throws an exception if the function returns an error.
 #[allow(clippy::expect_used)]
+#[inline]
 pub fn try_or_throw<'a, F, T>(env: &mut JNIEnv<'a>, function: F) -> T
 where
     F: FnOnce(&mut JNIEnv<'a>) -> Result<T, JNIError>,

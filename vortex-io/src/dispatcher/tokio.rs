@@ -1,9 +1,13 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::future::Future;
 use std::panic::resume_unwind;
 use std::thread::JoinHandle;
 
 use futures::channel::oneshot;
 use tokio::task::{JoinHandle as TokioJoinHandle, LocalSet};
+use tracing::Instrument;
 use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 
 use super::{Dispatch, JoinHandle as VortexJoinHandle};
@@ -16,18 +20,19 @@ trait TokioSpawn {
 /// Tokio `current_thread` runtimes.
 #[derive(Debug)]
 pub(super) struct TokioDispatcher {
-    submitter: flume::Sender<Box<dyn TokioSpawn + Send>>,
+    submitter: kanal::Sender<Box<dyn TokioSpawn + Send>>,
     threads: Vec<JoinHandle<()>>,
 }
 
 impl TokioDispatcher {
     pub fn new(num_threads: usize) -> Self {
-        let (submitter, rx) = flume::unbounded();
+        let (submitter, rx) = kanal::unbounded();
+        let rx = rx.to_async();
         let threads: Vec<_> = (0..num_threads)
             .map(|tid| {
                 let worker_thread =
                     std::thread::Builder::new().name(format!("tokio-dispatch-{tid}"));
-                let rx: flume::Receiver<Box<dyn TokioSpawn + Send>> = rx.clone();
+                let rx: kanal::AsyncReceiver<Box<dyn TokioSpawn + Send>> = rx.clone();
 
                 worker_thread
                     .spawn(move || {
@@ -44,7 +49,7 @@ impl TokioDispatcher {
                             // spawning !Send futures.
                             LocalSet::new()
                                 .run_until(async {
-                                    while let Ok(task) = rx.recv_async().await {
+                                    while let Ok(task) = rx.recv().await {
                                         task.spawn();
                                     }
                                 })
@@ -63,6 +68,7 @@ impl TokioDispatcher {
 struct TokioTask<F, R> {
     task: F,
     result: oneshot::Sender<R>,
+    span: tracing::Span,
 }
 
 impl<F, Fut, R> TokioSpawn for TokioTask<F, R>
@@ -72,9 +78,9 @@ where
     R: Send + 'static,
 {
     fn spawn(self: Box<Self>) -> TokioJoinHandle<()> {
-        let TokioTask { task, result } = *self;
+        let TokioTask { task, result, span } = *self;
         tokio::task::spawn_local(async move {
-            let task_output = task().await;
+            let task_output = task().instrument(span).await;
             result.send(task_output).ok();
         })
     }
@@ -89,7 +95,11 @@ impl Dispatch for TokioDispatcher {
     {
         let (tx, rx) = oneshot::channel();
 
-        let task = TokioTask { result: tx, task };
+        let task = TokioTask {
+            result: tx,
+            task,
+            span: tracing::Span::current(),
+        };
 
         match self.submitter.send(Box::new(task)) {
             Ok(()) => Ok(VortexJoinHandle(rx)),
@@ -99,7 +109,6 @@ impl Dispatch for TokioDispatcher {
 
     fn shutdown(self) -> VortexResult<()> {
         // drop the submitter.
-        //
         // Each worker thread will receive an `Err(Canceled)`
         drop(self.submitter);
         for thread in self.threads {
@@ -134,5 +143,29 @@ mod tests {
 
         rx.await.unwrap();
         assert_eq!(atomic_number.load(Ordering::SeqCst), 1u32);
+    }
+
+    #[tokio::test]
+    async fn test_span_propagation() {
+        use tracing::{Span, info_span};
+        use tracing_subscriber;
+
+        tracing_subscriber::fmt().with_test_writer().init();
+
+        let dispatcher = TokioDispatcher::new(1);
+
+        let test_span = info_span!("test_dispatch", task_id = 42);
+
+        let dispatched_span_id = test_span
+            .in_scope(|| dispatcher.dispatch(|| async move { Span::current().id() }))
+            .unwrap();
+
+        let actual = dispatched_span_id.await.unwrap();
+
+        assert_eq!(
+            test_span.id().unwrap(),
+            actual.unwrap(),
+            "Span context should be propagated to dispatched task"
+        );
     }
 }

@@ -1,10 +1,13 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::collections::VecDeque;
 use std::path::Path;
 use std::sync::Arc;
 
 use vortex::error::{VortexExpect, VortexResult};
 use vortex::file::VortexOpenOptions;
-use vortex_layout::LayoutRef;
+use vortex::layout::LayoutRef;
 
 pub async fn segments(file: impl AsRef<Path>) -> VortexResult<()> {
     let vxf = VortexOpenOptions::file().open(file).await?;

@@ -1,87 +1,130 @@
-use std::any::Any;
-use std::fmt::Display;
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::sync::Arc;
 
-use vortex_array::arrays::ConstantArray;
-use vortex_array::{ArrayRef, IntoArray};
-use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_array::arrays::{ConstantArray, ConstantOperator};
+use vortex_array::pipeline::OperatorRef;
+use vortex_array::{ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata};
+use vortex_dtype::{DType, match_each_float_ptype};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_proto::expr as pb;
 use vortex_scalar::Scalar;
 
-use crate::{AnalysisExpr, ExprRef, Scope, ScopeDType, StatsCatalog, VortexExpr};
+use crate::display::{DisplayAs, DisplayFormat};
+use crate::{
+    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog, VTable, vtable,
+};
 
-#[derive(Debug, PartialEq, Eq, Hash)]
-pub struct Literal {
+vtable!(Literal);
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct LiteralExpr {
     value: Scalar,
 }
 
-impl Literal {
-    pub fn new_expr(value: impl Into<Scalar>) -> ExprRef {
-        Arc::new(Self {
+pub struct LiteralExprEncoding;
+
+impl VTable for LiteralVTable {
+    type Expr = LiteralExpr;
+    type Encoding = LiteralExprEncoding;
+    type Metadata = ProstMetadata<pb::LiteralOpts>;
+
+    fn id(_encoding: &Self::Encoding) -> ExprId {
+        ExprId::new_ref("literal")
+    }
+
+    fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
+        ExprEncodingRef::new_ref(LiteralExprEncoding.as_ref())
+    }
+
+    fn metadata(expr: &Self::Expr) -> Option<Self::Metadata> {
+        Some(ProstMetadata(pb::LiteralOpts {
+            value: Some((&expr.value).into()),
+        }))
+    }
+
+    fn children(_expr: &Self::Expr) -> Vec<&ExprRef> {
+        vec![]
+    }
+
+    fn with_children(expr: &Self::Expr, _children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
+        Ok(expr.clone())
+    }
+
+    fn build(
+        _encoding: &Self::Encoding,
+        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        children: Vec<ExprRef>,
+    ) -> VortexResult<Self::Expr> {
+        if !children.is_empty() {
+            vortex_bail!(
+                "Literal expression does not have children, got: {:?}",
+                children
+            );
+        }
+        let value: Scalar = metadata
+            .value
+            .as_ref()
+            .ok_or_else(|| vortex_err!("Literal metadata missing value"))?
+            .try_into()?;
+        Ok(LiteralExpr::new(value))
+    }
+
+    fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
+        Ok(ConstantArray::new(expr.value.clone(), scope.len()).into_array())
+    }
+
+    fn return_dtype(expr: &Self::Expr, _scope: &DType) -> VortexResult<DType> {
+        Ok(expr.value.dtype().clone())
+    }
+
+    fn operator(expr: &LiteralExpr, children: Vec<OperatorRef>) -> Option<OperatorRef> {
+        assert!(children.is_empty());
+
+        ConstantOperator::maybe_new(expr.value().clone()).map(|op| Arc::new(op) as OperatorRef)
+    }
+}
+
+impl LiteralExpr {
+    pub fn new(value: impl Into<Scalar>) -> Self {
+        Self {
             value: value.into(),
-        })
+        }
+    }
+
+    pub fn new_expr(value: impl Into<Scalar>) -> ExprRef {
+        Self::new(value).into_expr()
     }
 
     pub fn value(&self) -> &Scalar {
         &self.value
     }
 
-    pub fn maybe_from(expr: &ExprRef) -> Option<&Literal> {
-        expr.as_any().downcast_ref::<Literal>()
+    pub fn maybe_from(expr: &ExprRef) -> Option<&LiteralExpr> {
+        expr.as_opt::<LiteralVTable>()
     }
 }
 
-impl Display for Literal {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.value)
-    }
-}
-
-#[cfg(feature = "proto")]
-pub(crate) mod proto {
-    use kind::Kind;
-    use vortex_error::{VortexResult, vortex_bail, vortex_err};
-    use vortex_proto::expr::kind;
-    use vortex_scalar::Scalar;
-
-    use crate::{ExprDeserialize, ExprRef, ExprSerializable, Id, Literal};
-
-    pub(crate) struct LiteralSerde;
-
-    impl Id for LiteralSerde {
-        fn id(&self) -> &'static str {
-            "literal"
-        }
-    }
-
-    impl ExprDeserialize for LiteralSerde {
-        fn deserialize(&self, kind: &Kind, _children: Vec<ExprRef>) -> VortexResult<ExprRef> {
-            let Kind::Literal(value) = kind else {
-                vortex_bail!("Expected literal kind");
-            };
-            let scalar: Scalar = value
-                .value
-                .as_ref()
-                .ok_or_else(|| vortex_err!("empty literal scalar"))?
-                .try_into()?;
-            Ok(Literal::new_expr(scalar))
-        }
-    }
-
-    impl ExprSerializable for Literal {
-        fn id(&self) -> &'static str {
-            LiteralSerde.id()
-        }
-
-        fn serialize_kind(&self) -> VortexResult<Kind> {
-            Ok(Kind::Literal(kind::Literal {
-                value: Some((&self.value).into()),
-            }))
+impl DisplayAs for LiteralExpr {
+    fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match df {
+            DisplayFormat::Compact => {
+                write!(f, "{}", self.value)
+            }
+            DisplayFormat::Tree => {
+                write!(
+                    f,
+                    "Literal(value: {}, dtype: {})",
+                    self.value,
+                    self.value.dtype()
+                )
+            }
         }
     }
 }
 
-impl AnalysisExpr for Literal {
+impl AnalysisExpr for LiteralExpr {
     fn max(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         Some(lit(self.value.clone()))
     }
@@ -89,28 +132,22 @@ impl AnalysisExpr for Literal {
     fn min(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         Some(lit(self.value.clone()))
     }
-}
 
-impl VortexExpr for Literal {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
+    fn nan_count(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+        // The NaNCount for a non-float literal is not defined.
+        // For floating point types, the NaNCount is 1 for lit(NaN), and 0 otherwise.
+        let value = self.value.as_primitive_opt()?;
+        if !value.ptype().is_float() {
+            return None;
+        }
 
-    fn unchecked_evaluate(&self, ctx: &Scope) -> VortexResult<ArrayRef> {
-        Ok(ConstantArray::new(self.value.clone(), ctx.len()).into_array())
-    }
-
-    fn children(&self) -> Vec<&ExprRef> {
-        vec![]
-    }
-
-    fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
-        assert_eq!(children.len(), 0);
-        self
-    }
-
-    fn return_dtype(&self, _ctx: &ScopeDType) -> VortexResult<DType> {
-        Ok(self.value.dtype().clone())
+        match_each_float_ptype!(value.ptype(), |T| {
+            match value.typed_value::<T>() {
+                None => Some(lit(0u64)),
+                Some(value) if value.is_nan() => Some(lit(1u64)),
+                _ => Some(lit(0u64)),
+            }
+        })
     }
 }
 
@@ -122,61 +159,51 @@ impl VortexExpr for Literal {
 /// ```
 /// use vortex_array::arrays::PrimitiveArray;
 /// use vortex_dtype::Nullability;
-/// use vortex_expr::{lit, Literal};
+/// use vortex_expr::{lit, LiteralVTable};
 /// use vortex_scalar::Scalar;
 ///
 /// let number = lit(34i32);
 ///
-/// let literal = number.as_any()
-///     .downcast_ref::<Literal>()
-///     .unwrap();
+/// let literal = number.as_::<LiteralVTable>();
 /// assert_eq!(literal.value(), &Scalar::primitive(34i32, Nullability::NonNullable));
 /// ```
 pub fn lit(value: impl Into<Scalar>) -> ExprRef {
-    Literal::new_expr(value.into())
+    LiteralExpr::new(value.into()).into_expr()
 }
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use vortex_dtype::{DType, Nullability, PType, StructFields};
     use vortex_scalar::Scalar;
 
-    use crate::{ScopeDType, lit, test_harness};
+    use crate::{lit, test_harness};
 
     #[test]
     fn dtype() {
         let dtype = test_harness::struct_dtype();
 
         assert_eq!(
-            lit(10)
-                .return_dtype(&ScopeDType::new(dtype.clone()))
-                .unwrap(),
+            lit(10).return_dtype(&dtype).unwrap(),
             DType::Primitive(PType::I32, Nullability::NonNullable)
         );
         assert_eq!(
-            lit(i64::MAX)
-                .return_dtype(&ScopeDType::new(dtype.clone()))
-                .unwrap(),
+            lit(i64::MAX).return_dtype(&dtype).unwrap(),
             DType::Primitive(PType::I64, Nullability::NonNullable)
         );
         assert_eq!(
-            lit(true)
-                .return_dtype(&ScopeDType::new(dtype.clone()))
-                .unwrap(),
+            lit(true).return_dtype(&dtype).unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
         assert_eq!(
             lit(Scalar::null(DType::Bool(Nullability::Nullable)))
-                .return_dtype(&ScopeDType::new(dtype.clone()))
+                .return_dtype(&dtype)
                 .unwrap(),
             DType::Bool(Nullability::Nullable)
         );
 
         let sdtype = DType::Struct(
             StructFields::new(
-                Arc::from([Arc::from("dog"), Arc::from("cat")]),
+                ["dog", "cat"].into(),
                 vec![
                     DType::Primitive(PType::U32, Nullability::NonNullable),
                     DType::Utf8(Nullability::NonNullable),
@@ -189,7 +216,7 @@ mod tests {
                 sdtype.clone(),
                 vec![Scalar::from(32_u32), Scalar::from("rufus".to_string())]
             ))
-            .return_dtype(&ScopeDType::new(dtype))
+            .return_dtype(&dtype)
             .unwrap(),
             sdtype
         );

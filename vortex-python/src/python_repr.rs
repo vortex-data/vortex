@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::convert::AsRef;
 use std::fmt::{Display, Formatter};
 
@@ -73,6 +76,13 @@ impl Display for DTypePythonRepr<'_> {
                 f,
                 "list({}, nullable={})",
                 edt.python_repr(),
+                n.python_repr()
+            ),
+            DType::FixedSizeList(edt, size, n) => write!(
+                f,
+                "fixed_size_list({}, {}, nullable={})",
+                edt.python_repr(),
+                size,
                 n.python_repr()
             ),
             DType::Extension(ext) => {

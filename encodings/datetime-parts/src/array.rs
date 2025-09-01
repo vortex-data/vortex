@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::fmt::Debug;
 
 use vortex_array::stats::{ArrayStats, StatsSetRef};
@@ -22,6 +25,7 @@ impl VTable for DateTimePartsVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
     type SerdeVTable = Self;
+    type PipelineVTable = NotSupported;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.datetimeparts")
@@ -82,6 +86,21 @@ impl DateTimePartsArray {
             subseconds,
             stats_set: Default::default(),
         })
+    }
+
+    pub(crate) unsafe fn new_unchecked(
+        dtype: DType,
+        days: ArrayRef,
+        seconds: ArrayRef,
+        subseconds: ArrayRef,
+    ) -> Self {
+        Self {
+            dtype,
+            days,
+            seconds,
+            subseconds,
+            stats_set: Default::default(),
+        }
     }
 
     pub fn days(&self) -> &ArrayRef {

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::hash::Hash;
 
 use itertools::Itertools;
@@ -48,6 +51,7 @@ pub struct FloatStats {
     pub(super) null_count: u32,
     // cache for validity.true_count()
     pub(super) value_count: u32,
+    #[allow(dead_code)]
     pub(super) average_run_length: u32,
     pub(super) distinct_values: ErasedDistinctValues,
     pub(super) distinct_values_count: u32,
@@ -99,7 +103,7 @@ where
             }
             .into(),
         };
-    } else if array.all_invalid().vortex_expect("all_invalid") {
+    } else if array.all_invalid() {
         return FloatStats {
             src: array.clone(),
             null_count: array.len().try_into().vortex_expect("null_count"),
@@ -127,7 +131,7 @@ where
         HashSet::with_hasher(FxBuildHasher)
     };
 
-    let validity = array.validity_mask().vortex_expect("logical_validity");
+    let validity = array.validity_mask();
 
     let mut runs = 1;
     let head_idx = validity

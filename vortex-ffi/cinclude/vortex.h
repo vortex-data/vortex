@@ -1,21 +1,9 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //
 // THIS FILE IS AUTO-GENERATED, DO NOT MAKE EDITS DIRECTLY
 //
-
-
-// (c) Copyright 2025 SpiralDB Inc. All rights reserved.
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-// http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
 
 
 #pragma once
@@ -151,8 +139,27 @@ typedef enum {
 /**
  * The logical types of elements in Vortex arrays.
  *
- * Vortex arrays preserve a single logical type, while the encodings allow for multiple
- * physical ways to encode that type.
+ * `DType` represents the different logical data types that can be represented in a Vortex array.
+ *
+ * This is different from physical types, which represent the actual layout of data (compressed or
+ * uncompressed). The set of physical types/formats (or data layout) is surjective into the set of
+ * logical types (or in other words, all physical types map to a single logical type).
+ *
+ * Note that a `DType` represents the logical type of the elements in the `Array`s, **not** the
+ * logical type of the `Array` itself.
+ *
+ * For example, an array with [`DType::Primitive`]([`I32`], [`NonNullable`]) could be physically
+ * encoded as any of the following:
+ *
+ * - A flat array of `i32` values.
+ * - A run-length encoded sequence.
+ * - Dictionary encoded values with bitpacked codes.
+ *
+ * All of these physical encodings preserve the same logical [`I32`] type, even if the physical
+ * data is different.
+ *
+ * [`I32`]: PType::I32
+ * [`NonNullable`]: Nullability::NonNullable
  */
 typedef struct DType DType;
 
@@ -186,6 +193,17 @@ typedef struct vx_array_iterator vx_array_iterator;
 /**
  * The `sink` interface is used to collect array chunks and place them into a resource
  * (e.g. an array stream or file (`vx_array_sink_open_file`)).
+ *
+ * ## Thread Safety
+ *
+ * This struct is **not** thread-safe for concurrent operations. While the underlying
+ * `Sender` is thread-safe, the FFI wrapper should only be accessed from a single thread
+ * to avoid race conditions between `push` and `close` operations. The `close` operation
+ * consumes the sink, making any subsequent operations undefined behavior.
+ *
+ * Multiple threads may safely hold pointers to the same sink, but only one thread should
+ * perform operations on it at a time, and coordination is required to ensure `close` is
+ * called exactly once after all `push` operations are complete.
  */
 typedef struct vx_array_sink vx_array_sink;
 
@@ -208,13 +226,7 @@ typedef struct vx_error vx_error;
 typedef struct vx_file vx_file;
 
 /**
- * A Vortex session stores registries of extensible types, various caches, and other
- * top-level configuration.
- *
- * Extensible types include array encodings, layouts, extension dtypes, compute functions, etc.
- *
- * Multiple sessions may be created in a single process, and individual arrays are not tied to a
- * specific session.
+ * A handle to a Vortex session.
  */
 typedef struct vx_session vx_session;
 
@@ -290,9 +302,9 @@ typedef struct {
    */
   unsigned long row_range_end;
   /**
-   * The index of the file in a multi-file scan.
+   * The row offset of the file in a multi-file scan.
    */
-  unsigned long file_index;
+  unsigned long row_offset;
 } vx_file_scan_options;
 
 
@@ -300,6 +312,12 @@ typedef struct {
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
+
+/**
+ * Attempt to shutdown the shared tokio runtime if no sessions are active.
+ * May block indefinitely if the runtime is still running tasks.
+ */
+void vx_try_shutdown_runtime(void);
 
 /**
  * Clone a borrowed [`vx_array`], returning an owned [`vx_array`].
@@ -323,6 +341,7 @@ size_t vx_array_len(const vx_array *array);
  * Get the [`crate::vx_dtype`] of the array.
  *
  * The returned pointer is valid as long as the array is valid.
+ * Do NOT free the returned dtype pointer - it shares the lifetime of the array.
  */
 const vx_dtype *vx_array_dtype(const vx_array *array);
 
@@ -331,9 +350,9 @@ const vx_array *vx_array_get_field(const vx_array *array, uint32_t index, vx_err
 const vx_array *vx_array_slice(const vx_array *array,
                                uint32_t start,
                                uint32_t stop,
-                               vx_error **error_out);
+                               vx_error **_error_out);
 
-bool vx_array_is_null(const vx_array *array, uint32_t index, vx_error **error_out);
+bool vx_array_is_null(const vx_array *array, uint32_t index, vx_error **_error_out);
 
 uint32_t vx_array_null_count(const vx_array *array, vx_error **error_out);
 
@@ -493,17 +512,23 @@ int8_t vx_dtype_decimal_scale(const vx_dtype *dtype);
 
 /**
  * Return a borrowed reference to the [`vx_struct_fields`] of a struct data type.
+ *
+ * The returned pointer is valid as long as the struct dtype is valid.
+ * Do NOT free the returned pointer - it shares the lifetime of the struct dtype.
  */
 const vx_struct_fields *vx_dtype_struct_dtype(const vx_dtype *dtype);
 
 /**
- * Return a borrowed reference to the `element` typee of a list data type.
+ * Return the `element` type of a list data type.
+ *
+ * The returned pointer is valid as long as the list dtype is valid.
+ * Do NOT free the returned dtype pointer - it shares the lifetime of the list dtype.
  */
 const vx_dtype *vx_dtype_list_element(const vx_dtype *dtype);
 
 bool vx_dtype_is_time(const DType *dtype);
 
-bool vx_dype_is_date(const DType *dtype);
+bool vx_dtype_is_date(const DType *dtype);
 
 bool vx_dtype_is_timestamp(const DType *dtype);
 
@@ -517,7 +542,10 @@ void vx_dtype_time_zone(const DType *dtype, void *dst, int *len);
 void vx_error_free(vx_error *ptr);
 
 /**
- * Returns a borrowed reference to the error message from the given Vortex error.
+ * Returns the error message from the given Vortex error.
+ *
+ * The returned pointer is valid as long as the error is valid.
+ * Do NOT free the returned string pointer - it shares the lifetime of the error.
  */
 const vx_string *vx_error_get_message(const vx_error *error);
 
@@ -546,7 +574,10 @@ void vx_file_write_array(const char *path, const vx_array *array, vx_error **err
 uint64_t vx_file_row_count(const vx_file *file);
 
 /**
- * Return a borrowed reference to the DType of the file.
+ * Return the DType of the file.
+ *
+ * The returned pointer is valid as long as the file is valid.
+ * Do NOT free the returned dtype pointer - it shares the lifetime of the file.
  */
 const vx_dtype *vx_file_dtype(const vx_file *file);
 
@@ -556,7 +587,6 @@ const vx_dtype *vx_file_dtype(const vx_file *file);
 bool vx_file_can_prune(const vx_file *file,
                        const char *filter_expression,
                        unsigned int filter_expression_len,
-                       unsigned long file_idx,
                        vx_error **error_out);
 
 /**
@@ -657,6 +687,10 @@ uint64_t vx_struct_fields_nfields(const vx_struct_fields *dtype);
 
 /**
  * Return a borrowed reference to the name of the field at the given index.
+ *
+ * The returned pointer is valid as long as the struct fields is valid.
+ * Do NOT free the returned string pointer - it shares the lifetime of the struct fields.
+ * Returns null if the index is out of bounds.
  */
 const vx_string *vx_struct_fields_field_name(const vx_struct_fields *dtype, size_t idx);
 
@@ -665,6 +699,8 @@ const vx_string *vx_struct_fields_field_name(const vx_struct_fields *dtype, size
  *
  * The return type is owned since struct dtypes can be lazily parsed from a binary format, in
  * which case it's not possible to return a borrowed reference to the field dtype.
+ *
+ * Returns null if the index is out of bounds or if the field dtype cannot be parsed.
  */
 const vx_dtype *vx_struct_fields_field_dtype(const vx_struct_fields *dtype, uint64_t idx);
 

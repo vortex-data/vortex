@@ -1,183 +1,246 @@
-use std::any::Any;
-use std::fmt::{Debug, Display};
-use std::sync::Arc;
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::ArrayRef;
-use vortex_array::compute::{BetweenOptions, between};
+use std::fmt::Debug;
+
+use vortex_array::compute::{BetweenOptions, StrictComparison, between as between_compute};
+use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata};
 use vortex_dtype::DType;
 use vortex_dtype::DType::Bool;
-use vortex_error::VortexResult;
+use vortex_error::{VortexResult, vortex_bail};
+use vortex_proto::expr as pb;
 
-use crate::{AnalysisExpr, BinaryExpr, ExprRef, Scope, ScopeDType, VortexExpr};
+use crate::display::{DisplayAs, DisplayFormat};
+use crate::{
+    AnalysisExpr, BinaryExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable,
+};
 
-#[derive(Debug, Eq, Hash)]
+vtable!(Between);
+
 #[allow(clippy::derived_hash_with_manual_eq)]
-pub struct Between {
+#[derive(Clone, Debug, Hash, Eq)]
+pub struct BetweenExpr {
     arr: ExprRef,
     lower: ExprRef,
     upper: ExprRef,
     options: BetweenOptions,
 }
 
-impl Between {
-    pub fn between(
+impl PartialEq for BetweenExpr {
+    fn eq(&self, other: &Self) -> bool {
+        self.arr.eq(&other.arr)
+            && self.lower.eq(&other.lower)
+            && self.upper.eq(&other.upper)
+            && self.options == other.options
+    }
+}
+
+pub struct BetweenExprEncoding;
+
+impl VTable for BetweenVTable {
+    type Expr = BetweenExpr;
+    type Encoding = BetweenExprEncoding;
+    type Metadata = ProstMetadata<pb::BetweenOpts>;
+
+    fn id(_encoding: &Self::Encoding) -> ExprId {
+        ExprId::new_ref("between")
+    }
+
+    fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
+        ExprEncodingRef::new_ref(BetweenExprEncoding.as_ref())
+    }
+
+    fn metadata(expr: &Self::Expr) -> Option<Self::Metadata> {
+        Some(ProstMetadata(pb::BetweenOpts {
+            lower_strict: expr.options.lower_strict == StrictComparison::Strict,
+            upper_strict: expr.options.upper_strict == StrictComparison::Strict,
+        }))
+    }
+
+    fn children(expr: &Self::Expr) -> Vec<&ExprRef> {
+        vec![&expr.arr, &expr.lower, &expr.upper]
+    }
+
+    fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
+        Ok(BetweenExpr::new(
+            children[0].clone(),
+            children[1].clone(),
+            children[2].clone(),
+            expr.options.clone(),
+        ))
+    }
+
+    fn build(
+        _encoding: &Self::Encoding,
+        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        children: Vec<ExprRef>,
+    ) -> VortexResult<Self::Expr> {
+        Ok(BetweenExpr::new(
+            children[0].clone(),
+            children[1].clone(),
+            children[2].clone(),
+            BetweenOptions {
+                lower_strict: if metadata.lower_strict {
+                    StrictComparison::Strict
+                } else {
+                    StrictComparison::NonStrict
+                },
+                upper_strict: if metadata.upper_strict {
+                    StrictComparison::Strict
+                } else {
+                    StrictComparison::NonStrict
+                },
+            },
+        ))
+    }
+
+    fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
+        let arr_val = expr.arr.unchecked_evaluate(scope)?;
+        let lower_arr_val = expr.lower.unchecked_evaluate(scope)?;
+        let upper_arr_val = expr.upper.unchecked_evaluate(scope)?;
+
+        between_compute(&arr_val, &lower_arr_val, &upper_arr_val, &expr.options)
+    }
+
+    fn return_dtype(expr: &Self::Expr, scope: &DType) -> VortexResult<DType> {
+        let arr_dt = expr.arr.return_dtype(scope)?;
+        let lower_dt = expr.lower.return_dtype(scope)?;
+        let upper_dt = expr.upper.return_dtype(scope)?;
+
+        if !arr_dt.eq_ignore_nullability(&lower_dt) {
+            vortex_bail!(
+                "Array dtype {} does not match lower dtype {}",
+                arr_dt,
+                lower_dt
+            );
+        }
+        if !arr_dt.eq_ignore_nullability(&upper_dt) {
+            vortex_bail!(
+                "Array dtype {} does not match upper dtype {}",
+                arr_dt,
+                upper_dt
+            );
+        }
+
+        Ok(Bool(
+            arr_dt.nullability() | lower_dt.nullability() | upper_dt.nullability(),
+        ))
+    }
+}
+
+impl BetweenExpr {
+    pub fn new(arr: ExprRef, lower: ExprRef, upper: ExprRef, options: BetweenOptions) -> Self {
+        Self {
+            arr,
+            lower,
+            upper,
+            options,
+        }
+    }
+
+    pub fn new_expr(
         arr: ExprRef,
         lower: ExprRef,
         upper: ExprRef,
         options: BetweenOptions,
     ) -> ExprRef {
-        Arc::new(Self {
-            arr,
-            lower,
-            upper,
-            options,
-        })
+        Self::new(arr, lower, upper, options).into_expr()
     }
 
     pub fn to_binary_expr(&self) -> ExprRef {
-        let lhs = BinaryExpr::new_expr(
+        let lhs = BinaryExpr::new(
             self.lower.clone(),
             self.options.lower_strict.to_operator().into(),
             self.arr.clone(),
         );
-        let rhs = BinaryExpr::new_expr(
+        let rhs = BinaryExpr::new(
             self.arr.clone(),
             self.options.upper_strict.to_operator().into(),
             self.upper.clone(),
         );
-        BinaryExpr::new_expr(lhs, crate::Operator::And, rhs)
+        BinaryExpr::new(lhs.into_expr(), crate::Operator::And, rhs.into_expr()).into_expr()
     }
 }
 
-impl Display for Between {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "({} {} {} {} {})",
-            self.lower,
-            self.options.lower_strict.to_operator(),
-            self.arr,
-            self.options.upper_strict.to_operator(),
-            self.upper
-        )
+impl DisplayAs for BetweenExpr {
+    fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match df {
+            DisplayFormat::Compact => {
+                write!(
+                    f,
+                    "({} {} {} {} {})",
+                    self.lower,
+                    self.options.lower_strict.to_operator(),
+                    self.arr,
+                    self.options.upper_strict.to_operator(),
+                    self.upper
+                )
+            }
+            DisplayFormat::Tree => {
+                write!(f, "Between")
+            }
+        }
+    }
+
+    fn child_names(&self) -> Option<Vec<String>> {
+        // Children are: arr, lower, upper (based on the order in the children() method)
+        Some(vec![
+            "array".to_string(),
+            format!("lower ({:?})", self.options.lower_strict),
+            format!("upper ({:?})", self.options.upper_strict),
+        ])
     }
 }
 
-impl PartialEq for Between {
-    fn eq(&self, other: &Between) -> bool {
-        self.arr.eq(&other.arr)
-            && other.lower.eq(&self.lower)
-            && other.upper.eq(&self.upper)
-            && self.options == other.options
-    }
+impl AnalysisExpr for BetweenExpr {}
+
+/// Creates an expression that checks if values are between two bounds.
+///
+/// Returns a boolean array indicating which values fall within the specified range.
+/// The comparison strictness is controlled by the options parameter.
+///
+/// ```rust
+/// # use vortex_array::compute::BetweenOptions;
+/// # use vortex_array::compute::StrictComparison;
+/// # use vortex_expr::{between, lit, root};
+/// let opts = BetweenOptions {
+///     lower_strict: StrictComparison::NonStrict,
+///     upper_strict: StrictComparison::NonStrict,
+/// };
+/// let expr = between(root(), lit(10), lit(20), opts);
+/// ```
+pub fn between(arr: ExprRef, lower: ExprRef, upper: ExprRef, options: BetweenOptions) -> ExprRef {
+    BetweenExpr::new(arr, lower, upper, options).into_expr()
 }
 
-#[cfg(feature = "proto")]
-pub(crate) mod proto {
+#[cfg(test)]
+mod tests {
     use vortex_array::compute::{BetweenOptions, StrictComparison};
-    use vortex_error::{VortexResult, vortex_bail};
-    use vortex_proto::expr::kind;
-    use vortex_proto::expr::kind::Kind;
 
-    use crate::between::Between;
-    use crate::{ExprDeserialize, ExprRef, ExprSerializable, Id};
+    use crate::{between, get_item, lit, root};
 
-    pub(crate) struct BetweenSerde;
-
-    impl Id for BetweenSerde {
-        fn id(&self) -> &'static str {
-            "between"
-        }
-    }
-
-    impl ExprSerializable for Between {
-        fn id(&self) -> &'static str {
-            BetweenSerde.id()
-        }
-
-        fn serialize_kind(&self) -> VortexResult<Kind> {
-            Ok(Kind::Between(kind::Between {
-                lower_strict: self.options.lower_strict == StrictComparison::Strict,
-                upper_strict: self.options.upper_strict == StrictComparison::Strict,
-            }))
-        }
-    }
-
-    impl ExprDeserialize for BetweenSerde {
-        fn deserialize(&self, kind: &Kind, children: Vec<ExprRef>) -> VortexResult<ExprRef> {
-            let Kind::Between(between) = kind else {
-                vortex_bail!("wrong kind {:?}, want between", kind)
-            };
-
-            Ok(Between::between(
-                children[0].clone(),
-                children[1].clone(),
-                children[2].clone(),
-                BetweenOptions {
-                    lower_strict: if between.lower_strict {
-                        StrictComparison::Strict
-                    } else {
-                        StrictComparison::NonStrict
-                    },
-                    upper_strict: if between.upper_strict {
-                        StrictComparison::Strict
-                    } else {
-                        StrictComparison::NonStrict
-                    },
-                },
-            ))
-        }
-    }
-}
-
-impl AnalysisExpr for Between {}
-
-impl VortexExpr for Between {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn unchecked_evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {
-        let arr_val = self.arr.unchecked_evaluate(scope)?;
-        let lower_arr_val = self.lower.unchecked_evaluate(scope)?;
-        let upper_arr_val = self.upper.unchecked_evaluate(scope)?;
-
-        between(&arr_val, &lower_arr_val, &upper_arr_val, &self.options)
-    }
-
-    fn children(&self) -> Vec<&ExprRef> {
-        vec![&self.arr, &self.lower, &self.upper]
-    }
-
-    fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
-        Arc::new(Self {
-            arr: children[0].clone(),
-            lower: children[1].clone(),
-            upper: children[2].clone(),
-            options: self.options.clone(),
-        })
-    }
-
-    fn return_dtype(&self, ctx: &ScopeDType) -> VortexResult<DType> {
-        let arr_dt = self.arr.return_dtype(ctx)?;
-        let lower_dt = self.lower.return_dtype(ctx)?;
-        let upper_dt = self.upper.return_dtype(ctx)?;
-
-        assert!(
-            arr_dt.eq_ignore_nullability(&lower_dt),
-            "array dtype {}, lower dtype {}",
-            arr_dt,
-            lower_dt
+    #[test]
+    fn test_display() {
+        let expr = between(
+            get_item("score", root()),
+            lit(10),
+            lit(50),
+            BetweenOptions {
+                lower_strict: StrictComparison::NonStrict,
+                upper_strict: StrictComparison::Strict,
+            },
         );
-        assert!(
-            arr_dt.eq_ignore_nullability(&upper_dt),
-            "array dtype {}, upper dtype {}",
-            arr_dt,
-            upper_dt
-        );
+        assert_eq!(expr.to_string(), "(10i32 <= $.score < 50i32)");
 
-        Ok(Bool(
-            arr_dt.nullability() | lower_dt.nullability() | upper_dt.nullability(),
-        ))
+        let expr2 = between(
+            root(),
+            lit(0),
+            lit(100),
+            BetweenOptions {
+                lower_strict: StrictComparison::Strict,
+                upper_strict: StrictComparison::NonStrict,
+            },
+        );
+        assert_eq!(expr2.to_string(), "(0i32 < $ <= 100i32)");
     }
 }

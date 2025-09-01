@@ -1,33 +1,53 @@
-use std::path::Path;
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use clap::{Parser, ValueEnum};
 use futures_util::StreamExt;
 use indicatif::ProgressBar;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use tokio::fs::File;
-use vortex::TryIntoArray;
+use tokio::runtime::Handle;
+use vortex::ArrayRef;
+use vortex::arrow::FromArrowArray;
+use vortex::compressor::CompactCompressor;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
-use vortex::error::{VortexError, VortexExpect, VortexResult};
-use vortex::file::VortexWriteOptions;
+use vortex::error::{VortexError, VortexExpect};
+use vortex::file::{VortexWriteOptions, WriteStrategyBuilder};
 use vortex::stream::ArrayStreamAdapter;
 
-#[derive(Default)]
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum Strategy {
+    Btrblocks,
+    Compact,
+}
+#[derive(Debug, Clone, Parser)]
 pub struct Flags {
-    pub quiet: bool,
+    /// Path to the Parquet file on disk to convert to Vortex
+    pub file: PathBuf,
+
+    /// Execute quietly. No output will be printed.
+    #[arg(short, long)]
+    quiet: bool,
+
+    /// Compression strategy.
+    #[arg(short, long, default_value = "btrblocks")]
+    strategy: Strategy,
 }
 
 const BATCH_SIZE: usize = 8192;
 
 /// Convert Parquet files to Vortex.
-pub async fn exec_convert(input_path: impl AsRef<Path>, flags: Flags) -> VortexResult<()> {
+pub async fn exec_convert(flags: Flags) -> anyhow::Result<()> {
+    let input_path = flags.file.clone();
     if !flags.quiet {
-        eprintln!(
-            "Converting input Parquet file: {}",
-            input_path.as_ref().display()
-        );
+        eprintln!("Converting input Parquet file: {}", input_path.display());
     }
 
-    let output_path = input_path.as_ref().with_extension("vortex");
+    let output_path = input_path.with_extension("vortex");
     let file = File::open(input_path).await?;
 
     let parquet = ParquetRecordBatchStreamBuilder::new(file)
@@ -40,8 +60,8 @@ pub async fn exec_convert(input_path: impl AsRef<Path>, flags: Flags) -> VortexR
         .build()?
         .map(|record_batch| {
             record_batch
-                .map_err(VortexError::from)
-                .and_then(|rb| rb.try_into_array())
+                .map_err(|e| VortexError::generic(e.into()))
+                .map(|rb| ArrayRef::from_arrow(rb, false))
         })
         .boxed();
 
@@ -56,7 +76,14 @@ pub async fn exec_convert(input_path: impl AsRef<Path>, flags: Flags) -> VortexR
             .boxed();
     }
 
+    let strategy = WriteStrategyBuilder::new().with_executor(Arc::new(Handle::current()));
+    let strategy = match flags.strategy {
+        Strategy::Btrblocks => strategy,
+        Strategy::Compact => strategy.with_compressor(CompactCompressor::default()),
+    };
+
     VortexWriteOptions::default()
+        .with_strategy(strategy.build())
         .write(
             File::create(output_path).await?,
             ArrayStreamAdapter::new(dtype, vortex_stream),

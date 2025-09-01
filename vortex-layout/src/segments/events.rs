@@ -1,20 +1,21 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::fmt::{Debug, Formatter};
 use std::pin::Pin;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, atomic};
 use std::task::{Context, Poll};
 
-use dashmap::{DashMap, Entry};
 use futures::channel::{mpsc, oneshot};
 use futures::future::{BoxFuture, Shared, WeakShared};
 use futures::stream::BoxStream;
 use futures::{FutureExt, StreamExt, TryFutureExt};
 use vortex_buffer::ByteBuffer;
-use vortex_error::{
-    ResultExt, SharedVortexResult, VortexError, VortexExpect, VortexResult, vortex_err,
-};
+use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult, vortex_err};
+use vortex_utils::aliases::dash_map::{DashMap, Entry};
 
-use crate::segments::{SegmentId, SegmentSource};
+use crate::segments::{SegmentFuture, SegmentId, SegmentSource};
 
 /// A utility for turning a [`SegmentSource`] into a stream of [`SegmentEvent`]s.
 ///
@@ -51,11 +52,7 @@ pub enum SegmentEvent {
 impl Debug for SegmentEvent {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            SegmentEvent::Requested(req) => write!(
-                f,
-                "SegmentEvent::Registered({:?}, {})",
-                req.id, req.for_whom
-            ),
+            SegmentEvent::Requested(req) => write!(f, "SegmentEvent::Registered({:?})", req.id),
             SegmentEvent::Polled(id) => write!(f, "SegmentEvent::Polled({id:?})"),
             SegmentEvent::Dropped(id) => write!(f, "SegmentEvent::Dropped({id:?})"),
             SegmentEvent::Resolved(id) => write!(f, "SegmentEvent::Resolved({id:?})"),
@@ -66,8 +63,6 @@ impl Debug for SegmentEvent {
 pub struct SegmentRequest {
     /// The ID of the requested segment
     id: SegmentId,
-    /// The name of the layout that requested the segment, used only for debugging.
-    for_whom: Arc<str>,
     /// The one-shot channel to send the segment back to the caller
     callback: oneshot::Sender<VortexResult<ByteBuffer>>,
     /// The segment events that we post our resolved event back to.
@@ -84,19 +79,18 @@ impl SegmentRequest {
         self.events.submit_event(SegmentEvent::Resolved(self.id));
         if self.callback.send(buffer).is_err() {
             // The callback may fail if the caller was dropped while the request was in-flight, as
-            // may be the case with pre-fetched segments.
-            log::debug!("Segment {} dropped while request in-flight", self.id);
+            // may be the case with pre-fetched segments. This is expected behavior and not an error.
+            log::trace!(
+                "Segment {} receiver dropped while request in-flight (expected for pre-fetched segments)",
+                self.id
+            );
         }
     }
 }
 
 impl SegmentEvents {
     /// Get or create a segment future for the given segment ID.
-    fn segment_future(
-        self: Arc<Self>,
-        id: SegmentId,
-        for_whom: Arc<str>,
-    ) -> Shared<SegmentEventsFuture> {
+    fn segment_future(self: Arc<Self>, id: SegmentId) -> Shared<SegmentEventsFuture> {
         loop {
             // Loop in case the pending future has no strong references, in which case we clear it
             // out of the map and create a new one on the next iteration.
@@ -110,7 +104,7 @@ impl SegmentEvents {
                     }
                 }
                 Entry::Vacant(e) => {
-                    let fut = SegmentEventsFuture::new(id, for_whom, self.clone()).shared();
+                    let fut = SegmentEventsFuture::new(id, self.clone()).shared();
                     // Create a new pending segment with a weak reference to the future.
                     e.insert(PendingSegment {
                         id,
@@ -137,14 +131,10 @@ struct EventsSegmentSource {
 }
 
 impl SegmentSource for EventsSegmentSource {
-    fn request(
-        &self,
-        id: SegmentId,
-        for_whom: &Arc<str>,
-    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
+    fn request(&self, id: SegmentId) -> SegmentFuture {
         self.events
             .clone()
-            .segment_future(id, for_whom.clone())
+            .segment_future(id)
             .map_err(VortexError::from)
             .boxed()
     }
@@ -184,14 +174,14 @@ struct SegmentEventsFuture {
 }
 
 impl SegmentEventsFuture {
-    fn new(id: SegmentId, for_whom: Arc<str>, events: Arc<SegmentEvents>) -> Self {
+    fn new(id: SegmentId, events: Arc<SegmentEvents>) -> Self {
         let (send, recv) = oneshot::channel::<VortexResult<ByteBuffer>>();
 
         // Set up the segment future tied to the recv end of the channel.
         let this = SegmentEventsFuture {
             future: recv
                 .map_err(|e| vortex_err!("pending segment receiver dropped: {}", e))
-                .map(|r| r.unnest())
+                .map(|r| r.flatten())
                 .map_err(Arc::new)
                 .boxed(),
             id,
@@ -202,7 +192,6 @@ impl SegmentEventsFuture {
         // Set up a SegmentRequest tied to the send end of the channel.
         events.submit_event(SegmentEvent::Requested(SegmentRequest {
             id,
-            for_whom,
             callback: send,
             events: events.clone(),
         }));

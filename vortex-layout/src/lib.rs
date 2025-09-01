@@ -1,5 +1,10 @@
-mod context;
-pub use context::*;
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+mod registry;
+pub use registry::*;
+mod executor;
+pub use executor::*;
 pub mod layouts;
 
 pub use children::*;
@@ -9,16 +14,13 @@ pub use layout::*;
 pub use reader::*;
 pub use strategy::*;
 pub use vtable::*;
-pub use writer::*;
 pub mod aliases;
 mod children;
 mod encoding;
 mod flatbuffers;
 mod layout;
 mod reader;
-pub mod scan;
 pub mod segments;
 pub mod sequence;
 mod strategy;
 pub mod vtable;
-mod writer;

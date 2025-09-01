@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::arrays::{ChunkedArray, ChunkedVTable};
@@ -47,7 +50,7 @@ fn invoke_elementwise(
         inputs.push(chunk.clone());
         for i in 1..args.inputs.len() {
             let input = args.inputs[i].array().vortex_expect("checked already");
-            let sliced = input.slice(idx, idx + chunk.len())?;
+            let sliced = input.slice(idx..idx + chunk.len());
             inputs.push(sliced);
         }
 

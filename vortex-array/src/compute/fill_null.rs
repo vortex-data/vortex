@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::sync::LazyLock;
 
 use arcref::ArcRef;
@@ -8,6 +11,14 @@ use vortex_scalar::Scalar;
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, cast};
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef, IntoArray};
+
+static FILL_NULL_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("fill_null".into(), ArcRef::new_ref(&FillNull));
+    for kernel in inventory::iter::<FillNullKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
 
 pub fn fill_null(array: &dyn Array, fill_value: &Scalar) -> VortexResult<ArrayRef> {
     FILL_NULL_FN
@@ -46,14 +57,6 @@ impl<V: VTable + FillNullKernel> Kernel for FillNullKernelAdapter<V> {
     }
 }
 
-pub static FILL_NULL_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("fill_null".into(), ArcRef::new_ref(&FillNull));
-    for kernel in inventory::iter::<FillNullKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
-
 struct FillNull;
 
 impl ComputeFnVTable for FillNull {
@@ -68,7 +71,7 @@ impl ComputeFnVTable for FillNull {
             return Ok(array.to_array().into());
         }
 
-        if array.invalid_count()? == 0 {
+        if array.all_valid() {
             return Ok(cast(array, fill_value.dtype())?.into());
         }
 

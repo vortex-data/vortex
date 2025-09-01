@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::borrow::Cow;
 use std::fmt::{self, Display};
 use std::fs;
@@ -20,16 +23,17 @@ use datafusion::prelude::SessionContext;
 use datafusion_common::{DFSchema, Result, TableReference};
 use futures::future::{join_all, try_join_all};
 use humansize::{DECIMAL, format_size};
+use log::trace;
 use regex::Regex;
 use tokio::fs::File;
 use tokio::process::Command as TokioCommand;
 use tokio::runtime::Handle;
-use tracing::{debug, info};
+use tracing::info;
 use url::Url;
 use vortex::ArrayRef;
 use vortex::error::{VortexResult, vortex_err};
-use vortex::file::{VortexLayoutStrategy, VortexOpenOptions, VortexWriteOptions};
-use vortex::stream::ArrayStreamExt;
+use vortex::file::{VortexOpenOptions, VortexWriteOptions, WriteStrategyBuilder};
+use vortex::iter::ArrayIteratorExt;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex_datafusion::VortexFormat;
 
@@ -335,9 +339,11 @@ impl PBIData {
             async move {
                 let vortex_file = idempotent_async(&vortex, async |output_path| {
                     VortexWriteOptions::default()
-                        .with_strategy(VortexLayoutStrategy::with_executor(Arc::new(
-                            Handle::current(),
-                        )))
+                        .with_strategy(
+                            WriteStrategyBuilder::new()
+                                .with_executor(Arc::new(Handle::current()))
+                                .build(),
+                        )
                         .write(
                             File::create(output_path).await.unwrap(),
                             parquet_to_vortex(parquet).unwrap(),
@@ -351,7 +357,7 @@ impl PBIData {
                     .expect("Failed to get metadata")
                     .len();
 
-                debug!(
+                trace!(
                     "Vortex size: {}, {}B",
                     format_size(vx_size, DECIMAL),
                     vx_size
@@ -428,9 +434,8 @@ impl Dataset for PBIBenchmark {
                 .open(&path)
                 .await?
                 .scan()?
-                .into_array_stream()?
+                .into_array_iter_multithread()?
                 .read_all()
-                .await
         }
         .await
         .expect("must be able to read table")

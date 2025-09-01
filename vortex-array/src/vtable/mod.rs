@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! This module contains the VTable definitions for a Vortex encoding.
 
 mod array;
@@ -21,6 +24,7 @@ pub use serde::*;
 pub use validity::*;
 pub use visitor::*;
 
+use crate::pipeline::PipelineVTable;
 use crate::{Array, Encoding, EncodingId, EncodingRef, IntoArray};
 
 /// The encoding [`VTable`] encapsulates logic for an Encoding type and associated Array type.
@@ -58,6 +62,9 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// Optionally enable serde for this encoding by implementing the [`SerdeVTable`] trait.
     /// Can be disabled by assigning to the [`NotSupported`] type.
     type SerdeVTable: SerdeVTable<Self>;
+    /// Optionally enable the [`PipelineVTable`] for this encoding. This allows it to partake in
+    /// pipeline operations.
+    type PipelineVTable: PipelineVTable<Self>;
 
     /// Returns the ID of the encoding.
     fn id(encoding: &Self::Encoding) -> EncodingId;
@@ -96,6 +103,13 @@ macro_rules! vtable {
                 fn into_array(self) -> $crate::ArrayRef {
                     // We can unsafe transmute ourselves to an ArrayAdapter.
                     std::sync::Arc::new(unsafe { std::mem::transmute::<[<$V Array>], $crate::ArrayAdapter::<[<$V VTable>]>>(self) })
+                }
+            }
+
+            impl From<[<$V Array>]> for $crate::ArrayRef {
+                fn from(value: [<$V Array>]) -> $crate::ArrayRef {
+                    use $crate::IntoArray;
+                    value.into_array()
                 }
             }
 

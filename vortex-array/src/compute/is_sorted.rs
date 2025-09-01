@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::any::Any;
 use std::sync::LazyLock;
 
@@ -9,8 +12,16 @@ use vortex_scalar::Scalar;
 use crate::Array;
 use crate::arrays::{ConstantVTable, NullVTable};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
-use crate::stats::{Precision, Stat};
+use crate::stats::{Precision, Stat, StatsProviderExt};
 use crate::vtable::VTable;
+
+static IS_SORTED_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("is_sorted".into(), ArcRef::new_ref(&IsSorted));
+    for kernel in inventory::iter::<IsSortedKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
 
 pub fn is_sorted(array: &dyn Array) -> VortexResult<bool> {
     is_sorted_opts(array, false)
@@ -141,14 +152,6 @@ impl Options for IsSortedOptions {
     }
 }
 
-pub static IS_SORTED_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("is_sorted".into(), ArcRef::new_ref(&IsSorted));
-    for kernel in inventory::iter::<IsSortedKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
-
 pub struct IsSortedKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(IsSortedKernelRef);
 
@@ -226,16 +229,15 @@ fn is_sorted_impl(
         return Ok(!strict);
     }
 
-    let invalid_count = array.invalid_count()?;
-
     // Enforce strictness before we even try to check if the array is sorted.
     if strict {
+        let invalid_count = array.invalid_count();
         match invalid_count {
             // We can keep going
             0 => {}
             // If we have a potential null value - it has to be the first one.
             1 => {
-                if !array.is_invalid(0)? {
+                if !array.is_invalid(0) {
                     return Ok(false);
                 }
             }

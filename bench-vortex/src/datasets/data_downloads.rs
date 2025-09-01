@@ -1,9 +1,14 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::PathBuf;
+use std::time::Duration;
 
 use bzip2::read::BzDecoder;
 use log::info;
+use reqwest::Client;
 use tokio::fs::File as TokioFile;
 use tokio::io::AsyncWriteExt;
 use vortex::error::VortexError;
@@ -14,10 +19,15 @@ pub async fn download_data(fname: PathBuf, data_url: &str) -> PathBuf {
     idempotent_async(&fname, async |path| {
         info!("Downloading {} from {}", fname.to_str().unwrap(), data_url);
         let mut file = TokioFile::create(path).await?;
-        let mut response = reqwest::get(data_url).await?;
-        if !response.status().is_success() {
-            anyhow::bail!("Failed to download data from {}", data_url);
-        }
+        let mut response = Client::builder()
+            .read_timeout(Duration::from_secs(60))
+            .timeout(Duration::from_secs(60 * 15))
+            .build()?
+            .get(data_url)
+            .send()
+            .await?
+            .error_for_status()?;
+
         while let Some(chunk) = response.chunk().await? {
             AsyncWriteExt::write_all(&mut file, &chunk).await?;
         }

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use arrow_buffer::BooleanBuffer;
 use vortex_dtype::Nullability;
 use vortex_error::{VortexResult, vortex_bail};

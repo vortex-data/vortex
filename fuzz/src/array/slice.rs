@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{
     BoolArray, DecimalArray, ListArray, PrimitiveArray, StructArray, VarBinViewArray,
@@ -17,7 +20,7 @@ pub fn slice_canonical_array(
     stop: usize,
 ) -> VortexResult<ArrayRef> {
     let validity = if array.dtype().is_nullable() {
-        let bool_buff = array.validity_mask()?.to_boolean_buffer();
+        let bool_buff = array.validity_mask().to_boolean_buffer();
         Validity::from(bool_buff.slice(start, stop - start))
     } else {
         Validity::NonNullable
@@ -83,6 +86,7 @@ pub fn slice_canonical_array(
             .into_array();
             ListArray::try_new(elements, offsets, validity).map(|a| a.into_array())
         }
+        DType::FixedSizeList(..) => unimplemented!("TODO(connor)[FixedSizeList]"),
         DType::Decimal(decimal_dtype, _) => {
             let decimal_array = array.to_decimal()?;
             Ok(

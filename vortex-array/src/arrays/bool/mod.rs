@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 mod array;
 pub mod compute;
 mod ops;
@@ -26,6 +29,7 @@ impl VTable for BoolVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
+    type PipelineVTable = NotSupported;
     // Enable serde for this encoding
     type SerdeVTable = Self;
 

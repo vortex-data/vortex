@@ -18,20 +18,27 @@ workspace = true
 
 [dependencies]
 arbitrary = { workspace = true, optional = true }
+arcref = { workspace = true }
 dyn-hash = { workspace = true }
 itertools = { workspace = true }
-prost = { workspace = true, optional = true }
+parking_lot = { workspace = true }
+paste = { workspace = true }
+prost = { workspace = true }
 serde = { workspace = true, optional = true, features = ["derive"] }
+termtree = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }
-vortex-error = { workspace = true }
+vortex-error = { workspace = true, features = ["prost"] }
 vortex-mask = { workspace = true }
 vortex-proto = { workspace = true, features = ["expr"] }
 vortex-scalar = { workspace = true }
 vortex-utils = { workspace = true }
 
 [dev-dependencies]
+anyhow = { workspace = true }
+insta = { workspace = true }
+rstest = { workspace = true }
 vortex-expr = { path = ".", features = ["test-harness"] }
 
 [features]
@@ -41,5 +48,4 @@ arbitrary = [
     "vortex-dtype/arbitrary",
 ]
 serde = ["dep:serde", "vortex-dtype/serde", "vortex-error/serde"]
-proto = ["vortex-proto/expr", "vortex-error/prost", "dep:prost", "serde"]
 test-harness = []

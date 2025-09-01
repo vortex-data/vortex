@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::fs::create_dir_all;
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -80,8 +83,8 @@ pub fn url_scheme_to_storage(url: &Url) -> anyhow::Result<String> {
     use super::constants::{STORAGE_GCS, STORAGE_NVME, STORAGE_S3};
 
     match url.scheme() {
-        "s3" => Ok(STORAGE_S3.to_owned()),
-        "gcs" => Ok(STORAGE_GCS.to_owned()),
+        STORAGE_S3 => Ok(STORAGE_S3.to_owned()),
+        STORAGE_GCS => Ok(STORAGE_GCS.to_owned()),
         "file" => Ok(STORAGE_NVME.to_owned()),
         otherwise => {
             bail!("unknown URL scheme: {}", otherwise)

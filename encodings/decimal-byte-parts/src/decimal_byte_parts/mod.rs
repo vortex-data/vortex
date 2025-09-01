@@ -1,16 +1,19 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 mod compute;
 mod serde;
 
-use itertools::Itertools;
+use std::ops::Range;
+
 use vortex_array::arrays::DecimalArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityChild,
     ValidityHelper, ValidityVTableFromChild,
 };
-use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, vtable};
-use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::{DType, DecimalDType, PType, match_each_signed_integer_ptype};
+use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable};
+use vortex_dtype::{DType, DecimalDType, match_each_signed_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::{DecimalValue, Scalar};
 
@@ -28,6 +31,7 @@ impl VTable for DecimalBytePartsVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
     type SerdeVTable = Self;
+    type PipelineVTable = NotSupported;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.decimal_byte_parts")
@@ -46,53 +50,47 @@ impl VTable for DecimalBytePartsVTable {
 #[derive(Clone, Debug)]
 pub struct DecimalBytePartsArray {
     msp: ArrayRef,
-    lower_parts: Vec<ArrayRef>,
+    // NOTE: the lower_parts is currently unused, we reserve this field so that it is properly
+    //  read/written during serde, but provide no constructor to initialize this to anything
+    //  other than the empty Vec.
+    _lower_parts: Vec<ArrayRef>,
     dtype: DType,
     stats_set: ArrayStats,
 }
 
 impl DecimalBytePartsArray {
-    pub fn try_new(
-        msp: ArrayRef,
-        lower_parts: Vec<ArrayRef>,
-        decimal_dtype: DecimalDType,
-    ) -> VortexResult<Self> {
-        if !lower_parts.is_empty() {
-            // TODO(joe): remove this constraint.
-            vortex_bail!("DecimalBytePartsArray doesn't support lower parts arrays")
-        }
-
-        if !(0usize..=3).contains(&lower_parts.iter().len()) {
-            vortex_bail!(
-                "DecimalBytePartsArray lower_parts must have between 0..=3 children, instead given: {}",
-                lower_parts.len()
-            )
-        }
-
+    pub fn try_new(msp: ArrayRef, decimal_dtype: DecimalDType) -> VortexResult<Self> {
         if !msp.dtype().is_signed_int() {
             vortex_bail!("decimal bytes parts, first part must be a signed array")
-        }
-
-        if lower_parts
-            .iter()
-            .any(|a| a.dtype() != &DType::Primitive(PType::U64, NonNullable))
-        {
-            vortex_bail!("decimal bytes parts 2nd to 4th must be non-nullable u64 primitive typed")
         }
 
         let nullable = msp.dtype().nullability();
         Ok(Self {
             msp,
-            lower_parts,
+            _lower_parts: Vec::new(),
             dtype: DType::Decimal(decimal_dtype, nullable),
             stats_set: Default::default(),
         })
     }
 
+    pub(crate) unsafe fn new_unchecked(msp: ArrayRef, decimal_dtype: DecimalDType) -> Self {
+        let nullable = msp.dtype().nullability();
+        Self {
+            msp,
+            _lower_parts: Vec::new(),
+            dtype: DType::Decimal(decimal_dtype, nullable),
+            stats_set: Default::default(),
+        }
+    }
+
     pub fn decimal_dtype(&self) -> &DecimalDType {
         self.dtype
-            .as_decimal()
+            .as_decimal_opt()
             .vortex_expect("must be a decimal dtype")
+    }
+
+    pub(crate) fn msp(&self) -> &ArrayRef {
+        &self.msp
     }
 }
 
@@ -116,7 +114,6 @@ impl ArrayVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
 impl CanonicalVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
     fn canonicalize(array: &DecimalBytePartsArray) -> VortexResult<Canonical> {
         // TODO(joe): support parts len != 1
-        assert!(array.lower_parts.is_empty());
         let prim = array.msp.to_canonical()?.into_primitive()?;
         // Depending on the decimal type and the min/max of the primitive array we can choose
         // the correct buffer size
@@ -134,39 +131,24 @@ impl CanonicalVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
 }
 
 impl OperationsVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
-    fn slice(array: &DecimalBytePartsArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        DecimalBytePartsArray::try_new(
-            array.msp.slice(start, stop)?,
-            array
-                .lower_parts
-                .iter()
-                .map(|p| p.slice(start, stop))
-                .try_collect()?,
-            *array.decimal_dtype(),
-        )
-        .map(|d| d.to_array())
+    fn slice(array: &DecimalBytePartsArray, range: Range<usize>) -> ArrayRef {
+        // SAFETY: slicing encoded MSP does not change the encoded values
+        unsafe {
+            DecimalBytePartsArray::new_unchecked(array.msp.slice(range), *array.decimal_dtype())
+                .into_array()
+        }
     }
 
     #[allow(clippy::useless_conversion)]
-    fn scalar_at(array: &DecimalBytePartsArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(array: &DecimalBytePartsArray, index: usize) -> Scalar {
         // TODO(joe): support parts len != 1
-        assert!(array.lower_parts.is_empty());
-        let scalar = array.msp.scalar_at(index)?;
+        let scalar = array.msp.scalar_at(index);
 
         // Note. values in msp, can only be signed integers upto size i64.
         let primitive_scalar = scalar.as_primitive();
         // TODO(joe): extend this to support multiple parts.
-        let value = match_each_signed_integer_ptype!(primitive_scalar.ptype(), |P| {
-            i64::from(
-                primitive_scalar
-                    .typed_value::<P>()
-                    .vortex_expect("scalar must have correct ptype"),
-            )
-        });
-        Ok(Scalar::new(
-            array.dtype.clone(),
-            DecimalValue::I64(value).into(),
-        ))
+        let value = primitive_scalar.as_::<i64>().vortex_expect("non-null");
+        Scalar::new(array.dtype.clone(), DecimalValue::I64(value).into())
     }
 }
 
@@ -198,20 +180,19 @@ mod tests {
                 Validity::Array(BoolArray::from_iter(vec![false, true, true]).to_array()),
             )
             .to_array(),
-            vec![],
             decimal_dtype,
         )
         .unwrap()
         .to_array();
 
-        assert_eq!(Scalar::null(dtype.clone()), array.scalar_at(0).unwrap());
+        assert_eq!(Scalar::null(dtype.clone()), array.scalar_at(0));
         assert_eq!(
             Scalar::new(dtype.clone(), DecimalValue::I64(200).into()),
-            array.scalar_at(1).unwrap()
+            array.scalar_at(1)
         );
         assert_eq!(
             Scalar::new(dtype, DecimalValue::I64(400).into()),
-            array.scalar_at(2).unwrap()
+            array.scalar_at(2)
         );
     }
 }

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::ops::BitAnd;
 
 use vortex_error::VortexResult;
@@ -10,7 +13,7 @@ use crate::register_kernel;
 
 impl SumKernel for BoolVTable {
     fn sum(&self, array: &BoolArray) -> VortexResult<Scalar> {
-        let true_count: Option<u64> = match array.validity_mask()?.boolean_buffer() {
+        let true_count: Option<u64> = match array.validity_mask().boolean_buffer() {
             AllOr::All => {
                 // All-valid
                 Some(array.boolean_buffer().count_set_bits() as u64)

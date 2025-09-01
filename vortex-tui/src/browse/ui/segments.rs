@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::sync::Arc;
 
 use humansize::DECIMAL;
@@ -13,8 +16,8 @@ use taffy::{
 };
 use vortex::error::{VortexExpect, VortexResult, VortexUnwrap, vortex_err};
 use vortex::file::SegmentSpec;
+use vortex::layout::{Layout, LayoutChildType};
 use vortex::utils::aliases::hash_map::HashMap;
-use vortex_layout::{Layout, LayoutChildType};
 
 use crate::browse::app::AppState;
 
@@ -73,7 +76,6 @@ pub struct SegmentDisplay {
     spec: SegmentSpec,
     row_offset: u64,
     row_count: u64,
-    byte_gap: u64,
 }
 
 #[allow(clippy::cast_possible_truncation)]
@@ -241,7 +243,7 @@ fn render_tree(
 }
 
 fn to_display_segment_tree<'a>(
-    segment_tree: SegmentTree,
+    mut segment_tree: SegmentTree,
 ) -> anyhow::Result<(TaffyTree<()>, NodeId, HashMap<NodeId, NodeContents<'a>>)> {
     // Extra node for the parent node of the segment specs, and one parent node as the root
     let mut tree = TaffyTree::with_capacity(
@@ -261,22 +263,25 @@ fn to_display_segment_tree<'a>(
         .map(|name| {
             let chunks = segment_tree
                 .segments
-                .get(&name)
+                .get_mut(&name)
                 .vortex_expect("Must have segment for name");
+            chunks.sort_by(|a, b| a.spec.offset.cmp(&b.spec.offset));
             let leaves = chunks
                 .iter()
-                .map(|segment| {
-                    let node_id = tree.new_leaf(Style {
-                        min_size: Size {
-                            width: Dimension::percent(1.0),
-                            height: Dimension::length(7.0),
-                        },
-                        size: Size {
-                            width: Dimension::percent(1.0),
-                            height: Dimension::length(15.0),
-                        },
-                        ..Default::default()
-                    })?;
+                .scan(0u64, |current_offset, segment| {
+                    let node_id = tree
+                        .new_leaf(Style {
+                            min_size: Size {
+                                width: Dimension::percent(1.0),
+                                height: Dimension::length(7.0),
+                            },
+                            size: Size {
+                                width: Dimension::percent(1.0),
+                                height: Dimension::length(15.0),
+                            },
+                            ..Default::default()
+                        })
+                        .expect("Fail to create leaf node");
                     node_contents.insert(
                         node_id,
                         NodeContents {
@@ -295,13 +300,21 @@ fn to_display_segment_tree<'a>(
                                     humansize::format_size(segment.spec.length, DECIMAL),
                                 )),
                                 Line::raw(format!("Align: {}", segment.spec.alignment)),
-                                Line::raw(format!("Byte gap: {}", segment.byte_gap)),
+                                Line::raw(format!(
+                                    "Byte gap: {}",
+                                    if *current_offset == 0 {
+                                        0
+                                    } else {
+                                        segment.spec.offset - *current_offset
+                                    }
+                                )),
                             ],
                         },
                     );
-                    Ok(node_id)
+                    *current_offset = segment.spec.length as u64 + segment.spec.offset;
+                    Some(node_id)
                 })
-                .collect::<anyhow::Result<Vec<_>>>()?;
+                .collect::<Vec<_>>();
 
             let node_id = tree.new_with_children(
                 Style {
@@ -371,17 +384,30 @@ fn segments_by_name_impl(
     // Recurse into children
     for (child, child_type) in root.children()?.into_iter().zip(root.child_types()) {
         match child_type {
-            LayoutChildType::Transparent(_) => segments_by_name_impl(
+            LayoutChildType::Transparent(sub_name) => segments_by_name_impl(
                 child.as_ref(),
                 group_name.clone(),
-                name.clone(),
+                Some(
+                    name.as_ref()
+                        .map(|n| format!("{n}.{sub_name}").into())
+                        .unwrap_or_else(|| sub_name),
+                ),
                 row_offset,
                 segments,
                 segment_tree,
             )?,
-            LayoutChildType::Auxiliary(_) => {
-                // Don't recurse into auxiliary children.
-            }
+            LayoutChildType::Auxiliary(aux_name) => segments_by_name_impl(
+                child.as_ref(),
+                group_name.clone(),
+                Some(
+                    name.as_ref()
+                        .map(|n| format!("{n}.{aux_name}").into())
+                        .unwrap_or_else(|| aux_name),
+                ),
+                Some(0),
+                segments,
+                segment_tree,
+            )?,
             LayoutChildType::Chunk((idx, chunk_row_offset)) => {
                 segments_by_name_impl(
                     child.as_ref(),
@@ -402,7 +428,8 @@ fn segments_by_name_impl(
                 // Step into a new group name
                 let group_name = group_name
                     .as_ref()
-                    .map_or(field_name.clone(), |n| format!("{n}.{field_name}").into());
+                    .map(|n| format!("{n}.{field_name}").into())
+                    .unwrap_or_else(|| field_name);
                 segment_tree.segment_ordering.push(group_name.clone());
 
                 segments_by_name_impl(
@@ -424,16 +451,11 @@ fn segments_by_name_impl(
 
     for segment_id in root.segment_ids() {
         let segment_spec = segments[*segment_id as usize].clone();
-        let byte_gap = current_segments
-            .last()
-            .map(|s| segment_spec.offset - s.spec.offset - s.spec.length as u64)
-            .unwrap_or(0);
         current_segments.push(SegmentDisplay {
             name: name.clone().unwrap_or_else(|| "<unnamed>".into()),
             spec: segment_spec,
             row_count: root.row_count(),
             row_offset: row_offset.unwrap_or(0),
-            byte_gap,
         })
     }
 

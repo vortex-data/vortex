@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::ops::BitAnd;
 
 use vortex_error::VortexResult;
@@ -10,7 +13,7 @@ use crate::register_kernel;
 
 impl MinMaxKernel for BoolVTable {
     fn min_max(&self, array: &BoolArray) -> VortexResult<Option<MinMaxResult>> {
-        let x = match array.validity_mask()? {
+        let x = match array.validity_mask() {
             Mask::AllTrue(_) => array.boolean_buffer().clone(),
             Mask::AllFalse(_) => return Ok(None),
             Mask::Values(v) => array.boolean_buffer().bitand(v.boolean_buffer()),

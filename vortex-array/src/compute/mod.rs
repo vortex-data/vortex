@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! Compute kernels on top of Vortex Arrays.
 //!
 //! We aim to provide a basic set of compute kernels that can be used to efficiently index, slice,
@@ -33,6 +36,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
+pub use zip::*;
 
 use crate::builders::ArrayBuilder;
 use crate::{Array, ArrayRef};
@@ -58,6 +62,7 @@ mod nan_count;
 mod numeric;
 mod sum;
 mod take;
+mod zip;
 
 /// An instance of a compute function holding the implementation vtable and a set of registered
 /// compute kernels.
@@ -120,7 +125,7 @@ impl ComputeFn {
                 args.inputs
                     .iter()
                     .filter_map(|input| input.array())
-                    .format_with(",", |array, f| f(&array.tree_display()))
+                    .format_with(",", |array, f| f(&array.display_tree()))
             );
         }
         if output.len() != expected_len {
@@ -296,37 +301,42 @@ impl<'a> From<&'a DType> for Input<'a> {
 
 impl<'a> Input<'a> {
     pub fn scalar(&self) -> Option<&'a Scalar> {
-        match self {
-            Input::Scalar(scalar) => Some(*scalar),
-            _ => None,
+        if let Input::Scalar(scalar) = self {
+            Some(*scalar)
+        } else {
+            None
         }
     }
 
     pub fn array(&self) -> Option<&'a dyn Array> {
-        match self {
-            Input::Array(array) => Some(*array),
-            _ => None,
+        if let Input::Array(array) = self {
+            Some(*array)
+        } else {
+            None
         }
     }
 
     pub fn mask(&self) -> Option<&'a Mask> {
-        match self {
-            Input::Mask(mask) => Some(*mask),
-            _ => None,
+        if let Input::Mask(mask) = self {
+            Some(*mask)
+        } else {
+            None
         }
     }
 
     pub fn builder(&'a mut self) -> Option<&'a mut dyn ArrayBuilder> {
-        match self {
-            Input::Builder(builder) => Some(*builder),
-            _ => None,
+        if let Input::Builder(builder) = self {
+            Some(*builder)
+        } else {
+            None
         }
     }
 
     pub fn dtype(&self) -> Option<&'a DType> {
-        match self {
-            Input::DType(dtype) => Some(*dtype),
-            _ => None,
+        if let Input::DType(dtype) = self {
+            Some(*dtype)
+        } else {
+            None
         }
     }
 }

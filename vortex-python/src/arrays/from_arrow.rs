@@ -1,8 +1,11 @@
-use arrow::array::{ArrayData as ArrowArrayData, make_array};
-use arrow::datatypes::{DataType, Field};
-use arrow::ffi_stream::ArrowArrayStreamReader;
-use arrow::pyarrow::FromPyArrow;
-use arrow::record_batch::RecordBatchReader;
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use arrow_array::ffi_stream::ArrowArrayStreamReader;
+use arrow_array::{RecordBatchReader, make_array};
+use arrow_data::ArrayData as ArrowArrayData;
+use arrow_schema::{DataType, Field};
+use itertools::Itertools;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use vortex::arrays::ChunkedArray;
@@ -10,9 +13,10 @@ use vortex::arrow::FromArrowArray;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::{VortexError, VortexResult};
-use vortex::{ArrayRef, IntoArray, TryIntoArray};
+use vortex::{ArrayRef, IntoArray};
 
 use crate::arrays::PyArrayRef;
+use crate::arrow::FromPyArrow;
 
 /// Convert an Arrow object to a Vortex array.
 pub(super) fn from_arrow(obj: &Bound<'_, PyAny>) -> PyResult<PyArrayRef> {
@@ -49,7 +53,7 @@ pub(super) fn from_arrow(obj: &Bound<'_, PyAny>) -> PyResult<PyArrayRef> {
         let chunks = array_stream
             .into_iter()
             .map(|b| b.map_err(VortexError::from))
-            .map(|b| b.and_then(|b| b.try_into_array()))
+            .map_ok(|b| ArrayRef::from_arrow(b, false))
             .collect::<VortexResult<Vec<_>>>()?;
         Ok(PyArrayRef::from(
             ChunkedArray::try_new(chunks, dtype)?.into_array(),

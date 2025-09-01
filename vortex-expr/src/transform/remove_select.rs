@@ -1,28 +1,26 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_error::{VortexResult, vortex_err};
 
-use crate::traversal::{MutNodeVisitor, Node, TransformResult};
-use crate::{ExprRef, ScopeDType, Select, get_item, pack};
+use crate::traversal::{NodeExt, Transformed};
+use crate::{DType, ExprRef, SelectVTable, get_item, pack};
 
-/// Replaces [Select] with combination of [GetItem] and [Pack] expressions.
-pub(crate) fn remove_select(e: ExprRef, ctx: &ScopeDType) -> VortexResult<ExprRef> {
-    let mut transform = RemoveSelectTransform { ctx };
-    e.transform(&mut transform).map(|e| e.into_inner())
+/// Replaces [crate::SelectExpr] with combination of [crate::GetItem] and [crate::Pack] expressions.
+pub(crate) fn remove_select(e: ExprRef, ctx: &DType) -> VortexResult<ExprRef> {
+    e.transform_up(|node| remove_select_transformer(node, ctx))
+        .map(|e| e.into_inner())
 }
 
-struct RemoveSelectTransform<'a> {
-    ctx: &'a ScopeDType,
-}
-
-impl MutNodeVisitor for RemoveSelectTransform<'_> {
-    type NodeTy = ExprRef;
-
-    fn visit_up(&mut self, node: ExprRef) -> VortexResult<TransformResult<Self::NodeTy>> {
-        if let Some(select) = node.as_any().downcast_ref::<Select>() {
+fn remove_select_transformer(node: ExprRef, ctx: &DType) -> VortexResult<Transformed<ExprRef>> {
+    match node.as_opt::<SelectVTable>() {
+        None => Ok(Transformed::no(node)),
+        Some(select) => {
             let child = select.child();
-            let child_dtype = child.return_dtype(self.ctx)?;
+            let child_dtype = child.return_dtype(ctx)?;
             let child_nullability = child_dtype.nullability();
 
-            let child_dtype = child_dtype.as_struct().ok_or_else(|| {
+            let child_dtype = child_dtype.as_struct_fields_opt().ok_or_else(|| {
                 vortex_err!(
                     "Select child must return a struct dtype, however it was a {}",
                     child_dtype
@@ -45,9 +43,7 @@ impl MutNodeVisitor for RemoveSelectTransform<'_> {
                 child_nullability,
             );
 
-            Ok(TransformResult::yes(expr))
-        } else {
-            Ok(TransformResult::no(node))
+            Ok(Transformed::yes(expr))
         }
     }
 }
@@ -60,25 +56,18 @@ mod tests {
     use vortex_dtype::{DType, StructFields};
 
     use crate::transform::remove_select::remove_select;
-    use crate::{Pack, ScopeDType, root, select};
+    use crate::{PackVTable, root, select};
 
     #[test]
     fn test_remove_select() {
         let dtype = DType::Struct(
-            StructFields::new(
-                ["a".into(), "b".into()].into(),
-                vec![I32.into(), I32.into()],
-            ),
+            StructFields::new(["a", "b"].into(), vec![I32.into(), I32.into()]),
             Nullable,
         );
-        let e = select(["a".into(), "b".into()], root());
-        let e = remove_select(e, &ScopeDType::new(dtype.clone())).unwrap();
+        let e = select(["a", "b"], root());
+        let e = remove_select(e, &dtype).unwrap();
 
-        assert!(e.as_any().is::<Pack>());
-        assert!(
-            e.return_dtype(&ScopeDType::new(dtype))
-                .unwrap()
-                .is_nullable()
-        );
+        assert!(e.is::<PackVTable>());
+        assert!(e.return_dtype(&dtype).unwrap().is_nullable());
     }
 }

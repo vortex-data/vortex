@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_array::arrays::{BoolArray, BooleanBuffer, ConstantArray};
 use vortex_array::compute::{CompareKernel, Operator};
 use vortex_array::validity::Validity;
@@ -63,16 +66,10 @@ pub(crate) fn find_intersection_scalar(
     intercept: PValue,
 ) -> Option<usize> {
     match_each_integer_ptype!(base.ptype(), |P| {
-        let intercept = intercept
-            .as_primitive()
-            .vortex_expect("constant pvalue matching already validated");
+        let intercept = intercept.as_primitive::<P>();
 
-        let base = base
-            .as_primitive::<P>()
-            .vortex_expect("base pvalue matching already validated");
-        let multiplier = multiplier
-            .as_primitive::<P>()
-            .vortex_expect("multiplier pvalue matching already validated");
+        let base = base.as_primitive::<P>();
+        let multiplier = multiplier.as_primitive::<P>();
 
         find_intersection(base, multiplier, len, intercept)
     })
@@ -101,12 +98,13 @@ mod tests {
     use vortex_array::ToCanonical;
     use vortex_array::arrays::{BoolArray, ConstantArray};
     use vortex_array::compute::{Operator, compare};
+    use vortex_dtype::Nullability::{NonNullable, Nullable};
 
     use crate::SequenceArray;
 
     #[test]
     fn test_compare_match() {
-        let lhs = SequenceArray::typed_new(2i64, 1, 4).unwrap();
+        let lhs = SequenceArray::typed_new(2i64, 1, NonNullable, 4).unwrap();
 
         let rhs = ConstantArray::new(4i64, lhs.len());
 
@@ -120,7 +118,7 @@ mod tests {
 
     #[test]
     fn test_compare_match_scale() {
-        let lhs = SequenceArray::typed_new(2i64, 3, 4).unwrap();
+        let lhs = SequenceArray::typed_new(2i64, 3, Nullable, 4).unwrap();
 
         let rhs = ConstantArray::new(8i64, lhs.len());
 
@@ -134,7 +132,7 @@ mod tests {
 
     #[test]
     fn test_compare_no_match() {
-        let lhs = SequenceArray::typed_new(2i64, 1, 4).unwrap();
+        let lhs = SequenceArray::typed_new(2i64, 1, NonNullable, 4).unwrap();
 
         let rhs = ConstantArray::new(1i64, lhs.len());
 

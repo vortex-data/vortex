@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 /// A `Layout` is a recursive data structure describing the physical layout of Vortex arrays in random access storage.
 /// As a starting, concrete example, the first three Layout encodings are defined as:
 ///

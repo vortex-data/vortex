@@ -1,12 +1,17 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::fmt::Display;
 
 use anyhow::Result;
 use async_trait::async_trait;
 use datafusion::prelude::SessionContext;
+use serde::Serialize;
 use url::Url;
 use vortex::ArrayRef;
 
-use crate::{Format, clickbench};
+use crate::clickbench::Flavor;
+use crate::{Format, clickbench, statpopgen};
 
 pub mod data_downloads;
 pub mod file;
@@ -21,25 +26,43 @@ pub trait Dataset {
     async fn to_vortex_array(&self) -> ArrayRef;
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum BenchmarkDataset {
-    TpcH,
-    TpcDS,
-    ClickBench { single_file: bool },
+    #[serde(rename = "tpch")]
+    TpcH { scale_factor: String },
+    #[serde(rename = "tpcds")]
+    TpcDS { scale_factor: String },
+    #[serde(rename = "clickbench")]
+    ClickBench { flavor: Flavor },
+    #[serde(rename = "public-bi")]
+    PublicBi { name: String },
+    #[serde(rename = "statpopgen")]
+    StatPopGen { n_rows: u64 },
+}
+
+impl BenchmarkDataset {
+    pub fn name(&self) -> &str {
+        match self {
+            BenchmarkDataset::TpcH { .. } => "tpch",
+            BenchmarkDataset::TpcDS { .. } => "tpcds",
+            BenchmarkDataset::ClickBench { .. } => "clickbench",
+            BenchmarkDataset::PublicBi { .. } => "public-bi",
+            BenchmarkDataset::StatPopGen { .. } => "statpopgen",
+        }
+    }
 }
 
 impl Display for BenchmarkDataset {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BenchmarkDataset::TpcH => write!(f, "tpch"),
-            BenchmarkDataset::TpcDS => write!(f, "tpcds"),
-            BenchmarkDataset::ClickBench { single_file } => {
-                if *single_file {
-                    write!(f, "clickbench-single")
-                } else {
-                    write!(f, "clickbench-partitioned")
-                }
-            }
+            BenchmarkDataset::TpcH { scale_factor } => write!(f, "tpch(sf={scale_factor})"),
+            BenchmarkDataset::TpcDS { scale_factor } => write!(f, "tpcds(sf={scale_factor})"),
+            BenchmarkDataset::ClickBench { flavor, .. } => match flavor {
+                Flavor::Partitioned => write!(f, "clickbench-partitioned"),
+                Flavor::Single => write!(f, "clickbench-single"),
+            },
+            BenchmarkDataset::PublicBi { name } => write!(f, "public-bi({name})"),
+            BenchmarkDataset::StatPopGen { n_rows } => write!(f, "statpopgen(n_rows={n_rows})"),
         }
     }
 }
@@ -47,7 +70,7 @@ impl Display for BenchmarkDataset {
 impl BenchmarkDataset {
     pub fn tables(&self) -> &[&'static str] {
         match self {
-            BenchmarkDataset::TpcDS => &[
+            BenchmarkDataset::TpcDS { .. } => &[
                 "call_center",
                 "catalog_sales",
                 "customer_demographics",
@@ -73,22 +96,17 @@ impl BenchmarkDataset {
                 "time_dim",
                 "web_returns",
             ],
-
-            BenchmarkDataset::TpcH => &[
+            BenchmarkDataset::TpcH { .. } => &[
                 "customer", "lineitem", "nation", "orders", "part", "partsupp", "region",
                 "supplier",
             ],
-
-            BenchmarkDataset::ClickBench { .. } => todo!(),
+            BenchmarkDataset::ClickBench { .. } | BenchmarkDataset::PublicBi { .. } => todo!(),
+            BenchmarkDataset::StatPopGen { .. } => &["statpopgen"],
         }
     }
 
-    pub fn parquet_path(&self, base_url: &Url) -> Result<Url> {
-        Ok(base_url.join(&format!("{}/", Format::Parquet))?)
-    }
-
-    pub fn vortex_path(&self, base_url: &Url) -> Result<Url> {
-        Ok(base_url.join(&format!("{}/", Format::OnDiskVortex))?)
+    pub fn format_path(&self, format: Format, base_url: &Url) -> Result<Url> {
+        Ok(base_url.join(&format!("{format}/"))?)
     }
 
     pub async fn register_tables(
@@ -97,32 +115,43 @@ impl BenchmarkDataset {
         base_url: &Url,
         format: Format,
     ) -> Result<()> {
-        // Register tables synchronously to avoid nested runtime issues
         match (self, format) {
-            (BenchmarkDataset::TpcH, _) | (BenchmarkDataset::TpcDS, _) => {
+            (BenchmarkDataset::TpcH { .. }, _) | (BenchmarkDataset::TpcDS { .. }, _) => {
                 // TPC-H tables are handled separately
             }
-            (BenchmarkDataset::ClickBench { single_file }, Format::Parquet) => {
+            (BenchmarkDataset::ClickBench { .. }, Format::Parquet) => {
                 clickbench::register_parquet_files(
                     session,
                     "hits",
                     base_url,
                     &clickbench::HITS_SCHEMA,
-                    *single_file,
+                    Some(glob::Pattern::new("*.parquet")?),
                 )?;
             }
-            (BenchmarkDataset::ClickBench { single_file }, Format::OnDiskVortex) => {
+            (BenchmarkDataset::ClickBench { .. }, Format::OnDiskVortex | Format::VortexCompact) => {
                 clickbench::register_vortex_files(
                     session.clone(),
                     "hits",
                     base_url,
                     Some(clickbench::HITS_SCHEMA.clone()),
-                    *single_file,
+                    Some(glob::Pattern::new("*.vortex")?),
                 )
                 .await?;
             }
             (BenchmarkDataset::ClickBench { .. }, _) => {
                 anyhow::bail!("Unsupported format for ClickBench: {}", format);
+            }
+            (BenchmarkDataset::PublicBi { .. }, _) => {
+                anyhow::bail!("public bi unsupported for now")
+            }
+            (BenchmarkDataset::StatPopGen { .. }, Format::Parquet) => {
+                statpopgen::register_table(session, base_url, Format::Parquet).await?
+            }
+            (BenchmarkDataset::StatPopGen { .. }, Format::OnDiskVortex) => {
+                statpopgen::register_table(session, base_url, Format::OnDiskVortex).await?
+            }
+            (BenchmarkDataset::StatPopGen { .. }, format) => {
+                anyhow::bail!("StatPopGen in {format} unsupported in DataFusion")
             }
         }
 

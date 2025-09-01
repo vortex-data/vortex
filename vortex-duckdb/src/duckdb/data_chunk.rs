@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::ffi::CStr;
 use std::ptr;
 
@@ -15,11 +18,13 @@ wrapper!(
 
 impl DataChunk {
     /// Create a new data chunk using a list of logical dtypes
-    pub fn new(column_types: impl IntoIterator<Item = LogicalType>) -> DataChunk {
+    pub fn new(column_types: impl AsRef<[LogicalType]>) -> DataChunk {
         let mut ptrs = column_types
-            .into_iter()
-            .map(|x| x.into_ptr())
+            .as_ref()
+            .iter()
+            .map(|x| x.as_ptr())
             .collect::<Vec<duckdb_logical_type>>();
+
         let ptr = unsafe { cpp::duckdb_create_data_chunk(ptrs.as_mut_ptr(), ptrs.len() as _) };
         unsafe { DataChunk::own(ptr) }
     }
@@ -56,7 +61,7 @@ impl TryFrom<&DataChunk> for String {
         let mut err: duckdb_vx_error = ptr::null_mut();
         #[cfg(debug_assertions)]
         unsafe {
-            cpp::duckdb_data_chunk_verify(value.as_ptr(), &mut err);
+            cpp::duckdb_data_chunk_verify(value.as_ptr(), &raw mut err);
             if !err.is_null() {
                 vortex_bail!(
                     "{}",
@@ -64,7 +69,7 @@ impl TryFrom<&DataChunk> for String {
                 )
             }
         };
-        let debug = unsafe { cpp::duckdb_data_chunk_to_string(value.as_ptr(), &mut err) };
+        let debug = unsafe { cpp::duckdb_data_chunk_to_string(value.as_ptr(), &raw mut err) };
         if !err.is_null() {
             vortex_bail!("{}", unsafe {
                 CStr::from_ptr(cpp::duckdb_vx_error_value(err)).to_string_lossy()

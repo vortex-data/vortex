@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 #![allow(clippy::unwrap_used)]
 
 use divan::Bencher;
@@ -46,7 +49,7 @@ fn null_count_run_end(bencher: Bencher, (n, run_step, valid_density): (usize, us
 
     bencher
         .with_inputs(|| array.clone())
-        .bench_refs(|array| array.invalid_count().unwrap());
+        .bench_refs(|array| array.invalid_count());
 }
 
 fn fixture(n: usize, run_step: usize, valid_density: f64) -> RunEndArray {
@@ -63,5 +66,5 @@ fn fixture(n: usize, run_step: usize, valid_density: f64) -> RunEndArray {
     )
     .into_array();
 
-    RunEndArray::try_new(ends, values).unwrap()
+    RunEndArray::new(ends, values)
 }

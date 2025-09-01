@@ -1,6 +1,11 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! A contiguously serialized Vortex array.
 //!
 //! See the `vortex-file` crate for non-contiguous serialization.
+
+#![deny(missing_docs)]
 
 #[cfg(feature = "array")]
 #[allow(clippy::all)]
@@ -9,12 +14,16 @@
 #[allow(clippy::unwrap_used)]
 #[allow(clippy::borrow_as_ptr)]
 #[allow(dead_code)]
+// TODO(robert): Remove once we can update toolchain
+#[allow(unknown_lints)]
+#[allow(mismatched_lifetime_syntaxes)]
 #[allow(non_snake_case)]
 #[allow(non_camel_case_types)]
 #[allow(unsafe_op_in_unsafe_fn)]
 #[allow(unused_imports)]
 #[allow(unused_lifetimes)]
 #[allow(unused_qualifications)]
+#[allow(missing_docs)]
 #[rustfmt::skip]
 #[path = "./generated/array.rs"]
 /// A serialized array without its buffer (i.e. data).
@@ -32,12 +41,16 @@ pub mod array;
 #[allow(clippy::unwrap_used)]
 #[allow(clippy::borrow_as_ptr)]
 #[allow(dead_code)]
+// TODO(robert): Remove once we can update toolchain
+#[allow(unknown_lints)]
+#[allow(mismatched_lifetime_syntaxes)]
 #[allow(non_snake_case)]
 #[allow(non_camel_case_types)]
 #[allow(unsafe_op_in_unsafe_fn)]
 #[allow(unused_imports)]
 #[allow(unused_lifetimes)]
 #[allow(unused_qualifications)]
+#[allow(missing_docs)]
 #[rustfmt::skip]
 #[path = "./generated/dtype.rs"]
 /// A serialized data type.
@@ -55,12 +68,16 @@ pub mod dtype;
 #[allow(clippy::unwrap_used)]
 #[allow(clippy::borrow_as_ptr)]
 #[allow(dead_code)]
+// TODO(robert): Remove once we can update toolchain
+#[allow(unknown_lints)]
+#[allow(mismatched_lifetime_syntaxes)]
 #[allow(non_snake_case)]
 #[allow(non_camel_case_types)]
 #[allow(unsafe_op_in_unsafe_fn)]
 #[allow(unused_imports)]
 #[allow(unused_lifetimes)]
 #[allow(unused_qualifications)]
+#[allow(missing_docs)]
 #[rustfmt::skip]
 #[path = "./generated/footer.rs"]
 /// A file format footer containing a serialized `vortex-file` Layout.
@@ -78,15 +95,19 @@ pub mod footer;
 #[allow(clippy::unwrap_used)]
 #[allow(clippy::borrow_as_ptr)]
 #[allow(dead_code)]
+// TODO(robert): Remove once we can update toolchain
+#[allow(unknown_lints)]
+#[allow(mismatched_lifetime_syntaxes)]
 #[allow(non_snake_case)]
 #[allow(non_camel_case_types)]
 #[allow(unsafe_op_in_unsafe_fn)]
 #[allow(unused_imports)]
 #[allow(unused_lifetimes)]
 #[allow(unused_qualifications)]
+#[allow(missing_docs)]
 #[rustfmt::skip]
 #[path = "./generated/layout.rs"]
-/// A serialized sequence of arrays, each with its buffers.
+/// Structures describing the physical layout of Vortex arrays in random access storage.
 ///
 /// `layout.fbs`:
 /// ```flatbuffers
@@ -101,12 +122,16 @@ pub mod layout;
 #[allow(clippy::unwrap_used)]
 #[allow(clippy::borrow_as_ptr)]
 #[allow(dead_code)]
+// TODO(robert): Remove once we can update toolchain
+#[allow(unknown_lints)]
+#[allow(mismatched_lifetime_syntaxes)]
 #[allow(non_snake_case)]
 #[allow(non_camel_case_types)]
 #[allow(unsafe_op_in_unsafe_fn)]
 #[allow(unused_imports)]
 #[allow(unused_lifetimes)]
 #[allow(unused_qualifications)]
+#[allow(missing_docs)]
 #[rustfmt::skip]
 #[path = "./generated/message.rs"]
 /// A serialized sequence of arrays, each with its buffers.
@@ -126,16 +151,22 @@ use vortex_buffer::{ByteBuffer, ConstByteBuffer};
 /// See: <https://groups.google.com/g/flatbuffers/c/PSgQeWeTx_g>
 pub type FlatBuffer = ConstByteBuffer<8>;
 
+/// Marker trait for types that can be the root of a FlatBuffer.
 pub trait FlatBufferRoot {}
 
+/// Trait for reading a type from a FlatBuffer.
 pub trait ReadFlatBuffer: Sized {
+    /// The FlatBuffer type that this type can be read from.
     type Source<'a>: Verifiable + Follow<'a>;
+    /// The error type returned when reading fails.
     type Error: From<InvalidFlatbuffer>;
 
+    /// Reads this type from a FlatBuffer source.
     fn read_flatbuffer<'buf>(
         fb: &<Self::Source<'buf> as Follow<'buf>>::Inner,
     ) -> Result<Self, Self::Error>;
 
+    /// Reads this type from bytes representing a FlatBuffer source.
     fn read_flatbuffer_bytes<'buf>(bytes: &'buf [u8]) -> Result<Self, Self::Error>
     where
         <Self as ReadFlatBuffer>::Source<'buf>: 'buf,
@@ -145,17 +176,21 @@ pub trait ReadFlatBuffer: Sized {
     }
 }
 
+/// Trait for writing a type to a FlatBuffer.
 pub trait WriteFlatBuffer {
+    /// The FlatBuffer type that this type can be written to.
     type Target<'a>;
 
+    /// Writes this type to a FlatBuffer builder.
     fn write_flatbuffer<'fb>(
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> WIPOffset<Self::Target<'fb>>;
 }
 
+/// Extension trait for types that can be written as FlatBuffer root objects.
 pub trait WriteFlatBufferExt: WriteFlatBuffer + FlatBufferRoot {
-    /// Write the flatbuffer into a [`FlatBuffer`].
+    /// Writes self as a FlatBuffer root object into a [`FlatBuffer`] byte buffer.
     fn write_flatbuffer_bytes(&self) -> FlatBuffer;
 }
 

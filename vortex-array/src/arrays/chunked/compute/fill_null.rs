@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
@@ -7,15 +10,18 @@ use crate::{ArrayRef, IntoArray, register_kernel};
 
 impl FillNullKernel for ChunkedVTable {
     fn fill_null(&self, array: &ChunkedArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
-        Ok(ChunkedArray::new_unchecked(
-            array
-                .chunks()
-                .iter()
-                .map(|c| fill_null(c, fill_value))
-                .collect::<VortexResult<Vec<_>>>()?,
-            fill_value.dtype().clone(),
-        )
-        .into_array())
+        // SAFETY: fill_null applied to all chunks gives them same DType
+        unsafe {
+            Ok(ChunkedArray::new_unchecked(
+                array
+                    .chunks()
+                    .iter()
+                    .map(|c| fill_null(c, fill_value))
+                    .collect::<VortexResult<Vec<_>>>()?,
+                fill_value.dtype().clone(),
+            )
+            .into_array())
+        }
     }
 }
 

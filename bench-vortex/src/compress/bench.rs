@@ -1,10 +1,15 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::borrow::Cow;
 use std::cell::LazyCell;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use bytes::Bytes;
+use clap::ValueEnum;
 use indicatif::ProgressBar;
 use parquet::basic::{Compression, ZstdLevel};
+use serde::Serialize;
 use tokio::runtime::Runtime;
 use vortex::arrays::{ChunkedArray, ChunkedVTable};
 use vortex::builders::builder_with_capacity;
@@ -47,10 +52,17 @@ impl FromIterator<CompressMeasurements> for CompressMeasurements {
     }
 }
 
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, ValueEnum, Serialize)]
+pub enum CompressOp {
+    Compress,
+    Decompress,
+}
+
 pub fn benchmark_compress(
     runtime: &Runtime,
     progress: &ProgressBar,
     formats: &[Format],
+    ops: &[CompressOp],
     iterations: usize,
     dataset_handle: &dyn Dataset,
 ) -> CompressMeasurements {
@@ -80,7 +92,7 @@ pub fn benchmark_compress(
     let mut parquet_compress_time = None;
     let mut parquet_decompress_time = None;
 
-    if formats.contains(&Format::OnDiskVortex) {
+    if formats.contains(&Format::OnDiskVortex) && ops.contains(&CompressOp::Compress) {
         let time = run(runtime, iterations, || async {
             compressed_size.store(
                 vortex_compress_write(&uncompressed, &mut Vec::new())
@@ -106,7 +118,7 @@ pub fn benchmark_compress(
         });
     }
 
-    if formats.contains(&Format::Parquet) {
+    if formats.contains(&Format::Parquet) && ops.contains(&CompressOp::Compress) {
         let parquet_compressed_size = AtomicU64::default();
         let chunked = uncompressed.as_::<ChunkedVTable>().clone();
         let (batches, schema) = chunked_to_vec_record_batch(chunked);
@@ -145,7 +157,7 @@ pub fn benchmark_compress(
         });
     }
 
-    if formats.contains(&Format::OnDiskVortex) {
+    if formats.contains(&Format::OnDiskVortex) && ops.contains(&CompressOp::Decompress) {
         let buffer = LazyCell::new(|| {
             let mut buf = Vec::new();
             runtime
@@ -168,7 +180,7 @@ pub fn benchmark_compress(
         progress.inc(1);
     }
 
-    if formats.contains(&Format::Parquet) {
+    if formats.contains(&Format::Parquet) && ops.contains(&CompressOp::Decompress) {
         let buffer = LazyCell::new(|| {
             let chunked = uncompressed.as_::<ChunkedVTable>().clone();
             let (batches, schema) = chunked_to_vec_record_batch(chunked);

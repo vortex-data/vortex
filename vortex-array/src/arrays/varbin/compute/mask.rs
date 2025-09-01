@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -26,7 +29,7 @@ mod test {
     use vortex_dtype::{DType, Nullability};
 
     use crate::arrays::VarBinArray;
-    use crate::compute::conformance::mask::test_mask;
+    use crate::compute::conformance::mask::test_mask_conformance;
 
     #[test]
     fn test_mask_var_bin_array() {
@@ -34,12 +37,12 @@ mod test {
             vec!["hello", "world", "filter", "good", "bye"],
             DType::Utf8(Nullability::NonNullable),
         );
-        test_mask(array.as_ref());
+        test_mask_conformance(array.as_ref());
 
         let array = VarBinArray::from_iter(
             vec![Some("hello"), None, Some("filter"), Some("good"), None],
             DType::Utf8(Nullability::Nullable),
         );
-        test_mask(array.as_ref());
+        test_mask_conformance(array.as_ref());
     }
 }

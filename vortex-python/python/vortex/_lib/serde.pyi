@@ -1,8 +1,11 @@
+#  SPDX-License-Identifier: Apache-2.0
+#  SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 from typing import final
 
 import pyarrow as pa
 
-import vortex as vx
+from .dtype import DType
 
 @final
 class ArrayParts:
@@ -18,8 +21,8 @@ class ArrayParts:
     def nchildren(self) -> int: ...
     @property
     def children(self) -> list[ArrayParts]: ...
-    def decode(self, ctx: ArrayContext, dtype: vx.DType, len: int) -> pa.Array: ...
+    def decode(self, ctx: ArrayContext, dtype: DType, len: int) -> pa.Array[pa.Scalar[pa.DataType]]: ...
 
 @final
 class ArrayContext:
-    def __len__(self): ...
+    def __len__(self) -> int: ...

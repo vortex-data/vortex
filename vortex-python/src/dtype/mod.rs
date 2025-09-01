@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 mod binary;
 mod bool;
 mod decimal;
@@ -12,8 +15,7 @@ mod utf8;
 
 use std::ops::Deref;
 
-use arrow::datatypes::{DataType, Field};
-use arrow::pyarrow::{FromPyArrow, IntoPyArrow};
+use arrow_schema::{DataType, Field};
 pub(crate) use ptype::*;
 use pyo3::prelude::{PyAnyMethods, PyModule, PyModuleMethods};
 use pyo3::types::PyType;
@@ -24,6 +26,7 @@ use pyo3::{
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 
+use crate::arrow::{FromPyArrow, ToPyArrow};
 use crate::dtype::binary::PyBinaryDType;
 use crate::dtype::bool::PyBoolDType;
 use crate::dtype::decimal::PyDecimalDType;
@@ -103,6 +106,9 @@ impl PyDType {
             DType::Binary(..) => Self::with_subclass(py, dtype, PyBinaryDType),
             DType::Struct(..) => Self::with_subclass(py, dtype, PyStructDType),
             DType::List(..) => Self::with_subclass(py, dtype, PyListDType),
+            DType::FixedSizeList(..) => {
+                unimplemented!("TODO(connor)[FixedSizeList]")
+            }
             DType::Extension(..) => Self::with_subclass(py, dtype, PyExtensionDType),
         }
     }
@@ -137,11 +143,11 @@ impl PyDType {
 #[pymethods]
 impl PyDType {
     fn to_arrow_type(&self, py: Python) -> PyResult<PyObject> {
-        self.0.to_arrow_dtype()?.into_pyarrow(py)
+        self.0.to_arrow_dtype()?.to_pyarrow(py)
     }
 
     fn to_arrow_schema(&self, py: Python) -> PyResult<PyObject> {
-        self.0.to_arrow_schema()?.into_pyarrow(py)
+        self.0.to_arrow_schema()?.to_pyarrow(py)
     }
 
     fn __str__(&self) -> String {

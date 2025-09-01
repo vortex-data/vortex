@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 use vortex_scalar::{DecimalValue, Scalar, match_each_decimal_value_type};
@@ -32,7 +35,7 @@ impl SumKernel for DecimalVTable {
         let decimal_dtype = array.decimal_dtype();
         let nullability = array.dtype.nullability();
 
-        match array.validity_mask()? {
+        match array.validity_mask() {
             Mask::AllFalse(_) => {
                 vortex_bail!("invalid state, all-null array should be checked by top-level sum fn")
             }

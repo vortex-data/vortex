@@ -1,15 +1,19 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use async_trait::async_trait;
 use futures::StreamExt;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::stats::{Precision, Stat, StatsProvider};
 use vortex_array::{Array, ArrayContext};
 use vortex_dtype::DType;
-use vortex_error::vortex_bail;
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::{BinaryScalar, Utf8Scalar};
 
 use crate::layouts::flat::FlatLayout;
 use crate::layouts::zoned::{lower_bound, upper_bound};
 use crate::segments::SequenceWriter;
-use crate::{IntoLayout, LayoutStrategy, SendableLayoutWriter, SendableSequentialStream};
+use crate::{IntoLayout, LayoutRef, LayoutStrategy, SendableSequentialStream};
 
 #[derive(Clone)]
 pub struct FlatLayoutStrategy {
@@ -28,100 +32,102 @@ impl Default for FlatLayoutStrategy {
     }
 }
 
+#[async_trait]
 impl LayoutStrategy for FlatLayoutStrategy {
-    fn write_stream(
+    async fn write_stream(
         &self,
         ctx: &ArrayContext,
         sequence_writer: SequenceWriter,
         mut stream: SendableSequentialStream,
-    ) -> SendableLayoutWriter {
+    ) -> VortexResult<LayoutRef> {
         let ctx = ctx.clone();
         let options = self.clone();
-        Box::pin(async move {
-            let Some(chunk) = stream.next().await else {
-                vortex_bail!("flat layout needs a single chunk");
-            };
-            let (sequence_id, chunk) = chunk?;
+        let Some(chunk) = stream.next().await else {
+            vortex_bail!("flat layout needs a single chunk");
+        };
+        let (sequence_id, chunk) = chunk?;
 
-            let row_count = chunk.len() as u64;
+        let row_count = chunk.len() as u64;
 
-            match chunk.dtype() {
-                DType::Utf8(_) => {
-                    if let Some(sv) = chunk.statistics().get(Stat::Min) {
-                        let (value, truncated) = lower_bound::<Utf8Scalar>(
-                            chunk.dtype(),
-                            sv.into_inner(),
-                            options.max_variable_length_statistics_size,
-                        )?;
-                        if truncated {
-                            chunk.statistics().set(Stat::Min, Precision::Inexact(value));
-                        }
-                    }
-
-                    if let Some(sv) = chunk.statistics().get(Stat::Max) {
-                        let (value, truncated) = upper_bound::<Utf8Scalar>(
-                            chunk.dtype(),
-                            sv.into_inner(),
-                            options.max_variable_length_statistics_size,
-                        )?;
-                        if let Some(upper_bound) = value {
-                            if truncated {
-                                chunk
-                                    .statistics()
-                                    .set(Stat::Max, Precision::Inexact(upper_bound));
-                            }
-                        } else {
-                            chunk.statistics().clear(Stat::Max)
-                        }
+        match chunk.dtype() {
+            DType::Utf8(_) => {
+                if let Some(sv) = chunk.statistics().get(Stat::Min) {
+                    let (value, truncated) = lower_bound::<Utf8Scalar>(
+                        sv.into_inner(),
+                        options.max_variable_length_statistics_size,
+                    )?;
+                    if truncated {
+                        chunk
+                            .statistics()
+                            .set(Stat::Min, Precision::Inexact(value.into_value()));
                     }
                 }
-                DType::Binary(_) => {
-                    if let Some(sv) = chunk.statistics().get(Stat::Min) {
-                        let (value, truncated) = lower_bound::<BinaryScalar>(
-                            chunk.dtype(),
-                            sv.into_inner(),
-                            options.max_variable_length_statistics_size,
-                        )?;
-                        if truncated {
-                            chunk.statistics().set(Stat::Min, Precision::Inexact(value));
-                        }
-                    }
 
-                    if let Some(sv) = chunk.statistics().get(Stat::Max) {
-                        let (value, truncated) = upper_bound::<BinaryScalar>(
-                            chunk.dtype(),
-                            sv.into_inner(),
-                            options.max_variable_length_statistics_size,
-                        )?;
-                        if let Some(upper_bound) = value {
-                            if truncated {
-                                chunk
-                                    .statistics()
-                                    .set(Stat::Max, Precision::Inexact(upper_bound));
-                            }
-                        } else {
-                            chunk.statistics().clear(Stat::Max)
+                if let Some(sv) = chunk.statistics().get(Stat::Max) {
+                    let (value, truncated) = upper_bound::<Utf8Scalar>(
+                        sv.into_inner(),
+                        options.max_variable_length_statistics_size,
+                    )?;
+                    if let Some(upper_bound) = value {
+                        if truncated {
+                            chunk
+                                .statistics()
+                                .set(Stat::Max, Precision::Inexact(upper_bound.into_value()));
                         }
+                    } else {
+                        chunk.statistics().clear(Stat::Max)
                     }
                 }
-                _ => {}
             }
+            DType::Binary(_) => {
+                if let Some(sv) = chunk.statistics().get(Stat::Min) {
+                    let (value, truncated) = lower_bound::<BinaryScalar>(
+                        sv.into_inner(),
+                        options.max_variable_length_statistics_size,
+                    )?;
+                    if truncated {
+                        chunk
+                            .statistics()
+                            .set(Stat::Min, Precision::Inexact(value.into_value()));
+                    }
+                }
 
-            // TODO(os): spawn serialization
-            let buffers = chunk.serialize(
-                &ctx,
-                &SerializeOptions {
-                    offset: 0,
-                    include_padding: options.include_padding,
-                },
-            )?;
-            let segment_id = sequence_writer.put(sequence_id, buffers).await?;
+                if let Some(sv) = chunk.statistics().get(Stat::Max) {
+                    let (value, truncated) = upper_bound::<BinaryScalar>(
+                        sv.into_inner(),
+                        options.max_variable_length_statistics_size,
+                    )?;
+                    if let Some(upper_bound) = value {
+                        if truncated {
+                            chunk
+                                .statistics()
+                                .set(Stat::Max, Precision::Inexact(upper_bound.into_value()));
+                        }
+                    } else {
+                        chunk.statistics().clear(Stat::Max)
+                    }
+                }
+            }
+            _ => {}
+        }
 
-            let None = stream.next().await else {
-                vortex_bail!("flat layout received stream with more than a single chunk");
-            };
-            Ok(FlatLayout::new(row_count, stream.dtype().clone(), segment_id).into_layout())
-        })
+        // TODO(os): spawn serialization
+        let buffers = chunk.serialize(
+            &ctx,
+            &SerializeOptions {
+                offset: 0,
+                include_padding: options.include_padding,
+            },
+        )?;
+        let segment_id = sequence_writer.put(sequence_id, buffers).await?;
+
+        let None = stream.next().await else {
+            vortex_bail!("flat layout received stream with more than a single chunk");
+        };
+        Ok(
+            FlatLayout::new(row_count, stream.dtype().clone(), segment_id, ctx.clone())
+                .into_layout(),
+        )
     }
 }
 
@@ -134,7 +140,7 @@ mod tests {
     use futures::stream;
     use vortex_array::arrays::{BoolArray, PrimitiveArray, StructArray};
     use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
-    use vortex_array::stats::{Precision, Stat};
+    use vortex_array::stats::{Precision, Stat, StatsProviderExt};
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
@@ -175,7 +181,7 @@ mod tests {
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let result = layout
-                .new_reader("".into(), segments, ctx)
+                .new_reader("".into(), segments)
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()
@@ -216,7 +222,7 @@ mod tests {
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let result = layout
-                .new_reader("".into(), segments, ctx)
+                .new_reader("".into(), segments)
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()
@@ -276,7 +282,7 @@ mod tests {
 
             // We should be able to read the array we just wrote.
             let result: ArrayRef = layout
-                .new_reader("".into(), segments, ctx)
+                .new_reader("".into(), segments)
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()
@@ -285,7 +291,7 @@ mod tests {
                 .unwrap();
 
             assert_eq!(
-                result.validity_mask().unwrap().boolean_buffer(),
+                result.validity_mask().boolean_buffer(),
                 AllOr::Some(&validity_boolean_buffer)
             );
             assert_eq!(

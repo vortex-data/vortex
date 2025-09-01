@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_array::arrays::{PrimitiveArray, TemporalArray};
 use vortex_array::compute::cast;
 use vortex_array::vtable::ValidityHelper;
@@ -88,8 +91,11 @@ mod tests {
             validity.clone(),
         )
         .into_array();
-        let temporal_array =
-            TemporalArray::new_timestamp(milliseconds, TimeUnit::Ms, Some("UTC".to_string()));
+        let temporal_array = TemporalArray::new_timestamp(
+            milliseconds,
+            TimeUnit::Milliseconds,
+            Some("UTC".to_string()),
+        );
         let TemporalParts {
             days,
             seconds,

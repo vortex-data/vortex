@@ -1,18 +1,6 @@
-/**
- * (c) Copyright 2025 SpiralDB Inc. All rights reserved.
- * <p>
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- * <p>
- * http://www.apache.org/licenses/LICENSE-2.0
- * <p>
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 package dev.vortex.spark.read;
 
 import dev.vortex.api.Array;
@@ -25,17 +13,39 @@ import org.apache.spark.sql.vectorized.ColumnarBatch;
 public final class VortexColumnarBatch extends ColumnarBatch {
     private Array backingArray;
 
+    /**
+     * Creates a new VortexColumnarBatch with the specified backing array and column vectors.
+     * <p>
+     * The backing array holds the native memory that contains the actual data,
+     * while the column vectors provide the Spark API for accessing that data.
+     *
+     * @param backingArray the Vortex Array that holds the native memory
+     * @param columns the array of ColumnVector objects for data access
+     * @param numRows the number of rows in this batch
+     */
     public VortexColumnarBatch(Array backingArray, ColumnVector[] columns, int numRows) {
         super(columns, numRows);
         this.backingArray = backingArray;
     }
 
+    /**
+     * Closes this columnar batch and releases all associated resources.
+     * <p>
+     * This method frees the native memory held by the backing Vortex array
+     * and then delegates to the parent class to close the column vectors.
+     */
     @Override
     public void close() {
         freeNativeMemory();
         super.close();
     }
 
+    /**
+     * Closes this columnar batch if it is freeable and releases all associated resources.
+     * <p>
+     * This method frees the native memory held by the backing Vortex array
+     * and then delegates to the parent class to close the column vectors if freeable.
+     */
     @Override
     public void closeIfFreeable() {
         freeNativeMemory();

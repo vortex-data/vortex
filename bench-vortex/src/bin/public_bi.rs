@@ -1,4 +1,10 @@
-use std::time::{Duration, Instant};
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use std::fs::File;
+use std::io::{Write, stdout};
+use std::path::PathBuf;
+use std::time::Instant;
 
 use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table};
 use bench_vortex::measurements::QueryMeasurement;
@@ -6,12 +12,11 @@ use bench_vortex::metrics::MetricsSetExt;
 use bench_vortex::public_bi::{FileType, PBI_DATASETS, PBIDataset};
 use bench_vortex::utils::constants::STORAGE_NVME;
 use bench_vortex::utils::new_tokio_runtime;
-use bench_vortex::{Format, Target, default_env_filter, df};
+use bench_vortex::{BenchmarkDataset, Format, Target, df, setup_logging_and_tracing};
 use clap::{Parser, value_parser};
 use indicatif::ProgressBar;
 use itertools::Itertools;
-use tracing::info_span;
-use tracing_futures::Instrument;
+use tracing::{Instrument, info_span};
 use vortex::error::{VortexExpect, vortex_panic};
 use vortex_datafusion::metrics::VortexMetricsFinder;
 
@@ -44,43 +49,16 @@ struct Args {
     dataset: PBIDataset,
     #[arg(short, long, value_delimiter = ',')]
     queries: Option<Vec<usize>>,
+    #[arg(short)]
+    output_path: Option<PathBuf>,
+    #[arg(long)]
+    tracing: bool,
 }
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    // Capture `RUST_LOG` configuration
-    let filter = default_env_filter(args.verbose);
-
-    #[cfg(not(feature = "tracing"))]
-    bench_vortex::setup_logger(filter);
-
-    // We need the guard to live to the end of the function, so can't create it in the if-block
-    #[cfg(feature = "tracing")]
-    let _trace_guard = {
-        use std::io::IsTerminal;
-
-        use tracing_subscriber::prelude::*;
-
-        let (layer, _guard) = tracing_chrome::ChromeLayerBuilder::new()
-            .include_args(true)
-            .trace_style(tracing_chrome::TraceStyle::Async)
-            .file("public_bi.trace.json")
-            .build();
-
-        let fmt_layer = tracing_subscriber::fmt::layer()
-            .with_writer(std::io::stderr)
-            .with_level(true)
-            .with_line_number(true)
-            .with_ansi(std::io::stderr().is_terminal());
-
-        tracing_subscriber::registry()
-            .with(filter)
-            .with(layer)
-            .with(fmt_layer)
-            .init();
-        _guard
-    };
+    setup_logging_and_tracing(args.verbose, args.tracing)?;
 
     let runtime = new_tokio_runtime(args.threads);
 
@@ -117,7 +95,7 @@ fn main() -> anyhow::Result<()> {
         runtime.block_on(dataset.register_tables(&session, file_type))?;
 
         for (query_idx, query) in queries.clone().into_iter() {
-            let mut fastest_run = Duration::from_millis(u64::MAX);
+            let mut runs = Vec::with_capacity(args.iterations);
             let mut last_plan = None;
             for iteration in 0..args.iterations {
                 let exec_duration = runtime.block_on(async {
@@ -135,12 +113,13 @@ fn main() -> anyhow::Result<()> {
                                 .1,
                         )
                     })
+                    .in_current_span()
                     .await
                     .vortex_expect("Failed to spawn query");
 
                     start.elapsed()
                 });
-                fastest_run = fastest_run.min(exec_duration);
+                runs.push(exec_duration);
             }
 
             let plan = last_plan.vortex_expect("must have at least one iteration");
@@ -154,14 +133,23 @@ fn main() -> anyhow::Result<()> {
             all_measurements.push(QueryMeasurement {
                 query_idx,
                 target: *target,
+                benchmark_dataset: BenchmarkDataset::PublicBi {
+                    name: pbi_dataset.name.clone(),
+                },
                 storage: STORAGE_NVME.to_owned(),
-                fastest_run,
-                dataset: pbi_dataset.name.to_owned(),
+                runs,
             });
 
             progress_bar.inc(1);
         }
     }
+
+    let mut writer: Box<dyn Write> = if let Some(output_path) = args.output_path {
+        Box::new(File::create(output_path)?)
+    } else {
+        let stdout = stdout();
+        Box::new(stdout.lock())
+    };
 
     match args.display_format {
         DisplayFormat::Table => {
@@ -181,8 +169,8 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
             }
-            render_table(all_measurements, &args.targets)
+            render_table(&mut writer, all_measurements, &args.targets)
         }
-        DisplayFormat::GhJson => print_measurements_json(all_measurements),
+        DisplayFormat::GhJson => print_measurements_json(&mut writer, all_measurements),
     }
 }

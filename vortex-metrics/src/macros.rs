@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 /// A macro for optionally instrumenting a future, if tracing feature is enabled.
 #[macro_export]
 macro_rules! instrument {
@@ -9,7 +12,7 @@ macro_rules! instrument {
             let task = $expr;
             #[cfg(feature = "tracing")]
             {
-                use tracing_futures::Instrument;
+                use tracing::Instrument;
                 task.instrument(tracing::info_span!(
                     $span_name,
                     $($key = $value,)*

@@ -1,6 +1,9 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex::error::VortexResult;
 
-mod exprs;
+pub(crate) mod exprs;
 mod scalars;
 
 /// First-party trait for implementing conversion from DataFusion types to Vortex types.

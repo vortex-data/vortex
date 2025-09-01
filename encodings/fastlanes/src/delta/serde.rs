@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{SerdeVTable, ValidityHelper, VisitorVTable};
@@ -6,7 +9,7 @@ use vortex_array::{
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType, match_each_unsigned_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
 use super::DeltaEncoding;
 use crate::{DeltaArray, DeltaVTable};
@@ -56,7 +59,7 @@ impl SerdeVTable<DeltaVTable> for DeltaVTable {
 
         // Compute the length of the bases array
         let deltas_len = usize::try_from(metadata.deltas_len)
-            .vortex_expect("DeltaArray: deltas_len must be a valid usize");
+            .map_err(|_| vortex_err!("deltas_len {} overflowed usize", metadata.deltas_len))?;
         let num_chunks = deltas_len / 1024;
         let remainder_base_size = if deltas_len % 1024 > 0 { 1 } else { 0 };
         let bases_len = num_chunks * lanes + remainder_base_size;

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 mod cast;
 mod compare;
 mod filter;
@@ -125,7 +128,9 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     )
                     .into_array();
 
-                    let compressed = BtrBlocksCompressor.compress(&indices_array).vortex_unwrap();
+                    let compressed = BtrBlocksCompressor::default()
+                        .compress(&indices_array)
+                        .vortex_unwrap();
                     (
                         Action::Take(compressed),
                         ExpectedValue::Array(current_array.to_array()),
@@ -137,9 +142,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     }
 
                     let scalar = if u.arbitrary()? {
-                        current_array
-                            .scalar_at(u.choose_index(current_array.len())?)
-                            .vortex_unwrap()
+                        current_array.scalar_at(u.choose_index(current_array.len())?)
                     } else {
                         random_scalar(u, current_array.dtype())?
                     };
@@ -174,9 +177,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                 }
                 5 => {
                     let scalar = if u.arbitrary()? {
-                        current_array
-                            .scalar_at(u.choose_index(current_array.len())?)
-                            .vortex_unwrap()
+                        current_array.scalar_at(u.choose_index(current_array.len())?)
                     } else {
                         // We can compare arrays with different nullability
                         let null: Nullability = u.arbitrary()?;

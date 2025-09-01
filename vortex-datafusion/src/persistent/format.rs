@@ -1,37 +1,42 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::any::Any;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
+use arrow_schema::{Schema, SchemaRef};
 use async_trait::async_trait;
-use datafusion::arrow::datatypes::{Schema, SchemaRef};
-use datafusion::catalog::Session;
-use datafusion::common::parsers::CompressionTypeVariant;
-use datafusion::common::stats::Precision;
-use datafusion::common::{
+use datafusion_catalog::Session;
+use datafusion_common::parsers::CompressionTypeVariant;
+use datafusion_common::stats::Precision;
+use datafusion_common::{
     ColumnStatistics, DataFusionError, GetExt, Result as DFResult, Statistics,
     config_datafusion_err, not_impl_err,
 };
-use datafusion::datasource::file_format::file_compression_type::FileCompressionType;
-use datafusion::datasource::file_format::{FileFormat, FileFormatFactory};
-use datafusion::datasource::physical_plan::{
-    FileScanConfig, FileScanConfigBuilder, FileSinkConfig, FileSource,
-};
-use datafusion::datasource::sink::DataSinkExec;
-use datafusion::datasource::source::DataSourceExec;
-use datafusion::logical_expr::dml::InsertOp;
-use datafusion::physical_expr::LexRequirement;
-use datafusion::physical_plan::ExecutionPlan;
+use datafusion_common_runtime::SpawnedTask;
+use datafusion_datasource::file::FileSource;
+use datafusion_datasource::file_compression_type::FileCompressionType;
+use datafusion_datasource::file_format::{FileFormat, FileFormatFactory};
+use datafusion_datasource::file_scan_config::{FileScanConfig, FileScanConfigBuilder};
+use datafusion_datasource::file_sink_config::FileSinkConfig;
+use datafusion_datasource::sink::DataSinkExec;
+use datafusion_datasource::source::DataSourceExec;
+use datafusion_expr::dml::InsertOp;
+use datafusion_physical_expr::LexRequirement;
+use datafusion_physical_plan::ExecutionPlan;
 use futures::{FutureExt, StreamExt as _, TryStreamExt as _, stream};
 use itertools::Itertools;
 use object_store::{ObjectMeta, ObjectStore};
-use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
+use vortex::dtype::{DType, Nullability, PType};
 use vortex::error::{VortexExpect, VortexResult, vortex_err};
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::metrics::VortexMetrics;
+use vortex::scalar::Scalar;
 use vortex::session::VortexSession;
 use vortex::stats;
-use vortex::stats::{Stat, StatsProviderExt, StatsSet};
+use vortex::stats::{Stat, StatsSet};
 
 use super::cache::VortexFileCache;
 use super::sink::VortexSink;
@@ -142,6 +147,10 @@ impl FileFormat for VortexFormat {
         self
     }
 
+    fn compression_type(&self) -> Option<FileCompressionType> {
+        None
+    }
+
     fn get_ext(&self) -> String {
         VORTEX_FILE_EXTENSION.to_string()
     }
@@ -168,7 +177,7 @@ impl FileFormat for VortexFormat {
             .map(|o| {
                 let store = store.clone();
                 let cache = self.file_cache.clone();
-                tokio::task::spawn(async move {
+                SpawnedTask::spawn(async move {
                     let vxf = cache.try_get(&o, store).await?;
                     let inferred_schema = vxf.dtype().to_arrow_schema()?;
                     VortexResult::Ok((o.location, inferred_schema))
@@ -187,8 +196,7 @@ impl FileFormat for VortexFormat {
         Ok(Arc::new(Schema::try_merge(file_schemas)?))
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip_all, fields(location = object.location.as_ref()
-    )))]
+    #[tracing::instrument(skip_all, fields(location = object.location.as_ref()))]
     async fn infer_stats(
         &self,
         _state: &dyn Session,
@@ -199,7 +207,8 @@ impl FileFormat for VortexFormat {
         let object = object.clone();
         let store = store.clone();
         let cache = self.file_cache.clone();
-        tokio::task::spawn(async move {
+
+        SpawnedTask::spawn(async move {
             let vxf = cache.try_get(&object, store.clone()).await.map_err(|e| {
                 DataFusionError::Execution(format!(
                     "Failed to open Vortex file {}: {e}",
@@ -209,7 +218,7 @@ impl FileFormat for VortexFormat {
 
             let struct_dtype = vxf
                 .dtype()
-                .as_struct()
+                .as_struct_fields_opt()
                 .vortex_expect("dtype is not a struct");
 
             // Evaluate the statistics for each column that we are able to return to DataFusion.
@@ -240,7 +249,7 @@ impl FileFormat for VortexFormat {
                 .iter()
                 .map(|stats_set| {
                     stats_set
-                        .get_as::<usize>(Stat::UncompressedSizeInBytes)
+                        .get_as::<usize>(Stat::UncompressedSizeInBytes, &PType::U64.into())
                         .unwrap_or_else(|| stats::Precision::inexact(0_usize))
                 })
                 .fold(stats::Precision::exact(0_usize), |acc, stats_set| {
@@ -254,14 +263,34 @@ impl FileFormat for VortexFormat {
                 .into_iter()
                 .zip(table_schema.fields().iter())
                 .map(|(stats_set, field)| {
-                    let null_count = stats_set.get_as::<usize>(Stat::NullCount);
-                    let min = stats_set
-                        .get_scalar(Stat::Min, &DType::from_arrow(field.as_ref()))
-                        .and_then(|n| n.map(|n| n.try_to_df().ok()).transpose());
+                    let null_count = stats_set.get_as::<usize>(Stat::NullCount, &PType::U64.into());
+                    let min = stats_set.get(Stat::Min).and_then(|n| {
+                        n.map(|n| {
+                            Scalar::new(
+                                Stat::Min
+                                    .dtype(&DType::from_arrow(field.as_ref()))
+                                    .vortex_expect("must have a valid dtype"),
+                                n,
+                            )
+                            .try_to_df()
+                            .ok()
+                        })
+                        .transpose()
+                    });
 
-                    let max = stats_set
-                        .get_scalar(Stat::Max, &DType::from_arrow(field.as_ref()))
-                        .and_then(|n| n.map(|n| n.try_to_df().ok()).transpose());
+                    let max = stats_set.get(Stat::Max).and_then(|n| {
+                        n.map(|n| {
+                            Scalar::new(
+                                Stat::Max
+                                    .dtype(&DType::from_arrow(field.as_ref()))
+                                    .vortex_expect("must have a valid dtype"),
+                                n,
+                            )
+                            .try_to_df()
+                            .ok()
+                        })
+                        .transpose()
+                    });
 
                     ColumnStatistics {
                         null_count: null_count.to_df(),
@@ -269,7 +298,10 @@ impl FileFormat for VortexFormat {
                         min_value: min.to_df(),
                         sum_value: Precision::Absent,
                         distinct_count: stats_set
-                            .get_as::<bool>(Stat::IsConstant)
+                            .get_as::<bool>(
+                                Stat::IsConstant,
+                                &DType::Bool(Nullability::NonNullable),
+                            )
                             .and_then(|is_constant| {
                                 is_constant.as_exact().map(|_| Precision::Exact(1))
                             })
@@ -297,15 +329,6 @@ impl FileFormat for VortexFormat {
         _state: &dyn Session,
         file_scan_config: FileScanConfig,
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
-        if file_scan_config
-            .file_groups
-            .iter()
-            .flat_map(|fg| fg.files())
-            .any(|f| f.range.is_some())
-        {
-            return not_impl_err!("File level partitioning isn't implemented yet for Vortex");
-        }
-
         if !file_scan_config.table_partition_cols.is_empty() {
             return not_impl_err!("Hive style partitioning isn't implemented yet for Vortex");
         }
@@ -315,9 +338,11 @@ impl FileFormat for VortexFormat {
         }
 
         let source = VortexSource::new(self.file_cache.clone(), self.session.metrics().clone());
+        let source = Arc::new(source);
+
         Ok(DataSourceExec::from_data_source(
             FileScanConfigBuilder::from(file_scan_config)
-                .with_source(Arc::new(source))
+                .with_source(source)
                 .build(),
         ))
     }

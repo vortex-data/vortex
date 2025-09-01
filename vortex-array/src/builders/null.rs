@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::any::Any;
 
 use vortex_dtype::DType;
@@ -8,6 +11,7 @@ use crate::arrays::NullArray;
 use crate::builders::ArrayBuilder;
 use crate::{Array, ArrayRef, IntoArray};
 
+/// The builder for building a [`NullArray`].
 pub struct NullBuilder {
     length: usize,
 }

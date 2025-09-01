@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_array::arrays::{VarBinArray, VarBinViewArray, VarBinViewVTable};
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
@@ -11,7 +14,7 @@ use crate::integer::IntCompressor;
 use crate::sample::sample;
 use crate::{
     Compressor, CompressorStats, GenerateStatsOptions, Scheme,
-    estimate_compression_ratio_with_sampling,
+    estimate_compression_ratio_with_sampling, integer,
 };
 
 #[derive(Clone, Debug)]
@@ -59,7 +62,6 @@ impl CompressorStats for StringStats {
         Self {
             src: input.clone(),
             value_count: value_count.try_into().vortex_expect("value_count"),
-            // null_count: null_count.try_into().vortex_expect("null_count"),
             estimated_distinct_count: estimated_distinct,
         }
     }
@@ -199,7 +201,7 @@ impl Scheme for DictScheme {
             &dict.codes().to_primitive()?,
             is_sample,
             allowed_cascading - 1,
-            &[crate::integer::DictScheme.code()],
+            &[integer::DictScheme.code(), integer::SequenceScheme.code()],
         )?;
 
         // Attempt to compress the values with non-Dict compression.
@@ -211,7 +213,8 @@ impl Scheme for DictScheme {
             &[DictScheme.code()],
         )?;
 
-        Ok(DictArray::try_new(compressed_codes, compressed_values)?.into_array())
+        // SAFETY: compressing codes or values does not alter the invariants
+        unsafe { Ok(DictArray::new_unchecked(compressed_codes, compressed_values).into_array()) }
     }
 }
 
@@ -234,15 +237,14 @@ impl Scheme for FSSTScheme {
         let fsst = fsst_compress(&stats.src.clone().into_array(), &compressor)?;
 
         let compressed_original_lengths = IntCompressor::compress(
-            &fsst.uncompressed_lengths().to_primitive()?,
+            &fsst.uncompressed_lengths().to_primitive()?.downcast()?,
             is_sample,
             allowed_cascading,
             &[],
         )?;
 
-        // We compress the var bin offsets of the FSST codes array.
         let compressed_codes_offsets = IntCompressor::compress(
-            &fsst.codes().offsets().to_primitive()?,
+            &fsst.codes().offsets().to_primitive()?.downcast()?,
             is_sample,
             allowed_cascading,
             &[],
@@ -285,10 +287,10 @@ mod tests {
         }
         let strings = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
 
-        println!("original array: {}", strings.as_ref().tree_display());
+        println!("original array: {}", strings.as_ref().display_tree());
 
         let compressed = StringCompressor::compress(&strings, false, 3, &[]).unwrap();
 
-        println!("compression tree: {}", compressed.tree_display());
+        println!("compression tree: {}", compressed.display_tree());
     }
 }

@@ -1,11 +1,17 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use async_trait::async_trait;
-use vortex::arrays::{ChunkedArray, ChunkedVTable};
-use vortex::dtype::FieldName;
-use vortex::{ArrayRef, IntoArray, ToCanonical};
+use glob::glob;
+use vortex::arrays::ChunkedArray;
+use vortex::dtype::Nullability::NonNullable;
+use vortex::expr::{col, pack};
+use vortex::file::VortexOpenOptions;
+use vortex::{Array, ArrayRef, IntoArray, ToCanonical};
 
 use crate::datasets::Dataset;
-use crate::tpch::duckdb::{DuckdbTpcOptions, TpcDataset, generate_tpc};
-use crate::{Format, IdempotentPath, tpch};
+use crate::tpch::tpchgen::{TpchGenOptions, generate_tpch_tables};
+use crate::{Format, IdempotentPath};
 
 pub struct TPCHLCommentChunked;
 
@@ -16,21 +22,45 @@ impl Dataset for TPCHLCommentChunked {
     }
 
     async fn to_vortex_array(&self) -> ArrayRef {
-        let opts = DuckdbTpcOptions::new("tpch".to_data_path(), TpcDataset::TpcH, Format::Csv);
-        let data_dir = generate_tpc(opts).expect("gen tpch");
+        let base_path = "tpch".to_data_path();
+        let scale_factor_dir = base_path.join("1.0");
+        let data_dir = scale_factor_dir.join(Format::OnDiskVortex.name());
 
-        let lineitem_vortex = tpch::load_table(data_dir, "lineitem", &tpch::schema::LINEITEM).await;
+        // Generate TPC-H CSV data if it doesn't exist
+        if !data_dir.exists() {
+            // Use blocking call like TPC-H benchmark does
+            let options = TpchGenOptions::new("1.0".to_string(), scale_factor_dir)
+                .with_format(Format::OnDiskVortex);
 
-        let lineitem_chunked = lineitem_vortex.as_::<ChunkedVTable>();
-        let comment_chunks = lineitem_chunked.chunks().iter().map(|chunk| {
-            chunk
-                .to_struct()
-                .unwrap()
-                .project(&[FieldName::from("l_comment")])
-                .unwrap()
-                .into_array()
-        });
-        ChunkedArray::from_iter(comment_chunks).into_array()
+            futures::executor::block_on(generate_tpch_tables(options))
+                .expect("Failed to generate TPC-H data");
+        }
+
+        let mut chunks: Vec<ArrayRef> = vec![];
+        for path in glob(
+            data_dir
+                .join("lineitem_*.vortex")
+                .to_string_lossy()
+                .as_ref(),
+        )
+        .unwrap()
+        {
+            let file = VortexOpenOptions::file()
+                .open(path.unwrap())
+                .await
+                .expect("cannot open lineitem.vortex");
+
+            chunks.extend(
+                file.scan()
+                    .expect("cannot scan lineitem.vortex")
+                    .with_projection(pack(vec![("l_comment", col("l_comment"))], NonNullable))
+                    .into_array_iter()
+                    .unwrap()
+                    .map(|a| a.unwrap().to_canonical().unwrap().into_array()),
+            )
+        }
+
+        ChunkedArray::from_iter(chunks).into_array()
     }
 }
 

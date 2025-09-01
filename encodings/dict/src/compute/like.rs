@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{LikeKernel, LikeKernelAdapter, LikeOptions, like};
 use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
@@ -19,9 +22,14 @@ impl LikeKernel for DictVTable {
         if let Some(pattern) = pattern.as_constant() {
             let pattern = ConstantArray::new(pattern, array.values().len()).into_array();
             let values = like(array.values(), &pattern, options)?;
-            Ok(Some(
-                DictArray::try_new(array.codes().clone(), values)?.into_array(),
-            ))
+
+            // SAFETY: LIKE preserves the len of the values, so codes are still pointing at
+            //  valid positions.
+            unsafe {
+                Ok(Some(
+                    DictArray::new_unchecked(array.codes().clone(), values).into_array(),
+                ))
+            }
         } else {
             Ok(None)
         }

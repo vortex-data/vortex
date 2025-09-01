@@ -1,8 +1,11 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use datafusion::common::ScalarValue;
+use datafusion_common::ScalarValue;
 use moka::future::Cache;
 use object_store::path::Path;
 use object_store::{ObjectMeta, ObjectStore};

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::fmt::Debug;
 use std::ops::Deref;
 
@@ -34,7 +37,7 @@ pub fn compare_canonical_array(
                     .to_bool()?
                     .boolean_buffer()
                     .iter()
-                    .zip(array.validity_mask()?.to_boolean_buffer().iter())
+                    .zip(array.validity_mask().to_boolean_buffer().iter())
                     .map(|(b, v)| v.then_some(b)),
                 bool,
                 operator,
@@ -52,7 +55,7 @@ pub fn compare_canonical_array(
                         .as_slice::<P>()
                         .iter()
                         .copied()
-                        .zip(array.validity_mask()?.to_boolean_buffer().iter())
+                        .zip(array.validity_mask().to_boolean_buffer().iter())
                         .map(|(b, v)| v.then_some(b)),
                     pval,
                     operator,
@@ -73,7 +76,7 @@ pub fn compare_canonical_array(
                     buf.as_slice()
                         .iter()
                         .copied()
-                        .zip(array.validity_mask()?.to_boolean_buffer().iter())
+                        .zip(array.validity_mask().to_boolean_buffer().iter())
                         .map(|(b, v)| v.then_some(b)),
                     dval,
                     operator,
@@ -105,9 +108,7 @@ pub fn compare_canonical_array(
             )
         }),
         DType::Struct(..) | DType::List(..) => {
-            let scalar_vals = (0..array.len())
-                .map(|i| array.scalar_at(i))
-                .collect::<VortexResult<Vec<_>>>()?;
+            let scalar_vals: Vec<Scalar> = (0..array.len()).map(|i| array.scalar_at(i)).collect();
             Ok(BoolArray::from_iter(
                 scalar_vals
                     .iter()
@@ -115,6 +116,7 @@ pub fn compare_canonical_array(
             )
             .into_array())
         }
+        DType::FixedSizeList(..) => unimplemented!("TODO(connor)[FixedSizeList]"),
         d @ (DType::Null | DType::Extension(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }

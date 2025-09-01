@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! Macros for defining FFI wrapper types.
 //!
 //! These macros make it easy to wrap Rust types in a way that can be used in C FFI contexts.
@@ -124,7 +127,7 @@ macro_rules! arc_wrapper {
                 }
 
                 /// Extract a borrowed reference from a const pointer.
-                pub(crate) fn as_ref<'a>(ptr: *const $ffi_ident) -> &'a $T {
+                pub(crate) fn as_ref(ptr: *const $ffi_ident) -> &'static $T {
                     use vortex::error::VortexExpect;
                     &unsafe { ptr.as_ref() }
                         .vortex_expect("null pointer")

@@ -14,7 +14,6 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [dependencies]
-arcref = { workspace = true }
 num-traits = { workspace = true }
 prost = { workspace = true }
 vortex-array = { workspace = true }
@@ -26,6 +25,7 @@ vortex-proto = { workspace = true }
 vortex-scalar = { workspace = true }
 
 [dev-dependencies]
+rstest = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 vortex-array = { path = "../../vortex-array", features = ["test-harness"] }
 vortex-expr = { path = "../../vortex-expr" }

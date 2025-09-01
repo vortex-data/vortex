@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! Selectors for fields or elements in (possibly nested) `DType`s
 //!
 //! A `Field` indexes a single layer of `DType`, for example: a name in a struct or the element of a
@@ -11,15 +14,16 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_utils::aliases::hash_set::HashSet;
 
-use crate::DType;
+use crate::{DType, FieldName};
 
 /// Selects a nested type within either a struct or a list.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Field {
     /// Address a field of a [`crate::DType::Struct`].
-    Name(Arc<str>),
-    /// Address the element type of a [`crate::DType::List`].
+    Name(FieldName),
+    // TODO(connor): Actually make use of this variant after `FixedSizeList` is implemented.
+    /// Address the element type of a [`crate::DType::List`] or [`crate::DType::FixedSizeList`].
     ElementType,
 }
 
@@ -90,7 +94,7 @@ impl FieldPath {
     }
 
     /// Returns the sequence of field selectors that make up this path
-    pub fn path(&self) -> &[Field] {
+    pub fn parts(&self) -> &[Field] {
         &self.0
     }
 
@@ -174,7 +178,7 @@ impl FieldPath {
     }
 
     /// Does the field referenced by the field path exist in the given dtype?
-    pub fn exists(&self, dtype: DType) -> bool {
+    pub fn exists_in(&self, dtype: DType) -> bool {
         // Indexing a struct type always allocates anyway.
         self.resolve(dtype).is_some()
     }
@@ -241,7 +245,7 @@ mod tests {
             .into_iter()
             .map(Field::from)
             .collect_vec();
-        assert_eq!(path.path(), &fields);
+        assert_eq!(path.parts(), &fields);
 
         let vec_path = FieldPath::from(fields);
         assert_eq!(vec_path.to_string(), "$A.$B.$C");
@@ -257,7 +261,7 @@ mod tests {
         );
         let path = FieldPath::from_name("a");
         assert_eq!(a_type, path.resolve(dtype.clone()).unwrap());
-        assert!(path.exists(dtype));
+        assert!(path.exists_in(dtype));
     }
 
     #[test]
@@ -279,7 +283,7 @@ mod tests {
         let dtype = path.resolve(outer.clone()).unwrap();
 
         assert_eq!(dtype, DType::Primitive(PType::U8, NonNullable));
-        assert!(path.exists(outer));
+        assert!(path.exists_in(outer));
     }
 
     #[test]
@@ -311,28 +315,28 @@ mod tests {
         let dtype = path.resolve(level1.clone()).unwrap();
 
         assert_eq!(dtype, DType::Primitive(PType::F64, Nullable));
-        assert!(path.exists(level1.clone()));
+        assert!(path.exists_in(level1.clone()));
 
         let path = FieldPath::from_name("a")
             .push("b")
             .push("c")
             .push(Field::ElementType);
         assert!(path.resolve(level1.clone()).is_none());
-        assert!(!path.exists(level1.clone()));
+        assert!(!path.exists_in(level1.clone()));
 
         let path = FieldPath::from_name("a")
             .push(Field::ElementType)
             .push("b")
             .push("c");
         assert!(path.resolve(level1.clone()).is_none());
-        assert!(!path.exists(level1.clone()));
+        assert!(!path.exists_in(level1.clone()));
 
         let path = FieldPath::from_name(Field::ElementType)
             .push("a")
             .push("b")
             .push("c");
         assert!(path.resolve(level1.clone()).is_none());
-        assert!(!path.exists(level1));
+        assert!(!path.exists_in(level1));
     }
 
     #[test]
@@ -340,11 +344,11 @@ mod tests {
         let dtype = DType::struct_([("a", DType::Bool(NonNullable))], NonNullable);
         let path = FieldPath::from_name("b");
         assert!(path.resolve(dtype.clone()).is_none());
-        assert!(!path.exists(dtype.clone()));
+        assert!(!path.exists_in(dtype.clone()));
 
         let path = FieldPath::from(Field::ElementType);
         assert!(path.resolve(dtype.clone()).is_none());
-        assert!(!path.exists(dtype));
+        assert!(!path.exists_in(dtype));
     }
 
     #[test]
@@ -355,10 +359,10 @@ mod tests {
         );
         let path = FieldPath::from_name("a").push("b");
         assert!(path.resolve(dtype.clone()).is_none());
-        assert!(!path.exists(dtype.clone()));
+        assert!(!path.exists_in(dtype.clone()));
 
         let path = FieldPath::from_name("a").push(Field::ElementType);
         assert!(path.resolve(dtype.clone()).is_none());
-        assert!(!path.exists(dtype));
+        assert!(!path.exists_in(dtype));
     }
 }

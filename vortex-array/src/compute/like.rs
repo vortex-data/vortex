@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::any::Any;
 use std::sync::LazyLock;
 
@@ -9,6 +12,14 @@ use crate::arrow::{Datum, from_arrow_array_with_len};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef};
+
+static LIKE_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("like".into(), ArcRef::new_ref(&Like));
+    for kernel in inventory::iter::<LikeKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
 
 /// Perform SQL left LIKE right
 ///
@@ -58,14 +69,6 @@ impl<V: VTable + LikeKernel> Kernel for LikeKernelAdapter<V> {
         Ok(V::like(&self.0, array, inputs.pattern, inputs.options)?.map(|array| array.into()))
     }
 }
-
-pub static LIKE_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("like".into(), ArcRef::new_ref(&Like));
-    for kernel in inventory::iter::<LikeKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
 
 struct Like;
 
@@ -195,5 +198,5 @@ pub(crate) fn arrow_like(
         (true, true) => arrow_string::like::nilike(&lhs, &rhs)?,
     };
 
-    from_arrow_array_with_len(&result, len, nullable)
+    Ok(from_arrow_array_with_len(&result, len, nullable))
 }

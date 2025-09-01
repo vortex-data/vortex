@@ -1,4 +1,8 @@
-#![feature(error_generic_member_access)]
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+// VortexFuzzError is quite large, but we don't care about the performance impact for fuzzing.
+#![allow(clippy::result_large_err)]
 
 mod array;
 pub mod error;

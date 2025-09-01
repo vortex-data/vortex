@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 mod array;
 mod compute;
 mod decode;
@@ -22,6 +25,7 @@ impl VTable for ChunkedVTable {
     type VisitorVTable = Self;
     type ComputeVTable = Self;
     type EncodeVTable = NotSupported;
+    type PipelineVTable = NotSupported;
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {

@@ -1,5 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 #![no_main]
-#![allow(clippy::unwrap_used)]
+#![allow(clippy::unwrap_used, clippy::result_large_err)]
+
+use std::backtrace::Backtrace;
 
 use libfuzzer_sys::{Corpus, fuzz_target};
 use vortex_array::arrays::{
@@ -22,13 +27,13 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
     for (i, (action, expected)) in actions.into_iter().enumerate() {
         match action {
             Action::Compress => {
-                current_array = BtrBlocksCompressor
+                current_array = BtrBlocksCompressor::default()
                     .compress(current_array.to_canonical().vortex_unwrap().as_ref())
                     .vortex_unwrap();
                 assert_array_eq(&expected.array(), &current_array, i).unwrap();
             }
             Action::Slice(range) => {
-                current_array = current_array.slice(range.start, range.end).vortex_unwrap();
+                current_array = current_array.slice(range);
                 assert_array_eq(&expected.array(), &current_array, i).unwrap();
             }
             Action::Take(indices) => {
@@ -51,7 +56,9 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
                 ])
                 .contains(&current_array.encoding_id())
                 {
-                    sorted = BtrBlocksCompressor.compress(&sorted).vortex_unwrap();
+                    sorted = BtrBlocksCompressor::default()
+                        .compress(&sorted)
+                        .vortex_unwrap();
                 }
                 assert_search_sorted(sorted, s, side, expected.search(), i).unwrap()
             }
@@ -69,7 +76,7 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
                 if let Err(e) = assert_array_eq(&expected.array(), &compare_result, i) {
                     vortex_panic!(
                         "Failed to compare {}with {op} {v}\nError: {e}",
-                        current_array.tree_display()
+                        current_array.display_tree()
                     )
                 }
                 current_array = compare_result;
@@ -79,7 +86,7 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
                 if let Err(e) = assert_array_eq(&expected.array(), &cast_result, i) {
                     vortex_panic!(
                         "Failed to cast {} to dtype {to}\nError: {e}",
-                        current_array.tree_display()
+                        current_array.display_tree()
                     )
                 }
                 current_array = cast_result;
@@ -105,6 +112,7 @@ fn assert_search_sorted(
             side,
             search_result,
             step,
+            Backtrace::capture(),
         ))
     } else {
         Ok(())
@@ -120,20 +128,22 @@ fn assert_array_eq(lhs: &ArrayRef, rhs: &ArrayRef, step: usize) -> VortexFuzzRes
             lhs.to_array(),
             rhs.to_array(),
             step,
+            Backtrace::capture(),
         ));
     }
     for idx in 0..lhs.len() {
-        let l = lhs.scalar_at(idx).vortex_unwrap();
-        let r = rhs.scalar_at(idx).vortex_unwrap();
+        let l = lhs.scalar_at(idx);
+        let r = rhs.scalar_at(idx);
 
         if l != r {
             return Err(VortexFuzzError::ArrayNotEqual(
                 l,
                 r,
                 idx,
-                lhs.to_array(),
-                rhs.to_array(),
+                lhs.clone(),
+                rhs.clone(),
                 step,
+                Backtrace::capture(),
             ));
         }
     }

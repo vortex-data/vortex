@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::sync::Arc;
 
 use arrow_array::{
@@ -5,7 +8,7 @@ use arrow_array::{
 };
 use arrow_schema::DataType;
 use vortex_dtype::{DType, NativePType, Nullability, PType};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 
 use crate::arrays::{VarBinArray, VarBinVTable};
 use crate::arrow::compute::{ToArrowKernel, ToArrowKernelAdapter};
@@ -25,13 +28,23 @@ impl ToArrowKernel for VarBinVTable {
             None => match array.dtype() {
                 DType::Binary(_) => match offsets_ptype {
                     PType::I64 | PType::U64 => to_arrow::<i64>(array),
-                    _ => to_arrow::<i32>(array),
+                    PType::U8 | PType::U16 | PType::U32 | PType::I8 | PType::I16 | PType::I32 => {
+                        to_arrow::<i32>(array)
+                    }
+                    PType::F16 | PType::F32 | PType::F64 => {
+                        vortex_panic!("offsets array were somehow floating point")
+                    }
                 },
                 DType::Utf8(_) => match offsets_ptype {
                     PType::I64 | PType::U64 => to_arrow::<i64>(array),
-                    _ => to_arrow::<i32>(array),
+                    PType::U8 | PType::U16 | PType::U32 | PType::I8 | PType::I16 | PType::I32 => {
+                        to_arrow::<i32>(array)
+                    }
+                    PType::F16 | PType::F32 | PType::F64 => {
+                        vortex_panic!("offsets array were somehow floating point")
+                    }
                 },
-                _ => unreachable!("Unsupported DType"),
+                dtype => unreachable!("Unsupported DType {dtype}"),
             },
             // Emit the requested Arrow array.
             Some(DataType::Binary) if array.dtype().is_binary() => to_arrow::<i32>(array),
@@ -61,10 +74,10 @@ fn to_arrow<O: NativePType + OffsetSizeTrait>(array: &VarBinArray) -> VortexResu
     .to_primitive()
     .map_err(|err| err.with_context("Failed to canonicalize offsets"))?;
 
-    let nulls = array.validity_mask()?.to_null_buffer();
+    let nulls = array.validity_mask().to_null_buffer();
     let data = array.bytes().clone();
 
-    // Switch on DType.
+    // Match on the `DType`.
     Ok(match array.dtype() {
         DType::Binary(_) => Arc::new(unsafe {
             GenericBinaryArray::new_unchecked(
@@ -80,6 +93,8 @@ fn to_arrow<O: NativePType + OffsetSizeTrait>(array: &VarBinArray) -> VortexResu
                 nulls,
             )
         }),
-        _ => unreachable!("expected utf8 or binary instead of {}", array.dtype()),
+        dtype => {
+            unreachable!("expected utf8 or binary instead of {dtype}")
+        }
     })
 }

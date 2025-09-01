@@ -1,5 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use std::sync::Arc;
+
 use arrow_buffer::BooleanBuffer;
-use vortex_buffer::{Buffer, BufferMut, buffer};
+use vortex_buffer::{Buffer, buffer};
 use vortex_dtype::{DType, Nullability, PType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::{
@@ -67,7 +72,7 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
                 };
 
                 let decimal_array = match_each_decimal_value!(value, |value| {
-                    DecimalArray::new(Buffer::full(*value, array.len()), *decimal_type, validity)
+                    DecimalArray::new(Buffer::full(value, array.len()), *decimal_type, validity)
                 });
                 Canonical::Decimal(decimal_array)
             }
@@ -97,7 +102,7 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
                         .map(|s| ConstantArray::new(s, array.len()).into_array())
                         .collect(),
                     None => {
-                        assert!(validity.all_invalid()?);
+                        assert!(validity.all_invalid());
                         struct_dtype
                             .fields()
                             .map(|dt| {
@@ -123,6 +128,9 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
                     array.len(),
                 )?)
             }
+            DType::FixedSizeList(..) => {
+                unimplemented!("TODO(connor)[FixedSizeList]")
+            }
             DType::Extension(ext_dtype) => {
                 let s = ExtScalar::try_from(scalar)?;
 
@@ -143,7 +151,15 @@ fn canonical_byte_view(
         None => {
             let views = buffer![BinaryView::from(0_u128); len];
 
-            VarBinViewArray::try_new(views, Vec::new(), dtype.clone(), Validity::AllInvalid)
+            // SAFETY: for all-null the views and buffers are just zeroed, never accessed.
+            unsafe {
+                Ok(VarBinViewArray::new_unchecked(
+                    views,
+                    Default::default(),
+                    dtype.clone(),
+                    Validity::AllInvalid,
+                ))
+            }
         }
         Some(scalar_bytes) => {
             // Create a view to hold the scalar bytes.
@@ -155,19 +171,17 @@ fn canonical_byte_view(
             }
 
             // Clone our constant view `len` times.
-            // TODO(aduffy): switch this out for a ConstantArray once we
-            //   add u128 PType, see https://github.com/vortex-data/vortex/issues/1110
-            let mut views = BufferMut::with_capacity_aligned(len, align_of::<u128>().into());
-            for _ in 0..len {
-                views.push(view);
-            }
+            let views = buffer![view; len];
 
-            VarBinViewArray::try_new(
-                views.freeze(),
-                buffers,
-                dtype.clone(),
-                Validity::from(dtype.nullability()),
-            )
+            // SAFETY: all the views are identical and point to a constant value.
+            unsafe {
+                Ok(VarBinViewArray::new_unchecked(
+                    views,
+                    Arc::from(buffers),
+                    dtype.clone(),
+                    Validity::from(dtype.nullability()),
+                ))
+            }
         }
     }
 }
@@ -201,10 +215,9 @@ fn canonical_list_array(
             let offsets = if vs.is_empty() {
                 Buffer::zeroed(len + 1)
             } else {
-                (0..=len * vs.len())
-                    .step_by(vs.len())
-                    .map(|i| i as u64)
-                    .collect::<Buffer<_>>()
+                Buffer::from_trusted_len_iter(
+                    (0..=len * vs.len()).step_by(vs.len()).map(|i| i as u64),
+                )
             };
 
             ListArray::try_new(
@@ -221,13 +234,14 @@ mod tests {
     use std::sync::Arc;
 
     use enum_iterator::all;
+    use itertools::Itertools;
     use vortex_dtype::half::f16;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::Scalar;
 
     use crate::arrays::ConstantArray;
     use crate::canonical::ToCanonical;
-    use crate::stats::{Stat, StatsProviderExt, StatsSet};
+    use crate::stats::{Stat, StatsProvider};
     use crate::{Array, IntoArray};
 
     #[test]
@@ -235,7 +249,7 @@ mod tests {
         let const_null = ConstantArray::new(Scalar::null(DType::Null), 42);
         let actual = const_null.to_null().unwrap();
         assert_eq!(actual.len(), 42);
-        assert_eq!(actual.scalar_at(33).unwrap(), Scalar::null(DType::Null));
+        assert_eq!(actual.scalar_at(33), Scalar::null(DType::Null));
     }
 
     #[test]
@@ -248,47 +262,46 @@ mod tests {
         assert_eq!(canonical.len(), 4);
 
         for i in 0..=3 {
-            assert_eq!(canonical.scalar_at(i).unwrap(), "four".into());
+            assert_eq!(canonical.scalar_at(i), "four".into());
         }
     }
 
     #[test]
     fn test_canonicalize_propagates_stats() {
         let scalar = Scalar::bool(true, Nullability::NonNullable);
-        let const_array = ConstantArray::new(scalar.clone(), 4).into_array();
-        let stats = const_array.statistics().to_owned();
-
+        let const_array = ConstantArray::new(scalar, 4).into_array();
+        let stats = const_array
+            .statistics()
+            .compute_all(&all::<Stat>().collect_vec())
+            .unwrap();
         let canonical = const_array.to_canonical().unwrap();
-        let canonical_stats = canonical.as_ref().statistics().to_owned();
+        let canonical_stats = canonical.as_ref().statistics();
 
-        let reference = StatsSet::constant(scalar, 4);
+        let stats_ref = stats.as_typed_ref(canonical.as_ref().dtype());
+
         for stat in all::<Stat>() {
             if stat.dtype(canonical.as_ref().dtype()).is_none() {
                 continue;
             }
-
-            let canonical_stat =
-                canonical_stats.get_scalar(stat, &stat.dtype(canonical.as_ref().dtype()).unwrap());
-            let reference_stat =
-                reference.get_scalar(stat, &stat.dtype(canonical.as_ref().dtype()).unwrap());
-            let original_stat =
-                stats.get_scalar(stat, &stat.dtype(canonical.as_ref().dtype()).unwrap());
-            assert_eq!(canonical_stat, reference_stat);
-            assert_eq!(canonical_stat, original_stat);
+            assert_eq!(
+                canonical_stats.get(stat),
+                stats_ref.get(stat),
+                "stat mismatch {stat}"
+            );
         }
     }
 
     #[test]
     fn test_canonicalize_scalar_values() {
-        let f16_scalar = Scalar::primitive(f16::from_f32(5.722046e-6), Nullability::NonNullable);
-        let scalar = Scalar::new(
-            DType::Primitive(PType::F16, Nullability::NonNullable),
-            Scalar::primitive(96u8, Nullability::NonNullable).into_value(),
-        );
-        let const_array = ConstantArray::new(scalar.clone(), 1).into_array();
+        let f16_value = f16::from_f32(5.722046e-6);
+        let f16_scalar = Scalar::primitive(f16_value, Nullability::NonNullable);
+
+        // Create a ConstantArray with the f16 scalar
+        let const_array = ConstantArray::new(f16_scalar.clone(), 1).into_array();
         let canonical_const = const_array.to_primitive().unwrap();
-        assert_eq!(canonical_const.scalar_at(0).unwrap(), scalar);
-        assert_eq!(canonical_const.scalar_at(0).unwrap(), f16_scalar);
+
+        // Verify the scalar value is preserved through canonicalization
+        assert_eq!(canonical_const.scalar_at(0), f16_scalar);
     }
 
     #[test]
@@ -384,7 +397,7 @@ mod tests {
 
         let struct_array = array.to_struct().unwrap();
         assert_eq!(struct_array.len(), 3);
-        assert_eq!(struct_array.valid_count().unwrap(), 0);
+        assert_eq!(struct_array.valid_count(), 0);
 
         let field = struct_array.field_by_name("non_null_field").unwrap();
 

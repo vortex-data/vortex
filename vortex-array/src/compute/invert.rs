@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::sync::LazyLock;
 
 use arcref::ArcRef;
@@ -7,6 +10,14 @@ use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err, vortex_pa
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, UnaryArgs};
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
+
+static INVERT_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("invert".into(), ArcRef::new_ref(&Invert));
+    for kernel in inventory::iter::<InvertKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
 
 /// Logically invert a boolean array, preserving its validity.
 pub fn invert(array: &dyn Array) -> VortexResult<ArrayRef> {
@@ -111,11 +122,3 @@ impl<V: VTable + InvertKernel> Kernel for InvertKernelAdapter<V> {
         Ok(Some(V::invert(&self.0, array)?.into()))
     }
 }
-
-pub static INVERT_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("invert".into(), ArcRef::new_ref(&Invert));
-    for kernel in inventory::iter::<InvertKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});

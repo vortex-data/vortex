@@ -1,9 +1,11 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! This module defines the [`VortexFile`] struct, which represents a Vortex file on disk or in memory.
 //!
 //! The `VortexFile` provides methods for accessing file metadata, creating segment sources for reading
 //! data from the file, and initiating scans to read the file's contents into memory as Vortex arrays.
 
-use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_array::ArrayRef;
@@ -11,12 +13,11 @@ use vortex_array::stats::StatsSet;
 use vortex_dtype::{DType, Field, FieldPath, FieldPathSet};
 use vortex_error::VortexResult;
 use vortex_expr::pruning::checked_pruning_expr;
-use vortex_expr::{ExprRef, Scope, ScopeFieldPathSet};
+use vortex_expr::{ExprRef, Scope};
 use vortex_layout::LayoutReader;
-use vortex_layout::layouts::row_id::RowIdLayoutReader;
-use vortex_layout::scan::ScanBuilder;
 use vortex_layout::segments::SegmentSource;
 use vortex_metrics::VortexMetrics;
+use vortex_scan::ScanBuilder;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::footer::Footer;
@@ -31,8 +32,8 @@ use crate::pruning::extract_relevant_file_stats_as_struct_row;
 pub struct VortexFile {
     /// The footer of the Vortex file, containing metadata and layout information.
     pub(crate) footer: Footer,
-    /// A factory for creating segment sources that read data from the file.
-    pub(crate) segment_source_factory: Arc<dyn SegmentSourceFactory>,
+    /// The segment source used to read segments from this file.
+    pub(crate) segment_source: Arc<dyn SegmentSource>,
     /// Metrics tied to the file.
     pub(crate) metrics: VortexMetrics,
 }
@@ -70,8 +71,7 @@ impl VortexFile {
     /// This may spawn a background I/O driver that will exit when the returned segment source
     /// is dropped.
     pub fn segment_source(&self) -> Arc<dyn SegmentSource> {
-        self.segment_source_factory
-            .segment_source(self.metrics.clone())
+        self.segment_source.clone()
     }
 
     /// Create a new layout reader for the file.
@@ -80,7 +80,7 @@ impl VortexFile {
         self.footer
             .layout()
             // TODO(ngates): we may want to allow the user pass in a name here?
-            .new_reader("".into(), segment_source, self.footer().ctx().clone())
+            .new_reader("".into(), segment_source)
     }
 
     /// Initiate a scan of the file, returning a builder for configuring the scan.
@@ -89,11 +89,11 @@ impl VortexFile {
     }
 
     /// Returns true if the expression will never match any rows in the file.
-    pub fn can_prune(&self, filter: &ExprRef, file_idx: u64) -> VortexResult<bool> {
+    pub fn can_prune(&self, filter: &ExprRef) -> VortexResult<bool> {
         let Some((stats, fields)) = self
             .footer
             .statistics()
-            .zip(self.footer.dtype().as_struct())
+            .zip(self.footer.dtype().as_struct_fields_opt())
         else {
             return Ok(false);
         };
@@ -109,10 +109,7 @@ impl VortexFile {
             },
         ));
 
-        let mut scope_set = ScopeFieldPathSet::new(set);
-        scope_set = scope_set.with_set_element(RowIdLayoutReader::row_id_stats_field_path_set());
-
-        let Some((predicate, required_stats)) = checked_pruning_expr(filter, &scope_set) else {
+        let Some((predicate, required_stats)) = checked_pruning_expr(filter, &set) else {
             return Ok(false);
         };
 
@@ -120,8 +117,7 @@ impl VortexFile {
             required_stats
                 .map()
                 .iter()
-                .filter(|&(path, _)| path.identifier().is_identity())
-                .map(|(path, stats)| (path.field_path().clone(), stats.clone())),
+                .map(|(path, stats)| (path.clone(), stats.clone())),
         );
 
         let Some(file_stats) =
@@ -130,36 +126,11 @@ impl VortexFile {
             return Ok(false);
         };
 
-        let scope =
-            Scope::new(file_stats).with_array_pair(RowIdLayoutReader::row_id_stats_set_scope(
-                &Range {
-                    start: 0,
-                    end: self.row_count(),
-                },
-                file_idx,
-            ));
+        let scope = Scope::new(file_stats);
 
         Ok(predicate
             .evaluate(&scope)?
             .as_constant()
             .is_some_and(|result| result.as_bool().value() == Some(true)))
     }
-}
-
-/// A factory for creating segment sources that read data from a Vortex file.
-///
-/// This trait abstracts over different implementations of segment sources, allowing
-/// for different I/O strategies (e.g., synchronous, asynchronous, memory-mapped)
-/// to be used with the same file interface.
-pub trait SegmentSourceFactory: 'static + Send + Sync {
-    /// Create a segment source for reading segments from the file.
-    ///
-    /// # Arguments
-    ///
-    /// * `metrics` - Metrics for monitoring the performance of the segment source.
-    ///
-    /// # Returns
-    ///
-    /// A new segment source that can be used to read data from the file.
-    fn segment_source(&self, metrics: VortexMetrics) -> Arc<dyn SegmentSource>;
 }

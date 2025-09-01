@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::sync::Arc;
 
 use arbitrary::{Arbitrary, Result, Unstructured};
@@ -15,7 +18,7 @@ impl<'a> Arbitrary<'a> for DType {
 
 fn random_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<DType> {
     const BASE_TYPE_COUNT: i32 = 5;
-    const CONTAINER_TYPE_COUNT: i32 = 2;
+    const CONTAINER_TYPE_COUNT: i32 = 2; // TODO(connor)[FixedSizeList]: Make this 3.
     let max_dtype_kind = if depth == 0 {
         BASE_TYPE_COUNT
     } else {
@@ -32,6 +35,15 @@ fn random_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<DType> {
         // container types
         6 => DType::Struct(random_struct_dtype(u, depth - 1)?, u.arbitrary()?),
         7 => DType::List(Arc::new(random_dtype(u, depth - 1)?), u.arbitrary()?),
+        8 => {
+            unimplemented!("TODO(connor)[FixedSizeList]");
+            // DType::FixedSizeList(
+            //     Arc::new(random_dtype(u, depth - 1)?),
+            //     // We limit the list size to 3 rather (following random struct fields).
+            //     u.choose_index(3)?.try_into().vortex_expect("impossible"),
+            //     u.arbitrary()?,
+            // )
+        }
         // Null,
         // Extension(ExtDType, Nullability),
         _ => unreachable!("Number out of range"),
@@ -91,7 +103,7 @@ fn random_struct_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<StructFiel
     let field_count = u.choose_index(3)?;
     let names: FieldNames = (0..field_count)
         .map(|_| FieldName::arbitrary(u))
-        .collect::<Result<Arc<_>>>()?;
+        .collect::<Result<FieldNames>>()?;
     let dtypes = (0..names.len())
         .map(|_| random_dtype(u, depth))
         .collect::<Result<Vec<_>>>()?;

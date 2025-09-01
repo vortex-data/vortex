@@ -1,4 +1,9 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::fmt::Debug;
+use std::iter::once;
+use std::ops::Range;
 
 use itertools::Itertools;
 use vortex_dtype::{DType, FieldName, FieldNames, StructFields};
@@ -29,6 +34,7 @@ impl VTable for StructVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
+    type PipelineVTable = NotSupported;
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
@@ -40,6 +46,124 @@ impl VTable for StructVTable {
     }
 }
 
+/// A struct array that stores multiple named fields as columns, similar to a database row.
+///
+/// This mirrors the Apache Arrow Struct array encoding and provides a columnar representation
+/// of structured data where each row contains multiple named fields of potentially different types.
+///
+/// ## Data Layout
+///
+/// The struct array uses a columnar layout where:
+/// - Each field is stored as a separate child array
+/// - All fields must have the same length (number of rows)
+/// - Field names and types are defined in the struct's dtype
+/// - An optional validity mask indicates which entire rows are null
+///
+/// ## Row-level nulls
+///
+/// The StructArray contains its own top-level nulls, which are superimposed on top of the
+/// field-level validity values. This can be the case even if the fields themselves are non-nullable,
+/// accessing a particular row can yield nulls even if all children are valid at that position.
+///
+/// ```
+/// use vortex_array::arrays::{StructArray, BoolArray};
+/// use vortex_array::validity::Validity;
+/// use vortex_array::IntoArray;
+/// use vortex_dtype::FieldNames;
+/// use vortex_buffer::buffer;
+///
+/// // Create struct with all non-null fields but struct-level nulls
+/// let struct_array = StructArray::try_new(
+///     FieldNames::from(["a", "b", "c"]),
+///     vec![
+///         buffer![1i32, 2i32].into_array(),  // non-null field a
+///         buffer![10i32, 20i32].into_array(), // non-null field b  
+///         buffer![100i32, 200i32].into_array(), // non-null field c
+///     ],
+///     2,
+///     Validity::Array(BoolArray::from_iter([true, false]).into_array()), // row 1 is null
+/// ).unwrap();
+///
+/// // Row 0 is valid - returns a struct scalar with field values
+/// let row0 = struct_array.scalar_at(0);
+/// assert!(!row0.is_null());
+///
+/// // Row 1 is null at struct level - returns null even though fields have values
+/// let row1 = struct_array.scalar_at(1);
+/// assert!(row1.is_null());
+/// ```
+///
+/// ## Name uniqueness
+///
+/// It is valid for a StructArray to have multiple child columns that have the same name. In this
+/// case, any accessors that use column names will find the first column in sequence with the name.
+///
+/// ```
+/// use vortex_array::arrays::StructArray;
+/// use vortex_array::validity::Validity;
+/// use vortex_array::IntoArray;
+/// use vortex_dtype::FieldNames;
+/// use vortex_buffer::buffer;
+///
+/// // Create struct with duplicate "data" field names
+/// let struct_array = StructArray::try_new(
+///     FieldNames::from(["data", "data"]),
+///     vec![
+///         buffer![1i32, 2i32].into_array(),   // first "data"
+///         buffer![3i32, 4i32].into_array(),   // second "data"
+///     ],
+///     2,
+///     Validity::NonNullable,
+/// ).unwrap();
+///
+/// // field_by_name returns the FIRST "data" field
+/// let first_data = struct_array.field_by_name("data").unwrap();
+/// assert_eq!(first_data.scalar_at(0), 1i32.into());
+/// ```
+///
+/// ## Field Operations
+///
+/// Struct arrays support efficient column operations:
+/// - **Projection**: Select/reorder fields without copying data
+/// - **Field access**: Get columns by name or index
+/// - **Column addition**: Add new fields to create extended structs
+/// - **Column removal**: Remove fields to create narrower structs
+///
+/// ## Validity Semantics
+///
+/// - Row-level nulls are tracked in the struct's validity child
+/// - Individual field nulls are tracked in each field's own validity
+/// - A null struct row means all fields in that row are conceptually null
+/// - Field-level nulls can exist independently of struct-level nulls
+///
+/// # Examples
+///
+/// ```
+/// use vortex_array::arrays::{StructArray, PrimitiveArray};
+/// use vortex_array::validity::Validity;
+/// use vortex_array::IntoArray;
+/// use vortex_dtype::FieldNames;
+/// use vortex_buffer::buffer;
+///
+/// // Create arrays for each field
+/// let ids = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::NonNullable);
+/// let names = PrimitiveArray::new(buffer![100u64, 200, 300], Validity::NonNullable);
+///
+/// // Create struct array with named fields
+/// let struct_array = StructArray::try_new(
+///     FieldNames::from(["id", "score"]),
+///     vec![ids.into_array(), names.into_array()],
+///     3,
+///     Validity::NonNullable,
+/// ).unwrap();
+///
+/// assert_eq!(struct_array.len(), 3);
+/// assert_eq!(struct_array.names().len(), 2);
+///
+/// // Access field by name
+/// let id_field = struct_array.field_by_name("id").unwrap();
+/// assert_eq!(id_field.len(), 3);
+/// ```
 #[derive(Clone, Debug)]
 pub struct StructArray {
     len: usize,
@@ -80,12 +204,23 @@ impl StructArray {
     }
 
     pub fn struct_fields(&self) -> &StructFields {
-        let Some(struct_dtype) = &self.dtype.as_struct() else {
+        let Some(struct_dtype) = &self.dtype.as_struct_fields_opt() else {
             unreachable!(
                 "struct arrays must have be a DType::Struct, this is likely an internal bug."
             )
         };
         struct_dtype
+    }
+
+    /// Create a new `StructArray` with the given length, but without any fields.
+    pub fn new_with_len(len: usize) -> Self {
+        Self::try_new(
+            FieldNames::default(),
+            Vec::new(),
+            len,
+            Validity::NonNullable,
+        )
+        .vortex_expect("StructArray::new_with_len should not fail")
     }
 
     pub fn try_new(
@@ -129,6 +264,26 @@ impl StructArray {
             validity,
             stats_set: Default::default(),
         })
+    }
+
+    /// Create a new `StructArray` directly from components, without performing any type
+    /// of checking.
+    ///
+    /// This should **only** be consumed internally by operations that can maintain the
+    /// StructArray invariants.
+    pub(crate) fn new_unchecked(
+        fields: Vec<ArrayRef>,
+        dtype: StructFields,
+        length: usize,
+        validity: Validity,
+    ) -> Self {
+        Self {
+            len: length,
+            dtype: DType::Struct(dtype, validity.nullability()),
+            fields,
+            validity,
+            stats_set: Default::default(),
+        }
     }
 
     pub fn try_new_with_dtype(
@@ -229,11 +384,7 @@ impl StructArray {
     pub fn remove_column(&mut self, name: impl Into<FieldName>) -> Option<ArrayRef> {
         let name = name.into();
 
-        let Some(struct_dtype) = self.dtype.as_struct() else {
-            unreachable!(
-                "struct arrays must have be a DType::Struct, this is likely an internal bug."
-            )
-        };
+        let struct_dtype = self.struct_fields().clone();
 
         let position = struct_dtype
             .names()
@@ -242,10 +393,26 @@ impl StructArray {
 
         let field = self.fields.remove(position);
 
-        let new_dtype = struct_dtype.without_field(position);
-        self.dtype = DType::Struct(new_dtype, self.dtype.nullability());
+        if let Ok(new_dtype) = struct_dtype.without_field(position) {
+            self.dtype = DType::Struct(new_dtype, self.dtype.nullability());
+            return Some(field);
+        }
+        None
+    }
 
-        Some(field)
+    /// Create a new StructArray by appending a new column onto the existing array.
+    pub fn with_column(&self, name: impl Into<FieldName>, array: ArrayRef) -> VortexResult<Self> {
+        let name = name.into();
+        let struct_dtype = self.struct_fields().clone();
+
+        let names = struct_dtype.names().iter().cloned().chain(once(name));
+        let types = struct_dtype.fields().chain(once(array.dtype().clone()));
+        let new_fields = StructFields::new(names.collect(), types.collect());
+
+        let mut children = self.fields.clone();
+        children.push(array);
+
+        Self::try_new_with_dtype(children, new_fields, self.len, self.validity.clone())
     }
 }
 
@@ -276,30 +443,30 @@ impl CanonicalVTable<StructVTable> for StructVTable {
 }
 
 impl OperationsVTable<StructVTable> for StructVTable {
-    fn slice(array: &StructArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+    fn slice(array: &StructArray, range: Range<usize>) -> ArrayRef {
         let fields = array
             .fields()
             .iter()
-            .map(|field| field.slice(start, stop))
-            .try_collect()?;
-        StructArray::try_new_with_dtype(
+            .map(|field| field.slice(range.clone()))
+            .collect_vec();
+        StructArray::new_unchecked(
             fields,
             array.struct_fields().clone(),
-            stop - start,
-            array.validity().slice(start, stop)?,
+            range.len(),
+            array.validity().slice(range),
         )
-        .map(|a| a.into_array())
+        .into_array()
     }
 
-    fn scalar_at(array: &StructArray, index: usize) -> VortexResult<Scalar> {
-        Ok(Scalar::struct_(
+    fn scalar_at(array: &StructArray, index: usize) -> Scalar {
+        Scalar::struct_(
             array.dtype().clone(),
             array
                 .fields()
                 .iter()
                 .map(|field| field.scalar_at(index))
-                .try_collect()?,
-        ))
+                .collect_vec(),
+        )
     }
 }
 
@@ -325,7 +492,7 @@ mod test {
         let zs = BoolArray::from_iter([true, true, true, false, false]);
 
         let struct_a = StructArray::try_new(
-            FieldNames::from(["xs".into(), "ys".into(), "zs".into()]),
+            FieldNames::from(["xs", "ys", "zs"]),
             vec![xs.into_array(), ys.into_array(), zs.into_array()],
             5,
             Validity::NonNullable,
@@ -365,7 +532,7 @@ mod test {
         let ys = PrimitiveArray::new(buffer![4u64, 5, 6, 7, 8], Validity::NonNullable);
 
         let mut struct_a = StructArray::try_new(
-            FieldNames::from(["xs".into(), "ys".into()]),
+            FieldNames::from(["xs", "ys"]),
             vec![xs.into_array(), ys.into_array()],
             5,
             Validity::NonNullable,
@@ -382,7 +549,7 @@ mod test {
             [0i64, 1, 2, 3, 4]
         );
 
-        assert_eq!(struct_a.names().as_ref(), [FieldName::from("ys")]);
+        assert_eq!(struct_a.names(), &["ys"]);
         assert_eq!(struct_a.fields.len(), 1);
         assert_eq!(struct_a.len(), 5);
         assert_eq!(
@@ -401,6 +568,44 @@ mod test {
             empty.is_none(),
             "Expected None when removing non-existent column"
         );
-        assert_eq!(struct_a.names().as_ref(), [FieldName::from("ys")]);
+        assert_eq!(struct_a.names(), &["ys"]);
+    }
+
+    #[test]
+    fn test_duplicate_field_names() {
+        // Test that StructArray allows duplicate field names and returns the first match
+        let field1 = buffer![1i32, 2, 3].into_array();
+        let field2 = buffer![10i32, 20, 30].into_array();
+        let field3 = buffer![100i32, 200, 300].into_array();
+
+        // Create struct with duplicate field names - "value" appears twice
+        let struct_array = StructArray::try_new(
+            FieldNames::from(["value", "other", "value"]),
+            vec![field1, field2, field3],
+            3,
+            Validity::NonNullable,
+        )
+        .unwrap();
+
+        // field_by_name should return the first field with the matching name
+        let first_value_field = struct_array.field_by_name("value").unwrap();
+        assert_eq!(
+            first_value_field.as_::<PrimitiveVTable>().as_slice::<i32>(),
+            [1i32, 2, 3] // This is field1, not field3
+        );
+
+        // Verify field_by_name_opt also returns the first match
+        let opt_field = struct_array.field_by_name_opt("value").unwrap();
+        assert_eq!(
+            opt_field.as_::<PrimitiveVTable>().as_slice::<i32>(),
+            [1i32, 2, 3] // First "value" field
+        );
+
+        // Verify the third field (second "value") can be accessed by index
+        let third_field = &struct_array.fields()[2];
+        assert_eq!(
+            third_field.as_::<PrimitiveVTable>().as_slice::<i32>(),
+            [100i32, 200, 300]
+        );
     }
 }

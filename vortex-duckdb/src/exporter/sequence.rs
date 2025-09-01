@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use bitvec::macros::internal::funty::Fundamental;
 use vortex::encodings::sequence::SequenceArray;
 use vortex::error::{VortexExpect, VortexResult};
@@ -32,6 +35,7 @@ impl ColumnExporter for SequenceExporter {
 
 #[cfg(test)]
 mod tests {
+    use vortex::dtype::Nullability;
 
     use super::*;
     use crate::cpp;
@@ -39,8 +43,7 @@ mod tests {
 
     #[test]
     fn test_sequence() {
-        let arr = SequenceArray::typed_new(2, 5, 100).unwrap();
-
+        let arr = SequenceArray::typed_new(2, 5, Nullability::NonNullable, 100).unwrap();
         let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
 
         new_exporter(&arr)

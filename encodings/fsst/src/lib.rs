@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! An array that uses the [Fast Static Symbol Table][fsst] compression scheme
 //! to compress string arrays.
 //!

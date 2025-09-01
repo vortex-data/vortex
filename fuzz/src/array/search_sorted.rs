@@ -1,6 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::cmp::Ordering;
 use std::fmt::Debug;
 
+use itertools::Itertools;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::search_sorted::{IndexOrd, SearchResult, SearchSorted, SearchSortedSide};
 use vortex_array::{Array, ToCanonical};
@@ -51,7 +55,7 @@ pub fn search_sorted_canonical_array(
     match array.dtype() {
         DType::Bool(_) => {
             let bool_array = array.to_bool()?;
-            let validity = bool_array.validity_mask()?.to_boolean_buffer();
+            let validity = bool_array.validity_mask().to_boolean_buffer();
             let opt_values = bool_array
                 .boolean_buffer()
                 .iter()
@@ -63,7 +67,7 @@ pub fn search_sorted_canonical_array(
         }
         DType::Primitive(p, _) => {
             let primitive_array = array.to_primitive()?;
-            let validity = primitive_array.validity_mask()?.to_boolean_buffer();
+            let validity = primitive_array.validity_mask().to_boolean_buffer();
             match_each_native_ptype!(p, |P| {
                 let opt_values = primitive_array
                     .as_slice::<P>()
@@ -78,7 +82,7 @@ pub fn search_sorted_canonical_array(
         }
         DType::Decimal(d, _) => {
             let decimal_array = array.to_decimal()?;
-            let validity = decimal_array.validity_mask()?.to_boolean_buffer();
+            let validity = decimal_array.validity_mask().to_boolean_buffer();
             match_each_decimal_value_type!(decimal_array.values_type(), |D| {
                 let buf = decimal_array.buffer::<D>();
                 let opt_values = buf
@@ -113,17 +117,14 @@ pub fn search_sorted_canonical_array(
             Ok(SearchNullableSlice(opt_values).search_sorted(&Some(to_find), side))
         }
         DType::Struct(..) => {
-            let scalar_vals = (0..array.len())
-                .map(|i| array.scalar_at(i))
-                .collect::<VortexResult<Vec<_>>>()?;
+            let scalar_vals = (0..array.len()).map(|i| array.scalar_at(i)).collect_vec();
             Ok(scalar_vals.search_sorted(&scalar.cast(array.dtype())?, side))
         }
         DType::List(..) => {
-            let scalar_vals = (0..array.len())
-                .map(|i| array.scalar_at(i))
-                .collect::<VortexResult<Vec<_>>>()?;
+            let scalar_vals = (0..array.len()).map(|i| array.scalar_at(i)).collect_vec();
             Ok(scalar_vals.search_sorted(&scalar.cast(array.dtype())?, side))
         }
+        DType::FixedSizeList(..) => unimplemented!("TODO(connor)[FixedSizeList]"),
         d @ (DType::Null | DType::Extension(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }

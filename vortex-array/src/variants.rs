@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! This module defines extension functionality specific to each Vortex DType.
 use std::cmp::Ordering;
 use std::sync::Arc;
@@ -12,63 +15,63 @@ use crate::search_sorted::IndexOrd;
 
 impl dyn Array + '_ {
     /// Downcasts the array for null-specific behavior.
-    pub fn as_null_typed(&self) -> NullTyped {
+    pub fn as_null_typed(&self) -> NullTyped<'_> {
         matches!(self.dtype(), DType::Null)
             .then(|| NullTyped(self))
             .vortex_expect("Array does not have DType::Null")
     }
 
     /// Downcasts the array for bool-specific behavior.
-    pub fn as_bool_typed(&self) -> BoolTyped {
+    pub fn as_bool_typed(&self) -> BoolTyped<'_> {
         matches!(self.dtype(), DType::Bool(..))
             .then(|| BoolTyped(self))
             .vortex_expect("Array does not have DType::Bool")
     }
 
     /// Downcasts the array for primitive-specific behavior.
-    pub fn as_primitive_typed(&self) -> PrimitiveTyped {
+    pub fn as_primitive_typed(&self) -> PrimitiveTyped<'_> {
         matches!(self.dtype(), DType::Primitive(..))
             .then(|| PrimitiveTyped(self))
             .vortex_expect("Array does not have DType::Primitive")
     }
 
     /// Downcasts the array for decimal-specific behavior.
-    pub fn as_decimal_typed(&self) -> DecimalTyped {
+    pub fn as_decimal_typed(&self) -> DecimalTyped<'_> {
         matches!(self.dtype(), DType::Decimal(..))
             .then(|| DecimalTyped(self))
             .vortex_expect("Array does not have DType::Decimal")
     }
 
     /// Downcasts the array for utf8-specific behavior.
-    pub fn as_utf8_typed(&self) -> Utf8Typed {
+    pub fn as_utf8_typed(&self) -> Utf8Typed<'_> {
         matches!(self.dtype(), DType::Utf8(..))
             .then(|| Utf8Typed(self))
             .vortex_expect("Array does not have DType::Utf8")
     }
 
     /// Downcasts the array for binary-specific behavior.
-    pub fn as_binary_typed(&self) -> BinaryTyped {
+    pub fn as_binary_typed(&self) -> BinaryTyped<'_> {
         matches!(self.dtype(), DType::Binary(..))
             .then(|| BinaryTyped(self))
             .vortex_expect("Array does not have DType::Binary")
     }
 
     /// Downcasts the array for struct-specific behavior.
-    pub fn as_struct_typed(&self) -> StructTyped {
+    pub fn as_struct_typed(&self) -> StructTyped<'_> {
         matches!(self.dtype(), DType::Struct(..))
             .then(|| StructTyped(self))
             .vortex_expect("Array does not have DType::Struct")
     }
 
     /// Downcasts the array for list-specific behavior.
-    pub fn as_list_typed(&self) -> ListTyped {
+    pub fn as_list_typed(&self) -> ListTyped<'_> {
         matches!(self.dtype(), DType::List(..))
             .then(|| ListTyped(self))
             .vortex_expect("Array does not have DType::List")
     }
 
     /// Downcasts the array for extension-specific behavior.
-    pub fn as_extension_typed(&self) -> ExtensionTyped {
+    pub fn as_extension_typed(&self) -> ExtensionTyped<'_> {
         matches!(self.dtype(), DType::Extension(..))
             .then(|| ExtensionTyped(self))
             .vortex_expect("Array does not have DType::Extension")
@@ -86,7 +89,6 @@ impl BoolTyped<'_> {
         Ok(true_count
             .as_primitive()
             .as_::<usize>()
-            .vortex_expect("true count should never overflow usize")
             .vortex_expect("true count should never be null"))
     }
 }
@@ -103,17 +105,13 @@ impl PrimitiveTyped<'_> {
 
     /// Return the primitive value at the given index.
     pub fn value(&self, idx: usize) -> Option<PValue> {
-        self.0
-            .is_valid(idx)
-            .vortex_expect("is valid")
-            .then(|| self.value_unchecked(idx))
+        self.0.is_valid(idx).then(|| self.value_unchecked(idx))
     }
 
     /// Return the primitive value at the given index, ignoring nullability.
     pub fn value_unchecked(&self, idx: usize) -> PValue {
         self.0
             .scalar_at(idx)
-            .vortex_expect("scalar at index")
             .as_primitive()
             .pvalue()
             .unwrap_or_else(|| PValue::zero(self.ptype()))
@@ -133,7 +131,7 @@ impl IndexOrd<Option<PValue>> for PrimitiveTyped<'_> {
 // TODO(ngates): add generics to the `value` function and implement this over T.
 impl IndexOrd<PValue> for PrimitiveTyped<'_> {
     fn index_cmp(&self, idx: usize, elem: &PValue) -> Option<Ordering> {
-        assert!(self.0.all_valid().vortex_expect("all valid"));
+        assert!(self.0.all_valid());
         self.value_unchecked(idx).partial_cmp(elem)
     }
 

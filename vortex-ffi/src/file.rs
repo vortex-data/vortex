@@ -1,10 +1,13 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! FFI interface for Vortex File I/O.
 
 use std::ffi::{CStr, c_char, c_int, c_uint, c_ulong};
 use std::ops::Range;
+use std::slice;
 use std::str::FromStr;
-use std::sync::Arc;
-use std::{ptr, slice};
+use std::sync::{Arc, LazyLock};
 
 use itertools::Itertools;
 use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
@@ -14,20 +17,19 @@ use object_store::local::LocalFileSystem;
 use object_store::{ObjectStore, ObjectStoreScheme};
 use prost::Message;
 use url::Url;
-use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex::expr::{ExprRef, deserialize_expr};
-use vortex::file::scan::SplitBy;
+use vortex::error::{VortexError, VortexResult, vortex_bail, vortex_err};
+use vortex::expr::proto::deserialize_expr_proto;
+use vortex::expr::{ExprRef, ExprRegistryExt};
 use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
-use vortex::layout::layouts::row_id::RowIdLayoutReader;
-use vortex::layout::scan::ScanBuilder;
 use vortex::proto::expr::Expr;
+use vortex::scan::{ScanBuilder, SplitBy};
 
 use crate::array::vx_array;
 use crate::array_iterator::vx_array_iterator;
 use crate::dtype::vx_dtype;
-use crate::error::{try_or, vx_error};
+use crate::error::{try_or_default, vx_error};
 use crate::session::{FileKey, vx_session};
-use crate::{RUNTIME, arc_wrapper, to_string_vec};
+use crate::{arc_wrapper, get_runtime, to_string_vec};
 
 arc_wrapper!(
     /// A handle to a Vortex file encapsulating ther footer and logic for instantiating a reader.
@@ -78,9 +80,13 @@ pub struct vx_file_scan_options {
     /// Last row of a range to scan.
     pub row_range_end: c_ulong,
 
-    /// The index of the file in a multi-file scan.
-    pub file_index: c_ulong,
+    /// The row offset of the file in a multi-file scan.
+    pub row_offset: c_ulong,
 }
+
+// FIXME(ngates): API should require a VortexSession to be passed in instead.
+static EXPR_REGISTRY: LazyLock<vortex::expr::ExprRegistry> =
+    LazyLock::new(vortex::expr::ExprRegistry::default);
 
 fn extract_expression(
     expression: *const c_char,
@@ -91,7 +97,8 @@ fn extract_expression(
             unsafe { slice::from_raw_parts(expression as *const u8, expression_len as usize) };
 
         // Decode the protobuf message.
-        deserialize_expr(&Expr::decode(bytes)?).map_err(|e| e.with_context("deserializing expr"))?
+        deserialize_expr_proto(&Expr::decode(bytes)?, &EXPR_REGISTRY)
+            .map_err(|e| e.with_context("deserializing expr"))?
     }))
 }
 
@@ -117,7 +124,7 @@ impl vx_file_scan_options {
             filter_expr,
             split_by,
             row_range,
-            file_index: self.file_index,
+            row_offset: self.row_offset,
         })
     }
 }
@@ -131,7 +138,7 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
 ) -> *const vx_file {
     let session = vx_session::as_ref(session);
 
-    try_or(error_out, ptr::null_mut(), || {
+    try_or_default(error_out, || {
         let options = unsafe {
             options
                 .as_ref()
@@ -142,7 +149,9 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
             vortex_bail!("null uri")
         }
         let uri_str = unsafe { CStr::from_ptr(options.uri) }.to_string_lossy();
-        let uri: Url = uri_str.parse().vortex_expect("File_open: parse uri");
+        let uri: Url = uri_str
+            .parse()
+            .map_err(|e| vortex_err!("Failed to parse URI '{}': {}", uri_str, e))?;
 
         let prop_keys = unsafe { to_string_vec(options.property_keys, options.property_len) };
         let prop_vals = unsafe { to_string_vec(options.property_vals, options.property_len) };
@@ -158,7 +167,7 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
             cache_hit = true;
         }
 
-        let vxf = RUNTIME
+        let vxf = get_runtime()
             .block_on(async move { file.open_object_store(&object_store, uri.path()).await })?;
 
         if !cache_hit {
@@ -181,10 +190,12 @@ pub unsafe extern "C-unwind" fn vx_file_write_array(
     error_out: *mut *mut vx_error,
 ) {
     let array = vx_array::as_ref(array);
-    try_or(error_out, (), || {
-        let path = unsafe { CStr::from_ptr(path).to_str()? };
+    try_or_default(error_out, || {
+        let path = unsafe { CStr::from_ptr(path) }
+            .to_str()
+            .map_err(|e| vortex_err!("invalid utf-8: {e}"))?;
 
-        RUNTIME.block_on(async {
+        get_runtime().block_on(async {
             VortexWriteOptions::default()
                 .write(
                     &mut tokio::fs::File::create(path).await?,
@@ -207,10 +218,13 @@ struct ScanOptions {
     filter_expr: Option<ExprRef>,
     split_by: Option<SplitBy>,
     row_range: Option<Range<u64>>,
-    file_index: u64,
+    row_offset: u64,
 }
 
-/// Return a borrowed reference to the DType of the file.
+/// Return the DType of the file.
+///
+/// The returned pointer is valid as long as the file is valid.
+/// Do NOT free the returned dtype pointer - it shares the lifetime of the file.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_file_dtype(file: *const vx_file) -> *const vx_dtype {
     vx_dtype::new_ref(vx_file::as_ref(file).dtype())
@@ -222,14 +236,13 @@ pub unsafe extern "C-unwind" fn vx_file_can_prune(
     file: *const vx_file,
     filter_expression: *const c_char,
     filter_expression_len: c_uint,
-    file_idx: c_ulong,
     error_out: *mut *mut vx_error,
 ) -> bool {
-    try_or(error_out, false, || {
+    try_or_default(error_out, || {
         let file = vx_file::as_ref(file);
         let filter_expr = extract_expression(filter_expression, filter_expression_len)?;
         Ok(filter_expr
-            .map(|expr| file.can_prune(&expr, file_idx))
+            .map(|expr| file.can_prune(&expr))
             .transpose()?
             .unwrap_or(false))
     })
@@ -242,7 +255,7 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
     opts: *const vx_file_scan_options,
     error_out: *mut *mut vx_error,
 ) -> *mut vx_array_iterator {
-    try_or(error_out, ptr::null_mut(), || {
+    try_or_default(error_out, || {
         let file = vx_file::as_ref(file);
 
         let scan_options = unsafe { opts.as_ref() }.map_or_else(
@@ -251,11 +264,8 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
         )?;
 
         let layout_reader = file.layout_reader()?;
-        let layout_reader = Arc::new(RowIdLayoutReader::new_with_file_index(
-            layout_reader,
-            scan_options.file_index,
-        ));
-        let mut scan_builder = ScanBuilder::new(layout_reader);
+        let mut scan_builder =
+            ScanBuilder::new(layout_reader).with_row_offset(scan_options.row_offset);
 
         // Apply options if provided.
         if let Some(projection_expr) = scan_options.projection_expr {

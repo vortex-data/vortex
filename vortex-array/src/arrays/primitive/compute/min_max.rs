@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use itertools::Itertools;
 use vortex_dtype::{DType, NativePType, match_each_native_ptype};
 use vortex_error::VortexResult;
@@ -23,7 +26,7 @@ fn compute_min_max_with_validity<T>(array: &PrimitiveArray) -> VortexResult<Opti
 where
     T: Into<ScalarValue> + NativePType,
 {
-    Ok(match array.validity_mask()? {
+    Ok(match array.validity_mask() {
         Mask::AllTrue(_) => compute_min_max(array.as_slice::<T>().iter(), array.dtype()),
         Mask::AllFalse(_) => None,
         Mask::Values(v) => compute_min_max(

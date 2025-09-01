@@ -1,4 +1,11 @@
-use bench_vortex::compress::bench::{CompressMeasurements, benchmark_compress};
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use std::fs::File;
+use std::io::{Write, stdout};
+use std::path::PathBuf;
+
+use bench_vortex::compress::bench::{CompressMeasurements, CompressOp, benchmark_compress};
 use bench_vortex::datasets::Dataset;
 use bench_vortex::datasets::struct_list_of_ints::StructListOfInts;
 use bench_vortex::datasets::taxi_data::TaxiData;
@@ -7,7 +14,7 @@ use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table
 use bench_vortex::public_bi::PBI_DATASETS;
 use bench_vortex::public_bi::PBIDataset::{Arade, Bimbo, CMSprovider, Euro2016, Food, HashTags};
 use bench_vortex::utils::new_tokio_runtime;
-use bench_vortex::{Engine, Format, Target, default_env_filter, setup_logger};
+use bench_vortex::{Engine, Format, Target, setup_logging_and_tracing};
 use clap::Parser;
 use indicatif::ProgressBar;
 use itertools::Itertools;
@@ -25,17 +32,22 @@ struct Args {
     verbose: bool,
     #[arg(long, value_delimiter = ',', value_enum, default_values_t = vec![Format::Parquet, Format::OnDiskVortex])]
     formats: Vec<Format>,
+    #[arg(long, value_enum, default_values_t = vec![CompressOp::Compress, CompressOp::Decompress])]
+    ops: Vec<CompressOp>,
     #[arg(long)]
     datasets: Option<String>,
     #[arg(short, long, default_value_t, value_enum)]
     display_format: DisplayFormat,
+    #[arg(short)]
+    output_path: Option<PathBuf>,
+    #[arg(long)]
+    tracing: bool,
 }
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    let filter = default_env_filter(args.verbose);
-    setup_logger(filter);
+    setup_logging_and_tracing(args.verbose, args.tracing)?;
 
     let runtime = new_tokio_runtime(args.threads);
 
@@ -44,7 +56,9 @@ fn main() -> anyhow::Result<()> {
         args.iterations,
         args.datasets.map(|d| Regex::new(&d)).transpose()?,
         args.formats,
+        args.ops,
         args.display_format,
+        &args.output_path,
     )
 }
 
@@ -53,7 +67,9 @@ fn compress(
     iterations: usize,
     datasets_filter: Option<Regex>,
     formats: Vec<Format>,
+    ops: Vec<CompressOp>,
     display_format: DisplayFormat,
+    output_path: &Option<PathBuf>,
 ) -> anyhow::Result<()> {
     let targets = formats
         .iter()
@@ -94,21 +110,36 @@ fn compress(
     })
     .collect();
 
-    let progress = ProgressBar::new((datasets.len() * formats.len() * 2) as u64);
+    let progress = ProgressBar::new((datasets.len() * formats.len() * ops.len()) as u64);
 
     let measurements = datasets
         .into_iter()
         .map(|dataset_handle| {
-            benchmark_compress(&runtime, &progress, &formats, iterations, dataset_handle)
+            benchmark_compress(
+                &runtime,
+                &progress,
+                &formats,
+                &ops,
+                iterations,
+                dataset_handle,
+            )
         })
         .collect::<CompressMeasurements>();
 
     progress.finish();
 
+    let mut writer: Box<dyn Write> = if let Some(output_path) = output_path {
+        Box::new(File::create(output_path)?)
+    } else {
+        let stdout = stdout();
+        Box::new(stdout.lock())
+    };
+
     match display_format {
         DisplayFormat::Table => {
-            render_table(measurements.timings, &targets)?;
+            render_table(&mut writer, measurements.timings, &targets)?;
             render_table(
+                &mut writer,
                 measurements.ratios,
                 &if formats.contains(&Format::OnDiskVortex) {
                     vec![Target::new(Engine::default(), Format::OnDiskVortex)]
@@ -118,8 +149,8 @@ fn compress(
             )
         }
         DisplayFormat::GhJson => {
-            print_measurements_json(measurements.timings)?;
-            print_measurements_json(measurements.ratios)
+            print_measurements_json(&mut writer, measurements.timings)?;
+            print_measurements_json(&mut writer, measurements.ratios)
         }
     }
 }

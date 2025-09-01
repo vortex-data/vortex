@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 plugins {
     id("org.gradle.toolchains.foojay-resolver") version "1.0.0"
 }
@@ -18,5 +21,3 @@ rootProject.name = "vortex-root"
 include("vortex-jni")
 include("vortex-spark")
 
-// Integration tests
-// include("ete")

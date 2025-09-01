@@ -17,7 +17,6 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
-half = { workspace = true }
 pco = { workspace = true }
 prost = { workspace = true }
 vortex-array = { workspace = true }
@@ -28,4 +27,5 @@ vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
 
 [dev-dependencies]
+rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["test-harness"] }

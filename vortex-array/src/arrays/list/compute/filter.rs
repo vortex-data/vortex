@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::ops::AddAssign;
 
 use arrow_buffer::BooleanBufferBuilder;
@@ -17,7 +20,7 @@ impl FilterKernel for ListVTable {
     fn filter(&self, array: &Self::Array, mask: &Mask) -> VortexResult<ArrayRef> {
         let offsets = array.offsets.to_primitive()?;
 
-        match array.validity_mask()? {
+        match array.validity_mask() {
             Mask::AllTrue(_) => {
                 match_each_integer_ptype!(offsets.ptype(), |I| {
                     filter_all_valid::<I>(

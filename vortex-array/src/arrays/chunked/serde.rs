@@ -1,7 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use itertools::Itertools;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
 use super::ChunkedEncoding;
 use crate::arrays::{ChunkedArray, ChunkedVTable, PrimitiveArray};
@@ -48,14 +51,15 @@ impl SerdeVTable<ChunkedVTable> for ChunkedVTable {
             .tuple_windows()
             .enumerate()
             .map(|(idx, (start, end))| {
-                let chunk_len =
-                    usize::try_from(end - start).vortex_expect("chunk length exceeds usize");
+                let chunk_len = usize::try_from(end - start)
+                    .map_err(|_| vortex_err!("chunk_len {} exceeds usize range", end - start))?;
                 children.get(idx + 1, dtype, chunk_len)
             })
             .try_collect()?;
 
         // Unchecked because we just created each chunk with the same DType.
-        Ok(ChunkedArray::new_unchecked(chunks, dtype.clone()))
+        // SAFETY:
+        unsafe { Ok(ChunkedArray::new_unchecked(chunks, dtype.clone())) }
     }
 }
 

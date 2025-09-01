@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 mod builder;
 mod reader;
 pub mod writer;
@@ -10,7 +13,6 @@ use vortex_array::stats::{Stat, as_stat_bitset_bytes, stats_from_bitset_bytes};
 use vortex_array::{ArrayContext, DeserializeMetadata, SerializeMetadata};
 use vortex_dtype::{DType, TryFromBytes};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
-use vortex_expr::ScopeDType;
 
 use crate::children::LayoutChildren;
 use crate::layouts::zoned::reader::ZonedReader;
@@ -41,10 +43,6 @@ impl VTable for ZonedVTable {
 
     fn dtype(layout: &Self::Layout) -> &DType {
         layout.data.dtype()
-    }
-
-    fn scope_dtype(layout: &Self::Layout) -> &ScopeDType {
-        layout.data.scope_dtype()
     }
 
     fn metadata(layout: &Self::Layout) -> Self::Metadata {
@@ -82,13 +80,11 @@ impl VTable for ZonedVTable {
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-        ctx: ArrayContext,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(ZonedReader::try_new(
             layout.clone(),
             name,
             segment_source,
-            ctx,
         )?))
     }
 
@@ -99,6 +95,7 @@ impl VTable for ZonedVTable {
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         _segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
+        _ctx: ArrayContext,
     ) -> VortexResult<Self::Layout> {
         let data = children.child(0, dtype)?;
 
@@ -132,6 +129,9 @@ impl ZonedLayout {
         zone_len: usize,
         present_stats: Arc<[Stat]>,
     ) -> Self {
+        if zone_len == 0 {
+            vortex_panic!("Zone length must be greater than 0");
+        }
         let expected_dtype = ZoneMap::dtype_for_stats_table(data.dtype(), &present_stats);
         if zones.dtype() != &expected_dtype {
             vortex_panic!("Invalid zone map layout: zones dtype does not match expected dtype");
@@ -148,12 +148,13 @@ impl ZonedLayout {
         usize::try_from(self.zones.row_count()).vortex_expect("Invalid number of zones")
     }
 
+    /// Returns an array of stats that exist in the layout's data, must be sorted.
     pub fn present_stats(&self) -> &Arc<[Stat]> {
         &self.present_stats
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ZonedMetadata {
     pub(super) zone_len: u32,
     pub(super) present_stats: Arc<[Stat]>,
@@ -180,5 +181,52 @@ impl SerializeMetadata for ZonedMetadata {
         // Then write the bit-set of statistics.
         metadata.extend_from_slice(&as_stat_bitset_bytes(&self.present_stats));
         metadata
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use rstest::rstest;
+
+    use super::*;
+
+    #[rstest]
+    #[case(ZonedMetadata {
+            zone_len: u32::MAX,
+            present_stats: Arc::new([]),
+        })]
+    #[case(ZonedMetadata {
+            zone_len: 0,
+            present_stats: Arc::new([Stat::IsConstant]),
+        })]
+    #[case::all_sorted(ZonedMetadata {
+            zone_len: 314,
+            present_stats: Arc::new([Stat::IsConstant, Stat::IsSorted, Stat::IsStrictSorted, Stat::Max, Stat::Min, Stat::Sum, Stat::NullCount, Stat::UncompressedSizeInBytes, Stat::NaNCount]),
+        })]
+    #[case::some_sorted(ZonedMetadata {
+            zone_len: 314,
+            present_stats: Arc::new([Stat::IsSorted, Stat::IsStrictSorted, Stat::Max, Stat::Min, Stat::Sum, Stat::NullCount, Stat::UncompressedSizeInBytes, Stat::NaNCount]),
+        })]
+    fn test_metadata_serialization(#[case] metadata: ZonedMetadata) {
+        let serialized = metadata.clone().serialize();
+        let deserialized = ZonedMetadata::deserialize(&serialized).unwrap();
+        assert_eq!(deserialized, metadata);
+    }
+
+    #[test]
+    fn test_deserialize_unsorted_stats() {
+        let metadata = ZonedMetadata {
+            zone_len: u32::MAX,
+            present_stats: Arc::new([Stat::IsStrictSorted, Stat::IsSorted]),
+        };
+        let serialized = metadata.clone().serialize();
+        let deserialized = ZonedMetadata::deserialize(&serialized).unwrap();
+        assert!(deserialized.present_stats.is_sorted());
+        assert_eq!(
+            deserialized.present_stats.len(),
+            metadata.present_stats.len()
+        );
+        assert_ne!(deserialized.present_stats, metadata.present_stats);
     }
 }

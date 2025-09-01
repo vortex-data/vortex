@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use arrow_buffer::{ArrowNativeType, OffsetBuffer};
 use bytes::Bytes;
 use vortex_error::vortex_panic;

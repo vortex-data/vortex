@@ -1,18 +1,6 @@
-/**
- * (c) Copyright 2025 SpiralDB Inc. All rights reserved.
- * <p>
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- * <p>
- * http://www.apache.org/licenses/LICENSE-2.0
- * <p>
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 package dev.vortex.spark;
 
 import com.google.common.collect.ImmutableList;
@@ -22,20 +10,40 @@ import org.apache.spark.sql.connector.read.InputPartition;
 
 /**
  * An {@link InputPartition} for reading a whole Vortex file.
+ * <p>
+ * This class represents a partition that corresponds to a single Vortex file.
+ * It contains the file path and the columns to be read from that file.
+ * Each partition can be processed independently by Spark executors.
  */
 public final class VortexFilePartition implements InputPartition, Serializable {
     private final String path;
     private final ImmutableList<Column> columns;
 
+    /**
+     * Creates a new Vortex file partition.
+     *
+     * @param path the file system path to the Vortex file
+     * @param columns the list of columns to read from the file
+     */
     public VortexFilePartition(String path, ImmutableList<Column> columns) {
         this.path = path;
         this.columns = columns;
     }
 
+    /**
+     * Returns the file system path to the Vortex file for this partition.
+     *
+     * @return the file path
+     */
     public String getPath() {
         return path;
     }
 
+    /**
+     * Returns the list of columns to be read from this partition.
+     *
+     * @return the immutable list of columns
+     */
     public ImmutableList<Column> getColumns() {
         return columns;
     }

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
 use vortex_array::{
@@ -26,10 +29,12 @@ impl SerdeVTable<DictVTable> for DictVTable {
 
     fn metadata(array: &DictArray) -> VortexResult<Option<Self::Metadata>> {
         Ok(Some(ProstMetadata(DictMetadata {
-            codes_ptype: PType::try_from(array.codes().dtype())
-                .vortex_expect("Must be a valid PType") as i32,
+            codes_ptype: PType::try_from(array.codes().dtype())? as i32,
             values_len: u32::try_from(array.values().len()).map_err(|_| {
-                vortex_err!("Diction values cannot exceed u32 in length for serialization")
+                vortex_err!(
+                    "Dictionary values size {} overflowed u32",
+                    array.values().len()
+                )
             })?,
             is_nullable_codes: Some(array.codes().dtype().is_nullable()),
         })))
@@ -57,7 +62,6 @@ impl SerdeVTable<DictVTable> for DictVTable {
             .into();
         let codes_dtype = DType::Primitive(metadata.codes_ptype(), codes_nullable);
         let codes = children.get(0, &codes_dtype, len)?;
-
         let values = children.get(1, dtype, metadata.values_len as usize)?;
 
         DictArray::try_new(codes, values)

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use humansize::{DECIMAL, make_format};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -8,10 +11,10 @@ use ratatui::widgets::{
 };
 use vortex::error::VortexExpect;
 use vortex::expr::root;
+use vortex::layout::layouts::flat::FlatVTable;
+use vortex::layout::layouts::zoned::ZonedVTable;
 use vortex::mask::Mask;
 use vortex::{Array, ArrayRef, ToCanonical};
-use vortex_layout::layouts::flat::FlatVTable;
-use vortex_layout::layouts::zoned::ZonedVTable;
 
 use crate::TOKIO_RUNTIME;
 use crate::browse::app::{AppState, LayoutCursor};
@@ -91,11 +94,7 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
     let reader = app
         .cursor
         .layout()
-        .new_reader(
-            "".into(),
-            app.vxf.segment_source(),
-            app.vxf.footer().ctx().clone(),
-        )
+        .new_reader("".into(), app.vxf.segment_source())
         .vortex_expect("Failed to create reader");
 
     let array = TOKIO_RUNTIME
@@ -140,13 +139,11 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
         // TODO: trim the number of displayed rows and allow paging through column stats.
         let rows = (0..array.len()).map(|chunk_id| {
             std::iter::once(Cell::from(Text::from(format!("{chunk_id}"))))
-                .chain(field_arrays.iter().map(|arr| {
-                    Cell::from(Text::from(
-                        arr.scalar_at(chunk_id)
-                            .vortex_expect("stats table scalar_at")
-                            .to_string(),
-                    ))
-                }))
+                .chain(
+                    field_arrays
+                        .iter()
+                        .map(|arr| Cell::from(Text::from(arr.scalar_at(chunk_id).to_string()))),
+                )
                 .collect::<Row>()
         });
 
@@ -163,14 +160,17 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
             .style(Style::new().bold())
             .height(1);
 
-        let rows = array.statistics().into_iter().map(|(stat, value)| {
-            let value = value.into_scalar(
-                stat.dtype(array.dtype())
-                    .vortex_expect("stat invalid for dtype"),
-            );
-            let stat = Cell::from(Text::from(format!("{stat}")));
-            let value = Cell::from(Text::from(format!("{value}")));
-            Row::new(vec![stat, value])
+        let rows = array.statistics().with_iter(|iter| {
+            iter.map(|(stat, value)| {
+                let value = value.clone().into_scalar(
+                    stat.dtype(array.dtype())
+                        .vortex_expect("stat invalid for dtype"),
+                );
+                let stat = Cell::from(Text::from(format!("{stat}")));
+                let value = Cell::from(Text::from(format!("{value}")));
+                Row::new(vec![stat, value])
+            })
+            .collect::<Vec<_>>()
         });
 
         let layout = Layout::default()
@@ -179,7 +179,7 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
             .split(widget_area);
         let table = Table::new(rows, [Constraint::Min(6), Constraint::Min(6)]).header(header);
         // Tree-display the active array
-        let tree = Paragraph::new(array.tree_display().to_string()).wrap(Wrap { trim: false });
+        let tree = Paragraph::new(array.display_tree().to_string()).wrap(Wrap { trim: false });
 
         let stats_container = Block::new()
             .title("Statistics")

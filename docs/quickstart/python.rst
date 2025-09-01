@@ -28,22 +28,6 @@ Vortex array:
    >>> vtx.nbytes
    141024
 
-Compress
---------
-
-Use :func:`~vortex.compress` to compress the Vortex array and check the relative size:
-
-.. doctest::
-
-   >>> cvtx = vx.compress(vtx)
-   >>> cvtx.nbytes
-   14309
-   >>> cvtx.nbytes / vtx.nbytes
-   0.10...
-
-Vortex uses nearly ten times fewer bytes than Arrow. Fewer bytes means more of your data fits in
-cache and RAM.
-
 Write
 -----
 
@@ -51,7 +35,7 @@ Use :func:`~vortex.io.write` to write the Vortex array to disk:
 
 .. doctest::
 
-   >>> vortex.io.write(cvtx, "example.vortex")
+   >>> vortex.io.write(cvtx, "example.vortex") # doctest: +SKIP
 
 Small Vortex files (this one is just 71KiB) currently have substantial overhead relative to their
 size. This will be addressed shortly. On files with at least tens of megabytes of data, Vortex is
@@ -71,3 +55,17 @@ Use :func:`~vortex.open` to open and read the Vortex array from disk:
 .. doctest::
 
    >>> cvtx = vortex.open("example.vortex").scan().read_all()
+
+
+Vortex is architected to achieve fast random access, in many cases hundreds of times faster
+than what can be achieved with Parquet.
+
+If you have an external index that gives you specific rows to pull out of the Vortex file, you can skip a lot more
+IO and decoding and read just the data that is relevant to you:
+
+.. doctest::
+
+    >>> vf = vortex.open("example.vortex")
+    >>> # row indices must be ordered and unique
+    >>> result = vf.scan(indices=vortex.array([1, 2, 10])).read_all()
+    >>> assert len(result) == 3

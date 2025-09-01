@@ -1,4 +1,6 @@
-use std::ops::BitAnd;
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::sync::LazyLock;
 
 use arcref::ArcRef;
@@ -8,11 +10,20 @@ use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{BoolArray, ConstantArray};
+use crate::arrays::ConstantArray;
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, fill_null};
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
+
+/// The filter [`ComputeFn`].
+static FILTER_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("filter".into(), ArcRef::new_ref(&Filter));
+    for kernel in inventory::iter::<FilterKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
 
 /// Keep only the elements for which the corresponding mask value is true.
 ///
@@ -27,15 +38,12 @@ use crate::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
 ///
 /// let array =
 ///     PrimitiveArray::from_option_iter([Some(0i32), None, Some(1i32), None, Some(2i32)]);
-/// let mask = Mask::try_from(
-///     &BoolArray::from_iter([true, false, false, false, true]),
-/// )
-/// .unwrap();
+/// let mask = Mask::from_iter([true, false, false, false, true]);
 ///
 /// let filtered = filter(array.as_ref(), &mask).unwrap();
 /// assert_eq!(filtered.len(), 2);
-/// assert_eq!(filtered.scalar_at(0).unwrap(), Scalar::from(Some(0_i32)));
-/// assert_eq!(filtered.scalar_at(1).unwrap(), Scalar::from(Some(2_i32)));
+/// assert_eq!(filtered.scalar_at(0), Scalar::from(Some(0_i32)));
+/// assert_eq!(filtered.scalar_at(1), Scalar::from(Some(2_i32)));
 /// ```
 ///
 /// # Panics
@@ -50,15 +58,6 @@ pub fn filter(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
         })?
         .unwrap_array()
 }
-
-/// The filter [`ComputeFn`].
-pub static FILTER_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("filter".into(), ArcRef::new_ref(&Filter));
-    for kernel in inventory::iter::<FilterKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
 
 struct Filter;
 
@@ -94,7 +93,7 @@ impl ComputeFnVTable for Filter {
         // Otherwise, we can use scalar_at if the mask has length 1.
         if mask.true_count() == 1 {
             let idx = mask.first().vortex_expect("true_count == 1");
-            return Ok(ConstantArray::new(array.scalar_at(idx)?, 1)
+            return Ok(ConstantArray::new(array.scalar_at(idx), 1)
                 .into_array()
                 .into());
         }
@@ -189,50 +188,24 @@ impl<V: VTable + FilterKernel> Kernel for FilterKernelAdapter<V> {
     }
 }
 
-impl TryFrom<&BoolArray> for Mask {
-    type Error = VortexError;
-
-    fn try_from(array: &BoolArray) -> Result<Self, Self::Error> {
-        if let Some(constant) = array.as_constant() {
-            let bool_constant = constant.as_bool();
-            if bool_constant.value().unwrap_or(false) {
-                return Ok(Self::new_true(array.len()));
-            } else {
-                return Ok(Self::new_false(array.len()));
-            }
-        }
-
-        // Extract a boolean buffer, treating null values to false
-        let buffer = match array.validity_mask()? {
-            Mask::AllTrue(_) => array.boolean_buffer().clone(),
-            Mask::AllFalse(_) => return Ok(Self::new_false(array.len())),
-            Mask::Values(validity) => validity.boolean_buffer().bitand(array.boolean_buffer()),
-        };
-
-        Ok(Self::from_buffer(buffer))
-    }
-}
-
-impl TryFrom<&dyn Array> for Mask {
-    type Error = VortexError;
-
+impl dyn Array + '_ {
     /// Converts from a possible nullable boolean array. Null values are treated as false.
-    fn try_from(array: &dyn Array) -> Result<Self, Self::Error> {
-        if !matches!(array.dtype(), DType::Bool(_)) {
-            vortex_bail!("mask must be bool array, has dtype {}", array.dtype());
+    pub fn try_to_mask_fill_null_false(&self) -> VortexResult<Mask> {
+        if !matches!(self.dtype(), DType::Bool(_)) {
+            vortex_bail!("mask must be bool array, has dtype {}", self.dtype());
         }
 
         // Convert nulls to false first in case this can be done cheaply by the encoding.
-        let array = fill_null(array, &Scalar::bool(false, array.dtype().nullability()))?;
+        let array = fill_null(self, &Scalar::bool(false, self.dtype().nullability()))?;
 
-        Self::try_from(&array.to_bool()?)
+        Ok(array.to_bool()?.to_mask_fill_null_false())
     }
 }
 
 pub fn arrow_filter_fn(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
     let values = match &mask {
         Mask::Values(values) => values,
-        _ => unreachable!("check in filter invoke"),
+        Mask::AllTrue(_) | Mask::AllFalse(_) => unreachable!("check in filter invoke"),
     };
 
     let array_ref = array.to_array().into_arrow_preferred()?;
@@ -248,7 +221,8 @@ pub fn arrow_filter_fn(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef>
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::arrays::{BoolArray, PrimitiveArray};
+    use crate::arrays::PrimitiveArray;
+    use crate::canonical::ToCanonical;
     use crate::compute::filter::filter;
 
     #[test]
@@ -256,7 +230,7 @@ mod test {
         let items =
             PrimitiveArray::from_option_iter([Some(0i32), None, Some(1i32), None, Some(2i32)])
                 .into_array();
-        let mask = Mask::try_from(&BoolArray::from_iter([true, false, true, false, true])).unwrap();
+        let mask = Mask::from_iter([true, false, true, false, true]);
 
         let filtered = filter(&items, &mask).unwrap();
         assert_eq!(

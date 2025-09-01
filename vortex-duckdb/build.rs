@@ -1,15 +1,31 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::expect_used)]
 use std::path::PathBuf;
 use std::{env, fs};
 
-const DUCKDB_VERSION: &str = "v1.3.1";
-const DUCKDB_BASE_URL: &str = "https://github.com/duckdb/duckdb/releases/download";
+use bindgen::Abi;
+use once_cell::sync::Lazy;
 
-fn download_duckdb_archive() -> Result<PathBuf, Box<dyn std::error::Error>> {
+const DUCKDB_BASE_URL: &str = "https://github.com/duckdb/duckdb/releases/download";
+static DUCKDB_VERSION: Lazy<String> = Lazy::new(|| {
+    // Override the DuckDB version via environment variable in case of an extension build.
+    // `DUCKDB_VERSION` is set by the extension build in the `duckdb-vortex` repo.
+    //
+    // This is to ensure that we don't implicitly build against a different DuckDB version during
+    // an extension build which might lead to subtle ABI breaks, e.g. reordering fields in C++ structs.
+    env::var("DUCKDB_VERSION")
+        .unwrap_or_else(|_| "1.3.2".to_owned())
+        .trim_start_matches("v")
+        .to_owned()
+});
+
+fn download_duckdb_lib_archive() -> Result<PathBuf, Box<dyn std::error::Error>> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
     let target_dir = manifest_dir.parent().unwrap().join("target");
-    let duckdb_dir = target_dir.join(format!("duckdb-{DUCKDB_VERSION}"));
+    let duckdb_dir = target_dir.join("duckdb-lib");
 
     let target = env::var("TARGET")?;
     let (platform, arch) = match target.as_str() {
@@ -21,15 +37,19 @@ fn download_duckdb_archive() -> Result<PathBuf, Box<dyn std::error::Error>> {
     };
 
     let archive_name = format!("libduckdb-{platform}-{arch}.zip");
-    let url = format!("{DUCKDB_BASE_URL}/{DUCKDB_VERSION}/{archive_name}");
+    let url = format!(
+        "{DUCKDB_BASE_URL}/v{}/{archive_name}",
+        DUCKDB_VERSION.as_str()
+    );
     let archive_path = duckdb_dir.join(&archive_name);
 
-    // Create directory if it doesn't exist.
+    // Recreate the duckdb directory
+    let _ = fs::remove_dir_all(&duckdb_dir);
     fs::create_dir_all(&duckdb_dir)?;
 
     if !archive_path.exists() {
         println!("Downloading DuckDB libraries from {url}");
-        let response = reqwest::blocking::get(&url)?;
+        let response = http_client()?.get(&url).send()?;
         fs::write(&archive_path, &response.bytes()?)?;
         println!("Downloaded to {}", archive_path.display());
     } else {
@@ -40,32 +60,120 @@ fn download_duckdb_archive() -> Result<PathBuf, Box<dyn std::error::Error>> {
 }
 
 fn extract_duckdb_libraries(archive_path: PathBuf) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let duckdb_dir = archive_path
+    let duckdb_lib_dir = archive_path
         .parent()
         .ok_or("Invalid archive path")?
         .to_path_buf();
 
     // Check if already extracted. The archive for Linux only contains a .so library, macOS only .dylib.
-    if duckdb_dir.join("libduckdb.dylib").exists() || duckdb_dir.join("libduckdb.so").exists() {
+    if duckdb_lib_dir.join("libduckdb.dylib").exists()
+        || duckdb_lib_dir.join("libduckdb.so").exists()
+    {
         println!("DuckDB libraries already extracted, skipping extraction");
-        return Ok(duckdb_dir);
+        return Ok(duckdb_lib_dir);
     }
 
     let file = fs::File::open(&archive_path)?;
     let mut archive = zip::ZipArchive::new(file)?;
-    archive.extract(&duckdb_dir)?;
-    println!("Extracting DuckDB libraries to {}", duckdb_dir.display());
+    archive.extract(&duckdb_lib_dir)?;
+    println!(
+        "Extracting DuckDB libraries to {}",
+        duckdb_lib_dir.display()
+    );
 
-    Ok(duckdb_dir)
+    Ok(duckdb_lib_dir)
+}
+
+fn download_duckdb_source_archive() -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
+    let target_dir = manifest_dir.parent().unwrap().join("target");
+    let duckdb_source_dir = target_dir.join(format!("duckdb-source-v{}", DUCKDB_VERSION.as_str()));
+    let archive_name = format!("duckdb-source-v{}.zip", DUCKDB_VERSION.as_str());
+    let url = format!(
+        "https://github.com/duckdb/duckdb/archive/refs/tags/v{}.zip",
+        DUCKDB_VERSION.as_str()
+    );
+    let archive_path = duckdb_source_dir.join(&archive_name);
+
+    // Create directory if it doesn't exist.
+    fs::create_dir_all(&duckdb_source_dir)?;
+
+    if !archive_path.exists() {
+        println!("Downloading DuckDB source code from {url}");
+        let response = http_client()?.get(&url).send()?;
+        fs::write(&archive_path, &response.bytes()?)?;
+        println!("Downloaded to {}", archive_path.display());
+    } else {
+        println!("Source archive already exists, skipping download");
+    }
+
+    Ok(archive_path)
+}
+
+fn extract_duckdb_source(archive_path: PathBuf) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let duckdb_source_dir = archive_path
+        .parent()
+        .ok_or("Invalid archive path")?
+        .to_path_buf();
+
+    // Check if the source is already extracted.
+    if duckdb_source_dir
+        .join(format!("duckdb-{}/CMakeLists.txt", DUCKDB_VERSION.as_str()))
+        .exists()
+    {
+        println!("DuckDB source already extracted, skipping extraction");
+        return Ok(duckdb_source_dir);
+    }
+
+    let file = fs::File::open(&archive_path)?;
+    let mut archive = zip::ZipArchive::new(file)?;
+    archive.extract(&duckdb_source_dir)?;
+    println!(
+        "Extracting DuckDB source to {}",
+        duckdb_source_dir.display()
+    );
+
+    Ok(duckdb_source_dir)
+}
+
+fn http_client() -> Result<reqwest::blocking::Client, Box<dyn std::error::Error>> {
+    let timeout_secs = env::var("CARGO_HTTP_TIMEOUT")
+        .or_else(|_| env::var("HTTP_TIMEOUT"))
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(90);
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(timeout_secs))
+        .build()?;
+    Ok(client)
 }
 
 fn main() {
     let crate_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let duckdb_repo = crate_dir.join("duckdb");
 
+    // Download and extract prebuilt DuckDB libraries.
+    let zip_lib_path = download_duckdb_lib_archive().unwrap();
+    let extraced_lib_path = extract_duckdb_libraries(zip_lib_path).unwrap();
+
+    // Download, extract and symlink DuckDB source code.
+    let zip_source_path = download_duckdb_source_archive().unwrap();
+    let extracted_source_path = extract_duckdb_source(zip_source_path).unwrap();
+    let _ = fs::remove_dir_all(&duckdb_repo);
+    std::os::unix::fs::symlink(&extracted_source_path, &duckdb_repo).unwrap();
+
     // Generate the _imported_ bindings from our C++ code.
     bindgen::Builder::default()
         .header("cpp/include/duckdb_vx.h")
+        .override_abi(Abi::CUnwind, ".*")
+        // Allow for auto-generated cpp.rs code.
+        .raw_line("#![allow(dead_code)]")
+        .raw_line("#![allow(non_camel_case_types)]")
+        .raw_line("#![allow(non_upper_case_globals)]")
+        .raw_line("#![allow(non_snake_case)]")
+        .raw_line("#![allow(clippy::suspicious_doc_comments)]")
+        .raw_line("#![allow(clippy::enum_variant_names)]")
         // Add the #[must_use] attribute to FFI functions that return results.
         .must_use_type("duckdb_state")
         .rustified_enum("duckdb_state")
@@ -78,7 +186,10 @@ fn main() {
         //.generate_cstr(true) // This emits invalid syntax and breaks the Rust formatter
         .clang_arg(format!(
             "-I{}",
-            duckdb_repo.join("src/include").to_str().unwrap()
+            duckdb_repo
+                .join(format!("duckdb-{}/src/include", DUCKDB_VERSION.as_str()))
+                .to_str()
+                .unwrap()
         ))
         .clang_arg(format!(
             "-I{}",
@@ -94,36 +205,44 @@ fn main() {
         .write_to_file(crate_dir.join("src/cpp.rs"))
         .expect("Couldn't write bindings!");
 
-    // Download and extract prebuilt DuckDB libraries.
-    let zip_path = download_duckdb_archive().unwrap();
-    let lib_path = extract_duckdb_libraries(zip_path).unwrap();
-
     // Link against DuckDB dylib.
-    println!("cargo:rustc-link-search=native={}", lib_path.display());
+    println!(
+        "cargo:rustc-link-search=native={}",
+        extraced_lib_path.display()
+    );
     println!("cargo:rustc-link-lib=dylib=duckdb");
-    println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_path.display());
-
-    if env::var("TARGET").unwrap().contains("linux") {
-        println!("cargo:rustc-link-lib=stdc++");
-    } else {
-        println!("cargo:rustc-link-lib=c++");
-    }
+    println!(
+        "cargo:rustc-link-arg=-Wl,-rpath,{}",
+        extraced_lib_path.display()
+    );
 
     // Compile our C++ code that exposes additional DuckDB functionality.
     cc::Build::new()
         .std("c++17")
+        // Enable compiler warnings.
+        .flag("-Wall")
+        .flag("-Wextra")
+        .flag("-Wpedantic")
         // Allow C++20 designator syntax even with C++17 std
         .flag("-Wno-c++20-designator")
+        // Enable C++20 extensions
+        .flag("-Wno-c++20-extensions")
+        // Unused parameter warnings are disabled as we include DuckDB
+        // headers with implementations that have unused parameters.
         .flag("-Wno-unused-parameter")
+        .cpp(true)
         // We include DuckDB headers from the DuckDB extension submodule.
-        .include(duckdb_repo.join("src/include"))
+        .include(duckdb_repo.join(format!("duckdb-{}/src/include", DUCKDB_VERSION.as_str())))
         .include("cpp/include")
+        .file("cpp/client_context.cpp")
+        .file("cpp/config.cpp")
         .file("cpp/copy_function.cpp")
         .file("cpp/data.cpp")
         .file("cpp/data_chunk.cpp")
         .file("cpp/error.cpp")
         .file("cpp/expr.cpp")
         .file("cpp/logical_type.cpp")
+        .file("cpp/object_cache.cpp")
         .file("cpp/scalar_function.cpp")
         .file("cpp/table_filter.cpp")
         .file("cpp/table_function.cpp")

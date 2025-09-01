@@ -1,8 +1,12 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! IoDispatcher that functions in WASM.
 
 use std::future::Future;
 
 use futures::channel::oneshot;
+use tracing::Instrument;
 use vortex_error::{VortexResult, vortex_panic};
 use wasm_bindgen_futures::wasm_bindgen::__rt::Start;
 
@@ -25,9 +29,11 @@ impl Dispatch for WasmDispatcher {
         Fut: Future<Output = R> + 'static,
         R: Send + 'static,
     {
+        let span = tracing::Span::current();
+
         let (tx, rx) = oneshot::channel();
         wasm_bindgen_futures::spawn_local(async move {
-            let result = task().await;
+            let result = task().instrument(span).await;
             tx.send(result)
                 // NOTE: We don't know if the err is Debug
                 .unwrap_or_else(|_err| vortex_panic!("WasmDispatcher: task submit failed"));

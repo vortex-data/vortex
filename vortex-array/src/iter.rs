@@ -1,10 +1,13 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! Iterator over slices of an array, and related utilities.
 
 use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexResult;
 
 use crate::arrays::{ChunkedArray, ChunkedVTable};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
@@ -108,7 +111,7 @@ impl Iterator for ArrayChunkIterator {
         match self {
             ArrayChunkIterator::Single(array) => array.take().map(Ok),
             ArrayChunkIterator::Chunked(chunked, idx) => (*idx < chunked.nchunks()).then(|| {
-                let chunk = chunked.chunk(*idx).vortex_expect("not out of bounds");
+                let chunk = chunked.chunk(*idx);
                 *idx += 1;
                 Ok(chunk.clone())
             }),

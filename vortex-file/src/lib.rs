@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 #![allow(clippy::cast_possible_truncation)]
 #![doc(html_logo_url = "/vortex/docs/_static/vortex_spiral_logo.svg")]
 //! Read and write Vortex layouts, a serialization of Vortex arrays.
@@ -120,7 +123,7 @@ use vortex_decimal_byte_parts::DecimalBytePartsEncoding;
 use vortex_dict::DictEncoding;
 use vortex_fastlanes::{BitPackedEncoding, DeltaEncoding, FoREncoding};
 use vortex_fsst::FSSTEncoding;
-pub use vortex_layout::scan;
+use vortex_pco::PcoEncoding;
 use vortex_runend::RunEndEncoding;
 use vortex_sequence::SequenceEncoding;
 use vortex_sparse::SparseEncoding;
@@ -174,10 +177,13 @@ pub static DEFAULT_REGISTRY: LazyLock<Arc<ArrayRegistry>> = LazyLock::new(|| {
         EncodingRef::new_ref(DictEncoding.as_ref()),
         EncodingRef::new_ref(FSSTEncoding.as_ref()),
         EncodingRef::new_ref(FoREncoding.as_ref()),
+        EncodingRef::new_ref(PcoEncoding.as_ref()),
         EncodingRef::new_ref(RunEndEncoding.as_ref()),
         EncodingRef::new_ref(SequenceEncoding.as_ref()),
         EncodingRef::new_ref(SparseEncoding.as_ref()),
         EncodingRef::new_ref(ZigZagEncoding.as_ref()),
+        #[cfg(feature = "zstd")]
+        EncodingRef::new_ref(vortex_zstd::ZstdEncoding.as_ref()),
     ]);
     Arc::new(registry)
 });

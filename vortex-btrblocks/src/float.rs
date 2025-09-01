@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 mod dictionary;
 mod stats;
 
@@ -7,8 +10,6 @@ use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_dtype::PType;
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
-use vortex_runend::RunEndArray;
-use vortex_runend::compress::runend_encode;
 
 use self::stats::FloatStats;
 use crate::float::dictionary::dictionary_encode;
@@ -18,9 +19,6 @@ use crate::{
     Compressor, CompressorStats, GenerateStatsOptions, Scheme,
     estimate_compression_ratio_with_sampling, integer,
 };
-
-/// Threshold for the average run length in an array before we consider run-end encoding.
-const RUN_END_THRESHOLD: u32 = 3;
 
 pub trait FloatScheme: Scheme<StatsType = FloatStats, CodeType = FloatCode> {}
 
@@ -73,9 +71,6 @@ struct ALPRDScheme;
 
 #[derive(Debug, Copy, Clone)]
 struct DictScheme;
-
-#[derive(Debug, Copy, Clone)]
-struct RunEndScheme;
 
 impl Scheme for UncompressedScheme {
     type StatsType = FloatStats;
@@ -222,7 +217,7 @@ impl Scheme for ALPScheme {
 
         let patches = alp.patches().map(compress_patches).transpose()?;
 
-        Ok(ALPArray::try_new(compressed_alp_ints, alp.exponents(), patches)?.into_array())
+        Ok(ALPArray::new(compressed_alp_ints, alp.exponents(), patches).into_array())
     }
 }
 
@@ -320,7 +315,7 @@ impl Scheme for DictScheme {
         allowed_cascading: usize,
         _excludes: &[FloatCode],
     ) -> VortexResult<ArrayRef> {
-        let dict_array = dictionary_encode(stats)?;
+        let dict_array = dictionary_encode(stats);
 
         // Only compress the codes.
         let codes_stats = IntegerStats::generate_opts(
@@ -333,7 +328,7 @@ impl Scheme for DictScheme {
             &codes_stats,
             is_sample,
             allowed_cascading - 1,
-            &[integer::DictScheme.code()],
+            &[integer::DictScheme.code(), integer::SequenceScheme.code()],
         )?;
         let compressed_codes = codes_scheme.compress(
             &codes_stats,
@@ -343,65 +338,14 @@ impl Scheme for DictScheme {
         )?;
 
         let compressed_values = FloatCompressor::compress(
-            &dict_array.values().to_primitive()?,
+            &dict_array.values().to_primitive()?.downcast()?,
             is_sample,
             allowed_cascading - 1,
             &[DICT_SCHEME],
         )?;
 
-        Ok(DictArray::try_new(compressed_codes, compressed_values)?.into_array())
-    }
-}
-
-impl Scheme for RunEndScheme {
-    type StatsType = FloatStats;
-    type CodeType = FloatCode;
-
-    fn code(&self) -> FloatCode {
-        RUNEND_SCHEME
-    }
-
-    fn expected_compression_ratio(
-        &self,
-        stats: &Self::StatsType,
-        is_sample: bool,
-        allowed_cascading: usize,
-        excludes: &[FloatCode],
-    ) -> VortexResult<f64> {
-        if stats.average_run_length < RUN_END_THRESHOLD {
-            return Ok(0.0);
-        }
-
-        estimate_compression_ratio_with_sampling(
-            self,
-            stats,
-            is_sample,
-            allowed_cascading,
-            excludes,
-        )
-    }
-
-    fn compress(
-        &self,
-        stats: &FloatStats,
-        is_sample: bool,
-        allowed_cascading: usize,
-        _excludes: &[FloatCode],
-    ) -> VortexResult<ArrayRef> {
-        let (ends, values) = runend_encode(stats.source())?;
-        // Integer compress the ends, leave the values uncompressed.
-        let compressed_ends = IntCompressor::compress(
-            &ends,
-            is_sample,
-            allowed_cascading - 1,
-            &[
-                integer::RunEndScheme.code(),
-                integer::DictScheme.code(),
-                integer::SparseScheme.code(),
-            ],
-        )?;
-
-        Ok(RunEndArray::try_new(compressed_ends, values)?.into_array())
+        // SAFETY: compressing codes or values does not alter the invariants
+        unsafe { Ok(DictArray::new_unchecked(compressed_codes, compressed_values).into_array()) }
     }
 }
 
@@ -442,6 +386,6 @@ mod tests {
 
         let floats = values.into_array().to_primitive().unwrap();
         let compressed = FloatCompressor::compress(&floats, false, MAX_CASCADE, &[]).unwrap();
-        println!("compressed: {}", compressed.tree_display())
+        println!("compressed: {}", compressed.display_tree())
     }
 }

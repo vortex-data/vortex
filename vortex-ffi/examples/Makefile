@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: CC-BY-4.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 # Directory containing the Rust crate
 ROOT_DIR = ../..
 RUST_CRATE_DIR = ..

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! Traits and utilities to compute and access array statistics.
 
 use std::fmt::{Debug, Display, Formatter};
@@ -16,15 +19,15 @@ mod array;
 mod bound;
 pub mod flatbuffers;
 mod precision;
+mod provider;
 mod stat_bound;
 mod stats_set;
-mod traits;
 
 pub use array::*;
 pub use bound::{LowerBound, UpperBound};
 pub use precision::Precision;
+pub use provider::*;
 pub use stat_bound::*;
-pub use traits::*;
 use vortex_error::VortexExpect;
 
 /// Statistics that are used for pruning files (i.e., we want to ensure they are computed when compressing/writing).
@@ -171,13 +174,16 @@ impl Stat {
             Self::Min => data_type.clone(),
             Self::NullCount => DType::Primitive(PType::U64, NonNullable),
             Self::UncompressedSizeInBytes => DType::Primitive(PType::U64, NonNullable),
-            Self::NaNCount => match data_type {
-                DType::Primitive(ptype, ..) if ptype.is_float() => {
+            Self::NaNCount => {
+                // Only floating points support NaN counts.
+                if let DType::Primitive(ptype, ..) = data_type
+                    && ptype.is_float()
+                {
                     DType::Primitive(PType::U64, NonNullable)
+                } else {
+                    return None;
                 }
-                // Any other type does not support NaN count
-                _ => return None,
-            },
+            }
             Self::Sum => {
                 // Any array that cannot be summed has a sum DType of null.
                 // Any array that can be summed, but overflows, has a sum _value_ of null.
@@ -192,19 +198,15 @@ impl Stat {
                             DType::Primitive(PType::I64, Nullable)
                         }
                         PType::F16 | PType::F32 | PType::F64 => {
-                            // Float sums cannot overflow, so it's non-nullable
-                            DType::Primitive(PType::F64, NonNullable)
+                            // Float sums cannot overflow, but all null floats still end up as null
+                            DType::Primitive(PType::F64, Nullable)
                         }
                     },
                     DType::Extension(ext_dtype) => self.dtype(ext_dtype.storage_dtype())?,
-                    // Unsupported types
-                    DType::Null
                     // TODO(aduffy): implement more stats for Decimal
-                    | DType::Decimal(..)
-                    | DType::Utf8(_)
-                    | DType::Binary(_)
-                    | DType::Struct(..)
-                    | DType::List(..) => return None,
+                    DType::Decimal(..) => return None,
+                    // Unsupported types
+                    _ => return None,
                 }
             }
         })

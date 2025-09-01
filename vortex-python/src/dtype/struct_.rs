@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::ops::Deref;
 
 use pyo3::prelude::*;
@@ -22,7 +25,7 @@ impl PyStructDType {
     }
 
     /// Returns the field DTypes of the struct.
-    pub fn fields(self_: PyRef<'_, Self>) -> PyResult<Vec<Bound<PyDType>>> {
+    pub fn fields(self_: PyRef<'_, Self>) -> PyResult<Vec<Bound<'_, PyDType>>> {
         let DType::Struct(dtype, _) = self_.as_ref().deref() else {
             vortex_panic!("Not a struct DType");
         };

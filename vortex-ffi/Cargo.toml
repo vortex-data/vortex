@@ -22,13 +22,14 @@ log = { workspace = true }
 mimalloc = { workspace = true, optional = true }
 moka = { workspace = true, features = ["sync"] }
 object_store = { workspace = true, features = ["aws", "azure", "gcp"] }
+parking_lot = { workspace = true }
 paste = { workspace = true }
 prost = { workspace = true }
 simplelog = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 tokio-stream = { workspace = true }
 url = { workspace = true, features = [] }
-vortex = { workspace = true, features = ["object_store", "proto"] }
+vortex = { workspace = true, features = ["object_store"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }

@@ -1,6 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use std::ops::Range;
+
 use vortex_buffer::Buffer;
 use vortex_dtype::DecimalDType;
-use vortex_error::VortexResult;
 use vortex_scalar::{DecimalValue, NativeDecimalType, Scalar, match_each_decimal_value_type};
 
 use crate::arrays::{DecimalArray, DecimalVTable};
@@ -9,40 +13,37 @@ use crate::vtable::OperationsVTable;
 use crate::{ArrayRef, IntoArray};
 
 impl OperationsVTable<DecimalVTable> for DecimalVTable {
-    fn slice(array: &DecimalArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+    fn slice(array: &DecimalArray, range: Range<usize>) -> ArrayRef {
         match_each_decimal_value_type!(array.values_type(), |D| {
             slice_typed(
                 array.buffer::<D>(),
-                start,
-                stop,
+                range,
                 array.decimal_dtype(),
                 array.validity.clone(),
             )
         })
     }
 
-    fn scalar_at(array: &DecimalArray, index: usize) -> VortexResult<Scalar> {
-        let scalar = match_each_decimal_value_type!(array.values_type(), |D| {
+    fn scalar_at(array: &DecimalArray, index: usize) -> Scalar {
+        match_each_decimal_value_type!(array.values_type(), |D| {
             Scalar::decimal(
                 DecimalValue::from(array.buffer::<D>()[index]),
                 array.decimal_dtype(),
                 array.dtype().nullability(),
             )
-        });
-        Ok(scalar)
+        })
     }
 }
 
 fn slice_typed<T: NativeDecimalType>(
     values: Buffer<T>,
-    start: usize,
-    end: usize,
+    range: Range<usize>,
     decimal_dtype: DecimalDType,
     validity: Validity,
-) -> VortexResult<ArrayRef> {
-    let sliced = values.slice(start..end);
-    let validity = validity.slice(start, end)?;
-    Ok(DecimalArray::new(sliced, decimal_dtype, validity).into_array())
+) -> ArrayRef {
+    let sliced = values.slice(range.clone());
+    let validity = validity.slice(range);
+    DecimalArray::new(sliced, decimal_dtype, validity).into_array()
 }
 
 #[cfg(test)]
@@ -64,7 +65,7 @@ mod tests {
         )
         .to_array();
 
-        let sliced = array.slice(1, 3).unwrap();
+        let sliced = array.slice(1..3);
         assert_eq!(sliced.len(), 2);
 
         let decimal = sliced.as_::<DecimalVTable>();
@@ -80,7 +81,7 @@ mod tests {
         )
         .to_array();
 
-        let sliced = array.slice(1, 3).unwrap();
+        let sliced = array.slice(1..3);
         assert_eq!(sliced.len(), 2);
     }
 
@@ -93,7 +94,7 @@ mod tests {
         );
 
         assert_eq!(
-            array.scalar_at(0).unwrap(),
+            array.scalar_at(0),
             Scalar::decimal(
                 DecimalValue::I128(100),
                 DecimalDType::new(3, 2),

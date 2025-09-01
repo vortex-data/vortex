@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_error::VortexResult;
 
 use crate::Canonical;
@@ -12,7 +15,7 @@ impl EncodeVTable<ConstantVTable> for ConstantVTable {
     ) -> VortexResult<Option<ConstantArray>> {
         let canonical = canonical.as_ref();
         if canonical.is_constant() {
-            let scalar = canonical.scalar_at(0)?;
+            let scalar = canonical.scalar_at(0);
             Ok(Some(ConstantArray::new(scalar, canonical.len())))
         } else {
             Ok(None)

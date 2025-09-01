@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::iter;
 
 use vortex_dtype::NativePType;
@@ -12,7 +15,7 @@ use crate::vtable::ValidityHelper;
 impl<T: NativePType> ArrayAccessor<T> for PrimitiveArray {
     fn with_iterator<F, R>(&self, f: F) -> VortexResult<R>
     where
-        F: for<'a> FnOnce(&mut (dyn Iterator<Item = Option<&'a T>>)) -> R,
+        F: for<'a> FnOnce(&mut dyn Iterator<Item = Option<&'a T>>) -> R,
     {
         match self.validity() {
             Validity::NonNullable | Validity::AllValid => {

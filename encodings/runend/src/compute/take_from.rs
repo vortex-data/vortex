@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_array::compute::{TakeFromKernel, TakeFromKernelAdapter, take};
 use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
 use vortex_dtype::DType;
@@ -33,12 +36,15 @@ impl TakeFromKernel for RunEndVTable {
         let values = take(source, indices.values())?;
 
         // Create a new run-end array containing values as values, instead of indices as values.
-        let ree_array = RunEndArray::with_offset_and_length(
-            indices.ends().clone(),
-            values,
-            indices.offset(),
-            indices.len(),
-        )?;
+        // SAFETY: we are copying ends from an existing valid RunEndArray
+        let ree_array = unsafe {
+            RunEndArray::new_unchecked(
+                indices.ends().clone(),
+                values,
+                indices.offset(),
+                indices.len(),
+            )
+        };
 
         Ok(Some(ree_array.into_array()))
     }
