@@ -3,7 +3,7 @@
 
 use std::collections::BTreeSet;
 use std::ops::{BitAnd, Range};
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::FutureExt;
@@ -37,7 +37,6 @@ pub struct FlatReader {
     layout: FlatLayout,
     name: Arc<str>,
     segment_source: Arc<dyn SegmentSource>,
-    array: OnceLock<SharedArrayFuture>,
 }
 
 impl FlatReader {
@@ -50,7 +49,6 @@ impl FlatReader {
             layout,
             name,
             segment_source,
-            array: Default::default(),
         }
     }
 
@@ -69,21 +67,16 @@ impl FlatReader {
         // This is gross... see the function's TODO for a maybe better solution?
         let segment_fut = self.segment_source.request(self.layout.segment_id());
 
-        Ok(self
-            .array
-            .get_or_init(|| {
-                let ctx = self.layout.ctx.clone();
-                let dtype = self.layout.dtype().clone();
-                async move {
-                    let segment = segment_fut.await?;
-                    ArrayParts::try_from(segment)?
-                        .decode(&ctx, &dtype, row_count)
-                        .map_err(Arc::new)
-                }
-                .boxed()
-                .shared()
-            })
-            .clone())
+        let ctx = self.layout.ctx.clone();
+        let dtype = self.layout.dtype().clone();
+        Ok(async move {
+            let segment = segment_fut.await?;
+            ArrayParts::try_from(segment)?
+                .decode(&ctx, &dtype, row_count)
+                .map_err(Arc::new)
+        }
+        .boxed()
+        .shared())
     }
 }
 
