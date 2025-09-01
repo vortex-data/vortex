@@ -183,49 +183,51 @@ impl<'rt> MaskEvaluation<'rt> for FlatEvaluation<'rt> {
         let expr = self.expr.clone();
         let row_range = self.row_range.clone();
 
-        // self.handle
-        //     .spawn_cpu(move || {
-        let mut array = array;
+        self.handle
+            .spawn_cpu(move || {
+                let mut array = array;
 
-        if let Some(array) = try_evaluate_using_operator(row_range.clone(), &array, &expr, &mask)? {
-            let array_mask = Mask::from(&array.to_bool()?);
-            let mask = mask.intersect_by_rank(&array_mask);
-            return Ok(mask);
-        }
+                if let Some(array) =
+                    try_evaluate_using_operator(row_range.clone(), &array, &expr, &mask)?
+                {
+                    let array_mask = Mask::from(&array.to_bool()?);
+                    let mask = mask.intersect_by_rank(&array_mask);
+                    return Ok(mask);
+                }
 
-        // Slice the array based on the row mask.
-        if row_range.start > 0 || row_range.end < array.len() {
-            array = array.slice(row_range.clone());
-        }
+                // Slice the array based on the row mask.
+                if row_range.start > 0 || row_range.end < array.len() {
+                    array = array.slice(row_range.clone());
+                }
 
-        // TODO(ngates): the mask may actually be dense within a range, as is often the case when
-        //  we have approximate mask results from a zone map. In which case we could look at
-        //  the true_count between the mask's first and last true positions.
-        // TODO(ngates): we could also track runtime statistics about whether it's worth selecting
-        //   or not.
-        let array_mask = if mask.density() < EXPR_EVAL_THRESHOLD {
-            // Evaluate only the selected rows of the mask.
-            array = filter(&array, &mask)?;
-            let array_mask = Mask::try_from(expr.evaluate(&Scope::new(array))?.as_ref())?;
-            mask.intersect_by_rank(&array_mask)
-        } else {
-            // Evaluate all rows, avoiding the more expensive rank intersection.
-            array = expr.evaluate(&Scope::new(array))?;
-            let array_mask = Mask::try_from(array.as_ref())?;
-            mask.bitand(&array_mask)
-        };
+                // TODO(ngates): the mask may actually be dense within a range, as is often the case when
+                //  we have approximate mask results from a zone map. In which case we could look at
+                //  the true_count between the mask's first and last true positions.
+                // TODO(ngates): we could also track runtime statistics about whether it's worth selecting
+                //   or not.
+                let array_mask = if mask.density() < EXPR_EVAL_THRESHOLD {
+                    // Evaluate only the selected rows of the mask.
+                    array = filter(&array, &mask)?;
+                    let array_mask = Mask::try_from(expr.evaluate(&Scope::new(array))?.as_ref())?;
+                    mask.intersect_by_rank(&array_mask)
+                } else {
+                    // Evaluate all rows, avoiding the more expensive rank intersection.
+                    array = expr.evaluate(&Scope::new(array))?;
+                    let array_mask = Mask::try_from(array.as_ref())?;
+                    mask.bitand(&array_mask)
+                };
 
-        log::debug!(
-            "Flat mask evaluation {} - {} (mask = {}) => {}",
-            name,
-            expr,
-            mask.density(),
-            array_mask.density(),
-        );
+                log::debug!(
+                    "Flat mask evaluation {} - {} (mask = {}) => {}",
+                    name,
+                    expr,
+                    mask.density(),
+                    array_mask.density(),
+                );
 
-        Ok(array_mask)
-        // })
-        // .await
+                Ok(array_mask)
+            })
+            .await
     }
 }
 
@@ -245,32 +247,34 @@ impl<'rt> ArrayEvaluation<'rt> for FlatEvaluation<'rt> {
         // Now we await the array .
         let array = self.array.clone().await?;
 
-        // self.handle
-        //     .spawn_cpu(move || {
-        let mut array = array;
+        self.handle
+            .spawn_cpu(move || {
+                let mut array = array;
 
-        if let Some(array) = try_evaluate_using_operator(row_range.clone(), &array, &expr, &mask)? {
-            return Ok(array);
-        }
+                if let Some(array) =
+                    try_evaluate_using_operator(row_range.clone(), &array, &expr, &mask)?
+                {
+                    return Ok(array);
+                }
 
-        // Slice the array based on the row mask.
-        if row_range.start > 0 || row_range.end < array.len() {
-            array = array.slice(row_range.clone());
-        }
+                // Slice the array based on the row mask.
+                if row_range.start > 0 || row_range.end < array.len() {
+                    array = array.slice(row_range.clone());
+                }
 
-        // Filter the array based on the row mask.
-        if !mask.all_true() {
-            array = filter(&array, &mask)?;
-        }
+                // Filter the array based on the row mask.
+                if !mask.all_true() {
+                    array = filter(&array, &mask)?;
+                }
 
-        // Evaluate the projection expression.
-        if !is_root(&expr) {
-            array = expr.evaluate(&Scope::new(array))?;
-        }
+                // Evaluate the projection expression.
+                if !is_root(&expr) {
+                    array = expr.evaluate(&Scope::new(array))?;
+                }
 
-        Ok(array)
-        // })
-        // .await
+                Ok(array)
+            })
+            .await
     }
 }
 

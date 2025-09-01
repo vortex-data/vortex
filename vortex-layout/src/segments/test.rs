@@ -17,7 +17,7 @@ pub struct TestSegments {
     segments: Arc<Mutex<Vec<ByteBuffer>>>,
 }
 
-impl SegmentSource for TestSegments {
+impl SegmentSource<'_> for TestSegments {
     fn request(&self, id: SegmentId, _handle: &Handle) -> SegmentFuture<'static> {
         let buffer = self.segments.lock().get(*id as usize).cloned();
         async move { buffer.ok_or_else(|| vortex_err!("Segment not found")) }.boxed()

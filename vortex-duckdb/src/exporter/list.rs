@@ -4,13 +4,13 @@
 use std::marker::PhantomData;
 
 use itertools::Itertools as _;
-use vortex::ToCanonical as _;
 use vortex::arrays::{ListArray, PrimitiveArray};
-use vortex::dtype::{NativePType, match_each_integer_ptype};
-use vortex::error::{VortexResult, vortex_err};
+use vortex::dtype::{match_each_integer_ptype, NativePType};
+use vortex::error::{vortex_err, VortexResult};
 use vortex::mask::Mask;
+use vortex::ToCanonical as _;
 
-use super::{ConversionCache, new_array_exporter};
+use super::{new_array_exporter, ConversionCache};
 use crate::cpp;
 use crate::duckdb::Vector;
 use crate::exporter::{ColumnExporter, VectorExt};
@@ -88,10 +88,10 @@ impl<T: NativePType> ColumnExporter for ListExporter<T> {
 
 #[cfg(test)]
 mod tests {
-    use vortex::IntoArray as _;
     use vortex::arrays::VarBinArray;
-    use vortex::buffer::{Buffer, buffer};
+    use vortex::buffer::{buffer, Buffer};
     use vortex::validity::Validity;
+    use vortex::IntoArray as _;
 
     use super::*;
     use crate::cpp;
@@ -110,7 +110,7 @@ mod tests {
         let list_type = LogicalType::new_list(cpp::duckdb_type::DUCKDB_TYPE_INTEGER);
         let mut chunk = DataChunk::new([list_type]);
 
-        new_array_exporter(&list, &ConversionCache::new(0))
+        new_array_exporter(&list, &ConversionCache::new())
             .unwrap()
             .export(0, 0, &mut chunk.get_vector(0))
             .unwrap();

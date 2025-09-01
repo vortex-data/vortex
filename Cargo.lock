@@ -656,6 +656,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "signpost",
  "similar",
  "sysinfo",
  "tabled",
@@ -2534,7 +2535,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "778e2ac28f6c47af28e4907f13ffd1e1ddbd400980a9abd7c8df189bf578a5ad"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -5354,7 +5355,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.9.4",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -5622,6 +5623,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b2a4719bff48cee6b39d12c020eeb490953ad2443b7055bd0b21fca26bd8c28b"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "signpost"
+version = "0.1.0"
+source = "git+https://github.com/spiraldb/os-signpost?branch=develop#ab2196ab7bad63b03b97e1762ab164d37c1c46f5"
+dependencies = [
+ "bindgen",
+ "dashmap",
+ "signpost_derive",
+ "tracing",
+ "tracing-core",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "signpost_derive"
+version = "0.1.0"
+source = "git+https://github.com/spiraldb/os-signpost?branch=develop#ab2196ab7bad63b03b97e1762ab164d37c1c46f5"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.106",
 ]
 
 [[package]]
@@ -6000,7 +6024,7 @@ dependencies = [
  "getrandom 0.3.3",
  "once_cell",
  "rustix 1.0.8",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -7024,6 +7048,7 @@ dependencies = [
  "object_store",
  "rustc-hash",
  "tokio",
+ "tracing",
  "uuid",
  "vortex-alp",
  "vortex-array",
@@ -7609,7 +7634,7 @@ version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0978bf7171b3d90bac376700cb56d606feb40f251a475a5d6634613564460b22"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]

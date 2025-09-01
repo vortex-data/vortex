@@ -4,7 +4,7 @@
 use futures::FutureExt;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
-use vortex_io::runtime::Handle;
+use vortex_io::runtime::{Handle, IoSource};
 use vortex_layout::segments::{SegmentFuture, SegmentId, SegmentSource};
 
 use crate::{FileType, Footer, VortexFile, VortexOpenOptions};
@@ -56,11 +56,14 @@ impl VortexOpenOptions<InMemoryFileType> {
             file_stats,
         )?;
 
+        let name = buffer.name();
+
         Ok(VortexFile {
             footer,
             file: handle.open(buffer),
             metrics: self.metrics,
             handle,
+            span: tracing::span!(tracing::Level::INFO, "VortexFile", name = ?name),
         })
     }
 }

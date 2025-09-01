@@ -12,6 +12,7 @@ pub mod multithread;
 pub mod singlethread;
 pub mod tokio;
 pub mod worker;
+pub mod worker2;
 
 use crate::runtime::coalesce::CoalescedRequest;
 use futures::future::BoxFuture;

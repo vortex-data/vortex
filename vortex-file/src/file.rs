@@ -42,6 +42,8 @@ pub struct VortexFile<'rt> {
     /// FIXME(ngates): this shoud have a lifetime? Then the user should be encouraged to stash
     ///  the footer if they care about cheap re-opening of a VortexFile.
     pub(crate) handle: Handle<'rt>,
+    /// A span that lives for the lifetime of the file.
+    pub(crate) span: tracing::Span,
 }
 
 impl<'rt> VortexFile<'rt> {

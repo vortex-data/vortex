@@ -217,6 +217,14 @@ impl CoalescedRequests {
         // Sort requests by offset for correct slicing in resolve
         requests.sort_unstable_by_key(|r| r.offset);
 
+        log::debug!(
+            "Coalesced {} requests into range {}-{} (len={})",
+            requests.len(),
+            current_start,
+            current_end,
+            current_end - current_start
+        );
+
         Some(CoalescedRequest {
             range: current_start..current_end,
             alignment,

@@ -86,6 +86,8 @@ impl VortexOpenOptions<GenericVortexFile> {
         source: S,
         handle: Handle<'rt>,
     ) -> VortexResult<VortexFile<'rt>> {
+        let name = source.name();
+
         // Open the file so we can read its footer.
         let read = handle.open(source);
 
@@ -142,6 +144,7 @@ impl VortexOpenOptions<GenericVortexFile> {
             file: read,
             metrics: self.metrics,
             handle,
+            span: tracing::span!(tracing::Level::INFO, "VortexFile", name = ?name),
         })
     }
 

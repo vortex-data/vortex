@@ -2,14 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use futures::stream::{BoxStream, SelectAll};
-use futures::{stream, FutureExt, Stream, StreamExt, TryStreamExt};
+use futures::{stream, Stream, StreamExt};
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use std::cmp::max;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::task::{ready, Context, Poll};
 use tokio::task::block_in_place;
@@ -23,7 +23,7 @@ use vortex::io::runtime::worker::{Worker, WorkerPool};
 use vortex::io::runtime::Handle;
 use vortex::scan::FilterExpr;
 use vortex::{ArrayRef, ToCanonical};
-use vortex_file::{Footer, GenericVortexFile};
+use vortex_file::Footer;
 
 use crate::convert::{try_from_bound_expression, try_from_table_filter};
 use crate::duckdb::footer_cache::FooterCache;
@@ -170,12 +170,18 @@ fn extract_table_filter_expr(
 }
 
 /// Helper function to open a Vortex file from either a local or S3 URL
-async fn open_file<'rt>(
+async fn open_file<'rt, 'c>(
     url: Url,
-    options: VortexOpenOptions<GenericVortexFile>,
+    cache: &FooterCache<'c>,
     handle: Handle<'rt>,
 ) -> VortexResult<VortexFile<'rt>> {
-    if url.scheme() == "s3" {
+    let mut options = VortexOpenOptions::file();
+
+    if let Some(footer) = cache.get(url.as_ref()) {
+        options = options.with_footer(footer.clone());
+    }
+
+    let vxf = if url.scheme() == "s3" {
         assert!(url.scheme() == "s3");
         let bucket = url
             .host_str()
@@ -195,7 +201,10 @@ async fn open_file<'rt>(
             .map_err(|_| vortex_err!("Invalid file URL: {url}"))?;
 
         options.open(path, handle).await
-    }
+    }?;
+
+    cache.insert(url.as_ref(), vxf.footer().clone());
+    Ok(vxf)
 }
 
 impl TableFunction for VortexTableFunction {
@@ -234,13 +243,12 @@ impl TableFunction for VortexTableFunction {
         };
 
         let footer_cache = FooterCache::new(ctx.object_cache());
-        let entry = footer_cache.entry(first_file_url.as_ref());
-
         let first_file = SingleThreadRuntime::drive(|handle| async move {
-            let options = entry.apply_to_file(VortexOpenOptions::file());
-            let file = open_file(first_file_url, options, handle).await?;
-            entry.put_if_absent(|| file.footer().clone());
-            VortexResult::Ok(file.into_footer())
+            Ok::<_, VortexError>(
+                open_file(first_file_url, &footer_cache, handle)
+                    .await?
+                    .into_footer(),
+            )
         })?;
 
         let (column_names, column_types) = extract_schema_from_vortex_dtype(first_file.dtype())?;
@@ -308,7 +316,6 @@ impl TableFunction for VortexTableFunction {
         let projection_expr = extract_projection_expr(init_input);
         let filter = extract_table_filter_expr(init_input, init_input.column_ids())?;
         let filter_expr = filter.clone().map(FilterExpr::new).map(Arc::new);
-        let filter_expr2 = filter_expr.clone();
 
         log::trace!(
             "Global init Vortex scan SELECT {} WHERE {}",
@@ -318,10 +325,8 @@ impl TableFunction for VortexTableFunction {
                 .map_or("true".to_string(), |f| f.to_string())
         );
 
-        // let object_cache = init_input.client_context()?.object_cache();
-        let first_file = bind_data.first_file.clone();
-        let first_file_url = bind_data.file_urls[0].clone();
-        let file_urls = bind_data.file_urls.clone();
+        let object_cache = init_input.client_context()?.object_cache();
+        let cache = FooterCache::new(object_cache);
 
         let pool = WorkerPool::drive_stream(move |handle| {
             // Estimate the number of workers.
@@ -331,74 +336,38 @@ impl TableFunction for VortexTableFunction {
                 .vortex_expect("available_parallelism")
                 .get();
 
-            let handle2 = handle.clone();
+            let file_urls = bind_data.file_urls.clone();
 
-            let scan_streams = stream::iter([async move {
-                let file = open_file(
-                    first_file_url,
-                    // By passing the cached footer, we avoid any I/O here it.
-                    VortexOpenOptions::file().with_footer(first_file),
-                    handle2,
-                )
-                .await?;
-                Ok::<_, VortexError>(file)
-            }
-            .boxed()])
-            .chain(stream::iter(file_urls).skip(1).map(move |path| {
-                let handle2 = handle.clone();
-                // We spawn tasks such that we continue to open files even if the scan is not
-                // yet requesting more files to be opened. Since we buffer 2 * workers, and the
-                // multi-scan only operates on 1 * workers, we should have an extra file open per
-                // worker in the background.
-                handle
-                    .spawn(async move {
-                        // let cache = FooterCache::new(object_cache);
-                        // let entry = cache.entry(path.as_ref());
-                        // let options = entry.apply_to_file(VortexOpenOptions::file());
-                        // let file = open_file(path.clone(), options, handle.clone()).await?;
-                        // entry.put_if_absent(|| file.footer().clone());
-                        let file =
-                            open_file(path.clone(), VortexOpenOptions::file(), handle2).await?;
-                        Ok::<_, VortexError>(file)
-                    })
-                    .boxed()
-            }))
-            // We make sure we're N files ahead in terms of opening and parsing footers.
-            .buffered(num_workers * 2)
-            .try_filter_map(move |vxf| {
-                let filter_expr = filter_expr.clone();
-                async move {
-                    if let Some(filter) = filter_expr.as_ref() {
-                        if vxf.can_prune(filter.expr())? {
-                            return Ok(None);
+            let scan_streams = stream::iter(file_urls)
+                .map(move |path| {
+                    let handle2 = handle.clone();
+                    let cache = cache.clone();
+                    let filter_expr = filter_expr.clone();
+                    let projection_expr = projection_expr.clone();
+                    handle.spawn(async move {
+                        let vxf = open_file(path.clone(), &cache, handle2.clone()).await?;
+
+                        // Attempt to prune the file.
+                        if let Some(filter) = filter_expr.as_ref() {
+                            if vxf.can_prune(filter.expr())? {
+                                return Ok(None);
+                            }
                         }
-                    }
-                    Ok::<_, VortexError>(Some(vxf))
-                }
-            })
-            .enumerate()
-            .map(move |(idx, vxf)| {
-                log::debug!("Starting scan of file {}", idx);
-                let conversion_cache = Arc::new(ConversionCache::new());
-                let vxf = vxf?;
-                let split_idx = AtomicUsize::new(0);
-                // FIXME(ngates): we should share the conjunction reordering across all scans.
-                let tasks = vxf
-                    .scan()?
-                    .with_some_filter_expr(filter_expr2.clone())
-                    .with_projection(projection_expr.clone())
-                    .map(move |split: ArrayRef| {
-                        log::debug!(
-                            "Completed scan of split {} from file {}",
-                            split_idx.fetch_add(1, Ordering::Relaxed),
-                            idx
-                        );
-                        Ok((split, conversion_cache.clone()))
+
+                        let conversion_cache = Arc::new(ConversionCache::new());
+                        let scan_stream = vxf
+                            .scan()?
+                            .with_some_filter_expr(filter_expr.clone())
+                            .with_projection(projection_expr.clone())
+                            .map(move |split: ArrayRef| Ok((split, conversion_cache.clone())))
+                            .into_stream()?
+                            .boxed();
+
+                        Ok(Some(scan_stream))
                     })
-                    .into_stream()?
-                    .boxed();
-                Ok::<_, VortexError>(tasks)
-            });
+                })
+                .buffer_unordered(num_workers)
+                .filter_map(|result| async move { result.transpose() });
 
             MultiScan {
                 streams: scan_streams.boxed(),
