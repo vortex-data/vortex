@@ -11,6 +11,7 @@ use crate::arrays::NullArray;
 use crate::builders::ArrayBuilder;
 use crate::{Array, ArrayRef, IntoArray};
 
+/// The builder for building a [`NullArray`].
 pub struct NullBuilder {
     length: usize,
 }

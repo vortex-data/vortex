@@ -10,7 +10,7 @@ use builders::ListBuilder;
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, NativePType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexUnwrap};
-use vortex_scalar::arbitrary::{random_decimal, random_scalar};
+use vortex_scalar::arbitrary::random_scalar;
 use vortex_scalar::{Scalar, match_each_decimal_value_type};
 
 use super::{
@@ -47,90 +47,14 @@ fn split_number_into_parts(n: usize, parts: usize) -> Vec<usize> {
         .collect()
 }
 
+/// Creates a random array with a random number of chunks.
 fn random_array(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Result<ArrayRef> {
     let num_chunks = u.int_in_range(1..=3)?;
     let chunk_lens = len.map(|l| split_number_into_parts(l, num_chunks));
     let mut chunks = (0..num_chunks)
         .map(|i| {
             let chunk_len = chunk_lens.as_ref().map(|c| c[i]);
-            match dtype {
-                DType::Null => Ok(NullArray::new(
-                    chunk_len
-                        .map(Ok)
-                        .unwrap_or_else(|| u.int_in_range(0..=100))?,
-                )
-                .into_array()),
-                DType::Bool(n) => random_bool(u, *n, chunk_len),
-                DType::Primitive(ptype, n) => match ptype {
-                    PType::U8 => random_primitive::<u8>(u, *n, chunk_len),
-                    PType::U16 => random_primitive::<u16>(u, *n, chunk_len),
-                    PType::U32 => random_primitive::<u32>(u, *n, chunk_len),
-                    PType::U64 => random_primitive::<u64>(u, *n, chunk_len),
-                    PType::I8 => random_primitive::<i8>(u, *n, chunk_len),
-                    PType::I16 => random_primitive::<i16>(u, *n, chunk_len),
-                    PType::I32 => random_primitive::<i32>(u, *n, chunk_len),
-                    PType::I64 => random_primitive::<i64>(u, *n, chunk_len),
-                    PType::F16 => Ok(random_primitive::<u16>(u, *n, chunk_len)?
-                        .to_primitive()
-                        .vortex_unwrap()
-                        .reinterpret_cast(PType::F16)
-                        .into_array()),
-                    PType::F32 => random_primitive::<f32>(u, *n, chunk_len),
-                    PType::F64 => random_primitive::<f64>(u, *n, chunk_len),
-                },
-                DType::Decimal(decimal, n) => {
-                    let elem_len = chunk_len.unwrap_or(u.int_in_range(0..=20)?);
-                    match_each_decimal_value_type!(smallest_storage_type(decimal), |DVT| {
-                        let mut builder =
-                            DecimalBuilder::new::<DVT>(decimal.precision(), decimal.scale(), *n);
-                        for _i in 0..elem_len {
-                            builder
-                                .append_scalar_value(random_decimal(u, decimal)?)
-                                .vortex_unwrap();
-                        }
-                        Ok(builder.finish())
-                    })
-                }
-                DType::Utf8(n) => random_string(u, *n, chunk_len),
-                DType::Binary(n) => random_bytes(u, *n, chunk_len),
-                DType::Struct(sdt, n) => {
-                    let first_array = sdt
-                        .fields()
-                        .next()
-                        .map(|d| random_array(u, &d, chunk_len))
-                        .transpose()?;
-                    let resolved_len = first_array
-                        .as_ref()
-                        .map(|a| a.len())
-                        .or(chunk_len)
-                        .map(Ok)
-                        .unwrap_or_else(|| u.int_in_range(0..=100))?;
-                    let children = first_array
-                        .into_iter()
-                        .map(Ok)
-                        .chain(
-                            sdt.fields()
-                                .skip(1)
-                                .map(|d| random_array(u, &d, Some(resolved_len))),
-                        )
-                        .collect::<Result<Vec<_>>>()?;
-                    Ok(StructArray::try_new(
-                        sdt.names().clone(),
-                        children,
-                        resolved_len,
-                        random_validity(u, *n, resolved_len)?,
-                    )
-                    .vortex_unwrap()
-                    .into_array())
-                }
-                DType::List(ldt, n) => random_list(u, ldt, *n, chunk_len),
-                DType::FixedSizeList(..) => {
-                    unimplemented!("TODO(connor)[FixedSizeList]: Create canonical fixed-size list")
-                }
-                DType::Extension(..) => {
-                    todo!("Extension arrays are not implemented")
-                }
-            }
+            random_array_chunk(u, dtype, chunk_len)
         })
         .collect::<Result<Vec<_>>>()?;
 
@@ -141,6 +65,93 @@ fn random_array(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Resu
         Ok(ChunkedArray::try_new(chunks, dtype)
             .vortex_unwrap()
             .into_array())
+    }
+}
+
+/// Creates a random array chunk.
+fn random_array_chunk(
+    u: &mut Unstructured<'_>,
+    dtype: &DType,
+    chunk_len: Option<usize>,
+) -> std::result::Result<Arc<dyn Array + 'static>, arbitrary::Error> {
+    match dtype {
+        DType::Null => Ok(NullArray::new(
+            chunk_len
+                .map(Ok)
+                .unwrap_or_else(|| u.int_in_range(0..=100))?,
+        )
+        .into_array()),
+        DType::Bool(n) => random_bool(u, *n, chunk_len),
+        DType::Primitive(ptype, n) => match ptype {
+            PType::U8 => random_primitive::<u8>(u, *n, chunk_len),
+            PType::U16 => random_primitive::<u16>(u, *n, chunk_len),
+            PType::U32 => random_primitive::<u32>(u, *n, chunk_len),
+            PType::U64 => random_primitive::<u64>(u, *n, chunk_len),
+            PType::I8 => random_primitive::<i8>(u, *n, chunk_len),
+            PType::I16 => random_primitive::<i16>(u, *n, chunk_len),
+            PType::I32 => random_primitive::<i32>(u, *n, chunk_len),
+            PType::I64 => random_primitive::<i64>(u, *n, chunk_len),
+            PType::F16 => Ok(random_primitive::<u16>(u, *n, chunk_len)?
+                .to_primitive()
+                .vortex_unwrap()
+                .reinterpret_cast(PType::F16)
+                .into_array()),
+            PType::F32 => random_primitive::<f32>(u, *n, chunk_len),
+            PType::F64 => random_primitive::<f64>(u, *n, chunk_len),
+        },
+        DType::Decimal(decimal, n) => {
+            let elem_len = chunk_len.unwrap_or(u.int_in_range(0..=20)?);
+            match_each_decimal_value_type!(smallest_storage_type(decimal), |DVT| {
+                let mut builder =
+                    DecimalBuilder::new::<DVT>(decimal.precision(), decimal.scale(), *n);
+                for _i in 0..elem_len {
+                    let random_decimal = random_scalar(u, &DType::Decimal(*decimal, *n))?;
+                    builder.append_scalar(&random_decimal).vortex_expect(
+                        "was somehow unable to append a decimal to a decimal builder",
+                    );
+                }
+                Ok(builder.finish())
+            })
+        }
+        DType::Utf8(n) => random_string(u, *n, chunk_len),
+        DType::Binary(n) => random_bytes(u, *n, chunk_len),
+        DType::Struct(sdt, n) => {
+            let first_array = sdt
+                .fields()
+                .next()
+                .map(|d| random_array(u, &d, chunk_len))
+                .transpose()?;
+            let resolved_len = first_array
+                .as_ref()
+                .map(|a| a.len())
+                .or(chunk_len)
+                .map(Ok)
+                .unwrap_or_else(|| u.int_in_range(0..=100))?;
+            let children = first_array
+                .into_iter()
+                .map(Ok)
+                .chain(
+                    sdt.fields()
+                        .skip(1)
+                        .map(|d| random_array(u, &d, Some(resolved_len))),
+                )
+                .collect::<Result<Vec<_>>>()?;
+            Ok(StructArray::try_new(
+                sdt.names().clone(),
+                children,
+                resolved_len,
+                random_validity(u, *n, resolved_len)?,
+            )
+            .vortex_unwrap()
+            .into_array())
+        }
+        DType::List(ldt, n) => random_list(u, ldt, *n, chunk_len),
+        DType::FixedSizeList(..) => {
+            unimplemented!("TODO(connor)[FixedSizeList]: Create canonical fixed-size list")
+        }
+        DType::Extension(..) => {
+            todo!("Extension arrays are not implemented")
+        }
     }
 }
 

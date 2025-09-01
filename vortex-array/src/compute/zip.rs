@@ -208,14 +208,14 @@ pub(crate) fn zip_impl_with_builder(
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::{BoolArray, PrimitiveArray};
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::zip;
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_mask::Mask;
 
     #[test]
     fn test_zip_basic() {
-        let mask = Mask::from(&BoolArray::from_iter([true, false, false, true, false]));
+        let mask = Mask::from_iter([true, false, false, true, false]);
         let if_true = PrimitiveArray::from_iter([10, 20, 30, 40, 50]).into_array();
         let if_false = PrimitiveArray::from_iter([1, 2, 3, 4, 5]).into_array();
 

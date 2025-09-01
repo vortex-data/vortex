@@ -19,7 +19,6 @@ use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
 use vortex_expr::{Scope, lit, root};
 use vortex_file::{VortexOpenOptions, VortexWriteOptions};
 use vortex_fuzz::FuzzFileAction;
-use vortex_mask::Mask;
 use vortex_utils::aliases::DefaultHashBuilder;
 use vortex_utils::aliases::hash_set::HashSet;
 
@@ -41,7 +40,10 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
             .unwrap_or_else(|| lit(true))
             .evaluate(&Scope::new(array_data.clone()))
             .vortex_unwrap();
-        let mask = Mask::from(&bool_mask.to_bool().vortex_unwrap());
+        let mask = bool_mask
+            .to_bool()
+            .vortex_unwrap()
+            .to_mask_fill_null_false();
         let filtered = filter(&array_data, &mask).vortex_unwrap();
         projection_expr
             .clone()

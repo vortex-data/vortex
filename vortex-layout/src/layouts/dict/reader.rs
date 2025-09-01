@@ -7,7 +7,7 @@ use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
 use futures::{join, FutureExt};
-use vortex_array::compute::{min_max, MinMaxResult};
+use vortex_array::compute::{min_max, take, MinMaxResult};
 use vortex_array::stats::Precision;
 use vortex_array::ArrayRef;
 use vortex_dict::DictArray;
@@ -208,12 +208,12 @@ impl<'rt> MaskEvaluation<'rt> for DictMaskEvaluation<'rt> {
         // it should be fine for now as long as values is already canonical,
         // so different row ranges do not canonicalize to the same array
         // multiple times.
-        let dict_mask = &Mask::try_from(
-            DictArray::try_new(codes, values_result)?
-                .to_array()
-                .as_ref(),
-        )?;
-        Ok(mask.bitand(dict_mask))
+        // TODO(joe): fixme casting null to false is *VERY* unsound, if the expression in the filter
+        // can inspect nulls (e.g. `is_null`).
+        // See `FlatEvaluation` for more details.
+        let dict_mask = ta\ke(&values_result, &codes)?.try_to_mask_fill_null_false()?;
+
+        Ok(mask.bitand(&dict_mask))
     }
 }
 

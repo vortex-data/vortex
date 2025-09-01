@@ -131,11 +131,9 @@ impl ZoneMap {
     ///
     /// All zones where the predicate evaluates to `true` can be skipped entirely.
     pub fn prune(&self, predicate: &ExprRef) -> VortexResult<Mask> {
-        Mask::try_from(
-            predicate
-                .evaluate(&Scope::new(self.array.to_array()))?
-                .as_ref(),
-        )
+        predicate
+            .evaluate(&Scope::new(self.array.to_array()))?
+            .try_to_mask_fill_null_false()
     }
 }
 

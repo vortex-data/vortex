@@ -217,11 +217,10 @@ impl Validity {
                     is_valid.len(),
                     length,
                 );
-                Mask::from(
-                    &is_valid
-                        .to_bool()
-                        .vortex_expect("validity array must be bool"),
-                )
+                is_valid
+                    .to_bool()
+                    .vortex_expect("validity array must be bool")
+                    .to_mask()
             }
         }
     }
