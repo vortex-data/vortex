@@ -51,10 +51,11 @@ register_kernel!(CastKernelAdapter(StructVTable).lift());
 mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
+    use vortex_dtype::PType;
     use vortex_dtype::{DType, FieldNames, Nullability};
 
     use crate::IntoArray;
-    use crate::arrays::{StructArray, VarBinArray};
+    use crate::arrays::{PrimitiveArray, StructArray, VarBinArray};
     use crate::compute::conformance::cast::test_cast_conformance;
 
     #[rstest]
@@ -132,5 +133,29 @@ mod tests {
             crate::validity::Validity::NonNullable,
         )
         .unwrap()
+    }
+
+    #[test]
+    fn cast_nullable_all_invalid() {
+        let empty_struct = StructArray::try_new(
+            FieldNames::from(["a"]),
+            vec![
+                PrimitiveArray::new::<i32>(buffer![], crate::validity::Validity::AllInvalid)
+                    .to_array(),
+            ],
+            0,
+            crate::validity::Validity::AllInvalid,
+        )
+        .unwrap()
+        .to_array();
+
+        let target_dtype = DType::struct_(
+            [("a", DType::Primitive(PType::I32, Nullability::NonNullable))],
+            Nullability::NonNullable,
+        );
+
+        let result = crate::compute::cast(&empty_struct, &target_dtype).unwrap();
+        assert_eq!(result.dtype(), &target_dtype);
+        assert_eq!(result.len(), 0);
     }
 }
