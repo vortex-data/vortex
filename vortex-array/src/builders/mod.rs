@@ -66,6 +66,9 @@ pub use primitive::*;
 pub use struct_::*;
 pub use varbinview::*;
 
+#[cfg(test)]
+mod tests;
+
 /// The default capacity for builders.
 ///
 /// This is equal to the default capacity for Arrow Arrays.
@@ -175,39 +178,42 @@ pub trait ArrayBuilder: Send {
 pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBuilder> {
     match dtype {
         DType::Null => Box::new(NullBuilder::new()),
-        DType::Bool(n) => Box::new(BoolBuilder::with_capacity(*n, capacity)),
-        DType::Primitive(ptype, n) => {
+        DType::Bool(null) => Box::new(BoolBuilder::with_capacity(*null, capacity)),
+        DType::Primitive(ptype, null) => {
             match_each_native_ptype!(ptype, |P| {
-                Box::new(PrimitiveBuilder::<P>::with_capacity(*n, capacity))
+                Box::new(PrimitiveBuilder::<P>::with_capacity(*null, capacity))
             })
         }
-        DType::Decimal(decimal_type, n) => {
+        DType::Decimal(decimal_type, null) => {
             match_each_decimal_value_type!(smallest_storage_type(decimal_type), |D| {
                 Box::new(DecimalBuilder::with_capacity::<D>(
                     capacity,
                     *decimal_type,
-                    *n,
+                    *null,
                 ))
             })
         }
-        DType::Utf8(n) => Box::new(VarBinViewBuilder::with_capacity(DType::Utf8(*n), capacity)),
-        DType::Binary(n) => Box::new(VarBinViewBuilder::with_capacity(
-            DType::Binary(*n),
+        DType::Utf8(null) => Box::new(VarBinViewBuilder::with_capacity(
+            DType::Utf8(*null),
             capacity,
         )),
-        DType::Struct(struct_dtype, n) => Box::new(StructBuilder::with_capacity(
+        DType::Binary(null) => Box::new(VarBinViewBuilder::with_capacity(
+            DType::Binary(*null),
+            capacity,
+        )),
+        DType::Struct(struct_dtype, null) => Box::new(StructBuilder::with_capacity(
             struct_dtype.clone(),
-            *n,
+            *null,
             capacity,
         )),
-        DType::List(dtype, n) => Box::new(ListBuilder::<u64>::with_capacity(
+        DType::List(dtype, null) => Box::new(ListBuilder::<u64>::with_capacity(
             dtype.clone(),
-            *n,
+            *null,
             capacity,
         )),
-        DType::FixedSizeList(..) => {
-            unimplemented!("TODO(connor)[FixedSizeList]")
-        }
+        DType::FixedSizeList(elem_dtype, list_size, null) => Box::new(
+            FixedSizeListBuilder::with_capacity(elem_dtype.clone(), *list_size, *null, capacity),
+        ),
         DType::Extension(ext_dtype) => {
             Box::new(ExtensionBuilder::with_capacity(ext_dtype.clone(), capacity))
         }
@@ -224,6 +230,7 @@ pub trait ArrayBuilderExt: ArrayBuilder {
                 scalar.dtype()
             )
         }
+
         match scalar.dtype() {
             DType::Null => self
                 .as_any_mut()
@@ -279,9 +286,11 @@ pub trait ArrayBuilderExt: ArrayBuilder {
                 .downcast_mut::<ListBuilder<u64>>()
                 .ok_or_else(|| vortex_err!("Cannot append list scalar to non-list builder"))?
                 .append_value(ListScalar::try_from(scalar)?)?,
-            DType::FixedSizeList(..) => {
-                unimplemented!("TODO(connor)[FixedSizeList]")
-            }
+            DType::FixedSizeList(..) => self
+                .as_any_mut()
+                .downcast_mut::<FixedSizeListBuilder>()
+                .ok_or_else(|| vortex_err!("Cannot append list scalar to non-list builder"))?
+                .append_value(ListScalar::try_from(scalar)?)?,
             DType::Extension(..) => self
                 .as_any_mut()
                 .downcast_mut::<ExtensionBuilder>()
