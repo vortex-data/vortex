@@ -17,7 +17,7 @@ use crate::{RunEndArray, RunEndVTable};
 impl TakeKernel for RunEndVTable {
     #[allow(clippy::cast_possible_truncation)]
     fn take(&self, array: &RunEndArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let primitive_indices = indices.to_primitive()?;
+        let primitive_indices = indices.to_primitive();
 
         let checked_indices = match_each_integer_ptype!(primitive_indices.ptype(), |P| {
             primitive_indices
@@ -46,7 +46,7 @@ pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
     indices: &[T],
     validity: &Validity,
 ) -> VortexResult<ArrayRef> {
-    let ends = array.ends().to_primitive()?;
+    let ends = array.ends().to_primitive();
     let ends_len = ends.len();
 
     // TODO(joe): use the validity mask to skip search sorted.
@@ -100,10 +100,7 @@ mod test {
             PrimitiveArray::from_iter([9, 8, 1, 3]).as_ref(),
         )
         .unwrap();
-        assert_eq!(
-            taken.to_primitive().unwrap().as_slice::<i32>(),
-            &[5, 5, 1, 4]
-        );
+        assert_eq!(taken.to_primitive().as_slice::<i32>(), &[5, 5, 1, 4]);
     }
 
     #[test]
@@ -113,7 +110,7 @@ mod test {
             PrimitiveArray::from_iter([11]).as_ref(),
         )
         .unwrap();
-        assert_eq!(taken.to_primitive().unwrap().as_slice::<i32>(), &[5]);
+        assert_eq!(taken.to_primitive().as_slice::<i32>(), &[5]);
     }
 
     #[test]

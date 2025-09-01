@@ -17,7 +17,7 @@ impl ArrayAccessor<[u8]> for VarBinArray {
     where
         F: for<'a> FnOnce(&mut dyn Iterator<Item = Option<&'a [u8]>>) -> R,
     {
-        let offsets = self.offsets().to_primitive()?;
+        let offsets = self.offsets().to_primitive();
         let validity = self.validity();
 
         let bytes = self.bytes();
@@ -36,7 +36,7 @@ impl ArrayAccessor<[u8]> for VarBinArray {
                 }
                 Validity::AllInvalid => Ok(f(&mut iter::repeat_n(None, self.len()))),
                 Validity::Array(v) => {
-                    let validity = v.to_bool()?;
+                    let validity = v.to_bool();
                     let mut iter = offsets
                         .windows(2)
                         .zip(validity.boolean_buffer())

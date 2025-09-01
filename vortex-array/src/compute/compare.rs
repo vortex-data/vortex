@@ -347,15 +347,13 @@ mod tests {
 
         let matches = compare(arr.as_ref(), arr.as_ref(), Operator::Eq)
             .unwrap()
-            .to_bool()
-            .unwrap();
+            .to_bool();
 
         assert_eq!(to_int_indices(matches).unwrap(), [1u64, 2, 3, 4]);
 
         let matches = compare(arr.as_ref(), arr.as_ref(), Operator::NotEq)
             .unwrap()
-            .to_bool()
-            .unwrap();
+            .to_bool();
         let empty: [u64; 0] = [];
         assert_eq!(to_int_indices(matches).unwrap(), empty);
 
@@ -366,26 +364,22 @@ mod tests {
 
         let matches = compare(arr.as_ref(), other.as_ref(), Operator::Lte)
             .unwrap()
-            .to_bool()
-            .unwrap();
+            .to_bool();
         assert_eq!(to_int_indices(matches).unwrap(), [2u64, 3, 4]);
 
         let matches = compare(arr.as_ref(), other.as_ref(), Operator::Lt)
             .unwrap()
-            .to_bool()
-            .unwrap();
+            .to_bool();
         assert_eq!(to_int_indices(matches).unwrap(), [4u64]);
 
         let matches = compare(other.as_ref(), arr.as_ref(), Operator::Gte)
             .unwrap()
-            .to_bool()
-            .unwrap();
+            .to_bool();
         assert_eq!(to_int_indices(matches).unwrap(), [2u64, 3, 4]);
 
         let matches = compare(other.as_ref(), arr.as_ref(), Operator::Gt)
             .unwrap()
-            .to_bool()
-            .unwrap();
+            .to_bool();
         assert_eq!(to_int_indices(matches).unwrap(), [4u64]);
     }
 
@@ -426,9 +420,6 @@ mod tests {
     #[case(VarBinViewArray::from_iter_bin(["a".as_bytes(), "b".as_bytes()]).into_array(), VarBinArray::from(vec!["a".as_bytes(), "b".as_bytes()]).into_array())]
     fn arrow_compare_different_encodings(#[case] left: ArrayRef, #[case] right: ArrayRef) {
         let res = compare(&left, &right, Operator::Eq).unwrap();
-        assert_eq!(
-            res.to_bool().unwrap().boolean_buffer().count_set_bits(),
-            left.len()
-        );
+        assert_eq!(res.to_bool().boolean_buffer().count_set_bits(), left.len());
     }
 }

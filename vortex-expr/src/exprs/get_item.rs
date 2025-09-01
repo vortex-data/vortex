@@ -85,7 +85,7 @@ impl VTable for GetItemVTable {
     }
 
     fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
-        let input = expr.child.unchecked_evaluate(scope)?.to_struct()?;
+        let input = expr.child.unchecked_evaluate(scope)?.to_struct();
         let field = input.field_by_name(expr.field()).cloned()?;
 
         match input.dtype().nullability() {

@@ -56,7 +56,7 @@ impl Dataset for TPCHLCommentChunked {
                     .with_projection(pack(vec![("l_comment", col("l_comment"))], NonNullable))
                     .into_array_iter()
                     .unwrap()
-                    .map(|a| a.unwrap().to_canonical().unwrap().into_array()),
+                    .map(|a| a.unwrap().to_canonical().into_array()),
             )
         }
 
@@ -77,7 +77,6 @@ impl Dataset for TPCHLCommentCanonical {
             .to_vortex_array()
             .await
             .to_struct()
-            .unwrap()
             .into_array();
         ChunkedArray::from_iter([comments_canonical]).into_array()
     }

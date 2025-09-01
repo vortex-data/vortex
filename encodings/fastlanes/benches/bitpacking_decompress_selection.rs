@@ -31,8 +31,7 @@ fn decompress_bitpacking_early_filter<T: NativePType>(bencher: Bencher, fraction
         .map(|_| T::from(rng.random_range(0..100)).unwrap())
         .collect::<BufferMut<T>>()
         .into_array()
-        .to_primitive()
-        .unwrap();
+        .to_primitive();
 
     let array = bitpack_to_best_bit_width(&values).unwrap();
 
@@ -41,12 +40,7 @@ fn decompress_bitpacking_early_filter<T: NativePType>(bencher: Bencher, fraction
         .collect::<BooleanBuffer>();
     let mask = &Mask::from_buffer(mask);
 
-    bencher.bench(|| {
-        filter(array.as_ref(), mask)
-            .unwrap()
-            .to_canonical()
-            .unwrap()
-    });
+    bencher.bench(|| filter(array.as_ref(), mask).unwrap().to_canonical());
 }
 
 // #[divan::bench(types = [i8, i16, i32, i64], args = [0.001, 0.01, 0.1, 0.5, 0.9, 0.99, 0.999])]
@@ -57,8 +51,7 @@ fn decompress_bitpacking_late_filter<T: NativePType>(bencher: Bencher, fraction_
         .map(|_| T::from(rng.random_range(0..100)).unwrap())
         .collect::<BufferMut<T>>()
         .into_array()
-        .to_primitive()
-        .unwrap();
+        .to_primitive();
 
     let array = bitpack_to_best_bit_width(&values).unwrap();
 
@@ -69,5 +62,5 @@ fn decompress_bitpacking_late_filter<T: NativePType>(bencher: Bencher, fraction_
 
     bencher
         .with_inputs(|| array.clone())
-        .bench_values(|array| filter(array.to_canonical().unwrap().as_ref(), mask).unwrap());
+        .bench_values(|array| filter(array.to_canonical().as_ref(), mask).unwrap());
 }

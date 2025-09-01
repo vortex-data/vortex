@@ -30,7 +30,7 @@ pub(crate) fn new_exporter(
     array: &RunEndArray,
     cache: &ConversionCache,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
-    let ends = array.ends().to_primitive()?;
+    let ends = array.ends().to_primitive();
     let values = array.values().clone();
     let values_exporter = new_array_exporter(array.values(), cache)?;
 

@@ -55,7 +55,7 @@ fn compare_fsst_constant(
             // No value is lt ""
             Operator::Lt => BooleanBuffer::new_unset(left.len()),
             _ => {
-                let uncompressed_lengths = left.uncompressed_lengths().to_primitive()?;
+                let uncompressed_lengths = left.uncompressed_lengths().to_primitive();
                 match_each_native_ptype!(uncompressed_lengths.ptype(), |P| {
                     compare_lengths_to_empty(
                         uncompressed_lengths.as_slice::<P>().iter().copied(),
@@ -68,7 +68,7 @@ fn compare_fsst_constant(
         return Ok(Some(
             BoolArray::new(
                 buffer,
-                Validity::copy_from_array(left.as_ref())?
+                Validity::copy_from_array(left.as_ref())
                     .union_nullability(right.dtype().nullability()),
             )
             .into_array(),
@@ -139,8 +139,7 @@ mod tests {
         // Ensure fastpath for Eq exists, and returns correct answer
         let equals = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq)
             .unwrap()
-            .to_bool()
-            .unwrap();
+            .to_bool();
 
         assert_eq!(equals.dtype(), &DType::Bool(Nullability::Nullable));
 
@@ -152,8 +151,7 @@ mod tests {
         // Ensure fastpath for Eq exists, and returns correct answer
         let not_equals = compare(lhs.as_ref(), rhs.as_ref(), Operator::NotEq)
             .unwrap()
-            .to_bool()
-            .unwrap();
+            .to_bool();
 
         assert_eq!(not_equals.dtype(), &DType::Bool(Nullability::Nullable));
         assert_eq!(

@@ -17,7 +17,7 @@ use vortex_array::vtable::{
 use vortex_array::{ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable};
 use vortex_buffer::{Alignment, Buffer, BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_mask::AllOr;
 use vortex_scalar::Scalar;
 
@@ -102,7 +102,7 @@ fn choose_max_dict_size(uncompressed_size: usize) -> usize {
 
 fn collect_valid_primitive(parray: &PrimitiveArray) -> VortexResult<PrimitiveArray> {
     let mask = parray.validity_mask();
-    filter(&parray.to_array(), &mask)?.to_primitive()
+    Ok(filter(&parray.to_array(), &mask)?.to_primitive())
 }
 
 fn collect_valid_vbv(vbv: &VarBinViewArray) -> VortexResult<(ByteBuffer, Vec<usize>)> {
@@ -132,22 +132,27 @@ fn collect_valid_vbv(vbv: &VarBinViewArray) -> VortexResult<(ByteBuffer, Vec<usi
     Ok(buffer_and_value_byte_indices)
 }
 
-fn reconstruct_views(buffer: ByteBuffer) -> VortexResult<Buffer<BinaryView>> {
+fn reconstruct_views(buffer: ByteBuffer) -> Buffer<BinaryView> {
     let mut res = BufferMut::<BinaryView>::empty();
     let mut offset = 0;
     while offset < buffer.len() {
         let str_len = ViewLen::from_le_bytes(
             buffer
                 .get(offset..offset + size_of::<ViewLen>())
-                .ok_or_else(|| vortex_err!("Zstd buffer for VarBinView was corrupt"))?
-                .try_into()?,
+                .vortex_expect("corrupted zstd length")
+                .try_into()
+                .vortex_expect("must fit ViewLen size"),
         ) as usize;
         offset += size_of::<ViewLen>();
         let value = &buffer[offset..offset + str_len];
-        res.push(BinaryView::make_view(value, 0, u32::try_from(offset)?));
+        res.push(BinaryView::make_view(
+            value,
+            0,
+            u32::try_from(offset).vortex_expect("offset must fit in u32"),
+        ));
         offset += str_len;
     }
-    Ok(res.freeze())
+    res.freeze()
 }
 
 impl ZstdArray {
@@ -356,7 +361,7 @@ impl ZstdArray {
     }
 
     pub fn from_array(array: ArrayRef, level: i32, values_per_frame: usize) -> VortexResult<Self> {
-        Self::from_canonical(&array.to_canonical()?, level, values_per_frame)?
+        Self::from_canonical(&array.to_canonical(), level, values_per_frame)?
             .ok_or_else(|| vortex_err!("Zstd can only encode Primitive and VarBinView arrays"))
     }
 
@@ -368,7 +373,7 @@ impl ZstdArray {
         }
     }
 
-    pub fn decompress(&self) -> VortexResult<ArrayRef> {
+    pub fn decompress(&self) -> ArrayRef {
         // To start, we figure out which frames we need to decompress, and with
         // what row offset into the first such frame.
         let byte_width = self.byte_width();
@@ -376,7 +381,7 @@ impl ZstdArray {
         let slice_value_indices = self
             .unsliced_validity
             .to_mask(self.unsliced_n_rows)
-            .valid_counts_for_indices(&[self.slice_start, self.slice_stop])?;
+            .valid_counts_for_indices(&[self.slice_start, self.slice_stop]);
 
         let slice_value_idx_start = slice_value_indices[0];
         let slice_value_idx_stop = slice_value_indices[1];
@@ -390,12 +395,13 @@ impl ZstdArray {
                 break;
             }
 
-            let frame_uncompressed_size = usize::try_from(frame_meta.uncompressed_size)?;
+            let frame_uncompressed_size = usize::try_from(frame_meta.uncompressed_size)
+                .vortex_expect("Uncompressed size must fit in usize");
             let frame_n_values = if frame_meta.n_values == 0 {
                 // possibly older primitive-only metadata that just didn't store this
                 frame_uncompressed_size / byte_width
             } else {
-                usize::try_from(frame_meta.n_values)?
+                usize::try_from(frame_meta.n_values).vortex_expect("frame size must fit usize")
             };
 
             let value_idx_stop = value_idx_start + frame_n_values;
@@ -414,7 +420,8 @@ impl ZstdArray {
             zstd::bulk::Decompressor::with_dictionary(dictionary)
         } else {
             zstd::bulk::Decompressor::new()
-        }?;
+        }
+        .vortex_expect("Decompressor encountered io error");
         let mut decompressed = ByteBufferMut::with_capacity_aligned(
             uncompressed_size_to_decompress,
             Alignment::new(byte_width),
@@ -428,11 +435,11 @@ impl ZstdArray {
         for frame in frames_to_decompress {
             let uncompressed_written = decompressor
                 .decompress_to_buffer(frame.as_slice(), &mut decompressed[uncompressed_start..])
-                .map_err(|err| VortexError::from(err).with_context("while decompressing"))?;
+                .vortex_expect("error while decompressing zstd array");
             uncompressed_start += uncompressed_written;
         }
         if uncompressed_start != uncompressed_size_to_decompress {
-            vortex_bail!(
+            vortex_panic!(
                 "Zstd metadata or frames were corrupt; expected {} bytes but decompressed {}",
                 uncompressed_size_to_decompress,
                 uncompressed_start
@@ -456,15 +463,15 @@ impl ZstdArray {
                     self.dtype.as_ptype(),
                     slice_validity,
                     slice_n_rows,
-                )?;
+                );
 
-                Ok(primitive.into_array())
+                primitive.into_array()
             }
             DType::Binary(_) | DType::Utf8(_) => {
                 // The decompressed buffer is a bunch of interleaved u32 lengths
                 // and strings of those lengths, we need to reconstruct the
                 // views into those strings by passing through the buffer.
-                let views = reconstruct_views(decompressed.clone())?.slice(
+                let views = reconstruct_views(decompressed.clone()).slice(
                     slice_value_idx_start - n_skipped_values
                         ..slice_value_idx_stop - n_skipped_values,
                 );
@@ -478,12 +485,9 @@ impl ZstdArray {
                         slice_validity,
                     )
                 };
-                Ok(vbv.into_array())
+                vbv.into_array()
             }
-            _ => Err(vortex_err!(
-                "Unsupported dtype for Zstd array: {:?}",
-                self.dtype
-            )),
+            _ => vortex_panic!("Unsupported dtype for Zstd array: {}", self.dtype),
         }
     }
 
@@ -534,8 +538,8 @@ impl ArrayVTable<ZstdVTable> for ZstdVTable {
 }
 
 impl CanonicalVTable<ZstdVTable> for ZstdVTable {
-    fn canonicalize(array: &ZstdArray) -> VortexResult<Canonical> {
-        array.decompress()?.to_canonical()
+    fn canonicalize(array: &ZstdArray) -> Canonical {
+        array.decompress().to_canonical()
     }
 }
 
@@ -545,10 +549,6 @@ impl OperationsVTable<ZstdVTable> for ZstdVTable {
     }
 
     fn scalar_at(array: &ZstdArray, index: usize) -> Scalar {
-        array
-            ._slice(index, index + 1)
-            .decompress()
-            .vortex_expect("zstd decompress")
-            .scalar_at(0)
+        array._slice(index, index + 1).decompress().scalar_at(0)
     }
 }

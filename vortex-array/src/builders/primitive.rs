@@ -7,7 +7,6 @@ use std::ops::{Deref, DerefMut};
 
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, NativePType, Nullability};
-use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
 use crate::arrays::PrimitiveArray;
@@ -47,12 +46,15 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         self.nulls.append_non_null();
     }
 
-    /// Appends an optional primitive (representing a nullable primitive) to the builder.
+    /// Appends an optional primitive value to the builder.
+    ///
+    /// If the value is `Some`, it appends the primitive value. If the value is `None`, it appends a
+    /// null.
     ///
     /// # Panics
     ///
     /// This method will panic if the input is `None` and the builder is non-nullable.
-    pub fn append_option(&mut self, value: Option<T>) {
+    pub(crate) fn append_option(&mut self, value: Option<T>) {
         match value {
             Some(value) => self.append_value(value),
             None => self.append_null(),
@@ -144,29 +146,23 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         self.nulls.append_n_non_nulls(n);
     }
 
-    fn append_nulls(&mut self, n: usize) {
+    unsafe fn append_nulls_unchecked(&mut self, n: usize) {
         self.values.push_n(T::default(), n);
         self.nulls.append_n_nulls(n);
     }
 
-    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
-        if !self.dtype.eq_with_nullability_superset(array.dtype()) {
-            vortex_bail!(
-                "tried to extend a builder with `DType` {} with an array with `DType {}",
-                self.dtype,
-                array.dtype()
-            );
-        }
+    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+        let array = array.to_primitive();
 
-        let array = array.to_primitive()?;
-        if array.ptype() != T::PTYPE {
-            vortex_bail!("Cannot extend from array with different ptype");
-        }
+        // This should be checked in `extend_from_array` but we can check it again.
+        debug_assert_eq!(
+            array.ptype(),
+            T::PTYPE,
+            "Cannot extend from array with different ptype"
+        );
 
         self.values.extend_from_slice(array.as_slice::<T>());
         self.nulls.append_validity_mask(array.validity_mask());
-
-        Ok(())
     }
 
     fn ensure_capacity(&mut self, capacity: usize) {

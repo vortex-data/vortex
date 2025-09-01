@@ -129,8 +129,8 @@ impl VisitorVTable<NullVTable> for NullVTable {
 }
 
 impl CanonicalVTable<NullVTable> for NullVTable {
-    fn canonicalize(array: &NullArray) -> VortexResult<Canonical> {
-        Ok(Canonical::Null(array.clone()))
+    fn canonicalize(array: &NullArray) -> Canonical {
+        Canonical::Null(array.clone())
     }
 }
 

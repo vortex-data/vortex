@@ -78,10 +78,10 @@ impl TakeKernel for PrimitiveVTable {
         };
 
         let unsigned_indices = if ptype.is_unsigned_int() {
-            indices.to_primitive()?
+            indices.to_primitive()
         } else {
             // This will fail if all values cannot be converted to unsigned
-            cast(indices, &DType::Primitive(ptype.to_unsigned(), *null))?.to_primitive()?
+            cast(indices, &DType::Primitive(ptype.to_unsigned(), *null))?.to_primitive()
         };
 
         let validity = array.validity().take(unsigned_indices.as_ref())?;

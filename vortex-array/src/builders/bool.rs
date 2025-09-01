@@ -5,7 +5,6 @@ use std::any::Any;
 
 use arrow_buffer::BooleanBufferBuilder;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
 use crate::arrays::BoolArray;
@@ -33,15 +32,27 @@ impl BoolBuilder {
         }
     }
 
+    /// Appends a boolean value to the builder.
     pub fn append_value(&mut self, value: bool) {
         self.append_values(value, 1)
     }
 
+    /// Appends the same boolean value multiple times to the builder.
+    ///
+    /// This method appends the given boolean value `n` times.
     pub fn append_values(&mut self, value: bool, n: usize) {
         self.inner.append_n(n, value);
         self.nulls.append_n_non_nulls(n)
     }
 
+    /// Appends an optional boolean value to the builder.
+    ///
+    /// If the value is `Some`, it appends the boolean value. If the value is `None`, it appends a
+    /// null.
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if the input is `None` and the builder is non-nullable.
     pub fn append_option(&mut self, value: Option<bool>) {
         match value {
             Some(value) => self.append_value(value),
@@ -71,28 +82,16 @@ impl ArrayBuilder for BoolBuilder {
         self.append_values(false, n)
     }
 
-    fn append_nulls(&mut self, n: usize) {
+    unsafe fn append_nulls_unchecked(&mut self, n: usize) {
         self.inner.append_n(n, false);
         self.nulls.append_n_nulls(n)
     }
 
-    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
-        if !self.dtype.eq_with_nullability_superset(array.dtype()) {
-            vortex_bail!(
-                "tried to extend a builder with `DType` {} with an array with `DType {}",
-                self.dtype,
-                array.dtype()
-            );
-        }
-
-        let bool_array = array
-            .to_bool()
-            .vortex_expect("we checked that the array had `DType` boolean");
+    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+        let bool_array = array.to_bool();
 
         self.inner.append_buffer(bool_array.boolean_buffer());
         self.nulls.append_validity_mask(bool_array.validity_mask());
-
-        Ok(())
     }
 
     fn ensure_capacity(&mut self, capacity: usize) {
@@ -157,15 +156,10 @@ mod tests {
         let chunk = make_opt_bool_chunks(len, chunk_count);
 
         let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
-        chunk.clone().append_to_builder(builder.as_mut()).unwrap();
-        let canon_into = builder
-            .finish()
-            .to_canonical()
-            .unwrap()
-            .into_bool()
-            .unwrap();
+        chunk.clone().append_to_builder(builder.as_mut());
+        let canon_into = builder.finish().to_bool();
 
-        let into_canon = chunk.to_bool().unwrap();
+        let into_canon = chunk.to_bool();
 
         assert_eq!(canon_into.validity(), into_canon.validity());
         assert_eq!(canon_into.boolean_buffer(), into_canon.boolean_buffer());

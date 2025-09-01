@@ -28,7 +28,7 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
         match action {
             Action::Compress => {
                 current_array = BtrBlocksCompressor::default()
-                    .compress(current_array.to_canonical().vortex_unwrap().as_ref())
+                    .compress(current_array.to_canonical().as_ref())
                     .vortex_unwrap();
                 assert_array_eq(&expected.array(), &current_array, i).unwrap();
             }

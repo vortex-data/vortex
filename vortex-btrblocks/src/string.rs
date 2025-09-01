@@ -71,9 +71,7 @@ impl CompressorStats for StringStats {
     }
 
     fn sample_opts(&self, sample_size: u32, sample_count: u32, opts: GenerateStatsOptions) -> Self {
-        let sampled = sample(self.src.as_ref(), sample_size, sample_count)
-            .to_varbinview()
-            .vortex_expect("varbinview");
+        let sampled = sample(self.src.as_ref(), sample_size, sample_count).to_varbinview();
 
         Self::generate_opts(&sampled, opts)
     }
@@ -198,7 +196,7 @@ impl Scheme for DictScheme {
 
         // Find best compressor for codes and values separately
         let compressed_codes = IntCompressor::compress(
-            &dict.codes().to_primitive()?,
+            &dict.codes().to_primitive(),
             is_sample,
             allowed_cascading - 1,
             &[integer::DictScheme.code(), integer::SequenceScheme.code()],
@@ -207,7 +205,7 @@ impl Scheme for DictScheme {
         // Attempt to compress the values with non-Dict compression.
         // Currently this will only be FSST.
         let compressed_values = StringCompressor::compress(
-            &dict.values().to_varbinview()?,
+            &dict.values().to_varbinview(),
             is_sample,
             allowed_cascading - 1,
             &[DictScheme.code()],
@@ -237,14 +235,14 @@ impl Scheme for FSSTScheme {
         let fsst = fsst_compress(&stats.src.clone().into_array(), &compressor)?;
 
         let compressed_original_lengths = IntCompressor::compress(
-            &fsst.uncompressed_lengths().to_primitive()?.downcast()?,
+            &fsst.uncompressed_lengths().to_primitive().downcast()?,
             is_sample,
             allowed_cascading,
             &[],
         )?;
 
         let compressed_codes_offsets = IntCompressor::compress(
-            &fsst.codes().offsets().to_primitive()?.downcast()?,
+            &fsst.codes().offsets().to_primitive().downcast()?,
             is_sample,
             allowed_cascading,
             &[],

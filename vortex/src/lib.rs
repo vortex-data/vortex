@@ -167,7 +167,7 @@ mod test {
             .read_all()?;
 
         assert_eq!(recovered_array.len(), array.len());
-        let recovered_primitive = recovered_array.to_primitive().unwrap();
+        let recovered_primitive = recovered_array.to_primitive();
         assert_eq!(recovered_primitive.validity(), array.validity());
         assert_eq!(recovered_primitive.buffer::<u64>(), array.buffer::<u64>());
 

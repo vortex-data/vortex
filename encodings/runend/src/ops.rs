@@ -63,10 +63,7 @@ mod tests {
         );
         assert_eq!(arr.len(), 5);
 
-        assert_eq!(
-            arr.to_primitive().unwrap().as_slice::<i32>(),
-            vec![2, 2, 3, 3, 3]
-        );
+        assert_eq!(arr.to_primitive().as_slice::<i32>(), vec![2, 2, 3, 3, 3]);
     }
 
     #[test]
@@ -82,7 +79,7 @@ mod tests {
         let doubly_sliced = arr.slice(0..3);
 
         assert_eq!(
-            doubly_sliced.to_primitive().unwrap().as_slice::<i32>(),
+            doubly_sliced.to_primitive().as_slice::<i32>(),
             vec![2, 2, 3]
         );
     }
@@ -101,10 +98,7 @@ mod tests {
         );
         assert_eq!(arr.len(), 6);
 
-        assert_eq!(
-            arr.to_primitive().unwrap().as_slice::<i32>(),
-            vec![2, 3, 3, 3, 3, 3]
-        );
+        assert_eq!(arr.to_primitive().as_slice::<i32>(), vec![2, 3, 3, 3, 3, 3]);
     }
 
     #[test]

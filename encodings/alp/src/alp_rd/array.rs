@@ -201,9 +201,9 @@ impl ArrayVTable<ALPRDVTable> for ALPRDVTable {
 }
 
 impl CanonicalVTable<ALPRDVTable> for ALPRDVTable {
-    fn canonicalize(array: &ALPRDArray) -> VortexResult<Canonical> {
-        let left_parts = array.left_parts().to_primitive()?;
-        let right_parts = array.right_parts().to_primitive()?;
+    fn canonicalize(array: &ALPRDArray) -> Canonical {
+        let left_parts = array.left_parts().to_primitive();
+        let right_parts = array.right_parts().to_primitive();
 
         // Decode the left_parts using our builtin dictionary.
         let left_parts_dict = array.left_parts_dictionary();
@@ -216,8 +216,8 @@ impl CanonicalVTable<ALPRDVTable> for ALPRDVTable {
                     array.right_bit_width,
                     right_parts.into_buffer_mut::<u32>(),
                     array.left_parts_patches(),
-                )?,
-                Validity::copy_from_array(array.as_ref())?,
+                ),
+                Validity::copy_from_array(array.as_ref()),
             )
         } else {
             PrimitiveArray::new(
@@ -227,12 +227,12 @@ impl CanonicalVTable<ALPRDVTable> for ALPRDVTable {
                     array.right_bit_width,
                     right_parts.into_buffer_mut::<u64>(),
                     array.left_parts_patches(),
-                )?,
-                Validity::copy_from_array(array.as_ref())?,
+                ),
+                Validity::copy_from_array(array.as_ref()),
             )
         };
 
-        Ok(Canonical::Primitive(decoded_array))
+        Canonical::Primitive(decoded_array)
     }
 }
 
@@ -266,7 +266,7 @@ mod test {
 
         let rd_array = encoder.encode(&real_array);
 
-        let decoded = rd_array.to_primitive().unwrap();
+        let decoded = rd_array.to_primitive();
 
         let maybe_null_reals: Vec<T> = reals.into_iter().map(|v| v.unwrap_or_default()).collect();
         assert_eq!(decoded.as_slice::<T>(), &maybe_null_reals);

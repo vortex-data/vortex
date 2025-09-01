@@ -5,7 +5,7 @@ use std::any::Any;
 
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, DecimalDType, Nullability};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
+use vortex_error::{VortexExpect, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::{BigCast, NativeDecimalType, i256, match_each_decimal_value_type};
 
@@ -107,6 +107,21 @@ impl DecimalBuilder {
         self.nulls.append_non_null();
     }
 
+    /// Appends an optional decimal value to the builder.
+    ///
+    /// If the value is `Some`, it appends the decimal value. If the value is `None`, it appends a
+    /// null.
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if the input is `None` and the builder is non-nullable.
+    pub fn append_option<V: NativeDecimalType>(&mut self, value: Option<V>) {
+        match value {
+            Some(value) => self.append_value(value),
+            None => self.append_null(),
+        }
+    }
+
     /// Finishes the builder directly into a [`DecimalArray`].
     pub fn finish_into_decimal(&mut self) -> DecimalArray {
         let validity = self.nulls.finish_with_nullability(self.dtype.nullability());
@@ -150,23 +165,13 @@ impl ArrayBuilder for DecimalBuilder {
         self.nulls.append_n_non_nulls(n);
     }
 
-    fn append_nulls(&mut self, n: usize) {
+    unsafe fn append_nulls_unchecked(&mut self, n: usize) {
         self.values.push_n(0, n);
         self.nulls.append_n_nulls(n);
     }
 
-    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
-        if !self.dtype.eq_with_nullability_superset(array.dtype()) {
-            vortex_bail!(
-                "tried to extend a builder with `DType` {} with an array with `DType {}",
-                self.dtype,
-                array.dtype()
-            );
-        }
-
-        let decimal_array = array
-            .to_decimal()
-            .vortex_expect("we checked that the array had `DType::Decimal`");
+    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+        let decimal_array = array.to_decimal();
 
         match_each_decimal_value_type!(decimal_array.values_type(), |D| {
             // Extends the values buffer from another buffer of type D where D can be coerced to the
@@ -177,8 +182,6 @@ impl ArrayBuilder for DecimalBuilder {
 
         self.nulls
             .append_validity_mask(decimal_array.validity_mask());
-
-        Ok(())
     }
 
     fn ensure_capacity(&mut self, capacity: usize) {
@@ -276,7 +279,7 @@ mod tests {
         let i8s = i8s.finish();
 
         let mut i128s = DecimalBuilder::new::<i128>(2, 1, false.into());
-        i128s.extend_from_array(&i8s).unwrap();
+        i128s.extend_from_array(&i8s);
         let i128s = i128s.finish();
 
         for i in 0..i8s.len() {

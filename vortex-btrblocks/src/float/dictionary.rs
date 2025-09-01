@@ -116,7 +116,7 @@ mod tests {
         assert_eq!(dict_array.values().len(), 2);
         assert_eq!(dict_array.codes().len(), 5);
 
-        let undict = dict_array.to_primitive().unwrap();
+        let undict = dict_array.to_primitive();
 
         // We just use code zero but it doesn't really matter.
         // We can just shove a whole validity buffer in there instead.

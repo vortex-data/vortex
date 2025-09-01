@@ -47,9 +47,7 @@ fn take_search(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64))
 
     bencher
         .with_inputs(|| (&patches, indices.clone()))
-        .bench_values(|(patches, indices)| {
-            patches.take_search(indices.to_primitive().unwrap(), false)
-        });
+        .bench_values(|(patches, indices)| patches.take_search(indices.to_primitive(), false));
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -64,9 +62,7 @@ fn take_map(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64)) {
 
     bencher
         .with_inputs(|| (&patches, indices.clone()))
-        .bench_values(|(patches, indices)| {
-            patches.take_map(indices.to_primitive().unwrap(), false)
-        });
+        .bench_values(|(patches, indices)| patches.take_map(indices.to_primitive(), false));
 }
 
 fn fixture(len: usize, sparsity: f64, rng: &mut StdRng) -> Patches {

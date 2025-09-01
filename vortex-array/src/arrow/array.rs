@@ -7,7 +7,7 @@ use std::ops::Range;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use vortex_dtype::arrow::FromArrowType;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
@@ -88,7 +88,7 @@ impl ArrayVTable<ArrowVTable> for ArrowVTable {
 }
 
 impl CanonicalVTable<ArrowVTable> for ArrowVTable {
-    fn canonicalize(array: &ArrowArray) -> VortexResult<Canonical> {
+    fn canonicalize(array: &ArrowArray) -> Canonical {
         ArrayRef::from_arrow(array.inner.as_ref(), array.dtype.is_nullable()).to_canonical()
     }
 }

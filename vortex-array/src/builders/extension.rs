@@ -5,14 +5,12 @@ use std::any::Any;
 use std::sync::Arc;
 
 use vortex_dtype::{DType, ExtDType};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::ExtScalar;
 
 use crate::arrays::ExtensionArray;
-use crate::builders::{
-    ArrayBuilder, ArrayBuilderExt, DEFAULT_BUILDER_CAPACITY, builder_with_capacity,
-};
+use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, builder_with_capacity};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 /// The builder for building a [`ExtensionArray`].
@@ -40,7 +38,10 @@ impl ExtensionBuilder {
         self.storage.append_scalar(&value.storage())
     }
 
-    /// Appends an optional extension (representing a nullable extension value) to the builder.
+    /// Appends an optional extension value to the builder.
+    ///
+    /// If the value is `Some`, it appends the extension value. If the value is `None`, it appends a
+    /// null.
     ///
     /// # Panics
     ///
@@ -92,20 +93,12 @@ impl ArrayBuilder for ExtensionBuilder {
         self.storage.append_zeros(n)
     }
 
-    fn append_nulls(&mut self, n: usize) {
+    unsafe fn append_nulls_unchecked(&mut self, n: usize) {
         self.storage.append_nulls(n)
     }
 
-    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
-        if !self.dtype.eq_with_nullability_superset(array.dtype()) {
-            vortex_bail!(
-                "tried to extend a builder with `DType` {} with an array with `DType {}",
-                self.dtype,
-                array.dtype()
-            );
-        }
-
-        let ext_array = array.to_extension()?;
+    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+        let ext_array = array.to_extension();
         self.storage.extend_from_array(ext_array.storage())
     }
 

@@ -61,7 +61,7 @@ where
             dtype.clone(),
             stream.map(|chunk| {
                 let (sequence_id, chunk) = chunk?;
-                VortexResult::Ok((sequence_id, chunk.to_canonical()?.into_array()))
+                VortexResult::Ok((sequence_id, chunk.to_canonical().into_array()))
             }),
         )
         .sendable();
@@ -90,7 +90,7 @@ where
                         if !chunked.is_empty() {
                             yield (
                                 sequence_pointer.advance(),
-                                chunked.to_canonical()?.into_array(),
+                                chunked.to_canonical().into_array(),
                             )
                         }
                     }
@@ -103,7 +103,7 @@ where
                     if !to_flush.is_empty() {
                         yield (
                             sequence_pointer.advance(),
-                            to_flush.to_canonical()?.into_array(),
+                            to_flush.to_canonical().into_array(),
                         )
                     }
                 }

@@ -257,7 +257,7 @@ impl ArrayVTable<DeltaVTable> for DeltaVTable {
 }
 
 impl CanonicalVTable<DeltaVTable> for DeltaVTable {
-    fn canonicalize(array: &DeltaArray) -> VortexResult<Canonical> {
-        delta_decompress(array).map(Canonical::Primitive)
+    fn canonicalize(array: &DeltaArray) -> Canonical {
+        Canonical::Primitive(delta_decompress(array))
     }
 }

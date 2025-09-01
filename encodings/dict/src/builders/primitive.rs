@@ -107,7 +107,7 @@ where
             vortex_bail!("Can only encode arrays of {}", T::PTYPE);
         }
         let mut codes = BufferMut::<Code>::with_capacity(array.len());
-        let primitive = array.to_primitive()?;
+        let primitive = array.to_primitive();
 
         let codes = if array.dtype().is_nullable() {
             let mut null_buf = NullBufferBuilder::new(array.len());
@@ -167,13 +167,10 @@ mod test {
         let arr = PrimitiveArray::from_iter([1, 1, 3, 3, 3]);
         let dict = dict_encode(arr.as_ref()).unwrap();
         assert_eq!(
-            dict.codes().to_primitive().unwrap().as_slice::<u8>(),
+            dict.codes().to_primitive().as_slice::<u8>(),
             &[0, 0, 1, 1, 1]
         );
-        assert_eq!(
-            dict.values().to_primitive().unwrap().as_slice::<i32>(),
-            &[1, 3]
-        );
+        assert_eq!(dict.values().to_primitive().as_slice::<i32>(), &[1, 3]);
     }
 
     #[test]
@@ -190,7 +187,7 @@ mod test {
         ]);
         let dict = dict_encode(arr.as_ref()).unwrap();
         assert_eq!(
-            dict.codes().to_primitive().unwrap().as_slice::<u8>(),
+            dict.codes().to_primitive().as_slice::<u8>(),
             &[0, 0, 0, 1, 1, 0, 1, 0]
         );
         let dict_values = dict.values();

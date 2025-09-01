@@ -4,7 +4,7 @@
 //! Encodings that enable zero-copy sharing of data with Arrow.
 
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexResult, vortex_panic};
 
 use crate::arrays::{
     BoolArray, DecimalArray, ExtensionArray, FixedSizeListArray, ListArray, NullArray,
@@ -81,10 +81,7 @@ pub enum Canonical {
 impl Canonical {
     /// Create an empty canonical array of the given dtype.
     pub fn empty(dtype: &DType) -> Canonical {
-        builder_with_capacity(dtype, 0)
-            .finish()
-            .to_canonical()
-            .vortex_expect("cannot fail to convert an empty array to canonical")
+        builder_with_capacity(dtype, 0).finish().to_canonical()
     }
 }
 
@@ -107,75 +104,75 @@ impl Canonical {
 
 // Unwrap canonical type back down to specialized type.
 impl Canonical {
-    pub fn into_null(self) -> VortexResult<NullArray> {
+    pub fn into_null(self) -> NullArray {
         if let Canonical::Null(a) = self {
-            Ok(a)
+            a
         } else {
-            vortex_bail!("Cannot unwrap NullArray from {:?}", &self)
+            vortex_panic!("Cannot unwrap NullArray from {:?}", &self)
         }
     }
 
-    pub fn into_bool(self) -> VortexResult<BoolArray> {
+    pub fn into_bool(self) -> BoolArray {
         if let Canonical::Bool(a) = self {
-            Ok(a)
+            a
         } else {
-            vortex_bail!("Cannot unwrap BoolArray from {:?}", &self)
+            vortex_panic!("Cannot unwrap BoolArray from {:?}", &self)
         }
     }
 
-    pub fn into_primitive(self) -> VortexResult<PrimitiveArray> {
+    pub fn into_primitive(self) -> PrimitiveArray {
         if let Canonical::Primitive(a) = self {
-            Ok(a)
+            a
         } else {
-            vortex_bail!("Cannot unwrap PrimitiveArray from {:?}", &self)
+            vortex_panic!("Cannot unwrap PrimitiveArray from {:?}", &self)
         }
     }
 
-    pub fn into_decimal(self) -> VortexResult<DecimalArray> {
+    pub fn into_decimal(self) -> DecimalArray {
         if let Canonical::Decimal(a) = self {
-            Ok(a)
+            a
         } else {
-            vortex_bail!("Cannot unwrap DecimalArray from {:?}", &self)
+            vortex_panic!("Cannot unwrap DecimalArray from {:?}", &self)
         }
     }
 
-    pub fn into_varbinview(self) -> VortexResult<VarBinViewArray> {
+    pub fn into_varbinview(self) -> VarBinViewArray {
         if let Canonical::VarBinView(a) = self {
-            Ok(a)
+            a
         } else {
-            vortex_bail!("Cannot unwrap VarBinViewArray from {:?}", &self)
+            vortex_panic!("Cannot unwrap VarBinViewArray from {:?}", &self)
         }
     }
 
-    pub fn into_list(self) -> VortexResult<ListArray> {
+    pub fn into_list(self) -> ListArray {
         if let Canonical::List(a) = self {
-            Ok(a)
+            a
         } else {
-            vortex_bail!("Cannot unwrap ListArray from {:?}", &self)
+            vortex_panic!("Cannot unwrap ListArray from {:?}", &self)
         }
     }
 
-    pub fn into_fixed_size_list(self) -> VortexResult<FixedSizeListArray> {
+    pub fn into_fixed_size_list(self) -> FixedSizeListArray {
         if let Canonical::FixedSizeList(a) = self {
-            Ok(a)
+            a
         } else {
-            vortex_bail!("Cannot unwrap FixedSizeListArray from {:?}", &self)
+            vortex_panic!("Cannot unwrap FixedSizeListArray from {:?}", &self)
         }
     }
 
-    pub fn into_struct(self) -> VortexResult<StructArray> {
+    pub fn into_struct(self) -> StructArray {
         if let Canonical::Struct(a) = self {
-            Ok(a)
+            a
         } else {
-            vortex_bail!("Cannot unwrap StructArray from {:?}", &self)
+            vortex_panic!("Cannot unwrap StructArray from {:?}", &self)
         }
     }
 
-    pub fn into_extension(self) -> VortexResult<ExtensionArray> {
+    pub fn into_extension(self) -> ExtensionArray {
         if let Canonical::Extension(a) = self {
-            Ok(a)
+            a
         } else {
-            vortex_bail!("Cannot unwrap ExtensionArray from {:?}", &self)
+            vortex_panic!("Cannot unwrap ExtensionArray from {:?}", &self)
         }
     }
 }
@@ -219,73 +216,73 @@ impl IntoArray for Canonical {
 /// This trait has a blanket implementation for all types implementing [ToCanonical].
 pub trait ToCanonical {
     /// Canonicalize into a [`NullArray`] if the target is [`Null`][DType::Null] typed.
-    fn to_null(&self) -> VortexResult<NullArray>;
+    fn to_null(&self) -> NullArray;
 
     /// Canonicalize into a [`BoolArray`] if the target is [`Bool`][DType::Bool] typed.
-    fn to_bool(&self) -> VortexResult<BoolArray>;
+    fn to_bool(&self) -> BoolArray;
 
     /// Canonicalize into a [`PrimitiveArray`] if the target is [`Primitive`][DType::Primitive]
     /// typed.
-    fn to_primitive(&self) -> VortexResult<PrimitiveArray>;
+    fn to_primitive(&self) -> PrimitiveArray;
 
     /// Canonicalize into a [`DecimalArray`] if the target is [`Decimal`][DType::Decimal]
     /// typed.
-    fn to_decimal(&self) -> VortexResult<DecimalArray>;
+    fn to_decimal(&self) -> DecimalArray;
 
     /// Canonicalize into a [`StructArray`] if the target is [`Struct`][DType::Struct] typed.
-    fn to_struct(&self) -> VortexResult<StructArray>;
+    fn to_struct(&self) -> StructArray;
 
     /// Canonicalize into a [`ListArray`] if the target is [`List`][DType::List] typed.
-    fn to_list(&self) -> VortexResult<ListArray>;
+    fn to_list(&self) -> ListArray;
 
     /// Canonicalize into a [`ListArray`] if the target is [`List`][DType::List] typed.
-    fn to_fixed_size_list(&self) -> VortexResult<FixedSizeListArray>;
+    fn to_fixed_size_list(&self) -> FixedSizeListArray;
 
     /// Canonicalize into a [`VarBinViewArray`] if the target is [`Utf8`][DType::Utf8]
     /// or [`Binary`][DType::Binary] typed.
-    fn to_varbinview(&self) -> VortexResult<VarBinViewArray>;
+    fn to_varbinview(&self) -> VarBinViewArray;
 
     /// Canonicalize into an [`ExtensionArray`] if the array is [`Extension`][DType::Extension]
     /// typed.
-    fn to_extension(&self) -> VortexResult<ExtensionArray>;
+    fn to_extension(&self) -> ExtensionArray;
 }
 
 // Blanket impl for all Array encodings.
 impl<A: Array + ?Sized> ToCanonical for A {
-    fn to_null(&self) -> VortexResult<NullArray> {
-        self.to_canonical()?.into_null()
+    fn to_null(&self) -> NullArray {
+        self.to_canonical().into_null()
     }
 
-    fn to_bool(&self) -> VortexResult<BoolArray> {
-        self.to_canonical()?.into_bool()
+    fn to_bool(&self) -> BoolArray {
+        self.to_canonical().into_bool()
     }
 
-    fn to_primitive(&self) -> VortexResult<PrimitiveArray> {
-        self.to_canonical()?.into_primitive()
+    fn to_primitive(&self) -> PrimitiveArray {
+        self.to_canonical().into_primitive()
     }
 
-    fn to_decimal(&self) -> VortexResult<DecimalArray> {
-        self.to_canonical()?.into_decimal()
+    fn to_decimal(&self) -> DecimalArray {
+        self.to_canonical().into_decimal()
     }
 
-    fn to_struct(&self) -> VortexResult<StructArray> {
-        self.to_canonical()?.into_struct()
+    fn to_struct(&self) -> StructArray {
+        self.to_canonical().into_struct()
     }
 
-    fn to_list(&self) -> VortexResult<ListArray> {
-        self.to_canonical()?.into_list()
+    fn to_list(&self) -> ListArray {
+        self.to_canonical().into_list()
     }
 
-    fn to_fixed_size_list(&self) -> VortexResult<FixedSizeListArray> {
-        self.to_canonical()?.into_fixed_size_list()
+    fn to_fixed_size_list(&self) -> FixedSizeListArray {
+        self.to_canonical().into_fixed_size_list()
     }
 
-    fn to_varbinview(&self) -> VortexResult<VarBinViewArray> {
-        self.to_canonical()?.into_varbinview()
+    fn to_varbinview(&self) -> VarBinViewArray {
+        self.to_canonical().into_varbinview()
     }
 
-    fn to_extension(&self) -> VortexResult<ExtensionArray> {
-        self.to_canonical()?.into_extension()
+    fn to_extension(&self) -> ExtensionArray {
+        self.to_canonical().into_extension()
     }
 }
 

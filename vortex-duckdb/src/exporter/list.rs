@@ -27,7 +27,7 @@ pub(crate) fn new_exporter(
     cache: &ConversionCache,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     let elements_exporter = new_array_exporter(array.elements(), cache)?;
-    let offsets = array.offsets().to_primitive()?;
+    let offsets = array.offsets().to_primitive();
     let boxed = match_each_integer_ptype!(offsets.ptype(), |T| {
         Box::new(ListExporter {
             validity: array.validity_mask(),

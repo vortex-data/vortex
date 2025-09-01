@@ -72,8 +72,8 @@ impl ComputeFnVTable for Zip {
         //           kernel.invoke(Args(if_false, if_true, mask, invert_mask = true))
 
         Ok(zip_impl(
-            if_true.to_canonical()?.as_ref(),
-            if_false.to_canonical()?.as_ref(),
+            if_true.to_canonical().as_ref(),
+            if_false.to_canonical().as_ref(),
             mask,
         )?
         .into())
@@ -195,11 +195,11 @@ pub(crate) fn zip_impl_with_builder(
         AllOr::None => Ok(if_false.to_array()),
         AllOr::Some(slices) => {
             for (start, end) in slices {
-                builder.extend_from_array(&if_false.slice(builder.len()..*start))?;
-                builder.extend_from_array(&if_true.slice(*start..*end))?;
+                builder.extend_from_array(&if_false.slice(builder.len()..*start));
+                builder.extend_from_array(&if_true.slice(*start..*end));
             }
             if builder.len() < if_false.len() {
-                builder.extend_from_array(&if_false.slice(builder.len()..if_false.len()))?;
+                builder.extend_from_array(&if_false.slice(builder.len()..if_false.len()));
             }
             Ok(builder.finish())
         }
@@ -223,7 +223,7 @@ mod tests {
         let expected = PrimitiveArray::from_iter([10, 2, 3, 40, 5]);
 
         assert_eq!(
-            result.to_primitive().unwrap().as_slice::<i32>(),
+            result.to_primitive().as_slice::<i32>(),
             expected.as_slice::<i32>()
         );
     }
@@ -238,8 +238,8 @@ mod tests {
         let result = zip(&if_true, &if_false, &mask).unwrap();
 
         assert_eq!(
-            result.to_primitive().unwrap().as_slice::<i32>(),
-            if_true.to_primitive().unwrap().as_slice::<i32>()
+            result.to_primitive().as_slice::<i32>(),
+            if_true.to_primitive().as_slice::<i32>()
         );
 
         // result must be nullable even if_true was not

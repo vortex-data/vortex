@@ -80,7 +80,7 @@ impl EncodeVTable<ALPVTable> for ALPVTable {
         canonical: &Canonical,
         like: Option<&ALPArray>,
     ) -> VortexResult<Option<ALPArray>> {
-        let parray = canonical.clone().into_primitive()?;
+        let parray = canonical.clone().into_primitive();
         let exponents = like.map(|a| a.exponents());
         let alp = alp_encode(&parray, exponents)?;
 

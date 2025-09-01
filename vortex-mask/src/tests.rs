@@ -373,24 +373,24 @@ fn test_mask_valid_counts_for_indices() {
         true, false, true, true, false, true,
     ]));
     let indices = vec![0, 2, 4, 6];
-    let counts = mask.valid_counts_for_indices(&indices).unwrap();
+    let counts = mask.valid_counts_for_indices(&indices);
     assert_eq!(counts, vec![0, 1, 3, 4]);
 
     let all_true = Mask::new_true(6);
-    let counts = all_true.valid_counts_for_indices(&indices).unwrap();
+    let counts = all_true.valid_counts_for_indices(&indices);
     assert_eq!(counts, vec![0, 2, 4, 6]);
 
     let all_false = Mask::new_false(6);
-    let counts = all_false.valid_counts_for_indices(&indices).unwrap();
+    let counts = all_false.valid_counts_for_indices(&indices);
     assert_eq!(counts, vec![0, 0, 0, 0]);
 }
 
 #[test]
+#[should_panic]
 fn test_mask_valid_counts_for_indices_error() {
     let mask = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true]));
     let indices = vec![0, 2, 5]; // 5 is out of bounds
-    let result = mask.valid_counts_for_indices(&indices);
-    assert!(result.is_err());
+    let _ = mask.valid_counts_for_indices(&indices);
 }
 
 // FromIterator tests

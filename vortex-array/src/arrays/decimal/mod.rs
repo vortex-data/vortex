@@ -287,11 +287,11 @@ impl VisitorVTable<DecimalVTable> for DecimalVTable {
 }
 
 impl CanonicalVTable<DecimalVTable> for DecimalVTable {
-    fn canonicalize(array: &DecimalArray) -> VortexResult<Canonical> {
-        Ok(Canonical::Decimal(array.clone()))
+    fn canonicalize(array: &DecimalArray) -> Canonical {
+        Canonical::Decimal(array.clone())
     }
 
-    fn append_to_builder(array: &DecimalArray, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+    fn append_to_builder(array: &DecimalArray, builder: &mut dyn ArrayBuilder) {
         builder.extend_from_array(array.as_ref())
     }
 }

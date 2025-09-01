@@ -41,7 +41,7 @@ impl TakeKernel for ConstantVTable {
 
                 let mut result_builder =
                     builder_with_capacity(&array.dtype().as_nullable(), indices.len());
-                result_builder.extend_from_array(&arr)?;
+                result_builder.extend_from_array(&arr);
                 result_builder.set_validity(Mask::from_buffer(v.clone()));
                 Ok(result_builder.finish())
             }
@@ -82,10 +82,7 @@ mod tests {
             &array.dtype().with_nullability(Nullability::Nullable),
             taken.dtype()
         );
-        assert_eq!(
-            taken.to_primitive().unwrap().as_slice::<i32>(),
-            &[42, 42, 42]
-        );
+        assert_eq!(taken.to_primitive().as_slice::<i32>(), &[42, 42, 42]);
         assert_eq!(taken.validity_mask().indices(), AllOr::Some(valid_indices));
     }
 
@@ -101,10 +98,7 @@ mod tests {
             &array.dtype().with_nullability(Nullability::Nullable),
             taken.dtype()
         );
-        assert_eq!(
-            taken.to_primitive().unwrap().as_slice::<i32>(),
-            &[42, 42, 42]
-        );
+        assert_eq!(taken.to_primitive().as_slice::<i32>(), &[42, 42, 42]);
         assert_eq!(taken.validity_mask().indices(), AllOr::All);
     }
 

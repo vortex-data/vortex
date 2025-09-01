@@ -437,8 +437,8 @@ impl ArrayVTable<StructVTable> for StructVTable {
 }
 
 impl CanonicalVTable<StructVTable> for StructVTable {
-    fn canonicalize(array: &StructArray) -> VortexResult<Canonical> {
-        Ok(Canonical::Struct(array.clone()))
+    fn canonicalize(array: &StructArray) -> Canonical {
+        Canonical::Struct(array.clone())
     }
 }
 

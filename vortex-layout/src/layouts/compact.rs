@@ -57,7 +57,7 @@ impl CompactCompressor {
     }
 
     pub fn compress(&self, array: &dyn Array) -> VortexResult<ArrayRef> {
-        self.compress_canonical(array.to_canonical()?)
+        self.compress_canonical(array.to_canonical())
     }
 
     /// Compress a single array using the compact strategy
@@ -184,9 +184,9 @@ mod tests {
         let compressed = compressor.compress(struct_array.as_ref()).unwrap();
 
         // Verify we can decompress back to original
-        let decompressed = compressed.to_canonical().unwrap().into_array();
+        let decompressed = compressed.to_canonical().into_array();
         assert_eq!(decompressed.len(), n_rows);
-        let decompressed_struct = decompressed.to_canonical().unwrap().into_struct().unwrap();
+        let decompressed_struct = decompressed.to_struct();
 
         // Verify each field can be accessed and has correct data
         for (i, name) in decompressed_struct.names().iter().enumerate() {
@@ -194,8 +194,7 @@ mod tests {
             let decompressed_array = decompressed_struct
                 .field_by_name(name)
                 .unwrap()
-                .to_primitive()
-                .unwrap();
+                .to_primitive();
             // is there no direct way to assert_eq on (primitive) arrays?
             assert_eq!(decompressed_array.len(), n_rows);
 

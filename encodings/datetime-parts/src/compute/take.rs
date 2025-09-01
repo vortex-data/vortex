@@ -13,7 +13,7 @@ use crate::{DateTimePartsArray, DateTimePartsVTable};
 impl TakeKernel for DateTimePartsVTable {
     fn take(&self, array: &DateTimePartsArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         // we go ahead and canonicalize here to avoid worst-case canonicalizing 3 separate times
-        let indices = indices.to_primitive()?;
+        let indices = indices.to_primitive();
 
         let taken_days = take(array.days(), indices.as_ref())?;
         let taken_seconds = take(array.seconds(), indices.as_ref())?;

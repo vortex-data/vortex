@@ -38,7 +38,7 @@ mod benchmarks {
     #[divan::bench]
     fn btrblocks(bencher: Bencher) {
         bencher
-            .with_inputs(|| make_clickbench_window_name().to_primitive().unwrap())
+            .with_inputs(|| make_clickbench_window_name().to_primitive())
             .input_counter(|array| ItemsCount::new(array.len()))
             .input_counter(|array| BytesCount::of_many::<i32>(array.len()))
             .bench_values(|array| IntCompressor::compress(&array, false, 3, &[]).unwrap());

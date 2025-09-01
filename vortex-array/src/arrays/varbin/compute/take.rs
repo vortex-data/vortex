@@ -16,9 +16,9 @@ use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 impl TakeKernel for VarBinVTable {
     fn take(&self, array: &VarBinArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let offsets = array.offsets().to_primitive()?;
+        let offsets = array.offsets().to_primitive();
         let data = array.bytes();
-        let indices = indices.to_primitive()?;
+        let indices = indices.to_primitive();
         match_each_integer_ptype!(offsets.ptype(), |O| {
             match_each_integer_ptype!(indices.ptype(), |I| {
                 Ok(take(

@@ -42,7 +42,7 @@ impl SerdeVTable<ChunkedVTable> for ChunkedVTable {
                 // 1 extra offset for the end of the last chunk
                 nchunks + 1,
             )?
-            .to_primitive()?
+            .to_primitive()
             .buffer::<u64>();
 
         // The remaining children contain the actual data of the chunks

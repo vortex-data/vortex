@@ -27,7 +27,7 @@ impl CompareKernel for ChunkedVTable {
             let sliced = rhs.slice(idx..idx + chunk.len());
             let cmp_result = compare(chunk, &sliced, operator)?;
 
-            bool_builder.extend_from_array(&cmp_result)?;
+            bool_builder.extend_from_array(&cmp_result);
             idx += chunk.len();
         }
 

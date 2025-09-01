@@ -11,7 +11,7 @@ use vortex_array::{
     Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable,
 };
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_ensure};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_ensure, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::PValue;
 
@@ -242,7 +242,7 @@ impl RunEndArray {
     /// Run the array through run-end encoding.
     pub fn encode(array: ArrayRef) -> VortexResult<Self> {
         if let Some(parray) = array.as_opt::<PrimitiveVTable>() {
-            let (ends, values) = runend_encode(parray)?;
+            let (ends, values) = runend_encode(parray);
             // SAFETY: runend_encode handles this
             unsafe {
                 Ok(Self::new_unchecked(
@@ -328,32 +328,35 @@ impl ValidityVTable<RunEndVTable> for RunEndVTable {
                     )
                     .into_array()
                 };
-                Mask::from_buffer(
-                    ree_validity
-                        .to_bool()
-                        .vortex_expect("must be a bool array")
-                        .boolean_buffer()
-                        .clone(),
-                )
+                Mask::from_buffer(ree_validity.to_bool().boolean_buffer().clone())
             }
         }
     }
 }
 
 impl CanonicalVTable<RunEndVTable> for RunEndVTable {
-    fn canonicalize(array: &RunEndArray) -> VortexResult<Canonical> {
-        let pends = array.ends().to_primitive()?;
+    fn canonicalize(array: &RunEndArray) -> Canonical {
+        let pends = array.ends().to_primitive();
         match array.dtype() {
             DType::Bool(_) => {
-                let bools = array.values().to_bool()?;
-                runend_decode_bools(pends, bools, array.offset(), array.len()).map(Canonical::Bool)
+                let bools = array.values().to_bool();
+                Canonical::Bool(runend_decode_bools(
+                    pends,
+                    bools,
+                    array.offset(),
+                    array.len(),
+                ))
             }
             DType::Primitive(..) => {
-                let pvalues = array.values().to_primitive()?;
-                runend_decode_primitive(pends, pvalues, array.offset(), array.len())
-                    .map(Canonical::Primitive)
+                let pvalues = array.values().to_primitive();
+                Canonical::Primitive(runend_decode_primitive(
+                    pends,
+                    pvalues,
+                    array.offset(),
+                    array.len(),
+                ))
             }
-            _ => vortex_bail!("Only Primitive and Bool values are supported"),
+            _ => vortex_panic!("Only Primitive and Bool values are supported"),
         }
     }
 }

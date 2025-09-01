@@ -32,8 +32,7 @@ mod test {
             .map(|_| u16::try_from(rng.random_range(0..100)).unwrap())
             .collect::<BufferMut<u16>>()
             .into_array()
-            .to_primitive()
-            .unwrap();
+            .to_primitive();
         let array = bitpack_to_best_bit_width(&values).unwrap();
 
         let mask = Mask::from_buffer(
@@ -46,8 +45,7 @@ mod test {
 
         let array = export_canonical_pipeline_expr(array.dtype(), array.len(), &array, &mask)
             .unwrap()
-            .into_primitive()
-            .unwrap();
+            .into_primitive();
         assert_eq!(array.len(), tc);
     }
 }

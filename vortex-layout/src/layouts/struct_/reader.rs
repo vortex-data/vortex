@@ -350,12 +350,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             vec![true, false, false],
-            result
-                .to_bool()
-                .unwrap()
-                .boolean_buffer()
-                .iter()
-                .collect::<Vec<_>>()
+            result.to_bool().boolean_buffer().iter().collect::<Vec<_>>()
         );
     }
 
@@ -378,12 +373,7 @@ mod tests {
 
         assert_eq!(
             vec![true, false],
-            result
-                .to_bool()
-                .unwrap()
-                .boolean_buffer()
-                .iter()
-                .collect::<Vec<_>>()
+            result.to_bool().boolean_buffer().iter().collect::<Vec<_>>()
         );
     }
 
@@ -411,11 +401,9 @@ mod tests {
         assert_eq!(
             result
                 .to_struct()
-                .unwrap()
                 .field_by_name("a")
                 .unwrap()
                 .to_primitive()
-                .unwrap()
                 .as_slice::<i32>(),
             [7, 2].as_slice()
         );
@@ -423,11 +411,9 @@ mod tests {
         assert_eq!(
             result
                 .to_struct()
-                .unwrap()
                 .field_by_name("b")
                 .unwrap()
                 .to_primitive()
-                .unwrap()
                 .as_slice::<i32>(),
             [4, 5].as_slice()
         );

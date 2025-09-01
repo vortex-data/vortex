@@ -7,7 +7,7 @@ use arrow_array::cast::AsArray;
 use arrow_array::{BinaryViewArray, StringViewArray};
 use arrow_schema::DataType;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::VortexExpect;
 
 use crate::arrays::VarBinVTable;
 use crate::arrays::varbin::VarBinArray;
@@ -16,11 +16,14 @@ use crate::vtable::CanonicalVTable;
 use crate::{ArrayRef, Canonical, ToCanonical};
 
 impl CanonicalVTable<VarBinVTable> for VarBinVTable {
-    fn canonicalize(array: &VarBinArray) -> VortexResult<Canonical> {
+    fn canonicalize(array: &VarBinArray) -> Canonical {
         let dtype = array.dtype().clone();
         let nullable = dtype.is_nullable();
 
-        let array_ref = array.to_array().into_arrow_preferred()?;
+        let array_ref = array
+            .to_array()
+            .into_arrow_preferred()
+            .vortex_expect("VarBinArray must be convertible to arrow array");
 
         let array = match (&dtype, array_ref.data_type()) {
             (DType::Utf8(_), DataType::Utf8) => {
@@ -44,9 +47,7 @@ impl CanonicalVTable<VarBinVTable> for VarBinVTable {
             }
             _ => unreachable!("VarBinArray must have Utf8 or Binary dtype, instead got: {dtype}",),
         };
-        Ok(Canonical::VarBinView(
-            ArrayRef::from_arrow(array.as_ref(), nullable).to_varbinview()?,
-        ))
+        Canonical::VarBinView(ArrayRef::from_arrow(array.as_ref(), nullable).to_varbinview())
     }
 }
 
@@ -71,7 +72,7 @@ mod test {
         varbin.append_value("1234567890123".as_bytes());
         let varbin = varbin.finish(dtype.clone());
 
-        let canonical = varbin.to_varbinview().unwrap();
+        let canonical = varbin.to_varbinview();
         assert_eq!(canonical.dtype(), &dtype);
 
         assert!(!canonical.is_valid(0));

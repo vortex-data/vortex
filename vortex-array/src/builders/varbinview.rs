@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::{Entry, HashMap};
 
@@ -83,7 +83,6 @@ impl VarBinViewBuilder {
     }
 
     /// Appends a value to the builder.
-    #[inline]
     pub fn append_value<S: AsRef<[u8]>>(&mut self, value: S) {
         self.append_value_view(value.as_ref());
         self.nulls.append_non_null();
@@ -91,10 +90,12 @@ impl VarBinViewBuilder {
 
     /// Appends an optional value to the builder.
     ///
+    /// If the value is `Some`, it appends the varbin view value. If the value is `None`, it appends
+    /// a null.
+    ///
     /// # Panics
     ///
     /// This method will panic if the input is `None` and the builder is non-nullable.
-    #[inline]
     pub fn append_option<S: AsRef<[u8]>>(&mut self, value: Option<S>) {
         match value {
             Some(value) => self.append_value(value),
@@ -102,7 +103,6 @@ impl VarBinViewBuilder {
         }
     }
 
-    #[inline]
     fn flush_in_progress(&mut self) {
         if self.in_progress.is_empty() {
             return;
@@ -194,39 +194,26 @@ impl ArrayBuilder for VarBinViewBuilder {
         self
     }
 
-    #[inline]
     fn dtype(&self) -> &DType {
         &self.dtype
     }
 
-    #[inline]
     fn len(&self) -> usize {
         self.nulls.len()
     }
 
-    #[inline]
     fn append_zeros(&mut self, n: usize) {
         self.views_builder.push_n(BinaryView::empty_view(), n);
         self.nulls.append_n_non_nulls(n);
     }
 
-    #[inline]
-    fn append_nulls(&mut self, n: usize) {
+    unsafe fn append_nulls_unchecked(&mut self, n: usize) {
         self.views_builder.push_n(BinaryView::empty_view(), n);
         self.nulls.append_n_nulls(n);
     }
 
-    #[inline]
-    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
-        if !self.dtype.eq_with_nullability_superset(array.dtype()) {
-            vortex_bail!(
-                "tried to extend a builder with `DType` {} with an array with `DType {}",
-                self.dtype,
-                array.dtype()
-            );
-        }
-
-        let array = array.to_varbinview()?;
+    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+        let array = array.to_varbinview();
         self.flush_in_progress();
 
         let new_indices = self.completed.extend_from_slice(array.buffers());
@@ -250,8 +237,6 @@ impl ArrayBuilder for VarBinViewBuilder {
         }
 
         self.push_only_validity_mask(array.validity_mask());
-
-        Ok(())
     }
 
     fn ensure_capacity(&mut self, capacity: usize) {
@@ -453,11 +438,11 @@ mod tests {
         let mut builder = VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
 
         builder.append_option(Some("Hello1"));
-        builder.extend_from_array(&array).unwrap();
+        builder.extend_from_array(&array);
         builder.append_nulls(2);
         builder.append_value("Hello3");
 
-        let arr = builder.finish().to_varbinview().unwrap();
+        let arr = builder.finish().to_varbinview();
 
         let arr = arr
             .with_iterator(|iter| {
@@ -493,11 +478,11 @@ mod tests {
         let mut builder =
             VarBinViewBuilder::with_buffer_deduplication(DType::Utf8(Nullability::Nullable), 10);
 
-        array.append_to_builder(&mut builder).unwrap();
+        array.append_to_builder(&mut builder);
         assert_eq!(builder.completed_block_count(), 1);
 
-        array.slice(1..2).append_to_builder(&mut builder).unwrap();
-        array.slice(0..1).append_to_builder(&mut builder).unwrap();
+        array.slice(1..2).append_to_builder(&mut builder);
+        array.slice(0..1).append_to_builder(&mut builder);
         assert_eq!(builder.completed_block_count(), 1);
 
         let array2 = {
@@ -507,11 +492,11 @@ mod tests {
             builder.finish_into_varbinview()
         };
 
-        array2.append_to_builder(&mut builder).unwrap();
+        array2.append_to_builder(&mut builder);
         assert_eq!(builder.completed_block_count(), 2);
 
-        array.slice(0..1).append_to_builder(&mut builder).unwrap();
-        array2.slice(0..1).append_to_builder(&mut builder).unwrap();
+        array.slice(0..1).append_to_builder(&mut builder);
+        array2.slice(0..1).append_to_builder(&mut builder);
         assert_eq!(builder.completed_block_count(), 2);
     }
 }

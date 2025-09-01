@@ -126,16 +126,14 @@ impl SparseArray {
     }
 
     #[inline]
-    pub fn resolved_patches(&self) -> VortexResult<Patches> {
+    pub fn resolved_patches(&self) -> Patches {
         let patches = self.patches();
-        let indices_offset = Scalar::from(patches.offset()).cast(patches.indices().dtype())?;
-        let indices = sub_scalar(patches.indices(), indices_offset)?;
-        Ok(Patches::new(
-            patches.array_len(),
-            0,
-            indices,
-            patches.values().clone(),
-        ))
+        let indices_offset = Scalar::from(patches.offset())
+            .cast(patches.indices().dtype())
+            .vortex_expect("Patches offset must cast to the indices dtype");
+        let indices = sub_scalar(patches.indices(), indices_offset)
+            .vortex_expect("must be able to subtract offset from indices");
+        Patches::new(patches.array_len(), 0, indices, patches.values().clone())
     }
 
     #[inline]
@@ -199,7 +197,7 @@ impl SparseArray {
         } else {
             // TODO(robert): Support other dtypes, only thing missing is getting most common value out of the array
             let (top_pvalue, _) = array
-                .to_primitive()?
+                .to_primitive()
                 .top_value()?
                 .vortex_expect("Non empty or all null array");
 
@@ -212,7 +210,7 @@ impl SparseArray {
                 &compare(array, &fill_array, Operator::NotEq)?,
                 &Scalar::bool(true, Nullability::NonNullable),
             )?
-            .to_bool()?
+            .to_bool()
             .boolean_buffer()
             .clone(),
         );
@@ -295,11 +293,7 @@ impl ValidityVTable<SparseVTable> for SparseVTable {
         let mut is_valid_buffer = BooleanBufferBuilder::new(len);
         is_valid_buffer.append_n(len, fill_is_valid);
 
-        let indices = array
-            .patches()
-            .indices()
-            .to_primitive()
-            .vortex_expect("sparse indices must be primitive");
+        let indices = array.patches().indices().to_primitive();
         let index_offset = array.patches().offset();
 
         match_each_integer_ptype!(indices.ptype(), |I| {
@@ -505,7 +499,7 @@ mod test {
             None,
         )
         .vortex_unwrap();
-        let canonical = sparse.to_primitive().vortex_unwrap();
+        let canonical = sparse.to_primitive();
         assert_eq!(
             sparse.validity_mask(),
             Mask::from_iter(vec![

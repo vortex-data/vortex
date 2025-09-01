@@ -54,7 +54,7 @@ pub fn dict_encode_with_constraints(
     constraints: &DictConstraints,
 ) -> VortexResult<DictArray> {
     let mut encoder = dict_encoder(array, constraints)?;
-    let codes = encoder.encode(array)?.to_primitive()?.downcast()?;
+    let codes = encoder.encode(array)?.to_primitive().downcast()?;
     // SAFETY: The encoding process will produce a value set of codes and values
     unsafe {
         Ok(DictArray::new_unchecked(

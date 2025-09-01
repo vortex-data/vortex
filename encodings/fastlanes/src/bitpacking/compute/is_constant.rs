@@ -37,15 +37,12 @@ fn bitpacked_is_constant<T: BitPacked, const WIDTH: usize>(
     array: &BitPackedArray,
 ) -> VortexResult<bool> {
     let mut bit_unpack_iterator = array.unpacked_chunks::<T>();
-    let patches = array
-        .patches()
-        .map(|p| {
-            let values = p.values().to_primitive()?;
-            let indices = p.indices().to_primitive()?;
-            let offset = p.offset();
-            VortexResult::Ok((indices, values, offset))
-        })
-        .transpose()?;
+    let patches = array.patches().map(|p| {
+        let values = p.values().to_primitive();
+        let indices = p.indices().to_primitive();
+        let offset = p.offset();
+        (indices, values, offset)
+    });
 
     let mut header_constant_value = None;
     let mut current_idx = 0;

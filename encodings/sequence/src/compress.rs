@@ -84,7 +84,7 @@ mod tests {
         let primitive_array = PrimitiveArray::from_iter([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
         let encoded = sequence_encode(&primitive_array).unwrap();
         assert!(encoded.is_some());
-        let decoded = encoded.unwrap().to_primitive().unwrap();
+        let decoded = encoded.unwrap().to_primitive();
         assert_eq!(decoded.as_slice::<i32>(), primitive_array.as_slice::<i32>());
     }
 
@@ -93,7 +93,7 @@ mod tests {
         let primitive_array = PrimitiveArray::from_iter([0]);
         let encoded = sequence_encode(&primitive_array).unwrap();
         assert!(encoded.is_some());
-        let decoded = encoded.unwrap().to_primitive().unwrap();
+        let decoded = encoded.unwrap().to_primitive();
         assert_eq!(decoded.as_slice::<i32>(), primitive_array.as_slice::<i32>());
     }
 

@@ -15,7 +15,7 @@ struct TemporalExporter {
 pub(crate) fn new_exporter(array: &TemporalArray) -> VortexResult<Box<dyn ColumnExporter>> {
     Ok(Box::new(TemporalExporter {
         storage_type_exporter: primitive::new_exporter(
-            &array.temporal_values().clone().to_primitive()?,
+            &array.temporal_values().clone().to_primitive(),
         )?,
     }))
 }

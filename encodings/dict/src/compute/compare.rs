@@ -58,7 +58,7 @@ fn dict_equal_to(
     codes: &ArrayRef,
     result_nullability: Nullability,
 ) -> VortexResult<ArrayRef> {
-    let bool_result = values_compare.to_bool()?;
+    let bool_result = values_compare.to_bool();
     let result_validity = bool_result.validity_mask();
     let bool_buffer = bool_result.boolean_buffer();
     let (first_match, second_match) = match result_validity.boolean_buffer() {
@@ -82,7 +82,7 @@ fn dict_equal_to(
                 result_builder.extend_from_array(
                     &ConstantArray::new(Scalar::bool(false, result_nullability), codes.len())
                         .into_array(),
-                )?;
+                );
                 result_builder.set_validity(codes.validity_mask());
                 result_builder.finish()
             }
@@ -97,7 +97,7 @@ fn dict_equal_to(
                 result_builder.extend_from_array(
                     &ConstantArray::new(Scalar::bool(false, result_nullability), codes.len())
                         .into_array(),
-                )?;
+                );
                 result_builder.set_validity(
                     Validity::from_mask(result_validity, bool_result.dtype().nullability())
                         .take(codes)?
@@ -153,7 +153,7 @@ mod tests {
             Operator::Eq,
         )
         .unwrap();
-        let res = res.to_bool().unwrap();
+        let res = res.to_bool();
         assert_eq!(
             res.boolean_buffer().iter().collect::<Vec<_>>(),
             vec![true, false, false]
@@ -174,7 +174,7 @@ mod tests {
             Operator::Gt,
         )
         .unwrap();
-        let res = res.to_bool().unwrap();
+        let res = res.to_bool();
         assert_eq!(
             res.boolean_buffer().iter().collect::<Vec<_>>(),
             vec![false, true, true]
@@ -199,7 +199,7 @@ mod tests {
             Operator::Eq,
         )
         .unwrap();
-        let res = res.to_bool().unwrap();
+        let res = res.to_bool();
         assert_eq!(
             res.boolean_buffer().iter().collect::<Vec<_>>(),
             vec![false, false, false]
@@ -226,7 +226,7 @@ mod tests {
             Operator::Eq,
         )
         .unwrap();
-        let res = res.to_bool().unwrap();
+        let res = res.to_bool();
         assert_eq!(
             res.boolean_buffer().iter().collect::<Vec<_>>(),
             vec![false, false, false]

@@ -150,10 +150,7 @@ impl FileOpener for VortexOpener {
                 .with_metrics(metrics)
                 .with_projection(projection_expr)
                 .with_some_filter(filter)
-                .map(move |chunk| {
-                    let st = chunk.to_struct()?;
-                    st.into_record_batch()
-                })
+                .map(|chunk| chunk.to_struct().into_record_batch())
                 .into_stream()
                 .map_ok(move |rb| {
                     // We try and slice the stream into respecting datafusion's configured batch size.

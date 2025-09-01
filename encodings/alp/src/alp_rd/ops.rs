@@ -94,7 +94,7 @@ mod test {
 
         assert!(encoded.left_parts_patches().is_some());
 
-        let decoded = encoded.slice(1..3).to_primitive().unwrap();
+        let decoded = encoded.slice(1..3).to_primitive();
 
         assert_eq!(decoded.as_slice::<T>(), &[b, outlier]);
     }

@@ -23,10 +23,10 @@ impl CompareKernel for RunEndVTable {
                 ConstantArray::new(const_scalar, lhs.values().len()).as_ref(),
                 operator,
             )
-            .and_then(|values| {
+            .map(|values| {
                 runend_decode_bools(
-                    lhs.ends().to_primitive()?,
-                    values.to_bool()?,
+                    lhs.ends().to_primitive(),
+                    values.to_bool(),
                     lhs.offset(),
                     lhs.len(),
                 )
@@ -66,7 +66,7 @@ mod test {
             Operator::Eq,
         )
         .unwrap();
-        let res_canon = res.to_bool().unwrap();
+        let res_canon = res.to_bool();
         assert_eq!(
             res_canon.boolean_buffer(),
             &BooleanBuffer::from(vec![

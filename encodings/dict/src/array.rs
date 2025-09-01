@@ -138,17 +138,21 @@ impl ArrayVTable<DictVTable> for DictVTable {
 }
 
 impl CanonicalVTable<DictVTable> for DictVTable {
-    fn canonicalize(array: &DictArray) -> VortexResult<Canonical> {
+    fn canonicalize(array: &DictArray) -> Canonical {
         match array.dtype() {
             // NOTE: Utf8 and Binary will decompress into VarBinViewArray, which requires a full
             // decompression to construct the views child array.
             // For this case, it is *always* faster to decompress the values first and then create
             // copies of the view pointers.
             DType::Utf8(_) | DType::Binary(_) => {
-                let canonical_values: ArrayRef = array.values().to_canonical()?.into_array();
-                take(&canonical_values, array.codes())?.to_canonical()
+                let canonical_values: ArrayRef = array.values().to_canonical().into_array();
+                take(&canonical_values, array.codes())
+                    .vortex_expect("taking codes from dictionary values shouldn't fail")
+                    .to_canonical()
             }
-            _ => take(array.values(), array.codes())?.to_canonical(),
+            _ => take(array.values(), array.codes())
+                .vortex_expect("taking codes from dictionary values shouldn't fail")
+                .to_canonical(),
         }
     }
 }
@@ -179,10 +183,7 @@ impl ValidityVTable<DictVTable> for DictVTable {
         let codes_validity = array.codes().validity_mask();
         match codes_validity.boolean_buffer() {
             AllOr::All => {
-                let primitive_codes = array
-                    .codes()
-                    .to_primitive()
-                    .vortex_expect("dict codes must be primitive");
+                let primitive_codes = array.codes().to_primitive();
                 let values_mask = array.values().validity_mask();
                 let is_valid_buffer = match_each_integer_ptype!(primitive_codes.ptype(), |P| {
                     let codes_slice = primitive_codes.as_slice::<P>();
@@ -195,10 +196,7 @@ impl ValidityVTable<DictVTable> for DictVTable {
             }
             AllOr::None => Mask::AllFalse(array.len()),
             AllOr::Some(validity_buff) => {
-                let primitive_codes = array
-                    .codes()
-                    .to_primitive()
-                    .vortex_expect("dict codes must be primitive");
+                let primitive_codes = array.codes().to_primitive();
                 let values_mask = array.values().validity_mask();
                 let is_valid_buffer = match_each_integer_ptype!(primitive_codes.ptype(), |P| {
                     let codes_slice = primitive_codes.as_slice::<P>();
@@ -328,13 +326,10 @@ mod test {
             &DType::Primitive(PType::U64, NonNullable),
             len * chunk_count,
         );
-        array
-            .clone()
-            .append_to_builder(builder.as_mut())
-            .vortex_unwrap();
+        array.clone().append_to_builder(builder.as_mut());
 
-        let into_prim = array.to_primitive().unwrap();
-        let prim_into = builder.finish().to_primitive().unwrap();
+        let into_prim = array.to_primitive();
+        let prim_into = builder.finish().to_primitive();
 
         assert_eq!(into_prim.as_slice::<u64>(), prim_into.as_slice::<u64>());
         assert_eq!(

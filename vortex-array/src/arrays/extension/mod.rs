@@ -5,7 +5,6 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_dtype::{DType, ExtDType, ExtID};
-use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::stats::{ArrayStats, StatsSetRef};
@@ -185,8 +184,8 @@ impl ValidityChild<ExtensionVTable> for ExtensionVTable {
 }
 
 impl CanonicalVTable<ExtensionVTable> for ExtensionVTable {
-    fn canonicalize(array: &ExtensionArray) -> VortexResult<Canonical> {
-        Ok(Canonical::Extension(array.clone()))
+    fn canonicalize(array: &ExtensionArray) -> Canonical {
+        Canonical::Extension(array.clone())
     }
 }
 

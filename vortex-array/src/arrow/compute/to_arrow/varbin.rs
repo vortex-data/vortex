@@ -71,8 +71,7 @@ fn to_arrow<O: NativePType + OffsetSizeTrait>(array: &VarBinArray) -> VortexResu
         array.offsets(),
         &DType::Primitive(O::PTYPE, Nullability::NonNullable),
     )?
-    .to_primitive()
-    .map_err(|err| err.with_context("Failed to canonicalize offsets"))?;
+    .to_primitive();
 
     let nulls = array.validity_mask().to_null_buffer();
     let data = array.bytes().clone();

@@ -277,22 +277,22 @@ where
     })
 }
 
-pub fn unpack(array: &BitPackedArray) -> VortexResult<PrimitiveArray> {
+pub fn unpack(array: &BitPackedArray) -> PrimitiveArray {
     match_each_integer_ptype!(array.ptype(), |P| { unpack_primitive::<P>(array) })
 }
 
-pub fn unpack_primitive<T: BitPacked>(array: &BitPackedArray) -> VortexResult<PrimitiveArray> {
+pub fn unpack_primitive<T: BitPacked>(array: &BitPackedArray) -> PrimitiveArray {
     let mut builder = PrimitiveBuilder::with_capacity(array.dtype().nullability(), array.len());
-    unpack_into::<T>(array, &mut builder)?;
+    unpack_into::<T>(array, &mut builder);
     assert_eq!(builder.len(), array.len());
-    Ok(builder.finish_into_primitive())
+    builder.finish_into_primitive()
 }
 
 pub(crate) fn unpack_into<T: BitPacked>(
     array: &BitPackedArray,
     // TODO(ngates): do we want to use fastlanes alignment for this buffer?
     builder: &mut PrimitiveBuilder<T>,
-) -> VortexResult<()> {
+) {
     // Append a dense null Mask.
     builder.append_mask(array.validity_mask());
 
@@ -310,19 +310,17 @@ pub(crate) fn unpack_into<T: BitPacked>(
     }
 
     if let Some(patches) = array.patches() {
-        apply_patches(&mut uninit, patches)?;
+        apply_patches(&mut uninit, patches);
     };
 
     uninit.finish();
-
-    Ok(())
 }
 
-fn apply_patches<T: NativePType>(dst: &mut UninitRange<T>, patches: &Patches) -> VortexResult<()> {
+fn apply_patches<T: NativePType>(dst: &mut UninitRange<T>, patches: &Patches) {
     assert_eq!(patches.array_len(), dst.len());
 
-    let indices = patches.indices().to_primitive()?;
-    let values = patches.values().to_primitive()?;
+    let indices = patches.indices().to_primitive();
+    let values = patches.values().to_primitive();
     let validity = values.validity_mask();
     let values = values.as_slice::<T>();
     match_each_unsigned_integer_ptype!(indices.ptype(), |P| {
@@ -334,7 +332,6 @@ fn apply_patches<T: NativePType>(dst: &mut UninitRange<T>, patches: &Patches) ->
             patches.offset(),
         )
     });
-    Ok(())
 }
 
 fn insert_values_and_validity_at_indices<
@@ -513,7 +510,7 @@ pub mod test_harness {
             .collect::<BufferMut<i32>>();
 
         let values = if fraction_null == 0.0 {
-            values.into_array().to_primitive()?
+            values.into_array().to_primitive()
         } else {
             let validity = Validity::from_iter((0..len).map(|_| !rng.random_bool(fraction_null)));
             PrimitiveArray::new(values, validity)
@@ -539,30 +536,27 @@ mod test {
 
     #[test]
     fn test_all_zeros() {
-        let zeros = buffer![0u16, 0, 0, 0].into_array().to_primitive().unwrap();
+        let zeros = buffer![0u16, 0, 0, 0].into_array().to_primitive();
         let bitpacked = bitpack_encode(&zeros, 0, None).unwrap();
-        let actual = unpack(&bitpacked).unwrap();
+        let actual = unpack(&bitpacked);
         let actual = actual.as_slice::<u16>();
         assert_eq!(actual, &[0u16, 0, 0, 0]);
     }
 
     #[test]
     fn test_simple_patches() {
-        let zeros = buffer![0u16, 1, 0, 1].into_array().to_primitive().unwrap();
+        let zeros = buffer![0u16, 1, 0, 1].into_array().to_primitive();
         let bitpacked = bitpack_encode(&zeros, 0, None).unwrap();
-        let actual = unpack(&bitpacked).unwrap();
+        let actual = unpack(&bitpacked);
         let actual = actual.as_slice::<u16>();
         assert_eq!(actual, &[0u16, 1, 0, 1]);
     }
 
     #[test]
     fn test_one_full_chunk() {
-        let zeros = BufferMut::from_iter(0u16..1024)
-            .into_array()
-            .to_primitive()
-            .unwrap();
+        let zeros = BufferMut::from_iter(0u16..1024).into_array().to_primitive();
         let bitpacked = bitpack_encode(&zeros, 10, None).unwrap();
-        let actual = unpack(&bitpacked).unwrap();
+        let actual = unpack(&bitpacked);
         let actual = actual.as_slice::<u16>();
         assert_eq!(actual, &(0u16..1024).collect::<Vec<_>>());
     }
@@ -571,11 +565,10 @@ mod test {
     fn test_three_full_chunks_with_patches() {
         let zeros = BufferMut::from_iter((5u16..1029).chain(5u16..1029).chain(5u16..1029))
             .into_array()
-            .to_primitive()
-            .unwrap();
+            .to_primitive();
         let bitpacked = bitpack_encode(&zeros, 10, None).unwrap();
         assert!(bitpacked.patches().is_some());
-        let actual = unpack(&bitpacked).unwrap();
+        let actual = unpack(&bitpacked);
         let actual = actual.as_slice::<u16>();
         assert_eq!(
             actual,
@@ -588,13 +581,10 @@ mod test {
 
     #[test]
     fn test_one_full_chunk_and_one_short_chunk_no_patch() {
-        let zeros = BufferMut::from_iter(0u16..1025)
-            .into_array()
-            .to_primitive()
-            .unwrap();
+        let zeros = BufferMut::from_iter(0u16..1025).into_array().to_primitive();
         let bitpacked = bitpack_encode(&zeros, 11, None).unwrap();
         assert!(bitpacked.patches().is_none());
-        let actual = unpack(&bitpacked).unwrap();
+        let actual = unpack(&bitpacked);
         let actual = actual.as_slice::<u16>();
         assert_eq!(actual, &(0u16..1025).collect::<Vec<_>>());
     }
@@ -603,12 +593,11 @@ mod test {
     fn test_one_full_chunk_and_one_short_chunk_with_patches() {
         let zeros = BufferMut::from_iter(512u16..1537)
             .into_array()
-            .to_primitive()
-            .unwrap();
+            .to_primitive();
         let bitpacked = bitpack_encode(&zeros, 10, None).unwrap();
         assert_eq!(bitpacked.len(), 1025);
         assert!(bitpacked.patches().is_some());
-        let actual = unpack(&bitpacked).unwrap();
+        let actual = unpack(&bitpacked);
         let actual = actual.as_slice::<u16>();
         assert_eq!(actual, &(512u16..1537).collect::<Vec<_>>());
     }
@@ -617,13 +606,12 @@ mod test {
     fn test_offset_and_short_chunk_and_patches() {
         let zeros = BufferMut::from_iter(512u16..1537)
             .into_array()
-            .to_primitive()
-            .unwrap();
+            .to_primitive();
         let bitpacked = bitpack_encode(&zeros, 10, None).unwrap();
         assert_eq!(bitpacked.len(), 1025);
         assert!(bitpacked.patches().is_some());
         let bitpacked = bitpacked.slice(1023..1025);
-        let actual = unpack(bitpacked.as_::<BitPackedVTable>()).unwrap();
+        let actual = unpack(bitpacked.as_::<BitPackedVTable>());
         let actual = actual.as_slice::<u16>();
         assert_eq!(actual, &[1535, 1536]);
     }
@@ -632,13 +620,12 @@ mod test {
     fn test_offset_and_short_chunk_with_chunks_between_and_patches() {
         let zeros = BufferMut::from_iter(512u16..2741)
             .into_array()
-            .to_primitive()
-            .unwrap();
+            .to_primitive();
         let bitpacked = bitpack_encode(&zeros, 10, None).unwrap();
         assert_eq!(bitpacked.len(), 2229);
         assert!(bitpacked.patches().is_some());
         let bitpacked = bitpacked.slice(1023..2049);
-        let actual = unpack(bitpacked.as_::<BitPackedVTable>()).unwrap();
+        let actual = unpack(bitpacked.as_::<BitPackedVTable>());
         let actual = actual.as_slice::<u16>();
         assert_eq!(actual, &(1023..2049).map(|x| x + 512).collect::<Vec<_>>());
     }
@@ -692,7 +679,7 @@ mod test {
     fn compression_roundtrip(n: usize) {
         let values = PrimitiveArray::from_iter((0..n).map(|i| (i % 2047) as u16));
         let compressed = BitPackedArray::encode(values.as_ref(), 11).unwrap();
-        let decompressed = compressed.to_primitive().unwrap();
+        let decompressed = compressed.to_primitive();
         assert_eq!(decompressed.as_slice::<u16>(), values.as_slice::<u16>());
 
         values
@@ -724,28 +711,25 @@ mod test {
             .collect::<Vec<_>>();
         let chunked = ChunkedArray::from_iter(chunks).into_array();
 
-        let into_ca = chunked.clone().to_primitive().unwrap();
+        let into_ca = chunked.clone().to_primitive();
         let mut primitive_builder =
             PrimitiveBuilder::<i32>::with_capacity(chunked.dtype().nullability(), 10 * 100);
-        chunked
-            .clone()
-            .append_to_builder(&mut primitive_builder)
-            .unwrap();
+        chunked.clone().append_to_builder(&mut primitive_builder);
         let ca_into = primitive_builder.finish();
 
         assert_eq!(
             into_ca.as_slice::<i32>(),
-            ca_into.to_primitive().unwrap().as_slice::<i32>()
+            ca_into.to_primitive().as_slice::<i32>()
         );
 
         let mut primitive_builder =
             PrimitiveBuilder::<i32>::with_capacity(chunked.dtype().nullability(), 10 * 100);
-        primitive_builder.extend_from_array(&chunked).unwrap();
+        primitive_builder.extend_from_array(&chunked);
         let ca_into = primitive_builder.finish();
 
         assert_eq!(
             into_ca.as_slice::<i32>(),
-            ca_into.to_primitive().unwrap().as_slice::<i32>()
+            ca_into.to_primitive().as_slice::<i32>()
         );
     }
 }

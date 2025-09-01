@@ -111,7 +111,7 @@ mod tests {
             .map(|_| rng.random_range(0..100))
             .collect::<BufferMut<_>>();
 
-        let primitive_array = values.into_array().to_primitive().unwrap();
+        let primitive_array = values.into_array().to_primitive();
         let bitpacked = bitpack_to_best_bit_width(&primitive_array).unwrap();
 
         let mask = (0..len)
@@ -128,7 +128,7 @@ mod tests {
         .unwrap()
         .into_array();
 
-        let expect = filter(bitpacked.to_canonical().unwrap().as_ref(), &mask).unwrap();
+        let expect = filter(bitpacked.to_canonical().as_ref(), &mask).unwrap();
 
         assert_eq!(result.len(), expect.len());
 
@@ -149,7 +149,7 @@ mod tests {
         let offset = 5usize;
 
         let values = (0..len).map(|i| i as i32).collect::<BufferMut<_>>();
-        let primitive_array = values.into_array().to_primitive().unwrap();
+        let primitive_array = values.into_array().to_primitive();
         let bitpacked = bitpack_to_best_bit_width(&primitive_array).unwrap();
 
         let sliced = bitpacked.slice(offset..offset + N);
@@ -170,7 +170,7 @@ mod tests {
         let offset = 5usize;
 
         let values = (0..len).map(|i| i as i32).collect::<BufferMut<_>>();
-        let primitive_array = values.into_array().to_primitive().unwrap();
+        let primitive_array = values.into_array().to_primitive();
         let bitpacked = bitpack_to_best_bit_width(&primitive_array).unwrap();
 
         let sliced = bitpacked.slice(offset..offset + N);
@@ -214,7 +214,7 @@ mod tests {
             .map(|i| (i as i32) * 3 + 17)
             .collect::<BufferMut<_>>();
 
-        let primitive_array = values.into_array().to_primitive().unwrap();
+        let primitive_array = values.into_array().to_primitive();
         let bitpacked = bitpack_to_best_bit_width(&primitive_array).unwrap();
 
         // Test with offset
@@ -242,7 +242,7 @@ mod tests {
         .unwrap()
         .into_array();
 
-        let expect = filter(sliced.to_canonical().unwrap().as_ref(), &sliced_mask).unwrap();
+        let expect = filter(sliced.to_canonical().as_ref(), &sliced_mask).unwrap();
 
         assert_eq!(result.len(), 5, "Should have exactly 5 selected elements");
 

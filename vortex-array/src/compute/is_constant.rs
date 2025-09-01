@@ -176,7 +176,7 @@ fn is_constant_impl(
     );
 
     if options.cost == Cost::Canonicalize && !array.is_canonical() {
-        let array = array.to_canonical()?;
+        let array = array.to_canonical();
         let is_constant = is_constant_opts(array.as_ref(), options)?;
         return Ok(is_constant);
     }

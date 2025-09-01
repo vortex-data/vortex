@@ -8,7 +8,6 @@ use vortex_array::arrays::{BoolArray, ChunkedArray};
 use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder, builder_with_capacity};
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dtype::DType;
-use vortex_error::VortexUnwrap;
 
 fn main() {
     divan::main();
@@ -27,7 +26,7 @@ fn chunked_bool_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usi
 
     bencher.with_inputs(|| chunk.clone()).bench_values(|chunk| {
         let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
-        chunk.append_to_builder(builder.as_mut()).vortex_unwrap();
+        chunk.append_to_builder(builder.as_mut());
         builder.finish()
     })
 }
@@ -38,10 +37,7 @@ fn chunked_opt_bool_canonical_into(bencher: Bencher, (len, chunk_count): (usize,
 
     bencher.with_inputs(|| chunk.clone()).bench_values(|chunk| {
         let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
-        chunk
-            .clone()
-            .append_to_builder(builder.as_mut())
-            .vortex_unwrap();
+        chunk.clone().append_to_builder(builder.as_mut());
         builder.finish()
     })
 }
@@ -75,7 +71,7 @@ fn chunked_varbinview_canonical_into(bencher: Bencher, (len, chunk_count): (usiz
                 DType::Utf8(chunk.dtype().nullability()),
                 len * chunk_count,
             );
-            chunk.append_to_builder(&mut builder).vortex_unwrap();
+            chunk.append_to_builder(&mut builder);
             builder.finish()
         })
 }
@@ -100,7 +96,7 @@ fn chunked_varbinview_opt_canonical_into(bencher: Bencher, (len, chunk_count): (
                 DType::Utf8(chunk.dtype().nullability()),
                 len * chunk_count,
             );
-            chunk.append_to_builder(&mut builder).vortex_unwrap();
+            chunk.append_to_builder(&mut builder);
             builder.finish()
         })
 }

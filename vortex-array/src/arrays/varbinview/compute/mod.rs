@@ -38,7 +38,6 @@ mod tests {
         assert_eq!(
             taken
                 .to_varbinview()
-                .unwrap()
                 .with_iterator(|it| it
                     .map(|v| v.map(|b| unsafe { String::from_utf8_unchecked(b.to_vec()) }))
                     .collect::<Vec<_>>())

@@ -118,12 +118,12 @@ pub trait Array: 'static + private::Sealed + Send + Sync + Debug + ArrayVisitor 
     fn validity_mask(&self) -> Mask;
 
     /// Returns the canonical representation of the array.
-    fn to_canonical(&self) -> VortexResult<Canonical>;
+    fn to_canonical(&self) -> Canonical;
 
     /// Writes the array into the canonical builder.
     ///
     /// The [`DType`] of the builder must match that of the array.
-    fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()>;
+    fn append_to_builder(&self, builder: &mut dyn ArrayBuilder);
 
     /// Returns the statistics of the array.
     // TODO(ngates): change how this works. It's weird.
@@ -218,11 +218,11 @@ impl Array for Arc<dyn Array> {
         self.as_ref().validity_mask()
     }
 
-    fn to_canonical(&self) -> VortexResult<Canonical> {
+    fn to_canonical(&self) -> Canonical {
         self.as_ref().to_canonical()
     }
 
-    fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+    fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) {
         self.as_ref().append_to_builder(builder)
     }
 
@@ -513,8 +513,8 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         mask
     }
 
-    fn to_canonical(&self) -> VortexResult<Canonical> {
-        let canonical = <V::CanonicalVTable as CanonicalVTable<V>>::canonicalize(&self.0)?;
+    fn to_canonical(&self) -> Canonical {
+        let canonical = <V::CanonicalVTable as CanonicalVTable<V>>::canonicalize(&self.0);
         assert_eq!(
             self.len(),
             canonical.as_ref().len(),
@@ -535,12 +535,12 @@ impl<V: VTable> Array for ArrayAdapter<V> {
             .as_ref()
             .statistics()
             .inherit_from(self.statistics());
-        Ok(canonical)
+        canonical
     }
 
-    fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+    fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) {
         if builder.dtype() != self.dtype() {
-            vortex_bail!(
+            vortex_panic!(
                 "Builder dtype mismatch: expected {}, got {}",
                 self.dtype(),
                 builder.dtype(),
@@ -548,14 +548,13 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         }
         let len = builder.len();
 
-        <V::CanonicalVTable as CanonicalVTable<V>>::append_to_builder(&self.0, builder)?;
+        <V::CanonicalVTable as CanonicalVTable<V>>::append_to_builder(&self.0, builder);
         assert_eq!(
             len + self.len(),
             builder.len(),
             "Builder length mismatch after writing array for encoding {}",
             self.encoding_id(),
         );
-        Ok(())
     }
 
     fn statistics(&self) -> StatsSetRef<'_> {
