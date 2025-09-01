@@ -3,7 +3,6 @@
 
 use futures::future::{BoxFuture, LocalBoxFuture};
 use futures::{FutureExt, StreamExt};
-use object_store::{GetOptions, GetRange, GetResultPayload};
 use smol::unblock;
 use std::fs::File;
 use std::io;
@@ -174,6 +173,7 @@ impl IoSource for FileIoSource {
         .boxed()
     }
 
+    #[tracing::instrument(level = "debug", skip(self), fields(path = %self.path, offset, length, alignment = ?alignment))]
     fn read_send(
         &self,
         offset: u64,
@@ -251,6 +251,7 @@ impl IoSource for ObjectStoreIoSource {
         .boxed()
     }
 
+    #[tracing::instrument(level = "debug", skip(self), fields(path = %self.path, offset, length, alignment = ?alignment))]
     fn read_send(
         &self,
         offset: u64,
@@ -269,15 +270,17 @@ impl IoSource for ObjectStoreIoSource {
             let response = store
                 .get_opts(
                     &path,
-                    GetOptions {
-                        range: Some(GetRange::Bounded(offset..offset + length as u64)),
+                    object_store::GetOptions {
+                        range: Some(object_store::GetRange::Bounded(
+                            offset..offset + length as u64,
+                        )),
                         ..Default::default()
                     },
                 )
                 .await?;
 
             let buffer = match response.payload {
-                GetResultPayload::File(file, _) => {
+                object_store::GetResultPayload::File(file, _) => {
                     // SAFETY: We're setting the length to the exact size we're about to read.
                     // The read_exact_at call will either fill the entire buffer or return an error,
                     // ensuring no uninitialized memory is exposed.
@@ -289,7 +292,7 @@ impl IoSource for ObjectStoreIoSource {
                     .await
                     .map_err(io::Error::other)?
                 }
-                GetResultPayload::Stream(mut byte_stream) => {
+                object_store::GetResultPayload::Stream(mut byte_stream) => {
                     while let Some(bytes) = byte_stream.next().await {
                         buffer.extend_from_slice(&bytes?);
                     }

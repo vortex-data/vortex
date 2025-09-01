@@ -194,6 +194,7 @@ impl<'rt, A: 'static + Send> ScanBuilder<'rt, A> {
 
         let splits = self.split_by.splits(&layout_reader, &field_mask)?;
         Ok(RepeatedScan {
+            handle: self.handle,
             layout_reader,
             projection,
             filter,
@@ -323,6 +324,7 @@ fn to_field_mask(field: FieldName) -> FieldMask {
 ///
 /// See also: [ScanBuilder].
 pub struct RepeatedScan<'rt, A: 'rt + Send> {
+    handle: Handle<'rt>,
     layout_reader: LayoutReaderRef<'rt>,
     projection: ExprRef,
     filter: Option<Arc<FilterExpr>>,
@@ -350,6 +352,7 @@ impl<'rt, A: 'rt + Send> RepeatedScan<'rt, A> {
         let row_range = intersect_ranges(self.row_range.as_ref(), row_range);
 
         let ctx = Arc::new(TaskContext {
+            handle: self.handle.clone(),
             row_range,
             selection: self.selection.clone(),
             filter: self.filter.clone(),
