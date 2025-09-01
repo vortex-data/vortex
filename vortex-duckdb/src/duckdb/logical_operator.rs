@@ -10,6 +10,7 @@
 use std::ffi::CStr;
 use std::fmt::{Debug, Display, Formatter};
 
+use itertools::Itertools;
 use vortex::error::{VortexResult, vortex_bail};
 
 use crate::cpp::*;
@@ -170,23 +171,22 @@ impl<'a> LogicalGet<'a> {
     /// Get column names from the table schema
     pub fn column_names(&self) -> VortexResult<Vec<String>> {
         unsafe {
-            let mut count = 0u64;
-            let names_ptr = duckdb_vx_get_column_names(self.op.as_ptr(), &raw mut count);
+            let count = duckdb_vx_get_column_names_count(self.op.as_ptr());
 
-            if names_ptr.is_null() {
+            if count == 0 {
                 return Ok(Vec::new());
             }
 
             let mut names = Vec::with_capacity(count as usize);
             for i in 0..count {
-                let name_ptr = *names_ptr.add(i as usize);
+                let name_ptr = duckdb_vx_get_column_name(self.op.as_ptr(), i);
                 if !name_ptr.is_null() {
                     let name = CStr::from_ptr(name_ptr).to_string_lossy().into_owned();
                     names.push(name);
+                    duckdb_vx_free_string(name_ptr);
                 }
             }
 
-            duckdb_vx_free_string_array(names_ptr, count);
             Ok(names)
         }
     }
@@ -194,20 +194,10 @@ impl<'a> LogicalGet<'a> {
     /// Get the current projection IDs
     pub fn get_projection_ids(&self) -> VortexResult<Vec<u64>> {
         unsafe {
-            let mut count = 0u64;
-            let ids_ptr = duckdb_vx_get_projection_ids(self.op.as_ptr(), &raw mut count);
-
-            if ids_ptr.is_null() {
-                return Ok(Vec::new());
-            }
-
-            let mut ids = Vec::with_capacity(count as usize);
-            for i in 0..count {
-                ids.push(*ids_ptr.add(i as usize));
-            }
-
-            duckdb_vx_free_uint64_array(ids_ptr);
-            Ok(ids)
+            let count = duckdb_vx_get_projection_ids_count(self.op.as_ptr());
+            Ok((0..count)
+                .map(|i| duckdb_vx_get_projection_id(self.op.as_ptr(), i))
+                .collect_vec())
         }
     }
 

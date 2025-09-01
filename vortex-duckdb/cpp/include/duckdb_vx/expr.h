@@ -264,39 +264,6 @@ typedef struct {
 
 void duckdb_vx_expr_get_bound_function(duckdb_vx_expr expr, duckdb_vx_expr_bound_function *out);
 
-// ==============================================
-// Logical Plan Expression Support (from optimizer_rule.h)
-// ==============================================
-
-// Expression types enum (subset of DuckDB's ExpressionType) for logical plan compatibility
-typedef enum {
-    DUCKDB_VX_BOUND_COLUMN_REF = 0,
-    DUCKDB_VX_BOUND_FUNCTION = 1,
-    DUCKDB_VX_CONSTANT = 2,
-    DUCKDB_VX_EXPRESSION_UNKNOWN = 999
-} DUCKDB_VX_EXPRESSION_TYPE;
-
-// Column binding structure for logical plans
-typedef struct {
-    uint64_t table_index;
-    uint64_t column_index;
-} duckdb_vx_column_binding;
-
-// Logical plan expression functions - using simplified type enum
-DUCKDB_VX_EXPRESSION_TYPE duckdb_vx_get_expression_type(duckdb_vx_expr expr);
-char* duckdb_vx_get_function_name_from_expr(duckdb_vx_expr expr);
-uint64_t duckdb_vx_get_function_arg_count(duckdb_vx_expr expr);
-duckdb_vx_expr duckdb_vx_get_function_arg(duckdb_vx_expr expr, uint64_t index);
-char* duckdb_vx_get_column_alias(duckdb_vx_expr expr);
-duckdb_vx_column_binding duckdb_vx_get_column_binding(duckdb_vx_expr expr);
-duckdb_vx_expr duckdb_vx_create_column_ref(const char* name, duckdb_vx_column_binding binding, uint64_t depth);
-void duckdb_vx_update_column_binding(duckdb_vx_expr expr, duckdb_vx_column_binding binding);
-
-// Memory management functions
-void duckdb_vx_free_string(char* str);
-void duckdb_vx_free_string_array(char** arr, uint64_t count);
-void duckdb_vx_free_uint64_array(uint64_t* arr);
-
 #ifdef __cplusplus /* End C ABI */
 }
 #endif

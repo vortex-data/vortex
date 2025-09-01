@@ -16,7 +16,7 @@
 #include <set>
 #include <algorithm>
 
-#include "duckdb_vx/optimizer_rule.h"
+#include "duckdb_vx/logical_operator.h"
 
 using namespace duckdb;
 
@@ -137,38 +137,54 @@ extern "C" char *duckdb_vx_get_function_name(duckdb_vx_logical_operator get_op) 
     return strdup(get.function.name.c_str());
 }
 
-extern "C" char **duckdb_vx_get_column_names(duckdb_vx_logical_operator get_op, uint64_t *count) {
-    if (!get_op || !count)
-        return nullptr;
+extern "C" uint64_t duckdb_vx_get_column_names_count(duckdb_vx_logical_operator get_op) {
+    if (!get_op)
+        return 0;
     auto &logical_op = *reinterpret_cast<LogicalOperator *>(get_op);
     if (logical_op.type != LogicalOperatorType::LOGICAL_GET)
-        return nullptr;
+        return 0;
 
     auto &get = logical_op.Cast<LogicalGet>();
-    *count = get.names.size();
-
-    char **names = (char **)malloc(sizeof(char *) * get.names.size());
-    for (size_t i = 0; i < get.names.size(); i++) {
-        names[i] = strdup(get.names[i].c_str());
-    }
-    return names;
+    return get.names.size();
 }
 
-extern "C" uint64_t *duckdb_vx_get_projection_ids(duckdb_vx_logical_operator get_op, uint64_t *count) {
-    if (!get_op || !count)
+extern "C" char *duckdb_vx_get_column_name(duckdb_vx_logical_operator get_op, uint64_t index) {
+    if (!get_op)
         return nullptr;
     auto &logical_op = *reinterpret_cast<LogicalOperator *>(get_op);
     if (logical_op.type != LogicalOperatorType::LOGICAL_GET)
         return nullptr;
 
     auto &get = logical_op.Cast<LogicalGet>();
-    *count = get.projection_ids.size();
+    if (index >= get.names.size())
+        return nullptr;
 
-    uint64_t *ids = (uint64_t *)malloc(sizeof(uint64_t) * get.projection_ids.size());
-    for (size_t i = 0; i < get.projection_ids.size(); i++) {
-        ids[i] = get.projection_ids[i];
-    }
-    return ids;
+    return strdup(get.names[index].c_str());
+}
+
+extern "C" uint64_t duckdb_vx_get_projection_ids_count(duckdb_vx_logical_operator get_op) {
+    if (!get_op)
+        return 0;
+    auto &logical_op = *reinterpret_cast<LogicalOperator *>(get_op);
+    if (logical_op.type != LogicalOperatorType::LOGICAL_GET)
+        return 0;
+
+    auto &get = logical_op.Cast<LogicalGet>();
+    return get.projection_ids.size();
+}
+
+extern "C" uint64_t duckdb_vx_get_projection_id(duckdb_vx_logical_operator get_op, uint64_t index) {
+    if (!get_op)
+        return 0;
+    auto &logical_op = *reinterpret_cast<LogicalOperator *>(get_op);
+    if (logical_op.type != LogicalOperatorType::LOGICAL_GET)
+        return 0;
+
+    auto &get = logical_op.Cast<LogicalGet>();
+    if (index >= get.projection_ids.size())
+        return 0;
+
+    return get.projection_ids[index];
 }
 
 extern "C" void duckdb_vx_update_projection_ids(duckdb_vx_logical_operator get_op,
@@ -463,30 +479,8 @@ extern "C" void duckdb_vx_free_string(char *str) {
         free(str);
 }
 
-extern "C" void duckdb_vx_free_string_array(char **arr, uint64_t count) {
-    if (!arr)
-        return;
-    for (uint64_t i = 0; i < count; i++) {
-        if (arr[i])
-            free(arr[i]);
-    }
-    free(arr);
-}
 
-extern "C" void duckdb_vx_free_uint64_array(uint64_t *arr) {
-    if (arr)
-        free(arr);
-}
 
-// C API for registering the optimizer from Rust (deprecated - use duckdb_vx_register_rust_optimizer)
-extern "C" void duckdb_vx_register_optimizer(duckdb_database db_handle) {
-    std::cout << "⚠️  WARNING: duckdb_vx_register_optimizer is deprecated. Use duckdb_vx_register_rust_optimizer instead." << std::endl;
-    
-    // For backward compatibility, register with a null callback
-    // This will just register the extension but won't actually optimize anything
-    // unless duckdb_vx_register_rust_optimizer is called with a proper callback
-    duckdb_vx_register_rust_optimizer(db_handle, nullptr, nullptr);
-}
 
 // Get string representation of logical operator
 extern "C" char *duckdb_vx_logical_operator_to_string(duckdb_vx_logical_operator op) {

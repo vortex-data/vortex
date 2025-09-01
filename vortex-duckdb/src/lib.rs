@@ -44,23 +44,13 @@ pub fn register_table_functions(conn: &Connection) -> VortexResult<()> {
 pub fn register_extension(db: &mut Database) -> VortexResult<()> {
     println!("🚀 REGISTERING: Starting Vortex extension registration...");
 
-    // Register the new Rust-based optimizer first
+    // Register the Rust-based optimizer
     println!("🚀 REGISTERING: Registering Rust optimizer...");
     if let Err(e) = optimizer::register_rust_optimizer(db) {
         println!(
-            "⚠️ REGISTERING: Rust optimizer registration failed: {}, trying legacy C++ optimizer...",
+            "⚠️ REGISTERING: Rust optimizer registration failed: {}. Continuing with table functions only.",
             e
         );
-
-        // Fallback to legacy C++ optimizer
-        if let Err(e2) = optimizer::register_optimizer(db) {
-            println!(
-                "⚠️ REGISTERING: Both optimizers failed. Rust: {}, C++: {}. Continuing with table functions only.",
-                e, e2
-            );
-        } else {
-            println!("✅ REGISTERING: Legacy C++ optimizer registration succeeded!");
-        }
     } else {
         println!("✅ REGISTERING: Rust optimizer registration succeeded!");
     }
@@ -89,15 +79,15 @@ pub unsafe extern "C" fn vortex_init_rust(db: cpp::duckdb_database) {
 
     let mut database = unsafe { Database::borrow(db) };
 
-    // Try registering optimizer first, during extension loading
-    println!("🚀 INIT: Registering optimizer during extension loading...");
-    if let Err(e) = optimizer::register_optimizer(&mut database) {
+    // Try registering Rust optimizer first, during extension loading
+    println!("🚀 INIT: Registering Rust optimizer during extension loading...");
+    if let Err(e) = optimizer::register_rust_optimizer(&mut database) {
         println!(
-            "⚠️ INIT: Optimizer registration failed: {}, continuing without optimizer",
+            "⚠️ INIT: Rust optimizer registration failed: {}, continuing without optimizer",
             e
         );
     } else {
-        println!("✅ INIT: Optimizer registration succeeded during extension loading");
+        println!("✅ INIT: Rust optimizer registration succeeded during extension loading");
     }
 
     // Register table functions

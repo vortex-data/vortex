@@ -40,11 +40,6 @@ const char *vortex_version_rust(void);
  */
 const char *vortex_extension_version_rust(void);
 
-/**
- * Register the legacy C++ Vortex optimizer extension that rewrites len(column) -> column$length
- */
-extern void duckdb_vx_register_optimizer(duckdb_database db_handle);
-
 #ifdef __cplusplus
 }
 #endif
