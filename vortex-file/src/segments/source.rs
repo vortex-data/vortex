@@ -23,15 +23,29 @@ impl<'rt> SegmentSource<'rt> for FileSegmentSource<'rt> {
     fn request(&self, id: SegmentId) -> SegmentFuture<'rt> {
         let segment_map = self.segment_map.clone();
         let file = self.file.clone();
+
+        // Eagerly submit the I/O request, we can cancel later if needed.
+        let spec = segment_map
+            .get(*id as usize)
+            .ok_or_else(|| vortex_err!("Segment {} not found", id))
+            .map(|spec| file.read(spec.offset, spec.length as usize, spec.alignment));
+
         async move {
-            let spec = segment_map
-                .get(*id as usize)
-                .ok_or_else(|| vortex_err!("Segment {} not found", id))?;
-            let resp = file
-                .read(spec.offset, spec.length as usize, spec.alignment)
-                .await;
-            resp
+            let resp = spec?;
+            resp.await
         }
         .boxed()
+
+        // FIXME(ngates): this version defers submitting the read request.
+        // async move {
+        //     let spec = segment_map
+        //         .get(*id as usize)
+        //         .ok_or_else(|| vortex_err!("Segment {} not found", id))?;
+        //     let resp = file
+        //         .read(spec.offset, spec.length as usize, spec.alignment)
+        //         .await;
+        //     resp
+        // }
+        // .boxed()
     }
 }

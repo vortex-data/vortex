@@ -162,7 +162,14 @@ impl CoalescedRequests {
         while let Some(next_id) = self.priority_queue.pop_front() {
             if let Some(&key) = self.id_to_key.get(&next_id) {
                 next_valid_key = Some(key);
-                break;
+
+                // Skip any cancelled requests
+                if let Some(req) = self.requests_by_offset.get(&key) {
+                    // Throw away any requests that have been canceled
+                    if !req.callback.is_canceled() {
+                        break;
+                    }
+                }
             }
             // Request was already coalesced, continue looking
         }
@@ -192,6 +199,12 @@ impl CoalescedRequests {
             .requests_by_offset
             .range((scan_start, 0)..=(scan_end, usize::MAX))
         {
+            // Skip any cancelled requests
+            if req.callback.is_canceled() {
+                keys_to_remove.push(key);
+                continue;
+            }
+
             let (req_offset, _req_id) = key;
             let req_end = req_offset + req.length as u64;
 

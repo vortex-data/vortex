@@ -97,7 +97,6 @@ pub(super) fn split_exec<'rt, A: 'rt + Send>(
                 .try_collect()?;
 
             let filter = filter.clone();
-            let handle = ctx.handle.clone();
 
             async move {
                 let mut mask = row_mask;

@@ -14,7 +14,11 @@ use std::task::{ready, Context, Poll};
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{vortex_err, VortexError, VortexExpect, VortexResult};
 
-pub struct Read(pub(crate) ReadState);
+/// A future representing an in-flight read operation.
+///
+/// If this [`Read`] object is dropped prior to the I/O operation being submitted, it **may** be
+/// skipped by the runtime. If it has already been submitted, it will continue to completion.
+pub struct Read(ReadState);
 
 impl Read {
     pub fn ready(result: VortexResult<ByteBuffer>) -> Self {
@@ -27,19 +31,24 @@ impl Read {
     }
 }
 
-pub enum ReadState {
+enum ReadState {
     Ready(Option<VortexResult<ByteBuffer>>),
     Future(oneshot::Receiver<VortexResult<ByteBuffer>>),
 }
 
+/// A handle to complete a pending read operation.
 pub struct ReadCompletion(oneshot::Sender<VortexResult<ByteBuffer>>);
 
 impl ReadCompletion {
+    /// Returns true if the read has been canceled and the result will not be delivered.
+    pub fn is_canceled(&self) -> bool {
+        self.0.is_closed()
+    }
+
     pub fn complete(self, result: VortexResult<ByteBuffer>) {
-        self.0
-            .send(result)
-            .map_err(|e| vortex_err!("Sender dropped: {e}"))
-            .vortex_expect("Failed to send read completion");
+        if let Err(e) = self.0.send(result) {
+            log::trace!("I/O request cancelled while in-flight: {e}");
+        }
     }
 }
 

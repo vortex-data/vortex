@@ -86,6 +86,11 @@ impl IoTask {
     /// In some cases, this is more optimized than the `Send` version if the calling runtime
     /// supports it.
     pub async fn run_local(self) {
+        if self.request.is_canceled() {
+            // If the request has been cancelled by the time we come to execute it, just skip it.
+            return;
+        }
+
         match self.request {
             IoRequest::Single(req) => req.callback.complete(
                 self.source
@@ -131,9 +136,20 @@ impl IoTask {
     }
 }
 
+/// An I/O request encapsulates either a single read or a coalesced read in a way that allows us
+/// to track cancellation and completion.
 pub enum IoRequest {
     Single(ReadRequest),
     Coalesced(CoalescedRequest),
+}
+
+impl IoRequest {
+    pub fn is_canceled(&self) -> bool {
+        match self {
+            IoRequest::Single(req) => req.callback.is_canceled(),
+            IoRequest::Coalesced(req) => req.requests.iter().all(|r| r.callback.is_canceled()),
+        }
+    }
 }
 
 pub struct ReadRequest {
