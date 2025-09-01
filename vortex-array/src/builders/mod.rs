@@ -253,7 +253,9 @@ pub trait ArrayBuilder: Send {
     /// Ensure that the builder can hold at least `capacity` number of items
     fn ensure_capacity(&mut self, capacity: usize);
 
-    /// Override builders validity with the one provided
+    /// Override builders validity with the one provided.
+    ///
+    /// Note that this will have no effect on the final array if the array builder is non-nullable.
     fn set_validity(&mut self, validity: Mask);
 
     /// Constructs an Array from the builder components.

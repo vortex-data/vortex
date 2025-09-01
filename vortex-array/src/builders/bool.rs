@@ -12,10 +12,9 @@ use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuil
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 pub struct BoolBuilder {
+    dtype: DType,
     inner: BooleanBufferBuilder,
     nulls: LazyNullBufferBuilder,
-    nullability: Nullability,
-    dtype: DType,
 }
 
 impl BoolBuilder {
@@ -27,7 +26,6 @@ impl BoolBuilder {
         Self {
             inner: BooleanBufferBuilder::new(capacity),
             nulls: LazyNullBufferBuilder::new(capacity),
-            nullability,
             dtype: DType::Bool(nullability),
         }
     }
@@ -58,6 +56,20 @@ impl BoolBuilder {
             Some(value) => self.append_value(value),
             None => self.append_null(),
         }
+    }
+
+    /// Finishes the builder directly into a [`BoolArray`].
+    pub fn finish_into_bool(&mut self) -> BoolArray {
+        assert_eq!(
+            self.nulls.len(),
+            self.inner.len(),
+            "Null count and value count should match when calling BoolBuilder::finish."
+        );
+
+        BoolArray::new(
+            self.inner.finish(),
+            self.nulls.finish_with_nullability(self.dtype.nullability()),
+        )
     }
 }
 
@@ -107,17 +119,7 @@ impl ArrayBuilder for BoolBuilder {
     }
 
     fn finish(&mut self) -> ArrayRef {
-        assert_eq!(
-            self.nulls.len(),
-            self.inner.len(),
-            "Null count and value count should match when calling BoolBuilder::finish."
-        );
-
-        BoolArray::new(
-            self.inner.finish(),
-            self.nulls.finish_with_nullability(self.nullability),
-        )
-        .into_array()
+        self.finish_into_bool().into_array()
     }
 }
 

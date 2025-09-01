@@ -35,11 +35,6 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         }
     }
 
-    /// Append a [`Mask`] to this builder's null buffer.
-    pub fn append_mask(&mut self, mask: Mask) {
-        self.nulls.append_validity_mask(mask);
-    }
-
     /// Appends a primitive `value` to the builder.
     pub fn append_value(&mut self, value: T) {
         self.values.push(value);
@@ -94,6 +89,8 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     /// assert_eq!(built.as_slice::<i32>(), &[0i32, 1, 2, 3, 4]);
     /// ```
     pub fn uninit_range(&mut self, len: usize) -> UninitRange<'_, T> {
+        assert_ne!(0, len, "cannot create an uninit range of length 0");
+
         let offset = self.values.len();
         assert!(
             offset + len <= self.values.capacity(),
@@ -189,13 +186,94 @@ pub struct UninitRange<'a, T> {
     builder: &'a mut PrimitiveBuilder<T>,
 }
 
+impl<T> UninitRange<'_, T> {
+    /// Append a [`Mask`] to this builder's null buffer.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the mask length is not equal to the the length of the current `UninitRange`.
+    ///
+    /// # Safety
+    ///
+    /// - The caller must ensure that they safely initialize `mask.len()` primitive values via
+    ///   [`UninitRange::copy_from_slice`].
+    /// - The caller must also ensure that they only call this method once.
+    pub unsafe fn append_mask(&mut self, mask: Mask) {
+        assert_eq!(
+            mask.len(),
+            self.len,
+            "Tried to append a mask to an `UninitRange` that was beyond the allowed range"
+        );
+
+        // TODO(connor): Ideally, we would call this function `set_mask` and directly set all of the
+        // bits (so that we can call this multiple times), but the underlying `BooleanBuffer` does
+        // not have an easy way to do this correctly.
+
+        self.builder.nulls.append_validity_mask(mask);
+    }
+
+    /// Set a validity bit at the given index. The index is relative to the start of this range
+    /// of the builder.
+    pub fn set_bit(&mut self, index: usize, v: bool) {
+        // Note that this won't panic because we can only create an `UninitRange` within the
+        // capacity of the builder (it will not automatically resize).
+        self.builder.nulls.set_bit(self.offset + index, v);
+    }
+
+    /// Set values from an initialized range.
+    ///
+    /// Note that the input `offset` should be an offset relative to the local `UninitRange`, not
+    /// the entire `PrimitiveBuilder`.
+    pub fn copy_from_slice(&mut self, offset: usize, src: &[T])
+    where
+        T: Copy,
+    {
+        debug_assert!(
+            offset + src.len() <= self.len,
+            "tried to copy a slice into a `UninitRange` past its boundary"
+        );
+
+        // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout.
+        let uninit_src: &[MaybeUninit<T>] = unsafe { std::mem::transmute(src) };
+
+        let dst = &mut self[offset..][..src.len()];
+        dst.copy_from_slice(uninit_src);
+    }
+
+    /// Finish building this range, marking it as initialized and advancing the length of the
+    /// underlying values buffer.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that they have safely initialized all `len` values via
+    /// [`UninitRange::copy_from_slice`] as well as correctly set all of the null bits via
+    /// [`set_bit`] or [`append_mask`] if the builder is nullable.
+    ///
+    /// [`set_bit`]: UninitRange::set_bit
+    /// [`append_mask`]: UninitRange::append_mask
+    pub unsafe fn finish(self) {
+        // SAFETY: constructor enforces that offset + len does not exceed the capacity of the array.
+        unsafe { self.builder.values.set_len(self.offset + self.len) };
+    }
+}
+
+/// Note that we only implement `Deref` for parity with `DerefMut`.
 impl<T> Deref for UninitRange<'_, T> {
     type Target = [MaybeUninit<T>];
 
+    /// Returns a [`MaybeUninit`] slice of the [`PrimitiveBuilder`]'s uninitialized memory capacity
+    /// (which is simply the length).
     fn deref(&self) -> &[MaybeUninit<T>] {
-        let start = self.builder.values.as_ptr();
+        // We implement this manually since there is no `spare_capacity()` method on the internal
+        // `BytesMut` type.
+        let base = self.builder.values.as_ptr();
+
+        // SAFETY: `offset` is derived from the existing buffer in memory, so this won't wrap.
+        let start = unsafe { base.add(self.offset) };
+
         unsafe {
-            // SAFETY: start + len is checked on construction to be in range.
+            // SAFETY: `start + len` is checked on construction of `UninitRange` to be within the
+            // total capacity of the builder.
             let dst = std::slice::from_raw_parts(start, self.len);
 
             // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout
@@ -209,32 +287,5 @@ impl<T> Deref for UninitRange<'_, T> {
 impl<T> DerefMut for UninitRange<'_, T> {
     fn deref_mut(&mut self) -> &mut [MaybeUninit<T>] {
         &mut self.builder.values.spare_capacity_mut()[..self.len]
-    }
-}
-
-impl<T> UninitRange<'_, T> {
-    /// Set a validity bit at the given index. The index is relative to the start of this range
-    /// of the builder.
-    pub fn set_bit(&mut self, index: usize, v: bool) {
-        self.builder.nulls.set_bit(self.offset + index, v);
-    }
-
-    /// Set values from an initialized range.
-    pub fn copy_from_init(&mut self, offset: usize, len: usize, src: &[T])
-    where
-        T: Copy,
-    {
-        // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout
-        let uninit_src: &[MaybeUninit<T>] = unsafe { std::mem::transmute(src) };
-
-        let dst = &mut self[offset..][..len];
-        dst.copy_from_slice(uninit_src);
-    }
-
-    /// Finish building this range, marking it as initialized and advancing the length of the
-    /// underlying values buffer.
-    pub fn finish(self) {
-        // SAFETY: constructor enforces that offset + len does not exceed the capacity of the array.
-        unsafe { self.builder.values.set_len(self.offset + self.len) };
     }
 }

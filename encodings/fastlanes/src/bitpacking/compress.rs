@@ -293,27 +293,38 @@ pub(crate) fn unpack_into<T: BitPacked>(
     // TODO(ngates): do we want to use fastlanes alignment for this buffer?
     builder: &mut PrimitiveBuilder<T>,
 ) {
-    // Append a dense null Mask.
-    builder.append_mask(array.validity_mask());
-
-    let mut uninit = builder.uninit_range(array.len());
-    let mut bit_packed_iter = array.unpacked_chunks();
-
-    if let Some(header) = bit_packed_iter.initial() {
-        uninit.copy_from_init(0, header.len(), header);
+    // If the array is empty, then we don't need to add anything to the builder.
+    if array.is_empty() {
+        return;
     }
 
-    let out_idx = bit_packed_iter.decode_full_chunks_into(&mut uninit);
+    let mut uninit_range = builder.uninit_range(array.len());
 
+    // SAFETY: We later initialize the the uninitialized range of values with `copy_from_slice`.
+    unsafe {
+        // Append a dense null Mask.
+        uninit_range.append_mask(array.validity_mask());
+    }
+
+    let mut bit_packed_iter = array.unpacked_chunks();
+    if let Some(header) = bit_packed_iter.initial() {
+        uninit_range.copy_from_slice(0, header);
+    }
+
+    let out_idx = bit_packed_iter.decode_full_chunks_into(&mut uninit_range);
     if let Some(trailer) = bit_packed_iter.trailer() {
-        uninit.copy_from_init(out_idx, trailer.len(), trailer);
+        uninit_range.copy_from_slice(out_idx, trailer);
     }
 
     if let Some(patches) = array.patches() {
-        apply_patches(&mut uninit, patches);
+        apply_patches(&mut uninit_range, patches);
     };
 
-    uninit.finish();
+    // SAFETY: We have set a correct validity mask via `append_mask` with `array.len()` values and
+    // initialized the same number of values needed via calls to `copy_from_slice`.
+    unsafe {
+        uninit_range.finish();
+    }
 }
 
 fn apply_patches<T: NativePType>(dst: &mut UninitRange<T>, patches: &Patches) {
@@ -323,6 +334,7 @@ fn apply_patches<T: NativePType>(dst: &mut UninitRange<T>, patches: &Patches) {
     let values = patches.values().to_primitive();
     let validity = values.validity_mask();
     let values = values.as_slice::<T>();
+
     match_each_unsigned_integer_ptype!(indices.ptype(), |P| {
         insert_values_and_validity_at_indices(
             dst,
