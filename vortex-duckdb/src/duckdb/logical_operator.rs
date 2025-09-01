@@ -171,7 +171,7 @@ impl<'a> LogicalGet<'a> {
     pub fn column_names(&self) -> VortexResult<Vec<String>> {
         unsafe {
             let mut count = 0u64;
-            let names_ptr = duckdb_vx_get_column_names(self.op.as_ptr(), &mut count);
+            let names_ptr = duckdb_vx_get_column_names(self.op.as_ptr(), &raw mut count);
 
             if names_ptr.is_null() {
                 return Ok(Vec::new());
@@ -195,7 +195,7 @@ impl<'a> LogicalGet<'a> {
     pub fn get_projection_ids(&self) -> VortexResult<Vec<u64>> {
         unsafe {
             let mut count = 0u64;
-            let ids_ptr = duckdb_vx_get_projection_ids(self.op.as_ptr(), &mut count);
+            let ids_ptr = duckdb_vx_get_projection_ids(self.op.as_ptr(), &raw mut count);
 
             if ids_ptr.is_null() {
                 return Ok(Vec::new());

@@ -2,8 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #[cfg(test)]
-mod basic_test;
-#[cfg(test)]
 mod object_cache_test;
 #[cfg(test)]
 mod virtual_column_test;

@@ -51,11 +51,10 @@ impl ProjectionAnalyzer {
             }
             Some(ExpressionClass::BoundFunction(func)) => {
                 // For functions, use the first argument's column (if any)
-                if func.function_arg_count() > 0 {
-                    if let Some(arg) = func.get_function_arg(0) {
+                if func.function_arg_count() > 0
+                    && let Some(arg) = func.get_function_arg(0) {
                         return self.find_primary_column(&arg);
                     }
-                }
                 None
             }
             Some(ExpressionClass::BoundOperator(op)) => {
@@ -151,19 +150,17 @@ impl RustLengthOptimizer {
     /// Check if the plan contains a vortex_scan
     fn has_vortex_scan(op: &LogicalOperator) -> VortexResult<bool> {
         // Check this operator
-        if let Some(LogicalOperatorClass::Get(get_op)) = op.as_class() {
-            if get_op.is_vortex_scan() {
+        if let Some(LogicalOperatorClass::Get(get_op)) = op.as_class()
+            && get_op.is_vortex_scan() {
                 return Ok(true);
             }
-        }
         
         // Check children recursively
         for i in 0..op.children_count() {
-            if let Some(child) = op.get_child(i) {
-                if Self::has_vortex_scan(&child)? {
+            if let Some(child) = op.get_child(i)
+                && Self::has_vortex_scan(&child)? {
                     return Ok(true);
                 }
-            }
         }
         
         Ok(false)
@@ -222,8 +219,8 @@ impl RustLengthOptimizer {
                 if let Some(function_name) = func_.function_name() {
                     if function_name == "len" && func_.function_arg_count() > 0 {
                         // This is a len() function
-                        if let Some(arg) = func_.get_function_arg(0) {
-                            if let Some(ExpressionClass::BoundColumnRef(bound_col)) = arg.as_class()
+                        if let Some(arg) = func_.get_function_arg(0)
+                            && let Some(ExpressionClass::BoundColumnRef(bound_col)) = arg.as_class()
                             {
                                 let column_alias = bound_col.name;
                                 let _original_col_idx = bound_col.column_binding.column_index;
@@ -244,12 +241,11 @@ impl RustLengthOptimizer {
                                     );
                                 }
                             }
-                        }
                     } else {
                         // Not a len() function - check if it uses any columns
                         // This helps us know if original columns are still needed
                         Self::find_column_refs_in_expr(
-                            &projection_expr,
+                            projection_expr,
                             &mut original_columns_used,
                         );
                     }
@@ -267,7 +263,7 @@ impl RustLengthOptimizer {
                     // This is a virtual column - find its actual index in the schema
                     if let Some(actual_col_idx) = column_names
                         .iter()
-                        .position(|n| n.to_string() == col_name_str)
+                        .position(|n| *n == col_name_str)
                     {
                         trace!(
                             "Virtual column reference at projection {}: {} (bound to index {} but actually at {})",
@@ -312,7 +308,7 @@ impl RustLengthOptimizer {
                             // This is a direct virtual column reference - find its actual index
                             if let Some(actual_col_idx) = column_names
                                 .iter()
-                                .position(|n| n.to_string() == col_name_str)
+                                .position(|n| *n == col_name_str)
                             {
                                 let actual_col_idx = actual_col_idx as u64;
                                 required_columns.insert(actual_col_idx);
@@ -337,7 +333,7 @@ impl RustLengthOptimizer {
                             required_columns.insert(col_id);
                         }
                         // Use the first column found, or default to projection index
-                        let first_col = projection_mappings.get(0).copied().unwrap_or(idx as u64);
+                        let first_col = projection_mappings.first().copied().unwrap_or(idx as u64);
                         projection_mappings.push(first_col);
                     }
                 } else {
@@ -365,10 +361,10 @@ impl RustLengthOptimizer {
 
             // Step 4: Replace len() expressions with virtual column references AND fix direct virtual column bindings
             for (proj_idx, virtual_col_idx, virtual_col_name) in &len_replacements {
-                if let Some(proj_expr) = projection_expressions[*proj_idx].as_ref() {
-                    if let Some(ExpressionClass::BoundFunction(func_)) = proj_expr.as_class() {
-                        if let Some(arg) = func_.get_function_arg(0) {
-                            if let Some(ExpressionClass::BoundColumnRef(bound_col)) = arg.as_class()
+                if let Some(proj_expr) = projection_expressions[*proj_idx].as_ref()
+                    && let Some(ExpressionClass::BoundFunction(func_)) = proj_expr.as_class()
+                        && let Some(arg) = func_.get_function_arg(0)
+                            && let Some(ExpressionClass::BoundColumnRef(bound_col)) = arg.as_class()
                             {
                                 // Get the position of the virtual column in our new column_ids
                                 let position_in_column_ids = column_to_position
@@ -397,21 +393,18 @@ impl RustLengthOptimizer {
                                     expression_index: *proj_idx as u64,
                                 });
                             }
-                        }
-                    }
-                }
             }
 
             // Step 4.5: Fix direct virtual column references
             for (idx, expr) in projection_expressions.iter().enumerate() {
-                if let Some(expr) = expr {
-                    if let Some(ExpressionClass::BoundColumnRef(col_ref)) = expr.as_class() {
+                if let Some(expr) = expr
+                    && let Some(ExpressionClass::BoundColumnRef(col_ref)) = expr.as_class() {
                         let col_name_str = col_ref.name.to_string();
                         if col_name_str.ends_with("$length") {
                             // This is a direct virtual column reference that needs fixing
                             if let Some(actual_col_idx) = column_names
                                 .iter()
-                                .position(|n| n.to_string() == col_name_str)
+                                .position(|n| *n == col_name_str)
                             {
                                 let position_in_column_ids = column_to_position
                                     .get(&(actual_col_idx as u64))
@@ -436,7 +429,6 @@ impl RustLengthOptimizer {
                             }
                         }
                     }
-                }
             }
 
             // Step 5: Update column_ids and projection_ids
@@ -640,7 +632,7 @@ mod tests {
         let mut optimizer = RustLengthOptimizer::new();
 
         // Add replacements for different columns
-        let columns = vec!["title", "author", "description", "content"];
+        let columns = ["title", "author", "description", "content"];
 
         for (idx, col) in columns.iter().enumerate() {
             optimizer.replacements.push(LengthReplacement {
@@ -673,7 +665,7 @@ mod tests {
 
         // Scenario 1: All projections are length functions
         let mut proj_ids_all_length = vec![0, 1, 2];
-        let virtual_cols = vec![10, 11, 12];
+        let virtual_cols = [10, 11, 12];
 
         // Simulate what would happen in update_vortex_scan_projections
         for (i, &virtual_col) in virtual_cols.iter().enumerate() {
@@ -686,8 +678,8 @@ mod tests {
 
         // Scenario 2: Mixed projections (some length, some regular)
         let mut proj_ids_mixed = vec![0, 1, 2, 3];
-        let replacements_at = vec![1, 3]; // Only replace at positions 1 and 3
-        let virtual_values = vec![20, 21];
+        let replacements_at = [1, 3]; // Only replace at positions 1 and 3
+        let virtual_values = [20, 21];
 
         for (i, &pos) in replacements_at.iter().enumerate() {
             proj_ids_mixed[pos] = virtual_values[i];
