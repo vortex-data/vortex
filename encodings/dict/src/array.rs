@@ -231,6 +231,24 @@ mod test {
         assert_eq!(indices, [2, 4]);
     }
 
+    #[test]
+    fn nullable_codes_and_non_null_values() {
+        let dict = DictArray::try_new(
+            PrimitiveArray::new(
+                buffer![0u32, 1, 2, 2, 1],
+                Validity::from(BooleanBuffer::from(vec![true, false, true, false, true])),
+            )
+            .into_array(),
+            PrimitiveArray::new(buffer![3, 6, 9], Validity::NonNullable).into_array(),
+        )
+        .unwrap();
+        let mask = dict.validity_mask().unwrap();
+        let AllOr::Some(indices) = mask.indices() else {
+            vortex_panic!("Expected indices from mask")
+        };
+        assert_eq!(indices, [0, 2, 4]);
+    }
+
     fn make_dict_primitive_chunks<T: NativePType, U: NativePType>(
         len: usize,
         unique_values: usize,
