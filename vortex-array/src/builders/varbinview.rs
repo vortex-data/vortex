@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::{Entry, HashMap};
 
@@ -213,6 +213,14 @@ impl ArrayBuilder for VarBinViewBuilder {
 
     #[inline]
     fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
+        if !self.dtype.eq_with_nullability_superset(array.dtype()) {
+            vortex_bail!(
+                "tried to extend a builder with `DType` {} with an array with `DType {}",
+                self.dtype,
+                array.dtype()
+            );
+        }
+
         let array = array.to_varbinview()?;
         self.flush_in_progress();
 

@@ -22,6 +22,7 @@ pub struct ListBuilder<O: NativePType> {
     /// Represents the offsets into the values array.
     index_builder: PrimitiveBuilder<O>,
     nulls: LazyNullBufferBuilder,
+    // TODO(connor): This can probably be removed since we store it in the `dtype` field as well.
     nullability: Nullability,
     dtype: DType,
 }
@@ -85,8 +86,8 @@ impl<O: OffsetPType> ListBuilder<O> {
             }
             Some(elements) => {
                 for scalar in elements {
-                    // TODO(joe): This is slow, we should be able to append multiple values at once,
-                    // or the list scalar should hold an Array
+                    // TODO(connor): This is slow, we should be able to append multiple values at
+                    // once, or the list scalar should hold an Array
                     self.value_builder.append_scalar(&scalar)?;
                 }
                 self.nulls.append_non_null();
@@ -122,6 +123,7 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
 
     fn append_zeros(&mut self, n: usize) {
         let count = self.value_builder.len();
+        // TODO(connor): this is incorrect, as it creates lists of size 1 instead of 0.
         self.value_builder.append_zeros(n);
         for i in 0..n {
             self.append_index(
@@ -146,6 +148,14 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
     }
 
     fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
+        if !self.dtype.eq_with_nullability_superset(array.dtype()) {
+            vortex_bail!(
+                "tried to extend a builder with `DType` {} with an array with `DType {}",
+                self.dtype,
+                array.dtype()
+            );
+        }
+
         let list = array.to_list()?;
         if list.is_empty() {
             return Ok(());
@@ -205,6 +215,7 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
             "Indices length must be one more than nulls length."
         );
 
+        // TODO(connor): Use `new_unchecked` here.
         ListArray::try_new(
             self.value_builder.finish(),
             self.index_builder.finish(),

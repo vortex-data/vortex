@@ -29,6 +29,27 @@ fn test_basic_fixed_size_list() {
         DType::FixedSizeList(elem_dtype, 3, Nullability::NonNullable)
             if matches!(elem_dtype.as_ref(), DType::Primitive(PType::I32, Nullability::NonNullable))
     ));
+
+    // Check the actual values in each list.
+    let first_list = fsl.fixed_size_list_at(0);
+    assert_eq!(first_list.scalar_at(0), 1i32.into());
+    assert_eq!(first_list.scalar_at(1), 2i32.into());
+    assert_eq!(first_list.scalar_at(2), 3i32.into());
+
+    let second_list = fsl.fixed_size_list_at(1);
+    assert_eq!(second_list.scalar_at(0), 4i32.into());
+    assert_eq!(second_list.scalar_at(1), 5i32.into());
+    assert_eq!(second_list.scalar_at(2), 6i32.into());
+
+    let third_list = fsl.fixed_size_list_at(2);
+    assert_eq!(third_list.scalar_at(0), 7i32.into());
+    assert_eq!(third_list.scalar_at(1), 8i32.into());
+    assert_eq!(third_list.scalar_at(2), 9i32.into());
+
+    let fourth_list = fsl.fixed_size_list_at(3);
+    assert_eq!(fourth_list.scalar_at(0), 10i32.into());
+    assert_eq!(fourth_list.scalar_at(1), 11i32.into());
+    assert_eq!(fourth_list.scalar_at(2), 12i32.into());
 }
 
 #[test]
@@ -50,6 +71,12 @@ fn test_scalar_at() {
         )
     );
 
+    // Additionally check individual elements via fixed_size_list_at.
+    let first_list = fsl.fixed_size_list_at(0);
+    assert_eq!(first_list.scalar_at(0), 1i32.into());
+    assert_eq!(first_list.scalar_at(1), 2i32.into());
+    assert_eq!(first_list.scalar_at(2), 3i32.into());
+
     // Second list: [4, 5, 6].
     let second = fsl.scalar_at(1);
     assert_eq!(
@@ -60,6 +87,12 @@ fn test_scalar_at() {
             Nullability::NonNullable,
         )
     );
+
+    // Additionally check individual elements via fixed_size_list_at.
+    let second_list = fsl.fixed_size_list_at(1);
+    assert_eq!(second_list.scalar_at(0), 4i32.into());
+    assert_eq!(second_list.scalar_at(1), 5i32.into());
+    assert_eq!(second_list.scalar_at(2), 6i32.into());
 }
 
 #[test]

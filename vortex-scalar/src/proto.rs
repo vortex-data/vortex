@@ -18,8 +18,8 @@ use crate::{DecimalValue, InnerScalarValue, Scalar, ScalarValue};
 impl From<&Scalar> for pb::Scalar {
     fn from(value: &Scalar) -> Self {
         pb::Scalar {
-            dtype: Some((&value.dtype).into()),
-            value: Some((&value.value).into()),
+            dtype: Some((value.dtype()).into()),
+            value: Some((value.value()).into()),
         }
     }
 }
@@ -315,11 +315,11 @@ mod tests {
         Nullability::NonNullable
     ))]
     fn test_scalar_value_serde_roundtrip(#[case] scalar: Scalar) {
-        let written = scalar.value.to_protobytes::<Vec<u8>>();
+        let written = scalar.value().to_protobytes::<Vec<u8>>();
         let scalar_read_back = ScalarValue::from_protobytes(&written).unwrap();
         assert_eq!(
-            scalar,
-            Scalar::new(scalar.dtype().clone(), scalar_read_back)
+            Scalar::new(scalar.dtype().clone(), scalar_read_back),
+            scalar
         );
     }
 

@@ -3,7 +3,7 @@
 
 use std::any::Any;
 use std::marker::PhantomData;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_dtype::{NativePType, match_each_native_ptype};
@@ -13,7 +13,7 @@ use crate::arrays::ConstantOperator;
 use crate::compute::Operator as BinaryOperator;
 use crate::pipeline::bits::BitView;
 use crate::pipeline::operators::scalar_compare::ScalarCompareOperator;
-use crate::pipeline::operators::{BindContext, Operator};
+use crate::pipeline::operators::{BindContext, Operator, OperatorRef};
 use crate::pipeline::types::{Element, VType};
 use crate::pipeline::vec::VectorId;
 use crate::pipeline::view::ViewMut;
@@ -54,12 +54,12 @@ macro_rules! match_each_compare_op {
 /// Pipeline operator for comparing two arrays using various comparison operations.
 #[derive(Debug, Hash)]
 pub struct CompareOperator {
-    children: [Rc<dyn Operator>; 2],
+    children: [OperatorRef; 2],
     op: BinaryOperator,
 }
 
 impl CompareOperator {
-    pub fn new(lhs: Rc<dyn Operator>, rhs: Rc<dyn Operator>, op: BinaryOperator) -> Self {
+    pub fn new(lhs: OperatorRef, rhs: OperatorRef, op: BinaryOperator) -> Self {
         assert_eq!(lhs.vtype(), rhs.vtype(), "Operands must have the same type");
         Self {
             children: [lhs, rhs],
@@ -77,16 +77,16 @@ impl Operator for CompareOperator {
         VType::Bool
     }
 
-    fn children(&self) -> &[Rc<dyn Operator>] {
+    fn children(&self) -> &[OperatorRef] {
         &self.children
     }
 
-    fn with_children(&self, children: Vec<Rc<dyn Operator>>) -> Rc<dyn Operator> {
+    fn with_children(&self, children: Vec<OperatorRef>) -> OperatorRef {
         let [lhs, rhs] = children
             .try_into()
             .ok()
             .vortex_expect("Expected 2 children");
-        Rc::new(CompareOperator::new(lhs, rhs, self.op))
+        Arc::new(CompareOperator::new(lhs, rhs, self.op))
     }
 
     fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {
@@ -110,7 +110,7 @@ impl Operator for CompareOperator {
         })
     }
 
-    fn reduce_children(&self, children: &[Rc<dyn Operator>]) -> Option<Rc<dyn Operator>> {
+    fn reduce_children(&self, children: &[OperatorRef]) -> Option<OperatorRef> {
         let constants = children
             .iter()
             .enumerate()
@@ -130,13 +130,13 @@ impl Operator for CompareOperator {
             .vortex_expect("Expected 1 constant");
 
         if idx == 0 {
-            Some(Rc::new(ScalarCompareOperator::new(
+            Some(Arc::new(ScalarCompareOperator::new(
                 children[1].clone(),
                 self.op.inverse(),
                 lhs.scalar.clone(),
             )))
         } else {
-            Some(Rc::new(ScalarCompareOperator::new(
+            Some(Arc::new(ScalarCompareOperator::new(
                 children[0].clone(),
                 self.op,
                 lhs.scalar.clone(),

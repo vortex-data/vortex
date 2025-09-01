@@ -127,8 +127,8 @@ impl<'a> ExtScalar<'a> {
 impl<'a> TryFrom<&'a Scalar> for ExtScalar<'a> {
     type Error = VortexError;
 
-    fn try_from(value: &'a Scalar) -> Result<Self, Self::Error> {
-        ExtScalar::try_new(value.dtype(), &value.value)
+    fn try_from(scalar: &'a Scalar) -> Result<Self, Self::Error> {
+        ExtScalar::try_new(scalar.dtype(), scalar.value())
     }
 }
 
@@ -137,10 +137,7 @@ impl Scalar {
     pub fn extension(ext_dtype: Arc<ExtDType>, value: Scalar) -> Self {
         // TODO(joe): enable once we use rust duckdb
         // assert_eq!(ext_dtype.storage_dtype(), value.dtype());
-        Self {
-            dtype: DType::Extension(ext_dtype),
-            value: value.value().clone(),
-        }
+        Self::new(DType::Extension(ext_dtype), value.value().clone())
     }
 }
 

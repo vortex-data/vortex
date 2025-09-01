@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-from . import _lib, arrays, dataset, expr, file, io, ray
+from . import _lib, arrays, dataset, expr, file, io, ray, scan
 from ._lib.arrays import (  # pyright: ignore[reportMissingModuleSource]
     AlpArray,
     AlpRdArray,
@@ -67,6 +67,7 @@ from ._lib.scalar import (  # pyright: ignore[reportMissingModuleSource]
 from ._lib.serde import ArrayContext, ArrayParts  # pyright: ignore[reportMissingModuleSource]
 from .arrays import Array, PyArray, array
 from .file import VortexFile, open
+from .scan import RepeatedScan
 
 assert _lib, "Ensure we eagerly import the Vortex native library"
 
@@ -76,6 +77,7 @@ __all__ = [
     "dataset",
     "expr",
     "file",
+    "scan",
     "io",
     "ray",
     # --- Objects and Functions ---
@@ -149,6 +151,8 @@ __all__ = [
     "open",
     # Iterator
     "ArrayIterator",
+    # Scan
+    "RepeatedScan",
 ]
 
 #: The default registry for Vortex

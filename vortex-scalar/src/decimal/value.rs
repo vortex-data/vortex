@@ -3,94 +3,22 @@
 
 //! Additional trait implementations for decimal types to ensure consistency.
 
-use core::cmp::Ordering;
-use core::hash::Hash;
+use std::cmp::Ordering;
+use std::fmt;
+use std::hash::Hash;
 
-use vortex_dtype::{DecimalDType, Nullability};
+use vortex_dtype::{DType, DecimalDType, Nullability};
 use vortex_error::{VortexError, VortexExpect, vortex_err};
 
 use crate::{
     DecimalScalar, InnerScalarValue, NativeDecimalType, Scalar, ScalarValue, ToPrimitive, i256,
+    match_each_decimal_value,
 };
 
-/// Matches over each decimal value variant, binding the inner value to a variable.
-///
-/// # Example
-///
-/// ```ignore
-/// match_each_decimal_value!(value, |v| {
-///     println!("Value: {}", v);
-/// });
-/// ```
-#[macro_export] // Used in `vortex-array`.
-macro_rules! match_each_decimal_value {
-    ($self:expr, | $value:ident | $body:block) => {{
-        match $self {
-            DecimalValue::I8(v) => {
-                let $value = v;
-                $body
-            }
-            DecimalValue::I16(v) => {
-                let $value = v;
-                $body
-            }
-            DecimalValue::I32(v) => {
-                let $value = v;
-                $body
-            }
-            DecimalValue::I64(v) => {
-                let $value = v;
-                $body
-            }
-            DecimalValue::I128(v) => {
-                let $value = v;
-                $body
-            }
-            DecimalValue::I256(v) => {
-                let $value = v;
-                $body
-            }
-        }
-    }};
-}
-
-/// Macro to match over each decimal value type, binding the corresponding native type (from
-/// `DecimalValueType`)
-#[macro_export] // Used in `vortex-array`.
-macro_rules! match_each_decimal_value_type {
-    ($self:expr, | $enc:ident | $body:block) => {{
-        use $crate::{DecimalValueType, i256};
-        match $self {
-            DecimalValueType::I8 => {
-                type $enc = i8;
-                $body
-            }
-            DecimalValueType::I16 => {
-                type $enc = i16;
-                $body
-            }
-            DecimalValueType::I32 => {
-                type $enc = i32;
-                $body
-            }
-            DecimalValueType::I64 => {
-                type $enc = i64;
-                $body
-            }
-            DecimalValueType::I128 => {
-                type $enc = i128;
-                $body
-            }
-            DecimalValueType::I256 => {
-                type $enc = i256;
-                $body
-            }
-            ty => unreachable!("unknown decimal value type {:?}", ty),
-        }
-    }};
-}
-
 /// Type of the decimal values.
+///
+/// This is used for other crates to understand the different underlying representations possible
+/// for decimals.
 #[derive(Clone, Copy, Debug, prost::Enumeration, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u8)]
 #[non_exhaustive]
@@ -107,6 +35,20 @@ pub enum DecimalValueType {
     I128 = 4,
     /// 256-bit decimal value type.
     I256 = 5,
+}
+
+impl Scalar {
+    /// Creates a new decimal scalar with the given value, precision, scale, and nullability.
+    pub fn decimal(
+        value: DecimalValue,
+        decimal_type: DecimalDType,
+        nullability: Nullability,
+    ) -> Self {
+        Self::new(
+            DType::Decimal(decimal_type, nullability),
+            ScalarValue(InnerScalarValue::Decimal(value)),
+        )
+    }
 }
 
 /// A decimal value that can be stored in various integer widths.
@@ -184,6 +126,27 @@ impl Hash for DecimalValue {
     }
 }
 
+use super::macros::{decimal_scalar_pack, decimal_scalar_unpack};
+
+decimal_scalar_unpack!(i8, I8);
+decimal_scalar_unpack!(i16, I16);
+decimal_scalar_unpack!(i32, I32);
+decimal_scalar_unpack!(i64, I64);
+decimal_scalar_unpack!(i128, I128);
+decimal_scalar_unpack!(i256, I256);
+
+decimal_scalar_pack!(i8, i8, I8);
+decimal_scalar_pack!(i16, i16, I16);
+decimal_scalar_pack!(i32, i32, I32);
+decimal_scalar_pack!(i64, i64, I64);
+decimal_scalar_pack!(i128, i128, I128);
+decimal_scalar_pack!(i256, i256, I256);
+
+decimal_scalar_pack!(u8, i16, I16);
+decimal_scalar_pack!(u16, i32, I32);
+decimal_scalar_pack!(u32, i64, I64);
+decimal_scalar_pack!(u64, i128, I128);
+
 impl From<DecimalValue> for ScalarValue {
     fn from(value: DecimalValue) -> Self {
         Self(InnerScalarValue::Decimal(value))
@@ -246,6 +209,19 @@ impl TryFrom<Scalar> for Option<DecimalValue> {
 
     fn try_from(scalar: Scalar) -> Result<Self, Self::Error> {
         Option::<DecimalValue>::try_from(&scalar)
+    }
+}
+
+impl fmt::Display for DecimalValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DecimalValue::I8(v8) => write!(f, "decimal8({v8})"),
+            DecimalValue::I16(v16) => write!(f, "decimal16({v16})"),
+            DecimalValue::I32(v32) => write!(f, "decimal32({v32})"),
+            DecimalValue::I64(v32) => write!(f, "decimal64({v32})"),
+            DecimalValue::I128(v128) => write!(f, "decimal128({v128})"),
+            DecimalValue::I256(v256) => write!(f, "decimal256({v256})"),
+        }
     }
 }
 

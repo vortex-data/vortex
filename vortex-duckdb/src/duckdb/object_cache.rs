@@ -6,7 +6,7 @@ use std::os::raw::c_void;
 
 use vortex::error::{VortexUnwrap, vortex_err};
 
-use crate::{cpp, wrapper};
+use crate::{cpp, lifetime_wrapper};
 
 /// Custom deleter function for Box<T> allocated in Rust
 unsafe extern "C-unwind" fn rust_box_deleter<T>(ptr: *mut c_void) {
@@ -17,9 +17,12 @@ unsafe extern "C-unwind" fn rust_box_deleter<T>(ptr: *mut c_void) {
     }
 }
 
-wrapper!(ObjectCache, cpp::duckdb_vx_object_cache, |_| {});
+// ObjectCache is a wrapper around a DuckDB object cache.
+// We only implement ObjectCacheRef since duckdb only has a single object cache per client,
+// context which is never owned.
+lifetime_wrapper!(ObjectCache, cpp::duckdb_vx_object_cache, |_| {}, [ref]);
 
-impl ObjectCache {
+impl ObjectCacheRef<'_> {
     /// Store an entry in the object cache with the given key.
     /// The entry will be converted to an opaque pointer and stored.
     /// Uses a proper deleter to ensure memory is freed when the cache entry is removed.
@@ -55,7 +58,6 @@ impl ObjectCache {
         }
     }
 }
-
 // This is Send + Sync since the cache has a mutex wrapper.
-unsafe impl Send for ObjectCache {}
-unsafe impl Sync for ObjectCache {}
+unsafe impl Send for ObjectCacheRef<'_> {}
+unsafe impl Sync for ObjectCacheRef<'_> {}

@@ -184,7 +184,7 @@ impl<'a> ListScalar<'a> {
                         // Recursively cast the elements of the list.
                         Scalar::new(DType::clone(self.element_dtype), element.clone())
                             .cast(target_element_dtype)
-                            .map(|x| x.value().clone())
+                            .map(|x| x.into_value())
                     })
                     .collect::<VortexResult<Arc<[ScalarValue]>>>()?,
             )),
@@ -218,7 +218,7 @@ impl Scalar {
                         child.dtype()
                     );
                 }
-                child.value
+                child.into_value()
             })
             .collect();
         let size: u32 = children
@@ -280,7 +280,7 @@ impl<'a> TryFrom<&'a Scalar> for ListScalar<'a> {
         Ok(Self {
             dtype: value.dtype(),
             element_dtype,
-            elements: value.value.as_list()?.cloned(),
+            elements: value.value().as_list()?.cloned(),
         })
     }
 }

@@ -189,7 +189,7 @@ impl<'a> StructScalar<'a> {
                         &st.field_by_index(i)
                             .vortex_expect("Iterating over scalar fields"),
                     )
-                    .map(|s| s.value)
+                    .map(|s| s.into_value())
                 })
                 .collect::<VortexResult<Vec<_>>>()?;
             Ok(Scalar::new(
@@ -278,7 +278,7 @@ impl<'a> TryFrom<&'a Scalar> for StructScalar<'a> {
     type Error = VortexError;
 
     fn try_from(value: &'a Scalar) -> Result<Self, Self::Error> {
-        Self::try_new(value.dtype(), &value.value)
+        Self::try_new(value.dtype(), value.value())
     }
 }
 

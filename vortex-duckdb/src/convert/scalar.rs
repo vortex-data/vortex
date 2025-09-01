@@ -33,7 +33,7 @@ use vortex::scalar::{
 };
 
 use crate::convert::dtype::FromLogicalType;
-use crate::duckdb::Value;
+use crate::duckdb::{Value, ValueRef};
 
 /// Trait for converting Vortex scalars to DuckDB values.
 pub trait ToDuckDBScalar {
@@ -201,35 +201,35 @@ impl TryFrom<Value> for Scalar {
     type Error = VortexError;
 
     fn try_from(value: Value) -> Result<Self, Self::Error> {
-        Scalar::try_from(&value)
+        Scalar::try_from(value.as_ref())
     }
 }
 
-impl TryFrom<&Value> for Scalar {
+impl<'a> TryFrom<ValueRef<'a>> for Scalar {
     type Error = VortexError;
 
-    fn try_from(value: &Value) -> Result<Self, Self::Error> {
-        use crate::duckdb::Val;
+    fn try_from(value: ValueRef<'a>) -> Result<Self, Self::Error> {
+        use crate::duckdb::ExtractedValue;
         let dtype = DType::from_logical_type(value.logical_type(), Nullable)?;
         match value.extract() {
-            Val::Null => Ok(Scalar::null(dtype)),
-            Val::Boolean(b) => Ok(Scalar::bool(b, Nullable)),
-            Val::TinyInt(v) => Ok(Scalar::primitive(v, Nullable)),
-            Val::SmallInt(v) => Ok(Scalar::primitive(v, Nullable)),
-            Val::Integer(v) => Ok(Scalar::primitive(v, Nullable)),
-            Val::BigInt(v) => Ok(Scalar::primitive(v, Nullable)),
-            Val::HugeInt(_) => {
+            ExtractedValue::Null => Ok(Scalar::null(dtype)),
+            ExtractedValue::Boolean(b) => Ok(Scalar::bool(b, Nullable)),
+            ExtractedValue::TinyInt(v) => Ok(Scalar::primitive(v, Nullable)),
+            ExtractedValue::SmallInt(v) => Ok(Scalar::primitive(v, Nullable)),
+            ExtractedValue::Integer(v) => Ok(Scalar::primitive(v, Nullable)),
+            ExtractedValue::BigInt(v) => Ok(Scalar::primitive(v, Nullable)),
+            ExtractedValue::HugeInt(_) => {
                 vortex_bail!("DuckDB HugeInt is not yet supported in Vortex");
             }
-            Val::UTinyInt(v) => Ok(Scalar::primitive(v, Nullable)),
-            Val::USmallInt(v) => Ok(Scalar::primitive(v, Nullable)),
-            Val::UInteger(v) => Ok(Scalar::primitive(v, Nullable)),
-            Val::UBigInt(v) => Ok(Scalar::primitive(v, Nullable)),
-            Val::Float(v) => Ok(Scalar::primitive(v, Nullable)),
-            Val::Double(v) => Ok(Scalar::primitive(v, Nullable)),
-            Val::Varchar(s) => Ok(Scalar::utf8(s, Nullable)),
-            Val::Blob(b) => Ok(Scalar::binary(b, Nullable)),
-            Val::Date(days) => Ok(Scalar::extension(
+            ExtractedValue::UTinyInt(v) => Ok(Scalar::primitive(v, Nullable)),
+            ExtractedValue::USmallInt(v) => Ok(Scalar::primitive(v, Nullable)),
+            ExtractedValue::UInteger(v) => Ok(Scalar::primitive(v, Nullable)),
+            ExtractedValue::UBigInt(v) => Ok(Scalar::primitive(v, Nullable)),
+            ExtractedValue::Float(v) => Ok(Scalar::primitive(v, Nullable)),
+            ExtractedValue::Double(v) => Ok(Scalar::primitive(v, Nullable)),
+            ExtractedValue::Varchar(s) => Ok(Scalar::utf8(s, Nullable)),
+            ExtractedValue::Blob(b) => Ok(Scalar::binary(b, Nullable)),
+            ExtractedValue::Date(days) => Ok(Scalar::extension(
                 Arc::new(ExtDType::new(
                     DATE_ID.clone(),
                     Arc::new(DType::Primitive(I32, Nullable)),
@@ -237,7 +237,7 @@ impl TryFrom<&Value> for Scalar {
                 )),
                 Scalar::new(DType::Primitive(I32, Nullable), ScalarValue::from(days)),
             )),
-            Val::Time(micros) => Ok(Scalar::extension(
+            ExtractedValue::Time(micros) => Ok(Scalar::extension(
                 Arc::new(ExtDType::new(
                     TIME_ID.clone(),
                     Arc::new(DType::Primitive(I64, Nullable)),
@@ -245,7 +245,7 @@ impl TryFrom<&Value> for Scalar {
                 )),
                 Scalar::new(DType::Primitive(I64, Nullable), ScalarValue::from(micros)),
             )),
-            Val::TimestampNs(nanos) => Ok(Scalar::extension(
+            ExtractedValue::TimestampNs(nanos) => Ok(Scalar::extension(
                 Arc::new(ExtDType::new(
                     TIMESTAMP_ID.clone(),
                     Arc::new(DType::Primitive(I64, Nullable)),
@@ -253,7 +253,7 @@ impl TryFrom<&Value> for Scalar {
                 )),
                 Scalar::new(DType::Primitive(I64, Nullable), ScalarValue::from(nanos)),
             )),
-            Val::Timestamp(micros) => Ok(Scalar::extension(
+            ExtractedValue::Timestamp(micros) => Ok(Scalar::extension(
                 Arc::new(ExtDType::new(
                     TIMESTAMP_ID.clone(),
                     Arc::new(DType::Primitive(I64, Nullable)),
@@ -261,7 +261,7 @@ impl TryFrom<&Value> for Scalar {
                 )),
                 Scalar::new(DType::Primitive(I64, Nullable), ScalarValue::from(micros)),
             )),
-            Val::TimestampMs(millis) => Ok(Scalar::extension(
+            ExtractedValue::TimestampMs(millis) => Ok(Scalar::extension(
                 Arc::new(ExtDType::new(
                     TIMESTAMP_ID.clone(),
                     Arc::new(DType::Primitive(I64, Nullable)),
@@ -269,7 +269,7 @@ impl TryFrom<&Value> for Scalar {
                 )),
                 Scalar::new(DType::Primitive(I64, Nullable), ScalarValue::from(millis)),
             )),
-            Val::TimestampS(seconds) => Ok(Scalar::extension(
+            ExtractedValue::TimestampS(seconds) => Ok(Scalar::extension(
                 Arc::new(ExtDType::new(
                     TIMESTAMP_ID.clone(),
                     Arc::new(DType::Primitive(I64, Nullable)),
@@ -277,7 +277,7 @@ impl TryFrom<&Value> for Scalar {
                 )),
                 Scalar::new(DType::Primitive(I64, Nullable), ScalarValue::from(seconds)),
             )),
-            Val::Decimal(precision, scale, value) => Ok(Scalar::decimal(
+            ExtractedValue::Decimal(precision, scale, value) => Ok(Scalar::decimal(
                 DecimalValue::I128(value),
                 DecimalDType::try_new(precision, scale)?,
                 Nullable,

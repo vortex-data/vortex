@@ -108,63 +108,65 @@ impl<'py> IntoPyObject<'py> for PyArrayRef {
 ///
 /// Arrays support all the standard comparison operations:
 ///
-///     >>> import vortex as vx
-///     >>> a = vx.array(['dog', None, 'cat', 'mouse', 'fish'])
-///     >>> b = vx.array(['doug', 'jennifer', 'casper', 'mouse', 'faust'])
-///     >>> (a < b).to_arrow_array()
-///     <pyarrow.lib.BooleanArray object at ...>
-///     [
-///        true,
-///        null,
-///        false,
-///        false,
-///        false
-///     ]
-///     >>> (a <= b).to_arrow_array()
-///     <pyarrow.lib.BooleanArray object at ...>
-///     [
-///        true,
-///        null,
-///        false,
-///        true,
-///        false
-///     ]
-///     >>> (a == b).to_arrow_array()
-///     <pyarrow.lib.BooleanArray object at ...>
-///     [
-///        false,
-///        null,
-///        false,
-///        true,
-///        false
-///     ]
-///     >>> (a != b).to_arrow_array()
-///     <pyarrow.lib.BooleanArray object at ...>
-///     [
-///        true,
-///        null,
-///        true,
-///        false,
-///        true
-///     ]
-///     >>> (a >= b).to_arrow_array()
-///     <pyarrow.lib.BooleanArray object at ...>
-///     [
-///        false,
-///        null,
-///        true,
-///        true,
-///        true
-///     ]
-///     >>> (a > b).to_arrow_array()
-///     <pyarrow.lib.BooleanArray object at ...>
-///     [
-///        false,
-///        null,
-///        true,
-///        false,
-///        true
-///     ]
+/// ```python
+/// >>> import vortex as vx
+/// >>> a = vx.array(['dog', None, 'cat', 'mouse', 'fish'])
+/// >>> b = vx.array(['doug', 'jennifer', 'casper', 'mouse', 'faust'])
+/// >>> (a < b).to_arrow_array()
+/// <pyarrow.lib.BooleanArray object at ...>
+/// [
+///    true,
+///    null,
+///    false,
+///    false,
+///    false
+/// ]
+/// >>> (a <= b).to_arrow_array()
+/// <pyarrow.lib.BooleanArray object at ...>
+/// [
+///    true,
+///    null,
+///    false,
+///    true,
+///    false
+/// ]
+/// >>> (a == b).to_arrow_array()
+/// <pyarrow.lib.BooleanArray object at ...>
+/// [
+///    false,
+///    null,
+///    false,
+///    true,
+///    false
+/// ]
+/// >>> (a != b).to_arrow_array()
+/// <pyarrow.lib.BooleanArray object at ...>
+/// [
+///    true,
+///    null,
+///    true,
+///    false,
+///    true
+/// ]
+/// >>> (a >= b).to_arrow_array()
+/// <pyarrow.lib.BooleanArray object at ...>
+/// [
+///    false,
+///    null,
+///    true,
+///    true,
+///    true
+/// ]
+/// >>> (a > b).to_arrow_array()
+/// <pyarrow.lib.BooleanArray object at ...>
+/// [
+///    false,
+///    null,
+///    true,
+///    false,
+///    true
+/// ]
+/// ```
 #[pyclass(name = "Array", module = "vortex", sequence, subclass, frozen)]
 pub struct PyArray;
 
@@ -203,14 +205,16 @@ impl PyArray {
     ///
     /// Round-trip an Arrow array through a Vortex array:
     ///
-    ///     >>> import vortex as vx
-    ///     >>> vx.array([1, 2, 3]).to_arrow_array()
-    ///     <pyarrow.lib.Int64Array object at ...>
-    ///     [
-    ///       1,
-    ///       2,
-    ///       3
-    ///     ]
+    /// ```python
+    /// >>> import vortex as vx
+    /// >>> vx.array([1, 2, 3]).to_arrow_array()
+    /// <pyarrow.lib.Int64Array object at ...>
+    /// [
+    ///   1,
+    ///   2,
+    ///   3
+    /// ]
+    /// ```
     fn to_arrow_array<'py>(self_: &'py Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
         // NOTE(ngates): for struct arrays, we could also return a RecordBatchStreamReader.
         let array = PyArrayRef::extract_bound(self_.as_any())?.into_inner();
@@ -285,19 +289,25 @@ impl PyArray {
     ///
     /// By default, :func:`vortex.array` uses the largest available bit-width:
     ///
-    ///     >>> import vortex as vx
-    ///     >>> vx.array([1, 2, 3]).dtype
-    ///     int(64, nullable=False)
+    /// ```python
+    /// >>> import vortex as vx
+    /// >>> vx.array([1, 2, 3]).dtype
+    /// int(64, nullable=False)
+    /// ```
     ///
     /// Including a :obj:`None` forces a nullable type:
     ///
-    ///     >>> vx.array([1, None, 2, 3]).dtype
-    ///     int(64, nullable=True)
+    /// ```python
+    /// >>> vx.array([1, None, 2, 3]).dtype
+    /// int(64, nullable=True)
+    /// ```
     ///
     /// A UTF-8 string array:
     ///
-    ///     >>> vx.array(['hello, ', 'is', 'it', 'me?']).dtype
-    ///     utf8(nullable=False)
+    /// ```python
+    /// >>> vx.array(['hello, ', 'is', 'it', 'me?']).dtype
+    /// utf8(nullable=False)
+    /// ```
     #[getter]
     fn dtype<'py>(slf: &'py Bound<'py, Self>) -> PyResult<Bound<'py, PyDType>> {
         PyDType::init(
@@ -364,16 +374,18 @@ impl PyArray {
     ///
     /// Keep only the single digit positive integers.
     ///
-    ///     >>> import vortex as vx
-    ///     >>> a = vx.array([0, 42, 1_000, -23, 10, 9, 5])
-    ///     >>> filter = vx.array([True, False, False, False, False, True, True])
-    ///     >>> a.filter(filter).to_arrow_array()
-    ///     <pyarrow.lib.Int64Array object at ...>
-    ///     [
-    ///       0,
-    ///       9,
-    ///       5
-    ///     ]
+    /// ```python
+    /// >>> import vortex as vx
+    /// >>> a = vx.array([0, 42, 1_000, -23, 10, 9, 5])
+    /// >>> filter = vx.array([True, False, False, False, False, True, True])
+    /// >>> a.filter(filter).to_arrow_array()
+    /// <pyarrow.lib.Int64Array object at ...>
+    /// [
+    ///   0,
+    ///   9,
+    ///   5
+    /// ]
+    /// ```
     fn filter(slf: Bound<Self>, mask: PyArrayRef) -> PyResult<PyArrayRef> {
         let slf = PyArrayRef::extract_bound(slf.as_any())?.into_inner();
         let mask = (&*mask as &dyn Array).to_bool()?.to_mask_fill_null_false();
@@ -398,47 +410,59 @@ impl PyArray {
     ///
     /// Retrieve the last element from an array of integers:
     ///
-    ///     >>> import vortex as vx
-    ///     >>> vx.array([10, 42, 999, 1992]).scalar_at(3).as_py()
-    ///     1992
+    /// ```python
+    /// >>> import vortex as vx
+    /// >>> vx.array([10, 42, 999, 1992]).scalar_at(3).as_py()
+    /// 1992
+    /// ```
     ///
     /// Retrieve the third element from an array of strings:
     ///
-    ///     >>> array = vx.array(["hello", "goodbye", "it", "is"])
-    ///     >>> array.scalar_at(2).as_py()
-    ///     'it'
+    /// ```python
+    /// >>> array = vx.array(["hello", "goodbye", "it", "is"])
+    /// >>> array.scalar_at(2).as_py()
+    /// 'it'
+    /// ```
     ///
     /// Retrieve an element from an array of structures:
     ///
-    ///     >>> array = vx.array([
-    ///     ...     {'name': 'Joseph', 'age': 25},
-    ///     ...     {'name': 'Narendra', 'age': 31},
-    ///     ...     {'name': 'Angela', 'age': 33},
-    ///     ...     None,
-    ///     ...     {'name': 'Mikhail', 'age': 57},
-    ///     ... ])
-    ///     >>> array.scalar_at(2).as_py()
-    ///     {'age': 33, 'name': 'Angela'}
+    /// ```python
+    /// >>> array = vx.array([
+    /// ...     {'name': 'Joseph', 'age': 25},
+    /// ...     {'name': 'Narendra', 'age': 31},
+    /// ...     {'name': 'Angela', 'age': 33},
+    /// ...     None,
+    /// ...     {'name': 'Mikhail', 'age': 57},
+    /// ... ])
+    /// >>> array.scalar_at(2).as_py()
+    /// {'age': 33, 'name': 'Angela'}
+    /// ```
     ///
     /// Retrieve a missing element from an array of structures:
     ///
-    ///     >>> array.scalar_at(3).as_py() is None
-    ///     True
+    /// ```python
+    /// >>> array.scalar_at(3).as_py() is None
+    /// True
+    /// ```
     ///
     /// Out of bounds accesses are prohibited:
     ///
-    ///     >>> vx.array([10, 42, 999, 1992]).scalar_at(10)
-    ///     Traceback (most recent call last):
-    ///     ...
-    ///     pyo3_runtime.PanicException: index 10 out of bounds
-    ///     ...
+    /// ```python
+    /// >>> vx.array([10, 42, 999, 1992]).scalar_at(10)
+    /// Traceback (most recent call last):
+    /// ...
+    /// pyo3_runtime.PanicException: index 10 out of bounds
+    /// ...
+    /// ```
     ///
     /// Unlike Python, negative indices are not supported:
     ///
-    ///     >>> vx.array([10, 42, 999, 1992]).scalar_at(-2)
-    ///     Traceback (most recent call last):
-    ///     ...
-    ///     OverflowError: can't convert negative int to unsigned
+    /// ```python
+    /// >>> vx.array([10, 42, 999, 1992]).scalar_at(-2)
+    /// Traceback (most recent call last):
+    /// ...
+    /// OverflowError: can't convert negative int to unsigned
+    /// ```
     // TODO(ngates): return a vortex.Scalar
     fn scalar_at(slf: Bound<Self>, index: usize) -> PyResult<Bound<PyScalar>> {
         let py = slf.py();
@@ -462,27 +486,31 @@ impl PyArray {
     ///
     /// Keep only the first and third elements:
     ///
-    ///     >>> a = vx.array(['a', 'b', 'c', 'd'])
-    ///     >>> indices = vx.array([0, 2])
-    ///     >>> a.take(indices).to_arrow_array()
-    ///     <pyarrow.lib.StringArray object at ...>
-    ///     [
-    ///       "a",
-    ///       "c"
-    ///     ]
+    /// ```python
+    /// >>> a = vx.array(['a', 'b', 'c', 'd'])
+    /// >>> indices = vx.array([0, 2])
+    /// >>> a.take(indices).to_arrow_array()
+    /// <pyarrow.lib.StringArray object at ...>
+    /// [
+    ///   "a",
+    ///   "c"
+    /// ]
+    /// ```
     ///
     /// Permute and repeat the first and second elements:
     ///
-    ///     >>> a = vx.array(['a', 'b', 'c', 'd'])
-    ///     >>> indices = vx.array([0, 1, 1, 0])
-    ///     >>> a.take(indices).to_arrow_array()
-    ///     <pyarrow.lib.StringArray object at ...>
-    ///     [
-    ///       "a",
-    ///       "b",
-    ///       "b",
-    ///       "a"
-    ///     ]
+    /// ```python
+    /// >>> a = vx.array(['a', 'b', 'c', 'd'])
+    /// >>> indices = vx.array([0, 1, 1, 0])
+    /// >>> a.take(indices).to_arrow_array()
+    /// <pyarrow.lib.StringArray object at ...>
+    /// [
+    ///   "a",
+    ///   "b",
+    ///   "b",
+    ///   "a"
+    /// ]
+    /// ```
     fn take(slf: Bound<Self>, indices: PyArrayRef) -> PyResult<PyArrayRef> {
         let slf = PyArrayRef::extract_bound(slf.as_any())?.into_inner();
 
@@ -520,16 +548,18 @@ impl PyArray {
     ///
     /// Uncompressed arrays have straightforward encodings:
     ///
-    ///     >>> import vortex as vx
-    ///     >>> arr = vx.array([1, 2, None, 3])
-    ///     >>> print(arr.display_tree())
-    ///     root: vortex.primitive(i64?, len=4) nbytes=33 B (100.00%)
-    ///       metadata: EmptyMetadata
-    ///       buffer (align=8): 32 B (96.97%)
-    ///       validity: vortex.bool(bool, len=4) nbytes=1 B (3.03%)
-    ///         metadata: BoolMetadata { offset: 0 }
-    ///         buffer (align=1): 1 B (100.00%)
-    ///     <BLANKLINE>
+    /// ```python
+    /// >>> import vortex as vx
+    /// >>> arr = vx.array([1, 2, None, 3])
+    /// >>> print(arr.display_tree())
+    /// root: vortex.primitive(i64?, len=4) nbytes=33 B (100.00%)
+    ///   metadata: EmptyMetadata
+    ///   buffer (align=8): 32 B (96.97%)
+    ///   validity: vortex.bool(bool, len=4) nbytes=1 B (3.03%)
+    ///     metadata: BoolMetadata { offset: 0 }
+    ///     buffer (align=1): 1 B (100.00%)
+    /// <BLANKLINE>
+    /// ```
     ///
     /// Compressed arrays often have more complex, deeply nested encoding trees.
     fn display_tree(slf: &Bound<Self>) -> PyResult<String> {

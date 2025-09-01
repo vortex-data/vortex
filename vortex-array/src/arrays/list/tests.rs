@@ -506,3 +506,92 @@ fn test_list_of_lists_both_nullable() {
     let inner = fourth_list.scalar_at(0);
     assert!(inner.is_null());
 }
+
+#[test]
+#[should_panic(expected = "offsets minimum -1 outside valid range")]
+fn test_negative_offset_values() {
+    let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
+    let offsets = PrimitiveArray::from_iter([-1i32, 2, 4, 5]);
+    let validity = Validity::AllValid;
+
+    let _ = ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
+}
+
+#[test]
+#[should_panic(expected = "offsets must be sorted")]
+fn test_unsorted_offsets() {
+    let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
+    let offsets = PrimitiveArray::from_iter([0u32, 3, 2, 5]);
+    let validity = Validity::AllValid;
+
+    let _ = ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
+}
+
+#[test]
+#[should_panic(expected = "Max offset 7 is beyond the length of the elements array 5")]
+fn test_offset_exceeding_elements_length() {
+    let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
+    let offsets = PrimitiveArray::from_iter([0u32, 2, 4, 7]);
+    let validity = Validity::AllValid;
+
+    let _ = ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
+}
+
+#[test]
+#[should_panic(expected = "validity with size 2 does not match array size 4")]
+fn test_validity_length_mismatch() {
+    let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
+    let offsets = PrimitiveArray::from_iter([0u32, 2, 4, 5, 5]);
+    let validity = Validity::from_mask(
+        Mask::from(BooleanBuffer::from(vec![true, false])),
+        Nullability::Nullable,
+    );
+
+    let _ = ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
+}
+
+#[test]
+#[should_panic(expected = "Expected offsets to be an non-nullable integer type")]
+fn test_nullable_offsets() {
+    let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
+    let offsets = PrimitiveArray::from_option_iter([Some(0u32), Some(2), None, Some(5)]);
+    let validity = Validity::AllValid;
+
+    let _ = ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
+}
+
+#[test]
+#[should_panic(expected = "Offsets must have at least one element, [0] for an empty list")]
+fn test_empty_offsets_array() {
+    let elements = PrimitiveArray::from_iter([1i32, 2, 3]);
+    let offsets = PrimitiveArray::empty::<u32>(Nullability::NonNullable);
+    let validity = Validity::AllValid;
+
+    let _ = ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
+}
+
+#[test]
+#[should_panic(
+    expected = "Expected offsets to be an non-nullable integer type, got Primitive(F32, NonNullable)"
+)]
+fn test_non_integer_offsets() {
+    let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
+    let offsets = PrimitiveArray::from_iter([0.0f32, 2.0, 4.0, 5.0]);
+    let validity = Validity::AllValid;
+
+    let _ = ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
+}
+
+#[test]
+fn test_offsets_constant() {
+    let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
+    let offsets = PrimitiveArray::from_iter([5u32, 5, 5, 5]);
+    let validity = Validity::AllValid;
+
+    // This should succeed as it represents empty lists
+    let list = ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
+    assert_eq!(list.len(), 3);
+    assert_eq!(list.elements_at(0).len(), 0);
+    assert_eq!(list.elements_at(1).len(), 0);
+    assert_eq!(list.elements_at(2).len(), 0);
+}

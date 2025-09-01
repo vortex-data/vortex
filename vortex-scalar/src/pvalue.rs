@@ -9,7 +9,9 @@ use num_traits::NumCast;
 use paste::paste;
 use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PType, ToBytes};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{
+    VortexError, VortexExpect, VortexResult, vortex_bail, vortex_ensure, vortex_err,
+};
 
 /// A primitive value that can represent any primitive type supported by Vortex.
 ///
@@ -444,8 +446,20 @@ impl CoercePValue for f16 {
         match value {
             PValue::U8(u) => Ok(Self::from_bits(u as u16)),
             PValue::U16(u) => Ok(Self::from_bits(u)),
-            PValue::U32(u) => Ok(Self::from_bits(u as u16)),
-            PValue::U64(u) => Ok(Self::from_bits(u as u16)),
+            PValue::U32(u) => {
+                vortex_ensure!(
+                    u <= u16::MAX as u32,
+                    "Cannot coerce U32 value to f16: value out of range"
+                );
+                Ok(Self::from_bits(u as u16))
+            }
+            PValue::U64(u) => {
+                vortex_ensure!(
+                    u <= u16::MAX as u64,
+                    "Cannot coerce U64 value to f16: value out of range"
+                );
+                Ok(Self::from_bits(u as u16))
+            }
             PValue::F16(u) => Ok(u),
             PValue::F32(f) => {
                 <Self as NumCast>::from(f).ok_or_else(|| vortex_err!("Cannot convert f32 to f16"))
@@ -468,7 +482,13 @@ impl CoercePValue for f32 {
             PValue::U8(u) => Ok(Self::from_bits(u as u32)),
             PValue::U16(u) => Ok(Self::from_bits(u as u32)),
             PValue::U32(u) => Ok(Self::from_bits(u)),
-            PValue::U64(u) => Ok(Self::from_bits(u as u32)),
+            PValue::U64(u) => {
+                vortex_ensure!(
+                    u <= u32::MAX as u64,
+                    "Cannot coerce U64 value to f32: value out of range"
+                );
+                Ok(Self::from_bits(u as u32))
+            }
             PValue::F16(f) => {
                 <Self as NumCast>::from(f).ok_or_else(|| vortex_err!("Cannot convert f16 to f32"))
             }
@@ -511,10 +531,11 @@ mod test {
     use std::cmp::Ordering;
     use std::collections::HashSet;
 
-    use vortex_dtype::PType;
     use vortex_dtype::half::f16;
+    use vortex_dtype::{PType, ToBytes};
 
     use crate::PValue;
+    use crate::pvalue::CoercePValue;
 
     #[test]
     pub fn test_is_instance_of() {
@@ -781,8 +802,6 @@ mod test {
 
     #[test]
     fn test_to_le_bytes() {
-        use vortex_dtype::ToBytes;
-
         assert_eq!(PValue::U8(0x12).to_le_bytes(), &[0x12]);
         assert_eq!(PValue::U16(0x1234).to_le_bytes(), &[0x34, 0x12]);
         assert_eq!(
@@ -821,8 +840,6 @@ mod test {
 
     #[test]
     fn test_coerce_pvalue() {
-        use super::CoercePValue;
-
         // Test integer coercion
         assert_eq!(u32::coerce(PValue::U16(42)).unwrap(), 42u32);
         assert_eq!(i64::coerce(PValue::I32(-42)).unwrap(), -42i64);
@@ -832,6 +849,66 @@ mod test {
         assert_eq!(
             f64::coerce(PValue::U64(0x3ff0000000000000)).unwrap(),
             1.0f64
+        );
+    }
+
+    #[test]
+    fn test_coerce_f16_beyond_u16_max() {
+        // Test U32 to f16 coercion within valid range
+        assert!(f16::coerce(PValue::U32(u16::MAX as u32)).is_ok());
+        assert_eq!(
+            f16::coerce(PValue::U32(0x3C00)).unwrap(),
+            f16::from_bits(0x3C00) // 1.0 in f16
+        );
+
+        // Test U32 to f16 coercion beyond u16::MAX - should fail
+        assert!(f16::coerce(PValue::U32((u16::MAX as u32) + 1)).is_err());
+        assert!(f16::coerce(PValue::U32(u32::MAX)).is_err());
+
+        // Test U64 to f16 coercion within valid range
+        assert!(f16::coerce(PValue::U64(u16::MAX as u64)).is_ok());
+        assert_eq!(
+            f16::coerce(PValue::U64(0x3C00)).unwrap(),
+            f16::from_bits(0x3C00) // 1.0 in f16
+        );
+
+        // Test U64 to f16 coercion beyond u16::MAX - should fail
+        assert!(f16::coerce(PValue::U64((u16::MAX as u64) + 1)).is_err());
+        assert!(f16::coerce(PValue::U64(u32::MAX as u64)).is_err());
+        assert!(f16::coerce(PValue::U64(u64::MAX)).is_err());
+    }
+
+    #[test]
+    fn test_coerce_f32_beyond_u32_max() {
+        // Test U64 to f32 coercion within valid range
+        assert!(f32::coerce(PValue::U64(u32::MAX as u64)).is_ok());
+        assert_eq!(
+            f32::coerce(PValue::U64(0x3f800000)).unwrap(),
+            1.0f32 // 0x3f800000 is 1.0 in f32
+        );
+
+        // Test U64 to f32 coercion beyond u32::MAX - should fail
+        assert!(f32::coerce(PValue::U64((u32::MAX as u64) + 1)).is_err());
+        assert!(f32::coerce(PValue::U64(u64::MAX)).is_err());
+
+        // Test smaller types still work
+        assert!(f32::coerce(PValue::U8(255)).is_ok());
+        assert!(f32::coerce(PValue::U16(u16::MAX)).is_ok());
+        assert!(f32::coerce(PValue::U32(u32::MAX)).is_ok());
+    }
+
+    #[test]
+    fn test_coerce_f64_all_unsigned() {
+        // Test f64 can accept all unsigned integer values as bit patterns
+        assert!(f64::coerce(PValue::U8(u8::MAX)).is_ok());
+        assert!(f64::coerce(PValue::U16(u16::MAX)).is_ok());
+        assert!(f64::coerce(PValue::U32(u32::MAX)).is_ok());
+        assert!(f64::coerce(PValue::U64(u64::MAX)).is_ok());
+
+        // Verify specific bit patterns
+        assert_eq!(
+            f64::coerce(PValue::U64(0x3ff0000000000000)).unwrap(),
+            1.0f64 // 0x3ff0000000000000 is 1.0 in f64
         );
     }
 }
