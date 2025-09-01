@@ -5,11 +5,11 @@
 use std::collections::{HashMap, HashSet};
 use std::ptr;
 
+use log::trace;
 use vortex::error::{VortexExpect, VortexResult};
 
 use crate::duckdb::expr::{ColumnBinding, Expression};
 use crate::duckdb::logical_operator::{LogicalOperator, LogicalOperatorClass};
-use crate::duckdb::logical_plan::LogicalPlanUtils;
 use crate::duckdb::{Database, ExpressionClass};
 
 /// Simple collector to find which columns each projection output depends on
@@ -110,51 +110,6 @@ pub struct LengthReplacement {
     pub expression_index: u64,
 }
 
-// Length-specific helper functions for expressions
-trait LengthOptimizationExt {
-    /// Check if this is a vortex_scan table function
-    fn is_vortex_scan(&self) -> VortexResult<bool>;
-
-    /// Check if this expression is a length function call
-    fn is_length_function(&self) -> VortexResult<bool>;
-}
-
-impl LengthOptimizationExt for LogicalOperator {
-    fn is_vortex_scan(&self) -> VortexResult<bool> {
-        if let Some(LogicalOperatorClass::Get(get_op)) = self.as_class() {
-            Ok(get_op.is_vortex_scan())
-        } else {
-            Ok(false)
-        }
-    }
-
-    fn is_length_function(&self) -> VortexResult<bool> {
-        Ok(false) // Operators are not length functions
-    }
-}
-
-impl LengthOptimizationExt for Expression {
-    fn is_vortex_scan(&self) -> VortexResult<bool> {
-        Ok(false) // Expressions are not vortex scans
-    }
-
-    fn is_length_function(&self) -> VortexResult<bool> {
-        let Some(ExpressionClass::BoundFunction(func_)) = self.as_class() else {
-            return Ok(false);
-        };
-
-        if let Some(name) = func_.function_name() {
-            let name_lower = name.to_lowercase();
-            Ok(
-                (name_lower == "length" || name_lower == "len" || name_lower == "strlen")
-                    && func_.function_arg_count() == 1,
-            )
-        } else {
-            Ok(false)
-        }
-    }
-}
-
 /// Pure Rust implementation of the length optimization logic
 pub struct RustLengthOptimizer {
     replacements: Vec<LengthReplacement>,
@@ -171,49 +126,58 @@ impl RustLengthOptimizer {
     pub fn optimize_plan(&mut self, plan: &LogicalOperator) -> VortexResult<()> {
         // First check if the plan contains any vortex_scan
         if !Self::has_vortex_scan(plan)? {
-            println!("ℹ️  RUST OPTIMIZER: No vortex_scan found in plan, skipping");
+            trace!("ℹ️  RUST OPTIMIZER: No vortex_scan found in plan, skipping");
             return Ok(());
         }
 
-        println!("✅ RUST OPTIMIZER: Found vortex_scan in plan!");
+        trace!("✅ RUST OPTIMIZER: Found vortex_scan in plan!");
 
         // Visit all operators and apply length optimization
         self.visit_and_optimize(plan, plan)?;
 
         if !self.replacements.is_empty() {
-            println!(
+            trace!(
                 "🎯 RUST OPTIMIZER: Found {} len() → virtual column transformations!",
                 self.replacements.len()
             );
         } else {
-            println!("ℹ️  RUST OPTIMIZER: No len() functions found to optimize");
+            trace!("ℹ️  RUST OPTIMIZER: No len() functions found to optimize");
         }
 
-        println!("✅ RUST OPTIMIZER: Length optimization completed!");
+        trace!("✅ RUST OPTIMIZER: Length optimization completed!");
         Ok(())
     }
 
     /// Check if the plan contains a vortex_scan
     fn has_vortex_scan(op: &LogicalOperator) -> VortexResult<bool> {
-        let mut found = false;
-        LogicalPlanUtils::visit_operators(op, &mut |operator: &LogicalOperator| {
-            if operator.is_vortex_scan()? {
-                found = true;
+        // Check this operator
+        if let Some(LogicalOperatorClass::Get(get_op)) = op.as_class() {
+            if get_op.is_vortex_scan() {
+                return Ok(true);
             }
-            Ok(())
-        })?;
-        Ok(found)
+        }
+        
+        // Check children recursively
+        for i in 0..op.children_count() {
+            if let Some(child) = op.get_child(i) {
+                if Self::has_vortex_scan(&child)? {
+                    return Ok(true);
+                }
+            }
+        }
+        
+        Ok(false)
     }
 
     fn visit_node(&mut self, operator: &LogicalOperator) -> Option<()> {
-        println!("🔍 VISITING: Operator type: {:?}", operator.operator_type());
+        trace!("🔍 VISITING: Operator type: {:?}", operator.operator_type());
 
         let LogicalOperatorClass::Projection(proj) = operator.as_class()? else {
-            println!("🔍 Not a projection operator");
+            trace!("🔍 Not a projection operator");
             return None;
         };
         if operator.children_count() != 1 {
-            println!(
+            trace!(
                 "🔍 Projection operator has {} children, expected 1",
                 operator.children_count()
             );
@@ -221,17 +185,17 @@ impl RustLengthOptimizer {
         }
         let op_child = operator.get_child(0).unwrap();
         let LogicalOperatorClass::Get(get_op) = op_child.as_class()? else {
-            println!("🔍 Child is not a Get operator");
+            trace!("🔍 Child is not a Get operator");
             return None;
         };
         if !get_op.is_vortex_scan() {
-            println!("🔍 Get operator is not a vortex_scan");
+            trace!("🔍 Get operator is not a vortex_scan");
             return None;
         }
 
-        println!("🔍 FOUND VORTEX SCAN");
-        println!("proj {}", operator);
-        println!("scan {:?}", get_op);
+        trace!("FOUND VORTEX SCAN");
+        trace!("projection operator {}", operator);
+        trace!("scan operator {:?}", get_op);
 
         // Get current state
         let column_names = get_op.column_names().vortex_expect("column names");
@@ -249,7 +213,7 @@ impl RustLengthOptimizer {
         // Analyze each projection
         for (idx, projection_expr) in projection_expressions.iter().enumerate() {
             let Some(projection_expr) = projection_expr else {
-                println!("🔍 Projection {} is None", idx);
+                trace!("🔍 Projection {} is None", idx);
                 continue;
             };
 
@@ -274,8 +238,8 @@ impl RustLengthOptimizer {
                                         virtual_col_idx as u64,
                                         virtual_col_name.clone(),
                                     ));
-                                    println!(
-                                        "🔍 Found len({}) -> {} at index {}",
+                                    trace!(
+                                        "Found len({}) -> {} at index {}",
                                         column_alias, virtual_col_name, virtual_col_idx
                                     );
                                 }
@@ -305,19 +269,19 @@ impl RustLengthOptimizer {
                         .iter()
                         .position(|n| n.to_string() == col_name_str)
                     {
-                        println!(
-                            "🔍 Virtual column reference at projection {}: {} (bound to index {} but actually at {})",
+                        trace!(
+                            "Virtual column reference at projection {}: {} (bound to index {} but actually at {})",
                             idx, col_name, col_idx, actual_col_idx
                         );
                         // Don't add to original_columns_used since this is a virtual column
                     } else {
-                        println!("🔍 Virtual column {} not found in schema", col_name);
+                        trace!("Virtual column {} not found in schema", col_name);
                     }
                 } else {
                     // Regular column reference
                     original_columns_used.insert(col_idx);
-                    println!(
-                        "🔍 Direct column reference at projection {}: column {} (name: {})",
+                    trace!(
+                        "Direct column reference at projection {}: column {} (name: {})",
                         idx, col_idx, col_name
                     );
                 }
@@ -464,7 +428,7 @@ impl RustLengthOptimizer {
                                     0,
                                 ) {
                                     proj.set_projection(idx, corrected_col_ref);
-                                    println!(
+                                    trace!(
                                         "🔍 Fixed virtual column reference {}: {} -> position {}",
                                         idx, col_name_str, position_in_column_ids
                                     );
@@ -476,33 +440,33 @@ impl RustLengthOptimizer {
             }
 
             // Step 5: Update column_ids and projection_ids
-            println!("🔍 Final column_ids: {:?}", new_column_ids);
+            trace!("🔍 Final column_ids: {:?}", new_column_ids);
             get_op.clear_column_ids();
             for &col_id in &new_column_ids {
                 get_op.add_column_id(col_id);
             }
 
             // Create projection_ids that map each projection to its position in column_ids
-            println!(
+            trace!(
                 "🔍 Projection mappings (column each projection needs): {:?}",
                 projection_mappings
             );
-            println!("🔍 Column to position mapping: {:?}", column_to_position);
+            trace!("🔍 Column to position mapping: {:?}", column_to_position);
             let projection_ids: Vec<u64> = projection_mappings
                 .iter()
                 .map(|&col_id| column_to_position.get(&col_id).copied().unwrap_or(0) as u64)
                 .collect();
 
             let _ = get_op.update_projection_ids(&projection_ids);
-            println!("🔍 Final projection_ids: {:?}", projection_ids);
+            trace!("🔍 Final projection_ids: {:?}", projection_ids);
 
             // Debug: Print final projection expressions
-            println!("🔍 Final projection expressions:");
+            trace!("🔍 Final projection expressions:");
             for (i, expr) in proj.projections().enumerate() {
                 if let Some(expr) = expr {
-                    println!("  [{}]: {}", i, expr);
+                    trace!("  [{}]: {}", i, expr);
                 } else {
-                    println!("  [{}]: None", i);
+                    trace!("  [{}]: None", i);
                 }
             }
         }
@@ -535,7 +499,7 @@ impl RustLengthOptimizer {
         op: &LogicalOperator,
         plan_root: &LogicalOperator,
     ) -> VortexResult<()> {
-        println!("🔍 VISITING: Operator type: {:?}", op.operator_type());
+        trace!("🔍 VISITING: Operator type: {:?}", op.operator_type());
 
         self.visit_node(op);
 
@@ -566,33 +530,25 @@ extern "C-unwind" fn rust_optimizer_callback(
     plan: crate::cpp::duckdb_vx_logical_operator,
     _user_data: *mut std::ffi::c_void,
 ) {
-    println!("🚀🚀🚀 RUST OPTIMIZER FUNCTION CALLED! 🚀🚀🚀");
-
     if plan.is_null() {
-        println!("❌ RUST OPTIMIZER: NULL plan passed to optimizer");
         return;
     }
 
-    // Safely create the LogicalOperator wrapper
-    if plan.is_null() {
-        println!("❌ RUST OPTIMIZER: NULL plan pointer");
-        return;
-    }
     let logical_op = unsafe { LogicalOperator::borrow(plan) };
 
     // Create and run the optimizer
     let mut optimizer = RustLengthOptimizer::new();
     match optimizer.optimize_plan(&logical_op) {
         Ok(()) => {
-            println!("✅ RUST OPTIMIZER: Optimization completed successfully!");
+            trace!("✅ RUST OPTIMIZER: Optimization completed successfully!");
             let replacements = optimizer.get_replacements();
             if !replacements.is_empty() {
-                println!(
+                trace!(
                     "📊 RUST OPTIMIZER: Made {} replacements:",
                     replacements.len()
                 );
                 for (i, replacement) in replacements.iter().enumerate() {
-                    println!(
+                    trace!(
                         "  {}. {} → {}",
                         i + 1,
                         replacement.original_column_binding,
@@ -602,14 +558,14 @@ extern "C-unwind" fn rust_optimizer_callback(
             }
         }
         Err(e) => {
-            println!("❌ RUST OPTIMIZER: Optimization failed: {}", e);
+            trace!("❌ RUST OPTIMIZER: Optimization failed: {}", e);
         }
     }
 }
 
 /// Register the Rust-based length optimizer with DuckDB
 pub fn register_rust_optimizer(db: &mut Database) -> VortexResult<()> {
-    println!("🔧 REGISTERING: Rust-based length optimizer...");
+    trace!("🔧 REGISTERING: Rust-based length optimizer...");
 
     unsafe {
         crate::cpp::duckdb_vx_register_rust_optimizer(
@@ -619,7 +575,7 @@ pub fn register_rust_optimizer(db: &mut Database) -> VortexResult<()> {
         );
     }
 
-    println!("✅ SUCCESS: Rust-based length optimizer registered!");
+    trace!("✅ SUCCESS: Rust-based length optimizer registered!");
     Ok(())
 }
 

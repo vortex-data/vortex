@@ -19,7 +19,6 @@ mod convert;
 pub mod duckdb;
 pub mod exporter;
 pub mod optimizer;
-mod optimizer_plan;
 mod rust_optimizer;
 mod scan;
 mod utils;

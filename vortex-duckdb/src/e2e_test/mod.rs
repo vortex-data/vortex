@@ -4,13 +4,7 @@
 #[cfg(test)]
 mod basic_test;
 #[cfg(test)]
-mod debug_exception_test;
-#[cfg(test)]
 mod object_cache_test;
-#[cfg(test)]
-mod optimizer_test;
-#[cfg(test)]
-mod plan_rewrite_demo;
 #[cfg(test)]
 mod virtual_column_test;
 #[cfg(test)]

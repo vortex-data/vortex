@@ -10,8 +10,6 @@ mod database;
 pub mod expr;
 pub mod footer_cache;
 pub mod logical_operator;
-pub mod logical_operator_demo;
-pub mod logical_plan;
 mod logical_type;
 mod object_cache;
 mod query_result;

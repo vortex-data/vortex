@@ -33,7 +33,7 @@ add_library(vortex
         error.cpp
         expr.cpp
         object_cache.cpp
-        optimizer_rule.cpp
+        logical_expr.cpp
         scalar_function.cpp
         table_filter.cpp
         table_function.cpp

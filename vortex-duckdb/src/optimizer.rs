@@ -13,7 +13,6 @@ use crate::duckdb::Database;
 // Re-export types for backwards compatibility
 pub use crate::duckdb::expr::{ColumnBinding, Expression, LogicalExpressionType as ExpressionType};
 pub use crate::duckdb::logical_operator::{LogicalOperator, LogicalOperatorType};
-pub use crate::duckdb::logical_plan::LogicalPlanUtils;
 pub use crate::rust_optimizer::{LengthReplacement, RustLengthOptimizer};
 
 unsafe extern "C" {
