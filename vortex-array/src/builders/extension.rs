@@ -10,8 +10,10 @@ use vortex_mask::Mask;
 use vortex_scalar::ExtScalar;
 
 use crate::arrays::ExtensionArray;
-use crate::builders::{ArrayBuilder, ArrayBuilderExt, builder_with_capacity};
-use crate::{Array, ArrayRef, Canonical, IntoArray};
+use crate::builders::{
+    ArrayBuilder, ArrayBuilderExt, DEFAULT_BUILDER_CAPACITY, builder_with_capacity,
+};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 pub struct ExtensionBuilder {
     storage: Box<dyn ArrayBuilder>,
@@ -20,7 +22,7 @@ pub struct ExtensionBuilder {
 
 impl ExtensionBuilder {
     pub fn new(ext_dtype: Arc<ExtDType>) -> Self {
-        Self::with_capacity(ext_dtype, 1024)
+        Self::with_capacity(ext_dtype, DEFAULT_BUILDER_CAPACITY)
     }
 
     pub fn with_capacity(ext_dtype: Arc<ExtDType>, capacity: usize) -> Self {
@@ -79,11 +81,16 @@ impl ArrayBuilder for ExtensionBuilder {
     }
 
     fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
-        let array = array.to_canonical()?;
-        let Canonical::Extension(array) = array else {
-            vortex_bail!("Expected Extension array, got {:?}", array);
-        };
-        array.storage().append_to_builder(self.storage.as_mut())
+        if !self.dtype.eq_with_nullability_superset(array.dtype()) {
+            vortex_bail!(
+                "tried to extend a builder with `DType` {} with an array with `DType {}",
+                self.dtype,
+                array.dtype()
+            );
+        }
+
+        let ext_array = array.to_extension()?;
+        self.storage.extend_from_array(ext_array.storage())
     }
 
     fn ensure_capacity(&mut self, capacity: usize) {

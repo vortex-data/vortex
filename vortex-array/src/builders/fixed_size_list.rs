@@ -176,6 +176,14 @@ impl ArrayBuilder for FixedSizeListBuilder {
     /// This will increase the capacity if extending with this `array` would go past the original
     /// capacity.
     fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
+        if !self.dtype.eq_with_nullability_superset(array.dtype()) {
+            vortex_bail!(
+                "tried to extend a builder with `DType` {} with an array with `DType {}",
+                self.dtype,
+                array.dtype()
+            );
+        }
+
         let fsl = array.to_fixed_size_list()?;
         if fsl.is_empty() {
             return Ok(());
