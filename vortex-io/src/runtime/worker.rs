@@ -109,26 +109,12 @@ impl<T: Send + 'static> Iterator for Worker<T> {
 
     #[inline(never)]
     fn next(&mut self) -> Option<Self::Item> {
-        // We need to block on an async context to use select!
-        block_on(async {
-            loop {
-                // Use futures::select! to wait on both the executor and results
-                futures::select! {
-                    // Try to receive a result from the channel
-                    result = self.shared.results.as_async().recv().fuse() => {
-                        return match result {
-                            Ok(item) => Some(item),
-                            Err(_) => None, // Channel disconnected
-                        }
-                    }
-
-                    // Tick the executor to make progress on tasks
-                    _ = self.shared.executor.tick().fuse() => {
-                        // Executor made progress, continue the loop to check for results
-                        continue;
-                    }
-                }
-            }
-        })
+        // Run the executor until we get a result from the channel.
+        block_on(
+            self.shared
+                .executor
+                .run(self.shared.results.as_async().recv()),
+        )
+        .ok()
     }
 }

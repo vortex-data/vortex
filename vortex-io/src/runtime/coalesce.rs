@@ -4,6 +4,7 @@
 use crate::runtime::ReadRequest;
 use futures::Stream;
 use pin_project_lite::pin_project;
+use std::backtrace::Backtrace;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
@@ -238,7 +239,7 @@ impl CoalescedRequests {
             requests.len(),
             current_start,
             current_end,
-            current_end - current_start
+            current_end - current_start,
         );
 
         Some(CoalescedRequest {
