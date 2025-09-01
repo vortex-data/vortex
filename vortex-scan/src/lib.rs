@@ -225,7 +225,7 @@ impl<'rt, A: 'static + Send> ScanBuilder<'rt, A> {
         match self.build() {
             Ok(tasks) => stream::iter(tasks)
                 .map(move |fut| handle.spawn(fut))
-                .buffered(concurrency)
+                .buffered(100000)
                 .filter_map(|chunk| async move { chunk.transpose() })
                 .boxed(),
             Err(e) => stream::once(async move { Err(e) }).boxed(),

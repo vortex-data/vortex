@@ -772,12 +772,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "boxcar"
-version = "0.2.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36f64beae40a84da1b4b26ff2761a5b895c12adc41dc25aaee1c4f2bbfe97a6e"
-
-[[package]]
 name = "brotli"
 version = "8.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7106,22 +7100,16 @@ version = "0.1.0"
 dependencies = [
  "async-compat",
  "async-stream",
- "async-task",
- "async-trait",
- "boxcar",
  "bytes",
  "cfg-if",
  "compio",
  "crossbeam-channel",
- "crossbeam-deque",
  "futures",
  "getrandom 0.3.3",
- "itertools 0.14.0",
  "kanal",
  "log",
  "object_store",
  "oneshot",
- "parking_lot",
  "pin-project-lite",
  "rstest",
  "smol",

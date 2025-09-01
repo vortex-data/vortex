@@ -3,7 +3,7 @@
 
 use crate::runtime::{CpuTask, Handle, IoTask, Runtime};
 use async_compat::Compat;
-use crossbeam_channel::TryRecvError;
+use futures::executor::block_on;
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use futures::Stream;
@@ -28,7 +28,7 @@ impl<T: Send> WorkerPool<T> {
         S: Stream<Item = T> + Send + 'rt,
         T: 'rt,
     {
-        let (result_tx, result_rx) = crossbeam_channel::unbounded();
+        let (result_tx, result_rx) = kanal::unbounded();
 
         let shared = Arc::new(Shared {
             executor: Arc::new(Executor::<'rt>::new()),
@@ -60,7 +60,7 @@ impl<T: Send> WorkerPool<T> {
 struct Shared<'rt, T: Send> {
     executor: Arc<Executor<'rt>>,
     // The result channel.
-    results: crossbeam_channel::Receiver<T>,
+    results: kanal::Receiver<T>,
 }
 
 /// We implement [`Runtime`] for the worker pool's shared state, which allows us to create a handle
@@ -109,18 +109,26 @@ impl<T: Send + 'static> Iterator for Worker<T> {
 
     #[inline(never)]
     fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            // Try to pop results from the result channel first, then try to do work.
-            match self.shared.results.try_recv() {
-                Ok(item) => return Some(item),
-                Err(TryRecvError::Disconnected) => return None,
-                Err(TryRecvError::Empty) => {}
-            }
+        // We need to block on an async context to use select!
+        block_on(async {
+            loop {
+                // Use futures::select! to wait on both the executor and results
+                futures::select! {
+                    // Try to receive a result from the channel
+                    result = self.shared.results.as_async().recv().fuse() => {
+                        return match result {
+                            Ok(item) => Some(item),
+                            Err(_) => None, // Channel disconnected
+                        }
+                    }
 
-            // Keep ticking the executor while there is work to do.
-            if !self.shared.executor.try_tick() {
-                std::thread::yield_now();
+                    // Tick the executor to make progress on tasks
+                    _ = self.shared.executor.tick().fuse() => {
+                        // Executor made progress, continue the loop to check for results
+                        continue;
+                    }
+                }
             }
-        }
+        })
     }
 }

@@ -2,9 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use futures::future::{BoxFuture, LocalBoxFuture};
-use futures::FutureExt;
+use futures::{FutureExt, StreamExt};
+use object_store::{GetOptions, GetRange, GetResultPayload};
 use smol::unblock;
 use std::fs::File;
+use std::io;
 use std::os::unix::fs::FileExt;
 use std::path::Path;
 use std::pin::Pin;
@@ -229,11 +231,11 @@ impl IoSource for ObjectStoreIoSource {
     }
 
     fn coalescing_window(&self) -> Option<u64> {
-        Some(1024 * 1024) // 1 MB
+        Some(2 * 1024 * 1024) // +/- 2 MB
     }
 
     fn concurrency(&self) -> usize {
-        64
+        192
     }
 
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
@@ -259,11 +261,43 @@ impl IoSource for ObjectStoreIoSource {
         let path = self.path.clone();
 
         async move {
-            let range = offset..offset + length as u64;
-            // FIXME(ngates): see object_store.rs
-            let bytes = store.get_range(&path, range).await?;
-            let buffer = ByteBuffer::from(bytes).aligned(alignment);
-            Ok(buffer)
+            // Instead of calling `ObjectStore::get_range`, we expand the implementation and run it
+            // ourselves to avoid a second copy to align the buffer. Instead, we can write directly
+            // into the aligned buffer.
+            let mut buffer = ByteBufferMut::with_capacity_aligned(length, alignment);
+
+            let response = store
+                .get_opts(
+                    &path,
+                    GetOptions {
+                        range: Some(GetRange::Bounded(offset..offset + length as u64)),
+                        ..Default::default()
+                    },
+                )
+                .await?;
+
+            let buffer = match response.payload {
+                GetResultPayload::File(file, _) => {
+                    // SAFETY: We're setting the length to the exact size we're about to read.
+                    // The read_exact_at call will either fill the entire buffer or return an error,
+                    // ensuring no uninitialized memory is exposed.
+                    unsafe { buffer.set_len(length) };
+                    unblock(move || {
+                        file.read_exact_at(&mut buffer, offset)?;
+                        Ok::<_, io::Error>(buffer)
+                    })
+                    .await
+                    .map_err(io::Error::other)?
+                }
+                GetResultPayload::Stream(mut byte_stream) => {
+                    while let Some(bytes) = byte_stream.next().await {
+                        buffer.extend_from_slice(&bytes?);
+                    }
+                    buffer
+                }
+            };
+
+            Ok(buffer.freeze())
         }
         .boxed()
     }

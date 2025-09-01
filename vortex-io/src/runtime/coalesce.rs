@@ -154,6 +154,8 @@ impl CoalescedRequests {
     }
 
     /// Get the next coalesced request, if any.
+    // FIXME(ngates): split this into coalesce_distance and max_read_size. We should keep
+    //  expanding the request by coalesce_distance, but stop if we hit max_read_size.
     fn next_coalesced(&mut self, coalesce_distance: u64) -> Option<CoalescedRequest> {
         // Find the next valid request in priority order
         let mut next_valid_key = None;

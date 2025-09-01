@@ -366,14 +366,14 @@ impl TableFunction for VortexTableFunction {
                         Ok(Some(scan_stream))
                     })
                 })
-                .buffer_unordered(num_workers)
+                .buffer_unordered(100000)
                 .filter_map(|result| async move { result.transpose() });
 
             MultiScan {
                 streams: scan_streams.boxed(),
                 streams_finished: false,
                 select_all: Default::default(),
-                concurrency: num_workers,
+                concurrency: 100000,
             }
             .boxed()
         });
@@ -466,13 +466,25 @@ impl<'rt, T: 'rt> Stream for MultiScan<'rt, T> {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = &mut *self;
 
-        // First, try to fill up the SelectAll to reach the target concurrency
-        if !this.streams_finished {
-            while this.select_all.len() < this.concurrency {
+        loop {
+            // First, try to pull from the SelectAll of active streams.
+            match ready!(this.select_all.poll_next_unpin(cx)) {
+                None => {
+                    if this.streams_finished {
+                        // All streams are done
+                        return Poll::Ready(None);
+                    }
+                }
+                Some(result) => return Poll::Ready(Some(result)),
+            }
+
+            // First, try to fill up the SelectAll to reach the target concurrency
+            if this.select_all.len() < this.concurrency {
                 match Pin::new(&mut this.streams).poll_next(cx) {
                     Poll::Ready(Some(Ok(stream))) => {
                         // Add the new stream to SelectAll
                         this.select_all.push(stream);
+                        continue;
                     }
                     Poll::Ready(Some(Err(e))) => {
                         // Error opening one of the streams
@@ -481,28 +493,14 @@ impl<'rt, T: 'rt> Stream for MultiScan<'rt, T> {
                     Poll::Ready(None) => {
                         // No more streams available from the source
                         this.streams_finished = true;
-                        break;
+                        continue;
                     }
                     Poll::Pending => {
                         // Can't get more streams right now
-                        break;
+                        return Poll::Pending;
                     }
                 }
             }
-        }
-
-        // Now poll the SelectAll for items
-        match ready!(this.select_all.poll_next_unpin(cx)) {
-            None => {
-                if this.streams_finished {
-                    // All streams are done
-                    Poll::Ready(None)
-                } else {
-                    // Still waiting for more streams to be added
-                    Poll::Pending
-                }
-            }
-            Some(result) => Poll::Ready(Some(result)),
         }
     }
 }

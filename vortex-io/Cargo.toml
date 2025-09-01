@@ -16,22 +16,17 @@ version = { workspace = true }
 [dependencies]
 async-compat = { workspace = true }
 async-stream = { workspace = true }
-async-task = { workspace = true }
-boxcar = { workspace = true }
 bytes = { workspace = true }
 cfg-if = { workspace = true }
 compio = { workspace = true, features = ["bytes", "macros"], optional = true }
 crossbeam-channel = { workspace = true }
-crossbeam-deque = { workspace = true }
 futures = { workspace = true, features = ["executor", "std"] }
 # Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration
 getrandom_v03 = { workspace = true }
-itertools = { workspace = true }
 log = { workspace = true }
 kanal = { workspace = true }
 object_store = { workspace = true, optional = true, features = ["fs"] }
 oneshot = { workspace = true }
-parking_lot = { workspace = true }
 pin-project-lite = { workspace = true }
 smol = { workspace = true }
 # this is the maximum subset of fetaures that is safe for wasm32 targets
@@ -40,7 +35,6 @@ tracing = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 vortex-metrics = { workspace = true }
-async-trait = "0.1.89"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = { workspace = true }
