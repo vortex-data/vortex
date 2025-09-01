@@ -8,7 +8,7 @@ use vortex_array::{
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
 use crate::builders::dict_encode;
 use crate::{DictArray, DictEncoding, DictVTable};

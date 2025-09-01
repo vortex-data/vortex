@@ -11,7 +11,7 @@ use vortex_array::{
     Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable,
 };
 use vortex_dtype::{DType, match_each_integer_ptype};
-use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_ensure};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 use vortex_mask::{AllOr, Mask};
 
 vtable!(Dict);
@@ -83,7 +83,7 @@ impl DictArray {
     /// of the `values` array. Otherwise, this constructor returns an error.
     ///
     /// It is an error to provide a nullable `codes` with non-nullable `values`.
-    pub fn try_new(mut codes: ArrayRef, values: ArrayRef) -> VortexResult<Self> {
+    pub fn try_new(codes: ArrayRef, values: ArrayRef) -> VortexResult<Self> {
         if !codes.dtype().is_unsigned_int() {
             vortex_bail!(MismatchedTypes: "unsigned int", codes.dtype());
         }
