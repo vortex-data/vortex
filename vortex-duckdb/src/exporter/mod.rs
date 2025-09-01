@@ -210,7 +210,6 @@ impl ArrayExporter {
         chunk.set_len(chunk_len);
 
         for (i, field) in self.fields.iter_mut().enumerate() {
-            println!("EXPORTER: Exporting position {}", i);
             let mut vector = chunk.get_vector(i);
             field.export(position, chunk_len, &mut vector)?;
         }

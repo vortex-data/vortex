@@ -376,13 +376,6 @@ impl TableFunction for VortexTableFunction {
             }
         }
 
-        println!(
-            "chunk: {}",
-            String::try_from(&*chunk)
-                .ok()
-                .vortex_expect("error: chunk missing")
-        );
-
         assert!(!chunk.is_empty());
 
         Ok(())
@@ -404,16 +397,6 @@ impl TableFunction for VortexTableFunction {
 
         let object_cache = init_input.client_context()?.object_cache();
 
-        println!(
-            "PROJECTION: expr: {}, virtual columns: {:?}",
-            projection_expr, virtual_column_requests
-        );
-        println!(
-            "PROJECTION: projection_ids: {:?}, column_ids: {:?}",
-            init_input.projection_ids().unwrap_or(&[]),
-            init_input.column_ids()
-        );
-        println!("proj {}", projection_expr);
 
         let closures =
             bind_data
