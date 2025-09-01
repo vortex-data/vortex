@@ -23,8 +23,7 @@ mod tests {
     fn strings() -> FSSTViewArray {
         let canonical =
             VarBinViewArray::from_iter_str(["a", "b", "super duper long string abcdefg"])
-                .to_canonical()
-                .unwrap();
+                .to_canonical();
 
         FSSTViewEncoding
             .encode(&canonical, None)
@@ -42,8 +41,7 @@ mod tests {
             None,
             Some("super duper long string abcdefg"),
         ])
-        .to_canonical()
-        .unwrap();
+        .to_canonical();
 
         FSSTViewEncoding
             .encode(&canonical, None)

@@ -64,7 +64,8 @@ impl CastKernel for FSSTViewVTable {
                 }
             }
             (Nullability::Nullable, Nullability::NonNullable) => {
-                if array.validity.null_count(array.len())? > 0 {
+                // Casting nullable -> non-nullable requires that there are no nulls in the data
+                if array.invalid_count() > 0 {
                     vortex_bail!(
                         "Failed to cast {} to {target}: array contains nulls",
                         array.dtype()

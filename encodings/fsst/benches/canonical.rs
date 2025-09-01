@@ -24,11 +24,11 @@ fn fsst(bencher: Bencher) {
     );
 
     let compressed = FSSTEncoding
-        .encode(&canonical.to_canonical().unwrap(), None)
+        .encode(&canonical.to_canonical(), None)
         .unwrap()
         .unwrap();
 
-    bencher.bench_local(|| compressed.to_canonical().unwrap())
+    bencher.bench_local(|| compressed.to_canonical())
 }
 
 // Canonicalize the FSST View array
@@ -49,11 +49,11 @@ fn fsst_view(bencher: Bencher) {
     );
 
     let compressed = FSSTViewEncoding
-        .encode(&canonical.to_canonical().unwrap(), None)
+        .encode(&canonical.to_canonical(), None)
         .unwrap()
         .unwrap();
 
-    bencher.bench_local(|| compressed.to_canonical().unwrap())
+    bencher.bench_local(|| compressed.to_canonical())
 }
 
 fn main() {

@@ -239,7 +239,7 @@ fn compress_from_canonical(
 #[cfg(test)]
 mod tests {
     use vortex_array::arrays::builder::VarBinBuilder;
-    use vortex_array::{Array, ArrayRef};
+    use vortex_array::{ArrayRef, ToCanonical};
     use vortex_dtype::{DType, Nullability};
 
     use crate::fsst_view::FSSTViewEncoding;
@@ -254,7 +254,7 @@ mod tests {
         let array = builder.finish(DType::Utf8(Nullability::NonNullable));
 
         FSSTViewEncoding
-            .encode(&array.to_canonical().unwrap(), None)
+            .encode(&array.to_canonical(), None)
             .unwrap()
             .unwrap()
     }
@@ -262,7 +262,7 @@ mod tests {
     #[test]
     fn test_encode_canonicalize_roundtrip() {
         let fsst_view = build_simple_fsst_view_array();
-        let round_trip_array = fsst_view.to_canonical().unwrap().into_varbinview().unwrap();
+        let round_trip_array = fsst_view.to_varbinview();
 
         // Verify same length
         assert_eq!(3, round_trip_array.len());
@@ -282,11 +282,10 @@ mod tests {
 
         let array = builder.finish(DType::Utf8(Nullability::NonNullable));
 
-        let canonical = array.to_canonical().unwrap();
+        let canonical = array.to_canonical();
         let fsst_view = FSSTViewEncoding.encode(&canonical, None).unwrap().unwrap();
 
-        let round_trip = fsst_view.to_canonical().unwrap();
-        let round_trip_array = round_trip.into_varbinview().unwrap();
+        let round_trip_array = fsst_view.to_varbinview();
 
         assert_eq!(2, round_trip_array.len());
 
@@ -307,11 +306,10 @@ mod tests {
 
         let array = builder.finish(DType::Utf8(Nullability::Nullable));
 
-        let canonical = array.to_canonical().unwrap();
+        let canonical = array.to_canonical();
         let fsst_view = FSSTViewEncoding.encode(&canonical, None).unwrap().unwrap();
 
-        let round_trip = fsst_view.to_canonical().unwrap();
-        let round_trip_array = round_trip.into_varbinview().unwrap();
+        let round_trip_array = fsst_view.to_varbinview();
 
         assert_eq!(4, round_trip_array.len());
 
@@ -330,11 +328,10 @@ mod tests {
 
         let array = builder.finish(DType::Binary(Nullability::NonNullable));
 
-        let canonical = array.to_canonical().unwrap();
+        let canonical = array.to_canonical();
         let fsst_view = FSSTViewEncoding.encode(&canonical, None).unwrap().unwrap();
 
-        let round_trip = fsst_view.to_canonical().unwrap();
-        let round_trip_array = round_trip.into_varbinview().unwrap();
+        let round_trip_array = fsst_view.to_varbinview();
 
         assert_eq!(2, round_trip_array.len());
 
@@ -352,11 +349,10 @@ mod tests {
 
         let array = builder.finish(DType::Utf8(Nullability::NonNullable));
 
-        let canonical = array.to_canonical().unwrap();
+        let canonical = array.to_canonical();
         let fsst_view = FSSTViewEncoding.encode(&canonical, None).unwrap().unwrap();
 
-        let round_trip = fsst_view.to_canonical().unwrap();
-        let round_trip_array = round_trip.into_varbinview().unwrap();
+        let round_trip_array = fsst_view.to_varbinview();
 
         assert_eq!(1, round_trip_array.len());
         assert!(!round_trip_array.scalar_at(0).is_null());
@@ -371,11 +367,10 @@ mod tests {
 
         let array = builder.finish(DType::Utf8(Nullability::Nullable));
 
-        let canonical = array.to_canonical().unwrap();
+        let canonical = array.to_canonical();
         let fsst_view = FSSTViewEncoding.encode(&canonical, None).unwrap().unwrap();
 
-        let round_trip = fsst_view.to_canonical().unwrap();
-        let round_trip_array = round_trip.into_varbinview().unwrap();
+        let round_trip_array = fsst_view.to_varbinview();
 
         assert_eq!(3, round_trip_array.len());
 

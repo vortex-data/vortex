@@ -48,9 +48,7 @@ mod tests {
 
     #[test]
     fn test_scalar_at() {
-        let canonical = VarBinViewArray::from_iter_str(["hello", "helloworld!!!"])
-            .to_canonical()
-            .unwrap();
+        let canonical = VarBinViewArray::from_iter_str(["hello", "helloworld!!!"]).to_canonical();
 
         let fsst_view = FSSTViewEncoding.encode(&canonical, None).unwrap().unwrap();
         assert_eq!(fsst_view.scalar_at(0), "hello".into());
@@ -66,8 +64,7 @@ mod tests {
             "short3",
             "very_long_string2",
         ])
-        .to_canonical()
-        .unwrap();
+        .to_canonical();
 
         let fsst_view = FSSTViewEncoding.encode(&canonical, None).unwrap().unwrap();
         let sliced = fsst_view.slice(1..4);

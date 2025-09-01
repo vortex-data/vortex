@@ -20,8 +20,7 @@ fn fsst_view(bencher: Bencher, operator: Operator) {
         "looooooong",
         "super duper looong",
     ])
-    .to_canonical()
-    .unwrap();
+    .to_canonical();
 
     let array = FSSTViewEncoding.encode(&array, None).unwrap().unwrap();
     let target = ConstantArray::new(
@@ -42,8 +41,7 @@ fn fsst(bencher: Bencher, operator: Operator) {
         "looooooong",
         "super duper looong",
     ])
-    .to_canonical()
-    .unwrap();
+    .to_canonical();
 
     let array = FSSTEncoding.encode(&array, None).unwrap().unwrap();
     let target = ConstantArray::new(
@@ -65,7 +63,6 @@ fn raw(bencher: Bencher, operator: Operator) {
         "super duper looong",
     ]);
 
-    // let array = FSSTEncoding.encode(&array, None).unwrap().unwrap();
     let target = ConstantArray::new(
         Scalar::utf8("looooooong", Nullability::NonNullable),
         array.len(),

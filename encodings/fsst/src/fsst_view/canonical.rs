@@ -9,20 +9,16 @@ use vortex_array::vtable::CanonicalVTable;
 use vortex_array::{Canonical, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{NativePType, match_each_unsigned_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult};
 
 use crate::{FSSTViewArray, FSSTViewVTable, View};
 
 impl CanonicalVTable<FSSTViewVTable> for FSSTViewVTable {
-    fn canonicalize(array: &FSSTViewArray) -> VortexResult<Canonical> {
+    fn canonicalize(array: &FSSTViewArray) -> Canonical {
         let decoder = array.compressor.decompressor();
 
         let buffer: ByteBuffer = decoder.decompress(array.fsst_buffer.as_slice()).into();
 
-        let uncompressed_offsets = array
-            .uncompressed_offsets
-            .to_primitive()
-            .vortex_expect("must implement ToCanonical as Primitive");
+        let uncompressed_offsets = array.uncompressed_offsets.to_primitive();
 
         // Rebuild the views to point at the decoded data instead.
         let views: Buffer<BinaryView> =
@@ -33,12 +29,12 @@ impl CanonicalVTable<FSSTViewVTable> for FSSTViewVTable {
 
         // SAFETY: handled in build_views constructing valid view pointers
         unsafe {
-            Ok(Canonical::VarBinView(VarBinViewArray::new_unchecked(
+            Canonical::VarBinView(VarBinViewArray::new_unchecked(
                 views,
                 Arc::new([buffer]),
                 array.dtype.clone(),
                 array.validity.clone(),
-            )))
+            ))
         }
     }
 }

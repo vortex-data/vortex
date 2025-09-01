@@ -232,23 +232,20 @@ impl Scheme for FSSTScheme {
         _excludes: &[StringCode],
     ) -> VortexResult<ArrayRef> {
         let compressed = FSSTViewEncoding
-            .encode(&stats.src.to_canonical()?, None)?
+            .encode(&stats.src.to_canonical(), None)?
             .vortex_expect("Encoding VarBinViewArray to FSSTView must succeed");
 
         let fsst_view = compressed.as_::<FSSTViewVTable>();
 
         let compressed_offsets = IntCompressor::compress(
-            &fsst_view.compressed_offsets().to_primitive()?.downcast()?,
+            &fsst_view.compressed_offsets().to_primitive().downcast()?,
             is_sample,
             allowed_cascading,
             &[],
         )?;
 
         let uncompressed_offsets = IntCompressor::compress(
-            &fsst_view
-                .uncompressed_offsets()
-                .to_primitive()?
-                .downcast()?,
+            &fsst_view.uncompressed_offsets().to_primitive().downcast()?,
             is_sample,
             allowed_cascading,
             &[],

@@ -15,7 +15,7 @@ impl TakeKernel for FSSTViewVTable {
     fn take(&self, array: &FSSTViewArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let validity = array.validity.take(indices)?;
 
-        let primitive_indices = indices.to_primitive()?;
+        let primitive_indices = indices.to_primitive();
 
         let views = array.views().deref();
         let taken_views = match_each_integer_ptype!(primitive_indices.ptype(), |I| {
