@@ -283,7 +283,7 @@ mod test {
             PrimitiveArray::new(buffer![3, 6, 9], Validity::NonNullable).into_array(),
         )
         .unwrap();
-        let mask = dict.validity_mask().unwrap();
+        let mask = dict.validity_mask();
         let AllOr::Some(indices) = mask.indices() else {
             vortex_panic!("Expected indices from mask")
         };
