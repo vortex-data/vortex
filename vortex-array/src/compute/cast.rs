@@ -23,9 +23,9 @@ static CAST_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
 ///
 /// Some array support the ability to narrow or upcast.
 pub fn cast(array: &dyn Array, dtype: &DType) -> VortexResult<ArrayRef> {
-    // if array.is_empty() {
-    //     return Ok(Canonical::empty(dtype).into_array());
-    // }
+    if array.is_empty() {
+        return Ok(Canonical::empty(dtype).into_array());
+    }
 
     CAST_FN
         .invoke(&InvocationArgs {
