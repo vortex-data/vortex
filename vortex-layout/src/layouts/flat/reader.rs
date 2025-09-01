@@ -179,7 +179,6 @@ impl<'rt> MaskEvaluation<'rt> for FlatEvaluation<'rt> {
         // Now we await the array .
         let array = self.array.clone().await?;
 
-
         let name = self.name.clone();
         let expr = self.expr.clone();
         let row_range = self.row_range.clone();
@@ -188,7 +187,6 @@ impl<'rt> MaskEvaluation<'rt> for FlatEvaluation<'rt> {
             .spawn_cpu(move || {
                 let mut array = array;
 
-<<<<<<< HEAD
                 if let Some(array) =
                     try_evaluate_using_operator(row_range.clone(), &array, &expr, &mask)?
                 {

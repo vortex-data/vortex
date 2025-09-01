@@ -211,7 +211,7 @@ impl<'rt> MaskEvaluation<'rt> for DictMaskEvaluation<'rt> {
         // TODO(joe): fixme casting null to false is *VERY* unsound, if the expression in the filter
         // can inspect nulls (e.g. `is_null`).
         // See `FlatEvaluation` for more details.
-        let dict_mask = ta\ke(&values_result, &codes)?.try_to_mask_fill_null_false()?;
+        let dict_mask = take(&values_result, &codes)?.try_to_mask_fill_null_false()?;
 
         Ok(mask.bitand(&dict_mask))
     }
