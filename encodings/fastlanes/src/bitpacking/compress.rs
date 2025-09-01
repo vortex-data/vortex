@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::mem::MaybeUninit;
-
 use fastlanes::BitPacking;
 use itertools::Itertools;
 use num_traits::{AsPrimitive, PrimInt};
@@ -359,7 +357,7 @@ fn insert_values_and_validity_at_indices<
     match values_validity {
         Mask::AllTrue(_) => {
             for (index, &value) in indices.iter().zip_eq(values) {
-                dst[index.as_() - indices_offset] = MaybeUninit::new(value);
+                dst.set_value(index.as_() - indices_offset, value);
             }
         }
         Mask::AllFalse(_) => {
@@ -370,7 +368,7 @@ fn insert_values_and_validity_at_indices<
         Mask::Values(vb) => {
             for (index, &value) in indices.iter().zip_eq(values) {
                 let out_index = index.as_() - indices_offset;
-                dst[out_index] = MaybeUninit::new(value);
+                dst.set_value(out_index, value);
                 dst.set_bit(out_index, vb.value(out_index));
             }
         }
@@ -539,7 +537,8 @@ mod test {
     use rand::rngs::StdRng;
     use vortex_array::ToCanonical as _;
     use vortex_array::arrays::ChunkedArray;
-    use vortex_buffer::buffer;
+    use vortex_buffer::{Buffer, buffer};
+    use vortex_dtype::Nullability;
     use vortex_error::VortexError;
 
     use super::*;
@@ -743,5 +742,73 @@ mod test {
             into_ca.as_slice::<i32>(),
             ca_into.to_primitive().as_slice::<i32>()
         );
+    }
+
+    #[test]
+    fn test_unpack_into_empty_array() {
+        let empty: PrimitiveArray = PrimitiveArray::from_iter(Vec::<u32>::new());
+        let bitpacked = bitpack_encode(&empty, 0, None).unwrap();
+
+        let mut builder = PrimitiveBuilder::<u32>::new(Nullability::NonNullable);
+        unpack_into(&bitpacked, &mut builder);
+
+        let result = builder.finish_into_primitive();
+        assert_eq!(
+            result.len(),
+            0,
+            "Empty array should result in empty builder"
+        );
+    }
+
+    /// This test ensures that the mask is properly appended to the range, not the builder.
+    #[test]
+    fn test_unpack_into_with_validity_mask() {
+        // Create an array with some null values.
+        let values = Buffer::from_iter([1u32, 0, 3, 4, 0]);
+        let validity = Validity::from_iter([true, false, true, true, false]);
+        let array = PrimitiveArray::new(values, validity);
+
+        // Bitpack the array.
+        let bitpacked = bitpack_encode(&array, 3, None).unwrap();
+
+        // Unpack into a new builder.
+        let mut builder = PrimitiveBuilder::<u32>::with_capacity(Nullability::Nullable, 5);
+        unpack_into(&bitpacked, &mut builder);
+
+        let result = builder.finish_into_primitive();
+
+        // Verify the validity mask was correctly applied.
+        assert_eq!(result.len(), 5);
+        assert!(!result.scalar_at(0).is_null());
+        assert!(result.scalar_at(1).is_null());
+        assert!(!result.scalar_at(2).is_null());
+        assert!(!result.scalar_at(3).is_null());
+        assert!(result.scalar_at(4).is_null());
+    }
+
+    /// Test that `unpack_into` correctly handles arrays with patches.
+    #[test]
+    fn test_unpack_into_with_patches() {
+        // Create an array where most values fit in 4 bits but some need patches.
+        let values: Vec<u32> = (0..100)
+            .map(|i| if i % 20 == 0 { 1000 + i } else { i % 16 })
+            .collect();
+        let array = PrimitiveArray::from_iter(values.clone());
+
+        // Bitpack with a bit width that will require patches.
+        let bitpacked = bitpack_encode(&array, 4, None).unwrap();
+        assert!(
+            bitpacked.patches().is_some(),
+            "Should have patches for values > 15"
+        );
+
+        // Unpack into a new builder.
+        let mut builder = PrimitiveBuilder::<u32>::with_capacity(Nullability::NonNullable, 100);
+        unpack_into(&bitpacked, &mut builder);
+
+        let result = builder.finish_into_primitive();
+
+        // Verify all values were correctly unpacked including patches.
+        assert_eq!(result.as_slice::<u32>(), &values);
     }
 }
