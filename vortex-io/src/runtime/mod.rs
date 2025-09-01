@@ -2,23 +2,22 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub use handle::*;
-use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{ready, Context, Poll};
-
 mod coalesce;
 mod handle;
+pub mod io;
 pub mod multithread;
 pub mod singlethread;
 pub mod tokio;
 pub mod worker;
 
 use crate::runtime::coalesce::CoalescedRequest;
+use crate::runtime::io::IoSource;
+use crate::runtime::io::ReadCompletion;
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
-use futures::FutureExt;
-use vortex_buffer::ByteBuffer;
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_buffer::Alignment;
+use vortex_error::VortexExpect;
 
 /// A Vortex runtime provides an abstract way of scheduling mixed I/O and CPU workloads onto the
 /// various threading models supported by Vortex.
@@ -62,28 +61,23 @@ impl CpuTask {
 //  cases of files and object store, we can always have a fallback to arbitrary futures.
 pub struct IoTask {
     source: Arc<dyn IoSource>,
-    request: IoReq,
+    request: IoRequest,
 }
 
 impl IoTask {
-    pub fn new_request(source: Arc<dyn IoSource>, request: IoRequest) -> Self {
+    pub fn new_single(source: Arc<dyn IoSource>, request: ReadRequest) -> Self {
         IoTask {
             source,
-            request: IoReq::Request(request),
+            request: IoRequest::Single(request),
         }
     }
 
     pub fn new_coalesced(source: Arc<dyn IoSource>, request: CoalescedRequest) -> Self {
         IoTask {
             source,
-            request: IoReq::Coalesced(request),
+            request: IoRequest::Coalesced(request),
         }
     }
-}
-
-enum IoReq {
-    Request(IoRequest),
-    Coalesced(CoalescedRequest),
 }
 
 impl IoTask {
@@ -93,12 +87,12 @@ impl IoTask {
     /// supports it.
     pub async fn run_local(self) {
         match self.request {
-            IoReq::Request(req) => req.callback.complete(
+            IoRequest::Single(req) => req.callback.complete(
                 self.source
                     .read_local(req.offset, req.length, req.alignment)
                     .await,
             ),
-            IoReq::Coalesced(req) => {
+            IoRequest::Coalesced(req) => {
                 let result = self
                     .source
                     .read_local(
@@ -116,12 +110,12 @@ impl IoTask {
     /// Run this task as a `Send` future.
     pub async fn run_send(self) {
         match self.request {
-            IoReq::Request(req) => req.callback.complete(
+            IoRequest::Single(req) => req.callback.complete(
                 self.source
                     .read_send(req.offset, req.length, req.alignment)
                     .await,
             ),
-            IoReq::Coalesced(req) => {
+            IoRequest::Coalesced(req) => {
                 let result = self
                     .source
                     .read_send(
@@ -137,51 +131,14 @@ impl IoTask {
     }
 }
 
-pub struct Read(pub(super) ReadState);
-
-impl Read {
-    pub fn ready(result: VortexResult<ByteBuffer>) -> Self {
-        Read(ReadState::Ready(Some(result)))
-    }
-
-    pub fn future() -> (Self, ReadCompletion) {
-        let (send, recv) = oneshot::channel();
-        (Read(ReadState::Future(recv)), ReadCompletion(send))
-    }
+pub enum IoRequest {
+    Single(ReadRequest),
+    Coalesced(CoalescedRequest),
 }
 
-pub enum ReadState {
-    Ready(Option<VortexResult<ByteBuffer>>),
-    Future(oneshot::Receiver<VortexResult<ByteBuffer>>),
-}
-
-pub struct ReadCompletion(oneshot::Sender<VortexResult<ByteBuffer>>);
-
-impl ReadCompletion {
-    pub fn complete(self, result: VortexResult<ByteBuffer>) {
-        self.0
-            .send(result)
-            .map_err(|e| vortex_err!("Sender dropped: {e}"))
-            .vortex_expect("Failed to send read completion");
-    }
-}
-
-impl Future for Read {
-    type Output = VortexResult<ByteBuffer>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match &mut self.0 {
-            ReadState::Ready(maybe_result) => Poll::Ready(
-                maybe_result
-                    .take()
-                    .vortex_expect("Read future polled after completion"),
-            ),
-            ReadState::Future(fut) => match ready!(fut.poll_unpin(cx)) {
-                Ok(result) => Poll::Ready(result),
-                Err(e) => Poll::Ready(Err(vortex_err!(
-                    "Failed to read from file, IoTask dropped by runtime: {e}"
-                ))),
-            },
-        }
-    }
+pub struct ReadRequest {
+    pub offset: u64,
+    pub length: usize,
+    pub alignment: Alignment,
+    pub callback: ReadCompletion,
 }

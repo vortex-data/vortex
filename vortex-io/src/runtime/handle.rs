@@ -3,17 +3,15 @@
 
 use crate::kanal_ext::KanalExt;
 use crate::runtime::coalesce::{CoalescedRequest, CoalescedStreamExt};
-use crate::runtime::{CpuTask, IoTask, Read, ReadCompletion, Runtime};
-use futures::future::{BoxFuture, LocalBoxFuture, Shared};
+use crate::runtime::io::{IoSource, Read};
+use crate::runtime::{CpuTask, IoTask, ReadRequest, Runtime};
+use async_compat::Compat;
+use futures::future::{BoxFuture, Shared};
 use futures::stream::BoxStream;
 use futures::{FutureExt, StreamExt, TryFutureExt};
-use smol::unblock;
-use std::fs::File;
 use std::marker::PhantomData;
-use std::os::unix::fs::FileExt;
-use std::path::Path;
 use std::sync::Arc;
-use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
+use vortex_buffer::Alignment;
 use vortex_error::{
     vortex_err, vortex_panic, SharedVortexResult, VortexError, VortexExpect, VortexResult,
 };
@@ -47,12 +45,6 @@ impl Handle<'static> {
 
 impl<'rt> Handle<'rt> {
     /// Spawn a new scheduling future onto the runtime.
-    ///
-    // TODO(ngates): we should pass a new handle into a function here, then we should use handles
-    //  to carry both affinity and priority information back to the runtime.
-    //  For example, we can spawn each split of a scan operation. Each spawn on the same handle
-    //  creates a sibling task, which have sequential priority. All CPU tasks spawned from the same
-    //  handle can have the same affinity? Something like that?
     pub fn spawn<Fut, R>(&self, f: Fut) -> impl Future<Output = R> + use<'rt, Fut, R>
     where
         Fut: Future<Output = R> + Send + 'rt,
@@ -101,7 +93,9 @@ impl<'rt> Handle<'rt> {
         let (send, recv) = kanal::unbounded();
 
         // Construct the size future in case we need it.
-        let size = source.size();
+        let size = Compat::new(source.size().map_err(Arc::new))
+            .boxed()
+            .shared();
 
         let concurrency = source.concurrency();
         let name = source.name();
@@ -109,7 +103,7 @@ impl<'rt> Handle<'rt> {
         let stream = recv.to_async().into_stream().boxed();
         let stream = match source.coalescing_window() {
             None => stream
-                .map(move |req: IoRequest| IoTask::new_request(source.clone(), req))
+                .map(move |req: ReadRequest| IoTask::new_single(source.clone(), req))
                 .boxed(),
             Some(window) => stream
                 .coalesce(window)
@@ -128,215 +122,6 @@ impl<'rt> Handle<'rt> {
     }
 }
 
-pub trait IoSource: Send + Sync + 'static {
-    // FIXME(ngates): non-owned
-    fn name(&self) -> String;
-
-    fn coalescing_window(&self) -> Option<u64>;
-
-    fn concurrency(&self) -> usize;
-
-    /// Returns a shared future that resolves to the byte size of the underlying data source.
-    fn size(&self) -> Shared<BoxFuture<'static, SharedVortexResult<u64>>>;
-
-    /// Perform a single read operation.
-    ///
-    /// The returned future must be `Send`, and should not require a specific runtime to drive it.
-    fn read_send(
-        &self,
-        offset: u64,
-        length: usize,
-        alignment: Alignment,
-    ) -> BoxFuture<'static, VortexResult<ByteBuffer>>;
-
-    fn read_local(
-        &self,
-        offset: u64,
-        length: usize,
-        alignment: Alignment,
-    ) -> LocalBoxFuture<'static, VortexResult<ByteBuffer>> {
-        self.read_send(offset, length, alignment).boxed_local()
-    }
-}
-
-impl IoSource for ByteBuffer {
-    fn name(&self) -> String {
-        format!("ByteBuffer({})", self.len())
-    }
-
-    fn coalescing_window(&self) -> Option<u64> {
-        None
-    }
-
-    fn concurrency(&self) -> usize {
-        1
-    }
-
-    fn size(&self) -> Shared<BoxFuture<'static, SharedVortexResult<u64>>> {
-        let len = self.len() as u64;
-        async move { Ok(len) }.boxed().shared()
-    }
-
-    fn read_send(
-        &self,
-        offset: u64,
-        length: usize,
-        alignment: Alignment,
-    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
-        let buffer = self.clone();
-        async move {
-            if offset + length as u64 > buffer.len() as u64 {
-                return Err(vortex_err!("Read out of bounds"));
-            }
-            let mut slice = ByteBufferMut::with_capacity_aligned(length, alignment);
-            unsafe { slice.set_len(length) };
-            slice
-                .as_mut_slice()
-                .copy_from_slice(&buffer.as_slice()[offset as usize..offset as usize + length]);
-            Ok(slice.freeze())
-        }
-        .boxed()
-    }
-}
-
-pub struct FileIoSource {
-    file: Arc<File>,
-    path: String,
-}
-
-impl FileIoSource {
-    pub fn try_new<P: AsRef<Path>>(path: P) -> VortexResult<Self> {
-        let path = path.as_ref();
-        let name = path.to_string_lossy().to_string();
-        let file = File::open(path).map_err(VortexError::from)?;
-        Ok(Self {
-            file: Arc::new(file),
-            path: name,
-        })
-    }
-}
-
-impl IoSource for FileIoSource {
-    fn name(&self) -> String {
-        self.path.clone()
-    }
-
-    fn coalescing_window(&self) -> Option<u64> {
-        Some(8192) // 8 KB
-    }
-
-    fn concurrency(&self) -> usize {
-        128
-    }
-
-    fn size(&self) -> Shared<BoxFuture<'static, SharedVortexResult<u64>>> {
-        let file = self.file.clone();
-        async move {
-            let metadata = file.metadata().map_err(VortexError::from)?;
-            Ok(metadata.len())
-        }
-        .boxed()
-        .shared()
-    }
-
-    fn read_send(
-        &self,
-        offset: u64,
-        length: usize,
-        alignment: Alignment,
-    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
-        let file = self.file.clone();
-        unblock(move || {
-            let mut buffer = ByteBufferMut::with_capacity_aligned(length, alignment);
-            unsafe { buffer.set_len(length) };
-            match file.read_exact_at(&mut buffer, offset) {
-                Ok(()) => Ok(buffer.freeze()),
-                Err(e) => Err(VortexError::from(e)),
-            }
-        })
-        .boxed()
-    }
-}
-
-#[cfg(feature = "object_store")]
-pub struct ObjectStoreIoSource {
-    store: Arc<dyn object_store::ObjectStore>,
-    path: object_store::path::Path,
-    concurrency: usize,
-    coalesce_window: u64, // In bytes
-}
-
-#[cfg(feature = "object_store")]
-impl ObjectStoreIoSource {
-    pub fn new(store: Arc<dyn object_store::ObjectStore>, path: object_store::path::Path) -> Self {
-        Self {
-            store,
-            path,
-            concurrency: 128,
-            coalesce_window: 1 * 1024 * 1024, // 1 MB
-        }
-    }
-
-    pub fn with_concurrency(mut self, concurrency: usize) -> Self {
-        self.concurrency = concurrency;
-        self
-    }
-
-    pub fn with_coalesce_window(mut self, window: u64) -> Self {
-        // Currently a no-op, as coalescing is always enabled with a fixed window.
-        self.coalesce_window = window;
-        self
-    }
-}
-
-#[cfg(feature = "object_store")]
-impl IoSource for ObjectStoreIoSource {
-    fn name(&self) -> String {
-        self.path.to_string()
-    }
-
-    fn coalescing_window(&self) -> Option<u64> {
-        Some(1024 * 1024) // 1 MB
-    }
-
-    fn concurrency(&self) -> usize {
-        64
-    }
-
-    fn size(&self) -> Shared<BoxFuture<'static, SharedVortexResult<u64>>> {
-        let store = self.store.clone();
-        let path = self.path.clone();
-        async move {
-            Ok(store
-                .head(&path)
-                .await
-                .map(|h| h.size)
-                .map_err(VortexError::from)?)
-        }
-        .boxed()
-        .shared()
-    }
-
-    fn read_send(
-        &self,
-        offset: u64,
-        length: usize,
-        alignment: Alignment,
-    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
-        let store = self.store.clone();
-        let path = self.path.clone();
-
-        async move {
-            let range = offset..offset + length as u64;
-            // FIXME(ngates): see object_store.rs
-            let bytes = store.get_range(&path, range).await?;
-            let buffer = ByteBuffer::from(bytes).aligned(alignment);
-            Ok(buffer)
-        }
-        .boxed()
-    }
-}
-
 /// A file that can be read from using a Vortex runtime.
 ///
 /// This essentially provides a wrapper to bind a handle to a read interface. It is optional, but
@@ -346,15 +131,8 @@ impl IoSource for ObjectStoreIoSource {
 pub struct FileIo<'rt> {
     name: String,
     size: Shared<BoxFuture<'static, SharedVortexResult<u64>>>,
-    send: kanal::Sender<IoRequest>,
+    send: kanal::Sender<ReadRequest>,
     _phantom: PhantomData<&'rt ()>,
-}
-
-pub struct IoRequest {
-    pub offset: u64,
-    pub length: usize,
-    pub alignment: Alignment,
-    pub callback: ReadCompletion,
 }
 
 impl FileIo<'_> {
@@ -364,7 +142,7 @@ impl FileIo<'_> {
 
     pub fn read(&self, offset: u64, length: usize, alignment: Alignment) -> Read {
         let (read, callback) = Read::future();
-        if let Err(e) = self.send.send(IoRequest {
+        if let Err(e) = self.send.send(ReadRequest {
             offset,
             length,
             alignment,

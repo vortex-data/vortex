@@ -19,21 +19,20 @@ use vortex_error::vortex_panic;
 /// we cannot just `impl Runtime for LocalExecutor`. Instead, we create channels that the handle
 /// can forward its work into, and we drive the resulting tasks on a [`LocalExecutor`] on the
 /// calling thread.
-// TODO(ngates): use a builder to configure whether I/O runs on a separate blocking pool or not.
-pub struct SingleThreadRuntime<'a> {
-    scheduling: kanal::Sender<BoxFuture<'a, ()>>,
+pub struct SingleThreadRuntime<'rt> {
+    scheduling: kanal::Sender<BoxFuture<'rt, ()>>,
     cpu: kanal::Sender<CpuTask>,
-    io: kanal::Sender<(BoxStream<'a, IoTask>, usize)>,
+    io: kanal::Sender<(BoxStream<'rt, IoTask>, usize)>,
 }
 
-impl<'a> SingleThreadRuntime<'a> {
+impl<'rt> SingleThreadRuntime<'rt> {
     fn new<'ex>() -> (Self, Rc<LocalExecutor<'ex>>)
     where
-        'a: 'ex,
+        'rt: 'ex,
     {
-        let (scheduling_send, scheduling_recv) = kanal::unbounded::<BoxFuture<'a, ()>>();
+        let (scheduling_send, scheduling_recv) = kanal::unbounded::<BoxFuture<'rt, ()>>();
         let (cpu_send, cpu_recv) = kanal::unbounded::<CpuTask>();
-        let (io_send, io_recv) = kanal::unbounded::<(BoxStream<'a, IoTask>, usize)>();
+        let (io_send, io_recv) = kanal::unbounded::<(BoxStream<'rt, IoTask>, usize)>();
 
         let local = Rc::new(LocalExecutor::new());
         let weak_local = Rc::downgrade(&local);
@@ -73,7 +72,7 @@ impl<'a> SingleThreadRuntime<'a> {
                         local
                             .spawn(Compat::new(async move {
                                 stream
-                                    .map(|task| task.run_local())
+                                    .map(|task| Compat::new(task.run_local()))
                                     .buffer_unordered(concurrency)
                                     .collect::<()>()
                                     .await
@@ -94,10 +93,10 @@ impl<'a> SingleThreadRuntime<'a> {
         )
     }
 
-    /// Drive the given Vortex future on the underlying Tokio runtime.
+    /// Drive the given Vortex future on the underlying single-threaded runtime.
     pub fn drive<'fut, F, Fut, R>(f: F) -> R
     where
-        F: FnOnce(Handle<'a>) -> Fut,
+        F: FnOnce(Handle<'rt>) -> Fut,
         Fut: Future<Output = R> + 'fut,
         R: Send + 'static,
     {
@@ -106,7 +105,7 @@ impl<'a> SingleThreadRuntime<'a> {
         block_on(executor.run(fut))
     }
 
-    /// Drive the given Vortex stream on the underlying Tokio runtime.
+    /// Drive the given Vortex stream on the underlying single-threaded runtime.
     pub fn drive_stream<F, S, R>(f: F) -> impl Iterator<Item = R>
     where
         F: FnOnce(Handle) -> S,
@@ -171,8 +170,8 @@ impl<T> Iterator for BlockingStream<T> {
 
 #[cfg(test)]
 mod tests {
+    use crate::runtime::io::FileIoSource;
     use crate::runtime::singlethread::SingleThreadRuntime;
-    use crate::runtime::FileIoSource;
     use std::fs::File;
     use std::io::Write;
     use vortex_buffer::Alignment;

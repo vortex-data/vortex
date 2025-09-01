@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::runtime::{CpuTask, Handle, IoTask, Runtime};
+use async_compat::Compat;
 use crossbeam_channel::TryRecvError;
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
@@ -80,7 +81,7 @@ impl<'rt, T: Send> Runtime<'rt> for Shared<'rt, T> {
         self.spawn_scheduling(
             async move {
                 stream
-                    .map(|t: IoTask| t.run_send())
+                    .map(|t: IoTask| Compat::new(t.run_send()))
                     .buffer_unordered(concurrency)
                     .collect::<()>()
                     .await

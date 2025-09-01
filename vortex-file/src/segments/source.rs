@@ -5,7 +5,7 @@ use crate::SegmentSpec;
 use futures::FutureExt;
 use std::sync::Arc;
 use vortex_error::vortex_err;
-use vortex_io::runtime::FileIo;
+use vortex_io::runtime::io::FileIo;
 use vortex_layout::segments::{SegmentFuture, SegmentId, SegmentSource};
 
 pub struct FileSegmentSource<'rt> {

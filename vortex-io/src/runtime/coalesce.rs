@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::runtime::IoRequest;
+use crate::runtime::ReadRequest;
 use futures::Stream;
 use pin_project_lite::pin_project;
 use std::collections::{BTreeMap, HashMap, VecDeque};
@@ -17,7 +17,7 @@ use vortex_error::{VortexError, VortexResult};
 pub struct CoalescedRequest {
     pub range: Range<u64>,
     pub alignment: Alignment, // The alignment of the first request in the coalesced range.
-    pub requests: Vec<IoRequest>, // TODO(ngates): we could have enum of Single/Many to avoid Vec.
+    pub requests: Vec<ReadRequest>, // TODO(ngates): we could have enum of Single/Many to avoid Vec.
 }
 
 impl Debug for CoalescedRequest {
@@ -54,7 +54,7 @@ impl CoalescedRequest {
 }
 
 /// An extension trait for coalescing streams of I/O requests.
-pub trait CoalescedStreamExt: Stream<Item = IoRequest> {
+pub trait CoalescedStreamExt: Stream<Item = ReadRequest> {
     /// Coalesce nearby requests into a single larger request given a window in bytes.
     fn coalesce(self, window: u64) -> CoalescedStream<Self>
     where
@@ -69,7 +69,7 @@ pub trait CoalescedStreamExt: Stream<Item = IoRequest> {
     }
 }
 
-impl<S> CoalescedStreamExt for S where S: Stream<Item = IoRequest> {}
+impl<S> CoalescedStreamExt for S where S: Stream<Item = ReadRequest> {}
 
 pin_project! {
     pub struct CoalescedStream<S> {
@@ -83,7 +83,7 @@ pin_project! {
 
 impl<S> Stream for CoalescedStream<S>
 where
-    S: Stream<Item = IoRequest> + Unpin + Send + 'static,
+    S: Stream<Item = ReadRequest> + Unpin + Send + 'static,
 {
     type Item = CoalescedRequest;
 
@@ -127,7 +127,7 @@ struct CoalescedRequests {
     // Maintains the order in which we should process requests
     priority_queue: VecDeque<usize>,
     // Spatial index - allows us to find nearby requests for coalescing
-    requests_by_offset: BTreeMap<(u64, usize), IoRequest>,
+    requests_by_offset: BTreeMap<(u64, usize), ReadRequest>,
     // Map request ID to its key in the BTreeMap
     id_to_key: HashMap<usize, (u64, usize)>,
     // Next request ID to assign
@@ -139,7 +139,7 @@ impl CoalescedRequests {
         self.requests_by_offset.is_empty()
     }
 
-    fn push_req(&mut self, req: IoRequest) {
+    fn push_req(&mut self, req: ReadRequest) {
         let req_id = self.next_id;
         self.next_id += 1;
 

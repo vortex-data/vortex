@@ -8,8 +8,9 @@ use futures::pin_mut;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_io::runtime::singlethread::SingleThreadRuntime;
-use vortex_io::runtime::{FileIo, FileIoSource, Handle, IoSource, ObjectStoreIoSource};
+use vortex_io::runtime::Handle;
 use vortex_io::{IoDispatcher, PerformanceHint};
+use vortex_io::runtime::io::{FileIo, FileIoSource, IoSource, ObjectStoreIoSource};
 use vortex_layout::segments::{SegmentEvents, SegmentId};
 use vortex_utils::aliases::dash_map::DashMap;
 
