@@ -32,15 +32,27 @@ impl BoolBuilder {
         }
     }
 
+    /// Appends a boolean value to the builder.
     pub fn append_value(&mut self, value: bool) {
         self.append_values(value, 1)
     }
 
+    /// Appends the same boolean value multiple times to the builder.
+    ///
+    /// This method appends the given boolean value `n` times.
     pub fn append_values(&mut self, value: bool, n: usize) {
         self.inner.append_n(n, value);
         self.nulls.append_n_non_nulls(n)
     }
 
+    /// Appends an optional boolean value to the builder.
+    ///
+    /// If the value is `Some`, it appends the boolean value. If the value is `None`, it appends a
+    /// null.
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if the input is `None` and the builder is non-nullable.
     pub fn append_option(&mut self, value: Option<bool>) {
         match value {
             Some(value) => self.append_value(value),

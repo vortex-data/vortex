@@ -7,7 +7,6 @@ use std::ops::{Deref, DerefMut};
 
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, NativePType, Nullability};
-use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::arrays::PrimitiveArray;
@@ -47,7 +46,10 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         self.nulls.append_non_null();
     }
 
-    /// Appends an optional primitive (representing a nullable primitive) to the builder.
+    /// Appends an optional primitive value to the builder.
+    ///
+    /// If the value is `Some`, it appends the primitive value. If the value is `None`, it appends a
+    /// null.
     ///
     /// # Panics
     ///
@@ -151,9 +153,13 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
         let array = array.to_primitive();
-        if array.ptype() != T::PTYPE {
-            vortex_panic!("Cannot extend from array with different ptype");
-        }
+
+        // This should be checked in `extend_from_array` but we can check it again.
+        debug_assert_eq!(
+            array.ptype(),
+            T::PTYPE,
+            "Cannot extend from array with different ptype"
+        );
 
         self.values.extend_from_slice(array.as_slice::<T>());
         self.nulls.append_validity_mask(array.validity_mask());
