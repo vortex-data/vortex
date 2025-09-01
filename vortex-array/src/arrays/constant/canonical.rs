@@ -18,7 +18,7 @@ use crate::arrays::{
     BinaryView, BoolArray, ConstantVTable, DecimalArray, ExtensionArray, ListArray, NullArray,
     StructArray, VarBinViewArray, smallest_storage_type,
 };
-use crate::builders::{ArrayBuilderExt, builder_with_capacity};
+use crate::builders::builder_with_capacity;
 use crate::validity::Validity;
 use crate::vtable::CanonicalVTable;
 use crate::{Canonical, IntoArray};

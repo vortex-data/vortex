@@ -4,7 +4,7 @@
 use std::marker::PhantomData;
 
 use vortex_array::arrays::ConstantArray;
-use vortex_array::builders::{ArrayBuilder, ArrayBuilderExt, BoolBuilder, builder_with_capacity};
+use vortex_array::builders::{ArrayBuilder, BoolBuilder, builder_with_capacity};
 use vortex_array::stats::Stat;
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldName, Nullability};
@@ -233,7 +233,7 @@ impl<T: ScalarTruncation> StatsArrayBuilder for TruncatedMaxBinaryStatsBuilder<T
         let (value, truncated) = upper_bound::<T>(value, self.max_value_length)?;
 
         if let Some(upper_bound) = value {
-            ArrayBuilderExt::append_scalar(self.values.as_mut(), &upper_bound)?;
+            self.values.append_scalar(&upper_bound)?;
             self.is_truncated.append_value(truncated);
         } else {
             self.append_null()
@@ -264,7 +264,7 @@ impl<T: ScalarTruncation> StatsArrayBuilder for TruncatedMinBinaryStatsBuilder<T
 
     fn append_scalar(&mut self, value: Scalar) -> VortexResult<()> {
         let (value, truncated) = lower_bound::<T>(value, self.max_value_length)?;
-        ArrayBuilderExt::append_scalar(self.values.as_mut(), &value)?;
+        self.values.append_scalar(&value)?;
         self.is_truncated.append_value(truncated);
         Ok(())
     }

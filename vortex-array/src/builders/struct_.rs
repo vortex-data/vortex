@@ -11,8 +11,7 @@ use vortex_scalar::StructScalar;
 
 use crate::arrays::StructArray;
 use crate::builders::{
-    ArrayBuilder, ArrayBuilderExt, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder,
-    builder_with_capacity,
+    ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder, builder_with_capacity,
 };
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 

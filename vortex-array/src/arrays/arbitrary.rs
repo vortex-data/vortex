@@ -18,7 +18,7 @@ use super::{
     smallest_storage_type,
 };
 use crate::arrays::{VarBinArray, VarBinViewArray};
-use crate::builders::{ArrayBuilder, ArrayBuilderExt, DecimalBuilder};
+use crate::builders::{ArrayBuilder, DecimalBuilder};
 use crate::validity::Validity;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical, builders};
 

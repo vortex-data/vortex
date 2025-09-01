@@ -10,9 +10,7 @@ use vortex_mask::Mask;
 use vortex_scalar::ExtScalar;
 
 use crate::arrays::ExtensionArray;
-use crate::builders::{
-    ArrayBuilder, ArrayBuilderExt, DEFAULT_BUILDER_CAPACITY, builder_with_capacity,
-};
+use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, builder_with_capacity};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 /// The builder for building a [`ExtensionArray`].

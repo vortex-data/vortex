@@ -11,7 +11,7 @@
 //! ## Example:
 //!
 //! ```
-//! use vortex_array::builders::{builder_with_capacity, ArrayBuilderExt};
+//! use vortex_array::builders::{builder_with_capacity, ArrayBuilder};
 //! use vortex_dtype::{DType, Nullability};
 //!
 //! // Create a new builder for string data.
@@ -128,99 +128,6 @@ pub trait ArrayBuilder: Send {
         }
     }
 
-    /// Extends the array with the provided array, canonicalizing if necessary.
-    ///
-    /// Implementors must validate that the passed in [`Array`] has the correct [`DType`].
-    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()>;
-
-    /// Ensure that the builder can hold at least `capacity` number of items
-    fn ensure_capacity(&mut self, capacity: usize);
-
-    /// Override builders validity with the one provided
-    fn set_validity(&mut self, validity: Mask);
-
-    /// Constructs an Array from the builder components.
-    ///
-    /// # Panics
-    ///
-    /// This function may panic if the builder's methods are called with invalid arguments. If only
-    /// the methods on this interface are used, the builder should not panic. However, specific
-    /// builders have interfaces that may be misused. For example, if the number of values in a
-    /// [PrimitiveBuilder]'s [vortex_buffer::BufferMut] does not match the number of validity bits,
-    /// the PrimitiveBuilder's [Self::finish] will panic.
-    fn finish(&mut self) -> ArrayRef;
-}
-
-/// Construct a new canonical builder for the given [`DType`].
-///
-///
-/// # Example
-///
-/// ```
-/// use vortex_array::builders::{builder_with_capacity, ArrayBuilderExt};
-/// use vortex_dtype::{DType, Nullability};
-///
-/// // Create a new builder for string data.
-/// let mut builder = builder_with_capacity(&DType::Utf8(Nullability::NonNullable), 4);
-///
-/// builder.append_scalar(&"a".into()).unwrap();
-/// builder.append_scalar(&"b".into()).unwrap();
-/// builder.append_scalar(&"c".into()).unwrap();
-/// builder.append_scalar(&"d".into()).unwrap();
-///
-/// let strings = builder.finish();
-///
-/// assert_eq!(strings.scalar_at(0), "a".into());
-/// assert_eq!(strings.scalar_at(1), "b".into());
-/// assert_eq!(strings.scalar_at(2), "c".into());
-/// assert_eq!(strings.scalar_at(3), "d".into());
-/// ```
-pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBuilder> {
-    match dtype {
-        DType::Null => Box::new(NullBuilder::new()),
-        DType::Bool(null) => Box::new(BoolBuilder::with_capacity(*null, capacity)),
-        DType::Primitive(ptype, null) => {
-            match_each_native_ptype!(ptype, |P| {
-                Box::new(PrimitiveBuilder::<P>::with_capacity(*null, capacity))
-            })
-        }
-        DType::Decimal(decimal_type, null) => {
-            match_each_decimal_value_type!(smallest_storage_type(decimal_type), |D| {
-                Box::new(DecimalBuilder::with_capacity::<D>(
-                    capacity,
-                    *decimal_type,
-                    *null,
-                ))
-            })
-        }
-        DType::Utf8(null) => Box::new(VarBinViewBuilder::with_capacity(
-            DType::Utf8(*null),
-            capacity,
-        )),
-        DType::Binary(null) => Box::new(VarBinViewBuilder::with_capacity(
-            DType::Binary(*null),
-            capacity,
-        )),
-        DType::Struct(struct_dtype, null) => Box::new(StructBuilder::with_capacity(
-            struct_dtype.clone(),
-            *null,
-            capacity,
-        )),
-        DType::List(dtype, null) => Box::new(ListBuilder::<u64>::with_capacity(
-            dtype.clone(),
-            *null,
-            capacity,
-        )),
-        DType::FixedSizeList(elem_dtype, list_size, null) => Box::new(
-            FixedSizeListBuilder::with_capacity(elem_dtype.clone(), *list_size, *null, capacity),
-        ),
-        DType::Extension(ext_dtype) => {
-            Box::new(ExtensionBuilder::with_capacity(ext_dtype.clone(), capacity))
-        }
-    }
-}
-
-pub trait ArrayBuilderExt: ArrayBuilder {
     /// A generic function to append a scalar to the builder.
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
         if scalar.dtype() != self.dtype() {
@@ -301,6 +208,92 @@ pub trait ArrayBuilderExt: ArrayBuilder {
         }
         Ok(())
     }
+
+    /// Extends the array with the provided array, canonicalizing if necessary.
+    ///
+    /// Implementors must validate that the passed in [`Array`] has the correct [`DType`].
+    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()>;
+
+    /// Ensure that the builder can hold at least `capacity` number of items
+    fn ensure_capacity(&mut self, capacity: usize);
+
+    /// Override builders validity with the one provided
+    fn set_validity(&mut self, validity: Mask);
+
+    /// Constructs an Array from the builder components.
+    ///
+    /// # Panics
+    ///
+    /// This function may panic if the builder's methods are called with invalid arguments. If only
+    /// the methods on this interface are used, the builder should not panic. However, specific
+    /// builders have interfaces that may be misused. For example, if the number of values in a
+    /// [PrimitiveBuilder]'s [vortex_buffer::BufferMut] does not match the number of validity bits,
+    /// the PrimitiveBuilder's [Self::finish] will panic.
+    fn finish(&mut self) -> ArrayRef;
 }
 
-impl<T: ?Sized + ArrayBuilder> ArrayBuilderExt for T {}
+/// Construct a new canonical builder for the given [`DType`].
+///
+///
+/// # Example
+///
+/// ```
+/// use vortex_array::builders::{builder_with_capacity, ArrayBuilder};
+/// use vortex_dtype::{DType, Nullability};
+///
+/// // Create a new builder for string data.
+/// let mut builder = builder_with_capacity(&DType::Utf8(Nullability::NonNullable), 4);
+///
+/// builder.append_scalar(&"a".into()).unwrap();
+/// builder.append_scalar(&"b".into()).unwrap();
+/// builder.append_scalar(&"c".into()).unwrap();
+/// builder.append_scalar(&"d".into()).unwrap();
+///
+/// let strings = builder.finish();
+///
+/// assert_eq!(strings.scalar_at(0), "a".into());
+/// assert_eq!(strings.scalar_at(1), "b".into());
+/// assert_eq!(strings.scalar_at(2), "c".into());
+/// assert_eq!(strings.scalar_at(3), "d".into());
+/// ```
+pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBuilder> {
+    match dtype {
+        DType::Null => Box::new(NullBuilder::new()),
+        DType::Bool(n) => Box::new(BoolBuilder::with_capacity(*n, capacity)),
+        DType::Primitive(ptype, n) => {
+            match_each_native_ptype!(ptype, |P| {
+                Box::new(PrimitiveBuilder::<P>::with_capacity(*n, capacity))
+            })
+        }
+        DType::Decimal(decimal_type, n) => {
+            match_each_decimal_value_type!(smallest_storage_type(decimal_type), |D| {
+                Box::new(DecimalBuilder::with_capacity::<D>(
+                    capacity,
+                    *decimal_type,
+                    *n,
+                ))
+            })
+        }
+        DType::Utf8(n) => Box::new(VarBinViewBuilder::with_capacity(DType::Utf8(*n), capacity)),
+        DType::Binary(n) => Box::new(VarBinViewBuilder::with_capacity(
+            DType::Binary(*n),
+            capacity,
+        )),
+        DType::Struct(struct_dtype, n) => Box::new(StructBuilder::with_capacity(
+            struct_dtype.clone(),
+            *n,
+            capacity,
+        )),
+        DType::List(dtype, n) => Box::new(ListBuilder::<u64>::with_capacity(
+            dtype.clone(),
+            *n,
+            capacity,
+        )),
+        DType::FixedSizeList(elem_dtype, list_size, null) => Box::new(
+            FixedSizeListBuilder::with_capacity(elem_dtype.clone(), *list_size, *null, capacity),
+        ),
+        DType::Extension(ext_dtype) => {
+            Box::new(ExtensionBuilder::with_capacity(ext_dtype.clone(), capacity))
+        }
+    }
+}

@@ -10,7 +10,7 @@ use vortex_array::arrays::{
     PrimitiveArray, StructArray, VarBinViewArray, smallest_storage_type,
 };
 use vortex_array::builders::{
-    ArrayBuilder as _, ArrayBuilderExt, DecimalBuilder, ListBuilder, builder_with_capacity,
+    ArrayBuilder as _, DecimalBuilder, ListBuilder, builder_with_capacity,
 };
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;

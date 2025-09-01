@@ -3,7 +3,7 @@
 
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{BoolArray, DecimalArray, PrimitiveArray, StructArray, VarBinViewArray};
-use vortex_array::builders::{ArrayBuilderExt, builder_with_capacity};
+use vortex_array::builders::builder_with_capacity;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::Buffer;
