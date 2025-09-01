@@ -70,7 +70,7 @@ impl FixedSizeListBuilder {
     /// fixed-size list arrays without accompanying metadata).
     ///
     /// [`ListArray`]: crate::arrays::ListArray
-    pub fn append_fixed_size_list(&mut self, value: ListScalar) -> VortexResult<()> {
+    pub fn append_value(&mut self, value: ListScalar) -> VortexResult<()> {
         if value.len() != self.list_size() as usize {
             vortex_bail!(
                 "Tried to append a `ListScalar` with length {} to a `FixedSizeListScalar` \
@@ -268,7 +268,7 @@ mod tests {
         let mut builder = FixedSizeListBuilder::with_capacity(dtype.clone(), 3, NonNullable, 0);
 
         builder
-            .append_fixed_size_list(
+            .append_value(
                 Scalar::fixed_size_list(
                     dtype.clone(),
                     vec![1i32.into(), 2i32.into(), 3i32.into()],
@@ -279,7 +279,7 @@ mod tests {
             .unwrap();
 
         builder
-            .append_fixed_size_list(
+            .append_value(
                 Scalar::fixed_size_list(
                     dtype,
                     vec![4i32.into(), 5i32.into(), 6i32.into()],
@@ -306,9 +306,7 @@ mod tests {
         // Append multiple "empty" lists.
         for _ in 0..100 {
             builder
-                .append_fixed_size_list(
-                    Scalar::fixed_size_list(dtype.clone(), vec![], NonNullable).as_list(),
-                )
+                .append_value(Scalar::fixed_size_list(dtype.clone(), vec![], NonNullable).as_list())
                 .unwrap();
         }
 
@@ -331,7 +329,7 @@ mod tests {
         for i in 0..100 {
             if i % 2 == 0 {
                 builder
-                    .append_fixed_size_list(
+                    .append_value(
                         Scalar::fixed_size_list(dtype.clone(), vec![], Nullable).as_list(),
                     )
                     .unwrap();
@@ -357,7 +355,7 @@ mod tests {
         // Add more items than initial capacity.
         for i in 0..5 {
             builder
-                .append_fixed_size_list(
+                .append_value(
                     Scalar::fixed_size_list(
                         dtype.clone(),
                         vec![(i * 2).into(), (i * 2 + 1).into()],
@@ -395,7 +393,7 @@ mod tests {
         let mut builder = FixedSizeListBuilder::with_capacity(dtype.clone(), 2, Nullable, 0);
 
         builder
-            .append_fixed_size_list(
+            .append_value(
                 Scalar::fixed_size_list(dtype.clone(), vec![1i32.into(), 2i32.into()], Nullable)
                     .as_list(),
             )
@@ -404,7 +402,7 @@ mod tests {
         builder.append_null();
 
         builder
-            .append_fixed_size_list(
+            .append_value(
                 Scalar::fixed_size_list(dtype, vec![3i32.into(), 4i32.into()], Nullable).as_list(),
             )
             .unwrap();
@@ -424,7 +422,7 @@ mod tests {
         let mut builder = FixedSizeListBuilder::with_capacity(dtype.clone(), 3, NonNullable, 0);
 
         builder
-            .append_fixed_size_list(
+            .append_value(
                 Scalar::fixed_size_list(
                     dtype.clone(),
                     vec![
@@ -439,7 +437,7 @@ mod tests {
             .unwrap();
 
         builder
-            .append_fixed_size_list(
+            .append_value(
                 Scalar::fixed_size_list(
                     dtype,
                     vec![
@@ -525,7 +523,7 @@ mod tests {
         let mut builder = FixedSizeListBuilder::with_capacity(dtype.clone(), 3, NonNullable, 0);
 
         // Try to append a list with wrong size.
-        let result = builder.append_fixed_size_list(
+        let result = builder.append_value(
             Scalar::fixed_size_list(
                 dtype,
                 vec![1i32.into(), 2i32.into()], // Only 2 elements, not 3.
@@ -631,7 +629,7 @@ mod tests {
 
         // Add some initial data.
         builder
-            .append_fixed_size_list(
+            .append_value(
                 Scalar::fixed_size_list(
                     dtype,
                     vec![1i32.into(), 2i32.into(), 3i32.into()],
@@ -656,7 +654,7 @@ mod tests {
 
         // Mix of operations.
         builder
-            .append_fixed_size_list(
+            .append_value(
                 Scalar::fixed_size_list(
                     dtype,
                     vec![

@@ -48,7 +48,7 @@ impl StructBuilder {
     }
 
     /// Appends a struct `value` to the builder.
-    pub fn append_struct(&mut self, struct_scalar: StructScalar) -> VortexResult<()> {
+    pub fn append_value(&mut self, struct_scalar: StructScalar) -> VortexResult<()> {
         if !self.dtype.is_nullable() && struct_scalar.is_null() {
             vortex_bail!("Tried to append a null `StructScalar` to a non-nullable struct builder",);
         }
@@ -203,7 +203,7 @@ mod tests {
         let mut builder = StructBuilder::with_capacity(sdt, Nullability::NonNullable, 0);
 
         builder
-            .append_struct(Scalar::struct_(dtype.clone(), vec![1.into(), 2.into()]).as_struct())
+            .append_value(Scalar::struct_(dtype.clone(), vec![1.into(), 2.into()]).as_struct())
             .unwrap();
 
         let struct_ = builder.finish();
@@ -221,7 +221,7 @@ mod tests {
         let mut builder = StructBuilder::with_capacity(sdt, Nullability::Nullable, 0);
 
         builder
-            .append_struct(Scalar::struct_(dtype.clone(), vec![1.into(), 2.into()]).as_struct())
+            .append_value(Scalar::struct_(dtype.clone(), vec![1.into(), 2.into()]).as_struct())
             .unwrap();
 
         let struct_ = builder.finish();

@@ -102,21 +102,9 @@ impl DecimalBuilder {
     }
 
     /// Appends a decimal `value` to the builder.
-    pub fn append_decimal<V: NativeDecimalType>(&mut self, value: V) {
+    pub fn append_value<V: NativeDecimalType>(&mut self, value: V) {
         self.values.push(value);
         self.nulls.append_non_null();
-    }
-
-    /// Appends an optional decimal (representing a nullable decimal) to the builder.
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if the input is `None` and the builder is non-nullable.
-    pub fn append_decimal_opt<V: NativeDecimalType>(&mut self, value: Option<V>) {
-        match value {
-            Some(value) => self.append_decimal(value),
-            None => self.append_null(),
-        }
     }
 
     /// Finishes the builder directly into a [`DecimalArray`].
@@ -283,7 +271,7 @@ mod tests {
 
         let mut i8s = DecimalBuilder::new::<i8>(2, 1, false.into());
         for v in 0..values {
-            i8s.append_decimal(v);
+            i8s.append_value(v);
         }
         let i8s = i8s.finish();
 

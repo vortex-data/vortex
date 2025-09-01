@@ -36,7 +36,7 @@ impl ExtensionBuilder {
     }
 
     /// Appends an extension `value` to the builder.
-    pub fn append_ext(&mut self, value: ExtScalar) -> VortexResult<()> {
+    pub fn append_value(&mut self, value: ExtScalar) -> VortexResult<()> {
         self.storage.append_scalar(&value.storage())
     }
 
@@ -45,9 +45,9 @@ impl ExtensionBuilder {
     /// # Panics
     ///
     /// This method will panic if the input is `None` and the builder is non-nullable.
-    pub fn append_ext_opt(&mut self, value: Option<ExtScalar>) -> VortexResult<()> {
+    pub fn append_option(&mut self, value: Option<ExtScalar>) -> VortexResult<()> {
         match value {
-            Some(value) => self.append_ext(value),
+            Some(value) => self.append_value(value),
             None => {
                 self.append_nulls(1);
                 Ok(())

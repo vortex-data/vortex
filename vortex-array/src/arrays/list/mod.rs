@@ -364,7 +364,7 @@ impl ListArray {
                 v.into_iter().map(|x| x.into()).collect_vec(),
                 dtype.nullability(),
             );
-            builder.append_list(elem.as_list())?
+            builder.append_value(elem.as_list())?
         }
         Ok(builder.finish())
     }
@@ -391,7 +391,7 @@ impl ListArray {
                     v.into_iter().map(|x| x.into()).collect_vec(),
                     dtype.nullability(),
                 );
-                builder.append_list(elem.as_list())?
+                builder.append_value(elem.as_list())?
             } else {
                 builder.append_null()
             }

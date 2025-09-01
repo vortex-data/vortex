@@ -42,7 +42,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     }
 
     /// Appends a primitive `value` to the builder.
-    pub fn append_primitive(&mut self, value: T) {
+    pub fn append_value(&mut self, value: T) {
         self.values.push(value);
         self.nulls.append_non_null();
     }
@@ -52,12 +52,9 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     /// # Panics
     ///
     /// This method will panic if the input is `None` and the builder is non-nullable.
-    pub fn append_primitive_opt(&mut self, value: Option<T>) {
+    pub fn append_option(&mut self, value: Option<T>) {
         match value {
-            Some(value) => {
-                self.values.push(value);
-                self.nulls.append_non_null();
-            }
+            Some(value) => self.append_value(value),
             None => self.append_null(),
         }
     }

@@ -80,11 +80,10 @@ fn _take<I: NativePType, O: OffsetPType + NativePType + PrimInt>(
 
         elements_to_take.ensure_capacity(elements_to_take.len() + additional);
         for i in 0..additional {
-            elements_to_take
-                .append_primitive(start + O::from_usize(i).vortex_expect("i < additional"));
+            elements_to_take.append_value(start + O::from_usize(i).vortex_expect("i < additional"));
         }
         current_offset = current_offset + (stop - start);
-        new_offsets.append_primitive(current_offset);
+        new_offsets.append_value(current_offset);
     }
 
     let elements_to_take = elements_to_take.finish();
@@ -120,7 +119,7 @@ fn _take_nullable<I: NativePType, O: OffsetPType + NativePType + PrimInt>(
 
     for (idx, data_idx) in indices.iter().enumerate() {
         if !indices_validity.value(idx) {
-            new_offsets.append_primitive(current_offset);
+            new_offsets.append_value(current_offset);
             new_validity.append(false);
             continue;
         }
@@ -141,13 +140,13 @@ fn _take_nullable<I: NativePType, O: OffsetPType + NativePType + PrimInt>(
             elements_to_take.ensure_capacity(elements_to_take.len() + additional);
             for i in 0..additional {
                 elements_to_take
-                    .append_primitive(start + O::from_usize(i).vortex_expect("i < additional"));
+                    .append_value(start + O::from_usize(i).vortex_expect("i < additional"));
             }
             current_offset = current_offset + (stop - start);
-            new_offsets.append_primitive(current_offset);
+            new_offsets.append_value(current_offset);
             new_validity.append(true);
         } else {
-            new_offsets.append_primitive(current_offset);
+            new_offsets.append_value(current_offset);
             new_validity.append(false);
         }
     }

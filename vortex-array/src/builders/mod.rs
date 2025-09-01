@@ -219,7 +219,7 @@ pub trait ArrayBuilderExt: ArrayBuilder {
                         .ok_or_else(|| {
                             vortex_err!("Cannot append primitive scalar to non-primitive builder")
                         })?
-                        .append_primitive_opt(PrimitiveScalar::try_from(scalar)?.typed_value::<P>())
+                        .append_option(PrimitiveScalar::try_from(scalar)?.typed_value::<P>())
                 })
             }
             DType::Decimal(..) => {
@@ -232,7 +232,7 @@ pub trait ArrayBuilderExt: ArrayBuilder {
                 match scalar.as_decimal().decimal_value() {
                     None => builder.append_null(),
                     Some(v) => match_each_decimal_value!(v, |dec_val| {
-                        builder.append_decimal(dec_val);
+                        builder.append_value(dec_val);
                     }),
                 }
             }
@@ -250,12 +250,12 @@ pub trait ArrayBuilderExt: ArrayBuilder {
                 .as_any_mut()
                 .downcast_mut::<StructBuilder>()
                 .ok_or_else(|| vortex_err!("Cannot append struct scalar to non-struct builder"))?
-                .append_struct(StructScalar::try_from(scalar)?)?,
+                .append_value(StructScalar::try_from(scalar)?)?,
             DType::List(..) => self
                 .as_any_mut()
                 .downcast_mut::<ListBuilder<u64>>()
                 .ok_or_else(|| vortex_err!("Cannot append list scalar to non-list builder"))?
-                .append_list(ListScalar::try_from(scalar)?)?,
+                .append_value(ListScalar::try_from(scalar)?)?,
             DType::FixedSizeList(..) => {
                 unimplemented!("TODO(connor)[FixedSizeList]")
             }
@@ -265,7 +265,7 @@ pub trait ArrayBuilderExt: ArrayBuilder {
                 .ok_or_else(|| {
                     vortex_err!("Cannot append extension scalar to non-extension builder")
                 })?
-                .append_ext(ExtScalar::try_from(scalar)?)?,
+                .append_value(ExtScalar::try_from(scalar)?)?,
         }
         Ok(())
     }

@@ -517,9 +517,9 @@ mod tests {
     #[case(vortex_scalar::i256::ZERO)]
     fn to_arrow_decimal128<T: NativeDecimalType>(#[case] _decimal_type: T) {
         let mut decimal = DecimalBuilder::new::<T>(2, 1, false.into());
-        decimal.append_decimal(10);
-        decimal.append_decimal(11);
-        decimal.append_decimal(12);
+        decimal.append_value(10);
+        decimal.append_value(11);
+        decimal.append_value(12);
 
         let decimal = decimal.finish();
 
@@ -542,9 +542,9 @@ mod tests {
     #[case(vortex_scalar::i256::ZERO)]
     fn to_arrow_decimal256<T: NativeDecimalType>(#[case] _decimal_type: T) {
         let mut decimal = DecimalBuilder::new::<T>(2, 1, false.into());
-        decimal.append_decimal(10);
-        decimal.append_decimal(11);
-        decimal.append_decimal(12);
+        decimal.append_value(10);
+        decimal.append_value(11);
+        decimal.append_value(12);
 
         let decimal = decimal.finish();
 

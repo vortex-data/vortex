@@ -381,7 +381,7 @@ fn canonicalize_sparse_decimal<D: NativeDecimalType>(
                 .cast::<D>()
                 .vortex_expect("unexpected value type");
             for _ in 0..len {
-                builder.append_decimal(fill_value)
+                builder.append_value(fill_value)
             }
         }
         None => {

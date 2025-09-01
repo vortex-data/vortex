@@ -81,7 +81,7 @@ impl<O: OffsetPType> ListBuilder<O> {
     }
 
     /// Appends a list `value` to the builder.
-    pub fn append_list(&mut self, value: ListScalar) -> VortexResult<()> {
+    pub fn append_value(&mut self, value: ListScalar) -> VortexResult<()> {
         match value.elements() {
             None => {
                 if self.dtype.nullability() == NonNullable {
@@ -97,7 +97,7 @@ impl<O: OffsetPType> ListBuilder<O> {
                 }
 
                 self.nulls.append_non_null();
-                self.index_builder.append_primitive(
+                self.index_builder.append_value(
                     O::from_usize(self.value_builder.len())
                         .vortex_expect("Failed to convert from usize to O"),
                 );
@@ -157,7 +157,7 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
         // TODO(connor): this is incorrect, as it creates lists of size 1 instead of 0.
         self.value_builder.append_zeros(n);
         for i in 0..n {
-            self.index_builder.append_primitive(
+            self.index_builder.append_value(
                 O::from_usize(count + i + 1).vortex_expect("Failed to convert from usize to <O>"),
             )
         }
@@ -169,7 +169,7 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
         for _ in 0..n {
             // A list with a null element is can be a list with a zero-span offset and a validity
             // bit set
-            self.index_builder.append_primitive(
+            self.index_builder.append_value(
                 O::from_usize(count).vortex_expect("Failed to convert from usize to <O>"),
             )
         }
@@ -274,7 +274,7 @@ mod tests {
         let mut builder = ListBuilder::<u32>::with_capacity(dtype.clone(), NonNullable, 0);
 
         builder
-            .append_list(
+            .append_value(
                 Scalar::list(
                     dtype.clone(),
                     vec![1i32.into(), 2i32.into(), 3i32.into()],
@@ -285,7 +285,7 @@ mod tests {
             .unwrap();
 
         builder
-            .append_list(
+            .append_value(
                 Scalar::list(
                     dtype,
                     vec![4i32.into(), 5i32.into(), 6i32.into()],
@@ -311,7 +311,7 @@ mod tests {
 
         assert!(
             builder
-                .append_list(Scalar::list_empty(dtype, NonNullable).as_list())
+                .append_value(Scalar::list_empty(dtype, NonNullable).as_list())
                 .is_ok()
         )
     }
@@ -322,7 +322,7 @@ mod tests {
         let mut builder = ListBuilder::<u32>::with_capacity(dtype.clone(), Nullable, 0);
 
         builder
-            .append_list(
+            .append_value(
                 Scalar::list(
                     dtype.clone(),
                     vec![1i32.into(), 2i32.into(), 3i32.into()],
@@ -333,11 +333,11 @@ mod tests {
             .unwrap();
 
         builder
-            .append_list(Scalar::list_empty(dtype.clone(), NonNullable).as_list())
+            .append_value(Scalar::list_empty(dtype.clone(), NonNullable).as_list())
             .unwrap();
 
         builder
-            .append_list(
+            .append_value(
                 Scalar::list(
                     dtype,
                     vec![4i32.into(), 5i32.into(), 6i32.into()],
