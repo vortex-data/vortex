@@ -28,7 +28,7 @@ impl CastKernel for StructVTable {
         let validity = array
             .validity()
             .clone()
-            .cast_nullability(dtype.nullability())?;
+            .cast_nullability(dtype.nullability(), array.len())?;
 
         StructArray::try_new(
             target_sdtype.names().clone(),

@@ -24,7 +24,7 @@ impl CastKernel for ByteBoolVTable {
             let new_validity = array
                 .validity()
                 .clone()
-                .cast_nullability(dtype.nullability())?;
+                .cast_nullability(dtype.nullability(), array.len())?;
 
             return Ok(Some(
                 ByteBoolArray::new(array.buffer().clone(), new_validity).into_array(),

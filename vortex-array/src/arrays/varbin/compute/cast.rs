@@ -16,7 +16,10 @@ impl CastKernel for VarBinVTable {
         }
 
         let new_nullability = dtype.nullability();
-        let new_validity = array.validity().clone().cast_nullability(new_nullability)?;
+        let new_validity = array
+            .validity()
+            .clone()
+            .cast_nullability(new_nullability, array.len())?;
         let new_dtype = array.dtype().with_nullability(new_nullability);
         Ok(Some(
             VarBinArray::try_new(

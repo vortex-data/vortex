@@ -16,7 +16,7 @@ impl CastKernel for BitPackedVTable {
             let new_validity = array
                 .validity()
                 .clone()
-                .cast_nullability(dtype.nullability())?;
+                .cast_nullability(dtype.nullability(), array.len())?;
             return Ok(Some(
                 BitPackedArray::try_new(
                     array.packed().clone(),

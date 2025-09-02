@@ -288,12 +288,14 @@ impl Validity {
     }
 
     /// Convert into a non-nullable variant
-    pub fn into_non_nullable(self) -> Option<Validity> {
+    pub fn into_non_nullable(self, len: usize) -> Option<Validity> {
         match self {
+            _ if len == 0 => Some(Validity::NonNullable),
             Self::NonNullable => Some(Self::NonNullable),
             Self::AllValid => Some(Self::NonNullable),
             Self::AllInvalid => None,
             Self::Array(is_valid) => {
+                debug_assert!(is_valid.len() == len);
                 is_valid
                     .statistics()
                     .compute_min::<bool>()
@@ -307,9 +309,9 @@ impl Validity {
     }
 
     /// Convert into a variant compatible with the given nullability, if possible.
-    pub fn cast_nullability(self, nullability: Nullability) -> VortexResult<Validity> {
+    pub fn cast_nullability(self, nullability: Nullability, len: usize) -> VortexResult<Validity> {
         match nullability {
-            Nullability::NonNullable => self.into_non_nullable().ok_or_else(|| {
+            Nullability::NonNullable => self.into_non_nullable(len).ok_or_else(|| {
                 vortex_err!("Cannot cast array with invalid values to non-nullable type.")
             }),
             Nullability::Nullable => Ok(self.into_nullable()),
@@ -324,7 +326,7 @@ impl Validity {
     /// Create Validity from boolean array with given nullability of the array.
     ///
     /// Note: You want to pass the nullability of parent array and not the nullability of the validity array itself
-    ///     as that is always nonnullable
+    ///     as that is always non-nullable
     fn from_array(value: ArrayRef, nullability: Nullability) -> Self {
         if !matches!(value.dtype(), DType::Bool(Nullability::NonNullable)) {
             vortex_panic!("Expected a non-nullable boolean array")

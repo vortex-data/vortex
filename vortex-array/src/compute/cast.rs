@@ -9,7 +9,7 @@ use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output};
 use crate::vtable::VTable;
-use crate::{Array, ArrayRef, Canonical, IntoArray};
+use crate::{Array, ArrayRef};
 
 static CAST_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("cast".into(), ArcRef::new_ref(&Cast));
@@ -23,10 +23,6 @@ static CAST_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
 ///
 /// Some array support the ability to narrow or upcast.
 pub fn cast(array: &dyn Array, dtype: &DType) -> VortexResult<ArrayRef> {
-    if array.is_empty() {
-        return Ok(Canonical::empty(dtype).into_array());
-    }
-
     CAST_FN
         .invoke(&InvocationArgs {
             inputs: &[array.into(), dtype.into()],

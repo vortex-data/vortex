@@ -18,7 +18,7 @@ impl CastKernel for ListVTable {
         let validity = array
             .validity()
             .clone()
-            .cast_nullability(dtype.nullability())?;
+            .cast_nullability(dtype.nullability(), array.len())?;
 
         ListArray::try_new(
             cast(array.elements(), target_element_type)?,
