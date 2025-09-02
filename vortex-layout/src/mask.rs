@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use futures::future::{BoxFuture, FusedFuture, Shared};
-use futures::{pin_mut, select, FutureExt, TryFutureExt};
 use std::ops::Range;
 use std::sync::Arc;
-use vortex_error::{vortex_panic, SharedVortexResult, VortexResult};
+
+use futures::future::{BoxFuture, FusedFuture, Shared};
+use futures::{FutureExt, TryFutureExt, pin_mut, select};
+use vortex_error::{SharedVortexResult, VortexResult, vortex_panic};
 use vortex_mask::Mask;
 
 #[derive(Clone)]

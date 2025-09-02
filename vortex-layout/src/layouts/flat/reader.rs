@@ -9,18 +9,18 @@ use async_trait::async_trait;
 use futures::{FutureExt, TryFutureExt};
 use vortex_array::compute::filter;
 use vortex_array::pipeline::{
-    export_canonical_pipeline_expr, export_canonical_pipeline_expr_offset, N,
+    N, export_canonical_pipeline_expr, export_canonical_pipeline_expr_offset,
 };
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
 use vortex_array::{Array, ArrayRef, Canonical, IntoArray};
 use vortex_dtype::{DType, FieldMask, Nullability};
 use vortex_error::{VortexError, VortexExpect, VortexResult, VortexUnwrap as _};
-use vortex_expr::{is_root, ExprRef, Scope, VortexExprExt};
+use vortex_expr::{ExprRef, Scope, VortexExprExt, is_root};
 use vortex_mask::Mask;
 
-use crate::layouts::flat::FlatLayout;
 use crate::layouts::SharedArrayFuture;
+use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentSource;
 use crate::{
     ArrayEvaluation, LayoutReader, MaskEvaluation, MaskFuture, NoOpPruningEvaluation,
