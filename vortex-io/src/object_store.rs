@@ -7,6 +7,7 @@ use std::os::unix::prelude::FileExt;
 use std::sync::Arc;
 
 use bytes::BytesMut;
+use futures::TryStreamExt;
 use futures::stream::FuturesUnordered;
 use futures_util::StreamExt;
 use object_store::path::Path;
@@ -139,7 +140,7 @@ impl ObjectStoreWriter {
 impl VortexWrite for ObjectStoreWriter {
     async fn write_all<B: IoBuf>(&mut self, buffer: B) -> io::Result<B> {
         self.buffer.extend_from_slice(buffer.as_slice());
-        let mut parts = FuturesUnordered::new();
+        let parts = FuturesUnordered::new();
 
         // Split off chunks while buffer is larger than CHUNKS_SIZE
         while self.buffer.len() > CHUNKS_SIZE {
@@ -149,15 +150,13 @@ impl VortexWrite for ObjectStoreWriter {
             parts.push(part_fut);
         }
 
-        while let Some(p) = parts.next().await {
-            p?;
-        }
+        parts.try_collect::<Vec<_>>().await?;
 
         Ok(buffer)
     }
 
     async fn flush(&mut self) -> io::Result<()> {
-        let mut parts = FuturesUnordered::new();
+        let parts = FuturesUnordered::new();
 
         while self.buffer.len() > CHUNKS_SIZE {
             let payload = self.buffer.split_to(CHUNKS_SIZE).freeze();
@@ -166,9 +165,7 @@ impl VortexWrite for ObjectStoreWriter {
             parts.push(part_fut);
         }
 
-        while let Some(p) = parts.next().await {
-            p?;
-        }
+        parts.try_collect::<Vec<_>>().await?;
 
         Ok(())
     }
