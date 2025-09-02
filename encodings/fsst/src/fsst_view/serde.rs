@@ -56,7 +56,7 @@ impl SerdeVTable<FSSTViewVTable> for FSSTViewVTable {
         );
 
         let [
-            views_buffer,
+            zstd_views_buffer,
             symbols_buffer,
             symbol_lengths_buffer,
             fsst_buffer,
@@ -65,7 +65,17 @@ impl SerdeVTable<FSSTViewVTable> for FSSTViewVTable {
             vortex_bail!("FSSTViewVTable: build requires exactly four buffers");
         };
 
-        let views = Buffer::<View>::from_byte_buffer(views_buffer.clone());
+        // Decode the views data.
+        let expected_bytes = len * size_of::<View>();
+        let mut views_buffer = ByteBufferMut::zeroed(expected_bytes);
+        let decoded_bytes =
+            zstd::bulk::decompress_to_buffer(zstd_views_buffer.as_slice(), &mut views_buffer)?;
+        vortex_ensure!(
+            expected_bytes == decoded_bytes,
+            "ZSTD decoded {decoded_bytes} bytes, expected {expected_bytes} bytes"
+        );
+
+        let views = Buffer::<View>::from_byte_buffer(views_buffer.freeze());
 
         vortex_ensure!(
             views.len() == len,

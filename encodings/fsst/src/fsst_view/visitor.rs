@@ -3,13 +3,24 @@
 
 use vortex_array::vtable::VisitorVTable;
 use vortex_array::{ArrayBufferVisitor, ArrayChildVisitor};
+use vortex_buffer::ByteBuffer;
+use vortex_error::VortexExpect;
+use zstd::zstd_safe::CompressionLevel;
 
 use crate::fsst_view::{FSSTViewArray, FSSTViewVTable};
+
+const ZSTD_COMPRESS_LEVEL: CompressionLevel = 6;
 
 impl VisitorVTable<FSSTViewVTable> for FSSTViewVTable {
     fn visit_buffers(array: &FSSTViewArray, visitor: &mut dyn ArrayBufferVisitor) {
         // Access the Views and FSST buffers.
-        visitor.visit_buffer(&array.views.clone().into_byte_buffer());
+        let zstd_views = zstd::bulk::compress(
+            array.views.clone().into_byte_buffer().as_slice(),
+            ZSTD_COMPRESS_LEVEL,
+        )
+        .vortex_expect("failed to ZSTD compress data");
+
+        visitor.visit_buffer(&ByteBuffer::from(zstd_views));
         visitor.visit_buffer(&array.symbols.clone().into_byte_buffer());
         visitor.visit_buffer(&array.symbol_lengths);
         visitor.visit_buffer(&array.fsst_buffer);

@@ -27,6 +27,7 @@ vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
 vortex-utils = { workspace = true }
+zstd = { workspace = true }
 
 [dev-dependencies]
 divan = { workspace = true }

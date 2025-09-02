@@ -6902,6 +6902,7 @@ dependencies = [
  "vortex-mask",
  "vortex-scalar",
  "vortex-utils",
+ "zstd",
 ]
 
 [[package]]
