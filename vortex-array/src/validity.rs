@@ -295,7 +295,6 @@ impl Validity {
             Self::AllValid => Some(Self::NonNullable),
             Self::AllInvalid => None,
             Self::Array(is_valid) => {
-                debug_assert!(is_valid.len() == len);
                 is_valid
                     .statistics()
                     .compute_min::<bool>()
