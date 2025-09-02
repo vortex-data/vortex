@@ -10,11 +10,11 @@ use futures::future::ready;
 use futures::stream::FuturesOrdered;
 use futures::{FutureExt, TryStreamExt};
 use itertools::Itertools;
-use vortex_array::ArrayRef;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::stats::Precision;
+use vortex_array::ArrayRef;
 use vortex_dtype::{DType, FieldMask};
-use vortex_error::{VortexExpect, VortexResult, vortex_panic};
+use vortex_error::{vortex_panic, VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
@@ -294,7 +294,7 @@ impl MaskEvaluation for ChunkedMaskEvaluation {
         let masks: Vec<_> = FuturesOrdered::from_iter(
             self.mask_ranges
                 .iter()
-                .map(move |range| mask.clone().slice(range.clone()))
+                .map(|range| mask.slice(range.clone()))
                 .zip_eq(&self.chunk_evals)
                 .map(|(mask, chunk_eval)| chunk_eval.invoke(mask).boxed()),
         )
@@ -324,7 +324,7 @@ impl ArrayEvaluation for ChunkedArrayEvaluation {
         let chunks: Vec<_> = FuturesOrdered::from_iter(
             self.mask_ranges
                 .iter()
-                .map(move |range| mask.clone().slice(range.clone()))
+                .map(|range| mask.slice(range.clone()))
                 .zip_eq(&self.chunk_evals)
                 .map(|(mask, chunk_eval)| chunk_eval.invoke(mask)),
         )
