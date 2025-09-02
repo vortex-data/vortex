@@ -15,6 +15,11 @@ impl CastKernel for ListVTable {
             return Ok(None);
         };
 
+        // The list elements could technically be from either `FixedSizeList` or `List`.
+        if dtype.is_fixed_size_list() {
+            return Ok(None);
+        }
+
         let validity = array
             .validity()
             .clone()
