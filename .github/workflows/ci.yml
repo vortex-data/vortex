@@ -453,7 +453,7 @@ jobs:
         with:
           run: cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
-          mode: 'instrumentation'
+          mode: "instrumentation"
 
   license-check-and-audit-check:
     name: License Check and Audit Check
