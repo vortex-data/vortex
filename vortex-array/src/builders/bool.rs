@@ -9,7 +9,8 @@ use vortex_mask::Mask;
 
 use crate::arrays::BoolArray;
 use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder};
-use crate::{Array, ArrayRef, IntoArray, ToCanonical};
+use crate::canonical::{Canonical, ToCanonical};
+use crate::{Array, ArrayRef, IntoArray};
 
 pub struct BoolBuilder {
     dtype: DType,
@@ -120,6 +121,10 @@ impl ArrayBuilder for BoolBuilder {
 
     fn finish(&mut self) -> ArrayRef {
         self.finish_into_bool().into_array()
+    }
+
+    fn to_canonical(&mut self) -> Canonical {
+        Canonical::Bool(self.finish_into_bool())
     }
 }
 

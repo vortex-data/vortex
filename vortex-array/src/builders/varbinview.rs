@@ -15,7 +15,8 @@ use vortex_utils::aliases::hash_map::{Entry, HashMap};
 
 use crate::arrays::{BinaryView, VarBinViewArray};
 use crate::builders::{ArrayBuilder, LazyNullBufferBuilder};
-use crate::{Array, ArrayRef, IntoArray, ToCanonical};
+use crate::canonical::{Canonical, ToCanonical};
+use crate::{Array, ArrayRef, IntoArray};
 
 /// The builder for building a [`VarBinViewArray`].
 pub struct VarBinViewBuilder {
@@ -254,6 +255,10 @@ impl ArrayBuilder for VarBinViewBuilder {
 
     fn finish(&mut self) -> ArrayRef {
         self.finish_into_varbinview().into_array()
+    }
+
+    fn to_canonical(&mut self) -> Canonical {
+        Canonical::VarBinView(self.finish_into_varbinview())
     }
 }
 

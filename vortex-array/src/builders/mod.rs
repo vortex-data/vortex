@@ -41,6 +41,7 @@ use vortex_scalar::{
 };
 
 use crate::arrays::smallest_storage_type;
+use crate::canonical::Canonical;
 use crate::{Array, ArrayRef};
 
 mod lazy_null_builder;
@@ -268,6 +269,15 @@ pub trait ArrayBuilder: Send {
     /// [PrimitiveBuilder]'s [vortex_buffer::BufferMut] does not match the number of validity bits,
     /// the PrimitiveBuilder's [Self::finish] will panic.
     fn finish(&mut self) -> ArrayRef;
+
+    /// Constructs a canonical array directly from the builder.
+    ///
+    /// This method provides a default implementation that creates an [`ArrayRef`] via `finish` and
+    /// then converts it to canonical form. Specific builders can override this with optimized
+    /// implementations that avoid the intermediate [`Array`] creation.
+    fn to_canonical(&mut self) -> Canonical {
+        self.finish().to_canonical()
+    }
 }
 
 /// Construct a new canonical builder for the given [`DType`].
