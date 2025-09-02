@@ -52,14 +52,8 @@ impl FlatReader {
         }
     }
 
-    /// Returns a cached future that resolves this array.
-    ///
-    /// This method is idempotent, and returns a cached future on subsequent calls, all of which
-    /// will use the original segment reader.
-    // TODO(ngates): caching this and ignoring SegmentReaders may be a terrible idea... we may
-    //  instead want to store all segment futures and race them, so if a layout requests a
-    //  projection future before a pruning future, the pruning isn't blocked.
-    fn array_future(&self) -> VortexResult<SharedArrayFuture> {
+    /// Register the segment request and return a future that would resolve into the deserialised array.
+    fn array_future(&self) -> SharedArrayFuture {
         let row_count = usize::try_from(self.layout.row_count()).vortex_unwrap();
 
         // We create the segment_fut here to ensure we give the segment reader visibility into
@@ -69,14 +63,14 @@ impl FlatReader {
 
         let ctx = self.layout.ctx.clone();
         let dtype = self.layout.dtype().clone();
-        Ok(async move {
+        async move {
             let segment = segment_fut.await?;
             ArrayParts::try_from(segment)?
                 .decode(&ctx, &dtype, row_count)
                 .map_err(Arc::new)
         }
         .boxed()
-        .shared())
+        .shared()
     }
 }
 
@@ -123,7 +117,7 @@ impl LayoutReader for FlatReader {
 
         Ok(Box::new(FlatEvaluation {
             name: self.name.clone(),
-            array: self.array_future()?,
+            array: self.array_future(),
             row_range,
             expr: expr.clone(),
         }))
@@ -140,7 +134,7 @@ impl LayoutReader for FlatReader {
                 .vortex_expect("Row range end must fit within FlatLayout size");
         Ok(Box::new(FlatEvaluation {
             name: self.name.clone(),
-            array: self.array_future()?,
+            array: self.array_future(),
             row_range,
             expr: expr.clone(),
         }))
