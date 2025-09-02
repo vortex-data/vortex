@@ -6928,12 +6928,14 @@ dependencies = [
 name = "vortex-io"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bytes",
  "cfg-if",
  "compio",
  "futures",
  "futures-util",
  "getrandom 0.3.3",
+ "itertools 0.14.0",
  "kanal",
  "object_store",
  "pin-project",
