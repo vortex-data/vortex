@@ -11,8 +11,9 @@ use arrow_array::types::{
 use arrow_array::{
     Array, ArrayRef as ArrowArrayRef, ArrowPrimitiveType, BooleanArray as ArrowBoolArray,
     Decimal128Array as ArrowDecimal128Array, Decimal256Array as ArrowDecimal256Array,
-    GenericByteArray, GenericByteViewArray, GenericListArray, NullArray as ArrowNullArray,
-    OffsetSizeTrait, PrimitiveArray as ArrowPrimitiveArray, StructArray as ArrowStructArray,
+    FixedSizeListArray as ArrowFixedSizeListArray, GenericByteArray, GenericByteViewArray,
+    GenericListArray, NullArray as ArrowNullArray, OffsetSizeTrait,
+    PrimitiveArray as ArrowPrimitiveArray, StructArray as ArrowStructArray,
 };
 use arrow_buffer::{ScalarBuffer, i256};
 use arrow_schema::{DataType, Field, FieldRef, Fields};
@@ -24,7 +25,8 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::DecimalValueType;
 
 use crate::arrays::{
-    BoolArray, DecimalArray, ListArray, NullArray, PrimitiveArray, StructArray, VarBinViewArray,
+    BoolArray, DecimalArray, FixedSizeListArray, ListArray, NullArray, PrimitiveArray, StructArray,
+    VarBinViewArray,
 };
 use crate::arrow::IntoArrowArray;
 use crate::arrow::array::ArrowArray;
@@ -53,6 +55,10 @@ impl Kernel for ToArrowCanonical {
             .cloned()
             .map(Ok)
             .unwrap_or_else(|| array.dtype().to_arrow_dtype())?;
+
+        // When `arrow_type` is `None`, conversion should respect conversion to the encoding's
+        // preferred Arrow type if the array has child arrays (struct, list, and fixed-size list).
+        let to_preferred = arrow_type_opt.is_none();
 
         let arrow_array = match (array.to_canonical(), &arrow_type) {
             (Canonical::Null(array), DataType::Null) => to_arrow_null(array),
@@ -139,7 +145,7 @@ impl Kernel for ToArrowCanonical {
                 to_arrow_decimal256(array)
             }
             (Canonical::Struct(array), DataType::Struct(fields)) => {
-                to_arrow_struct(array, fields.as_ref(), arrow_type_opt.is_none())
+                to_arrow_struct(array, fields.as_ref(), to_preferred)
             }
             (Canonical::List(array), DataType::List(field)) => {
                 to_arrow_list::<i32>(array, arrow_type_opt.map(|_| field))
@@ -147,8 +153,8 @@ impl Kernel for ToArrowCanonical {
             (Canonical::List(array), DataType::LargeList(field)) => {
                 to_arrow_list::<i64>(array, arrow_type_opt.map(|_| field))
             }
-            (Canonical::FixedSizeList(..), DataType::FixedSizeList(..)) => {
-                unimplemented!("TODO(connor)[FixedSizeList]")
+            (Canonical::FixedSizeList(array), DataType::FixedSizeList(field, list_size)) => {
+                to_arrow_fixed_size_list(array, field, *list_size, to_preferred)
             }
             (Canonical::VarBinView(array), DataType::BinaryView) if array.dtype().is_binary() => {
                 to_arrow_varbinview::<BinaryViewType>(array)
@@ -381,6 +387,39 @@ fn to_arrow_list<O: NativePType + OffsetSizeTrait>(
     Ok(Arc::new(GenericListArray::new(
         element_field,
         arrow_offsets.buffer::<O>().into_arrow_offset_buffer(),
+        values,
+        nulls,
+    )))
+}
+
+fn to_arrow_fixed_size_list(
+    array: FixedSizeListArray,
+    element: &FieldRef,
+    list_size: i32,
+    to_preferred: bool,
+) -> VortexResult<ArrowArrayRef> {
+    assert!(
+        list_size >= 0,
+        "somehow had a negative list size for arrow fixed-size lists"
+    );
+
+    if list_size as u32 != array.list_size() {
+        vortex_bail!(
+            "Cannot convert a Vortex `FixedSizeListArray` with list size {} to an Arrow `FixedSizeListArray` with list size {list_size}",
+            array.list_size()
+        );
+    }
+
+    let values = if to_preferred {
+        array.elements().clone().into_arrow_preferred()?
+    } else {
+        array.elements().clone().into_arrow(element.data_type())?
+    };
+    let nulls = array.validity_mask().to_null_buffer();
+
+    Ok(Arc::new(ArrowFixedSizeListArray::new(
+        element.clone(),
+        list_size,
         values,
         nulls,
     )))

@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use arbitrary::{Arbitrary, Result, Unstructured};
+use vortex_error::VortexExpect;
 
 use crate::{
     DECIMAL256_MAX_PRECISION, DECIMAL256_MAX_SCALE, DType, DecimalDType, FieldName, FieldNames,
@@ -18,7 +19,7 @@ impl<'a> Arbitrary<'a> for DType {
 
 fn random_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<DType> {
     const BASE_TYPE_COUNT: i32 = 5;
-    const CONTAINER_TYPE_COUNT: i32 = 2; // TODO(connor)[FixedSizeList]: Make this 3.
+    const CONTAINER_TYPE_COUNT: i32 = 3;
     let max_dtype_kind = if depth == 0 {
         BASE_TYPE_COUNT
     } else {
@@ -35,15 +36,12 @@ fn random_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<DType> {
         // container types
         6 => DType::Struct(random_struct_dtype(u, depth - 1)?, u.arbitrary()?),
         7 => DType::List(Arc::new(random_dtype(u, depth - 1)?), u.arbitrary()?),
-        8 => {
-            unimplemented!("TODO(connor)[FixedSizeList]");
-            // DType::FixedSizeList(
-            //     Arc::new(random_dtype(u, depth - 1)?),
-            //     // We limit the list size to 3 rather (following random struct fields).
-            //     u.choose_index(3)?.try_into().vortex_expect("impossible"),
-            //     u.arbitrary()?,
-            // )
-        }
+        8 => DType::FixedSizeList(
+            Arc::new(random_dtype(u, depth - 1)?),
+            // We limit the list size to 3 rather (following random struct fields).
+            u.choose_index(3)?.try_into().vortex_expect("impossible"),
+            u.arbitrary()?,
+        ),
         // Null,
         // Extension(ExtDType, Nullability),
         _ => unreachable!("Number out of range"),

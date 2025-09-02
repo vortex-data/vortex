@@ -18,7 +18,7 @@ use super::{
     smallest_storage_type,
 };
 use crate::arrays::{VarBinArray, VarBinViewArray};
-use crate::builders::{ArrayBuilder, DecimalBuilder};
+use crate::builders::{ArrayBuilder, DecimalBuilder, FixedSizeListBuilder};
 use crate::validity::Validity;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical, builders};
 
@@ -144,9 +144,9 @@ fn random_array_chunk(
             .vortex_unwrap()
             .into_array())
         }
-        DType::List(ldt, n) => random_list(u, ldt, *n, chunk_len),
-        DType::FixedSizeList(..) => {
-            unimplemented!("TODO(connor)[FixedSizeList]: Create canonical fixed-size list")
+        DType::List(elem_dtype, null) => random_list(u, elem_dtype, *null, chunk_len),
+        DType::FixedSizeList(elem_dtype, list_size, null) => {
+            random_fixed_size_list(u, elem_dtype, *list_size, *null, chunk_len)
         }
         DType::Extension(..) => {
             todo!("Extension arrays are not implemented")
@@ -154,53 +154,92 @@ fn random_array_chunk(
     }
 }
 
+/// Creates a random fixed-size list array.
+///
+/// If the `chunk_len` is specified, the length of the array will be equal to the chunk length.
+fn random_fixed_size_list(
+    u: &mut Unstructured,
+    elem_dtype: &Arc<DType>,
+    list_size: u32,
+    null: Nullability,
+    chunk_len: Option<usize>,
+) -> Result<ArrayRef> {
+    let array_length = chunk_len.unwrap_or(u.int_in_range(0..=20)?);
+
+    let mut builder =
+        FixedSizeListBuilder::with_capacity(elem_dtype.clone(), list_size, null, array_length);
+
+    for _ in 0..array_length {
+        if null == Nullability::Nullable && u.arbitrary::<bool>()? {
+            builder.append_null();
+        } else {
+            builder
+                .append_value(random_list_scalar(u, elem_dtype, list_size, null)?.as_list())
+                .vortex_expect("can append value");
+        }
+    }
+
+    Ok(builder.finish())
+}
+
+/// Creates a random list array.
+///
+/// If the `chunk_len` is specified, the length of the array will be equal to the chunk length.
 fn random_list(
     u: &mut Unstructured,
-    ldt: &Arc<DType>,
-    n: Nullability,
+    elem_dtype: &Arc<DType>,
+    null: Nullability,
     chunk_len: Option<usize>,
 ) -> Result<ArrayRef> {
     match u.int_in_range(0..=5)? {
-        0 => random_list_offset::<i16>(u, ldt, n, chunk_len),
-        1 => random_list_offset::<i32>(u, ldt, n, chunk_len),
-        2 => random_list_offset::<i64>(u, ldt, n, chunk_len),
-        3 => random_list_offset::<u16>(u, ldt, n, chunk_len),
-        4 => random_list_offset::<u32>(u, ldt, n, chunk_len),
-        5 => random_list_offset::<u64>(u, ldt, n, chunk_len),
+        0 => random_list_with_offset_type::<i16>(u, elem_dtype, null, chunk_len),
+        1 => random_list_with_offset_type::<i32>(u, elem_dtype, null, chunk_len),
+        2 => random_list_with_offset_type::<i64>(u, elem_dtype, null, chunk_len),
+        3 => random_list_with_offset_type::<u16>(u, elem_dtype, null, chunk_len),
+        4 => random_list_with_offset_type::<u32>(u, elem_dtype, null, chunk_len),
+        5 => random_list_with_offset_type::<u64>(u, elem_dtype, null, chunk_len),
         _ => unreachable!("int_in_range returns a value in the above range"),
     }
 }
 
-fn random_list_offset<O: OffsetPType>(
+/// Creates a random list array with the given [`OffsetPType`] for the internal offsets child.
+///
+/// If the `chunk_len` is specified, the length of the array will be equal to the chunk length.
+fn random_list_with_offset_type<O: OffsetPType>(
     u: &mut Unstructured,
-    ldt: &Arc<DType>,
-    n: Nullability,
+    elem_dtype: &Arc<DType>,
+    null: Nullability,
     chunk_len: Option<usize>,
 ) -> Result<ArrayRef> {
-    let list_len = chunk_len.unwrap_or(u.int_in_range(0..=20)?);
-    let mut builder = ListBuilder::<O>::with_capacity(ldt.clone(), n, 10);
-    for _ in 0..list_len {
-        if n == Nullability::Nullable && u.arbitrary::<bool>()? {
+    let array_length = chunk_len.unwrap_or(u.int_in_range(0..=20)?);
+
+    let mut builder = ListBuilder::<O>::with_capacity(elem_dtype.clone(), null, 10);
+
+    for _ in 0..array_length {
+        if null == Nullability::Nullable && u.arbitrary::<bool>()? {
             builder.append_null();
         } else {
+            let list_size = u.int_in_range(0..=20)?;
             builder
-                .append_value(random_list_scalar(u, ldt, n)?.as_list())
+                .append_value(random_list_scalar(u, elem_dtype, list_size, null)?.as_list())
                 .vortex_expect("can append value");
         }
     }
+
     Ok(builder.finish())
 }
 
+/// Creates a random list scalar with the specified list size.
 fn random_list_scalar(
     u: &mut Unstructured,
     elem_dtype: &Arc<DType>,
-    n: Nullability,
+    list_size: u32,
+    null: Nullability,
 ) -> Result<Scalar> {
-    let elem_len = u.int_in_range(0..=20)?;
-    let elems = (0..elem_len)
+    let elems = (0..list_size)
         .map(|_| random_scalar(u, elem_dtype))
         .collect::<Result<Vec<_>>>()?;
-    Ok(Scalar::list(elem_dtype.clone(), elems, n))
+    Ok(Scalar::list(elem_dtype.clone(), elems, null))
 }
 
 fn random_string(

@@ -9,7 +9,7 @@ Currently, the only thing required to run the fuzzing targets is [`cargo-fuzz`](
 ## Reproduce crash from CI
 
 In the case of a crash in the nightly run, you can download the crash artifact and run `cargo-fuzz` with the exact same
-input with the command `cargo fuzz run array_ops/file_io <path/to/artifact>`
+input with the command `cargo fuzz run array_ops <path/to/artifact>` or `cargo fuzz run file_io <path/to/artifact>`
 
 ### ASAN
 

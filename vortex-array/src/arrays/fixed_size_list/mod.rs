@@ -16,6 +16,8 @@ pub use vtable::{FixedSizeListEncoding, FixedSizeListVTable};
 #[cfg(test)]
 mod tests;
 
+mod compute;
+
 /// The canonical encoding for fixed-size list arrays.
 #[derive(Clone, Debug)]
 pub struct FixedSizeListArray {
