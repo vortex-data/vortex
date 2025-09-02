@@ -6,13 +6,13 @@ use std::ops::{BitAnd, Range};
 use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
-use futures::{FutureExt, TryFutureExt, join};
+use futures::{FutureExt, join};
 use vortex_array::ArrayRef;
 use vortex_array::compute::{MinMaxResult, min_max, take};
 use vortex_array::stats::Precision;
 use vortex_dict::DictArray;
 use vortex_dtype::{DType, FieldMask};
-use vortex_error::{VortexError, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::{ExprRef, Scope, root};
 use vortex_mask::Mask;
 use vortex_utils::aliases::dash_map::DashMap;
@@ -176,12 +176,8 @@ struct DictMaskEvaluation {
 #[async_trait]
 impl MaskEvaluation for DictMaskEvaluation {
     async fn invoke(&self, mask: MaskFuture) -> VortexResult<Mask> {
-        let Some((values, mask)) = mask
-            .race(self.values_eval.clone().map_err(VortexError::from))
-            .await?
-        else {
-            return Ok(Mask::new_false(mask.len()));
-        };
+        let values = self.values_eval.clone().await?;
+        let mask = mask.await?;
 
         // Short-circuit when the values are all true/false.
         if let Some(MinMaxResult { min, max }) = min_max(&values)? {

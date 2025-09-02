@@ -83,6 +83,10 @@ impl PruningEvaluation for NoOpPruningEvaluation {
 
 /// Refines the given mask, returning a mask equal in length to the input mask.
 ///
+/// It is recommended to defer awaiting the input mask for as long as possible (ideally, after
+/// all I/O is complete). This allows other conjuncts the opportunity to refine the mask as much
+/// as possible before it is used.
+///
 /// ## Post-conditions
 ///
 /// The returned mask **MUST** have been intersected with the input mask.
@@ -100,8 +104,15 @@ impl MaskEvaluation for NoOpMaskEvaluation {
     }
 }
 
-/// Evaluates an expression against an array, returning an array equal in length to the true count
-/// of the input mask.
+/// Evaluates an expression against an array.
+///
+/// It is recommended to defer awaiting the input mask for as long as possible (ideally, after
+/// all I/O is complete). This allows other conjuncts the opportunity to refine the mask as much
+/// as possible before it is used.
+///
+/// ## Post-conditions
+///
+/// The returned array **MUST** have length equal to the true count of the input mask.
 #[async_trait]
 pub trait ArrayEvaluation: 'static + Send + Sync {
     async fn invoke(&self, mask: MaskFuture) -> VortexResult<ArrayRef>;

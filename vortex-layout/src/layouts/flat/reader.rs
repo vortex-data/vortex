@@ -6,16 +6,16 @@ use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::{FutureExt, TryFutureExt};
+use futures::FutureExt;
 use vortex_array::compute::filter;
 use vortex_array::pipeline::{
     N, export_canonical_pipeline_expr, export_canonical_pipeline_expr_offset,
 };
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
-use vortex_array::{Array, ArrayRef, Canonical, IntoArray};
+use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldMask, Nullability};
-use vortex_error::{VortexError, VortexExpect, VortexResult, VortexUnwrap as _};
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
 use vortex_expr::{ExprRef, Scope, VortexExprExt, is_root};
 use vortex_mask::Mask;
 
@@ -121,7 +121,6 @@ impl LayoutReader for FlatReader {
             array: self.array_future(),
             row_range,
             expr: expr.clone(),
-            dtype: self.layout.dtype().clone(),
         }))
     }
 
@@ -139,7 +138,6 @@ impl LayoutReader for FlatReader {
             array: self.array_future(),
             row_range,
             expr: expr.clone(),
-            dtype: self.layout.dtype().clone(),
         }))
     }
 }
@@ -149,7 +147,6 @@ struct FlatEvaluation {
     array: SharedArrayFuture,
     row_range: Range<usize>,
     expr: ExprRef,
-    dtype: DType,
 }
 
 #[async_trait]
@@ -158,13 +155,8 @@ impl MaskEvaluation for FlatEvaluation {
         // TODO(ngates): if the mask density is low enough, or if the mask is dense within a range
         //  (as often happens with zone map pruning), then we could slice/filter the array prior
         //  to evaluating the expression.
-
-        let Some((mut array, mask)) = mask
-            .race(self.array.clone().map_err(VortexError::from))
-            .await?
-        else {
-            return Ok(Mask::new_false(mask.len()));
-        };
+        let mut array = self.array.clone().await?;
+        let mask = mask.await?;
 
         if let Some(array) =
             try_evaluate_using_operator(self.row_range.clone(), &array, &self.expr, &mask)?
@@ -217,14 +209,10 @@ impl MaskEvaluation for FlatEvaluation {
 #[async_trait]
 impl ArrayEvaluation for FlatEvaluation {
     async fn invoke(&self, mask: MaskFuture) -> VortexResult<ArrayRef> {
-        log::debug!("Flat array evaluation {} - {}", self.name, self.expr,);
+        log::debug!("Flat array evaluation {} - {}", self.name, self.expr);
 
-        let Some((mut array, mask)) = mask
-            .race(self.array.clone().map_err(VortexError::from))
-            .await?
-        else {
-            return Ok(Canonical::empty(&self.dtype).into_array());
-        };
+        let mut array = self.array.clone().await?;
+        let mask = mask.await?;
 
         if let Some(array) =
             try_evaluate_using_operator(self.row_range.clone(), &array, &self.expr, &mask)?
