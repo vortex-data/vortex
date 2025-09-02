@@ -78,6 +78,7 @@ mod tests {
     #[case(NullArray::new(5))]
     #[case(NullArray::new(1))]
     #[case(NullArray::new(100))]
+    #[case(NullArray::new(0))]
     fn test_cast_null_conformance(#[case] array: NullArray) {
         test_cast_conformance(array.as_ref());
     }

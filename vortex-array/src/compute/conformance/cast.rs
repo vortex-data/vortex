@@ -25,6 +25,10 @@ pub fn test_cast_conformance(array: &dyn Array) {
     // Test AllValid to NonNullable and back if applicable
     test_cast_allvalid_to_nonnullable_and_back(array);
 
+    if array.is_empty() {
+        return test_cast_empty_array(array);
+    }
+
     // Test based on the specific DType
     match dtype {
         DType::Null => test_cast_from_null(array),
@@ -66,6 +70,27 @@ fn test_cast_identity(array: &dyn Array) {
     // Verify values are unchanged
     for i in 0..array.len().min(10) {
         assert_eq!(array.scalar_at(i), result.scalar_at(i),);
+    }
+}
+
+fn test_cast_empty_array(array: &dyn Array) {
+    // we can cast an empty array to any type
+
+    for target_dtype in [
+        DType::Null,
+        DType::Bool(Nullability::Nullable),
+        DType::Primitive(PType::I32, Nullability::Nullable),
+        DType::Utf8(Nullability::Nullable),
+        DType::Binary(Nullability::Nullable),
+    ] {
+        let result = cast(array, &target_dtype).vortex_unwrap();
+        assert_eq!(result.len(), 0);
+        assert_eq!(result.dtype(), &target_dtype);
+
+        // we can do the same with non-nullable since the array is empty
+        let result = cast(array, &target_dtype.as_nonnullable()).vortex_unwrap();
+        assert_eq!(result.len(), 0);
+        assert_eq!(result.dtype(), &target_dtype.as_nonnullable());
     }
 }
 
