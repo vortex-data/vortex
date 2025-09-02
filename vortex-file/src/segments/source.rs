@@ -27,6 +27,8 @@ impl<'rt> SegmentSource<'rt> for FileSegmentSource<'rt> {
             .cloned()
             .ok_or_else(|| vortex_err!("Segment {} not found", id))?;
 
+        // NOTE(ngates): this does not eagerly create the file.read future. Meaning we wait to
+        //  submit the I/O request until the first poll of the SegmentFuture.
         let file = self.file.clone();
         Ok(SegmentFuture::new(spec.length as usize, async move {
             file.read(spec.offset, spec.length as usize, spec.alignment)

@@ -76,15 +76,17 @@ struct InMemorySegmentReader {
 }
 
 impl SegmentSource<'static> for InMemorySegmentReader {
-    fn request(&self, id: SegmentId) -> SegmentFuture<'static> {
-        let Some(spec) = self.footer.segment_map().get(*id as usize) else {
-            return async move { vortex_bail!("segment not found {id}") }.boxed();
-        };
+    fn request(&self, id: SegmentId) -> VortexResult<SegmentFuture<'static>> {
+        let spec = self
+            .footer
+            .segment_map()
+            .get(*id as usize)
+            .ok_or_else(|| vortex_err!("segment not found {id}"))?;
 
         let start = usize::try_from(spec.offset).vortex_expect("segment offset larger than usize");
         let end = start + spec.length as usize;
         let buffer = self.buffer.slice(start..end);
 
-        async move { Ok(buffer) }.boxed()
+        Ok(SegmentFuture::new(buffer.len(), async move { Ok(buffer) }))
     }
 }

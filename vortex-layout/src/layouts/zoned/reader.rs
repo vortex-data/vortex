@@ -25,7 +25,9 @@ use vortex_utils::aliases::dash_map::DashMap;
 use crate::layouts::zoned::zone_map::ZoneMap;
 use crate::layouts::zoned::ZonedLayout;
 use crate::segments::SegmentSourceRef;
-use crate::{ArrayEvaluation, LayoutReader, LayoutReaderRef, MaskEvaluation, PruningEvaluation};
+use crate::{
+    ArrayEvaluation, LayoutReader, LayoutReaderRef, MaskEvaluation, MaskFuture, PruningEvaluation,
+};
 
 type SharedZoneMap<'rt> = Shared<BoxFuture<'rt, SharedVortexResult<ZoneMap>>>;
 type SharedPruningResult<'rt> = Shared<BoxFuture<'rt, SharedVortexResult<Arc<PruningResult>>>>;
@@ -112,7 +114,10 @@ impl<'rt> ZonedReader<'rt> {
                     .vortex_expect("Failed construct zone map evaluation");
 
                 async move {
-                    let zones_array = zones_eval.invoke(Mask::new_true(nzones)).await?.to_struct();
+                    let zones_array = zones_eval
+                        .invoke(MaskFuture::new_true(nzones))
+                        .await?
+                        .to_struct();
                     // SAFETY: This is only fine to call because we perform validation above
                     Ok(ZoneMap::new_unchecked(zones_array, present_stats))
                 }

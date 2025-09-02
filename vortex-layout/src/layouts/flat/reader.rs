@@ -6,16 +6,16 @@ use std::ops::{BitAnd, Range};
 use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
-use futures::FutureExt;
+use futures::{FutureExt, TryFutureExt};
 use vortex_array::compute::filter;
 use vortex_array::pipeline::{
     export_canonical_pipeline_expr, export_canonical_pipeline_expr_offset, N,
 };
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
-use vortex_array::{Array, ArrayRef, IntoArray};
+use vortex_array::{Array, ArrayRef, Canonical, IntoArray};
 use vortex_dtype::{DType, FieldMask, Nullability};
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
+use vortex_error::{VortexError, VortexExpect, VortexResult, VortexUnwrap as _};
 use vortex_expr::{is_root, ExprRef, Scope, VortexExprExt};
 use vortex_io::runtime::Handle;
 use vortex_mask::Mask;
@@ -24,7 +24,8 @@ use crate::layouts::flat::FlatLayout;
 use crate::layouts::SharedArrayFuture;
 use crate::segments::SegmentSourceRef;
 use crate::{
-    ArrayEvaluation, LayoutReader, MaskEvaluation, NoOpPruningEvaluation, PruningEvaluation,
+    ArrayEvaluation, LayoutReader, MaskEvaluation, MaskFuture, NoOpPruningEvaluation,
+    PruningEvaluation, Raced,
 };
 
 /// The threshold of mask density below which we will evaluate the expression only over the
@@ -137,6 +138,7 @@ impl<'rt> LayoutReader<'rt> for FlatReader<'rt> {
             array: self.array_future()?,
             row_range,
             expr: expr.clone(),
+            dtype: self.layout.dtype().clone(),
             handle: self.handle.clone(),
         }))
     }
@@ -156,6 +158,7 @@ impl<'rt> LayoutReader<'rt> for FlatReader<'rt> {
             array: self.array_future()?,
             row_range,
             expr: expr.clone(),
+            dtype: self.layout.dtype().clone(),
             handle: self.handle.clone(),
         }))
     }
@@ -166,18 +169,28 @@ struct FlatEvaluation<'rt> {
     array: SharedArrayFuture<'rt>,
     row_range: Range<usize>,
     expr: ExprRef,
+    dtype: DType,
     handle: Handle<'rt>,
 }
 
 #[async_trait]
 impl<'rt> MaskEvaluation<'rt> for FlatEvaluation<'rt> {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+    async fn invoke(&self, mask: MaskFuture<'rt>) -> VortexResult<Mask> {
         // TODO(ngates): if the mask density is low enough, or if the mask is dense within a range
         //  (as often happens with zone map pruning), then we could slice/filter the array prior
         //  to evaluating the expression.
 
-        // Now we await the array .
-        let array = self.array.clone().await?;
+        // We race the mask and the array futures, since either may resolve first.
+        // If the mask resolves to all false, we cancel the array and return early.
+        let (array, mask) = match mask
+            .race_all_false(self.array.clone().map_err(VortexError::from))
+            .await?
+        {
+            Raced::AllFalse(mask) => {
+                return Ok(mask);
+            }
+            Raced::Result(result) => result,
+        };
 
         let name = self.name.clone();
         let expr = self.expr.clone();
@@ -238,19 +251,26 @@ impl<'rt> MaskEvaluation<'rt> for FlatEvaluation<'rt> {
 
 #[async_trait]
 impl<'rt> ArrayEvaluation<'rt> for FlatEvaluation<'rt> {
-    async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
+    async fn invoke(&self, mask: MaskFuture<'rt>) -> VortexResult<ArrayRef> {
+        let expr = self.expr.clone();
+        let row_range = self.row_range.clone();
+
+        let (array, mask) = match mask
+            .race_all_false(self.array.clone().map_err(VortexError::from))
+            .await?
+        {
+            Raced::AllFalse(_mask) => {
+                return Ok(Canonical::empty(&self.dtype).into_array());
+            }
+            Raced::Result(result) => result,
+        };
+
         log::debug!(
             "Flat array evaluation {} - {} (mask = {})",
             self.name,
             self.expr,
             mask.density(),
         );
-
-        let expr = self.expr.clone();
-        let row_range = self.row_range.clone();
-
-        // Now we await the array .
-        let array = self.array.clone().await?;
 
         self.handle
             .spawn_cpu(move || {

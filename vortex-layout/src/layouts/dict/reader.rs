@@ -6,13 +6,13 @@ use std::ops::{BitAnd, Range};
 use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
-use futures::{join, FutureExt};
+use futures::{join, FutureExt, TryFutureExt};
 use vortex_array::compute::{min_max, take, MinMaxResult};
 use vortex_array::stats::Precision;
 use vortex_array::ArrayRef;
 use vortex_dict::DictArray;
 use vortex_dtype::{DType, FieldMask};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{VortexError, VortexExpect, VortexResult};
 use vortex_expr::{root, ExprRef, Scope};
 use vortex_io::runtime::Handle;
 use vortex_mask::Mask;
@@ -22,8 +22,8 @@ use super::DictLayout;
 use crate::layouts::SharedArrayFuture;
 use crate::segments::SegmentSourceRef;
 use crate::{
-    ArrayEvaluation, LayoutReader, LayoutReaderRef, MaskEvaluation, NoOpPruningEvaluation,
-    PruningEvaluation,
+    ArrayEvaluation, LayoutReader, LayoutReaderRef, MaskEvaluation, MaskFuture,
+    NoOpPruningEvaluation, PruningEvaluation, Raced,
 };
 
 pub struct DictReader<'rt> {
@@ -86,7 +86,7 @@ impl<'rt> DictReader<'rt> {
                     // FIXME(ngates): the fact we don't have a handle is IMPORtANT! It's because
                     //  this future can be shared by two different callers. Which is dumb. Or we
                     //  make the whole evaluation have a handle lifetime?
-                    eval.invoke(Mask::new_true(values_len))
+                    eval.invoke(MaskFuture::new_true(values_len))
                         .await
                         .map_err(Arc::new)
                 }
@@ -183,27 +183,35 @@ struct DictMaskEvaluation<'rt> {
 
 #[async_trait]
 impl<'rt> MaskEvaluation<'rt> for DictMaskEvaluation<'rt> {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
-        if mask.all_false() {
-            return Ok(mask);
-        }
-
-        let values_result = self.values_eval.clone().await?;
+    async fn invoke(&self, mask: MaskFuture<'rt>) -> VortexResult<Mask> {
+        let (values, mask) = match mask
+            .race_all_false(self.values_eval.clone().map_err(VortexError::from))
+            .await?
+        {
+            Raced::AllFalse(mask) => return Ok(mask),
+            Raced::Result(r) => r,
+        };
 
         // Short-circuit when the values are all true/false.
-        if let Some(MinMaxResult { min, max }) = min_max(&values_result)? {
+        if let Some(MinMaxResult { min, max }) = min_max(&values)? {
             if !max.as_bool().value().unwrap_or(true) {
                 // All values are false
                 return Ok(Mask::AllFalse(mask.len()));
             }
             if min.as_bool().value().unwrap_or(false) {
                 // All values are true, but we still need to respect codes validity
-                let codes = self.codes_eval.invoke(Mask::new_true(mask.len())).await?;
+                let codes = self
+                    .codes_eval
+                    .invoke(MaskFuture::new_true(mask.len()))
+                    .await?;
                 return Ok(mask.bitand(&codes.validity_mask()));
             }
         }
 
-        let codes = self.codes_eval.invoke(Mask::new_true(mask.len())).await?;
+        let codes = self
+            .codes_eval
+            .invoke(MaskFuture::new_true(mask.len()))
+            .await?;
         // Creating a mask from the dict array would canonicalize it,
         // it should be fine for now as long as values is already canonical,
         // so different row ranges do not canonicalize to the same array
@@ -211,7 +219,7 @@ impl<'rt> MaskEvaluation<'rt> for DictMaskEvaluation<'rt> {
         // TODO(joe): fixme casting null to false is *VERY* unsound, if the expression in the filter
         // can inspect nulls (e.g. `is_null`).
         // See `FlatEvaluation` for more details.
-        let dict_mask = take(&values_result, &codes)?.try_to_mask_fill_null_false()?;
+        let dict_mask = take(&values, &codes)?.try_to_mask_fill_null_false()?;
 
         Ok(mask.bitand(&dict_mask))
     }
@@ -225,7 +233,7 @@ struct DictArrayEvaluation<'rt> {
 
 #[async_trait]
 impl<'rt> ArrayEvaluation<'rt> for DictArrayEvaluation<'rt> {
-    async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
+    async fn invoke(&self, mask: MaskFuture<'rt>) -> VortexResult<ArrayRef> {
         let (values_result, codes) = join!(self.values_eval.clone(), self.codes_eval.invoke(mask));
         let (values_result, codes) = (values_result?, codes?);
 

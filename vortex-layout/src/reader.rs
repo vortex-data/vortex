@@ -17,6 +17,7 @@ use vortex_mask::Mask;
 
 use crate::children::LayoutChildren;
 use crate::segments::SegmentSourceRef;
+use crate::MaskFuture;
 
 pub type LayoutReaderRef<'rt> = Arc<dyn LayoutReader<'rt> + 'rt>;
 
@@ -88,15 +89,15 @@ impl PruningEvaluation<'_> for NoOpPruningEvaluation {
 /// The returned mask **MUST** have been intersected with the input mask.
 #[async_trait]
 pub trait MaskEvaluation<'rt>: 'rt + Send + Sync {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask>;
+    async fn invoke(&self, mask: MaskFuture<'rt>) -> VortexResult<Mask>;
 }
 
 pub struct NoOpMaskEvaluation;
 
 #[async_trait]
-impl MaskEvaluation<'_> for NoOpMaskEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
-        Ok(mask)
+impl<'rt> MaskEvaluation<'rt> for NoOpMaskEvaluation {
+    async fn invoke(&self, mask: MaskFuture<'rt>) -> VortexResult<Mask> {
+        mask.await
     }
 }
 
@@ -104,7 +105,7 @@ impl MaskEvaluation<'_> for NoOpMaskEvaluation {
 /// of the input mask.
 #[async_trait]
 pub trait ArrayEvaluation<'rt>: 'rt + Send + Sync {
-    async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef>;
+    async fn invoke(&self, mask: MaskFuture<'rt>) -> VortexResult<ArrayRef>;
 }
 
 pub struct LazyReaderChildren<'rt> {

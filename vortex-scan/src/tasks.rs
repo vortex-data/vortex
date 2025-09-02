@@ -13,7 +13,7 @@ use vortex_array::ArrayRef;
 use vortex_error::{VortexError, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_io::runtime::Handle;
-use vortex_layout::LayoutReaderRef;
+use vortex_layout::{LayoutReaderRef, MaskFuture};
 use vortex_mask::Mask;
 
 use crate::filter::FilterExpr;
@@ -164,7 +164,9 @@ pub(super) fn split_exec<'rt, A: 'rt + Send>(
                         return Ok(mask);
                     }
 
-                    let conjunct_mask = conjuncts[idx].invoke(mask.clone()).await?;
+                    let conjunct_mask = conjuncts[idx]
+                        .invoke(MaskFuture::ready(mask.clone()))
+                        .await?;
 
                     // TODO(ngates): what selectivity should we report?
                     let selectivity = conjunct_mask.true_count() as f64 / mask.len() as f64;
@@ -191,7 +193,7 @@ pub(super) fn split_exec<'rt, A: 'rt + Send>(
         if filtered_mask.all_false() {
             return Ok(None);
         }
-        let array_ref = exec.invoke(filtered_mask).await?;
+        let array_ref = exec.invoke(MaskFuture::ready(filtered_mask)).await?;
         mapper(array_ref).map(Some)
     };
 

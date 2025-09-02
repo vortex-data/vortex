@@ -137,11 +137,11 @@ impl<'rt> SegmentCacheSourceAdapter<'rt> {
 }
 
 impl<'rt> SegmentSource<'rt> for SegmentCacheSourceAdapter<'rt> {
-    fn request(&self, id: SegmentId) -> SegmentFuture<'rt> {
+    fn request(&self, id: SegmentId) -> VortexResult<SegmentFuture<'rt>> {
         let cache = self.cache.clone();
-        let delegate = self.source.request(id);
+        let delegate = self.source.request(id)?;
 
-        async move {
+        Ok(SegmentFuture::new(delegate.size(), async move {
             if let Ok(Some(segment)) = cache.get(id).await {
                 log::debug!("Resolved segment {} from cache", id);
                 return Ok(segment);
@@ -151,7 +151,6 @@ impl<'rt> SegmentSource<'rt> for SegmentCacheSourceAdapter<'rt> {
                 log::warn!("Failed to store segment {} in cache: {}", id, e);
             }
             Ok(result)
-        }
-        .boxed()
+        }))
     }
 }

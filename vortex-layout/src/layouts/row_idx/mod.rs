@@ -25,7 +25,7 @@ use Nullability::NonNullable;
 
 use crate::layouts::partitioned::{PartitionedArrayEvaluation, PartitionedMaskEvaluation};
 use crate::{
-    ArrayEvaluation, LayoutReader, LayoutReaderRef, MaskEvaluation, NoOpMaskEvaluation,
+    ArrayEvaluation, LayoutReader, LayoutReaderRef, MaskEvaluation, MaskFuture, NoOpMaskEvaluation,
     NoOpPruningEvaluation, PruningEvaluation,
 };
 
@@ -247,8 +247,8 @@ impl PruningEvaluation<'_> for RowIdxEvaluation {
 }
 
 #[async_trait]
-impl MaskEvaluation<'_> for RowIdxEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+impl<'rt> MaskEvaluation<'rt> for RowIdxEvaluation {
+    async fn invoke(&self, mask: MaskFuture<'rt>) -> VortexResult<Mask> {
         // TODO(ngates): we could optimize this if the mask was already quite sparse.
         // TODO(joe): fixme casting null to false is *VERY* unsound, see `FlatEvaluation` for more details.
         let result = self
@@ -258,14 +258,14 @@ impl MaskEvaluation<'_> for RowIdxEvaluation {
 
         // Note that mask evaluation requires an intersection with the input mask, whereas
         // pruning evaluation does not.
-        Ok(result.bitand(&mask))
+        Ok(result.bitand(&mask.await?))
     }
 }
 
 #[async_trait]
-impl ArrayEvaluation<'_> for RowIdxEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
-        let array = filter(&self.array, &mask)?;
+impl<'rt> ArrayEvaluation<'rt> for RowIdxEvaluation {
+    async fn invoke(&self, mask: MaskFuture<'rt>) -> VortexResult<ArrayRef> {
+        let array = filter(&self.array, &mask.await?)?;
         self.expr.evaluate(&Scope::new(array))
     }
 }

@@ -6,7 +6,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::future::ready;
+use futures::future::{ready, try_join_all};
 use futures::stream::FuturesOrdered;
 use futures::{FutureExt, TryStreamExt};
 use itertools::Itertools;
@@ -23,7 +23,8 @@ use crate::layouts::chunked::ChunkedLayout;
 use crate::reader::LayoutReader;
 use crate::segments::SegmentSourceRef;
 use crate::{
-    ArrayEvaluation, LayoutReaderRef, LazyReaderChildren, MaskEvaluation, PruningEvaluation,
+    ArrayEvaluation, LayoutReaderRef, LazyReaderChildren, MaskEvaluation, MaskFuture,
+    PruningEvaluation,
 };
 
 /// A [`LayoutReader`] for chunked layouts.
@@ -289,29 +290,17 @@ struct ChunkedMaskEvaluation<'rt> {
 
 #[async_trait]
 impl<'rt> MaskEvaluation<'rt> for ChunkedMaskEvaluation<'rt> {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
-        log::debug!(
-            "Chunked mask evaluation {} (mask = {})",
-            self.name,
-            mask.density()
-        );
+    async fn invoke(&self, mask: MaskFuture<'rt>) -> VortexResult<Mask> {
+        log::debug!("Chunked mask evaluation {}", self.name);
 
         // Split the mask over each chunk.
-        let masks: Vec<_> = FuturesOrdered::from_iter(
+        let masks: Vec<_> = try_join_all(
             self.mask_ranges
                 .iter()
-                .map(|range| mask.slice(range.clone()))
+                .map(move |range| mask.clone().slice(range.clone()))
                 .zip_eq(&self.chunk_evals)
-                .map(|(mask, chunk_eval)| {
-                    if mask.all_false() {
-                        // If the mask is all false, we can skip the evaluation.
-                        ready(Ok(mask)).boxed()
-                    } else {
-                        chunk_eval.invoke(mask).boxed()
-                    }
-                }),
+                .map(|(mask, chunk_eval)| chunk_eval.invoke(mask)),
         )
-        .try_collect()
         .await?;
 
         // If there is only one mask, we can return it directly.
@@ -332,17 +321,15 @@ struct ChunkedArrayEvaluation<'rt> {
 
 #[async_trait]
 impl<'rt> ArrayEvaluation<'rt> for ChunkedArrayEvaluation<'rt> {
-    async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
+    async fn invoke(&self, mask: MaskFuture<'rt>) -> VortexResult<ArrayRef> {
         // Split the mask over each chunk.
-        let chunks: Vec<_> = FuturesOrdered::from_iter(
+        let chunks: Vec<_> = try_join_all(
             self.mask_ranges
                 .iter()
-                .map(|range| mask.slice(range.clone()))
+                .map(move |range| mask.clone().slice(range.clone()))
                 .zip_eq(&self.chunk_evals)
-                .filter(|(mask, _chunk_eval)| mask.true_count() > 0)
                 .map(|(mask, chunk_eval)| chunk_eval.invoke(mask)),
         )
-        .try_collect()
         .await?;
 
         // If there is only one chunk, we can return it directly.
