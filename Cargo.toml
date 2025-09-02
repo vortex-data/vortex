@@ -303,24 +303,22 @@ unwrap_used = "deny"
 use_debug = "deny"
 
 [profile.release]
+lto = "thin"
 codegen-units = 1
-# Turn LTO off, as it breaks when vortex-duckdb-ext is linked.
-lto = "off"
 
 [profile.release_debug]
 debug = "full"
 inherits = "release"
 
 [profile.bench]
+inherits = "release"
 codegen-units = 16
 debug = "full"
-lto = false
 
 [profile.samply]
 inherits = "release"
 codegen-units = 1
 debug = "full"
-lto = false
 
 [profile.bench_assert]
 debug-assertions = true
