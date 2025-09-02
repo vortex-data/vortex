@@ -21,7 +21,7 @@
 
 use std::sync::Arc;
 
-use vortex::dtype::Nullability::Nullable;
+use vortex::dtype::Nullability::{NonNullable, Nullable};
 use vortex::dtype::PType::{I32, I64};
 use vortex::dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
 use vortex::dtype::half::f16;
@@ -33,7 +33,7 @@ use vortex::scalar::{
 };
 
 use crate::convert::dtype::FromLogicalType;
-use crate::duckdb::{Value, ValueRef};
+use crate::duckdb::{ExtractedValue, Value, ValueRef};
 
 /// Trait for converting Vortex scalars to DuckDB values.
 pub trait ToDuckDBScalar {
@@ -209,78 +209,89 @@ impl<'a> TryFrom<ValueRef<'a>> for Scalar {
     type Error = VortexError;
 
     fn try_from(value: ValueRef<'a>) -> Result<Self, Self::Error> {
-        use crate::duckdb::ExtractedValue;
         let dtype = DType::from_logical_type(value.logical_type(), Nullable)?;
         match value.extract() {
             ExtractedValue::Null => Ok(Scalar::null(dtype)),
-            ExtractedValue::Boolean(b) => Ok(Scalar::bool(b, Nullable)),
-            ExtractedValue::TinyInt(v) => Ok(Scalar::primitive(v, Nullable)),
-            ExtractedValue::SmallInt(v) => Ok(Scalar::primitive(v, Nullable)),
-            ExtractedValue::Integer(v) => Ok(Scalar::primitive(v, Nullable)),
-            ExtractedValue::BigInt(v) => Ok(Scalar::primitive(v, Nullable)),
+            ExtractedValue::Boolean(b) => Ok(Scalar::bool(b, NonNullable)),
+            ExtractedValue::TinyInt(v) => Ok(Scalar::primitive(v, NonNullable)),
+            ExtractedValue::SmallInt(v) => Ok(Scalar::primitive(v, NonNullable)),
+            ExtractedValue::Integer(v) => Ok(Scalar::primitive(v, NonNullable)),
+            ExtractedValue::BigInt(v) => Ok(Scalar::primitive(v, NonNullable)),
             ExtractedValue::HugeInt(_) => {
                 vortex_bail!("DuckDB HugeInt is not yet supported in Vortex");
             }
-            ExtractedValue::UTinyInt(v) => Ok(Scalar::primitive(v, Nullable)),
-            ExtractedValue::USmallInt(v) => Ok(Scalar::primitive(v, Nullable)),
-            ExtractedValue::UInteger(v) => Ok(Scalar::primitive(v, Nullable)),
-            ExtractedValue::UBigInt(v) => Ok(Scalar::primitive(v, Nullable)),
-            ExtractedValue::Float(v) => Ok(Scalar::primitive(v, Nullable)),
-            ExtractedValue::Double(v) => Ok(Scalar::primitive(v, Nullable)),
-            ExtractedValue::Varchar(s) => Ok(Scalar::utf8(s, Nullable)),
-            ExtractedValue::Blob(b) => Ok(Scalar::binary(b, Nullable)),
+            ExtractedValue::UTinyInt(v) => Ok(Scalar::primitive(v, NonNullable)),
+            ExtractedValue::USmallInt(v) => Ok(Scalar::primitive(v, NonNullable)),
+            ExtractedValue::UInteger(v) => Ok(Scalar::primitive(v, NonNullable)),
+            ExtractedValue::UBigInt(v) => Ok(Scalar::primitive(v, NonNullable)),
+            ExtractedValue::Float(v) => Ok(Scalar::primitive(v, NonNullable)),
+            ExtractedValue::Double(v) => Ok(Scalar::primitive(v, NonNullable)),
+            ExtractedValue::Varchar(s) => Ok(Scalar::utf8(s, NonNullable)),
+            ExtractedValue::Blob(b) => Ok(Scalar::binary(b, NonNullable)),
             ExtractedValue::Date(days) => Ok(Scalar::extension(
                 Arc::new(ExtDType::new(
                     DATE_ID.clone(),
-                    Arc::new(DType::Primitive(I32, Nullable)),
+                    Arc::new(DType::Primitive(I32, NonNullable)),
                     Some(TemporalMetadata::Date(TimeUnit::Days).into()),
                 )),
-                Scalar::new(DType::Primitive(I32, Nullable), ScalarValue::from(days)),
+                Scalar::new(DType::Primitive(I32, NonNullable), ScalarValue::from(days)),
             )),
             ExtractedValue::Time(micros) => Ok(Scalar::extension(
                 Arc::new(ExtDType::new(
                     TIME_ID.clone(),
-                    Arc::new(DType::Primitive(I64, Nullable)),
+                    Arc::new(DType::Primitive(I64, NonNullable)),
                     Some(TemporalMetadata::Time(TimeUnit::Microseconds).into()),
                 )),
-                Scalar::new(DType::Primitive(I64, Nullable), ScalarValue::from(micros)),
+                Scalar::new(
+                    DType::Primitive(I64, NonNullable),
+                    ScalarValue::from(micros),
+                ),
             )),
             ExtractedValue::TimestampNs(nanos) => Ok(Scalar::extension(
                 Arc::new(ExtDType::new(
                     TIMESTAMP_ID.clone(),
-                    Arc::new(DType::Primitive(I64, Nullable)),
+                    Arc::new(DType::Primitive(I64, NonNullable)),
                     Some(TemporalMetadata::Timestamp(TimeUnit::Nanoseconds, None).into()),
                 )),
-                Scalar::new(DType::Primitive(I64, Nullable), ScalarValue::from(nanos)),
+                Scalar::new(DType::Primitive(I64, NonNullable), ScalarValue::from(nanos)),
             )),
             ExtractedValue::Timestamp(micros) => Ok(Scalar::extension(
                 Arc::new(ExtDType::new(
                     TIMESTAMP_ID.clone(),
-                    Arc::new(DType::Primitive(I64, Nullable)),
+                    Arc::new(DType::Primitive(I64, NonNullable)),
                     Some(TemporalMetadata::Timestamp(TimeUnit::Microseconds, None).into()),
                 )),
-                Scalar::new(DType::Primitive(I64, Nullable), ScalarValue::from(micros)),
+                Scalar::new(
+                    DType::Primitive(I64, NonNullable),
+                    ScalarValue::from(micros),
+                ),
             )),
             ExtractedValue::TimestampMs(millis) => Ok(Scalar::extension(
                 Arc::new(ExtDType::new(
                     TIMESTAMP_ID.clone(),
-                    Arc::new(DType::Primitive(I64, Nullable)),
+                    Arc::new(DType::Primitive(I64, NonNullable)),
                     Some(TemporalMetadata::Timestamp(TimeUnit::Milliseconds, None).into()),
                 )),
-                Scalar::new(DType::Primitive(I64, Nullable), ScalarValue::from(millis)),
+                Scalar::new(
+                    DType::Primitive(I64, NonNullable),
+                    ScalarValue::from(millis),
+                ),
             )),
             ExtractedValue::TimestampS(seconds) => Ok(Scalar::extension(
                 Arc::new(ExtDType::new(
                     TIMESTAMP_ID.clone(),
-                    Arc::new(DType::Primitive(I64, Nullable)),
+                    Arc::new(DType::Primitive(I64, NonNullable)),
                     Some(TemporalMetadata::Timestamp(TimeUnit::Seconds, None).into()),
                 )),
-                Scalar::new(DType::Primitive(I64, Nullable), ScalarValue::from(seconds)),
+                Scalar::new(
+                    DType::Primitive(I64, NonNullable),
+                    ScalarValue::from(seconds),
+                ),
             )),
             ExtractedValue::Decimal(precision, scale, value) => Ok(Scalar::decimal(
                 DecimalValue::I128(value),
                 DecimalDType::try_new(precision, scale)?,
-                Nullable,
+                NonNullable,
             )),
         }
     }

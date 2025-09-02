@@ -21,8 +21,8 @@ use crate::{BitPackedArray, BitPackedVTable};
 
 impl PipelineVTable<BitPackedVTable> for BitPackedVTable {
     fn to_operator(array: &BitPackedArray) -> VortexResult<Option<OperatorRef>> {
-        if array.dtype.is_nullable() {
-            log::trace!("BitPackedVTable does not support nullable arrays");
+        if !array.all_valid() {
+            log::trace!("BitPackedVTable does not support non-all-valid arrays");
             return Ok(None);
         }
         if array.patches.is_some() {

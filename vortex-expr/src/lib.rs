@@ -243,7 +243,7 @@ impl VortexExprExt for ExprRef {
         let Some(operator) = self.to_operator_unoptimized(root)? else {
             return Ok(None);
         };
-        reduce_up(operator).map(Some)
+        reduce_operator(operator).map(Some)
     }
 
     fn to_operator_unoptimized(&self, root: &dyn Array) -> VortexResult<Option<OperatorRef>> {

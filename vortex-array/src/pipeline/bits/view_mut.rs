@@ -91,7 +91,11 @@ impl<'a> BitViewMut<'a> {
     }
 
     pub fn as_raw_mut(&mut self) -> &mut [usize; N_WORDS] {
-        unsafe { std::mem::transmute(&mut self.bits) }
+        unsafe {
+            std::mem::transmute::<&mut BitArray<[usize; N_WORDS], Lsb0>, &mut [usize; N_WORDS]>(
+                &mut self.bits,
+            )
+        }
     }
 
     #[inline(always)]

@@ -13,6 +13,7 @@ mod tests;
 
 use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter};
+use std::hash::{Hash, Hasher};
 use std::ops::Range;
 use std::sync::{Arc, OnceLock};
 
@@ -92,7 +93,7 @@ impl<T> Eq for AllOr<T> where T: Eq {}
 ///
 /// A [`Mask`] can be constructed from various representations, and converted to various
 /// others. Internally, these are cached.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash)]
 pub enum Mask {
     /// All values are included.
     AllTrue(usize),
@@ -116,6 +117,12 @@ pub struct MaskValues {
     true_count: usize,
     // i.e., the fraction of values that are true
     density: f64,
+}
+
+impl Hash for MaskValues {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.buffer.values().hash(state);
+    }
 }
 
 impl MaskValues {

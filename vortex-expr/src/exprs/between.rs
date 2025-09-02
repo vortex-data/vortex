@@ -2,12 +2,15 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use vortex_array::compute::{BetweenOptions, StrictComparison, between as between_compute};
+use vortex_array::pipeline::OperatorRef;
+use vortex_array::pipeline::operators::binary_bool::BinaryBoolOpOperator;
 use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata};
 use vortex_dtype::DType;
 use vortex_dtype::DType::Bool;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_proto::expr as pb;
 
 use crate::display::{DisplayAs, DisplayFormat};
@@ -125,6 +128,27 @@ impl VTable for BetweenVTable {
         Ok(Bool(
             arr_dt.nullability() | lower_dt.nullability() | upper_dt.nullability(),
         ))
+    }
+
+    fn operator(expr: &Self::Expr, children: Vec<OperatorRef>) -> Option<OperatorRef> {
+        let [arr, lower, upper] = children
+            .try_into()
+            .ok()
+            .vortex_expect("Expected 3 children");
+
+        let lhs = BinaryExpr::new(
+            expr.lower.clone(),
+            expr.options.lower_strict.to_operator().into(),
+            expr.arr.clone(),
+        )
+        .operator(vec![lower, arr.clone()])?;
+        let rhs = BinaryExpr::new(
+            expr.arr.clone(),
+            expr.options.upper_strict.to_operator().into(),
+            expr.upper.clone(),
+        )
+        .operator(vec![arr, upper])?;
+        Some(Arc::new(BinaryBoolOpOperator::and(lhs, rhs)))
     }
 }
 
