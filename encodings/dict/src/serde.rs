@@ -7,8 +7,8 @@ use vortex_array::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, Canonical, DeserializeMetadata, ProstMetadata,
 };
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, PType};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_dtype::{DType, Nullability, PType};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
 use crate::builders::dict_encode;
 use crate::{DictArray, DictEncoding, DictVTable};
@@ -19,6 +19,9 @@ pub struct DictMetadata {
     values_len: u32,
     #[prost(enumeration = "PType", tag = "2")]
     codes_ptype: i32,
+    // nullable codes are optional since they were added after stabilisation
+    #[prost(optional, bool, tag = "3")]
+    is_nullable_codes: Option<bool>,
 }
 
 impl SerdeVTable<DictVTable> for DictVTable {
@@ -26,11 +29,14 @@ impl SerdeVTable<DictVTable> for DictVTable {
 
     fn metadata(array: &DictArray) -> VortexResult<Option<Self::Metadata>> {
         Ok(Some(ProstMetadata(DictMetadata {
-            codes_ptype: PType::try_from(array.codes().dtype())
-                .vortex_expect("Must be a valid PType") as i32,
+            codes_ptype: PType::try_from(array.codes().dtype())? as i32,
             values_len: u32::try_from(array.values().len()).map_err(|_| {
-                vortex_err!("Diction values cannot exceed u32 in length for serialization")
+                vortex_err!(
+                    "Dictionary values size {} overflowed u32",
+                    array.values().len()
+                )
             })?,
+            is_nullable_codes: Some(array.codes().dtype().is_nullable()),
         })))
     }
 
@@ -48,9 +54,14 @@ impl SerdeVTable<DictVTable> for DictVTable {
                 children.len()
             )
         }
-        let codes_dtype = DType::Primitive(metadata.codes_ptype(), dtype.nullability());
+        let codes_nullable: Nullability = metadata
+            .is_nullable_codes
+            // The old behaviour of (without `is_nullable_codes` metadata) used the nullability
+            // of the values (and whole array).
+            .unwrap_or_else(|| dtype.is_nullable())
+            .into();
+        let codes_dtype = DType::Primitive(metadata.codes_ptype(), codes_nullable);
         let codes = children.get(0, &codes_dtype, len)?;
-
         let values = children.get(1, dtype, metadata.values_len as usize)?;
 
         DictArray::try_new(codes, values)
@@ -92,6 +103,7 @@ mod test {
             ProstMetadata(DictMetadata {
                 codes_ptype: PType::U64 as i32,
                 values_len: u32::MAX,
+                is_nullable_codes: None,
             }),
         );
     }

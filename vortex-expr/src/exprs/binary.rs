@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Display;
 use std::hash::Hash;
+use std::sync::Arc;
 
-use vortex_array::compute::{Operator as ArrayOperator, add, and_kleene, compare, or_kleene, sub};
-use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata};
+use vortex_array::compute::{add, and_kleene, compare, or_kleene, sub};
+use vortex_array::pipeline::OperatorRef;
+use vortex_array::pipeline::operators::CompareOperator;
+use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata, compute};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_proto::expr as pb;
 
+use crate::display::{DisplayAs, DisplayFormat};
 use crate::{
     AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Operator, Scope, StatsCatalog,
     VTable, lit, vtable,
@@ -81,12 +84,12 @@ impl VTable for BinaryVTable {
         let rhs = expr.rhs.unchecked_evaluate(scope)?;
 
         match expr.operator {
-            Operator::Eq => compare(&lhs, &rhs, ArrayOperator::Eq),
-            Operator::NotEq => compare(&lhs, &rhs, ArrayOperator::NotEq),
-            Operator::Lt => compare(&lhs, &rhs, ArrayOperator::Lt),
-            Operator::Lte => compare(&lhs, &rhs, ArrayOperator::Lte),
-            Operator::Gt => compare(&lhs, &rhs, ArrayOperator::Gt),
-            Operator::Gte => compare(&lhs, &rhs, ArrayOperator::Gte),
+            Operator::Eq => compare(&lhs, &rhs, compute::Operator::Eq),
+            Operator::NotEq => compare(&lhs, &rhs, compute::Operator::NotEq),
+            Operator::Lt => compare(&lhs, &rhs, compute::Operator::Lt),
+            Operator::Lte => compare(&lhs, &rhs, compute::Operator::Lte),
+            Operator::Gt => compare(&lhs, &rhs, compute::Operator::Gt),
+            Operator::Gte => compare(&lhs, &rhs, compute::Operator::Gte),
             Operator::And => and_kleene(&lhs, &rhs),
             Operator::Or => or_kleene(&lhs, &rhs),
             Operator::Add => add(&lhs, &rhs),
@@ -106,6 +109,16 @@ impl VTable for BinaryVTable {
         }
 
         Ok(DType::Bool((lhs.is_nullable() || rhs.is_nullable()).into()))
+    }
+
+    fn operator(expr: &BinaryExpr, children: Vec<OperatorRef>) -> Option<OperatorRef> {
+        let [lhs, rhs] = children
+            .try_into()
+            .ok()
+            .vortex_expect("Expected 2 children");
+        let op = expr.operator.try_into().ok()?;
+
+        Some(Arc::new(CompareOperator::new(lhs, rhs, op)) as OperatorRef)
     }
 }
 
@@ -131,9 +144,20 @@ impl BinaryExpr {
     }
 }
 
-impl Display for BinaryExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "({} {} {})", self.lhs, self.operator, self.rhs)
+impl DisplayAs for BinaryExpr {
+    fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match df {
+            DisplayFormat::Compact => {
+                write!(f, "({} {} {})", self.lhs, self.operator, self.rhs)
+            }
+            DisplayFormat::Tree => {
+                write!(f, "Binary({})", self.operator)
+            }
+        }
+    }
+
+    fn child_names(&self) -> Option<Vec<String>> {
+        Some(vec!["lhs".to_string(), "rhs".to_string()])
     }
 }
 
@@ -282,7 +306,7 @@ impl AnalysisExpr for BinaryExpr {
 /// let result = eq(root(), lit(3)).evaluate(&Scope::new(xs.to_array())).unwrap();
 ///
 /// assert_eq!(
-///     result.to_bool().unwrap().boolean_buffer(),
+///     result.to_bool().boolean_buffer(),
 ///     BoolArray::from_iter(vec![false, false, true]).boolean_buffer(),
 /// );
 /// ```
@@ -304,7 +328,7 @@ pub fn eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// let result = not_eq(root(), lit(3)).evaluate(&Scope::new(xs.to_array())).unwrap();
 ///
 /// assert_eq!(
-///     result.to_bool().unwrap().boolean_buffer(),
+///     result.to_bool().boolean_buffer(),
 ///     BoolArray::from_iter(vec![true, true, false]).boolean_buffer(),
 /// );
 /// ```
@@ -326,7 +350,7 @@ pub fn not_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// let result = gt_eq(root(), lit(3)).evaluate(&Scope::new(xs.to_array())).unwrap();
 ///
 /// assert_eq!(
-///     result.to_bool().unwrap().boolean_buffer(),
+///     result.to_bool().boolean_buffer(),
 ///     BoolArray::from_iter(vec![false, false, true]).boolean_buffer(),
 /// );
 /// ```
@@ -348,7 +372,7 @@ pub fn gt_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// let result = gt(root(), lit(2)).evaluate(&Scope::new(xs.to_array())).unwrap();
 ///
 /// assert_eq!(
-///     result.to_bool().unwrap().boolean_buffer(),
+///     result.to_bool().boolean_buffer(),
 ///     BoolArray::from_iter(vec![false, false, true]).boolean_buffer(),
 /// );
 /// ```
@@ -370,7 +394,7 @@ pub fn gt(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// let result = lt_eq(root(), lit(2)).evaluate(&Scope::new(xs.to_array())).unwrap();
 ///
 /// assert_eq!(
-///     result.to_bool().unwrap().boolean_buffer(),
+///     result.to_bool().boolean_buffer(),
 ///     BoolArray::from_iter(vec![true, true, false]).boolean_buffer(),
 /// );
 /// ```
@@ -392,7 +416,7 @@ pub fn lt_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// let result = lt(root(), lit(3)).evaluate(&Scope::new(xs.to_array())).unwrap();
 ///
 /// assert_eq!(
-///     result.to_bool().unwrap().boolean_buffer(),
+///     result.to_bool().boolean_buffer(),
 ///     BoolArray::from_iter(vec![true, true, false]).boolean_buffer(),
 /// );
 /// ```
@@ -412,7 +436,7 @@ pub fn lt(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// let result = or(root(), lit(false)).evaluate(&Scope::new(xs.to_array())).unwrap();
 ///
 /// assert_eq!(
-///     result.to_bool().unwrap().boolean_buffer(),
+///     result.to_bool().boolean_buffer(),
 ///     BoolArray::from_iter(vec![true, false, true]).boolean_buffer(),
 /// );
 /// ```
@@ -444,7 +468,7 @@ where
 /// let result = and(root(), lit(true)).evaluate(&Scope::new(xs.to_array())).unwrap();
 ///
 /// assert_eq!(
-///     result.to_bool().unwrap().boolean_buffer(),
+///     result.to_bool().boolean_buffer(),
 ///     BoolArray::from_iter(vec![true, false, true]).boolean_buffer(),
 /// );
 /// ```

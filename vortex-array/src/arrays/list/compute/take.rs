@@ -16,8 +16,8 @@ use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 
 impl TakeKernel for ListVTable {
     fn take(&self, array: &ListArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let indices = indices.to_primitive()?;
-        let offsets = array.offsets().to_primitive()?;
+        let indices = indices.to_primitive();
+        let offsets = array.offsets().to_primitive();
 
         match_each_integer_ptype!(offsets.dtype().as_ptype(), |O| {
             match_each_integer_ptype!(indices.ptype(), |I| {
@@ -25,8 +25,8 @@ impl TakeKernel for ListVTable {
                     array,
                     offsets.as_slice::<O>(),
                     &indices,
-                    array.validity_mask()?,
-                    indices.validity_mask()?,
+                    array.validity_mask(),
+                    indices.validity_mask(),
                 )
             })
         })
@@ -97,7 +97,7 @@ fn _take<I: NativePType, O: OffsetPType + NativePType + PrimInt>(
         indices_array
             .validity()
             .clone()
-            .and(array.validity().clone())?,
+            .and(array.validity().clone()),
     )?
     .to_array())
 }
@@ -200,15 +200,15 @@ mod test {
             )
         );
 
-        let result = result.to_list().unwrap();
+        let result = result.to_list();
 
         assert_eq!(result.len(), 4);
 
         let element_dtype: Arc<DType> = Arc::new(I32.into());
 
-        assert!(result.is_valid(0).unwrap());
+        assert!(result.is_valid(0));
         assert_eq!(
-            result.scalar_at(0).unwrap(),
+            result.scalar_at(0),
             Scalar::list(
                 element_dtype.clone(),
                 vec![0i32.into(), 5.into()],
@@ -216,11 +216,11 @@ mod test {
             )
         );
 
-        assert!(result.is_invalid(1).unwrap());
+        assert!(result.is_invalid(1));
 
-        assert!(result.is_valid(2).unwrap());
+        assert!(result.is_valid(2));
         assert_eq!(
-            result.scalar_at(2).unwrap(),
+            result.scalar_at(2),
             Scalar::list(
                 element_dtype.clone(),
                 vec![3i32.into()],
@@ -228,9 +228,9 @@ mod test {
             )
         );
 
-        assert!(result.is_valid(3).unwrap());
+        assert!(result.is_valid(3));
         assert_eq!(
-            result.scalar_at(3).unwrap(),
+            result.scalar_at(3),
             Scalar::list(element_dtype, vec![], Nullability::Nullable)
         );
     }
@@ -280,15 +280,15 @@ mod test {
             )
         );
 
-        let result = result.to_list().unwrap();
+        let result = result.to_list();
 
         assert_eq!(result.len(), 3);
 
         let element_dtype: Arc<DType> = Arc::new(I32.into());
 
-        assert!(result.is_valid(0).unwrap());
+        assert!(result.is_valid(0));
         assert_eq!(
-            result.scalar_at(0).unwrap(),
+            result.scalar_at(0),
             Scalar::list(
                 element_dtype.clone(),
                 vec![3i32.into()],
@@ -296,9 +296,9 @@ mod test {
             )
         );
 
-        assert!(result.is_valid(1).unwrap());
+        assert!(result.is_valid(1));
         assert_eq!(
-            result.scalar_at(1).unwrap(),
+            result.scalar_at(1),
             Scalar::list(
                 element_dtype.clone(),
                 vec![0i32.into(), 5.into()],
@@ -306,9 +306,9 @@ mod test {
             )
         );
 
-        assert!(result.is_valid(2).unwrap());
+        assert!(result.is_valid(2));
         assert_eq!(
-            result.scalar_at(2).unwrap(),
+            result.scalar_at(2),
             Scalar::list(element_dtype, vec![], Nullability::NonNullable)
         );
     }

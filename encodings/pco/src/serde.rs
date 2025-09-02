@@ -90,7 +90,7 @@ impl EncodeVTable<PcoVTable> for PcoVTable {
         canonical: &vortex_array::Canonical,
         _like: Option<&PcoArray>,
     ) -> VortexResult<Option<PcoArray>> {
-        let parray = canonical.clone().into_primitive()?;
+        let parray = canonical.clone().into_primitive();
 
         Ok(Some(PcoArray::from_primitive(&parray, 3, 0)?))
     }

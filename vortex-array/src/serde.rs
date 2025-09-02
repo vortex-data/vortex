@@ -224,9 +224,7 @@ impl WriteFlatBuffer for ArrayNodeFlatBuffer<'_> {
 }
 
 /// To minimize the serialized form, arrays do not persist their own dtype and length. Instead,
-/// parent arrays pass this information down during deserialization. This trait abstracts
-/// over either a serialized [`crate::serde::ArrayParts`] or the
-/// in-memory [`crate::data::ArrayData`].
+/// parent arrays pass this information down during deserialization.
 pub trait ArrayChildren {
     /// Returns the nth child of the array with the given dtype and length.
     fn get(&self, index: usize, dtype: &DType, len: usize) -> VortexResult<ArrayRef>;

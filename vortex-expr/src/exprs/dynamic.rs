@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
@@ -14,6 +14,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_proto::expr as pb;
 use vortex_scalar::{Scalar, ScalarValue};
 
+use crate::display::{DisplayAs, DisplayFormat};
 use crate::traversal::{NodeExt, NodeVisitor, TraversalOrder};
 use crate::{
     AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog, VTable, vtable,
@@ -170,13 +171,20 @@ impl DynamicComparisonExpr {
     }
 }
 
-impl Display for DynamicComparisonExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{} {} dynamic({})",
-            &self.lhs, self.operator, &self.rhs.dtype,
-        )
+impl DisplayAs for DynamicComparisonExpr {
+    fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match df {
+            DisplayFormat::Compact => {
+                write!(
+                    f,
+                    "{} {} dynamic({})",
+                    &self.lhs, self.operator, &self.rhs.dtype,
+                )
+            }
+            DisplayFormat::Tree => {
+                write!(f, "DynamicComparison")
+            }
+        }
     }
 }
 

@@ -12,7 +12,7 @@ use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
 impl TakeKernel for ConstantVTable {
     fn take(&self, array: &ConstantArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        match indices.validity_mask()?.boolean_buffer() {
+        match indices.validity_mask().boolean_buffer() {
             AllOr::All => {
                 let scalar = Scalar::new(
                     array
@@ -41,7 +41,7 @@ impl TakeKernel for ConstantVTable {
 
                 let mut result_builder =
                     builder_with_capacity(&array.dtype().as_nullable(), indices.len());
-                result_builder.extend_from_array(&arr)?;
+                result_builder.extend_from_array(&arr);
                 result_builder.set_validity(Mask::from_buffer(v.clone()));
                 Ok(result_builder.finish())
             }
@@ -82,14 +82,8 @@ mod tests {
             &array.dtype().with_nullability(Nullability::Nullable),
             taken.dtype()
         );
-        assert_eq!(
-            taken.to_primitive().unwrap().as_slice::<i32>(),
-            &[42, 42, 42]
-        );
-        assert_eq!(
-            taken.validity_mask().unwrap().indices(),
-            AllOr::Some(valid_indices)
-        );
+        assert_eq!(taken.to_primitive().as_slice::<i32>(), &[42, 42, 42]);
+        assert_eq!(taken.validity_mask().indices(), AllOr::Some(valid_indices));
     }
 
     #[test]
@@ -104,11 +98,8 @@ mod tests {
             &array.dtype().with_nullability(Nullability::Nullable),
             taken.dtype()
         );
-        assert_eq!(
-            taken.to_primitive().unwrap().as_slice::<i32>(),
-            &[42, 42, 42]
-        );
-        assert_eq!(taken.validity_mask().unwrap().indices(), AllOr::All);
+        assert_eq!(taken.to_primitive().as_slice::<i32>(), &[42, 42, 42]);
+        assert_eq!(taken.validity_mask().indices(), AllOr::All);
     }
 
     #[rstest]

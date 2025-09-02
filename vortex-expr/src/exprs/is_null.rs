@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Display;
 use std::ops::Not;
 
 use vortex_array::arrays::{BoolArray, ConstantArray};
@@ -10,6 +9,7 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
+use crate::display::{DisplayAs, DisplayFormat};
 use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
 
 vtable!(IsNull);
@@ -66,7 +66,7 @@ impl VTable for IsNullVTable {
 
     fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
         let array = expr.child.unchecked_evaluate(scope)?;
-        match array.validity_mask()? {
+        match array.validity_mask() {
             Mask::AllTrue(len) => Ok(ConstantArray::new(false, len).into_array()),
             Mask::AllFalse(len) => Ok(ConstantArray::new(true, len).into_array()),
             Mask::Values(mask) => Ok(BoolArray::from(mask.boolean_buffer().not()).into_array()),
@@ -88,9 +88,16 @@ impl IsNullExpr {
     }
 }
 
-impl Display for IsNullExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "is_null({})", self.child)
+impl DisplayAs for IsNullExpr {
+    fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match df {
+            DisplayFormat::Compact => {
+                write!(f, "is_null({})", self.child)
+            }
+            DisplayFormat::Tree => {
+                write!(f, "IsNull")
+            }
+        }
     }
 }
 
@@ -149,7 +156,7 @@ mod tests {
 
         for (i, expected_value) in expected.iter().enumerate() {
             assert_eq!(
-                result.scalar_at(i).unwrap(),
+                result.scalar_at(i),
                 Scalar::bool(*expected_value, Nullability::NonNullable)
             );
         }
@@ -207,9 +214,18 @@ mod tests {
 
         for (i, expected_value) in expected.iter().enumerate() {
             assert_eq!(
-                result.scalar_at(i).unwrap(),
+                result.scalar_at(i),
                 Scalar::bool(*expected_value, Nullability::NonNullable)
             );
         }
+    }
+
+    #[test]
+    fn test_display() {
+        let expr = is_null(get_item("name", root()));
+        assert_eq!(expr.to_string(), "is_null($.name)");
+
+        let expr2 = is_null(root());
+        assert_eq!(expr2.to_string(), "is_null($)");
     }
 }

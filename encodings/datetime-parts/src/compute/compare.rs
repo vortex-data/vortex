@@ -8,7 +8,7 @@ use vortex_array::compute::{
 use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
 use vortex_dtype::datetime::TemporalMetadata;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexExpect as _, VortexResult};
+use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::array::{DateTimePartsArray, DateTimePartsVTable};
@@ -26,12 +26,11 @@ impl CompareKernel for DateTimePartsVTable {
         let Some(rhs_const) = rhs.as_constant() else {
             return Ok(None);
         };
-        let Ok(timestamp) = rhs_const
+        let Some(timestamp) = rhs_const
             .as_extension()
             .storage()
             .as_primitive()
             .as_::<i64>()
-            .map(|maybe_value| maybe_value.vortex_expect("null scalar handled in top-level"))
         else {
             return Ok(None);
         };
@@ -208,7 +207,7 @@ mod test {
     ) -> DateTimePartsArray {
         DateTimePartsArray::try_from(TemporalArray::new_timestamp(
             PrimitiveArray::new(buffer![value], validity).into_array(),
-            TimeUnit::S,
+            TimeUnit::Seconds,
             Some("UTC".to_string()),
         ))
         .expect("Failed to construct DateTimePartsArray from TemporalArray")
@@ -283,7 +282,7 @@ mod test {
     ) {
         let temporal_array = TemporalArray::new_timestamp(
             PrimitiveArray::new(buffer![0i64], lhs_validity.clone()).into_array(),
-            TimeUnit::S,
+            TimeUnit::Seconds,
             Some("UTC".to_string()),
         );
 

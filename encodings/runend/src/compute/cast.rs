@@ -13,15 +13,18 @@ impl CastKernel for RunEndVTable {
         // Cast the values array to the target type
         let casted_values = cast(array.values(), dtype)?;
 
-        Ok(Some(
-            RunEndArray::with_offset_and_length(
-                array.ends().clone(),
-                casted_values,
-                array.offset(),
-                array.len(),
-            )?
-            .into_array(),
-        ))
+        // SAFETY: casting does not affect the ends being valid
+        unsafe {
+            Ok(Some(
+                RunEndArray::new_unchecked(
+                    array.ends().clone(),
+                    casted_values,
+                    array.offset(),
+                    array.len(),
+                )
+                .into_array(),
+            ))
+        }
     }
 }
 
@@ -33,7 +36,7 @@ mod tests {
     use vortex_array::arrays::{BoolArray, PrimitiveArray};
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
-    use vortex_array::{Array, IntoArray};
+    use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
@@ -58,7 +61,7 @@ mod tests {
         );
 
         // Verify by decoding to canonical form
-        let decoded = casted.to_canonical().unwrap().into_primitive().unwrap();
+        let decoded = casted.to_primitive();
         // RunEnd encoding should expand to [100, 100, 100, 200, 200, 100, 100, 100, 300, 300]
         assert_eq!(decoded.len(), 10);
         assert_eq!(decoded.as_slice::<i64>()[0], 100);
@@ -96,10 +99,10 @@ mod tests {
         .unwrap();
 
         // Slice it to get offset 3, length 5: [200, 200, 300, 300, 300]
-        let sliced = runend.slice(3, 8).unwrap();
+        let sliced = runend.slice(3..8);
 
         // Verify the slice is correct before casting
-        let sliced_decoded = sliced.to_canonical().unwrap().into_primitive().unwrap();
+        let sliced_decoded = sliced.to_primitive();
         assert_eq!(sliced_decoded.len(), 5);
         assert_eq!(sliced_decoded.as_slice::<i32>(), &[200, 200, 300, 300, 300]);
 
@@ -111,7 +114,7 @@ mod tests {
         .unwrap();
 
         // Verify the cast preserved the offset
-        let casted_decoded = casted.to_canonical().unwrap().into_primitive().unwrap();
+        let casted_decoded = casted.to_primitive();
         assert_eq!(casted_decoded.len(), 5);
         assert_eq!(
             casted_decoded.as_slice::<i64>(),

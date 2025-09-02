@@ -34,10 +34,10 @@ pub fn compare_canonical_array(
                 .vortex_expect("nulls handled before");
             Ok(compare_to(
                 array
-                    .to_bool()?
+                    .to_bool()
                     .boolean_buffer()
                     .iter()
-                    .zip(array.validity_mask()?.to_boolean_buffer().iter())
+                    .zip(array.validity_mask().to_boolean_buffer().iter())
                     .map(|(b, v)| v.then_some(b)),
                 bool,
                 operator,
@@ -45,7 +45,7 @@ pub fn compare_canonical_array(
         }
         DType::Primitive(p, _) => {
             let primitive = value.as_primitive();
-            let primitive_array = array.to_primitive()?;
+            let primitive_array = array.to_primitive();
             match_each_native_ptype!(p, |P| {
                 let pval = primitive
                     .typed_value::<P>()
@@ -55,7 +55,7 @@ pub fn compare_canonical_array(
                         .as_slice::<P>()
                         .iter()
                         .copied()
-                        .zip(array.validity_mask()?.to_boolean_buffer().iter())
+                        .zip(array.validity_mask().to_boolean_buffer().iter())
                         .map(|(b, v)| v.then_some(b)),
                     pval,
                     operator,
@@ -64,7 +64,7 @@ pub fn compare_canonical_array(
         }
         DType::Decimal(..) => {
             let decimal = value.as_decimal();
-            let decimal_array = array.to_decimal()?;
+            let decimal_array = array.to_decimal();
             match_each_decimal_value_type!(decimal_array.values_type(), |D| {
                 let dval = decimal
                     .decimal_value()
@@ -76,14 +76,14 @@ pub fn compare_canonical_array(
                     buf.as_slice()
                         .iter()
                         .copied()
-                        .zip(array.validity_mask()?.to_boolean_buffer().iter())
+                        .zip(array.validity_mask().to_boolean_buffer().iter())
                         .map(|(b, v)| v.then_some(b)),
                     dval,
                     operator,
                 ))
             })
         }
-        DType::Utf8(_) => array.to_varbinview()?.with_iterator(|iter| {
+        DType::Utf8(_) => array.to_varbinview().with_iterator(|iter| {
             let utf8_value = value
                 .as_utf8()
                 .value()
@@ -94,7 +94,7 @@ pub fn compare_canonical_array(
                 operator,
             )
         }),
-        DType::Binary(_) => array.to_varbinview()?.with_iterator(|iter| {
+        DType::Binary(_) => array.to_varbinview().with_iterator(|iter| {
             let binary_value = value
                 .as_binary()
                 .value()
@@ -108,9 +108,7 @@ pub fn compare_canonical_array(
             )
         }),
         DType::Struct(..) | DType::List(..) => {
-            let scalar_vals = (0..array.len())
-                .map(|i| array.scalar_at(i))
-                .collect::<VortexResult<Vec<_>>>()?;
+            let scalar_vals: Vec<Scalar> = (0..array.len()).map(|i| array.scalar_at(i)).collect();
             Ok(BoolArray::from_iter(
                 scalar_vals
                     .iter()
@@ -118,6 +116,7 @@ pub fn compare_canonical_array(
             )
             .into_array())
         }
+        DType::FixedSizeList(..) => unimplemented!("TODO(connor)[FixedSizeList]"),
         d @ (DType::Null | DType::Extension(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }

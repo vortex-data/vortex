@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-
 use std::fmt::Debug;
 
 pub use compress::*;
@@ -16,6 +15,7 @@ use vortex_scalar::Scalar;
 mod compress;
 mod compute;
 mod ops;
+mod pipeline;
 mod serde;
 
 vtable!(FoR);
@@ -32,6 +32,7 @@ impl VTable for FoRVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
     type SerdeVTable = Self;
+    type PipelineVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("fastlanes.for")
@@ -62,11 +63,20 @@ impl FoRArray {
                 .dtype()
                 .with_nullability(encoded.dtype().nullability()),
         )?;
+
         Ok(Self {
             encoded,
             reference,
             stats_set: Default::default(),
         })
+    }
+
+    pub(crate) unsafe fn new_unchecked(encoded: ArrayRef, reference: Scalar) -> Self {
+        Self {
+            encoded,
+            reference,
+            stats_set: Default::default(),
+        }
     }
 
     #[inline]
@@ -106,7 +116,7 @@ impl ValidityChild<FoRVTable> for FoRVTable {
 }
 
 impl CanonicalVTable<FoRVTable> for FoRVTable {
-    fn canonicalize(array: &FoRArray) -> VortexResult<Canonical> {
-        decompress(array).map(Canonical::Primitive)
+    fn canonicalize(array: &FoRArray) -> Canonical {
+        Canonical::Primitive(decompress(array))
     }
 }

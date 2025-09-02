@@ -76,7 +76,7 @@ impl WriteStrategyBuilder {
         let compressing = if let Some(ref compressor) = self.compressor {
             CompressingStrategy::new_opaque(buffered, compressor.clone(), executor.clone(), 16)
         } else {
-            CompressingStrategy::new_btrblocks(buffered, executor.clone(), 16)
+            CompressingStrategy::new_btrblocks(buffered, executor.clone(), 16, true)
         };
 
         // 4. prior to compression, coalesce up to a minimum size
@@ -97,7 +97,12 @@ impl WriteStrategyBuilder {
                 1,
             )
         } else {
-            CompressingStrategy::new_btrblocks(FlatLayoutStrategy::default(), executor.clone(), 1)
+            CompressingStrategy::new_btrblocks(
+                FlatLayoutStrategy::default(),
+                executor.clone(),
+                1,
+                false,
+            )
         };
 
         // 3. apply dict encoding or fallback

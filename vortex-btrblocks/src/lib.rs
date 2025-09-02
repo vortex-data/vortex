@@ -5,8 +5,9 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use itertools::Itertools;
-use vortex_array::arrays::{ExtensionArray, ListArray, StructArray, TemporalArray};
-use vortex_array::compress::downscale_integer_array;
+use vortex_array::arrays::{
+    ExtensionArray, FixedSizeListArray, ListArray, StructArray, TemporalArray,
+};
 use vortex_array::vtable::{VTable, ValidityHelper};
 use vortex_array::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
 use vortex_dtype::datetime::TemporalMetadata;
@@ -271,13 +272,15 @@ pub trait Compressor {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct BtrBlocksCompressor;
+#[derive(Default, Debug, Clone)]
+pub struct BtrBlocksCompressor {
+    pub exclude_int_dict_encoding: bool,
+}
 
 impl BtrBlocksCompressor {
     pub fn compress(&self, array: &dyn Array) -> VortexResult<ArrayRef> {
         // Canonicalize the array
-        let canonical = array.to_canonical()?;
+        let canonical = array.to_canonical();
 
         // Compact it, removing any wasted space before we attempt to compress it
         let compact = canonical.compact()?;
@@ -292,7 +295,11 @@ impl BtrBlocksCompressor {
             Canonical::Bool(bool_array) => Ok(bool_array.into_array()),
             Canonical::Primitive(primitive) => {
                 if primitive.ptype().is_int() {
-                    IntCompressor::compress(&primitive, false, MAX_CASCADE, &[])
+                    if self.exclude_int_dict_encoding {
+                        IntCompressor::compress_no_dict(&primitive, false, MAX_CASCADE, &[])
+                    } else {
+                        IntCompressor::compress(&primitive, false, MAX_CASCADE, &[])
+                    }
                 } else {
                     FloatCompressor::compress(&primitive, false, MAX_CASCADE, &[])
                 }
@@ -317,7 +324,7 @@ impl BtrBlocksCompressor {
                 // Compress the inner
                 let compressed_elems = self.compress(list_array.elements())?;
                 let compressed_offsets = IntCompressor::compress_no_dict(
-                    &downscale_integer_array(list_array.offsets().clone())?.to_primitive()?,
+                    &list_array.offsets().to_primitive().downcast()?,
                     false,
                     MAX_CASCADE,
                     &[],
@@ -327,6 +334,17 @@ impl BtrBlocksCompressor {
                     compressed_elems,
                     compressed_offsets,
                     list_array.validity().clone(),
+                )?
+                .into_array())
+            }
+            Canonical::FixedSizeList(fsl_array) => {
+                let compressed_elems = self.compress(fsl_array.elements())?;
+
+                Ok(FixedSizeListArray::try_new(
+                    compressed_elems,
+                    fsl_array.list_size(),
+                    fsl_array.validity().clone(),
+                    fsl_array.len(),
                 )?
                 .into_array())
             }

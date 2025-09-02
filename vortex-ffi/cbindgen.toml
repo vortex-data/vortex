@@ -1,4 +1,5 @@
 language = "C"
+braces = "SameLine"
 pragma_once = true
 cpp_compat = true
 usize_is_size_t = true

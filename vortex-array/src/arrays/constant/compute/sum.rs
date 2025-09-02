@@ -37,7 +37,7 @@ fn sum_scalar(scalar: &Scalar, len: usize) -> VortexResult<ScalarValue> {
             floating: |T| { sum_float(scalar.as_primitive(), len)?.into() }
         )),
         DType::Extension(_) => sum_scalar(&scalar.as_extension().storage(), len),
-        _ => vortex_bail!("Unsupported dtype for sum: {}", scalar.dtype()),
+        dtype => vortex_bail!("Unsupported dtype for sum: {}", dtype),
     }
 }
 
@@ -49,7 +49,7 @@ where
     T: FromPrimitiveOrF16 + NativePType + CheckedMul,
     Scalar: From<Option<T>>,
 {
-    let v = primitive_scalar.as_::<T>()?;
+    let v = primitive_scalar.as_::<T>();
     let array_len =
         T::from(array_len).ok_or_else(|| vortex_err!("array_len must fit the sum type"))?;
     let sum = v.and_then(|v| v.checked_mul(&array_len));
@@ -58,7 +58,7 @@ where
 }
 
 fn sum_float(primitive_scalar: PrimitiveScalar<'_>, array_len: usize) -> VortexResult<Option<f64>> {
-    let v = primitive_scalar.as_::<f64>()?;
+    let v = primitive_scalar.as_::<f64>();
     let array_len = array_len
         .to_f64()
         .ok_or_else(|| vortex_err!("array_len must fit the sum type"))?;

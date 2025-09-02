@@ -10,7 +10,6 @@ use std::sync::Arc;
 
 use Nullability::NonNullable;
 use async_trait::async_trait;
-use dashmap::DashMap;
 pub use expr::*;
 use vortex_array::compute::filter;
 use vortex_array::stats::Precision;
@@ -22,6 +21,7 @@ use vortex_expr::{ExactExpr, ExprRef, Scope, is_root, root};
 use vortex_mask::Mask;
 use vortex_scalar::PValue;
 use vortex_sequence::SequenceArray;
+use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::layouts::partitioned::{PartitionedArrayEvaluation, PartitionedMaskEvaluation};
 use crate::{
@@ -43,7 +43,7 @@ impl RowIdxLayoutReader {
             name: child.name().clone(),
             row_offset,
             child,
-            partition_cache: DashMap::new(),
+            partition_cache: DashMap::with_hasher(Default::default()),
         }
     }
 
@@ -239,11 +239,10 @@ impl RowIdxEvaluation {
 impl PruningEvaluation for RowIdxEvaluation {
     async fn invoke(&self, _mask: Mask) -> VortexResult<Mask> {
         // TODO(ngates): we could optimize this if the mask was already quite sparse.
-        Mask::try_from(
-            self.expr
-                .evaluate(&Scope::new(self.array.clone()))?
-                .as_ref(),
-        )
+        // TODO(joe): fixme casting null to false is *VERY* unsound, see `FlatEvaluation` for more details.
+        self.expr
+            .evaluate(&Scope::new(self.array.clone()))?
+            .try_to_mask_fill_null_false()
     }
 }
 
@@ -251,11 +250,11 @@ impl PruningEvaluation for RowIdxEvaluation {
 impl MaskEvaluation for RowIdxEvaluation {
     async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
         // TODO(ngates): we could optimize this if the mask was already quite sparse.
-        let result = Mask::try_from(
-            self.expr
-                .evaluate(&Scope::new(self.array.clone()))?
-                .as_ref(),
-        )?;
+        // TODO(joe): fixme casting null to false is *VERY* unsound, see `FlatEvaluation` for more details.
+        let result = self
+            .expr
+            .evaluate(&Scope::new(self.array.clone()))?
+            .try_to_mask_fill_null_false()?;
 
         // Note that mask evaluation requires an intersection with the input mask, whereas
         // pruning evaluation does not.
@@ -320,8 +319,7 @@ mod tests {
                     .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                     .await
                     .unwrap()
-                    .to_bool()
-                    .unwrap();
+                    .to_bool();
 
             assert_eq!(
                 &BooleanBuffer::from_iter([false, false, true, false, false]),
@@ -360,8 +358,7 @@ mod tests {
                     .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                     .await
                     .unwrap()
-                    .to_bool()
-                    .unwrap();
+                    .to_bool();
 
             assert_eq!(
                 &BooleanBuffer::from_iter([false, false, false, false, true]),
@@ -404,8 +401,7 @@ mod tests {
                     .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                     .await
                     .unwrap()
-                    .to_bool()
-                    .unwrap();
+                    .to_bool();
 
             assert_eq!(
                 vec![true, false, true, false, true],

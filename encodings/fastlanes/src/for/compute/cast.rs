@@ -30,10 +30,10 @@ register_kernel!(CastKernelAdapter(FoRVTable).lift());
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
+    use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::Scalar;
@@ -59,7 +59,7 @@ mod tests {
         );
 
         // Verify the values after decoding
-        let decoded = casted.to_canonical().unwrap().into_primitive().unwrap();
+        let decoded = casted.to_primitive();
         assert_eq!(decoded.as_slice::<i64>(), &[100i64, 110, 120, 130, 140]);
     }
 

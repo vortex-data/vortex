@@ -137,7 +137,7 @@ impl StatsSetRef<'_> {
                     })
                     .transpose()?
             }
-            Stat::NullCount => Some(self.dyn_array_ref.invalid_count()?.into()),
+            Stat::NullCount => Some(self.dyn_array_ref.invalid_count().into()),
             Stat::IsConstant => {
                 if self.dyn_array_ref.is_empty() {
                     None
@@ -148,7 +148,7 @@ impl StatsSetRef<'_> {
             Stat::IsSorted => Some(is_sorted(self.dyn_array_ref)?.into()),
             Stat::IsStrictSorted => Some(is_strict_sorted(self.dyn_array_ref)?.into()),
             Stat::UncompressedSizeInBytes => {
-                let nbytes = self.dyn_array_ref.to_canonical()?.as_ref().nbytes();
+                let nbytes = self.dyn_array_ref.to_canonical().as_ref().nbytes();
                 self.set(stat, Precision::exact(nbytes));
                 Some(nbytes.into())
             }

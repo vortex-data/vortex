@@ -37,13 +37,16 @@ pub struct DriverConfig {
     pub show_metrics: bool,
     pub hide_progress_bar: bool,
     pub track_memory: bool,
+    pub skip_generate: bool,
 }
 
 /// Run a benchmark using the provided implementation and configuration
 pub fn run_benchmark<B: Benchmark>(benchmark: B, config: DriverConfig) -> Result<()> {
     // Generate data for each target (idempotent)
-    for target in &config.targets {
-        benchmark.generate_data(target)?;
+    if !config.skip_generate {
+        for target in &config.targets {
+            benchmark.generate_data(target)?;
+        }
     }
 
     let filtered_queries = filter_queries(
@@ -185,6 +188,9 @@ fn execute_queries<B: Benchmark>(
                 let mut row_count = None;
 
                 for _ in 0..iterations {
+                    // Ensure we reopen the database to clear caches between runs.
+                    ctx.reopen()?;
+
                     let (duration, current_row_count) =
                         ctx.execute_query(query_string).unwrap_or_else(|err| {
                             vortex_panic!("query: {query_idx} failed with: {err}")

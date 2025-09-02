@@ -27,7 +27,9 @@ arrow-ord = { workspace = true }
 arrow-schema = { workspace = true }
 arrow-select = { workspace = true }
 arrow-string = { workspace = true }
+bitvec = { workspace = true }
 cfg-if = { workspace = true }
+dyn-hash = { workspace = true }
 enum-iterator = { workspace = true }
 flatbuffers = { workspace = true }
 futures-util = { workspace = true }
@@ -49,6 +51,7 @@ rstest = { workspace = true, optional = true }
 rstest_reuse = { workspace = true, optional = true }
 rustc-hash = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+simdutf8 = { workspace = true }
 static_assertions = { workspace = true }
 tabled = { workspace = true, optional = true, default-features = false, features = [
     "std",

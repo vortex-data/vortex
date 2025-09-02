@@ -18,13 +18,13 @@ impl FillNullKernel for DictVTable {
             ConstantArray::new(fill_value.clone(), array.values().len()).as_ref(),
             Operator::Eq,
         )?
-        .to_bool()?;
+        .to_bool();
 
         let Some(first_fill_value) = found_fill_values.boolean_buffer().set_indices().next() else {
             // No fill values found, so we must canonicalize and fill_null.
             // TODO(ngates): compute kernels should all return Option<ArrayRef> to support this
             //  fall back.
-            return fill_null(&array.to_canonical()?.into_array(), fill_value);
+            return fill_null(&array.to_canonical().into_array(), fill_value);
         };
 
         // Now we rewrite the nullable codes to point at the fill value.
@@ -41,7 +41,8 @@ impl FillNullKernel for DictVTable {
         // And fill nulls in the values
         let values = fill_null(array.values(), fill_value)?;
 
-        Ok(DictArray::try_new(codes, values)?.into_array())
+        // SAFETY: invariants are still satisfied after patching nulls
+        unsafe { Ok(DictArray::new_unchecked(codes, values).into_array()) }
     }
 }
 
@@ -78,8 +79,8 @@ mod tests {
             &Scalar::primitive(20, Nullability::NonNullable),
         )
         .vortex_unwrap();
-        let filled_primitive = filled.to_primitive().vortex_unwrap();
+        let filled_primitive = filled.to_primitive();
         assert_eq!(filled_primitive.as_slice::<i32>(), [10, 20, 20]);
-        assert!(filled_primitive.all_valid().vortex_unwrap());
+        assert!(filled_primitive.all_valid());
     }
 }

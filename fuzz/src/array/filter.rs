@@ -16,7 +16,7 @@ use crate::array::take_canonical_array_non_nullable_indices;
 
 pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResult<ArrayRef> {
     let validity = if array.dtype().is_nullable() {
-        let validity_buff = array.validity_mask()?.to_boolean_buffer();
+        let validity_buff = array.validity_mask().to_boolean_buffer();
         Validity::from_iter(
             filter
                 .iter()
@@ -30,7 +30,7 @@ pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResul
 
     match array.dtype() {
         DType::Bool(_) => {
-            let bool_array = array.to_bool()?;
+            let bool_array = array.to_bool();
             Ok(BoolArray::new(
                 BooleanBuffer::from_iter(
                     filter
@@ -44,7 +44,7 @@ pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResul
             .into_array())
         }
         DType::Primitive(p, _) => match_each_native_ptype!(p, |P| {
-            let primitive_array = array.to_primitive()?;
+            let primitive_array = array.to_primitive();
             Ok(PrimitiveArray::new(
                 filter
                     .iter()
@@ -57,7 +57,7 @@ pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResul
             .into_array())
         }),
         DType::Decimal(d, _) => {
-            let decimal_array = array.to_decimal()?;
+            let decimal_array = array.to_decimal();
             match_each_decimal_value_type!(decimal_array.values_type(), |D| {
                 let buf = decimal_array.buffer::<D>();
                 Ok(DecimalArray::new(
@@ -74,7 +74,7 @@ pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResul
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
-            let utf8 = array.to_varbinview()?;
+            let utf8 = array.to_varbinview();
             let values = utf8.with_iterator(|iter| {
                 iter.zip(filter.iter())
                     .filter(|(_, f)| **f)
@@ -84,7 +84,7 @@ pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResul
             Ok(VarBinViewArray::from_iter(values, array.dtype().clone()).into_array())
         }
         DType::Struct(..) => {
-            let struct_array = array.to_struct()?;
+            let struct_array = array.to_struct();
             let filtered_children = struct_array
                 .fields()
                 .iter()
@@ -108,6 +108,7 @@ pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResul
             }
             take_canonical_array_non_nullable_indices(array, indices.as_slice())
         }
+        DType::FixedSizeList(..) => unimplemented!("TODO(connor)[FixedSizeList]"),
         d @ (DType::Null | DType::Extension(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }

@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Display;
+use std::sync::Arc;
 
-use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::{ConstantArray, ConstantOperator};
+use vortex_array::pipeline::OperatorRef;
 use vortex_array::{ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata};
 use vortex_dtype::{DType, match_each_float_ptype};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
 use vortex_scalar::Scalar;
 
+use crate::display::{DisplayAs, DisplayFormat};
 use crate::{
     AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog, VTable, vtable,
 };
@@ -76,6 +78,12 @@ impl VTable for LiteralVTable {
     fn return_dtype(expr: &Self::Expr, _scope: &DType) -> VortexResult<DType> {
         Ok(expr.value.dtype().clone())
     }
+
+    fn operator(expr: &LiteralExpr, children: Vec<OperatorRef>) -> Option<OperatorRef> {
+        assert!(children.is_empty());
+
+        ConstantOperator::maybe_new(expr.value().clone()).map(|op| Arc::new(op) as OperatorRef)
+    }
 }
 
 impl LiteralExpr {
@@ -98,9 +106,21 @@ impl LiteralExpr {
     }
 }
 
-impl Display for LiteralExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.value)
+impl DisplayAs for LiteralExpr {
+    fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match df {
+            DisplayFormat::Compact => {
+                write!(f, "{}", self.value)
+            }
+            DisplayFormat::Tree => {
+                write!(
+                    f,
+                    "Literal(value: {}, dtype: {})",
+                    self.value,
+                    self.value.dtype()
+                )
+            }
+        }
     }
 }
 

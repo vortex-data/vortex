@@ -5,24 +5,27 @@ use std::any::Any;
 use std::sync::Arc;
 
 use vortex_dtype::{DType, ExtDType};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::ExtScalar;
 
 use crate::arrays::ExtensionArray;
-use crate::builders::{ArrayBuilder, ArrayBuilderExt, builder_with_capacity};
-use crate::{Array, ArrayRef, Canonical, IntoArray};
+use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, builder_with_capacity};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
+/// The builder for building a [`ExtensionArray`].
 pub struct ExtensionBuilder {
-    storage: Box<dyn ArrayBuilder>,
     dtype: DType,
+    storage: Box<dyn ArrayBuilder>,
 }
 
 impl ExtensionBuilder {
+    /// Creates a new `ExtensionBuilder` with a capacity of [`DEFAULT_BUILDER_CAPACITY`].
     pub fn new(ext_dtype: Arc<ExtDType>) -> Self {
-        Self::with_capacity(ext_dtype, 1024)
+        Self::with_capacity(ext_dtype, DEFAULT_BUILDER_CAPACITY)
     }
 
+    /// Creates a new `ExtensionBuilder` with the given `capacity`.
     pub fn with_capacity(ext_dtype: Arc<ExtDType>, capacity: usize) -> Self {
         Self {
             storage: builder_with_capacity(ext_dtype.storage_dtype(), capacity),
@@ -30,10 +33,19 @@ impl ExtensionBuilder {
         }
     }
 
+    /// Appends an extension `value` to the builder.
     pub fn append_value(&mut self, value: ExtScalar) -> VortexResult<()> {
         self.storage.append_scalar(&value.storage())
     }
 
+    /// Appends an optional extension value to the builder.
+    ///
+    /// If the value is `Some`, it appends the extension value. If the value is `None`, it appends a
+    /// null.
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if the input is `None` and the builder is non-nullable.
     pub fn append_option(&mut self, value: Option<ExtScalar>) -> VortexResult<()> {
         match value {
             Some(value) => self.append_value(value),
@@ -44,6 +56,13 @@ impl ExtensionBuilder {
         }
     }
 
+    /// Finishes the builder directly into a [`ExtensionArray`].
+    pub fn finish_into_extension(&mut self) -> ExtensionArray {
+        let storage = self.storage.finish();
+        ExtensionArray::new(self.ext_dtype(), storage)
+    }
+
+    /// The [`ExtDType`] of this builder.
     fn ext_dtype(&self) -> Arc<ExtDType> {
         if let DType::Extension(ext_dtype) = &self.dtype {
             ext_dtype.clone()
@@ -74,16 +93,13 @@ impl ArrayBuilder for ExtensionBuilder {
         self.storage.append_zeros(n)
     }
 
-    fn append_nulls(&mut self, n: usize) {
+    unsafe fn append_nulls_unchecked(&mut self, n: usize) {
         self.storage.append_nulls(n)
     }
 
-    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
-        let array = array.to_canonical()?;
-        let Canonical::Extension(array) = array else {
-            vortex_bail!("Expected Extension array, got {:?}", array);
-        };
-        array.storage().append_to_builder(self.storage.as_mut())
+    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+        let ext_array = array.to_extension();
+        self.storage.extend_from_array(ext_array.storage())
     }
 
     fn ensure_capacity(&mut self, capacity: usize) {
@@ -95,7 +111,6 @@ impl ArrayBuilder for ExtensionBuilder {
     }
 
     fn finish(&mut self) -> ArrayRef {
-        let storage = self.storage.finish();
-        ExtensionArray::new(self.ext_dtype(), storage).into_array()
+        self.finish_into_extension().into_array()
     }
 }

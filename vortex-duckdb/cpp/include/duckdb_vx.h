@@ -4,6 +4,7 @@
 #pragma once
 
 #include "duckdb_vx/client_context.h"
+#include "duckdb_vx/config.h"
 #include "duckdb_vx/copy_function.h"
 #include "duckdb_vx/data.h"
 #include "duckdb_vx/data_chunk.h"

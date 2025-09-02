@@ -25,6 +25,10 @@ public:
         return std::move(impl_);
     }
 
+    const ffi::Expr &Impl() const & {
+        return *impl_;
+    }
+
 private:
     rust::Box<ffi::Expr> impl_;
 };

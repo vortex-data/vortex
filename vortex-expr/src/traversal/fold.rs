@@ -9,6 +9,7 @@ use crate::traversal::Node;
 /// `Stop` indicates that the fold should stop.
 /// `Skip` indicates that the fold should skip the children of the current node.
 /// `Continue` indicates that the fold should continue.
+#[derive(Debug)]
 pub enum FoldDown<R> {
     Continue,
     Stop(R),
@@ -18,6 +19,7 @@ pub enum FoldDown<R> {
 /// Use to indicate the control flow of the fold on the downwards pass.
 /// In the case of Continue, the context is passed on to the children nodes.
 /// Other cases are the same as `FoldDown`.
+#[derive(Debug)]
 pub enum FoldDownContext<C, R> {
     Continue(C),
     Stop(R),
@@ -26,6 +28,7 @@ pub enum FoldDownContext<C, R> {
 
 /// Use to indicate the control flow of the fold on the upwards pass.
 /// `Stop` indicates that the fold should stop at the current position and return the result.
+#[derive(Debug)]
 pub enum FoldUp<R> {
     Continue(R),
     Stop(R),
@@ -87,7 +90,9 @@ pub trait NodeFolder {
     /// If the node's children are to be skipped, return Skip.
     /// If the node should stop traversal, return Stop.
     /// Otherwise, return Continue.
-    fn visit_down(&mut self, _node: &Self::NodeTy) -> VortexResult<FoldDown<Self::Result>>;
+    fn visit_down(&mut self, _node: &Self::NodeTy) -> VortexResult<FoldDown<Self::Result>> {
+        Ok(FoldDown::Continue)
+    }
 
     /// visit_up is called when a node is last encountered, in a pre-order traversal.
     /// If the node should stop traversal, return Stop.

@@ -30,7 +30,7 @@ pub fn nan_count(array: &dyn Array) -> VortexResult<usize> {
         })?
         .unwrap_scalar()?
         .as_primitive()
-        .as_::<usize>()?
+        .as_::<usize>()
         .vortex_expect("NaN count should not return null"))
 }
 
@@ -100,7 +100,7 @@ impl<V: VTable + NaNCountKernel> Kernel for NaNCountKernelAdapter<V> {
 }
 
 fn nan_count_impl(array: &dyn Array, kernels: &[ArcRef<dyn Kernel>]) -> VortexResult<usize> {
-    if array.is_empty() || array.valid_count()? == 0 {
+    if array.is_empty() || array.valid_count() == 0 {
         return Ok(0);
     }
 
@@ -123,7 +123,7 @@ fn nan_count_impl(array: &dyn Array, kernels: &[ArcRef<dyn Kernel>]) -> VortexRe
             return output
                 .unwrap_scalar()?
                 .as_primitive()
-                .as_::<usize>()?
+                .as_::<usize>()
                 .ok_or_else(|| vortex_err!("NaN count should not return null"));
         }
     }
@@ -131,12 +131,12 @@ fn nan_count_impl(array: &dyn Array, kernels: &[ArcRef<dyn Kernel>]) -> VortexRe
         return output
             .unwrap_scalar()?
             .as_primitive()
-            .as_::<usize>()?
+            .as_::<usize>()
             .ok_or_else(|| vortex_err!("NaN count should not return null"));
     }
 
     if !array.is_canonical() {
-        let canonical = array.to_canonical()?;
+        let canonical = array.to_canonical();
         return nan_count(canonical.as_ref());
     }
 

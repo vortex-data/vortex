@@ -60,20 +60,16 @@ of the array, and are also zero-copy to Apache Arrow.
 Utility Encodings
 -----------------
 
-.. autoclass:: vortex.ChunkedArray
+.. autoclass:: vortex.ConstantArray
     :members:
 
 
-.. autoclass:: vortex.ConstantArray
+.. autoclass:: vortex.ChunkedArray
     :members:
 
 
 .. autoclass:: vortex.ByteBoolArray
      :members:
-
-
-.. autoclass:: vortex.SparseArray
-    :members:
 
 
 Compressed Encodings
@@ -103,8 +99,17 @@ Compressed Encodings
     :members:
 
 
+.. autoclass:: vortex.SequenceArray
+    :members:
+
+
+.. autoclass:: vortex.SparseArray
+    :members:
+
+
 .. autoclass:: vortex.ZigZagArray
     :members:
+
 
 
 .. autoclass:: vortex.FastLanesBitPackedArray

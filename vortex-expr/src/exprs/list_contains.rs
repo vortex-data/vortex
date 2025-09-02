@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
 
 use vortex_array::compute::list_contains as compute_list_contains;
@@ -9,6 +9,7 @@ use vortex_array::{ArrayRef, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 
+use crate::display::{DisplayAs, DisplayFormat};
 use crate::{
     AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, LiteralVTable, Scope, StatsCatalog,
     VTable, and, gt, lit, lt, or, vtable,
@@ -117,9 +118,20 @@ pub fn list_contains(list: ExprRef, value: ExprRef) -> ExprRef {
     ListContainsExpr::new(list, value).into_expr()
 }
 
-impl Display for ListContainsExpr {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "contains({}, {})", &self.list, &self.value)
+impl DisplayAs for ListContainsExpr {
+    fn fmt_as(&self, df: DisplayFormat, f: &mut Formatter) -> std::fmt::Result {
+        match df {
+            DisplayFormat::Compact => {
+                write!(f, "contains({}, {})", &self.list, &self.value)
+            }
+            DisplayFormat::Tree => {
+                write!(f, "ListContains")
+            }
+        }
+    }
+
+    fn child_names(&self) -> Option<Vec<String>> {
+        Some(vec!["list".to_string(), "value".to_string()])
     }
 }
 
@@ -190,12 +202,9 @@ mod tests {
         let expr = list_contains(root(), lit(1));
         let item = expr.evaluate(&Scope::new(arr)).unwrap();
 
+        assert_eq!(item.scalar_at(0), Scalar::bool(true, Nullability::Nullable));
         assert_eq!(
-            item.scalar_at(0).unwrap(),
-            Scalar::bool(true, Nullability::Nullable)
-        );
-        assert_eq!(
-            item.scalar_at(1).unwrap(),
+            item.scalar_at(1),
             Scalar::bool(false, Nullability::Nullable)
         );
     }
@@ -207,14 +216,8 @@ mod tests {
         let expr = list_contains(root(), lit(2));
         let item = expr.evaluate(&Scope::new(arr)).unwrap();
 
-        assert_eq!(
-            item.scalar_at(0).unwrap(),
-            Scalar::bool(true, Nullability::Nullable)
-        );
-        assert_eq!(
-            item.scalar_at(1).unwrap(),
-            Scalar::bool(true, Nullability::Nullable)
-        );
+        assert_eq!(item.scalar_at(0), Scalar::bool(true, Nullability::Nullable));
+        assert_eq!(item.scalar_at(1), Scalar::bool(true, Nullability::Nullable));
     }
 
     #[test]
@@ -225,11 +228,11 @@ mod tests {
         let item = expr.evaluate(&Scope::new(arr)).unwrap();
 
         assert_eq!(
-            item.scalar_at(0).unwrap(),
+            item.scalar_at(0),
             Scalar::bool(false, Nullability::Nullable)
         );
         assert_eq!(
-            item.scalar_at(1).unwrap(),
+            item.scalar_at(1),
             Scalar::bool(false, Nullability::Nullable)
         );
     }
@@ -247,12 +250,9 @@ mod tests {
         let expr = list_contains(root(), lit(2));
         let item = expr.evaluate(&Scope::new(arr)).unwrap();
 
+        assert_eq!(item.scalar_at(0), Scalar::bool(true, Nullability::Nullable));
         assert_eq!(
-            item.scalar_at(0).unwrap(),
-            Scalar::bool(true, Nullability::Nullable)
-        );
-        assert_eq!(
-            item.scalar_at(1).unwrap(),
+            item.scalar_at(1),
             Scalar::bool(false, Nullability::Nullable)
         );
     }
@@ -270,11 +270,8 @@ mod tests {
         let expr = list_contains(root(), lit(2));
         let item = expr.evaluate(&Scope::new(arr)).unwrap();
 
-        assert_eq!(
-            item.scalar_at(0).unwrap(),
-            Scalar::bool(true, Nullability::Nullable)
-        );
-        assert!(!item.is_valid(1).unwrap());
+        assert_eq!(item.scalar_at(0), Scalar::bool(true, Nullability::Nullable));
+        assert!(!item.is_valid(1));
     }
 
     #[test]
@@ -337,5 +334,14 @@ mod tests {
                 HashSet::from([Stat::Min, Stat::Max])
             )])
         );
+    }
+
+    #[test]
+    pub fn test_display() {
+        let expr = list_contains(get_item("tags", root()), lit("urgent"));
+        assert_eq!(expr.to_string(), "contains($.tags, \"urgent\")");
+
+        let expr2 = list_contains(root(), lit(42));
+        assert_eq!(expr2.to_string(), "contains($, 42i32)");
     }
 }

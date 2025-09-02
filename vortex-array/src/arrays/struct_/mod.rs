@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::iter::once;
+use std::ops::Range;
 
 use itertools::Itertools;
 use vortex_dtype::{DType, FieldName, FieldNames, StructFields};
@@ -33,6 +34,7 @@ impl VTable for StructVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
+    type PipelineVTable = NotSupported;
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
@@ -83,11 +85,11 @@ impl VTable for StructVTable {
 /// ).unwrap();
 ///
 /// // Row 0 is valid - returns a struct scalar with field values
-/// let row0 = struct_array.scalar_at(0).unwrap();
+/// let row0 = struct_array.scalar_at(0);
 /// assert!(!row0.is_null());
 ///
 /// // Row 1 is null at struct level - returns null even though fields have values
-/// let row1 = struct_array.scalar_at(1).unwrap();
+/// let row1 = struct_array.scalar_at(1);
 /// assert!(row1.is_null());
 /// ```
 ///
@@ -116,7 +118,7 @@ impl VTable for StructVTable {
 ///
 /// // field_by_name returns the FIRST "data" field
 /// let first_data = struct_array.field_by_name("data").unwrap();
-/// assert_eq!(first_data.scalar_at(0).unwrap(), 1i32.into());
+/// assert_eq!(first_data.scalar_at(0), 1i32.into());
 /// ```
 ///
 /// ## Field Operations
@@ -202,7 +204,7 @@ impl StructArray {
     }
 
     pub fn struct_fields(&self) -> &StructFields {
-        let Some(struct_dtype) = &self.dtype.as_struct() else {
+        let Some(struct_dtype) = &self.dtype.as_struct_fields_opt() else {
             unreachable!(
                 "struct arrays must have be a DType::Struct, this is likely an internal bug."
             )
@@ -262,6 +264,26 @@ impl StructArray {
             validity,
             stats_set: Default::default(),
         })
+    }
+
+    /// Create a new `StructArray` directly from components, without performing any type
+    /// of checking.
+    ///
+    /// This should **only** be consumed internally by operations that can maintain the
+    /// StructArray invariants.
+    pub(crate) fn new_unchecked(
+        fields: Vec<ArrayRef>,
+        dtype: StructFields,
+        length: usize,
+        validity: Validity,
+    ) -> Self {
+        Self {
+            len: length,
+            dtype: DType::Struct(dtype, validity.nullability()),
+            fields,
+            validity,
+            stats_set: Default::default(),
+        }
     }
 
     pub fn try_new_with_dtype(
@@ -415,40 +437,36 @@ impl ArrayVTable<StructVTable> for StructVTable {
 }
 
 impl CanonicalVTable<StructVTable> for StructVTable {
-    fn canonicalize(array: &StructArray) -> VortexResult<Canonical> {
-        Ok(Canonical::Struct(array.clone()))
+    fn canonicalize(array: &StructArray) -> Canonical {
+        Canonical::Struct(array.clone())
     }
 }
 
 impl OperationsVTable<StructVTable> for StructVTable {
-    fn slice(array: &StructArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+    fn slice(array: &StructArray, range: Range<usize>) -> ArrayRef {
         let fields = array
             .fields()
             .iter()
-            .map(|field| field.slice(start, stop))
-            .try_collect()?;
-        StructArray::try_new_with_dtype(
+            .map(|field| field.slice(range.clone()))
+            .collect_vec();
+        StructArray::new_unchecked(
             fields,
             array.struct_fields().clone(),
-            stop - start,
-            array.validity().slice(start, stop)?,
+            range.len(),
+            array.validity().slice(range),
         )
-        .map(|a| a.into_array())
+        .into_array()
     }
 
-    fn scalar_at(array: &StructArray, index: usize) -> VortexResult<Scalar> {
-        if array.is_valid(index)? {
-            Ok(Scalar::struct_(
-                array.dtype().clone(),
-                array
-                    .fields()
-                    .iter()
-                    .map(|field| field.scalar_at(index))
-                    .try_collect()?,
-            ))
-        } else {
-            Ok(Scalar::null(array.dtype().clone()))
-        }
+    fn scalar_at(array: &StructArray, index: usize) -> Scalar {
+        Scalar::struct_(
+            array.dtype().clone(),
+            array
+                .fields()
+                .iter()
+                .map(|field| field.scalar_at(index))
+                .collect_vec(),
+        )
     }
 }
 

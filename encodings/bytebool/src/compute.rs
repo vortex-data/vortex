@@ -40,7 +40,7 @@ register_kernel!(CastKernelAdapter(ByteBoolVTable).lift());
 
 impl MaskKernel for ByteBoolVTable {
     fn mask(&self, array: &ByteBoolArray, mask: &Mask) -> VortexResult<ArrayRef> {
-        Ok(ByteBoolArray::new(array.buffer().clone(), array.validity().mask(mask)?).into_array())
+        Ok(ByteBoolArray::new(array.buffer().clone(), array.validity().mask(mask)).into_array())
     }
 }
 
@@ -48,7 +48,7 @@ register_kernel!(MaskKernelAdapter(ByteBoolVTable).lift());
 
 impl TakeKernel for ByteBoolVTable {
     fn take(&self, array: &ByteBoolArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let indices = indices.to_primitive()?;
+        let indices = indices.to_primitive();
         let bools = array.as_slice();
 
         // This handles combining validity from both source array and nullable indices
@@ -86,18 +86,18 @@ mod tests {
         let original = vec![Some(true), Some(true), None, Some(false), None];
         let vortex_arr = ByteBoolArray::from(original);
 
-        let sliced_arr = vortex_arr.slice(1, 4).unwrap();
+        let sliced_arr = vortex_arr.slice(1..4);
         let sliced_arr = sliced_arr.as_::<ByteBoolVTable>();
 
-        let s = sliced_arr.scalar_at(0).unwrap();
+        let s = sliced_arr.scalar_at(0);
         assert_eq!(s.as_bool().value(), Some(true));
 
-        let s = sliced_arr.scalar_at(1).unwrap();
-        assert!(!sliced_arr.is_valid(1).unwrap());
+        let s = sliced_arr.scalar_at(1);
+        assert!(!sliced_arr.is_valid(1));
         assert!(s.is_null());
         assert_eq!(s.as_bool().value(), None);
 
-        let s = sliced_arr.scalar_at(2).unwrap();
+        let s = sliced_arr.scalar_at(2);
         assert_eq!(s.as_bool().value(), Some(false));
     }
 
@@ -109,7 +109,7 @@ mod tests {
         let arr = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
         for i in 0..arr.len() {
-            let s = arr.scalar_at(i).unwrap();
+            let s = arr.scalar_at(i);
             assert!(s.is_valid());
             assert_eq!(s.as_bool().value(), Some(true));
         }
@@ -123,7 +123,7 @@ mod tests {
         let arr = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
         for i in 0..arr.len() {
-            let s = arr.scalar_at(i).unwrap();
+            let s = arr.scalar_at(i);
             assert!(s.is_valid());
             assert_eq!(s.as_bool().value(), Some(false));
         }
@@ -137,16 +137,16 @@ mod tests {
         let arr = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
         for i in 0..3 {
-            let s = arr.scalar_at(i).unwrap();
+            let s = arr.scalar_at(i);
             assert!(s.is_valid());
             assert_eq!(s.as_bool().value(), Some(true));
         }
 
-        let s = arr.scalar_at(3).unwrap();
+        let s = arr.scalar_at(3);
         assert!(s.is_valid());
         assert_eq!(s.as_bool().value(), Some(false));
 
-        let s = arr.scalar_at(4).unwrap();
+        let s = arr.scalar_at(4);
         assert!(s.is_null());
     }
 

@@ -44,7 +44,7 @@ pub struct FileStatsAccumulator {
 
 impl FileStatsAccumulator {
     fn new(dtype: &DType, stats: Arc<[Stat]>, max_variable_length_statistics_size: usize) -> Self {
-        let accumulators = Arc::new(Mutex::new(match dtype.as_struct() {
+        let accumulators = Arc::new(Mutex::new(match dtype.as_struct_fields_opt() {
             Some(struct_dtype) => {
                 if dtype.nullability() == Nullability::Nullable {
                     // top level dtype could be nullable, but we don't support it yet
@@ -85,7 +85,7 @@ impl FileStatsAccumulator {
     ) -> VortexResult<(SequenceId, ArrayRef)> {
         let (sequence_id, chunk) = chunk?;
         if chunk.dtype().is_struct() {
-            let chunk = chunk.to_struct()?;
+            let chunk = chunk.to_struct();
             for (acc, field) in self.accumulators.lock().iter_mut().zip_eq(chunk.fields()) {
                 acc.push_chunk(field)?;
             }

@@ -13,11 +13,12 @@ mod tests;
 
 use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter};
+use std::ops::Range;
 use std::sync::{Arc, OnceLock};
 
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, NullBuffer};
 use itertools::Itertools;
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::{VortexResult, vortex_panic};
 
 /// Represents a set of values that are all included, all excluded, or some mixture of both.
 pub enum AllOr<T> {
@@ -466,12 +467,14 @@ impl Mask {
     }
 
     /// Slice the mask.
-    pub fn slice(&self, offset: usize, length: usize) -> Self {
-        assert!(offset + length <= self.len());
+    pub fn slice(&self, range: Range<usize>) -> Self {
+        assert!(range.end <= self.len());
         match &self {
-            Self::AllTrue(_) => Self::new_true(length),
-            Self::AllFalse(_) => Self::new_false(length),
-            Self::Values(values) => Self::from_buffer(values.buffer.slice(offset, length)),
+            Self::AllTrue(_) => Self::new_true(range.len()),
+            Self::AllFalse(_) => Self::new_false(range.len()),
+            Self::Values(values) => {
+                Self::from_buffer(values.buffer.slice(range.start, range.len()))
+            }
         }
     }
 
@@ -532,9 +535,10 @@ impl Mask {
 
     /// Return [`MaskValues`] if the mask is not all true or all false.
     pub fn values(&self) -> Option<&MaskValues> {
-        match self {
-            Self::Values(values) => Some(values),
-            _ => None,
+        if let Self::Values(values) = self {
+            Some(values)
+        } else {
+            None
         }
     }
 
@@ -542,8 +546,8 @@ impl Mask {
     /// count of valid elements up to each index.
     ///
     /// This is O(n_rows).
-    pub fn valid_counts_for_indices(&self, indices: &[usize]) -> VortexResult<Vec<usize>> {
-        Ok(match self {
+    pub fn valid_counts_for_indices(&self, indices: &[usize]) -> Vec<usize> {
+        match self {
             Self::AllTrue(_) => indices.to_vec(),
             Self::AllFalse(_) => vec![0; indices.len()],
             Self::Values(values) => {
@@ -556,7 +560,7 @@ impl Mask {
                         idx += 1;
                         valid_count += bool_iter
                             .next()
-                            .ok_or_else(|| vortex_err!("Row indices exceed array length"))?
+                            .unwrap_or_else(|| vortex_panic!("Row indices exceed array length"))
                             as usize;
                     }
                     valid_counts.push(valid_count);
@@ -564,7 +568,7 @@ impl Mask {
 
                 valid_counts
             }
-        })
+        }
     }
 
     /// Limit the mask to the first `limit` true values
@@ -598,6 +602,32 @@ impl Mask {
                 Self::from(new_buffer_builder.finish())
             }
         }
+    }
+
+    /// Concatenate multiple masks together into a single mask.
+    pub fn concat<'a>(masks: impl Iterator<Item = &'a Self>) -> VortexResult<Self> {
+        let masks: Vec<_> = masks.collect();
+        let len = masks.iter().map(|t| t.len()).sum();
+
+        if masks.iter().all(|t| t.all_true()) {
+            return Ok(Mask::AllTrue(len));
+        }
+
+        if masks.iter().all(|t| t.all_false()) {
+            return Ok(Mask::AllFalse(len));
+        }
+
+        let mut builder = BooleanBufferBuilder::new(len);
+
+        for mask in masks {
+            match mask {
+                Mask::AllTrue(n) => builder.append_n(*n, true),
+                Mask::AllFalse(n) => builder.append_n(*n, false),
+                Mask::Values(v) => builder.append_buffer(v.boolean_buffer()),
+            }
+        }
+
+        Ok(Mask::from_buffer(builder.finish()))
     }
 }
 

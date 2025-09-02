@@ -43,7 +43,7 @@ where
 
 impl CompressorPlugin for BtrBlocksCompressor {
     fn compress_chunk(&self, chunk: &dyn Array) -> VortexResult<ArrayRef> {
-        BtrBlocksCompressor::compress(self, chunk)
+        self.compress(chunk)
     }
 }
 
@@ -67,16 +67,26 @@ impl<S: LayoutStrategy> CompressingStrategy<S> {
     /// Create a new writer that uses the BtrBlocks-style cascading compressor to compress chunks.
     ///
     /// This provides a good balance between decoding speed and small file size.
-    pub fn new_btrblocks(child: S, executor: Arc<dyn TaskExecutor>, parallelism: usize) -> Self {
+    ///
+    /// Set `exclude_int_dict_encoding` to true to prevent dictionary encoding of integer arrays,
+    /// which is useful when compressing dictionary codes to avoid recursive dictionary encoding.
+    pub fn new_btrblocks(
+        child: S,
+        executor: Arc<dyn TaskExecutor>,
+        parallelism: usize,
+        exclude_int_dict_encoding: bool,
+    ) -> Self {
         Self {
             child,
-            compressor: Arc::new(BtrBlocksCompressor),
+            compressor: Arc::new(BtrBlocksCompressor {
+                exclude_int_dict_encoding,
+            }),
             executor,
             parallelism,
         }
     }
 
-    /// Create a new writer that compresses using a [`CompactCompressor`] to compress chunks.
+    /// Create a new writer that compresses using a `CompactCompressor` to compress chunks.
     ///
     /// This may create smaller files than the BtrBlocks writer, in exchange for some penalty
     /// to decoding performance. This is only recommended for datasets that make heavy use of

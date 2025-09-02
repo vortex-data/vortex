@@ -11,8 +11,22 @@ use crate::cpp::*;
 use crate::duckdb::string::{c_string_to_rust_string, VxString};
 use crate::duckdb::{ScalarFunction, Value};
 use crate::{duckdb, wrapper};
+use crate::cpp::duckdb_vx_expr_class;
+use crate::duckdb::{ScalarFunction, ValueRef};
+use crate::{cpp, duckdb, wrapper};
 
+// TODO(joe): replace with lifetime_wrapper!
 wrapper!(Expression, duckdb_vx_expr, duckdb_vx_destroy_expr);
+
+impl Display for Expression {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let ptr = unsafe { cpp::duckdb_vx_expr_to_string(self.as_ptr()) };
+        let cstr = unsafe { CStr::from_ptr(ptr) };
+        let result = write!(f, "{}", cstr.to_string_lossy());
+        unsafe { cpp::duckdb_free(ptr.cast_mut().cast()) };
+        result
+    }
+}
 
 impl Expression {
     pub fn as_class_id(&self) -> duckdb_vx_expr_class {
@@ -44,7 +58,7 @@ impl Expression {
             }
             DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_CONSTANT => {
                 let value = unsafe {
-                    Value::borrow(duckdb_vx_expr_bound_constant_get_value(self.as_ptr()))
+                    ValueRef::borrow(duckdb_vx_expr_bound_constant_get_value(self.as_ptr()))
                 };
                 ExpressionClass::BoundConstant(BoundConstant { expr: self, value })
             }
@@ -174,7 +188,7 @@ impl BoundColumnRef<'_> {
 
 pub struct BoundConstant<'a> {
     expr: &'a Expression,
-    pub value: Value,
+    pub value: ValueRef<'a>,
 }
 
 impl BoundConstant<'_> {

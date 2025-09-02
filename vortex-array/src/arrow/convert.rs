@@ -80,9 +80,9 @@ where
 }
 
 macro_rules! impl_from_arrow_primitive {
-    ($ty:path) => {
-        impl FromArrowArray<&ArrowPrimitiveArray<$ty>> for ArrayRef {
-            fn from_arrow(value: &ArrowPrimitiveArray<$ty>, nullable: bool) -> Self {
+    ($T:path) => {
+        impl FromArrowArray<&ArrowPrimitiveArray<$T>> for ArrayRef {
+            fn from_arrow(value: &ArrowPrimitiveArray<$T>, nullable: bool) -> Self {
                 let buffer = Buffer::from_arrow_scalar_buffer(value.values().clone());
                 let validity = nulls(value.nulls(), nullable);
                 PrimitiveArray::new(buffer, validity).into_array()
@@ -127,9 +127,9 @@ impl FromArrowArray<&ArrowPrimitiveArray<Decimal256Type>> for ArrayRef {
 }
 
 macro_rules! impl_from_arrow_temporal {
-    ($ty:path) => {
-        impl FromArrowArray<&ArrowPrimitiveArray<$ty>> for ArrayRef {
-            fn from_arrow(value: &ArrowPrimitiveArray<$ty>, nullable: bool) -> Self {
+    ($T:path) => {
+        impl FromArrowArray<&ArrowPrimitiveArray<$T>> for ArrayRef {
+            fn from_arrow(value: &ArrowPrimitiveArray<$T>, nullable: bool) -> Self {
                 temporal_array(value, nullable)
             }
         }
@@ -169,8 +169,8 @@ where
         }
         DataType::Time32(time_unit) => TemporalArray::new_time(arr, time_unit.into()).into(),
         DataType::Time64(time_unit) => TemporalArray::new_time(arr, time_unit.into()).into(),
-        DataType::Date32 => TemporalArray::new_date(arr, TimeUnit::D).into(),
-        DataType::Date64 => TemporalArray::new_date(arr, TimeUnit::Ms).into(),
+        DataType::Date32 => TemporalArray::new_date(arr, TimeUnit::Days).into(),
+        DataType::Date64 => TemporalArray::new_date(arr, TimeUnit::Milliseconds).into(),
         DataType::Duration(_) => unimplemented!(),
         DataType::Interval(_) => unimplemented!(),
         _ => vortex_panic!("Invalid temporal type: {}", value.data_type()),
@@ -185,7 +185,7 @@ where
         let dtype = match T::DATA_TYPE {
             DataType::Binary | DataType::LargeBinary => DType::Binary(nullable.into()),
             DataType::Utf8 | DataType::LargeUtf8 => DType::Utf8(nullable.into()),
-            _ => vortex_panic!("Invalid data type for ByteArray: {}", T::DATA_TYPE),
+            dt => vortex_panic!("Invalid data type for ByteArray: {dt}"),
         };
         VarBinArray::try_new(
             value.offsets().clone().into_array(),
@@ -203,27 +203,30 @@ impl<T: ByteViewType> FromArrowArray<&GenericByteViewArray<T>> for ArrayRef {
         let dtype = match T::DATA_TYPE {
             DataType::BinaryView => DType::Binary(nullable.into()),
             DataType::Utf8View => DType::Utf8(nullable.into()),
-            _ => vortex_panic!("Invalid data type for ByteViewArray: {}", T::DATA_TYPE),
+            dt => vortex_panic!("Invalid data type for ByteViewArray: {dt}"),
         };
 
         let views_buffer = Buffer::from_byte_buffer(
             Buffer::from_arrow_scalar_buffer(value.views().clone()).into_byte_buffer(),
         );
 
-        VarBinViewArray::try_new(
-            views_buffer,
-            Arc::from(
-                value
-                    .data_buffers()
-                    .iter()
-                    .map(|b| ByteBuffer::from_arrow_buffer(b.clone(), Alignment::of::<u8>()))
-                    .collect::<Vec<_>>(),
-            ),
-            dtype,
-            nulls(value.nulls(), nullable),
-        )
-        .vortex_expect("Failed to convert Arrow GenericByteViewArray to Vortex VarBinViewArray")
-        .into_array()
+        // SAFETY: arrow-rs ByteViewArray already checks the same invariants, we inherit those
+        //  guarantees by zero-copy constructing from one.
+        unsafe {
+            VarBinViewArray::new_unchecked(
+                views_buffer,
+                Arc::from(
+                    value
+                        .data_buffers()
+                        .iter()
+                        .map(|b| ByteBuffer::from_arrow_buffer(b.clone(), Alignment::of::<u8>()))
+                        .collect::<Vec<_>>(),
+                ),
+                dtype,
+                nulls(value.nulls(), nullable),
+            )
+            .into_array()
+        }
     }
 }
 
@@ -399,7 +402,7 @@ impl FromArrowArray<&dyn ArrowArray> for ArrayRef {
                 ArrowTimeUnit::Millisecond => {
                     Self::from_arrow(array.as_primitive::<Time32MillisecondType>(), nullable)
                 }
-                _ => unreachable!(),
+                ArrowTimeUnit::Microsecond | ArrowTimeUnit::Nanosecond => unreachable!(),
             },
             DataType::Time64(u) => match u {
                 ArrowTimeUnit::Microsecond => {
@@ -408,7 +411,7 @@ impl FromArrowArray<&dyn ArrowArray> for ArrayRef {
                 ArrowTimeUnit::Nanosecond => {
                     Self::from_arrow(array.as_primitive::<Time64NanosecondType>(), nullable)
                 }
-                _ => unreachable!(),
+                ArrowTimeUnit::Second | ArrowTimeUnit::Millisecond => unreachable!(),
             },
             DataType::Decimal128(..) => {
                 Self::from_arrow(array.as_primitive::<Decimal128Type>(), nullable)
@@ -416,10 +419,7 @@ impl FromArrowArray<&dyn ArrowArray> for ArrayRef {
             DataType::Decimal256(..) => {
                 Self::from_arrow(array.as_primitive::<Decimal256Type>(), nullable)
             }
-            _ => vortex_panic!(
-                "Array encoding not implemented for Arrow data type {}",
-                array.data_type().clone()
-            ),
+            dt => vortex_panic!("Array encoding not implemented for Arrow data type {dt}"),
         }
     }
 }
@@ -775,13 +775,16 @@ mod tests {
 
         // Verify metadata - should be TemporalArray with Second time unit
         let temporal_array = TemporalArray::try_from(vortex_array.clone()).unwrap();
-        assert_eq!(temporal_array.temporal_metadata().time_unit(), TimeUnit::S);
+        assert_eq!(
+            temporal_array.temporal_metadata().time_unit(),
+            TimeUnit::Seconds
+        );
 
         let temporal_array_non_null =
             TemporalArray::try_from(vortex_array_non_null.clone()).unwrap();
         assert_eq!(
             temporal_array_non_null.temporal_metadata().time_unit(),
-            TimeUnit::S
+            TimeUnit::Seconds
         );
     }
 
@@ -830,7 +833,10 @@ mod tests {
             &DType::Extension(Arc::new(ExtDType::new(
                 TIMESTAMP_ID.clone(),
                 Arc::new(DType::Primitive(PType::I64, Nullability::Nullable)),
-                Some(TemporalMetadata::Timestamp(TimeUnit::Us, Some("UTC".to_string())).into())
+                Some(
+                    TemporalMetadata::Timestamp(TimeUnit::Microseconds, Some("UTC".to_string()))
+                        .into()
+                )
             )))
         );
         assert_eq!(vortex_array_non_null.len(), 4);
@@ -839,7 +845,10 @@ mod tests {
             &DType::Extension(Arc::new(ExtDType::new(
                 TIMESTAMP_ID.clone(),
                 Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
-                Some(TemporalMetadata::Timestamp(TimeUnit::Us, Some("UTC".to_string())).into())
+                Some(
+                    TemporalMetadata::Timestamp(TimeUnit::Microseconds, Some("UTC".to_string()))
+                        .into()
+                )
             )))
         );
     }
@@ -870,13 +879,16 @@ mod tests {
 
         // Verify metadata - should be TemporalArray with Second time unit
         let temporal_array = TemporalArray::try_from(vortex_array.clone()).unwrap();
-        assert_eq!(temporal_array.temporal_metadata().time_unit(), TimeUnit::S);
+        assert_eq!(
+            temporal_array.temporal_metadata().time_unit(),
+            TimeUnit::Seconds
+        );
 
         let temporal_array_non_null =
             TemporalArray::try_from(vortex_array_non_null.clone()).unwrap();
         assert_eq!(
             temporal_array_non_null.temporal_metadata().time_unit(),
-            TimeUnit::S
+            TimeUnit::Seconds
         );
     }
 

@@ -3,7 +3,7 @@
 
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexResult, vortex_bail};
 
 use super::{ListArray, ListVTable};
 use crate::arrays::ListEncoding;
@@ -26,8 +26,7 @@ impl SerdeVTable<ListVTable> for ListVTable {
     fn metadata(array: &ListArray) -> VortexResult<Option<Self::Metadata>> {
         Ok(Some(ProstMetadata(ListMetadata {
             elements_len: array.elements().len() as u64,
-            offset_ptype: PType::try_from(array.offsets().dtype())
-                .vortex_expect("Must be a valid PType") as i32,
+            offset_ptype: PType::try_from(array.offsets().dtype())? as i32,
         })))
     }
 
@@ -54,7 +53,7 @@ impl SerdeVTable<ListVTable> for ListVTable {
         let elements = children.get(
             0,
             element_dtype.as_ref(),
-            usize::try_from(metadata.elements_len).vortex_expect("Too many elements"),
+            usize::try_from(metadata.elements_len)?,
         )?;
 
         let offsets = children.get(

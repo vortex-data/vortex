@@ -254,7 +254,7 @@ impl PruningEvaluation for ChunkedPruningEvaluation {
         let masks: Vec<_> = FuturesOrdered::from_iter(
             self.mask_ranges
                 .iter()
-                .map(|range| mask.slice(range.start, range.end - range.start))
+                .map(|range| mask.slice(range.clone()))
                 .zip_eq(&self.chunk_evals)
                 .map(|(mask, chunk_eval)| {
                     if mask.all_false() {
@@ -297,7 +297,7 @@ impl MaskEvaluation for ChunkedMaskEvaluation {
         let masks: Vec<_> = FuturesOrdered::from_iter(
             self.mask_ranges
                 .iter()
-                .map(|range| mask.slice(range.start, range.end - range.start))
+                .map(|range| mask.slice(range.clone()))
                 .zip_eq(&self.chunk_evals)
                 .map(|(mask, chunk_eval)| {
                     if mask.all_false() {
@@ -334,7 +334,7 @@ impl ArrayEvaluation for ChunkedArrayEvaluation {
         let chunks: Vec<_> = FuturesOrdered::from_iter(
             self.mask_ranges
                 .iter()
-                .map(|range| mask.slice(range.start, range.end - range.start))
+                .map(|range| mask.slice(range.clone()))
                 .zip_eq(&self.chunk_evals)
                 .filter(|(mask, _chunk_eval)| mask.true_count() > 0)
                 .map(|(mask, chunk_eval)| chunk_eval.invoke(mask)),
@@ -413,8 +413,7 @@ mod test {
                 .invoke(Mask::new_true(usize::try_from(layout.row_count()).unwrap()))
                 .await
                 .unwrap()
-                .to_primitive()
-                .unwrap();
+                .to_primitive();
 
             assert_eq!(result.len(), 9);
             assert_eq!(result.as_slice::<i32>(), &[1, 2, 3, 4, 5, 6, 7, 8, 9]);

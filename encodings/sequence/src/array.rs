@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use num_traits::cast::FromPrimitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
@@ -114,8 +116,8 @@ impl SequenceArray {
             let len_t = <P>::from_usize(length - 1)
                 .ok_or_else(|| vortex_err!("cannot convert length {} into {}", length, ptype))?;
 
-            let base = base.as_primitive::<P>()?;
-            let multiplier = multiplier.as_primitive::<P>()?;
+            let base = base.as_primitive::<P>();
+            let multiplier = multiplier.as_primitive::<P>();
 
             let last = len_t
                 .checked_mul(multiplier)
@@ -125,16 +127,15 @@ impl SequenceArray {
         })
     }
 
-    fn index_value(&self, idx: usize) -> VortexResult<PValue> {
-        if idx > self.length {
-            vortex_bail!("out of bounds")
-        }
+    fn index_value(&self, idx: usize) -> PValue {
+        assert!(idx < self.length, "index_value({idx}): index out of bounds");
+
         match_each_native_ptype!(self.ptype(), |P| {
-            let base = self.base.as_primitive::<P>()?;
-            let multiplier = self.multiplier.as_primitive::<P>()?;
+            let base = self.base.as_primitive::<P>();
+            let multiplier = self.multiplier.as_primitive::<P>();
             let value = base + (multiplier * <P>::from_usize(idx).vortex_expect("must fit"));
 
-            Ok(PValue::from(value))
+            PValue::from(value)
         })
     }
 
@@ -161,6 +162,7 @@ impl VTable for SequenceVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
     type SerdeVTable = Self;
+    type PipelineVTable = NotSupported;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.sequence")
@@ -186,10 +188,10 @@ impl ArrayVTable<SequenceVTable> for SequenceVTable {
 }
 
 impl CanonicalVTable<SequenceVTable> for SequenceVTable {
-    fn canonicalize(array: &SequenceArray) -> VortexResult<Canonical> {
+    fn canonicalize(array: &SequenceArray) -> Canonical {
         let prim = match_each_native_ptype!(array.ptype(), |P| {
-            let base = array.base().as_primitive::<P>()?;
-            let multiplier = array.multiplier().as_primitive::<P>()?;
+            let base = array.base().as_primitive::<P>();
+            let multiplier = array.multiplier().as_primitive::<P>();
             let values = BufferMut::from_iter(
                 (0..array.len())
                     .map(|i| base + <P>::from_usize(i).vortex_expect("must fit") * multiplier),
@@ -197,46 +199,45 @@ impl CanonicalVTable<SequenceVTable> for SequenceVTable {
             PrimitiveArray::new(values, array.dtype.nullability().into())
         });
 
-        Ok(Canonical::Primitive(prim))
+        Canonical::Primitive(prim)
     }
 }
 
 impl OperationsVTable<SequenceVTable> for SequenceVTable {
-    fn slice(array: &SequenceArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        Ok(SequenceArray::unchecked_new(
-            array.index_value(start)?,
+    fn slice(array: &SequenceArray, range: Range<usize>) -> ArrayRef {
+        SequenceArray::unchecked_new(
+            array.index_value(range.start),
             array.multiplier,
             array.ptype(),
             array.dtype().nullability(),
-            stop - start,
+            range.len(),
         )
-        .to_array())
+        .to_array()
     }
 
-    fn scalar_at(array: &SequenceArray, index: usize) -> VortexResult<Scalar> {
-        // Ok(Scalar::from(array.index_value(index)))
-        Ok(Scalar::new(
+    fn scalar_at(array: &SequenceArray, index: usize) -> Scalar {
+        Scalar::new(
             array.dtype().clone(),
-            ScalarValue::from(array.index_value(index)?),
-        ))
+            ScalarValue::from(array.index_value(index)),
+        )
     }
 }
 
 impl ValidityVTable<SequenceVTable> for SequenceVTable {
-    fn is_valid(_array: &SequenceArray, _index: usize) -> VortexResult<bool> {
-        Ok(true)
+    fn is_valid(_array: &SequenceArray, _index: usize) -> bool {
+        true
     }
 
-    fn all_valid(_array: &SequenceArray) -> VortexResult<bool> {
-        Ok(true)
+    fn all_valid(_array: &SequenceArray) -> bool {
+        true
     }
 
-    fn all_invalid(_array: &SequenceArray) -> VortexResult<bool> {
-        Ok(false)
+    fn all_invalid(_array: &SequenceArray) -> bool {
+        false
     }
 
-    fn validity_mask(array: &SequenceArray) -> VortexResult<Mask> {
-        Ok(Mask::AllTrue(array.len()))
+    fn validity_mask(array: &SequenceArray) -> Mask {
+        Mask::AllTrue(array.len())
     }
 }
 
@@ -253,6 +254,7 @@ pub struct SequenceEncoding;
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_dtype::Nullability;
     use vortex_scalar::{Scalar, ScalarValue};
@@ -266,11 +268,7 @@ mod tests {
         let canon = PrimitiveArray::from_iter((0..4).map(|i| 2i64 + i * 3));
 
         assert_eq!(
-            arr.to_canonical()
-                .unwrap()
-                .into_primitive()
-                .unwrap()
-                .as_slice::<i64>(),
+            arr.to_primitive().as_slice::<i64>(),
             canon.as_slice::<i64>()
         )
     }
@@ -279,17 +277,12 @@ mod tests {
     fn test_sequence_slice_canonical() {
         let arr = SequenceArray::typed_new(2i64, 3, Nullability::NonNullable, 4)
             .unwrap()
-            .slice(2, 3)
-            .unwrap();
+            .slice(2..3);
 
         let canon = PrimitiveArray::from_iter((2..3).map(|i| 2i64 + i * 3));
 
         assert_eq!(
-            arr.to_canonical()
-                .unwrap()
-                .into_primitive()
-                .unwrap()
-                .as_slice::<i64>(),
+            arr.to_primitive().as_slice::<i64>(),
             canon.as_slice::<i64>()
         )
     }
@@ -298,8 +291,7 @@ mod tests {
     fn test_sequence_scalar_at() {
         let scalar = SequenceArray::typed_new(2i64, 3, Nullability::NonNullable, 4)
             .unwrap()
-            .scalar_at(2)
-            .unwrap();
+            .scalar_at(2);
 
         assert_eq!(
             scalar,

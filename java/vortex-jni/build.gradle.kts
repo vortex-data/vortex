@@ -8,7 +8,7 @@ plugins {
     `java-library`
     `jvm-test-suite`
     id("com.google.protobuf")
-    id("com.gradleup.shadow") version "9.0.2"
+    id("com.gradleup.shadow") version "9.1.0"
 }
 
 dependencies {
@@ -123,7 +123,6 @@ tasks.register("makeTestFiles") {
         val execOps = serviceOf<ExecOperations>()
 
         // Build the JNI lib
-
         execOps.exec {
             workingDir = rootProject.projectDir.absoluteFile.parentFile
             executable = "cargo"

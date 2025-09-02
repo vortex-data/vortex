@@ -99,34 +99,39 @@ impl FromArrowType<&Fields> for StructFields {
 
 impl FromArrowType<(&DataType, Nullability)> for DType {
     fn from_arrow((data_type, nullability): (&DataType, Nullability)) -> Self {
-        use crate::DType::*;
-
         if data_type.is_integer() || data_type.is_floating() {
-            return Primitive(
+            return DType::Primitive(
                 PType::try_from_arrow(data_type).vortex_expect("arrow float/integer to ptype"),
                 nullability,
             );
         }
 
         match data_type {
-            DataType::Null => Null,
+            DataType::Null => DType::Null,
             DataType::Decimal128(precision, scale) | DataType::Decimal256(precision, scale) => {
-                Decimal(DecimalDType::new(*precision, *scale), nullability)
+                DType::Decimal(DecimalDType::new(*precision, *scale), nullability)
             }
-            DataType::Boolean => Bool(nullability),
-            DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => Utf8(nullability),
-            DataType::Binary | DataType::LargeBinary | DataType::BinaryView => Binary(nullability),
+            DataType::Boolean => DType::Bool(nullability),
+            DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => DType::Utf8(nullability),
+            DataType::Binary | DataType::LargeBinary | DataType::BinaryView => {
+                DType::Binary(nullability)
+            }
             DataType::Date32
             | DataType::Date64
             | DataType::Time32(_)
             | DataType::Time64(_)
-            | DataType::Timestamp(..) => Extension(Arc::new(
+            | DataType::Timestamp(..) => DType::Extension(Arc::new(
                 make_temporal_ext_dtype(data_type).with_nullability(nullability),
             )),
             DataType::List(e) | DataType::LargeList(e) => {
-                List(Arc::new(Self::from_arrow(e.as_ref())), nullability)
+                DType::List(Arc::new(Self::from_arrow(e.as_ref())), nullability)
             }
-            DataType::Struct(f) => Struct(StructFields::from_arrow(f), nullability),
+            DataType::FixedSizeList(e, size) => DType::FixedSizeList(
+                Arc::new(Self::from_arrow(e.as_ref())),
+                *size as u32,
+                nullability,
+            ),
+            DataType::Struct(f) => DType::Struct(StructFields::from_arrow(f), nullability),
             DataType::Dictionary(_, value_type) => {
                 Self::from_arrow((value_type.as_ref(), nullability))
             }
@@ -207,10 +212,17 @@ impl DType {
             // There are four kinds of lists: List (32-bit offsets), Large List (64-bit), List View
             // (32-bit), Large List View (64-bit). We cannot both guarantee zero-copy and commit to an
             // Arrow dtype because we do not how large our offsets are.
-            DType::List(l, _) => DataType::List(FieldRef::new(Field::new_list_field(
-                l.to_arrow_dtype()?,
-                l.nullability().into(),
+            DType::List(elem_dtype, _) => DataType::List(FieldRef::new(Field::new_list_field(
+                elem_dtype.to_arrow_dtype()?,
+                elem_dtype.nullability().into(),
             ))),
+            DType::FixedSizeList(elem_dtype, size, _) => DataType::FixedSizeList(
+                FieldRef::new(Field::new_list_field(
+                    elem_dtype.to_arrow_dtype()?,
+                    elem_dtype.nullability().into(),
+                )),
+                *size as i32,
+            ),
             DType::Extension(ext_dtype) => {
                 // Try and match against the known extension DTypes.
                 if is_temporal_ext_type(ext_dtype.id()) {

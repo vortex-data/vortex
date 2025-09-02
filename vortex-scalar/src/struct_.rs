@@ -96,7 +96,7 @@ impl<'a> StructScalar<'a> {
     #[inline]
     pub fn struct_fields(&self) -> &StructFields {
         self.dtype
-            .as_struct()
+            .as_struct_fields_opt()
             .vortex_expect("StructScalar always has struct dtype")
     }
 
@@ -189,7 +189,7 @@ impl<'a> StructScalar<'a> {
                         &st.field_by_index(i)
                             .vortex_expect("Iterating over scalar fields"),
                     )
-                    .map(|s| s.value)
+                    .map(|s| s.into_value())
                 })
                 .collect::<VortexResult<Vec<_>>>()?;
             Ok(Scalar::new(
@@ -209,7 +209,7 @@ impl<'a> StructScalar<'a> {
     pub fn project(&self, projection: &[FieldName]) -> VortexResult<Scalar> {
         let struct_dtype = self
             .dtype
-            .as_struct()
+            .as_struct_fields_opt()
             .ok_or_else(|| vortex_err!("Not a struct dtype"))?;
         let projected_dtype = struct_dtype.project(projection)?;
         let new_fields = if let Some(fs) = self.field_values() {
@@ -278,7 +278,7 @@ impl<'a> TryFrom<&'a Scalar> for StructScalar<'a> {
     type Error = VortexError;
 
     fn try_from(value: &'a Scalar) -> Result<Self, Self::Error> {
-        Self::try_new(value.dtype(), &value.value)
+        Self::try_new(value.dtype(), value.value())
     }
 }
 

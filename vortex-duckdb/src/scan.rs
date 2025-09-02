@@ -22,7 +22,7 @@ use crate::convert::{try_from_bound_expression, try_from_table_filter};
 use crate::duckdb::footer_cache::FooterCache;
 use crate::duckdb::{
     BindInput, BindResult, Cardinality, ClientContext, DataChunk, Expression, LogicalType,
-    ObjectCache, TableFunction, TableInitInput,
+    TableFunction, TableInitInput,
 };
 use crate::exporter::{ArrayExporter, ConversionCache};
 use crate::utils::glob::expand_glob;
@@ -88,7 +88,7 @@ fn extract_schema_from_vortex_file(
 
     // For now, we assume the top-level type to be a struct.
     let struct_dtype = dtype
-        .as_struct()
+        .as_struct_fields_opt()
         .ok_or_else(|| vortex_err!("Vortex file must contain a struct array at the top level"))?;
 
     let mut column_names = Vec::new();
@@ -274,8 +274,9 @@ impl TableFunction for VortexTableFunction {
             .get_parameter(0)
             .ok_or_else(|| vortex_err!("Missing file glob parameter"))?;
 
-        let (file_urls, _metadata) =
-            block_in_place(|| RUNTIME.block_on(expand_glob(&file_glob_string.as_string())))?;
+        let (file_urls, _metadata) = block_in_place(|| {
+            RUNTIME.block_on(expand_glob(file_glob_string.as_ref().as_string()))
+        })?;
 
         // The first file is skipped in `create_file_paths_queue`.
         let Some(first_file_url) = file_urls.first() else {
@@ -351,7 +352,7 @@ impl TableFunction for VortexTableFunction {
                 let (array_result, conversion_cache) = result?;
 
                 local_state.exporter = Some(ArrayExporter::try_new_with_virtual_columns(
-                    &array_result.to_struct()?,
+                    &array_result.to_struct(),
                     &conversion_cache,
                     &global_state.virtual_column_requests,
                     chunk.column_count(),
@@ -395,7 +396,8 @@ impl TableFunction for VortexTableFunction {
             virtual_column_requests
         );
 
-        let object_cache = init_input.client_context()?.object_cache();
+        let client_context = init_input.client_context()?;
+        let object_cache = client_context.object_cache();
 
 
         let closures =
@@ -409,7 +411,7 @@ impl TableFunction for VortexTableFunction {
                     let filter_expr = filter_expr.clone();
                     let projection_expr = projection_expr.clone();
                     let conversion_cache = Arc::new(ConversionCache::new(idx as u64));
-                    let object_cache = unsafe { ObjectCache::borrow(object_cache.as_ptr()) };
+                    let object_cache = object_cache;
 
                     move || {
                         let file = if idx == 0 {

@@ -5,7 +5,6 @@ use std::ops::Range;
 use std::sync::{Arc, Weak};
 
 use arrow_schema::{ArrowError, Field, SchemaRef};
-use dashmap::{DashMap, Entry};
 use datafusion_common::{DataFusionError, Result as DFResult};
 use datafusion_datasource::file_meta::FileMeta;
 use datafusion_datasource::file_stream::{FileOpenFuture, FileOpener};
@@ -24,6 +23,7 @@ use vortex::layout::LayoutReader;
 use vortex::metrics::VortexMetrics;
 use vortex::scan::ScanBuilder;
 use vortex::{ArrayRef, ToCanonical};
+use vortex_utils::aliases::dash_map::{DashMap, Entry};
 
 use super::cache::VortexFileCache;
 use crate::convert::exprs::{can_be_pushed_down, make_vortex_predicate};
@@ -123,7 +123,7 @@ impl FileOpener for VortexOpener {
             let projection_expr = select(fields, root());
 
             // We share our layout readers with others partitions in the scan, so we can only need to read each layout in each file once.
-            let layout_reader = match layout_reader.entry(file_meta.object_meta.location) {
+            let layout_reader = match layout_reader.entry(file_meta.object_meta.location.clone()) {
                 Entry::Occupied(mut occupied_entry) => {
                     if let Some(reader) = occupied_entry.get().upgrade() {
                         log::trace!("reusing layout reader for {}", occupied_entry.key());
@@ -182,10 +182,7 @@ impl FileOpener for VortexOpener {
                 .with_metrics(metrics)
                 .with_projection(projection_expr)
                 .with_some_filter(filter)
-                .map(move |chunk| {
-                    let st = chunk.to_struct()?;
-                    st.into_record_batch()
-                })
+                .map(|chunk| chunk.to_struct().into_record_batch())
                 .into_tokio_stream()
                 .map_err(|e| {
                     DataFusionError::Execution(format!("Failed to create Vortex stream: {e}"))
@@ -211,7 +208,12 @@ impl FileOpener for VortexOpener {
                             .map(Ok),
                     )
                 })
-                .map_err(|e: VortexError| ArrowError::ExternalError(Box::new(e)))
+                .map_err(move |e: VortexError| {
+                    ArrowError::ExternalError(Box::new(e.with_context(format!(
+                        "Failed to read Vortex file: {}",
+                        file_meta.object_meta.location
+                    ))))
+                })
                 .try_flatten()
                 .map(move |batch| {
                     batch.and_then(|b| schema_mapping.map_batch(b).map_err(Into::into))
@@ -253,7 +255,6 @@ fn byte_range_to_row_range(byte_range: Range<u64>, row_count: u64, total_size: u
 
 #[cfg(test)]
 mod tests {
-
     use chrono::Utc;
     use datafusion::arrow;
     use datafusion::arrow::array::RecordBatch;

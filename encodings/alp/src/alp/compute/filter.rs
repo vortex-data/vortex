@@ -16,10 +16,16 @@ impl FilterKernel for ALPVTable {
             .transpose()?
             .flatten();
 
-        Ok(
-            ALPArray::try_new(filter(array.encoded(), mask)?, array.exponents(), patches)?
-                .to_array(),
-        )
+        // SAFETY: filtering the values does not change correctness
+        unsafe {
+            Ok(ALPArray::new_unchecked(
+                filter(array.encoded(), mask)?,
+                array.exponents(),
+                patches,
+                array.dtype().clone(),
+            )
+            .to_array())
+        }
     }
 }
 
@@ -46,7 +52,7 @@ mod test {
     ].into_array())]
     fn test_filter_alp_conformance(#[case] array: vortex_array::ArrayRef) {
         let alp = ALPEncoding
-            .encode(&array.to_canonical().unwrap(), None)
+            .encode(&array.to_canonical(), None)
             .unwrap()
             .unwrap();
         test_filter_conformance(alp.as_ref());

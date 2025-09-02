@@ -22,15 +22,18 @@ impl NumericKernel for RunEndVTable {
 
         let rhs_const_array = ConstantArray::new(rhs_scalar, array.values().len()).into_array();
 
-        Ok(Some(
-            RunEndArray::with_offset_and_length(
-                array.ends().clone(),
-                numeric(array.values(), &rhs_const_array, op)?,
-                array.offset(),
-                array.len(),
-            )?
-            .into_array(),
-        ))
+        // SAFETY: ends are preserved.
+        unsafe {
+            Ok(Some(
+                RunEndArray::new_unchecked(
+                    array.ends().clone(),
+                    numeric(array.values(), &rhs_const_array, op)?,
+                    array.offset(),
+                    array.len(),
+                )
+                .into_array(),
+            ))
+        }
     }
 }
 

@@ -62,7 +62,7 @@ impl ComputeFnVTable for Take {
         // TODO(ngates): if indices min is quite high, we could slice self and offset the indices
         //  such that canonicalize does less work.
 
-        if indices.all_invalid()? {
+        if indices.all_invalid() {
             return Ok(ConstantArray::new(
                 Scalar::null(array.dtype().as_nullable()),
                 indices.len(),
@@ -170,7 +170,7 @@ fn take_impl(
     // Otherwise, canonicalize and try again.
     if !array.is_canonical() {
         log::debug!("No take implementation found for {}", array.encoding_id());
-        let canonical = array.to_canonical()?;
+        let canonical = array.to_canonical();
         return take(canonical.as_ref(), indices);
     }
 

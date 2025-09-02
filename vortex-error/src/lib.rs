@@ -101,8 +101,6 @@ pub enum VortexError {
     FmtError(fmt::Error, Box<Backtrace>),
     /// A wrapper for IO errors.
     IOError(io::Error, Box<Backtrace>),
-    /// A wrapper for UTF-8 conversion errors.
-    Utf8Error(std::str::Utf8Error, Box<Backtrace>),
     /// A wrapper for errors from the standard library when converting a slice to an array.
     TryFromSliceError(std::array::TryFromSliceError, Box<Backtrace>),
     /// A wrapper for errors from the Object Store library.
@@ -197,9 +195,6 @@ impl Display for VortexError {
                 write!(f, "{err}\nBacktrace:\n{backtrace}")
             }
             VortexError::IOError(err, backtrace) => {
-                write!(f, "{err}\nBacktrace:\n{backtrace}")
-            }
-            VortexError::Utf8Error(err, backtrace) => {
                 write!(f, "{err}\nBacktrace:\n{backtrace}")
             }
             VortexError::TryFromSliceError(err, backtrace) => {
@@ -430,6 +425,20 @@ macro_rules! vortex_bail {
     };
 }
 
+/// A macro that mirrors `assert!` but instead of panicking on a failed condition,
+/// it will immediately return an erroneous `VortexResult` to the calling context.
+#[macro_export]
+macro_rules! vortex_ensure {
+    ($cond:expr) => {
+        vortex_ensure!($cond, stringify!($cond));
+    };
+    ($cond:expr, $($tt:tt)*) => {
+        if !$cond {
+            $crate::vortex_bail!($($tt)*);
+        }
+    };
+}
+
 /// A convenient macro for panicking with a VortexError in the presence of a programmer error
 /// (e.g., an invariant has been violated).
 #[macro_export]
@@ -481,12 +490,6 @@ impl From<flatbuffers::InvalidFlatbuffer> for VortexError {
 impl From<io::Error> for VortexError {
     fn from(value: io::Error) -> Self {
         VortexError::IOError(value, Box::new(Backtrace::capture()))
-    }
-}
-
-impl From<std::str::Utf8Error> for VortexError {
-    fn from(value: std::str::Utf8Error) -> Self {
-        VortexError::Utf8Error(value, Box::new(Backtrace::capture()))
     }
 }
 

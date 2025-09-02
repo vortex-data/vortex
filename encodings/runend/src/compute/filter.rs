@@ -34,7 +34,7 @@ impl FilterKernel for RunEndVTable {
                 } else {
                     // This strategy ends up being close to fixed cost based on the number of runs,
                     // rather than the number of indices.
-                    let primitive_run_ends = array.ends().to_primitive()?;
+                    let primitive_run_ends = array.ends().to_primitive();
                     let (run_ends, values_mask) =
                         match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |P| {
                             filter_run_end_primitive(
@@ -46,7 +46,16 @@ impl FilterKernel for RunEndVTable {
                         });
                     let values = filter(array.values(), &values_mask)?;
 
-                    RunEndArray::try_new(run_ends.into_array(), values).map(|a| a.into_array())
+                    // SAFETY: guaranteed by implementation of filter_run_end_primitive
+                    unsafe {
+                        Ok(RunEndArray::new_unchecked(
+                            run_ends.into_array(),
+                            values,
+                            0,
+                            mask_values.true_count(),
+                        )
+                        .into_array())
+                    }
                 }
             }
         }
@@ -57,7 +66,7 @@ register_kernel!(FilterKernelAdapter(RunEndVTable).lift());
 
 // We expose this function to our benchmarks.
 pub fn filter_run_end(array: &RunEndArray, mask: &Mask) -> VortexResult<ArrayRef> {
-    let primitive_run_ends = array.ends().to_primitive()?;
+    let primitive_run_ends = array.ends().to_primitive();
     let (run_ends, values_mask) =
         match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |P| {
             filter_run_end_primitive(
@@ -71,7 +80,13 @@ pub fn filter_run_end(array: &RunEndArray, mask: &Mask) -> VortexResult<ArrayRef
         });
     let values = filter(array.values(), &values_mask)?;
 
-    RunEndArray::try_new(run_ends.into_array(), values).map(|a| a.into_array())
+    // SAFETY: enforced by filter_run_end_primitive
+    unsafe {
+        Ok(
+            RunEndArray::new_unchecked(run_ends.into_array(), values, 0, mask.true_count())
+                .into_array(),
+        )
+    }
 }
 
 // Code adapted from apache arrow-rs https://github.com/apache/arrow-rs/blob/b1f5c250ebb6c1252b4e7c51d15b8e77f4c361fa/arrow-select/src/filter.rs#L425
@@ -143,26 +158,18 @@ mod tests {
         let filtered_run_end = filtered.as_::<RunEndVTable>();
 
         assert_eq!(
-            filtered_run_end
-                .ends()
-                .to_primitive()
-                .unwrap()
-                .as_slice::<u8>(),
+            filtered_run_end.ends().to_primitive().as_slice::<u8>(),
             [2, 4]
         );
         assert_eq!(
-            filtered_run_end
-                .values()
-                .to_primitive()
-                .unwrap()
-                .as_slice::<i32>(),
+            filtered_run_end.values().to_primitive().as_slice::<i32>(),
             [1, 5]
         );
     }
 
     #[test]
     fn filter_sliced_run_end() {
-        let arr = ree_array().slice(2, 7).unwrap();
+        let arr = ree_array().slice(2..7);
         let filtered = filter_run_end(
             arr.as_::<RunEndVTable>(),
             &Mask::from_iter([true, false, false, true, true]),
@@ -171,19 +178,11 @@ mod tests {
         let filtered_run_end = filtered.as_::<RunEndVTable>();
 
         assert_eq!(
-            filtered_run_end
-                .ends()
-                .to_primitive()
-                .unwrap()
-                .as_slice::<u8>(),
+            filtered_run_end.ends().to_primitive().as_slice::<u8>(),
             [1, 2, 3]
         );
         assert_eq!(
-            filtered_run_end
-                .values()
-                .to_primitive()
-                .unwrap()
-                .as_slice::<i32>(),
+            filtered_run_end.values().to_primitive().as_slice::<i32>(),
             [1, 4, 2]
         );
     }

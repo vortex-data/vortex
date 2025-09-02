@@ -1,5 +1,5 @@
-//  SPDX-License-Identifier: Apache-2.0
-//  SPDX-FileCopyrightText: Copyright the Vortex contributors
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
 use pyo3::{PyRef, PyResult, pyclass, pymethods};

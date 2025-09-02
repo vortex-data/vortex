@@ -13,7 +13,7 @@ use crate::PcoArray;
 
 macro_rules! assert_nth_scalar {
     ($arr:expr, $n:expr, $expected:expr) => {
-        assert_eq!($arr.scalar_at($n).unwrap(), $expected.try_into().unwrap());
+        assert_eq!($arr.scalar_at($n), $expected.try_into().unwrap());
     };
 }
 
@@ -26,19 +26,19 @@ fn test_compress_decompress() {
     assert!(compressed.pages.len() < array.nbytes() as usize);
 
     // check full decompression works
-    let decompressed = compressed.decompress().unwrap().to_primitive().unwrap();
+    let decompressed = compressed.decompress();
     assert_eq!(decompressed.as_slice::<i32>(), &data);
 
     // check slicing works
-    let slice = compressed.slice(100, 105).unwrap();
+    let slice = compressed.slice(100..105);
     for i in 0_i32..5 {
         assert_nth_scalar!(slice, i as usize, 100 + i);
     }
-    let primitive = slice.to_primitive().unwrap();
+    let primitive = slice.to_primitive();
     assert_eq!(primitive.as_slice::<i32>(), &[100, 101, 102, 103, 104]);
 
-    let slice = compressed.slice(200, 200).unwrap();
-    let primitive = slice.to_primitive().unwrap();
+    let slice = compressed.slice(200..200);
+    let primitive = slice.to_primitive();
     assert_eq!(primitive.as_slice::<i32>(), &Vec::<i32>::new());
 }
 
@@ -47,7 +47,7 @@ fn test_empty() {
     let data: Vec<i32> = vec![];
     let array = PrimitiveArray::from_iter(data.clone());
     let compressed = PcoArray::from_primitive(&array, 3, 100).unwrap();
-    let primitive = compressed.decompress().unwrap().to_primitive().unwrap();
+    let primitive = compressed.decompress();
     assert_eq!(primitive.as_slice::<i32>(), &data);
 }
 
@@ -83,10 +83,10 @@ fn test_validity_and_multiple_chunks_and_pages() {
     assert_nth_scalar!(compressed, 199, 199);
 
     // check slicing works
-    let slice = compressed.slice(100, 103).unwrap();
+    let slice = compressed.slice(100..103);
     assert_nth_scalar!(slice, 0, 100);
     assert_nth_scalar!(slice, 2, 102);
-    let primitive = slice.to_primitive().unwrap();
+    let primitive = slice.to_primitive();
     assert_eq!(
         primitive.validity(),
         &Validity::Array(BoolArray::from_iter(vec![true, false, true]).to_array())
@@ -102,12 +102,9 @@ fn test_validity_vtable() {
         Validity::Array(BoolArray::from_iter(mask_bools.clone()).to_array()),
     );
     let compressed = PcoArray::from_primitive(&array, 3, 0).unwrap();
+    assert_eq!(compressed.validity_mask(), Mask::from_iter(mask_bools));
     assert_eq!(
-        compressed.validity_mask().unwrap(),
-        Mask::from_iter(mask_bools)
-    );
-    assert_eq!(
-        compressed.slice(1, 4).unwrap().validity_mask().unwrap(),
+        compressed.slice(1..4).validity_mask(),
         Mask::from_iter(vec![true, true, false])
     );
 }

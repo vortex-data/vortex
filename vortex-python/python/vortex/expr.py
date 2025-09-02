@@ -1,11 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-from datetime import date, datetime
-from typing import TypeAlias
 
-from vortex._lib.expr import Expr, column, literal, root
+from ._lib.expr import Expr, and_, column, literal, not_, root  # pyright: ignore[reportMissingModuleSource]
 
-IntoExpr: TypeAlias = Expr | int | str | date | datetime | None
-
-__all__ = ["Expr", "column", "literal", "root"]
+__all__ = ["Expr", "column", "literal", "root", "not_", "and_"]

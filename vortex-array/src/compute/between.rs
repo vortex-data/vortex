@@ -104,7 +104,7 @@ impl ComputeFnVTable for Between {
 
         // A quick check to see if either array might is a null constant array.
         // Note: Depends on returning early if array is empty for is_invalid check.
-        if (lower.is_invalid(0)? || upper.is_invalid(0)?)
+        if (lower.is_invalid(0) || upper.is_invalid(0))
             && let (Some(c_lower), Some(c_upper)) = (lower.as_constant(), upper.as_constant())
             && (c_lower.is_null() || c_upper.is_null())
         {
@@ -294,8 +294,7 @@ mod tests {
             },
         )
         .unwrap()
-        .to_bool()
-        .unwrap();
+        .to_bool();
 
         let indices = to_int_indices(matches).unwrap();
         assert_eq!(indices, expected);
@@ -322,8 +321,7 @@ mod tests {
             },
         )
         .unwrap()
-        .to_bool()
-        .unwrap();
+        .to_bool();
 
         let indices = to_int_indices(matches).unwrap();
         assert!(indices.is_empty());
@@ -340,8 +338,7 @@ mod tests {
             },
         )
         .unwrap()
-        .to_bool()
-        .unwrap();
+        .to_bool();
         let indices = to_int_indices(matches).unwrap();
         assert_eq!(indices, vec![0, 1, 3]);
 
@@ -358,8 +355,7 @@ mod tests {
             },
         )
         .unwrap()
-        .to_bool()
-        .unwrap();
+        .to_bool();
         let indices = to_int_indices(matches).unwrap();
         assert_eq!(indices, vec![0, 1, 2, 3, 4]);
     }

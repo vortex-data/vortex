@@ -17,7 +17,7 @@ use crate::{RunEndArray, RunEndVTable};
 impl TakeKernel for RunEndVTable {
     #[allow(clippy::cast_possible_truncation)]
     fn take(&self, array: &RunEndArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let primitive_indices = indices.to_primitive()?;
+        let primitive_indices = indices.to_primitive();
 
         let checked_indices = match_each_integer_ptype!(primitive_indices.ptype(), |P| {
             primitive_indices
@@ -46,7 +46,7 @@ pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
     indices: &[T],
     validity: &Validity,
 ) -> VortexResult<ArrayRef> {
-    let ends = array.ends().to_primitive()?;
+    let ends = array.ends().to_primitive();
     let ends_len = ends.len();
 
     // TODO(joe): use the validity mask to skip search sorted.
@@ -100,10 +100,7 @@ mod test {
             PrimitiveArray::from_iter([9, 8, 1, 3]).as_ref(),
         )
         .unwrap();
-        assert_eq!(
-            taken.to_primitive().unwrap().as_slice::<i32>(),
-            &[5, 5, 1, 4]
-        );
+        assert_eq!(taken.to_primitive().as_slice::<i32>(), &[5, 5, 1, 4]);
     }
 
     #[test]
@@ -113,7 +110,7 @@ mod test {
             PrimitiveArray::from_iter([11]).as_ref(),
         )
         .unwrap();
-        assert_eq!(taken.to_primitive().unwrap().as_slice::<i32>(), &[5]);
+        assert_eq!(taken.to_primitive().as_slice::<i32>(), &[5]);
     }
 
     #[test]
@@ -128,7 +125,7 @@ mod test {
 
     #[test]
     fn sliced_take() {
-        let sliced = ree_array().slice(4, 9).unwrap();
+        let sliced = ree_array().slice(4..9);
         let taken = take(
             sliced.as_ref(),
             PrimitiveArray::from_iter([1, 3, 4]).as_ref(),
@@ -136,9 +133,9 @@ mod test {
         .unwrap();
 
         assert_eq!(taken.len(), 3);
-        assert_eq!(taken.scalar_at(0).unwrap(), 4.into());
-        assert_eq!(taken.scalar_at(1).unwrap(), 2.into());
-        assert_eq!(taken.scalar_at(2).unwrap(), 5.into());
+        assert_eq!(taken.scalar_at(0), 4.into());
+        assert_eq!(taken.scalar_at(1), 2.into());
+        assert_eq!(taken.scalar_at(2), 5.into());
     }
 
     #[test]
@@ -150,14 +147,14 @@ mod test {
         .unwrap();
 
         assert_eq!(
-            taken.scalar_at(0).unwrap(),
+            taken.scalar_at(0),
             Scalar::new(
                 DType::Primitive(PType::I32, Nullability::Nullable),
                 ScalarValue::from(1i32)
             )
         );
         assert_eq!(
-            taken.scalar_at(1).unwrap(),
+            taken.scalar_at(1),
             Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable))
         );
     }
@@ -198,13 +195,13 @@ mod test {
     }
 
     #[rstest]
-    #[case(ree_array().slice(3, 6).unwrap())]
+    #[case(ree_array().slice(3..6))]
     #[case({
         let array = RunEndArray::encode(
             PrimitiveArray::from_iter([1i32, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3]).into_array(),
         )
         .unwrap();
-        array.slice(2, 8).unwrap()
+        array.slice(2..8)
     })]
     fn test_take_sliced_runend_conformance(#[case] sliced: ArrayRef) {
         test_take_conformance(sliced.as_ref());

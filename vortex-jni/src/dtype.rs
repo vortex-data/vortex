@@ -73,6 +73,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getVariant(
         DType::Binary(_) => DTYPE_BINARY,
         DType::Struct(..) => DTYPE_STRUCT,
         DType::List(..) => DTYPE_LIST,
+        DType::FixedSizeList(..) => {
+            unimplemented!("TODO(connor)[FixedSizeList]")
+        }
         DType::Extension(_) => DTYPE_EXTENSION,
     }
 }
@@ -103,7 +106,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getFieldNames(
     try_or_throw(&mut env, |env| {
         let array_list = env.new_object("java/util/ArrayList", "()V", &[])?;
         let field_names = env.get_list(&array_list)?;
-        let Some(struct_dtype) = dtype.as_struct() else {
+        let Some(struct_dtype) = dtype.as_struct_fields_opt() else {
             throw_runtime!("DType should be STRUCT, was {dtype}");
         };
 
@@ -127,7 +130,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getFieldTypes(
     try_or_throw(&mut env, |env| {
         let array_list = env.new_object("java/util/ArrayList", "()V", &[])?;
         let field_types = env.get_list(&array_list)?;
-        let Some(struct_dtype) = dtype.as_struct() else {
+        let Some(struct_dtype) = dtype.as_struct_fields_opt() else {
             throw_runtime!("DType should be STRUCT, was {dtype}");
         };
 
@@ -157,7 +160,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getElementType(
     let dtype = unsafe { &*(dtype_ptr as *const DType) };
 
     try_or_throw(&mut env, |_| {
-        let Some(element_type) = dtype.as_list_element() else {
+        let Some(element_type) = dtype.as_list_element_opt() else {
             throw_runtime!("DType should be LIST, was {dtype}");
         };
 
@@ -243,11 +246,11 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getTimeUnit(
 
         let temporal = TemporalMetadata::try_from(ext_dtype)?;
         Ok(match temporal.time_unit() {
-            TimeUnit::Ns => 0,
-            TimeUnit::Us => 1,
-            TimeUnit::Ms => 2,
-            TimeUnit::S => 3,
-            TimeUnit::D => 4,
+            TimeUnit::Nanoseconds => 0,
+            TimeUnit::Microseconds => 1,
+            TimeUnit::Milliseconds => 2,
+            TimeUnit::Seconds => 3,
+            TimeUnit::Days => 4,
         })
     })
 }
@@ -571,8 +574,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_newDate(
         let time_unit = TimeUnit::try_from(time_unit as u8).map_err(JNIError::Vortex)?;
 
         let ptype = match time_unit {
-            TimeUnit::D => PType::I32,
-            TimeUnit::Ms => PType::I64,
+            TimeUnit::Days => PType::I32,
+            TimeUnit::Milliseconds => PType::I64,
             unit => throw_runtime!("invalid time_unit for Date type {unit}"),
         };
 
@@ -599,8 +602,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_newTime(
         let time_unit = TimeUnit::try_from(time_unit as u8).map_err(JNIError::Vortex)?;
 
         let ptype = match time_unit {
-            TimeUnit::S | TimeUnit::Ms => PType::I32,
-            TimeUnit::Us | TimeUnit::Ns => PType::I64,
+            TimeUnit::Seconds | TimeUnit::Milliseconds => PType::I32,
+            TimeUnit::Microseconds | TimeUnit::Nanoseconds => PType::I64,
             unit => throw_runtime!("invalid time_unit for Time type {unit}"),
         };
 

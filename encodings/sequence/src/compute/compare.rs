@@ -66,16 +66,10 @@ pub(crate) fn find_intersection_scalar(
     intercept: PValue,
 ) -> Option<usize> {
     match_each_integer_ptype!(base.ptype(), |P| {
-        let intercept = intercept
-            .as_primitive()
-            .vortex_expect("constant pvalue matching already validated");
+        let intercept = intercept.as_primitive::<P>();
 
-        let base = base
-            .as_primitive::<P>()
-            .vortex_expect("base pvalue matching already validated");
-        let multiplier = multiplier
-            .as_primitive::<P>()
-            .vortex_expect("multiplier pvalue matching already validated");
+        let base = base.as_primitive::<P>();
+        let multiplier = multiplier.as_primitive::<P>();
 
         find_intersection(base, multiplier, len, intercept)
     })
@@ -117,7 +111,7 @@ mod tests {
         let result = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
         assert_eq!(
-            result.to_bool().unwrap().boolean_buffer(),
+            result.to_bool().boolean_buffer(),
             BoolArray::from_iter(vec![false, false, true, false]).boolean_buffer(),
         )
     }
@@ -131,7 +125,7 @@ mod tests {
         let result = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
         assert_eq!(
-            result.to_bool().unwrap().boolean_buffer(),
+            result.to_bool().boolean_buffer(),
             BoolArray::from_iter(vec![false, false, true, false]).boolean_buffer(),
         )
     }
@@ -145,7 +139,7 @@ mod tests {
         let result = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
         assert_eq!(
-            result.to_bool().unwrap().boolean_buffer(),
+            result.to_bool().boolean_buffer(),
             BoolArray::from_iter(vec![false, false, false, false]).boolean_buffer(),
         )
     }

@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::compute::{TakeKernel, TakeKernelAdapter, take};
-use vortex_array::{Array, ArrayRef, register_kernel};
+use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
 use vortex_error::VortexResult;
 
 use crate::{ALPArray, ALPVTable};
@@ -23,7 +23,7 @@ impl TakeKernel for ALPVTable {
                 )
             })
             .transpose()?;
-        Ok(ALPArray::try_new(taken_encoded, array.exponents(), taken_patches)?.to_array())
+        Ok(ALPArray::new(taken_encoded, array.exponents(), taken_patches).into_array())
     }
 }
 
@@ -46,7 +46,7 @@ mod test {
     #[case(buffer![42.42f64].into_array())]
     fn test_take_alp_conformance(#[case] array: vortex_array::ArrayRef) {
         let alp = ALPEncoding
-            .encode(&array.to_canonical().unwrap(), None)
+            .encode(&array.to_canonical(), None)
             .unwrap()
             .unwrap();
         test_take_conformance(alp.as_ref());

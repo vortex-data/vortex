@@ -7,7 +7,6 @@ use std::sync::{Arc, OnceLock};
 
 use arrow_buffer::BooleanBufferBuilder;
 use async_trait::async_trait;
-use dashmap::DashMap;
 use futures::future::{BoxFuture, Shared};
 use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
@@ -20,6 +19,7 @@ use vortex_expr::dynamic::DynamicExprUpdates;
 use vortex_expr::pruning::checked_pruning_expr;
 use vortex_expr::{ExprRef, root};
 use vortex_mask::Mask;
+use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::ZoneMap;
@@ -107,10 +107,7 @@ impl ZonedReader {
                     .vortex_expect("Failed construct zone map evaluation");
 
                 async move {
-                    let zones_array = zones_eval
-                        .invoke(Mask::new_true(nzones))
-                        .await?
-                        .to_struct()?;
+                    let zones_array = zones_eval.invoke(Mask::new_true(nzones)).await?.to_struct();
                     // SAFETY: This is only fine to call because we perform validation above
                     Ok(ZoneMap::new_unchecked(zones_array, present_stats))
                 }
@@ -424,8 +421,7 @@ mod test {
                 .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await
                 .unwrap()
-                .to_primitive()
-                .unwrap();
+                .to_primitive();
 
             assert_eq!(result.len(), 9);
             assert_eq!(result.as_slice::<i32>(), &[1, 2, 3, 4, 5, 6, 7, 8, 9]);

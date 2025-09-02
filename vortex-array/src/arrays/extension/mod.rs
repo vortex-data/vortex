@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_dtype::{DType, ExtDType, ExtID};
-use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::stats::{ArrayStats, StatsSetRef};
@@ -33,6 +33,7 @@ impl VTable for ExtensionVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
+    type PipelineVTable = NotSupported;
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
@@ -120,7 +121,7 @@ pub struct ExtensionEncoding;
 /// assert_eq!(currency_array.id().as_ref(), "example.currency");
 ///
 /// // Access maintains extension type information
-/// let first_value = currency_array.scalar_at(0).unwrap();
+/// let first_value = currency_array.scalar_at(0);
 /// assert!(first_value.as_extension_opt().is_some());
 /// ```
 #[derive(Clone, Debug)]
@@ -183,25 +184,18 @@ impl ValidityChild<ExtensionVTable> for ExtensionVTable {
 }
 
 impl CanonicalVTable<ExtensionVTable> for ExtensionVTable {
-    fn canonicalize(array: &ExtensionArray) -> VortexResult<Canonical> {
-        Ok(Canonical::Extension(array.clone()))
+    fn canonicalize(array: &ExtensionArray) -> Canonical {
+        Canonical::Extension(array.clone())
     }
 }
 
 impl OperationsVTable<ExtensionVTable> for ExtensionVTable {
-    fn slice(array: &ExtensionArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        Ok(ExtensionArray::new(
-            array.ext_dtype().clone(),
-            array.storage().slice(start, stop)?,
-        )
-        .into_array())
+    fn slice(array: &ExtensionArray, range: Range<usize>) -> ArrayRef {
+        ExtensionArray::new(array.ext_dtype().clone(), array.storage().slice(range)).into_array()
     }
 
-    fn scalar_at(array: &ExtensionArray, index: usize) -> VortexResult<Scalar> {
-        Ok(Scalar::extension(
-            array.ext_dtype().clone(),
-            array.storage().scalar_at(index)?,
-        ))
+    fn scalar_at(array: &ExtensionArray, index: usize) -> Scalar {
+        Scalar::extension(array.ext_dtype().clone(), array.storage().scalar_at(index))
     }
 }
 

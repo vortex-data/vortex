@@ -4,13 +4,13 @@
 use std::any::Any;
 
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::arrays::NullArray;
 use crate::builders::ArrayBuilder;
 use crate::{Array, ArrayRef, IntoArray};
 
+/// The builder for building a [`NullArray`].
 pub struct NullBuilder {
     length: usize,
 }
@@ -48,14 +48,12 @@ impl ArrayBuilder for NullBuilder {
         self.length += n;
     }
 
-    fn append_nulls(&mut self, n: usize) {
+    unsafe fn append_nulls_unchecked(&mut self, n: usize) {
         self.length += n;
     }
 
-    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
-        assert_eq!(array.dtype(), &DType::Null);
+    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
         self.append_nulls(array.len());
-        Ok(())
     }
 
     fn ensure_capacity(&mut self, _capacity: usize) {}

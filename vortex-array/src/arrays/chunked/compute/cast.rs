@@ -15,9 +15,12 @@ impl CastKernel for ChunkedVTable {
             cast_chunks.push(cast(chunk, dtype)?);
         }
 
-        Ok(Some(
-            ChunkedArray::new_unchecked(cast_chunks, dtype.clone()).into_array(),
-        ))
+        // SAFETY: casting all chunks retains all chunks have same DType
+        unsafe {
+            Ok(Some(
+                ChunkedArray::new_unchecked(cast_chunks, dtype.clone()).into_array(),
+            ))
+        }
     }
 }
 
@@ -63,7 +66,6 @@ mod test {
             )
             .unwrap()
             .to_primitive()
-            .unwrap()
             .as_slice::<u64>(),
             &[0u64, 1, 2, 3],
         );

@@ -14,9 +14,10 @@ use vortex_error::{VortexResult, vortex_panic};
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable};
+use crate::{ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable};
 
 mod compute;
+mod downcast;
 mod native_value;
 mod ops;
 mod patch;
@@ -44,6 +45,7 @@ impl VTable for PrimitiveVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
+    type PipelineVTable = Self;
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
@@ -76,10 +78,10 @@ impl VTable for PrimitiveVTable {
 /// let array: PrimitiveArray = [1i32, 2, 3, 4, 5].into_iter().collect();
 ///
 /// // Slice the array
-/// let sliced = array.slice(1, 3).unwrap();
+/// let sliced = array.slice(1..3);
 ///
 /// // Access individual values
-/// let value = sliced.scalar_at(0).unwrap();
+/// let value = sliced.scalar_at(0);
 /// assert_eq!(value, 2i32.into());
 ///
 /// // Convert into a type-erased array that can be passed to compute functions.
@@ -156,14 +158,14 @@ impl PrimitiveArray {
         ptype: PType,
         validity: Validity,
         n_rows: usize,
-    ) -> VortexResult<Self> {
+    ) -> Self {
         let byte_width = ptype.byte_width();
         let alignment = Alignment::new(byte_width);
         let buffer = match &validity {
             Validity::AllValid | Validity::NonNullable => valid_elems_buffer.aligned(alignment),
             Validity::AllInvalid => ByteBuffer::zeroed_aligned(n_rows * byte_width, alignment),
             Validity::Array(is_valid) => {
-                let bool_array = is_valid.to_canonical()?.into_bool()?;
+                let bool_array = is_valid.to_bool();
                 let bool_buffer = bool_array.boolean_buffer();
                 let mut bytes = ByteBufferMut::zeroed_aligned(n_rows * byte_width, alignment);
                 for (i, valid_i) in bool_buffer.set_indices().enumerate() {
@@ -174,7 +176,7 @@ impl PrimitiveArray {
             }
         };
 
-        Ok(Self::from_byte_buffer(buffer, ptype, validity))
+        Self::from_byte_buffer(buffer, ptype, validity)
     }
 
     pub fn ptype(&self) -> PType {
@@ -284,7 +286,7 @@ impl PrimitiveArray {
                 BufferMut::<R>::from_iter(buf_iter.zip(iter::repeat(false)).map(f))
             }
             Validity::Array(val) => {
-                let val = val.to_canonical()?.into_bool()?;
+                let val = val.to_bool();
                 BufferMut::<R>::from_iter(buf_iter.zip(val.boolean_buffer()).map(f))
             }
         };
@@ -364,14 +366,11 @@ impl<T: NativePType> IntoArray for BufferMut<T> {
 }
 
 impl CanonicalVTable<PrimitiveVTable> for PrimitiveVTable {
-    fn canonicalize(array: &PrimitiveArray) -> VortexResult<Canonical> {
-        Ok(Canonical::Primitive(array.clone()))
+    fn canonicalize(array: &PrimitiveArray) -> Canonical {
+        Canonical::Primitive(array.clone())
     }
 
-    fn append_to_builder(
-        array: &PrimitiveArray,
-        builder: &mut dyn ArrayBuilder,
-    ) -> VortexResult<()> {
+    fn append_to_builder(array: &PrimitiveArray, builder: &mut dyn ArrayBuilder) {
         builder.extend_from_array(array.as_ref())
     }
 }

@@ -13,7 +13,7 @@ use crate::{DateTimePartsArray, DateTimePartsVTable};
 impl TakeKernel for DateTimePartsVTable {
     fn take(&self, array: &DateTimePartsArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         // we go ahead and canonicalize here to avoid worst-case canonicalizing 3 separate times
-        let indices = indices.to_primitive()?;
+        let indices = indices.to_primitive();
 
         let taken_days = take(array.days(), indices.as_ref())?;
         let taken_seconds = take(array.seconds(), indices.as_ref())?;
@@ -104,7 +104,7 @@ mod tests {
             259_200_000, // 3 days in ms
             345_600_000, // 4 days in ms
         ]).into_array(),
-        TimeUnit::Ms,
+        TimeUnit::Milliseconds,
         Some("UTC".to_string())
     )).unwrap())]
     #[case(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
@@ -115,12 +115,12 @@ mod tests {
             Some(259_200_000), // 3 days in ms
             None,
         ]).into_array(),
-        TimeUnit::Ms,
+        TimeUnit::Milliseconds,
         Some("UTC".to_string())
     )).unwrap())]
     #[case(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
         PrimitiveArray::from_iter([86_400_000i64]).into_array(),
-        TimeUnit::Ms,
+        TimeUnit::Milliseconds,
         Some("UTC".to_string())
     )).unwrap())]
     fn test_take_datetime_parts_conformance(#[case] array: DateTimePartsArray) {

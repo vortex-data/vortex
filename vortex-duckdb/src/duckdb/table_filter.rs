@@ -11,7 +11,7 @@ use num_traits::AsPrimitive;
 use vortex::error::VortexExpect;
 
 use crate::cpp::idx_t;
-use crate::duckdb::{Expression, Value};
+use crate::duckdb::{Expression, Value, ValueRef};
 use crate::{cpp, wrapper};
 
 wrapper!(TableFilterSet, cpp::duckdb_vx_table_filter_set, |_| {});
@@ -71,7 +71,7 @@ impl TableFilter {
                 unsafe { cpp::duckdb_vx_table_filter_get_constant(self.as_ptr(), &raw mut out) };
 
                 TableFilterClass::ConstantComparison(ConstantComparison {
-                    value: unsafe { Value::borrow(out.value) },
+                    value: unsafe { ValueRef::borrow(out.value) },
                     operator: out.comparison_type,
                 })
             }
@@ -183,7 +183,7 @@ impl Debug for TableFilter {
 }
 
 pub enum TableFilterClass<'a> {
-    ConstantComparison(ConstantComparison),
+    ConstantComparison(ConstantComparison<'a>),
     IsNull,
     IsNotNull,
     ConjunctionOr(Conjunction<'a>),
@@ -195,8 +195,8 @@ pub enum TableFilterClass<'a> {
     Expression(Expression),
 }
 
-pub struct ConstantComparison {
-    pub value: Value,
+pub struct ConstantComparison<'a> {
+    pub value: ValueRef<'a>,
     pub operator: cpp::DUCKDB_VX_EXPR_TYPE,
 }
 
@@ -226,13 +226,13 @@ struct ValuesIterator<'a> {
     _phantom: PhantomData<&'a ()>,
 }
 
-impl Iterator for ValuesIterator<'_> {
-    type Item = Value;
+impl<'a> Iterator for ValuesIterator<'a> {
+    type Item = ValueRef<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         (self.index < self.values_count).then(|| {
             let value = unsafe {
-                Value::borrow(cpp::duckdb_vx_values_vec_get(self.values, self.index as _))
+                ValueRef::borrow(cpp::duckdb_vx_values_vec_get(self.values, self.index as _))
             };
             self.index += 1;
             value
@@ -240,8 +240,8 @@ impl Iterator for ValuesIterator<'_> {
     }
 }
 
-impl Values<'_> {
-    pub fn iter(&self) -> impl Iterator<Item = Value> {
+impl<'a> Values<'a> {
+    pub fn iter(&self) -> impl Iterator<Item = ValueRef<'a>> {
         ValuesIterator {
             values: self.values,
             values_count: self.values_count,

@@ -3,7 +3,6 @@
 
 use arrow_array::RecordBatchReader;
 use arrow_array::ffi_stream::ArrowArrayStreamReader;
-use arrow_pyarrow::FromPyArrow;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::pyfunction;
@@ -17,6 +16,7 @@ use vortex::iter::{ArrayIterator, ArrayIteratorAdapter, ArrayIteratorExt};
 use vortex::{ArrayRef, Canonical, IntoArray};
 
 use crate::arrays::{PyArray, PyArrayRef};
+use crate::arrow::FromPyArrow;
 use crate::dataset::PyVortexDataset;
 use crate::expr::PyExpr;
 use crate::iter::PyArrayIterator;
@@ -49,28 +49,40 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 ///
 /// Read an array from an HTTPS URL:
 ///
-///     >>> import vortex as vx
-///     >>> a = vx.io.read_url("https://example.com/dataset.vortex")  # doctest: +SKIP
+/// ```python
+/// >>> import vortex as vx
+/// >>> a = vx.io.read_url("https://example.com/dataset.vortex")  # doctest: +SKIP
+/// ```
 ///
 /// Read an array from an S3 URL:
 ///
-///     >>> a = vx.io.read_url("s3://bucket/path/to/dataset.vortex")  # doctest: +SKIP
+/// ```python
+/// >>> a = vx.io.read_url("s3://bucket/path/to/dataset.vortex")  # doctest: +SKIP
+/// ```
 ///
 /// Read an array from an Azure Blob File System URL:
 ///
-///     >>> a = vx.io.read_url("abfss://my_file_system@my_account.dfs.core.windows.net/path/to/dataset.vortex")  # doctest: +SKIP
+/// ```python
+/// >>> a = vx.io.read_url("abfss://my_file_system@my_account.dfs.core.windows.net/path/to/dataset.vortex")  # doctest: +SKIP
+/// ```
 ///
 /// Read an array from an Azure Blob Stroage URL:
 ///
-///     >>> a = vx.io.read_url("https://my_account.blob.core.windows.net/my_container/path/to/dataset.vortex")  # doctest: +SKIP
+/// ```python
+/// >>> a = vx.io.read_url("https://my_account.blob.core.windows.net/my_container/path/to/dataset.vortex")  # doctest: +SKIP
+/// ```
 ///
 /// Read an array from a Google Stroage URL:
 ///
-///     >>> a = vx.io.read_url("gs://bucket/path/to/dataset.vortex")  # doctest: +SKIP
+/// ```python
+/// >>> a = vx.io.read_url("gs://bucket/path/to/dataset.vortex")  # doctest: +SKIP
+/// ```
 ///
 /// Read an array from a local file URL:
 ///
-///     >>> a = vx.io.read_url("file:/path/to/dataset.vortex")  # doctest: +SKIP
+/// ```python
+/// >>> a = vx.io.read_url("file:/path/to/dataset.vortex")  # doctest: +SKIP
+/// ```
 ///
 #[pyfunction]
 #[pyo3(signature = (url, *, projection = None, row_filter = None, indices = None))]
@@ -100,29 +112,35 @@ pub fn read_url<'py>(
 ///
 /// Write a single Vortex array `a` to the local file `a.vortex`.
 ///
-///     >>> import vortex as vx
-///     >>> a = vx.array([
-///     ...     {'x': 1},
-///     ...     {'x': 2},
-///     ...     {'x': 10},
-///     ...     {'x': 11},
-///     ...     {'x': None},
-///     ... ])
-///     >>> vx.io.write(a, "a.vortex") # doctest: +SKIP
+/// ```python
+/// >>> import vortex as vx
+/// >>> a = vx.array([
+/// ...     {'x': 1},
+/// ...     {'x': 2},
+/// ...     {'x': 10},
+/// ...     {'x': 11},
+/// ...     {'x': None},
+/// ... ])
+/// >>> vx.io.write(a, "a.vortex") # doctest: +SKIP
+/// ```
 ///
 /// Stream a PyArrow Table directly to Vortex without loading into memory:
 ///
-///     >>> import pyarrow as pa
-///     >>> import vortex as vx
-///     >>> table = pa.table({'x': [1, 2, 3, 4, 5]})
-///     >>> vx.io.write(table, "streamed.vortex")  # doctest: +SKIP
+/// ```python
+/// >>> import pyarrow as pa
+/// >>> import vortex as vx
+/// >>> table = pa.table({'x': [1, 2, 3, 4, 5]})
+/// >>> vx.io.write(table, "streamed.vortex")  # doctest: +SKIP
+/// ```
 ///
 /// Stream from a PyArrow RecordBatchReader:
 ///
-///     >>> import pyarrow as pa
-///     >>> import vortex as vx
-///     >>> reader = pa.RecordBatchReader.from_batches(schema, batches) # doctest: +SKIP
-///     >>> vx.io.write(reader, "streamed.vortex")  # doctest: +SKIP
+/// ```python
+/// >>> import pyarrow as pa
+/// >>> import vortex as vx
+/// >>> reader = pa.RecordBatchReader.from_batches(schema, batches) # doctest: +SKIP
+/// >>> vx.io.write(reader, "streamed.vortex")  # doctest: +SKIP
+/// ```
 ///
 #[pyfunction]
 #[pyo3(signature = (iter, path))]

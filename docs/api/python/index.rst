@@ -11,3 +11,4 @@ Python API
    compress
    io
    dataset
+   type_aliases

@@ -8,6 +8,7 @@ import dev.vortex.relocated.org.apache.arrow.memory.BufferAllocator;
 import dev.vortex.relocated.org.apache.arrow.memory.RootAllocator;
 import dev.vortex.relocated.org.apache.arrow.vector.*;
 import dev.vortex.relocated.org.apache.arrow.vector.VectorSchemaRoot;
+import dev.vortex.relocated.org.apache.arrow.vector.complex.ListVector;
 import dev.vortex.relocated.org.apache.arrow.vector.ipc.ArrowStreamWriter;
 import dev.vortex.spark.SparkTypes;
 import java.io.ByteArrayOutputStream;
@@ -20,6 +21,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.apache.spark.sql.catalyst.InternalRow;
+import org.apache.spark.sql.catalyst.expressions.SpecializedGetters;
+import org.apache.spark.sql.catalyst.util.ArrayData;
 import org.apache.spark.sql.connector.write.DataWriter;
 import org.apache.spark.sql.connector.write.WriterCommitMessage;
 import org.apache.spark.sql.types.*;
@@ -185,30 +188,31 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
     /**
      * Populates an Arrow vector with a value from an InternalRow.
      */
-    private void populateVector(FieldVector vector, DataType dataType, InternalRow row, int fieldIndex, int rowIndex) {
+    private void populateVector(
+            FieldVector vector, DataType dataType, SpecializedGetters row, int fieldIndex, int rowIndex) {
         if (dataType instanceof BooleanType) {
-            ((BitVector) vector).set(rowIndex, row.getBoolean(fieldIndex) ? 1 : 0);
+            ((BitVector) vector).setSafe(rowIndex, row.getBoolean(fieldIndex) ? 1 : 0);
         } else if (dataType instanceof ByteType) {
-            ((TinyIntVector) vector).set(rowIndex, row.getByte(fieldIndex));
+            ((TinyIntVector) vector).setSafe(rowIndex, row.getByte(fieldIndex));
         } else if (dataType instanceof ShortType) {
-            ((SmallIntVector) vector).set(rowIndex, row.getShort(fieldIndex));
+            ((SmallIntVector) vector).setSafe(rowIndex, row.getShort(fieldIndex));
         } else if (dataType instanceof IntegerType) {
-            ((IntVector) vector).set(rowIndex, row.getInt(fieldIndex));
+            ((IntVector) vector).setSafe(rowIndex, row.getInt(fieldIndex));
         } else if (dataType instanceof LongType) {
-            ((BigIntVector) vector).set(rowIndex, row.getLong(fieldIndex));
+            ((BigIntVector) vector).setSafe(rowIndex, row.getLong(fieldIndex));
         } else if (dataType instanceof FloatType) {
-            ((Float4Vector) vector).set(rowIndex, row.getFloat(fieldIndex));
+            ((Float4Vector) vector).setSafe(rowIndex, row.getFloat(fieldIndex));
         } else if (dataType instanceof DoubleType) {
-            ((Float8Vector) vector).set(rowIndex, row.getDouble(fieldIndex));
+            ((Float8Vector) vector).setSafe(rowIndex, row.getDouble(fieldIndex));
         } else if (dataType instanceof StringType) {
             UTF8String str = row.getUTF8String(fieldIndex);
             if (str != null) {
-                ((VarCharVector) vector).set(rowIndex, str.getBytes());
+                ((VarCharVector) vector).setSafe(rowIndex, str.getBytes());
             }
         } else if (dataType instanceof BinaryType) {
             byte[] bytes = row.getBinary(fieldIndex);
             if (bytes != null) {
-                ((VarBinaryVector) vector).set(rowIndex, bytes);
+                ((VarBinaryVector) vector).setSafe(rowIndex, bytes);
             }
         } else if (dataType instanceof DecimalType) {
             DecimalType decType = (DecimalType) dataType;
@@ -216,11 +220,21 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
                 // Use Decimal type from InternalRow
                 java.math.BigDecimal decimal = row.getDecimal(fieldIndex, decType.precision(), decType.scale())
                         .toJavaBigDecimal();
-                ((DecimalVector) vector).set(rowIndex, decimal);
+                ((DecimalVector) vector).setSafe(rowIndex, decimal);
             }
+        } else if (dataType instanceof ArrayType) {
+            ArrayType arrayType = (ArrayType) dataType;
+            ArrayData data = row.getArray(fieldIndex);
+            ListVector listVector = ((ListVector) vector);
+            int writtenElements = listVector.getElementEndIndex(listVector.getLastSet());
+            listVector.startNewValue(rowIndex);
+            for (int i = 0; i < data.numElements(); i++) {
+                populateVector(listVector.getDataVector(), arrayType.elementType(), data, i, writtenElements + i);
+            }
+            listVector.endValue(rowIndex, data.numElements());
         } else {
             // For unsupported types, set null
-            vector.setNull(rowIndex);
+            throw new IllegalArgumentException("Unsupported data type: " + dataType);
         }
     }
 

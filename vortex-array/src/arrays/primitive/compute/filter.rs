@@ -87,8 +87,7 @@ mod test {
 
         let filtered = filter(arr.as_ref(), &Mask::from_iter(mask))
             .unwrap()
-            .to_primitive()
-            .unwrap();
+            .to_primitive();
         assert_eq!(
             filtered.len(),
             mask.iter().filter(|x| **x).collect_vec().len()

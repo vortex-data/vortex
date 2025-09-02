@@ -36,9 +36,12 @@ impl CompareKernel for DictVTable {
                     compare_result.dtype().nullability() | lhs.dtype().nullability();
                 dict_equal_to(compare_result, lhs.codes(), result_nullability).map(Some)
             } else {
-                DictArray::try_new(lhs.codes().clone(), compare_result)
-                    .map(|a| a.into_array())
-                    .map(Some)
+                // SAFETY: values len preserved, codes all still point to valid values
+                unsafe {
+                    Ok(Some(
+                        DictArray::new_unchecked(lhs.codes().clone(), compare_result).into_array(),
+                    ))
+                }
             };
         }
 
@@ -55,8 +58,8 @@ fn dict_equal_to(
     codes: &ArrayRef,
     result_nullability: Nullability,
 ) -> VortexResult<ArrayRef> {
-    let bool_result = values_compare.to_bool()?;
-    let result_validity = bool_result.validity_mask()?;
+    let bool_result = values_compare.to_bool();
+    let result_validity = bool_result.validity_mask();
     let bool_buffer = bool_result.boolean_buffer();
     let (first_match, second_match) = match result_validity.boolean_buffer() {
         AllOr::All => {
@@ -79,8 +82,8 @@ fn dict_equal_to(
                 result_builder.extend_from_array(
                     &ConstantArray::new(Scalar::bool(false, result_nullability), codes.len())
                         .into_array(),
-                )?;
-                result_builder.set_validity(codes.validity_mask()?);
+                );
+                result_builder.set_validity(codes.validity_mask());
                 result_builder.finish()
             }
             Mask::AllFalse(_) => ConstantArray::new(
@@ -94,11 +97,11 @@ fn dict_equal_to(
                 result_builder.extend_from_array(
                     &ConstantArray::new(Scalar::bool(false, result_nullability), codes.len())
                         .into_array(),
-                )?;
+                );
                 result_builder.set_validity(
                     Validity::from_mask(result_validity, bool_result.dtype().nullability())
                         .take(codes)?
-                        .to_mask(codes.len())?,
+                        .to_mask(codes.len()),
                 );
                 result_builder.finish()
             }
@@ -117,7 +120,9 @@ fn dict_equal_to(
             &DType::Bool(result_nullability),
         )?,
         // more than one value matches
-        _ => DictArray::try_new(codes.clone(), bool_result.into_array())?.into_array(),
+        _ => unsafe {
+            DictArray::new_unchecked(codes.clone(), bool_result.into_array()).into_array()
+        },
     })
 }
 
@@ -148,7 +153,7 @@ mod tests {
             Operator::Eq,
         )
         .unwrap();
-        let res = res.to_bool().unwrap();
+        let res = res.to_bool();
         assert_eq!(
             res.boolean_buffer().iter().collect::<Vec<_>>(),
             vec![true, false, false]
@@ -169,7 +174,7 @@ mod tests {
             Operator::Gt,
         )
         .unwrap();
-        let res = res.to_bool().unwrap();
+        let res = res.to_bool();
         assert_eq!(
             res.boolean_buffer().iter().collect::<Vec<_>>(),
             vec![false, true, true]
@@ -194,16 +199,13 @@ mod tests {
             Operator::Eq,
         )
         .unwrap();
-        let res = res.to_bool().unwrap();
+        let res = res.to_bool();
         assert_eq!(
             res.boolean_buffer().iter().collect::<Vec<_>>(),
             vec![false, false, false]
         );
         assert_eq!(res.dtype().nullability(), Nullability::Nullable);
-        assert_eq!(
-            res.validity_mask().unwrap(),
-            Mask::from_iter([false, true, false])
-        );
+        assert_eq!(res.validity_mask(), Mask::from_iter([false, true, false]));
     }
 
     #[test]
@@ -224,15 +226,12 @@ mod tests {
             Operator::Eq,
         )
         .unwrap();
-        let res = res.to_bool().unwrap();
+        let res = res.to_bool();
         assert_eq!(
             res.boolean_buffer().iter().collect::<Vec<_>>(),
             vec![false, false, false]
         );
         assert_eq!(res.dtype().nullability(), Nullability::Nullable);
-        assert_eq!(
-            res.validity_mask().unwrap(),
-            Mask::from_iter([true, true, false])
-        );
+        assert_eq!(res.validity_mask(), Mask::from_iter([true, true, false]));
     }
 }

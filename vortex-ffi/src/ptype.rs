@@ -68,3 +68,78 @@ impl From<PType> for vx_ptype {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_vx_ptype_to_ptype() {
+        assert_eq!(PType::from(vx_ptype::PTYPE_U8), PType::U8);
+        assert_eq!(PType::from(vx_ptype::PTYPE_U16), PType::U16);
+        assert_eq!(PType::from(vx_ptype::PTYPE_U32), PType::U32);
+        assert_eq!(PType::from(vx_ptype::PTYPE_U64), PType::U64);
+        assert_eq!(PType::from(vx_ptype::PTYPE_I8), PType::I8);
+        assert_eq!(PType::from(vx_ptype::PTYPE_I16), PType::I16);
+        assert_eq!(PType::from(vx_ptype::PTYPE_I32), PType::I32);
+        assert_eq!(PType::from(vx_ptype::PTYPE_I64), PType::I64);
+        assert_eq!(PType::from(vx_ptype::PTYPE_F16), PType::F16);
+        assert_eq!(PType::from(vx_ptype::PTYPE_F32), PType::F32);
+        assert_eq!(PType::from(vx_ptype::PTYPE_F64), PType::F64);
+    }
+
+    #[test]
+    fn test_ptype_to_vx_ptype() {
+        assert_eq!(vx_ptype::from(PType::U8), vx_ptype::PTYPE_U8);
+        assert_eq!(vx_ptype::from(PType::U16), vx_ptype::PTYPE_U16);
+        assert_eq!(vx_ptype::from(PType::U32), vx_ptype::PTYPE_U32);
+        assert_eq!(vx_ptype::from(PType::U64), vx_ptype::PTYPE_U64);
+        assert_eq!(vx_ptype::from(PType::I8), vx_ptype::PTYPE_I8);
+        assert_eq!(vx_ptype::from(PType::I16), vx_ptype::PTYPE_I16);
+        assert_eq!(vx_ptype::from(PType::I32), vx_ptype::PTYPE_I32);
+        assert_eq!(vx_ptype::from(PType::I64), vx_ptype::PTYPE_I64);
+        assert_eq!(vx_ptype::from(PType::F16), vx_ptype::PTYPE_F16);
+        assert_eq!(vx_ptype::from(PType::F32), vx_ptype::PTYPE_F32);
+        assert_eq!(vx_ptype::from(PType::F64), vx_ptype::PTYPE_F64);
+    }
+
+    #[test]
+    fn test_roundtrip_conversion() {
+        let ptypes = vec![
+            PType::U8,
+            PType::U16,
+            PType::U32,
+            PType::U64,
+            PType::I8,
+            PType::I16,
+            PType::I32,
+            PType::I64,
+            PType::F16,
+            PType::F32,
+            PType::F64,
+        ];
+
+        for ptype in ptypes {
+            let vx = vx_ptype::from(ptype);
+            let back = PType::from(vx);
+            assert_eq!(ptype, back);
+        }
+    }
+
+    #[test]
+    fn test_vx_ptype_enum_values() {
+        // Important: These values are part of the FFI ABI contract and must not change
+        // as they may be used in serialization or by C clients
+        assert_eq!(vx_ptype::PTYPE_U8 as i32, 0);
+        assert_eq!(vx_ptype::PTYPE_U16 as i32, 1);
+        assert_eq!(vx_ptype::PTYPE_U32 as i32, 2);
+        assert_eq!(vx_ptype::PTYPE_U64 as i32, 3);
+        assert_eq!(vx_ptype::PTYPE_I8 as i32, 4);
+        assert_eq!(vx_ptype::PTYPE_I16 as i32, 5);
+        assert_eq!(vx_ptype::PTYPE_I32 as i32, 6);
+        assert_eq!(vx_ptype::PTYPE_I64 as i32, 7);
+        assert_eq!(vx_ptype::PTYPE_F16 as i32, 8);
+        assert_eq!(vx_ptype::PTYPE_F32 as i32, 9);
+        assert_eq!(vx_ptype::PTYPE_F64 as i32, 10);
+    }
+}

@@ -145,9 +145,7 @@ impl CompressorStats for IntegerStats {
     }
 
     fn sample_opts(&self, sample_size: u32, sample_count: u32, opts: GenerateStatsOptions) -> Self {
-        let sampled = sample(self.src.as_ref(), sample_size, sample_count)
-            .to_primitive()
-            .vortex_expect("primitive");
+        let sampled = sample(self.src.as_ref(), sample_size, sample_count).to_primitive();
 
         Self::generate_opts(&sampled, opts)
     }
@@ -176,7 +174,7 @@ where
             }
             .into(),
         };
-    } else if array.all_invalid().vortex_expect("all_invalid") {
+    } else if array.all_invalid() {
         return IntegerStats {
             src: array.clone(),
             null_count: array.len().try_into().vortex_expect("null_count"),
@@ -194,7 +192,7 @@ where
         };
     }
 
-    let validity = array.validity_mask().vortex_expect("logical_validity");
+    let validity = array.validity_mask();
     let null_count = validity.false_count();
     let value_count = validity.true_count();
 

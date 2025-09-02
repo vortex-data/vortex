@@ -235,6 +235,7 @@ fn main() {
         .include(duckdb_repo.join(format!("duckdb-{}/src/include", DUCKDB_VERSION.as_str())))
         .include("cpp/include")
         .file("cpp/client_context.cpp")
+        .file("cpp/config.cpp")
         .file("cpp/copy_function.cpp")
         .file("cpp/data.cpp")
         .file("cpp/data_chunk.cpp")

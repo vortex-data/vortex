@@ -10,6 +10,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr::select_opts::Opts;
 use vortex_proto::expr::{FieldNames as ProtoFieldNames, SelectOpts};
 
+use crate::display::{DisplayAs, DisplayFormat};
 use crate::field::DisplayFieldNames;
 use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
 
@@ -109,7 +110,7 @@ impl VTable for SelectVTable {
     }
 
     fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
-        let batch = expr.child.unchecked_evaluate(scope)?.to_struct()?;
+        let batch = expr.child.unchecked_evaluate(scope)?.to_struct();
         Ok(match &expr.fields {
             SelectField::Include(f) => batch.project(f.as_ref()),
             SelectField::Exclude(names) => {
@@ -128,7 +129,7 @@ impl VTable for SelectVTable {
     fn return_dtype(expr: &Self::Expr, scope: &DType) -> VortexResult<DType> {
         let child_dtype = expr.child.return_dtype(scope)?;
         let child_struct_dtype = child_dtype
-            .as_struct()
+            .as_struct_fields_opt()
             .ok_or_else(|| vortex_err!("Select child not a struct dtype"))?;
 
         let projected = match &expr.fields {
@@ -275,9 +276,27 @@ impl Display for SelectField {
     }
 }
 
-impl Display for SelectExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}{}", self.child, self.fields)
+impl DisplayAs for SelectExpr {
+    fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match df {
+            DisplayFormat::Compact => {
+                write!(f, "{}{}", self.child, self.fields)
+            }
+            DisplayFormat::Tree => {
+                let field_type = if self.fields.is_include() {
+                    "include"
+                } else {
+                    "exclude"
+                };
+
+                write!(f, "Select({}): {}", field_type, self.fields().fields())
+            }
+        }
+    }
+
+    fn child_names(&self) -> Option<Vec<String>> {
+        // Single child - no need to name it, the tree structure makes it obvious
+        None
     }
 }
 
@@ -308,8 +327,7 @@ mod tests {
         let selected = select
             .evaluate(&Scope::new(st.to_array()))
             .unwrap()
-            .to_struct()
-            .unwrap();
+            .to_struct();
         let selected_names = selected.names().clone();
         assert_eq!(selected_names.as_ref(), &["a".into()]);
     }
@@ -321,8 +339,7 @@ mod tests {
         let selected = select
             .evaluate(&Scope::new(st.to_array()))
             .unwrap()
-            .to_struct()
-            .unwrap();
+            .to_struct();
         let selected_names = selected.names().clone();
         assert_eq!(selected_names.as_ref(), &["b".into()]);
     }
@@ -333,7 +350,11 @@ mod tests {
 
         let select_expr = select(vec![FieldName::from("a")], root());
         let expected_dtype = DType::Struct(
-            dtype.as_struct().unwrap().project(&["a".into()]).unwrap(),
+            dtype
+                .as_struct_fields_opt()
+                .unwrap()
+                .project(&["a".into()])
+                .unwrap(),
             Nullability::NonNullable,
         );
         assert_eq!(select_expr.return_dtype(&dtype).unwrap(), expected_dtype);
@@ -360,7 +381,7 @@ mod tests {
             select_expr_exclude.return_dtype(&dtype).unwrap(),
             DType::Struct(
                 dtype
-                    .as_struct()
+                    .as_struct_fields_opt()
                     .unwrap()
                     .project(&["a".into(), "bool1".into(), "bool2".into()])
                     .unwrap(),

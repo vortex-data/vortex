@@ -5,7 +5,6 @@ use vortex_dtype::DType;
 use vortex_error::VortexUnwrap;
 use vortex_mask::Mask;
 
-use crate::arrays::BoolArray;
 use crate::compute::filter;
 use crate::{Array, IntoArray};
 
@@ -25,7 +24,6 @@ pub fn test_filter_conformance(array: &dyn Array) {
         test_none_filter(array);
         test_selective_filter(array);
         test_single_element_filter(array);
-        test_nullable_filter(array);
         test_alternating_pattern_filter(array);
         test_runs_pattern_filter(array);
         test_sparse_true_filter(array);
@@ -40,11 +38,6 @@ pub fn test_filter_conformance(array: &dyn Array) {
     // Test edge cases
     test_empty_array_filter(array.dtype());
     test_mismatched_lengths(array);
-
-    // Test with nullable masks
-    if len > 0 {
-        test_nullable_mask_input(array);
-    }
 }
 
 // Helper functions for creating standard patterns
@@ -71,10 +64,7 @@ fn test_all_filter(array: &dyn Array) {
 
     // Verify all elements are preserved
     for i in 0..len {
-        assert_eq!(
-            filtered.scalar_at(i).vortex_unwrap(),
-            array.scalar_at(i).vortex_unwrap()
-        );
+        assert_eq!(filtered.scalar_at(i), array.scalar_at(i));
     }
 }
 
@@ -96,16 +86,13 @@ fn test_selective_filter(array: &dyn Array) {
     // Test alternating pattern
     let mask_values: Vec<bool> = (0..len).map(|i| i % 2 == 0).collect();
     let expected_count = mask_values.iter().filter(|&&v| v).count();
-    let mask = Mask::try_from(&BoolArray::from_iter(mask_values)).vortex_unwrap();
+    let mask = Mask::from_iter(mask_values);
     let filtered = filter(array, &mask).vortex_unwrap();
     assert_eq!(filtered.len(), expected_count);
 
     // Verify correct elements are kept
     for (filtered_idx, i) in (0..len).step_by(2).enumerate() {
-        assert_eq!(
-            filtered.scalar_at(filtered_idx).vortex_unwrap(),
-            array.scalar_at(i).vortex_unwrap()
-        );
+        assert_eq!(filtered.scalar_at(filtered_idx), array.scalar_at(i));
     }
 
     // Test first and last only
@@ -113,17 +100,11 @@ fn test_selective_filter(array: &dyn Array) {
         let mut mask_values = vec![false; len];
         mask_values[0] = true;
         mask_values[len - 1] = true;
-        let mask = Mask::try_from(&BoolArray::from_iter(mask_values)).vortex_unwrap();
+        let mask = Mask::from_iter(mask_values);
         let filtered = filter(array, &mask).vortex_unwrap();
         assert_eq!(filtered.len(), 2);
-        assert_eq!(
-            filtered.scalar_at(0).vortex_unwrap(),
-            array.scalar_at(0).vortex_unwrap()
-        );
-        assert_eq!(
-            filtered.scalar_at(1).vortex_unwrap(),
-            array.scalar_at(len - 1).vortex_unwrap()
-        );
+        assert_eq!(filtered.scalar_at(0), array.scalar_at(0));
+        assert_eq!(filtered.scalar_at(1), array.scalar_at(len - 1));
     }
 }
 
@@ -136,62 +117,19 @@ fn test_single_element_filter(array: &dyn Array) {
     // Test selecting only the first element
     let mut mask_values = vec![false; len];
     mask_values[0] = true;
-    let mask = Mask::try_from(&BoolArray::from_iter(mask_values)).vortex_unwrap();
+    let mask = Mask::from_iter(mask_values);
     let filtered = filter(array, &mask).vortex_unwrap();
     assert_eq!(filtered.len(), 1);
-    assert_eq!(
-        filtered.scalar_at(0).vortex_unwrap(),
-        array.scalar_at(0).vortex_unwrap()
-    );
+    assert_eq!(filtered.scalar_at(0), array.scalar_at(0));
 
     // Test selecting only the last element
     if len > 1 {
         let mut mask_values = vec![false; len];
         mask_values[len - 1] = true;
-        let mask = Mask::try_from(&BoolArray::from_iter(mask_values)).vortex_unwrap();
+        let mask = Mask::from_iter(mask_values);
         let filtered = filter(array, &mask).vortex_unwrap();
         assert_eq!(filtered.len(), 1);
-        assert_eq!(
-            filtered.scalar_at(0).vortex_unwrap(),
-            array.scalar_at(len - 1).vortex_unwrap()
-        );
-    }
-}
-
-fn test_nullable_filter(array: &dyn Array) {
-    let len = array.len();
-    if len < 2 {
-        return; // Skip for very small arrays
-    }
-
-    // Create a nullable mask where nulls are treated as false
-    let bool_values: Vec<bool> = (0..len).map(|i| i % 3 == 0).collect();
-    let validity_values: Vec<bool> = (0..len).map(|i| i % 2 == 0).collect();
-
-    let expected_count = bool_values
-        .iter()
-        .zip(validity_values.iter())
-        .filter(|(b, v)| **b && **v)
-        .count();
-
-    let bool_array = BoolArray::from_iter(bool_values.clone());
-    let validity = crate::validity::Validity::from_iter(validity_values.clone());
-    let nullable_mask = BoolArray::new(bool_array.boolean_buffer().clone(), validity);
-
-    let mask = Mask::try_from(&nullable_mask).vortex_unwrap();
-    let filtered = filter(array, &mask).vortex_unwrap();
-    assert_eq!(filtered.len(), expected_count);
-
-    // Verify correct elements are kept
-    let mut filtered_idx = 0;
-    for i in 0..len {
-        if bool_values[i] && validity_values[i] {
-            assert_eq!(
-                filtered.scalar_at(filtered_idx).vortex_unwrap(),
-                array.scalar_at(i).vortex_unwrap()
-            );
-            filtered_idx += 1;
-        }
+        assert_eq!(filtered.scalar_at(0), array.scalar_at(len - 1));
     }
 }
 
@@ -236,7 +174,7 @@ fn test_alternating_pattern_filter(array: &dyn Array) {
     let pattern = create_alternating_pattern(len);
     let expected_count = pattern.iter().filter(|&&v| v).count();
 
-    let mask = Mask::try_from(&BoolArray::from_iter(pattern.clone())).vortex_unwrap();
+    let mask = Mask::from_iter(pattern.clone());
     let filtered = filter(array, &mask).vortex_unwrap();
     assert_eq!(filtered.len(), expected_count);
 
@@ -244,10 +182,7 @@ fn test_alternating_pattern_filter(array: &dyn Array) {
     let mut filtered_idx = 0;
     for (i, &keep) in pattern.iter().enumerate() {
         if keep {
-            assert_eq!(
-                filtered.scalar_at(filtered_idx).vortex_unwrap(),
-                array.scalar_at(i).vortex_unwrap()
-            );
+            assert_eq!(filtered.scalar_at(filtered_idx), array.scalar_at(i));
             filtered_idx += 1;
         }
     }
@@ -264,7 +199,7 @@ fn test_runs_pattern_filter(array: &dyn Array) {
     let pattern = create_runs_pattern(len, run_length);
     let expected_count = pattern.iter().filter(|&&v| v).count();
 
-    let mask = Mask::try_from(&BoolArray::from_iter(pattern)).vortex_unwrap();
+    let mask = Mask::from_iter(pattern);
     let filtered = filter(array, &mask).vortex_unwrap();
     assert_eq!(filtered.len(), expected_count);
 }
@@ -280,7 +215,7 @@ fn test_sparse_true_filter(array: &dyn Array) {
     let pattern = create_sparse_pattern(len, 0.1);
     let expected_count = pattern.iter().filter(|&&v| v).count();
 
-    let mask = Mask::try_from(&BoolArray::from_iter(pattern)).vortex_unwrap();
+    let mask = Mask::from_iter(pattern);
     let filtered = filter(array, &mask).vortex_unwrap();
     assert_eq!(filtered.len(), expected_count);
 }
@@ -296,7 +231,7 @@ fn test_sparse_false_filter(array: &dyn Array) {
     let pattern = create_sparse_pattern(len, 0.9);
     let expected_count = pattern.iter().filter(|&&v| v).count();
 
-    let mask = Mask::try_from(&BoolArray::from_iter(pattern)).vortex_unwrap();
+    let mask = Mask::from_iter(pattern);
     let filtered = filter(array, &mask).vortex_unwrap();
     assert_eq!(filtered.len(), expected_count);
 }
@@ -311,46 +246,7 @@ fn test_random_pattern_filter(array: &dyn Array) {
         .collect();
     let expected_count = pattern.iter().filter(|&&v| v).count();
 
-    let mask = Mask::try_from(&BoolArray::from_iter(pattern)).vortex_unwrap();
+    let mask = Mask::from_iter(pattern);
     let filtered = filter(array, &mask).vortex_unwrap();
     assert_eq!(filtered.len(), expected_count);
-}
-
-/// Tests filtering with nullable mask (nulls treated as false)
-fn test_nullable_mask_input(array: &dyn Array) {
-    let len = array.len();
-    if len < 3 {
-        return; // Skip for very small arrays
-    }
-
-    // Create a nullable mask where every third value is null
-    let bool_values: Vec<bool> = (0..len).map(|i| i % 2 == 0).collect();
-    let validity_values: Vec<bool> = (0..len).map(|i| i % 3 != 0).collect();
-
-    // Only values that are true AND valid should pass the filter
-    let expected_count = bool_values
-        .iter()
-        .zip(validity_values.iter())
-        .filter(|(b, v)| **b && **v)
-        .count();
-
-    let bool_array = BoolArray::from_iter(bool_values.clone());
-    let validity = crate::validity::Validity::from_iter(validity_values.clone());
-    let nullable_mask = BoolArray::new(bool_array.boolean_buffer().clone(), validity);
-
-    let mask = Mask::try_from(&nullable_mask).vortex_unwrap();
-    let filtered = filter(array, &mask).vortex_unwrap();
-    assert_eq!(filtered.len(), expected_count);
-
-    // Verify correct elements are kept
-    let mut filtered_idx = 0;
-    for i in 0..len {
-        if bool_values[i] && validity_values[i] {
-            assert_eq!(
-                filtered.scalar_at(filtered_idx).vortex_unwrap(),
-                array.scalar_at(i).vortex_unwrap()
-            );
-            filtered_idx += 1;
-        }
-    }
 }

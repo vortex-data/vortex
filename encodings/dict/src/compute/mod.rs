@@ -27,7 +27,10 @@ impl TakeKernel for DictVTable {
             .values()
             .dtype()
             .union_nullability(codes.dtype().nullability());
-        DictArray::try_new(codes, cast(array.values(), &values_dtype)?).map(|a| a.into_array())
+        // SAFETY: selecting codes doesn't change the invariants of DictArray
+        unsafe {
+            Ok(DictArray::new_unchecked(codes, cast(array.values(), &values_dtype)?).into_array())
+        }
     }
 }
 
@@ -36,7 +39,9 @@ register_kernel!(TakeKernelAdapter(DictVTable).lift());
 impl FilterKernel for DictVTable {
     fn filter(&self, array: &DictArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let codes = filter(array.codes(), mask)?;
-        DictArray::try_new(codes, array.values().clone()).map(|a| a.into_array())
+
+        // SAFETY: filtering codes doesn't change invariants
+        unsafe { Ok(DictArray::new_unchecked(codes, array.values().clone()).into_array()) }
     }
 }
 
@@ -69,7 +74,7 @@ mod test {
             .collect();
 
         let dict = dict_encode(PrimitiveArray::from_option_iter(values.clone()).as_ref()).unwrap();
-        let actual = dict.to_primitive().unwrap();
+        let actual = dict.to_primitive();
 
         let expected: Vec<i32> = (0..65)
             .map(|i| match i % 3 {
@@ -84,10 +89,7 @@ mod test {
         assert_eq!(actual.as_slice::<i32>(), expected.as_slice());
 
         let expected_valid_count = values.iter().filter(|x| x.is_some()).count();
-        assert_eq!(
-            actual.validity_mask().unwrap().true_count(),
-            expected_valid_count
-        );
+        assert_eq!(actual.validity_mask().true_count(), expected_valid_count);
     }
 
     #[test]
@@ -97,7 +99,7 @@ mod test {
 
         let dict =
             dict_encode(PrimitiveArray::from_iter(expected.iter().copied()).as_ref()).unwrap();
-        let actual = dict.to_primitive().unwrap();
+        let actual = dict.to_primitive();
 
         assert_eq!(actual.as_slice::<i32>(), expected.as_slice());
     }
@@ -109,7 +111,7 @@ mod test {
 
         let dict =
             dict_encode(PrimitiveArray::from_iter(expected.iter().copied()).as_ref()).unwrap();
-        let actual = dict.to_primitive().unwrap();
+        let actual = dict.to_primitive();
 
         assert_eq!(actual.as_slice::<i32>(), expected.as_slice());
     }
@@ -122,7 +124,7 @@ mod test {
         );
         assert_eq!(reference.len(), 6);
         let dict = dict_encode(reference.as_ref()).unwrap();
-        let flattened_dict = dict.to_varbinview().unwrap();
+        let flattened_dict = dict.to_varbinview();
         assert_eq!(
             flattened_dict
                 .with_iterator(|iter| iter
@@ -147,7 +149,7 @@ mod test {
             Some(5),
         ]);
         let dict = dict_encode(reference.as_ref()).unwrap();
-        dict.slice(1, 4).unwrap()
+        dict.slice(1..4)
     }
 
     #[test]
@@ -156,15 +158,15 @@ mod test {
         let compared = compare(&sliced, ConstantArray::new(42, 3).as_ref(), Operator::Eq).unwrap();
 
         assert_eq!(
-            compared.scalar_at(0).unwrap(),
+            compared.scalar_at(0),
             Scalar::bool(false, Nullability::Nullable)
         );
         assert_eq!(
-            compared.scalar_at(1).unwrap(),
+            compared.scalar_at(1),
             Scalar::null(DType::Bool(Nullability::Nullable))
         );
         assert_eq!(
-            compared.scalar_at(2).unwrap(),
+            compared.scalar_at(2),
             Scalar::bool(true, Nullability::Nullable)
         );
     }

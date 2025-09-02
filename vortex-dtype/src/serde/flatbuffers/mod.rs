@@ -133,6 +133,24 @@ impl TryFrom<ViewedDType> for DType {
                     fb_list.nullable().into(),
                 ))
             }
+            fb::Type::FixedSizeList => {
+                let fb_fixed_size_list = fb.type__as_fixed_size_list().ok_or_else(|| {
+                    vortex_err!("failed to parse fixed-size list from flatbuffer")
+                })?;
+
+                let list_element = fb_fixed_size_list.element_type().ok_or_else(|| {
+                    vortex_err!("failed to parse list element type from flatbuffer")
+                })?;
+                let element_dtype = Self::try_from(ViewedDType::from_fb_loc(
+                    list_element._tab.loc(),
+                    vfdt.buffer().clone(),
+                ))?;
+                Ok(Self::FixedSizeList(
+                    Arc::new(element_dtype),
+                    fb_fixed_size_list.size(),
+                    fb_fixed_size_list.nullable().into(),
+                ))
+            }
             fb::Type::Struct_ => {
                 let fb_struct = fb
                     .type__as_struct_()
@@ -167,7 +185,7 @@ impl TryFrom<ViewedDType> for DType {
             }
             // This is here to fail to compile if another variant is included.
             #[allow(clippy::wildcard_in_or_patterns)]
-            fb::Type(10) => Err(vortex_err!("Unknown DType variant")),
+            fb::Type(11) => Err(vortex_err!("Unknown DType variant")),
             _ => Err(vortex_err!("Unknown DType variant")),
         }
     }
@@ -257,6 +275,18 @@ impl WriteFlatBuffer for DType {
                 )
                 .as_union_value()
             }
+            Self::FixedSizeList(edt, size, n) => {
+                let element_type = Some(edt.as_ref().write_flatbuffer(fbb));
+                fb::FixedSizeList::create(
+                    fbb,
+                    &fb::FixedSizeListArgs {
+                        element_type,
+                        size: *size,
+                        nullable: (*n).into(),
+                    },
+                )
+                .as_union_value()
+            }
             Self::Extension(ext) => {
                 let id = Some(fbb.create_string(ext.id().as_ref()));
                 let storage_dtype = Some(ext.storage_dtype().write_flatbuffer(fbb));
@@ -282,6 +312,7 @@ impl WriteFlatBuffer for DType {
             Self::Binary(_) => fb::Type::Binary,
             Self::Struct(..) => fb::Type::Struct_,
             Self::List(..) => fb::Type::List,
+            Self::FixedSizeList(..) => fb::Type::FixedSizeList,
             Self::Extension { .. } => fb::Type::Extension,
         };
 
@@ -373,6 +404,11 @@ mod test {
         roundtrip_dtype(DType::Utf8(Nullability::NonNullable));
         roundtrip_dtype(DType::List(
             Arc::new(DType::Primitive(PType::F32, Nullability::Nullable)),
+            Nullability::NonNullable,
+        ));
+        roundtrip_dtype(DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::F32, Nullability::Nullable)),
+            2,
             Nullability::NonNullable,
         ));
         roundtrip_dtype(DType::Struct(

@@ -41,10 +41,10 @@ register_kernel!(CastKernelAdapter(DecimalBytePartsVTable).lift());
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
+    use vortex_array::{IntoArray, ToCanonical};
     use vortex_dtype::{DType, DecimalDType, Nullability};
 
     use crate::DecimalBytePartsArray;
@@ -70,7 +70,7 @@ mod tests {
         );
 
         // Verify the values are preserved
-        let decoded = casted.to_canonical().unwrap().into_decimal().unwrap();
+        let decoded = casted.to_decimal();
         assert_eq!(decoded.len(), 4);
     }
 

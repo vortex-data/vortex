@@ -179,23 +179,31 @@ fn generate_table_files(
     let output_dir = options.output_dir.join(write_format.to_string());
     fs::create_dir_all(&output_dir)?;
 
-    let batch_iter = create_batch_iterator(generator, &options)?;
+    // Calculate number of partitions without creating expensive iterators
+    let num_parts = calculate_num_parts(generator, &options)?;
 
     let mut futures = Vec::new();
 
-    for (partition_idx, iter) in batch_iter.into_iter().enumerate() {
+    for partition_idx in 0..num_parts {
         let output_file = output_dir.join(format!(
             "{table_name}_{partition_idx}.{}",
             write_format.ext()
         ));
 
+        // Clone necessary data for the async closure
+        let options_clone = options.clone();
+        let table_name_clone = table_name.to_string();
+
         let future: TableFuture<'_> = Box::pin(async move {
             let of = output_file.clone();
             idempotent_async(output_file.to_string_lossy().as_ref(), |path| async move {
                 info!(
-                    "Generating {table_name} table as {write_format}, at {}",
+                    "Generating {table_name_clone} table as {write_format}, at {}",
                     of.to_string_lossy()
                 );
+
+                // Create the specific iterator for this partition only when we need to generate
+                let iter = create_single_batch_iterator(generator, &options_clone, partition_idx)?;
 
                 // Create generator and process batches in streaming fashion
                 let schema = iter.schema().clone();
@@ -233,28 +241,9 @@ fn generate_table_files(
     Ok(futures)
 }
 
-macro_rules! generate_parts {
-    ($prefix:ident, $num_parts:expr, $scale_factor:expr, $batch_size:expr) => {{
-        let mut generators: Vec<Box<dyn tpchgen_arrow::RecordBatchIterator>> = Vec::new();
-        let num_parts_i32 = $num_parts.try_into().unwrap();
-        for part in 1..=num_parts_i32 {
-            let generator = paste::paste! {
-                tpchgen_arrow::[<$prefix Arrow>]::new(
-                    [<$prefix Generator>]::new($scale_factor, part, num_parts_i32)
-                ).with_batch_size($batch_size)
-            };
-            generators.push(Box::new(generator) as Box<dyn tpchgen_arrow::RecordBatchIterator>);
-        }
-        Ok(generators)
-    }};
-}
-
-/// Create a batch iterator for the specified table generator
+/// Calculate the number of partitions without creating expensive iterators
 #[allow(clippy::cast_possible_truncation)]
-fn create_batch_iterator(
-    generator: TableGenerator,
-    options: &TpchGenOptions,
-) -> Result<Vec<Box<dyn RecordBatchIterator>>> {
+fn calculate_num_parts(generator: TableGenerator, options: &TpchGenOptions) -> Result<usize> {
     let scale_factor = options.scale_factor.parse::<f64>()?;
 
     let num_parts = if let Some((data_size, max_file_size)) = generator
@@ -268,17 +257,73 @@ fn create_batch_iterator(
         1
     };
 
+    Ok(num_parts as usize)
+}
+
+/// Create a single batch iterator for a specific partition
+#[allow(clippy::cast_possible_truncation)]
+fn create_single_batch_iterator(
+    generator: TableGenerator,
+    options: &TpchGenOptions,
+    partition_idx: usize,
+) -> Result<Box<dyn RecordBatchIterator>> {
+    let scale_factor = options.scale_factor.parse::<f64>()?;
+    let num_parts = calculate_num_parts(generator, options)? as i32;
+    let part = (partition_idx + 1) as i32; // 1-indexed
     let batch_size = options.batch_size;
-    match generator {
-        TableGenerator::Nation => generate_parts!(Nation, num_parts, scale_factor, batch_size),
-        TableGenerator::Region => generate_parts!(Region, num_parts, scale_factor, batch_size),
-        TableGenerator::Part => generate_parts!(Part, num_parts, scale_factor, batch_size),
-        TableGenerator::Supplier => generate_parts!(Supplier, num_parts, scale_factor, batch_size),
-        TableGenerator::Customer => generate_parts!(Customer, num_parts, scale_factor, batch_size),
-        TableGenerator::PartSupp => generate_parts!(PartSupp, num_parts, scale_factor, batch_size),
-        TableGenerator::Orders => generate_parts!(Order, num_parts, scale_factor, batch_size),
-        TableGenerator::LineItem => generate_parts!(LineItem, num_parts, scale_factor, batch_size),
-    }
+
+    let iterator: Box<dyn RecordBatchIterator> = match generator {
+        TableGenerator::Nation => Box::new(
+            tpchgen_arrow::NationArrow::new(NationGenerator::new(scale_factor, part, num_parts))
+                .with_batch_size(batch_size),
+        ),
+        TableGenerator::Region => Box::new(
+            tpchgen_arrow::RegionArrow::new(RegionGenerator::new(scale_factor, part, num_parts))
+                .with_batch_size(batch_size),
+        ),
+        TableGenerator::Part => Box::new(
+            tpchgen_arrow::PartArrow::new(PartGenerator::new(scale_factor, part, num_parts))
+                .with_batch_size(batch_size),
+        ),
+        TableGenerator::Supplier => Box::new(
+            tpchgen_arrow::SupplierArrow::new(SupplierGenerator::new(
+                scale_factor,
+                part,
+                num_parts,
+            ))
+            .with_batch_size(batch_size),
+        ),
+        TableGenerator::Customer => Box::new(
+            tpchgen_arrow::CustomerArrow::new(CustomerGenerator::new(
+                scale_factor,
+                part,
+                num_parts,
+            ))
+            .with_batch_size(batch_size),
+        ),
+        TableGenerator::PartSupp => Box::new(
+            tpchgen_arrow::PartSuppArrow::new(PartSuppGenerator::new(
+                scale_factor,
+                part,
+                num_parts,
+            ))
+            .with_batch_size(batch_size),
+        ),
+        TableGenerator::Orders => Box::new(
+            tpchgen_arrow::OrderArrow::new(OrderGenerator::new(scale_factor, part, num_parts))
+                .with_batch_size(batch_size),
+        ),
+        TableGenerator::LineItem => Box::new(
+            tpchgen_arrow::LineItemArrow::new(LineItemGenerator::new(
+                scale_factor,
+                part,
+                num_parts,
+            ))
+            .with_batch_size(batch_size),
+        ),
+    };
+
+    Ok(iterator)
 }
 
 /// Common interface for file writers

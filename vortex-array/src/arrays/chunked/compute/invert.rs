@@ -11,7 +11,8 @@ use crate::{ArrayRef, IntoArray, register_kernel};
 impl InvertKernel for ChunkedVTable {
     fn invert(&self, array: &ChunkedArray) -> VortexResult<ArrayRef> {
         let chunks = array.chunks().iter().map(|c| invert(c)).try_collect()?;
-        Ok(ChunkedArray::new_unchecked(chunks, array.dtype().clone()).into_array())
+        // SAFETY: inverting preserves DType
+        unsafe { Ok(ChunkedArray::new_unchecked(chunks, array.dtype().clone()).into_array()) }
     }
 }
 

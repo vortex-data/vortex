@@ -12,7 +12,7 @@ export const workerManager = {
   init() {
     if (this.supportsWorkers) {
       try {
-        this.dataWorker = new Worker('./data-worker.js');
+        this.dataWorker = new Worker('./data-worker.js', { type: 'module' });
         return true;
       } catch (error) {
         this.supportsWorkers = false;

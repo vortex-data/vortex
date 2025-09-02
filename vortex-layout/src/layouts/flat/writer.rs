@@ -291,28 +291,24 @@ mod tests {
                 .unwrap();
 
             assert_eq!(
-                result.validity_mask().unwrap().boolean_buffer(),
+                result.validity_mask().boolean_buffer(),
                 AllOr::Some(&validity_boolean_buffer)
             );
             assert_eq!(
                 result
                     .to_struct()
-                    .unwrap()
                     .field_by_name("a")
                     .unwrap()
                     .to_primitive()
-                    .unwrap()
                     .as_slice::<u64>(),
                 &[1, 2]
             );
             assert_eq!(
                 result
                     .to_struct()
-                    .unwrap()
                     .field_by_name("b")
                     .unwrap()
                     .to_primitive()
-                    .unwrap()
                     .as_slice::<u64>(),
                 &[3, 4]
             );

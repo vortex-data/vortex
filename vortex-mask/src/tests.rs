@@ -119,7 +119,7 @@ fn test_mask_false_count() {
 fn test_mask_slice() {
     let mask = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, true, false]));
 
-    let sliced = mask.slice(1, 3);
+    let sliced = mask.slice(1..4);
     assert_eq!(sliced.len(), 3);
     assert_eq!(sliced.true_count(), 2);
     assert!(!sliced.value(0)); // false from index 1
@@ -127,12 +127,12 @@ fn test_mask_slice() {
     assert!(sliced.value(2)); // true from index 3
 
     let all_true = Mask::new_true(10);
-    let sliced_true = all_true.slice(2, 5);
+    let sliced_true = all_true.slice(2..7);
     assert!(sliced_true.all_true());
     assert_eq!(sliced_true.len(), 5);
 
     let all_false = Mask::new_false(10);
-    let sliced_false = all_false.slice(2, 5);
+    let sliced_false = all_false.slice(2..7);
     assert!(sliced_false.all_false());
     assert_eq!(sliced_false.len(), 5);
 }
@@ -141,7 +141,7 @@ fn test_mask_slice() {
 #[should_panic]
 fn test_mask_slice_out_of_bounds() {
     let mask = Mask::new_true(5);
-    let _ = mask.slice(3, 5); // offset + length > len
+    let _ = mask.slice(3..8); // offset + length > len
 }
 
 // Limit operations
@@ -373,24 +373,24 @@ fn test_mask_valid_counts_for_indices() {
         true, false, true, true, false, true,
     ]));
     let indices = vec![0, 2, 4, 6];
-    let counts = mask.valid_counts_for_indices(&indices).unwrap();
+    let counts = mask.valid_counts_for_indices(&indices);
     assert_eq!(counts, vec![0, 1, 3, 4]);
 
     let all_true = Mask::new_true(6);
-    let counts = all_true.valid_counts_for_indices(&indices).unwrap();
+    let counts = all_true.valid_counts_for_indices(&indices);
     assert_eq!(counts, vec![0, 2, 4, 6]);
 
     let all_false = Mask::new_false(6);
-    let counts = all_false.valid_counts_for_indices(&indices).unwrap();
+    let counts = all_false.valid_counts_for_indices(&indices);
     assert_eq!(counts, vec![0, 0, 0, 0]);
 }
 
 #[test]
+#[should_panic]
 fn test_mask_valid_counts_for_indices_error() {
     let mask = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true]));
     let indices = vec![0, 2, 5]; // 5 is out of bounds
-    let result = mask.valid_counts_for_indices(&indices);
-    assert!(result.is_err());
+    let _ = mask.valid_counts_for_indices(&indices);
 }
 
 // FromIterator tests
@@ -500,11 +500,10 @@ fn test_mask_threshold_iter() {
     assert!(matches!(all_false.threshold_iter(0.5), AllOr::None));
 
     let mask = Mask::from_buffer(BooleanBuffer::from_iter([true, false, true, true, false]));
-    match mask.threshold_iter(0.7) {
-        AllOr::Some(MaskIter::Indices(indices)) => {
-            assert_eq!(indices, &[0, 2, 3]);
-        }
-        _ => panic!("Expected indices iterator"),
+    if let AllOr::Some(MaskIter::Indices(indices)) = mask.threshold_iter(0.7) {
+        assert_eq!(indices, &[0, 2, 3]);
+    } else {
+        panic!("Expected indices iterator");
     }
 }
 
@@ -668,6 +667,54 @@ fn test_intersection_indices(
         AllOr::Some(indices) if expected.is_empty() => assert!(indices.is_empty()),
         AllOr::Some(indices) => assert_eq!(indices, &expected[..]),
         AllOr::None if expected.is_empty() => {}
-        _ => panic!("Unexpected result for intersection"),
+        AllOr::None | AllOr::All => panic!("Unexpected result for intersection"),
     }
+}
+
+// Concat operation tests
+#[test]
+fn test_mask_concat_empty() {
+    let masks: Vec<Mask> = vec![];
+    let result = Mask::concat(masks.iter()).unwrap();
+    assert_eq!(result.len(), 0);
+    assert!(result.is_empty());
+}
+
+#[test]
+fn test_mask_concat_all_true() {
+    let masks = [Mask::new_true(3), Mask::new_true(2)];
+    let result = Mask::concat(masks.iter()).unwrap();
+    assert_eq!(result.len(), 5);
+    assert!(result.all_true());
+}
+
+#[test]
+fn test_mask_concat_all_false() {
+    let masks = [Mask::new_false(3), Mask::new_false(2)];
+    let result = Mask::concat(masks.iter()).unwrap();
+    assert_eq!(result.len(), 5);
+    assert!(result.all_false());
+}
+
+#[test]
+fn test_mask_concat_mixed_types() {
+    let masks = [
+        Mask::from_buffer(BooleanBuffer::from_iter([true, false, true])),
+        Mask::new_true(2),
+        Mask::new_false(3),
+    ];
+
+    let result = Mask::concat(masks.iter()).unwrap();
+    assert_eq!(result.len(), 8);
+    assert_eq!(result.true_count(), 4);
+
+    // Verify the concatenated values
+    assert!(result.value(0)); // from buffer
+    assert!(!result.value(1)); // from buffer
+    assert!(result.value(2)); // from buffer
+    assert!(result.value(3)); // from all_true
+    assert!(result.value(4)); // from all_true
+    assert!(!result.value(5)); // from all_false
+    assert!(!result.value(6)); // from all_false
+    assert!(!result.value(7)); // from all_false
 }

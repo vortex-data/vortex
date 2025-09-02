@@ -9,7 +9,7 @@ mod serde;
 use arrow_buffer::BooleanBufferBuilder;
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{DType, DecimalDType};
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, vortex_ensure, vortex_panic};
 use vortex_scalar::{DecimalValueType, NativeDecimalType};
 
 use crate::builders::ArrayBuilder;
@@ -34,6 +34,7 @@ impl VTable for DecimalVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
+    type PipelineVTable = NotSupported;
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
@@ -78,7 +79,7 @@ pub fn compatible_storage_type(value_type: DecimalValueType, dtype: DecimalDType
 ///
 /// The precisions supported for each scalar type are:
 /// - **i8**: precision 1-2 digits
-/// - **i16**: precision 3-4 digits  
+/// - **i16**: precision 3-4 digits
 /// - **i32**: precision 5-9 digits
 /// - **i64**: precision 10-18 digits
 /// - **i128**: precision 19-38 digits
@@ -134,34 +135,57 @@ pub struct DecimalArray {
 }
 
 impl DecimalArray {
-    /// Creates a new [`DecimalArray`] from a [`Buffer`] and [`Validity`], without checking
-    /// any invariants.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the validity length is not compatible with the buffer length.
-    pub fn new<T: NativeDecimalType>(
-        buffer: Buffer<T>,
-        decimal_dtype: DecimalDType,
-        validity: Validity,
-    ) -> Self {
-        if let Some(len) = validity.maybe_len()
-            && buffer.len() != len
-        {
-            vortex_panic!(
+    fn validate<T: NativeDecimalType>(buffer: &Buffer<T>, validity: &Validity) -> VortexResult<()> {
+        if let Some(len) = validity.maybe_len() {
+            vortex_ensure!(
+                buffer.len() == len,
                 "Buffer and validity length mismatch: buffer={}, validity={}",
                 buffer.len(),
                 len,
             );
         }
 
-        Self {
-            dtype: DType::Decimal(decimal_dtype, validity.nullability()),
+        Ok(())
+    }
+}
+
+impl DecimalArray {
+    /// Creates a new [`DecimalArray`] from a [`Buffer`] and [`Validity`], without checking
+    /// any invariants.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the provided buffer and validity differ in length.
+    ///
+    /// See also [`DecimalArray::try_new`].
+    pub fn new<T: NativeDecimalType>(
+        buffer: Buffer<T>,
+        decimal_dtype: DecimalDType,
+        validity: Validity,
+    ) -> Self {
+        Self::try_new(buffer, decimal_dtype, validity).vortex_expect("DecimalArray new")
+    }
+
+    /// Build a new `DecimalArray` from a component `buffer`, decimal_dtype` and `validity`.
+    ///
+    /// This constructor validates the length of the buffer and validity are equal, returning
+    /// an error otherwise.
+    ///
+    /// See [`DecimalArray::new`] for an infallible constructor that panics on validation errors.
+    pub fn try_new<T: NativeDecimalType>(
+        buffer: Buffer<T>,
+        decimal_dtype: DecimalDType,
+        validity: Validity,
+    ) -> VortexResult<Self> {
+        Self::validate(&buffer, &validity)?;
+
+        Ok(Self {
             values: buffer.into_byte_buffer(),
             values_type: T::VALUES_TYPE,
+            dtype: DType::Decimal(decimal_dtype, validity.nullability()),
             validity,
-            stats_set: ArrayStats::default(),
-        }
+            stats_set: Default::default(),
+        })
     }
 
     /// Returns the underlying [`ByteBuffer`] of the array.
@@ -182,9 +206,10 @@ impl DecimalArray {
 
     /// Returns the decimal type information
     pub fn decimal_dtype(&self) -> DecimalDType {
-        match &self.dtype {
-            DType::Decimal(decimal_dtype, _) => *decimal_dtype,
-            _ => vortex_panic!("Expected Decimal dtype, got {:?}", self.dtype),
+        if let DType::Decimal(decimal_dtype, _) = self.dtype {
+            decimal_dtype
+        } else {
+            vortex_panic!("Expected Decimal dtype, got {:?}", self.dtype)
         }
     }
 
@@ -262,11 +287,11 @@ impl VisitorVTable<DecimalVTable> for DecimalVTable {
 }
 
 impl CanonicalVTable<DecimalVTable> for DecimalVTable {
-    fn canonicalize(array: &DecimalArray) -> VortexResult<Canonical> {
-        Ok(Canonical::Decimal(array.clone()))
+    fn canonicalize(array: &DecimalArray) -> Canonical {
+        Canonical::Decimal(array.clone())
     }
 
-    fn append_to_builder(array: &DecimalArray, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+    fn append_to_builder(array: &DecimalArray, builder: &mut dyn ArrayBuilder) {
         builder.extend_from_array(array.as_ref())
     }
 }

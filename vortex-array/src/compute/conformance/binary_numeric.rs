@@ -25,8 +25,8 @@
 
 use itertools::Itertools;
 use num_traits::Num;
-use vortex_dtype::NativePType;
-use vortex_error::{VortexExpect, VortexUnwrap, vortex_err, vortex_panic};
+use vortex_dtype::{DType, NativePType, PType};
+use vortex_error::{VortexUnwrap, vortex_err, vortex_panic};
 use vortex_scalar::{NumericOperator, PrimitiveScalar, Scalar};
 
 use crate::arrays::ConstantArray;
@@ -37,8 +37,7 @@ fn to_vec_of_scalar(array: &dyn Array) -> Vec<Scalar> {
     // Not fast, but obviously correct
     (0..array.len())
         .map(|index| array.scalar_at(index))
-        .try_collect()
-        .vortex_unwrap()
+        .collect_vec()
 }
 
 /// Tests binary numeric operations for conformance across array encodings.
@@ -80,9 +79,7 @@ fn test_standard_binary_numeric<T: NativePType + Num + Copy>(array: ArrayRef)
 where
     Scalar: From<T>,
 {
-    let canonicalized_array = array
-        .to_primitive()
-        .vortex_expect("Failed to canonicalize array to primitive form for binary numeric test");
+    let canonicalized_array = array.to_primitive();
     let original_values = to_vec_of_scalar(&canonicalized_array.into_array());
 
     let one = T::from(1)
@@ -199,10 +196,8 @@ where
 /// }
 /// ```
 pub fn test_binary_numeric_array(array: ArrayRef) {
-    use vortex_dtype::PType;
-
     match array.dtype() {
-        vortex_dtype::DType::Primitive(ptype, _) => match ptype {
+        DType::Primitive(ptype, _) => match ptype {
             PType::I8 => test_binary_numeric_conformance::<i8>(array),
             PType::I16 => test_binary_numeric_conformance::<i16>(array),
             PType::I32 => test_binary_numeric_conformance::<i32>(array),
@@ -218,12 +213,9 @@ pub fn test_binary_numeric_array(array: ArrayRef) {
             PType::F32 => test_binary_numeric_conformance::<f32>(array),
             PType::F64 => test_binary_numeric_conformance::<f64>(array),
         },
-        _ => {
-            vortex_panic!(
-                "Binary numeric tests are only supported for primitive numeric types, got {:?}",
-                array.dtype()
-            );
-        }
+        dtype => vortex_panic!(
+            "Binary numeric tests are only supported for primitive numeric types, got {dtype}",
+        ),
     }
 }
 
@@ -235,10 +227,8 @@ pub fn test_binary_numeric_array(array: ArrayRef) {
 /// - Maximum value (tests overflow behavior)
 /// - Minimum value (tests underflow behavior)
 fn test_binary_numeric_edge_cases(array: ArrayRef) {
-    use vortex_dtype::PType;
-
     match array.dtype() {
-        vortex_dtype::DType::Primitive(ptype, _) => match ptype {
+        DType::Primitive(ptype, _) => match ptype {
             PType::I8 => test_binary_numeric_edge_cases_signed::<i8>(array),
             PType::I16 => test_binary_numeric_edge_cases_signed::<i16>(array),
             PType::I32 => test_binary_numeric_edge_cases_signed::<i32>(array),
@@ -253,11 +243,9 @@ fn test_binary_numeric_edge_cases(array: ArrayRef) {
             PType::F32 => test_binary_numeric_edge_cases_float::<f32>(array),
             PType::F64 => test_binary_numeric_edge_cases_float::<f64>(array),
         },
-        _ => {
-            vortex_panic!(
-                "Binary numeric edge case tests are only supported for primitive numeric types"
-            );
-        }
+        dtype => vortex_panic!(
+            "Binary numeric edge case tests are only supported for primitive numeric types, got {dtype}"
+        ),
     }
 }
 
@@ -325,9 +313,7 @@ where
     T: NativePType + Num + Copy + std::fmt::Debug,
     Scalar: From<T>,
 {
-    let canonicalized_array = array
-        .to_primitive()
-        .vortex_expect("Failed to canonicalize array to primitive form for binary numeric test");
+    let canonicalized_array = array.to_primitive();
     let original_values = to_vec_of_scalar(&canonicalized_array.into_array());
 
     let scalar = Scalar::from(scalar_value)

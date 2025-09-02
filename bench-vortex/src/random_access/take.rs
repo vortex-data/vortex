@@ -17,7 +17,7 @@ use parquet::file::metadata::RowGroupMetaData;
 use stream::StreamExt;
 use vortex::buffer::Buffer;
 use vortex::file::VortexOpenOptions;
-use vortex::iter::ArrayIteratorExt; //::rayon::ParallelArrayIteratorExt;
+use vortex::iter::ArrayIteratorExt;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex::{Array, ArrayRef, IntoArray};
 
@@ -46,7 +46,7 @@ async fn take_vortex(reader: impl AsRef<Path>, indices: Buffer<u64>) -> anyhow::
         .read_all()?
         // For equivalence.... we decompress to make sure we're not cheating too much.
         .to_canonical()
-        .map(|a| a.into_array())?)
+        .into_array())
 }
 
 async fn parquet_take_from_stream<T: AsyncFileReader + Unpin + Send + 'static>(

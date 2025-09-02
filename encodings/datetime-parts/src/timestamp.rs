@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_dtype::datetime::TimeUnit;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 
 pub const SECONDS_PER_DAY: i64 = 86_400; // 24 * 60 * 60
 
@@ -30,11 +30,11 @@ pub struct TimestampParts {
 /// Returns an error if `time_unit` is days, which cannot be split.
 pub fn split(timestamp: i64, time_unit: TimeUnit) -> VortexResult<TimestampParts> {
     let divisor = match time_unit {
-        TimeUnit::Ns => 1_000_000_000,
-        TimeUnit::Us => 1_000_000,
-        TimeUnit::Ms => 1_000,
-        TimeUnit::S => 1,
-        TimeUnit::D => vortex_bail!("Cannot handle day-level data"),
+        TimeUnit::Nanoseconds => 1_000_000_000,
+        TimeUnit::Microseconds => 1_000_000,
+        TimeUnit::Milliseconds => 1_000,
+        TimeUnit::Seconds => 1,
+        TimeUnit::Days => vortex_bail!("Cannot handle day-level data"),
     };
 
     let ticks_per_day = SECONDS_PER_DAY * divisor;
@@ -55,20 +55,16 @@ pub fn split(timestamp: i64, time_unit: TimeUnit) -> VortexResult<TimestampParts
 /// # Errors
 ///
 /// Returns an error if `time_unit` is days, which cannot be combined.
-pub fn combine(ts_parts: TimestampParts, time_unit: TimeUnit) -> VortexResult<i64> {
+pub fn combine(ts_parts: TimestampParts, time_unit: TimeUnit) -> i64 {
     let divisor = match time_unit {
-        TimeUnit::Ns => 1_000_000_000,
-        TimeUnit::Us => 1_000_000,
-        TimeUnit::Ms => 1_000,
-        TimeUnit::S => 1,
-        TimeUnit::D => vortex_bail!("Cannot handle day-level data"),
+        TimeUnit::Nanoseconds => 1_000_000_000,
+        TimeUnit::Microseconds => 1_000_000,
+        TimeUnit::Milliseconds => 1_000,
+        TimeUnit::Seconds => 1,
+        TimeUnit::Days => vortex_panic!("Cannot handle day-level data"),
     };
 
-    Ok(
-        ts_parts.days * SECONDS_PER_DAY * divisor
-            + ts_parts.seconds * divisor
-            + ts_parts.subseconds,
-    )
+    ts_parts.days * SECONDS_PER_DAY * divisor + ts_parts.seconds * divisor + ts_parts.subseconds
 }
 
 #[cfg(test)]
@@ -79,7 +75,7 @@ mod tests {
     fn test_split_seconds() {
         // 1970-01-02 01:02:03 UTC
         let ts = SECONDS_PER_DAY + 3723; // 1 day + (1*3600 + 2*60 + 3) seconds
-        let parts = split(ts, TimeUnit::S).unwrap();
+        let parts = split(ts, TimeUnit::Seconds).unwrap();
         assert_eq!(parts.days, 1);
         assert_eq!(parts.seconds, 3723);
         assert_eq!(parts.subseconds, 0);
@@ -89,7 +85,7 @@ mod tests {
     fn test_split_milliseconds() {
         // 1970-01-02 01:02:03.456 UTC
         let ts = (SECONDS_PER_DAY + 3723) * 1000 + 456;
-        let parts = split(ts, TimeUnit::Ms).unwrap();
+        let parts = split(ts, TimeUnit::Milliseconds).unwrap();
         assert_eq!(parts.days, 1);
         assert_eq!(parts.seconds, 3723);
         assert_eq!(parts.subseconds, 456);
@@ -99,7 +95,7 @@ mod tests {
     fn test_split_microseconds() {
         // 1970-01-02 01:02:03.456789 UTC
         let ts = (SECONDS_PER_DAY + 3723) * 1_000_000 + 456789;
-        let parts = split(ts, TimeUnit::Us).unwrap();
+        let parts = split(ts, TimeUnit::Microseconds).unwrap();
         assert_eq!(parts.days, 1);
         assert_eq!(parts.seconds, 3723);
         assert_eq!(parts.subseconds, 456789);
@@ -109,7 +105,7 @@ mod tests {
     fn test_split_nanoseconds() {
         // 1970-01-02 01:02:03.456789123 UTC
         let ts = (SECONDS_PER_DAY + 3723) * 1_000_000_000 + 456789123;
-        let parts = split(ts, TimeUnit::Ns).unwrap();
+        let parts = split(ts, TimeUnit::Nanoseconds).unwrap();
         assert_eq!(parts.days, 1);
         assert_eq!(parts.seconds, 3723);
         assert_eq!(parts.subseconds, 456789123);
@@ -118,7 +114,12 @@ mod tests {
     #[test]
     fn test_split_epoch() {
         let ts = 0;
-        for unit in [TimeUnit::S, TimeUnit::Ms, TimeUnit::Us, TimeUnit::Ns] {
+        for unit in [
+            TimeUnit::Seconds,
+            TimeUnit::Milliseconds,
+            TimeUnit::Microseconds,
+            TimeUnit::Nanoseconds,
+        ] {
             let parts = split(ts, unit).unwrap();
             assert_eq!(parts.days, 0);
             assert_eq!(parts.seconds, 0);
@@ -128,7 +129,7 @@ mod tests {
 
     #[test]
     fn test_split_days_error() {
-        assert!(split(1, TimeUnit::D).is_err());
+        assert!(split(1, TimeUnit::Days).is_err());
     }
 
     #[test]
@@ -139,7 +140,7 @@ mod tests {
             seconds: 3723, // 1*3600 + 2*60 + 3
             subseconds: 0,
         };
-        let ts = combine(parts, TimeUnit::S).unwrap();
+        let ts = combine(parts, TimeUnit::Seconds);
         assert_eq!(ts, SECONDS_PER_DAY + 3723);
     }
 
@@ -151,7 +152,7 @@ mod tests {
             seconds: 3723,
             subseconds: 456,
         };
-        let ts = combine(parts, TimeUnit::Ms).unwrap();
+        let ts = combine(parts, TimeUnit::Milliseconds);
         assert_eq!(ts, (SECONDS_PER_DAY + 3723) * 1000 + 456);
     }
 
@@ -163,7 +164,7 @@ mod tests {
             seconds: 3723,
             subseconds: 456789,
         };
-        let ts = combine(parts, TimeUnit::Us).unwrap();
+        let ts = combine(parts, TimeUnit::Microseconds);
         assert_eq!(ts, (SECONDS_PER_DAY + 3723) * 1_000_000 + 456789);
     }
 
@@ -175,17 +176,18 @@ mod tests {
             seconds: 3723,
             subseconds: 456789123,
         };
-        let ts = combine(parts, TimeUnit::Ns).unwrap();
+        let ts = combine(parts, TimeUnit::Nanoseconds);
         assert_eq!(ts, (SECONDS_PER_DAY + 3723) * 1_000_000_000 + 456789123);
     }
 
     #[test]
+    #[should_panic(expected = "Cannot handle day-level data")]
     fn test_combine_days_error() {
         let parts = TimestampParts {
             days: 1,
             seconds: 0,
             subseconds: 0,
         };
-        assert!(combine(parts, TimeUnit::D).is_err());
+        combine(parts, TimeUnit::Days);
     }
 }

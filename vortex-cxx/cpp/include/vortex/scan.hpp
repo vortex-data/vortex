@@ -8,6 +8,7 @@
 #include "vortex_cxx_bridge/lib.h"
 
 #include <cstdint>
+#include <type_traits>
 
 namespace vortex {
 /// The StreamDriver internally holds a `RecordBatchIteratorAdapter` from the Rust side, which is thread-safe
@@ -45,33 +46,47 @@ private:
     rust::Box<ffi::ThreadsafeCloneableReader> impl_;
 };
 
-using expr::Expr;
 class ScanBuilder {
 public:
     ScanBuilder(ScanBuilder &&other) noexcept = default;
-    ScanBuilder &operator=(ScanBuilder &&other) noexcept = default;
+    ScanBuilder &operator=(ScanBuilder &&other) noexcept {
+        if (this != &other) {
+            impl_ = std::move(other.impl_);
+        }
+        return *this;
+    }
     ~ScanBuilder() = default;
 
     ScanBuilder(const ScanBuilder &) = delete;
     ScanBuilder &operator=(const ScanBuilder &) = delete;
 
     /// Only include rows that match the filter expressions.
-    ScanBuilder &&WithFilter(Expr expr) &&;
+    ScanBuilder &WithFilter(expr::Expr &&expr) &;
+    ScanBuilder &WithFilter(const expr::Expr &expr) &;
+    ScanBuilder &&WithFilter(expr::Expr &&expr) &&;
+    ScanBuilder &&WithFilter(const expr::Expr &expr) &&;
 
     /// Only include columns that match the projection expressions.
-    ScanBuilder &&WithProjection(Expr expr) &&;
+    ScanBuilder &WithProjection(expr::Expr &&expr) &;
+    ScanBuilder &WithProjection(const expr::Expr &expr) &;
+    ScanBuilder &&WithProjection(expr::Expr &&expr) &&;
+    ScanBuilder &&WithProjection(const expr::Expr &expr) &&;
 
     /// Only include rows in the range [row_range_start, row_range_end).
+    ScanBuilder &WithRowRange(uint64_t row_range_start, uint64_t row_range_end) &;
     ScanBuilder &&WithRowRange(uint64_t row_range_start, uint64_t row_range_end) &&;
 
     /// Only include rows with the given indices.
+    ScanBuilder &WithIncludeByIndex(const uint64_t *indices, std::size_t size) &;
     ScanBuilder &&WithIncludeByIndex(const uint64_t *indices, std::size_t size) &&;
 
     /// Set the limit on the number of rows to scan out.
+    ScanBuilder &WithLimit(uint64_t limit) &;
     ScanBuilder &&WithLimit(uint64_t limit) &&;
 
     /// Set the output schema on the scan builder.
     /// TODO: currently if pass in this option, the schema needs to be the schema after adding projection.
+    ScanBuilder &WithOutputSchema(ArrowSchema &output_schema) &;
     ScanBuilder &&WithOutputSchema(ArrowSchema &output_schema) &&;
 
     /// Take ownership and consume the scan builder to a stream of record batches.

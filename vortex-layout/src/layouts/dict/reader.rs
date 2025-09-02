@@ -6,16 +6,16 @@ use std::ops::{BitAnd, Range};
 use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
-use dashmap::DashMap;
 use futures::{FutureExt, join};
 use vortex_array::ArrayRef;
-use vortex_array::compute::{MinMaxResult, filter, min_max};
+use vortex_array::compute::{MinMaxResult, min_max, take};
 use vortex_array::stats::Precision;
 use vortex_dict::DictArray;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::{ExprRef, Scope, root};
 use vortex_mask::Mask;
+use vortex_utils::aliases::dash_map::DashMap;
 
 use super::DictLayout;
 use crate::layouts::SharedArrayFuture;
@@ -191,32 +191,21 @@ impl MaskEvaluation for DictMaskEvaluation {
             if min.as_bool().value().unwrap_or(false) {
                 // All values are true, but we still need to respect codes validity
                 let codes = self.codes_eval.invoke(Mask::new_true(mask.len())).await?;
-                return Ok(mask.bitand(&codes.validity_mask()?));
+                return Ok(mask.bitand(&codes.validity_mask()));
             }
         }
 
         let codes = self.codes_eval.invoke(Mask::new_true(mask.len())).await?;
-        // TODO(os): remove the low density code path, does not really improve perf
-        if mask.density() < 0.1 {
-            let codes = filter(&codes, &mask)?;
-            let dict_mask = &Mask::try_from(
-                DictArray::try_new(codes, values_result)?
-                    .to_array()
-                    .as_ref(),
-            )?;
-            Ok(mask.intersect_by_rank(dict_mask))
-        } else {
-            // Creating a mask from the dict array would canonicalise it,
-            // it should be fine for now as long as values is already canonical,
-            // so different row ranges do not canonicalise the same array
-            // multiple times.
-            let dict_mask = &Mask::try_from(
-                DictArray::try_new(codes, values_result)?
-                    .to_array()
-                    .as_ref(),
-            )?;
-            Ok(mask.bitand(dict_mask))
-        }
+        // Creating a mask from the dict array would canonicalize it,
+        // it should be fine for now as long as values is already canonical,
+        // so different row ranges do not canonicalize to the same array
+        // multiple times.
+        // TODO(joe): fixme casting null to false is *VERY* unsound, if the expression in the filter
+        // can inspect nulls (e.g. `is_null`).
+        // See `FlatEvaluation` for more details.
+        let dict_mask = take(&values_result, &codes)?.try_to_mask_fill_null_false()?;
+
+        Ok(mask.bitand(&dict_mask))
     }
 }
 
@@ -232,6 +221,7 @@ impl ArrayEvaluation for DictArrayEvaluation {
         let (values_result, codes) = join!(self.values_eval.clone(), self.codes_eval.invoke(mask));
         let (values_result, codes) = (values_result?, codes?);
 
+        // Validate that codes are valid for the values
         let array = DictArray::try_new(codes, values_result)?.to_array();
         self.expr.evaluate(&Scope::new(array))
     }
@@ -338,7 +328,8 @@ mod tests {
         .unwrap()
         .into_array();
         let actual = actual.into_arrow_preferred().unwrap();
-        let expected = expected.into_arrow_preferred().unwrap();
+        let expected_arrow_dtype = expected.dtype().to_arrow_dtype().unwrap();
+        let expected = expected.into_arrow(&expected_arrow_dtype).unwrap();
         assert_eq!(actual.data_type(), expected.data_type());
         assert_eq!(&actual, &expected);
     }
@@ -350,7 +341,7 @@ mod tests {
         vec![true, false, true], // Expected: nulls excluded, all dict values match
     )]
     #[case::all_false_case(
-        vec![Some("x"), None, Some("x")], // Dict values: ["x"] 
+        vec![Some("x"), None, Some("x")], // Dict values: ["x"]
         "", // Filter for empty string
         vec![false, false, false], // Expected: all false, no dict values match
     )]
@@ -460,7 +451,7 @@ mod tests {
             .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
             .await
             .unwrap();
-        let expected = array.validity_mask().unwrap().into_array();
+        let expected = array.validity_mask().into_array();
         let actual = actual.into_arrow_preferred().unwrap();
         let expected = expected.into_arrow_preferred().unwrap();
         assert_eq!(actual.data_type(), expected.data_type());

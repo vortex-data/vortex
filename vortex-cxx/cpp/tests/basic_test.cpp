@@ -149,10 +149,10 @@ protected:
 
     // Helper to execute scan builder and get array+schema
     std::pair<nanoarrow::UniqueArray, nanoarrow::UniqueSchema> ScanFirstArrayFromTestData(
-        const std::function<ArrowArrayStream(vortex::ScanBuilder &&)> &configureScanBuilder) {
+        const std::function<ArrowArrayStream(vortex::ScanBuilder &)> &configureScanBuilder) {
         auto file = vortex::VortexFile::Open(GetTestDataPath("test_data.vortex"));
         auto scan_builder = file.CreateScanBuilder();
-        auto stream = configureScanBuilder(std::move(scan_builder));
+        auto stream = configureScanBuilder(scan_builder);
 
         auto [array_stream, schema] = StreamToUniqueStreamSchema(stream);
         auto array = ReadFirstArrayFromUniqueStream(array_stream);
@@ -186,7 +186,7 @@ protected:
 
     // Top-level test helper that all tests can use
     void
-    RunScanBuilderTest(const std::function<ArrowArrayStream(vortex::ScanBuilder &&)> &configureScanBuilder,
+    RunScanBuilderTest(const std::function<ArrowArrayStream(vortex::ScanBuilder &)> &configureScanBuilder,
                        ArrowArrayStream expected_stream,
                        const std::vector<int64_t> &expected_row_indices = {}, bool selection = false) {
 
@@ -199,7 +199,7 @@ protected:
 
     // New helper for projection tests
     void RunScanBuilderProjectionTest(
-        const std::function<ArrowArrayStream(vortex::ScanBuilder &&)> &configureScanBuilder,
+        const std::function<ArrowArrayStream(vortex::ScanBuilder &)> &configureScanBuilder,
         ArrowArrayStream expected_stream, const std::vector<int64_t> &field_idxs) {
 
         auto [array, schema] = ScanFirstArrayFromTestData(configureScanBuilder);
@@ -210,7 +210,7 @@ protected:
 };
 
 TEST_F(VortexTest, ScanToStream) {
-    RunScanBuilderTest([](vortex::ScanBuilder &&builder) { return std::move(builder).IntoStream(); },
+    RunScanBuilderTest([](vortex::ScanBuilder &builder) { return std::move(builder).IntoStream(); },
                        vortex::testing::CreateTestDataStream());
 }
 
@@ -218,8 +218,8 @@ TEST_F(VortexTest, ScanBuilderWithLimitWithRowRange) {
     // Test field "a" and "b" - should contain values from rows 1-2 from original data (indices 1 and
     // 2)
     RunScanBuilderTest(
-        [](vortex::ScanBuilder &&scan_builder) {
-            return std::move(scan_builder).WithLimit(2).WithRowRange(1, 4).IntoStream();
+        [](vortex::ScanBuilder &scan_builder) {
+            return std::move(scan_builder.WithLimit(2).WithRowRange(1, 4)).IntoStream();
         },
         vortex::testing::CreateTestDataStream(), {1, 2}, true);
 }
@@ -228,9 +228,9 @@ TEST_F(VortexTest, ScanBuilderWithIncludeByIndex) {
     std::vector<uint64_t> include_by_index = {1, 3};
 
     RunScanBuilderTest(
-        [&include_by_index](vortex::ScanBuilder &&scan_builder) {
-            return std::move(scan_builder)
-                .WithIncludeByIndex(include_by_index.data(), include_by_index.size())
+        [&include_by_index](vortex::ScanBuilder &scan_builder) {
+            return std::move(
+                       scan_builder.WithIncludeByIndex(include_by_index.data(), include_by_index.size()))
                 .IntoStream();
         },
         vortex::testing::CreateTestDataStream(), {1, 3}, true);
@@ -240,10 +240,9 @@ TEST_F(VortexTest, ScanBuilderWithRowRangeWithIncludeByIndex) {
     std::vector<uint64_t> include_by_index = {1, 3, 4};
 
     RunScanBuilderTest(
-        [&include_by_index](vortex::ScanBuilder &&scan_builder) {
-            return std::move(scan_builder)
-                .WithRowRange(2, 6)
-                .WithIncludeByIndex(include_by_index.data(), include_by_index.size())
+        [&include_by_index](vortex::ScanBuilder &scan_builder) {
+            return std::move(scan_builder.WithRowRange(2, 6).WithIncludeByIndex(include_by_index.data(),
+                                                                                include_by_index.size()))
                 .IntoStream();
         },
         vortex::testing::CreateTestDataStream(), {3, 4}, true);
@@ -386,9 +385,19 @@ namespace vs = vortex::scalar;
 TEST_F(VortexTest, ScanBuilderWithFilter) {
     // Test filtering with eq(column("a"), val) - should return only rows where column "a" equals 30
     RunScanBuilderTest(
-        [](vortex::ScanBuilder &&scan_builder) {
+        [](vortex::ScanBuilder &scan_builder) {
             auto filter = ve::eq(ve::column("a"), ve::literal(vs::int32(30)));
-            return std::move(scan_builder).WithFilter(std::move(filter)).IntoStream();
+            return std::move(scan_builder.WithFilter(std::move(filter))).IntoStream();
+        },
+        vortex::testing::CreateTestDataStream(), {2}, true); // Row index 2 corresponds to value 30
+}
+
+TEST_F(VortexTest, ScanBuilderWithFilterLvalueref) {
+    // Test filtering with eq(column("a"), val) - should return only rows where column "a" equals 30
+    RunScanBuilderTest(
+        [](vortex::ScanBuilder &scan_builder) {
+            const auto filter = ve::eq(ve::column("a"), ve::literal(vs::int32(30)));
+            return std::move(scan_builder.WithFilter(filter)).IntoStream();
         },
         vortex::testing::CreateTestDataStream(), {2}, true); // Row index 2 corresponds to value 30
 }
@@ -396,11 +405,11 @@ TEST_F(VortexTest, ScanBuilderWithFilter) {
 TEST_F(VortexTest, ScanBuilderWithFilterNoMatches) {
     // Test filtering with eq(column("a"), val) where no rows match - should return empty result
     RunScanBuilderTest(
-        [](vortex::ScanBuilder &&scan_builder) {
+        [](vortex::ScanBuilder &scan_builder) {
             auto filter = ve::eq(ve::column("a"),
                                  ve::literal(vs::int32(999)) // Value that doesn't exist in test data
             );
-            return std::move(scan_builder).WithFilter(std::move(filter)).IntoStream();
+            return std::move(scan_builder.WithFilter(std::move(filter))).IntoStream();
         },
         vortex::testing::CreateTestDataStream(), {}, true); // No matching rows
 }
@@ -421,10 +430,10 @@ TEST_F(VortexTest, ScanBuilderWithFilterUsingDTypeFromArrowAndScalarCast) {
 
     // Use the casted scalar in filter expression - create a new scalar for lambda
     RunScanBuilderTest(
-        [&](vortex::ScanBuilder &&scan_builder) {
+        [&](vortex::ScanBuilder &scan_builder) {
             auto test_scalar = vs::cast(vs::int64(30), std::move(dtype));
             auto filter = ve::eq(ve::column("a"), ve::literal(std::move(test_scalar)));
-            return std::move(scan_builder).WithFilter(std::move(filter)).IntoStream();
+            return std::move(scan_builder.WithFilter(std::move(filter))).IntoStream();
         },
         vortex::testing::CreateTestDataStream(), {2}, true); // Row index 2 corresponds to value 30
 }
@@ -432,9 +441,9 @@ TEST_F(VortexTest, ScanBuilderWithFilterUsingDTypeFromArrowAndScalarCast) {
 TEST_F(VortexTest, ScanBuilderWithProjectionSingleColumn) {
     // Test projection selecting only column "a" (field index 0)
     RunScanBuilderProjectionTest(
-        [](vortex::ScanBuilder &&scan_builder) {
+        [](vortex::ScanBuilder &scan_builder) {
             auto projection = ve::select({"a"}, ve::root());
-            return std::move(scan_builder).WithProjection(std::move(projection)).IntoStream();
+            return std::move(scan_builder.WithProjection(std::move(projection))).IntoStream();
         },
         vortex::testing::CreateTestDataStream(), {0});
 }

@@ -8,12 +8,15 @@ use std::sync::{Arc, OnceLock};
 use async_trait::async_trait;
 use futures::FutureExt;
 use vortex_array::compute::filter;
+use vortex_array::pipeline::{
+    N, export_canonical_pipeline_expr, export_canonical_pipeline_expr_offset,
+};
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
-use vortex_array::{Array, ArrayRef};
-use vortex_dtype::{DType, FieldMask};
+use vortex_array::{Array, ArrayRef, IntoArray};
+use vortex_dtype::{DType, FieldMask, Nullability};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
-use vortex_expr::{ExprRef, Scope, is_root};
+use vortex_expr::{ExprRef, Scope, VortexExprExt, is_root};
 use vortex_mask::Mask;
 
 use crate::layouts::SharedArrayFuture;
@@ -168,9 +171,17 @@ impl MaskEvaluation for FlatEvaluation {
         // Now we await the array .
         let mut array = self.array.clone().await?;
 
+        if let Some(array) =
+            try_evaluate_using_operator(self.row_range.clone(), &array, &self.expr, &mask)?
+        {
+            let array_mask = array.try_to_mask_fill_null_false()?;
+            let mask = mask.intersect_by_rank(&array_mask);
+            return Ok(mask);
+        }
+
         // Slice the array based on the row mask.
         if self.row_range.start > 0 || self.row_range.end < array.len() {
-            array = array.slice(self.row_range.start, self.row_range.end)?;
+            array = array.slice(self.row_range.clone());
         }
 
         // TODO(ngates): the mask may actually be dense within a range, as is often the case when
@@ -181,12 +192,18 @@ impl MaskEvaluation for FlatEvaluation {
         let array_mask = if mask.density() < EXPR_EVAL_THRESHOLD {
             // Evaluate only the selected rows of the mask.
             array = filter(&array, &mask)?;
-            let array_mask = Mask::try_from(self.expr.evaluate(&Scope::new(array))?.as_ref())?;
+            // TODO(joe): fixme casting null to false is *VERY* unsound, if the expression in the filter
+            // can inspect nulls (e.g. `is_null`).
+            // you will need to call the array evaluation instead of the mask evaluation.
+            let array_mask = self
+                .expr
+                .evaluate(&Scope::new(array))?
+                .try_to_mask_fill_null_false()?;
             mask.intersect_by_rank(&array_mask)
         } else {
             // Evaluate all rows, avoiding the more expensive rank intersection.
             array = self.expr.evaluate(&Scope::new(array))?;
-            let array_mask = Mask::try_from(array.as_ref())?;
+            let array_mask = array.try_to_mask_fill_null_false()?;
             mask.bitand(&array_mask)
         };
 
@@ -215,9 +232,15 @@ impl ArrayEvaluation for FlatEvaluation {
         // Now we await the array .
         let mut array = self.array.clone().await?;
 
+        if let Some(array) =
+            try_evaluate_using_operator(self.row_range.clone(), &array, &self.expr, &mask)?
+        {
+            return Ok(array);
+        }
+
         // Slice the array based on the row mask.
         if self.row_range.start > 0 || self.row_range.end < array.len() {
-            array = array.slice(self.row_range.start, self.row_range.end)?;
+            array = array.slice(self.row_range.clone());
         }
 
         // Filter the array based on the row mask.
@@ -232,6 +255,55 @@ impl ArrayEvaluation for FlatEvaluation {
 
         Ok(array)
     }
+}
+
+fn try_evaluate_using_operator(
+    row_range: Range<usize>,
+    array: &ArrayRef,
+    expr: &ExprRef,
+    mask: &Mask,
+) -> VortexResult<Option<ArrayRef>> {
+    let Some(operator) = expr.to_operator(array)? else {
+        return Ok(None);
+    };
+
+    let return_type = expr.return_dtype(array.dtype())?;
+    if !matches!(
+        return_type,
+        DType::Primitive(_, Nullability::NonNullable) | DType::Bool(Nullability::NonNullable)
+    ) {
+        return Ok(None);
+    }
+
+    let result = if row_range.start % N != 0 {
+        // If the start is not a multiple of PIPELINE_STEP_COUNT, then we need to slice
+        // we could do mask offsets instead, but this case is rare, due to split building.
+        let array = array.slice(row_range.clone());
+        let operator = expr
+            .to_operator(array.as_ref())?
+            .vortex_expect("already converted");
+        export_canonical_pipeline_expr(
+            &return_type,
+            row_range.end - row_range.start,
+            operator.as_ref(),
+            mask,
+        )?
+        .into_array()
+    } else {
+        log::trace!(
+            "ArrayEvaluation: export_canonical_pipeline_expr_offset {:?}",
+            operator
+        );
+        export_canonical_pipeline_expr_offset(
+            &return_type,
+            row_range.start / N,
+            row_range.end - row_range.start,
+            operator.as_ref(),
+            mask,
+        )?
+        .into_array()
+    };
+    Ok(Some(result))
 }
 
 #[cfg(test)]
@@ -283,11 +355,10 @@ mod test {
                 .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await
                 .unwrap()
-                .to_primitive()
-                .unwrap();
+                .to_primitive();
 
             assert_eq!(
-                array.to_primitive().unwrap().as_slice::<i32>(),
+                array.to_primitive().as_slice::<i32>(),
                 result.as_slice::<i32>()
             );
         })
@@ -324,8 +395,7 @@ mod test {
                 .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await
                 .unwrap()
-                .to_bool()
-                .unwrap();
+                .to_bool();
 
             assert_eq!(
                 &BooleanBuffer::from_iter([false, false, false, true, true]),
@@ -364,8 +434,7 @@ mod test {
                 .invoke(Mask::new_true(2))
                 .await
                 .unwrap()
-                .to_primitive()
-                .unwrap();
+                .to_primitive();
 
             assert_eq!(result.as_slice::<i32>(), &[3, 4],);
         })

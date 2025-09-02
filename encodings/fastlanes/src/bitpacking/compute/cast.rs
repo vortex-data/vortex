@@ -18,28 +18,26 @@ impl CastKernel for BitPackedVTable {
                 .clone()
                 .cast_nullability(dtype.nullability())?;
             return Ok(Some(
-                unsafe {
-                    BitPackedArray::new_unchecked_with_offset(
-                        array.packed().clone(),
-                        dtype.as_ptype(),
-                        new_validity,
-                        array
-                            .patches()
-                            .map(|patches| {
-                                let new_values = cast(patches.values(), dtype)?;
-                                VortexResult::Ok(Patches::new(
-                                    patches.array_len(),
-                                    patches.offset(),
-                                    patches.indices().clone(),
-                                    new_values,
-                                ))
-                            })
-                            .transpose()?,
-                        array.bit_width(),
-                        array.len(),
-                        array.offset(),
-                    )?
-                }
+                BitPackedArray::try_new(
+                    array.packed().clone(),
+                    dtype.as_ptype(),
+                    new_validity,
+                    array
+                        .patches()
+                        .map(|patches| {
+                            let new_values = cast(patches.values(), dtype)?;
+                            VortexResult::Ok(Patches::new(
+                                patches.array_len(),
+                                patches.offset(),
+                                patches.indices().clone(),
+                                new_values,
+                            ))
+                        })
+                        .transpose()?,
+                    array.bit_width(),
+                    array.len(),
+                    array.offset(),
+                )?
                 .into_array(),
             ));
         }
@@ -53,10 +51,10 @@ register_kernel!(CastKernelAdapter(BitPackedVTable).lift());
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
+    use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
@@ -78,7 +76,7 @@ mod tests {
             &DType::Primitive(PType::U32, Nullability::NonNullable)
         );
 
-        let decoded = casted.to_canonical().unwrap().into_primitive().unwrap();
+        let decoded = casted.to_primitive();
         assert_eq!(decoded.as_slice::<u32>(), &[10u32, 20, 30, 40, 50, 60]);
     }
 

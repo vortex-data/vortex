@@ -46,7 +46,7 @@ impl CompareKernel for DecimalBytePartsVTable {
                 // (depending on the `sign`) than all values in MSP.
                 // If the LHS or the RHS contain nulls, then we must fallback to the canonicalized
                 // implementation which does null-checking instead.
-                if lhs.all_valid()? && rhs.all_valid()? {
+                if lhs.all_valid() && rhs.all_valid() {
                     Ok(Some(
                         ConstantArray::new(
                             unconvertible_value(sign, operator, nullability),
@@ -149,11 +149,7 @@ mod tests {
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
         assert_eq!(
-            res.to_bool()
-                .unwrap()
-                .boolean_buffer()
-                .iter()
-                .collect::<Vec<_>>(),
+            res.to_bool().boolean_buffer().iter().collect::<Vec<_>>(),
             vec![false, false, true]
         );
     }
@@ -181,10 +177,10 @@ mod tests {
         .into_array();
 
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Lte)?;
-        assert_eq!(res.scalar_at(0)?.as_bool().value(), None);
-        assert_eq!(res.scalar_at(1)?.as_bool().value(), Some(true));
-        assert_eq!(res.scalar_at(2)?.as_bool().value(), Some(true));
-        assert_eq!(res.scalar_at(3)?.as_bool().value(), Some(true));
+        assert_eq!(res.scalar_at(0).as_bool().value(), None);
+        assert_eq!(res.scalar_at(1).as_bool().value(), Some(true));
+        assert_eq!(res.scalar_at(2).as_bool().value(), Some(true));
+        assert_eq!(res.scalar_at(3).as_bool().value(), Some(true));
 
         Ok(())
     }
@@ -210,22 +206,13 @@ mod tests {
 
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
-        assert_eq!(
-            res.to_bool().unwrap().bool_vec().unwrap(),
-            vec![false, false, false]
-        );
+        assert_eq!(res.to_bool().bool_vec().unwrap(), vec![false, false, false]);
 
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Gt).unwrap();
-        assert_eq!(
-            res.to_bool().unwrap().bool_vec().unwrap(),
-            vec![true, true, true]
-        );
+        assert_eq!(res.to_bool().bool_vec().unwrap(), vec![true, true, true]);
 
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Lt).unwrap();
-        assert_eq!(
-            res.to_bool().unwrap().bool_vec().unwrap(),
-            vec![false, false, false]
-        );
+        assert_eq!(res.to_bool().bool_vec().unwrap(), vec![false, false, false]);
 
         // This cannot be converted to a i32.
         let rhs = ConstantArray::new(
@@ -235,21 +222,12 @@ mod tests {
 
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
-        assert_eq!(
-            res.to_bool().unwrap().bool_vec().unwrap(),
-            vec![false, false, false]
-        );
+        assert_eq!(res.to_bool().bool_vec().unwrap(), vec![false, false, false]);
 
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Gt).unwrap();
-        assert_eq!(
-            res.to_bool().unwrap().bool_vec().unwrap(),
-            vec![false, false, false]
-        );
+        assert_eq!(res.to_bool().bool_vec().unwrap(), vec![false, false, false]);
 
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Lt).unwrap();
-        assert_eq!(
-            res.to_bool().unwrap().bool_vec().unwrap(),
-            vec![true, true, true]
-        );
+        assert_eq!(res.to_bool().bool_vec().unwrap(), vec![true, true, true]);
     }
 }
