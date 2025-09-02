@@ -19,7 +19,14 @@ itertools = { workspace = true }
 vortex-error = { workspace = true }
 
 [dev-dependencies]
+divan = { workspace = true }
+rand = { workspace = true }
 rstest = { workspace = true }
 
 [lints]
 workspace = true
+
+
+[[bench]]
+name = "pack_bool"
+harness = false
