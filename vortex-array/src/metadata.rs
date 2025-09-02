@@ -74,6 +74,7 @@ pub struct ProstMetadata<M>(pub M);
 impl<M> Deref for ProstMetadata<M> {
     type Target = M;
 
+    #[inline]
     fn deref(&self) -> &Self::Target {
         &self.0
     }
