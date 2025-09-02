@@ -72,7 +72,7 @@ mod test {
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, FieldPath, PType};
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
-    use vortex_layout::segments::{SequenceWriter, TestSegments};
+    use vortex_layout::segments::{SegmentSourceRef, SequenceWriter, TestSegments};
     use vortex_layout::sequence::SequenceId;
     use vortex_layout::{LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt as _};
 

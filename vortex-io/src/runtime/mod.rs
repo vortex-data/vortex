@@ -3,19 +3,18 @@
 
 pub use handle::*;
 use std::sync::Arc;
-mod coalesce;
 mod handle;
 pub mod io;
 pub mod multithread;
 pub mod singlethread;
+pub mod source;
 pub mod tokio;
 pub mod worker;
 
-use crate::runtime::coalesce::CoalescedRequest;
-use crate::runtime::io::IoSource;
-use crate::runtime::io::ReadCompletion;
+use crate::runtime::io::IoRequest;
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
+use source::IoSource;
 use vortex_buffer::Alignment;
 use vortex_error::VortexExpect;
 
@@ -65,18 +64,8 @@ pub struct IoTask {
 }
 
 impl IoTask {
-    pub fn new_single(source: Arc<dyn IoSource>, request: ReadRequest) -> Self {
-        IoTask {
-            source,
-            request: IoRequest::Single(request),
-        }
-    }
-
-    pub fn new_coalesced(source: Arc<dyn IoSource>, request: CoalescedRequest) -> Self {
-        IoTask {
-            source,
-            request: IoRequest::Coalesced(request),
-        }
+    pub fn new(source: Arc<dyn IoSource>, request: IoRequest) -> Self {
+        IoTask { source, request }
     }
 }
 
@@ -92,7 +81,7 @@ impl IoTask {
         }
 
         match self.request {
-            IoRequest::Single(req) => req.callback.complete(
+            IoRequest::Single(req) => req.completion.complete(
                 self.source
                     .read_local(req.offset, req.length, req.alignment)
                     .await,
@@ -115,7 +104,7 @@ impl IoTask {
     /// Run this task as a `Send` future.
     pub async fn run_send(self) {
         match self.request {
-            IoRequest::Single(req) => req.callback.complete(
+            IoRequest::Single(req) => req.completion.complete(
                 self.source
                     .read_send(req.offset, req.length, req.alignment)
                     .await,
@@ -136,25 +125,9 @@ impl IoTask {
     }
 }
 
-/// An I/O request encapsulates either a single read or a coalesced read in a way that allows us
-/// to track cancellation and completion.
-pub enum IoRequest {
-    Single(ReadRequest),
-    Coalesced(CoalescedRequest),
-}
-
-impl IoRequest {
-    pub fn is_canceled(&self) -> bool {
-        match self {
-            IoRequest::Single(req) => req.callback.is_canceled(),
-            IoRequest::Coalesced(req) => req.requests.iter().all(|r| r.callback.is_canceled()),
-        }
-    }
-}
-
 pub struct ReadRequest {
     pub offset: u64,
     pub length: usize,
     pub alignment: Alignment,
-    pub callback: ReadCompletion,
+    pub completion: ReadCompletion,
 }

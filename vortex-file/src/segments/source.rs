@@ -2,9 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::SegmentSpec;
-use futures::FutureExt;
 use std::sync::Arc;
-use vortex_error::vortex_err;
+use vortex_error::{vortex_err, VortexResult};
 use vortex_io::runtime::FileIo;
 use vortex_layout::segments::{SegmentFuture, SegmentId, SegmentSource};
 
@@ -21,17 +20,30 @@ impl<'rt> FileSegmentSource<'rt> {
 }
 
 impl<'rt> SegmentSource<'rt> for FileSegmentSource<'rt> {
-    fn request(&self, id: SegmentId) -> SegmentFuture<'rt> {
-        let segment_map = self.segment_map.clone();
-        let file = self.file.clone();
-
-        // Eagerly submit the I/O request, we if the SegmentFuture is dropped, this read may
-        // be canceled before it's even initiated.
-        let spec = segment_map
+    fn request(&self, id: SegmentId) -> VortexResult<SegmentFuture<'rt>> {
+        let spec = self
+            .segment_map
             .get(*id as usize)
-            .ok_or_else(|| vortex_err!("Segment {} not found", id))
-            .map(|spec| file.read(spec.offset, spec.length as usize, spec.alignment));
+            .cloned()
+            .ok_or_else(|| vortex_err!("Segment {} not found", id))?;
 
-        async move { spec?.await }.boxed()
+        let file = self.file.clone();
+        Ok(SegmentFuture::new(spec.length as u64, async move {
+            file.read(spec.offset, spec.length as usize, spec.alignment)
+                .await
+        }))
+
+        // // Eagerly submit the I/O request, we if the SegmentFuture is dropped, this read may
+        // // be canceled before it's even initiated.
+        // let spec = segment_map
+        //     .get(*id as usize)
+        //     .cloned()
+        //     .ok_or_else(|| vortex_err!("Segment {} not found", id))
+        //     .map(move |spec| async move {
+        //         file.read(spec.offset, spec.length as usize, spec.alignment)
+        //             .await
+        //     });
+        //
+        // async move { spec?.await }.boxed()
     }
 }

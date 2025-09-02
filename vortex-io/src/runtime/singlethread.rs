@@ -170,8 +170,8 @@ impl<T> Iterator for BlockingStream<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::runtime::io::FileIoSource;
     use crate::runtime::singlethread::SingleThreadRuntime;
+    use crate::runtime::source::FileIoSource;
     use std::fs::File;
     use std::io::Write;
     use vortex_buffer::Alignment;

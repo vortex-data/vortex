@@ -5,11 +5,9 @@ use std::sync::Arc;
 
 use crate::segments::sink::SegmentWriter;
 use crate::segments::{SegmentFuture, SegmentId, SegmentSource};
-use futures::FutureExt;
 use parking_lot::Mutex;
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
 use vortex_error::{vortex_err, VortexResult};
-use vortex_io::runtime::Handle;
 
 /// A dummy in-memory implementation of a segment reader and writer.
 #[derive(Default, Clone)]
@@ -18,9 +16,16 @@ pub struct TestSegments {
 }
 
 impl SegmentSource<'_> for TestSegments {
-    fn request(&self, id: SegmentId, _handle: &Handle) -> SegmentFuture<'static> {
-        let buffer = self.segments.lock().get(*id as usize).cloned();
-        async move { buffer.ok_or_else(|| vortex_err!("Segment not found")) }.boxed()
+    fn request(&self, id: SegmentId) -> VortexResult<SegmentFuture<'static>> {
+        let buffer = self
+            .segments
+            .lock()
+            .get(*id as usize)
+            .cloned()
+            .ok_or_else(|| vortex_err!("Segment {} not found", id))?;
+        Ok(SegmentFuture::new(buffer.len() as u64, async move {
+            Ok(buffer)
+        }))
     }
 }
 

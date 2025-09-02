@@ -12,7 +12,9 @@ use futures::future::{BoxFuture, Shared, WeakShared};
 use futures::stream::BoxStream;
 use futures::{FutureExt, StreamExt, TryFutureExt};
 use vortex_buffer::ByteBuffer;
-use vortex_error::{vortex_err, SharedVortexResult, VortexError, VortexExpect, VortexResult};
+use vortex_error::{
+    vortex_err, vortex_panic, SharedVortexResult, VortexError, VortexExpect, VortexResult,
+};
 use vortex_utils::aliases::dash_map::{DashMap, Entry};
 
 use crate::segments::{SegmentFuture, SegmentId, SegmentSource, SegmentSourceRef};
@@ -131,12 +133,8 @@ struct EventsSegmentSource {
 }
 
 impl SegmentSource<'static> for EventsSegmentSource {
-    fn request(&self, id: SegmentId) -> SegmentFuture<'static> {
-        self.events
-            .clone()
-            .segment_future(id)
-            .map_err(VortexError::from)
-            .boxed()
+    fn request(&self, _id: SegmentId) -> VortexResult<SegmentFuture<'static>> {
+        vortex_panic!("SegmentSource::request cannot fail");
     }
 }
 

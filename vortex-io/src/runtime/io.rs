@@ -1,316 +1,312 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use futures::future::{BoxFuture, LocalBoxFuture};
-use futures::{FutureExt, StreamExt};
-use smol::unblock;
-use std::fs::File;
-use std::io;
-use std::os::unix::fs::FileExt;
-use std::path::Path;
+use crate::runtime::ReadRequest;
+use futures::Stream;
+use pin_project_lite::pin_project;
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
+use std::fmt::{Debug, Formatter};
+use std::ops::Range;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{ready, Context, Poll};
-use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
-use vortex_error::{vortex_err, VortexError, VortexExpect, VortexResult};
+use std::task::{Context, Poll};
+use vortex_buffer::{Alignment, ByteBuffer};
+use vortex_error::{VortexError, VortexExpect, VortexResult};
 
-/// A future representing an in-flight read operation.
-///
-/// If this [`Read`] object is dropped prior to the I/O operation being submitted, it **may** be
-/// skipped by the runtime. If it has already been submitted, it will continue to completion.
-pub struct Read(ReadState);
-
-impl Read {
-    pub fn ready(result: VortexResult<ByteBuffer>) -> Self {
-        Read(ReadState::Ready(Some(result)))
-    }
-
-    pub fn future() -> (Self, ReadCompletion) {
-        let (send, recv) = oneshot::channel();
-        (Read(ReadState::Future(recv)), ReadCompletion(send))
-    }
+/// An I/O request, either a single read or a coalesced set of reads.
+pub enum IoRequest {
+    Single(ReadRequest),
+    Coalesced(CoalescedRequest),
 }
 
-enum ReadState {
-    Ready(Option<VortexResult<ByteBuffer>>),
-    Future(oneshot::Receiver<VortexResult<ByteBuffer>>),
-}
+impl IoRequest {
+    pub fn offset(&self) -> u64 {
+        match self {
+            IoRequest::Single(r) => r.offset,
+            IoRequest::Coalesced(r) => r.range.start,
+        }
+    }
 
-/// A handle to complete a pending read operation.
-pub struct ReadCompletion(oneshot::Sender<VortexResult<ByteBuffer>>);
+    pub fn len(&self) -> usize {
+        match self {
+            IoRequest::Single(r) => r.length,
+            IoRequest::Coalesced(r) => usize::try_from(r.range.end - r.range.start)
+                .vortex_expect("range too big for usize"),
+        }
+    }
 
-impl ReadCompletion {
-    /// Returns true if the read has been canceled and the result will not be delivered.
     pub fn is_canceled(&self) -> bool {
-        self.0.is_closed()
-    }
-
-    pub fn complete(self, result: VortexResult<ByteBuffer>) {
-        if let Err(e) = self.0.send(result) {
-            log::trace!("I/O request cancelled while in-flight: {e}");
+        match self {
+            IoRequest::Single(req) => req.completion.is_canceled(),
+            IoRequest::Coalesced(req) => req.requests.iter().all(|r| r.completion.is_canceled()),
         }
     }
 }
 
-impl Future for Read {
-    type Output = VortexResult<ByteBuffer>;
+/// A set of I/O requests that have been coalesced into a single larger request.
+pub struct CoalescedRequest {
+    pub range: Range<u64>,
+    pub alignment: Alignment, // The alignment of the first request in the coalesced range.
+    pub requests: Vec<ReadRequest>, // TODO(ngates): we could have enum of Single/Many to avoid Vec.
+}
 
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match &mut self.0 {
-            ReadState::Ready(maybe_result) => Poll::Ready(
-                maybe_result
-                    .take()
-                    .vortex_expect("Read future polled after completion"),
-            ),
-            ReadState::Future(fut) => match ready!(fut.poll_unpin(cx)) {
-                Ok(result) => Poll::Ready(result),
-                Err(e) => Poll::Ready(Err(vortex_err!(
-                    "Failed to read from file, IoTask dropped by runtime: {e}"
-                ))),
-            },
+impl Debug for CoalescedRequest {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CoalescedRequest")
+            .field("#", &self.requests.len())
+            .field("length", &(self.range.end - self.range.start))
+            .field("range", &self.range)
+            .field("alignment", &self.alignment)
+            .finish()
+    }
+}
+
+impl CoalescedRequest {
+    pub fn resolve(self, result: VortexResult<ByteBuffer>) {
+        match result {
+            Ok(buffer) => {
+                let buffer = buffer.aligned(Alignment::none());
+                for req in self.requests.into_iter() {
+                    let start = (req.offset - self.range.start) as usize;
+                    let end = start + req.length;
+                    let slice = buffer.slice(start..end).aligned(req.alignment);
+                    req.completion.complete(Ok(slice));
+                }
+            }
+            Err(e) => {
+                let e = Arc::new(e);
+                for req in self.requests.into_iter() {
+                    req.completion.complete(Err(VortexError::from(e.clone())));
+                }
+            }
         }
     }
 }
 
-pub trait IoSource: Send + Sync + 'static {
-    // FIXME(ngates): non-owned
-    fn name(&self) -> String;
-
-    fn coalescing_window(&self) -> Option<u64>;
-
-    fn concurrency(&self) -> usize;
-
-    /// Returns a shared future that resolves to the byte size of the underlying data source.
-    fn size(&self) -> BoxFuture<'static, VortexResult<u64>>;
-
-    /// Perform a single read operation.
+pin_project! {
+    /// A stream that performs coalescing and prioritization of I/O requests.
     ///
-    /// The returned future must be `Send`, and should not require a specific runtime to drive it.
-    fn read_send(
-        &self,
-        offset: u64,
-        length: usize,
-        alignment: Alignment,
-    ) -> BoxFuture<'static, VortexResult<ByteBuffer>>;
-
-    fn read_local(
-        &self,
-        offset: u64,
-        length: usize,
-        alignment: Alignment,
-    ) -> LocalBoxFuture<'static, VortexResult<ByteBuffer>> {
-        self.read_send(offset, length, alignment).boxed_local()
+    /// Takes an input stream of [`ReadRequest`]s and buffers all ready requests into local state.
+    /// When polled for the next request, this stream will choose the next best request based on
+    /// an ordering of `(has_been_polled, insertion_order)`, skipping any canceled requests, and
+    /// then coalescing with other nearby requests within the configured `window`.
+    ///
+    /// The output of this stream is expected to be buffered by the desired I/O concurrency, and
+    /// driven to completion.
+    pub(crate) struct IoRequestStream<S> {
+        #[pin]
+        inner: S,
+        inner_done: bool,
+        coalesce_window: Option<u64>,
+        state: State,
     }
 }
 
-impl IoSource for ByteBuffer {
-    fn name(&self) -> String {
-        format!("ByteBuffer({})", self.len())
+impl<S> IoRequestStream<S> {
+    // FIXME(ngates): split this into coalesce_distance and max_read_size. We should keep
+    //  expanding the request by coalesce_distance, but stop if we hit max_read_size.
+    pub(crate) fn new(inner: S, coalesce_window: Option<u64>) -> Self
+    where
+        S: Stream<Item = ReadRequest> + Unpin + Send + 'static,
+    {
+        IoRequestStream {
+            inner,
+            inner_done: false,
+            coalesce_window,
+            state: State::default(),
+        }
+    }
+}
+
+impl<S> Stream for IoRequestStream<S>
+where
+    S: Stream<Item = ReadRequest> + Unpin + Send + 'static,
+{
+    type Item = IoRequest;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let mut this = self.project();
+
+        // First, try to drain all immediately available requests from the inner stream
+        loop {
+            match this.inner.as_mut().poll_next(cx) {
+                Poll::Ready(Some(req)) => {
+                    this.state.push_req(req);
+                }
+                Poll::Ready(None) => {
+                    *this.inner_done = true;
+                    break;
+                }
+                Poll::Pending => {
+                    break;
+                }
+            }
+        }
+
+        // Try to get a coalesced request
+        if let Some(coalesced) = this.state.next(*this.coalesce_window) {
+            return Poll::Ready(Some(coalesced));
+        }
+
+        // If the inner stream is done, and we have no more requests, we're done
+        if *this.inner_done && this.state.is_empty() {
+            return Poll::Ready(None);
+        }
+
+        // Otherwise, we need more data from the inner stream
+        Poll::Pending
+    }
+}
+
+/// The state of the I/O request stream.
+#[derive(Default)]
+struct State {
+    // Maintains the set of pending requests, ordered by insertion.
+    requests: BTreeMap<ReqId, ReadRequest>,
+
+    // Maintains a set of polled requests, ordered by insertion.
+    // Note that we intentionally choose a (polled, insertion) priority, such that earlier requests
+    // still complete first if both an early and late request have been polled. First-polled
+    // and most-recently-polled both have issues of priority inversion for our use-case.
+    polled_requests: BTreeMap<ReqId, ReadRequest>,
+
+    // Spatial index - allows us to find nearby requests for coalescing sorted by offset.
+    requests_by_offset: BTreeSet<(u64, ReqId)>,
+
+    // Next request ID to assign
+    next_id: ReqId,
+}
+
+type ReqId = usize;
+
+impl State {
+    fn is_empty(&self) -> bool {
+        self.requests_by_offset.is_empty()
     }
 
-    fn coalescing_window(&self) -> Option<u64> {
+    fn push_req(&mut self, req: ReadRequest) {
+        let req_id = self.next_id;
+        self.next_id += 1;
+
+        self.requests_by_offset.insert((req.offset, req_id));
+        if req.completion.is_polled() {
+            self.polled_requests.insert(req_id, req);
+        } else {
+            self.requests.insert(req_id, req);
+        }
+    }
+
+    /// Get the next request, if any.
+    fn next(&mut self, coalesce_distance: Option<u64>) -> Option<IoRequest> {
+        // First, we move any polled requests to the polled_requests map.
+        let mut to_move = Vec::new();
+        for (&req_id, req) in self.requests.iter() {
+            if req.completion.is_polled() {
+                to_move.push(req_id);
+            }
+        }
+        for req_id in to_move {
+            if let Some(req) = self.requests.remove(&req_id) {
+                self.polled_requests.insert(req_id, req);
+            }
+        }
+
+        match coalesce_distance {
+            None => self.next_uncoalesced().map(IoRequest::Single),
+            Some(distance) => self.next_coalesced(distance).map(IoRequest::Coalesced),
+        }
+    }
+
+    /// Find the next uncoalesced request, prioritizing polled requests first.
+    fn next_uncoalesced(&mut self) -> Option<ReadRequest> {
+        for queue in [&mut self.polled_requests, &mut self.requests] {
+            // for queue in [&mut self.polled_requests] {
+            while let Some((req_id, req)) = queue.pop_first() {
+                self.requests_by_offset.remove(&(req.offset, req_id));
+                if req.completion.is_canceled() {
+                    log::trace!("Dropping canceled request");
+                    continue;
+                }
+                return Some(req);
+            }
+        }
         None
     }
 
-    fn concurrency(&self) -> usize {
-        1
-    }
+    fn next_coalesced(&mut self, coalesce_distance: u64) -> Option<CoalescedRequest> {
+        // Find the next valid request in priority order
+        let first_req = self.next_uncoalesced()?;
 
-    fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
-        let len = self.len() as u64;
-        async move { Ok(len) }.boxed()
-    }
+        let mut requests = vec![first_req];
+        let mut current_start = requests[0].offset;
+        let mut current_end = requests[0].offset + requests[0].length as u64;
+        let alignment = requests[0].alignment.clone();
 
-    fn read_send(
-        &self,
-        offset: u64,
-        length: usize,
-        alignment: Alignment,
-    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
-        let buffer = self.clone();
-        async move {
-            if offset + length as u64 > buffer.len() as u64 {
-                return Err(vortex_err!("Read out of bounds"));
+        // Find the range we should scan for coalescing
+        let scan_start = current_start.saturating_sub(coalesce_distance);
+        let scan_end = current_end.saturating_add(coalesce_distance);
+
+        // Collect requests that can be coalesced (both before and after our mandatory request)
+        let mut keys_to_remove = Vec::new();
+
+        for &(req_offset, req_id) in self
+            .requests_by_offset
+            .range((scan_start, ReqId::MIN)..=(scan_end, ReqId::MAX))
+        {
+            let req = self
+                .polled_requests
+                .get(&req_id)
+                .or_else(|| self.requests.get(&req_id))
+                .vortex_expect("Missing request in requests_by_offset");
+
+            // Skip any cancelled requests
+            if req.completion.is_canceled() {
+                keys_to_remove.push((req_offset, req_id));
+                continue;
             }
-            let mut slice = ByteBufferMut::with_capacity_aligned(length, alignment);
-            unsafe { slice.set_len(length) };
-            slice
-                .as_mut_slice()
-                .copy_from_slice(&buffer.as_slice()[offset as usize..offset as usize + length]);
-            Ok(slice.freeze())
-        }
-        .boxed()
-    }
-}
 
-pub struct FileIoSource {
-    file: Arc<File>,
-    path: String,
-}
+            // Check if this request is within coalescing distance of our current range
+            let req_end = req_offset + req.length as u64;
+            if (req_offset <= current_end + coalesce_distance && req_end >= current_start)
+                || (req_end + coalesce_distance >= current_start && req_offset <= current_end)
+            {
+                current_start = current_start.min(req_offset);
+                current_end = current_end.max(req_end);
 
-impl FileIoSource {
-    pub fn try_new<P: AsRef<Path>>(path: P) -> VortexResult<Self> {
-        let path = path.as_ref();
-        let name = path.to_string_lossy().to_string();
-        let file = File::open(path).map_err(VortexError::from)?;
-        Ok(Self {
-            file: Arc::new(file),
-            path: name,
-        })
-    }
-}
+                let req = self
+                    .polled_requests
+                    .remove(&req_id)
+                    .or_else(|| self.requests.remove(&req_id))
+                    .vortex_expect("Missing request in requests_by_offset");
 
-impl IoSource for FileIoSource {
-    fn name(&self) -> String {
-        self.path.clone()
-    }
-
-    fn coalescing_window(&self) -> Option<u64> {
-        Some(8192) // 8 KB
-    }
-
-    fn concurrency(&self) -> usize {
-        128
-    }
-
-    fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
-        let file = self.file.clone();
-        async move {
-            let metadata = file.metadata().map_err(VortexError::from)?;
-            Ok(metadata.len())
-        }
-        .boxed()
-    }
-
-    #[tracing::instrument(level = "debug", skip(self), fields(path = %self.path, offset, length, alignment = ?alignment))]
-    fn read_send(
-        &self,
-        offset: u64,
-        length: usize,
-        alignment: Alignment,
-    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
-        let file = self.file.clone();
-        unblock(move || {
-            let mut buffer = ByteBufferMut::with_capacity_aligned(length, alignment);
-            unsafe { buffer.set_len(length) };
-            match file.read_exact_at(&mut buffer, offset) {
-                Ok(()) => Ok(buffer.freeze()),
-                Err(e) => Err(VortexError::from(e)),
+                requests.push(req);
+                keys_to_remove.push((req_offset, req_id));
             }
+        }
+
+        // Remove any dropped requests
+        for (req_offset, req_id) in keys_to_remove {
+            self.requests_by_offset.remove(&(req_offset, req_id));
+            self.polled_requests
+                .remove(&req_id)
+                .or_else(|| self.requests.remove(&req_id));
+        }
+
+        // Sort requests by offset for correct slicing in resolve
+        requests.sort_unstable_by_key(|r| r.offset);
+
+        log::debug!(
+            "Coalesced {} requests into range {}-{} (len={})",
+            requests.len(),
+            current_start,
+            current_end,
+            current_end - current_start,
+        );
+
+        Some(CoalescedRequest {
+            range: current_start..current_end,
+            alignment,
+            requests,
         })
-        .boxed()
-    }
-}
-
-#[cfg(feature = "object_store")]
-pub struct ObjectStoreIoSource {
-    store: Arc<dyn object_store::ObjectStore>,
-    path: object_store::path::Path,
-    concurrency: usize,
-    coalesce_window: u64, // In bytes
-}
-
-#[cfg(feature = "object_store")]
-impl ObjectStoreIoSource {
-    pub fn new(store: Arc<dyn object_store::ObjectStore>, path: object_store::path::Path) -> Self {
-        Self {
-            store,
-            path,
-            concurrency: 128,
-            coalesce_window: 1 * 1024 * 1024, // 1 MB
-        }
-    }
-
-    pub fn with_concurrency(mut self, concurrency: usize) -> Self {
-        self.concurrency = concurrency;
-        self
-    }
-
-    pub fn with_coalesce_window(mut self, window: u64) -> Self {
-        // Currently a no-op, as coalescing is always enabled with a fixed window.
-        self.coalesce_window = window;
-        self
-    }
-}
-
-#[cfg(feature = "object_store")]
-impl IoSource for ObjectStoreIoSource {
-    fn name(&self) -> String {
-        self.path.to_string()
-    }
-
-    fn coalescing_window(&self) -> Option<u64> {
-        Some(2 * 1024 * 1024) // +/- 2 MB
-    }
-
-    fn concurrency(&self) -> usize {
-        192
-    }
-
-    fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
-        let store = self.store.clone();
-        let path = self.path.clone();
-        async move {
-            Ok(store
-                .head(&path)
-                .await
-                .map(|h| h.size)
-                .map_err(VortexError::from)?)
-        }
-        .boxed()
-    }
-
-    #[tracing::instrument(level = "debug", skip(self), fields(path = %self.path, offset, length, alignment = ?alignment))]
-    fn read_send(
-        &self,
-        offset: u64,
-        length: usize,
-        alignment: Alignment,
-    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
-        let store = self.store.clone();
-        let path = self.path.clone();
-
-        async move {
-            // Instead of calling `ObjectStore::get_range`, we expand the implementation and run it
-            // ourselves to avoid a second copy to align the buffer. Instead, we can write directly
-            // into the aligned buffer.
-            let mut buffer = ByteBufferMut::with_capacity_aligned(length, alignment);
-
-            let response = store
-                .get_opts(
-                    &path,
-                    object_store::GetOptions {
-                        range: Some(object_store::GetRange::Bounded(
-                            offset..offset + length as u64,
-                        )),
-                        ..Default::default()
-                    },
-                )
-                .await?;
-
-            let buffer = match response.payload {
-                object_store::GetResultPayload::File(file, _) => {
-                    // SAFETY: We're setting the length to the exact size we're about to read.
-                    // The read_exact_at call will either fill the entire buffer or return an error,
-                    // ensuring no uninitialized memory is exposed.
-                    unsafe { buffer.set_len(length) };
-                    unblock(move || {
-                        file.read_exact_at(&mut buffer, offset)?;
-                        Ok::<_, io::Error>(buffer)
-                    })
-                    .await
-                    .map_err(io::Error::other)?
-                }
-                object_store::GetResultPayload::Stream(mut byte_stream) => {
-                    while let Some(bytes) = byte_stream.next().await {
-                        buffer.extend_from_slice(&bytes?);
-                    }
-                    buffer
-                }
-            };
-
-            Ok(buffer.freeze())
-        }
-        .boxed()
     }
 }
