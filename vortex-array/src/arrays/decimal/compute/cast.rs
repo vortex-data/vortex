@@ -82,10 +82,7 @@ mod tests {
 
         // Cast to nullable
         let nullable_dtype = DType::Decimal(decimal_dtype, Nullability::Nullable);
-        let casted = cast(array.as_ref(), &nullable_dtype)
-            .unwrap()
-            .to_decimal()
-            .unwrap();
+        let casted = cast(array.as_ref(), &nullable_dtype).unwrap().to_decimal();
 
         assert_eq!(casted.dtype(), &nullable_dtype);
         assert_eq!(casted.validity(), &Validity::AllValid);
@@ -103,8 +100,7 @@ mod tests {
         let non_nullable_dtype = DType::Decimal(decimal_dtype, Nullability::NonNullable);
         let casted = cast(array.as_ref(), &non_nullable_dtype)
             .unwrap()
-            .to_decimal()
-            .unwrap();
+            .to_decimal();
 
         assert_eq!(casted.dtype(), &non_nullable_dtype);
         assert_eq!(casted.validity(), &Validity::NonNullable);

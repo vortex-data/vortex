@@ -334,14 +334,11 @@ impl ArrayVTable<BitPackedVTable> for BitPackedVTable {
 }
 
 impl CanonicalVTable<BitPackedVTable> for BitPackedVTable {
-    fn canonicalize(array: &BitPackedArray) -> VortexResult<Canonical> {
-        unpack(array).map(Canonical::Primitive)
+    fn canonicalize(array: &BitPackedArray) -> Canonical {
+        Canonical::Primitive(unpack(array))
     }
 
-    fn append_to_builder(
-        array: &BitPackedArray,
-        builder: &mut dyn ArrayBuilder,
-    ) -> VortexResult<()> {
+    fn append_to_builder(array: &BitPackedArray, builder: &mut dyn ArrayBuilder) {
         match_each_integer_ptype!(array.ptype(), |T| {
             unpack_into::<T>(
                 array,
@@ -382,7 +379,7 @@ mod test {
         let uncompressed = PrimitiveArray::from_option_iter(values);
         let packed = BitPackedArray::encode(uncompressed.as_ref(), 1).unwrap();
         let expected = &[1, 0, 1, 0, 1, 0, u64::MAX];
-        let results = packed.to_primitive().unwrap().as_slice::<u64>().to_vec();
+        let results = packed.to_primitive().as_slice::<u64>().to_vec();
         assert_eq!(results, expected);
     }
 
@@ -404,10 +401,7 @@ mod test {
         let packed_with_patches = BitPackedArray::encode(&parray, 9).unwrap();
         assert!(packed_with_patches.patches().is_some());
         assert_eq!(
-            packed_with_patches
-                .to_primitive()
-                .unwrap()
-                .as_slice::<i32>(),
+            packed_with_patches.to_primitive().as_slice::<i32>(),
             values.as_slice()
         );
     }

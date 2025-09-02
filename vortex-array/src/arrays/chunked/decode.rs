@@ -3,7 +3,7 @@
 
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, Nullability, PType, StructFields};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_error::{VortexExpect, VortexUnwrap, vortex_err};
 
 use super::ChunkedArray;
 use crate::arrays::{ChunkedVTable, ListArray, PrimitiveArray, StructArray};
@@ -14,9 +14,9 @@ use crate::vtable::CanonicalVTable;
 use crate::{Array as _, ArrayRef, Canonical, IntoArray, ToCanonical};
 
 impl CanonicalVTable<ChunkedVTable> for ChunkedVTable {
-    fn canonicalize(array: &ChunkedArray) -> VortexResult<Canonical> {
+    fn canonicalize(array: &ChunkedArray) -> Canonical {
         if array.nchunks() == 0 {
-            return Ok(Canonical::empty(array.dtype()));
+            return Canonical::empty(array.dtype());
         }
         if array.nchunks() == 1 {
             return array.chunks()[0].to_canonical();
@@ -26,29 +26,28 @@ impl CanonicalVTable<ChunkedVTable> for ChunkedVTable {
             DType::Struct(struct_dtype, _) => {
                 let struct_array = swizzle_struct_chunks(
                     array.chunks(),
-                    Validity::copy_from_array(array.as_ref())?,
+                    Validity::copy_from_array(array.as_ref()),
                     struct_dtype,
-                )?;
-                Ok(Canonical::Struct(struct_array))
+                );
+                Canonical::Struct(struct_array)
             }
-            DType::List(elem_dtype, _) => Ok(Canonical::List(pack_lists(
+            DType::List(elem_dtype, _) => Canonical::List(pack_lists(
                 array.chunks(),
-                Validity::copy_from_array(array.as_ref())?,
+                Validity::copy_from_array(array.as_ref()),
                 elem_dtype,
-            )?)),
+            )),
             _ => {
                 let mut builder = builder_with_capacity(array.dtype(), array.len());
-                array.append_to_builder(builder.as_mut())?;
+                array.append_to_builder(builder.as_mut());
                 builder.finish().to_canonical()
             }
         }
     }
 
-    fn append_to_builder(array: &ChunkedArray, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+    fn append_to_builder(array: &ChunkedArray, builder: &mut dyn ArrayBuilder) {
         for chunk in array.chunks() {
-            chunk.append_to_builder(builder)?;
+            chunk.append_to_builder(builder);
         }
-        Ok(())
     }
 }
 
@@ -58,7 +57,7 @@ fn swizzle_struct_chunks(
     chunks: &[ArrayRef],
     validity: Validity,
     struct_dtype: &StructFields,
-) -> VortexResult<StructArray> {
+) -> StructArray {
     let len = chunks.iter().map(|chunk| chunk.len()).sum();
     let mut field_arrays = Vec::new();
 
@@ -67,42 +66,40 @@ fn swizzle_struct_chunks(
             .iter()
             .map(|c| {
                 c.to_struct()
-                    .vortex_expect("Chunk was not a StructArray")
                     .fields()
                     .get(field_idx)
                     .vortex_expect("Invalid field index")
                     .to_array()
             })
             .collect::<Vec<_>>();
-        let field_array = ChunkedArray::try_new(field_chunks, field_dtype.clone())?;
+        let field_array = unsafe { ChunkedArray::new_unchecked(field_chunks, field_dtype.clone()) };
         field_arrays.push(field_array.into_array());
     }
 
-    StructArray::try_new_with_dtype(field_arrays, struct_dtype.clone(), len, validity)
+    StructArray::new_unchecked(field_arrays, struct_dtype.clone(), len, validity)
 }
 
-fn pack_lists(
-    chunks: &[ArrayRef],
-    validity: Validity,
-    elem_dtype: &DType,
-) -> VortexResult<ListArray> {
+fn pack_lists(chunks: &[ArrayRef], validity: Validity, elem_dtype: &DType) -> ListArray {
     let len: usize = chunks.iter().map(|c| c.len()).sum();
-    let mut offsets = BufferMut::<i64>::with_capacity(len + 1);
+    let mut offsets = BufferMut::<u64>::with_capacity(len + 1);
     offsets.push(0);
     let mut elements = Vec::new();
 
     for chunk in chunks {
-        let chunk = chunk.to_list()?;
+        let chunk = chunk.to_list();
         // TODO: handle i32 offsets if they fit.
         let offsets_arr = cast(
             chunk.offsets(),
-            &DType::Primitive(PType::I64, Nullability::NonNullable),
-        )?
-        .to_primitive()?;
+            &DType::Primitive(PType::U64, Nullability::NonNullable),
+        )
+        .vortex_expect("Must fit array offsets in u64")
+        .to_primitive();
 
-        let first_offset_value: usize = usize::try_from(&offsets_arr.scalar_at(0))?;
+        let first_offset_value: usize =
+            usize::try_from(&offsets_arr.scalar_at(0)).vortex_expect("Offset must be a usize");
         let last_offset_value: usize =
-            usize::try_from(&offsets_arr.scalar_at(offsets_arr.len() - 1))?;
+            usize::try_from(&offsets_arr.scalar_at(offsets_arr.len() - 1))
+                .vortex_expect("Offset must be a usize");
         elements.push(
             chunk
                 .elements()
@@ -111,19 +108,21 @@ fn pack_lists(
 
         let adjustment_from_previous = *offsets
             .last()
-            .ok_or_else(|| vortex_err!("List offsets must have at least one element"))?;
+            .ok_or_else(|| vortex_err!("List offsets must have at least one element"))
+            .vortex_unwrap();
         offsets.extend_trusted(
             offsets_arr
-                .as_slice::<i64>()
+                .as_slice::<u64>()
                 .iter()
                 .skip(1)
-                .map(|off| off + adjustment_from_previous - first_offset_value as i64),
+                .map(|off| off + adjustment_from_previous - first_offset_value as u64),
         );
     }
-    let chunked_elements = ChunkedArray::try_new(elements, elem_dtype.clone())?.into_array();
+    let chunked_elements =
+        unsafe { ChunkedArray::new_unchecked(elements, elem_dtype.clone()) }.into_array();
     let offsets = PrimitiveArray::new(offsets.freeze(), Validity::NonNullable);
 
-    ListArray::try_new(chunked_elements, offsets.into_array(), validity)
+    unsafe { ListArray::new_unchecked(chunked_elements, offsets.into_array(), validity) }
 }
 
 #[cfg(test)]
@@ -159,9 +158,9 @@ mod tests {
         )
         .unwrap()
         .into_array();
-        let canonical_struct = chunked.to_struct().unwrap();
-        let canonical_varbin = canonical_struct.fields()[0].to_varbinview().unwrap();
-        let original_varbin = struct_array.fields()[0].to_varbinview().unwrap();
+        let canonical_struct = chunked.to_struct();
+        let canonical_varbin = canonical_struct.fields()[0].to_varbinview();
+        let original_varbin = struct_array.fields()[0].to_varbinview();
         let orig_values = original_varbin
             .with_iterator(|it| it.map(|a| a.map(|v| v.to_vec())).collect::<Vec<_>>())
             .unwrap();
@@ -192,7 +191,7 @@ mod tests {
             List(Arc::new(Primitive(I32, NonNullable)), NonNullable),
         );
 
-        let canon_values = chunked_list.unwrap().to_list().unwrap();
+        let canon_values = chunked_list.unwrap().to_list();
 
         assert_eq!(l1.scalar_at(0), canon_values.scalar_at(0));
         assert_eq!(l2.scalar_at(0), canon_values.scalar_at(1));

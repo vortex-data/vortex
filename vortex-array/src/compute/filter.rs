@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::BitAnd;
 use std::sync::LazyLock;
 
 use arcref::ArcRef;
@@ -11,7 +10,7 @@ use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{BoolArray, ConstantArray};
+use crate::arrays::ConstantArray;
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, fill_null};
 use crate::vtable::VTable;
@@ -39,10 +38,7 @@ static FILTER_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
 ///
 /// let array =
 ///     PrimitiveArray::from_option_iter([Some(0i32), None, Some(1i32), None, Some(2i32)]);
-/// let mask = Mask::try_from(
-///     &BoolArray::from_iter([true, false, false, false, true]),
-/// )
-/// .unwrap();
+/// let mask = Mask::from_iter([true, false, false, false, true]);
 ///
 /// let filtered = filter(array.as_ref(), &mask).unwrap();
 /// assert_eq!(filtered.len(), 2);
@@ -106,7 +102,7 @@ impl ComputeFnVTable for Filter {
         log::debug!("No filter implementation found for {}", array.encoding_id(),);
 
         if !array.is_canonical() {
-            let canonical = array.to_canonical()?.into_array();
+            let canonical = array.to_canonical().into_array();
             return filter(&canonical, mask).map(Into::into);
         };
 
@@ -192,41 +188,17 @@ impl<V: VTable + FilterKernel> Kernel for FilterKernelAdapter<V> {
     }
 }
 
-impl From<&BoolArray> for Mask {
-    fn from(array: &BoolArray) -> Self {
-        if let Some(constant) = array.as_constant() {
-            let bool_constant = constant.as_bool();
-            if bool_constant.value().unwrap_or(false) {
-                return Self::new_true(array.len());
-            } else {
-                return Self::new_false(array.len());
-            }
-        }
-
-        // Extract a boolean buffer, treating null values to false
-        let buffer = match array.validity_mask() {
-            Mask::AllTrue(_) => array.boolean_buffer().clone(),
-            Mask::AllFalse(_) => return Self::new_false(array.len()),
-            Mask::Values(validity) => validity.boolean_buffer().bitand(array.boolean_buffer()),
-        };
-
-        Self::from_buffer(buffer)
-    }
-}
-
-impl TryFrom<&dyn Array> for Mask {
-    type Error = VortexError;
-
+impl dyn Array + '_ {
     /// Converts from a possible nullable boolean array. Null values are treated as false.
-    fn try_from(array: &dyn Array) -> Result<Self, Self::Error> {
-        if !matches!(array.dtype(), DType::Bool(_)) {
-            vortex_bail!("mask must be bool array, has dtype {}", array.dtype());
+    pub fn try_to_mask_fill_null_false(&self) -> VortexResult<Mask> {
+        if !matches!(self.dtype(), DType::Bool(_)) {
+            vortex_bail!("mask must be bool array, has dtype {}", self.dtype());
         }
 
         // Convert nulls to false first in case this can be done cheaply by the encoding.
-        let array = fill_null(array, &Scalar::bool(false, array.dtype().nullability()))?;
+        let array = fill_null(self, &Scalar::bool(false, self.dtype().nullability()))?;
 
-        Ok(Self::from(&array.to_bool()?))
+        Ok(array.to_bool().to_mask_fill_null_false())
     }
 }
 
@@ -249,7 +221,8 @@ pub fn arrow_filter_fn(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef>
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::arrays::{BoolArray, PrimitiveArray};
+    use crate::arrays::PrimitiveArray;
+    use crate::canonical::ToCanonical;
     use crate::compute::filter::filter;
 
     #[test]
@@ -257,11 +230,11 @@ mod test {
         let items =
             PrimitiveArray::from_option_iter([Some(0i32), None, Some(1i32), None, Some(2i32)])
                 .into_array();
-        let mask = Mask::from(&BoolArray::from_iter([true, false, true, false, true]));
+        let mask = Mask::from_iter([true, false, true, false, true]);
 
         let filtered = filter(&items, &mask).unwrap();
         assert_eq!(
-            filtered.to_primitive().unwrap().as_slice::<i32>(),
+            filtered.to_primitive().as_slice::<i32>(),
             &[0i32, 1i32, 2i32]
         );
     }

@@ -17,7 +17,7 @@ impl TakeKernel for ChunkedVTable {
             indices,
             &DType::Primitive(PType::U64, indices.dtype().nullability()),
         )?
-        .to_primitive()?;
+        .to_primitive();
 
         // TODO(joe): Should we split this implementation based on indices nullability?
         let nullability = indices.dtype().nullability();
@@ -100,10 +100,7 @@ mod test {
         assert_eq!(arr.len(), 9);
         let indices = buffer![0u64, 0, 6, 4].into_array();
 
-        let result = take(arr.as_ref(), indices.as_ref())
-            .unwrap()
-            .to_primitive()
-            .unwrap();
+        let result = take(arr.as_ref(), indices.as_ref()).unwrap().to_primitive();
         assert_eq!(result.as_slice::<i32>(), &[1, 1, 1, 2]);
     }
 
@@ -143,10 +140,7 @@ mod test {
         assert_eq!(arr.len(), 9);
 
         let indices = PrimitiveArray::empty::<u64>(Nullability::NonNullable);
-        let result = take(arr.as_ref(), indices.as_ref())
-            .unwrap()
-            .to_primitive()
-            .unwrap();
+        let result = take(arr.as_ref(), indices.as_ref()).unwrap().to_primitive();
 
         assert!(result.is_empty());
         assert_eq!(result.dtype(), arr.dtype());

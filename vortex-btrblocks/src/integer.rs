@@ -270,7 +270,7 @@ impl Scheme for FORScheme {
         excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
         let for_array = FoRArray::encode(stats.src.clone())?;
-        let biased = for_array.encoded().to_primitive()?;
+        let biased = for_array.encoded().to_primitive();
         let biased_stats = IntegerStats::generate_opts(
             &biased,
             GenerateStatsOptions {
@@ -337,7 +337,7 @@ impl Scheme for ZigZagScheme {
     ) -> VortexResult<ArrayRef> {
         // Zigzag encode the values, then recursively compress the inner values.
         let zag = zigzag_encode(stats.src.clone())?;
-        let encoded = zag.encoded().to_primitive()?;
+        let encoded = zag.encoded().to_primitive();
 
         // ZigZag should be after Dict, RunEnd or Sparse.
         // We should only do these "container" style compressors once.
@@ -496,13 +496,13 @@ impl Scheme for SparseScheme {
             new_excludes.extend_from_slice(excludes);
 
             let compressed_values = IntCompressor::compress_no_dict(
-                &sparse.patches().values().to_primitive()?,
+                &sparse.patches().values().to_primitive(),
                 is_sample,
                 allowed_cascading - 1,
                 &new_excludes,
             )?;
 
-            let indices = sparse.patches().indices().to_primitive()?.downcast()?;
+            let indices = sparse.patches().indices().to_primitive().downcast()?;
 
             let compressed_indices = IntCompressor::compress_no_dict(
                 &indices,
@@ -592,7 +592,7 @@ impl Scheme for DictScheme {
         new_excludes.extend_from_slice(excludes);
 
         let compressed_codes = IntCompressor::compress_no_dict(
-            &dict.codes().to_primitive()?.downcast()?,
+            &dict.codes().to_primitive().downcast()?,
             is_sample,
             allowed_cascading - 1,
             &new_excludes,
@@ -649,13 +649,13 @@ impl Scheme for RunEndScheme {
         assert!(allowed_cascading > 0);
 
         // run-end encode the ends
-        let (ends, values) = runend_encode(&stats.src)?;
+        let (ends, values) = runend_encode(&stats.src);
 
         let mut new_excludes = vec![RunEndScheme.code(), DictScheme.code()];
         new_excludes.extend_from_slice(excludes);
 
         let ends_stats = IntegerStats::generate_opts(
-            &ends.to_primitive()?.downcast()?,
+            &ends.to_primitive(),
             GenerateStatsOptions {
                 count_distinct_values: false,
             },
@@ -670,7 +670,7 @@ impl Scheme for RunEndScheme {
             ends_scheme.compress(&ends_stats, is_sample, allowed_cascading - 1, &new_excludes)?;
 
         let compressed_values = IntCompressor::compress_no_dict(
-            &values.to_primitive()?,
+            &values.to_primitive(),
             is_sample,
             allowed_cascading - 1,
             &new_excludes,
@@ -778,7 +778,7 @@ mod tests {
             }
         }
 
-        let primitive = codes.freeze().into_array().to_primitive().unwrap();
+        let primitive = codes.freeze().into_array().to_primitive();
         let compressed = IntCompressor::compress(&primitive, false, 3, &[]).unwrap();
         assert_eq!(compressed.encoding_id(), DictEncoding.id());
     }
@@ -804,7 +804,7 @@ mod tests {
             values[random] = 5 * (rng.next_u64() % 100) as i32;
         }
 
-        let array = values.freeze().into_array().to_primitive().unwrap();
+        let array = values.freeze().into_array().to_primitive();
         let compressed = IntCompressor::compress(&array, false, 3, &[]).unwrap();
         log::info!("WindowName compressed: {}", compressed.display_tree());
     }
@@ -819,7 +819,7 @@ mod tests {
             .compress(&IntegerStats::generate(&array), false, 3, &[])
             .unwrap();
         assert_eq!(compressed.encoding_id(), SparseEncoding.id());
-        let decoded = compressed.to_primitive().unwrap();
+        let decoded = compressed.to_primitive();
         let expected = [189u8, 189, 189, 0, 0];
         assert_eq!(decoded.as_slice::<u8>(), &expected);
         assert_eq!(decoded.validity(), array.validity());
@@ -837,7 +837,7 @@ mod tests {
             .compress(&IntegerStats::generate(&array), false, 3, &[])
             .unwrap();
         assert_eq!(compressed.encoding_id(), SparseEncoding.id());
-        let decoded = compressed.to_primitive().unwrap();
+        let decoded = compressed.to_primitive();
         let expected = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 46];
         assert_eq!(decoded.as_slice::<u8>(), &expected);
         assert_eq!(decoded.validity(), array.validity());
@@ -851,7 +851,7 @@ mod tests {
             .compress(&IntegerStats::generate(&array), false, 3, &[])
             .unwrap();
         assert_eq!(compressed.encoding_id(), SequenceEncoding.id());
-        let decoded = compressed.to_primitive().unwrap();
+        let decoded = compressed.to_primitive();
         assert_eq!(decoded.as_slice::<i32>(), values.as_slice());
     }
 }

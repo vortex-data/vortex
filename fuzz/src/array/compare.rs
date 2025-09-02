@@ -34,7 +34,7 @@ pub fn compare_canonical_array(
                 .vortex_expect("nulls handled before");
             Ok(compare_to(
                 array
-                    .to_bool()?
+                    .to_bool()
                     .boolean_buffer()
                     .iter()
                     .zip(array.validity_mask().to_boolean_buffer().iter())
@@ -45,7 +45,7 @@ pub fn compare_canonical_array(
         }
         DType::Primitive(p, _) => {
             let primitive = value.as_primitive();
-            let primitive_array = array.to_primitive()?;
+            let primitive_array = array.to_primitive();
             match_each_native_ptype!(p, |P| {
                 let pval = primitive
                     .typed_value::<P>()
@@ -64,7 +64,7 @@ pub fn compare_canonical_array(
         }
         DType::Decimal(..) => {
             let decimal = value.as_decimal();
-            let decimal_array = array.to_decimal()?;
+            let decimal_array = array.to_decimal();
             match_each_decimal_value_type!(decimal_array.values_type(), |D| {
                 let dval = decimal
                     .decimal_value()
@@ -83,7 +83,7 @@ pub fn compare_canonical_array(
                 ))
             })
         }
-        DType::Utf8(_) => array.to_varbinview()?.with_iterator(|iter| {
+        DType::Utf8(_) => array.to_varbinview().with_iterator(|iter| {
             let utf8_value = value
                 .as_utf8()
                 .value()
@@ -94,7 +94,7 @@ pub fn compare_canonical_array(
                 operator,
             )
         }),
-        DType::Binary(_) => array.to_varbinview()?.with_iterator(|iter| {
+        DType::Binary(_) => array.to_varbinview().with_iterator(|iter| {
             let binary_value = value
                 .as_binary()
                 .value()

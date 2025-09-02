@@ -165,7 +165,7 @@ fn min_max_impl(
     }
 
     if !array.is_canonical() {
-        let array = array.to_canonical()?;
+        let array = array.to_canonical();
         return min_max(array.as_ref());
     }
 

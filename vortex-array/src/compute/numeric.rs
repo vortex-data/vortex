@@ -279,7 +279,6 @@ mod test {
         let results = sub_scalar(&values, 1u16.into())
             .unwrap()
             .to_primitive()
-            .unwrap()
             .as_slice::<u16>()
             .to_vec();
         assert_eq!(results, &[0u16, 1, 2]);
@@ -291,7 +290,6 @@ mod test {
         let results = sub_scalar(&values, (-1i64).into())
             .unwrap()
             .to_primitive()
-            .unwrap()
             .as_slice::<i64>()
             .to_vec();
         assert_eq!(results, &[2i64, 3, 4]);
@@ -302,8 +300,7 @@ mod test {
         let values = PrimitiveArray::from_option_iter([Some(1u16), Some(2), None, Some(3)]);
         let result = sub_scalar(values.as_ref(), Some(1u16).into())
             .unwrap()
-            .to_primitive()
-            .unwrap();
+            .to_primitive();
 
         let actual = (0..result.len())
             .map(|index| result.scalar_at(index))
@@ -326,7 +323,6 @@ mod test {
         let results = sub_scalar(&values, to_subtract.into())
             .unwrap()
             .to_primitive()
-            .unwrap()
             .as_slice::<f64>()
             .to_vec();
         assert_eq!(results, &[2.0f64, 3.0, 4.0]);

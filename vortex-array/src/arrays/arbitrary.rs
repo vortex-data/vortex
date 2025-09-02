@@ -18,7 +18,7 @@ use super::{
     smallest_storage_type,
 };
 use crate::arrays::{VarBinArray, VarBinViewArray};
-use crate::builders::{ArrayBuilder, ArrayBuilderExt, DecimalBuilder};
+use crate::builders::{ArrayBuilder, DecimalBuilder};
 use crate::validity::Validity;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical, builders};
 
@@ -73,7 +73,7 @@ fn random_array_chunk(
     u: &mut Unstructured<'_>,
     dtype: &DType,
     chunk_len: Option<usize>,
-) -> std::result::Result<Arc<dyn Array + 'static>, arbitrary::Error> {
+) -> Result<ArrayRef> {
     match dtype {
         DType::Null => Ok(NullArray::new(
             chunk_len
@@ -93,7 +93,6 @@ fn random_array_chunk(
             PType::I64 => random_primitive::<i64>(u, *n, chunk_len),
             PType::F16 => Ok(random_primitive::<u16>(u, *n, chunk_len)?
                 .to_primitive()
-                .vortex_unwrap()
                 .reinterpret_cast(PType::F16)
                 .into_array()),
             PType::F32 => random_primitive::<f32>(u, *n, chunk_len),

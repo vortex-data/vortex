@@ -95,9 +95,9 @@ fn compress_primitive<T: NativePType + Delta + Transpose + WrappingSub, const LA
     (bases.freeze(), deltas.freeze())
 }
 
-pub fn delta_decompress(array: &DeltaArray) -> VortexResult<PrimitiveArray> {
-    let bases = array.bases().to_primitive()?;
-    let deltas = array.deltas().to_primitive()?;
+pub fn delta_decompress(array: &DeltaArray) -> PrimitiveArray {
+    let bases = array.bases().to_primitive();
+    let deltas = array.deltas().to_primitive();
     let decoded = match_each_unsigned_integer_ptype!(deltas.ptype(), |T| {
         const LANES: usize = T::LANES;
 
@@ -183,7 +183,7 @@ mod test {
     fn do_roundtrip_test<T: NativePType>(input: Vec<T>) {
         let delta = DeltaArray::try_from_vec(input.clone()).unwrap();
         assert_eq!(delta.len(), input.len());
-        let decompressed = delta_decompress(&delta).unwrap();
+        let decompressed = delta_decompress(&delta);
         let decompressed_slice = decompressed.as_slice::<T>();
         assert_eq!(decompressed_slice.len(), input.len());
         for (actual, expected) in decompressed_slice.iter().zip(input) {

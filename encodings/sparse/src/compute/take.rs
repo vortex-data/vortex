@@ -89,8 +89,7 @@ mod test {
         let sparse = sparse_array();
         let prim = take(&sparse, &buffer![0, 47, 47, 0, 99].into_array())
             .unwrap()
-            .to_primitive()
-            .unwrap();
+            .to_primitive();
         assert_eq!(prim.as_slice::<f64>(), [1.23f64, 9.99, 9.99, 1.23, 3.5]);
     }
 
@@ -109,21 +108,11 @@ mod test {
         let taken = taken_arr.as_::<SparseVTable>();
 
         assert_eq!(
-            taken
-                .patches()
-                .indices()
-                .to_primitive()
-                .unwrap()
-                .as_slice::<u64>(),
+            taken.patches().indices().to_primitive().as_slice::<u64>(),
             [1]
         );
         assert_eq!(
-            taken
-                .patches()
-                .values()
-                .to_primitive()
-                .unwrap()
-                .as_slice::<f64>(),
+            taken.patches().values().to_primitive().as_slice::<f64>(),
             [0.47f64]
         );
         assert_eq!(taken.len(), 2);

@@ -280,7 +280,7 @@ pub struct BtrBlocksCompressor {
 impl BtrBlocksCompressor {
     pub fn compress(&self, array: &dyn Array) -> VortexResult<ArrayRef> {
         // Canonicalize the array
-        let canonical = array.to_canonical()?;
+        let canonical = array.to_canonical();
 
         // Compact it, removing any wasted space before we attempt to compress it
         let compact = canonical.compact()?;
@@ -324,7 +324,7 @@ impl BtrBlocksCompressor {
                 // Compress the inner
                 let compressed_elems = self.compress(list_array.elements())?;
                 let compressed_offsets = IntCompressor::compress_no_dict(
-                    &list_array.offsets().to_primitive()?.downcast()?,
+                    &list_array.offsets().to_primitive().downcast()?,
                     false,
                     MAX_CASCADE,
                     &[],

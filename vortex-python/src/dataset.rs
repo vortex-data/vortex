@@ -48,7 +48,7 @@ pub fn read_array_from_reader(
     }
 
     if let Some(indices) = indices {
-        let indices = indices.to_primitive()?.into_buffer();
+        let indices = indices.to_primitive().into_buffer();
         scan = scan.with_row_indices(indices);
     }
 

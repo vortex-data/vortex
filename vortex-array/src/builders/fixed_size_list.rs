@@ -10,11 +10,12 @@ use vortex_mask::Mask;
 use vortex_scalar::ListScalar;
 
 use crate::arrays::FixedSizeListArray;
-use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
-use crate::builders::{ArrayBuilder, ArrayBuilderExt, builder_with_capacity};
+use crate::builders::{
+    ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder, builder_with_capacity,
+};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
-/// An [`ArrayBuilder`] for creating [`FixedSizeListArray`].
+/// The builder for building a [`FixedSizeListArray`].
 pub struct FixedSizeListBuilder {
     /// The [`DType`] of the `FixedSizeList`. This **must** be a [`DType::FixedSizeList`].
     dtype: DType,
@@ -31,7 +32,17 @@ pub struct FixedSizeListBuilder {
 }
 
 impl FixedSizeListBuilder {
-    /// Creates a new [`FixedSizeListArray`] builder.
+    /// Creates a new `FixedSizeListBuilder` with a capacity of [`DEFAULT_BUILDER_CAPACITY`].
+    pub fn new(element_dtype: Arc<DType>, list_size: u32, nullability: Nullability) -> Self {
+        Self::with_capacity(
+            element_dtype,
+            list_size,
+            nullability,
+            DEFAULT_BUILDER_CAPACITY,
+        )
+    }
+
+    /// Creates a new `FixedSizeListBuilder` with the given `capacity`.
     pub fn with_capacity(
         element_dtype: Arc<DType>,
         list_size: u32,
@@ -51,18 +62,18 @@ impl FixedSizeListBuilder {
         }
     }
 
-    /// Adds a value to the [`FixedSizeListArray`] that we are building.
+    /// Appends a fixed-size list `value` to the builder.
     ///
     /// Note that a [`ListScalar`] can represent both a [`ListArray`] scalar **and** a
-    /// [`FixedSizeListArray`] scalar.
+    /// [`FixedSizeListArray`] scalar (since a single list cannot know the size of other lists in
+    /// fixed-size list arrays without accompanying metadata).
     ///
     /// [`ListArray`]: crate::arrays::ListArray
     pub fn append_value(&mut self, value: ListScalar) -> VortexResult<()> {
-        // Validate that the list scalar has an equal size to our `list_size`.
-
         if value.len() != self.list_size() as usize {
             vortex_bail!(
-                "Tried to append a `ListScalar` with length {} to a `FixedSizeListScalar` with fixed size of {}",
+                "Tried to append a `ListScalar` with length {} to a `FixedSizeListScalar` \
+                    with fixed size of {}",
                 value.len(),
                 self.list_size()
             );
@@ -82,6 +93,43 @@ impl FixedSizeListBuilder {
         self.nulls.append_non_null();
 
         Ok(())
+    }
+
+    /// Appends an optional fixed-size list value to the builder.
+    ///
+    /// If the value is `Some`, it appends the list value. If the value is `None`, it appends a
+    /// null.
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if the input is `None` and the builder is non-nullable.
+    pub fn append_option(&mut self, value: Option<ListScalar>) -> VortexResult<()> {
+        match value {
+            Some(value) => self.append_value(value),
+            None => {
+                self.append_null();
+                Ok(())
+            }
+        }
+    }
+
+    /// Finishes the builder directly into a [`FixedSizeListArray`].
+    pub fn finish_into_fixed_size_list(&mut self) -> FixedSizeListArray {
+        let final_len = self.len();
+        assert_eq!(
+            self.elements_builder.len(),
+            final_len * self.list_size() as usize,
+            "elements length must be equal to the array length times the list size"
+        );
+
+        // TODO(connor): Use `new_unchecked` here.
+        FixedSizeListArray::try_new(
+            self.elements_builder.finish(),
+            self.list_size(),
+            self.nulls.finish_with_nullability(self.dtype.nullability()),
+            final_len,
+        )
+        .vortex_expect("tried to create an invalid `FixedSizeListArray` from a builder")
     }
 
     /// The [`DType`] of the inner elements. Note that this is **not** the same as the [`DType`] of
@@ -107,17 +155,6 @@ impl FixedSizeListBuilder {
         };
 
         list_size
-    }
-
-    pub fn nullability(&self) -> Nullability {
-        let DType::FixedSizeList(_, _, nullability) = self.dtype else {
-            vortex_panic!(
-                "`FixedSizeListBuilder` has an incorrect dtype: {}",
-                self.dtype
-            );
-        };
-
-        nullability
     }
 
     /// Returns the current length of underlying `elements` array.
@@ -155,49 +192,34 @@ impl ArrayBuilder for FixedSizeListBuilder {
 
     /// We define the null value of a fixed-size list of size `m` to be a list of `m` placeholder values.
     ///
-    /// We append `n * m` placeholder values to the underlying `elements` array.
-    ///
-    /// The placeholder values depend on the nullability of the element type:
-    /// - If elements are nullable, we use null values
-    /// - If elements are non-nullable, we use zero values
-    fn append_nulls(&mut self, n: usize) {
+    /// We append `n * m` default values to the underlying `elements` array.
+    unsafe fn append_nulls_unchecked(&mut self, n: usize) {
+        assert!(
+            self.dtype.is_nullable(),
+            "tried to append {n} nulls to a non-nullable array builder"
+        );
+
         let element_count = n * self.list_size() as usize;
 
-        // TODO(connor): `append_default()`
-        if self.element_dtype().is_nullable() {
-            self.elements_builder.append_nulls(element_count);
-        } else {
-            self.elements_builder.append_zeros(element_count);
-        }
-
+        self.elements_builder.append_defaults(element_count);
         self.nulls.append_n_nulls(n);
     }
 
     /// This will increase the capacity if extending with this `array` would go past the original
     /// capacity.
-    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
-        if !self.dtype.eq_with_nullability_superset(array.dtype()) {
-            vortex_bail!(
-                "tried to extend a builder with `DType` {} with an array with `DType {}",
-                self.dtype,
-                array.dtype()
-            );
-        }
-
-        let fsl = array.to_fixed_size_list()?;
+    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+        let fsl = array.to_fixed_size_list();
         if fsl.is_empty() {
-            return Ok(());
+            return;
         }
 
         let new_elements = fsl.elements();
 
         self.elements_builder
             .ensure_capacity(self.elements_len() + new_elements.len());
-        self.elements_builder.extend_from_array(new_elements)?;
+        self.elements_builder.extend_from_array(new_elements);
 
         self.nulls.append_validity_mask(array.validity_mask());
-
-        Ok(())
     }
 
     fn ensure_capacity(&mut self, capacity: usize) {
@@ -212,22 +234,7 @@ impl ArrayBuilder for FixedSizeListBuilder {
     }
 
     fn finish(&mut self) -> ArrayRef {
-        let final_len = self.len();
-        assert_eq!(
-            self.elements_builder.len(),
-            final_len * self.list_size() as usize,
-            "elements length must be equal to the array length times the list size"
-        );
-
-        // TODO(connor): Use `new_unchecked` here.
-        FixedSizeListArray::try_new(
-            self.elements_builder.finish(),
-            self.list_size(),
-            self.nulls.finish_with_nullability(self.nullability()),
-            final_len,
-        )
-        .vortex_expect("tried to create an invalid `FixedSizeListArray` from a builder")
-        .into_array()
+        self.finish_into_fixed_size_list().into_array()
     }
 }
 
@@ -287,7 +294,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 2);
 
-        let fsl_array = fsl.to_fixed_size_list().unwrap();
+        let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.elements().len(), 6);
         assert_eq!(fsl_array.list_size(), 3);
     }
@@ -308,7 +315,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 100);
 
-        let fsl_array = fsl.to_fixed_size_list().unwrap();
+        let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.list_size(), 0);
         // The elements array should be empty since list_size is 0.
         assert_eq!(fsl_array.elements().len(), 0);
@@ -336,7 +343,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 100);
 
-        let fsl_array = fsl.to_fixed_size_list().unwrap();
+        let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.list_size(), 0);
         assert_eq!(fsl_array.elements().len(), 0);
     }
@@ -364,7 +371,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 5);
 
-        let fsl_array = fsl.to_fixed_size_list().unwrap();
+        let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.elements().len(), 10);
     }
 
@@ -377,7 +384,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 0);
 
-        let fsl_array = fsl.to_fixed_size_list().unwrap();
+        let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.list_size(), 100000000);
         assert_eq!(fsl_array.elements().len(), 0);
     }
@@ -405,7 +412,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 3);
 
-        let fsl_array = fsl.to_fixed_size_list().unwrap();
+        let fsl_array = fsl.to_fixed_size_list();
         assert!(fsl_array.validity().is_valid(0));
         assert!(!fsl_array.validity().is_valid(1));
         assert!(fsl_array.validity().is_valid(2));
@@ -449,7 +456,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 2);
 
-        let fsl_array = fsl.to_fixed_size_list().unwrap();
+        let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.elements().len(), 6);
     }
 
@@ -463,12 +470,12 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 5);
 
-        let fsl_array = fsl.to_fixed_size_list().unwrap();
+        let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.list_size(), 3);
         assert_eq!(fsl_array.elements().len(), 15);
 
         // Check that all elements are zeros.
-        let elements_array = fsl_array.elements().to_primitive().unwrap();
+        let elements_array = fsl_array.elements().to_primitive();
         let elements = elements_array.as_slice::<i32>();
         assert!(elements.iter().all(|&x| x == 0));
     }
@@ -479,14 +486,14 @@ mod tests {
         let dtype: Arc<DType> = Arc::new(DType::Primitive(I32, Nullable));
         let mut builder = FixedSizeListBuilder::with_capacity(dtype, 2, Nullable, 0);
 
-        assert_eq!(builder.nullability(), Nullable);
+        assert_eq!(builder.dtype().nullability(), Nullable);
         builder.append_nulls(3);
         assert_eq!(builder.len(), 3);
 
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 3);
 
-        let fsl_array = fsl.to_fixed_size_list().unwrap();
+        let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.list_size(), 2);
 
         // Check that all lists are null.
@@ -507,7 +514,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 1000);
 
-        let fsl_array = fsl.to_fixed_size_list().unwrap();
+        let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.list_size(), 0);
         assert_eq!(fsl_array.elements().len(), 0);
     }
@@ -551,13 +558,13 @@ mod tests {
         let mut builder = FixedSizeListBuilder::with_capacity(dtype, 2, Nullable, 0);
 
         let source_array = source.into_array();
-        builder.extend_from_array(&source_array).unwrap();
-        builder.extend_from_array(&source_array).unwrap();
+        builder.extend_from_array(&source_array);
+        builder.extend_from_array(&source_array);
 
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 6);
 
-        let fsl_array = fsl.to_fixed_size_list().unwrap();
+        let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.elements().len(), 12);
 
         // Check validity pattern is repeated.
@@ -590,13 +597,13 @@ mod tests {
 
         let mut builder = FixedSizeListBuilder::with_capacity(dtype, 0, Nullable, 0);
 
-        builder.extend_from_array(&source1.into_array()).unwrap();
-        builder.extend_from_array(&source2.into_array()).unwrap();
+        builder.extend_from_array(&source1.into_array());
+        builder.extend_from_array(&source2.into_array());
 
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 5);
 
-        let fsl_array = fsl.to_fixed_size_list().unwrap();
+        let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.list_size(), 0);
         assert_eq!(fsl_array.elements().len(), 0);
 
@@ -635,7 +642,7 @@ mod tests {
             .unwrap();
 
         // Extend with empty array (should be no-op).
-        builder.extend_from_array(&source.into_array()).unwrap();
+        builder.extend_from_array(&source.into_array());
 
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 1);
@@ -672,12 +679,12 @@ mod tests {
             Validity::AllValid,
             1,
         );
-        builder.extend_from_array(&source.into_array()).unwrap();
+        builder.extend_from_array(&source.into_array());
 
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 6);
 
-        let fsl_array = fsl.to_fixed_size_list().unwrap();
+        let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.elements().len(), 12);
 
         // Check validity.

@@ -17,7 +17,7 @@ impl MaskKernel for VarBinViewVTable {
                 array.views().clone(),
                 array.buffers().clone(),
                 array.dtype().as_nullable(),
-                array.validity().mask(mask)?,
+                array.validity().mask(mask),
             )
             .into_array())
         }

@@ -16,8 +16,8 @@ use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 
 impl TakeKernel for ListVTable {
     fn take(&self, array: &ListArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let indices = indices.to_primitive()?;
-        let offsets = array.offsets().to_primitive()?;
+        let indices = indices.to_primitive();
+        let offsets = array.offsets().to_primitive();
 
         match_each_integer_ptype!(offsets.dtype().as_ptype(), |O| {
             match_each_integer_ptype!(indices.ptype(), |I| {
@@ -97,7 +97,7 @@ fn _take<I: NativePType, O: OffsetPType + NativePType + PrimInt>(
         indices_array
             .validity()
             .clone()
-            .and(array.validity().clone())?,
+            .and(array.validity().clone()),
     )?
     .to_array())
 }
@@ -200,7 +200,7 @@ mod test {
             )
         );
 
-        let result = result.to_list().unwrap();
+        let result = result.to_list();
 
         assert_eq!(result.len(), 4);
 
@@ -280,7 +280,7 @@ mod test {
             )
         );
 
-        let result = result.to_list().unwrap();
+        let result = result.to_list();
 
         assert_eq!(result.len(), 3);
 

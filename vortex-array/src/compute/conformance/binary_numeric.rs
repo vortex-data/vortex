@@ -26,7 +26,7 @@
 use itertools::Itertools;
 use num_traits::Num;
 use vortex_dtype::{DType, NativePType, PType};
-use vortex_error::{VortexExpect, VortexUnwrap, vortex_err, vortex_panic};
+use vortex_error::{VortexUnwrap, vortex_err, vortex_panic};
 use vortex_scalar::{NumericOperator, PrimitiveScalar, Scalar};
 
 use crate::arrays::ConstantArray;
@@ -79,9 +79,7 @@ fn test_standard_binary_numeric<T: NativePType + Num + Copy>(array: ArrayRef)
 where
     Scalar: From<T>,
 {
-    let canonicalized_array = array
-        .to_primitive()
-        .vortex_expect("Failed to canonicalize array to primitive form for binary numeric test");
+    let canonicalized_array = array.to_primitive();
     let original_values = to_vec_of_scalar(&canonicalized_array.into_array());
 
     let one = T::from(1)
@@ -315,9 +313,7 @@ where
     T: NativePType + Num + Copy + std::fmt::Debug,
     Scalar: From<T>,
 {
-    let canonicalized_array = array
-        .to_primitive()
-        .vortex_expect("Failed to canonicalize array to primitive form for binary numeric test");
+    let canonicalized_array = array.to_primitive();
     let original_values = to_vec_of_scalar(&canonicalized_array.into_array());
 
     let scalar = Scalar::from(scalar_value)

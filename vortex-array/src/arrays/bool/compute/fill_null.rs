@@ -28,9 +28,9 @@ impl FillNullKernel for BoolVTable {
             }
             Validity::Array(v) => {
                 let bool_buffer = if fill {
-                    array.boolean_buffer() | &!v.to_bool()?.boolean_buffer()
+                    array.boolean_buffer() | &!v.to_bool().boolean_buffer()
                 } else {
-                    array.boolean_buffer() & v.to_bool()?.boolean_buffer()
+                    array.boolean_buffer() & v.to_bool().boolean_buffer()
                 };
                 BoolArray::new(bool_buffer, fill_value.dtype().nullability().into()).into_array()
             }
@@ -61,8 +61,7 @@ mod tests {
         );
         let non_null_array = fill_null(bool_array.as_ref(), &fill_value.into())
             .unwrap()
-            .to_bool()
-            .unwrap();
+            .to_bool();
         assert_eq!(
             non_null_array.boolean_buffer().iter().collect::<Vec<_>>(),
             expected

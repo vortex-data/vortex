@@ -45,7 +45,7 @@ impl EncodeVTable<ZigZagVTable> for ZigZagVTable {
         canonical: &Canonical,
         _like: Option<&ZigZagArray>,
     ) -> VortexResult<Option<ZigZagArray>> {
-        let parray = canonical.clone().into_primitive()?;
+        let parray = canonical.clone().into_primitive();
 
         if !parray.ptype().is_signed_int() {
             vortex_bail!(

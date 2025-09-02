@@ -239,11 +239,10 @@ impl RowIdxEvaluation {
 impl PruningEvaluation for RowIdxEvaluation {
     async fn invoke(&self, _mask: Mask) -> VortexResult<Mask> {
         // TODO(ngates): we could optimize this if the mask was already quite sparse.
-        Mask::try_from(
-            self.expr
-                .evaluate(&Scope::new(self.array.clone()))?
-                .as_ref(),
-        )
+        // TODO(joe): fixme casting null to false is *VERY* unsound, see `FlatEvaluation` for more details.
+        self.expr
+            .evaluate(&Scope::new(self.array.clone()))?
+            .try_to_mask_fill_null_false()
     }
 }
 
@@ -251,11 +250,11 @@ impl PruningEvaluation for RowIdxEvaluation {
 impl MaskEvaluation for RowIdxEvaluation {
     async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
         // TODO(ngates): we could optimize this if the mask was already quite sparse.
-        let result = Mask::try_from(
-            self.expr
-                .evaluate(&Scope::new(self.array.clone()))?
-                .as_ref(),
-        )?;
+        // TODO(joe): fixme casting null to false is *VERY* unsound, see `FlatEvaluation` for more details.
+        let result = self
+            .expr
+            .evaluate(&Scope::new(self.array.clone()))?
+            .try_to_mask_fill_null_false()?;
 
         // Note that mask evaluation requires an intersection with the input mask, whereas
         // pruning evaluation does not.
@@ -320,8 +319,7 @@ mod tests {
                     .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                     .await
                     .unwrap()
-                    .to_bool()
-                    .unwrap();
+                    .to_bool();
 
             assert_eq!(
                 &BooleanBuffer::from_iter([false, false, true, false, false]),
@@ -360,8 +358,7 @@ mod tests {
                     .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                     .await
                     .unwrap()
-                    .to_bool()
-                    .unwrap();
+                    .to_bool();
 
             assert_eq!(
                 &BooleanBuffer::from_iter([false, false, false, false, true]),
@@ -404,8 +401,7 @@ mod tests {
                     .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                     .await
                     .unwrap()
-                    .to_bool()
-                    .unwrap();
+                    .to_bool();
 
             assert_eq!(
                 vec![true, false, true, false, true],

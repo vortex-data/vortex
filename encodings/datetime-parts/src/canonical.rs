@@ -10,27 +10,27 @@ use vortex_buffer::BufferMut;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::datetime::{TemporalMetadata, TimeUnit};
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
+use vortex_error::{VortexExpect as _, vortex_panic};
 use vortex_scalar::PrimitiveScalar;
 
 use crate::{DateTimePartsArray, DateTimePartsVTable};
 
 impl CanonicalVTable<DateTimePartsVTable> for DateTimePartsVTable {
-    fn canonicalize(array: &DateTimePartsArray) -> VortexResult<Canonical> {
-        Ok(Canonical::Extension(decode_to_temporal(array)?.into()))
+    fn canonicalize(array: &DateTimePartsArray) -> Canonical {
+        Canonical::Extension(decode_to_temporal(array).into())
     }
 }
 
 /// Decode an [Array] into a [TemporalArray].
 ///
 /// Enforces that the passed array is actually a [DateTimePartsArray] with proper metadata.
-pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalArray> {
+pub fn decode_to_temporal(array: &DateTimePartsArray) -> TemporalArray {
     let DType::Extension(ext) = array.dtype().clone() else {
-        vortex_bail!(ComputeError: "expected dtype to be DType::Extension variant")
+        vortex_panic!(ComputeError: "expected dtype to be DType::Extension variant")
     };
 
     let Ok(temporal_metadata) = TemporalMetadata::try_from(ext.as_ref()) else {
-        vortex_bail!(ComputeError: "must decode TemporalMetadata from extension metadata");
+        vortex_panic!(ComputeError: "must decode TemporalMetadata from extension metadata");
     };
 
     let divisor = match temporal_metadata.time_unit() {
@@ -38,14 +38,15 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
         TimeUnit::Microseconds => 1_000_000,
         TimeUnit::Milliseconds => 1_000,
         TimeUnit::Seconds => 1,
-        TimeUnit::Days => vortex_bail!(InvalidArgument: "cannot decode into TimeUnit::D"),
+        TimeUnit::Days => vortex_panic!(InvalidArgument: "cannot decode into TimeUnit::D"),
     };
 
     let days_buf = cast(
         array.days(),
         &DType::Primitive(PType::I64, array.dtype().nullability()),
-    )?
-    .to_primitive()?;
+    )
+    .vortex_expect("must be able to cast days to i64")
+    .to_primitive();
 
     // We start with the days component, which is always present.
     // And then add the seconds and subseconds components.
@@ -56,17 +57,22 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
         .map_each(|d| d * 86_400 * divisor);
 
     if let Some(seconds) = array.seconds().as_constant() {
-        let seconds =
-            PrimitiveScalar::try_from(&seconds.cast(&DType::Primitive(PType::I64, NonNullable))?)?
-                .typed_value::<i64>()
-                .vortex_expect("non-nullable");
+        let seconds = PrimitiveScalar::try_from(
+            &seconds
+                .cast(&DType::Primitive(PType::I64, NonNullable))
+                .vortex_expect("must cast to i64"),
+        )
+        .vortex_expect("must be a primitive")
+        .typed_value::<i64>()
+        .vortex_expect("non-nullable");
         let seconds = seconds * divisor;
         for v in values.iter_mut() {
             *v += seconds;
         }
     } else {
-        let seconds_buf =
-            cast(array.seconds(), &DType::Primitive(PType::U32, NonNullable))?.to_primitive()?;
+        let seconds_buf = cast(array.seconds(), &DType::Primitive(PType::U32, NonNullable))
+            .vortex_expect("must cast to u32")
+            .to_primitive();
         for (v, second) in values.iter_mut().zip(seconds_buf.as_slice::<u32>()) {
             *v += (*second as i64) * divisor;
         }
@@ -74,8 +80,11 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
 
     if let Some(subseconds) = array.subseconds().as_constant() {
         let subseconds = PrimitiveScalar::try_from(
-            &subseconds.cast(&DType::Primitive(PType::I64, NonNullable))?,
-        )?
+            &subseconds
+                .cast(&DType::Primitive(PType::I64, NonNullable))
+                .vortex_expect("must cast to i64"),
+        )
+        .vortex_expect("must be a primitive")
         .typed_value::<i64>()
         .vortex_expect("non-nullable");
         for v in values.iter_mut() {
@@ -85,19 +94,20 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
         let subsecond_buf = cast(
             array.subseconds(),
             &DType::Primitive(PType::I64, NonNullable),
-        )?
-        .to_primitive()?;
+        )
+        .vortex_expect("must cast to i64")
+        .to_primitive();
         for (v, subseconds) in values.iter_mut().zip(subsecond_buf.as_slice::<i64>()) {
             *v += *subseconds;
         }
     }
 
-    Ok(TemporalArray::new_timestamp(
-        PrimitiveArray::new(values.freeze(), Validity::copy_from_array(array.as_ref())?)
+    TemporalArray::new_timestamp(
+        PrimitiveArray::new(values.freeze(), Validity::copy_from_array(array.as_ref()))
             .into_array(),
         temporal_metadata.time_unit(),
         temporal_metadata.time_zone().map(ToString::to_string),
-    ))
+    )
 }
 
 #[cfg(test)]
@@ -140,10 +150,8 @@ mod test {
         );
 
         let primitive_values = decode_to_temporal(&date_times)
-            .unwrap()
             .temporal_values()
-            .to_primitive()
-            .unwrap();
+            .to_primitive();
 
         assert_eq!(
             primitive_values.as_slice::<i64>(),

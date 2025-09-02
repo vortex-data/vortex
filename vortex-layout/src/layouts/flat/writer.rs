@@ -297,22 +297,18 @@ mod tests {
             assert_eq!(
                 result
                     .to_struct()
-                    .unwrap()
                     .field_by_name("a")
                     .unwrap()
                     .to_primitive()
-                    .unwrap()
                     .as_slice::<u64>(),
                 &[1, 2]
             );
             assert_eq!(
                 result
                     .to_struct()
-                    .unwrap()
                     .field_by_name("b")
                     .unwrap()
                     .to_primitive()
-                    .unwrap()
                     .as_slice::<u64>(),
                 &[3, 4]
             );

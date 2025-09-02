@@ -54,7 +54,7 @@ impl Kernel for ToArrowCanonical {
             .map(Ok)
             .unwrap_or_else(|| array.dtype().to_arrow_dtype())?;
 
-        let arrow_array = match (array.to_canonical()?, &arrow_type) {
+        let arrow_array = match (array.to_canonical(), &arrow_type) {
             (Canonical::Null(array), DataType::Null) => to_arrow_null(array),
             (Canonical::Bool(array), DataType::Boolean) => to_arrow_bool(array),
             (Canonical::Primitive(array), DataType::Int8) if matches!(array.ptype(), PType::I8) => {
@@ -362,7 +362,7 @@ fn to_arrow_list<O: NativePType + OffsetSizeTrait>(
     let offsets_dtype = DType::Primitive(O::PTYPE, array.dtype().nullability());
     let arrow_offsets = cast(array.offsets(), &offsets_dtype)
         .map_err(|err| err.with_context(format!("Failed to cast offsets to {offsets_dtype}")))?
-        .to_primitive()?;
+        .to_primitive();
 
     let values = if to_preferred {
         array.elements().clone().into_arrow_preferred()?

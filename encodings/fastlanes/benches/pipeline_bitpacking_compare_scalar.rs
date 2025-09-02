@@ -33,13 +33,13 @@ const TRUE_COUNT: &[f64] = &[
 ];
 
 fn create_for_bitpacked_array<T: NativePType>(values: BufferMut<T>) -> VortexResult<ArrayRef> {
-    let primitive_array = values.into_array().to_primitive().unwrap();
+    let primitive_array = values.into_array().to_primitive();
 
     // First apply FoR encoding
     let for_array = FoRArray::encode(primitive_array)?;
 
     // Then bitpack the residuals
-    let residuals = for_array.encoded().to_primitive()?;
+    let residuals = for_array.encoded().to_primitive();
     let bitpacked = bitpack_to_best_bit_width(&residuals)?;
 
     // Create a new FoR array with bitpacked residuals
@@ -69,10 +69,7 @@ pub fn eval<T: NativePType + Into<Scalar>>(bencher: Bencher, fraction_kept: f64)
         .bench_local_values(|(mask, array)| {
             // We run the filter first, then compare.
             let array = filter(array.as_ref(), &mask).unwrap();
-            expr.evaluate(&Scope::new(array))
-                .unwrap()
-                .to_canonical()
-                .unwrap()
+            expr.evaluate(&Scope::new(array)).unwrap().to_canonical()
         });
 }
 

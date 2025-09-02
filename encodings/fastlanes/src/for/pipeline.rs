@@ -171,13 +171,13 @@ mod tests {
     use crate::bitpack_to_best_bit_width;
 
     fn create_for_bitpacked_array<T: NativePType>(values: BufferMut<T>) -> VortexResult<FoRArray> {
-        let primitive_array = values.into_array().to_primitive().unwrap();
+        let primitive_array = values.into_array().to_primitive();
 
         // First apply FoR encoding
         let for_array = FoRArray::encode(primitive_array)?;
 
         // Then bitpack the residuals
-        let residuals = for_array.encoded().to_primitive()?;
+        let residuals = for_array.encoded().to_primitive();
         let bitpacked = bitpack_to_best_bit_width(&residuals)?;
 
         // Create a new FoR array with bitpacked residuals
@@ -235,7 +235,7 @@ mod tests {
         .unwrap()
         .into_array();
 
-        let expect = filter(array.to_canonical().unwrap().as_ref(), &mask).unwrap();
+        let expect = filter(array.to_canonical().as_ref(), &mask).unwrap();
 
         for i in 0..mask.true_count() {
             assert_eq!(result.scalar_at(i), expect.scalar_at(i), "{}, {}", i, frac);

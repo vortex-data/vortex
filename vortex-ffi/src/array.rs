@@ -52,7 +52,7 @@ pub unsafe extern "C-unwind" fn vx_array_get_field(
         let array = vx_array::as_ref(array);
 
         let field_array = array
-            .to_struct()?
+            .to_struct()
             .fields()
             .get(index as usize)
             .ok_or_else(|| vortex_err!("Field index out of bounds"))?

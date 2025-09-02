@@ -182,10 +182,7 @@ impl FileOpener for VortexOpener {
                 .with_metrics(metrics)
                 .with_projection(projection_expr)
                 .with_some_filter(filter)
-                .map(move |chunk| {
-                    let st = chunk.to_struct()?;
-                    st.into_record_batch()
-                })
+                .map(|chunk| chunk.to_struct().into_record_batch())
                 .into_tokio_stream()
                 .map_err(|e| {
                     DataFusionError::Execution(format!("Failed to create Vortex stream: {e}"))

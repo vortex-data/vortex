@@ -200,7 +200,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getField(
     try_or_throw(&mut env, |_| {
         let field = array_ref
             .inner
-            .to_struct()?
+            .to_struct()
             .fields()
             .get(index as usize)
             .cloned()
@@ -267,7 +267,6 @@ macro_rules! get_primitive {
                     array_ref
                         .inner
                         .to_extension()
-                        .vortex_expect("extension array")
                         .storage()
                         .scalar_at(index as usize)
                 } else {
@@ -307,7 +306,6 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getBigDecimal(
             array_ref
                 .inner
                 .to_extension()
-                .vortex_expect("extension array")
                 .storage()
                 .scalar_at(index as usize)
         } else {

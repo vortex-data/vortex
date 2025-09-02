@@ -15,7 +15,7 @@ use crate::array::take_canonical_array_non_nullable_indices;
 pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
     match array.dtype() {
         DType::Bool(_) => {
-            let bool_array = array.to_bool()?;
+            let bool_array = array.to_bool();
             let mut opt_values = bool_array
                 .boolean_buffer()
                 .iter()
@@ -26,7 +26,7 @@ pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
             Ok(BoolArray::from_iter(opt_values).into_array())
         }
         DType::Primitive(p, _) => {
-            let primitive_array = array.to_primitive()?;
+            let primitive_array = array.to_primitive();
             match_each_native_ptype!(p, |P| {
                 let mut opt_values = primitive_array
                     .as_slice::<P>()
@@ -40,7 +40,7 @@ pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
             })
         }
         DType::Decimal(d, _) => {
-            let decimal_array = array.to_decimal()?;
+            let decimal_array = array.to_decimal();
             match_each_decimal_value_type!(decimal_array.values_type(), |D| {
                 let buf = decimal_array.buffer::<D>();
                 let mut opt_values = buf
@@ -55,7 +55,7 @@ pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
-            let utf8 = array.to_varbinview()?;
+            let utf8 = array.to_varbinview();
             let mut opt_values =
                 utf8.with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>())?;
             opt_values.sort();

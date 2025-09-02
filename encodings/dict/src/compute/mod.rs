@@ -74,7 +74,7 @@ mod test {
             .collect();
 
         let dict = dict_encode(PrimitiveArray::from_option_iter(values.clone()).as_ref()).unwrap();
-        let actual = dict.to_primitive().unwrap();
+        let actual = dict.to_primitive();
 
         let expected: Vec<i32> = (0..65)
             .map(|i| match i % 3 {
@@ -99,7 +99,7 @@ mod test {
 
         let dict =
             dict_encode(PrimitiveArray::from_iter(expected.iter().copied()).as_ref()).unwrap();
-        let actual = dict.to_primitive().unwrap();
+        let actual = dict.to_primitive();
 
         assert_eq!(actual.as_slice::<i32>(), expected.as_slice());
     }
@@ -111,7 +111,7 @@ mod test {
 
         let dict =
             dict_encode(PrimitiveArray::from_iter(expected.iter().copied()).as_ref()).unwrap();
-        let actual = dict.to_primitive().unwrap();
+        let actual = dict.to_primitive();
 
         assert_eq!(actual.as_slice::<i32>(), expected.as_slice());
     }
@@ -124,7 +124,7 @@ mod test {
         );
         assert_eq!(reference.len(), 6);
         let dict = dict_encode(reference.as_ref()).unwrap();
-        let flattened_dict = dict.to_varbinview().unwrap();
+        let flattened_dict = dict.to_varbinview();
         assert_eq!(
             flattened_dict
                 .with_iterator(|iter| iter

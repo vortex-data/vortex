@@ -56,7 +56,7 @@ impl ComputeFnVTable for Invert {
         if array.is_canonical() {
             vortex_panic!("Canonical bool array does not implement invert");
         }
-        Ok(invert(&array.to_bool()?.into_array())?.into())
+        Ok(invert(&array.to_bool().into_array())?.into())
     }
 
     fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {

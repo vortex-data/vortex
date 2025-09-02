@@ -685,14 +685,11 @@ impl ValidityHelper for VarBinViewArray {
 }
 
 impl CanonicalVTable<VarBinViewVTable> for VarBinViewVTable {
-    fn canonicalize(array: &VarBinViewArray) -> VortexResult<Canonical> {
-        Ok(Canonical::VarBinView(array.clone()))
+    fn canonicalize(array: &VarBinViewArray) -> Canonical {
+        Canonical::VarBinView(array.clone())
     }
 
-    fn append_to_builder(
-        array: &VarBinViewArray,
-        builder: &mut dyn ArrayBuilder,
-    ) -> VortexResult<()> {
+    fn append_to_builder(array: &VarBinViewArray, builder: &mut dyn ArrayBuilder) {
         builder.extend_from_array(array.as_ref())
     }
 }
@@ -726,7 +723,7 @@ mod test {
     use vortex_scalar::Scalar;
 
     use crate::arrays::varbinview::{BinaryView, VarBinViewArray};
-    use crate::{Array, Canonical, IntoArray};
+    use crate::{Array, ToCanonical};
 
     #[test]
     pub fn varbin_view() {
@@ -754,11 +751,7 @@ mod test {
     #[test]
     pub fn flatten_array() {
         let binary_arr = VarBinViewArray::from_iter_str(["string1", "string2"]);
-
-        let flattened = binary_arr.to_canonical().unwrap();
-        assert!(matches!(flattened, Canonical::VarBinView(_)));
-
-        let var_bin = flattened.into_varbinview().unwrap().into_array();
+        let var_bin = binary_arr.to_varbinview();
         assert_eq!(var_bin.scalar_at(0), Scalar::from("string1"));
         assert_eq!(var_bin.scalar_at(1), Scalar::from("string2"));
     }

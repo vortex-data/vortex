@@ -91,6 +91,7 @@ impl SerdeVTable<SequenceVTable> for SequenceVTable {
 mod tests {
     use std::sync::Arc;
 
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::{PrimitiveArray, StructArray};
     use vortex_array::iter::ArrayIteratorExt;
     use vortex_dtype::Nullability;
@@ -125,12 +126,7 @@ mod tests {
         let canon = PrimitiveArray::from_iter((0..4).map(|i| 2i8 + i * 3));
 
         assert_eq!(
-            array
-                .to_canonical()
-                .unwrap()
-                .into_primitive()
-                .unwrap()
-                .as_slice::<i8>(),
+            array.to_primitive().as_slice::<i8>(),
             canon.as_slice::<i8>()
         )
     }

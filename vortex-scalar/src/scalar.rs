@@ -231,7 +231,7 @@ impl Scalar {
                 let elements = (0..size)
                     .map(|_| Scalar::default_value(edt.as_ref().clone()))
                     .collect();
-                Self::list(edt, elements, nullability)
+                Self::fixed_size_list(edt, elements, nullability)
             }
             DType::Struct(sf, nullability) => {
                 let fields: Vec<_> = sf.fields().map(Scalar::default_value).collect();

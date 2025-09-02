@@ -204,7 +204,7 @@ mod tests {
         // Create a primitive array with values 0..16
         let size = 16;
         let values = (0..i32::try_from(size).unwrap()).collect::<BufferMut<_>>();
-        let primitive_array = values.into_array().to_primitive().unwrap();
+        let primitive_array = values.into_array().to_primitive();
 
         // Create the kernel
         let mut kernel = PrimitiveKernel::<i32> {
@@ -219,8 +219,7 @@ mod tests {
             &Mask::AllTrue(size),
         )
         .unwrap()
-        .into_primitive()
-        .unwrap();
+        .into_primitive();
 
         let output = out.as_slice::<i32>();
 
@@ -253,8 +252,7 @@ mod tests {
         let mask = Mask::from_indices(size, (0..size).step_by(2).collect_vec());
         let out = export_canonical_pipeline(primitive_array.dtype(), size, &mut kernel, &mask)
             .unwrap()
-            .into_primitive()
-            .unwrap();
+            .into_primitive();
 
         let output = out.as_slice::<i32>();
 

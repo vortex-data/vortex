@@ -181,7 +181,6 @@ mod tests {
                 .evaluate(&Scope::new(bools.to_array()))
                 .unwrap()
                 .to_bool()
-                .unwrap()
                 .boolean_buffer()
                 .iter()
                 .collect::<Vec<_>>(),

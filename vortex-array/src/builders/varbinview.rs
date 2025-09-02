@@ -1,28 +1,29 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+// TODO(connor): Bring this file more in line with the rest of the builders.
+
 use std::any::Any;
 use std::cmp::max;
 use std::sync::Arc;
 
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer, ByteBufferMut};
-use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_dtype::DType;
+use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::{Entry, HashMap};
 
 use crate::arrays::{BinaryView, VarBinViewArray};
-use crate::builders::ArrayBuilder;
-use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
+use crate::builders::{ArrayBuilder, LazyNullBufferBuilder};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
+/// The builder for building a [`VarBinViewArray`].
 pub struct VarBinViewBuilder {
+    dtype: DType,
     views_builder: BufferMut<BinaryView>,
-    pub null_buffer_builder: LazyNullBufferBuilder,
+    nulls: LazyNullBufferBuilder,
     completed: CompletedBuffers,
     in_progress: ByteBufferMut,
-    nullability: Nullability,
-    dtype: DType,
 }
 
 impl VarBinViewBuilder {
@@ -48,10 +49,9 @@ impl VarBinViewBuilder {
         );
         Self {
             views_builder: BufferMut::<BinaryView>::with_capacity(capacity),
-            null_buffer_builder: LazyNullBufferBuilder::new(capacity),
+            nulls: LazyNullBufferBuilder::new(capacity),
             completed,
             in_progress: ByteBufferMut::empty(),
-            nullability: dtype.nullability(),
             dtype,
         }
     }
@@ -82,13 +82,20 @@ impl VarBinViewBuilder {
         self.views_builder.push(view);
     }
 
-    #[inline]
+    /// Appends a value to the builder.
     pub fn append_value<S: AsRef<[u8]>>(&mut self, value: S) {
         self.append_value_view(value.as_ref());
-        self.null_buffer_builder.append_non_null();
+        self.nulls.append_non_null();
     }
 
-    #[inline]
+    /// Appends an optional value to the builder.
+    ///
+    /// If the value is `Some`, it appends the varbin view value. If the value is `None`, it appends
+    /// a null.
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if the input is `None` and the builder is non-nullable.
     pub fn append_option<S: AsRef<[u8]>>(&mut self, value: Option<S>) {
         match value {
             Some(value) => self.append_value(value),
@@ -96,7 +103,6 @@ impl VarBinViewBuilder {
         }
     }
 
-    #[inline]
     fn flush_in_progress(&mut self) {
         if self.in_progress.is_empty() {
             return;
@@ -144,22 +150,21 @@ impl VarBinViewBuilder {
         self.views_builder.extend_trusted(views.iter().copied());
         self.push_only_validity_mask(validity_mask);
 
-        debug_assert_eq!(self.null_buffer_builder.len(), self.views_builder.len())
+        debug_assert_eq!(self.nulls.len(), self.views_builder.len())
     }
 
+    /// Finishes the builder directly into a [`VarBinViewArray`].
     pub fn finish_into_varbinview(&mut self) -> VarBinViewArray {
         self.flush_in_progress();
         let buffers = std::mem::take(&mut self.completed);
 
         assert_eq!(
             self.views_builder.len(),
-            self.null_buffer_builder.len(),
+            self.nulls.len(),
             "View and validity length must match"
         );
 
-        let validity = self
-            .null_buffer_builder
-            .finish_with_nullability(self.nullability);
+        let validity = self.nulls.finish_with_nullability(self.dtype.nullability());
 
         // SAFETY: the builder methods check safety at each step.
         unsafe {
@@ -176,7 +181,7 @@ impl VarBinViewBuilder {
 impl VarBinViewBuilder {
     // Pushes a validity mask into the builder not affecting the views or buffers
     fn push_only_validity_mask(&mut self, validity_mask: Mask) {
-        self.null_buffer_builder.append_validity_mask(validity_mask);
+        self.nulls.append_validity_mask(validity_mask);
     }
 }
 
@@ -189,39 +194,26 @@ impl ArrayBuilder for VarBinViewBuilder {
         self
     }
 
-    #[inline]
     fn dtype(&self) -> &DType {
         &self.dtype
     }
 
-    #[inline]
     fn len(&self) -> usize {
-        self.null_buffer_builder.len()
+        self.nulls.len()
     }
 
-    #[inline]
     fn append_zeros(&mut self, n: usize) {
         self.views_builder.push_n(BinaryView::empty_view(), n);
-        self.null_buffer_builder.append_n_non_nulls(n);
+        self.nulls.append_n_non_nulls(n);
     }
 
-    #[inline]
-    fn append_nulls(&mut self, n: usize) {
+    unsafe fn append_nulls_unchecked(&mut self, n: usize) {
         self.views_builder.push_n(BinaryView::empty_view(), n);
-        self.null_buffer_builder.append_n_nulls(n);
+        self.nulls.append_n_nulls(n);
     }
 
-    #[inline]
-    fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
-        if !self.dtype.eq_with_nullability_superset(array.dtype()) {
-            vortex_bail!(
-                "tried to extend a builder with `DType` {} with an array with `DType {}",
-                self.dtype,
-                array.dtype()
-            );
-        }
-
-        let array = array.to_varbinview()?;
+    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+        let array = array.to_varbinview();
         self.flush_in_progress();
 
         let new_indices = self.completed.extend_from_slice(array.buffers());
@@ -245,21 +237,19 @@ impl ArrayBuilder for VarBinViewBuilder {
         }
 
         self.push_only_validity_mask(array.validity_mask());
-
-        Ok(())
     }
 
     fn ensure_capacity(&mut self, capacity: usize) {
         if capacity > self.views_builder.capacity() {
             self.views_builder
                 .reserve(capacity - self.views_builder.len());
-            self.null_buffer_builder.ensure_capacity(capacity);
+            self.nulls.ensure_capacity(capacity);
         }
     }
 
     fn set_validity(&mut self, validity: Mask) {
-        self.null_buffer_builder = LazyNullBufferBuilder::new(validity.len());
-        self.null_buffer_builder.append_validity_mask(validity);
+        self.nulls = LazyNullBufferBuilder::new(validity.len());
+        self.nulls.append_validity_mask(validity);
     }
 
     fn finish(&mut self) -> ArrayRef {
@@ -448,11 +438,11 @@ mod tests {
         let mut builder = VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
 
         builder.append_option(Some("Hello1"));
-        builder.extend_from_array(&array).unwrap();
+        builder.extend_from_array(&array);
         builder.append_nulls(2);
         builder.append_value("Hello3");
 
-        let arr = builder.finish().to_varbinview().unwrap();
+        let arr = builder.finish().to_varbinview();
 
         let arr = arr
             .with_iterator(|iter| {
@@ -488,11 +478,11 @@ mod tests {
         let mut builder =
             VarBinViewBuilder::with_buffer_deduplication(DType::Utf8(Nullability::Nullable), 10);
 
-        array.append_to_builder(&mut builder).unwrap();
+        array.append_to_builder(&mut builder);
         assert_eq!(builder.completed_block_count(), 1);
 
-        array.slice(1..2).append_to_builder(&mut builder).unwrap();
-        array.slice(0..1).append_to_builder(&mut builder).unwrap();
+        array.slice(1..2).append_to_builder(&mut builder);
+        array.slice(0..1).append_to_builder(&mut builder);
         assert_eq!(builder.completed_block_count(), 1);
 
         let array2 = {
@@ -502,11 +492,11 @@ mod tests {
             builder.finish_into_varbinview()
         };
 
-        array2.append_to_builder(&mut builder).unwrap();
+        array2.append_to_builder(&mut builder);
         assert_eq!(builder.completed_block_count(), 2);
 
-        array.slice(0..1).append_to_builder(&mut builder).unwrap();
-        array2.slice(0..1).append_to_builder(&mut builder).unwrap();
+        array.slice(0..1).append_to_builder(&mut builder);
+        array2.slice(0..1).append_to_builder(&mut builder);
         assert_eq!(builder.completed_block_count(), 2);
     }
 }

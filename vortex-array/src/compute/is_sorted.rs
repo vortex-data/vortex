@@ -274,7 +274,7 @@ fn is_sorted_impl(
         );
 
         // Recurse to canonical implementation
-        let array = array.to_canonical()?;
+        let array = array.to_canonical();
 
         return if strict {
             is_strict_sorted(array.as_ref())

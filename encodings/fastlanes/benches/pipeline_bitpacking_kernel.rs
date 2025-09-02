@@ -103,8 +103,7 @@ where
 
     let expect = filter(&array.as_ref().slice(offset..offset + N), &mask)
         .unwrap()
-        .to_primitive()
-        .unwrap();
+        .to_primitive();
 
     let mut mask_data = [0usize; N_WORDS];
     for (i, chunk) in mask.to_boolean_buffer().bit_chunks().iter().enumerate() {

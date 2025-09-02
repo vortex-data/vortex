@@ -14,7 +14,7 @@ use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 
 impl TakeKernel for DecimalVTable {
     fn take(&self, array: &DecimalArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let indices = indices.to_primitive()?;
+        let indices = indices.to_primitive();
         let validity = array.validity().take(indices.as_ref())?;
 
         // TODO(joe): if the true count of take indices validity is low, only take array values with

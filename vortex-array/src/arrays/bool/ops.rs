@@ -34,7 +34,7 @@ mod tests {
     #[test]
     fn test_slice_large() {
         let arr = BoolArray::from_iter(std::iter::repeat_n(Some(true), 100));
-        let sliced_arr = arr.slice(8..16).to_bool().unwrap();
+        let sliced_arr = arr.slice(8..16).to_bool();
         assert_eq!(sliced_arr.len(), 8);
         assert_eq!(sliced_arr.boolean_buffer().len(), 8);
         assert_eq!(sliced_arr.boolean_buffer().offset(), 0);
@@ -43,7 +43,7 @@ mod tests {
     #[test]
     fn test_slice() {
         let arr = BoolArray::from_iter([Some(true), Some(true), None, Some(false), None]);
-        let sliced_arr = arr.slice(1..4).to_bool().unwrap();
+        let sliced_arr = arr.slice(1..4).to_bool();
 
         assert_eq!(sliced_arr.len(), 3);
 

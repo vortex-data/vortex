@@ -24,7 +24,7 @@ impl<T: NativePType> ArrayAccessor<T> for PrimitiveArray {
             }
             Validity::AllInvalid => Ok(f(&mut iter::repeat_n(None, self.len()))),
             Validity::Array(v) => {
-                let validity = v.to_bool()?;
+                let validity = v.to_bool();
                 let mut iter = self
                     .as_slice::<T>()
                     .iter()

@@ -82,9 +82,7 @@ fn random_access(
     let taxi_parquet = runtime.block_on(taxi_data_parquet());
 
     let validate = |array: ArrayRef| {
-        let struct_ = array
-            .to_struct()
-            .vortex_expect("could not convert to struct");
+        let struct_ = array.to_struct();
         assert_eq!(struct_.len(), 6, "expected 6 rows");
         let pu_location_id = struct_
             .field_by_name("PULocationID")

@@ -38,7 +38,7 @@ impl ArrayAccessor<[u8]> for VarBinViewArray {
             }
             Validity::AllInvalid => Ok(f(&mut iter::repeat_n(None, views.len()))),
             Validity::Array(v) => {
-                let validity = v.to_bool()?;
+                let validity = v.to_bool();
                 let mut iter = views
                     .iter()
                     .zip(validity.boolean_buffer())

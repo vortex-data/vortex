@@ -36,10 +36,10 @@ register_kernel!(CastKernelAdapter(DictVTable).lift());
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
+    use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
@@ -61,7 +61,7 @@ mod tests {
             &DType::Primitive(PType::I64, Nullability::NonNullable)
         );
 
-        let decoded = casted.to_canonical().unwrap().into_primitive().unwrap();
+        let decoded = casted.to_primitive();
         assert_eq!(decoded.as_slice::<i64>(), &[1i64, 2, 3, 2, 1]);
     }
 
@@ -162,8 +162,8 @@ mod tests {
         );
 
         // Verify values are unchanged
-        let original_values = dict.to_canonical().unwrap().into_primitive().unwrap();
-        let final_values = back_dict.to_canonical().unwrap().into_primitive().unwrap();
+        let original_values = dict.to_primitive();
+        let final_values = back_dict.to_primitive();
         assert_eq!(
             original_values.as_slice::<i32>(),
             final_values.as_slice::<i32>()

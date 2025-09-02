@@ -268,7 +268,7 @@ impl TableFunction for VortexTableFunction {
                 let (array_result, conversion_cache) = result?;
 
                 local_state.exporter = Some(ArrayExporter::try_new(
-                    &array_result.to_struct()?,
+                    &array_result.to_struct(),
                     &conversion_cache,
                 )?);
                 // Relaxed since there is no intra-instruction ordering required.

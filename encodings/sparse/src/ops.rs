@@ -53,7 +53,7 @@ mod tests {
         let mut expected = vec![999u64; 1000];
         expected[0] = 0;
 
-        let values = sliced.to_primitive().unwrap();
+        let values = sliced.to_primitive();
         assert_eq!(values.as_slice::<u64>(), expected);
     }
 }

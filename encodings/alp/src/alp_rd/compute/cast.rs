@@ -48,6 +48,7 @@ register_kernel!(CastKernelAdapter(ALPRDVTable).lift());
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
@@ -72,7 +73,7 @@ mod tests {
             &DType::Primitive(PType::F64, Nullability::NonNullable)
         );
 
-        let decoded = casted.to_canonical().unwrap().into_primitive().unwrap();
+        let decoded = casted.to_primitive();
         let f64_values = decoded.as_slice::<f64>();
         assert_eq!(f64_values.len(), 5);
         assert!((f64_values[0] - 1.0).abs() < f64::EPSILON);

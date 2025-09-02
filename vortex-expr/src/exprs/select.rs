@@ -110,7 +110,7 @@ impl VTable for SelectVTable {
     }
 
     fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
-        let batch = expr.child.unchecked_evaluate(scope)?.to_struct()?;
+        let batch = expr.child.unchecked_evaluate(scope)?.to_struct();
         Ok(match &expr.fields {
             SelectField::Include(f) => batch.project(f.as_ref()),
             SelectField::Exclude(names) => {
@@ -327,8 +327,7 @@ mod tests {
         let selected = select
             .evaluate(&Scope::new(st.to_array()))
             .unwrap()
-            .to_struct()
-            .unwrap();
+            .to_struct();
         let selected_names = selected.names().clone();
         assert_eq!(selected_names.as_ref(), &["a".into()]);
     }
@@ -340,8 +339,7 @@ mod tests {
         let selected = select
             .evaluate(&Scope::new(st.to_array()))
             .unwrap()
-            .to_struct()
-            .unwrap();
+            .to_struct();
         let selected_names = selected.names().clone();
         assert_eq!(selected_names.as_ref(), &["b".into()]);
     }

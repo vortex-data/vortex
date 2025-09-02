@@ -148,7 +148,7 @@ impl StatsSetRef<'_> {
             Stat::IsSorted => Some(is_sorted(self.dyn_array_ref)?.into()),
             Stat::IsStrictSorted => Some(is_strict_sorted(self.dyn_array_ref)?.into()),
             Stat::UncompressedSizeInBytes => {
-                let nbytes = self.dyn_array_ref.to_canonical()?.as_ref().nbytes();
+                let nbytes = self.dyn_array_ref.to_canonical().as_ref().nbytes();
                 self.set(stat, Precision::exact(nbytes));
                 Some(nbytes.into())
             }

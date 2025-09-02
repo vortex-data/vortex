@@ -3,7 +3,6 @@
 
 use itertools::Itertools;
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::VortexResult;
 
 use crate::ToCanonical;
 use crate::arrays::BoolArray;
@@ -11,16 +10,16 @@ use crate::patches::Patches;
 use crate::vtable::ValidityHelper;
 
 impl BoolArray {
-    pub fn patch(self, patches: &Patches) -> VortexResult<Self> {
+    pub fn patch(self, patches: &Patches) -> Self {
         let len = self.len();
         let offset = patches.offset();
-        let indices = patches.indices().to_primitive()?;
-        let values = patches.values().to_bool()?;
+        let indices = patches.indices().to_primitive();
+        let values = patches.values().to_bool();
 
         let patched_validity =
             self.validity()
                 .clone()
-                .patch(len, offset, indices.as_ref(), values.validity())?;
+                .patch(len, offset, indices.as_ref(), values.validity());
 
         let (mut own_values, bit_offset) = self.into_boolean_builder();
         match_each_integer_ptype!(indices.ptype(), |I| {
@@ -34,10 +33,7 @@ impl BoolArray {
             }
         });
 
-        Ok(Self::new(
-            own_values.finish().slice(bit_offset, len),
-            patched_validity,
-        ))
+        Self::new(own_values.finish().slice(bit_offset, len), patched_validity)
     }
 }
 
@@ -52,7 +48,7 @@ mod tests {
     fn patch_sliced_bools() {
         let arr = BoolArray::from(BooleanBuffer::new_set(12));
         let sliced = arr.slice(4..12);
-        let (values, offset) = sliced.to_bool().unwrap().into_boolean_builder();
+        let (values, offset) = sliced.to_bool().into_boolean_builder();
         assert_eq!(offset, 4);
         assert_eq!(values.len(), 12);
         assert_eq!(values.as_slice(), &[255, 15]);
@@ -62,7 +58,7 @@ mod tests {
     fn patch_sliced_bools_offset() {
         let arr = BoolArray::from(BooleanBuffer::new_set(15));
         let sliced = arr.slice(4..15);
-        let (values, offset) = sliced.to_bool().unwrap().into_boolean_builder();
+        let (values, offset) = sliced.to_bool().into_boolean_builder();
         assert_eq!(offset, 4);
         assert_eq!(values.as_slice(), &[255, 127]);
     }

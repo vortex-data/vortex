@@ -104,7 +104,6 @@ mod tests {
         let res = between_impl(arr, lower, upper, Nullability::Nullable, options)
             .unwrap()
             .to_bool()
-            .unwrap()
             .boolean_buffer()
             .iter()
             .collect_vec();
@@ -120,7 +119,7 @@ mod tests {
         let encoded = alp_encode(&array, None).unwrap();
         assert!(encoded.patches().is_none());
         assert_eq!(
-            encoded.encoded().to_primitive().unwrap().as_slice::<i32>(),
+            encoded.encoded().to_primitive().as_slice::<i32>(),
             vec![605; 1]
         );
 

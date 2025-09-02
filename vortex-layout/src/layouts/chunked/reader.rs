@@ -413,8 +413,7 @@ mod test {
                 .invoke(Mask::new_true(usize::try_from(layout.row_count()).unwrap()))
                 .await
                 .unwrap()
-                .to_primitive()
-                .unwrap();
+                .to_primitive();
 
             assert_eq!(result.len(), 9);
             assert_eq!(result.as_slice::<i32>(), &[1, 2, 3, 4, 5, 6, 7, 8, 9]);

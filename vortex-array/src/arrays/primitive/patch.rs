@@ -3,7 +3,6 @@
 
 use num_traits::AsPrimitive;
 use vortex_dtype::{NativePType, match_each_integer_ptype, match_each_native_ptype};
-use vortex_error::VortexResult;
 
 use crate::ToCanonical;
 use crate::arrays::PrimitiveArray;
@@ -13,16 +12,16 @@ use crate::vtable::ValidityHelper;
 
 impl PrimitiveArray {
     #[allow(clippy::cognitive_complexity)]
-    pub fn patch(self, patches: &Patches) -> VortexResult<Self> {
-        let patch_indices = patches.indices().to_primitive()?;
-        let patch_values = patches.values().to_primitive()?;
+    pub fn patch(self, patches: &Patches) -> Self {
+        let patch_indices = patches.indices().to_primitive();
+        let patch_values = patches.values().to_primitive();
 
         let patched_validity = self.validity().clone().patch(
             self.len(),
             patches.offset(),
             patch_indices.as_ref(),
             patch_values.validity(),
-        )?;
+        );
         match_each_integer_ptype!(patch_indices.ptype(), |I| {
             match_each_native_ptype!(self.ptype(), |T| {
                 self.patch_typed::<T, I>(
@@ -41,7 +40,7 @@ impl PrimitiveArray {
         patch_indices_offset: usize,
         patch_values: PrimitiveArray,
         patched_validity: Validity,
-    ) -> VortexResult<Self>
+    ) -> Self
     where
         T: NativePType,
         I: NativePType + AsPrimitive<usize>,
@@ -53,7 +52,7 @@ impl PrimitiveArray {
         for (idx, value) in itertools::zip_eq(patch_indices, patch_values) {
             own_values[idx.as_() - patch_indices_offset] = *value;
         }
-        Ok(Self::new(own_values, patched_validity))
+        Self::new(own_values, patched_validity)
     }
 }
 
@@ -69,6 +68,6 @@ mod tests {
     fn patch_sliced() {
         let input = PrimitiveArray::new(buffer![2u32; 10], Validity::AllValid);
         let sliced = input.slice(2..8);
-        assert_eq!(sliced.to_primitive().unwrap().as_slice::<u32>(), &[2u32; 6]);
+        assert_eq!(sliced.to_primitive().as_slice::<u32>(), &[2u32; 6]);
     }
 }

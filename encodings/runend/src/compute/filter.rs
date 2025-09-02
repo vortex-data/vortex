@@ -34,7 +34,7 @@ impl FilterKernel for RunEndVTable {
                 } else {
                     // This strategy ends up being close to fixed cost based on the number of runs,
                     // rather than the number of indices.
-                    let primitive_run_ends = array.ends().to_primitive()?;
+                    let primitive_run_ends = array.ends().to_primitive();
                     let (run_ends, values_mask) =
                         match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |P| {
                             filter_run_end_primitive(
@@ -66,7 +66,7 @@ register_kernel!(FilterKernelAdapter(RunEndVTable).lift());
 
 // We expose this function to our benchmarks.
 pub fn filter_run_end(array: &RunEndArray, mask: &Mask) -> VortexResult<ArrayRef> {
-    let primitive_run_ends = array.ends().to_primitive()?;
+    let primitive_run_ends = array.ends().to_primitive();
     let (run_ends, values_mask) =
         match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |P| {
             filter_run_end_primitive(
@@ -158,19 +158,11 @@ mod tests {
         let filtered_run_end = filtered.as_::<RunEndVTable>();
 
         assert_eq!(
-            filtered_run_end
-                .ends()
-                .to_primitive()
-                .unwrap()
-                .as_slice::<u8>(),
+            filtered_run_end.ends().to_primitive().as_slice::<u8>(),
             [2, 4]
         );
         assert_eq!(
-            filtered_run_end
-                .values()
-                .to_primitive()
-                .unwrap()
-                .as_slice::<i32>(),
+            filtered_run_end.values().to_primitive().as_slice::<i32>(),
             [1, 5]
         );
     }
@@ -186,19 +178,11 @@ mod tests {
         let filtered_run_end = filtered.as_::<RunEndVTable>();
 
         assert_eq!(
-            filtered_run_end
-                .ends()
-                .to_primitive()
-                .unwrap()
-                .as_slice::<u8>(),
+            filtered_run_end.ends().to_primitive().as_slice::<u8>(),
             [1, 2, 3]
         );
         assert_eq!(
-            filtered_run_end
-                .values()
-                .to_primitive()
-                .unwrap()
-                .as_slice::<i32>(),
+            filtered_run_end.values().to_primitive().as_slice::<i32>(),
             [1, 4, 2]
         );
     }

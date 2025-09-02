@@ -110,7 +110,7 @@ impl EncodeVTable<BitPackedVTable> for BitPackedVTable {
         canonical: &Canonical,
         like: Option<&BitPackedArray>,
     ) -> VortexResult<Option<BitPackedArray>> {
-        let parray = canonical.clone().into_primitive()?;
+        let parray = canonical.clone().into_primitive();
 
         let bit_width = like
             .map(|like_array| like_array.bit_width())

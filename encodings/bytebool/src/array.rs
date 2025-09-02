@@ -15,7 +15,7 @@ use vortex_array::vtable::{
 use vortex_array::{ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_error::vortex_panic;
 use vortex_scalar::Scalar;
 
 vtable!(ByteBool);
@@ -113,10 +113,10 @@ impl ArrayVTable<ByteBoolVTable> for ByteBoolVTable {
 }
 
 impl CanonicalVTable<ByteBoolVTable> for ByteBoolVTable {
-    fn canonicalize(array: &ByteBoolArray) -> VortexResult<Canonical> {
+    fn canonicalize(array: &ByteBoolArray) -> Canonical {
         let boolean_buffer = BooleanBuffer::from(array.as_slice());
         let validity = array.validity().clone();
-        Ok(Canonical::Bool(BoolArray::new(boolean_buffer, validity)))
+        Canonical::Bool(BoolArray::new(boolean_buffer, validity))
     }
 }
 

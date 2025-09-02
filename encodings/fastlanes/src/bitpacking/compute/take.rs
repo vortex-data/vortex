@@ -28,7 +28,7 @@ impl TakeKernel for BitPackedVTable {
     fn take(&self, array: &BitPackedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         // If the indices are large enough, it's faster to flatten and take the primitive array.
         if indices.len() * UNPACK_CHUNK_THRESHOLD > array.len() {
-            return take(array.to_primitive()?.as_ref(), indices);
+            return take(array.to_primitive().as_ref(), indices);
         }
 
         // NOTE: we use the unsigned PType because all values in the BitPackedArray must
@@ -37,7 +37,7 @@ impl TakeKernel for BitPackedVTable {
         let validity = array.validity();
         let taken_validity = validity.take(indices)?;
 
-        let indices = indices.to_primitive()?;
+        let indices = indices.to_primitive();
         let taken = match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |T| {
             match_each_integer_ptype!(indices.ptype(), |I| {
                 take_primitive::<T, I>(array, &indices, taken_validity)?
@@ -122,7 +122,7 @@ fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
         && let Some(patches) = patches.take(indices.as_ref())?
     {
         let cast_patches = patches.cast_values(unpatched_taken.dtype())?;
-        return unpatched_taken.patch(&cast_patches);
+        return Ok(unpatched_taken.patch(&cast_patches));
     }
 
     Ok(unpatched_taken)
@@ -151,10 +151,7 @@ mod test {
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
 
-        let primitive_result = take(bitpacked.as_ref(), &indices)
-            .unwrap()
-            .to_primitive()
-            .unwrap();
+        let primitive_result = take(bitpacked.as_ref(), &indices).unwrap().to_primitive();
         let res_bytes = primitive_result.as_slice::<u8>();
         assert_eq!(res_bytes, &[0, 62, 31, 33, 9, 18]);
     }
@@ -168,8 +165,7 @@ mod test {
 
         let primitive_result = take(bitpacked.as_ref(), indices.as_ref())
             .unwrap()
-            .to_primitive()
-            .unwrap();
+            .to_primitive();
         let res_bytes = primitive_result.as_slice::<u32>();
         assert_eq!(res_bytes, &[0, 2, 4, 6]);
     }
@@ -183,7 +179,7 @@ mod test {
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
         let sliced = bitpacked.slice(128..2050);
 
-        let primitive_result = take(&sliced, &indices).unwrap().to_primitive().unwrap();
+        let primitive_result = take(&sliced, &indices).unwrap().to_primitive();
         let res_bytes = primitive_result.as_slice::<u8>();
         assert_eq!(res_bytes, &[31, 33]);
     }
@@ -245,8 +241,7 @@ mod test {
             PrimitiveArray::from_option_iter([Some(0u64), Some(1), None, Some(3)]).as_ref(),
         )
         .unwrap()
-        .to_primitive()
-        .unwrap();
+        .to_primitive();
         assert_eq!(taken_primitive.as_slice::<i32>(), &[1i32, 2, 1, 4]);
         assert_eq!(taken_primitive.invalid_count(), 1);
     }

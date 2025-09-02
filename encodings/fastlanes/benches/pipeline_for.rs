@@ -27,13 +27,13 @@ pub fn main() {
 fn create_for_bitpacked_array<T: NativePType>(
     values: BufferMut<T>,
 ) -> vortex_error::VortexResult<vortex_array::ArrayRef> {
-    let primitive_array = values.into_array().to_primitive().unwrap();
+    let primitive_array = values.into_array().to_primitive();
 
     // First apply FoR encoding
     let for_array = FoRArray::encode(primitive_array)?;
 
     // Then bitpack the residuals
-    let residuals = for_array.encoded().to_primitive()?;
+    let residuals = for_array.encoded().to_primitive();
     let bitpacked = bitpack_to_best_bit_width(&residuals)?;
 
     // Create a new FoR array with bitpacked residuals
@@ -64,12 +64,7 @@ pub fn decompress_for_early_filter<T: NativePType>(bencher: Bencher, fraction_ke
 
     bencher
         .with_inputs(|| Mask::from_buffer(mask.clone()))
-        .bench_local_values(|mask| {
-            filter(array.as_ref(), &mask)
-                .unwrap()
-                .to_canonical()
-                .unwrap()
-        });
+        .bench_local_values(|mask| filter(array.as_ref(), &mask).unwrap().to_canonical());
 }
 
 #[divan::bench(types = [i8, i16, i32, i64], args = TRUE_COUNT)]

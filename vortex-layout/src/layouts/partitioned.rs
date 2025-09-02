@@ -88,12 +88,11 @@ impl<P: 'static + Send + Sync> MaskEvaluation for PartitionedMaskEvaluation<P> {
         )?
         .into_array();
 
-        let root_mask = Mask::try_from(
-            self.partitioned
-                .root
-                .evaluate(&Scope::new(root_scope))?
-                .as_ref(),
-        )?;
+        let root_mask = self
+            .partitioned
+            .root
+            .evaluate(&Scope::new(root_scope))?
+            .try_to_mask_fill_null_false()?;
         let mask = mask.bitand(&root_mask);
 
         Ok(mask)

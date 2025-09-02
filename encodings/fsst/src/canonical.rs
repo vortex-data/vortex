@@ -9,28 +9,27 @@ use vortex_array::vtable::{CanonicalVTable, ValidityHelper};
 use vortex_array::{Canonical, IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::{VortexExpect, VortexResult};
 
 use crate::{FSSTArray, FSSTVTable};
 
 impl CanonicalVTable<FSSTVTable> for FSSTVTable {
-    fn canonicalize(array: &FSSTArray) -> VortexResult<Canonical> {
+    fn canonicalize(array: &FSSTArray) -> Canonical {
         let (buffer, views) = fsst_decode_views(array, 0);
         // SAFETY: FSST already validates the bytes for binary/UTF-8. We build views directly on
         //  top of them, so the view pointers will all be valid.
         unsafe {
-            Ok(Canonical::VarBinView(VarBinViewArray::new_unchecked(
+            Canonical::VarBinView(VarBinViewArray::new_unchecked(
                 views,
                 Arc::new([buffer]),
                 array.dtype().clone(),
                 array.codes().validity().clone(),
-            )))
+            ))
         }
     }
 
-    fn append_to_builder(array: &FSSTArray, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+    fn append_to_builder(array: &FSSTArray, builder: &mut dyn ArrayBuilder) {
         let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
-            return builder.extend_from_array(&array.to_canonical()?.into_array());
+            return builder.extend_from_array(&array.to_canonical().into_array());
         };
 
         // Decompress the whole block of data into a new buffer, and create some views
@@ -39,7 +38,6 @@ impl CanonicalVTable<FSSTVTable> for FSSTVTable {
         let (buffer, views) = fsst_decode_views(array, builder.completed_block_count());
 
         builder.push_buffer_and_adjusted_views(&[buffer], &views, array.validity_mask());
-        Ok(())
     }
 }
 
@@ -54,10 +52,7 @@ fn fsst_decode_views(fsst_array: &FSSTArray, buf_index: u32) -> (ByteBuffer, Buf
     // necessary for a VarBinViewArray and construct the canonical array.
     let bytes = fsst_array.codes().sliced_bytes();
 
-    let uncompressed_lens_array = fsst_array
-        .uncompressed_lengths()
-        .to_primitive()
-        .vortex_expect("uncompressed_lens must be primitive");
+    let uncompressed_lens_array = fsst_array.uncompressed_lengths().to_primitive();
 
     // Decompres the full dataset.
     #[allow(clippy::cast_possible_truncation)]
@@ -168,10 +163,10 @@ mod tests {
 
         let mut builder =
             VarBinViewBuilder::with_capacity(chunked_arr.dtype().clone(), chunked_arr.len());
-        chunked_arr.append_to_builder(&mut builder).unwrap();
+        chunked_arr.append_to_builder(&mut builder);
 
         {
-            let arr = builder.finish().to_varbinview().unwrap();
+            let arr = builder.finish().to_varbinview();
             let res1 = arr
                 .with_iterator(|iter| iter.map(|b| b.map(|v| v.to_vec())).collect::<Vec<_>>())
                 .unwrap();
@@ -179,7 +174,7 @@ mod tests {
         };
 
         {
-            let arr2 = chunked_arr.to_varbinview().unwrap();
+            let arr2 = chunked_arr.to_varbinview();
             let res2 = arr2
                 .with_iterator(|iter| iter.map(|b| b.map(|v| v.to_vec())).collect::<Vec<_>>())
                 .unwrap();

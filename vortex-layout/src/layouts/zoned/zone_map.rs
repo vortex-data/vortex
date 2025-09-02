@@ -131,11 +131,9 @@ impl ZoneMap {
     ///
     /// All zones where the predicate evaluates to `true` can be skipped entirely.
     pub fn prune(&self, predicate: &ExprRef) -> VortexResult<Mask> {
-        Mask::try_from(
-            predicate
-                .evaluate(&Scope::new(self.array.to_array()))?
-                .as_ref(),
-        )
+        predicate
+            .evaluate(&Scope::new(self.array.to_array()))?
+            .try_to_mask_fill_null_false()
     }
 }
 
@@ -268,17 +266,11 @@ mod tests {
             ]
         );
         assert_eq!(
-            stats_table.array.fields()[1]
-                .to_bool()
-                .vortex_unwrap()
-                .boolean_buffer(),
+            stats_table.array.fields()[1].to_bool().boolean_buffer(),
             &BooleanBuffer::from(vec![false, true])
         );
         assert_eq!(
-            stats_table.array.fields()[3]
-                .to_bool()
-                .vortex_unwrap()
-                .boolean_buffer(),
+            stats_table.array.fields()[3].to_bool().boolean_buffer(),
             &BooleanBuffer::from(vec![true, false])
         );
     }
@@ -300,17 +292,11 @@ mod tests {
             ]
         );
         assert_eq!(
-            stats_table.array.fields()[1]
-                .to_bool()
-                .vortex_unwrap()
-                .boolean_buffer(),
+            stats_table.array.fields()[1].to_bool().boolean_buffer(),
             &BooleanBuffer::from(vec![false])
         );
         assert_eq!(
-            stats_table.array.fields()[3]
-                .to_bool()
-                .vortex_unwrap()
-                .boolean_buffer(),
+            stats_table.array.fields()[3].to_bool().boolean_buffer(),
             &BooleanBuffer::from(vec![false])
         );
     }

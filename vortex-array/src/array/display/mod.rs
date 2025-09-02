@@ -246,7 +246,6 @@ impl dyn Array + '_ {
             #[cfg(feature = "table-display")]
             DisplayOptions::TableDisplay => {
                 use vortex_dtype::DType;
-                use vortex_error::VortexExpect as _;
 
                 use crate::canonical::ToCanonical;
 
@@ -266,7 +265,7 @@ impl dyn Array + '_ {
                     return write!(f, "{table}");
                 };
 
-                let struct_ = self.to_struct().vortex_expect("struct array");
+                let struct_ = self.to_struct();
                 builder.push_record(sf.names().iter().map(|name| name.to_string()));
 
                 for row_idx in 0..self.len() {

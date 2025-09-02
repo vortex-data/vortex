@@ -210,7 +210,7 @@ mod test {
                 .unwrap();
 
         assert_eq!(reader.dtype(), array.dtype());
-        let result = reader.read_all().await.unwrap().to_primitive().unwrap();
+        let result = reader.read_all().await.unwrap().to_primitive();
         assert_eq!(array.as_slice::<i32>(), result.as_slice::<i32>());
     }
 }
