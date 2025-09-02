@@ -6837,6 +6837,7 @@ dependencies = [
 name = "vortex-file"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "async-trait",
  "bytes",
  "flatbuffers",
@@ -6847,7 +6848,9 @@ dependencies = [
  "log",
  "moka",
  "object_store",
+ "rstest",
  "rustc-hash",
+ "tempfile",
  "tokio",
  "uuid",
  "vortex-alp",
