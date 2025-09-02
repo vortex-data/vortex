@@ -141,6 +141,16 @@ impl PyVortexFile {
     fn to_dataset(slf: Bound<Self>) -> PyResult<PyVortexDataset> {
         Ok(PyVortexDataset::try_new(slf.get().vxf.clone())?)
     }
+
+    #[pyo3(signature = (*))]
+    pub fn splits(&self) -> VortexResult<Vec<(u64, u64)>> {
+        Ok(self
+            .vxf
+            .splits()?
+            .into_iter()
+            .map(|x| (x.start, x.end))
+            .collect())
+    }
 }
 
 impl PyVortexFile {

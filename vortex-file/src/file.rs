@@ -6,18 +6,19 @@
 //! The `VortexFile` provides methods for accessing file metadata, creating segment sources for reading
 //! data from the file, and initiating scans to read the file's contents into memory as Vortex arrays.
 
+use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_array::ArrayRef;
 use vortex_array::stats::StatsSet;
-use vortex_dtype::{DType, Field, FieldPath, FieldPathSet};
+use vortex_dtype::{DType, Field, FieldMask, FieldPath, FieldPathSet};
 use vortex_error::VortexResult;
 use vortex_expr::pruning::checked_pruning_expr;
 use vortex_expr::{ExprRef, Scope};
 use vortex_layout::LayoutReader;
 use vortex_layout::segments::SegmentSource;
 use vortex_metrics::VortexMetrics;
-use vortex_scan::ScanBuilder;
+use vortex_scan::{ScanBuilder, SplitBy};
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::footer::Footer;
@@ -132,5 +133,9 @@ impl VortexFile {
             .evaluate(&scope)?
             .as_constant()
             .is_some_and(|result| result.as_bool().value() == Some(true)))
+    }
+
+    pub fn splits(&self) -> VortexResult<Vec<Range<u64>>> {
+        SplitBy::Layout.splits(self.layout_reader()?.as_ref(), &[FieldMask::All])
     }
 }
