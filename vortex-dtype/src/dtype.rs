@@ -105,11 +105,13 @@ impl DType {
     pub const BYTES: Self = Primitive(PType::U8, Nullability::NonNullable);
 
     /// Get the nullability of the `DType`.
+    #[inline]
     pub fn nullability(&self) -> Nullability {
         self.is_nullable().into()
     }
 
     /// Check if the `DType` is [`Nullability::Nullable`].
+    #[inline]
     pub fn is_nullable(&self) -> bool {
         match self {
             Null => true,
