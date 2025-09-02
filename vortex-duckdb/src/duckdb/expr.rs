@@ -7,26 +7,13 @@ use std::ptr;
 
 use vortex::error::{VortexResult, vortex_bail, vortex_err};
 
-use crate::cpp::*;
-use crate::duckdb::string::{c_string_to_rust_string, VxString};
-use crate::duckdb::{ScalarFunction, Value};
-use crate::{duckdb, wrapper};
-use crate::cpp::duckdb_vx_expr_class;
-use crate::duckdb::{ScalarFunction, ValueRef};
+use crate::cpp::{duckdb_vx_expr_class, *};
+use crate::duckdb::string::{VxString, c_string_to_rust_string};
+use crate::duckdb::{ScalarFunction, Value, ValueRef};
 use crate::{cpp, duckdb, wrapper};
 
 // TODO(joe): replace with lifetime_wrapper!
 wrapper!(Expression, duckdb_vx_expr, duckdb_vx_destroy_expr);
-
-impl Display for Expression {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let ptr = unsafe { cpp::duckdb_vx_expr_to_string(self.as_ptr()) };
-        let cstr = unsafe { CStr::from_ptr(ptr) };
-        let result = write!(f, "{}", cstr.to_string_lossy());
-        unsafe { cpp::duckdb_free(ptr.cast_mut().cast()) };
-        result
-    }
-}
 
 impl Expression {
     pub fn as_class_id(&self) -> duckdb_vx_expr_class {

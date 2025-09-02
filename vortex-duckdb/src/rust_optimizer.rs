@@ -5,102 +5,16 @@
 //!
 //! This module implements the length optimization using the generic logical plan API.
 
-use std::collections::{HashMap, HashSet};
 use std::ptr;
 
 use log::trace;
 use vortex::error::{VortexExpect, VortexResult};
+use vortex::utils::aliases::hash_map::HashMap;
+use vortex::utils::aliases::hash_set::HashSet;
 
 use crate::duckdb::expr::{ColumnBinding, Expression};
 use crate::duckdb::logical_operator::{LogicalOperator, LogicalOperatorClass};
 use crate::duckdb::{Database, ExpressionClass};
-
-/// Simple collector to find which columns each projection output depends on
-#[derive(Debug)]
-struct ProjectionAnalyzer {
-    /// Columns needed for each projection output position (position -> column_id)
-    output_dependencies: Vec<Option<u64>>,
-    /// All unique column_ids that need to be fetched
-    required_columns: HashSet<u64>,
-}
-
-impl ProjectionAnalyzer {
-    fn new() -> Self {
-        Self {
-            output_dependencies: Vec::new(),
-            required_columns: HashSet::new(),
-        }
-    }
-
-    /// Analyze a projection expression to find its primary column dependency
-    fn analyze_projection(&mut self, expr: &Expression, output_position: usize) {
-        // Ensure we have enough space
-        while self.output_dependencies.len() <= output_position {
-            self.output_dependencies.push(None);
-        }
-
-        // Find the primary column this expression depends on
-        if let Some(column_id) = self.find_primary_column(expr) {
-            self.output_dependencies[output_position] = Some(column_id);
-            self.required_columns.insert(column_id);
-        }
-    }
-
-    /// Recursively find the primary column an expression depends on
-    fn find_primary_column(&self, expr: &Expression) -> Option<u64> {
-        match expr.as_class() {
-            Some(ExpressionClass::BoundColumnRef(col_ref)) => {
-                Some(col_ref.column_binding.column_index)
-            }
-            Some(ExpressionClass::BoundFunction(func)) => {
-                // For functions, use the first argument's column (if any)
-                if func.function_arg_count() > 0
-                    && let Some(arg) = func.get_function_arg(0) {
-                        return self.find_primary_column(&arg);
-                    }
-                None
-            }
-            Some(ExpressionClass::BoundOperator(op)) => {
-                // For operators, use the first child's column (if any)
-                for child in op.children() {
-                    if let Some(col_id) = self.find_primary_column(&child) {
-                        return Some(col_id);
-                    }
-                }
-                None
-            }
-            _ => None,
-        }
-    }
-
-    /// Generate the final column_ids and projection_ids
-    fn generate_mappings(&self) -> (Vec<u64>, Vec<u64>) {
-        // Create sorted list of required columns for column_ids
-        let mut column_ids: Vec<u64> = self.required_columns.iter().copied().collect();
-        column_ids.sort();
-
-        // Create mapping from column_id to position in column_ids
-        let column_to_position: HashMap<u64, usize> = column_ids
-            .iter()
-            .enumerate()
-            .map(|(pos, &col_id)| (col_id, pos))
-            .collect();
-
-        // Generate projection_ids by mapping each output to its column_ids position
-        let projection_ids: Vec<u64> = self
-            .output_dependencies
-            .iter()
-            .map(|&opt_col_id| {
-                opt_col_id
-                    .and_then(|col_id| column_to_position.get(&col_id))
-                    .map(|&pos| pos as u64)
-                    .unwrap_or(0) // Default to 0 if no column dependency found
-            })
-            .collect();
-
-        (column_ids, projection_ids)
-    }
-}
 
 /// Length replacement information
 #[derive(Debug, Clone)]
@@ -135,7 +49,7 @@ impl RustLengthOptimizer {
         trace!("✅ RUST OPTIMIZER: Found vortex_scan in plan!");
 
         // Visit all operators and apply length optimization
-        self.visit_and_optimize(plan, plan)?;
+        self.visit_and_optimize(plan)?;
 
         if !self.replacements.is_empty() {
             trace!(
@@ -154,18 +68,20 @@ impl RustLengthOptimizer {
     fn has_vortex_scan(op: &LogicalOperator) -> VortexResult<bool> {
         // Check this operator
         if let Some(LogicalOperatorClass::Get(get_op)) = op.as_class()
-            && get_op.is_vortex_scan() {
-                return Ok(true);
-            }
-        
+            && get_op.is_vortex_scan()
+        {
+            return Ok(true);
+        }
+
         // Check children recursively
         for i in 0..op.children_count() {
             if let Some(child) = op.get_child(i)
-                && Self::has_vortex_scan(&child)? {
-                    return Ok(true);
-                }
+                && Self::has_vortex_scan(&child)?
+            {
+                return Ok(true);
+            }
         }
-        
+
         Ok(false)
     }
 
@@ -224,33 +140,30 @@ impl RustLengthOptimizer {
                         // This is a len() function
                         if let Some(arg) = func_.get_function_arg(0)
                             && let Some(ExpressionClass::BoundColumnRef(bound_col)) = arg.as_class()
-                            {
-                                let column_alias = bound_col.name;
-                                let _original_col_idx = bound_col.column_binding.column_index;
-                                let virtual_col_name = format!("{}$length", column_alias);
+                        {
+                            let column_alias = bound_col.name;
+                            let _original_col_idx = bound_col.column_binding.column_index;
+                            let virtual_col_name = format!("{}$length", column_alias);
 
-                                // Find virtual column in schema
-                                if let Some(virtual_col_idx) =
-                                    column_names.iter().position(|n| *n == virtual_col_name)
-                                {
-                                    len_replacements.push((
-                                        idx,
-                                        virtual_col_idx as u64,
-                                        virtual_col_name.clone(),
-                                    ));
-                                    trace!(
-                                        "Found len({}) -> {} at index {}",
-                                        column_alias, virtual_col_name, virtual_col_idx
-                                    );
-                                }
+                            // Find virtual column in schema
+                            if let Some(virtual_col_idx) =
+                                column_names.iter().position(|n| *n == virtual_col_name)
+                            {
+                                len_replacements.push((
+                                    idx,
+                                    virtual_col_idx as u64,
+                                    virtual_col_name.clone(),
+                                ));
+                                trace!(
+                                    "Found len({}) -> {} at index {}",
+                                    column_alias, virtual_col_name, virtual_col_idx
+                                );
                             }
+                        }
                     } else {
                         // Not a len() function - check if it uses any columns
                         // This helps us know if original columns are still needed
-                        Self::find_column_refs_in_expr(
-                            projection_expr,
-                            &mut original_columns_used,
-                        );
+                        Self::find_column_refs_in_expr(projection_expr, &mut original_columns_used);
                     }
                 }
             } else if let Some(ExpressionClass::BoundColumnRef(col_ref)) =
@@ -264,9 +177,8 @@ impl RustLengthOptimizer {
                 let col_name_str = col_name.to_string();
                 if col_name_str.ends_with("$length") {
                     // This is a virtual column - find its actual index in the schema
-                    if let Some(actual_col_idx) = column_names
-                        .iter()
-                        .position(|n| *n == col_name_str)
+                    if let Some(actual_col_idx) =
+                        column_names.iter().position(|n| *n == col_name_str)
                     {
                         trace!(
                             "Virtual column reference at projection {}: {} (bound to index {} but actually at {})",
@@ -309,9 +221,8 @@ impl RustLengthOptimizer {
                         let col_name_str = col_ref.name.to_string();
                         if col_name_str.ends_with("$length") {
                             // This is a direct virtual column reference - find its actual index
-                            if let Some(actual_col_idx) = column_names
-                                .iter()
-                                .position(|n| *n == col_name_str)
+                            if let Some(actual_col_idx) =
+                                column_names.iter().position(|n| *n == col_name_str)
                             {
                                 let actual_col_idx = actual_col_idx as u64;
                                 required_columns.insert(actual_col_idx);
@@ -366,72 +277,72 @@ impl RustLengthOptimizer {
             for (proj_idx, virtual_col_idx, virtual_col_name) in &len_replacements {
                 if let Some(proj_expr) = projection_expressions[*proj_idx].as_ref()
                     && let Some(ExpressionClass::BoundFunction(func_)) = proj_expr.as_class()
-                        && let Some(arg) = func_.get_function_arg(0)
-                            && let Some(ExpressionClass::BoundColumnRef(bound_col)) = arg.as_class()
-                            {
-                                // Get the position of the virtual column in our new column_ids
-                                let position_in_column_ids = column_to_position
-                                    .get(virtual_col_idx)
-                                    .copied()
-                                    .unwrap_or(0);
+                    && let Some(arg) = func_.get_function_arg(0)
+                    && let Some(ExpressionClass::BoundColumnRef(bound_col)) = arg.as_class()
+                {
+                    // Get the position of the virtual column in our new column_ids
+                    let position_in_column_ids = column_to_position
+                        .get(virtual_col_idx)
+                        .copied()
+                        .unwrap_or(0);
 
-                                let Ok(virtual_col_ref) = Expression::create_column_ref(
-                                    virtual_col_name,
-                                    ColumnBinding {
-                                        table_index: bound_col.column_binding.table_index,
-                                        column_index: position_in_column_ids as u64,
-                                    },
-                                    0,
-                                ) else {
-                                    continue;
-                                };
+                    let Ok(virtual_col_ref) = Expression::create_column_ref(
+                        virtual_col_name,
+                        ColumnBinding {
+                            table_index: bound_col.column_binding.table_index,
+                            column_index: position_in_column_ids as u64,
+                        },
+                        0,
+                    ) else {
+                        continue;
+                    };
 
-                                proj.set_projection(*proj_idx, virtual_col_ref);
+                    proj.set_projection(*proj_idx, virtual_col_ref);
 
-                                self.replacements.push(LengthReplacement {
-                                    original_column_binding: bound_col.column_binding.column_index,
-                                    virtual_column_index: *virtual_col_idx,
-                                    virtual_col_name: virtual_col_name.clone(),
-                                    new_expression_binding: position_in_column_ids as u64,
-                                    expression_index: *proj_idx as u64,
-                                });
-                            }
+                    self.replacements.push(LengthReplacement {
+                        original_column_binding: bound_col.column_binding.column_index,
+                        virtual_column_index: *virtual_col_idx,
+                        virtual_col_name: virtual_col_name.clone(),
+                        new_expression_binding: position_in_column_ids as u64,
+                        expression_index: *proj_idx as u64,
+                    });
+                }
             }
 
             // Step 4.5: Fix direct virtual column references
             for (idx, expr) in projection_expressions.iter().enumerate() {
                 if let Some(expr) = expr
-                    && let Some(ExpressionClass::BoundColumnRef(col_ref)) = expr.as_class() {
-                        let col_name_str = col_ref.name.to_string();
-                        if col_name_str.ends_with("$length") {
-                            // This is a direct virtual column reference that needs fixing
-                            if let Some(actual_col_idx) = column_names
-                                .iter()
-                                .position(|n| *n == col_name_str)
-                            {
-                                let position_in_column_ids = column_to_position
-                                    .get(&(actual_col_idx as u64))
-                                    .copied()
-                                    .unwrap_or(0);
+                    && let Some(ExpressionClass::BoundColumnRef(col_ref)) = expr.as_class()
+                {
+                    let col_name_str = col_ref.name.to_string();
+                    if col_name_str.ends_with("$length") {
+                        // This is a direct virtual column reference that needs fixing
+                        if let Some(actual_col_idx) =
+                            column_names.iter().position(|n| *n == col_name_str)
+                        {
+                            let position_in_column_ids = column_to_position
+                                .get(&(actual_col_idx as u64))
+                                .copied()
+                                .unwrap_or(0);
 
-                                // Create corrected virtual column reference
-                                if let Ok(corrected_col_ref) = Expression::create_column_ref(
-                                    &col_name_str,
-                                    ColumnBinding {
-                                        table_index: col_ref.column_binding.table_index,
-                                        column_index: position_in_column_ids as u64,
-                                    },
-                                    0,
-                                ) {
-                                    proj.set_projection(idx, corrected_col_ref);
-                                    trace!(
-                                        "🔍 Fixed virtual column reference {}: {} -> position {}",
-                                        idx, col_name_str, position_in_column_ids
-                                    );
-                                }
+                            // Create corrected virtual column reference
+                            if let Ok(corrected_col_ref) = Expression::create_column_ref(
+                                &col_name_str,
+                                ColumnBinding {
+                                    table_index: col_ref.column_binding.table_index,
+                                    column_index: position_in_column_ids as u64,
+                                },
+                                0,
+                            ) {
+                                proj.set_projection(idx, corrected_col_ref);
+                                trace!(
+                                    "🔍 Fixed virtual column reference {}: {} -> position {}",
+                                    idx, col_name_str, position_in_column_ids
+                                );
                             }
                         }
                     }
+                }
             }
 
             // Step 5: Update column_ids and projection_ids
@@ -489,11 +400,7 @@ impl RustLengthOptimizer {
     }
 
     /// Visit all operators and apply optimizations
-    fn visit_and_optimize(
-        &mut self,
-        op: &LogicalOperator,
-        plan_root: &LogicalOperator,
-    ) -> VortexResult<()> {
+    fn visit_and_optimize(&mut self, op: &LogicalOperator) -> VortexResult<()> {
         trace!("🔍 VISITING: Operator type: {:?}", op.operator_type());
 
         self.visit_node(op);
@@ -501,7 +408,7 @@ impl RustLengthOptimizer {
         // Visit children
         for i in 0..op.children_count() {
             if let Some(child) = op.get_child(i) {
-                self.visit_and_optimize(&child, plan_root)?;
+                self.visit_and_optimize(&child)?;
             }
         }
 

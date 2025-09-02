@@ -357,7 +357,7 @@ impl ColumnExporter for VirtualLengthExporter {
         );
 
         // Convert source array to canonical VarBinView to compute lengths
-        let varbinview = self.source_array.to_canonical()?.into_varbinview()?;
+        let varbinview = self.source_array.to_varbinview();
 
         // Compute string lengths
         for (i, data) in data_slice.iter_mut().enumerate().take(len) {
