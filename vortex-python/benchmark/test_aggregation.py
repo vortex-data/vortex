@@ -2,12 +2,14 @@
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 from typing import Literal
+
 import duckdb
-import vortex as vx
 import pyarrow as pa
-from pyarrow.types import is_integer, is_floating
 import pytest
+from pyarrow.types import is_floating, is_integer
 from pytest_benchmark.fixture import BenchmarkFixture  # pyright: ignore[reportMissingTypeStubs]
+
+import vortex as vx
 
 
 def _has_mean(t: pa.DataType) -> bool:

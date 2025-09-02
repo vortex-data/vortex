@@ -4,8 +4,9 @@
 import duckdb
 import pyarrow as pa
 import pytest
-import vortex as vx
 from pytest_benchmark.fixture import BenchmarkFixture  # pyright: ignore[reportMissingTypeStubs]
+
+import vortex as vx
 
 
 @pytest.mark.benchmark(group="scan", disable_gc=True)

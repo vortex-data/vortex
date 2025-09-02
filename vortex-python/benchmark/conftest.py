@@ -1,12 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-from typing import Any
 import hashlib
 import math
 import os
+
 import pyarrow as pa
 import pytest
+
 import vortex as vx
 
 

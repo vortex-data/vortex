@@ -5,9 +5,10 @@ import duckdb
 import polars as pl
 import pyarrow as pa
 import pytest
+from pytest_benchmark.fixture import BenchmarkFixture  # pyright: ignore[reportMissingTypeStubs]
+
 import vortex as vx
 from vortex.expr import column
-from pytest_benchmark.fixture import BenchmarkFixture  # pyright: ignore[reportMissingTypeStubs]
 
 
 @pytest.mark.benchmark(group="filter", disable_gc=True)
