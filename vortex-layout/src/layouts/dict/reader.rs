@@ -255,7 +255,7 @@ mod tests {
 
     #[tokio::test]
     async fn reading_nested_packs_works() {
-        let strategy = DictStrategy::new(
+        let strategy = DictStrategy::new_with_fallback(
             FlatLayoutStrategy::default(),
             FlatLayoutStrategy::default(),
             FlatLayoutStrategy::default(),
@@ -353,7 +353,7 @@ mod tests {
         #[case] filter_value: &str,
         #[case] expected: Vec<bool>,
     ) {
-        let strategy = DictStrategy::new(
+        let strategy = DictStrategy::new_with_fallback(
             FlatLayoutStrategy::default(),
             FlatLayoutStrategy::default(),
             FlatLayoutStrategy::default(),
@@ -402,7 +402,7 @@ mod tests {
 
     #[tokio::test]
     async fn reading_is_null_works() {
-        let strategy = DictStrategy::new(
+        let strategy = DictStrategy::new_with_fallback(
             FlatLayoutStrategy::default(),
             FlatLayoutStrategy::default(),
             FlatLayoutStrategy::default(),

@@ -59,23 +59,44 @@ pub struct DictStrategy<Codes, Values, Fallback> {
     executor: Arc<dyn TaskExecutor>,
 }
 
-impl<Codes, Values, Fallback> DictStrategy<Codes, Values, Fallback>
+impl<Codes, Values> DictStrategy<Codes, Values, Values>
 where
     Codes: LayoutStrategy,
     Values: LayoutStrategy,
-    Fallback: LayoutStrategy,
 {
     pub fn new(
         codes: Codes,
         values: Values,
-        fallback: Option<Fallback>,
         options: DictLayoutOptions,
         executor: Arc<dyn TaskExecutor>,
     ) -> Self {
         Self {
             codes,
             values,
-            fallback,
+            fallback: None,
+            options,
+            executor,
+        }
+    }
+}
+
+impl<Codes, Values, Fallback> DictStrategy<Codes, Values, Fallback>
+where
+    Codes: LayoutStrategy,
+    Values: LayoutStrategy,
+    Fallback: LayoutStrategy,
+{
+    pub fn new_with_fallback(
+        codes: Codes,
+        values: Values,
+        fallback: Fallback,
+        options: DictLayoutOptions,
+        executor: Arc<dyn TaskExecutor>,
+    ) -> Self {
+        Self {
+            codes,
+            values,
+            fallback: Some(fallback),
             options,
             executor,
         }

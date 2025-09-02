@@ -222,7 +222,6 @@ impl WriteStrategyBuilder {
             strategy = Box::new(DictStrategy::new(
                 strategy,
                 values_strategy,
-                None::<Box<dyn LayoutStrategy>>,
                 Default::default(),
                 executor.clone(),
             ));
