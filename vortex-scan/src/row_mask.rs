@@ -16,16 +16,19 @@ pub(crate) struct RowMask {
 }
 
 impl RowMask {
+    #[inline]
     pub fn new(row_offset: u64, mask: Mask) -> Self {
         Self { row_offset, mask }
     }
 
+    #[inline]
     /// The row range of the [`RowMask`].
     pub fn row_range(&self) -> Range<u64> {
         self.row_offset..self.row_offset + self.mask.len() as u64
     }
 
     /// The mask of the [`RowMask`].
+    #[inline]
     pub fn mask(&self) -> &Mask {
         &self.mask
     }

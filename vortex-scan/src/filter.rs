@@ -52,16 +52,19 @@ impl FilterExpr {
     }
 
     /// The conjuncts that make up this filter expression.
+    #[inline]
     pub fn conjuncts(&self) -> &[ExprRef] {
         &self.conjuncts
     }
 
     /// The dynamic updates for the given conjunct, if any.
+    #[inline]
     pub fn dynamic_updates(&self, conjunct_idx: usize) -> Option<&DynamicExprUpdates> {
         self.dynamic_conjuncts[conjunct_idx].as_ref()
     }
 
     /// Returns the next preferred conjunct to evaluate.
+    #[inline]
     pub fn next_conjunct(&self, remaining: &BitVec) -> Option<usize> {
         let read = self.ordering.read();
         // Take the first remaining conjunct in the ordered list.

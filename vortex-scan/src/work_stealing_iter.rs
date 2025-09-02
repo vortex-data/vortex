@@ -73,6 +73,7 @@ impl Clone for WorkStealingArrayIterator {
 }
 
 impl ArrayIterator for WorkStealingArrayIterator {
+    #[inline]
     fn dtype(&self) -> &DType {
         &self.dtype
     }
@@ -81,6 +82,7 @@ impl ArrayIterator for WorkStealingArrayIterator {
 impl Iterator for WorkStealingArrayIterator {
     type Item = VortexResult<ArrayRef>;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         futures::executor::block_on(self.stream.next())
     }

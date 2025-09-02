@@ -57,6 +57,7 @@ impl<T> Clone for MultiScanIterator<T> {
 impl<T: Send + Sync + 'static> Iterator for MultiScanIterator<T> {
     type Item = VortexResult<T>;
 
+    #[inline]
     fn next(&mut self) -> Option<VortexResult<T>> {
         loop {
             match self.inner.next()? {
