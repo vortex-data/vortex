@@ -25,8 +25,8 @@ use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::layouts::partitioned::{PartitionedArrayEvaluation, PartitionedMaskEvaluation};
 use crate::{
-    ArrayEvaluation, LayoutReader, MaskEvaluation, NoOpMaskEvaluation, NoOpPruningEvaluation,
-    PruningEvaluation,
+    ArrayEvaluation, LayoutReader, MaskEvaluation, MaskFuture, NoOpMaskEvaluation,
+    NoOpPruningEvaluation, PruningEvaluation,
 };
 
 pub struct RowIdxLayoutReader {
@@ -248,7 +248,7 @@ impl PruningEvaluation for RowIdxEvaluation {
 
 #[async_trait]
 impl MaskEvaluation for RowIdxEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+    async fn invoke(&self, mask: MaskFuture) -> VortexResult<Mask> {
         // TODO(ngates): we could optimize this if the mask was already quite sparse.
         // TODO(joe): fixme casting null to false is *VERY* unsound, see `FlatEvaluation` for more details.
         let result = self
@@ -258,14 +258,14 @@ impl MaskEvaluation for RowIdxEvaluation {
 
         // Note that mask evaluation requires an intersection with the input mask, whereas
         // pruning evaluation does not.
-        Ok(result.bitand(&mask))
+        Ok(result.bitand(&mask.await?))
     }
 }
 
 #[async_trait]
 impl ArrayEvaluation for RowIdxEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
-        let array = filter(&self.array, &mask)?;
+    async fn invoke(&self, mask: MaskFuture) -> VortexResult<ArrayRef> {
+        let array = filter(&self.array, &mask.await?)?;
         self.expr.evaluate(&Scope::new(array))
     }
 }
@@ -281,13 +281,14 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::{ArrayContext, ToCanonical};
     use vortex_expr::{eq, gt, lit, or, root};
-    use vortex_mask::Mask;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::row_idx::{RowIdxLayoutReader, row_idx};
     use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
-    use crate::{LayoutReader, LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt};
+    use crate::{
+        LayoutReader, LayoutStrategy, MaskFuture, SequentialStreamAdapter, SequentialStreamExt,
+    };
 
     #[test]
     fn flat_expr_no_row_id() {
@@ -316,7 +317,7 @@ mod tests {
                 RowIdxLayoutReader::new(0, layout.new_reader("".into(), segments).unwrap())
                     .projection_evaluation(&(0..layout.row_count()), &expr)
                     .unwrap()
-                    .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
+                    .invoke(MaskFuture::new_true(layout.row_count().try_into().unwrap()))
                     .await
                     .unwrap()
                     .to_bool();
@@ -355,7 +356,7 @@ mod tests {
                 RowIdxLayoutReader::new(0, layout.new_reader("".into(), segments).unwrap())
                     .projection_evaluation(&(0..layout.row_count()), &expr)
                     .unwrap()
-                    .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
+                    .invoke(MaskFuture::new_true(layout.row_count().try_into().unwrap()))
                     .await
                     .unwrap()
                     .to_bool();
@@ -398,7 +399,7 @@ mod tests {
                 RowIdxLayoutReader::new(0, layout.new_reader("".into(), segments).unwrap())
                     .projection_evaluation(&(0..layout.row_count()), &expr)
                     .unwrap()
-                    .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
+                    .invoke(MaskFuture::new_true(layout.row_count().try_into().unwrap()))
                     .await
                     .unwrap()
                     .to_bool();

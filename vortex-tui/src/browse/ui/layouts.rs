@@ -11,9 +11,9 @@ use ratatui::widgets::{
 };
 use vortex::error::VortexExpect;
 use vortex::expr::root;
+use vortex::layout::MaskFuture;
 use vortex::layout::layouts::flat::FlatVTable;
 use vortex::layout::layouts::zoned::ZonedVTable;
-use vortex::mask::Mask;
 use vortex::{Array, ArrayRef, ToCanonical};
 
 use crate::TOKIO_RUNTIME;
@@ -102,7 +102,7 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
             reader
                 .projection_evaluation(&(0..row_count), &root())
                 .vortex_expect("Failed to construct projection")
-                .invoke(Mask::new_true(
+                .invoke(MaskFuture::new_true(
                     usize::try_from(row_count).vortex_expect("row_count overflowed usize"),
                 )),
         )
