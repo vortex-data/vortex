@@ -8,7 +8,7 @@ use arrow_buffer::BooleanBuffer;
 use log::info;
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{NativePType, PType, match_each_native_ptype};
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
 use crate::arrays::{PrimitiveArray, PrimitiveVTable};
@@ -27,11 +27,7 @@ impl PipelineVTable<PrimitiveVTable> for PrimitiveVTable {
         Ok(Some(Arc::new(PrimitiveOperator::new(
             array.ptype(),
             array.byte_buffer().clone(),
-            if array.dtype().is_nullable() {
-                Some(array.validity_mask())
-            } else {
-                None
-            },
+            array.dtype().is_nullable().then(|| array.validity_mask()),
         ))))
     }
 }
@@ -172,7 +168,7 @@ impl<T: Element + NativePType> Kernel for NullablePrimitiveKernel<T> {
             let usize_slice = unsafe {
                 std::slice::from_raw_parts(
                     usize_ptr,
-                    remaining.div_ceil(usize::BITS.try_into().unwrap()),
+                    remaining.div_ceil(usize::BITS.try_into().vortex_expect("does fit")),
                 )
             };
 
@@ -290,8 +286,7 @@ mod tests {
         let mask = Mask::AllTrue(size);
         let out = export_canonical_pipeline(primitive_array.dtype(), size, &mut kernel, &mask)
             .unwrap()
-            .into_primitive()
-            .unwrap();
+            .into_primitive();
 
         let output = out.as_slice::<i32>();
         println!("out val {:?}", out.validity.to_mask(size).true_count());
