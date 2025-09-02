@@ -405,7 +405,7 @@ mod tests {
         .unwrap()
         .to_list();
 
-        let actual = builder.finish().to_list();
+        let actual = builder.to_canonical().into_list();
 
         assert_eq!(
             actual.elements().to_primitive().as_slice::<i32>(),

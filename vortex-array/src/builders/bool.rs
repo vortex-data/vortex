@@ -164,8 +164,8 @@ mod tests {
 
         let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
         chunk.clone().append_to_builder(builder.as_mut());
-        let canon_into = builder.finish().to_bool();
 
+        let canon_into = builder.finish().to_bool();
         let into_canon = chunk.to_bool();
 
         assert_eq!(canon_into.validity(), into_canon.validity());

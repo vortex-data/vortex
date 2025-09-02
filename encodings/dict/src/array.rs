@@ -329,7 +329,7 @@ mod test {
         array.clone().append_to_builder(builder.as_mut());
 
         let into_prim = array.to_primitive();
-        let prim_into = builder.finish().to_primitive();
+        let prim_into = builder.to_canonical().into_primitive();
 
         assert_eq!(into_prim.as_slice::<u64>(), prim_into.as_slice::<u64>());
         assert_eq!(

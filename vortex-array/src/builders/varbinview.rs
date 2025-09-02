@@ -388,7 +388,6 @@ mod tests {
     use itertools::Itertools;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::ToCanonical;
     use crate::accessor::ArrayAccessor;
     use crate::arrays::VarBinViewVTable;
     use crate::builders::{ArrayBuilder, VarBinViewBuilder};
@@ -447,7 +446,7 @@ mod tests {
         builder.append_nulls(2);
         builder.append_value("Hello3");
 
-        let arr = builder.finish().to_varbinview();
+        let arr = builder.to_canonical().into_varbinview();
 
         let arr = arr
             .with_iterator(|iter| {
