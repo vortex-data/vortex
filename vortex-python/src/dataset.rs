@@ -192,7 +192,12 @@ impl PyVortexDataset {
     /// The natural splits of this Dataset.
     #[pyo3(signature = (*))]
     pub fn splits(&self) -> VortexResult<Vec<(u64, u64)>> {
-        self.vxf.splits()
+        Ok(self
+            .vxf
+            .splits()?
+            .into_iter()
+            .map(|x| (x.start, x.end))
+            .collect())
     }
 }
 
