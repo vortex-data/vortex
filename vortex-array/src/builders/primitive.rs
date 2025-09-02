@@ -65,6 +65,11 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     /// All reads/writes through the handle to the values buffer or the validity buffer will operate
     /// on indices relative to the start of the range.
     ///
+    /// # Panics
+    ///
+    /// Panics if `len` is 0 or if the current length of the builder plus `len` would exceed the
+    /// capacity of the builder's memory.
+    ///
     /// ## Example
     ///
     /// ```
@@ -80,7 +85,8 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     /// let mut uninit_range = builder.uninit_range(5);
     /// uninit_range.copy_from_slice(0, &[0, 1, 2, 3, 4]);
     ///
-    /// // SAFETY: We have initialized all 5 values in the range.
+    /// // SAFETY: We have initialized all 5 values in the range, and since the array builder is
+    /// // non-nullable, we don't need to set any null bits.
     /// unsafe { uninit_range.finish(); }
     ///
     /// let built = builder.finish_into_primitive();
@@ -176,17 +182,27 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
 
 /// A range of uninitialized values in the primitive builder that can be filled.
 pub struct UninitRange<'a, T> {
+    /// The length of the uninitialized range.
+    ///
+    /// This is guaranteed to be within the memory capacity of the builder.
     len: usize,
+
+    /// A mutable reference to the builder.
+    ///
+    /// Since this is a mutable reference, we can guarantee that nothing else can modify the builder
+    /// while this `UninitRange` exists.
     builder: &'a mut PrimitiveBuilder<T>,
 }
 
 impl<T> UninitRange<'_, T> {
     /// Returns the length of this uninitialized range.
+    #[inline]
     pub fn len(&self) -> usize {
         self.len
     }
 
     /// Returns true if this range has zero length.
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
@@ -196,6 +212,7 @@ impl<T> UninitRange<'_, T> {
     /// # Panics
     ///
     /// Panics if the index is out of bounds.
+    #[inline]
     pub fn set_value(&mut self, index: usize, value: T) {
         assert!(index < self.len, "index out of bounds");
         let spare = self.builder.values.spare_capacity_mut();
