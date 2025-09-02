@@ -366,14 +366,14 @@ impl TableFunction for VortexTableFunction {
                         Ok(Some(scan_stream))
                     })
                 })
-                .buffer_unordered(100000)
+                .buffer_unordered(num_workers * 8)
                 .filter_map(|result| async move { result.transpose() });
 
             MultiScan {
                 streams: scan_streams.boxed(),
                 streams_finished: false,
                 select_all: Default::default(),
-                concurrency: 100000,
+                max_concurrency: num_workers * 8,
             }
             .boxed()
         });
@@ -456,8 +456,8 @@ struct MultiScan<'rt, T> {
     streams_finished: bool,
     // The SelectAll used to drive the inner streams.
     select_all: SelectAll<BoxStream<'rt, VortexResult<T>>>,
-    // The target number of streams to be driving concurrently.
-    concurrency: usize,
+    // The maximum number of streams to be driving concurrently.
+    max_concurrency: usize,
 }
 
 impl<'rt, T: 'rt> Stream for MultiScan<'rt, T> {
@@ -478,8 +478,10 @@ impl<'rt, T: 'rt> Stream for MultiScan<'rt, T> {
                 Some(result) => return Poll::Ready(Some(result)),
             }
 
-            // First, try to fill up the SelectAll to reach the target concurrency
-            if this.select_all.len() < this.concurrency {
+            // If all current streams returned `Poll::Pending`, then we try to fetch the next
+            // stream to drive. The idea here is to ensure our executors are always busy with
+            // CPU work by driving as many streams necessary to keep the I/O queues full.
+            if this.select_all.len() < this.max_concurrency {
                 match Pin::new(&mut this.streams).poll_next(cx) {
                     Poll::Ready(Some(Ok(stream))) => {
                         // Add the new stream to SelectAll

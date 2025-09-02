@@ -69,7 +69,7 @@ impl VortexOpenOptions<GenericVortexFile> {
         self
     }
 
-    /// Open a Vortex file using the provided [`std::path::Path`].
+    /// Open a Vortex file using the provided [`Path`].
     pub fn open<'rt, P: AsRef<Path>>(
         self,
         path: P,
@@ -80,8 +80,6 @@ impl VortexOpenOptions<GenericVortexFile> {
         async move { self.open_source(source?, handle).await }
     }
 
-    /// Low-level API for opening any [`VortexReadAt`]. Note that the user is responsible for
-    /// ensuring the `VortexReadAt` implementation is compatible with the chosen I/O dispatcher.
     pub(crate) async fn open_source<'rt, S: IoSource>(
         self,
         source: S,
@@ -113,32 +111,6 @@ impl VortexOpenOptions<GenericVortexFile> {
         let segment_source = Arc::new(SegmentCacheSourceAdapter::new(segment_cache, events_source));
 
         // let read = InstrumentedReadAt::new(read.clone(), &self.metrics);
-
-        let _driver = CoalescedDriver::new(
-            // read.performance_hint(),
-            PerformanceHint::local(),
-            footer.segment_map().clone(),
-            events,
-            self.metrics.clone(),
-        );
-
-        // // Spawn an I/O driver onto the dispatcher.
-        // let io_concurrency = self.options.io_concurrency;
-        // self.options
-        //     .io_dispatcher
-        //     .dispatch(move || {
-        //         async move {
-        //             // Drive the segment event stream.
-        //             let stream = driver
-        //                 .map(|coalesced_req| coalesced_req.launch(&read))
-        //                 .buffer_unordered(io_concurrency);
-        //             pin_mut!(stream);
-        //
-        //             // Drive the stream to completion.
-        //             stream.collect::<()>().await
-        //         }
-        //     })
-        //     .vortex_expect("Failed to spawn I/O driver");
 
         Ok(VortexFile {
             footer,

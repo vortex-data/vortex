@@ -8,6 +8,7 @@ use vortex_error::vortex_err;
 use vortex_io::runtime::FileIo;
 use vortex_layout::segments::{SegmentFuture, SegmentId, SegmentSource};
 
+/// A segment source that reads segments from a file using the footer's segment map.
 pub struct FileSegmentSource<'rt> {
     segment_map: Arc<[SegmentSpec]>,
     file: FileIo<'rt>,
@@ -24,28 +25,13 @@ impl<'rt> SegmentSource<'rt> for FileSegmentSource<'rt> {
         let segment_map = self.segment_map.clone();
         let file = self.file.clone();
 
-        // Eagerly submit the I/O request, we can cancel later if needed.
+        // Eagerly submit the I/O request, we if the SegmentFuture is dropped, this read may
+        // be canceled before it's even initiated.
         let spec = segment_map
             .get(*id as usize)
             .ok_or_else(|| vortex_err!("Segment {} not found", id))
             .map(|spec| file.read(spec.offset, spec.length as usize, spec.alignment));
 
-        async move {
-            let resp = spec?;
-            resp.await
-        }
-        .boxed()
-
-        // FIXME(ngates): this version defers submitting the read request.
-        // async move {
-        //     let spec = segment_map
-        //         .get(*id as usize)
-        //         .ok_or_else(|| vortex_err!("Segment {} not found", id))?;
-        //     let resp = file
-        //         .read(spec.offset, spec.length as usize, spec.alignment)
-        //         .await;
-        //     resp
-        // }
-        // .boxed()
+        async move { spec?.await }.boxed()
     }
 }
