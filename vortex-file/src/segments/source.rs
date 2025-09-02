@@ -28,7 +28,7 @@ impl<'rt> SegmentSource<'rt> for FileSegmentSource<'rt> {
             .ok_or_else(|| vortex_err!("Segment {} not found", id))?;
 
         let file = self.file.clone();
-        Ok(SegmentFuture::new(spec.length as u64, async move {
+        Ok(SegmentFuture::new(spec.length as usize, async move {
             file.read(spec.offset, spec.length as usize, spec.alignment)
                 .await
         }))

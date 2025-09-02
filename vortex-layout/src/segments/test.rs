@@ -23,9 +23,7 @@ impl SegmentSource<'_> for TestSegments {
             .get(*id as usize)
             .cloned()
             .ok_or_else(|| vortex_err!("Segment {} not found", id))?;
-        Ok(SegmentFuture::new(buffer.len() as u64, async move {
-            Ok(buffer)
-        }))
+        Ok(SegmentFuture::new(buffer.len(), async move { Ok(buffer) }))
     }
 }
 
