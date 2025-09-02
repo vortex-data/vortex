@@ -180,7 +180,7 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         self.finish_into_primitive().into_array()
     }
 
-    fn to_canonical(&mut self) -> Canonical {
+    fn finish_into_canonical(&mut self) -> Canonical {
         Canonical::Primitive(self.finish_into_primitive())
     }
 }

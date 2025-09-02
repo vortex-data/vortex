@@ -238,7 +238,7 @@ impl ArrayBuilder for FixedSizeListBuilder {
         self.finish_into_fixed_size_list().into_array()
     }
 
-    fn to_canonical(&mut self) -> Canonical {
+    fn finish_into_canonical(&mut self) -> Canonical {
         Canonical::FixedSizeList(self.finish_into_fixed_size_list())
     }
 }

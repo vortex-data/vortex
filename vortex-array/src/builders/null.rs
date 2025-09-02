@@ -67,7 +67,7 @@ impl ArrayBuilder for NullBuilder {
         NullArray::new(self.length).into_array()
     }
 
-    fn to_canonical(&mut self) -> Canonical {
+    fn finish_into_canonical(&mut self) -> Canonical {
         Canonical::Null(NullArray::new(self.length))
     }
 }

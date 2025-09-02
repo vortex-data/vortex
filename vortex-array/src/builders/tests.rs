@@ -236,7 +236,7 @@ where
     fill_builder(builder2.as_mut());
 
     // Get canonical arrays using both methods.
-    let canonical_direct = builder1.to_canonical();
+    let canonical_direct = builder1.finish_into_canonical();
     let canonical_indirect = builder2.finish().to_canonical();
 
     // Convert both to arrays for comparison.
@@ -413,7 +413,7 @@ fn test_to_canonical_decimal() {
 fn test_to_canonical_i8() {
     let dtype = DType::Primitive(PType::I8, Nullability::NonNullable);
     compare_to_canonical_methods(&dtype, |builder| {
-        for i in 0..5 {
+        for i in 0..5i8 {
             let value = Scalar::primitive(i, Nullability::NonNullable);
             builder.append_scalar(&value).unwrap();
         }

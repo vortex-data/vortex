@@ -115,7 +115,7 @@ impl ArrayBuilder for ExtensionBuilder {
         self.finish_into_extension().into_array()
     }
 
-    fn to_canonical(&mut self) -> Canonical {
+    fn finish_into_canonical(&mut self) -> Canonical {
         Canonical::Extension(self.finish_into_extension())
     }
 }

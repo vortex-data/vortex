@@ -166,7 +166,7 @@ mod tests {
         chunked_arr.append_to_builder(&mut builder);
 
         {
-            let arr = builder.to_canonical().into_varbinview();
+            let arr = builder.finish_into_canonical().into_varbinview();
             let res1 = arr
                 .with_iterator(|iter| iter.map(|b| b.map(|v| v.to_vec())).collect::<Vec<_>>())
                 .unwrap();

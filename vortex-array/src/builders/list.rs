@@ -255,7 +255,7 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
         self.finish_into_list().into_array()
     }
 
-    fn to_canonical(&mut self) -> Canonical {
+    fn finish_into_canonical(&mut self) -> Canonical {
         Canonical::List(self.finish_into_list())
     }
 }
@@ -405,7 +405,7 @@ mod tests {
         .unwrap()
         .to_list();
 
-        let actual = builder.to_canonical().into_list();
+        let actual = builder.finish_into_canonical().into_list();
 
         assert_eq!(
             actual.elements().to_primitive().as_slice::<i32>(),

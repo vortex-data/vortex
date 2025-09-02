@@ -275,7 +275,7 @@ pub trait ArrayBuilder: Send {
     /// This method provides a default implementation that creates an [`ArrayRef`] via `finish` and
     /// then converts it to canonical form. Specific builders can override this with optimized
     /// implementations that avoid the intermediate [`Array`] creation.
-    fn to_canonical(&mut self) -> Canonical {
+    fn finish_into_canonical(&mut self) -> Canonical {
         self.finish().to_canonical()
     }
 }

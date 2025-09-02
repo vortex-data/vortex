@@ -201,7 +201,7 @@ impl ArrayBuilder for DecimalBuilder {
         self.finish_into_decimal().into_array()
     }
 
-    fn to_canonical(&mut self) -> Canonical {
+    fn finish_into_canonical(&mut self) -> Canonical {
         Canonical::Decimal(self.finish_into_decimal())
     }
 }

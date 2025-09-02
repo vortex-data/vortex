@@ -257,7 +257,7 @@ impl ArrayBuilder for VarBinViewBuilder {
         self.finish_into_varbinview().into_array()
     }
 
-    fn to_canonical(&mut self) -> Canonical {
+    fn finish_into_canonical(&mut self) -> Canonical {
         Canonical::VarBinView(self.finish_into_varbinview())
     }
 }
@@ -446,7 +446,7 @@ mod tests {
         builder.append_nulls(2);
         builder.append_value("Hello3");
 
-        let arr = builder.to_canonical().into_varbinview();
+        let arr = builder.finish_into_canonical().into_varbinview();
 
         let arr = arr
             .with_iterator(|iter| {
