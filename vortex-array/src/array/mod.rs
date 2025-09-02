@@ -158,62 +158,77 @@ pub trait Array: 'static + private::Sealed + Send + Sync + Debug + ArrayVisitor 
 }
 
 impl Array for Arc<dyn Array> {
+    #[inline]
     fn as_any(&self) -> &dyn Any {
         self.as_ref().as_any()
     }
 
+    #[inline]
     fn to_array(&self) -> ArrayRef {
         self.clone()
     }
 
+    #[inline]
     fn len(&self) -> usize {
         self.as_ref().len()
     }
 
+    #[inline]
     fn dtype(&self) -> &DType {
         self.as_ref().dtype()
     }
 
+    #[inline]
     fn encoding(&self) -> EncodingRef {
         self.as_ref().encoding()
     }
 
+    #[inline]
     fn encoding_id(&self) -> EncodingId {
         self.as_ref().encoding_id()
     }
 
+    #[inline]
     fn slice(&self, range: Range<usize>) -> ArrayRef {
         self.as_ref().slice(range)
     }
 
+    #[inline]
     fn scalar_at(&self, index: usize) -> Scalar {
         self.as_ref().scalar_at(index)
     }
 
+    #[inline]
     fn is_valid(&self, index: usize) -> bool {
         self.as_ref().is_valid(index)
     }
 
+    #[inline]
     fn is_invalid(&self, index: usize) -> bool {
         self.as_ref().is_invalid(index)
     }
 
+    #[inline]
     fn all_valid(&self) -> bool {
         self.as_ref().all_valid()
     }
 
+    #[inline]
     fn all_invalid(&self) -> bool {
         self.as_ref().all_invalid()
     }
 
+    #[inline]
     fn valid_count(&self) -> usize {
         self.as_ref().valid_count()
     }
 
+    #[inline]
     fn invalid_count(&self) -> usize {
         self.as_ref().invalid_count()
     }
 
+    #[inline]
     fn validity_mask(&self) -> Mask {
         self.as_ref().validity_mask()
     }
