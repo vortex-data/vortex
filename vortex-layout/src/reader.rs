@@ -6,18 +6,17 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::FutureExt;
-use futures::future::{BoxFuture, Shared};
 use once_cell::sync::OnceCell;
-use vortex_array::ArrayRef;
 use vortex_array::stats::Precision;
+use vortex_array::ArrayRef;
 use vortex_dtype::{DType, FieldMask};
-use vortex_error::{SharedVortexResult, VortexError, VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
 use crate::children::LayoutChildren;
 use crate::segments::SegmentSource;
+use crate::MaskFuture;
 
 pub type LayoutReaderRef = Arc<dyn LayoutReader>;
 
@@ -65,15 +64,6 @@ pub trait LayoutReader: 'static + Send + Sync {
     ) -> VortexResult<Box<dyn ArrayEvaluation>>;
 }
 
-pub type MaskFuture = Shared<BoxFuture<'static, SharedVortexResult<Mask>>>;
-
-/// Create a resolved [`MaskFuture`] from a [`Mask`].
-pub fn mask_future_ready(mask: Mask) -> MaskFuture {
-    async move { Ok::<_, Arc<VortexError>>(mask) }
-        .boxed()
-        .shared()
-}
-
 /// Returns a mask where all false values are proven to be false in the given expression.
 ///
 /// The returned mask **does not** need to have been intersected with the input mask.
@@ -98,15 +88,15 @@ impl PruningEvaluation for NoOpPruningEvaluation {
 /// The returned mask **MUST** have been intersected with the input mask.
 #[async_trait]
 pub trait MaskEvaluation: 'static + Send + Sync {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask>;
+    async fn invoke(&self, mask: MaskFuture) -> VortexResult<Mask>;
 }
 
 pub struct NoOpMaskEvaluation;
 
 #[async_trait]
 impl MaskEvaluation for NoOpMaskEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
-        Ok(mask)
+    async fn invoke(&self, mask: MaskFuture) -> VortexResult<Mask> {
+        mask.await
     }
 }
 
@@ -114,7 +104,7 @@ impl MaskEvaluation for NoOpMaskEvaluation {
 /// of the input mask.
 #[async_trait]
 pub trait ArrayEvaluation: 'static + Send + Sync {
-    async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef>;
+    async fn invoke(&self, mask: MaskFuture) -> VortexResult<ArrayRef>;
 }
 
 pub struct LazyReaderChildren {

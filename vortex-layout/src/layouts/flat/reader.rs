@@ -6,24 +6,25 @@ use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::FutureExt;
+use futures::{FutureExt, TryFutureExt};
 use vortex_array::compute::filter;
 use vortex_array::pipeline::{
-    N, export_canonical_pipeline_expr, export_canonical_pipeline_expr_offset,
+    export_canonical_pipeline_expr, export_canonical_pipeline_expr_offset, N,
 };
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
-use vortex_array::{Array, ArrayRef, IntoArray};
+use vortex_array::{Array, ArrayRef, Canonical, IntoArray};
 use vortex_dtype::{DType, FieldMask, Nullability};
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
-use vortex_expr::{ExprRef, Scope, VortexExprExt, is_root};
+use vortex_error::{VortexError, VortexExpect, VortexResult, VortexUnwrap as _};
+use vortex_expr::{is_root, ExprRef, Scope, VortexExprExt};
 use vortex_mask::Mask;
 
-use crate::layouts::SharedArrayFuture;
 use crate::layouts::flat::FlatLayout;
+use crate::layouts::SharedArrayFuture;
 use crate::segments::SegmentSource;
 use crate::{
-    ArrayEvaluation, LayoutReader, MaskEvaluation, NoOpPruningEvaluation, PruningEvaluation,
+    ArrayEvaluation, LayoutReader, MaskEvaluation, MaskFuture, NoOpPruningEvaluation,
+    PruningEvaluation,
 };
 
 /// The threshold of mask density below which we will evaluate the expression only over the
@@ -120,6 +121,7 @@ impl LayoutReader for FlatReader {
             array: self.array_future(),
             row_range,
             expr: expr.clone(),
+            dtype: self.layout.dtype().clone(),
         }))
     }
 
@@ -137,6 +139,7 @@ impl LayoutReader for FlatReader {
             array: self.array_future(),
             row_range,
             expr: expr.clone(),
+            dtype: self.layout.dtype().clone(),
         }))
     }
 }
@@ -146,17 +149,22 @@ struct FlatEvaluation {
     array: SharedArrayFuture,
     row_range: Range<usize>,
     expr: ExprRef,
+    dtype: DType,
 }
 
 #[async_trait]
 impl MaskEvaluation for FlatEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+    async fn invoke(&self, mask: MaskFuture) -> VortexResult<Mask> {
         // TODO(ngates): if the mask density is low enough, or if the mask is dense within a range
         //  (as often happens with zone map pruning), then we could slice/filter the array prior
         //  to evaluating the expression.
 
-        // Now we await the array .
-        let mut array = self.array.clone().await?;
+        let Some((mut array, mask)) = mask
+            .race(self.array.clone().map_err(VortexError::from))
+            .await?
+        else {
+            return Ok(Mask::new_false(mask.len()));
+        };
 
         if let Some(array) =
             try_evaluate_using_operator(self.row_range.clone(), &array, &self.expr, &mask)?
@@ -208,16 +216,15 @@ impl MaskEvaluation for FlatEvaluation {
 
 #[async_trait]
 impl ArrayEvaluation for FlatEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
-        log::debug!(
-            "Flat array evaluation {} - {} (mask = {})",
-            self.name,
-            self.expr,
-            mask.density(),
-        );
+    async fn invoke(&self, mask: MaskFuture) -> VortexResult<ArrayRef> {
+        log::debug!("Flat array evaluation {} - {}", self.name, self.expr,);
 
-        // Now we await the array .
-        let mut array = self.array.clone().await?;
+        let Some((mut array, mask)) = mask
+            .race(self.array.clone().map_err(VortexError::from))
+            .await?
+        else {
+            return Ok(Canonical::empty(&self.dtype).into_array());
+        };
 
         if let Some(array) =
             try_evaluate_using_operator(self.row_range.clone(), &array, &self.expr, &mask)?
@@ -305,12 +312,11 @@ mod test {
     use vortex_array::{ArrayContext, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_expr::{gt, lit, root};
-    use vortex_mask::Mask;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
-    use crate::{LayoutStrategy as _, SequentialStreamAdapter, SequentialStreamExt};
+    use crate::{LayoutStrategy as _, MaskFuture, SequentialStreamAdapter, SequentialStreamExt};
 
     #[test]
     fn flat_identity() {
@@ -339,7 +345,7 @@ mod test {
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()
-                .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
+                .invoke(MaskFuture::new_true(layout.row_count().try_into().unwrap()))
                 .await
                 .unwrap()
                 .to_primitive();
@@ -379,7 +385,7 @@ mod test {
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &expr)
                 .unwrap()
-                .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
+                .invoke(MaskFuture::new_true(layout.row_count().try_into().unwrap()))
                 .await
                 .unwrap()
                 .to_bool();
@@ -418,7 +424,7 @@ mod test {
                 .unwrap()
                 .projection_evaluation(&(2..4), &root())
                 .unwrap()
-                .invoke(Mask::new_true(2))
+                .invoke(MaskFuture::new_true(2))
                 .await
                 .unwrap()
                 .to_primitive();

@@ -7,7 +7,7 @@ use vortex_array::serde::SerializeOptions;
 use vortex_array::stats::{Precision, Stat, StatsProvider};
 use vortex_array::{Array, ArrayContext};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::{BinaryScalar, Utf8Scalar};
 
 use crate::layouts::flat::FlatLayout;
@@ -147,13 +147,14 @@ mod tests {
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
     use vortex_error::VortexUnwrap;
     use vortex_expr::root;
-    use vortex_mask::{AllOr, Mask};
+    use vortex_mask::AllOr;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
     use crate::{
-        LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter, SequentialStreamExt as _,
+        LayoutStrategy, MaskFuture, SendableSequentialStream, SequentialStreamAdapter,
+        SequentialStreamExt as _,
     };
 
     fn stream_only(array: ArrayRef) -> SendableSequentialStream {
@@ -185,7 +186,7 @@ mod tests {
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()
-                .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
+                .invoke(MaskFuture::new_true(layout.row_count().try_into().unwrap()))
                 .await
                 .unwrap();
 
@@ -226,7 +227,7 @@ mod tests {
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()
-                .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
+                .invoke(MaskFuture::new_true(layout.row_count().try_into().unwrap()))
                 .await
                 .unwrap();
 
@@ -286,7 +287,7 @@ mod tests {
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()
-                .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
+                .invoke(MaskFuture::new_true(layout.row_count().try_into().unwrap()))
                 .await
                 .unwrap();
 

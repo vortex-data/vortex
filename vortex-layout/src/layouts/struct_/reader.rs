@@ -8,12 +8,12 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_expr::transform::immediate_access::annotate_scope_access;
 use vortex_expr::transform::{
-    PartitionedExpr, partition, replace, replace_root_fields, simplify_typed,
+    partition, replace, replace_root_fields, simplify_typed, PartitionedExpr,
 };
-use vortex_expr::{ExactExpr, ExprRef, col, root};
+use vortex_expr::{col, root, ExactExpr, ExprRef};
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -264,7 +264,9 @@ mod tests {
     use crate::layouts::struct_::writer::StructStrategy;
     use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
-    use crate::{LayoutRef, LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt as _};
+    use crate::{
+        LayoutRef, LayoutStrategy, MaskFuture, SequentialStreamAdapter, SequentialStreamExt as _,
+    };
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
@@ -322,7 +324,7 @@ mod tests {
             reader
                 .filter_evaluation(&(0..3), &filt)
                 .unwrap()
-                .invoke(Mask::new_true(3)),
+                .invoke(MaskFuture::new_true(3)),
         )
         .unwrap();
         assert_eq!(
@@ -341,7 +343,7 @@ mod tests {
             reader
                 .projection_evaluation(&(0..3), &expr)
                 .unwrap()
-                .invoke(Mask::new_true(3)),
+                .invoke(MaskFuture::new_true(3)),
         )
         .unwrap();
         assert_eq!(
@@ -360,7 +362,7 @@ mod tests {
             reader
                 .projection_evaluation(&(0..3), &expr)
                 .unwrap()
-                .invoke(Mask::from_iter([true, true, false])),
+                .invoke(MaskFuture::ready(Mask::from_iter([true, true, false]))),
         )
         .unwrap();
 
@@ -386,7 +388,7 @@ mod tests {
                 .projection_evaluation(&(0..3), &expr)
                 .unwrap()
                 // Take rows 0 and 1, skip row 2, and anything after that
-                .invoke(Mask::from_iter([true, true, false])),
+                .invoke(MaskFuture::ready(Mask::from_iter([true, true, false]))),
         )
         .unwrap();
 

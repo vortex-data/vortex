@@ -11,20 +11,20 @@ use futures::future::{BoxFuture, Shared};
 use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
 use parking_lot::RwLock;
-use vortex_array::ToCanonical;
 use vortex_array::stats::Precision;
+use vortex_array::ToCanonical;
 use vortex_dtype::{DType, FieldMask, FieldPath, FieldPathSet};
 use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
 use vortex_expr::dynamic::DynamicExprUpdates;
 use vortex_expr::pruning::checked_pruning_expr;
-use vortex_expr::{ExprRef, root};
+use vortex_expr::{root, ExprRef};
 use vortex_mask::Mask;
 use vortex_utils::aliases::dash_map::DashMap;
 
-use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::ZoneMap;
+use crate::layouts::zoned::ZonedLayout;
 use crate::segments::SegmentSource;
-use crate::{ArrayEvaluation, LayoutReader, MaskEvaluation, PruningEvaluation};
+use crate::{ArrayEvaluation, LayoutReader, MaskEvaluation, MaskFuture, PruningEvaluation};
 
 type SharedZoneMap = Shared<BoxFuture<'static, SharedVortexResult<ZoneMap>>>;
 type SharedPruningResult = Shared<BoxFuture<'static, SharedVortexResult<Arc<PruningResult>>>>;
@@ -107,7 +107,10 @@ impl ZonedReader {
                     .vortex_expect("Failed construct zone map evaluation");
 
                 async move {
-                    let zones_array = zones_eval.invoke(Mask::new_true(nzones)).await?.to_struct();
+                    let zones_array = zones_eval
+                        .invoke(MaskFuture::new_true(nzones))
+                        .await?
+                        .to_struct();
                     // SAFETY: This is only fine to call because we perform validation above
                     Ok(ZoneMap::new_unchecked(zones_array, present_stats))
                 }
@@ -378,7 +381,7 @@ mod test {
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
     use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
-    use crate::{LayoutRef, LayoutStrategy, LocalExecutor};
+    use crate::{LayoutRef, LayoutStrategy, LocalExecutor, MaskFuture};
 
     #[fixture]
     /// Create a stats layout with three chunks of primitive arrays.
@@ -418,7 +421,7 @@ mod test {
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()
-                .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
+                .invoke(MaskFuture::new_true(layout.row_count().try_into().unwrap()))
                 .await
                 .unwrap()
                 .to_primitive();
