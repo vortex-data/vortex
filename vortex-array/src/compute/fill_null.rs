@@ -68,7 +68,7 @@ impl ComputeFnVTable for FillNull {
         let FillNullArgs { array, fill_value } = FillNullArgs::try_from(args)?;
 
         if !array.dtype().is_nullable() {
-            return Ok(array.to_array().into());
+            return Ok(cast(array, fill_value.dtype())?.into());
         }
 
         if array.all_valid() {

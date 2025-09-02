@@ -132,7 +132,7 @@ impl Operator for CompareOperator {
         if idx == 0 {
             Some(Arc::new(ScalarCompareOperator::new(
                 children[1].clone(),
-                self.op.inverse(),
+                self.op.swap(),
                 lhs.scalar.clone(),
             )))
         } else {
