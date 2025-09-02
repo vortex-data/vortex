@@ -9,13 +9,13 @@ from vortex.expr import column
 
 
 @pytest.fixture(scope="session")
-def vxf(tmpdir_factory) -> vx.VortexFile:  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]
-    fname = tmpdir_factory.mktemp("data") / "foo.vortex"  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+def vxf(tmpdir_factory: pytest.TempPathFactory) -> vx.VortexFile:
+    fname = tmpdir_factory.mktemp("data") / "foo.vortex"
 
-    if not os.path.exists(fname):  # pyright: ignore[reportUnknownArgumentType]
+    if not os.path.exists(fname):
         a = vx.array(pa.table({"x": list(range(1_000_000))}))
-        vx.io.write(a, str(fname))  # pyright: ignore[reportUnknownArgumentType]
-    return vx.open(str(fname))  # pyright: ignore[reportUnknownArgumentType]
+        vx.io.write(a, str(fname))
+    return vx.open(str(fname))
 
 
 def test_scan(benchmark: BenchmarkFixture, vxf: vx.VortexFile):
