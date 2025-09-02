@@ -24,6 +24,7 @@ pub struct Buffer<T> {
 }
 
 impl<T> Clone for Buffer<T> {
+    #[inline]
     fn clone(&self) -> Self {
         Self {
             bytes: self.bytes.clone(),
@@ -35,6 +36,7 @@ impl<T> Clone for Buffer<T> {
 }
 
 impl<T> PartialEq for Buffer<T> {
+    #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.bytes == other.bytes
     }
@@ -43,18 +45,21 @@ impl<T> PartialEq for Buffer<T> {
 impl<T> Eq for Buffer<T> {}
 
 impl<T> Ord for Buffer<T> {
+    #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
         self.bytes.cmp(&other.bytes)
     }
 }
 
 impl<T> PartialOrd for Buffer<T> {
+    #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
 impl<T> Hash for Buffer<T> {
+    #[inline]
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.bytes.as_ref().hash(state)
     }
@@ -431,28 +436,34 @@ pub struct Iter<'a, T> {
 impl<'a, T> Iterator for Iter<'a, T> {
     type Item = &'a T;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.next()
     }
 
+    #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.inner.size_hint()
     }
 
+    #[inline]
     fn count(self) -> usize {
         self.inner.count()
     }
 
+    #[inline]
     fn last(self) -> Option<Self::Item> {
         self.inner.last()
     }
 
+    #[inline]
     fn nth(&mut self, n: usize) -> Option<Self::Item> {
         self.inner.nth(n)
     }
 }
 
 impl<T> ExactSizeIterator for Iter<'_, T> {
+    #[inline]
     fn len(&self) -> usize {
         self.inner.len()
     }
@@ -471,18 +482,21 @@ impl<T: Debug> Debug for Buffer<T> {
 impl<T> Deref for Buffer<T> {
     type Target = [T];
 
+    #[inline]
     fn deref(&self) -> &Self::Target {
         self.as_slice()
     }
 }
 
 impl<T> AsRef<[T]> for Buffer<T> {
+    #[inline]
     fn as_ref(&self) -> &[T] {
         self.as_slice()
     }
 }
 
 impl<T> FromIterator<T> for Buffer<T> {
+    #[inline]
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         BufferMut::from_iter(iter).freeze()
     }
@@ -509,14 +523,17 @@ impl From<Bytes> for ByteBuffer {
 }
 
 impl Buf for ByteBuffer {
+    #[inline]
     fn remaining(&self) -> usize {
         self.len()
     }
 
+    #[inline]
     fn chunk(&self) -> &[u8] {
         self.as_slice()
     }
 
+    #[inline]
     fn advance(&mut self, cnt: usize) {
         if !cnt.is_multiple_of(*self.alignment) {
             vortex_panic!(
@@ -539,6 +556,7 @@ pub struct BufferIterator<T> {
 impl<T: Copy> Iterator for BufferIterator<T> {
     type Item = T;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         (self.index < self.buffer.len()).then(move || {
             let value = self.buffer[self.index];
@@ -547,6 +565,7 @@ impl<T: Copy> Iterator for BufferIterator<T> {
         })
     }
 
+    #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         let remaining = self.buffer.len() - self.index;
         (remaining, Some(remaining))
@@ -557,6 +576,7 @@ impl<T: Copy> IntoIterator for Buffer<T> {
     type Item = T;
     type IntoIter = BufferIterator<T>;
 
+    #[inline]
     fn into_iter(self) -> Self::IntoIter {
         BufferIterator {
             buffer: self,
@@ -566,6 +586,7 @@ impl<T: Copy> IntoIterator for Buffer<T> {
 }
 
 impl<T> From<BufferMut<T>> for Buffer<T> {
+    #[inline]
     fn from(value: BufferMut<T>) -> Self {
         value.freeze()
     }

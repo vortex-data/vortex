@@ -81,18 +81,21 @@ impl TryFrom<ByteBuffer> for BufferString {
 impl Deref for BufferString {
     type Target = str;
 
+    #[inline]
     fn deref(&self) -> &Self::Target {
         self.as_str()
     }
 }
 
 impl AsRef<str> for BufferString {
+    #[inline]
     fn as_ref(&self) -> &str {
         self.as_str()
     }
 }
 
 impl AsRef<[u8]> for BufferString {
+    #[inline]
     fn as_ref(&self) -> &[u8] {
         self.as_str().as_bytes()
     }
