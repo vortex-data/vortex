@@ -121,9 +121,9 @@ impl WriteStrategyBuilder {
 
     /// Override the compressor for the values of inter-chunk dictionaries.
     ///
-    /// Use [without_dictionary] to entirely disable inter-chunk dictionaries.
+    /// Use [Self::without_dictionary] to entirely disable inter-chunk dictionaries.
     ///
-    /// Use [with_compressor] to set the compressor used for the codes (i.e. keys) of the dictionary.
+    /// Use [Self::with_compressor] to set the compressor used for the codes (i.e. keys) of the dictionary.
     ///
     /// If not provided, this will use a BtrBlocks-style cascading compressor that tries to balance
     /// total size with decoding performance.
