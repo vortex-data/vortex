@@ -449,7 +449,7 @@ jobs:
             --profile bench
 
       - name: Run benchmarks
-        uses: CodSpeedHQ/action@v3
+        uses: CodSpeedHQ/action@v4
         with:
           run: cargo codspeed run
           runner-version: 3.4.1-beta.1
