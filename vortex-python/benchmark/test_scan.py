@@ -1,13 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import duckdb
 import os
+
+import duckdb
 import polars as pl
 import pyarrow as pa
 import pytest
-import vortex as vx
 from pytest_benchmark.fixture import BenchmarkFixture  # pyright: ignore[reportMissingTypeStubs]
+
+import vortex as vx
 from vortex.expr import column
 
 
