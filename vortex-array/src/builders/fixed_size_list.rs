@@ -13,7 +13,8 @@ use crate::arrays::FixedSizeListArray;
 use crate::builders::{
     ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder, builder_with_capacity,
 };
-use crate::{Array, ArrayRef, IntoArray, ToCanonical};
+use crate::canonical::{Canonical, ToCanonical};
+use crate::{Array, ArrayRef, IntoArray};
 
 /// The builder for building a [`FixedSizeListArray`].
 pub struct FixedSizeListBuilder {
@@ -235,6 +236,10 @@ impl ArrayBuilder for FixedSizeListBuilder {
 
     fn finish(&mut self) -> ArrayRef {
         self.finish_into_fixed_size_list().into_array()
+    }
+
+    fn finish_into_canonical(&mut self) -> Canonical {
+        Canonical::FixedSizeList(self.finish_into_fixed_size_list())
     }
 }
 

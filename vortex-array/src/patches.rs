@@ -37,6 +37,7 @@ pub struct PatchesMetadata {
 }
 
 impl PatchesMetadata {
+    #[inline]
     pub fn new(len: usize, offset: usize, indices_ptype: PType) -> Self {
         Self {
             len: len as u64,
@@ -134,46 +135,57 @@ impl Patches {
         }
     }
 
+    #[inline]
     pub fn array_len(&self) -> usize {
         self.array_len
     }
 
+    #[inline]
     pub fn num_patches(&self) -> usize {
         self.indices.len()
     }
 
+    #[inline]
     pub fn dtype(&self) -> &DType {
         self.values.dtype()
     }
 
+    #[inline]
     pub fn indices(&self) -> &ArrayRef {
         &self.indices
     }
 
+    #[inline]
     pub fn into_indices(self) -> ArrayRef {
         self.indices
     }
 
+    #[inline]
     pub fn indices_mut(&mut self) -> &mut ArrayRef {
         &mut self.indices
     }
 
+    #[inline]
     pub fn values(&self) -> &ArrayRef {
         &self.values
     }
 
+    #[inline]
     pub fn into_values(self) -> ArrayRef {
         self.values
     }
 
+    #[inline]
     pub fn values_mut(&mut self) -> &mut ArrayRef {
         &mut self.values
     }
 
+    #[inline]
     pub fn offset(&self) -> usize {
         self.offset
     }
 
+    #[inline]
     pub fn indices_ptype(&self) -> PType {
         PType::try_from(self.indices.dtype()).vortex_expect("primitive indices")
     }

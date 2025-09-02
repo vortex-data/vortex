@@ -4,6 +4,7 @@
 use crate::Mask;
 
 impl PartialEq for Mask {
+    #[inline]
     fn eq(&self, other: &Self) -> bool {
         if self.len() != other.len() {
             return false;

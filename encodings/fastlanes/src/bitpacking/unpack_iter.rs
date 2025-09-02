@@ -128,19 +128,23 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
         )
     }
 
-    /// Unpack full chunks into output range and return the last index that was written to
+    /// Unpack full chunks into output range and return the next local index to write to.
     pub fn decode_full_chunks_into(&mut self, output: &mut UninitRange<T>) -> usize {
         let first_chunk_is_sliced = self.first_chunk_is_sliced();
-        // If there's only one chunk and that chunk is sliced it has been handled already by `header` method
+        // If there's only one chunk and that chunk is sliced it has been handled already by
+        // `header` method
         if first_chunk_is_sliced && self.num_chunks == 1 {
-            return self.len;
+            // Return the length since the header already wrote everything.
+            return CHUNK_SIZE - self.offset;
         }
 
         let last_chunk_is_sliced = self.last_chunk_is_sliced();
         let full_chunks_range =
             (first_chunk_is_sliced as usize)..(self.num_chunks - last_chunk_is_sliced as usize);
 
-        let mut out_idx = if first_chunk_is_sliced {
+        // Track position relative to the start of the UninitRange.
+        let mut local_idx = if first_chunk_is_sliced {
+            // The header already wrote from 0 to (CHUNK_SIZE - self.offset).
             CHUNK_SIZE - self.offset
         } else {
             0
@@ -152,13 +156,15 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
             let chunk = &packed_slice[i * elems_per_chunk..][..elems_per_chunk];
 
             unsafe {
+                // SAFETY: We're about to initialize CHUNK_SIZE elements at local_idx.
+                let uninit_dst = output.slice_uninit_mut(local_idx, CHUNK_SIZE);
                 // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout
-                let dst: &mut [T::Physical] = mem::transmute(&mut output[out_idx..][..CHUNK_SIZE]);
+                let dst: &mut [T::Physical] = mem::transmute(uninit_dst);
                 BitPacking::unchecked_unpack(self.bit_width, chunk, dst);
             }
-            out_idx += CHUNK_SIZE;
+            local_idx += CHUNK_SIZE;
         }
-        out_idx
+        local_idx
     }
 
     /// Access last chunk of the array if the last chunk has fewer than 1024 due to slicing

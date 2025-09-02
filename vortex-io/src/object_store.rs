@@ -7,7 +7,8 @@ use std::os::unix::prelude::FileExt;
 use std::sync::Arc;
 
 use bytes::BytesMut;
-use futures::future::try_join_all;
+use futures::TryStreamExt;
+use futures::stream::FuturesUnordered;
 use futures_util::StreamExt;
 use object_store::path::Path;
 use object_store::{
@@ -116,13 +117,15 @@ impl VortexReadAt for ObjectStoreReadAt {
     }
 }
 
+/// Adapter type to write data through a [`ObjectStore`] instace.
+///
+/// After writing, the caller must make sure to call `shutdonw`, in order to ensure the data is actually persisted.
 pub struct ObjectStoreWriter {
     upload: Box<dyn MultipartUpload>,
     buffer: BytesMut,
 }
 
 const CHUNKS_SIZE: usize = 25 * 1024 * 1024;
-const MAX_BUFFER_SIZE: usize = 100 * 1024 * 1024; // 100MB max buffer
 
 impl ObjectStoreWriter {
     pub async fn new(object_store: Arc<dyn ObjectStore>, location: &Path) -> VortexResult<Self> {
@@ -136,113 +139,111 @@ impl ObjectStoreWriter {
 
 impl VortexWrite for ObjectStoreWriter {
     async fn write_all<B: IoBuf>(&mut self, buffer: B) -> io::Result<B> {
-        // Check if adding this data would exceed max buffer size
-        let new_size = self.buffer.len() + buffer.as_slice().len();
-        if new_size > MAX_BUFFER_SIZE {
-            return Err(io::Error::other(format!(
-                "Buffer size would exceed maximum of {} bytes",
-                MAX_BUFFER_SIZE
-            )));
-        }
-
         self.buffer.extend_from_slice(buffer.as_slice());
+        let parts = FuturesUnordered::new();
 
-        if self.buffer.len() > CHUNKS_SIZE {
-            let mut parts = vec![];
+        // Split off chunks while buffer is larger than CHUNKS_SIZE
+        while self.buffer.len() > CHUNKS_SIZE {
+            let payload = self.buffer.split_to(CHUNKS_SIZE).freeze();
+            let part_fut = self.upload.put_part(PutPayload::from_bytes(payload));
 
-            // Split off chunks while buffer is larger than CHUNKS_SIZE
-            while self.buffer.len() > CHUNKS_SIZE {
-                let chunk = self.buffer.split_to(CHUNKS_SIZE);
-                let part_fut = self
-                    .upload
-                    .as_mut()
-                    .put_part(PutPayload::from_bytes(chunk.freeze()));
-
-                parts.push(part_fut);
-            }
-
-            try_join_all(parts).await?;
+            parts.push(part_fut);
         }
+
+        parts.try_collect::<Vec<_>>().await?;
 
         Ok(buffer)
     }
 
     async fn flush(&mut self) -> io::Result<()> {
-        let mut buffer = std::mem::take(&mut self.buffer).freeze();
-        let mut parts = vec![];
+        let parts = FuturesUnordered::new();
 
-        while !buffer.is_empty() {
-            let chunk_size = usize::min(buffer.len(), CHUNKS_SIZE);
-            let payload = buffer.split_to(chunk_size);
-            let part_fut = self
-                .upload
-                .as_mut()
-                .put_part(PutPayload::from_bytes(payload));
+        while self.buffer.len() > CHUNKS_SIZE {
+            let payload = self.buffer.split_to(CHUNKS_SIZE).freeze();
+            let part_fut = self.upload.put_part(PutPayload::from_bytes(payload));
 
             parts.push(part_fut);
         }
 
-        try_join_all(parts).await?;
+        parts.try_collect::<Vec<_>>().await?;
 
-        self.upload.complete().await?;
         Ok(())
     }
 
     async fn shutdown(&mut self) -> io::Result<()> {
+        self.flush().await?;
+
+        if !self.buffer.is_empty() {
+            let payload = std::mem::take(&mut self.buffer).freeze();
+            self.upload
+                .put_part(PutPayload::from_bytes(payload))
+                .await?;
+        }
+
+        self.upload.complete().await?;
         Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
+
     use std::sync::Arc;
 
     use object_store::ObjectStore;
+    use object_store::local::LocalFileSystem;
+    use object_store::memory::InMemory;
     use object_store::path::Path;
+    use rstest::rstest;
+    use tempfile::tempdir;
 
     use super::*;
-
-    async fn create_test_store() -> (Arc<object_store::memory::InMemory>, Path) {
-        let store = Arc::new(object_store::memory::InMemory::new());
-        let location = Path::from("test.bin");
-        (store, location)
-    }
 
     // Note: Concurrent writes test removed because &mut self in write_all already ensures
     // exclusive access. Multiple writers would need to be created with separate buffers,
     // which is not the intended use case.
 
     #[tokio::test]
-    async fn test_object_store_writer_max_buffer_size() {
-        let (store, location) = create_test_store().await;
-        let mut writer = ObjectStoreWriter::new(store, &location).await.unwrap();
+    #[rstest]
+    #[case(100)]
+    #[case(8 * 1024 * 1024)]
+    #[case(25 * 1024 * 1024)]
+    #[case(26 * 1024 * 1024)]
+    async fn test_object_store_writer_multiple_flushes(
+        #[case] chunk_size: usize,
+    ) -> anyhow::Result<()> {
+        let temp_dir = tempdir()?;
+        let local_store =
+            Arc::new(LocalFileSystem::new_with_prefix(temp_dir.path())?) as Arc<dyn ObjectStore>;
+        let memory_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let location = Path::from("test.bin");
 
-        // Try to write more than MAX_BUFFER_SIZE
-        let huge_data = vec![0u8; MAX_BUFFER_SIZE + 1];
-        let result = writer.write_all(huge_data).await;
+        for test_store in [memory_store, local_store] {
+            let mut writer = ObjectStoreWriter::new(test_store.clone(), &location).await?;
 
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("exceed maximum"));
-    }
+            #[expect(clippy::cast_possible_truncation)]
+            let data = (0..3)
+                .map(|i| vec![i as u8; chunk_size])
+                .collect::<Vec<_>>();
 
-    #[tokio::test]
-    async fn test_object_store_writer_multiple_flushes() {
-        let (store, location) = create_test_store().await;
-        let mut writer = ObjectStoreWriter::new(store.clone(), &location)
-            .await
-            .unwrap();
+            // Write and flush multiple times
+            for i in 0..3 {
+                let data = data[i].clone();
+                writer.write_all(data).await?;
+                writer.flush().await?;
+            }
 
-        // Write and flush multiple times
-        for i in 0..3 {
-            #[allow(clippy::cast_possible_truncation)]
-            let data = vec![i as u8; 100];
-            writer.write_all(data).await.unwrap();
-            writer.flush().await.unwrap();
+            // Shutdown the writer to make sure data actually gets persisted.
+            writer.shutdown().await?;
+
+            // Verify all data was written
+            let result = test_store.get(&location).await?;
+            let bytes = result.bytes().await?;
+
+            let expected_data = itertools::concat(data.into_iter());
+            assert_eq!(bytes, expected_data);
         }
 
-        // Verify all data was written
-        let result = store.get(&location).await.unwrap();
-        let bytes = result.bytes().await.unwrap();
-        assert_eq!(bytes.len(), 300);
+        Ok(())
     }
 }

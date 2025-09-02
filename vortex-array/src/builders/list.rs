@@ -15,8 +15,9 @@ use crate::builders::{
     ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder, PrimitiveBuilder,
     builder_with_capacity,
 };
+use crate::canonical::{Canonical, ToCanonical};
 use crate::compute::{add_scalar, cast, sub_scalar};
-use crate::{Array, ArrayRef, IntoArray, ToCanonical};
+use crate::{Array, ArrayRef, IntoArray};
 
 /// The builder for building a [`ListArray`], parametrized by the `PType` of the offsets buffer.
 pub struct ListBuilder<O: NativePType> {
@@ -253,6 +254,10 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
     fn finish(&mut self) -> ArrayRef {
         self.finish_into_list().into_array()
     }
+
+    fn finish_into_canonical(&mut self) -> Canonical {
+        Canonical::List(self.finish_into_list())
+    }
 }
 
 #[cfg(test)]
@@ -400,7 +405,7 @@ mod tests {
         .unwrap()
         .to_list();
 
-        let actual = builder.finish().to_list();
+        let actual = builder.finish_into_canonical().into_list();
 
         assert_eq!(
             actual.elements().to_primitive().as_slice::<i32>(),

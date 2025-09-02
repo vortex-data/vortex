@@ -4,14 +4,14 @@
 use std::fmt::Debug;
 
 use arrow_buffer::BooleanBuffer;
-use vortex_array::compute::{cast, take};
+use vortex_array::compute::take;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityVTable};
 use vortex_array::{
     Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable,
 };
 use vortex_dtype::{DType, match_each_integer_ptype};
-use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_ensure};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 use vortex_mask::{AllOr, Mask};
 
 vtable!(Dict);
@@ -83,27 +83,10 @@ impl DictArray {
     /// of the `values` array. Otherwise, this constructor returns an error.
     ///
     /// It is an error to provide a nullable `codes` with non-nullable `values`.
-    pub fn try_new(mut codes: ArrayRef, values: ArrayRef) -> VortexResult<Self> {
+    pub fn try_new(codes: ArrayRef, values: ArrayRef) -> VortexResult<Self> {
         if !codes.dtype().is_unsigned_int() {
             vortex_bail!(MismatchedTypes: "unsigned int", codes.dtype());
         }
-
-        let dtype = values.dtype();
-        if dtype.is_nullable() {
-            // If the values are nullable, we force codes to be nullable as well.
-            codes = cast(&codes, &codes.dtype().as_nullable())?;
-        } else {
-            // If the values are non-nullable, we assert the codes are non-nullable as well.
-            vortex_ensure!(
-                !codes.dtype().is_nullable(),
-                "Cannot have nullable codes for non-nullable dict array"
-            );
-        }
-
-        vortex_ensure!(
-            codes.dtype().nullability() == values.dtype().nullability(),
-            "Mismatched nullability between codes and values"
-        );
 
         Ok(Self {
             codes,
@@ -287,6 +270,24 @@ mod test {
         assert_eq!(indices, [2, 4]);
     }
 
+    #[test]
+    fn nullable_codes_and_non_null_values() {
+        let dict = DictArray::try_new(
+            PrimitiveArray::new(
+                buffer![0u32, 1, 2, 2, 1],
+                Validity::from(BooleanBuffer::from(vec![true, false, true, false, true])),
+            )
+            .into_array(),
+            PrimitiveArray::new(buffer![3, 6, 9], Validity::NonNullable).into_array(),
+        )
+        .unwrap();
+        let mask = dict.validity_mask();
+        let AllOr::Some(indices) = mask.indices() else {
+            vortex_panic!("Expected indices from mask")
+        };
+        assert_eq!(indices, [0, 2, 4]);
+    }
+
     fn make_dict_primitive_chunks<T: NativePType, U: NativePType>(
         len: usize,
         unique_values: usize,
@@ -329,7 +330,7 @@ mod test {
         array.clone().append_to_builder(builder.as_mut());
 
         let into_prim = array.to_primitive();
-        let prim_into = builder.finish().to_primitive();
+        let prim_into = builder.finish_into_canonical().into_primitive();
 
         assert_eq!(into_prim.as_slice::<u64>(), prim_into.as_slice::<u64>());
         assert_eq!(

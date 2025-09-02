@@ -35,6 +35,7 @@ impl Validity {
     pub const DTYPE: DType = DType::Bool(Nullability::NonNullable);
 
     /// If Validity is [`Validity::Array`], returns the array, otherwise returns `None`.
+    #[inline]
     pub fn into_array(self) -> Option<ArrayRef> {
         if let Self::Array(a) = self {
             Some(a)
@@ -44,6 +45,7 @@ impl Validity {
     }
 
     /// If Validity is [`Validity::Array`], returns a reference to the array array, otherwise returns `None`.
+    #[inline]
     pub fn as_array(&self) -> Option<&ArrayRef> {
         if let Self::Array(a) = self {
             Some(a)
@@ -52,6 +54,7 @@ impl Validity {
         }
     }
 
+    #[inline]
     pub fn nullability(&self) -> Nullability {
         if matches!(self, Self::NonNullable) {
             Nullability::NonNullable
@@ -61,6 +64,7 @@ impl Validity {
     }
 
     /// The union nullability and validity.
+    #[inline]
     pub fn union_nullability(self, nullability: Nullability) -> Self {
         match nullability {
             Nullability::NonNullable => self,
@@ -68,6 +72,7 @@ impl Validity {
         }
     }
 
+    #[inline]
     pub fn all_valid(&self, len: usize) -> bool {
         match self {
             _ if len == 0 => true,
@@ -81,6 +86,7 @@ impl Validity {
         }
     }
 
+    #[inline]
     pub fn all_invalid(&self, len: usize) -> bool {
         match self {
             _ if len == 0 => true,
@@ -115,6 +121,7 @@ impl Validity {
         !self.is_valid(index)
     }
 
+    #[inline]
     pub fn slice(&self, range: Range<usize>) -> Self {
         match self {
             Self::Array(a) => Self::Array(a.slice(range)),
@@ -167,6 +174,7 @@ impl Validity {
     /// Set to false any entries for which the mask is true.
     ///
     /// The result is always nullable. The result has the same length as self.
+    #[inline]
     pub fn mask(&self, mask: &Mask) -> Self {
         match mask.boolean_buffer() {
             AllOr::All => Validity::AllInvalid,
@@ -185,6 +193,7 @@ impl Validity {
         }
     }
 
+    #[inline]
     pub fn to_mask(&self, length: usize) -> Mask {
         match self {
             Self::NonNullable | Self::AllValid => Mask::AllTrue(length),
@@ -203,6 +212,7 @@ impl Validity {
     }
 
     /// Logically & two Validity values of the same length
+    #[inline]
     pub fn and(self, rhs: Validity) -> Validity {
         match (self, rhs) {
             // Should be pretty clear
@@ -282,6 +292,7 @@ impl Validity {
     }
 
     /// Convert into a nullable variant
+    #[inline]
     pub fn into_nullable(self) -> Validity {
         match self {
             Self::NonNullable => Self::AllValid,
@@ -290,6 +301,7 @@ impl Validity {
     }
 
     /// Convert into a non-nullable variant
+    #[inline]
     pub fn into_non_nullable(self, len: usize) -> Option<Validity> {
         match self {
             _ if len == 0 => Some(Validity::NonNullable),
@@ -310,6 +322,7 @@ impl Validity {
     }
 
     /// Convert into a variant compatible with the given nullability, if possible.
+    #[inline]
     pub fn cast_nullability(self, nullability: Nullability, len: usize) -> VortexResult<Validity> {
         match nullability {
             Nullability::NonNullable => self.into_non_nullable(len).ok_or_else(|| {
@@ -320,6 +333,7 @@ impl Validity {
     }
 
     /// Create Validity by copying the given array's validity.
+    #[inline]
     pub fn copy_from_array(array: &dyn Array) -> Self {
         Validity::from_mask(array.validity_mask(), array.dtype().nullability())
     }
@@ -328,6 +342,7 @@ impl Validity {
     ///
     /// Note: You want to pass the nullability of parent array and not the nullability of the validity array itself
     ///     as that is always non-nullable
+    #[inline]
     fn from_array(value: ArrayRef, nullability: Nullability) -> Self {
         if !matches!(value.dtype(), DType::Bool(Nullability::NonNullable)) {
             vortex_panic!("Expected a non-nullable boolean array")
@@ -339,6 +354,7 @@ impl Validity {
     }
 
     /// Returns the length of the validity array, if it exists.
+    #[inline]
     pub fn maybe_len(&self) -> Option<usize> {
         match self {
             Self::NonNullable | Self::AllValid | Self::AllInvalid => None,
@@ -346,6 +362,7 @@ impl Validity {
         }
     }
 
+    #[inline]
     pub fn uncompressed_size(&self) -> usize {
         if let Validity::Array(a) = self {
             a.len().div_ceil(8)
@@ -356,6 +373,7 @@ impl Validity {
 }
 
 impl PartialEq for Validity {
+    #[inline]
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::NonNullable, Self::NonNullable) => true,
@@ -372,6 +390,7 @@ impl PartialEq for Validity {
 }
 
 impl From<BooleanBuffer> for Validity {
+    #[inline]
     fn from(value: BooleanBuffer) -> Self {
         if value.count_set_bits() == value.len() {
             Self::AllValid
@@ -384,24 +403,28 @@ impl From<BooleanBuffer> for Validity {
 }
 
 impl From<NullBuffer> for Validity {
+    #[inline]
     fn from(value: NullBuffer) -> Self {
         value.into_inner().into()
     }
 }
 
 impl FromIterator<Mask> for Validity {
+    #[inline]
     fn from_iter<T: IntoIterator<Item = Mask>>(iter: T) -> Self {
         Validity::from_mask(iter.into_iter().collect(), Nullability::Nullable)
     }
 }
 
 impl FromIterator<bool> for Validity {
+    #[inline]
     fn from_iter<T: IntoIterator<Item = bool>>(iter: T) -> Self {
         Validity::from(BooleanBuffer::from_iter(iter))
     }
 }
 
 impl From<Nullability> for Validity {
+    #[inline]
     fn from(value: Nullability) -> Self {
         match value {
             Nullability::NonNullable => Validity::NonNullable,
@@ -428,6 +451,7 @@ impl Validity {
 }
 
 impl IntoArray for Mask {
+    #[inline]
     fn into_array(self) -> ArrayRef {
         match self {
             Self::AllTrue(len) => ConstantArray::new(true, len).into_array(),
@@ -438,6 +462,7 @@ impl IntoArray for Mask {
 }
 
 impl IntoArray for &MaskValues {
+    #[inline]
     fn into_array(self) -> ArrayRef {
         BoolArray::new(self.boolean_buffer().clone(), Validity::NonNullable).into_array()
     }

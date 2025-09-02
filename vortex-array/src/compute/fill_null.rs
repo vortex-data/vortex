@@ -67,11 +67,7 @@ impl ComputeFnVTable for FillNull {
     ) -> VortexResult<Output> {
         let FillNullArgs { array, fill_value } = FillNullArgs::try_from(args)?;
 
-        if !array.dtype().is_nullable() {
-            return Ok(array.to_array().into());
-        }
-
-        if array.all_valid() {
+        if !array.dtype().is_nullable() || array.all_valid() {
             return Ok(cast(array, fill_value.dtype())?.into());
         }
 

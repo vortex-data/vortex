@@ -7,7 +7,7 @@ use rstest::rstest;
 use vortex_dtype::{DType, DecimalDType, ExtDType, ExtID, Nullability, PType, StructFields};
 use vortex_scalar::Scalar;
 
-use crate::builders::builder_with_capacity;
+use crate::builders::{ArrayBuilder, builder_with_capacity};
 
 /// Test that `append_zeros` produces the same result as manually appending `Scalar::default_value`.
 ///
@@ -217,4 +217,227 @@ fn test_append_defaults_behavior(#[case] dtype: DType, #[case] should_be_null: b
             }
         }
     }
+}
+
+/// Helper function that fills two builders with the same values and compares the results
+/// of `to_canonical()` vs `finish().to_canonical()`.
+fn compare_to_canonical_methods<F>(dtype: &DType, mut fill_builder: F)
+where
+    F: FnMut(&mut dyn ArrayBuilder),
+{
+    use crate::IntoArray;
+
+    // Create two identical builders.
+    let mut builder1 = builder_with_capacity(dtype, 10);
+    let mut builder2 = builder_with_capacity(dtype, 10);
+
+    // Fill both builders with the same data.
+    fill_builder(builder1.as_mut());
+    fill_builder(builder2.as_mut());
+
+    // Get canonical arrays using both methods.
+    let canonical_direct = builder1.finish_into_canonical();
+    let canonical_indirect = builder2.finish().to_canonical();
+
+    // Convert both to arrays for comparison.
+    let array_direct = canonical_direct.into_array();
+    let array_indirect = canonical_indirect.into_array();
+
+    // Verify they have the same length.
+    assert_eq!(array_direct.len(), array_indirect.len());
+
+    // Compare each element.
+    for i in 0..array_direct.len() {
+        let scalar_direct = array_direct.scalar_at(i);
+        let scalar_indirect = array_indirect.scalar_at(i);
+
+        assert_eq!(
+            scalar_direct, scalar_indirect,
+            "Element at index {} should be equal for dtype {:?}",
+            i, dtype
+        );
+    }
+}
+
+#[test]
+fn test_to_canonical_bool() {
+    let dtype = DType::Bool(Nullability::NonNullable);
+    compare_to_canonical_methods(&dtype, |builder| {
+        for i in 0..5 {
+            let value = Scalar::bool(i % 2 == 0, Nullability::NonNullable);
+            builder.append_scalar(&value).unwrap();
+        }
+    });
+}
+
+#[test]
+fn test_to_canonical_bool_nullable() {
+    let dtype = DType::Bool(Nullability::Nullable);
+    compare_to_canonical_methods(&dtype, |builder| {
+        for i in 0..5 {
+            let value = Scalar::bool(i % 2 == 0, Nullability::Nullable);
+            builder.append_scalar(&value).unwrap();
+        }
+        builder.append_nulls(1);
+    });
+}
+
+#[test]
+fn test_to_canonical_i32() {
+    let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+    compare_to_canonical_methods(&dtype, |builder| {
+        for i in 0..5 {
+            let value = Scalar::primitive(i, Nullability::NonNullable);
+            builder.append_scalar(&value).unwrap();
+        }
+    });
+}
+
+#[test]
+fn test_to_canonical_i32_nullable() {
+    let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
+    compare_to_canonical_methods(&dtype, |builder| {
+        for i in 0..5 {
+            let value = Scalar::primitive(i, Nullability::Nullable);
+            builder.append_scalar(&value).unwrap();
+        }
+        builder.append_nulls(1);
+    });
+}
+
+#[test]
+fn test_to_canonical_f64() {
+    let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
+    compare_to_canonical_methods(&dtype, |builder| {
+        for i in 0..5 {
+            let value = Scalar::primitive(i as f64, Nullability::NonNullable);
+            builder.append_scalar(&value).unwrap();
+        }
+    });
+}
+
+#[test]
+fn test_to_canonical_utf8() {
+    let dtype = DType::Utf8(Nullability::NonNullable);
+    compare_to_canonical_methods(&dtype, |builder| {
+        let values = ["hello", "world", "test", "data", "vortex"];
+        for value in &values {
+            let scalar = Scalar::utf8(*value, Nullability::NonNullable);
+            builder.append_scalar(&scalar).unwrap();
+        }
+    });
+}
+
+#[test]
+fn test_to_canonical_utf8_nullable() {
+    let dtype = DType::Utf8(Nullability::Nullable);
+    compare_to_canonical_methods(&dtype, |builder| {
+        let values = ["hello", "world", "test"];
+        for value in &values {
+            let scalar = Scalar::utf8(*value, Nullability::Nullable);
+            builder.append_scalar(&scalar).unwrap();
+        }
+        builder.append_nulls(1);
+    });
+}
+
+#[test]
+fn test_to_canonical_binary() {
+    let dtype = DType::Binary(Nullability::NonNullable);
+    compare_to_canonical_methods(&dtype, |builder| {
+        let values = [b"hello", b"world", b"vortx", b"bytes", b"tests"];
+        for value in &values {
+            let scalar = Scalar::binary(value.to_vec(), Nullability::NonNullable);
+            builder.append_scalar(&scalar).unwrap();
+        }
+    });
+}
+
+#[test]
+fn test_to_canonical_struct() {
+    let dtype = DType::Struct(
+        StructFields::from_iter([
+            ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
+            ("b", DType::Utf8(Nullability::NonNullable)),
+        ]),
+        Nullability::NonNullable,
+    );
+    compare_to_canonical_methods(&dtype, |builder| {
+        for _ in 0..3 {
+            let value = Scalar::default_value(dtype.clone());
+            builder.append_scalar(&value).unwrap();
+        }
+    });
+}
+
+#[test]
+fn test_to_canonical_extension() {
+    let dtype = DType::Extension(Arc::new(ExtDType::new(
+        ExtID::from("test.extension"),
+        Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
+        None,
+    )));
+    compare_to_canonical_methods(&dtype, |builder| {
+        let ext_dtype = match &dtype {
+            DType::Extension(ext) => ext.clone(),
+            _ => unreachable!(),
+        };
+        for i in 0..5 {
+            let storage_value = Scalar::from(i as i64);
+            let ext_scalar = Scalar::extension(ext_dtype.clone(), storage_value);
+            builder.append_scalar(&ext_scalar).unwrap();
+        }
+    });
+}
+
+#[test]
+fn test_to_canonical_null() {
+    let dtype = DType::Null;
+    compare_to_canonical_methods(&dtype, |builder| {
+        builder.append_nulls(5);
+    });
+}
+
+#[test]
+fn test_to_canonical_decimal() {
+    let dtype = DType::Decimal(DecimalDType::new(10, 2), Nullability::NonNullable);
+    compare_to_canonical_methods(&dtype, |builder| {
+        for _ in 0..5 {
+            let value = Scalar::default_value(dtype.clone());
+            builder.append_scalar(&value).unwrap();
+        }
+    });
+}
+
+#[test]
+fn test_to_canonical_i8() {
+    let dtype = DType::Primitive(PType::I8, Nullability::NonNullable);
+    compare_to_canonical_methods(&dtype, |builder| {
+        for i in 0..5i8 {
+            let value = Scalar::primitive(i, Nullability::NonNullable);
+            builder.append_scalar(&value).unwrap();
+        }
+    });
+}
+
+#[test]
+fn test_to_canonical_u64() {
+    let dtype = DType::Primitive(PType::U64, Nullability::NonNullable);
+    compare_to_canonical_methods(&dtype, |builder| {
+        for i in 0..5 {
+            let value = Scalar::primitive(i as u64, Nullability::NonNullable);
+            builder.append_scalar(&value).unwrap();
+        }
+    });
+}
+
+#[test]
+fn test_to_canonical_f32() {
+    let dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
+    compare_to_canonical_methods(&dtype, |builder| {
+        for i in 0..5 {
+            let value = Scalar::primitive(i as f32, Nullability::NonNullable);
+            builder.append_scalar(&value).unwrap();
+        }
+    });
 }
