@@ -68,8 +68,9 @@ impl Validity {
         }
     }
 
-    pub fn all_valid(&self) -> bool {
+    pub fn all_valid(&self, len: usize) -> bool {
         match self {
+            _ if len == 0 => true,
             Validity::NonNullable | Validity::AllValid => true,
             Validity::AllInvalid => false,
             Validity::Array(array) => {
@@ -80,8 +81,9 @@ impl Validity {
         }
     }
 
-    pub fn all_invalid(&self) -> bool {
+    pub fn all_invalid(&self, len: usize) -> bool {
         match self {
+            _ if len == 0 => true,
             Validity::NonNullable | Validity::AllValid => false,
             Validity::AllInvalid => true,
             Validity::Array(array) => {

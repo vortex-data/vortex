@@ -50,11 +50,11 @@ where
     }
 
     fn all_valid(array: &V::Array) -> bool {
-        array.validity().all_valid()
+        array.validity().all_valid(array.len())
     }
 
     fn all_invalid(array: &V::Array) -> bool {
-        array.validity().all_invalid()
+        array.validity().all_invalid(array.len())
     }
 
     fn validity_mask(array: &V::Array) -> Mask {
@@ -85,11 +85,11 @@ where
     }
 
     fn all_valid(array: &V::Array) -> bool {
-        array.sliced_validity().all_valid()
+        array.sliced_validity().all_valid(array.len())
     }
 
     fn all_invalid(array: &V::Array) -> bool {
-        array.sliced_validity().all_invalid()
+        array.sliced_validity().all_invalid(array.len())
     }
 
     fn validity_mask(array: &V::Array) -> Mask {
