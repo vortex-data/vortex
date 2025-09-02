@@ -60,6 +60,20 @@ pub trait LayoutStrategy: 'static + Send + Sync {
 }
 // [layout writer]
 
+#[async_trait]
+impl<T: LayoutStrategy + ?Sized> LayoutStrategy for Box<T> {
+    async fn write_stream(
+        &self,
+        ctx: &ArrayContext,
+        sequence_writer: SequenceWriter,
+        stream: SendableSequentialStream,
+    ) -> VortexResult<LayoutRef> {
+        self.as_ref()
+            .write_stream(ctx, sequence_writer, stream)
+            .await
+    }
+}
+
 pub trait SequentialStreamExt: SequentialStream {
     // not named boxed to prevent clashing with StreamExt
     fn sendable(self) -> SendableSequentialStream

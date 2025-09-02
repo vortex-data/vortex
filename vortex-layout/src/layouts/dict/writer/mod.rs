@@ -54,7 +54,7 @@ impl Default for DictLayoutOptions {
 pub struct DictStrategy<Codes, Values, Fallback> {
     codes: Codes,
     values: Values,
-    fallback: Fallback,
+    fallback: Option<Fallback>,
     options: DictLayoutOptions,
     executor: Arc<dyn TaskExecutor>,
 }
@@ -68,7 +68,7 @@ where
     pub fn new(
         codes: Codes,
         values: Values,
-        fallback: Fallback,
+        fallback: Option<Fallback>,
         options: DictLayoutOptions,
         executor: Arc<dyn TaskExecutor>,
     ) -> Self {
@@ -96,10 +96,11 @@ where
         stream: SendableSequentialStream,
     ) -> VortexResult<LayoutRef> {
         if !dict_layout_supported(stream.dtype()) {
-            return self
-                .fallback
-                .write_stream(ctx, sequence_writer, stream)
-                .await;
+            if let Some(fallback) = self.fallback.as_ref() {
+                return fallback.write_stream(ctx, sequence_writer, stream).await;
+            } else {
+                return self.values.write_stream(ctx, sequence_writer, stream).await;
+            }
         }
         let ctx = ctx.clone();
         let options = self.options.clone();
@@ -118,10 +119,14 @@ where
         };
         if should_fallback {
             // first chunk did not compress to dict, or did not exist. Skip dict layout
-            return self
-                .fallback
-                .write_stream(&ctx, sequence_writer.clone(), stream)
-                .await;
+            if let Some(fallback) = self.fallback.as_ref() {
+                return fallback.write_stream(&ctx, sequence_writer, stream).await;
+            } else {
+                return self
+                    .values
+                    .write_stream(&ctx, sequence_writer, stream)
+                    .await;
+            }
         }
 
         // 1. from a chunk stream, create a stream that yields codes
