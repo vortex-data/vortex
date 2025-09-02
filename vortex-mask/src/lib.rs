@@ -180,6 +180,7 @@ impl MaskValues {
 
     /// Constructs a slices vector from one of the other representations.
     #[allow(clippy::cast_possible_truncation)]
+    #[inline]
     pub fn slices(&self) -> &[(usize, usize)] {
         self.slices.get_or_init(|| {
             if self.true_count == self.len() {
@@ -191,6 +192,7 @@ impl MaskValues {
     }
 
     /// Return an iterator over either indices or slices of the mask based on a density threshold.
+    #[inline]
     pub fn threshold_iter(&self, threshold: f64) -> MaskIter<'_> {
         if self.density >= threshold {
             MaskIter::Slices(self.slices())

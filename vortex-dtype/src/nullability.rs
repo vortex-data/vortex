@@ -29,6 +29,7 @@ impl Nullability {
 impl BitOr for Nullability {
     type Output = Nullability;
 
+    #[inline]
     fn bitor(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
             (Self::NonNullable, Self::NonNullable) => Self::NonNullable,
@@ -38,6 +39,7 @@ impl BitOr for Nullability {
 }
 
 impl From<bool> for Nullability {
+    #[inline]
     fn from(value: bool) -> Self {
         if value {
             Self::Nullable
@@ -48,6 +50,7 @@ impl From<bool> for Nullability {
 }
 
 impl From<Nullability> for bool {
+    #[inline]
     fn from(value: Nullability) -> Self {
         match value {
             Nullability::NonNullable => false,

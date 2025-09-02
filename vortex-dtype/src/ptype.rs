@@ -598,38 +598,45 @@ macro_rules! match_each_native_simd_ptype {
 
 impl PType {
     /// Returns `true` iff this PType is an unsigned integer type
+    #[inline]
     pub const fn is_unsigned_int(self) -> bool {
         matches!(self, Self::U8 | Self::U16 | Self::U32 | Self::U64)
     }
 
     /// Returns `true` iff this PType is a signed integer type
+    #[inline]
     pub const fn is_signed_int(self) -> bool {
         matches!(self, Self::I8 | Self::I16 | Self::I32 | Self::I64)
     }
 
     /// Returns `true` iff this PType is an integer type
     /// Equivalent to `self.is_unsigned_int() || self.is_signed_int()`
+    #[inline]
     pub const fn is_int(self) -> bool {
         self.is_unsigned_int() || self.is_signed_int()
     }
 
     /// Returns `true` iff this PType is a floating point type
+    #[inline]
     pub const fn is_float(self) -> bool {
         matches!(self, Self::F16 | Self::F32 | Self::F64)
     }
 
     /// Returns the number of bytes in this PType
+    #[inline]
     pub const fn byte_width(&self) -> usize {
         match_each_native_ptype!(self, |T| { size_of::<T>() })
     }
 
     /// Returns the number of bits in this PType
+    #[inline]
     pub const fn bit_width(&self) -> usize {
         self.byte_width() * 8
     }
 
     /// Returns the maximum value of this PType if it is an integer type
     /// Returns `u64::MAX` if the value is too large to fit in a `u64`
+    #[inline]
     pub fn max_value_as_u64(&self) -> u64 {
         match_each_native_ptype!(self, |T| {
             <T as UpperBounded>::max_value()
@@ -639,6 +646,7 @@ impl PType {
     }
 
     /// Returns the PType that corresponds to the signed version of this PType
+    #[inline]
     pub const fn to_signed(self) -> Self {
         match self {
             Self::U8 => Self::I8,
@@ -653,6 +661,7 @@ impl PType {
 
     /// Returns the PType that corresponds to the unsigned version of this PType
     /// For floating point types, this will simply return `self`
+    #[inline]
     pub const fn to_unsigned(self) -> Self {
         match self {
             Self::I8 => Self::U8,
