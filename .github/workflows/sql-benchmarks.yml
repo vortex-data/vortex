@@ -19,9 +19,9 @@ on:
             {
               "id": "tpch-nvme",
               "subcommand": "tpch",
-              "name": "TPC-H SF=10 on NVME",
+              "name": "TPC-H SF=1 on NVME",
               "targets": "datafusion:arrow,datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb",
-              "scale_factor": "--scale-factor 10.0"
+              "scale_factor": "--scale-factor 1.0"
             },
             {
               "id": "clickbench-nvme",
@@ -31,6 +31,22 @@ on:
             },
             {
               "id": "tpch-s3",
+              "subcommand": "tpch",
+              "name": "TPC-H SF=1 on S3",
+              "local_dir": "bench-vortex/data/tpch/1.0",
+              "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/tpch/1.0/",
+              "targets": "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex",
+              "scale_factor": "--scale-factor 1.0"
+            },
+            {
+              "id": "tpch-nvme-10",
+              "subcommand": "tpch",
+              "name": "TPC-H SF=10 on NVME",
+              "targets": "datafusion:arrow,datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb",
+              "scale_factor": "--scale-factor 10.0"
+            },
+            {
+              "id": "tpch-s3-10",
               "subcommand": "tpch",
               "name": "TPC-H SF=10 on S3",
               "local_dir": "bench-vortex/data/tpch/1.0",
@@ -196,7 +212,7 @@ jobs:
 
           echo '# Benchmarks: ${{ matrix.name }}' > comment.md
           echo '' >> comment.md
-          uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json \
+          uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json "${{ matrix.name }}" \
             >> comment.md
 
       - name: Comment PR

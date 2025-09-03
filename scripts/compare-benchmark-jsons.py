@@ -13,6 +13,9 @@ import sys
 
 import pandas as pd
 
+# Check if benchmark name argument is provided (will be added from workflow)
+benchmark_name = sys.argv[3] if len(sys.argv) > 3 else ""
+
 base = pd.read_json(sys.argv[1], lines=True)
 pr = pd.read_json(sys.argv[2], lines=True)
 
@@ -24,19 +27,29 @@ base_commit_id = next(iter(base_commit_id))
 assert len(pr_commit_id) == 1, pr_commit_id
 pr_commit_id = next(iter(pr_commit_id))
 
+# Handle missing storage field
 if "storage" not in base:
-    # For whatever reason, the base lacks storage. Might be an old database of results. Might be a
-    # database of results without any storage fields.
     base["storage"] = pd.NA
-
 if "storage" not in pr:
-    # Not all benchmarks have a "storage" key. If none of the JSON objects in the PR results file
-    # had a "storage" key, then the PR DataFrame will lack that key and the join will fail.
     pr["storage"] = pd.NA
 
-# NB: `pd.merge` considers two null key values to be equal, so benchmarks without storage keys will
-# match.
-df3 = pd.merge(base, pr, on=["name", "storage"], how="right", suffixes=("_base", "_pr"))
+# Handle missing dataset field and create a dataset key for joining
+def extract_dataset_key(df):
+    if "dataset" not in df.columns:
+        df["dataset_key"] = pd.NA
+    else:
+        # Convert dataset dict to a string representation for joining
+        df["dataset_key"] = df["dataset"].apply(
+            lambda x: str(sorted(x.items())) if pd.notna(x) and isinstance(x, dict) else pd.NA
+        )
+    return df
+
+base = extract_dataset_key(base)
+pr = extract_dataset_key(pr)
+
+# Join on name, storage, and dataset_key
+# NB: `pd.merge` considers two null key values to be equal, so benchmarks without these keys will match.
+df3 = pd.merge(base, pr, on=["name", "storage", "dataset_key"], how="right", suffixes=("_base", "_pr"))
 
 # assert df3["unit_base"].equals(df3["unit_pr"]), (df3["unit_base"], df3["unit_pr"])
 
@@ -51,14 +64,16 @@ geo_mean_ratio = math.exp(sum(math.log(r) for r in df3["ratio"] if r > 0) / len(
 best_idx = df3["ratio"].idxmin()
 worst_idx = df3["ratio"].idxmax()
 
-# Count significant changes (>10% change)
-significant_improvements = (df3["ratio"] < 0.9).sum()  # More than 10% faster
-significant_regressions = (df3["ratio"] > 1.1).sum()   # More than 10% slower
+# Determine threshold based on benchmark name
+# Use 30% threshold for S3 benchmarks, 10% for others
+is_s3_benchmark = "s3" in benchmark_name.lower()
+threshold_pct = 30 if is_s3_benchmark else 10
+improvement_threshold = 1.0 - (threshold_pct / 100.0)  # e.g., 0.7 for 30%, 0.9 for 10%
+regression_threshold = 1.0 + (threshold_pct / 100.0)   # e.g., 1.3 for 30%, 1.1 for 10%
 
-# Count all changes
-improvements = (df3["ratio"] < 1.0).sum()
-regressions = (df3["ratio"] > 1.0).sum()
-unchanged = (df3["ratio"] == 1.0).sum()
+# Count significant changes
+significant_improvements = (df3["ratio"] < improvement_threshold).sum()
+significant_regressions = (df3["ratio"] > regression_threshold).sum()
 
 # Build summary
 summary_lines = [
@@ -67,12 +82,10 @@ summary_lines = [
     f"- **Overall Performance (geometric mean)**: {geo_mean_ratio:.3f}x ({'better' if geo_mean_ratio < 1 else 'worse'} than base)",
     f"- **Best Improvement**: {df3.loc[best_idx, 'name']} ({df3.loc[best_idx, 'ratio']:.3f}x)",
     f"- **Worst Regression**: {df3.loc[worst_idx, 'name']} ({df3.loc[worst_idx, 'ratio']:.3f}x)",
-    f"- **Significant Changes (>10%)**:",
+    f"- **Significant Changes (>{threshold_pct}%)**:",
     f"  - Improvements: {significant_improvements} queries",
     f"  - Regressions: {significant_regressions} queries",
 ]
-if unchanged > 0:
-    summary_lines.append(f"  - Unchanged: {unchanged} queries")
 
 # Build table
 table_df = pd.DataFrame(
