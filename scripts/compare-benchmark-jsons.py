@@ -33,6 +33,7 @@ if "storage" not in base:
 if "storage" not in pr:
     pr["storage"] = pd.NA
 
+
 # Handle missing dataset field and create a dataset key for joining
 def extract_dataset_key(df):
     if "dataset" not in df.columns:
@@ -43,6 +44,7 @@ def extract_dataset_key(df):
             lambda x: str(sorted(x.items())) if pd.notna(x) and isinstance(x, dict) else pd.NA
         )
     return df
+
 
 base = extract_dataset_key(base)
 pr = extract_dataset_key(pr)
@@ -69,7 +71,8 @@ valid_positive_ratios = [r for r in df3["ratio"] if r > 0 and not pd.isna(r)]
 if len(valid_positive_ratios) > 0:
     geo_mean_ratio = math.exp(sum(math.log(r) for r in valid_positive_ratios) / len(valid_positive_ratios))
 else:
-    geo_mean_ratio = float('nan')
+    geo_mean_ratio = float("nan")
+
 
 # Performance for different target combinations
 def calculate_geo_mean(df):
@@ -77,7 +80,8 @@ def calculate_geo_mean(df):
     if len(valid_ratios) > 0:
         return math.exp(sum(math.log(r) for r in valid_ratios) / len(valid_ratios))
     else:
-        return float('nan')
+        return float("nan")
+
 
 vortex_geo_mean_ratio = calculate_geo_mean(vortex_df)
 duckdb_vortex_geo_mean_ratio = calculate_geo_mean(duckdb_vortex_df)
@@ -93,8 +97,8 @@ if len(vortex_valid_ratios) > 0:
         best_improvement = f"{vortex_df.loc[best_idx, 'name']} ({vortex_df.loc[best_idx, 'ratio']:.3f}x)"
     else:
         best_improvement = "no improvements"
-    
-    # Worst regression: largest ratio (> 1.0, slowest performance)  
+
+    # Worst regression: largest ratio (> 1.0, slowest performance)
     regressions = vortex_valid_ratios[vortex_valid_ratios > 1.0]
     if len(regressions) > 0:
         worst_idx = regressions.idxmax()
@@ -110,11 +114,12 @@ else:
 is_s3_benchmark = "s3" in benchmark_name.lower()
 threshold_pct = 30 if is_s3_benchmark else 10
 improvement_threshold = 1.0 - (threshold_pct / 100.0)  # e.g., 0.7 for 30%, 0.9 for 10%
-regression_threshold = 1.0 + (threshold_pct / 100.0)   # e.g., 1.3 for 30%, 1.1 for 10%
+regression_threshold = 1.0 + (threshold_pct / 100.0)  # e.g., 1.3 for 30%, 1.1 for 10%
 
 # Count significant changes for vortex-only results
 significant_improvements = (vortex_df["ratio"] < improvement_threshold).sum()
 significant_regressions = (vortex_df["ratio"] > regression_threshold).sum()
+
 
 # Build summary
 def format_performance(ratio, target_name):
@@ -123,7 +128,12 @@ def format_performance(ratio, target_name):
     else:
         return f"{ratio:.3f}x ({'better' if ratio < 1 else 'worse'} than base)"
 
-overall_performance = "no valid comparisons available" if pd.isna(geo_mean_ratio) else f"{geo_mean_ratio:.3f}x ({'better' if geo_mean_ratio < 1 else 'worse'} than base)"
+
+overall_performance = (
+    "no valid comparisons available"
+    if pd.isna(geo_mean_ratio)
+    else f"{geo_mean_ratio:.3f}x ({'better' if geo_mean_ratio < 1 else 'worse'} than base)"
+)
 vortex_performance = format_performance(vortex_geo_mean_ratio, "vortex")
 duckdb_vortex_performance = format_performance(duckdb_vortex_geo_mean_ratio, "duckdb:vortex")
 datafusion_vortex_performance = format_performance(datafusion_vortex_geo_mean_ratio, "datafusion:vortex")
@@ -136,11 +146,13 @@ summary_lines = [
 
 # Only add vortex-specific sections if we have vortex data
 if len(vortex_df) > 0:
-    summary_lines.extend([
-        f"- **vortex performance**: {vortex_performance}",
-    ])
+    summary_lines.extend(
+        [
+            f"- **vortex performance**: {vortex_performance}",
+        ]
+    )
 
-# Only add duckdb:vortex section if we have that data  
+# Only add duckdb:vortex section if we have that data
 if len(duckdb_vortex_df) > 0:
     summary_lines.append(f"- **duckdb:vortex performance**: {duckdb_vortex_performance}")
 
@@ -150,13 +162,15 @@ if len(datafusion_vortex_df) > 0:
 
 # Only add best/worst if we have vortex data
 if len(vortex_df) > 0:
-    summary_lines.extend([
-        f"- **best vortex improvement**: {best_improvement}",
-        f"- **worst vortex regression**: {worst_regression}",
-        f"- **significant vortex changes (>{threshold_pct}%)**:",
-        f"  - improvements: {significant_improvements} queries",
-        f"  - regressions: {significant_regressions} queries",
-    ])
+    summary_lines.extend(
+        [
+            f"- **best vortex improvement**: {best_improvement}",
+            f"- **worst vortex regression**: {worst_regression}",
+            f"- **significant vortex changes (>{threshold_pct}%)**:",
+            f"  - improvements: {significant_improvements} queries",
+            f"  - regressions: {significant_regressions} queries",
+        ]
+    )
 
 # Build table
 table_df = pd.DataFrame(
