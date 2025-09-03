@@ -16,12 +16,12 @@ use vortex_dtype::{DType, FieldMask, FieldPath, FieldPathSet};
 use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
 use vortex_expr::dynamic::DynamicExprUpdates;
 use vortex_expr::pruning::checked_pruning_expr;
-use vortex_expr::{root, ExprRef};
+use vortex_expr::{ExprRef, root};
 use vortex_mask::Mask;
 use vortex_utils::aliases::dash_map::DashMap;
 
-use crate::layouts::zoned::zone_map::ZoneMap;
 use crate::layouts::zoned::ZonedLayout;
+use crate::layouts::zoned::zone_map::ZoneMap;
 use crate::segments::SegmentSource;
 use crate::{LayoutReader, MaskFuture};
 

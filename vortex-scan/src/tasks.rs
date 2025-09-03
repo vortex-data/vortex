@@ -7,16 +7,16 @@ use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
 use bit_vec::BitVec;
-use futures::future::{ok, BoxFuture};
-use futures::{try_join, FutureExt};
+use futures::future::{BoxFuture, ok};
+use futures::{FutureExt, try_join};
 use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
 use vortex_layout::{LayoutReader, MaskFuture};
 use vortex_mask::Mask;
 
-use crate::filter::FilterExpr;
 use crate::Selection;
+use crate::filter::FilterExpr;
 
 pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 
@@ -99,7 +99,7 @@ pub(super) fn split_exec<A: 'static + Send>(
                     dynamic_versions[idx] = filter.dynamic_updates(idx).map(|du| du.version());
 
                     let conjunct_mask = reader
-                        .pruning_evaluation(&row_range, &conjunct, mask.clone())?
+                        .pruning_evaluation(&row_range, conjunct, mask.clone())?
                         .await?;
                     mask = mask.bitand(&conjunct_mask);
                 }
@@ -123,7 +123,7 @@ pub(super) fn split_exec<A: 'static + Send>(
                         // The dynamic expression has been updated, re-run the pruning.
                         dynamic_versions[idx] = Some(dv);
                         let conjunct_mask = reader
-                            .pruning_evaluation(&row_range, &conjunct, mask.clone())?
+                            .pruning_evaluation(&row_range, conjunct, mask.clone())?
                             .await?;
                         mask = mask.bitand(&conjunct_mask);
                     }
@@ -132,7 +132,7 @@ pub(super) fn split_exec<A: 'static + Send>(
                     }
 
                     let conjunct_mask = reader
-                        .filter_evaluation(&row_range, &conjunct, MaskFuture::ready(mask))?
+                        .filter_evaluation(&row_range, conjunct, MaskFuture::ready(mask))?
                         .await?;
                     filter.report_selectivity(idx, conjunct_mask.density());
 

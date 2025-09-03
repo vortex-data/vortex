@@ -7,15 +7,15 @@ use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use itertools::Itertools;
-use vortex_array::stats::Precision;
 use vortex_array::ArrayRef;
+use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::immediate_access::annotate_scope_access;
 use vortex_expr::transform::{
-    partition, replace, replace_root_fields, simplify_typed, PartitionedExpr,
+    PartitionedExpr, partition, replace, replace_root_fields, simplify_typed,
 };
-use vortex_expr::{col, root, ExactExpr, ExprRef};
+use vortex_expr::{ExactExpr, ExprRef, col, root};
 use vortex_mask::Mask;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -238,14 +238,13 @@ impl LayoutReader for StructReader {
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         // Partition the expression into expressions that can be evaluated over individual fields
         match &self.partition_expr(expr.clone()) {
-            Partitioned::Single(name, partition) => {
-                self.child(name)?
-                    .projection_evaluation(row_range, partition, mask.clone())
-            }
+            Partitioned::Single(name, partition) => self
+                .child(name)?
+                .projection_evaluation(row_range, partition, mask),
             Partitioned::Multi(partitioned) => {
                 partitioned
                     .clone()
-                    .into_array_future(mask.clone(), |name, expr, mask| {
+                    .into_array_future(mask, |name, expr, mask| {
                         self.child(name)?
                             .projection_evaluation(row_range, expr, mask)
                     })

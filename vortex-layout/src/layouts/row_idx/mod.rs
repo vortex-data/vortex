@@ -8,21 +8,21 @@ use std::fmt::{Display, Formatter};
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
+use Nullability::NonNullable;
 pub use expr::*;
-use futures::future::BoxFuture;
 use futures::FutureExt;
+use futures::future::BoxFuture;
 use vortex_array::compute::filter;
 use vortex_array::stats::Precision;
 use vortex_array::{ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldMask, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_expr::transform::{partition, replace, PartitionedExpr};
-use vortex_expr::{is_root, root, ExactExpr, ExprRef, Scope};
+use vortex_expr::transform::{PartitionedExpr, partition, replace};
+use vortex_expr::{ExactExpr, ExprRef, Scope, is_root, root};
 use vortex_mask::Mask;
 use vortex_scalar::PValue;
 use vortex_sequence::SequenceArray;
 use vortex_utils::aliases::dash_map::DashMap;
-use Nullability::NonNullable;
 
 use crate::layouts::partitioned::PartitionedExprEval;
 use crate::{ArrayFuture, LayoutReader, MaskFuture};
@@ -158,7 +158,7 @@ impl LayoutReader for RowIdxLayoutReader {
             Partitioning::RowIdx(_) => Ok(mask),
             Partitioning::Child(expr) => self.child.filter_evaluation(row_range, expr, mask),
             Partitioning::Partitioned(p) => p.clone().into_mask_future(
-                mask.clone(),
+                mask,
                 |annotation, expr, mask| match annotation {
                     Partition::RowIdx => {
                         Ok(row_idx_mask_future(self.row_offset, row_range, expr, mask))
@@ -182,19 +182,13 @@ impl LayoutReader for RowIdxLayoutReader {
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         match &self.partition_expr(expr) {
-            Partitioning::RowIdx(expr) => Ok(row_idx_array_future(
-                self.row_offset,
-                row_range,
-                expr,
-                mask.clone(),
-            )),
-            Partitioning::Child(expr) => {
-                self.child
-                    .projection_evaluation(row_range, expr, mask.clone())
+            Partitioning::RowIdx(expr) => {
+                Ok(row_idx_array_future(self.row_offset, row_range, expr, mask))
             }
+            Partitioning::Child(expr) => self.child.projection_evaluation(row_range, expr, mask),
             Partitioning::Partitioned(p) => {
                 p.clone()
-                    .into_array_future(mask.clone(), |annotation, expr, mask| match annotation {
+                    .into_array_future(mask, |annotation, expr, mask| match annotation {
                         Partition::RowIdx => {
                             Ok(row_idx_array_future(self.row_offset, row_range, expr, mask))
                         }
@@ -264,7 +258,7 @@ mod tests {
     use vortex_expr::{eq, gt, lit, or, root};
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::layouts::row_idx::{row_idx, RowIdxLayoutReader};
+    use crate::layouts::row_idx::{RowIdxLayoutReader, row_idx};
     use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
     use crate::{

@@ -8,11 +8,11 @@ use std::sync::Arc;
 use futures::future::BoxFuture;
 use futures::stream::FuturesOrdered;
 use futures::{FutureExt, TryStreamExt};
+use vortex_array::ArrayRef;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::stats::Precision;
-use vortex_array::ArrayRef;
 use vortex_dtype::{DType, FieldMask};
-use vortex_error::{vortex_panic, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
