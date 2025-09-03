@@ -221,15 +221,15 @@ jobs:
       - name: Comment PR
         if: inputs.mode == 'pr'
         uses: thollander/actions-comment-pull-request@v3
-      with:
-        file-path: comment.md
-        # There is exactly one comment per comment-tag. If a comment with this tag already exists,
-        # this action will *update* the comment instead of posting a new comment. Therefore, each
-        # unique benchmark configuration must have a unique comment-tag.
-        comment-tag: bench-pr-comment-${{ matrix.id }}
+        with:
+          file-path: comment.md
+          # There is exactly one comment per comment-tag. If a comment with this tag already exists,
+          # this action will *update* the comment instead of posting a new comment. Therefore, each
+          # unique benchmark configuration must have a unique comment-tag.
+          comment-tag: bench-pr-comment-${{ matrix.id }}
 
-        - name: Upload Benchmark Results
-          if: inputs.mode == 'develop'
-          shell: bash
-          run: |
-            bash scripts/cat-s3.sh vortex-benchmark-results-database data.json.gz results.json
+      - name: Upload Benchmark Results
+        if: inputs.mode == 'develop'
+        shell: bash
+        run: |
+          bash scripts/cat-s3.sh vortex-benchmark-results-database data.json.gz results.json
