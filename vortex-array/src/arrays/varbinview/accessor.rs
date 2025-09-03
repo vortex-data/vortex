@@ -32,6 +32,7 @@ impl<'a> Iterator for Iter<'a> {
 
 impl VarBinViewArray {
     /// Get an iterator over the byte values inside the array.
+    #[inline]
     pub fn iter(&self) -> Iter<'_> {
         Iter {
             index: 0,

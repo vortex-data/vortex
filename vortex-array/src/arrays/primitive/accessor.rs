@@ -15,6 +15,7 @@ pub struct Iter<'a, T> {
 impl<'a, T: NativePType> Iterator for Iter<'a, T> {
     type Item = Option<T>;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         if self.index >= self.buffer.len() {
             return None;
@@ -32,6 +33,7 @@ impl<'a, T: NativePType> Iterator for Iter<'a, T> {
 }
 
 impl PrimitiveArray {
+    #[inline]
     pub fn typed_iter<T: NativePType>(&self) -> Iter<'_, T> {
         Iter {
             index: 0,
