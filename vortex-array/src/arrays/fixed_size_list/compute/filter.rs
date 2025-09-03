@@ -2,13 +2,29 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
+use vortex_mask::{Mask, MaskIter};
 use vortex_scalar::Scalar;
 
 use crate::arrays::{ConstantArray, FixedSizeListArray, FixedSizeListVTable};
 use crate::compute::{self, FilterKernel, FilterKernelAdapter};
 use crate::vtable::ValidityHelper;
 use crate::{ArrayRef, IntoArray, register_kernel};
+
+/// Density threshold for choosing between indices and slices representation when expanding masks.
+///
+/// When the mask density is below this threshold, we use indices. Otherwise, we use slices.
+///
+/// Note that this is somewhat arbitrarily chosen...
+const FSL_MASK_EXPANSION_DENSITY_THRESHOLD: f64 = 0.1;
+
+/// List size threshold for choosing between indices and slices in sparse mask expansion.
+///
+/// When expanding sparse masks, if the list size is at or above this threshold, we convert
+/// indices to slices to avoid materializing too many individual indices. This prevents
+/// memory bloat when each FSL element contains many items.
+///
+/// Note that this is somewhat arbitrarily chosen...
+const FSL_SPARSE_MASK_LIST_SIZE_THRESHOLD: usize = 8;
 
 impl FilterKernel for FixedSizeListVTable {
     fn filter(&self, array: &FixedSizeListArray, selection_mask: &Mask) -> VortexResult<ArrayRef> {
@@ -17,11 +33,9 @@ impl FilterKernel for FixedSizeListVTable {
 
         // If the entire array is null, then we only need to adjust the length of the array.
         if let Mask::AllFalse(_) = null_mask {
-            return Ok(ConstantArray::new(
-                Scalar::null(array.dtype().clone()),
-                selection_mask.true_count(),
-            )
-            .into_array());
+            return Ok(
+                ConstantArray::new(Scalar::null(array.dtype().clone()), new_len).into_array(),
+            );
         }
 
         let elements = array.elements();
@@ -33,7 +47,7 @@ impl FilterKernel for FixedSizeListVTable {
         let new_elements = {
             // We want to create a new mask specialized to the underlying `elements` of the array.
             if list_size != 0 {
-                let elements_mask = compute_fsl_elements_mask(selection_mask, list_size);
+                let elements_mask = compute_fsl_elements_mask(selection_mask, list_size as usize);
 
                 // Allow the child array to filter themselves.
                 let new_elements = compute::filter(elements, &elements_mask)?;
@@ -77,24 +91,61 @@ register_kernel!(FilterKernelAdapter(FixedSizeListVTable).lift());
 
 /// Given a mask for a fixed-size list array, creates a new mask for the underlying elements.
 ///
-/// This function simply "expands" out the input `fsl_mask` by duplicating each bit `list_size`
-/// times.
+/// This function simply "expands" out the input `selection_mask` by duplicating each bit
+/// `list_size` times.
 ///
-/// The output `Mask` is guaranteed to have a length equal to `fsl_mask.len() * list_size`.
-fn compute_fsl_elements_mask(fsl_mask: &Mask, list_size: u32) -> Mask {
-    let expanded_len = fsl_mask.len() * list_size as usize;
+/// The output `Mask` is guaranteed to have a length equal to `selection_mask.len() * list_size`.
+fn compute_fsl_elements_mask(selection_mask: &Mask, list_size: usize) -> Mask {
+    let expanded_len = selection_mask.len() * list_size;
 
-    match fsl_mask {
+    match selection_mask {
         Mask::AllTrue(_) => Mask::AllTrue(expanded_len),
         Mask::AllFalse(_) => Mask::AllFalse(expanded_len),
         Mask::Values(values) => {
-            let mut builder = arrow_buffer::BooleanBufferBuilder::new(expanded_len);
-
-            for value in values.boolean_buffer().iter() {
-                builder.append_n(list_size as usize, value);
+            // Use threshold_iter to choose the optimal representation based on density.
+            match values.threshold_iter(FSL_MASK_EXPANSION_DENSITY_THRESHOLD) {
+                MaskIter::Slices(slices) => expand_dense_mask(slices, list_size, expanded_len),
+                MaskIter::Indices(indices) => expand_sparse_mask(indices, list_size, expanded_len),
             }
-
-            Mask::from_buffer(builder.finish())
         }
+    }
+}
+
+/// Expands a dense mask (represented as slices) by scaling each slice by `list_size`.
+fn expand_dense_mask(slices: &[(usize, usize)], list_size: usize, expanded_len: usize) -> Mask {
+    let expanded_slices: Vec<(usize, usize)> = slices
+        .iter()
+        .map(|&(start, end)| (start * list_size, end * list_size))
+        .collect();
+
+    Mask::from_slices(expanded_len, expanded_slices)
+}
+
+/// Expands a sparse mask (represented as indices) by duplicating each index `list_size` times.
+fn expand_sparse_mask(indices: &[usize], list_size: usize, expanded_len: usize) -> Mask {
+    if list_size < FSL_SPARSE_MASK_LIST_SIZE_THRESHOLD {
+        // For small list sizes, expand each index into individual indices.
+        let expanded_indices: Vec<usize> = indices
+            .iter()
+            .flat_map(|&idx| {
+                let start = idx * list_size;
+                start..start + list_size
+            })
+            .collect();
+
+        Mask::from_indices(expanded_len, expanded_indices)
+    } else {
+        // For sparse masks with large list sizes, it's more efficient to create slices rather than
+        // materializing all individual indices.
+        let expanded_slices: Vec<(usize, usize)> = indices
+            .iter()
+            .map(|&idx| {
+                let start = idx * list_size;
+                let end = (idx + 1) * list_size;
+                (start, end)
+            })
+            .collect();
+
+        Mask::from_slices(expanded_len, expanded_slices)
     }
 }
