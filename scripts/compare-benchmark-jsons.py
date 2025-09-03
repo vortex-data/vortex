@@ -56,8 +56,10 @@ df3 = pd.merge(base, pr, on=["name", "storage", "dataset_key"], how="right", suf
 # Generate summary statistics
 df3["ratio"] = df3["value_pr"] / df3["value_base"]
 
-# Filter for vortex-only results for summary statistics
+# Filter for different target combinations for summary statistics
 vortex_df = df3[df3["name"].str.contains("vortex", case=False, na=False)]
+duckdb_vortex_df = df3[df3["name"].str.contains("duckdb.*vortex", case=False, na=False, regex=True)]
+datafusion_vortex_df = df3[df3["name"].str.contains("datafusion.*vortex", case=False, na=False, regex=True)]
 
 # Calculate geometric mean of ratios (better for performance ratios)
 import math
@@ -69,23 +71,39 @@ if len(valid_positive_ratios) > 0:
 else:
     geo_mean_ratio = float('nan')
 
-# Vortex-only performance
-vortex_valid_ratios = [r for r in vortex_df["ratio"] if r > 0 and not pd.isna(r)]
-if len(vortex_valid_ratios) > 0:
-    vortex_geo_mean_ratio = math.exp(sum(math.log(r) for r in vortex_valid_ratios) / len(vortex_valid_ratios))
-else:
-    vortex_geo_mean_ratio = float('nan')
+# Performance for different target combinations
+def calculate_geo_mean(df):
+    valid_ratios = [r for r in df["ratio"] if r > 0 and not pd.isna(r)]
+    if len(valid_ratios) > 0:
+        return math.exp(sum(math.log(r) for r in valid_ratios) / len(valid_ratios))
+    else:
+        return float('nan')
+
+vortex_geo_mean_ratio = calculate_geo_mean(vortex_df)
+duckdb_vortex_geo_mean_ratio = calculate_geo_mean(duckdb_vortex_df)
+datafusion_vortex_geo_mean_ratio = calculate_geo_mean(datafusion_vortex_df)
 
 # Find best and worst changes for vortex-only results
 vortex_valid_ratios = vortex_df["ratio"].dropna()
 if len(vortex_valid_ratios) > 0:
-    best_idx = vortex_valid_ratios.idxmin()
-    worst_idx = vortex_valid_ratios.idxmax()
-    best_improvement = f"{vortex_df.loc[best_idx, 'name']} ({vortex_df.loc[best_idx, 'ratio']:.3f}x)"
-    worst_regression = f"{vortex_df.loc[worst_idx, 'name']} ({vortex_df.loc[worst_idx, 'ratio']:.3f}x)"
+    # Best improvement: smallest ratio (< 1.0, fastest performance)
+    improvements = vortex_valid_ratios[vortex_valid_ratios < 1.0]
+    if len(improvements) > 0:
+        best_idx = improvements.idxmin()
+        best_improvement = f"{vortex_df.loc[best_idx, 'name']} ({vortex_df.loc[best_idx, 'ratio']:.3f}x)"
+    else:
+        best_improvement = "no improvements"
+    
+    # Worst regression: largest ratio (> 1.0, slowest performance)  
+    regressions = vortex_valid_ratios[vortex_valid_ratios > 1.0]
+    if len(regressions) > 0:
+        worst_idx = regressions.idxmax()
+        worst_regression = f"{vortex_df.loc[worst_idx, 'name']} ({vortex_df.loc[worst_idx, 'ratio']:.3f}x)"
+    else:
+        worst_regression = "no regressions"
 else:
-    best_improvement = "No valid vortex comparisons"
-    worst_regression = "No valid vortex comparisons"
+    best_improvement = "no valid vortex comparisons"
+    worst_regression = "no valid vortex comparisons"
 
 # Determine threshold based on benchmark name
 # Use 30% threshold for S3 benchmarks, 10% for others
@@ -99,27 +117,46 @@ significant_improvements = (vortex_df["ratio"] < improvement_threshold).sum()
 significant_regressions = (vortex_df["ratio"] > regression_threshold).sum()
 
 # Build summary
-if pd.isna(geo_mean_ratio):
-    overall_performance = "No valid comparisons available"
-else:
-    overall_performance = f"{geo_mean_ratio:.3f}x ({'better' if geo_mean_ratio < 1 else 'worse'} than base)"
+def format_performance(ratio, target_name):
+    if pd.isna(ratio):
+        return f"no valid {target_name.lower()} comparisons available"
+    else:
+        return f"{ratio:.3f}x ({'better' if ratio < 1 else 'worse'} than base)"
 
-if pd.isna(vortex_geo_mean_ratio):
-    vortex_performance = "No valid vortex comparisons available"
-else:
-    vortex_performance = f"{vortex_geo_mean_ratio:.3f}x ({'better' if vortex_geo_mean_ratio < 1 else 'worse'} than base)"
+overall_performance = "no valid comparisons available" if pd.isna(geo_mean_ratio) else f"{geo_mean_ratio:.3f}x ({'better' if geo_mean_ratio < 1 else 'worse'} than base)"
+vortex_performance = format_performance(vortex_geo_mean_ratio, "vortex")
+duckdb_vortex_performance = format_performance(duckdb_vortex_geo_mean_ratio, "duckdb:vortex")
+datafusion_vortex_performance = format_performance(datafusion_vortex_geo_mean_ratio, "datafusion:vortex")
 
 summary_lines = [
     "## Summary",
     "",
-    f"- **Overall Performance (all targets)**: {overall_performance}",
-    f"- **Vortex Performance**: {vortex_performance}",
-    f"- **Best Vortex Improvement**: {best_improvement}",
-    f"- **Worst Vortex Regression**: {worst_regression}",
-    f"- **Significant Vortex Changes (>{threshold_pct}%)**:",
-    f"  - Improvements: {significant_improvements} queries",
-    f"  - Regressions: {significant_regressions} queries",
+    f"- **overall performance (all targets)**: {overall_performance}",
 ]
+
+# Only add vortex-specific sections if we have vortex data
+if len(vortex_df) > 0:
+    summary_lines.extend([
+        f"- **vortex performance**: {vortex_performance}",
+    ])
+
+# Only add duckdb:vortex section if we have that data  
+if len(duckdb_vortex_df) > 0:
+    summary_lines.append(f"- **duckdb:vortex performance**: {duckdb_vortex_performance}")
+
+# Only add datafusion:vortex section if we have that data
+if len(datafusion_vortex_df) > 0:
+    summary_lines.append(f"- **datafusion:vortex performance**: {datafusion_vortex_performance}")
+
+# Only add best/worst if we have vortex data
+if len(vortex_df) > 0:
+    summary_lines.extend([
+        f"- **best vortex improvement**: {best_improvement}",
+        f"- **worst vortex regression**: {worst_regression}",
+        f"- **significant vortex changes (>{threshold_pct}%)**:",
+        f"  - improvements: {significant_improvements} queries",
+        f"  - regressions: {significant_regressions} queries",
+    ])
 
 # Build table
 table_df = pd.DataFrame(
