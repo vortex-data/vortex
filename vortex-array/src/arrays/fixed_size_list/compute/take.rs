@@ -29,54 +29,25 @@ fn take_with_indices<I: NativePType>(
 ) -> VortexResult<ArrayRef> {
     let list_size = array.list_size() as usize;
 
-    let array_validity = array.validity_mask();
-    let indices_validity = indices_array.validity_mask();
+    if list_size == 0 {
+        return Ok(take_degenerate_fsl::<I>(array, indices_array));
+    }
 
     let indices: &[I] = indices_array.as_slice::<I>();
     let len = indices.len();
 
-    if list_size == 0 {
-        // If the `list_size` is 0, then we simply need figure out where the nulls are and return
-        // an array with empty elements and the correct length.
+    let array_validity = array.validity_mask();
+    let indices_validity = indices_array.validity_mask();
 
-        debug_assert!(array.elements().is_empty(), "degenerate list is invalid");
-
-        let mut new_validity = BooleanBufferBuilder::new(len);
-
-        // We iterate over each data index as well as if each data index is null.
-        indices_validity.iter_bools(|validity_iter| {
-            for (data_idx, is_valid) in indices.iter().zip(validity_iter) {
-                let data_idx = data_idx.to_usize().unwrap_or_else(|| {
-                    vortex_panic!("Failed to convert index to usize: {}", data_idx)
-                });
-
-                new_validity.append(is_valid && array_validity.value(data_idx));
-            }
-        });
-
-        let new_validity = Validity::from(new_validity.finish());
-        debug_assert!(new_validity.maybe_len().is_none_or(|vl| vl == len));
-
-        // SAFETY: The `list_size` is 0, the elements array is empty, and the validity has the
-        // correct length.
-        return Ok(unsafe {
-            FixedSizeListArray::new_unchecked(
-                array.elements().clone(),
-                array.list_size(),
-                new_validity,
-                len,
-            )
-        }
-        .into_array());
-    }
-
-    // We will create new indices specialized for the child `element` array.
-    let mut elements_indices =
-        PrimitiveBuilder::<I>::with_capacity(Nullability::Nullable, len * list_size);
-    let mut new_validity = BooleanBufferBuilder::new(len);
+    let new_nullability = array.dtype().nullability() | indices_array.dtype().nullability();
 
     // We iterate over each data index as well as if each data index is null.
     indices_validity.iter_bools(|validity_iter| {
+        // We will create new indices specialized for the child `element` array.
+        let mut elements_indices =
+            PrimitiveBuilder::<I>::with_capacity(Nullability::NonNullable, len * list_size);
+        let mut new_validity_builder = BooleanBufferBuilder::new(len);
+
         for (data_idx, is_valid) in indices.iter().zip(validity_iter) {
             let data_idx = data_idx
                 .to_usize()
@@ -84,8 +55,13 @@ fn take_with_indices<I: NativePType>(
 
             // If we have a null index (null code), then we treat this as referencing a null list.
             if !is_valid || !array_validity.value(data_idx) {
-                elements_indices.append_nulls(list_size);
-                new_validity.append(false);
+                debug_assert!(
+                    indices_array.dtype().is_nullable() || array.dtype().is_nullable(),
+                    "Somehow had an invalid index from non-nullable array"
+                );
+
+                elements_indices.append_zeros(list_size); // TODO(connor): Is this right?
+                new_validity_builder.append(false);
                 continue;
             }
 
@@ -97,7 +73,7 @@ fn take_with_indices<I: NativePType>(
                 elements_indices.append_value(I::from_usize(i).vortex_expect("i < additional"))
             }
 
-            new_validity.append(true);
+            new_validity_builder.append(true);
         }
 
         let elements_indices = elements_indices.finish();
@@ -106,7 +82,7 @@ fn take_with_indices<I: NativePType>(
         let new_elements = compute::take(array.elements(), elements_indices.as_ref())?;
         debug_assert_eq!(new_elements.len(), len * list_size);
 
-        let new_validity = Validity::from(new_validity.finish());
+        let new_validity = compute_validity_from_bool_buffer(new_validity_builder, new_nullability);
         debug_assert!(new_validity.maybe_len().is_none_or(|vl| vl == len));
 
         // SAFETY: We checked above that `list_size` is not 0, that the length of the elements array
@@ -116,4 +92,87 @@ fn take_with_indices<I: NativePType>(
         }
         .into_array())
     })
+}
+
+fn take_degenerate_fsl<I: NativePType>(
+    array: &FixedSizeListArray,
+    indices_array: &PrimitiveArray,
+) -> ArrayRef {
+    debug_assert_eq!(array.list_size(), 0);
+
+    let array_validity = array.validity_mask();
+    let indices_validity = indices_array.validity_mask();
+
+    let indices: &[I] = indices_array.as_slice::<I>();
+    let len = indices.len();
+
+    let new_nullability = array.dtype().nullability() | indices_array.dtype().nullability();
+
+    // If the `list_size` is 0, then we simply need figure out where the nulls are and return
+    // an array with empty elements and the correct length.
+
+    debug_assert!(array.elements().is_empty(), "degenerate list is invalid");
+
+    let mut new_validity_builder = BooleanBufferBuilder::new(len);
+
+    // We iterate over each data index as well as if each data index is null.
+    indices_validity.iter_bools(|validity_iter| {
+        for (data_idx, is_valid) in indices.iter().zip(validity_iter) {
+            let data_idx = data_idx
+                .to_usize()
+                .unwrap_or_else(|| vortex_panic!("Failed to convert index to usize: {}", data_idx));
+
+            if !is_valid || !array_validity.value(data_idx) {
+                debug_assert!(
+                    indices_array.dtype().is_nullable() || array.dtype().is_nullable(),
+                    "Somehow had an invalid index from non-nullable array"
+                );
+
+                new_validity_builder.append(false);
+            } else {
+                new_validity_builder.append(true);
+            }
+        }
+    });
+
+    let new_validity = compute_validity_from_bool_buffer(new_validity_builder, new_nullability);
+    debug_assert!(new_validity.maybe_len().is_none_or(|vl| vl == len));
+
+    // SAFETY: The `list_size` is 0, the elements array is empty, and the validity has the correct
+    // length.
+    unsafe {
+        FixedSizeListArray::new_unchecked(
+            array.elements().clone(),
+            array.list_size(),
+            new_validity,
+            len,
+        )
+    }
+    .into_array()
+}
+
+fn compute_validity_from_bool_buffer(
+    mut bool_buffer: BooleanBufferBuilder,
+    nullability: Nullability,
+) -> Validity {
+    match nullability {
+        Nullability::Nullable => {
+            // If the outer array is nullable, then we simply derive from the boolean buffer.
+            Validity::from(bool_buffer.finish())
+        }
+        Nullability::NonNullable => {
+            // Otherwise, the array remains non-nullable.
+
+            {
+                for i in 0..bool_buffer.len() {
+                    println!("{}", bool_buffer.get_bit(i))
+                }
+            }
+
+            #[cfg(debug_assertions)]
+            assert_eq!(Validity::from(bool_buffer.finish()), Validity::AllValid);
+
+            Validity::NonNullable
+        }
+    }
 }
