@@ -4,7 +4,7 @@
 #![allow(clippy::expect_used)]
 mod browse;
 mod convert;
-mod segments;
+mod inspect;
 mod tree;
 
 use std::path::PathBuf;
@@ -15,6 +15,8 @@ use clap::{CommandFactory, Parser};
 use tokio::runtime::Runtime;
 use tree::exec_tree;
 use vortex::error::VortexExpect;
+
+use crate::inspect::InspectArgs;
 
 static TOKIO_RUNTIME: LazyLock<Runtime> =
     LazyLock::new(|| Runtime::new().expect("Tokio Runtime::new()"));
@@ -28,27 +30,21 @@ struct Cli {
 #[derive(Debug, clap::Subcommand)]
 enum Commands {
     /// Print the encoding tree of a Vortex file.
-    Tree {
-        file: PathBuf,
-    },
+    Tree { file: PathBuf },
     /// Convert a Parquet file to a Vortex file. Chunking occurs on Parquet RowGroup boundaries.
     Convert(#[command(flatten)] convert::Flags),
     /// Interactively browse the Vortex file.
-    Browse {
-        file: PathBuf,
-    },
-    Segments {
-        file: PathBuf,
-    },
+    Browse { file: PathBuf },
+    /// Inspect Vortex file footer and metadata
+    Inspect(InspectArgs),
 }
 
 impl Commands {
     fn file_path(&self) -> &PathBuf {
         match self {
-            Commands::Tree { file } | Commands::Browse { file } | Commands::Segments { file } => {
-                file
-            }
+            Commands::Tree { file } | Commands::Browse { file } => file,
             Commands::Convert(flags) => &flags.file,
+            Commands::Inspect(args) => &args.file,
         }
     }
 }
@@ -75,7 +71,7 @@ fn main() -> anyhow::Result<()> {
         Commands::Tree { file } => exec_tree(file)?,
         Commands::Convert(flags) => TOKIO_RUNTIME.block_on(convert::exec_convert(flags))?,
         Commands::Browse { file } => exec_tui(file)?,
-        Commands::Segments { file } => TOKIO_RUNTIME.block_on(segments::segments(file))?,
+        Commands::Inspect(args) => inspect::exec_inspect(args)?,
     };
 
     Ok(())

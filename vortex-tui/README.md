@@ -3,7 +3,9 @@
 A small, helpful CLI tool for exploring and analyzing Vortex files.
 
 * `browse`: Browse the structure of your Vortex file with a rich TUI
-* `tree`: print the file contents as JSON
+* `tree`: Print the encoding tree of a Vortex file
+* `inspect`: Inspect Vortex file footer and metadata
+* `convert`: Convert a Parquet file to a Vortex file
 
 ## Examples
 
@@ -47,6 +49,62 @@ Opening an interactive TUI to browse the sample file:
 
 ```
 vx browse ./bench-vortex/data/tpch/1/vortex_compressed/nation.vortex
+```
+
+### Inspecting File Footer
+
+The `inspect` subcommand allows you to examine the internal structure of a Vortex file at different levels:
+
+```bash
+# Inspect just the EOF marker (8 bytes at end of file)
+vx inspect ./data/sample.vortex eof
+
+# Inspect the postscript (includes EOF and postscript segments)
+vx inspect ./data/sample.vortex postscript
+
+# Inspect the full footer structure (default - includes all segments)
+vx inspect ./data/sample.vortex footer
+
+# Or simply run without specifying mode to get full footer info
+vx inspect ./data/sample.vortex
+```
+
+Example output:
+```
+File: "./data/sample.vortex"
+Size: 1048576 bytes
+
+=== EOF Marker ===
+Version: 1 (current: 1)
+Postscript size: 256 bytes
+Magic bytes: "VTXF" (VALID)
+
+=== Postscript ===
+  DType: offset=1047808, length=512, alignment=1
+  Layout: offset=1048000, length=320, alignment=1
+  Statistics: <not present>
+  Footer: offset=1048320, length=256, alignment=1
+
+=== Footer Segments ===
+Total segments: 42
+Total data size: 1047808 bytes
+
+Segment details:
+  [0] offset=0, length=4096, alignment=8
+  [1] offset=4096, length=8192, alignment=8
+  ...
+```
+
+### Converting Files
+
+Convert a Parquet file to Vortex format:
+
+```bash
+# Basic conversion
+vx convert input.parquet --out output.vortex
+
+# With compression enabled
+vx convert input.parquet --out output.vortex --compress
 ```
 
 ## Development
