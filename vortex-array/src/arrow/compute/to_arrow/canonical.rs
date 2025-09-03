@@ -154,7 +154,7 @@ impl Kernel for ToArrowCanonical {
                 to_arrow_list::<i64>(array, arrow_type_opt.map(|_| field))
             }
             (Canonical::FixedSizeList(array), DataType::FixedSizeList(field, list_size)) => {
-                to_arrow_fixed_size_list(array, field, *list_size, to_preferred)
+                to_arrow_fixed_size_list(array, arrow_type_opt.map(|_| field), *list_size)
             }
             (Canonical::VarBinView(array), DataType::BinaryView) if array.dtype().is_binary() => {
                 to_arrow_varbinview::<BinaryViewType>(array)
@@ -394,9 +394,8 @@ fn to_arrow_list<O: NativePType + OffsetSizeTrait>(
 
 fn to_arrow_fixed_size_list(
     array: FixedSizeListArray,
-    element: &FieldRef,
+    element: Option<&FieldRef>,
     list_size: i32,
-    to_preferred: bool,
 ) -> VortexResult<ArrowArrayRef> {
     assert!(
         list_size >= 0,
@@ -410,15 +409,23 @@ fn to_arrow_fixed_size_list(
         );
     }
 
-    let values = if to_preferred {
-        array.elements().clone().into_arrow_preferred()?
+    let (values, element_field) = if let Some(element) = element {
+        (
+            array.elements().clone().into_arrow(element.data_type())?,
+            element.clone(),
+        )
     } else {
-        array.elements().clone().into_arrow(element.data_type())?
+        let values = array.elements().clone().into_arrow_preferred()?;
+        let element_field = Arc::new(Field::new_list_field(
+            values.data_type().clone(),
+            array.elements().dtype().is_nullable(),
+        ));
+        (values, element_field)
     };
     let nulls = array.validity_mask().to_null_buffer();
 
     Ok(Arc::new(ArrowFixedSizeListArray::new(
-        element.clone(),
+        element_field,
         list_size,
         values,
         nulls,
