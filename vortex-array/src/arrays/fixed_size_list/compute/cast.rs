@@ -10,7 +10,7 @@ use crate::vtable::ValidityHelper;
 use crate::{ArrayRef, register_kernel};
 
 impl CastKernel for FixedSizeListVTable {
-    fn cast(&self, array: &Self::Array, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(&self, array: &FixedSizeListArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         let Some(target_element_type) = dtype.as_list_element_opt() else {
             return Ok(None);
         };
