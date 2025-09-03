@@ -7,8 +7,8 @@ use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
 use bit_vec::BitVec;
+use futures::FutureExt;
 use futures::future::{BoxFuture, ok};
-use futures::{FutureExt, try_join};
 use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
@@ -152,10 +152,12 @@ pub(super) fn split_exec<A: 'static + Send>(
 
     let mapper = ctx.mapper.clone();
     let array_fut = async move {
-        let (array, mask) = try_join!(projection_future, filter_mask)?;
+        let mask = filter_mask.await?;
         if mask.all_false() {
             return Ok(None);
         }
+
+        let array = projection_future.await?;
         mapper(array).map(Some)
     };
 
