@@ -6,19 +6,19 @@
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
-use futures::future::{ok, BoxFuture};
+use futures::future::{BoxFuture, ok};
 use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
 use parking_lot::Mutex;
-use vortex_array::pipeline::operators::MaskFuture;
 use vortex_array::ArrayRef;
+use vortex_array::pipeline::operators::MaskFuture;
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
 use vortex_layout::{LayoutReader, LayoutReaderRef};
 use vortex_mask::Mask;
 
-use crate::filter::FilterExpr;
 use crate::Selection;
+use crate::filter::FilterExpr;
 
 pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 

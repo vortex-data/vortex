@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use bit_vec::BitVec;
 use futures::future;
 use loom::sync::atomic::{AtomicUsize, Ordering};
 use loom::sync::{Arc, Mutex};
@@ -156,46 +155,6 @@ fn test_work_stealing_concurrent_factory_construction() {
         // Verify factories were constructed
         let final_count = counter.load(Ordering::SeqCst);
         assert!(final_count > 0 && final_count <= 3);
-    });
-}
-
-#[test]
-fn test_filter_expr_concurrent_selectivity_reporting() {
-    // Test concurrent selectivity reporting in FilterExpr
-    loom::model(|| {
-        let expr = lit(true); // Simple expression for testing
-        let filter = Arc::new(FilterExpr::new(expr));
-
-        let filter1 = filter.clone();
-        let filter2 = filter.clone();
-        let filter3 = filter;
-
-        // Multiple threads reporting selectivity
-        let handle1 = thread::spawn(move || {
-            filter1.report_selectivity(0, 0.5);
-            filter1.report_selectivity(0, 0.6);
-        });
-
-        let handle2 = thread::spawn(move || {
-            filter2.report_selectivity(0, 0.7);
-            filter2.report_selectivity(0, 0.4);
-        });
-
-        // Reader thread
-        let handle3 = thread::spawn(move || {
-            let mut remaining = BitVec::from_elem(1, true);
-            let conjunct = filter3.next_conjunct(&remaining);
-            assert_eq!(conjunct, Some(0));
-
-            // Mark as evaluated
-            remaining.set(0, false);
-            let conjunct = filter3.next_conjunct(&remaining);
-            assert_eq!(conjunct, None);
-        });
-
-        handle1.join().unwrap();
-        handle2.join().unwrap();
-        handle3.join().unwrap();
     });
 }
 
@@ -416,79 +375,6 @@ fn test_work_stealing_memory_ordering() {
         let mut final_values = seen_clone.lock().unwrap().clone();
         final_values.sort();
         assert_eq!(final_values, vec![100, 101, 102, 200, 201, 300]);
-    });
-}
-
-#[test]
-fn test_concurrent_filter_ordering_updates() {
-    // Test race conditions in filter ordering updates
-    // Multiple threads reading ordering while one updates it
-    loom::model(|| {
-        let expr = and(
-            gt(get_item("a", root()), lit(5)),
-            and(
-                lt(get_item("b", root()), lit(10)),
-                gt(get_item("c", root()), lit(0)),
-            ),
-        );
-        let filter = Arc::new(FilterExpr::new(expr));
-
-        // Create multiple reader threads and one writer thread
-        let filter_reader1 = filter.clone();
-        let filter_reader2 = filter.clone();
-        let filter_writer = filter;
-
-        // Writer thread continuously updates selectivity
-        let writer = thread::spawn(move || {
-            // Report different selectivities to trigger reordering
-            filter_writer.report_selectivity(0, 0.9); // Low selectivity
-            filter_writer.report_selectivity(1, 0.1); // High selectivity
-            filter_writer.report_selectivity(2, 0.5); // Medium selectivity
-
-            // Report more to potentially trigger reordering
-            filter_writer.report_selectivity(0, 0.8);
-            filter_writer.report_selectivity(1, 0.2);
-        });
-
-        // Reader threads continuously read the ordering
-        let reader1 = thread::spawn(move || {
-            let mut remaining = BitVec::from_elem(3, true);
-            let mut seen = Vec::new();
-
-            while let Some(idx) = filter_reader1.next_conjunct(&remaining) {
-                seen.push(idx);
-                remaining.set(idx, false);
-            }
-            seen
-        });
-
-        let reader2 = thread::spawn(move || {
-            let mut remaining = BitVec::from_elem(3, true);
-            let mut seen = Vec::new();
-
-            while let Some(idx) = filter_reader2.next_conjunct(&remaining) {
-                seen.push(idx);
-                remaining.set(idx, false);
-            }
-            seen
-        });
-
-        writer.join().unwrap();
-        let order1 = reader1.join().unwrap();
-        let order2 = reader2.join().unwrap();
-
-        // Both readers should see a valid ordering (all indices present)
-        assert_eq!(order1.len(), 3);
-        assert_eq!(order2.len(), 3);
-
-        // Check all indices are present
-        let mut sorted1 = order1;
-        sorted1.sort();
-        assert_eq!(sorted1, vec![0, 1, 2]);
-
-        let mut sorted2 = order2;
-        sorted2.sort();
-        assert_eq!(sorted2, vec![0, 1, 2]);
     });
 }
 

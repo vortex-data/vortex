@@ -3,14 +3,13 @@
 
 use std::iter;
 
-use bit_vec::BitVec;
 use itertools::Itertools;
 use parking_lot::RwLock;
 use sketches_ddsketch::DDSketch;
-use vortex_error::{vortex_err, vortex_panic, VortexExpect};
+use vortex_error::{VortexExpect, vortex_err, vortex_panic};
+use vortex_expr::ExprRef;
 use vortex_expr::dynamic::DynamicExprUpdates;
 use vortex_expr::forms::conjuncts;
-use vortex_expr::ExprRef;
 
 /// The selectivity histogram quantile to use for reordering conjuncts. Where 0 == no rows match.
 const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;

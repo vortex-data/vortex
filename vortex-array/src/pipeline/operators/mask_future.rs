@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use futures_util::future::{BoxFuture, SelectAll, Shared};
 use futures_util::{FutureExt, TryFutureExt};
-use vortex_error::{vortex_panic, SharedVortexResult, VortexError, VortexResult};
+use vortex_error::{SharedVortexResult, VortexError, VortexResult, vortex_panic};
 use vortex_mask::Mask;
 
 /// A future that resolves to a mask.
