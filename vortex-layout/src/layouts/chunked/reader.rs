@@ -19,10 +19,7 @@ use vortex_mask::Mask;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::reader::LayoutReader;
 use crate::segments::SegmentSource;
-use crate::{
-    ArrayEvaluation, LayoutReaderRef, LazyReaderChildren, MaskEvaluation, MaskFuture,
-    PruningEvaluation,
-};
+use crate::{LayoutReaderRef, LazyReaderChildren, MaskFuture};
 
 /// A [`LayoutReader`] for chunked layouts.
 pub struct ChunkedReader {
