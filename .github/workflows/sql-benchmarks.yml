@@ -211,11 +211,21 @@ jobs:
             > base.json
 
           echo '# Benchmarks: ${{ matrix.name }}' > comment.md
-          echo '<details>' >> comment.md
-          echo '<summary>Table of Results</summary>' >> comment.md
           echo '' >> comment.md
-          uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json \
-            >> comment.md
+          # Generate summary and table from the comparison script
+          comparison_output=$(uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json)
+          # Extract summary section (everything before the table)
+          summary=$(echo "$comparison_output" | awk '/^## Summary/,/^$/{print}' | tail -n +2)
+          # Extract table (everything after the empty line following summary)
+          table=$(echo "$comparison_output" | awk 'f;/^$/{f=1}')
+          # Write summary outside the details section
+          echo "$summary" >> comment.md
+          echo '' >> comment.md
+          # Write table inside details section
+          echo '<details>' >> comment.md
+          echo '<summary>Detailed Results Table</summary>' >> comment.md
+          echo '' >> comment.md
+          echo "$table" >> comment.md
           echo '</details>' >> comment.md
 
       - name: Comment PR
