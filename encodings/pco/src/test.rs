@@ -44,7 +44,7 @@ fn test_compress_decompress() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "range end out of bounds: 2 <= 1")]
 fn test_compress_decompress_big() {
     let array = PrimitiveArray::from_option_iter([None, Some(1)]);
     let compressed = PcoArray::from_primitive(&array, 3, 0).unwrap();
