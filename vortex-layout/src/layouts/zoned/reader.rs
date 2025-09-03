@@ -12,13 +12,13 @@ use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
 use parking_lot::RwLock;
 use vortex_array::ToCanonical;
+use vortex_array::pipeline::operators::MaskFuture;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask, FieldPath, FieldPathSet};
 use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
 use vortex_expr::dynamic::DynamicExprUpdates;
 use vortex_expr::pruning::checked_pruning_expr;
 use vortex_expr::{ExprRef, root};
-use vortex_array::pipeline::operators::MaskFuture;
 use vortex_mask::Mask;
 use vortex_utils::aliases::dash_map::DashMap;
 
@@ -370,14 +370,14 @@ mod test {
     use futures::executor::block_on;
     use futures::stream;
     use rstest::{fixture, rstest};
+    use vortex_array::pipeline::operators::MaskFuture;
     use vortex_array::stream::{ArrayStreamAdapter, ArrayStreamExt};
     use vortex_array::{ArrayContext, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, PType};
     use vortex_expr::{gt, lit, root};
-    use vortex_array::pipeline::operators::MaskFuture;
-use vortex_mask::Mask;
+    use vortex_mask::Mask;
 
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;

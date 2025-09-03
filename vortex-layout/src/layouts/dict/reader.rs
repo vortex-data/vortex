@@ -9,12 +9,12 @@ use async_trait::async_trait;
 use futures::{FutureExt, join};
 use vortex_array::ArrayRef;
 use vortex_array::compute::{MinMaxResult, min_max, take};
+use vortex_array::pipeline::operators::MaskFuture;
 use vortex_array::stats::Precision;
 use vortex_dict::DictArray;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::{ExprRef, Scope, root};
-use vortex_array::pipeline::operators::MaskFuture;
 use vortex_mask::Mask;
 use vortex_utils::aliases::dash_map::DashMap;
 
@@ -240,11 +240,11 @@ mod tests {
     use rstest::rstest;
     use vortex_array::arrays::{StructArray, VarBinArray};
     use vortex_array::arrow::IntoArrowArray;
+    use vortex_array::pipeline::operators::MaskFuture;
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayContext, IntoArray as _};
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
     use vortex_expr::{is_null, not, pack, root};
-    use vortex_array::pipeline::operators::MaskFuture;
 
     use crate::layouts::dict::writer::{DictLayoutOptions, DictStrategy};
     use crate::layouts::flat::writer::FlatLayoutStrategy;

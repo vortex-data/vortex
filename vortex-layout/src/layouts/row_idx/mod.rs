@@ -12,13 +12,13 @@ use Nullability::NonNullable;
 use async_trait::async_trait;
 pub use expr::*;
 use vortex_array::compute::filter;
+use vortex_array::pipeline::operators::MaskFuture;
 use vortex_array::stats::Precision;
 use vortex_array::{ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldMask, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::transform::{PartitionedExpr, partition, replace};
 use vortex_expr::{ExactExpr, ExprRef, Scope, is_root, root};
-use vortex_array::pipeline::operators::MaskFuture;
 use vortex_mask::Mask;
 use vortex_scalar::PValue;
 use vortex_sequence::SequenceArray;
@@ -280,9 +280,9 @@ mod tests {
     use futures::stream;
     use itertools::Itertools;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::pipeline::operators::MaskFuture;
     use vortex_array::{ArrayContext, ToCanonical};
     use vortex_expr::{eq, gt, lit, or, root};
-    use vortex_array::pipeline::operators::MaskFuture;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::row_idx::{RowIdxLayoutReader, row_idx};

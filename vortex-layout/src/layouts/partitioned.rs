@@ -10,13 +10,13 @@ use futures::future::try_join_all;
 use futures::try_join;
 use itertools::Itertools;
 use vortex_array::arrays::StructArray;
+use vortex_array::pipeline::operators::MaskFuture;
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayRef, IntoArray};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexError, VortexResult};
 use vortex_expr::transform::PartitionedExpr;
 use vortex_expr::{ExprRef, Scope};
-use vortex_array::pipeline::operators::MaskFuture;
 use vortex_mask::Mask;
 
 use crate::{ArrayEvaluation, MaskEvaluation};

@@ -252,13 +252,13 @@ mod tests {
     use itertools::Itertools;
     use rstest::{fixture, rstest};
     use vortex_array::arrays::StructArray;
+    use vortex_array::pipeline::operators::MaskFuture;
     use vortex_array::{Array, ArrayContext, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, StructFields};
     use vortex_expr::{col, eq, get_item, gt, lit, or, pack, root};
-    use vortex_array::pipeline::operators::MaskFuture;
     use vortex_mask::Mask;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;

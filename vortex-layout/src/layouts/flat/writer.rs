@@ -140,6 +140,7 @@ mod tests {
     use futures::stream;
     use vortex_array::arrays::{BoolArray, PrimitiveArray, StructArray};
     use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
+    use vortex_array::pipeline::operators::MaskFuture;
     use vortex_array::stats::{Precision, Stat, StatsProviderExt};
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray, ToCanonical};
@@ -147,7 +148,6 @@ mod tests {
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
     use vortex_error::VortexUnwrap;
     use vortex_expr::root;
-    use vortex_array::pipeline::operators::MaskFuture;
     use vortex_mask::AllOr;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;

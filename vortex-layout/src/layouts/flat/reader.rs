@@ -8,6 +8,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::FutureExt;
 use vortex_array::compute::filter;
+use vortex_array::pipeline::operators::MaskFuture;
 use vortex_array::pipeline::{
     N, export_canonical_pipeline_expr, export_canonical_pipeline_expr_offset,
 };
@@ -17,7 +18,6 @@ use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldMask, Nullability};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
 use vortex_expr::{ExprRef, Scope, VortexExprExt, is_root};
-use vortex_array::pipeline::operators::MaskFuture;
 use vortex_mask::Mask;
 
 use crate::layouts::SharedArrayFuture;
@@ -296,11 +296,11 @@ mod test {
     use futures::executor::block_on;
     use futures::stream;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::pipeline::operators::MaskFuture;
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayContext, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_expr::{gt, lit, root};
-    use vortex_array::pipeline::operators::MaskFuture;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
