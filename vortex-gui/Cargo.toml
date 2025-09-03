@@ -1,0 +1,36 @@
+[package]
+name = "vortex-gui"
+authors.workspace = true
+categories.workspace = true
+edition.workspace = true
+homepage.workspace = true
+include.workspace = true
+keywords.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+# Error handling in binaries
+anyhow = "1"
+# GUI dependencies
+eframe = "0.32.1"
+egui = "0.32.1"
+egui_extras = "0.32.1"
+
+# futures shenanigans
+futures = { workspace = true }
+
+# native file opener
+rfd = "0.15"
+
+# for async IO
+tokio = { workspace = true, features = ["full"] }
+
+# for browsing Vortex files
+vortex = { workspace = true, features = ["tokio"] }
+
+[lints]
+workspace = true
