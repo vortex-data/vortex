@@ -8,13 +8,13 @@ use std::sync::Arc;
 use futures::future::BoxFuture;
 use once_cell::sync::OnceCell;
 use vortex_array::ArrayRef;
+use vortex_array::pipeline::operators::MaskFuture;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
-use crate::MaskFuture;
 use crate::children::LayoutChildren;
 use crate::segments::SegmentSource;
 

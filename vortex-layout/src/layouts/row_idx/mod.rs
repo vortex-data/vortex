@@ -13,6 +13,7 @@ pub use expr::*;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_array::compute::filter;
+use vortex_array::pipeline::operators::MaskFuture;
 use vortex_array::stats::Precision;
 use vortex_array::{ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldMask, Nullability, PType};
@@ -25,7 +26,7 @@ use vortex_sequence::SequenceArray;
 use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::layouts::partitioned::PartitionedExprEval;
-use crate::{ArrayFuture, LayoutReader, MaskFuture};
+use crate::{ArrayFuture, LayoutReader};
 
 pub struct RowIdxLayoutReader {
     name: Arc<str>,
@@ -254,6 +255,7 @@ mod tests {
     use futures::stream;
     use itertools::Itertools;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::pipeline::operators::MaskFuture;
     use vortex_array::{ArrayContext, ToCanonical};
     use vortex_expr::{eq, gt, lit, or, root};
 
@@ -261,9 +263,7 @@ mod tests {
     use crate::layouts::row_idx::{RowIdxLayoutReader, row_idx};
     use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
-    use crate::{
-        LayoutReader, LayoutStrategy, MaskFuture, SequentialStreamAdapter, SequentialStreamExt,
-    };
+    use crate::{LayoutReader, LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt};
 
     #[test]
     fn flat_expr_no_row_id() {

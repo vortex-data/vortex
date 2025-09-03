@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::future::Future;
 use std::ops::Range;
 use std::sync::Arc;
 
-use futures::future::{BoxFuture, Shared};
-use futures::{FutureExt, TryFutureExt};
+use futures_util::future::{BoxFuture, Shared};
+use futures_util::{FutureExt, TryFutureExt};
 use vortex_error::{SharedVortexResult, VortexError, VortexResult, vortex_panic};
 use vortex_mask::Mask;
 
+/// A future that resolves to a mask.
 #[derive(Clone)]
 pub struct MaskFuture {
     inner: Shared<BoxFuture<'static, SharedVortexResult<Mask>>>,
@@ -16,6 +18,7 @@ pub struct MaskFuture {
 }
 
 impl MaskFuture {
+    /// Create a new MaskFuture from a future that returns a mask.
     pub fn new<F>(len: usize, fut: F) -> Self
     where
         F: Future<Output = VortexResult<Mask>> + Send + 'static,
@@ -35,22 +38,27 @@ impl MaskFuture {
         }
     }
 
+    /// Returns the length of the mask.
     pub fn len(&self) -> usize {
         self.len
     }
 
+    /// Returns true if the mask is empty.
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
 
+    /// Create a MaskFuture from a ready mask.
     pub fn ready(mask: Mask) -> Self {
         Self::new(mask.len(), async move { Ok(mask) })
     }
 
+    /// Create a MaskFuture that resolves to a mask with all values set to true.
     pub fn new_true(row_count: usize) -> Self {
         Self::ready(Mask::new_true(row_count))
     }
 
+    /// Create a MaskFuture that resolves to a slice of the original mask.
     pub fn slice(&self, range: Range<usize>) -> Self {
         let inner = self.inner.clone();
         Self::new(range.len(), async move { Ok(inner.await?.slice(range)) })

@@ -11,9 +11,9 @@ use ratatui::widgets::{
 };
 use vortex::error::VortexExpect;
 use vortex::expr::root;
-use vortex::layout::MaskFuture;
 use vortex::layout::layouts::flat::FlatVTable;
 use vortex::layout::layouts::zoned::ZonedVTable;
+use vortex::pipeline::operators::MaskFuture;
 use vortex::{Array, ArrayRef, ToCanonical};
 
 use crate::TOKIO_RUNTIME;

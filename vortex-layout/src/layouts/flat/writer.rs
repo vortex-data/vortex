@@ -140,6 +140,7 @@ mod tests {
     use futures::stream;
     use vortex_array::arrays::{BoolArray, PrimitiveArray, StructArray};
     use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
+    use vortex_array::pipeline::operators::MaskFuture;
     use vortex_array::stats::{Precision, Stat, StatsProviderExt};
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray, ToCanonical};
@@ -153,8 +154,7 @@ mod tests {
     use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
     use crate::{
-        LayoutStrategy, MaskFuture, SendableSequentialStream, SequentialStreamAdapter,
-        SequentialStreamExt as _,
+        LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter, SequentialStreamExt as _,
     };
 
     fn stream_only(array: ArrayRef) -> SendableSequentialStream {

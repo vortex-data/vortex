@@ -10,6 +10,7 @@ use futures::future::{BoxFuture, Shared};
 use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
 use parking_lot::RwLock;
+use vortex_array::pipeline::operators::MaskFuture;
 use vortex_array::stats::Precision;
 use vortex_array::{ArrayRef, ToCanonical};
 use vortex_dtype::{DType, FieldMask, FieldPath, FieldPathSet};
@@ -20,10 +21,10 @@ use vortex_expr::{ExprRef, root};
 use vortex_mask::Mask;
 use vortex_utils::aliases::dash_map::DashMap;
 
+use crate::LayoutReader;
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::ZoneMap;
 use crate::segments::SegmentSource;
-use crate::{LayoutReader, MaskFuture};
 
 type SharedZoneMap = Shared<BoxFuture<'static, SharedVortexResult<ZoneMap>>>;
 type SharedPruningResult = Shared<BoxFuture<'static, SharedVortexResult<Arc<PruningResult>>>>;
@@ -347,6 +348,7 @@ mod test {
     use futures::executor::block_on;
     use futures::stream;
     use rstest::{fixture, rstest};
+    use vortex_array::pipeline::operators::MaskFuture;
     use vortex_array::stream::{ArrayStreamAdapter, ArrayStreamExt};
     use vortex_array::{ArrayContext, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
@@ -359,7 +361,7 @@ mod test {
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
     use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
-    use crate::{LayoutRef, LayoutStrategy, LocalExecutor, MaskFuture};
+    use crate::{LayoutRef, LayoutStrategy, LocalExecutor};
 
     #[fixture]
     /// Create a stats layout with three chunks of primitive arrays.

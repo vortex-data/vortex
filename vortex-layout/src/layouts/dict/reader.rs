@@ -9,6 +9,7 @@ use futures::future::BoxFuture;
 use futures::{FutureExt, TryFutureExt, try_join};
 use vortex_array::ArrayRef;
 use vortex_array::compute::{MinMaxResult, min_max, take};
+use vortex_array::pipeline::operators::MaskFuture;
 use vortex_array::stats::Precision;
 use vortex_dict::DictArray;
 use vortex_dtype::{DType, FieldMask};
@@ -20,7 +21,7 @@ use vortex_utils::aliases::dash_map::DashMap;
 use super::DictLayout;
 use crate::layouts::SharedArrayFuture;
 use crate::segments::SegmentSource;
-use crate::{LayoutReader, LayoutReaderRef, MaskFuture};
+use crate::{LayoutReader, LayoutReaderRef};
 
 pub struct DictReader {
     layout: DictLayout,
@@ -208,6 +209,7 @@ mod tests {
     use rstest::rstest;
     use vortex_array::arrays::{StructArray, VarBinArray};
     use vortex_array::arrow::IntoArrowArray;
+    use vortex_array::pipeline::operators::MaskFuture;
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayContext, IntoArray as _};
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
@@ -218,7 +220,7 @@ mod tests {
     use crate::segments::{SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
     use crate::{
-        LayoutId, LayoutRef, LayoutStrategy, LocalExecutor, MaskFuture, SequentialStreamAdapter,
+        LayoutId, LayoutRef, LayoutStrategy, LocalExecutor, SequentialStreamAdapter,
         SequentialStreamExt,
     };
 
