@@ -15,7 +15,6 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
-    use crate::accessor::ArrayAccessor;
     use crate::array::Array;
     use crate::arrays::VarBinViewArray;
     use crate::canonical::ToCanonical;
@@ -38,10 +37,9 @@ mod tests {
         assert_eq!(
             taken
                 .to_varbinview()
-                .with_iterator(|it| it
-                    .map(|v| v.map(|b| unsafe { String::from_utf8_unchecked(b.to_vec()) }))
-                    .collect::<Vec<_>>())
-                .unwrap(),
+                .iter()
+                .map(|v| v.map(|b| unsafe { String::from_utf8_unchecked(b.to_vec()) }))
+                .collect::<Vec<_>>(),
             [Some("one".to_string()), Some("four".to_string())]
         );
     }

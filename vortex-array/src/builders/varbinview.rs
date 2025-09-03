@@ -388,7 +388,6 @@ mod tests {
     use itertools::Itertools;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::accessor::ArrayAccessor;
     use crate::arrays::VarBinViewVTable;
     use crate::builders::{ArrayBuilder, VarBinViewBuilder};
 
@@ -409,11 +408,9 @@ mod tests {
 
         let arr = arr
             .as_::<VarBinViewVTable>()
-            .with_iterator(|iter| {
-                iter.map(|x| x.map(|x| from_utf8(x).unwrap().to_string()))
-                    .collect_vec()
-            })
-            .unwrap();
+            .iter()
+            .map(|x| x.map(|x| from_utf8(&x).unwrap().to_string()))
+            .collect_vec();
         assert_eq!(arr.len(), 8);
         assert_eq!(
             arr,
@@ -449,11 +446,9 @@ mod tests {
         let arr = builder.finish_into_canonical().into_varbinview();
 
         let arr = arr
-            .with_iterator(|iter| {
-                iter.map(|x| x.map(|x| from_utf8(x).unwrap().to_string()))
-                    .collect_vec()
-            })
-            .unwrap();
+            .iter()
+            .map(|x| x.map(|x| from_utf8(&x).unwrap().to_string()))
+            .collect_vec();
         assert_eq!(arr.len(), 6);
         assert_eq!(
             arr,

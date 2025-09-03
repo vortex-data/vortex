@@ -299,8 +299,8 @@ impl VTable for VarBinViewVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
-    type PipelineVTable = NotSupported;
     type SerdeVTable = Self;
+    type PipelineVTable = NotSupported;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.varbinview")

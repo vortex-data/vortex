@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use itertools::Itertools;
-use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{
     ChunkedArray, ConstantArray, DecimalArray, ListArray, PrimitiveArray, StructArray, VarBinArray,
     VarBinViewArray,
@@ -229,11 +228,9 @@ fn test_read_projection() {
 
     let actual = array.to_struct().fields()[0]
         .to_varbinview()
-        .with_iterator(|x| {
-            x.map(|x| unsafe { String::from_utf8_unchecked(x.unwrap().to_vec()) })
-                .collect::<Vec<_>>()
-        })
-        .unwrap();
+        .iter()
+        .map(|x| unsafe { String::from_utf8_unchecked(x.unwrap().to_vec()) })
+        .collect::<Vec<_>>();
     assert_eq!(actual, strings_expected);
 
     let array = file
@@ -410,11 +407,10 @@ fn filter_string() {
     assert_eq!(
         names
             .to_varbinview()
-            .with_iterator(|iter| iter
-                .flatten()
-                .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })
-                .collect::<Vec<_>>())
-            .unwrap(),
+            .iter()
+            .flatten()
+            .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })
+            .collect::<Vec<_>>(),
         vec!["Joseph".to_string()]
     );
     let ages = result[0].to_struct().fields()[1].clone();
@@ -464,18 +460,15 @@ fn filter_or() {
     assert_eq!(
         names
             .to_varbinview()
-            .with_iterator(|iter| iter
-                .flatten()
-                .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })
-                .collect::<Vec<_>>())
-            .unwrap(),
+            .iter()
+            .flatten()
+            .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })
+            .collect::<Vec<_>>(),
         vec!["Joseph".to_string(), "Angela".to_string()]
     );
     let ages = result[0].to_struct().fields()[1].clone();
     assert_eq!(
-        ages.to_primitive()
-            .with_iterator(|iter| iter.map(|x| x.cloned()).collect::<Vec<_>>())
-            .unwrap(),
+        ages.to_primitive().typed_iter::<i32>().collect::<Vec<_>>(),
         vec![Some(25), None]
     );
 }
@@ -520,10 +513,9 @@ fn filter_and() {
     assert_eq!(
         names
             .to_varbinview()
-            .with_iterator(|iter| iter
-                .map(|s| s.map(|st| unsafe { String::from_utf8_unchecked(st.to_vec()) }))
-                .collect::<Vec<_>>())
-            .unwrap(),
+            .iter()
+            .map(|s| s.map(|st| unsafe { String::from_utf8_unchecked(st.to_vec()) }))
+            .collect::<Vec<_>>(),
         vec![Some("Joseph".to_string()), None]
     );
     let ages = result[0].to_struct().fields()[1].clone();
@@ -642,11 +634,9 @@ fn test_with_indices_on_two_columns() {
 
     let strings_actual = array.fields()[0]
         .to_varbinview()
-        .with_iterator(|x| {
-            x.map(|x| unsafe { String::from_utf8_unchecked(x.unwrap().to_vec()) })
-                .collect::<Vec<_>>()
-        })
-        .unwrap();
+        .iter()
+        .map(|x| unsafe { String::from_utf8_unchecked(x.unwrap().to_vec()) })
+        .collect::<Vec<_>>();
     assert_eq!(
         strings_actual,
         kept_indices
@@ -802,11 +792,10 @@ fn filter_string_chunked() {
     assert_eq!(
         names
             .to_varbinview()
-            .with_iterator(|iter| iter
-                .flatten()
-                .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })
-                .collect::<Vec<_>>())
-            .unwrap(),
+            .iter()
+            .flatten()
+            .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })
+            .collect::<Vec<_>>(),
         vec!["Joseph".to_string()]
     );
     let ages = &actual_array.fields()[1];
@@ -893,10 +882,9 @@ fn test_pruning_with_or() {
     assert_eq!(
         letters
             .to_varbinview()
-            .with_iterator(|iter| iter
-                .map(|opt| opt.map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) }))
-                .collect::<Vec<_>>())
-            .unwrap(),
+            .iter()
+            .map(|opt| opt.map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) }))
+            .collect::<Vec<_>>(),
         vec![
             Some("A".to_string()),
             Some("B".to_string()),

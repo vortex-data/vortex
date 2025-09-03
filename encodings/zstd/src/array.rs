@@ -5,7 +5,6 @@ use std::fmt::Debug;
 use std::ops::Range;
 use std::sync::Arc;
 
-use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{BinaryView, PrimitiveArray, VarBinViewArray};
 use vortex_array::compute::filter;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
@@ -115,17 +114,13 @@ fn collect_valid_vbv(vbv: &VarBinViewArray) -> VortexResult<(ByteBuffer, Vec<usi
                     + mask.true_count() * size_of::<ViewLen>(),
             );
             let mut value_byte_indices = Vec::new();
-            vbv.with_iterator(|iterator| {
-                // by flattening, we should omit nulls
-                for value in iterator.flatten() {
-                    value_byte_indices.push(buffer.len());
-                    // here's where we write the string lengths
-                    buffer
-                        .extend_trusted(ViewLen::try_from(value.len())?.to_le_bytes().into_iter());
-                    buffer.extend_from_slice(value);
-                }
-                Ok::<_, VortexError>(())
-            })??;
+            // by flattening, we should omit nulls
+            for value in vbv.iter().flatten() {
+                value_byte_indices.push(buffer.len());
+                // here's where we write the string lengths
+                buffer.extend_trusted(ViewLen::try_from(value.len())?.to_le_bytes().into_iter());
+                buffer.extend_from_slice(&value);
+            }
             (buffer.freeze(), value_byte_indices)
         }
     };

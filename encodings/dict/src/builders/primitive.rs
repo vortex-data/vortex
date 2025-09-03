@@ -6,7 +6,6 @@ use std::hash::Hash;
 use arrow_buffer::NullBufferBuilder;
 use num_traits::{AsPrimitive, Unsigned};
 use rustc_hash::FxBuildHasher;
-use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{NativeValue, PrimitiveArray};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
@@ -111,19 +110,17 @@ where
 
         let codes = if array.dtype().is_nullable() {
             let mut null_buf = NullBufferBuilder::new(array.len());
-            primitive.with_iterator(|it| {
-                for value in it {
-                    let (code, validity) = match value {
-                        Some(v) => match self.encode_value(*v) {
-                            Some(code) => (code, true),
-                            None => break,
-                        },
-                        None => (Code::zero(), false),
-                    };
-                    null_buf.append(validity);
-                    unsafe { codes.push_unchecked(code) }
-                }
-            })?;
+            for value in primitive.typed_iter::<T>() {
+                let (code, validity) = match value {
+                    Some(v) => match self.encode_value(v) {
+                        Some(code) => (code, true),
+                        None => break,
+                    },
+                    None => (Code::zero(), false),
+                };
+                null_buf.append(validity);
+                unsafe { codes.push_unchecked(code) }
+            }
             PrimitiveArray::new(
                 codes,
                 null_buf
@@ -132,16 +129,14 @@ where
                     .unwrap_or(Validity::AllValid),
             )
         } else {
-            primitive.with_iterator(|it| {
-                for value in it {
-                    let Some(code) = self.encode_value(
-                        *value.vortex_expect("Dict encode null value in non-nullable array"),
-                    ) else {
-                        break;
-                    };
-                    unsafe { codes.push_unchecked(code) }
-                }
-            })?;
+            for value in primitive.typed_iter::<T>() {
+                let Some(code) = self.encode_value(
+                    value.vortex_expect("Dict encode null value in non-nullable array"),
+                ) else {
+                    break;
+                };
+                unsafe { codes.push_unchecked(code) }
+            }
             PrimitiveArray::new(codes, Validity::NonNullable)
         };
 

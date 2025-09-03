@@ -4,11 +4,10 @@
 // Compress a set of values into an Array.
 
 use fsst::{Compressor, Symbol};
-use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::builder::VarBinBuilder;
 use vortex_array::arrays::{VarBinVTable, VarBinViewVTable};
 use vortex_array::{Array, IntoArray};
-use vortex_buffer::{Buffer, BufferMut};
+use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail};
 
@@ -26,16 +25,17 @@ pub fn fsst_compress(strings: &dyn Array, compressor: &Compressor) -> VortexResu
 
     // Compress VarBinArray
     if let Some(varbin) = strings.as_opt::<VarBinVTable>() {
-        return varbin
-            .with_iterator(|iter| fsst_compress_iter(iter, len, dtype, compressor))
-            .map_err(|err| err.with_context("Failed to compress VarBinArray with FSST"));
+        return Ok(fsst_compress_iter(varbin.iter(), len, dtype, compressor));
     }
 
     // Compress VarBinViewArray
     if let Some(varbin_view) = strings.as_opt::<VarBinViewVTable>() {
-        return varbin_view
-            .with_iterator(|iter| fsst_compress_iter(iter, len, dtype, compressor))
-            .map_err(|err| err.with_context("Failed to compress VarBinViewArray with FSST"));
+        return Ok(fsst_compress_iter(
+            varbin_view.iter(),
+            len,
+            dtype,
+            compressor,
+        ));
     }
 
     vortex_bail!(
@@ -51,13 +51,9 @@ pub fn fsst_compress(strings: &dyn Array, compressor: &Compressor) -> VortexResu
 /// If the provided array is not FSST compressible.
 pub fn fsst_train_compressor(array: &dyn Array) -> VortexResult<Compressor> {
     if let Some(varbin) = array.as_opt::<VarBinVTable>() {
-        varbin
-            .with_iterator(|iter| fsst_train_compressor_iter(iter))
-            .map_err(|err| err.with_context("Failed to train FSST Compressor from VarBinArray"))
+        Ok(fsst_train_compressor_iter(varbin.iter()))
     } else if let Some(varbin_view) = array.as_opt::<VarBinViewVTable>() {
-        varbin_view
-            .with_iterator(|iter| fsst_train_compressor_iter(iter))
-            .map_err(|err| err.with_context("Failed to train FSST Compressor from VarBinViewArray"))
+        Ok(fsst_train_compressor_iter(varbin_view.iter()))
     } else {
         vortex_bail!(
             "cannot fsst_compress array with unsupported encoding {:?}",
@@ -67,9 +63,9 @@ pub fn fsst_train_compressor(array: &dyn Array) -> VortexResult<Compressor> {
 }
 
 /// Train a [compressor][Compressor] from an iterator of bytestrings.
-fn fsst_train_compressor_iter<'a, I>(iter: I) -> Compressor
+fn fsst_train_compressor_iter<I>(iter: I) -> Compressor
 where
-    I: Iterator<Item = Option<&'a [u8]>>,
+    I: Iterator<Item = Option<ByteBuffer>>,
 {
     let mut lines = Vec::with_capacity(8_192);
 
@@ -80,18 +76,21 @@ where
         }
     }
 
-    Compressor::train(&lines)
+    // TODO(aduffy): make Compressor::train take an AsRef<[u8]> instead of forcing &[u8]
+    let lines2 = lines.iter().map(|b| b.as_slice()).collect();
+
+    Compressor::train(&lines2)
 }
 
 /// Compress from an iterator of bytestrings using FSST.
-pub fn fsst_compress_iter<'a, I>(
+pub fn fsst_compress_iter<I>(
     iter: I,
     len: usize,
     dtype: DType,
     compressor: &Compressor,
 ) -> FSSTArray
 where
-    I: Iterator<Item = Option<&'a [u8]>>,
+    I: Iterator<Item = Option<ByteBuffer>>,
 {
     // TODO(aduffy): this might be too small.
     let mut buffer = Vec::with_capacity(16 * 1024 * 1024);
@@ -107,7 +106,7 @@ where
                 uncompressed_lengths.push(s.len().try_into().vortex_unwrap());
 
                 // SAFETY: buffer is large enough
-                unsafe { compressor.compress_into(s, &mut buffer) };
+                unsafe { compressor.compress_into(s.as_slice(), &mut buffer) };
 
                 builder.append_value(&buffer);
             }

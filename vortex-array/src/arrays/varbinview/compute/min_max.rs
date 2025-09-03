@@ -9,7 +9,7 @@ use crate::register_kernel;
 
 impl MinMaxKernel for VarBinViewVTable {
     fn min_max(&self, array: &VarBinViewArray) -> VortexResult<Option<MinMaxResult>> {
-        compute_min_max(array, array.dtype())
+        compute_min_max(array.iter(), array.dtype())
     }
 }
 

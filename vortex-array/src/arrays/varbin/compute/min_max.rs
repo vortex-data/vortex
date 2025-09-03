@@ -2,29 +2,29 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
+use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_panic};
 use vortex_scalar::Scalar;
 
-use crate::accessor::ArrayAccessor;
 use crate::arrays::{VarBinArray, VarBinVTable};
 use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult};
 use crate::register_kernel;
 
 impl MinMaxKernel for VarBinVTable {
     fn min_max(&self, array: &VarBinArray) -> VortexResult<Option<MinMaxResult>> {
-        compute_min_max(array, array.dtype())
+        compute_min_max(array.iter(), array.dtype())
     }
 }
 
 register_kernel!(MinMaxKernelAdapter(VarBinVTable).lift());
 
 /// Compute the min and max of VarBin like array.
-pub(crate) fn compute_min_max<T: ArrayAccessor<[u8]>>(
-    array: &T,
+pub(crate) fn compute_min_max<I: Iterator<Item = Option<ByteBuffer>>>(
+    iter: I,
     dtype: &DType,
 ) -> VortexResult<Option<MinMaxResult>> {
-    let minmax = array.with_iterator(|iter| match iter.flatten().minmax() {
+    let minmax = match iter.flatten().minmax() {
         itertools::MinMaxResult::NoElements => None,
         itertools::MinMaxResult::OneElement(value) => {
             let scalar = make_scalar(dtype, value);
@@ -37,19 +37,19 @@ pub(crate) fn compute_min_max<T: ArrayAccessor<[u8]>>(
             min: make_scalar(dtype, min),
             max: make_scalar(dtype, max),
         }),
-    })?;
+    };
 
     Ok(minmax)
 }
 
 /// Helper function to make sure that min/max has the right [`ScalarValue`] type.
-fn make_scalar(dtype: &DType, value: &[u8]) -> Scalar {
+fn make_scalar(dtype: &DType, value: ByteBuffer) -> Scalar {
     match dtype {
         DType::Binary(_) => Scalar::new(dtype.clone(), value.into()),
         DType::Utf8(_) => {
             // SAFETY: We only call `compute_min_max` within `varbin/`, in which we always validate
             // the arrays, and we always pass `array.dtype()` in as the `dtype` argument.
-            let value = unsafe { str::from_utf8_unchecked(value) };
+            let value = unsafe { BufferString::new_unchecked(value) };
             Scalar::new(dtype.clone(), value.into())
         }
         _ => vortex_panic!("cannot make Scalar from bytes with dtype {dtype}"),

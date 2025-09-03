@@ -133,7 +133,6 @@ mod tests {
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::I32;
 
-    use crate::accessor::ArrayAccessor;
     use crate::arrays::{ChunkedArray, ListArray, PrimitiveArray, StructArray, VarBinViewArray};
     use crate::validity::Validity;
     use crate::{IntoArray, ToCanonical};
@@ -162,11 +161,13 @@ mod tests {
         let canonical_varbin = canonical_struct.fields()[0].to_varbinview();
         let original_varbin = struct_array.fields()[0].to_varbinview();
         let orig_values = original_varbin
-            .with_iterator(|it| it.map(|a| a.map(|v| v.to_vec())).collect::<Vec<_>>())
-            .unwrap();
+            .iter()
+            .map(|a| a.map(|v| v.to_vec()))
+            .collect::<Vec<_>>();
         let canon_values = canonical_varbin
-            .with_iterator(|it| it.map(|a| a.map(|v| v.to_vec())).collect::<Vec<_>>())
-            .unwrap();
+            .iter()
+            .map(|a| a.map(|v| v.to_vec()))
+            .collect::<Vec<_>>();
         assert_eq!(orig_values, canon_values);
     }
 

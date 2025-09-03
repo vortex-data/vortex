@@ -1,49 +1,78 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::iter;
+use vortex_buffer::ByteBuffer;
 
-use vortex_dtype::match_each_integer_ptype;
-use vortex_error::VortexResult;
-
-use crate::ToCanonical;
-use crate::accessor::ArrayAccessor;
 use crate::arrays::varbin::VarBinArray;
-use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
-impl ArrayAccessor<[u8]> for VarBinArray {
-    fn with_iterator<F, R>(&self, f: F) -> VortexResult<R>
-    where
-        F: for<'a> FnOnce(&mut dyn Iterator<Item = Option<&'a [u8]>>) -> R,
-    {
-        let offsets = self.offsets().to_primitive();
-        let validity = self.validity();
+pub struct Iter<'a> {
+    index: usize,
+    array: &'a VarBinArray,
+}
 
-        let bytes = self.bytes();
-        let bytes = bytes.as_slice();
+impl<'a> Iterator for Iter<'a> {
+    type Item = Option<ByteBuffer>;
 
-        match_each_integer_ptype!(offsets.ptype(), |T| {
-            let offsets = offsets.as_slice::<T>();
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index >= self.array.len() {
+            return None;
+        }
 
-            #[allow(clippy::cast_possible_truncation)]
-            match validity {
-                Validity::NonNullable | Validity::AllValid => {
-                    let mut iter = offsets
-                        .windows(2)
-                        .map(|w| Some(&bytes[w[0] as usize..w[1] as usize]));
-                    Ok(f(&mut iter))
-                }
-                Validity::AllInvalid => Ok(f(&mut iter::repeat_n(None, self.len()))),
-                Validity::Array(v) => {
-                    let validity = v.to_bool();
-                    let mut iter = offsets
-                        .windows(2)
-                        .zip(validity.boolean_buffer())
-                        .map(|(w, valid)| valid.then(|| &bytes[w[0] as usize..w[1] as usize]));
-                    Ok(f(&mut iter))
-                }
-            }
-        })
+        let result = self
+            .array
+            .validity
+            .is_valid(self.index)
+            .then(|| self.array.bytes_at(self.index));
+
+        self.index += 1;
+        Some(result)
+    }
+}
+
+impl VarBinArray {
+    /// Get an iterator over the byte values inside the array.
+    pub fn iter(&self) -> Iter<'_> {
+        Iter {
+            index: 0,
+            array: self,
+        }
+    }
+}
+
+pub struct IntoIter {
+    index: usize,
+    array: VarBinArray,
+}
+
+impl Iterator for IntoIter {
+    type Item = Option<ByteBuffer>;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index >= self.array.len() {
+            return None;
+        }
+
+        let result = self
+            .array
+            .validity
+            .is_valid(self.index)
+            .then(|| self.array.bytes_at(self.index));
+
+        self.index += 1;
+        Some(result)
+    }
+}
+
+impl IntoIterator for VarBinArray {
+    type Item = Option<ByteBuffer>;
+    type IntoIter = IntoIter;
+
+    fn into_iter(self) -> IntoIter {
+        IntoIter {
+            index: 0,
+            array: self,
+        }
     }
 }

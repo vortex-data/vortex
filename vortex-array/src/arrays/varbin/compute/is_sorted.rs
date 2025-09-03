@@ -3,18 +3,17 @@
 
 use vortex_error::VortexResult;
 
-use crate::accessor::ArrayAccessor;
 use crate::arrays::{VarBinArray, VarBinVTable};
 use crate::compute::{IsSortedIteratorExt, IsSortedKernel, IsSortedKernelAdapter};
 use crate::register_kernel;
 
 impl IsSortedKernel for VarBinVTable {
     fn is_sorted(&self, array: &VarBinArray) -> VortexResult<bool> {
-        array.with_iterator(|bytes_iter| bytes_iter.is_sorted())
+        Ok(array.iter().is_sorted())
     }
 
     fn is_strict_sorted(&self, array: &VarBinArray) -> VortexResult<bool> {
-        array.with_iterator(|bytes_iter| bytes_iter.is_strict_sorted())
+        Ok(array.iter().is_strict_sorted())
     }
 }
 

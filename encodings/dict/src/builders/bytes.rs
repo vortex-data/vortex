@@ -7,13 +7,12 @@ use std::sync::Arc;
 use arrow_buffer::NullBufferBuilder;
 use num_traits::AsPrimitive;
 use num_traits::sign::Unsigned;
-use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{
     BinaryView, PrimitiveArray, VarBinVTable, VarBinViewArray, VarBinViewVTable,
 };
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray};
-use vortex_buffer::{BufferMut, ByteBufferMut};
+use vortex_buffer::{BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::{DType, NativePType};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_panic};
 use vortex_utils::aliases::hash_map::{DefaultHashBuilder, HashTable, HashTableEntry, RandomState};
@@ -106,9 +105,9 @@ impl<Code: Unsigned + AsPrimitive<usize> + NativePType> BytesDictBuilder<Code> {
         }
     }
 
-    fn encode_bytes<A: ArrayAccessor<[u8]>>(
+    fn encode_bytes<A: Iterator<Item = Option<ByteBuffer>>>(
         &mut self,
-        accessor: &A,
+        iter: A,
         len: usize,
     ) -> VortexResult<ArrayRef> {
         let mut local_lookup = self.lookup.take().vortex_expect("Must have a lookup dict");
@@ -117,19 +116,18 @@ impl<Code: Unsigned + AsPrimitive<usize> + NativePType> BytesDictBuilder<Code> {
         let (codes, validity) = if self.dtype.is_nullable() {
             let mut null_buf = NullBufferBuilder::new(len);
 
-            accessor.with_iterator(|it| {
-                for value in it {
-                    let (code, validity) = match value {
-                        Some(v) => match self.encode_value(&mut local_lookup, v) {
-                            Some(code) => (code, true),
-                            None => break,
-                        },
-                        None => (Code::zero(), false),
-                    };
-                    null_buf.append(validity);
-                    unsafe { codes.push_unchecked(code) }
-                }
-            })?;
+            for value in iter {
+                let (code, validity) = match value {
+                    Some(v) => match self.encode_value(&mut local_lookup, v.as_slice()) {
+                        Some(code) => (code, true),
+                        None => break,
+                    },
+                    None => (Code::zero(), false),
+                };
+                null_buf.append(validity);
+                unsafe { codes.push_unchecked(code) }
+            }
+
             (
                 codes,
                 null_buf
@@ -138,17 +136,17 @@ impl<Code: Unsigned + AsPrimitive<usize> + NativePType> BytesDictBuilder<Code> {
                     .unwrap_or(Validity::AllValid),
             )
         } else {
-            accessor.with_iterator(|it| {
-                for value in it {
-                    let Some(code) = self.encode_value(
-                        &mut local_lookup,
-                        value.vortex_expect("Dict encode null value in non-nullable array"),
-                    ) else {
-                        break;
-                    };
-                    unsafe { codes.push_unchecked(code) }
-                }
-            })?;
+            for value in iter {
+                let Some(code) = self.encode_value(
+                    &mut local_lookup,
+                    value
+                        .vortex_expect("Dict encode null value in non-nullable array")
+                        .as_slice(),
+                ) else {
+                    break;
+                };
+                unsafe { codes.push_unchecked(code) }
+            }
             (codes, Validity::NonNullable)
         };
 
@@ -170,9 +168,9 @@ impl<Code: Unsigned + AsPrimitive<usize> + NativePType> DictEncoder for BytesDic
 
         let len = array.len();
         if let Some(varbinview) = array.as_opt::<VarBinViewVTable>() {
-            self.encode_bytes(varbinview, len)
+            self.encode_bytes(varbinview.iter(), len)
         } else if let Some(varbin) = array.as_opt::<VarBinVTable>() {
-            self.encode_bytes(varbin, len)
+            self.encode_bytes(varbin.iter(), len)
         } else {
             vortex_bail!("Can only dictionary encode VarBin and VarBinView arrays");
         }
@@ -195,10 +193,7 @@ impl<Code: Unsigned + AsPrimitive<usize> + NativePType> DictEncoder for BytesDic
 
 #[cfg(test)]
 mod test {
-    use std::str;
-
     use vortex_array::ToCanonical;
-    use vortex_array::accessor::ArrayAccessor;
     use vortex_array::arrays::VarBinArray;
 
     use crate::builders::dict_encode;
@@ -211,17 +206,19 @@ mod test {
             dict.codes().to_primitive().as_slice::<u8>(),
             &[0, 1, 0, 2, 1]
         );
-        dict.values()
-            .to_varbinview()
-            .with_iterator(|iter| {
-                assert_eq!(
-                    iter.flatten()
-                        .map(|b| unsafe { str::from_utf8_unchecked(b) })
-                        .collect::<Vec<_>>(),
-                    vec!["hello", "world", "again"]
-                );
-            })
-            .unwrap();
+        assert_eq!(
+            dict.values()
+                .to_varbinview()
+                .iter()
+                .flatten()
+                .map(|b| unsafe { String::from_utf8_unchecked(b.to_vec()) })
+                .collect::<Vec<_>>(),
+            vec![
+                "hello".to_string(),
+                "world".to_string(),
+                "again".to_string()
+            ]
+        );
     }
 
     #[test]
@@ -243,33 +240,33 @@ mod test {
             dict.codes().to_primitive().as_slice::<u8>(),
             &[0, 0, 1, 0, 0, 2, 1, 0]
         );
-        dict.values()
-            .to_varbinview()
-            .with_iterator(|iter| {
-                assert_eq!(
-                    iter.map(|b| b.map(|v| unsafe { str::from_utf8_unchecked(v) }))
-                        .collect::<Vec<_>>(),
-                    vec![Some("hello"), Some("world"), Some("again")]
-                );
-            })
-            .unwrap();
+        assert_eq!(
+            dict.values()
+                .to_varbinview()
+                .iter()
+                .map(|b| b.map(|v| unsafe { String::from_utf8_unchecked(v.to_vec()) }))
+                .collect::<Vec<_>>(),
+            vec![
+                Some("hello".to_string()),
+                Some("world".to_string()),
+                Some("again".to_string())
+            ]
+        );
     }
 
     #[test]
     fn repeated_values() {
         let arr = VarBinArray::from(vec!["a", "a", "b", "b", "a", "b", "a", "b"]);
         let dict = dict_encode(arr.as_ref()).unwrap();
-        dict.values()
-            .to_varbinview()
-            .with_iterator(|iter| {
-                assert_eq!(
-                    iter.flatten()
-                        .map(|b| unsafe { str::from_utf8_unchecked(b) })
-                        .collect::<Vec<_>>(),
-                    vec!["a", "b"]
-                );
-            })
-            .unwrap();
+        assert_eq!(
+            dict.values()
+                .to_varbinview()
+                .iter()
+                .flatten()
+                .map(|b| unsafe { String::from_utf8_unchecked(b.to_vec()) })
+                .collect::<Vec<_>>(),
+            vec!["a", "b"]
+        );
         assert_eq!(
             dict.codes().to_primitive().as_slice::<u8>(),
             &[0, 0, 1, 1, 0, 1, 0, 1]

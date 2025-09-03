@@ -18,7 +18,6 @@ pub use context::*;
 pub use encoding::*;
 pub use metadata::*;
 
-pub mod accessor;
 #[doc(hidden)]
 pub mod aliases;
 mod array;

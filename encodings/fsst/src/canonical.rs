@@ -96,7 +96,6 @@ fn fsst_decode_views(fsst_array: &FSSTArray, buf_index: u32) -> (ByteBuffer, Buf
 mod tests {
     use rand::prelude::StdRng;
     use rand::{Rng, SeedableRng};
-    use vortex_array::accessor::ArrayAccessor;
     use vortex_array::arrays::{ChunkedArray, VarBinArray};
     use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
     use vortex_array::{ArrayRef, IntoArray, ToCanonical};
@@ -168,16 +167,18 @@ mod tests {
         {
             let arr = builder.finish_into_canonical().into_varbinview();
             let res1 = arr
-                .with_iterator(|iter| iter.map(|b| b.map(|v| v.to_vec())).collect::<Vec<_>>())
-                .unwrap();
+                .iter()
+                .map(|b| b.map(|v| v.to_vec()))
+                .collect::<Vec<_>>();
             assert_eq!(data, res1);
         };
 
         {
             let arr2 = chunked_arr.to_varbinview();
             let res2 = arr2
-                .with_iterator(|iter| iter.map(|b| b.map(|v| v.to_vec())).collect::<Vec<_>>())
-                .unwrap();
+                .iter()
+                .map(|b| b.map(|v| v.to_vec()))
+                .collect::<Vec<_>>();
             assert_eq!(data, res2)
         };
     }

@@ -1,63 +1,78 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::iter;
+use vortex_buffer::ByteBuffer;
 
-use vortex_error::VortexResult;
-
-use crate::ToCanonical;
-use crate::accessor::ArrayAccessor;
 use crate::arrays::varbinview::VarBinViewArray;
-use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
-impl ArrayAccessor<[u8]> for VarBinViewArray {
-    fn with_iterator<F: for<'a> FnOnce(&mut dyn Iterator<Item = Option<&'a [u8]>>) -> R, R>(
-        &self,
-        f: F,
-    ) -> VortexResult<R> {
-        let bytes = (0..self.nbuffers())
-            .map(|i| self.buffer(i))
-            .collect::<Vec<_>>();
+pub struct Iter<'a> {
+    index: usize,
+    array: &'a VarBinViewArray,
+}
 
-        let views = self.views();
+impl<'a> Iterator for Iter<'a> {
+    type Item = Option<ByteBuffer>;
 
-        match self.validity() {
-            Validity::NonNullable | Validity::AllValid => {
-                let mut iter = views.iter().map(|view| {
-                    if view.is_inlined() {
-                        Some(view.as_inlined().value())
-                    } else {
-                        Some(
-                            &bytes[view.as_view().buffer_index() as usize]
-                                [view.as_view().to_range()],
-                        )
-                    }
-                });
-                Ok(f(&mut iter))
-            }
-            Validity::AllInvalid => Ok(f(&mut iter::repeat_n(None, views.len()))),
-            Validity::Array(v) => {
-                let validity = v.to_bool();
-                let mut iter = views
-                    .iter()
-                    .zip(validity.boolean_buffer())
-                    .map(|(view, valid)| {
-                        if valid {
-                            if view.is_inlined() {
-                                Some(view.as_inlined().value())
-                            } else {
-                                Some(
-                                    &bytes[view.as_view().buffer_index() as usize]
-                                        [view.as_view().to_range()],
-                                )
-                            }
-                        } else {
-                            None
-                        }
-                    });
-                Ok(f(&mut iter))
-            }
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index >= self.array.len() {
+            return None;
+        }
+
+        let result = self
+            .array
+            .is_valid(self.index)
+            .then(|| self.array.bytes_at(self.index));
+
+        self.index += 1;
+
+        Some(result)
+    }
+}
+
+impl VarBinViewArray {
+    /// Get an iterator over the byte values inside the array.
+    pub fn iter(&self) -> Iter<'_> {
+        Iter {
+            index: 0,
+            array: self,
+        }
+    }
+}
+
+pub struct IntoIter {
+    index: usize,
+    array: VarBinViewArray,
+}
+
+impl Iterator for IntoIter {
+    type Item = Option<ByteBuffer>;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index >= self.array.len() {
+            return None;
+        }
+
+        let result = self
+            .array
+            .validity
+            .is_valid(self.index)
+            .then(|| self.array.bytes_at(self.index));
+
+        self.index += 1;
+        Some(result)
+    }
+}
+
+impl IntoIterator for VarBinViewArray {
+    type Item = Option<ByteBuffer>;
+    type IntoIter = IntoIter;
+
+    fn into_iter(self) -> IntoIter {
+        IntoIter {
+            index: 0,
+            array: self,
         }
     }
 }
