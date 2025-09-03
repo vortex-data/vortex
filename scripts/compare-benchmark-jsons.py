@@ -104,13 +104,19 @@ if pd.isna(geo_mean_ratio):
 else:
     overall_performance = f"{geo_mean_ratio:.3f}x ({'better' if geo_mean_ratio < 1 else 'worse'} than base)"
 
+if pd.isna(vortex_geo_mean_ratio):
+    vortex_performance = "No valid vortex comparisons available"
+else:
+    vortex_performance = f"{vortex_geo_mean_ratio:.3f}x ({'better' if vortex_geo_mean_ratio < 1 else 'worse'} than base)"
+
 summary_lines = [
     "## Summary",
     "",
-    f"- **Overall Performance (geometric mean)**: {overall_performance}",
-    f"- **Best Improvement**: {best_improvement}",
-    f"- **Worst Regression**: {worst_regression}",
-    f"- **Significant Changes (>{threshold_pct}%)**:",
+    f"- **Overall Performance (all targets)**: {overall_performance}",
+    f"- **Vortex Performance**: {vortex_performance}",
+    f"- **Best Vortex Improvement**: {best_improvement}",
+    f"- **Worst Vortex Regression**: {worst_regression}",
+    f"- **Significant Vortex Changes (>{threshold_pct}%)**:",
     f"  - Improvements: {significant_improvements} queries",
     f"  - Regressions: {significant_regressions} queries",
 ]
