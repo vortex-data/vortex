@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+g/ SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
@@ -7,17 +7,19 @@ use std::sync::Arc;
 
 use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::compute::Operator as BinaryOperator;
-use crate::match_each_compare_op;
+use crate::arrays::ConstantArray;
+use crate::compute::{Operator as BinaryOperator, compare};
 use crate::pipeline::bits::BitView;
 use crate::pipeline::operators::compare::CompareOp;
-use crate::pipeline::operators::{BindContext, OperatorRef};
+use crate::pipeline::operators::{BindContext, CanonicalFuture, OperatorRef};
 use crate::pipeline::types::{Element, VType};
 use crate::pipeline::vec::VectorId;
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{Kernel, KernelContext, Operator};
+use crate::{Array, IntoArray, match_each_compare_op};
 
 /// Pipeline operator for comparing an array against a scalar value.
 #[derive(Debug, Hash)]
@@ -43,12 +45,36 @@ impl Operator for ScalarCompareOperator {
         self
     }
 
+    fn vtype(&self) -> VType {
+        VType::Bool
+    }
+
+    fn execute(&self, mask: Mask) -> CanonicalFuture {
+        let scalar = self.scalar.clone();
+        let child = self.children[0].execute(mask);
+        let op = self.op;
+        Box::pin(async move {
+            let child = child.await?.into_array();
+
+            compare(
+                child.as_ref(),
+                ConstantArray::new(scalar, child.len()).as_ref(),
+                op,
+            )
+            .map(|a| a.to_canonical())
+        })
+    }
+
     fn children(&self) -> &[OperatorRef] {
         &self.children
     }
 
-    fn vtype(&self) -> VType {
-        VType::Bool
+    fn with_children(&self, mut children: Vec<OperatorRef>) -> OperatorRef {
+        Arc::new(ScalarCompareOperator::new(
+            children.remove(0),
+            self.op,
+            self.scalar.clone(),
+        ))
     }
 
     fn bind(&self, ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {
@@ -73,14 +99,6 @@ impl Operator for ScalarCompareOperator {
                 self.children[0].vtype()
             ),
         }
-    }
-
-    fn with_children(&self, mut children: Vec<OperatorRef>) -> OperatorRef {
-        Arc::new(ScalarCompareOperator::new(
-            children.remove(0),
-            self.op,
-            self.scalar.clone(),
-        ))
     }
 }
 
@@ -125,6 +143,7 @@ mod tests {
 
     use super::*;
     use crate::arrays::PrimitiveArray;
+    use crate::compute::Operator::Gte;
     use crate::pipeline::bits::BitView;
     use crate::pipeline::query::QueryPlan;
     use crate::pipeline::view::ViewMut;
@@ -253,5 +272,22 @@ mod tests {
                 i, value, expected, output[i]
             );
         }
+    }
+
+    #[tokio::test]
+    async fn test_execute_model() -> VortexResult<()> {
+        let len = 1024;
+        let array = (0..len)
+            .map(|x| i32::try_from(x).unwrap())
+            .collect::<PrimitiveArray>();
+
+        let op =
+            ScalarCompareOperator::new(array.to_operator()?.vortex_expect("exists"), Gte, 3.into());
+
+        let res = op.execute(Mask::AllTrue(len)).await?;
+
+        println!("res {}", res.into_array().display_values());
+
+        Ok(())
     }
 }

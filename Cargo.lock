@@ -6514,6 +6514,7 @@ dependencies = [
  "simdutf8",
  "static_assertions",
  "tabled",
+ "tokio",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",

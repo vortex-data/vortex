@@ -2,16 +2,20 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use log;
-use vortex_buffer::{Buffer, ByteBuffer};
-use vortex_dtype::{NativePType, PType, match_each_native_ptype};
+use vortex_buffer::Buffer;
+use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 
+use crate::Array;
 use crate::arrays::{PrimitiveArray, PrimitiveVTable};
+use crate::compute::filter;
 use crate::pipeline::bits::BitView;
-use crate::pipeline::operators::{BindContext, Operator, OperatorRef};
+use crate::pipeline::operators::{BindContext, CanonicalFuture, Operator, OperatorRef};
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{Element, Kernel, KernelContext, N, PipelineVTable, VType};
 use crate::vtable::ValidityHelper;
@@ -24,33 +28,43 @@ impl PipelineVTable<PrimitiveVTable> for PrimitiveVTable {
             );
             return Ok(None);
         }
-        Ok(Some(Arc::new(PrimitiveOperator::new(
-            array.ptype(),
-            array.byte_buffer().clone(),
-        ))))
+        Ok(Some(Arc::new(array.clone())))
+    }
+}
+
+impl Hash for PrimitiveArray {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.ptype().hash(state);
+        // TODO(joe): this is expensive???
+        self.byte_buffer().hash(state);
     }
 }
 
 /// Pipeline operator for primitive arrays that produces values from a byte buffer.
-#[derive(Debug, Clone, Hash)]
-pub struct PrimitiveOperator {
-    ptype: PType,
-    byte_buffer: ByteBuffer,
-}
+// #[derive(Debug, Clone, Hash)]
+// pub struct PrimitiveOperator {
+//     ptype: PType,
+//     byte_buffer: ByteBuffer,
+// }
+//
+// impl PrimitiveOperator {
+//     pub fn new(ptype: PType, byte_buffer: ByteBuffer) -> Self {
+//         Self { ptype, byte_buffer }
+//     }
+// }
 
-impl PrimitiveOperator {
-    pub fn new(ptype: PType, byte_buffer: ByteBuffer) -> Self {
-        Self { ptype, byte_buffer }
-    }
-}
-
-impl Operator for PrimitiveOperator {
+impl Operator for PrimitiveArray {
     fn as_any(&self) -> &dyn Any {
         self
     }
 
+    fn execute(&self, mask: Mask) -> CanonicalFuture {
+        let arr = self.clone();
+        Box::pin(async move { Ok(filter(arr.as_ref(), &mask)?.to_canonical()) })
+    }
+
     fn vtype(&self) -> VType {
-        VType::Primitive(self.ptype)
+        VType::Primitive(self.ptype())
     }
 
     fn children(&self) -> &[OperatorRef] {
@@ -62,9 +76,9 @@ impl Operator for PrimitiveOperator {
     }
 
     fn bind(&self, _ctx: &dyn BindContext) -> VortexResult<Box<dyn Kernel>> {
-        match_each_native_ptype!(self.ptype, |T| {
+        match_each_native_ptype!(self.ptype(), |T| {
             Ok(Box::new(PrimitiveKernel::<T> {
-                buffer: Buffer::from_byte_buffer(self.byte_buffer.clone()),
+                buffer: Buffer::from_byte_buffer(self.buffer.clone()),
                 offset: 0,
             }) as Box<dyn Kernel>)
         })

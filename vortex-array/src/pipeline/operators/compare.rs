@@ -8,12 +8,13 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_mask::Mask;
 
 use crate::arrays::ConstantOperator;
 use crate::compute::Operator as BinaryOperator;
 use crate::pipeline::bits::BitView;
 use crate::pipeline::operators::scalar_compare::ScalarCompareOperator;
-use crate::pipeline::operators::{BindContext, Operator, OperatorRef};
+use crate::pipeline::operators::{BindContext, CanonicalFuture, Operator, OperatorRef};
 use crate::pipeline::types::{Element, VType};
 use crate::pipeline::vec::VectorId;
 use crate::pipeline::view::ViewMut;
@@ -80,6 +81,8 @@ impl Operator for CompareOperator {
     fn children(&self) -> &[OperatorRef] {
         &self.children
     }
+
+    fn execute(&self, mask: Mask) -> CanonicalFuture {}
 
     fn with_children(&self, children: Vec<OperatorRef>) -> OperatorRef {
         let [lhs, rhs] = children

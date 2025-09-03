@@ -15,14 +15,19 @@ use std::sync::Arc;
 pub use compare::CompareOperator;
 use dyn_hash::DynHash;
 pub use mask_future::MaskFuture;
+use futures_util::future::BoxFuture;
 pub use scalar_compare::ScalarCompareOperator;
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 
+use crate::Canonical;
 use crate::pipeline::Kernel;
 use crate::pipeline::types::VType;
 use crate::pipeline::vec::VectorId;
 
 pub type OperatorRef = Arc<dyn Operator>;
+
+pub type CanonicalFuture = BoxFuture<'static, VortexResult<Canonical>>;
 
 /// An operator represents a node in a logical query plan.
 pub trait Operator: Debug + DynHash + Send + Sync + 'static {
@@ -30,6 +35,10 @@ pub trait Operator: Debug + DynHash + Send + Sync + 'static {
 
     /// The output [`VType`] of this operator.
     fn vtype(&self) -> VType;
+
+    fn execute(&self, mask: MaskFuture) -> CanonicalFuture {
+        todo!()
+    }
 
     /// The children of this operator.
     fn children(&self) -> &[OperatorRef];

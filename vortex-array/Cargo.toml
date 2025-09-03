@@ -75,6 +75,7 @@ table-display = ["dep:tabled"]
 test-harness = ["dep:goldenfile", "dep:rstest", "dep:rstest_reuse"]
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["full"] }
 arrow-cast = { workspace = true }
 divan = { workspace = true }
 rstest = { workspace = true }
