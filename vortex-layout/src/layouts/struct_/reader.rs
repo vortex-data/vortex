@@ -8,6 +8,7 @@ use std::sync::Arc;
 use futures::future::BoxFuture;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
+use vortex_array::pipeline::operators::MaskFuture;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
@@ -23,7 +24,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::layouts::partitioned::PartitionedExprEval;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSource;
-use crate::{LayoutReader, LayoutReaderRef, LazyReaderChildren, MaskFuture};
+use crate::{LayoutReader, LayoutReaderRef, LazyReaderChildren};
 
 pub struct StructReader {
     layout: StructLayout,
