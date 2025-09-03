@@ -9,21 +9,24 @@ use datafusion_common::ScalarValue;
 use moka::future::Cache;
 use object_store::path::Path;
 use object_store::{ObjectMeta, ObjectStore};
+use parking_lot::RwLock;
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexResult, vortex_err};
-use vortex::file::segments::SegmentCache;
+use vortex::file::segments::{EvictionCallback, SegmentCache};
 use vortex::file::{Footer, SegmentSpec, VortexFile, VortexOpenOptions};
 use vortex::layout::segments::SegmentId;
 use vortex::session::VortexSession;
 use vortex::stats::{Precision, Stat};
 use vortex::utils::aliases::DefaultHashBuilder;
+use vortex_utils::aliases::hash_map::HashMap;
 
 #[derive(Clone)]
 pub(crate) struct VortexFileCache {
     file_cache: Cache<FileKey, VortexFile, DefaultHashBuilder>,
     segment_cache: Cache<SegmentKey, ByteBuffer, DefaultHashBuilder>,
     session: Arc<VortexSession>,
+    on_evict_callbacks: Arc<RwLock<HashMap<FileKey, Vec<EvictionCallback>>>>,
 }
 
 /// Cache key for a [`VortexFile`].
@@ -51,6 +54,10 @@ struct SegmentKey {
 
 impl VortexFileCache {
     pub fn new(size_mb: usize, segment_size_mb: usize, session: Arc<VortexSession>) -> Self {
+        let on_evict_callbacks: Arc<RwLock<HashMap<FileKey, Vec<EvictionCallback>>>> =
+            Default::default();
+        let callbacks = on_evict_callbacks.clone();
+
         let file_cache = Cache::builder()
             .max_capacity(size_mb as u64 * (1 << 20))
             .eviction_listener(|k: Arc<FileKey>, _v: VortexFile, cause| {
@@ -63,8 +70,19 @@ impl VortexFileCache {
 
         let segment_cache = Cache::builder()
             .max_capacity(segment_size_mb as u64 * (1 << 20))
-            .eviction_listener(|k: Arc<SegmentKey>, _v: ByteBuffer, cause| {
+            .eviction_listener(move |k: Arc<SegmentKey>, _v: ByteBuffer, cause| {
                 log::trace!("Removed {k:?} due to {cause:?}");
+                if !cause.was_evicted() {
+                    return;
+                }
+                for callback in callbacks
+                    .read()
+                    .get(&k.file)
+                    .iter()
+                    .flat_map(|callbacks| *callbacks)
+                {
+                    callback(Arc::new(k.segment_id));
+                }
             })
             .weigher(|_k, v| u32::try_from(v.len()).unwrap_or(u32::MAX))
             .build_with_hasher(DefaultHashBuilder::default());
@@ -73,6 +91,7 @@ impl VortexFileCache {
             file_cache,
             segment_cache,
             session,
+            on_evict_callbacks,
         }
     }
 
@@ -98,6 +117,7 @@ impl VortexFileCache {
                     .with_segment_cache(Arc::new(VortexFileSegmentCache {
                         file_key,
                         segment_cache: self.segment_cache.clone(),
+                        on_evict_callbacks: self.on_evict_callbacks.clone(),
                     }))
                     .open_object_store(&object_store, object.location.as_ref()),
             )
@@ -112,6 +132,7 @@ impl VortexFileCache {
 struct VortexFileSegmentCache {
     file_key: FileKey,
     segment_cache: Cache<SegmentKey, ByteBuffer, DefaultHashBuilder>,
+    on_evict_callbacks: Arc<RwLock<HashMap<FileKey, Vec<EvictionCallback>>>>,
 }
 
 #[async_trait]
@@ -137,6 +158,14 @@ impl SegmentCache for VortexFileSegmentCache {
             )
             .await;
         Ok(())
+    }
+
+    fn on_evict(&self, callback: EvictionCallback) {
+        self.on_evict_callbacks
+            .write()
+            .entry(self.file_key.clone())
+            .or_default()
+            .push(callback);
     }
 }
 

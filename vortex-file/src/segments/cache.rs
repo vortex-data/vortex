@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use futures::FutureExt;
 use moka::future::{Cache, CacheBuilder};
 use moka::policy::EvictionPolicy;
+use parking_lot::RwLock;
 use rustc_hash::FxBuildHasher;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexExpect, VortexResult};
@@ -14,11 +15,15 @@ use vortex_layout::segments::{SegmentFuture, SegmentId, SegmentSource};
 use vortex_metrics::{Counter, VortexMetrics};
 use vortex_utils::aliases::dash_map::DashMap;
 
+pub type EvictionCallback = Box<dyn Fn(Arc<SegmentId>) + Send + Sync>;
+
 /// A cache for storing and retrieving individual segment data.
 #[async_trait]
 pub trait SegmentCache: Send + Sync {
     async fn get(&self, id: SegmentId) -> VortexResult<Option<ByteBuffer>>;
     async fn put(&self, id: SegmentId, buffer: ByteBuffer) -> VortexResult<()>;
+
+    fn on_evict(&self, callback: EvictionCallback);
 }
 
 pub(crate) struct NoOpSegmentCache;
@@ -32,38 +37,61 @@ impl SegmentCache for NoOpSegmentCache {
     async fn put(&self, _id: SegmentId, _buffer: ByteBuffer) -> VortexResult<()> {
         Ok(())
     }
+
+    fn on_evict(&self, _callback: EvictionCallback) {}
 }
 
 /// A [`SegmentCache`] based around an in-memory Moka cache.
-pub struct MokaSegmentCache(Cache<SegmentId, ByteBuffer, FxBuildHasher>);
+pub struct MokaSegmentCache {
+    cache: Cache<SegmentId, ByteBuffer, FxBuildHasher>,
+    on_evict_callbacks: Arc<RwLock<Vec<EvictionCallback>>>,
+}
 
 impl MokaSegmentCache {
     pub fn new(max_capacity_bytes: u64) -> Self {
-        Self(
-            CacheBuilder::new(max_capacity_bytes)
-                .name("vortex-segment-cache")
-                // Weight each segment by the number of bytes in the buffer.
-                .weigher(|_, buffer: &ByteBuffer| {
-                    u32::try_from(buffer.len().min(u32::MAX as usize)).vortex_expect("must fit")
-                })
-                // We configure LFU (vs LRU) since the cache is mostly used when re-reading the
-                // same file - it is _not_ used when reading the same segments during a single
-                // scan.
-                .eviction_policy(EvictionPolicy::tiny_lfu())
-                .build_with_hasher(FxBuildHasher),
-        )
+        let on_evict_callbacks: Arc<RwLock<Vec<EvictionCallback>>> = Default::default();
+        let callbacks = on_evict_callbacks.clone();
+
+        let cache = CacheBuilder::new(max_capacity_bytes)
+            .name("vortex-segment-cache")
+            // Weight each segment by the number of bytes in the buffer.
+            .weigher(|_, buffer: &ByteBuffer| {
+                u32::try_from(buffer.len().min(u32::MAX as usize)).vortex_expect("must fit")
+            })
+            // We configure LFU (vs LRU) since the cache is mostly used when re-reading the
+            // same file - it is _not_ used when reading the same segments during a single
+            // scan.
+            .eviction_policy(EvictionPolicy::tiny_lfu())
+            .eviction_listener(move |key: Arc<SegmentId>, _value, cause| {
+                if !cause.was_evicted() {
+                    return;
+                }
+                for callback in callbacks.read().iter() {
+                    callback(key.clone());
+                }
+            })
+            .build_with_hasher(FxBuildHasher);
+
+        Self {
+            cache,
+            on_evict_callbacks,
+        }
     }
 }
 
 #[async_trait]
 impl SegmentCache for MokaSegmentCache {
     async fn get(&self, id: SegmentId) -> VortexResult<Option<ByteBuffer>> {
-        Ok(self.0.get(&id).await)
+        Ok(self.cache.get(&id).await)
     }
 
     async fn put(&self, id: SegmentId, buffer: ByteBuffer) -> VortexResult<()> {
-        self.0.insert(id, buffer).await;
+        self.cache.insert(id, buffer).await;
         Ok(())
+    }
+
+    fn on_evict(&self, callback: EvictionCallback) {
+        self.on_evict_callbacks.write().push(callback);
     }
 }
 
@@ -84,6 +112,11 @@ impl SegmentCache for InitialReadSegmentCache {
 
     async fn put(&self, id: SegmentId, buffer: ByteBuffer) -> VortexResult<()> {
         self.fallback.put(id, buffer).await
+    }
+
+    fn on_evict(&self, callback: EvictionCallback) {
+        // we don't evict from initial
+        self.fallback.on_evict(callback);
     }
 }
 
@@ -122,6 +155,10 @@ impl<C: SegmentCache> SegmentCache for SegmentCacheMetrics<C> {
         self.segment_cache.put(id, buffer).await?;
         self.stores.inc();
         Ok(())
+    }
+
+    fn on_evict(&self, callback: EvictionCallback) {
+        self.segment_cache.on_evict(callback);
     }
 }
 
