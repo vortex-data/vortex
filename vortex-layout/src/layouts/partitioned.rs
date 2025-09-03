@@ -16,7 +16,8 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexError, VortexResult};
 use vortex_expr::transform::PartitionedExpr;
 use vortex_expr::{ExprRef, Scope};
-use vortex_mask::{Mask, MaskFuture};
+use vortex_array::pipeline::operators::MaskFuture;
+use vortex_mask::Mask;
 
 use crate::{ArrayEvaluation, MaskEvaluation};
 

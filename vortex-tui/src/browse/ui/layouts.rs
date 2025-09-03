@@ -11,7 +11,7 @@ use ratatui::widgets::{
 };
 use vortex::error::VortexExpect;
 use vortex::expr::root;
-use vortex::layout::MaskFuture;
+use vortex::pipeline::operators::MaskFuture;
 use vortex::layout::layouts::flat::FlatVTable;
 use vortex::layout::layouts::zoned::ZonedVTable;
 use vortex::{Array, ArrayRef, ToCanonical};

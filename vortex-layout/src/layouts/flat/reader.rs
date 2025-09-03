@@ -17,7 +17,8 @@ use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldMask, Nullability};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
 use vortex_expr::{ExprRef, Scope, VortexExprExt, is_root};
-use vortex_mask::{Mask, MaskFuture};
+use vortex_array::pipeline::operators::MaskFuture;
+use vortex_mask::Mask;
 
 use crate::layouts::SharedArrayFuture;
 use crate::layouts::flat::FlatLayout;
@@ -299,7 +300,7 @@ mod test {
     use vortex_array::{ArrayContext, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_expr::{gt, lit, root};
-    use vortex_mask::MaskFuture;
+    use vortex_array::pipeline::operators::MaskFuture;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::{SegmentSource, SequenceWriter, TestSegments};

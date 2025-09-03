@@ -15,7 +15,6 @@ version = { workspace = true }
 
 [dependencies]
 arrow-buffer = { workspace = true }
-futures = { workspace = true, features = ["alloc", "async-await", "std"] }
 itertools = { workspace = true }
 vortex-error = { workspace = true }
 

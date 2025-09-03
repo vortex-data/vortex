@@ -147,7 +147,8 @@ mod tests {
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
     use vortex_error::VortexUnwrap;
     use vortex_expr::root;
-    use vortex_mask::{AllOr, MaskFuture};
+    use vortex_array::pipeline::operators::MaskFuture;
+    use vortex_mask::AllOr;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::{SegmentSource, SequenceWriter, TestSegments};

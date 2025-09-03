@@ -16,7 +16,8 @@ use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use vortex_expr::ExprRef;
-use vortex_mask::{Mask, MaskFuture};
+use vortex_array::pipeline::operators::MaskFuture;
+use vortex_mask::Mask;
 
 use crate::layouts::chunked::ChunkedLayout;
 use crate::reader::LayoutReader;
@@ -352,7 +353,7 @@ mod test {
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, PType};
     use vortex_expr::root;
-    use vortex_mask::MaskFuture;
+    use vortex_array::pipeline::operators::MaskFuture;
 
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;

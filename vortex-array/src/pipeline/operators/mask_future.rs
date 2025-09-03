@@ -5,11 +5,10 @@ use std::future::Future;
 use std::ops::Range;
 use std::sync::Arc;
 
-use futures::future::{BoxFuture, Shared};
-use futures::{FutureExt, TryFutureExt};
+use futures_util::future::{BoxFuture, Shared};
+use futures_util::{FutureExt, TryFutureExt};
 use vortex_error::{SharedVortexResult, VortexError, VortexResult, vortex_panic};
-
-use crate::Mask;
+use vortex_mask::Mask;
 
 /// A future that resolves to a mask.
 #[derive(Clone)]
