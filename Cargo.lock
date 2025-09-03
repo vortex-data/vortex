@@ -7245,6 +7245,7 @@ dependencies = [
  "vortex-error",
  "vortex-mask",
  "vortex-scalar",
+ "vortex-sparse",
  "zstd",
 ]
 

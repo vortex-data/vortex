@@ -6,7 +6,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::arrays::{BinaryView, PrimitiveArray, VarBinViewArray};
+use vortex_array::arrays::{BinaryView, ConstantArray, PrimitiveArray, VarBinViewArray};
 use vortex_array::compute::filter;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
@@ -20,6 +20,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_mask::AllOr;
 use vortex_scalar::Scalar;
+use vortex_sparse::SparseArray;
 
 use crate::serde::{ZstdFrameMetadata, ZstdMetadata};
 
@@ -482,10 +483,31 @@ impl ZstdArray {
                         views,
                         Arc::from([decompressed]),
                         self.dtype.clone(),
-                        slice_validity,
+                        Validity::AllValid,
                     )
-                };
-                vbv.into_array()
+                }
+                .into_array();
+                match slice_validity.to_mask(slice_n_rows).indices() {
+                    AllOr::All => vbv,
+                    AllOr::None => {
+                        ConstantArray::new(Scalar::null(self.dtype.clone()), slice_n_rows)
+                            .into_array()
+                    }
+                    AllOr::Some(indices) => SparseArray::try_new(
+                        PrimitiveArray::from_iter(indices.into_iter().map(|x| *x as u64))
+                            .into_array(),
+                        vbv,
+                        slice_n_rows,
+                        Scalar::null(self.dtype.clone()),
+                    )
+                    // 1. Set indices should match string length by construction above.
+                    //
+                    // 2. Indices are strict-sorted because they come from a Validity mask.
+                    //
+                    // 3. Last index must be less than slice_n_rows because we sliced the Validity to slice_start .. slice_stop above.
+                    .vortex_expect("bad indices in utf8/binary zstd")
+                    .into_array(),
+                }
             }
             _ => vortex_panic!("Unsupported dtype for Zstd array: {}", self.dtype),
         }
