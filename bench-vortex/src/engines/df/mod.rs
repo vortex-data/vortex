@@ -66,7 +66,7 @@ pub fn get_session_context(disable_datafusion_cache: bool) -> SessionContext {
         .build_arc()
         .expect("could not build runtime environment");
 
-    let factory = VortexFormatFactory::default();
+    let factory = VortexFormatFactory::new();
 
     let mut session_state_builder = SessionStateBuilder::new()
         .with_config(SessionConfig::default())
