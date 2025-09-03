@@ -41,30 +41,32 @@ df3 = pd.merge(base, pr, on=["name", "storage"], how="right", suffixes=("_base",
 # assert df3["unit_base"].equals(df3["unit_pr"]), (df3["unit_base"], df3["unit_pr"])
 
 # Generate summary statistics
-pr_mean = df3["value_pr"].mean()
-base_mean = df3["value_base"].mean()
-overall_ratio = pr_mean / base_mean if base_mean > 0 else float('nan')
+df3["ratio"] = df3["value_pr"] / df3["value_base"]
 
-# Count improvements vs regressions
-improvements = (df3["value_pr"] < df3["value_base"]).sum()
-regressions = (df3["value_pr"] > df3["value_base"]).sum()
-unchanged = (df3["value_pr"] == df3["value_base"]).sum()
+# Calculate geometric mean of ratios (better for performance ratios)
+import math
+geo_mean_ratio = math.exp(sum(math.log(r) for r in df3["ratio"] if r > 0) / len(df3["ratio"]))
 
 # Find best and worst changes
-df3["ratio"] = df3["value_pr"] / df3["value_base"]
 best_idx = df3["ratio"].idxmin()
 worst_idx = df3["ratio"].idxmax()
+
+# Count significant changes (>15% change)
+significant_improvements = (df3["ratio"] < 0.9).sum()  # More than 15% faster
+significant_regressions = (df3["ratio"] > 1.1).sum()   # More than 15% slower
+
 
 # Print summary
 print("## Summary")
 print()
-print(f"- **Overall Performance**: {overall_ratio:.3f}x ({'better' if overall_ratio < 1 else 'worse'} than base)")
-print(f"- **Improvements**: {improvements} queries")
-print(f"- **Regressions**: {regressions} queries")
-if unchanged > 0:
-    print(f"- **Unchanged**: {unchanged} queries")
+print(f"- **Overall Performance (geometric mean)**: {geo_mean_ratio:.3f}x ({'better' if geo_mean_ratio < 1 else 'worse'} than base)")
 print(f"- **Best Improvement**: {df3.loc[best_idx, 'name']} ({df3.loc[best_idx, 'ratio']:.3f}x)")
 print(f"- **Worst Regression**: {df3.loc[worst_idx, 'name']} ({df3.loc[worst_idx, 'ratio']:.3f}x)")
+print(f"- **Significant Changes (>15%)**:")
+print(f"  - Improvements: {significant_improvements} queries")
+print(f"  - Regressions: {significant_regressions} queries")
+if unchanged > 0:
+    print(f"  - Unchanged: {unchanged} queries")
 print()
 
 # Print detailed table
