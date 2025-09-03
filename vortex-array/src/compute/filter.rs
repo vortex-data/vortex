@@ -69,6 +69,12 @@ impl ComputeFnVTable for Filter {
     ) -> VortexResult<Output> {
         let FilterArgs { array, mask } = FilterArgs::try_from(args)?;
 
+        debug_assert_eq!(
+            array.len(),
+            mask.len(),
+            "Tried to filter an array via a mask with the wrong length"
+        );
+
         let true_count = mask.true_count();
 
         // Fast-path for empty mask.
@@ -162,9 +168,13 @@ inventory::collect!(FilterKernelRef);
 pub trait FilterKernel: VTable {
     /// Filter an array by the provided predicate.
     ///
-    /// Note that the entry-point filter functions handles `Mask::AllTrue` and `Mask::AllFalse`,
-    /// leaving only `Mask::Values` to be handled by this function.
-    fn filter(&self, array: &Self::Array, mask: &Mask) -> VortexResult<ArrayRef>;
+    /// # Preconditions
+    ///
+    /// The entry-point filter functions will handle `Mask::AllTrue` and `Mask::AllFalse` on the
+    /// selection mask, leaving only `Mask::Values` to be handled by this function.
+    ///
+    /// Additionally, the array length is guaranteed to have the same length as the selection mask.
+    fn filter(&self, array: &Self::Array, selection_mask: &Mask) -> VortexResult<ArrayRef>;
 }
 
 /// Adapter to convert a [`FilterKernel`] into a [`Kernel`].

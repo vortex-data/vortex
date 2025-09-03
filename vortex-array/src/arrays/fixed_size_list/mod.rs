@@ -75,16 +75,10 @@ impl FixedSizeListArray {
     ///
     /// # Errors
     ///
-    /// Returns an error if the inputs are invalid. The inputs are **valid** if:
+    /// Returns an error if the inputs are invalid. See [`new_unchecked()`] for more details on what
+    /// the validity requirements are.
     ///
-    /// - The `list_size` is 0 and:
-    ///   - The `elements` array is empty.
-    ///   - The `len` is equal to the length of the `validity` map.
-    /// - The length of the `elements` array is a multiple of the size of the fixed-size lists
-    ///   (`list_size`).
-    /// - The `Validity` length (if it exists) times the `list_size` is equal to the length of the
-    ///   `elements` (or put another way, the length of the array divided by the size of each
-    ///   fixed-size list is equal to the length of the validity).
+    /// [`new_unchecked()`]: Self::new_unchecked
     pub fn try_new(
         elements: ArrayRef,
         list_size: u32,
@@ -101,10 +95,16 @@ impl FixedSizeListArray {
     ///
     /// # Safety
     ///
-    /// This function is only safe to call if the inputs are valid. See [`try_new()`] for more
-    /// details on what the validity requirements are.
+    /// The inputs are **valid** if:
     ///
-    /// [`try_new()`]: Self::try_new
+    /// - The `list_size` is 0 and:
+    ///   - The `elements` array is empty.
+    ///   - The `len` is equal to the length of the `validity` map.
+    /// - The length of the `elements` array is a multiple of the size of the fixed-size lists
+    ///   (`list_size`).
+    /// - The `Validity` length (if it exists) times the `list_size` is equal to the length of the
+    ///   `elements` (or put another way, the length of the array divided by the size of each
+    ///   fixed-size list is equal to the length of the validity).
     pub unsafe fn new_unchecked(
         elements: ArrayRef,
         list_size: u32,

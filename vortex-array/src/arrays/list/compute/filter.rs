@@ -17,35 +17,38 @@ use crate::validity::Validity;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 impl FilterKernel for ListVTable {
-    fn filter(&self, array: &Self::Array, mask: &Mask) -> VortexResult<ArrayRef> {
+    fn filter(&self, array: &Self::Array, selection_mask: &Mask) -> VortexResult<ArrayRef> {
         let offsets = array.offsets.to_primitive();
 
+        // Check the null mask.
         match array.validity_mask() {
             Mask::AllTrue(_) => {
                 match_each_integer_ptype!(offsets.ptype(), |I| {
                     filter_all_valid::<I>(
                         offsets.as_slice::<I>(),
                         array.elements().as_ref(),
-                        mask,
+                        selection_mask,
                         array.dtype().nullability(),
                     )
                 })
             }
             Mask::AllFalse(_) => {
                 // If all array offsets are null, then the array is simply null?
-                Ok(
-                    ConstantArray::new(Scalar::null(array.dtype().clone()), mask.true_count())
-                        .into_array(),
+                Ok(ConstantArray::new(
+                    Scalar::null(array.dtype().clone()),
+                    selection_mask.true_count(),
                 )
+                .into_array())
             }
             Mask::Values(_) => {
                 // TODO(ngates): implemented null filtering
-                arrow_filter_fn(array.as_ref(), mask)
+                arrow_filter_fn(array.as_ref(), selection_mask)
             }
         }
     }
 }
 
+// TODO(connor): We can use this for the `Mask::Value` case as long as we modify the validity.
 fn filter_all_valid<I: NativePType + AsPrimitive<usize> + AddAssign>(
     offsets: &[I],
     elements: &dyn Array,
