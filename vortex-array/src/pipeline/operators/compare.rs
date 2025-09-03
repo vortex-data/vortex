@@ -82,8 +82,6 @@ impl Operator for CompareOperator {
         &self.children
     }
 
-    fn execute(&self, mask: Mask) -> CanonicalFuture {}
-
     fn with_children(&self, children: Vec<OperatorRef>) -> OperatorRef {
         let [lhs, rhs] = children
             .try_into()

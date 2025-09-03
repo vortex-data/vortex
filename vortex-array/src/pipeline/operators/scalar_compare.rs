@@ -1,4 +1,4 @@
-g/ SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
@@ -51,7 +51,8 @@ impl Operator for ScalarCompareOperator {
 
     fn execute(&self, mask: Mask) -> CanonicalFuture {
         let scalar = self.scalar.clone();
-        let child = self.children[0].execute(mask);
+        let child = self.children[0];
+        let child = async move { child.execute(mask.await?).await };
         let op = self.op;
         Box::pin(async move {
             let child = child.await?.into_array();

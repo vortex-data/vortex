@@ -15,7 +15,7 @@ use crate::Array;
 use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::compute::filter;
 use crate::pipeline::bits::BitView;
-use crate::pipeline::operators::{BindContext, CanonicalFuture, Operator, OperatorRef};
+use crate::pipeline::operators::{BindContext, CanonicalFuture, MaskFuture, Operator, OperatorRef};
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{Element, Kernel, KernelContext, N, PipelineVTable, VType};
 use crate::vtable::ValidityHelper;
@@ -58,9 +58,9 @@ impl Operator for PrimitiveArray {
         self
     }
 
-    fn execute(&self, mask: Mask) -> CanonicalFuture {
+    fn execute(&self, mask: MaskFuture) -> CanonicalFuture {
         let arr = self.clone();
-        Box::pin(async move { Ok(filter(arr.as_ref(), &mask)?.to_canonical()) })
+        Box::pin(async move { Ok(filter(arr.as_ref(), &mask.await?)?.to_canonical()) })
     }
 
     fn vtype(&self) -> VType {
