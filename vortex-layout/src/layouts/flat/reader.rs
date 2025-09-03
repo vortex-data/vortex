@@ -17,14 +17,13 @@ use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldMask, Nullability};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
 use vortex_expr::{ExprRef, Scope, VortexExprExt, is_root};
-use vortex_mask::Mask;
+use vortex_mask::{Mask, MaskFuture};
 
 use crate::layouts::SharedArrayFuture;
 use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentSource;
 use crate::{
-    ArrayEvaluation, LayoutReader, MaskEvaluation, MaskFuture, NoOpPruningEvaluation,
-    PruningEvaluation,
+    ArrayEvaluation, LayoutReader, MaskEvaluation, NoOpPruningEvaluation, PruningEvaluation,
 };
 
 /// The threshold of mask density below which we will evaluate the expression only over the
@@ -300,11 +299,12 @@ mod test {
     use vortex_array::{ArrayContext, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_expr::{gt, lit, root};
+    use vortex_mask::MaskFuture;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
-    use crate::{LayoutStrategy as _, MaskFuture, SequentialStreamAdapter, SequentialStreamExt};
+    use crate::{LayoutStrategy as _, SequentialStreamAdapter, SequentialStreamExt};
 
     #[test]
     fn flat_identity() {

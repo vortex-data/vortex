@@ -5,8 +5,11 @@
 #![deny(missing_docs)]
 mod bitops;
 mod eq;
+mod future;
 mod intersect_by_rank;
 mod iter_bools;
+
+pub use future::MaskFuture;
 
 #[cfg(test)]
 mod tests;

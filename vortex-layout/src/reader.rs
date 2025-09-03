@@ -12,9 +12,8 @@ use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_expr::ExprRef;
-use vortex_mask::Mask;
+use vortex_mask::{Mask, MaskFuture};
 
-use crate::MaskFuture;
 use crate::children::LayoutChildren;
 use crate::segments::SegmentSource;
 

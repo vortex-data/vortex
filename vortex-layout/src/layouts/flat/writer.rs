@@ -147,14 +147,13 @@ mod tests {
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
     use vortex_error::VortexUnwrap;
     use vortex_expr::root;
-    use vortex_mask::AllOr;
+    use vortex_mask::{AllOr, MaskFuture};
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
     use crate::{
-        LayoutStrategy, MaskFuture, SendableSequentialStream, SequentialStreamAdapter,
-        SequentialStreamExt as _,
+        LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter, SequentialStreamExt as _,
     };
 
     fn stream_only(array: ArrayRef) -> SendableSequentialStream {

@@ -16,9 +16,9 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexError, VortexResult};
 use vortex_expr::transform::PartitionedExpr;
 use vortex_expr::{ExprRef, Scope};
-use vortex_mask::Mask;
+use vortex_mask::{Mask, MaskFuture};
 
-use crate::{ArrayEvaluation, MaskEvaluation, MaskFuture};
+use crate::{ArrayEvaluation, MaskEvaluation};
 
 /// An implementation of [`MaskEvaluation`] for partitioned expressions.
 pub struct PartitionedMaskEvaluation<P> {

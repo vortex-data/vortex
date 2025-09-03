@@ -16,14 +16,13 @@ use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use vortex_expr::ExprRef;
-use vortex_mask::Mask;
+use vortex_mask::{Mask, MaskFuture};
 
 use crate::layouts::chunked::ChunkedLayout;
 use crate::reader::LayoutReader;
 use crate::segments::SegmentSource;
 use crate::{
-    ArrayEvaluation, LayoutReaderRef, LazyReaderChildren, MaskEvaluation, MaskFuture,
-    PruningEvaluation,
+    ArrayEvaluation, LayoutReaderRef, LazyReaderChildren, MaskEvaluation, PruningEvaluation,
 };
 
 /// A [`LayoutReader`] for chunked layouts.
@@ -353,14 +352,13 @@ mod test {
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, PType};
     use vortex_expr::root;
+    use vortex_mask::MaskFuture;
 
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
-    use crate::{
-        LayoutRef, LayoutStrategy, MaskFuture, SequentialStreamAdapter, SequentialStreamExt as _,
-    };
+    use crate::{LayoutRef, LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt as _};
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.

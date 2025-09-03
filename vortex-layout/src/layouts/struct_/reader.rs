@@ -258,15 +258,13 @@ mod tests {
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, StructFields};
     use vortex_expr::{col, eq, get_item, gt, lit, or, pack, root};
-    use vortex_mask::Mask;
+    use vortex_mask::{Mask, MaskFuture};
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::struct_::writer::StructStrategy;
     use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
-    use crate::{
-        LayoutRef, LayoutStrategy, MaskFuture, SequentialStreamAdapter, SequentialStreamExt as _,
-    };
+    use crate::{LayoutRef, LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt as _};
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.

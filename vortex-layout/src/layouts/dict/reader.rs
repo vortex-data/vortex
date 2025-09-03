@@ -14,15 +14,15 @@ use vortex_dict::DictArray;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::{ExprRef, Scope, root};
-use vortex_mask::Mask;
+use vortex_mask::{Mask, MaskFuture};
 use vortex_utils::aliases::dash_map::DashMap;
 
 use super::DictLayout;
 use crate::layouts::SharedArrayFuture;
 use crate::segments::SegmentSource;
 use crate::{
-    ArrayEvaluation, LayoutReader, LayoutReaderRef, MaskEvaluation, MaskFuture,
-    NoOpPruningEvaluation, PruningEvaluation,
+    ArrayEvaluation, LayoutReader, LayoutReaderRef, MaskEvaluation, NoOpPruningEvaluation,
+    PruningEvaluation,
 };
 
 pub struct DictReader {
@@ -243,13 +243,14 @@ mod tests {
     use vortex_array::{ArrayContext, IntoArray as _};
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
     use vortex_expr::{is_null, not, pack, root};
+    use vortex_mask::MaskFuture;
 
     use crate::layouts::dict::writer::{DictLayoutOptions, DictStrategy};
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::{SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
     use crate::{
-        LayoutId, LayoutRef, LayoutStrategy, LocalExecutor, MaskFuture, SequentialStreamAdapter,
+        LayoutId, LayoutRef, LayoutStrategy, LocalExecutor, SequentialStreamAdapter,
         SequentialStreamExt,
     };
 

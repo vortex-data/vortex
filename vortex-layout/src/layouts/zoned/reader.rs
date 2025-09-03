@@ -18,13 +18,13 @@ use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
 use vortex_expr::dynamic::DynamicExprUpdates;
 use vortex_expr::pruning::checked_pruning_expr;
 use vortex_expr::{ExprRef, root};
-use vortex_mask::Mask;
+use vortex_mask::{Mask, MaskFuture};
 use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::ZoneMap;
 use crate::segments::SegmentSource;
-use crate::{ArrayEvaluation, LayoutReader, MaskEvaluation, MaskFuture, PruningEvaluation};
+use crate::{ArrayEvaluation, LayoutReader, MaskEvaluation, PruningEvaluation};
 
 type SharedZoneMap = Shared<BoxFuture<'static, SharedVortexResult<ZoneMap>>>;
 type SharedPruningResult = Shared<BoxFuture<'static, SharedVortexResult<Arc<PruningResult>>>>;
@@ -375,13 +375,13 @@ mod test {
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, PType};
     use vortex_expr::{gt, lit, root};
-    use vortex_mask::Mask;
+    use vortex_mask::{Mask, MaskFuture};
 
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
     use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
-    use crate::{LayoutRef, LayoutStrategy, LocalExecutor, MaskFuture};
+    use crate::{LayoutRef, LayoutStrategy, LocalExecutor};
 
     #[fixture]
     /// Create a stats layout with three chunks of primitive arrays.
