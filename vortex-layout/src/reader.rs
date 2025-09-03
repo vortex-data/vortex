@@ -82,8 +82,10 @@ pub trait LayoutReader: 'static + Send + Sync {
         row_range: &Range<u64>,
         expr: &ExprRef,
         mask: MaskFuture,
-    ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>>;
+    ) -> VortexResult<ArrayFuture>;
 }
+
+pub type ArrayFuture = BoxFuture<'static, VortexResult<ArrayRef>>;
 
 pub struct LazyReaderChildren {
     children: Arc<dyn LayoutChildren>,

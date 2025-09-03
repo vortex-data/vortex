@@ -5,7 +5,6 @@ use std::collections::BTreeSet;
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use vortex_array::compute::filter;
@@ -117,6 +116,7 @@ impl LayoutReader for FlatReader {
                 .vortex_expect("Row range end must fit within FlatLayout size");
         let name = self.name.clone();
         let array = self.array_future();
+        let expr = expr.clone();
 
         Ok(MaskFuture::new(mask.len(), async move {
             // TODO(ngates): if the mask density is low enough, or if the mask is dense within a range
@@ -184,6 +184,7 @@ impl LayoutReader for FlatReader {
                 .vortex_expect("Row range end must fit within FlatLayout size");
         let name = self.name.clone();
         let array = self.array_future();
+        let expr = expr.clone();
 
         Ok(async move {
             log::debug!("Flat array evaluation {} - {}", name, expr);

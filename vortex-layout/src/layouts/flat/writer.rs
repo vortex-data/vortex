@@ -184,9 +184,12 @@ mod tests {
             let result = layout
                 .new_reader("".into(), segments)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &root())
+                .projection_evaluation(
+                    &(0..layout.row_count()),
+                    &root(),
+                    MaskFuture::new_true(layout.row_count().try_into().unwrap()),
+                )
                 .unwrap()
-                .invoke(MaskFuture::new_true(layout.row_count().try_into().unwrap()))
                 .await
                 .unwrap();
 
@@ -225,9 +228,12 @@ mod tests {
             let result = layout
                 .new_reader("".into(), segments)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &root())
+                .projection_evaluation(
+                    &(0..layout.row_count()),
+                    &root(),
+                    MaskFuture::new_true(layout.row_count().try_into().unwrap()),
+                )
                 .unwrap()
-                .invoke(MaskFuture::new_true(layout.row_count().try_into().unwrap()))
                 .await
                 .unwrap();
 
@@ -285,9 +291,12 @@ mod tests {
             let result: ArrayRef = layout
                 .new_reader("".into(), segments)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &root())
+                .projection_evaluation(
+                    &(0..layout.row_count()),
+                    &root(),
+                    MaskFuture::new_true(layout.row_count().try_into().unwrap()),
+                )
                 .unwrap()
-                .invoke(MaskFuture::new_true(layout.row_count().try_into().unwrap()))
                 .await
                 .unwrap();
 

@@ -6,7 +6,6 @@ use std::ops::{BitAnd, Range};
 use std::sync::{Arc, OnceLock};
 
 use arrow_buffer::BooleanBufferBuilder;
-use async_trait::async_trait;
 use futures::future::{BoxFuture, Shared};
 use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
@@ -24,7 +23,7 @@ use vortex_utils::aliases::dash_map::DashMap;
 use crate::layouts::zoned::zone_map::ZoneMap;
 use crate::layouts::zoned::ZonedLayout;
 use crate::segments::SegmentSource;
-use crate::{ArrayEvaluation, LayoutReader, MaskEvaluation, MaskFuture, PruningEvaluation};
+use crate::{LayoutReader, MaskFuture};
 
 type SharedZoneMap = Shared<BoxFuture<'static, SharedVortexResult<ZoneMap>>>;
 type SharedPruningResult = Shared<BoxFuture<'static, SharedVortexResult<Arc<PruningResult>>>>;
@@ -103,14 +102,15 @@ impl ZonedReader {
 
                 let zones_eval = self
                     .zones_child
-                    .projection_evaluation(&(0..nzones as u64), &root())
+                    .projection_evaluation(
+                        &(0..nzones as u64),
+                        &root(),
+                        MaskFuture::new_true(nzones),
+                    )
                     .vortex_expect("Failed construct zone map evaluation");
 
                 async move {
-                    let zones_array = zones_eval
-                        .invoke(MaskFuture::new_true(nzones))
-                        .await?
-                        .to_struct();
+                    let zones_array = zones_eval.await?.to_struct();
                     // SAFETY: This is only fine to call because we perform validation above
                     Ok(ZoneMap::new_unchecked(zones_array, present_stats))
                 }
@@ -202,7 +202,9 @@ impl LayoutReader for ZonedReader {
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
         log::debug!("Stats pruning evaluation: {} - {}", &self.name, expr);
-        let data_eval = self.data_child.pruning_evaluation(row_range, expr)?;
+        let data_eval = self
+            .data_child
+            .pruning_evaluation(row_range, expr, mask.clone())?;
 
         let Some(pruning_mask_future) = self.pruning_mask_future(expr.clone()) else {
             log::debug!("Stats pruning evaluation: not prune-able {expr}");
@@ -211,7 +213,7 @@ impl LayoutReader for ZonedReader {
 
         let row_count = row_range.end - row_range.start;
         let zone_range = self.zone_range(row_range);
-        let zone_lengths = zone_range
+        let zone_lengths: Vec<_> = zone_range
             .clone()
             .map(|zone_idx| {
                 // Figure out the range in the mask that corresponds to the zone
@@ -228,13 +230,40 @@ impl LayoutReader for ZonedReader {
             })
             .try_collect()?;
 
-        Ok(Box::new(ZoneMapPruningEvaluation {
-            name: self.name.clone(),
-            expr: expr.clone(),
-            pruning_mask_future,
-            zone_range,
-            zone_lengths,
-            data_eval,
+        let name = self.name.clone();
+        let expr = expr.clone();
+
+        Ok(MaskFuture::new(mask.len(), async move {
+            log::debug!("Invoking stats pruning evaluation {}: {}", name, expr);
+
+            let pruning_mask = pruning_mask_future.clone().await?.mask()?;
+
+            let mut builder = BooleanBufferBuilder::new(mask.len());
+            for (zone_idx, &zone_length) in zone_range.clone().zip_eq(&zone_lengths) {
+                builder.append_n(zone_length, !pruning_mask.value(usize::try_from(zone_idx)?));
+            }
+
+            let stats_mask = Mask::from(builder.finish());
+            assert_eq!(stats_mask.len(), mask.len(), "Mask length mismatch");
+
+            // Intersect the masks.
+            let mut stats_mask = mask.bitand(&stats_mask);
+
+            // Forward to data child for further pruning.
+            if !stats_mask.all_false() {
+                let data_mask = data_eval.await?;
+                stats_mask = stats_mask.bitand(&data_mask);
+            }
+
+            log::debug!(
+                "Stats evaluation approx {} - {} (mask = {}) => {}",
+                name,
+                expr,
+                mask.density(),
+                stats_mask.density(),
+            );
+
+            Ok(stats_mask)
         }))
     }
 
@@ -244,7 +273,7 @@ impl LayoutReader for ZonedReader {
         expr: &ExprRef,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
-        self.data_child.filter_evaluation(row_range, expr)
+        self.data_child.filter_evaluation(row_range, expr, mask)
     }
 
     fn projection_evaluation(
@@ -255,61 +284,7 @@ impl LayoutReader for ZonedReader {
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         // TODO(ngates): there are some projection expressions that we may also be able to
         //  short-circuit with statistics.
-        self.data_child.projection_evaluation(row_range, expr)
-    }
-}
-
-struct ZoneMapPruningEvaluation {
-    name: Arc<str>,
-    expr: ExprRef,
-    /// A mask indicating zones which have no matching values.
-    /// A false value indicates the corresponding zone may have a matching value.
-    pruning_mask_future: SharedPruningResult,
-    /// The set of zone IDs that are available to the evaluation.
-    zone_range: Range<u64>,
-    /// The lengths of each zone in the zone_range.
-    zone_lengths: Vec<usize>,
-    /// The evaluation of the data child.
-    data_eval: Box<dyn PruningEvaluation>,
-}
-
-#[async_trait]
-impl PruningEvaluation for ZoneMapPruningEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
-        log::debug!(
-            "Invoking stats pruning evaluation {}: {}",
-            self.name,
-            self.expr,
-        );
-
-        let pruning_mask = self.pruning_mask_future.clone().await?.mask()?;
-
-        let mut builder = BooleanBufferBuilder::new(mask.len());
-        for (zone_idx, &zone_length) in self.zone_range.clone().zip_eq(&self.zone_lengths) {
-            builder.append_n(zone_length, !pruning_mask.value(usize::try_from(zone_idx)?));
-        }
-
-        let stats_mask = Mask::from(builder.finish());
-        assert_eq!(stats_mask.len(), mask.len(), "Mask length mismatch");
-
-        // Intersect the masks.
-        let mut stats_mask = mask.bitand(&stats_mask);
-
-        // Forward to data child for further pruning.
-        if !stats_mask.all_false() {
-            let data_mask = self.data_eval.invoke(stats_mask.clone()).await?;
-            stats_mask = stats_mask.bitand(&data_mask);
-        }
-
-        log::debug!(
-            "Stats evaluation approx {} - {} (mask = {}) => {}",
-            self.name,
-            self.expr,
-            mask.density(),
-            stats_mask.density(),
-        );
-
-        Ok(stats_mask)
+        self.data_child.projection_evaluation(row_range, expr, mask)
     }
 }
 
@@ -422,9 +397,12 @@ mod test {
             let result = layout
                 .new_reader("".into(), segments)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &root())
+                .projection_evaluation(
+                    &(0..layout.row_count()),
+                    &root(),
+                    MaskFuture::new_true(layout.row_count().try_into().unwrap()),
+                )
                 .unwrap()
-                .invoke(MaskFuture::new_true(layout.row_count().try_into().unwrap()))
                 .await
                 .unwrap()
                 .to_primitive();
@@ -446,9 +424,12 @@ mod test {
             let expr = gt(root(), lit(7));
 
             let result = reader
-                .pruning_evaluation(&(0..row_count), &expr)
+                .pruning_evaluation(
+                    &(0..row_count),
+                    &expr,
+                    Mask::new_true(row_count.try_into().unwrap()),
+                )
                 .unwrap()
-                .invoke(Mask::new_true(row_count.try_into().unwrap()))
                 .await
                 .unwrap()
                 .to_boolean_buffer()

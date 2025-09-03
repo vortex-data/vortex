@@ -8,9 +8,9 @@ use std::fmt::{Display, Formatter};
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
-use async_trait::async_trait;
 pub use expr::*;
 use futures::future::BoxFuture;
+use futures::FutureExt;
 use vortex_array::compute::filter;
 use vortex_array::stats::Precision;
 use vortex_array::{ArrayRef, IntoArray};
@@ -24,11 +24,8 @@ use vortex_sequence::SequenceArray;
 use vortex_utils::aliases::dash_map::DashMap;
 use Nullability::NonNullable;
 
-use crate::layouts::partitioned::{PartitionedArrayEvaluation, PartitionedMaskEvaluation};
-use crate::{
-    ArrayEvaluation, LayoutReader, MaskEvaluation, MaskFuture, NoOpMaskEvaluation,
-    NoOpPruningEvaluation, PruningEvaluation,
-};
+use crate::layouts::partitioned::PartitionedExprEval;
+use crate::{ArrayFuture, LayoutReader, MaskFuture};
 
 pub struct RowIdxLayoutReader {
     name: Arc<str>,
@@ -140,15 +137,13 @@ impl LayoutReader for RowIdxLayoutReader {
         expr: &ExprRef,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
-        match &self.partition_expr(expr) {
-            Partitioning::RowIdx(expr) => Ok(Box::new(RowIdxEvaluation::new(
-                self.row_offset,
-                row_range,
-                expr,
-            ))),
-            Partitioning::Child(expr) => self.child.pruning_evaluation(row_range, expr),
-            Partitioning::Partitioned(..) => Ok(Box::new(NoOpPruningEvaluation)),
-        }
+        Ok(match &self.partition_expr(expr) {
+            Partitioning::RowIdx(expr) => {
+                row_idx_mask_future(self.row_offset, row_range, expr, MaskFuture::ready(mask))
+            }
+            Partitioning::Child(expr) => self.child.pruning_evaluation(row_range, expr, mask)?,
+            Partitioning::Partitioned(..) => MaskFuture::ready(mask),
+        })
     }
 
     fn filter_evaluation(
@@ -160,27 +155,23 @@ impl LayoutReader for RowIdxLayoutReader {
         match &self.partition_expr(expr) {
             // Since this is run during pruning, we skip re-evaluating the row index expression
             // during the filter evaluation.
-            Partitioning::RowIdx(_) => Ok(Box::new(NoOpMaskEvaluation)),
-            Partitioning::Child(expr) => self.child.filter_evaluation(row_range, expr),
-            Partitioning::Partitioned(p) => Ok(Box::new(PartitionedMaskEvaluation::try_new(
-                p.clone(),
-                |annotation, expr| match annotation {
-                    Partition::RowIdx => Ok(Box::new(RowIdxEvaluation::new(
-                        self.row_offset,
-                        row_range,
-                        expr,
-                    ))),
-                    Partition::Child => self.child.filter_evaluation(row_range, expr),
+            Partitioning::RowIdx(_) => Ok(mask),
+            Partitioning::Child(expr) => self.child.filter_evaluation(row_range, expr, mask),
+            Partitioning::Partitioned(p) => p.clone().into_mask_future(
+                mask.clone(),
+                |annotation, expr, mask| match annotation {
+                    Partition::RowIdx => {
+                        Ok(row_idx_mask_future(self.row_offset, row_range, expr, mask))
+                    }
+                    Partition::Child => self.child.filter_evaluation(row_range, expr, mask),
                 },
-                |annotation, expr| match annotation {
-                    Partition::RowIdx => Ok(Box::new(RowIdxEvaluation::new(
-                        self.row_offset,
-                        row_range,
-                        expr,
-                    ))),
-                    Partition::Child => self.child.projection_evaluation(row_range, expr),
+                |annotation, expr, mask| match annotation {
+                    Partition::RowIdx => {
+                        Ok(row_idx_array_future(self.row_offset, row_range, expr, mask))
+                    }
+                    Partition::Child => self.child.projection_evaluation(row_range, expr, mask),
                 },
-            )?)),
+            ),
         }
     }
 
@@ -191,87 +182,73 @@ impl LayoutReader for RowIdxLayoutReader {
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         match &self.partition_expr(expr) {
-            Partitioning::RowIdx(expr) => Ok(Box::new(RowIdxEvaluation::new(
+            Partitioning::RowIdx(expr) => Ok(row_idx_array_future(
                 self.row_offset,
                 row_range,
                 expr,
-            ))),
-            Partitioning::Child(expr) => self.child.projection_evaluation(row_range, expr),
-            Partitioning::Partitioned(p) => Ok(Box::new(PartitionedArrayEvaluation::try_new(
-                p.clone(),
-                |annotation, expr| match annotation {
-                    Partition::RowIdx => Ok(Box::new(RowIdxEvaluation::new(
-                        self.row_offset,
-                        row_range,
-                        expr,
-                    ))),
-                    Partition::Child => self.child.projection_evaluation(row_range, expr),
-                },
-            )?)),
+                mask.clone(),
+            )),
+            Partitioning::Child(expr) => {
+                self.child
+                    .projection_evaluation(row_range, expr, mask.clone())
+            }
+            Partitioning::Partitioned(p) => {
+                p.clone()
+                    .into_array_future(mask.clone(), |annotation, expr, mask| match annotation {
+                        Partition::RowIdx => {
+                            Ok(row_idx_array_future(self.row_offset, row_range, expr, mask))
+                        }
+                        Partition::Child => self.child.projection_evaluation(row_range, expr, mask),
+                    })
+            }
         }
     }
 }
 
-/// We need a custom RowIdx evaluation because we need to defer creating the SequenceArray until
-/// we are given the final row_offset. We cannot just create a RowIdxLayout that spans the entire
-/// dataset because arrays can only cover up to usize rows, not u64.
-struct RowIdxEvaluation {
-    array: ArrayRef,
-    expr: ExprRef,
+// Returns a SequenceArray representing the row indices for the given row range,
+fn idx_array(row_offset: u64, row_range: &Range<u64>) -> SequenceArray {
+    SequenceArray::new(
+        PValue::U64(row_offset + row_range.start),
+        PValue::U64(1),
+        PType::U64,
+        NonNullable,
+        usize::try_from(row_range.end - row_range.start)
+            .vortex_expect("Row range length must fit in usize"),
+    )
+    .vortex_expect("Failed to create row index array")
 }
 
-impl RowIdxEvaluation {
-    fn new(row_offset: u64, row_range: &Range<u64>, expr: &ExprRef) -> Self {
-        let array = SequenceArray::new(
-            PValue::U64(row_offset + row_range.start),
-            PValue::U64(1),
-            PType::U64,
-            NonNullable,
-            usize::try_from(row_range.end - row_range.start)
-                .vortex_expect("Row range length must fit in usize"),
-        )
-        .vortex_expect("Failed to create row index array");
-
-        Self {
-            array: array.into_array(),
-            expr: expr.clone(),
-        }
-    }
-}
-
-#[async_trait]
-impl PruningEvaluation for RowIdxEvaluation {
-    async fn invoke(&self, _mask: Mask) -> VortexResult<Mask> {
-        // TODO(ngates): we could optimize this if the mask was already quite sparse.
-        // TODO(joe): fixme casting null to false is *VERY* unsound, see `FlatEvaluation` for more details.
-        self.expr
-            .evaluate(&Scope::new(self.array.clone()))?
-            .try_to_mask_fill_null_false()
-    }
-}
-
-#[async_trait]
-impl MaskEvaluation for RowIdxEvaluation {
-    async fn invoke(&self, mask: MaskFuture) -> VortexResult<Mask> {
-        // TODO(ngates): we could optimize this if the mask was already quite sparse.
-        // TODO(joe): fixme casting null to false is *VERY* unsound, see `FlatEvaluation` for more details.
-        let result = self
-            .expr
-            .evaluate(&Scope::new(self.array.clone()))?
+fn row_idx_mask_future(
+    row_offset: u64,
+    row_range: &Range<u64>,
+    expr: &ExprRef,
+    mask: MaskFuture,
+) -> MaskFuture {
+    let row_range = row_range.clone();
+    let expr = expr.clone();
+    MaskFuture::new(mask.len(), async move {
+        let array = idx_array(row_offset, &row_range).into_array();
+        let result_mask = expr
+            .evaluate(&Scope::new(array))?
             .try_to_mask_fill_null_false()?;
-
-        // Note that mask evaluation requires an intersection with the input mask, whereas
-        // pruning evaluation does not.
-        Ok(result.bitand(&mask.await?))
-    }
+        Ok(result_mask.bitand(&mask.await?))
+    })
 }
 
-#[async_trait]
-impl ArrayEvaluation for RowIdxEvaluation {
-    async fn invoke(&self, mask: MaskFuture) -> VortexResult<ArrayRef> {
-        let array = filter(&self.array, &mask.await?)?;
-        self.expr.evaluate(&Scope::new(array))
+fn row_idx_array_future(
+    row_offset: u64,
+    row_range: &Range<u64>,
+    expr: &ExprRef,
+    mask: MaskFuture,
+) -> ArrayFuture {
+    let row_range = row_range.clone();
+    let expr = expr.clone();
+    async move {
+        let array = idx_array(row_offset, &row_range).into_array();
+        let array = filter(&array, &mask.await?)?;
+        expr.evaluate(&Scope::new(array))
     }
+    .boxed()
 }
 
 #[cfg(test)]
@@ -319,9 +296,12 @@ mod tests {
             let expr = eq(root(), lit(3i32));
             let result =
                 RowIdxLayoutReader::new(0, layout.new_reader("".into(), segments).unwrap())
-                    .projection_evaluation(&(0..layout.row_count()), &expr)
+                    .projection_evaluation(
+                        &(0..layout.row_count()),
+                        &expr,
+                        MaskFuture::new_true(layout.row_count().try_into().unwrap()),
+                    )
                     .unwrap()
-                    .invoke(MaskFuture::new_true(layout.row_count().try_into().unwrap()))
                     .await
                     .unwrap()
                     .to_bool();
@@ -358,9 +338,12 @@ mod tests {
             let expr = gt(row_idx(), lit(3u64));
             let result =
                 RowIdxLayoutReader::new(0, layout.new_reader("".into(), segments).unwrap())
-                    .projection_evaluation(&(0..layout.row_count()), &expr)
+                    .projection_evaluation(
+                        &(0..layout.row_count()),
+                        &expr,
+                        MaskFuture::new_true(layout.row_count().try_into().unwrap()),
+                    )
                     .unwrap()
-                    .invoke(MaskFuture::new_true(layout.row_count().try_into().unwrap()))
                     .await
                     .unwrap()
                     .to_bool();
@@ -401,9 +384,12 @@ mod tests {
 
             let result =
                 RowIdxLayoutReader::new(0, layout.new_reader("".into(), segments).unwrap())
-                    .projection_evaluation(&(0..layout.row_count()), &expr)
+                    .projection_evaluation(
+                        &(0..layout.row_count()),
+                        &expr,
+                        MaskFuture::new_true(layout.row_count().try_into().unwrap()),
+                    )
                     .unwrap()
-                    .invoke(MaskFuture::new_true(layout.row_count().try_into().unwrap()))
                     .await
                     .unwrap()
                     .to_bool();

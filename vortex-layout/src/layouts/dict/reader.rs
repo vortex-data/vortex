@@ -6,7 +6,7 @@ use std::ops::{BitAnd, Range};
 use std::sync::{Arc, OnceLock};
 
 use futures::future::BoxFuture;
-use futures::{try_join, FutureExt, StreamExt, TryFutureExt};
+use futures::{try_join, FutureExt, TryFutureExt};
 use vortex_array::compute::{min_max, take, MinMaxResult};
 use vortex_array::stats::Precision;
 use vortex_array::ArrayRef;
@@ -186,6 +186,7 @@ impl LayoutReader for DictReader {
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         let values_eval = self.values_eval(root());
         let codes_eval = self.codes.projection_evaluation(row_range, &root(), mask)?;
+        let expr = expr.clone();
 
         Ok(async move {
             let (values, codes) = try_join!(values_eval.map_err(VortexError::from), codes_eval)?;
@@ -275,9 +276,12 @@ mod tests {
         let actual = layout
             .new_reader("".into(), Arc::from(segments))
             .unwrap()
-            .projection_evaluation(&(0..layout.row_count()), &expression)
+            .projection_evaluation(
+                &(0..layout.row_count()),
+                &expression,
+                MaskFuture::new_true(layout.row_count().try_into().unwrap()),
+            )
             .unwrap()
-            .invoke(MaskFuture::new_true(layout.row_count().try_into().unwrap()))
             .await
             .unwrap();
         let expected = StructArray::try_new(
@@ -356,9 +360,8 @@ mod tests {
         let mask = layout
             .new_reader("".into(), Arc::from(segments))
             .unwrap()
-            .filter_evaluation(&(0..3), &filter)
+            .filter_evaluation(&(0..3), &filter, MaskFuture::new_true(3))
             .unwrap()
-            .invoke(MaskFuture::new_true(3))
             .await
             .unwrap();
 
@@ -416,9 +419,12 @@ mod tests {
         let actual = layout
             .new_reader("".into(), Arc::from(segments))
             .unwrap()
-            .projection_evaluation(&(0..layout.row_count()), &expression)
+            .projection_evaluation(
+                &(0..layout.row_count()),
+                &expression,
+                MaskFuture::new_true(layout.row_count().try_into().unwrap()),
+            )
             .unwrap()
-            .invoke(MaskFuture::new_true(layout.row_count().try_into().unwrap()))
             .await
             .unwrap();
         let expected = array.validity_mask().into_array();
