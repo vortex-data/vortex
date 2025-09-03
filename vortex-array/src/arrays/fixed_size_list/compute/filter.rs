@@ -19,12 +19,12 @@ const FSL_MASK_EXPANSION_DENSITY_THRESHOLD: f64 = 0.1;
 
 /// List size threshold for choosing between indices and slices in sparse mask expansion.
 ///
-/// When expanding sparse masks, if the list size is at or above this threshold, we convert
-/// indices to slices to avoid materializing too many individual indices. This prevents
-/// memory bloat when each FSL element contains many items.
+/// When expanding sparse masks, if the list size is above this threshold, we convert indices to
+/// slices to avoid materializing too many individual indices. This prevents memory bloat when each
+/// FSL element contains many items.
 ///
 /// Note that this is somewhat arbitrarily chosen...
-const FSL_SPARSE_MASK_LIST_SIZE_THRESHOLD: usize = 8;
+const FSL_SPARSE_MASK_LIST_SIZE_THRESHOLD: usize = 4;
 
 impl FilterKernel for FixedSizeListVTable {
     fn filter(&self, array: &FixedSizeListArray, selection_mask: &Mask) -> VortexResult<ArrayRef> {
@@ -123,7 +123,7 @@ fn expand_dense_mask(slices: &[(usize, usize)], list_size: usize, expanded_len: 
 
 /// Expands a sparse mask (represented as indices) by duplicating each index `list_size` times.
 fn expand_sparse_mask(indices: &[usize], list_size: usize, expanded_len: usize) -> Mask {
-    if list_size < FSL_SPARSE_MASK_LIST_SIZE_THRESHOLD {
+    if list_size <= FSL_SPARSE_MASK_LIST_SIZE_THRESHOLD {
         // For small list sizes, expand each index into individual indices.
         let expanded_indices: Vec<usize> = indices
             .iter()
