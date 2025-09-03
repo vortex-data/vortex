@@ -7,8 +7,8 @@ use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
 use bit_vec::BitVec;
+use futures::future::{ok, BoxFuture};
 use futures::FutureExt;
-use futures::future::{BoxFuture, ok};
 use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_error::{VortexError, VortexResult};
@@ -16,8 +16,8 @@ use vortex_expr::ExprRef;
 use vortex_layout::{LayoutReader, MaskFuture};
 use vortex_mask::Mask;
 
-use crate::Selection;
 use crate::filter::FilterExpr;
+use crate::Selection;
 
 pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 

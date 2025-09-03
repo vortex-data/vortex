@@ -6,14 +6,15 @@ use std::ops::{BitAnd, Range};
 use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
-use futures::{FutureExt, join};
-use vortex_array::ArrayRef;
-use vortex_array::compute::{MinMaxResult, min_max, take};
+use futures::future::BoxFuture;
+use futures::{join, FutureExt};
+use vortex_array::compute::{min_max, take, MinMaxResult};
 use vortex_array::stats::Precision;
+use vortex_array::ArrayRef;
 use vortex_dict::DictArray;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_expr::{ExprRef, Scope, root};
+use vortex_expr::{root, ExprRef, Scope};
 use vortex_mask::Mask;
 use vortex_utils::aliases::dash_map::DashMap;
 
@@ -125,9 +126,10 @@ impl LayoutReader for DictReader {
 
     fn pruning_evaluation(
         &self,
-        _row_range: &Range<u64>,
-        _expr: &ExprRef,
-    ) -> VortexResult<Box<dyn PruningEvaluation>> {
+        row_range: &Range<u64>,
+        expr: &ExprRef,
+        mask: Mask,
+    ) -> VortexResult<MaskFuture> {
         // NOTE: we can get the values here, convert expression to the codes domain, and push down
         // to the codes child. We don't do that here because:
         // - Reading values only for an approx filter is expensive
@@ -139,7 +141,8 @@ impl LayoutReader for DictReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn MaskEvaluation>> {
+        mask: MaskFuture,
+    ) -> VortexResult<MaskFuture> {
         let values_eval = self.values_eval(expr.clone());
 
         // We register interest on the entire codes row_range for now, there
@@ -157,7 +160,8 @@ impl LayoutReader for DictReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn ArrayEvaluation>> {
+        mask: MaskFuture,
+    ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         let values_eval = self.values_eval(root());
         let codes_eval = self.codes.projection_evaluation(row_range, &root())?;
         Ok(Box::new(DictArrayEvaluation {

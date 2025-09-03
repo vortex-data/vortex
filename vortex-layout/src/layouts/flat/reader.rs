@@ -6,21 +6,22 @@ use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::future::BoxFuture;
 use futures::FutureExt;
 use vortex_array::compute::filter;
 use vortex_array::pipeline::{
-    N, export_canonical_pipeline_expr, export_canonical_pipeline_expr_offset,
+    export_canonical_pipeline_expr, export_canonical_pipeline_expr_offset, N,
 };
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldMask, Nullability};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
-use vortex_expr::{ExprRef, Scope, VortexExprExt, is_root};
+use vortex_expr::{is_root, ExprRef, Scope, VortexExprExt};
 use vortex_mask::Mask;
 
-use crate::layouts::SharedArrayFuture;
 use crate::layouts::flat::FlatLayout;
+use crate::layouts::SharedArrayFuture;
 use crate::segments::SegmentSource;
 use crate::{
     ArrayEvaluation, LayoutReader, MaskEvaluation, MaskFuture, NoOpPruningEvaluation,
@@ -100,9 +101,10 @@ impl LayoutReader for FlatReader {
 
     fn pruning_evaluation(
         &self,
-        _row_range: &Range<u64>,
-        _expr: &ExprRef,
-    ) -> VortexResult<Box<dyn PruningEvaluation>> {
+        row_range: &Range<u64>,
+        expr: &ExprRef,
+        mask: Mask,
+    ) -> VortexResult<MaskFuture> {
         Ok(Box::new(NoOpPruningEvaluation))
     }
 
@@ -110,7 +112,8 @@ impl LayoutReader for FlatReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn MaskEvaluation>> {
+        mask: MaskFuture,
+    ) -> VortexResult<MaskFuture> {
         let row_range = usize::try_from(row_range.start)
             .vortex_expect("Row range begin must fit within FlatLayout size")
             ..usize::try_from(row_range.end)
@@ -128,7 +131,8 @@ impl LayoutReader for FlatReader {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn ArrayEvaluation>> {
+        mask: MaskFuture,
+    ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         let row_range = usize::try_from(row_range.start)
             .vortex_expect("Row range begin must fit within FlatLayout size")
             ..usize::try_from(row_range.end)

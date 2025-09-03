@@ -6,17 +6,18 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::future::BoxFuture;
 use once_cell::sync::OnceCell;
-use vortex_array::ArrayRef;
 use vortex_array::stats::Precision;
+use vortex_array::ArrayRef;
 use vortex_dtype::{DType, FieldMask};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
-use crate::MaskFuture;
 use crate::children::LayoutChildren;
 use crate::segments::SegmentSource;
+use crate::MaskFuture;
 
 pub type LayoutReaderRef = Arc<dyn LayoutReader>;
 
@@ -47,21 +48,24 @@ pub trait LayoutReader: 'static + Send + Sync {
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn PruningEvaluation>>;
+        mask: Mask,
+    ) -> VortexResult<MaskFuture>;
 
     /// Performs an exact evaluation of the expression against the layout reader.
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn MaskEvaluation>>;
+        mask: MaskFuture,
+    ) -> VortexResult<MaskFuture>;
 
     /// Evaluates the expression against the layout.
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn ArrayEvaluation>>;
+        mask: MaskFuture,
+    ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>>;
 }
 
 /// Returns a mask where all false values are proven to be false in the given expression.
