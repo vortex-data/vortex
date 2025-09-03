@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::arrays::{VarBinArray, VarBinViewArray, VarBinViewVTable};
+use vortex_array::arrays::{ConstantArray, VarBinArray, VarBinViewArray, VarBinViewVTable};
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dict::DictArray;
@@ -22,7 +22,6 @@ pub struct StringStats {
     src: VarBinViewArray,
     estimated_distinct_count: u32,
     value_count: u32,
-    // null_count: u32,
 }
 
 /// Estimate the number of distinct strings in the var bin view array.
@@ -85,7 +84,12 @@ impl Compressor for StringCompressor {
     type StatsType = StringStats;
 
     fn schemes() -> &'static [&'static Self::SchemeType] {
-        &[&UncompressedScheme, &DictScheme, &FSSTScheme]
+        &[
+            &UncompressedScheme,
+            &DictScheme,
+            &FSSTScheme,
+            &ConstantScheme,
+        ]
     }
 
     fn default_scheme() -> &'static Self::SchemeType {
@@ -110,12 +114,16 @@ pub struct DictScheme;
 #[derive(Debug, Copy, Clone)]
 pub struct FSSTScheme;
 
+#[derive(Debug, Copy, Clone)]
+pub struct ConstantScheme;
+
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct StringCode(u8);
 
 const UNCOMPRESSED_SCHEME: StringCode = StringCode(0);
 const DICT_SCHEME: StringCode = StringCode(1);
 const FSST_SCHEME: StringCode = StringCode(2);
+const CONSTANT_SCHEME: StringCode = StringCode(3);
 
 impl Scheme for UncompressedScheme {
     type StatsType = StringStats;
@@ -263,6 +271,53 @@ impl Scheme for FSSTScheme {
         )?;
 
         Ok(fsst.into_array())
+    }
+}
+
+impl Scheme for ConstantScheme {
+    type StatsType = StringStats;
+    type CodeType = StringCode;
+
+    fn code(&self) -> Self::CodeType {
+        CONSTANT_SCHEME
+    }
+
+    fn is_constant(&self) -> bool {
+        true
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        stats: &Self::StatsType,
+        is_sample: bool,
+        _allowed_cascading: usize,
+        _excludes: &[Self::CodeType],
+    ) -> VortexResult<f64> {
+        if is_sample {
+            return Ok(0.0);
+        }
+
+        if stats.src.is_constant() {
+            // Force constant
+            Ok(f64::MAX)
+        } else {
+            Ok(0.0)
+        }
+    }
+
+    fn compress(
+        &self,
+        stats: &Self::StatsType,
+        _is_sample: bool,
+        _allowed_cascading: usize,
+        _excludes: &[Self::CodeType],
+    ) -> VortexResult<ArrayRef> {
+        let scalar = stats
+            .src
+            .as_constant()
+            .vortex_expect("ConstantScheme::compress can only be called when array is constant");
+
+        Ok(ConstantArray::new(scalar, stats.src.len()).into_array())
     }
 }
 
