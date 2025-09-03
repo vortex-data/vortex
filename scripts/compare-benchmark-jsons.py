@@ -51,33 +51,45 @@ geo_mean_ratio = math.exp(sum(math.log(r) for r in df3["ratio"] if r > 0) / len(
 best_idx = df3["ratio"].idxmin()
 worst_idx = df3["ratio"].idxmax()
 
-# Count significant changes (>15% change)
-significant_improvements = (df3["ratio"] < 0.9).sum()  # More than 15% faster
-significant_regressions = (df3["ratio"] > 1.1).sum()   # More than 15% slower
+# Count significant changes (>10% change)
+significant_improvements = (df3["ratio"] < 0.9).sum()  # More than 10% faster
+significant_regressions = (df3["ratio"] > 1.1).sum()   # More than 10% slower
 
+# Count all changes
+improvements = (df3["ratio"] < 1.0).sum()
+regressions = (df3["ratio"] > 1.0).sum()
+unchanged = (df3["ratio"] == 1.0).sum()
 
-# Print summary
-print("## Summary")
-print()
-print(f"- **Overall Performance (geometric mean)**: {geo_mean_ratio:.3f}x ({'better' if geo_mean_ratio < 1 else 'worse'} than base)")
-print(f"- **Best Improvement**: {df3.loc[best_idx, 'name']} ({df3.loc[best_idx, 'ratio']:.3f}x)")
-print(f"- **Worst Regression**: {df3.loc[worst_idx, 'name']} ({df3.loc[worst_idx, 'ratio']:.3f}x)")
-print(f"- **Significant Changes (>15%)**:")
-print(f"  - Improvements: {significant_improvements} queries")
-print(f"  - Regressions: {significant_regressions} queries")
+# Build summary
+summary_lines = [
+    "## Summary",
+    "",
+    f"- **Overall Performance (geometric mean)**: {geo_mean_ratio:.3f}x ({'better' if geo_mean_ratio < 1 else 'worse'} than base)",
+    f"- **Best Improvement**: {df3.loc[best_idx, 'name']} ({df3.loc[best_idx, 'ratio']:.3f}x)",
+    f"- **Worst Regression**: {df3.loc[worst_idx, 'name']} ({df3.loc[worst_idx, 'ratio']:.3f}x)",
+    f"- **Significant Changes (>10%)**:",
+    f"  - Improvements: {significant_improvements} queries",
+    f"  - Regressions: {significant_regressions} queries",
+]
 if unchanged > 0:
-    print(f"  - Unchanged: {unchanged} queries")
-print()
+    summary_lines.append(f"  - Unchanged: {unchanged} queries")
 
-# Print detailed table
-print(
-    pd.DataFrame(
-        {
-            "name": df3["name"],
-            f"PR {pr_commit_id[:8]}": df3["value_pr"],
-            f"base {base_commit_id[:8]}": df3["value_base"],
-            "ratio (PR/base)": df3["ratio"],
-            "unit": df3["unit_base"],
-        }
-    ).to_markdown(index=False)
+# Build table
+table_df = pd.DataFrame(
+    {
+        "name": df3["name"],
+        f"PR {pr_commit_id[:8]}": df3["value_pr"],
+        f"base {base_commit_id[:8]}": df3["value_base"],
+        "ratio (PR/base)": df3["ratio"],
+        "unit": df3["unit_base"],
+    }
 )
+
+# Output complete formatted markdown
+print("\n".join(summary_lines))
+print("")
+print("<details>")
+print("<summary>Detailed Results Table</summary>")
+print("")
+print(table_df.to_markdown(index=False))
+print("</details>")
