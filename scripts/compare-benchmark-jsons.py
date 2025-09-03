@@ -56,24 +56,36 @@ df3 = pd.merge(base, pr, on=["name", "storage", "dataset_key"], how="right", suf
 # Generate summary statistics
 df3["ratio"] = df3["value_pr"] / df3["value_base"]
 
+# Filter for vortex-only results for summary statistics
+vortex_df = df3[df3["name"].str.contains("vortex", case=False, na=False)]
+
 # Calculate geometric mean of ratios (better for performance ratios)
 import math
+
+# Overall performance (all results)
 valid_positive_ratios = [r for r in df3["ratio"] if r > 0 and not pd.isna(r)]
 if len(valid_positive_ratios) > 0:
     geo_mean_ratio = math.exp(sum(math.log(r) for r in valid_positive_ratios) / len(valid_positive_ratios))
 else:
     geo_mean_ratio = float('nan')
 
-# Find best and worst changes (handle case where all ratios are NaN)
-valid_ratios = df3["ratio"].dropna()
-if len(valid_ratios) > 0:
-    best_idx = valid_ratios.idxmin()
-    worst_idx = valid_ratios.idxmax()
-    best_improvement = f"{df3.loc[best_idx, 'name']} ({df3.loc[best_idx, 'ratio']:.3f}x)"
-    worst_regression = f"{df3.loc[worst_idx, 'name']} ({df3.loc[worst_idx, 'ratio']:.3f}x)"
+# Vortex-only performance
+vortex_valid_ratios = [r for r in vortex_df["ratio"] if r > 0 and not pd.isna(r)]
+if len(vortex_valid_ratios) > 0:
+    vortex_geo_mean_ratio = math.exp(sum(math.log(r) for r in vortex_valid_ratios) / len(vortex_valid_ratios))
 else:
-    best_improvement = "No valid comparisons"
-    worst_regression = "No valid comparisons"
+    vortex_geo_mean_ratio = float('nan')
+
+# Find best and worst changes for vortex-only results
+vortex_valid_ratios = vortex_df["ratio"].dropna()
+if len(vortex_valid_ratios) > 0:
+    best_idx = vortex_valid_ratios.idxmin()
+    worst_idx = vortex_valid_ratios.idxmax()
+    best_improvement = f"{vortex_df.loc[best_idx, 'name']} ({vortex_df.loc[best_idx, 'ratio']:.3f}x)"
+    worst_regression = f"{vortex_df.loc[worst_idx, 'name']} ({vortex_df.loc[worst_idx, 'ratio']:.3f}x)"
+else:
+    best_improvement = "No valid vortex comparisons"
+    worst_regression = "No valid vortex comparisons"
 
 # Determine threshold based on benchmark name
 # Use 30% threshold for S3 benchmarks, 10% for others
@@ -82,9 +94,9 @@ threshold_pct = 30 if is_s3_benchmark else 10
 improvement_threshold = 1.0 - (threshold_pct / 100.0)  # e.g., 0.7 for 30%, 0.9 for 10%
 regression_threshold = 1.0 + (threshold_pct / 100.0)   # e.g., 1.3 for 30%, 1.1 for 10%
 
-# Count significant changes
-significant_improvements = (df3["ratio"] < improvement_threshold).sum()
-significant_regressions = (df3["ratio"] > regression_threshold).sum()
+# Count significant changes for vortex-only results
+significant_improvements = (vortex_df["ratio"] < improvement_threshold).sum()
+significant_regressions = (vortex_df["ratio"] > regression_threshold).sum()
 
 # Build summary
 if pd.isna(geo_mean_ratio):
