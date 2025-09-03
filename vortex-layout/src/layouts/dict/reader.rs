@@ -5,23 +5,21 @@ use std::collections::BTreeSet;
 use std::ops::{BitAnd, Range};
 use std::sync::{Arc, OnceLock};
 
-use futures::future::BoxFuture;
-use futures::{FutureExt, TryFutureExt, try_join};
-use vortex_array::ArrayRef;
-use vortex_array::compute::{MinMaxResult, min_max, take};
+use futures::{try_join, FutureExt, TryFutureExt};
+use vortex_array::compute::{min_max, take, MinMaxResult};
 use vortex_array::pipeline::operators::MaskFuture;
 use vortex_array::stats::Precision;
 use vortex_dict::DictArray;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexError, VortexExpect, VortexResult};
-use vortex_expr::{ExprRef, Scope, root};
+use vortex_expr::{root, ExprRef, Scope};
 use vortex_mask::Mask;
 use vortex_utils::aliases::dash_map::DashMap;
 
 use super::DictLayout;
 use crate::layouts::SharedArrayFuture;
 use crate::segments::SegmentSource;
-use crate::{LayoutReader, LayoutReaderRef};
+use crate::{ArrayFuture, LayoutReader, LayoutReaderRef};
 
 pub struct DictReader {
     layout: DictLayout,
@@ -184,7 +182,7 @@ impl LayoutReader for DictReader {
         row_range: &Range<u64>,
         expr: &ExprRef,
         mask: MaskFuture,
-    ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
+    ) -> VortexResult<ArrayFuture> {
         let values_eval = self.values_eval(root());
         let codes_eval = self.codes.projection_evaluation(row_range, &root(), mask)?;
         let expr = expr.clone();

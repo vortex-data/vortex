@@ -12,19 +12,19 @@ use itertools::Itertools;
 use parking_lot::RwLock;
 use vortex_array::pipeline::operators::MaskFuture;
 use vortex_array::stats::Precision;
-use vortex_array::{ArrayRef, ToCanonical};
+use vortex_array::ToCanonical;
 use vortex_dtype::{DType, FieldMask, FieldPath, FieldPathSet};
 use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
 use vortex_expr::dynamic::DynamicExprUpdates;
 use vortex_expr::pruning::checked_pruning_expr;
-use vortex_expr::{ExprRef, root};
+use vortex_expr::{root, ExprRef};
 use vortex_mask::Mask;
 use vortex_utils::aliases::dash_map::DashMap;
 
-use crate::LayoutReader;
-use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::ZoneMap;
+use crate::layouts::zoned::ZonedLayout;
 use crate::segments::SegmentSource;
+use crate::{ArrayFuture, LayoutReader};
 
 type SharedZoneMap = Shared<BoxFuture<'static, SharedVortexResult<ZoneMap>>>;
 type SharedPruningResult = Shared<BoxFuture<'static, SharedVortexResult<Arc<PruningResult>>>>;
@@ -282,7 +282,7 @@ impl LayoutReader for ZonedReader {
         row_range: &Range<u64>,
         expr: &ExprRef,
         mask: MaskFuture,
-    ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
+    ) -> VortexResult<ArrayFuture> {
         // TODO(ngates): there are some projection expressions that we may also be able to
         //  short-circuit with statistics.
         self.data_child.projection_evaluation(row_range, expr, mask)

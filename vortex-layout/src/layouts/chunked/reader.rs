@@ -5,22 +5,20 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
 
-use futures::future::BoxFuture;
 use futures::stream::FuturesOrdered;
 use futures::{FutureExt, TryStreamExt};
-use vortex_array::ArrayRef;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::pipeline::operators::MaskFuture;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask};
-use vortex_error::{VortexExpect, VortexResult, vortex_panic};
+use vortex_error::{vortex_panic, VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
 use crate::layouts::chunked::ChunkedLayout;
 use crate::reader::LayoutReader;
 use crate::segments::SegmentSource;
-use crate::{LayoutReaderRef, LazyReaderChildren};
+use crate::{ArrayFuture, LayoutReaderRef, LazyReaderChildren};
 
 /// A [`LayoutReader`] for chunked layouts.
 pub struct ChunkedReader {
@@ -238,7 +236,7 @@ impl LayoutReader for ChunkedReader {
         row_range: &Range<u64>,
         expr: &ExprRef,
         mask: MaskFuture,
-    ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
+    ) -> VortexResult<ArrayFuture> {
         let dtype = expr.return_dtype(self.dtype())?;
         let mut chunk_evals = vec![];
 

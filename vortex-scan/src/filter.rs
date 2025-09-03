@@ -7,10 +7,10 @@ use bit_vec::BitVec;
 use itertools::Itertools;
 use parking_lot::RwLock;
 use sketches_ddsketch::DDSketch;
-use vortex_error::{VortexExpect, vortex_err, vortex_panic};
-use vortex_expr::ExprRef;
+use vortex_error::{vortex_err, vortex_panic, VortexExpect};
 use vortex_expr::dynamic::DynamicExprUpdates;
 use vortex_expr::forms::conjuncts;
+use vortex_expr::ExprRef;
 
 /// The selectivity histogram quantile to use for reordering conjuncts. Where 0 == no rows match.
 const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;
@@ -51,6 +51,11 @@ impl FilterExpr {
         }
     }
 
+    /// Returns the order of the conjuncts by their expected selectivity.
+    pub fn order(&self) -> Vec<usize> {
+        self.ordering.read().clone()
+    }
+
     /// The conjuncts that make up this filter expression.
     #[inline]
     pub fn conjuncts(&self) -> &[ExprRef] {
@@ -61,14 +66,6 @@ impl FilterExpr {
     #[inline]
     pub fn dynamic_updates(&self, conjunct_idx: usize) -> Option<&DynamicExprUpdates> {
         self.dynamic_conjuncts[conjunct_idx].as_ref()
-    }
-
-    /// Returns the next preferred conjunct to evaluate.
-    #[inline]
-    pub fn next_conjunct(&self, remaining: &BitVec) -> Option<usize> {
-        let read = self.ordering.read();
-        // Take the first remaining conjunct in the ordered list.
-        read.iter().find(|&idx| remaining[*idx]).copied()
     }
 
     /// Report the selectivity of a conjunct, i.e. 0 means no rows matched the predicate.

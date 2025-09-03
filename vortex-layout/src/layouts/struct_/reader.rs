@@ -5,18 +5,16 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
 
-use futures::future::BoxFuture;
 use itertools::Itertools;
-use vortex_array::ArrayRef;
 use vortex_array::pipeline::operators::MaskFuture;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_expr::transform::immediate_access::annotate_scope_access;
 use vortex_expr::transform::{
-    PartitionedExpr, partition, replace, replace_root_fields, simplify_typed,
+    partition, replace, replace_root_fields, simplify_typed, PartitionedExpr,
 };
-use vortex_expr::{ExactExpr, ExprRef, col, root};
+use vortex_expr::{col, root, ExactExpr, ExprRef};
 use vortex_mask::Mask;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -24,7 +22,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::layouts::partitioned::PartitionedExprEval;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSource;
-use crate::{LayoutReader, LayoutReaderRef, LazyReaderChildren};
+use crate::{ArrayFuture, LayoutReader, LayoutReaderRef, LazyReaderChildren};
 
 pub struct StructReader {
     layout: StructLayout,
@@ -236,7 +234,7 @@ impl LayoutReader for StructReader {
         row_range: &Range<u64>,
         expr: &ExprRef,
         mask: MaskFuture,
-    ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
+    ) -> VortexResult<ArrayFuture> {
         // Partition the expression into expressions that can be evaluated over individual fields
         match &self.partition_expr(expr.clone()) {
             Partitioned::Single(name, partition) => self

@@ -7,11 +7,11 @@ use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use once_cell::sync::OnceCell;
-use vortex_array::ArrayRef;
 use vortex_array::pipeline::operators::MaskFuture;
 use vortex_array::stats::Precision;
+use vortex_array::ArrayRef;
 use vortex_dtype::{DType, FieldMask};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
