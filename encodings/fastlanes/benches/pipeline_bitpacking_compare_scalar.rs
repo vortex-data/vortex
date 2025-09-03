@@ -10,7 +10,11 @@ use mimalloc::MiMalloc;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex_array::compute::filter;
-use vortex_array::pipeline::{Element, export_canonical_pipeline_expr};
+use vortex_array::pipeline::query::QueryPlan;
+use vortex_array::pipeline::{
+    Element, export_bool_nonnull_masked, export_bool_nonnull_masked_coll,
+    export_canonical_pipeline_expr,
+};
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
 use vortex_dtype::Nullability::NonNullable;
@@ -28,9 +32,11 @@ pub fn main() {
     divan::main();
 }
 
-const TRUE_COUNT: &[f64] = &[
-    0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99, 1.00,
-];
+// const TRUE_COUNT: &[f64] = &[
+//     0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99, 1.00,
+// ];
+
+const TRUE_COUNT: &[f64] = &[1.0];
 
 fn create_for_bitpacked_array<T: NativePType>(values: BufferMut<T>) -> VortexResult<ArrayRef> {
     let primitive_array = values.into_array().to_primitive();
@@ -49,7 +55,7 @@ fn create_for_bitpacked_array<T: NativePType>(values: BufferMut<T>) -> VortexRes
     )
 }
 
-#[divan::bench(types = [u8, u16, u32, u64], args = TRUE_COUNT)]
+// #[divan::bench(types = [u8, u16, u32, u64], args = TRUE_COUNT)]
 pub fn eval<T: NativePType + Into<Scalar>>(bencher: Bencher, fraction_kept: f64) {
     let mut rng = StdRng::seed_from_u64(0);
     let values = (0..100_000)
@@ -73,7 +79,7 @@ pub fn eval<T: NativePType + Into<Scalar>>(bencher: Bencher, fraction_kept: f64)
         });
 }
 
-#[divan::bench(types = [u8, u16, u32, u64], args = TRUE_COUNT)]
+// #[divan::bench(types = [u8, u16, u32, u64], args = TRUE_COUNT)]
 pub fn pipeline<T: Element + NativePType + Into<Scalar>>(bencher: Bencher, fraction_kept: f64) {
     let mut rng = StdRng::seed_from_u64(0);
     let values = (0..100_000)
@@ -101,7 +107,8 @@ pub fn pipeline<T: Element + NativePType + Into<Scalar>>(bencher: Bencher, fract
         });
 }
 
-#[divan::bench(types = [u8, u16, u32, u64], args = TRUE_COUNT)]
+// #[divan::bench(types = [u8, u16, u32, u64], args = TRUE_COUNT)]
+#[divan::bench(types = [u64], args = TRUE_COUNT)]
 pub fn pipeline_opt<T: Element + NativePType + Into<Scalar>>(bencher: Bencher, fraction_kept: f64) {
     let mut rng = StdRng::seed_from_u64(0);
     let values = (0..100_000)
@@ -117,14 +124,48 @@ pub fn pipeline_opt<T: Element + NativePType + Into<Scalar>>(bencher: Bencher, f
     let operator = expr.to_operator(&array).unwrap().unwrap();
 
     bencher
-        .with_inputs(|| (Mask::from_buffer(mask.clone()), operator.clone()))
-        .bench_local_values(|(mask, operator)| {
-            export_canonical_pipeline_expr(
-                &DType::Bool(NonNullable),
-                array.len(),
-                operator.as_ref(),
-                &mask,
-            )
-            .unwrap()
+        .with_inputs(|| {
+            (Mask::from_buffer(mask.clone()), {
+                QueryPlan::new(operator.as_ref())
+                    .unwrap()
+                    .executable_plan()
+                    .unwrap()
+            })
+        })
+        .bench_local_values(|(mask, mut operator)| {
+            export_bool_nonnull_masked(&mask, &mut operator).unwrap()
+        });
+}
+
+// #[divan::bench(types = [u8, u16, u32, u64], args = TRUE_COUNT)]
+#[divan::bench(types = [u64], args = TRUE_COUNT)]
+pub fn pipeline_opt_coll<T: Element + NativePType + Into<Scalar>>(
+    bencher: Bencher,
+    fraction_kept: f64,
+) {
+    let mut rng = StdRng::seed_from_u64(0);
+    let values = (0..100_000)
+        .map(|_| T::from(rng.random_range(10..100)).unwrap())
+        .collect::<BufferMut<T>>();
+    let array = create_for_bitpacked_array(values).unwrap();
+
+    let mask = (0..100_000)
+        .map(|_| rng.random_bool(fraction_kept))
+        .collect::<BooleanBuffer>();
+
+    let expr = lt(root(), lit(T::from_i32(2).unwrap()));
+    let operator = expr.to_operator(&array).unwrap().unwrap();
+
+    bencher
+        .with_inputs(|| {
+            (Mask::from_buffer(mask.clone()), {
+                QueryPlan::new(operator.as_ref())
+                    .unwrap()
+                    .executable_plan()
+                    .unwrap()
+            })
+        })
+        .bench_local_values(|(mask, mut operator)| {
+            export_bool_nonnull_masked_coll(&mask, &mut operator).unwrap()
         });
 }

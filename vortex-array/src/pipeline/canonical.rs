@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_buffer::BooleanBuffer;
+use arrow_buffer::{BooleanBuffer, MutableBuffer};
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, NativePType, Nullability, match_each_native_ptype};
 use vortex_error::{VortexResult, vortex_bail};
@@ -141,7 +141,10 @@ fn export_primitive_nonnull_masked<T: Element + NativePType>(
     ))
 }
 
-fn export_bool_nonnull_masked(mask: &Mask, pipeline: &mut dyn Kernel) -> VortexResult<BoolArray> {
+pub fn export_bool_nonnull_masked_coll(
+    mask: &Mask,
+    pipeline: &mut dyn Kernel,
+) -> VortexResult<BoolArray> {
     let len = mask.len();
     let true_count = mask.true_count();
 
@@ -189,10 +192,175 @@ fn export_bool_nonnull_masked(mask: &Mask, pipeline: &mut dyn Kernel) -> VortexR
         remaining = remaining.saturating_sub(N);
     }
 
-    // Use collect_bool for optimal bit packing - avoid closure overhead
+    // Use the new optimized collect_bool_chunked method
     let values = BooleanBuffer::collect_bool(all_bools.len(), |idx| unsafe {
         *all_bools.get_unchecked(idx)
     });
 
     Ok(BoolArray::new(values, Validity::NonNullable))
+}
+
+pub fn export_bool_nonnull_masked(
+    mask: &Mask,
+    pipeline: &mut dyn Kernel,
+) -> VortexResult<BoolArray> {
+    let len = mask.len();
+    let true_count = mask.true_count();
+
+    let mut elements_buffer = Vector::new::<bool>();
+    let mut elements_buffer_mut = elements_buffer.as_view_mut();
+
+    let mask_buffer = mask.to_boolean_buffer();
+    let mut mask_iter = mask_buffer.bit_chunks().iter_padded();
+
+    let mut mask = [0usize; N_WORDS];
+    let mut mask_view = BitViewMut::new(&mut mask);
+
+    // Fast path: collect all bools first, then use collect_bool for optimal packing
+    // let mut all_bools: Vec<bool> = Vec::with_capacity(true_count);
+    let mut remaining = len;
+
+    let mut all_bools_buf = MutableBuffer::with_capacity(len.div_ceil(64) * 8);
+    let mut value_count = 0;
+
+    while remaining > 0 {
+        mask_view.clear();
+        mask_view.fill_with_words(&mut mask_iter);
+
+        // Handle partial iteration on the last chunk
+        let current_len = remaining.min(N);
+        if current_len < N {
+            mask_view.intersect_prefix(current_len);
+        }
+
+        let dummy_ctx = KernelContext::default();
+        pipeline.step(&dummy_ctx, mask_view.as_view(), &mut elements_buffer_mut)?;
+
+        // Collect bools efficiently with unsafe for better performance
+        let bool_slice = elements_buffer_mut.as_slice::<bool>();
+        value_count += mask_view.true_count();
+
+        collect_bool(bool_slice, &mut all_bools_buf);
+
+        // Unsafe version to avoid bounds checking in hot path
+        // let old_len = all_bools.len();
+        // unsafe {
+        //     all_bools.set_len(old_len + count);
+        //     std::ptr::copy_nonoverlapping(
+        //         bool_slice.as_ptr(),
+        //         all_bools.as_mut_ptr().add(old_len),
+        //         count,
+        //     );
+        // }
+
+        remaining = remaining.saturating_sub(N);
+    }
+
+    // Use the new optimized collect_bool_chunked method
+    // let values = collect_bool_chunked(&all_bools);
+    let values = BooleanBuffer::new(all_bools_buf.into(), 0, value_count);
+
+    Ok(BoolArray::new(values, Validity::NonNullable))
+}
+
+/// Collect boolean values into a BooleanBuffer using 1024-element chunks
+fn collect_bool_chunked(all_bools: &[bool]) -> BooleanBuffer {
+    const CHUNK_SIZE: usize = 1024;
+    let len = all_bools.len();
+
+    // Pre-allocate a single shared buffer for all chunks
+    let byte_capacity = len.div_ceil(8);
+    let mut buffer = MutableBuffer::with_capacity(byte_capacity);
+    // ::with_capacity(byte_capacity);
+
+    // Process full chunks of 1024 elements
+    let full_chunks = len / CHUNK_SIZE;
+    let mut offset = 0;
+
+    collect_bool(all_bools, &mut buffer);
+
+    // for _ in 0..full_chunks {
+    //     let chunk = &all_bools[offset..offset + CHUNK_SIZE];
+    //     collect_bool_1k::<CHUNK_SIZE>(chunk, &mut buffer);
+    //     offset += CHUNK_SIZE;
+    // }
+    //
+    // Process the remaining elements (less than 1024)
+    // let remaining = len - offset;
+    // if remaining > 0 {
+    //     let chunk = &all_bools[offset..offset + remaining];
+    //     collect_bool(chunk, &mut buffer);
+    // }
+
+    // Create BooleanBuffer from the packed bytes
+    BooleanBuffer::new(buffer.into(), 0, len)
+}
+
+/// Collect boolean values into a shared buffer using the Arrow buffer approach
+fn collect_bool_1k<const CHUNK: usize>(all_bools: &[bool], buffer: &mut MutableBuffer) {
+    assert_eq!(CHUNK % 64, 0);
+    // Process in chunks of 64 bits (8 bytes) at a time for optimal performance
+    let chunks = CHUNK / 64;
+    let remainder = CHUNK % 64;
+
+    for chunk in 0..chunks {
+        let mut packed: u64 = 0;
+        let base_idx = chunk * 64;
+
+        // Pack 64 bools into a single u64
+        for bit_idx in 0..64 {
+            let i = base_idx + bit_idx;
+            unsafe {
+                // Use unsafe indexing for performance
+                packed |= (*all_bools.get_unchecked(i) as u64) << bit_idx;
+            }
+        }
+
+        // Push the packed u64 as 8 bytes (little-endian)
+        unsafe { buffer.push_unchecked(packed) }
+    }
+}
+
+/// Collect boolean values into a shared buffer using the Arrow buffer approach
+fn collect_bool(all_bools: &[bool], buffer: &mut MutableBuffer) {
+    let len = all_bools.len();
+
+    // Process in chunks of 64 bits (8 bytes) at a time for optimal performance
+    let chunks = len / 64;
+    let remainder = len % 64;
+
+    for chunk in 0..chunks {
+        let mut packed: u64 = 0;
+        let base_idx = chunk * 64;
+
+        // Pack 64 bools into a single u64
+        for bit_idx in 0..64 {
+            let i = base_idx + bit_idx;
+            unsafe {
+                // Use unsafe indexing for performance
+                packed |= (*all_bools.get_unchecked(i) as u64) << bit_idx;
+            }
+        }
+
+        // Push the packed u64 as 8 bytes (little-endian)
+        unsafe { buffer.push_unchecked(packed) }
+    }
+
+    // Handle remaining bits
+    if remainder != 0 {
+        let mut packed: u64 = 0;
+        let base_idx = chunks * 64;
+
+        for bit_idx in 0..remainder {
+            let i = base_idx + bit_idx;
+            unsafe {
+                packed |= (*all_bools.get_unchecked(i) as u64) << bit_idx;
+            }
+        }
+
+        // For partial bytes, we need to be careful about how many bytes to write
+        let bytes_needed = remainder.div_ceil(8);
+        let packed_bytes = packed.to_le_bytes();
+        unsafe { buffer.push_unchecked(packed) }
+    }
 }

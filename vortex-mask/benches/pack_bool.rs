@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use arrow_buffer::MutableBuffer;
 use divan::Bencher;
 use itertools::Itertools;
 use rand::prelude::StdRng;
@@ -107,6 +108,76 @@ pub fn collect_bool2<F: FnMut(usize) -> bool>(output: &mut [u64], mut f: F) {
 #[inline(never)]
 pub fn collect_bool_sized(output: &mut [u64], input: &[bool]) {
     collect_bool2(output, |i| input[i])
+}
+
+#[divan::bench(args=[1, 10, 40])]
+fn arrow_pack_bool_buffer(bencher: Bencher, args: u64) {
+    let mut rng = StdRng::seed_from_u64(0);
+
+    let bools = (0..args * 1024).map(|_| rng.random_bool(0.5)).collect_vec();
+
+    bencher
+        .with_inputs(|| {
+            (
+                bools.clone(),
+                MutableBuffer::with_capacity(8 * args as usize * 16),
+            )
+        })
+        .bench_values(|(bools, mut output)| {
+            for i in 0..args as usize {
+                collect_bool_buf_slice(&mut output, &bools[i * 1024..][..1024]);
+            }
+            output
+        });
+
+    {
+        let output1 = {
+            let mut output = (0..args as usize * 16).map(|_| 0u64).collect_vec();
+            collect_bool_slice(&mut output, &bools);
+            output
+        };
+
+        let output2 = {
+            let mut output = MutableBuffer::with_capacity(args as usize * 16 * 8);
+            for i in 0..args as usize {
+                collect_bool_buf_slice(&mut output, &bools[i * 1024..][..1024]);
+            }
+            output
+        };
+
+        assert_eq!(output1.len() * 8, output2.len());
+        // assert_eq!(output1, output2);
+        for (idx, word) in output1.iter().enumerate() {
+            for (idx2, b) in word.to_le_bytes().iter().enumerate() {
+                assert_eq!(
+                    b,
+                    output2.get(idx * 8 + idx2).unwrap(),
+                    "idx: {}",
+                    idx * 8 + idx2
+                );
+            }
+        }
+    }
+}
+
+#[inline]
+pub fn collect_bool_buf<F: FnMut(usize) -> bool>(output: &mut MutableBuffer, mut f: F) {
+    let len = 1024;
+    let chunks = len / 64;
+    for chunk in 0..chunks {
+        let mut packed = 0u64;
+        for bit_idx in 0..64 {
+            let i = bit_idx + chunk * 64;
+            packed |= (f(i) as u64) << bit_idx;
+        }
+
+        // SAFETY: Already allocated sufficient capacity
+        unsafe { output.push_unchecked(packed) }
+    }
+}
+#[inline(never)]
+pub fn collect_bool_buf_slice(output: &mut MutableBuffer, input: &[bool]) {
+    collect_bool_buf(output, |i| input[i])
 }
 
 #[test]
