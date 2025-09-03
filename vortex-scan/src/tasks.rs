@@ -13,8 +13,8 @@ use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_error::{VortexError, VortexResult};
 use vortex_expr::ExprRef;
-use vortex_layout::{LayoutReader, MaskFuture};
-use vortex_mask::Mask;
+use vortex_layout::LayoutReader;
+use vortex_mask::{Mask, MaskFuture};
 
 use crate::Selection;
 use crate::filter::FilterExpr;
