@@ -110,12 +110,13 @@ pub(super) fn split_exec<A: 'static + Send>(
 
     let mapper = ctx.mapper.clone();
     let array_fut = async move {
-        let mask = filter_mask.await?;
-        if mask.all_false() {
+        // We race the mask with the projection, exiting early if the mask is all false.
+        // It's safe to ignore the result of the mask, because we've already passed it into the
+        // projection evaluation above.
+        let Some((_mask, array)) = filter_mask.race(projection_future).await? else {
             return Ok(None);
-        }
+        };
 
-        let array = projection_future.await?;
         mapper(array).map(Some)
     };
 

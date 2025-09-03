@@ -16,7 +16,7 @@ use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{ExprRef, and, and_collect, col, lit, root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::scan::{MultiScan, MultiScanIterator};
-use vortex::{ArrayRef, ToCanonical};
+use vortex::{Array, ArrayRef, ToCanonical};
 use vortex_file::GenericVortexFile;
 
 use crate::RUNTIME;
@@ -266,6 +266,11 @@ impl TableFunction for VortexTableFunction {
                 };
 
                 let (array_result, conversion_cache) = result?;
+                if array_result.is_empty() {
+                    // We cannot export a length zero array, else DuckDB thinks it's the end
+                    // of the scan! Also, no point doing any work.
+                    continue;
+                }
 
                 local_state.exporter = Some(ArrayExporter::try_new(
                     &array_result.to_struct(),

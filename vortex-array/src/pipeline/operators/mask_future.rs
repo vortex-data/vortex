@@ -5,7 +5,7 @@ use std::future::Future;
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
-use futures_util::future::{BoxFuture, SelectAll, Shared};
+use futures_util::future::{BoxFuture, Either, SelectAll, Shared, select};
 use futures_util::{FutureExt, TryFutureExt};
 use vortex_error::{SharedVortexResult, VortexError, VortexResult, vortex_panic};
 use vortex_mask::Mask;
@@ -62,6 +62,35 @@ impl MaskFuture {
     pub fn slice(&self, range: Range<usize>) -> Self {
         let inner = self.inner.clone();
         Self::new(range.len(), async move { Ok(inner.await?.slice(range)) })
+    }
+
+    /// Race this mask with another future, returning `None` early if the result of the mask is
+    /// all false, or else returns a pair of the mask and the result of the other future.
+    pub fn race<T>(
+        self,
+        other: impl Future<Output = VortexResult<T>> + Unpin,
+    ) -> impl Future<Output = VortexResult<Option<(Mask, T)>>> {
+        let len = self.len();
+        async move {
+            match select(self, other).await {
+                Either::Left((mask, other_fut)) => {
+                    let mask = mask?;
+                    if mask.all_false() {
+                        return Ok(None);
+                    }
+                    let other = other_fut.await?;
+                    Ok(Some((mask, other)))
+                }
+                Either::Right((other, mask_fut)) => {
+                    let other = other?;
+                    let mask = mask_fut.await?;
+                    if mask.all_false() {
+                        return Ok(None);
+                    }
+                    Ok(Some((mask, other)))
+                }
+            }
+        }
     }
 
     /// Create a MaskFuture that resolves to the intersection of multiple MaskFutures.
