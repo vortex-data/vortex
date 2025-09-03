@@ -5,11 +5,11 @@ use std::fmt::Debug;
 use std::ops::Deref;
 
 use arrow_buffer::BooleanBuffer;
-use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::BoolArray;
 use vortex_array::compute::{Operator, scalar_cmp};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+use vortex_buffer::BufferString;
 use vortex_dtype::{DType, NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_scalar::{NativeDecimalType, Scalar, match_each_decimal_value_type};
@@ -83,30 +83,27 @@ pub fn compare_canonical_array(
                 ))
             })
         }
-        DType::Utf8(_) => array.to_varbinview().with_iterator(|iter| {
+        DType::Utf8(_) => {
+            let vbv = array.to_varbinview();
             let utf8_value = value
                 .as_utf8()
                 .value()
                 .vortex_expect("nulls handled before");
-            compare_to(
-                iter.map(|v| v.map(|b| unsafe { str::from_utf8_unchecked(b) })),
-                utf8_value.deref(),
+            Ok(compare_to(
+                vbv.iter()
+                    .map(|b| b.map(|v| unsafe { BufferString::new_unchecked(v) })),
+                utf8_value,
                 operator,
-            )
-        }),
-        DType::Binary(_) => array.to_varbinview().with_iterator(|iter| {
+            ))
+        }
+        DType::Binary(_) => {
+            let vbv = array.to_varbinview();
             let binary_value = value
                 .as_binary()
                 .value()
                 .vortex_expect("nulls handled before");
-            compare_to(
-                // Don't understand the lifetime problem here but identity map makes it go away
-                #[allow(clippy::map_identity)]
-                iter.map(|v| v),
-                binary_value.deref(),
-                operator,
-            )
-        }),
+            Ok(compare_to(vbv.iter(), binary_value, operator))
+        }
         DType::Struct(..) | DType::List(..) => {
             let scalar_vals: Vec<Scalar> = (0..array.len()).map(|i| array.scalar_at(i)).collect();
             Ok(BoolArray::from_iter(

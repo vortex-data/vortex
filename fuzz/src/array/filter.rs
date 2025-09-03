@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{
     BoolArray, BooleanBuffer, DecimalArray, PrimitiveArray, StructArray, VarBinViewArray,
 };
@@ -75,12 +74,12 @@ pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResul
         }
         DType::Utf8(_) | DType::Binary(_) => {
             let utf8 = array.to_varbinview();
-            let values = utf8.with_iterator(|iter| {
-                iter.zip(filter.iter())
-                    .filter(|(_, f)| **f)
-                    .map(|(v, _)| v.map(|u| u.to_vec()))
-                    .collect::<Vec<_>>()
-            })?;
+            let values = utf8
+                .iter()
+                .zip(filter.iter())
+                .filter(|(_, f)| **f)
+                .map(|(v, _)| v.map(|u| u.to_vec()))
+                .collect::<Vec<_>>();
             Ok(VarBinViewArray::from_iter(values, array.dtype().clone()).into_array())
         }
         DType::Struct(..) => {

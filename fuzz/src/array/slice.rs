@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{
     BoolArray, DecimalArray, ListArray, PrimitiveArray, StructArray, VarBinViewArray,
 };
@@ -43,8 +42,10 @@ pub fn slice_canonical_array(
         }
         DType::Utf8(_) | DType::Binary(_) => {
             let utf8 = array.to_varbinview();
-            let values =
-                utf8.with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>())?;
+            let values = utf8
+                .iter()
+                .map(|v| v.map(|u| u.to_vec()))
+                .collect::<Vec<_>>();
             Ok(VarBinViewArray::from_iter(
                 values[start..stop].iter().cloned(),
                 array.dtype().clone(),

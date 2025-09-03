@@ -5,7 +5,6 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 
 use itertools::Itertools;
-use vortex_array::accessor::ArrayAccessor;
 use vortex_array::search_sorted::{IndexOrd, SearchResult, SearchSorted, SearchSortedSide};
 use vortex_array::{Array, ToCanonical};
 use vortex_buffer::{BufferString, ByteBuffer};
@@ -107,8 +106,10 @@ pub fn search_sorted_canonical_array(
         }
         DType::Utf8(_) | DType::Binary(_) => {
             let utf8 = array.to_varbinview();
-            let opt_values =
-                utf8.with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>())?;
+            let opt_values = utf8
+                .iter()
+                .map(|v| v.map(|u| u.to_vec()))
+                .collect::<Vec<_>>();
             let to_find = if matches!(array.dtype(), DType::Utf8(_)) {
                 BufferString::try_from(scalar)?.as_str().as_bytes().to_vec()
             } else {
