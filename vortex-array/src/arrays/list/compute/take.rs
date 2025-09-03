@@ -109,12 +109,15 @@ fn _take_nullable<I: NativePType, O: OffsetPType + NativePType + PrimInt>(
     data_validity: Mask,
     indices_validity: Mask,
 ) -> VortexResult<ArrayRef> {
+    // TODO(connor): The primitive builders here have the same ptype...
     let mut new_offsets = PrimitiveBuilder::with_capacity(Nullability::NonNullable, indices.len());
     let mut elements_to_take =
         PrimitiveBuilder::with_capacity(Nullability::NonNullable, 2 * indices.len());
 
     let mut current_offset = O::zero();
     new_offsets.append_zero();
+
+    // TODO(connor): Why is this 2 x length???
     let mut new_validity = BooleanBufferBuilder::new(2 * indices.len());
 
     for (idx, data_idx) in indices.iter().enumerate() {
@@ -139,6 +142,7 @@ fn _take_nullable<I: NativePType, O: OffsetPType + NativePType + PrimInt>(
 
             elements_to_take.ensure_capacity(elements_to_take.len() + additional);
             for i in 0..additional {
+                // TODO(connor): This should probably be `I::from_usize`?
                 elements_to_take
                     .append_value(start + O::from_usize(i).vortex_expect("i < additional"));
             }
