@@ -9,6 +9,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+import math
 import sys
 
 import pandas as pd
@@ -63,8 +64,6 @@ vortex_df = df3[df3["name"].str.contains("vortex", case=False, na=False)]
 duckdb_vortex_df = df3[df3["name"].str.contains("duckdb.*vortex", case=False, na=False, regex=True)]
 datafusion_vortex_df = df3[df3["name"].str.contains("datafusion.*vortex", case=False, na=False, regex=True)]
 
-# Calculate geometric mean of ratios (better for performance ratios)
-import math
 
 # Overall performance (all results)
 valid_positive_ratios = [r for r in df3["ratio"] if r > 0 and not pd.isna(r)]
