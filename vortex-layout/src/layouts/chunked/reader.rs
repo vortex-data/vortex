@@ -22,7 +22,8 @@ use crate::layouts::chunked::ChunkedLayout;
 use crate::reader::LayoutReader;
 use crate::segments::SegmentSource;
 use crate::{
-    ArrayEvaluation, LayoutReaderRef, LazyReaderChildren, MaskEvaluation, PruningEvaluation,
+    ArrayEvaluation, LayoutReaderRef, LazyReaderChildren, MaskEvaluation, MaskFuture,
+    PruningEvaluation,
 };
 
 /// A [`LayoutReader`] for chunked layouts.
@@ -286,12 +287,8 @@ struct ChunkedMaskEvaluation {
 
 #[async_trait]
 impl MaskEvaluation for ChunkedMaskEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
-        log::debug!(
-            "Chunked mask evaluation {} (mask = {})",
-            self.name,
-            mask.density()
-        );
+    async fn invoke(&self, mask: MaskFuture) -> VortexResult<Mask> {
+        log::debug!("Chunked mask evaluation {}", self.name,);
 
         // Split the mask over each chunk.
         let masks: Vec<_> = FuturesOrdered::from_iter(
@@ -299,14 +296,7 @@ impl MaskEvaluation for ChunkedMaskEvaluation {
                 .iter()
                 .map(|range| mask.slice(range.clone()))
                 .zip_eq(&self.chunk_evals)
-                .map(|(mask, chunk_eval)| {
-                    if mask.all_false() {
-                        // If the mask is all false, we can skip the evaluation.
-                        ready(Ok(mask)).boxed()
-                    } else {
-                        chunk_eval.invoke(mask).boxed()
-                    }
-                }),
+                .map(|(mask, chunk_eval)| chunk_eval.invoke(mask).boxed()),
         )
         .try_collect()
         .await?;
@@ -329,14 +319,13 @@ struct ChunkedArrayEvaluation {
 
 #[async_trait]
 impl ArrayEvaluation for ChunkedArrayEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
+    async fn invoke(&self, mask: MaskFuture) -> VortexResult<ArrayRef> {
         // Split the mask over each chunk.
         let chunks: Vec<_> = FuturesOrdered::from_iter(
             self.mask_ranges
                 .iter()
                 .map(|range| mask.slice(range.clone()))
                 .zip_eq(&self.chunk_evals)
-                .filter(|(mask, _chunk_eval)| mask.true_count() > 0)
                 .map(|(mask, chunk_eval)| chunk_eval.invoke(mask)),
         )
         .try_collect()
@@ -364,13 +353,14 @@ mod test {
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, PType};
     use vortex_expr::root;
-    use vortex_mask::Mask;
 
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
-    use crate::{LayoutRef, LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt as _};
+    use crate::{
+        LayoutRef, LayoutStrategy, MaskFuture, SequentialStreamAdapter, SequentialStreamExt as _,
+    };
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
@@ -410,7 +400,9 @@ mod test {
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()
-                .invoke(Mask::new_true(usize::try_from(layout.row_count()).unwrap()))
+                .invoke(MaskFuture::new_true(
+                    usize::try_from(layout.row_count()).unwrap(),
+                ))
                 .await
                 .unwrap()
                 .to_primitive();

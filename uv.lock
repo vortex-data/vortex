@@ -1645,6 +1645,7 @@ dev = [
     { name = "pandas-stubs" },
     { name = "pcodec" },
     { name = "pyarrow-stubs" },
+    { name = "pytest-benchmark" },
 ]
 
 [package.metadata]
@@ -1666,6 +1667,7 @@ dev = [
     { name = "pandas-stubs", specifier = ">=2.2.3.241126" },
     { name = "pcodec", specifier = ">=0.3.3" },
     { name = "pyarrow-stubs", specifier = ">=17.16" },
+    { name = "pytest-benchmark", specifier = ">=5.1.0" },
 ]
 
 [[package]]
@@ -1850,6 +1852,7 @@ dev = [
     { name = "pyarrow-stubs", specifier = ">=17.16" },
     { name = "pytest", specifier = ">=7.4.0" },
     { name = "pytest-benchmark", specifier = ">=4.0.0" },
+    { name = "pytest-benchmark", specifier = ">=5.1.0" },
     { name = "ray", specifier = ">=2.48" },
     { name = "ruff", specifier = ">=0.7.1" },
 ]

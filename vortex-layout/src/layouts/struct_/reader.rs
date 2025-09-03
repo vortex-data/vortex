@@ -264,7 +264,9 @@ mod tests {
     use crate::layouts::struct_::writer::StructStrategy;
     use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
-    use crate::{LayoutRef, LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt as _};
+    use crate::{
+        LayoutRef, LayoutStrategy, MaskFuture, SequentialStreamAdapter, SequentialStreamExt as _,
+    };
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
@@ -322,7 +324,7 @@ mod tests {
             reader
                 .filter_evaluation(&(0..3), &filt)
                 .unwrap()
-                .invoke(Mask::new_true(3)),
+                .invoke(MaskFuture::new_true(3)),
         )
         .unwrap();
         assert_eq!(
@@ -341,7 +343,7 @@ mod tests {
             reader
                 .projection_evaluation(&(0..3), &expr)
                 .unwrap()
-                .invoke(Mask::new_true(3)),
+                .invoke(MaskFuture::new_true(3)),
         )
         .unwrap();
         assert_eq!(
@@ -360,7 +362,7 @@ mod tests {
             reader
                 .projection_evaluation(&(0..3), &expr)
                 .unwrap()
-                .invoke(Mask::from_iter([true, true, false])),
+                .invoke(MaskFuture::ready(Mask::from_iter([true, true, false]))),
         )
         .unwrap();
 
@@ -386,7 +388,7 @@ mod tests {
                 .projection_evaluation(&(0..3), &expr)
                 .unwrap()
                 // Take rows 0 and 1, skip row 2, and anything after that
-                .invoke(Mask::from_iter([true, true, false])),
+                .invoke(MaskFuture::ready(Mask::from_iter([true, true, false]))),
         )
         .unwrap();
 

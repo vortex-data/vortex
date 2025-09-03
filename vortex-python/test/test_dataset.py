@@ -143,26 +143,28 @@ def test_fragment_schema(ds: vx.dataset.VortexDataset):
 
 def test_fragment_take(ds: vx.dataset.VortexDataset):
     fragments = list(ds.get_fragments())
-    assert len(fragments) == 1
-    f = fragments[0]
-    assert f.take(pa.array([10, 50, 1_000, 999_999])).to_pylist() == [
+    assert fragments[0].take(pa.array([10, 50, 1_000])).to_pylist() == [
         {"index": 10, "string": "10", "bool": True, "float": math.sqrt(10)},
         {"index": 50, "string": "50", "bool": True, "float": math.sqrt(50.0)},
         {"index": 1000, "string": "1000", "bool": True, "float": math.sqrt(1000.0)},
+    ]
+
+    for f in fragments[1:-1]:
+        assert f.take(pa.array([10, 50, 1_000, 999_999])).to_pylist() == []
+
+    assert fragments[-1].take(pa.array([999_999])).to_pylist() == [
         {"index": 999999, "string": "999999", "bool": False, "float": math.sqrt(999999.0)},
     ]
 
 
 def test_fragment_to_batches(ds: vx.dataset.VortexDataset):
     fragments = list(ds.get_fragments())
-    assert len(fragments) == 1
-    f = fragments[0]
 
-    assert sum(len(x) for x in f.to_batches(columns=["float", "bool"])) == 1_000_000
+    assert sum(len(x) for f in fragments for x in f.to_batches(columns=["float", "bool"])) == 1_000_000
 
     schema = pa.struct([("string", pa.string_view()), ("bool", pa.bool_())])
 
-    chunk0 = next(f.to_batches(columns=["string", "bool"]))
+    chunk0 = next(fragments[0].to_batches(columns=["string", "bool"]))
     assert chunk0.to_struct_array() == pa.array(
         [record(x, columns=["string", "bool"]) for x in range(len(chunk0))], type=schema
     )
@@ -171,33 +173,62 @@ def test_fragment_to_batches(ds: vx.dataset.VortexDataset):
 @pytest.mark.parametrize("batch_size", [1234, 8192, 1 << 31])
 def test_fragment_to_batch_size(ds: vx.dataset.VortexDataset, batch_size: int):
     fragments = list(ds.get_fragments())
-    assert len(fragments) == 1
-    f = fragments[0]
 
-    batch_sizes = [len(x) for x in f.to_batches(batch_size=batch_size)]
-    n_rows = f.count_rows()
-    if n_rows < batch_size:
-        assert batch_sizes == [n_rows]
-    if n_rows % batch_size == 0:
-        assert batch_sizes == [batch_size for _ in batch_sizes]
-    else:
-        assert batch_sizes[:-1] == [batch_size for _ in batch_sizes[:-1]]
-        assert batch_sizes[-1] == n_rows % batch_size
+    remainder = 0
+    for f in fragments:
+        batch_sizes = [len(batch) for batch in f.to_batches(batch_size=batch_size)]
+        if remainder != 0:
+            assert batch_sizes[0] == remainder
+            batch_sizes = batch_sizes[1:]
+            n_rows = f.count_rows() - remainder
+        else:
+            n_rows = f.count_rows()
+
+        if n_rows < batch_size:
+            assert batch_sizes == [n_rows]
+            remainder = 0
+        elif n_rows % batch_size == 0:
+            assert batch_sizes == [batch_size for _ in batch_sizes]
+            remainder = 0
+        else:
+            last_batch_size = n_rows % batch_size
+            assert batch_sizes[:-1] == [batch_size for _ in batch_sizes[:-1]]
+            assert batch_sizes[-1] == last_batch_size
+            remainder = batch_size - last_batch_size
 
 
 def test_fragment_to_table(ds: vx.dataset.VortexDataset):
     fragments = list(ds.get_fragments())
-    assert len(fragments) == 1
-    f = fragments[0]
 
-    tbl = f.to_table(columns=["bool", "float"], filter=pc.field("float") > 100)
+    # The first fragment contains none of the matching records
+    tbl = fragments[0].to_table(columns=["bool", "float"], filter=pc.field("float") > 100)
+    assert len(tbl.slice(0, 10)) == 0
+
+    # From the second fragment onwards all records match
+    tbl = fragments[1].to_table(columns=["bool", "float"], filter=pc.field("float") > 100)
     assert tbl.slice(0, 10) == pa.Table.from_struct_array(
         pa.array([record(x, columns={"float", "bool"}) for x in range(10001, 10011)])
     )
 
-    assert f.to_table(columns=["bool", "string"]).schema == pa.schema(
-        [("bool", pa.bool_()), ("string", pa.string_view())]
-    )
-    assert f.to_table(columns=["string", "bool"]).schema == pa.schema(
-        [("string", pa.string_view()), ("bool", pa.bool_())]
-    )
+    for f in fragments:
+        assert f.to_table(columns=["bool", "string"]).schema == pa.schema(
+            [("bool", pa.bool_()), ("string", pa.string_view())]
+        )
+        assert f.to_table(columns=["string", "bool"]).schema == pa.schema(
+            [("string", pa.string_view()), ("bool", pa.bool_())]
+        )
+
+
+def test_get_fragments(ds: vx.dataset.VortexDataset):
+    assert len(list(ds.get_fragments())) == 123
+
+    assert ds.count_rows() == sum(f.count_rows() for f in ds.get_fragments())
+
+    filter_expr = vx.expr.column("string") > "5"
+    assert ds.count_rows(filter=filter_expr) == sum(f.count_rows(filter=filter_expr) for f in ds.get_fragments())
+
+    ds_filtered = ds.filter(filter_expr)
+    assert ds_filtered.count_rows() == sum(f.count_rows() for f in ds_filtered.get_fragments())
+
+    assert ds.to_table() == pa.concat_tables(f.to_table() for f in ds.get_fragments())
+    assert ds_filtered.to_table() == pa.concat_tables(f.to_table() for f in ds_filtered.get_fragments())

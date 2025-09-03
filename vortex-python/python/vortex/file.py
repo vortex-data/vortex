@@ -59,6 +59,9 @@ class VortexFile:
         """The dtype of the file."""
         return self._file.dtype
 
+    def splits(self) -> list[tuple[int, int]]:
+        return self._file.splits()
+
     def scan(
         self,
         projection: IntoProjection = None,

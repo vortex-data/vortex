@@ -21,8 +21,8 @@ use super::DictLayout;
 use crate::layouts::SharedArrayFuture;
 use crate::segments::SegmentSource;
 use crate::{
-    ArrayEvaluation, LayoutReader, LayoutReaderRef, MaskEvaluation, NoOpPruningEvaluation,
-    PruningEvaluation,
+    ArrayEvaluation, LayoutReader, LayoutReaderRef, MaskEvaluation, MaskFuture,
+    NoOpPruningEvaluation, PruningEvaluation,
 };
 
 pub struct DictReader {
@@ -78,7 +78,7 @@ impl DictReader {
                     .vortex_expect("must construct dict values array evaluation");
 
                 async move {
-                    eval.invoke(Mask::new_true(values_len))
+                    eval.invoke(MaskFuture::new_true(values_len))
                         .await
                         .map_err(Arc::new)
                 }
@@ -175,27 +175,30 @@ struct DictMaskEvaluation {
 
 #[async_trait]
 impl MaskEvaluation for DictMaskEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
-        if mask.all_false() {
-            return Ok(mask);
-        }
-
-        let values_result = self.values_eval.clone().await?;
+    async fn invoke(&self, mask: MaskFuture) -> VortexResult<Mask> {
+        let values = self.values_eval.clone().await?;
+        let mask = mask.await?;
 
         // Short-circuit when the values are all true/false.
-        if let Some(MinMaxResult { min, max }) = min_max(&values_result)? {
+        if let Some(MinMaxResult { min, max }) = min_max(&values)? {
             if !max.as_bool().value().unwrap_or(true) {
                 // All values are false
                 return Ok(Mask::AllFalse(mask.len()));
             }
             if min.as_bool().value().unwrap_or(false) {
                 // All values are true, but we still need to respect codes validity
-                let codes = self.codes_eval.invoke(Mask::new_true(mask.len())).await?;
+                let codes = self
+                    .codes_eval
+                    .invoke(MaskFuture::new_true(mask.len()))
+                    .await?;
                 return Ok(mask.bitand(&codes.validity_mask()));
             }
         }
 
-        let codes = self.codes_eval.invoke(Mask::new_true(mask.len())).await?;
+        let codes = self
+            .codes_eval
+            .invoke(MaskFuture::new_true(mask.len()))
+            .await?;
         // Creating a mask from the dict array would canonicalize it,
         // it should be fine for now as long as values is already canonical,
         // so different row ranges do not canonicalize to the same array
@@ -203,7 +206,7 @@ impl MaskEvaluation for DictMaskEvaluation {
         // TODO(joe): fixme casting null to false is *VERY* unsound, if the expression in the filter
         // can inspect nulls (e.g. `is_null`).
         // See `FlatEvaluation` for more details.
-        let dict_mask = take(&values_result, &codes)?.try_to_mask_fill_null_false()?;
+        let dict_mask = take(&values, &codes)?.try_to_mask_fill_null_false()?;
 
         Ok(mask.bitand(&dict_mask))
     }
@@ -217,7 +220,7 @@ struct DictArrayEvaluation {
 
 #[async_trait]
 impl ArrayEvaluation for DictArrayEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
+    async fn invoke(&self, mask: MaskFuture) -> VortexResult<ArrayRef> {
         let (values_result, codes) = join!(self.values_eval.clone(), self.codes_eval.invoke(mask));
         let (values_result, codes) = (values_result?, codes?);
 
@@ -240,14 +243,13 @@ mod tests {
     use vortex_array::{ArrayContext, IntoArray as _};
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
     use vortex_expr::{is_null, not, pack, root};
-    use vortex_mask::Mask;
 
     use crate::layouts::dict::writer::{DictLayoutOptions, DictStrategy};
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::{SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
     use crate::{
-        LayoutId, LayoutRef, LayoutStrategy, LocalExecutor, SequentialStreamAdapter,
+        LayoutId, LayoutRef, LayoutStrategy, LocalExecutor, MaskFuture, SequentialStreamAdapter,
         SequentialStreamExt,
     };
 
@@ -307,7 +309,7 @@ mod tests {
             .unwrap()
             .projection_evaluation(&(0..layout.row_count()), &expression)
             .unwrap()
-            .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
+            .invoke(MaskFuture::new_true(layout.row_count().try_into().unwrap()))
             .await
             .unwrap();
         let expected = StructArray::try_new(
@@ -388,7 +390,7 @@ mod tests {
             .unwrap()
             .filter_evaluation(&(0..3), &filter)
             .unwrap()
-            .invoke(Mask::new_true(3))
+            .invoke(MaskFuture::new_true(3))
             .await
             .unwrap();
 
@@ -448,7 +450,7 @@ mod tests {
             .unwrap()
             .projection_evaluation(&(0..layout.row_count()), &expression)
             .unwrap()
-            .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
+            .invoke(MaskFuture::new_true(layout.row_count().try_into().unwrap()))
             .await
             .unwrap();
         let expected = array.validity_mask().into_array();
