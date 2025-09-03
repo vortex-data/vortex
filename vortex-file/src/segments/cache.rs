@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
 use futures::FutureExt;
@@ -9,9 +9,12 @@ use moka::future::{Cache, CacheBuilder};
 use moka::policy::EvictionPolicy;
 use parking_lot::RwLock;
 use rustc_hash::FxBuildHasher;
+use vortex_array::serde::ArrayParts;
+use vortex_array::{ArrayContext, ArrayRef};
 use vortex_buffer::ByteBuffer;
+use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_layout::segments::{SegmentFuture, SegmentId, SegmentSource};
+use vortex_layout::segments::{ArrayCache, ArrayFuture, SegmentFuture, SegmentId, SegmentSource};
 use vortex_metrics::{Counter, VortexMetrics};
 use vortex_utils::aliases::dash_map::DashMap;
 
@@ -163,13 +166,18 @@ impl<C: SegmentCache> SegmentCache for SegmentCacheMetrics<C> {
 }
 
 pub struct SegmentCacheSourceAdapter {
-    cache: Arc<dyn SegmentCache>,
+    pub(crate) cache: Arc<dyn SegmentCache>,
     source: Arc<dyn SegmentSource>,
+    array_cache: OnceLock<Arc<dyn ArrayCache>>,
 }
 
 impl SegmentCacheSourceAdapter {
     pub fn new(cache: Arc<dyn SegmentCache>, source: Arc<dyn SegmentSource>) -> Self {
-        Self { cache, source }
+        Self {
+            cache,
+            source,
+            array_cache: OnceLock::new(),
+        }
     }
 }
 
@@ -188,6 +196,57 @@ impl SegmentSource for SegmentCacheSourceAdapter {
                 log::warn!("Failed to store segment {} in cache: {}", id, e);
             }
             Ok(result)
+        }
+        .boxed()
+    }
+
+    fn array_cache(self: Arc<Self>) -> Option<Arc<dyn ArrayCache>> {
+        let cache = self
+            .array_cache
+            .get_or_init(|| Arc::new(SharedArrayCache::new(self.clone())));
+        Some(cache.clone())
+    }
+}
+
+pub struct SharedArrayCache {
+    arrays: DashMap<SegmentId, ArrayRef>,
+    segment_source: Arc<SegmentCacheSourceAdapter>,
+}
+
+impl SharedArrayCache {
+    pub fn new(segment_source: Arc<SegmentCacheSourceAdapter>) -> Self {
+        let arrays: DashMap<SegmentId, ArrayRef> = Default::default();
+        let arrays_clone = arrays.clone();
+        segment_source
+            .cache
+            .on_evict(Box::new(move |id: Arc<SegmentId>| {
+                arrays_clone.remove(&id);
+            }));
+
+        Self {
+            arrays,
+            segment_source,
+        }
+    }
+}
+impl ArrayCache for SharedArrayCache {
+    fn get<'a>(
+        &'a self,
+        segment_id: SegmentId,
+        ctx: ArrayContext,
+        dtype: DType,
+        len: usize,
+    ) -> ArrayFuture<'a> {
+        async move {
+            if let Some(entry) = self.arrays.get(&segment_id) {
+                return Ok(entry.value().clone());
+            }
+            // NOTE: this method doesn't lock, so duplicate inflight segment requests
+            // for the same segment could happen
+            let segment = self.segment_source.request(segment_id).await?;
+            let array = ArrayParts::try_from(segment)?.decode(&ctx, &dtype, len)?;
+            self.arrays.insert(segment_id, array.clone());
+            Ok(array)
         }
         .boxed()
     }
