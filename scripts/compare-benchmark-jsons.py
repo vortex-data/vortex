@@ -58,11 +58,22 @@ df3["ratio"] = df3["value_pr"] / df3["value_base"]
 
 # Calculate geometric mean of ratios (better for performance ratios)
 import math
-geo_mean_ratio = math.exp(sum(math.log(r) for r in df3["ratio"] if r > 0) / len(df3["ratio"]))
+valid_positive_ratios = [r for r in df3["ratio"] if r > 0 and not pd.isna(r)]
+if len(valid_positive_ratios) > 0:
+    geo_mean_ratio = math.exp(sum(math.log(r) for r in valid_positive_ratios) / len(valid_positive_ratios))
+else:
+    geo_mean_ratio = float('nan')
 
-# Find best and worst changes
-best_idx = df3["ratio"].idxmin()
-worst_idx = df3["ratio"].idxmax()
+# Find best and worst changes (handle case where all ratios are NaN)
+valid_ratios = df3["ratio"].dropna()
+if len(valid_ratios) > 0:
+    best_idx = valid_ratios.idxmin()
+    worst_idx = valid_ratios.idxmax()
+    best_improvement = f"{df3.loc[best_idx, 'name']} ({df3.loc[best_idx, 'ratio']:.3f}x)"
+    worst_regression = f"{df3.loc[worst_idx, 'name']} ({df3.loc[worst_idx, 'ratio']:.3f}x)"
+else:
+    best_improvement = "No valid comparisons"
+    worst_regression = "No valid comparisons"
 
 # Determine threshold based on benchmark name
 # Use 30% threshold for S3 benchmarks, 10% for others
@@ -76,12 +87,17 @@ significant_improvements = (df3["ratio"] < improvement_threshold).sum()
 significant_regressions = (df3["ratio"] > regression_threshold).sum()
 
 # Build summary
+if pd.isna(geo_mean_ratio):
+    overall_performance = "No valid comparisons available"
+else:
+    overall_performance = f"{geo_mean_ratio:.3f}x ({'better' if geo_mean_ratio < 1 else 'worse'} than base)"
+
 summary_lines = [
     "## Summary",
     "",
-    f"- **Overall Performance (geometric mean)**: {geo_mean_ratio:.3f}x ({'better' if geo_mean_ratio < 1 else 'worse'} than base)",
-    f"- **Best Improvement**: {df3.loc[best_idx, 'name']} ({df3.loc[best_idx, 'ratio']:.3f}x)",
-    f"- **Worst Regression**: {df3.loc[worst_idx, 'name']} ({df3.loc[worst_idx, 'ratio']:.3f}x)",
+    f"- **Overall Performance (geometric mean)**: {overall_performance}",
+    f"- **Best Improvement**: {best_improvement}",
+    f"- **Worst Regression**: {worst_regression}",
     f"- **Significant Changes (>{threshold_pct}%)**:",
     f"  - Improvements: {significant_improvements} queries",
     f"  - Regressions: {significant_regressions} queries",
