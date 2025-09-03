@@ -9,6 +9,7 @@ mod opener;
 mod sink;
 mod source;
 
+pub use cache::VortexFileCache;
 pub use format::{VortexFormat, VortexFormatFactory, VortexOptions};
 pub use source::VortexSource;
 

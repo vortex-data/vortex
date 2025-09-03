@@ -20,7 +20,7 @@ use vortex::stats::{Precision, Stat};
 use vortex::utils::aliases::DefaultHashBuilder;
 
 #[derive(Clone)]
-pub(crate) struct VortexFileCache {
+pub struct VortexFileCache {
     file_cache: Cache<FileKey, VortexFile, DefaultHashBuilder>,
     segment_cache: Cache<SegmentKey, ByteBuffer, DefaultHashBuilder>,
     session: Arc<VortexSession>,
@@ -50,6 +50,7 @@ struct SegmentKey {
 }
 
 impl VortexFileCache {
+    /// Create a new [`VortexFileCache`] with the given size.
     pub fn new(size_mb: usize, segment_size_mb: usize, session: Arc<VortexSession>) -> Self {
         let file_cache = Cache::builder()
             .max_capacity(size_mb as u64 * (1 << 20))

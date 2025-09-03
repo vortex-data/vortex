@@ -56,7 +56,8 @@ pub struct VortexSource {
 }
 
 impl VortexSource {
-    pub(crate) fn new(file_cache: VortexFileCache, metrics: VortexMetrics) -> Self {
+    /// Creates a new VortexSource instance.
+    pub fn new(file_cache: VortexFileCache, metrics: VortexMetrics) -> Self {
         Self {
             file_cache,
             metrics,
