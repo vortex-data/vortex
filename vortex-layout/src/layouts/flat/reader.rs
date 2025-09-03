@@ -6,7 +6,7 @@ use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::{FutureExt, TryFutureExt};
+use futures::FutureExt;
 use vortex_array::compute::filter;
 use vortex_array::pipeline::{
     N, export_canonical_pipeline_expr, export_canonical_pipeline_expr_offset,
@@ -64,11 +64,18 @@ impl FlatReader {
 
         let ctx = self.layout.ctx.clone();
         let dtype = self.layout.dtype().clone();
-        match self.segment_source.array_cache() {
-            Some(cache) => cache
-                .get(self.layout.segment_id(), ctx, dtype, row_count)
-                .map_err(Arc::new)
-                .shared(),
+        match self.segment_source.clone().array_cache() {
+            Some(cache) => {
+                let segment_id = self.layout.segment_id();
+                async move {
+                    cache
+                        .get(segment_id, ctx, dtype, row_count)
+                        .await
+                        .map_err(Arc::new)
+                }
+                .boxed()
+                .shared()
+            }
             None => async move {
                 let segment = segment_fut.await?;
                 ArrayParts::try_from(segment)?
