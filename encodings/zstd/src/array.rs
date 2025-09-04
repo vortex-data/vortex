@@ -21,7 +21,6 @@ use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_mask::AllOr;
 use vortex_scalar::Scalar;
-use vortex_sparse::SparseArray;
 
 use crate::serde::{ZstdFrameMetadata, ZstdMetadata};
 
