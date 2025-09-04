@@ -61,16 +61,14 @@ impl SerdeVTable<PcoVTable> for PcoVTable {
             vortex_bail!("PcoArray expected 0 or 1 child, got {}", children.len());
         };
 
-        let chunk_metas = buffers[..metadata.chunks.len()]
-            .iter()
-            .cloned()
-            .collect::<Vec<_>>();
-        let pages = buffers[metadata.chunks.len()..]
-            .iter()
-            .cloned()
-            .collect::<Vec<_>>();
+        let chunk_metas = buffers[..metadata.chunks.len()].to_vec();
+        let pages = buffers[metadata.chunks.len()..].to_vec();
 
-        let expected_n_pages = metadata.chunks.iter().map(|info| info.pages.len()).sum();
+        let expected_n_pages = metadata
+            .chunks
+            .iter()
+            .map(|info| info.pages.len())
+            .sum::<usize>();
         assert_eq!(pages.len(), expected_n_pages);
 
         Ok(PcoArray::new(
