@@ -20,10 +20,11 @@ pub fn compare_canonical_array(
     operator: Operator,
 ) -> VortexResult<ArrayRef> {
     if value.is_null() {
-        return Ok(
-            BoolArray::new(BooleanBuffer::new_unset(array.len()), Validity::AllInvalid)
-                .into_array(),
-        );
+        return Ok(BoolArray::from_bool_buffer(
+            BooleanBuffer::new_unset(array.len()),
+            Validity::AllInvalid,
+        )
+        .into_array());
     }
 
     match array.dtype() {

@@ -31,7 +31,7 @@ pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResul
     match array.dtype() {
         DType::Bool(_) => {
             let bool_array = array.to_bool();
-            Ok(BoolArray::new(
+            Ok(BoolArray::from_bool_buffer(
                 BooleanBuffer::from_iter(
                     filter
                         .iter()

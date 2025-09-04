@@ -239,6 +239,7 @@ mod tests {
 
             assert_eq!(
                 result.statistics().get_as::<String>(Stat::Min),
+                // The typo is correct, we need this to be truncated.
                 Some(Precision::Inexact(
                     "Another string that's meant to be smaller than the previous valu".to_string()
                 ))
@@ -260,7 +261,8 @@ mod tests {
             validity_builder.append(false);
             let validity_boolean_buffer = validity_builder.finish();
             let validity = Validity::Array(
-                BoolArray::new(validity_boolean_buffer.clone(), Validity::NonNullable).into_array(),
+                BoolArray::from_bool_buffer(validity_boolean_buffer.clone(), Validity::NonNullable)
+                    .into_array(),
             );
             let array = StructArray::try_new(
                 FieldNames::from([FieldName::from("a"), FieldName::from("b")]),

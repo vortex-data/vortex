@@ -55,7 +55,61 @@ pub struct BoolArray {
 }
 
 impl BoolArray {
-    fn validate(
+    /// Constructs a new `BoolArray`.
+    ///
+    /// See [`BoolArray::new_unchecked`] for more information.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the provided components do not satisfy the invariants documented in
+    /// [`BoolArray::new_unchecked`].
+    pub fn try_new(
+        buffer: ByteBuffer,
+        offset: usize,
+        len: usize,
+        validity: Validity,
+    ) -> VortexResult<Self> {
+        Self::validate(&buffer, offset, len, &validity)?;
+
+        // SAFETY: validate ensures all invariants are met.
+        Ok(unsafe { Self::new_unchecked(buffer, offset, len, validity) })
+    }
+
+    /// Creates a new [`BoolArray`] without validation from these components:
+    ///
+    /// * `buffer` is a raw [`ByteBuffer`] holding the packed bits.
+    /// * `offset` is the number of bits in the start of the buffer that should be skipped when
+    ///   looking up the i-th value.
+    /// * `len` is the length of the array, which should correspond to the number of bits.
+    /// * `validity` holds the null values.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure all of the following invariants are satisfied:
+    ///
+    /// - `buffer` must contain at least `(offset + len).div_ceil(8)` bytes.
+    /// - `offset` must be less than 8 (it represents the bit offset within the first byte).
+    /// - If `validity` is `Validity::Array`, its length must exactly equal `len`.
+    pub unsafe fn new_unchecked(
+        buffer: ByteBuffer,
+        offset: usize,
+        len: usize,
+        validity: Validity,
+    ) -> Self {
+        let buffer = BooleanBuffer::new(buffer.into_arrow_buffer(), offset, len);
+        let buffer = buffer.shrink_offset();
+        Self {
+            dtype: DType::Bool(validity.nullability()),
+            buffer,
+            validity,
+            stats_set: ArrayStats::default(),
+        }
+    }
+
+    /// Validates the components that would be used to create a [`BoolArray`].
+    ///
+    /// This function checks all the invariants required by [`BoolArray::new_unchecked`].
+    pub(crate) fn validate(
         buffer: &ByteBuffer,
         offset: usize,
         len: usize,
@@ -84,42 +138,13 @@ impl BoolArray {
 
         Ok(())
     }
-}
-
-impl BoolArray {
-    /// Construct a new `BoolArray` from its components:
-    ///
-    /// * `buffer` is a raw ByteBuffer holding the packed bits
-    /// * `offset` is the number of bits in the start of the buffer that should be skipped when
-    ///   looking up the i-th value.
-    /// * `len` is the length of the array, which should correspond to the number of bits
-    /// * `validity` holds the null values.
-    ///
-    /// # Validation
-    ///
-    /// Buffer must be at least large enough to hold `len` bits starting at `offset`.
-    ///
-    /// A provided validity array must be of size `len`.
-    ///
-    /// The offset must be less than a whole byte.
-    pub fn try_new(
-        buffer: ByteBuffer,
-        offset: usize,
-        len: usize,
-        validity: Validity,
-    ) -> VortexResult<Self> {
-        Self::validate(&buffer, offset, len, &validity)?;
-
-        Ok(Self::new(
-            BooleanBuffer::new(buffer.into_arrow_buffer(), offset, len),
-            validity,
-        ))
-    }
 
     /// Creates a new [`BoolArray`] from a [`BooleanBuffer`] and [`Validity`] directly.
     ///
-    /// Panics if the validity length differs from the buffer length.
-    pub fn new(buffer: BooleanBuffer, validity: Validity) -> Self {
+    /// # Panics
+    ///
+    /// Panics if the validity is [`Validity::Array`] and the length is not the same as the buffer.
+    pub fn from_bool_buffer(buffer: BooleanBuffer, validity: Validity) -> Self {
         if let Some(validity_len) = validity.maybe_len() {
             assert_eq!(buffer.len(), validity_len);
         }
@@ -147,7 +172,7 @@ impl BoolArray {
         indices
             .into_iter()
             .for_each(|idx| arrow_buffer::bit_util::set_bit(buffer_slice, idx));
-        Self::new(
+        Self::from_bool_buffer(
             BooleanBufferBuilder::new_from_buffer(buffer, length).finish(),
             validity,
         )
@@ -222,13 +247,13 @@ impl BoolArray {
 
 impl From<BooleanBuffer> for BoolArray {
     fn from(value: BooleanBuffer) -> Self {
-        Self::new(value, Validity::NonNullable)
+        Self::from_bool_buffer(value, Validity::NonNullable)
     }
 }
 
 impl FromIterator<bool> for BoolArray {
     fn from_iter<T: IntoIterator<Item = bool>>(iter: T) -> Self {
-        Self::new(BooleanBuffer::from_iter(iter), Validity::NonNullable)
+        Self::from_bool_buffer(BooleanBuffer::from_iter(iter), Validity::NonNullable)
     }
 }
 
@@ -236,7 +261,7 @@ impl FromIterator<Option<bool>> for BoolArray {
     fn from_iter<I: IntoIterator<Item = Option<bool>>>(iter: I) -> Self {
         let (buffer, nulls) = BooleanArray::from_iter(iter).into_parts();
 
-        Self::new(
+        Self::from_bool_buffer(
             buffer,
             nulls.map(Validity::from).unwrap_or(Validity::AllValid),
         )
@@ -391,7 +416,7 @@ mod tests {
     fn patch_bools_owned() {
         let buffer = buffer![255u8; 2];
         let buf = BooleanBuffer::new(buffer.into_arrow_buffer(), 0, 15);
-        let arr = BoolArray::new(buf, Validity::NonNullable);
+        let arr = BoolArray::from_bool_buffer(buf, Validity::NonNullable);
         let buf_ptr = arr.boolean_buffer().sliced().as_ptr();
 
         let patches = Patches::new(

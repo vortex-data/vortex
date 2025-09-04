@@ -309,7 +309,7 @@ fn random_bool(
 ) -> Result<ArrayRef> {
     let v = arbitrary_vec_of_len(u, len)?;
     let validity = random_validity(u, nullability, v.len())?;
-    Ok(BoolArray::new(BooleanBuffer::from(v), validity).into_array())
+    Ok(BoolArray::from_bool_buffer(BooleanBuffer::from(v), validity).into_array())
 }
 
 fn random_validity(u: &mut Unstructured, nullability: Nullability, len: usize) -> Result<Validity> {

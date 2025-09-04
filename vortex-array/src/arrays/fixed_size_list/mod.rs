@@ -59,26 +59,33 @@ pub struct FixedSizeListArray {
 }
 
 impl FixedSizeListArray {
-    /// Creates a new `FixedSizeListArray`. This is simply a wrapper around [`try_new()`].
+    /// Creates a new [`FixedSizeListArray`].
     ///
     /// # Panics
     ///
-    /// Panics if the inputs are invalid. See
-    ///
-    /// [`try_new()`]: Self::try_new
+    /// Panics if the provided components do not satisfy the invariants documented
+    /// in [`FixedSizeListArray::new_unchecked`].
     pub fn new(elements: ArrayRef, list_size: u32, validity: Validity, len: usize) -> Self {
         Self::try_new(elements, list_size, validity, len)
-            .vortex_expect("FixedSizeListArray `try_new` failed")
+            .vortex_expect("FixedSizeListArray construction failed")
     }
 
-    /// Attempts to create a new `FixedSizeListArray`.
+    /// Constructs a new `FixedSizeListArray`.
+    ///
+    /// See [`FixedSizeListArray::new_unchecked`] for more information.
     ///
     /// # Errors
     ///
-    /// Returns an error if the inputs are invalid. See [`new_unchecked()`] for more details on what
-    /// the validity requirements are.
+    /// Returns an error if the inputs are invalid. The inputs are **valid** if:
     ///
-    /// [`new_unchecked()`]: Self::new_unchecked
+    /// - The `list_size` is 0 and:
+    ///   - The `elements` array is empty.
+    ///   - The `len` is equal to the length of the `validity` map.
+    /// - The length of the `elements` array is a multiple of the size of the fixed-size lists
+    ///   (`list_size`).
+    /// - The `Validity` length (if it exists) times the `list_size` is equal to the length of the
+    ///   `elements` (or put another way, the length of the array divided by the size of each
+    ///   fixed-size list is equal to the length of the validity).
     pub fn try_new(
         elements: ArrayRef,
         list_size: u32,
@@ -91,7 +98,12 @@ impl FixedSizeListArray {
         Ok(unsafe { Self::new_unchecked(elements, list_size, validity, len) })
     }
 
-    /// Creates a new `FixedSizeListArray`, assuming that the caller has validated the inputs.
+    /// Creates a new [`FixedSizeListArray`] without validation from these components:
+    ///
+    /// * `elements` is the data array where each fixed-size list is a slice.
+    /// * `list_size` is the fixed number of elements in each list.
+    /// * `validity` holds the null values.
+    /// * `len` is the number of lists in the array.
     ///
     /// # Safety
     ///
@@ -151,10 +163,10 @@ impl FixedSizeListArray {
         self.elements().slice(start..end)
     }
 
-    /// Checks if the components of a `FixedSizeListArray` are valid.
+    /// Validates the components that would be used to create a [`FixedSizeListArray`].
     ///
-    /// See [`try_new()`](Self::try_new) for the validation semantics.
-    fn validate(
+    /// This function checks all the invariants required by [`FixedSizeListArray::new_unchecked`].
+    pub(crate) fn validate(
         elements: &dyn Array,
         len: usize,
         list_size: u32,

@@ -142,7 +142,8 @@ where
                     unsafe { codes.push_unchecked(code) }
                 }
             })?;
-            PrimitiveArray::new(codes, Validity::NonNullable)
+
+            PrimitiveArray::new(codes.freeze(), Validity::NonNullable)
         };
 
         Ok(codes.into_array())

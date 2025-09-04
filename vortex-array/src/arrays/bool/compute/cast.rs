@@ -19,7 +19,7 @@ impl CastKernel for BoolVTable {
         let new_nullability = dtype.nullability();
         let new_validity = array.validity().clone().cast_nullability(new_nullability)?;
         Ok(Some(
-            BoolArray::new(array.boolean_buffer().clone(), new_validity).to_array(),
+            BoolArray::from_bool_buffer(array.boolean_buffer().clone(), new_validity).to_array(),
         ))
     }
 }

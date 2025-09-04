@@ -43,7 +43,11 @@ fn slice_typed<T: NativeDecimalType>(
 ) -> ArrayRef {
     let sliced = values.slice(range.clone());
     let validity = validity.slice(range);
-    DecimalArray::new(sliced, decimal_dtype, validity).into_array()
+    // SAFETY: Slicing preserves all DecimalArray invariants:
+    // - Buffer is correctly typed and sized from the slice operation.
+    // - Decimal dtype is preserved from the parent array.
+    // - Validity is correctly sliced to match the new length.
+    unsafe { DecimalArray::new_unchecked(sliced, decimal_dtype, validity) }.into_array()
 }
 
 #[cfg(test)]

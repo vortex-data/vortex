@@ -6,6 +6,9 @@
 #[cfg(test)]
 mod assertions;
 
+#[cfg(test)]
+mod validation_tests;
+
 mod bool;
 mod chunked;
 mod constant;

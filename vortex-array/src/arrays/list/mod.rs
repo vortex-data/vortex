@@ -119,33 +119,51 @@ pub trait OffsetPType: NativePType + PrimInt + AsPrimitive<usize> + Into<Scalar>
 impl<T> OffsetPType for T where T: NativePType + PrimInt + AsPrimitive<usize> + Into<Scalar> {}
 
 impl ListArray {
+    /// Creates a new [`ListArray`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the provided components do not satisfy the invariants documented
+    /// in [`ListArray::new_unchecked`].
     pub fn new(elements: ArrayRef, offsets: ArrayRef, validity: Validity) -> Self {
         Self::try_new(elements, offsets, validity).vortex_expect("ListArray new")
     }
 
+    /// Constructs a new `ListArray`.
+    ///
+    /// See [`ListArray::new_unchecked`] for more information.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the provided components do not satisfy the invariants documented in
+    /// [`ListArray::new_unchecked`].
     pub fn try_new(
         elements: ArrayRef,
         offsets: ArrayRef,
         validity: Validity,
     ) -> VortexResult<Self> {
-        if !offsets.dtype().is_int() || offsets.dtype().is_nullable() {
-            vortex_bail!(
-                "Expected offsets to be an non-nullable integer type, got {:?}",
-                offsets.dtype()
-            );
-        }
-
-        if offsets.is_empty() {
-            vortex_bail!("Offsets must have at least one element, [0] for an empty list");
-        }
-
         Self::validate(&elements, &offsets, &validity)?;
 
+        // SAFETY: validate ensures all invariants are met.
         Ok(unsafe { Self::new_unchecked(elements, offsets, validity) })
     }
 
+    /// Creates a new [`ListArray`] without validation from these components:
+    ///
+    /// * `elements` is a flat array containing all list elements concatenated.
+    /// * `offsets` is an integer array where `offsets[i]` is the start index for list `i`.
+    /// * `validity` holds the null values.
+    ///
     /// # Safety
-    /// This method is safe too call if the arguments passed wouldn't cause an error when calling [`Self::try_new`]
+    ///
+    /// The caller must ensure all of the following invariants are satisfied:
+    ///
+    /// - Offsets must be a non-nullable integer array.
+    /// - Offsets must have at least one element (even for empty lists, it should contain \[0\]).
+    /// - Offsets must be sorted (monotonically increasing).
+    /// - All offset values must be non-negative.
+    /// - The maximum offset must not exceed `elements.len()`.
+    /// - If validity is an array, its length must equal `offsets.len() - 1`.
     pub unsafe fn new_unchecked(elements: ArrayRef, offsets: ArrayRef, validity: Validity) -> Self {
         Self {
             dtype: DType::List(Arc::new(elements.dtype().clone()), validity.nullability()),
@@ -156,74 +174,20 @@ impl ListArray {
         }
     }
 
-    /// Returns the offset at the given index from the list array.
+    /// Validates the components that would be used to create a [`ListArray`].
     ///
-    /// Panics if the index is out of bounds.
-    pub fn offset_at(&self, index: usize) -> usize {
-        assert!(
-            index <= self.len(),
-            "Index {index} out of bounds 0..={}",
-            self.len()
-        );
-
-        self.offsets()
-            .as_opt::<PrimitiveVTable>()
-            .map(|p| match_each_native_ptype!(p.ptype(), |P| { p.as_slice::<P>()[index].as_() }))
-            .unwrap_or_else(|| {
-                self.offsets()
-                    .scalar_at(index)
-                    .as_primitive()
-                    .as_::<usize>()
-                    .vortex_expect("index must fit in usize")
-            })
-    }
-
-    /// Returns the elements at the given index from the list array.
-    pub fn elements_at(&self, index: usize) -> ArrayRef {
-        let start = self.offset_at(index);
-        let end = self.offset_at(index + 1);
-        self.elements().slice(start..end)
-    }
-
-    /// Returns elements of the list array referenced by the offsets array
-    pub fn sliced_elements(&self) -> ArrayRef {
-        let start = self.offset_at(0);
-        let end = self.offset_at(self.len());
-        self.elements().slice(start..end)
-    }
-
-    /// Returns the offsets array.
-    pub fn offsets(&self) -> &ArrayRef {
-        &self.offsets
-    }
-
-    /// Returns the elements array.
-    pub fn elements(&self) -> &ArrayRef {
-        &self.elements
-    }
-
-    /// Create a copy of this array by adjusting offsets to start at 0 and removing elements not referenced by the offsets
-    pub fn reset_offsets(&self) -> VortexResult<Self> {
-        let elements = self.sliced_elements();
-        let offsets = self.offsets();
-        let first_offset = offsets.scalar_at(0);
-        let adjusted_offsets = sub_scalar(offsets, first_offset)?;
-
-        Self::try_new(elements, adjusted_offsets, self.validity.clone())
-    }
-
-    /// A list is valid if the:
-    /// - offsets start at a value in elements
-    /// - offsets are sorted
-    /// - the final offset points to an element in the elements list, pointing to zero
-    ///   if elements are empty.
-    /// - final_offset >= start_offset
-    /// - The size of the validity is the size-1 of the offset array
-    fn validate(
+    /// This function checks all the invariants required by [`ListArray::new_unchecked`].
+    pub(crate) fn validate(
         elements: &dyn Array,
         offsets: &dyn Array,
         validity: &Validity,
     ) -> VortexResult<()> {
+        // Offsets must have at least one element
+        vortex_ensure!(
+            !offsets.is_empty(),
+            "Offsets must have at least one element, [0] for an empty list"
+        );
+
         // Offsets must be of integer type, and cannot go lower than 0.
         vortex_ensure!(
             offsets.dtype().is_int() && !offsets.dtype().is_nullable(),
@@ -291,6 +255,62 @@ impl ListArray {
         }
 
         Ok(())
+    }
+
+    /// Returns the offset at the given index from the list array.
+    ///
+    /// Panics if the index is out of bounds.
+    pub fn offset_at(&self, index: usize) -> usize {
+        assert!(
+            index <= self.len(),
+            "Index {index} out of bounds 0..={}",
+            self.len()
+        );
+
+        self.offsets()
+            .as_opt::<PrimitiveVTable>()
+            .map(|p| match_each_native_ptype!(p.ptype(), |P| { p.as_slice::<P>()[index].as_() }))
+            .unwrap_or_else(|| {
+                self.offsets()
+                    .scalar_at(index)
+                    .as_primitive()
+                    .as_::<usize>()
+                    .vortex_expect("index must fit in usize")
+            })
+    }
+
+    /// Returns the elements at the given index from the list array.
+    pub fn elements_at(&self, index: usize) -> ArrayRef {
+        let start = self.offset_at(index);
+        let end = self.offset_at(index + 1);
+        self.elements().slice(start..end)
+    }
+
+    /// Returns elements of the list array referenced by the offsets array
+    pub fn sliced_elements(&self) -> ArrayRef {
+        let start = self.offset_at(0);
+        let end = self.offset_at(self.len());
+        self.elements().slice(start..end)
+    }
+
+    /// Returns the offsets array.
+    pub fn offsets(&self) -> &ArrayRef {
+        &self.offsets
+    }
+
+    /// Returns the elements array.
+    pub fn elements(&self) -> &ArrayRef {
+        &self.elements
+    }
+
+    /// Create a copy of this array by adjusting offsets to start at 0 and removing elements not referenced by the offsets
+    pub fn reset_offsets(&self) -> VortexResult<Self> {
+        let elements = self.sliced_elements();
+        let offsets = self.offsets();
+        let first_offset = offsets.scalar_at(0);
+        let adjusted_offsets = sub_scalar(offsets, first_offset)?;
+
+        Self::try_new(elements, adjusted_offsets, self.validity.clone())
     }
 }
 

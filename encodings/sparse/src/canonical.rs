@@ -389,7 +389,7 @@ fn canonicalize_sparse_bools(patches: &Patches, fill_value: &Scalar) -> Canonica
         )
     };
 
-    let bools = BoolArray::new(
+    let bools = BoolArray::from_bool_buffer(
         if fill_bool {
             BooleanBuffer::new_set(patches.array_len())
         } else {
@@ -642,7 +642,7 @@ mod test {
             buffer.append(maybe_bool.unwrap_or_else(|| fill_value.unwrap_or_default()));
             validity.append(maybe_bool.is_some());
         }
-        BoolArray::new(buffer.finish(), Validity::from(validity.finish()))
+        BoolArray::from_bool_buffer(buffer.finish(), Validity::from(validity.finish()))
     }
 
     #[rstest]

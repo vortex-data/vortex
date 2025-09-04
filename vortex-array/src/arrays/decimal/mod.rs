@@ -135,7 +135,74 @@ pub struct DecimalArray {
 }
 
 impl DecimalArray {
-    fn validate<T: NativeDecimalType>(buffer: &Buffer<T>, validity: &Validity) -> VortexResult<()> {
+    /// Creates a new [`DecimalArray`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the provided components do not satisfy the invariants documented in
+    /// [`DecimalArray::new_unchecked`].
+    pub fn new<T: NativeDecimalType>(
+        buffer: Buffer<T>,
+        decimal_dtype: DecimalDType,
+        validity: Validity,
+    ) -> Self {
+        Self::try_new(buffer, decimal_dtype, validity)
+            .vortex_expect("DecimalArray construction failed")
+    }
+
+    /// Constructs a new `DecimalArray`.
+    ///
+    /// See [`DecimalArray::new_unchecked`] for more information.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the provided components do not satisfy the invariants documented in
+    /// [`DecimalArray::new_unchecked`].
+    pub fn try_new<T: NativeDecimalType>(
+        buffer: Buffer<T>,
+        decimal_dtype: DecimalDType,
+        validity: Validity,
+    ) -> VortexResult<Self> {
+        Self::validate(&buffer, &validity)?;
+
+        // SAFETY: validate ensures all invariants are met.
+        Ok(unsafe { Self::new_unchecked(buffer, decimal_dtype, validity) })
+    }
+
+    /// Creates a new [`DecimalArray`] without validation from these components:
+    ///
+    /// * `buffer` is a typed buffer containing the decimal values.
+    /// * `decimal_dtype` specifies the decimal precision and scale.
+    /// * `validity` holds the null values.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure all of the following invariants are satisfied:
+    ///
+    /// - All non-null values in `buffer` must be representable within the specified precision.
+    /// - For example, with precision=5 and scale=2, all values must be in range [-999.99, 999.99].
+    /// - If `validity` is [`Validity::Array`], its length must exactly equal `buffer.len()`.
+    pub unsafe fn new_unchecked<T: NativeDecimalType>(
+        buffer: Buffer<T>,
+        decimal_dtype: DecimalDType,
+        validity: Validity,
+    ) -> Self {
+        Self {
+            values: buffer.into_byte_buffer(),
+            values_type: T::VALUES_TYPE,
+            dtype: DType::Decimal(decimal_dtype, validity.nullability()),
+            validity,
+            stats_set: Default::default(),
+        }
+    }
+
+    /// Validates the components that would be used to create a [`DecimalArray`].
+    ///
+    /// This function checks all the invariants required by [`DecimalArray::new_unchecked`].
+    pub(crate) fn validate<T: NativeDecimalType>(
+        buffer: &Buffer<T>,
+        validity: &Validity,
+    ) -> VortexResult<()> {
         if let Some(len) = validity.maybe_len() {
             vortex_ensure!(
                 buffer.len() == len,
@@ -146,46 +213,6 @@ impl DecimalArray {
         }
 
         Ok(())
-    }
-}
-
-impl DecimalArray {
-    /// Creates a new [`DecimalArray`] from a [`Buffer`] and [`Validity`], without checking
-    /// any invariants.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the provided buffer and validity differ in length.
-    ///
-    /// See also [`DecimalArray::try_new`].
-    pub fn new<T: NativeDecimalType>(
-        buffer: Buffer<T>,
-        decimal_dtype: DecimalDType,
-        validity: Validity,
-    ) -> Self {
-        Self::try_new(buffer, decimal_dtype, validity).vortex_expect("DecimalArray new")
-    }
-
-    /// Build a new `DecimalArray` from a component `buffer`, decimal_dtype` and `validity`.
-    ///
-    /// This constructor validates the length of the buffer and validity are equal, returning
-    /// an error otherwise.
-    ///
-    /// See [`DecimalArray::new`] for an infallible constructor that panics on validation errors.
-    pub fn try_new<T: NativeDecimalType>(
-        buffer: Buffer<T>,
-        decimal_dtype: DecimalDType,
-        validity: Validity,
-    ) -> VortexResult<Self> {
-        Self::validate(&buffer, &validity)?;
-
-        Ok(Self {
-            values: buffer.into_byte_buffer(),
-            values_type: T::VALUES_TYPE,
-            dtype: DType::Decimal(decimal_dtype, validity.nullability()),
-            validity,
-            stats_set: Default::default(),
-        })
     }
 
     /// Returns the underlying [`ByteBuffer`] of the array.

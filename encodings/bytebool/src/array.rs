@@ -116,7 +116,7 @@ impl CanonicalVTable<ByteBoolVTable> for ByteBoolVTable {
     fn canonicalize(array: &ByteBoolArray) -> Canonical {
         let boolean_buffer = BooleanBuffer::from(array.as_slice());
         let validity = array.validity().clone();
-        Canonical::Bool(BoolArray::new(boolean_buffer, validity))
+        Canonical::Bool(BoolArray::from_bool_buffer(boolean_buffer, validity))
     }
 }
 

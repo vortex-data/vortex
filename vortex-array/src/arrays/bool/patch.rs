@@ -33,7 +33,7 @@ impl BoolArray {
             }
         });
 
-        Self::new(own_values.finish().slice(bit_offset, len), patched_validity)
+        Self::from_bool_buffer(own_values.finish().slice(bit_offset, len), patched_validity)
     }
 }
 

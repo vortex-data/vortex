@@ -316,7 +316,7 @@ mod tests {
     fn test_cast_complex_struct() {
         let xs = PrimitiveArray::from_option_iter([Some(0i64), Some(1), Some(2), Some(3), Some(4)]);
         let ys = VarBinArray::from_vec(vec!["a", "b", "c", "d", "e"], DType::Utf8(Nullable));
-        let zs = BoolArray::new(
+        let zs = BoolArray::from_bool_buffer(
             BooleanBuffer::from_iter([true, true, false, false, true]),
             Validity::AllValid,
         );
@@ -393,7 +393,7 @@ mod tests {
 
     #[test]
     fn test_empty_struct_is_constant() {
-        let array = StructArray::new_with_len(2);
+        let array = StructArray::new_fieldless_with_len(2);
         let is_constant = is_constant(array.as_ref()).vortex_unwrap();
         assert_eq!(is_constant, Some(true));
     }

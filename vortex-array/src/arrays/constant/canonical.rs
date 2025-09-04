@@ -37,7 +37,7 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
 
         match array.dtype() {
             DType::Null => Canonical::Null(NullArray::new(array.len())),
-            DType::Bool(..) => Canonical::Bool(BoolArray::new(
+            DType::Bool(..) => Canonical::Bool(BoolArray::from_bool_buffer(
                 if BoolScalar::try_from(scalar)
                     .vortex_expect("must be bool")
                     .value()
@@ -70,13 +70,27 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
                 let decimal = scalar.as_decimal();
                 let Some(value) = decimal.decimal_value() else {
                     let all_null = match_each_decimal_value_type!(size, |D| {
-                        DecimalArray::new(Buffer::<D>::zeroed(array.len()), *decimal_type, validity)
+                        // SAFETY: All-null decimal arrays with zeroed buffers and matching validity.
+                        unsafe {
+                            DecimalArray::new_unchecked(
+                                Buffer::<D>::zeroed(array.len()),
+                                *decimal_type,
+                                validity,
+                            )
+                        }
                     });
                     return Canonical::Decimal(all_null);
                 };
 
                 let decimal_array = match_each_decimal_value!(value, |value| {
-                    DecimalArray::new(Buffer::full(value, array.len()), *decimal_type, validity)
+                    // SAFETY: Constant decimal values with correct type and validity.
+                    unsafe {
+                        DecimalArray::new_unchecked(
+                            Buffer::full(value, array.len()),
+                            *decimal_type,
+                            validity,
+                        )
+                    }
                 });
                 Canonical::Decimal(decimal_array)
             }
@@ -112,12 +126,11 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
                             .collect()
                     }
                 };
-                Canonical::Struct(StructArray::new_unchecked(
-                    fields,
-                    struct_dtype.clone(),
-                    array.len(),
-                    validity,
-                ))
+                // SAFETY: Fields are constructed from the same struct scalar, all have same
+                // length, dtypes match by construction.
+                Canonical::Struct(unsafe {
+                    StructArray::new_unchecked(fields, struct_dtype.clone(), array.len(), validity)
+                })
             }
             DType::List(..) => {
                 let value = ListScalar::try_from(scalar).vortex_expect("must be list");

@@ -461,7 +461,8 @@ impl IntoArray for Mask {
 impl IntoArray for &MaskValues {
     #[inline]
     fn into_array(self) -> ArrayRef {
-        BoolArray::new(self.boolean_buffer().clone(), Validity::NonNullable).into_array()
+        BoolArray::from_bool_buffer(self.boolean_buffer().clone(), Validity::NonNullable)
+            .into_array()
     }
 }
 

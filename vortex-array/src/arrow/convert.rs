@@ -49,7 +49,7 @@ impl IntoArray for ArrowBuffer {
 
 impl IntoArray for BooleanBuffer {
     fn into_array(self) -> ArrayRef {
-        BoolArray::new(self, Validity::NonNullable).into_array()
+        BoolArray::from_bool_buffer(self, Validity::NonNullable).into_array()
     }
 }
 
@@ -233,7 +233,8 @@ impl<T: ByteViewType> FromArrowArray<&GenericByteViewArray<T>> for ArrayRef {
 
 impl FromArrowArray<&ArrowBooleanArray> for ArrayRef {
     fn from_arrow(value: &ArrowBooleanArray, nullable: bool) -> Self {
-        BoolArray::new(value.values().clone(), nulls(value.nulls(), nullable)).into_array()
+        BoolArray::from_bool_buffer(value.values().clone(), nulls(value.nulls(), nullable))
+            .into_array()
     }
 }
 

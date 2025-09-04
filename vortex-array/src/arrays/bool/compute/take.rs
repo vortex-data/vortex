@@ -32,7 +32,7 @@ impl TakeKernel for BoolVTable {
             take_valid_indices(array.boolean_buffer(), indices_nulls_zeroed.as_slice::<I>())
         });
 
-        Ok(BoolArray::new(buffer, array.validity().take(indices)?).to_array())
+        Ok(BoolArray::from_bool_buffer(buffer, array.validity().take(indices)?).to_array())
     }
 }
 
