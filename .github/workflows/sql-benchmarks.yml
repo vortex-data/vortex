@@ -211,12 +211,9 @@ jobs:
             > base.json
 
           echo '# Benchmarks: ${{ matrix.name }}' > comment.md
-          echo '<details>' >> comment.md
-          echo '<summary>Table of Results</summary>' >> comment.md
           echo '' >> comment.md
           uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json "${{ matrix.name }}" \
             >> comment.md
-          echo '</details>' >> comment.md
 
       - name: Comment PR
         if: inputs.mode == 'pr'
