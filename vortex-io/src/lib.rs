@@ -24,10 +24,12 @@ pub use write::*;
 mod compio;
 mod dispatcher;
 mod io_buf;
+mod kanal_ext;
 mod limit;
 #[cfg(feature = "object_store")]
 mod object_store;
 mod read;
+pub mod runtime;
 #[cfg(feature = "tokio")]
 mod tokio;
 mod write;
