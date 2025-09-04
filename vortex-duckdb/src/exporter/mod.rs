@@ -233,46 +233,11 @@ fn copy_from_byte_slice(
     offset: usize,
     len: usize,
 ) -> usize {
-    assert!(target.len() == len, "{} {}", target.len(), len);
-    assert!(source.len() * 8 >= len, "{} {}", source.len(), len);
-
-    let (start, middle, end) = unsafe { source.align_to::<u64>() };
-    let start = start.view_bits::<Lsb0>();
-    let middle = middle.view_bits::<Lsb0>();
-    let end = end.view_bits::<Lsb0>();
-
-    let start_offset = std::cmp::min(offset, start.len());
-    let start_len = std::cmp::min(len, start.len() - start_offset);
-
-    let start_slice = &start[start_offset..][..start_len];
-    for (slice_index, value) in start_slice.iter().enumerate() {
-        target.set(slice_index, *value);
-    }
-
-    let target_cursor = start_slice.len();
-
-    let remaining_offset = offset.saturating_sub(start.len());
-    let remaining_len = len.saturating_sub(start_slice.len());
-
-    let middle_offset = std::cmp::min(remaining_offset, middle.len());
-    let middle_len = std::cmp::min(remaining_len, middle.len() - middle_offset);
-
-    let middle_slice = &middle[middle_offset..][..middle_len];
-    target[target_cursor..][..middle_len].copy_from_bitslice(middle_slice);
-
-    let target_cursor = target_cursor + middle_len;
-
-    let end_offset = remaining_offset.saturating_sub(middle.len());
-    let end_len = remaining_len.saturating_sub(middle_slice.len());
-
-    assert!(end_offset <= end.len(), "{} {}", end_offset, end.len());
-    assert!(end_len <= end.len(), "{} {}", end_len, end.len());
-
-    let end_slice = &end[end_offset..][..end_len];
-    for (slice_index, value) in end_slice.iter().enumerate() {
-        target.set(target_cursor + slice_index, *value);
-    }
-
+    let (start, middle, end) = unsafe { target.align_to_mut::<u8>() };
+    assert!(start.is_empty());
+    assert!(end.is_empty());
+    assert!(middle.len() == len, "{} {}", middle.len(), len);
+    middle.copy_from_bitslice(&source.view_bits()[offset..][..len]);
     target.count_ones()
 }
 
@@ -606,6 +571,88 @@ mod tests {
             target[1], 0xe0_40_38_30_2f_e7_ef_f7_u64,
             "{:#08x} == {:#08x}",
             target[1], 0xe0_40_38_30_2f_e7_ef_f7_u64,
+        );
+    }
+}
+
+#[cfg(feature = "bench")]
+pub mod benchmarks {
+    use crate::exporter::{copy_from_byte_slice, copy_from_byte_slice_fast};
+    use bitvec::order::Lsb0;
+    use bitvec::view::AsMutBits;
+
+    #[divan::bench(args = [64, 1024, 32768, 1048576, 33554432])]
+    fn test_bench_copy_from_byte_slice(n: u64) {
+        let mut target = (0..(n / 64)).map(|_| 0_u64).collect::<Vec<_>>();
+        let source = (0..(n / 8)).map(|x| (x % 255) as u8).collect::<Vec<_>>();
+
+        copy_from_byte_slice(
+            target.as_mut_bits::<Lsb0>(),
+            &source,
+            0,
+            usize::try_from(n).unwrap(),
+        );
+    }
+
+    fn copy_from_byte_slice_fast(
+        target: &mut BitSlice<u64, Lsb0>,
+        source: &[u8],
+        offset: usize,
+        len: usize,
+    ) -> usize {
+        assert!(target.len() == len, "{} {}", target.len(), len);
+        assert!(source.len() * 8 >= len, "{} {}", source.len(), len);
+
+        let (start, middle, end) = unsafe { source.align_to::<u64>() };
+        let start = start.view_bits::<Lsb0>();
+        let middle = middle.view_bits::<Lsb0>();
+        let end = end.view_bits::<Lsb0>();
+
+        let start_offset = std::cmp::min(offset, start.len());
+        let start_len = std::cmp::min(len, start.len() - start_offset);
+
+        let start_slice = &start[start_offset..][..start_len];
+        for (slice_index, value) in start_slice.iter().enumerate() {
+            target.set(slice_index, *value);
+        }
+
+        let target_cursor = start_slice.len();
+
+        let remaining_offset = offset.saturating_sub(start.len());
+        let remaining_len = len.saturating_sub(start_slice.len());
+
+        let middle_offset = std::cmp::min(remaining_offset, middle.len());
+        let middle_len = std::cmp::min(remaining_len, middle.len() - middle_offset);
+
+        let middle_slice = &middle[middle_offset..][..middle_len];
+        target[target_cursor..][..middle_len].copy_from_bitslice(middle_slice);
+
+        let target_cursor = target_cursor + middle_len;
+
+        let end_offset = remaining_offset.saturating_sub(middle.len());
+        let end_len = remaining_len.saturating_sub(middle_slice.len());
+
+        assert!(end_offset <= end.len(), "{} {}", end_offset, end.len());
+        assert!(end_len <= end.len(), "{} {}", end_len, end.len());
+
+        let end_slice = &end[end_offset..][..end_len];
+        for (slice_index, value) in end_slice.iter().enumerate() {
+            target.set(target_cursor + slice_index, *value);
+        }
+
+        target.count_ones()
+    }
+
+    #[divan::bench(args = [64, 1024, 32768, 1048576, 33554432])]
+    fn test_bench_copy_from_byte_slice_fast(n: u64) {
+        let mut target = (0..(n / 64)).map(|_| 0_u64).collect::<Vec<_>>();
+        let source = (0..(n / 8)).map(|x| (x % 255) as u8).collect::<Vec<_>>();
+
+        copy_from_byte_slice_fast(
+            target.as_mut_bits::<Lsb0>(),
+            &source,
+            0,
+            usize::try_from(n).unwrap(),
         );
     }
 }

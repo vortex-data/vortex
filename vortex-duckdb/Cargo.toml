@@ -39,10 +39,18 @@ url = { workspace = true }
 vortex = { workspace = true, features = ["files"] }
 vortex-file = { workspace = true, features = ["tokio", "object_store"] }
 vortex-utils = { workspace = true, features = ["dashmap"] }
+divan = { workspace = true, optional = true }
 
 [dev-dependencies]
 jiff = { workspace = true }
 rstest = { workspace = true }
+
+[features]
+bench = ["dep:divan"]
+
+[[bench]]
+name = "benchmark"
+harness = false
 
 [lints]
 workspace = true
