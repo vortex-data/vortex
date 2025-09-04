@@ -4,7 +4,6 @@
 use std::fs::File;
 use std::io;
 use std::ops::{Deref, Range};
-use std::os::unix::fs::FileExt;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -50,12 +49,15 @@ impl Deref for TokioFile {
 }
 
 impl VortexReadAt for TokioFile {
+    
+    #[cfg(unix)]
     #[tracing::instrument(skip_all, fields(range, alignment))]
     async fn read_byte_range(
         &self,
         range: Range<u64>,
         alignment: Alignment,
     ) -> io::Result<ByteBuffer> {
+        use std::os::unix::fs::FileExt;
         let len = usize::try_from(range.end - range.start).vortex_expect("range too big for usize");
         let this = self.clone();
 
@@ -63,6 +65,27 @@ impl VortexReadAt for TokioFile {
             let mut buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
             unsafe { buffer.set_len(len) }
             this.read_exact_at(&mut buffer, range.start)?;
+            Ok(buffer.freeze())
+        })
+        .await?
+    }
+
+    #[cfg(windows)]
+    #[tracing::instrument(skip_all, fields(range, alignment))]
+    async fn read_byte_range(
+        &self,
+        range: Range<u64>,
+        alignment: Alignment,
+    ) -> io::Result<ByteBuffer> {
+        let len = usize::try_from(range.end - range.start).expect("range too big for usize");
+        let this = self.clone();
+
+        spawn_blocking(move || {
+            use std::os::windows::fs::FileExt; // 导入 Windows 特有的 trait
+            let mut buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
+            unsafe { buffer.set_len(len) }
+            // Windows 的 seek_read 需要一个循环来确保读完
+            this.seek_read(&mut buffer, range.start)?;
             Ok(buffer.freeze())
         })
         .await?
@@ -98,7 +121,6 @@ mod tests {
     use std::fs::File;
     use std::io::Write;
     use std::ops::Deref;
-    use std::os::unix::fs::FileExt;
 
     use tempfile::NamedTempFile;
     use vortex_buffer::Alignment;
@@ -138,8 +160,18 @@ mod tests {
 
         // Create a function to test if we can read from the file
         let can_read = |file: &File| {
+
             let mut buffer = vec![0; 7];
-            file.read_exact_at(&mut buffer, 0).is_ok()
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::FileExt;
+                file.read_exact_at(&mut buffer, 0).is_ok()
+            }
+            #[cfg(windows)]
+            {
+                use std::os::windows::fs::FileExt;
+                file.seek_read(&mut buffer, 0).map(|read| read == buffer.len()).unwrap_or(false)
+            }
         };
 
         // Test initial read
