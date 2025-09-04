@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools as _;
 use std::collections::VecDeque;
 use std::fmt::Display;
 use std::path::Path;
 use std::sync::Arc;
 
+use itertools::Itertools as _;
 use vortex::error::{VortexExpect, VortexResult};
 use vortex::file::VortexOpenOptions;
 use vortex::layout::LayoutRef;
