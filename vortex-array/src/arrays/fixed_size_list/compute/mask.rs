@@ -11,13 +11,17 @@ use crate::{ArrayRef, IntoArray, register_kernel};
 
 impl MaskKernel for FixedSizeListVTable {
     fn mask(&self, array: &FixedSizeListArray, mask: &Mask) -> VortexResult<ArrayRef> {
-        FixedSizeListArray::try_new(
-            array.elements().clone(),
-            array.list_size(),
-            array.validity().mask(mask),
-            array.len(),
-        )
-        .map(|a| a.into_array())
+        // SAFETY: The only thing that changes here is the validity mask, which will have the same
+        // length. So as long as the original array is valid, this is also valid.
+        Ok(unsafe {
+            FixedSizeListArray::new_unchecked(
+                array.elements().clone(),
+                array.list_size(),
+                array.validity().mask(mask),
+                array.len(),
+            )
+        }
+        .into_array())
     }
 }
 

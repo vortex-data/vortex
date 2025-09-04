@@ -26,8 +26,19 @@ impl CastKernel for FixedSizeListVTable {
             .clone()
             .cast_nullability(dtype.nullability())?;
 
-        FixedSizeListArray::try_new(elements, array.list_size(), validity, array.len())
-            .map(|a| Some(a.to_array()))
+        Ok(Some(
+            // SAFETY: The only requirements for safety here are related to lengths, and no lengths
+            // have changed here. So as long as the original array is valid, this is also valid.
+            unsafe {
+                FixedSizeListArray::new_unchecked(
+                    elements,
+                    array.list_size(),
+                    validity,
+                    array.len(),
+                )
+            }
+            .to_array(),
+        ))
     }
 }
 
