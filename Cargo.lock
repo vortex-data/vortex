@@ -7237,6 +7237,7 @@ dependencies = [
 name = "vortex-zstd"
 version = "0.1.0"
 dependencies = [
+ "itertools 0.14.0",
  "prost 0.14.1",
  "rstest",
  "vortex-array",
@@ -7246,6 +7247,7 @@ dependencies = [
  "vortex-error",
  "vortex-mask",
  "vortex-scalar",
+ "vortex-sparse",
  "zstd",
 ]
 
