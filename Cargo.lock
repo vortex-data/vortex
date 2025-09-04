@@ -7203,6 +7203,7 @@ dependencies = [
  "futures-util",
  "humansize",
  "indicatif",
+ "itertools 0.14.0",
  "parquet",
  "ratatui",
  "taffy",

@@ -24,13 +24,13 @@ pub async fn segments(file: impl AsRef<Path>) -> VortexResult<()> {
     while !queue.is_empty() {
         let (path, layout) = queue.pop_front().vortex_expect("queue is not empty");
 
+        for segment in layout.segment_ids() {
+            segment_paths[*segment as usize] = Some(path.clone());
+        }
+
         for (child_layout, child_name) in layout.children()?.into_iter().zip(layout.child_names()) {
             let child_path = path.iter().cloned().chain([child_name]).collect();
             queue.push_back((child_path, child_layout));
-        }
-
-        for segment in layout.segment_ids() {
-            segment_paths[*segment as usize] = Some(path.clone());
         }
     }
 
