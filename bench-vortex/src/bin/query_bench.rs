@@ -104,8 +104,10 @@ struct ClickBenchArgs {
         default_values = vec![
             "datafusion:parquet",
             "datafusion:vortex",
+            "datafusion:vortex-compact",
             "duckdb:parquet",
             "duckdb:vortex",
+            "duckdb:vortex-compact",
             "duckdb:duckdb"
         ]
     )]
@@ -128,8 +130,10 @@ struct TpcHArgs {
             "datafusion:arrow",
             "datafusion:parquet",
             "datafusion:vortex",
+            "datafusion:vortex-compact",
             "duckdb:parquet",
             "duckdb:vortex",
+            "duckdb:vortex-compact",
             "duckdb:duckdb"
         ]
     )]
@@ -148,8 +152,10 @@ struct TpcDSArgs {
         default_values = vec![
             "datafusion:parquet",
             "datafusion:vortex",
+            "datafusion:vortex-compact",
             "duckdb:parquet",
             "duckdb:vortex",
+            "duckdb:vortex-compact",
             "duckdb:duckdb"
         ]
     )]
@@ -173,9 +179,7 @@ struct StatPopGenArgs {
               // "datafusion:vortex",
               "duckdb:parquet",
               "duckdb:vortex",
-              // DuckDB vortex-compact files trigger an assertion in pcodec.
-              //
-              // "duckdb:vortex-compact",
+              "duckdb:vortex-compact",
               //
               // DuckDB native has a fixed parallelism row group size of 122,880
               // rows. Unfortunately, this kind of list-heavy dataset is almost perfectly
