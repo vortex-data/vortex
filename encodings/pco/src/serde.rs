@@ -7,7 +7,7 @@ use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
 use vortex_array::{ArrayBufferVisitor, ArrayChildVisitor, ProstMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexResult, vortex_bail, vortex_ensure};
 
 use crate::{PcoArray, PcoEncoding, PcoVTable};
 
@@ -61,6 +61,7 @@ impl SerdeVTable<PcoVTable> for PcoVTable {
             vortex_bail!("PcoArray expected 0 or 1 child, got {}", children.len());
         };
 
+        vortex_ensure!(buffers.len() >= metadata.chunks.len());
         let chunk_metas = buffers[..metadata.chunks.len()].to_vec();
         let pages = buffers[metadata.chunks.len()..].to_vec();
 
@@ -69,7 +70,7 @@ impl SerdeVTable<PcoVTable> for PcoVTable {
             .iter()
             .map(|info| info.pages.len())
             .sum::<usize>();
-        assert_eq!(pages.len(), expected_n_pages);
+        vortex_ensure!(pages.len() == expected_n_pages);
 
         Ok(PcoArray::new(
             chunk_metas,
