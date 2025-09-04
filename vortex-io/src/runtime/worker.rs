@@ -3,10 +3,9 @@
 
 use std::sync::Arc;
 
-use futures::executor::block_on;
 use futures::future::BoxFuture;
 use futures::{FutureExt, Stream, StreamExt};
-use smol::Executor;
+use smol::{block_on, Executor};
 
 use crate::runtime::multithread::SmolAbortHandle;
 use crate::runtime::{AbortHandleRef, Handle, Runtime};
@@ -103,5 +102,38 @@ impl<T: Send + 'static> Iterator for Worker<T> {
                 .run(self.shared.results.as_async().recv()),
         )
         .ok()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    use futures::stream;
+
+    use super::*;
+
+    #[test]
+    fn test_drive_stream_collect_results() {
+        let values = vec![1, 2, 3, 4, 5];
+        let pool = WorkerPool::drive_stream(|_| stream::iter(values.clone()));
+        let results: Vec<_> = pool.new_worker().collect();
+        assert_eq!(results, values);
+    }
+
+    #[test]
+    fn test_drive_stream_with_side_effect() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let c = counter.clone();
+        let pool = WorkerPool::drive_stream(move |_| {
+            stream::iter(0..5).map(move |x| {
+                c.fetch_add(1, Ordering::SeqCst);
+                x
+            })
+        });
+        let results: Vec<_> = pool.new_worker().collect();
+        assert_eq!(results, vec![0, 1, 2, 3, 4]);
+        assert_eq!(counter.load(Ordering::SeqCst), 5);
     }
 }

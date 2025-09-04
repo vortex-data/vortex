@@ -4,9 +4,8 @@
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
-use futures::executor::block_on;
 use futures::future::BoxFuture;
-use smol::Executor;
+use smol::{block_on, Executor};
 use vortex_error::VortexExpect;
 
 use crate::runtime::{AbortHandle, AbortHandleRef, Handle, Runtime};
@@ -101,5 +100,35 @@ impl<T> Drop for SmolAbortHandle<T> {
         if let Some(task) = self.task.take() {
             task.detach()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::num::NonZeroUsize;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    use super::*;
+
+    #[test]
+    fn test_drive_simple_future() {
+        let rt = MultiThreadRuntime::new(NonZeroUsize::new(2).unwrap());
+        let result = rt.drive(|_| async { 42 });
+        assert_eq!(result, 42);
+    }
+
+    #[test]
+    fn test_spawn_and_abort() {
+        let executor = Arc::new(Executor::<'static>::new());
+        let counter = Arc::new(AtomicUsize::new(0));
+        let c = counter.clone();
+        let fut = Box::pin(async move {
+            c.fetch_add(1, Ordering::SeqCst);
+        });
+        let handle = SmolAbortHandle::new(executor.spawn(fut));
+        // Abort immediately
+        handle.abort();
+        // The counter may or may not be incremented depending on scheduling, but this tests abort path
     }
 }

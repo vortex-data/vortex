@@ -37,3 +37,49 @@ impl AbortHandle<'_> for tokio::task::AbortHandle {
         tokio::task::AbortHandle::abort(&self)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    use futures_util::FutureExt;
+    use smol::block_on;
+    use tokio::runtime::Runtime as TokioRt;
+
+    use super::*;
+
+    #[test]
+    fn test_spawn_simple_future() {
+        let tokio_rt = TokioRt::new().unwrap();
+        let handle = TokioRuntime::new(tokio_rt.handle().clone());
+        let result = block_on(handle.spawn(async {
+            let fut = async { 77 };
+            fut.await
+        }));
+        assert_eq!(result, 77);
+    }
+
+    #[test]
+    fn test_spawn_and_abort() {
+        let tokio_rt = TokioRt::new().unwrap();
+        let handle = TokioRuntime::new(tokio_rt.handle().clone());
+
+        let counter = Arc::new(AtomicUsize::new(0));
+        let c = counter.clone();
+
+        // Create a channel to ensure the future doesn't complete immediately
+        let (send, recv) = tokio::sync::oneshot::channel::<()>();
+
+        let fut = async move {
+            let _ = recv.await;
+            c.fetch_add(1, Ordering::SeqCst);
+        };
+        let task = handle.spawn(fut.boxed());
+        drop(task);
+
+        // Now we release the channel to let the future proceed if it wasn't aborted
+        let _ = send.send(());
+        assert_eq!(counter.load(Ordering::SeqCst), 0);
+    }
+}

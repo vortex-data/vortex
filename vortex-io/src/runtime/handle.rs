@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::task::{ready, Context, Poll};
 
 use futures::FutureExt;
-use vortex_error::{vortex_panic, VortexExpect};
+use vortex_error::vortex_panic;
 
 use crate::runtime::{AbortHandle, Runtime};
 

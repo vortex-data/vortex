@@ -4,12 +4,11 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use futures::executor::block_on;
 use futures::future::BoxFuture;
 use futures::stream::LocalBoxStream;
 use futures::{Stream, StreamExt};
 use parking_lot::Mutex;
-use smol::LocalExecutor;
+use smol::{block_on, LocalExecutor};
 use vortex_error::vortex_panic;
 
 use crate::runtime::{AbortHandle, AbortHandleRef, Handle, Runtime};
@@ -185,5 +184,34 @@ impl<T> Iterator for BlockingStream<T> {
     fn next(&mut self) -> Option<Self::Item> {
         let fut = self.stream.next();
         block_on(self.executor.run(fut))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    use super::*;
+
+    #[test]
+    fn test_drive_simple_future() {
+        let result = SingleThreadRuntime::drive(|_handle| async { 123 });
+        assert_eq!(result, 123);
+    }
+
+    #[test]
+    fn test_spawn_cpu_task() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let c = counter.clone();
+
+        let result = SingleThreadRuntime::drive(|handle| async move {
+            handle
+                .spawn_cpu(move || c.fetch_add(1, Ordering::SeqCst))
+                .await
+        });
+
+        assert_eq!(result, 0);
+        assert_eq!(counter.load(Ordering::SeqCst), 1);
     }
 }
