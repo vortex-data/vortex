@@ -211,7 +211,7 @@ impl VectorExt for Vector {
                 true
             }
             Mask::Values(arr) => {
-                // SAFETY: Caller guaranteees this.
+                // SAFETY: Caller guarantees this.
                 let target = &mut unsafe { self.ensure_validity_slice(len) }[..len];
                 let source = arr.boolean_buffer().inner().as_slice();
 
