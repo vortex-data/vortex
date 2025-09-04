@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use futures::{FutureExt, Stream, StreamExt};
-use smol::{block_on, Executor};
+use smol::{Executor, block_on};
 
 use crate::runtime::multithread::SmolAbortHandle;
 use crate::runtime::{AbortHandleRef, Handle, Runtime};
@@ -69,11 +69,11 @@ struct Shared<'rt, T: Send> {
 /// a handle that spawns onto a specific worker's local queues.
 impl<'rt, T: Send> Runtime<'rt> for Shared<'rt, T> {
     fn spawn(&self, fut: BoxFuture<'rt, ()>) -> AbortHandleRef<'rt> {
-        SmolAbortHandle::new(self.executor.spawn(fut))
+        SmolAbortHandle::new_handle(self.executor.spawn(fut))
     }
 
     fn spawn_cpu(&self, cpu: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef<'rt> {
-        SmolAbortHandle::new(self.executor.spawn(async move { cpu() }))
+        SmolAbortHandle::new_handle(self.executor.spawn(async move { cpu() }))
     }
 }
 
@@ -107,8 +107,8 @@ impl<T: Send + 'static> Iterator for Worker<T> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use futures::stream;
 

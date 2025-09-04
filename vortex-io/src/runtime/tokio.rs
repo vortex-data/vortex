@@ -12,7 +12,7 @@ use crate::runtime::{AbortHandle, AbortHandleRef, Handle, Runtime};
 pub struct TokioRuntime(TokioHandle);
 
 impl TokioRuntime {
-    pub fn new(handle: TokioHandle) -> Handle<'static> {
+    pub fn with(handle: TokioHandle) -> Handle<'static> {
         Handle(Arc::new(Self(handle)))
     }
 
@@ -40,8 +40,8 @@ impl AbortHandle<'_> for tokio::task::AbortHandle {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use futures_util::FutureExt;
     use smol::block_on;
@@ -52,7 +52,7 @@ mod tests {
     #[test]
     fn test_spawn_simple_future() {
         let tokio_rt = TokioRt::new().unwrap();
-        let handle = TokioRuntime::new(tokio_rt.handle().clone());
+        let handle = TokioRuntime::with(tokio_rt.handle().clone());
         let result = block_on(handle.spawn(async {
             let fut = async { 77 };
             fut.await
@@ -63,7 +63,7 @@ mod tests {
     #[test]
     fn test_spawn_and_abort() {
         let tokio_rt = TokioRt::new().unwrap();
-        let handle = TokioRuntime::new(tokio_rt.handle().clone());
+        let handle = TokioRuntime::with(tokio_rt.handle().clone());
 
         let counter = Arc::new(AtomicUsize::new(0));
         let c = counter.clone();

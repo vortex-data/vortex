@@ -3,9 +3,13 @@
 
 pub use handle::*;
 mod handle;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod multithread;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod singlethread;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod tokio;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod worker;
 
 use futures::future::BoxFuture;

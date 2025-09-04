@@ -8,7 +8,7 @@ use futures::future::BoxFuture;
 use futures::stream::LocalBoxStream;
 use futures::{Stream, StreamExt};
 use parking_lot::Mutex;
-use smol::{block_on, LocalExecutor};
+use smol::{LocalExecutor, block_on};
 use vortex_error::vortex_panic;
 
 use crate::runtime::{AbortHandle, AbortHandleRef, Handle, Runtime};
@@ -189,8 +189,8 @@ impl<T> Iterator for BlockingStream<T> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::*;
 

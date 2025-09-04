@@ -3,7 +3,7 @@
 
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{ready, Context, Poll};
+use std::task::{Context, Poll, ready};
 
 use futures::FutureExt;
 use vortex_error::vortex_panic;
@@ -70,7 +70,7 @@ pub struct Task<'rt, T> {
 impl<'rt, T> Task<'rt, T> {
     /// Detach the task, allowing it to continue running in the background after being dropped.
     pub fn detach(mut self) {
-        self.abort_handle = None;
+        drop(self.abort_handle.take());
     }
 }
 

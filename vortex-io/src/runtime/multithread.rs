@@ -5,7 +5,7 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use futures::future::BoxFuture;
-use smol::{block_on, Executor};
+use smol::{Executor, block_on};
 use vortex_error::VortexExpect;
 
 use crate::runtime::{AbortHandle, AbortHandleRef, Handle, Runtime};
@@ -61,7 +61,7 @@ impl<'rt> MultiThreadRuntime<'rt> {
 
 impl Default for MultiThreadRuntime<'_> {
     fn default() -> Self {
-        Self::new(std::thread::available_parallelism().unwrap_or_else(|_| NonZeroUsize::MIN))
+        Self::new(std::thread::available_parallelism().unwrap_or(NonZeroUsize::MIN))
     }
 }
 
@@ -106,8 +106,8 @@ impl<T> Drop for SmolAbortHandle<T> {
 #[cfg(test)]
 mod tests {
     use std::num::NonZeroUsize;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::*;
 
