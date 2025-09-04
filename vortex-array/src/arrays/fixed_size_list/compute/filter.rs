@@ -17,15 +17,6 @@ use crate::{ArrayRef, IntoArray, register_kernel};
 /// Note that this is somewhat arbitrarily chosen...
 const FSL_MASK_EXPANSION_DENSITY_THRESHOLD: f64 = 0.1;
 
-/// List size threshold for choosing between indices and slices in sparse mask expansion.
-///
-/// When expanding sparse masks, if the list size is above this threshold, we convert indices to
-/// slices to avoid materializing too many individual indices. This prevents memory bloat when each
-/// FSL element contains many items.
-///
-/// Note that this is somewhat arbitrarily chosen...
-const FSL_SPARSE_MASK_LIST_SIZE_THRESHOLD: usize = 4;
-
 impl FilterKernel for FixedSizeListVTable {
     fn filter(&self, array: &FixedSizeListArray, selection_mask: &Mask) -> VortexResult<ArrayRef> {
         let new_len = selection_mask.true_count();
@@ -122,30 +113,19 @@ fn expand_dense_mask(slices: &[(usize, usize)], list_size: usize, expanded_len: 
 }
 
 /// Expands a sparse mask (represented as indices) by duplicating each index `list_size` times.
+///
+/// Note that in the worst case, it is possible that we create only a few slices with a small range
+/// (for example, when `list_size <= 2`). This could be further optimized, but we choose simplicity
+/// for now.
 fn expand_sparse_mask(indices: &[usize], list_size: usize, expanded_len: usize) -> Mask {
-    if list_size <= FSL_SPARSE_MASK_LIST_SIZE_THRESHOLD {
-        // For small list sizes, expand each index into individual indices.
-        let expanded_indices: Vec<usize> = indices
-            .iter()
-            .flat_map(|&idx| {
-                let start = idx * list_size;
-                start..start + list_size
-            })
-            .collect();
+    let expanded_slices: Vec<(usize, usize)> = indices
+        .iter()
+        .map(|&idx| {
+            let start = idx * list_size;
+            let end = (idx + 1) * list_size;
+            (start, end)
+        })
+        .collect();
 
-        Mask::from_indices(expanded_len, expanded_indices)
-    } else {
-        // For sparse masks with large list sizes, it's more efficient to create slices rather than
-        // materializing all individual indices.
-        let expanded_slices: Vec<(usize, usize)> = indices
-            .iter()
-            .map(|&idx| {
-                let start = idx * list_size;
-                let end = (idx + 1) * list_size;
-                (start, end)
-            })
-            .collect();
-
-        Mask::from_slices(expanded_len, expanded_slices)
-    }
+    Mask::from_slices(expanded_len, expanded_slices)
 }
