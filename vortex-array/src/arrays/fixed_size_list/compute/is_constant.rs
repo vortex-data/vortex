@@ -7,6 +7,9 @@ use crate::arrays::{FixedSizeListArray, FixedSizeListVTable};
 use crate::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
 use crate::register_kernel;
 
+/// IsConstant implementation for [`FixedSizeListArray`].
+///
+/// Compares each list scalar against the first to determine if all lists are identical.
 impl IsConstantKernel for FixedSizeListVTable {
     fn is_constant(
         &self,

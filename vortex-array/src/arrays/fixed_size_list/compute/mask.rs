@@ -9,6 +9,9 @@ use crate::compute::{MaskKernel, MaskKernelAdapter};
 use crate::vtable::ValidityHelper;
 use crate::{ArrayRef, IntoArray, register_kernel};
 
+/// Mask implementation for [`FixedSizeListArray`].
+///
+/// Applies a validity mask to the array without modifying the underlying element data.
 impl MaskKernel for FixedSizeListVTable {
     fn mask(&self, array: &FixedSizeListArray, mask: &Mask) -> VortexResult<ArrayRef> {
         // SAFETY: The only thing that changes here is the validity mask, which will have the same

@@ -17,6 +17,10 @@ use crate::{ArrayRef, IntoArray, register_kernel};
 /// Note that this is somewhat arbitrarily chosen...
 const FSL_MASK_EXPANSION_DENSITY_THRESHOLD: f64 = 0.1;
 
+/// Filter implementation for [`FixedSizeListArray`].
+///
+/// Expands the selection mask to cover all elements within selected lists and pushes the expanded
+/// mask down to the child elements array.
 impl FilterKernel for FixedSizeListVTable {
     fn filter(&self, array: &FixedSizeListArray, selection_mask: &Mask) -> VortexResult<ArrayRef> {
         let new_len = selection_mask.true_count();
@@ -40,7 +44,7 @@ impl FilterKernel for FixedSizeListVTable {
             if list_size != 0 {
                 let elements_mask = compute_fsl_elements_mask(selection_mask, list_size as usize);
 
-                // Allow the child array to filter themselves.
+                // Allow the child array to filter itself.
                 let new_elements = compute::filter(elements, &elements_mask)?;
                 debug_assert_eq!(new_elements.len(), new_len * list_size as usize);
 
@@ -89,43 +93,38 @@ register_kernel!(FilterKernelAdapter(FixedSizeListVTable).lift());
 fn compute_fsl_elements_mask(selection_mask: &Mask, list_size: usize) -> Mask {
     let expanded_len = selection_mask.len() * list_size;
 
-    match selection_mask {
-        Mask::AllTrue(_) => Mask::AllTrue(expanded_len),
-        Mask::AllFalse(_) => Mask::AllFalse(expanded_len),
-        Mask::Values(values) => {
-            // Use threshold_iter to choose the optimal representation based on density.
-            match values.threshold_iter(FSL_MASK_EXPANSION_DENSITY_THRESHOLD) {
-                MaskIter::Slices(slices) => expand_dense_mask(slices, list_size, expanded_len),
-                MaskIter::Indices(indices) => expand_sparse_mask(indices, list_size, expanded_len),
-            }
+    let values = match selection_mask {
+        Mask::AllTrue(_) => return Mask::AllTrue(expanded_len),
+        Mask::AllFalse(_) => return Mask::AllFalse(expanded_len),
+        Mask::Values(values) => values,
+    };
+
+    // Use threshold_iter to choose the optimal representation based on density.
+    let expanded_slices = match values.threshold_iter(FSL_MASK_EXPANSION_DENSITY_THRESHOLD) {
+        MaskIter::Slices(slices) => {
+            // Expand a dense mask (represented as slices) by scaling each slice by `list_size`.
+            slices
+                .iter()
+                .map(|&(start, end)| (start * list_size, end * list_size))
+                .collect()
         }
-    }
-}
-
-/// Expands a dense mask (represented as slices) by scaling each slice by `list_size`.
-fn expand_dense_mask(slices: &[(usize, usize)], list_size: usize, expanded_len: usize) -> Mask {
-    let expanded_slices: Vec<(usize, usize)> = slices
-        .iter()
-        .map(|&(start, end)| (start * list_size, end * list_size))
-        .collect();
-
-    Mask::from_slices(expanded_len, expanded_slices)
-}
-
-/// Expands a sparse mask (represented as indices) by duplicating each index `list_size` times.
-///
-/// Note that in the worst case, it is possible that we create only a few slices with a small range
-/// (for example, when `list_size <= 2`). This could be further optimized, but we choose simplicity
-/// for now.
-fn expand_sparse_mask(indices: &[usize], list_size: usize, expanded_len: usize) -> Mask {
-    let expanded_slices: Vec<(usize, usize)> = indices
-        .iter()
-        .map(|&idx| {
-            let start = idx * list_size;
-            let end = (idx + 1) * list_size;
-            (start, end)
-        })
-        .collect();
+        MaskIter::Indices(indices) => {
+            // Expand a sparse mask (represented as indices) by duplicating each index `list_size`
+            // times.
+            //
+            // Note that in the worst case, it is possible that we create only a few slices with a
+            // small range (for example, when list_size <= 2). This could be further optimized,
+            // but we choose simplicity for now.
+            indices
+                .iter()
+                .map(|&idx| {
+                    let start = idx * list_size;
+                    let end = (idx + 1) * list_size;
+                    (start, end)
+                })
+                .collect()
+        }
+    };
 
     Mask::from_slices(expanded_len, expanded_slices)
 }

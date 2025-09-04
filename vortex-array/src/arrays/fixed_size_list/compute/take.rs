@@ -12,6 +12,9 @@ use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
+/// Take implementation for [`FixedSizeListArray`].
+///
+/// Expands list indices into element indices and pushes them down to the child elements array.
 impl TakeKernel for FixedSizeListVTable {
     fn take(&self, array: &FixedSizeListArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         match_each_integer_ptype!(indices.dtype().as_ptype(), |I| {
@@ -71,11 +74,11 @@ fn take_non_nullable_fsl<I: NativePType>(
 ) -> VortexResult<ArrayRef> {
     let list_size = array.list_size() as usize;
     let indices: &[I] = indices_array.as_slice::<I>();
-    let len = indices.len();
+    let new_len = indices.len();
 
     // Build the element indices directly without validity tracking.
     let mut elements_indices =
-        PrimitiveBuilder::<I>::with_capacity(Nullability::NonNullable, len * list_size);
+        PrimitiveBuilder::<I>::with_capacity(Nullability::NonNullable, new_len * list_size);
 
     // Build the element indices for each list.
     for data_idx in indices {
@@ -93,10 +96,10 @@ fn take_non_nullable_fsl<I: NativePType>(
     }
 
     let elements_indices = elements_indices.finish();
-    debug_assert_eq!(elements_indices.len(), len * list_size);
+    debug_assert_eq!(elements_indices.len(), new_len * list_size);
 
     let new_elements = compute::take(array.elements(), elements_indices.as_ref())?;
-    debug_assert_eq!(new_elements.len(), len * list_size);
+    debug_assert_eq!(new_elements.len(), new_len * list_size);
 
     // Both inputs are non-nullable, so the result is non-nullable.
     Ok(unsafe {
@@ -104,7 +107,7 @@ fn take_non_nullable_fsl<I: NativePType>(
             new_elements,
             array.list_size(),
             Validity::NonNullable,
-            len,
+            new_len,
         )
     }
     .into_array())
@@ -117,7 +120,7 @@ fn take_nullable_fsl<I: NativePType>(
 ) -> VortexResult<ArrayRef> {
     let list_size = array.list_size() as usize;
     let indices: &[I] = indices_array.as_slice::<I>();
-    let len = indices.len();
+    let new_len = indices.len();
 
     let array_validity = array.validity_mask();
     let indices_validity = indices_array.validity_mask();
@@ -125,16 +128,16 @@ fn take_nullable_fsl<I: NativePType>(
     // We must use placeholder zeros for null lists to maintain the array length without
     // propagating nullability to the element array's take operation.
     let mut elements_indices =
-        PrimitiveBuilder::<I>::with_capacity(Nullability::NonNullable, len * list_size);
-    let mut new_validity_builder = BooleanBufferBuilder::new(len);
+        PrimitiveBuilder::<I>::with_capacity(Nullability::NonNullable, new_len * list_size);
+    let mut new_validity_builder = BooleanBufferBuilder::new(new_len);
 
     // Build the element indices while tracking which lists are null.
-    for (idx, data_idx) in indices.iter().enumerate() {
+    for (i, data_idx) in indices.iter().enumerate() {
         let data_idx = data_idx
             .to_usize()
             .unwrap_or_else(|| vortex_panic!("Failed to convert index to usize: {}", data_idx));
 
-        let is_index_valid = indices_validity.value(idx);
+        let is_index_valid = indices_validity.value(i);
 
         // The list is null if the index is null or the indexed element is null.
         if !is_index_valid || !array_validity.value(data_idx) {
@@ -157,17 +160,17 @@ fn take_nullable_fsl<I: NativePType>(
     }
 
     let elements_indices = elements_indices.finish();
-    debug_assert_eq!(elements_indices.len(), len * list_size);
+    debug_assert_eq!(elements_indices.len(), new_len * list_size);
 
     let new_elements = compute::take(array.elements(), elements_indices.as_ref())?;
-    debug_assert_eq!(new_elements.len(), len * list_size);
+    debug_assert_eq!(new_elements.len(), new_len * list_size);
 
     // At least one input was nullable, so the result is nullable.
     let new_validity = Validity::from(new_validity_builder.finish());
-    debug_assert!(new_validity.maybe_len().is_none_or(|vl| vl == len));
+    debug_assert!(new_validity.maybe_len().is_none_or(|vl| vl == new_len));
 
     Ok(unsafe {
-        FixedSizeListArray::new_unchecked(new_elements, array.list_size(), new_validity, len)
+        FixedSizeListArray::new_unchecked(new_elements, array.list_size(), new_validity, new_len)
     }
     .into_array())
 }

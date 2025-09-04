@@ -9,6 +9,10 @@ use crate::compute::{CastKernel, CastKernelAdapter, cast};
 use crate::vtable::ValidityHelper;
 use crate::{ArrayRef, register_kernel};
 
+/// Cast implementation for [`FixedSizeListArray`].
+///
+/// Recursively casts the inner elements array to the target element type while preserving the list
+/// structure.
 impl CastKernel for FixedSizeListVTable {
     fn cast(&self, array: &FixedSizeListArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         let Some(target_element_type) = dtype.as_list_element_opt() else {
