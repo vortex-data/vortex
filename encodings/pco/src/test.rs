@@ -8,6 +8,7 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 use vortex_mask::Mask;
+use vortex_scalar::Scalar;
 
 use crate::PcoArray;
 
@@ -40,6 +41,17 @@ fn test_compress_decompress() {
     let slice = compressed.slice(200..200);
     let primitive = slice.to_primitive();
     assert_eq!(primitive.as_slice::<i32>(), &Vec::<i32>::new());
+}
+
+#[test]
+fn test_compress_decompress_big() {
+    let array = PrimitiveArray::from_option_iter([None, Some(1)]);
+    let compressed = PcoArray::from_primitive(&array, 3, 0).unwrap();
+    assert_eq!(compressed.scalar_at(0), Scalar::null_typed::<i32>());
+    assert_eq!(compressed.scalar_at(1), Scalar::from(Some(1)));
+    let decompressed = compressed.decompress();
+    assert_eq!(decompressed.scalar_at(0), Scalar::null_typed::<i32>());
+    assert_eq!(decompressed.scalar_at(1), Scalar::from(Some(1)));
 }
 
 #[test]
