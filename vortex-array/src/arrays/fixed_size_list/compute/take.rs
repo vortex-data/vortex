@@ -9,14 +9,13 @@ use crate::arrays::{FixedSizeListArray, FixedSizeListVTable, PrimitiveArray};
 use crate::builders::{ArrayBuilder, PrimitiveBuilder};
 use crate::compute::{self, TakeKernel, TakeKernelAdapter};
 use crate::validity::Validity;
+use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 impl TakeKernel for FixedSizeListVTable {
     fn take(&self, array: &FixedSizeListArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let indices = indices.to_primitive();
-
-        match_each_integer_ptype!(indices.ptype(), |I| {
-            take_with_indices::<I>(array, &indices)
+        match_each_integer_ptype!(indices.dtype().as_ptype(), |I| {
+            take_with_indices::<I>(array, indices)
         })
     }
 }
@@ -26,9 +25,11 @@ register_kernel!(TakeKernelAdapter(FixedSizeListVTable).lift());
 /// Dispatches to the appropriate take implementation based on list size and nullability.
 fn take_with_indices<I: NativePType>(
     array: &FixedSizeListArray,
-    indices_array: &PrimitiveArray,
+    indices: &dyn Array,
 ) -> VortexResult<ArrayRef> {
     let list_size = array.list_size() as usize;
+
+    let indices_array = indices.to_primitive();
 
     // Make sure to handle degenerate case where lists have size 0 (these can take fast paths).
     if list_size == 0 {
@@ -37,85 +38,30 @@ fn take_with_indices<I: NativePType>(
             "degenerate list must have empty elements"
         );
 
-        // The result's nullability is the union of the input nullabilities.
-        if array.dtype().is_nullable() || indices_array.dtype().is_nullable() {
-            Ok(take_degenerate_nullable::<I>(array, indices_array))
-        } else {
-            Ok(take_degenerate_non_nullable(array, indices_array))
-        }
+        // Since there are no elements to take, we just need to take on the validity map.
+        let new_validity = array.validity().take(indices)?;
+        let new_len = indices_array.len();
+
+        Ok(
+            // SAFETY: list_size is 0, elements array is empty, and validity has the correct length.
+            unsafe {
+                FixedSizeListArray::new_unchecked(
+                    array.elements().clone(), // Remember that this is an empty array.
+                    array.list_size(),
+                    new_validity,
+                    new_len,
+                )
+            }
+            .into_array(),
+        )
     } else {
         // The result's nullability is the union of the input nullabilities.
         if array.dtype().is_nullable() || indices_array.dtype().is_nullable() {
-            take_nullable_fsl::<I>(array, indices_array)
+            take_nullable_fsl::<I>(array, &indices_array)
         } else {
-            take_non_nullable_fsl::<I>(array, indices_array)
+            take_non_nullable_fsl::<I>(array, &indices_array)
         }
     }
-}
-
-/// Returns empty non-nullable lists with the requested length.
-fn take_degenerate_non_nullable(
-    array: &FixedSizeListArray,
-    indices_array: &PrimitiveArray,
-) -> ArrayRef {
-    let len = indices_array.len();
-
-    // SAFETY: list_size is 0, elements array is empty, and both arrays are non-nullable.
-    unsafe {
-        FixedSizeListArray::new_unchecked(
-            array.elements().clone(),
-            array.list_size(),
-            Validity::NonNullable,
-            len,
-        )
-    }
-    .into_array()
-}
-
-/// Returns empty lists with computed validity for the nullable case.
-fn take_degenerate_nullable<I: NativePType>(
-    array: &FixedSizeListArray,
-    indices_array: &PrimitiveArray,
-) -> ArrayRef {
-    let indices: &[I] = indices_array.as_slice::<I>();
-    let len = indices.len();
-
-    let array_validity = array.validity_mask();
-    let indices_validity = indices_array.validity_mask();
-
-    // Compute the validity for each empty list.
-    let mut new_validity_builder = BooleanBufferBuilder::new(len);
-
-    // Check the validity of each indexed position.
-    for (idx, data_idx) in indices.iter().enumerate() {
-        let data_idx = data_idx
-            .to_usize()
-            .unwrap_or_else(|| vortex_panic!("Failed to convert index to usize: {}", data_idx));
-
-        let is_index_valid = indices_validity.value(idx);
-
-        // The list is null if the index is null or the indexed element is null.
-        if !is_index_valid || !array_validity.value(data_idx) {
-            new_validity_builder.append(false);
-        } else {
-            new_validity_builder.append(true);
-        }
-    }
-
-    // At least one input was nullable, so the result is nullable.
-    let new_validity = Validity::from(new_validity_builder.finish());
-    debug_assert!(new_validity.maybe_len().is_none_or(|vl| vl == len));
-
-    // SAFETY: list_size is 0, elements array is empty, and validity has the correct length.
-    unsafe {
-        FixedSizeListArray::new_unchecked(
-            array.elements().clone(),
-            array.list_size(),
-            new_validity,
-            len,
-        )
-    }
-    .into_array()
 }
 
 /// Takes from an array when both the array and indices are non-nullable.
