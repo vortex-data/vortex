@@ -242,10 +242,8 @@ fn copy_from_slice(target: &mut [u64], source: &[u8], offset: usize, len: usize)
     let (start, middle, end) = unsafe { target.align_to_mut::<u8>() };
     assert!(start.is_empty());
     assert!(end.is_empty());
-    assert!(middle.len() * 8 == len, "{} {}", middle.len(), len);
-    middle
-        .view_bits_mut::<Lsb0>()
-        .copy_from_bitslice(&source.view_bits()[offset..][..len]);
+    let target = &mut middle.view_bits_mut::<Lsb0>()[..len];
+    target.copy_from_bitslice(&source.view_bits()[offset..][..len]);
 }
 
 #[cfg(test)]
