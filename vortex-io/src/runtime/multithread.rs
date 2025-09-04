@@ -67,12 +67,12 @@ impl Default for MultiThreadRuntime<'_> {
 
 impl<'rt> Runtime<'rt> for Executor<'rt> {
     fn spawn(&self, fut: BoxFuture<'rt, ()>) -> AbortHandleRef<'rt> {
-        SmolAbortHandle::new(self.spawn(fut))
+        SmolAbortHandle::new_handle(self.spawn(fut))
     }
 
     fn spawn_cpu(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef<'rt> {
         // For now, we spawn CPU work back onto the same executor.
-        SmolAbortHandle::new(self.spawn(async move { task() }))
+        SmolAbortHandle::new_handle(self.spawn(async move { task() }))
     }
 }
 
@@ -82,7 +82,7 @@ pub(crate) struct SmolAbortHandle<T> {
 }
 
 impl<'rt, T: 'rt + Send> SmolAbortHandle<T> {
-    pub(crate) fn new(task: smol::Task<T>) -> AbortHandleRef<'rt> {
+    pub(crate) fn new_handle(task: smol::Task<T>) -> AbortHandleRef<'rt> {
         Box::new(Self { task: Some(task) })
     }
 }
@@ -126,7 +126,7 @@ mod tests {
         let fut = Box::pin(async move {
             c.fetch_add(1, Ordering::SeqCst);
         });
-        let handle = SmolAbortHandle::new(executor.spawn(fut));
+        let handle = SmolAbortHandle::new_handle(executor.spawn(fut));
         // Abort immediately
         handle.abort();
         // The counter may or may not be incremented depending on scheduling, but this tests abort path
