@@ -81,10 +81,9 @@ impl VortexReadAt for TokioFile {
         let this = self.clone();
 
         spawn_blocking(move || {
-            use std::os::windows::fs::FileExt; // 导入 Windows 特有的 trait
+            use std::os::windows::fs::FileExt;
             let mut buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
             unsafe { buffer.set_len(len) }
-            // Windows 的 seek_read 需要一个循环来确保读完
             this.seek_read(&mut buffer, range.start)?;
             Ok(buffer.freeze())
         })
