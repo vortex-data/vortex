@@ -130,9 +130,7 @@ def format_performance(ratio, target_name):
 
 
 overall_performance = (
-    "no data"
-    if pd.isna(geo_mean_ratio)
-    else f"{geo_mean_ratio:.3f}x {'✅' if geo_mean_ratio < 1 else '❌'}"
+    "no data" if pd.isna(geo_mean_ratio) else f"{geo_mean_ratio:.3f}x {'✅' if geo_mean_ratio < 1 else '❌'}"
 )
 vortex_performance = format_performance(vortex_geo_mean_ratio, "vortex")
 duckdb_vortex_performance = format_performance(duckdb_vortex_geo_mean_ratio, "duckdb:vortex")
