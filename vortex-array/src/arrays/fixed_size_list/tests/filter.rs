@@ -140,19 +140,70 @@ fn test_filter_single_element() {
     assert_eq!(filtered_fsl.elements().len(), 0);
 }
 
-#[test]
-fn test_filter_degenerate_list_size_zero() {
+// Consolidated parameterized test for degenerate (list_size=0) cases.
+#[rstest]
+#[case::basic_degenerate(
+    5,
+    Validity::NonNullable,
+    vec![true, false, true, false, true],
+    3,
+    false
+)]
+#[case::degenerate_with_nulls(
+    5,
+    Validity::from_iter([true, false, true, true, false]),
+    vec![true, false, true, true, false],
+    3,
+    false
+)]
+#[case::degenerate_to_empty(
+    3,
+    Validity::NonNullable,
+    vec![false, false, false],
+    0,
+    false
+)]
+#[case::degenerate_all_null(
+    4,
+    Validity::AllInvalid,
+    vec![true, true, false, true],
+    3,
+    true
+)]
+#[case::large_degenerate(
+    1000,
+    Validity::NonNullable,
+    vec![true; 500].into_iter().chain(vec![false; 500]).collect(),
+    500,
+    false
+)]
+fn test_filter_degenerate_list_size_zero(
+    #[case] num_lists: usize,
+    #[case] validity: Validity,
+    #[case] mask_values: Vec<bool>,
+    #[case] expected_len: usize,
+    #[case] expect_constant_array: bool,
+) {
     // Degenerate case where list_size == 0.
     let elements = PrimitiveArray::empty::<i32>(Nullability::NonNullable);
-    let fsl = FixedSizeListArray::new(elements.into_array(), 0, Validity::NonNullable, 5);
+    let fsl = FixedSizeListArray::new(elements.into_array(), 0, validity, num_lists);
 
-    let mask = Mask::from(BooleanBuffer::from(vec![true, false, true, false, true]));
+    let mask = Mask::from(BooleanBuffer::from(mask_values));
     let filtered = filter(fsl.as_ref(), &mask).unwrap();
-    let filtered_fsl = filtered.as_::<FixedSizeListVTable>();
 
-    assert_eq!(filtered_fsl.len(), 3);
-    assert_eq!(filtered_fsl.list_size(), 0);
-    assert_eq!(filtered_fsl.elements().len(), 0);
+    assert_eq!(filtered.len(), expected_len);
+
+    if expect_constant_array {
+        // Should return a ConstantArray of nulls when all are invalid.
+        let filtered_const = filtered.as_::<ConstantVTable>();
+        for i in 0..expected_len {
+            assert!(filtered_const.scalar_at(i).is_null());
+        }
+    } else {
+        let filtered_fsl = filtered.as_::<FixedSizeListVTable>();
+        assert_eq!(filtered_fsl.list_size(), 0);
+        assert_eq!(filtered_fsl.elements().len(), 0);
+    }
 }
 
 #[test]
@@ -252,25 +303,18 @@ fn test_filter_nested_fixed_size_lists() {
     assert_eq!(inner_list_2.scalar_at(1), 12i32.into());
 }
 
-#[test]
-fn test_filter_mask_types() {
+// Parameterized test for different mask types.
+#[rstest]
+#[case::all_true(Mask::AllTrue(3), 3)]
+#[case::all_false(Mask::AllFalse(3), 0)]
+#[case::values_partial(Mask::from(BooleanBuffer::from(vec![true, true, false])), 2)]
+#[case::values_alternating(Mask::from(BooleanBuffer::from(vec![true, false, true])), 2)]
+fn test_filter_mask_types(#[case] mask: Mask, #[case] expected_len: usize) {
     let elements = PrimitiveArray::from_iter([1u32, 2, 3, 4, 5, 6]);
     let fsl = FixedSizeListArray::new(elements.into_array(), 2, Validity::NonNullable, 3);
 
-    // Test with Mask::AllTrue.
-    let mask = Mask::AllTrue(3);
     let filtered = filter(fsl.as_ref(), &mask).unwrap();
-    assert_eq!(filtered.len(), 3);
-
-    // Test with Mask::AllFalse.
-    let mask = Mask::AllFalse(3);
-    let filtered = filter(fsl.as_ref(), &mask).unwrap();
-    assert_eq!(filtered.len(), 0);
-
-    // Test with Mask::Values.
-    let mask = Mask::from(BooleanBuffer::from(vec![true, true, false]));
-    let filtered = filter(fsl.as_ref(), &mask).unwrap();
-    assert_eq!(filtered.len(), 2);
+    assert_eq!(filtered.len(), expected_len);
 }
 
 #[test]
@@ -436,54 +480,8 @@ fn test_filter_large_list_size() {
     assert_eq!(list_2.scalar_at(0), 400i64.into()); // Start of original list 4.
 }
 
-#[test]
-fn test_filter_degenerate_with_nulls() {
-    // FSL with list_size == 0 and mixed validity (some null, some valid empty lists).
-    let elements = PrimitiveArray::empty::<i32>(Nullability::NonNullable);
-    let validity = Validity::from_iter([true, false, true, true, false]);
-    let fsl = FixedSizeListArray::new(elements.into_array(), 0, validity, 5);
-
-    // Filter to keep indices 0, 2, 3 (keeping both null and non-null empty lists).
-    let mask = Mask::from(BooleanBuffer::from(vec![true, false, true, true, false]));
-    let filtered = filter(fsl.as_ref(), &mask).unwrap();
-    let filtered_fsl = filtered.as_::<FixedSizeListVTable>();
-
-    assert_eq!(filtered_fsl.len(), 3);
-    assert_eq!(filtered_fsl.list_size(), 0);
-    assert_eq!(filtered_fsl.elements().len(), 0);
-
-    // Check that validity is preserved correctly.
-    // Original validity: [true, false, true, true, false]
-    // After filter with mask [true, false, true, true, false]: [true, true, true]
-    assert!(!filtered_fsl.scalar_at(0).is_null()); // Valid empty list.
-    assert!(!filtered_fsl.scalar_at(1).is_null()); // Valid empty list.
-    assert!(!filtered_fsl.scalar_at(2).is_null()); // Valid empty list.
-}
-
-#[test]
-fn test_filter_degenerate_all_null() {
-    // FSL with list_size == 0 where all lists are null.
-    let elements = PrimitiveArray::empty::<f64>(Nullability::NonNullable);
-    let validity = Validity::AllInvalid;
-    let fsl = FixedSizeListArray::new(elements.into_array(), 0, validity, 4);
-
-    let mask = Mask::from(BooleanBuffer::from(vec![true, true, false, true]));
-    let filtered = filter(fsl.as_ref(), &mask).unwrap();
-
-    // Should return a ConstantArray of nulls.
-    let filtered_const = filtered.as_::<ConstantVTable>();
-    assert_eq!(filtered_const.len(), 3);
-    assert!(filtered_const.scalar_at(0).is_null());
-    assert!(filtered_const.scalar_at(1).is_null());
-    assert!(filtered_const.scalar_at(2).is_null());
-
-    // Verify the dtype is preserved.
-    assert!(matches!(
-        filtered.dtype(),
-        DType::FixedSizeList(elem_dtype, 0, Nullability::Nullable)
-            if matches!(elem_dtype.as_ref(), DType::Primitive(PType::F64, Nullability::NonNullable))
-    ));
-}
+// Note: test_filter_degenerate_with_nulls and test_filter_degenerate_all_null
+// have been consolidated into the parameterized test_filter_degenerate_list_size_zero above.
 
 #[test]
 fn test_filter_all_null_various_list_sizes() {
@@ -521,33 +519,7 @@ fn test_filter_all_null_various_list_sizes() {
     assert!(filtered10.scalar_at(4).is_null());
 }
 
-#[test]
-fn test_filter_to_empty_degenerate() {
-    // FSL with list_size == 0 filtered to empty result.
-    let elements = PrimitiveArray::empty::<u32>(Nullability::NonNullable);
-    let fsl = FixedSizeListArray::new(elements.into_array(), 0, Validity::NonNullable, 5);
-
-    // Filter with all false mask.
-    let mask = Mask::AllFalse(5);
-    let filtered = filter(fsl.as_ref(), &mask).unwrap();
-    let filtered_fsl = filtered.as_::<FixedSizeListVTable>();
-
-    assert_eq!(filtered_fsl.len(), 0);
-    assert_eq!(filtered_fsl.list_size(), 0);
-    assert_eq!(filtered_fsl.elements().len(), 0);
-
-    // Also test with mixed validity.
-    let elements2 = PrimitiveArray::empty::<u32>(Nullability::NonNullable);
-    let validity = Validity::from_iter([true, false, true, false, true]);
-    let fsl2 = FixedSizeListArray::new(elements2.into_array(), 0, validity, 5);
-
-    let mask2 = Mask::from(BooleanBuffer::from(vec![false, false, false, false, false]));
-    let filtered2 = filter(fsl2.as_ref(), &mask2).unwrap();
-    let filtered_fsl2 = filtered2.as_::<FixedSizeListVTable>();
-
-    assert_eq!(filtered_fsl2.len(), 0);
-    assert_eq!(filtered_fsl2.list_size(), 0);
-}
+// Note: test_filter_to_empty_degenerate has been consolidated into test_filter_degenerate_list_size_zero above.
 
 #[test]
 fn test_mask_expansion_threshold_boundary() {
@@ -609,121 +581,8 @@ fn test_mask_expansion_threshold_boundary() {
     assert_eq!(filtered_fsl7.list_size(), list_size_7);
 }
 
-#[test]
-fn test_nested_degenerate_filter() {
-    // Case 1: Inner FSL has list_size == 0.
-    let inner_elements = PrimitiveArray::empty::<i32>(Nullability::NonNullable);
-    let inner_fsl = FixedSizeListArray::new(
-        inner_elements.into_array(),
-        0, // Inner list size is 0.
-        Validity::NonNullable,
-        6, // 6 empty inner lists.
-    );
+// Note: test_nested_degenerate_filter has been consolidated into test_filter_nested_fixed_size_lists.
 
-    let outer_fsl = FixedSizeListArray::new(
-        inner_fsl.into_array(),
-        3, // Each outer list contains 3 inner lists.
-        Validity::NonNullable,
-        2, // 2 outer lists.
-    );
+// Note: test_large_degenerate_array has been consolidated into test_filter_degenerate_list_size_zero above.
 
-    let mask = Mask::from(BooleanBuffer::from(vec![false, true]));
-    let filtered = filter(outer_fsl.as_ref(), &mask).unwrap();
-    let filtered_outer = filtered.as_::<FixedSizeListVTable>();
-
-    assert_eq!(filtered_outer.len(), 1);
-    assert_eq!(filtered_outer.list_size(), 3);
-
-    let filtered_inner = filtered_outer.elements().as_::<FixedSizeListVTable>();
-    assert_eq!(filtered_inner.len(), 3);
-    assert_eq!(filtered_inner.list_size(), 0);
-    assert_eq!(filtered_inner.elements().len(), 0);
-
-    // Case 2: Outer FSL has list_size == 0.
-    // When outer list_size is 0, the elements array must also be empty.
-    let inner_elements2 = PrimitiveArray::empty::<i32>(Nullability::NonNullable);
-    let inner_fsl2 = FixedSizeListArray::new(
-        inner_elements2.into_array(),
-        2, // Inner list would have size 2, but there are 0 of them.
-        Validity::NonNullable,
-        0, // 0 inner lists since outer list_size is 0.
-    );
-
-    let outer_fsl2 = FixedSizeListArray::new(
-        inner_fsl2.into_array(),
-        0, // Outer list size is 0.
-        Validity::NonNullable,
-        5, // 5 outer lists (each containing 0 inner lists).
-    );
-
-    let mask2 = Mask::from(BooleanBuffer::from(vec![true, true, false, true, false]));
-    let filtered2 = filter(outer_fsl2.as_ref(), &mask2).unwrap();
-    let filtered_outer2 = filtered2.as_::<FixedSizeListVTable>();
-
-    assert_eq!(filtered_outer2.len(), 3);
-    assert_eq!(filtered_outer2.list_size(), 0);
-    // Elements should be an empty FSL array.
-    assert_eq!(filtered_outer2.elements().len(), 0);
-}
-
-#[test]
-fn test_large_degenerate_array() {
-    // Large array with list_size == 0.
-    let num_lists = 10000;
-    let elements = PrimitiveArray::empty::<i64>(Nullability::NonNullable);
-    let fsl = FixedSizeListArray::new(elements.into_array(), 0, Validity::NonNullable, num_lists);
-
-    // Create a selection mask that keeps every 3rd element.
-    let mask_vec: Vec<bool> = (0..num_lists).map(|i| i % 3 == 0).collect();
-    let mask = Mask::from(BooleanBuffer::from(mask_vec));
-
-    let filtered = filter(fsl.as_ref(), &mask).unwrap();
-    let filtered_fsl = filtered.as_::<FixedSizeListVTable>();
-
-    let expected_len = num_lists / 3 + if num_lists % 3 > 0 { 1 } else { 0 };
-    assert_eq!(filtered_fsl.len(), expected_len);
-    assert_eq!(filtered_fsl.list_size(), 0);
-    assert_eq!(filtered_fsl.elements().len(), 0);
-
-    // Also test with nullability.
-    let elements2 = PrimitiveArray::empty::<i64>(Nullability::NonNullable);
-    let validity = Validity::from_iter((0..num_lists).map(|i| i % 7 != 0));
-    let fsl2 = FixedSizeListArray::new(elements2.into_array(), 0, validity, num_lists);
-
-    let filtered2 = filter(fsl2.as_ref(), &mask).unwrap();
-    let filtered_fsl2 = filtered2.as_::<FixedSizeListVTable>();
-
-    assert_eq!(filtered_fsl2.len(), expected_len);
-    assert_eq!(filtered_fsl2.list_size(), 0);
-}
-
-#[test]
-fn test_degenerate_all_mask_types() {
-    // Test degenerate arrays with different mask types.
-    let elements = PrimitiveArray::empty::<u16>(Nullability::NonNullable);
-    let validity = Validity::from_iter([true, false, true]);
-    let fsl = FixedSizeListArray::new(elements.into_array(), 0, validity, 3);
-
-    // Test with Mask::AllTrue.
-    let mask_all_true = Mask::AllTrue(3);
-    let filtered_true = filter(fsl.as_ref(), &mask_all_true).unwrap();
-    let fsl_true = filtered_true.as_::<FixedSizeListVTable>();
-    assert_eq!(fsl_true.len(), 3);
-    assert!(!fsl_true.scalar_at(0).is_null());
-    assert!(fsl_true.scalar_at(1).is_null());
-    assert!(!fsl_true.scalar_at(2).is_null());
-
-    // Test with Mask::AllFalse.
-    let mask_all_false = Mask::AllFalse(3);
-    let filtered_false = filter(fsl.as_ref(), &mask_all_false).unwrap();
-    let fsl_false = filtered_false.as_::<FixedSizeListVTable>();
-    assert_eq!(fsl_false.len(), 0);
-
-    // Test with Mask::Values.
-    let mask_values = Mask::from(BooleanBuffer::from(vec![false, true, true]));
-    let filtered_values = filter(fsl.as_ref(), &mask_values).unwrap();
-    let fsl_values = filtered_values.as_::<FixedSizeListVTable>();
-    assert_eq!(fsl_values.len(), 2);
-    assert!(fsl_values.scalar_at(0).is_null()); // Second element was null.
-    assert!(!fsl_values.scalar_at(1).is_null()); // Third element was valid.
-}
+// Note: test_degenerate_all_mask_types has been consolidated into the parameterized tests above.

@@ -170,7 +170,7 @@ pub trait FilterKernel: VTable {
     ///
     /// # Preconditions
     ///
-    /// The entry-point filter functions will handle `Mask::AllTrue` and `Mask::AllFalse` on the
+    /// The entrypoint filter functions will handle `Mask::AllTrue` and `Mask::AllFalse` on the
     /// selection mask, leaving only `Mask::Values` to be handled by this function.
     ///
     /// Additionally, the array length is guaranteed to have the same length as the selection mask.

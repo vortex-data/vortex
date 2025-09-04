@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use rstest::rstest;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_scalar::Scalar;
 
@@ -124,154 +125,107 @@ fn test_take_with_null_indices() {
     assert_eq!(third.scalar_at(1), 2i32.into());
 }
 
-#[test]
-fn test_take_nullable_array() {
-    // Create a nullable FSL array where the second list is null.
+// Parameterized test for nullable array scenarios.
+#[rstest]
+#[case::nullable_array_basic(
+    vec![Some(vec![1i32, 2]), None, Some(vec![5, 6])],
+    vec![Some(2u32), Some(1), Some(0)],
+    vec![false, true, false] // Expected nulls
+)]
+#[case::nullable_array_with_null_indices(
+    vec![Some(vec![1i32, 2]), None, Some(vec![5, 6])],
+    vec![Some(0u32), None, Some(1), Some(2)],
+    vec![false, true, true, false] // Expected nulls
+)]
+fn test_take_nullable_arrays(
+    #[case] array_values: Vec<Option<Vec<i32>>>,
+    #[case] indices: Vec<Option<u32>>,
+    #[case] expected_nulls: Vec<bool>,
+) {
+    // Build the nullable FSL array.
+    let list_size = if let Some(Some(first)) = array_values.first() {
+        u32::try_from(first.len()).unwrap()
+    } else {
+        2 // Default size
+    };
+
     let mut builder = FixedSizeListBuilder::with_capacity(
         DType::Primitive(PType::I32, Nullability::NonNullable).into(),
-        2,
+        list_size,
         Nullability::Nullable,
-        3,
+        array_values.len(),
     );
 
-    builder
-        .append_value(
-            Scalar::list(
-                DType::Primitive(PType::I32, Nullability::NonNullable),
-                vec![1i32.into(), 2i32.into()],
-                Nullability::NonNullable,
-            )
-            .as_list(),
-        )
-        .unwrap();
-    builder.append_null();
-    builder
-        .append_value(
-            Scalar::list(
-                DType::Primitive(PType::I32, Nullability::NonNullable),
-                vec![5i32.into(), 6i32.into()],
-                Nullability::NonNullable,
-            )
-            .as_list(),
-        )
-        .unwrap();
+    for value in array_values {
+        match value {
+            Some(list) => {
+                let scalars: Vec<Scalar> = list.into_iter().map(|v| v.into()).collect();
+                builder
+                    .append_value(
+                        Scalar::list(
+                            DType::Primitive(PType::I32, Nullability::NonNullable),
+                            scalars,
+                            Nullability::NonNullable,
+                        )
+                        .as_list(),
+                    )
+                    .unwrap();
+            }
+            None => builder.append_null(),
+        }
+    }
 
     let fsl = builder.finish();
 
-    // Take indices [2, 1, 0].
-    let indices = PrimitiveArray::from_iter([2u32, 1, 0]);
-    let result = take(fsl.as_ref(), indices.as_ref()).unwrap();
+    // Create indices (with possible nulls).
+    let indices_array = PrimitiveArray::from_option_iter(indices.clone());
+    let result = take(fsl.as_ref(), indices_array.as_ref()).unwrap();
     let result_fsl = result.as_::<FixedSizeListVTable>();
 
-    assert_eq!(result_fsl.len(), 3);
+    assert_eq!(result_fsl.len(), indices.len());
 
-    // First result should be the third list [5, 6].
-    assert!(!result_fsl.scalar_at(0).is_null());
-
-    // Second result should be null (original second list).
-    assert!(result_fsl.scalar_at(1).is_null());
-
-    // Third result should be the first list [1, 2].
-    assert!(!result_fsl.scalar_at(2).is_null());
+    // Check nullability of results.
+    for (i, expected_null) in expected_nulls.iter().enumerate() {
+        assert_eq!(result_fsl.scalar_at(i).is_null(), *expected_null);
+    }
 }
 
-#[test]
-fn test_take_nullable_array_with_null_indices() {
-    // Create a nullable FSL array.
-    let mut builder = FixedSizeListBuilder::with_capacity(
-        DType::Primitive(PType::I32, Nullability::NonNullable).into(),
-        2,
-        Nullability::Nullable,
-        3,
-    );
-
-    builder
-        .append_value(
-            Scalar::list(
-                DType::Primitive(PType::I32, Nullability::NonNullable),
-                vec![1i32.into(), 2i32.into()],
-                Nullability::NonNullable,
-            )
-            .as_list(),
-        )
-        .unwrap();
-    builder.append_null();
-    builder
-        .append_value(
-            Scalar::list(
-                DType::Primitive(PType::I32, Nullability::NonNullable),
-                vec![5i32.into(), 6i32.into()],
-                Nullability::NonNullable,
-            )
-            .as_list(),
-        )
-        .unwrap();
-
-    let fsl = builder.finish();
-
-    // Create indices with nulls: [0, null, 1, 2].
-    let indices = PrimitiveArray::from_option_iter([Some(0u32), None, Some(1), Some(2)]);
-    let result = take(fsl.as_ref(), indices.as_ref()).unwrap();
-    let result_fsl = result.as_::<FixedSizeListVTable>();
-
-    assert_eq!(result_fsl.len(), 4);
-
-    // First result should be [1, 2].
-    assert!(!result_fsl.scalar_at(0).is_null());
-
-    // Second result should be null (null index).
-    assert!(result_fsl.scalar_at(1).is_null());
-
-    // Third result should be null (array's second element is null).
-    assert!(result_fsl.scalar_at(2).is_null());
-
-    // Fourth result should be [5, 6].
-    assert!(!result_fsl.scalar_at(3).is_null());
-}
-
-#[test]
-fn test_take_degenerate_list() {
+// Parameterized test for degenerate (list_size=0) cases.
+#[rstest]
+#[case::basic_degenerate(
+    Validity::NonNullable,
+    vec![Some(3u32), Some(1), Some(4), Some(0), Some(2)],
+    5,
+    vec![false; 5]
+)]
+#[case::degenerate_with_nulls(
+    Validity::from_iter([true, false, true, true, false]),
+    vec![Some(1u32), Some(3), None, Some(0)],
+    4,
+    vec![true, false, true, false] // Expected nulls based on indices
+)]
+fn test_take_degenerate_lists(
+    #[case] validity: Validity,
+    #[case] indices: Vec<Option<u32>>,
+    #[case] expected_len: usize,
+    #[case] expected_nulls: Vec<bool>,
+) {
     // Create a degenerate FSL array with list_size = 0.
     let elements = PrimitiveArray::empty::<i32>(Nullability::NonNullable);
-    let fsl = FixedSizeListArray::new(elements.into_array(), 0, Validity::NonNullable, 5);
-
-    // Take indices [3, 1, 4, 0, 2].
-    let indices = PrimitiveArray::from_iter([3u32, 1, 4, 0, 2]);
-    let result = take(fsl.as_ref(), indices.as_ref()).unwrap();
-    let result_fsl = result.as_::<FixedSizeListVTable>();
-
-    assert_eq!(result_fsl.len(), 5);
-    assert_eq!(result_fsl.list_size(), 0);
-    assert_eq!(result_fsl.elements().len(), 0);
-}
-
-#[test]
-fn test_take_degenerate_list_with_nulls() {
-    // Create a nullable degenerate FSL array where some lists are null.
-    let elements = PrimitiveArray::empty::<i32>(Nullability::NonNullable);
-    let validity = Validity::from_iter([true, false, true, true, false]);
     let fsl = FixedSizeListArray::new(elements.into_array(), 0, validity, 5);
 
-    // Take indices [1, 3, null, 0].
-    let indices = PrimitiveArray::from_option_iter([Some(1u32), Some(3), None, Some(0)]);
-    let result = take(fsl.as_ref(), indices.as_ref()).unwrap();
+    let indices_array = PrimitiveArray::from_option_iter(indices);
+    let result = take(fsl.as_ref(), indices_array.as_ref()).unwrap();
     let result_fsl = result.as_::<FixedSizeListVTable>();
 
-    assert_eq!(result_fsl.len(), 4);
+    assert_eq!(result_fsl.len(), expected_len);
     assert_eq!(result_fsl.list_size(), 0);
     assert_eq!(result_fsl.elements().len(), 0);
 
-    // First result should be null (index 1 is null in original).
-    assert!(result_fsl.scalar_at(0).is_null());
-
-    // Second result should not be null (index 3 is valid in original).
-    assert!(!result_fsl.scalar_at(1).is_null());
-
-    // Third result should be null (null index).
-    assert!(result_fsl.scalar_at(2).is_null());
-
-    // Fourth result should not be null (index 0 is valid in original).
-    assert!(!result_fsl.scalar_at(3).is_null());
+    // Check nullability of results.
+    for (i, expected_null) in expected_nulls.iter().enumerate() {
+        assert_eq!(result_fsl.scalar_at(i).is_null(), *expected_null);
+    }
 }
 
 #[test]

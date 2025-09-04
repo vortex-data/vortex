@@ -68,102 +68,68 @@ fn compute_filtered_elements_and_offsets<O: NativePType + AsPrimitive<usize> + A
         .vortex_expect("`AllTrue` and `AllFalse` are handled by filter entry point");
     let true_count = selection_mask.true_count();
 
+    let mut new_offsets = BufferMut::<O>::with_capacity(true_count + 1);
+    let mut new_mask_builder = BooleanBufferBuilder::new(elements.len());
+    let mut next_offset: O = O::zero(); // Offsets always start at zero.
+
+    new_offsets.push(next_offset);
+
     // Choose the optimal iteration strategy based on selection mask density.
-    // Both paths build a `BooleanBuffer` for the element mask (as opposed to creating a mask from
-    // indices or slices since we don't know how dense the mask will be).
     match values.threshold_iter(LIST_SELECTION_MASK_DENSITY_THRESHOLD) {
         MaskIter::Slices(slices) => {
-            compute_filtered_elements_and_offsets_slices(elements, offsets, slices, true_count)
+            // Dense iteration: process ranges of consecutive selected lists.
+            for &(start, end) in slices {
+                // This represents `start - end` lists in the final array.
+                let elems_start = offsets[start].as_();
+                let elems_end = offsets[end].as_();
+                let elems_len = elems_end - elems_start;
+
+                // Remove any unnecessary elements before the start of the `start` list.
+                new_mask_builder.append_n(elems_start - new_mask_builder.len(), false);
+                // Keep the elements that _are_ in the list.
+                new_mask_builder.append_n(elems_len, true);
+
+                // Add the offsets for each list in this range.
+                for i in start..end {
+                    let list_len = offsets[i + 1] - offsets[i];
+                    next_offset += list_len;
+                    new_offsets.push(next_offset);
+                }
+            }
+
+            // Remove any trailing elements.
+            if new_mask_builder.len() < elements.len() {
+                new_mask_builder.append_n(elements.len() - new_mask_builder.len(), false);
+            }
         }
         MaskIter::Indices(indices) => {
-            compute_filtered_elements_and_offsets_indices(elements, offsets, indices, true_count)
+            // Sparse iteration: process individual selected lists.
+            let mut last_elem_end: usize = 0;
+
+            for &idx in indices {
+                let list_start = offsets[idx].as_();
+                let list_end = offsets[idx + 1].as_();
+                let list_len = list_end - list_start;
+
+                // Fill false values up to the start of this list.
+                if list_start > last_elem_end {
+                    new_mask_builder.append_n(list_start - last_elem_end, false);
+                }
+                // Keep the elements in this list.
+                new_mask_builder.append_n(list_len, true);
+                last_elem_end = list_end;
+
+                // Add the offset for this list.
+                let offset_len = offsets[idx + 1] - offsets[idx];
+                next_offset += offset_len;
+                new_offsets.push(next_offset);
+            }
+
+            // For sparse iteration, handle any gap after the last processed element.
+            if last_elem_end < elements.len() {
+                new_mask_builder.append_n(elements.len() - last_elem_end, false);
+            }
         }
-    }
-}
-
-/// Handles filtering when iterating over selection mask as slices (dense iteration).
-/// Builds a BooleanBuffer for the element mask.
-fn compute_filtered_elements_and_offsets_slices<O: NativePType + AsPrimitive<usize>>(
-    elements: &dyn Array,
-    offsets: &[O],
-    slices: &[(usize, usize)],
-    true_count: usize,
-) -> VortexResult<(ArrayRef, PrimitiveArray)> {
-    let mut new_offsets = BufferMut::<O>::with_capacity(true_count + 1);
-    let mut new_mask_builder = BooleanBufferBuilder::new(elements.len());
-    let mut next_offset: O = O::zero(); // Offsets always start at zero.
-
-    new_offsets.push(next_offset);
-
-    // We batch this operation for the mask builder (but not the offsets).
-    for &(start, end) in slices {
-        // This represents `start - end` lists in the final array.
-        let elems_start = offsets[start].as_();
-        let elems_end = offsets[end].as_();
-        let elems_len = elems_end - elems_start;
-
-        // Remove any unnecessary elements before the start of the `start` list.
-        new_mask_builder.append_n(elems_start - new_mask_builder.len(), false);
-        // Keep the elements that _are_ in the list.
-        new_mask_builder.append_n(elems_len, true);
-
-        // Add the offsets for each list in this range.
-        for i in start..end {
-            let list_len = offsets[i + 1] - offsets[i];
-            next_offset = next_offset + list_len;
-            new_offsets.push(next_offset);
-        }
-    }
-
-    // Remove any trailing elements.
-    new_mask_builder.append_n(elements.len() - new_mask_builder.len(), false);
-
-    // Allow the child array to filter themselves.
-    // The `Mask` can determine the best representation based on the buffer's density in the future.
-    let new_elements = filter(elements, &Mask::from_buffer(new_mask_builder.finish()))?;
-    let new_offsets = PrimitiveArray::new(new_offsets, Validity::NonNullable);
-
-    Ok((new_elements, new_offsets))
-}
-
-/// Handles filtering when iterating over selection mask as indices (sparse iteration).
-/// Builds a BooleanBuffer for the element mask.
-fn compute_filtered_elements_and_offsets_indices<O: NativePType + AsPrimitive<usize>>(
-    elements: &dyn Array,
-    offsets: &[O],
-    indices: &[usize],
-    true_count: usize,
-) -> VortexResult<(ArrayRef, PrimitiveArray)> {
-    let mut new_offsets = BufferMut::<O>::with_capacity(true_count + 1);
-    let mut new_mask_builder = BooleanBufferBuilder::new(elements.len());
-    let mut next_offset: O = O::zero(); // Offsets always start at zero.
-    let mut last_elem_end: usize = 0;
-
-    new_offsets.push(next_offset);
-
-    // For sparse masks, we iterate over individual indices.
-    for &idx in indices {
-        let list_start = offsets[idx].as_();
-        let list_end = offsets[idx + 1].as_();
-        let list_len = list_end - list_start;
-
-        // Fill false values up to the start of this list.
-        if list_start > last_elem_end {
-            new_mask_builder.append_n(list_start - last_elem_end, false);
-        }
-        // Keep the elements in this list.
-        new_mask_builder.append_n(list_len, true);
-        last_elem_end = list_end;
-
-        // Add the offset for this list.
-        let list_len = offsets[idx + 1] - offsets[idx];
-        next_offset = next_offset + list_len;
-        new_offsets.push(next_offset);
-    }
-
-    // Remove any trailing elements.
-    if last_elem_end < elements.len() {
-        new_mask_builder.append_n(elements.len() - last_elem_end, false);
     }
 
     // Allow the child array to filter themselves.
