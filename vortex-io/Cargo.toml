@@ -23,6 +23,7 @@ futures-util = { workspace = true }
 getrandom_v03 = { workspace = true }
 kanal = { workspace = true }
 object_store = { workspace = true, optional = true, features = ["fs"] }
+oneshot = { workspace = true }
 pin-project = { workspace = true }
 # this is the maximum subset of fetaures that is safe for wasm32 targets
 tokio = { workspace = true, features = ["io-util", "rt", "sync"] }
