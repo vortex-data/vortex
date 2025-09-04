@@ -125,13 +125,17 @@ def format_performance(ratio, target_name):
     if pd.isna(ratio):
         return f"no {target_name.lower()} data"
     else:
-        emoji = "✅" if ratio < 1 else "❌"
+        # Use neutral emoji if within threshold
+        if improvement_threshold <= ratio <= regression_threshold:
+            emoji = "➖"
+        elif ratio < 1:
+            emoji = "✅"
+        else:
+            emoji = "❌"
         return f"{ratio:.3f}x {emoji}"
 
 
-overall_performance = (
-    "no data" if pd.isna(geo_mean_ratio) else f"{geo_mean_ratio:.3f}x {'✅' if geo_mean_ratio < 1 else '❌'}"
-)
+overall_performance = "no data" if pd.isna(geo_mean_ratio) else format_performance(geo_mean_ratio, "overall")
 vortex_performance = format_performance(vortex_geo_mean_ratio, "vortex")
 duckdb_vortex_performance = format_performance(duckdb_vortex_geo_mean_ratio, "duckdb:vortex")
 datafusion_vortex_performance = format_performance(datafusion_vortex_geo_mean_ratio, "datafusion:vortex")
