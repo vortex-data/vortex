@@ -123,15 +123,16 @@ significant_regressions = (vortex_df["ratio"] > regression_threshold).sum()
 # Build summary
 def format_performance(ratio, target_name):
     if pd.isna(ratio):
-        return f"no valid {target_name.lower()} comparisons available"
+        return f"no {target_name.lower()} data"
     else:
-        return f"{ratio:.3f}x ({'better' if ratio < 1 else 'worse'} than base)"
+        emoji = "✅" if ratio < 1 else "❌"
+        return f"{ratio:.3f}x {emoji}"
 
 
 overall_performance = (
-    "no valid comparisons available"
+    "no data"
     if pd.isna(geo_mean_ratio)
-    else f"{geo_mean_ratio:.3f}x ({'better' if geo_mean_ratio < 1 else 'worse'} than base)"
+    else f"{geo_mean_ratio:.3f}x {'✅' if geo_mean_ratio < 1 else '❌'}"
 )
 vortex_performance = format_performance(vortex_geo_mean_ratio, "vortex")
 duckdb_vortex_performance = format_performance(duckdb_vortex_geo_mean_ratio, "duckdb:vortex")
@@ -140,34 +141,32 @@ datafusion_vortex_performance = format_performance(datafusion_vortex_geo_mean_ra
 summary_lines = [
     "## Summary",
     "",
-    f"- **overall performance (all targets)**: {overall_performance}",
+    f"- **overall**: {overall_performance}",
 ]
 
 # Only add vortex-specific sections if we have vortex data
 if len(vortex_df) > 0:
     summary_lines.extend(
         [
-            f"- **vortex performance**: {vortex_performance}",
+            f"- **vortex**: {vortex_performance}",
         ]
     )
 
 # Only add duckdb:vortex section if we have that data
 if len(duckdb_vortex_df) > 0:
-    summary_lines.append(f"- **duckdb:vortex performance**: {duckdb_vortex_performance}")
+    summary_lines.append(f"- **duckdb:vortex**: {duckdb_vortex_performance}")
 
 # Only add datafusion:vortex section if we have that data
 if len(datafusion_vortex_df) > 0:
-    summary_lines.append(f"- **datafusion:vortex performance**: {datafusion_vortex_performance}")
+    summary_lines.append(f"- **datafusion:vortex**: {datafusion_vortex_performance}")
 
 # Only add best/worst if we have vortex data
 if len(vortex_df) > 0:
     summary_lines.extend(
         [
-            f"- **best vortex improvement**: {best_improvement}",
-            f"- **worst vortex regression**: {worst_regression}",
-            f"- **significant vortex changes (>{threshold_pct}%)**:",
-            f"  - improvements: {significant_improvements} queries",
-            f"  - regressions: {significant_regressions} queries",
+            f"- **best**: {best_improvement}",
+            f"- **worst**: {worst_regression}",
+            f"- **significant (>{threshold_pct}%)**: {significant_improvements}↑ {significant_regressions}↓",
         ]
     )
 
