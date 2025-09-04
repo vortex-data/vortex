@@ -23,7 +23,6 @@ pub async fn segments(file: impl AsRef<Path>) -> VortexResult<()> {
     let mut queue = VecDeque::<(Vec<Arc<str>>, LayoutRef)>::from_iter([(Vec::new(), root_layout)]);
     while !queue.is_empty() {
         let (path, layout) = queue.pop_front().vortex_expect("queue is not empty");
-
         for segment in layout.segment_ids() {
             segment_paths[*segment as usize] = Some(path.clone());
         }
