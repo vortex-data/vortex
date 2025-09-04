@@ -531,7 +531,7 @@ mod tests {
         ];
         // In a span of 248 bits (31 bytes) there should be at least one 8-byte aligned span.
         let (_, middle, _) = unsafe { source.align_to::<u64>() };
-        assert!(middle.len() != 0);
+        assert!(!middle.is_empty());
 
         copy_from_byte_slice(target.as_mut_bits::<Lsb0>(), &source, 0, 128);
         assert_eq!(
