@@ -1,13 +1,17 @@
 use arrow_buffer::BooleanBuffer;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
+
 use crate::arrays::BoolArray;
-use crate::pipeline::{Kernel, KernelContext, N, N_WORDS};
 use crate::pipeline::bits::BitViewMut;
 use crate::pipeline::vec::Vector;
+use crate::pipeline::{Kernel, KernelContext, N, N_WORDS};
 use crate::validity::Validity;
 
-pub(super) fn export_bool_nonnull_masked(mask: &Mask, pipeline: &mut dyn Kernel) -> VortexResult<BoolArray> {
+pub(super) fn export_bool_nonnull_masked(
+    mask: &Mask,
+    pipeline: &mut dyn Kernel,
+) -> VortexResult<BoolArray> {
     let len = mask.len();
     let true_count = mask.true_count();
 
@@ -62,4 +66,3 @@ pub(super) fn export_bool_nonnull_masked(mask: &Mask, pipeline: &mut dyn Kernel)
 
     Ok(BoolArray::new(values, Validity::NonNullable))
 }
-

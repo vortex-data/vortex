@@ -86,6 +86,8 @@ pub struct ViewMut<'a> {
 
     /// Marker defining the lifetime of the contents of the vector.
     pub(super) _marker: std::marker::PhantomData<&'a mut ()>,
+
+    pub len: usize,
 }
 
 impl<'a> ViewMut<'a> {
@@ -97,6 +99,7 @@ impl<'a> ViewMut<'a> {
             validity,
             data: vec![],
             _marker: Default::default(),
+            len: elements.len(),
         }
     }
 
@@ -117,14 +120,14 @@ impl<'a> ViewMut<'a> {
     #[inline(always)]
     pub fn as_slice<E: Element>(&self) -> &'a [E] {
         debug_assert_eq!(self.vtype, E::vtype(), "Invalid type for canonical view");
-        unsafe { std::slice::from_raw_parts(self.elements.cast::<E>(), N) }
+        unsafe { std::slice::from_raw_parts(self.elements.cast::<E>(), self.len) }
     }
 
     /// Returns a mutable slice of the elements in the vector, allowing for modification.
     #[inline(always)]
     pub fn as_slice_mut<E: Element>(&mut self) -> &'a mut [E] {
         debug_assert_eq!(self.vtype, E::vtype(), "Invalid type for canonical view");
-        unsafe { std::slice::from_raw_parts_mut(self.elements.cast::<E>(), N) }
+        unsafe { std::slice::from_raw_parts_mut(self.elements.cast::<E>(), self.len) }
     }
 
     /// Access the validity mask of the vector.
@@ -158,7 +161,7 @@ impl<'a> ViewMut<'a> {
             0 => {
                 // If the mask has no true bits, we set the length to 0.
             }
-            N => {
+            n if n  == self.len => {
                 // If the mask has N true bits, we copy all elements.
             }
             n if n > 3 * N / 4 => {

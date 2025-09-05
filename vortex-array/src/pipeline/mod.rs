@@ -21,12 +21,12 @@
 //! It is a work-in-progress and is not yet used in production.
 
 pub mod bits;
+mod canonical;
 pub mod operators;
 pub mod query;
 mod types;
 pub mod vec;
 pub mod view;
-mod canonical;
 
 pub use canonical::*;
 

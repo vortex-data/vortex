@@ -32,9 +32,7 @@ pub fn main() {
 //     0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99, 1.00,
 // ];
 
-const TRUE_COUNT: &[f64] = &[
-   1.0
-];
+const TRUE_COUNT: &[f64] = &[1.0];
 
 fn create_for_bitpacked_array<T: NativePType>(values: BufferMut<T>) -> VortexResult<ArrayRef> {
     let primitive_array = values.into_array().to_primitive();

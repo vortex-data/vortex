@@ -66,8 +66,8 @@ impl Vector {
         Self {
             vtype,
             elements,
-            validity: BitVector::full().clone(),
-            len: 0,
+            validity: BitVector::full(),
+            len: N,
             data: vec![],
         }
     }
@@ -91,13 +91,14 @@ impl Vector {
         unsafe { &mut *(self.elements.as_mut_ptr().cast::<T>().cast::<[T; N]>()) }
     }
 
-    pub fn as_view_mut(&mut self) -> ViewMut<'_> {
+    pub fn as_view_mut(&mut self) -> ViewMut {
         ViewMut {
             vtype: self.vtype,
             elements: self.elements.as_mut_ptr().cast(),
             validity: Some(self.validity.as_view_mut()),
             data: vec![],
             _marker: Default::default(),
+            len: self.len,
         }
     }
 

@@ -11,25 +11,15 @@ use bitvec::order::Lsb0;
 use super::{BitView, BitViewMut};
 use crate::pipeline::{N, N_WORDS};
 
-static EMPTY: LazyLock<BitVector> = LazyLock::new(|| BitVector {
-    bits: Arc::new(BitArray::ZERO),
-    true_count: 0,
-});
-
-static FULL: LazyLock<BitVector> = LazyLock::new(|| BitVector {
-    bits: Arc::new(BitArray::ZERO.not()),
-    true_count: N,
-});
-
 /// An owned fixed-size bit vector of length `N` bits, represented as an array of usize words.
 ///
 /// Internally, it uses a [`BitArray`] to store the bits, but this crate has some
 /// performance foot-guns in cases where we can lean on better assumptions, and therefore we wrap
 /// it up for use within Vortex.
 /// Owned bit vector for storing boolean selection masks.
-#[derive(Clone)]
+// #[derive(Clone)]
 pub struct BitVector {
-    pub(super) bits: Arc<BitArray<[usize; N_WORDS], Lsb0>>,
+    pub(super) bits: BitArray<[usize; N_WORDS], Lsb0>,
     pub(super) true_count: usize,
 }
 
@@ -42,41 +32,46 @@ impl Debug for BitVector {
     }
 }
 
-impl PartialEq for BitVector {
-    fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.bits, &other.bits)
-            || (self.true_count == other.true_count && self.bits == other.bits)
-    }
-}
+// impl PartialEq for BitVector {
+//     fn eq(&self, other: &Self) -> bool {
+//         &self.bits, &other.bits)
+//             || (self.true_count == other.true_count && self.bits == other.bits)
+//     }
+// }
 
-impl Eq for BitVector {}
+// impl Eq for BitVector {}
 
 impl BitVector {
-    pub fn empty() -> &'static BitVector {
-        &EMPTY
+    pub fn empty() -> BitVector {
+        BitVector {
+            bits: BitArray::ZERO.clone(),
+            true_count: 0,
+        }
     }
 
-    pub fn full() -> &'static BitVector {
-        &FULL
+    pub fn full() -> BitVector {
+        BitVector {
+            bits: BitArray::ZERO.not(),
+            true_count: N,
+        }
     }
 
     pub fn true_until(n: usize) -> Self {
         assert!(n <= N, "Cannot create a BitVector with more than N bits");
 
-        let mut bits = Arc::new(BitArray::<[usize; N_WORDS], Lsb0>::ZERO);
-        let bits_mut = Arc::make_mut(&mut bits);
+        let mut bits = BitArray::<[usize; N_WORDS], Lsb0>::ZERO;
 
         let mut word = 0;
         let mut remaining = n;
         while remaining >= usize::BITS as usize {
-            bits_mut.as_raw_mut_slice()[word] = usize::MAX;
+            bits.as_raw_mut_slice()[word] = usize::MAX;
             remaining -= usize::BITS as usize;
             word += 1;
         }
 
         if remaining > 0 {
             // For LSB ordering, set the lower bits (0 to remaining-1)
-            bits_mut.as_raw_mut_slice()[word] = (1usize << remaining) - 1;
+            bits.as_raw_mut_slice()[word] = (1usize << remaining) - 1;
         }
 
         BitVector {
@@ -97,8 +92,9 @@ impl BitVector {
 
     pub fn as_raw_mut(&mut self) -> &mut [usize; N_WORDS] {
         // SAFETY: We assume that the bits are mutable and that the view is valid.
-        let raw = Arc::make_mut(&mut self.bits).as_raw_mut_slice();
-        unsafe { &mut *(raw.as_mut_ptr() as *mut [usize; N_WORDS]) }
+        // let raw = Aut(&mut self.bits).as_raw_mut_slice();
+        // unsafe { &mut *(raw.as_mut_ptr() as *mut [usize; N_WORDS]) }
+        unsafe {&mut *(self.bits.as_raw_mut_slice().as_mut_ptr() as *mut [usize; N_WORDS])}
     }
 
     pub fn fill_from<I>(&mut self, iter: I)
@@ -118,7 +114,7 @@ impl BitVector {
     }
 
     pub fn as_view_mut(&mut self) -> BitViewMut<'_> {
-        unsafe { BitViewMut::new_unchecked(Arc::make_mut(&mut self.bits), self.true_count) }
+        unsafe { BitViewMut::new_unchecked(&mut self.bits, self.true_count) }
         // unsafe { BitViewMut::new_unchecked(Arc::get_mut(&mut self.bits).unwrap(), self.true_count) }
     }
 }
@@ -126,7 +122,7 @@ impl BitVector {
 impl From<BitView<'_>> for BitVector {
     fn from(value: BitView<'_>) -> Self {
         let true_count = value.true_count();
-        let bits = Arc::new(BitArray::<[usize; N_WORDS], Lsb0>::from(*value.as_raw()));
+        let bits = BitArray::<[usize; N_WORDS], Lsb0>::from(*value.as_raw());
         BitVector { bits, true_count }
     }
 }

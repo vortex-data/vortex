@@ -1,14 +1,14 @@
-use crate::arrays::PrimitiveArray;
-use crate::pipeline::bits::{BitVector, BitView, BitViewMut};
-use crate::pipeline::view::ViewMut;
-use crate::pipeline::{Element, Kernel, KernelContext, N, N_WORDS};
-use crate::validity::Validity;
 use arrow_buffer::BooleanBuffer;
 use vortex_buffer::{Alignment, BufferMut};
 use vortex_dtype::{NativePType, Nullability};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::arrays::PrimitiveArray;
+use crate::pipeline::bits::{BitVector, BitView, BitViewMut};
+use crate::pipeline::view::ViewMut;
+use crate::pipeline::{Element, Kernel, KernelContext, N, N_WORDS};
+use crate::validity::Validity;
 
 pub(super) fn export_primitive_nonnull<T: Element + NativePType>(
     len: usize,
@@ -42,7 +42,6 @@ pub(super) fn export_primitive_nonnull<T: Element + NativePType>(
     ))
 }
 
-
 pub(super) fn export_primitive_null<T: Element + NativePType>(
     len: usize,
     pipeline: &mut dyn Kernel,
@@ -60,9 +59,8 @@ pub(super) fn export_primitive_null<T: Element + NativePType>(
 
     while remaining >= N {
         let head = len - remaining;
-        let mut slice: &mut [usize; N_WORDS] = unsafe {
-            extract_step_slice(&mut (mask[head / (u32::BITS as usize)..][..N_WORDS]))
-        };
+        let mut slice: &mut [usize; N_WORDS] =
+            unsafe { extract_step_slice(&mut (mask[head / (u32::BITS as usize)..][..N_WORDS])) };
         let val_view = BitViewMut::new(&mut slice);
         let mut elements_view = ViewMut::new(&mut elements[head..][..N], Some(val_view));
         let dummy_ctx = KernelContext::default();
@@ -73,7 +71,7 @@ pub(super) fn export_primitive_null<T: Element + NativePType>(
     if remaining > 0 {
         let head = len - remaining;
         let slice: &mut [usize; N_WORDS] =
-            unsafe {extract_step_slice(&mut mask[head / (u32::BITS as usize)..][..N_WORDS])};
+            unsafe { extract_step_slice(&mut mask[head / (u32::BITS as usize)..][..N_WORDS]) };
 
         let val_view = BitViewMut::new(slice);
         let mut elements_view = ViewMut::new(&mut elements[head..][..N], Some(val_view));
@@ -95,8 +93,8 @@ pub(super) fn export_primitive_null<T: Element + NativePType>(
 }
 
 unsafe fn extract_step_slice(slice: &mut [usize]) -> &mut [usize; N_WORDS] {
-         unsafe {&mut *(slice.as_mut_ptr() as *mut [usize; N_WORDS])}
-      }
+    unsafe { &mut *(slice.as_mut_ptr() as *mut [usize; N_WORDS]) }
+}
 
 pub(super) fn export_primitive_nonnull_masked<T: Element + NativePType>(
     mask: &Mask,
