@@ -53,7 +53,7 @@ impl ComputeFnVTable for IsSorted {
 
         // We currently don't support sorting struct arrays.
         if array.dtype().is_struct() {
-            return Ok(Scalar::from(false).into());
+            return Ok(Scalar::from(Some(false)).into());
         }
 
         let is_sorted = if strict {

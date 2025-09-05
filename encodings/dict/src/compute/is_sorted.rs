@@ -9,21 +9,15 @@ use crate::{DictArray, DictVTable};
 
 impl IsSortedKernel for DictVTable {
     fn is_sorted(&self, array: &DictArray) -> VortexResult<Option<bool>> {
-        if let Some((values_sorted, codes_sorted)) =
-            is_sorted(array.values())?.zip(is_sorted(array.codes())?)
-            && values_sorted
-            && codes_sorted
-        {
+        if Some((true, true)) == is_sorted(array.values())?.zip(is_sorted(array.codes())?) {
             return Ok(Some(true));
         }
         Ok(None)
     }
 
     fn is_strict_sorted(&self, array: &DictArray) -> VortexResult<Option<bool>> {
-        if let Some((values_sorted, codes_sorted)) =
-            is_strict_sorted(array.values())?.zip(is_strict_sorted(array.codes())?)
-            && values_sorted
-            && codes_sorted
+        if Some((true, true))
+            == is_strict_sorted(array.values())?.zip(is_strict_sorted(array.codes())?)
         {
             return Ok(Some(true));
         }
