@@ -11,6 +11,7 @@ mod primitive;
 mod run_end;
 mod sequence;
 mod temporal;
+mod validity;
 mod varbinview;
 
 use std::sync::Arc;
