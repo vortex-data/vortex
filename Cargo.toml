@@ -197,7 +197,7 @@ uuid = { version = "1.17", features = ["js"] }
 walkdir = "2.5.0"
 wasm-bindgen-futures = "0.4.39"
 witchcraft-metrics = "1.0.1"
-zip = "4.0.0"
+zip = "5.0.0"
 
 # BEGIN crates published by this project
 vortex = { version = "0.1.0", path = "./vortex" }
