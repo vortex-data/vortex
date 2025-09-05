@@ -9,9 +9,8 @@ use vortex_buffer::BufferMut;
 use vortex_dtype::{NativePType, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::{Mask, MaskIter};
-use vortex_scalar::Scalar;
 
-use crate::arrays::{ConstantArray, ListArray, ListVTable, PrimitiveArray};
+use crate::arrays::{ListArray, ListVTable, PrimitiveArray};
 use crate::compute::{FilterKernel, FilterKernelAdapter, filter};
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
@@ -25,21 +24,15 @@ const LIST_SELECTION_MASK_DENSITY_THRESHOLD: f64 = 0.1;
 
 impl FilterKernel for ListVTable {
     fn filter(&self, array: &ListArray, selection_mask: &Mask) -> VortexResult<ArrayRef> {
-        let null_mask = array.validity_mask();
-        let new_len = selection_mask.true_count();
-
-        // If the entire array is null, then we only need to adjust the length of the array.
-        if let Mask::AllFalse(_) = null_mask {
-            return Ok(
-                ConstantArray::new(Scalar::null(array.dtype().clone()), new_len).into_array(),
-            );
-        }
-
         let elements = array.elements();
         let offsets = array.offsets.to_primitive();
 
         let new_validity = array.validity().filter(selection_mask)?;
-        debug_assert!(new_validity.maybe_len().is_none_or(|len| len == new_len));
+        debug_assert!(
+            new_validity
+                .maybe_len()
+                .is_none_or(|len| len == selection_mask.true_count())
+        );
 
         let (new_elements, new_offsets) = match_each_integer_ptype!(offsets.ptype(), |O| {
             compute_filtered_elements_and_offsets::<O>(

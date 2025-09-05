@@ -3,9 +3,8 @@
 
 use vortex_error::VortexResult;
 use vortex_mask::{Mask, MaskIter};
-use vortex_scalar::Scalar;
 
-use crate::arrays::{ConstantArray, FixedSizeListArray, FixedSizeListVTable};
+use crate::arrays::{FixedSizeListArray, FixedSizeListVTable};
 use crate::compute::{self, FilterKernel, FilterKernelAdapter};
 use crate::vtable::ValidityHelper;
 use crate::{ArrayRef, IntoArray, register_kernel};
@@ -23,17 +22,8 @@ const FSL_MASK_EXPANSION_DENSITY_THRESHOLD: f64 = 0.1;
 /// mask down to the child elements array.
 impl FilterKernel for FixedSizeListVTable {
     fn filter(&self, array: &FixedSizeListArray, selection_mask: &Mask) -> VortexResult<ArrayRef> {
-        let new_len = selection_mask.true_count();
-        let null_mask = array.validity_mask();
-
-        // If the entire array is null, then we only need to adjust the length of the array.
-        if let Mask::AllFalse(_) = null_mask {
-            return Ok(
-                ConstantArray::new(Scalar::null(array.dtype().clone()), new_len).into_array(),
-            );
-        }
-
         let elements = array.elements();
+        let new_len = selection_mask.true_count();
         let list_size = array.list_size();
 
         let new_validity = array.validity().filter(selection_mask)?;

@@ -87,6 +87,15 @@ impl ComputeFnVTable for Filter {
             return Ok(array.to_array().into());
         }
 
+        // If the entire array is null, then we only need to adjust the length of the array.
+        if array.validity_mask().true_count() == 0 {
+            return Ok(
+                ConstantArray::new(Scalar::null(array.dtype().clone()), true_count)
+                    .into_array()
+                    .into(),
+            );
+        }
+
         for kernel in kernels {
             if let Some(output) = kernel.invoke(args)? {
                 return Ok(output);
@@ -174,6 +183,8 @@ pub trait FilterKernel: VTable {
     /// selection mask, leaving only `Mask::Values` to be handled by this function.
     ///
     /// Additionally, the array length is guaranteed to have the same length as the selection mask.
+    ///
+    /// Finally, the array validity mask is guaranteed not to have a true count of 0 (all nulls).
     fn filter(&self, array: &Self::Array, selection_mask: &Mask) -> VortexResult<ArrayRef>;
 }
 
