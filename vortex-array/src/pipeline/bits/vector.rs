@@ -3,7 +3,6 @@
 
 use std::fmt::{Debug, Formatter};
 use std::ops::Not;
-use std::sync::{Arc, LazyLock};
 
 use bitvec::array::BitArray;
 use bitvec::order::Lsb0;
@@ -44,7 +43,7 @@ impl Debug for BitVector {
 impl BitVector {
     pub fn empty() -> BitVector {
         BitVector {
-            bits: BitArray::ZERO.clone(),
+            bits: BitArray::ZERO,
             true_count: 0,
         }
     }
@@ -94,7 +93,7 @@ impl BitVector {
         // SAFETY: We assume that the bits are mutable and that the view is valid.
         // let raw = Aut(&mut self.bits).as_raw_mut_slice();
         // unsafe { &mut *(raw.as_mut_ptr() as *mut [usize; N_WORDS]) }
-        unsafe {&mut *(self.bits.as_raw_mut_slice().as_mut_ptr() as *mut [usize; N_WORDS])}
+        unsafe { &mut *(self.bits.as_raw_mut_slice().as_mut_ptr() as *mut [usize; N_WORDS]) }
     }
 
     pub fn fill_from<I>(&mut self, iter: I)
@@ -133,7 +132,7 @@ mod tests {
 
     #[test]
     fn test_fill_from() {
-        let mut vec = BitVector::empty().clone();
+        let mut vec = BitVector::empty();
 
         // Fill with a pattern
         let pattern = [
@@ -214,7 +213,7 @@ mod tests {
 
     #[test]
     fn test_as_raw_mut() {
-        let mut vec = BitVector::empty().clone();
+        let mut vec = BitVector::empty();
 
         // Modify through as_raw_mut
         let raw_mut = vec.as_raw_mut();

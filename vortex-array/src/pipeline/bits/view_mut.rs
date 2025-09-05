@@ -119,7 +119,7 @@ mod tests {
 
     #[test]
     fn test_intersect_prefix() {
-        let mut bit_vec = BitVector::full().clone();
+        let mut bit_vec = BitVector::full();
 
         let mut view_mut = bit_vec.as_view_mut();
         assert_eq!(view_mut.true_count(), N);

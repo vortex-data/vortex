@@ -8,7 +8,6 @@ use std::sync::Arc;
 
 use num_traits::WrappingAdd;
 use vortex_array::Array;
-use vortex_array::compute::Operator as BinaryOperator;
 use vortex_array::pipeline::bits::BitView;
 use vortex_array::pipeline::operators::{
     BindContext, Operator, OperatorRef, ScalarCompareOperator,

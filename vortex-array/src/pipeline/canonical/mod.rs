@@ -4,7 +4,7 @@
 mod bool;
 mod primitive;
 
-use vortex_dtype::{DType, NativePType, Nullability, match_each_native_ptype};
+use vortex_dtype::{DType, Nullability, match_each_native_ptype};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
@@ -15,8 +15,7 @@ use crate::pipeline::canonical::primitive::{
 };
 use crate::pipeline::operators::Operator;
 use crate::pipeline::query::QueryPlan;
-use crate::pipeline::types::Element;
-use crate::pipeline::{Kernel, KernelContext, N, N_WORDS};
+use crate::pipeline::Kernel;
 
 /// Export canonical data from a pipeline kernel with the given mask.
 pub fn export_canonical_pipeline(

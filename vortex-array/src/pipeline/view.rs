@@ -161,7 +161,7 @@ impl<'a> ViewMut<'a> {
             0 => {
                 // If the mask has no true bits, we set the length to 0.
             }
-            n if n  == self.len => {
+            n if n == self.len => {
                 // If the mask has N true bits, we copy all elements.
             }
             n if n > 3 * N / 4 => {

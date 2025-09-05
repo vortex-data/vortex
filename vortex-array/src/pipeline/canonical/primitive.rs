@@ -59,9 +59,9 @@ pub(super) fn export_primitive_null<T: Element + NativePType>(
 
     while remaining >= N {
         let head = len - remaining;
-        let mut slice: &mut [usize; N_WORDS] =
+        let slice: &mut [usize; N_WORDS] =
             unsafe { extract_step_slice(&mut (mask[head / (u32::BITS as usize)..][..N_WORDS])) };
-        let val_view = BitViewMut::new(&mut slice);
+        let val_view = BitViewMut::new(slice);
         let mut elements_view = ViewMut::new(&mut elements[head..][..N], Some(val_view));
         let dummy_ctx = KernelContext::default();
         pipeline.step(&dummy_ctx, BitView::all_true(), &mut elements_view)?;
