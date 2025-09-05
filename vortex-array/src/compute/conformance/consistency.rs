@@ -274,7 +274,7 @@ fn test_slice_filter_consistency(array: &dyn Array) {
         filtered.len(),
         sliced.len(),
         "Filter with contiguous mask and slice should produce same length. \
-         Filtered length: {}, Sliced length: {}",
+         \nFiltered length: {}\nSliced length: {}",
         filtered.len(),
         sliced.len()
     );
@@ -285,7 +285,7 @@ fn test_slice_filter_consistency(array: &dyn Array) {
         assert_eq!(
             filtered_val, sliced_val,
             "Filter with contiguous mask and slice produced different values at index {i}. \
-             Filtered value: {filtered_val:?}, Sliced value: {sliced_val:?}"
+             \nFiltered value: {filtered_val:?}\nSliced value: {sliced_val:?}"
         );
     }
 }
@@ -321,7 +321,7 @@ fn test_take_slice_consistency(array: &dyn Array) {
         taken.len(),
         sliced.len(),
         "Take with sequential indices and slice should produce same length. \
-         Taken length: {}, Sliced length: {}",
+         \nTaken length: {}\nSliced length: {}",
         taken.len(),
         sliced.len()
     );
@@ -332,7 +332,7 @@ fn test_take_slice_consistency(array: &dyn Array) {
         assert_eq!(
             taken_val, sliced_val,
             "Take with sequential indices and slice produced different values at index {i}. \
-             Taken value: {taken_val:?}, Sliced value: {sliced_val:?}"
+             \nTaken value: {taken_val:?}\nSliced value: {sliced_val:?}"
         );
     }
 }

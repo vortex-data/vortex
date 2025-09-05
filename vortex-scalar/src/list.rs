@@ -116,7 +116,7 @@ impl<'a> ListScalar<'a> {
     /// Returns the data type of the list's elements.
     pub fn element_dtype(&self) -> &DType {
         self.dtype
-            .as_list_element_opt()
+            .as_any_size_list_element_opt()
             .unwrap_or_else(|| vortex_panic!("`ListScalar` somehow had dtype {}", self.dtype))
             .as_ref()
     }
@@ -154,7 +154,7 @@ impl<'a> ListScalar<'a> {
     /// [`FixedSizeList`]: DType::FixedSizeList
     pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
         let target_element_dtype = dtype
-            .as_list_element_opt()
+            .as_any_size_list_element_opt()
             .ok_or_else(|| {
                 vortex_err!(
                     "Cannot cast {} to {}: list can only be cast to a list or fixed-size list",
@@ -274,7 +274,7 @@ impl<'a> TryFrom<&'a Scalar> for ListScalar<'a> {
     fn try_from(value: &'a Scalar) -> Result<Self, Self::Error> {
         let element_dtype = value
             .dtype()
-            .as_list_element_opt()
+            .as_any_size_list_element_opt()
             .ok_or_else(|| vortex_err!("Expected list scalar, found {}", value.dtype()))?;
 
         Ok(Self {

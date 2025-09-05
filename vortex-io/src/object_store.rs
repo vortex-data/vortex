@@ -7,9 +7,8 @@ use std::os::unix::prelude::FileExt;
 use std::sync::Arc;
 
 use bytes::BytesMut;
-use futures::TryStreamExt;
 use futures::stream::FuturesUnordered;
-use futures_util::StreamExt;
+use futures::{StreamExt, TryStreamExt};
 use object_store::path::Path;
 use object_store::{
     GetOptions, GetRange, GetResultPayload, MultipartUpload, ObjectStore, ObjectStoreScheme,
@@ -187,7 +186,6 @@ impl VortexWrite for ObjectStoreWriter {
 
 #[cfg(test)]
 mod tests {
-
     use std::sync::Arc;
 
     use object_store::ObjectStore;

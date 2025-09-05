@@ -5,8 +5,8 @@ use std::future::Future;
 use std::ops::Range;
 use std::sync::Arc;
 
-use futures_util::future::{BoxFuture, Shared};
-use futures_util::{FutureExt, TryFutureExt};
+use futures::future::{BoxFuture, Shared};
+use futures::{FutureExt, TryFutureExt};
 use vortex_error::{SharedVortexResult, VortexError, VortexResult, vortex_panic};
 use vortex_mask::Mask;
 

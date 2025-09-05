@@ -9,14 +9,14 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use vortex_array::ArrayRef;
 use vortex_array::stats::StatsSet;
+use vortex_array::ArrayRef;
 use vortex_dtype::{DType, Field, FieldMask, FieldPath, FieldPathSet};
 use vortex_error::VortexResult;
 use vortex_expr::pruning::checked_pruning_expr;
 use vortex_expr::{ExprRef, Scope};
-use vortex_layout::LayoutReader;
 use vortex_layout::segments::SegmentSource;
+use vortex_layout::LayoutReader;
 use vortex_metrics::VortexMetrics;
 use vortex_scan::{ScanBuilder, SplitBy};
 use vortex_utils::aliases::hash_map::HashMap;
@@ -30,7 +30,7 @@ use crate::pruning::extract_relevant_file_stats_as_struct_row;
 /// It provides methods for accessing file metadata (such as row count, data type, and statistics)
 /// and for initiating scans to read the file's contents.
 #[derive(Clone)]
-pub struct VortexFile {
+pub struct VortexFile<'rt> {
     /// The footer of the Vortex file, containing metadata and layout information.
     pub(crate) footer: Footer,
     /// The segment source used to read segments from this file.

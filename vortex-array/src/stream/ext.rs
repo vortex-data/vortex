@@ -3,7 +3,7 @@
 
 use std::future::Future;
 
-use futures_util::TryStreamExt;
+use futures::TryStreamExt;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;

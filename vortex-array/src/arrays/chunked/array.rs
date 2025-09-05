@@ -7,7 +7,7 @@
 
 use std::fmt::Debug;
 
-use futures_util::stream;
+use futures::stream;
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult, VortexUnwrap, vortex_bail};
