@@ -40,12 +40,14 @@ pub(crate) fn new_exporter(
             let constant_exp = constant::new_exporter(&constant_codes)?;
             return Ok(constant_exp);
         }
-        let exp = if mask.all_false() {
-            constant::new_exporter(&constant_codes)?
-        } else {
-            new_array_exporter(constant_codes.to_canonical().as_ref(), cache)?
+        if mask.all_false() {
+            return Ok(constant::new_null_exporter());
         };
-        return Ok(validity::new_exporter(array.codes().validity_mask(), exp));
+        // Since we cannot have a duckdb constant array with validity.
+        return Ok(validity::new_exporter(
+            array.codes().validity_mask(),
+            new_array_exporter(constant_codes.to_canonical().as_ref(), cache)?,
+        ));
     }
 
     let values_key = Arc::as_ptr(values).addr();

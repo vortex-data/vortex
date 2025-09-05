@@ -14,6 +14,10 @@ struct ConstantExporter {
     value: Option<Value>,
 }
 
+pub fn new_null_exporter() -> Box<dyn ColumnExporter> {
+    Box::new(ConstantExporter { value: None })
+}
+
 pub(crate) fn new_exporter(array: &ConstantArray) -> VortexResult<Box<dyn ColumnExporter>> {
     let value = if array.scalar().is_null() && !matches!(array.dtype(), DType::Null) {
         // If the scalar is null and _not_ of type Null, then we cannot assign a null DuckDB value
