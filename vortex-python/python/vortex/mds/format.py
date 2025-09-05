@@ -4,12 +4,12 @@
 import os
 from copy import deepcopy
 from typing import Any, TypedDict, final
-from typing_extensions import override
-
-import vortex as vx
 
 from streaming.base.format.base.reader import FileInfo, JointReader
 from streaming.base.format.base.writer import JointWriter
+from typing_extensions import override
+
+import vortex as vx
 
 
 class MdsDatasetParameters(TypedDict):

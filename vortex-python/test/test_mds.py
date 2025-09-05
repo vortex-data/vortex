@@ -1,19 +1,21 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-from collections.abc import Iterator
-from typing_extensions import override
-from streaming import StreamingDataset
-from typing import Any, Iterable, final
 import logging
 import math
 import os
-import pytest
 import random
 import string
 import time
+from collections.abc import Iterable
+from typing import Any, final
+
+import pytest
 import torch
+from streaming import StreamingDataset
 from torch.utils.data import DataLoader
+from typing_extensions import override
+
 import vortex.mds as vxmds
 
 vxmds.register_vortex_with_mds()
