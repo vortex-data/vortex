@@ -6,10 +6,9 @@ use std::marker::PhantomData;
 use vortex::arrays::PrimitiveArray;
 use vortex::dtype::{NativePType, match_each_native_ptype};
 use vortex::error::VortexResult;
-use vortex::mask::Mask;
 
 use crate::duckdb::Vector;
-use crate::exporter::{ColumnExporter, VectorExt, validity};
+use crate::exporter::{ColumnExporter, validity};
 
 struct PrimitiveExporter<T: NativePType> {
     array: PrimitiveArray,

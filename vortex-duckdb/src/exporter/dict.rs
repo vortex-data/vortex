@@ -15,7 +15,7 @@ use vortex::{Array, ToCanonical};
 
 use crate::duckdb::{SelectionVector, Vector};
 use crate::exporter::cache::ConversionCache;
-use crate::exporter::{ColumnExporter, constant, new_array_exporter, validity};
+use crate::exporter::{ColumnExporter, constant, new_array_exporter};
 
 struct DictExporter<I: NativePType> {
     // Store the dictionary values once and export the same dictionary with each codes chunk.
@@ -34,20 +34,11 @@ pub(crate) fn new_exporter(
     // Grab the cache dictionary values.
     let values = array.values();
     if let Some(constant) = values.as_opt::<ConstantVTable>() {
-        let constant_codes = ConstantArray::new(constant.scalar().clone(), array.codes().len());
-        let mask = array.codes().validity_mask();
-        if mask.all_true() {
-            let constant_exp = constant::new_exporter(&constant_codes)?;
-            return Ok(constant_exp);
-        }
-        if mask.all_false() {
-            return Ok(constant::new_null_exporter());
-        };
-        // Since we cannot have a duckdb constant array with validity.
-        return Ok(validity::new_exporter(
+        return constant::new_exporter_with_mask(
+            &ConstantArray::new(constant.scalar().clone(), array.codes().len()),
             array.codes().validity_mask(),
-            new_array_exporter(constant_codes.to_canonical().as_ref(), cache)?,
-        ));
+            cache,
+        );
     }
 
     let values_key = Arc::as_ptr(values).addr();
