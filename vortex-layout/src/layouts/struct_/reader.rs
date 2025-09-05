@@ -7,16 +7,16 @@ use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use itertools::Itertools;
-use vortex_array::ArrayRef;
 use vortex_array::pipeline::operators::MaskFuture;
 use vortex_array::stats::Precision;
+use vortex_array::ArrayRef;
 use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_expr::transform::immediate_access::annotate_scope_access;
 use vortex_expr::transform::{
-    PartitionedExpr, partition, replace, replace_root_fields, simplify_typed,
+    partition, replace, replace_root_fields, simplify_typed, PartitionedExpr,
 };
-use vortex_expr::{ExactExpr, ExprRef, col, root};
+use vortex_expr::{col, root, ExactExpr, ExprRef};
 use vortex_mask::Mask;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -259,7 +259,6 @@ mod tests {
     use std::sync::Arc;
 
     use futures::executor::block_on;
-    use futures::stream;
     use itertools::Itertools;
     use rstest::{fixture, rstest};
     use vortex_array::arrays::StructArray;
@@ -267,53 +266,39 @@ mod tests {
     use vortex_array::{Array, ArrayContext, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, StructFields};
     use vortex_expr::{col, eq, get_item, gt, lit, or, pack, root};
     use vortex_mask::Mask;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::struct_::writer::StructStrategy;
-    use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
-    use crate::sequence::SequenceId;
-    use crate::{LayoutRef, LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt as _};
+    use crate::segments::{SegmentSource, TestSegments};
+    use crate::sequence::{SequenceId, SequentialArrayStreamExt};
+    use crate::{LayoutRef, LayoutStrategy};
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
     fn struct_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
         let ctx = ArrayContext::empty();
         let segments = TestSegments::default();
-        let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
+        let (ptr, eof) = SequenceId::root().split();
         let strategy = StructStrategy::new(FlatLayoutStrategy::default());
         let layout = block_on(
             strategy.write_stream(
                 &ctx,
-                sequence_writer,
-                SequentialStreamAdapter::new(
-                    DType::Struct(
-                        StructFields::new(
-                            vec!["a".into(), "b".into(), "c".into()].into(),
-                            vec![I32.into(), I32.into(), I32.into()],
-                        ),
-                        NonNullable,
-                    ),
-                    stream::once(async {
-                        Ok((
-                            SequenceId::root().downgrade(),
-                            StructArray::from_fields(
-                                [
-                                    ("a", buffer![7, 2, 3].into_array()),
-                                    ("b", buffer![4, 5, 6].into_array()),
-                                    ("c", buffer![4, 5, 6].into_array()),
-                                ]
-                                .as_slice(),
-                            )
-                            .unwrap()
-                            .into_array(),
-                        ))
-                    }),
+                &segments,
+                StructArray::from_fields(
+                    [
+                        ("a", buffer![7, 2, 3].into_array()),
+                        ("b", buffer![4, 5, 6].into_array()),
+                        ("c", buffer![4, 5, 6].into_array()),
+                    ]
+                    .as_slice(),
                 )
-                .sendable(),
+                .unwrap()
+                .into_array()
+                .to_array_stream()
+                .sequenced(ptr),
+                eof,
             ),
         )
         .unwrap();

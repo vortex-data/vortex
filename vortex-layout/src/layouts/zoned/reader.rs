@@ -17,14 +17,14 @@ use vortex_dtype::{DType, FieldMask, FieldPath, FieldPathSet};
 use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
 use vortex_expr::dynamic::DynamicExprUpdates;
 use vortex_expr::pruning::checked_pruning_expr;
-use vortex_expr::{ExprRef, root};
+use vortex_expr::{root, ExprRef};
 use vortex_mask::Mask;
 use vortex_utils::aliases::dash_map::DashMap;
 
-use crate::LayoutReader;
-use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::ZoneMap;
+use crate::layouts::zoned::ZonedLayout;
 use crate::segments::SegmentSource;
+use crate::LayoutReader;
 
 type SharedZoneMap = Shared<BoxFuture<'static, SharedVortexResult<ZoneMap>>>;
 type SharedPruningResult = Shared<BoxFuture<'static, SharedVortexResult<Arc<PruningResult>>>>;
@@ -346,21 +346,19 @@ mod test {
     use std::sync::Arc;
 
     use futures::executor::block_on;
-    use futures::stream;
     use rstest::{fixture, rstest};
+    use vortex_array::arrays::ChunkedArray;
     use vortex_array::pipeline::operators::MaskFuture;
-    use vortex_array::stream::{ArrayStreamAdapter, ArrayStreamExt};
     use vortex_array::{ArrayContext, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
-    use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::{DType, PType};
     use vortex_expr::{gt, lit, root};
     use vortex_mask::Mask;
 
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
-    use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
+    use crate::segments::{SegmentSource, TestSegments};
+    use crate::sequence::{SequenceId, SequentialArrayStreamExt};
     use crate::{LayoutRef, LayoutStrategy, LocalExecutor};
 
     #[fixture]
@@ -368,7 +366,7 @@ mod test {
     fn stats_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
         let ctx = ArrayContext::empty();
         let segments = TestSegments::default();
-        let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
+        let (ptr, eof) = SequenceId::root().split();
         let strategy = ZonedStrategy::new(
             ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
             FlatLayoutStrategy::default(),
@@ -378,16 +376,15 @@ mod test {
             },
             Arc::new(LocalExecutor),
         );
-        let array_stream =
-            sequence_writer.new_sequential(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
-                DType::Primitive(PType::I32, NonNullable),
-                stream::iter([
-                    Ok(buffer![1, 2, 3].into_array()),
-                    Ok(buffer![4, 5, 6].into_array()),
-                    Ok(buffer![7, 8, 9].into_array()),
-                ]),
-            )));
-        let layout = block_on(strategy.write_stream(&ctx, sequence_writer, array_stream)).unwrap();
+        let array_stream = ChunkedArray::from_iter([
+            buffer![1, 2, 3].into_array(),
+            buffer![4, 5, 6].into_array(),
+            buffer![7, 8, 9].into_array(),
+        ])
+        .into_array()
+        .to_array_stream()
+        .sequenced(ptr);
+        let layout = block_on(strategy.write_stream(&ctx, &segments, array_stream, eof)).unwrap();
         (Arc::new(segments), layout)
     }
 

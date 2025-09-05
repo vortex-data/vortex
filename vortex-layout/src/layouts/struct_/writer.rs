@@ -4,26 +4,26 @@
 use std::collections::VecDeque;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll, Waker, ready};
+use std::task::{ready, Context, Poll, Waker};
 
 use async_trait::async_trait;
 use futures::future::try_join_all;
-use futures::task::{ArcWake, waker_ref};
+use futures::task::{waker_ref, ArcWake};
 use futures::{FutureExt, Stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use parking_lot::Mutex;
 use vortex_array::{Array, ArrayContext, ToCanonical};
-use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
-use vortex_utils::aliases::DefaultHashBuilder;
+use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
+use vortex_utils::aliases::DefaultHashBuilder;
 
 use crate::layouts::struct_::StructLayout;
-use crate::segments::SequenceWriter;
-use crate::{
-    IntoLayout as _, LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
-    SequentialStreamExt,
+use crate::segments::SegmentSink;
+use crate::sequence::{
+    SendableSequentialStream, SequencePointer, SequentialStreamAdapter, SequentialStreamExt,
 };
+use crate::{IntoLayout as _, LayoutRef, LayoutStrategy};
 
 pub struct StructStrategy<S> {
     child: S,
@@ -47,13 +47,17 @@ where
     async fn write_stream(
         &self,
         ctx: &ArrayContext,
-        sequence_writer: SequenceWriter,
+        segment_sink: &dyn SegmentSink,
         stream: SendableSequentialStream,
+        mut eof: SequencePointer,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         let Some(struct_dtype) = stream.dtype().as_struct_fields_opt().cloned() else {
             // nothing we can do if dtype is not struct
-            return self.child.write_stream(ctx, sequence_writer, stream).await;
+            return self
+                .child
+                .write_stream(ctx, segment_sink, stream, eof)
+                .await;
         };
         if HashSet::<_, DefaultHashBuilder>::from_iter(struct_dtype.names().iter()).len()
             != struct_dtype.names().len()
@@ -110,7 +114,7 @@ where
             .map(move |(dtype, stream)| {
                 let column_stream = SequentialStreamAdapter::new(dtype, stream).sendable();
                 self.child
-                    .write_stream(ctx, sequence_writer.clone(), column_stream)
+                    .write_stream(ctx, segment_sink, column_stream, eof.advance().descend())
                     .boxed()
             })
             .collect();
@@ -237,40 +241,40 @@ where
 #[cfg(test)]
 mod tests {
     use futures::executor::block_on;
-    use futures::stream;
-    use vortex_array::arrays::{BoolArray, StructArray};
+    use vortex_array::arrays::{BoolArray, ChunkedArray, StructArray};
     use vortex_array::validity::Validity;
-    use vortex_array::{ArrayContext, IntoArray as _};
+    use vortex_array::{ArrayContext, Canonical, IntoArray as _};
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, FieldNames, Nullability, PType, StructFields};
+    use vortex_dtype::{DType, FieldNames, Nullability, PType};
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::struct_::writer::StructStrategy;
-    use crate::segments::{SequenceWriter, TestSegments};
-    use crate::sequence::SequenceId;
-    use crate::{LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt};
+    use crate::segments::TestSegments;
+    use crate::sequence::{SequenceId, SequentialArrayStreamExt};
+    use crate::LayoutStrategy;
 
     #[test]
     #[should_panic]
     fn fails_on_duplicate_field() {
         let strategy = StructStrategy::new(FlatLayoutStrategy::default());
+        let (ptr, eof) = SequenceId::root().split();
         block_on(
             strategy.write_stream(
                 &ArrayContext::empty(),
-                SequenceWriter::new(Box::new(TestSegments::default())),
-                SequentialStreamAdapter::new(
-                    DType::Struct(
-                        [
-                            ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
-                            ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
-                        ]
-                        .into_iter()
-                        .collect(),
-                        Nullability::NonNullable,
-                    ),
-                    stream::empty(),
-                )
-                .sendable(),
+                &TestSegments::default(),
+                Canonical::empty(&DType::Struct(
+                    [
+                        ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
+                        ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
+                    ]
+                    .into_iter()
+                    .collect(),
+                    Nullability::NonNullable,
+                ))
+                .into_array()
+                .to_array_stream()
+                .sequenced(ptr),
+                eof,
             ),
         )
         .unwrap();
@@ -279,34 +283,22 @@ mod tests {
     #[test]
     fn fails_on_top_level_nulls() {
         let strategy = StructStrategy::new(FlatLayoutStrategy::default());
+        let (ptr, eof) = SequenceId::root().split();
         let res = block_on(
             strategy.write_stream(
                 &ArrayContext::empty(),
-                SequenceWriter::new(Box::new(TestSegments::default())),
-                SequentialStreamAdapter::new(
-                    DType::Struct(
-                        [("a", DType::Primitive(PType::I32, Nullability::NonNullable))]
-                            .into_iter()
-                            .collect(),
-                        Nullability::Nullable,
-                    ),
-                    stream::once(async move {
-                        Ok((
-                            SequenceId::root().downgrade(),
-                            StructArray::try_new(
-                                ["a"].into(),
-                                vec![buffer![1, 2, 3].into_array()],
-                                3,
-                                Validity::Array(
-                                    BoolArray::from_iter(vec![true, true, false]).into_array(),
-                                ),
-                            )
-                            .unwrap()
-                            .into_array(),
-                        ))
-                    }),
+                &TestSegments::default(),
+                StructArray::try_new(
+                    ["a"].into(),
+                    vec![buffer![1, 2, 3].into_array()],
+                    3,
+                    Validity::Array(BoolArray::from_iter(vec![true, true, false]).into_array()),
                 )
-                .sendable(),
+                .unwrap()
+                .into_array()
+                .to_array_stream()
+                .sequenced(ptr),
+                eof,
             ),
         );
         assert!(
@@ -318,45 +310,23 @@ mod tests {
     #[test]
     fn write_empty_field_struct_array() {
         let strategy = StructStrategy::new(FlatLayoutStrategy::default());
+        let (ptr, eof) = SequenceId::root().split();
         let res = block_on(
             strategy.write_stream(
                 &ArrayContext::empty(),
-                SequenceWriter::new(Box::new(TestSegments::default())),
-                SequentialStreamAdapter::new(
-                    DType::Struct(
-                        StructFields::new(FieldNames::default(), vec![]),
-                        Nullability::NonNullable,
-                    ),
-                    stream::iter([
-                        {
-                            Ok((
-                                SequenceId::root().downgrade(),
-                                StructArray::try_new(
-                                    FieldNames::default(),
-                                    vec![],
-                                    3,
-                                    Validity::NonNullable,
-                                )
-                                .unwrap()
-                                .into_array(),
-                            ))
-                        },
-                        {
-                            Ok((
-                                SequenceId::root().advance(),
-                                StructArray::try_new(
-                                    FieldNames::default(),
-                                    vec![],
-                                    5,
-                                    Validity::NonNullable,
-                                )
-                                .unwrap()
-                                .into_array(),
-                            ))
-                        },
-                    ]),
-                )
-                .sendable(),
+                &TestSegments::default(),
+                ChunkedArray::from_iter([
+                    StructArray::try_new(FieldNames::default(), vec![], 3, Validity::NonNullable)
+                        .unwrap()
+                        .into_array(),
+                    StructArray::try_new(FieldNames::default(), vec![], 5, Validity::NonNullable)
+                        .unwrap()
+                        .into_array(),
+                ])
+                .into_array()
+                .to_array_stream()
+                .sequenced(ptr),
+                eof,
             ),
         );
 

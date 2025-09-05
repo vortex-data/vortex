@@ -5,15 +5,15 @@ use std::collections::VecDeque;
 
 use async_stream::try_stream;
 use async_trait::async_trait;
-use futures::{StreamExt as _, pin_mut};
+use futures::{pin_mut, StreamExt as _};
 use vortex_array::ArrayContext;
 use vortex_error::VortexResult;
 
-use crate::segments::SequenceWriter;
-use crate::{
-    LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
-    SequentialStreamExt as _,
+use crate::segments::SegmentSink;
+use crate::sequence::{
+    SendableSequentialStream, SequencePointer, SequentialStreamAdapter, SequentialStreamExt as _,
 };
+use crate::{LayoutRef, LayoutStrategy};
 
 #[derive(Clone)]
 pub struct BufferedStrategy<S> {
@@ -35,8 +35,9 @@ where
     async fn write_stream(
         &self,
         ctx: &ArrayContext,
-        sequence_writer: SequenceWriter,
+        segment_sink: &dyn SegmentSink,
         stream: SendableSequentialStream,
+        eof: SequencePointer,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         let buffer_size = self.buffer_size;
@@ -79,8 +80,9 @@ where
         self.child
             .write_stream(
                 ctx,
-                sequence_writer,
+                segment_sink,
                 SequentialStreamAdapter::new(dtype, buffered_stream).sendable(),
+                eof,
             )
             .await
     }

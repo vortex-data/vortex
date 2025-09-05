@@ -5,16 +5,16 @@ use std::collections::VecDeque;
 
 use async_stream::try_stream;
 use async_trait::async_trait;
-use futures::{StreamExt as _, pin_mut};
+use futures::{pin_mut, StreamExt as _};
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::segments::SequenceWriter;
-use crate::{
-    LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
-    SequentialStreamExt,
+use crate::segments::SegmentSink;
+use crate::sequence::{
+    SendableSequentialStream, SequencePointer, SequentialStreamAdapter, SequentialStreamExt,
 };
+use crate::{LayoutRef, LayoutStrategy};
 
 #[derive(Clone)]
 pub struct RepartitionWriterOptions {
@@ -51,8 +51,9 @@ where
     async fn write_stream(
         &self,
         ctx: &ArrayContext,
-        sequence_writer: SequenceWriter,
+        segment_sink: &dyn SegmentSink,
         stream: SendableSequentialStream,
+        eof: SequencePointer,
     ) -> VortexResult<LayoutRef> {
         // TODO(os): spawn stream below like:
         // canon_stream = stream.map(async {to_canonical}).map(spawn).buffered(parallelism)
@@ -113,8 +114,9 @@ where
         self.child
             .write_stream(
                 ctx,
-                sequence_writer,
+                segment_sink,
                 SequentialStreamAdapter::new(dtype, repartitioned_stream).sendable(),
+                eof,
             )
             .await
     }

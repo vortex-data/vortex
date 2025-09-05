@@ -3,27 +3,29 @@
 
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll, ready};
+use std::task::{ready, Context, Poll};
 
 use async_stream::try_stream;
 use async_trait::async_trait;
 use futures::channel::{mpsc, oneshot};
-use futures::stream::{BoxStream, once};
-use futures::{FutureExt, SinkExt, Stream, StreamExt, pin_mut, try_join};
+use futures::stream::{once, BoxStream};
+use futures::{pin_mut, try_join, FutureExt, SinkExt, Stream, StreamExt};
 use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_btrblocks::BtrBlocksCompressor;
+use vortex_dict::builders::{dict_encoder, DictConstraints, DictEncoder};
 use vortex_dict::DictEncoding;
-use vortex_dict::builders::{DictConstraints, DictEncoder, dict_encoder};
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_err};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult, VortexUnwrap};
 
 use super::DictLayout;
 use crate::layouts::chunked::ChunkedLayout;
-use crate::segments::SequenceWriter;
-use crate::sequence::{SequenceId, SequencePointer};
+use crate::segments::SegmentSink;
+use crate::sequence::{
+    SendableSequentialStream, SequenceId, SequencePointer, SequentialStreamAdapter,
+    SequentialStreamExt,
+};
 use crate::{
-    IntoLayout, LayoutRef, LayoutStrategy, OwnedLayoutChildren, SendableSequentialStream,
-    SequentialStreamAdapter, SequentialStreamExt, TaskExecutor, TaskExecutorExt as _,
+    IntoLayout, LayoutRef, LayoutStrategy, OwnedLayoutChildren, TaskExecutor, TaskExecutorExt as _,
 };
 
 #[derive(Clone)]
@@ -92,13 +94,14 @@ where
     async fn write_stream(
         &self,
         ctx: &ArrayContext,
-        sequence_writer: SequenceWriter,
+        segment_sink: &dyn SegmentSink,
         stream: SendableSequentialStream,
+        mut eof: SequencePointer,
     ) -> VortexResult<LayoutRef> {
         if !dict_layout_supported(stream.dtype()) {
             return self
                 .fallback
-                .write_stream(ctx, sequence_writer, stream)
+                .write_stream(ctx, segment_sink, stream, eof)
                 .await;
         }
         let ctx = ctx.clone();
@@ -120,7 +123,7 @@ where
             // first chunk did not compress to dict, or did not exist. Skip dict layout
             return self
                 .fallback
-                .write_stream(&ctx, sequence_writer.clone(), stream)
+                .write_stream(&ctx, segment_sink, stream, eof)
                 .await;
         }
 
@@ -161,17 +164,19 @@ where
                     .codes
                     .write_stream(
                         &ctx,
-                        sequence_writer.clone(),
+                        segment_sink,
                         SequentialStreamAdapter::new(codes_dtype, codes_stream).sendable(),
+                        eof.advance().descend(),
                     )
                     .await?;
                 let values_layout = self
                     .values
                     .write_stream(
                         &ctx,
-                        sequence_writer.clone(),
+                        segment_sink,
                         SequentialStreamAdapter::new(dtype_clone.clone(), once(values_future))
                             .sendable(),
+                        eof.advance().descend(),
                     )
                     .await?;
                 children.push(DictLayout::new(values_layout, codes_layout).into_layout());

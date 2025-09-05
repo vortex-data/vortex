@@ -9,8 +9,13 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll, Waker};
 
+use futures::{Stream, StreamExt};
 use parking_lot::Mutex;
-use vortex_error::VortexExpect;
+use pin_project_lite::pin_project;
+use vortex_array::stream::ArrayStream;
+use vortex_array::{Array, ArrayRef};
+use vortex_dtype::DType;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::segments::SegmentId;
@@ -161,6 +166,11 @@ impl Drop for WaitSequenceFuture {
 pub struct SequencePointer(SequenceId);
 
 impl SequencePointer {
+    /// Splits this pointer into two, where the second is strictly greater than the first.
+    pub fn split(mut self) -> (SequencePointer, SequencePointer) {
+        (self.advance().descend(), self.advance().descend())
+    }
+
     /// Advances to the next sibling sequence and returns the current one.
     ///
     /// # Ownership
@@ -236,3 +246,94 @@ impl Future for WaitSequenceFuture {
         Poll::Pending
     }
 }
+
+pub trait SequentialStream: Stream<Item = VortexResult<(SequenceId, ArrayRef)>> {
+    fn dtype(&self) -> &DType;
+}
+
+pub type SendableSequentialStream = Pin<Box<dyn SequentialStream + Send>>;
+
+impl SequentialStream for SendableSequentialStream {
+    fn dtype(&self) -> &DType {
+        (**self).dtype()
+    }
+}
+
+pub trait SequentialStreamExt: SequentialStream {
+    // not named boxed to prevent clashing with StreamExt
+    fn sendable(self) -> SendableSequentialStream
+    where
+        Self: Sized + Send + 'static,
+    {
+        Box::pin(self)
+    }
+}
+
+impl<S: SequentialStream> SequentialStreamExt for S {}
+
+pin_project! {
+    pub struct SequentialStreamAdapter<S> {
+        dtype: DType,
+        #[pin]
+        inner: S,
+    }
+}
+
+impl<S> SequentialStreamAdapter<S> {
+    pub fn new(dtype: DType, inner: S) -> Self {
+        Self { dtype, inner }
+    }
+}
+
+impl<S> SequentialStream for SequentialStreamAdapter<S>
+where
+    S: Stream<Item = VortexResult<(SequenceId, ArrayRef)>>,
+{
+    fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+}
+
+impl<S> Stream for SequentialStreamAdapter<S>
+where
+    S: Stream<Item = VortexResult<(SequenceId, ArrayRef)>>,
+{
+    type Item = VortexResult<(SequenceId, ArrayRef)>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.project();
+        let array = futures::ready!(this.inner.poll_next(cx));
+        if let Some(Ok((_, array))) = array.as_ref() {
+            assert_eq!(
+                array.dtype(),
+                this.dtype,
+                "Sequential stream of {} got chunk of {}.",
+                array.dtype(),
+                this.dtype
+            );
+        }
+
+        Poll::Ready(array)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+}
+
+pub trait SequentialArrayStreamExt: ArrayStream {
+    /// Converts the stream to a [`SendableSequentialStream`].
+    fn sequenced(self, mut pointer: SequencePointer) -> SendableSequentialStream
+    where
+        Self: Sized + Send + 'static,
+    {
+        Box::pin(SequentialStreamAdapter::new(
+            self.dtype().clone(),
+            StreamExt::map(self, move |item| {
+                item.map(|array| (pointer.advance(), array))
+            }),
+        ))
+    }
+}
+
+impl<S: ArrayStream> SequentialArrayStreamExt for S {}

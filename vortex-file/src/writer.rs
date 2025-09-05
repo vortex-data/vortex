@@ -4,13 +4,15 @@
 use std::future;
 use std::sync::Arc;
 
-use futures::TryStreamExt;
+use async_stream::try_stream;
 use futures::executor::block_on;
 use futures::future::try_join;
-use vortex_array::ArrayContext;
-use vortex_array::stats::{PRUNING_STATS, Stat};
+use futures::{Stream, TryStreamExt};
+use vortex_array::stats::{Stat, PRUNING_STATS};
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_array::ArrayContext;
+use vortex_buffer::ByteBuffer;
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
 use vortex_io::VortexWrite;
 use vortex_layout::layouts::file_stats::accumulate_stats;
@@ -19,7 +21,7 @@ use vortex_layout::{LayoutContext, LayoutStrategy, LocalExecutor};
 
 use crate::footer::{FileStatistics, FooterFlatBufferWriter, Postscript, PostscriptSegment};
 use crate::segments::writer::SerialSegmentWriter;
-use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION, WriteStrategyBuilder};
+use crate::{WriteStrategyBuilder, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
 
 /// Configure a new writer, which can eventually be used to write an [`ArrayStream`] into a sink that implements [`VortexWrite`].
 ///
@@ -100,11 +102,10 @@ impl VortexWriteOptions {
     }
 
     /// Perform an async write of the provided stream of `Array`.
-    pub async fn write<W: VortexWrite, S: ArrayStream + Unpin + Send + 'static>(
+    pub fn write<S: ArrayStream + Unpin + Send + 'static>(
         self,
-        write: W,
         stream: S,
-    ) -> VortexResult<W> {
+    ) -> impl Stream<Item = VortexResult<Vec<ByteBuffer>>> {
         // Set up a Context to capture the encodings used in the file.
         let ctx = ArrayContext::empty();
 
@@ -123,6 +124,12 @@ impl VortexWriteOptions {
             self.file_statistics.clone().into(),
             self.max_variable_length_statistics_size,
         );
+
+        // Now we emit the buffers in a stream, which will be driven by the caller
+        try_stream! {
+            // Create a segment writer for collecting segment specs and buffers.
+            // We offset the position by the len of the magic bytes, since they are emitted first.
+            let segment_writer = Arc::new(FileSegmentWriter::new(MAGIC_BYTES.len() as u64));
 
         // First we write the magic number
         let mut write = futures::io::Cursor::new(write);
@@ -193,6 +200,7 @@ impl VortexWriteOptions {
         write.flush().await?;
 
         Ok(write.into_inner())
+        }
     }
 
     async fn write_flatbuffer<W: VortexWrite, F: FlatBufferRoot + WriteFlatBuffer>(

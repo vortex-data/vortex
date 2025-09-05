@@ -8,22 +8,22 @@ use std::fmt::{Display, Formatter};
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
-use Nullability::NonNullable;
 pub use expr::*;
-use futures::FutureExt;
 use futures::future::BoxFuture;
+use futures::FutureExt;
 use vortex_array::compute::filter;
 use vortex_array::pipeline::operators::MaskFuture;
 use vortex_array::stats::Precision;
 use vortex_array::{ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldMask, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_expr::transform::{PartitionedExpr, partition, replace};
-use vortex_expr::{ExactExpr, ExprRef, Scope, is_root, root};
+use vortex_expr::transform::{partition, replace, PartitionedExpr};
+use vortex_expr::{is_root, root, ExactExpr, ExprRef, Scope};
 use vortex_mask::Mask;
 use vortex_scalar::PValue;
 use vortex_sequence::SequenceArray;
 use vortex_utils::aliases::dash_map::DashMap;
+use Nullability::NonNullable;
 
 use crate::layouts::partitioned::PartitionedExprEval;
 use crate::{ArrayFuture, LayoutReader};
@@ -252,7 +252,6 @@ mod tests {
 
     use arrow_buffer::BooleanBuffer;
     use futures::executor::block_on;
-    use futures::stream;
     use itertools::Itertools;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::pipeline::operators::MaskFuture;
@@ -260,29 +259,20 @@ mod tests {
     use vortex_expr::{eq, gt, lit, or, root};
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::layouts::row_idx::{RowIdxLayoutReader, row_idx};
-    use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
-    use crate::sequence::SequenceId;
-    use crate::{LayoutReader, LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt};
+    use crate::layouts::row_idx::{row_idx, RowIdxLayoutReader};
+    use crate::segments::{SegmentSource, TestSegments};
+    use crate::sequence::{SequenceId, SequentialArrayStreamExt};
+    use crate::{LayoutReader, LayoutStrategy};
 
     #[test]
     fn flat_expr_no_row_id() {
         block_on(async {
             let ctx = ArrayContext::empty();
             let segments = TestSegments::default();
-            let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
+            let (ptr, eof) = SequenceId::root().split();
             let array = PrimitiveArray::from_iter(1..=5).to_array();
-            let array_clone = array.clone();
             let layout = FlatLayoutStrategy::default()
-                .write_stream(
-                    &ctx,
-                    sequence_writer.clone(),
-                    SequentialStreamAdapter::new(
-                        array.dtype().clone(),
-                        stream::once(async { Ok((SequenceId::root().downgrade(), array_clone)) }),
-                    )
-                    .sendable(),
-                )
+                .write_stream(&ctx, &segments, array.to_array_stream().sequenced(ptr), eof)
                 .await
                 .unwrap();
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
@@ -312,19 +302,10 @@ mod tests {
         block_on(async {
             let ctx = ArrayContext::empty();
             let segments = TestSegments::default();
-            let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
+            let (ptr, eof) = SequenceId::root().split();
             let array = PrimitiveArray::from_iter(1..=5).to_array();
-            let array_clone = array.clone();
             let layout = FlatLayoutStrategy::default()
-                .write_stream(
-                    &ctx,
-                    sequence_writer.clone(),
-                    SequentialStreamAdapter::new(
-                        array.dtype().clone(),
-                        stream::once(async { Ok((SequenceId::root().downgrade(), array_clone)) }),
-                    )
-                    .sendable(),
-                )
+                .write_stream(&ctx, &segments, array.to_array_stream().sequenced(ptr), eof)
                 .await
                 .unwrap();
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
@@ -354,19 +335,10 @@ mod tests {
         block_on(async {
             let ctx = ArrayContext::empty();
             let segments = TestSegments::default();
-            let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
+            let (ptr, eof) = SequenceId::root().split();
             let array = PrimitiveArray::from_iter(1..=5).to_array();
-            let array_clone = array.clone();
             let layout = FlatLayoutStrategy::default()
-                .write_stream(
-                    &ctx,
-                    sequence_writer.clone(),
-                    SequentialStreamAdapter::new(
-                        array.dtype().clone(),
-                        stream::once(async { Ok((SequenceId::root().downgrade(), array_clone)) }),
-                    )
-                    .sendable(),
-                )
+                .write_stream(&ctx, &segments, array.to_array_stream().sequenced(ptr), eof)
                 .await
                 .unwrap();
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);

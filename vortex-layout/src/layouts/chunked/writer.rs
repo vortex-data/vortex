@@ -2,18 +2,18 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use async_trait::async_trait;
-use futures::StreamExt;
 use futures::stream::once;
+use futures::StreamExt;
 use vortex_array::ArrayContext;
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::children::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
-use crate::segments::SequenceWriter;
-use crate::{
-    IntoLayout, LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
-    SequentialStreamExt as _,
+use crate::segments::SegmentSink;
+use crate::sequence::{
+    SendableSequentialStream, SequencePointer, SequentialStreamAdapter, SequentialStreamExt as _,
 };
+use crate::{IntoLayout, LayoutRef, LayoutStrategy};
 
 #[derive(Clone)]
 pub struct ChunkedLayoutStrategy<S> {
@@ -38,8 +38,9 @@ where
     async fn write_stream(
         &self,
         ctx: &ArrayContext,
-        sequence_writer: SequenceWriter,
+        segment_sink: &dyn SegmentSink,
         mut stream: SendableSequentialStream,
+        mut eof: SequencePointer,
     ) -> VortexResult<LayoutRef> {
         let ctx = ctx.clone();
         let mut child_layouts = Vec::new();
@@ -52,12 +53,13 @@ where
                 .chunk_strategy
                 .write_stream(
                     &ctx,
-                    sequence_writer.clone(),
+                    segment_sink,
                     SequentialStreamAdapter::new(
                         dtype.clone(),
                         once(async { Ok((sequence_id, chunk)) }),
                     )
                     .sendable(),
+                    eof.advance().descend(),
                 )
                 .await?;
             child_layouts.push(layout);

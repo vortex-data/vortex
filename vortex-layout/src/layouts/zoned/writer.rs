@@ -5,22 +5,20 @@ use std::future;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::stream::once;
 use futures::{FutureExt, StreamExt as _};
 use parking_lot::Mutex;
-use vortex_array::stats::{PRUNING_STATS, Stat};
-use vortex_array::stream::{ArrayStreamAdapter, ArrayStreamExt};
+use vortex_array::stats::{Stat, PRUNING_STATS};
 use vortex_array::{ArrayContext, ArrayRef};
 use vortex_error::VortexResult;
 
-use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::StatsAccumulator;
-use crate::segments::SequenceWriter;
-use crate::sequence::SequenceId;
-use crate::{
-    IntoLayout, LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
-    SequentialStreamExt, TaskExecutor, TaskExecutorExt,
+use crate::layouts::zoned::ZonedLayout;
+use crate::segments::SegmentSink;
+use crate::sequence::{
+    SendableSequentialStream, SequenceId, SequencePointer, SequentialArrayStreamExt,
+    SequentialStreamAdapter, SequentialStreamExt,
 };
+use crate::{IntoLayout, LayoutRef, LayoutStrategy, TaskExecutor, TaskExecutorExt};
 
 pub struct ZonedLayoutOptions {
     /// The size of a statistics block
@@ -80,8 +78,9 @@ where
     async fn write_stream(
         &self,
         ctx: &ArrayContext,
-        sequence_writer: SequenceWriter,
+        segment_sink: &dyn SegmentSink,
         stream: SendableSequentialStream,
+        eof: SequencePointer,
     ) -> VortexResult<LayoutRef> {
         let executor = self.executor.clone();
         let stats = self.options.stats.clone();
@@ -115,11 +114,15 @@ where
         )
         .sendable();
 
-        let ctx = ctx.clone();
         let block_size = self.options.block_size;
+
+        // We create a new SequencePointer for the stats table so that we can write it just
+        // before the end of the file.
+        let (stats_eof, eof) = eof.split();
+
         let data_layout = self
             .child
-            .write_stream(&ctx, sequence_writer.clone(), stream)
+            .write_stream(&ctx, segment_sink, stream, eof)
             .await?;
 
         let Some(stats_table) = stats_accumulator.lock().as_stats_table() else {
@@ -127,17 +130,14 @@ where
             // child layout.
             return Ok(data_layout);
         };
+
         // We must defer creating the stats table LayoutWriter until now, because the DType of
         // the table depends on which stats were successfully computed.
-        let stats_array = stats_table.array().to_array().clone();
-
-        let stats_stream = sequence_writer.new_sequential(ArrayStreamExt::boxed(
-            ArrayStreamAdapter::new(stats_array.dtype().clone(), once(async { Ok(stats_array) })),
-        ));
-
+        let (stats_ptr, stats_eof) = stats_eof.split();
+        let stats_stream = stats_table.array().to_array_stream().sequenced(stats_ptr);
         let zones_layout = self
             .stats
-            .write_stream(&ctx, sequence_writer, stats_stream)
+            .write_stream(ctx, segment_sink, stats_stream, stats_eof)
             .await?;
 
         Ok(ZonedLayout::new(

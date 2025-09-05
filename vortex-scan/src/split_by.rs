@@ -7,7 +7,7 @@ use std::ops::Range;
 use itertools::Itertools;
 use vortex_array::stats::StatBound;
 use vortex_dtype::FieldMask;
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::{vortex_err, VortexResult};
 
 use crate::LayoutReader;
 
@@ -73,9 +73,9 @@ mod test {
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, FieldPath, PType};
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
-    use vortex_layout::segments::{SegmentSource, SequenceWriter, TestSegments};
-    use vortex_layout::sequence::SequenceId;
-    use vortex_layout::{LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt as _};
+    use vortex_layout::segments::{SegmentSource, TestSegments};
+    use vortex_layout::sequence::{SequenceId, SequentialStreamExt as _};
+    use vortex_layout::{LayoutStrategy, SequentialStreamAdapter};
 
     use super::*;
 
@@ -96,6 +96,7 @@ mod test {
                     }),
                 )
                 .sendable(),
+                ,
             ),
         )
         .unwrap();
@@ -126,6 +127,7 @@ mod test {
                     }),
                 )
                 .sendable(),
+                ,
             ),
         )
         .unwrap();

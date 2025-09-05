@@ -10,11 +10,11 @@ use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_error::VortexResult;
 
-use crate::segments::SequenceWriter;
-use crate::{
-    LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
-    SequentialStreamExt as _, TaskExecutor, TaskExecutorExt as _,
+use crate::segments::SegmentSink;
+use crate::sequence::{
+    SendableSequentialStream, SequencePointer, SequentialStreamAdapter, SequentialStreamExt as _,
 };
+use crate::{LayoutRef, LayoutStrategy, TaskExecutor, TaskExecutorExt as _};
 
 /// A boxed compressor function from arrays into compressed arrays.
 ///
@@ -132,8 +132,9 @@ where
     async fn write_stream(
         &self,
         ctx: &ArrayContext,
-        sequence_writer: SequenceWriter,
+        segment_sink: &dyn SegmentSink,
         stream: SendableSequentialStream,
+        eof: SequencePointer,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         let compressor = self.compressor.clone();
@@ -158,8 +159,9 @@ where
         self.child
             .write_stream(
                 ctx,
-                sequence_writer,
+                segment_sink,
                 SequentialStreamAdapter::new(dtype, stream).sendable(),
+                eof,
             )
             .await
     }

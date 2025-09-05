@@ -10,11 +10,12 @@ use parking_lot::Mutex;
 use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::{ArrayRef, ToCanonical as _};
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexExpect, VortexResult, vortex_panic};
+use vortex_error::{vortex_panic, VortexExpect, VortexResult};
 
 use crate::layouts::zoned::zone_map::StatsAccumulator;
-use crate::sequence::SequenceId;
-use crate::{SendableSequentialStream, SequentialStreamAdapter, SequentialStreamExt};
+use crate::sequence::{
+    SendableSequentialStream, SequenceId, SequentialStreamAdapter, SequentialStreamExt,
+};
 
 pub fn accumulate_stats(
     stream: SendableSequentialStream,

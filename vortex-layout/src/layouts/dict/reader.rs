@@ -6,15 +6,15 @@ use std::ops::{BitAnd, Range};
 use std::sync::{Arc, OnceLock};
 
 use futures::future::BoxFuture;
-use futures::{FutureExt, TryFutureExt, try_join};
-use vortex_array::ArrayRef;
-use vortex_array::compute::{MinMaxResult, min_max, take};
+use futures::{try_join, FutureExt, TryFutureExt};
+use vortex_array::compute::{min_max, take, MinMaxResult};
 use vortex_array::pipeline::operators::MaskFuture;
 use vortex_array::stats::Precision;
+use vortex_array::ArrayRef;
 use vortex_dict::DictArray;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexError, VortexExpect, VortexResult};
-use vortex_expr::{ExprRef, Scope, root};
+use vortex_expr::{root, ExprRef, Scope};
 use vortex_mask::Mask;
 use vortex_utils::aliases::dash_map::DashMap;
 
@@ -205,7 +205,6 @@ mod tests {
     use std::sync::Arc;
 
     use futures::executor::block_on;
-    use futures::stream;
     use rstest::rstest;
     use vortex_array::arrays::{StructArray, VarBinArray};
     use vortex_array::arrow::IntoArrowArray;
@@ -217,12 +216,11 @@ mod tests {
 
     use crate::layouts::dict::writer::{DictLayoutOptions, DictStrategy};
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::segments::{SequenceWriter, TestSegments};
-    use crate::sequence::SequenceId;
-    use crate::{
-        LayoutId, LayoutRef, LayoutStrategy, LocalExecutor, SequentialStreamAdapter,
-        SequentialStreamExt,
+    use crate::segments::TestSegments;
+    use crate::sequence::{
+        SequenceId, SequentialArrayStreamExt, SequentialStreamAdapter, SequentialStreamExt,
     };
+    use crate::{LayoutId, LayoutRef, LayoutStrategy, LocalExecutor};
 
     #[tokio::test]
     async fn reading_nested_packs_works() {
@@ -252,17 +250,17 @@ mod tests {
         let array_to_write = array.clone();
         let ctx = ArrayContext::empty();
         let segments = TestSegments::default();
+        let (ptr, eof) = SequenceId::root().split();
         let layout: LayoutRef = block_on(
             strategy.write_stream(
                 &ctx,
-                SequenceWriter::new(Box::new(segments.clone())),
+                &segments,
                 SequentialStreamAdapter::new(
                     DType::Utf8(Nullability::Nullable),
-                    stream::once(
-                        async move { Ok((SequenceId::root().downgrade(), array_to_write)) },
-                    ),
+                    array_to_write.to_array_stream().sequenced(ptr),
                 )
                 .sendable(),
+                eof,
             ),
         )
         .unwrap();
@@ -339,15 +337,17 @@ mod tests {
 
         let ctx = ArrayContext::empty();
         let segments = TestSegments::default();
+        let (ptr, eof) = SequenceId::root().split();
         let layout: LayoutRef = block_on(
             strategy.write_stream(
                 &ctx,
-                SequenceWriter::new(Box::new(segments.clone())),
+                &segments,
                 SequentialStreamAdapter::new(
                     DType::Utf8(Nullability::Nullable),
-                    stream::once(async move { Ok((SequenceId::root().downgrade(), array)) }),
+                    array.to_array_stream().sequenced(ptr),
                 )
                 .sendable(),
+                eof,
             ),
         )
         .unwrap();
@@ -401,17 +401,17 @@ mod tests {
         let array_to_write = array.clone();
         let ctx = ArrayContext::empty();
         let segments = TestSegments::default();
+        let (ptr, eof) = SequenceId::root().split();
         let layout: LayoutRef = block_on(
             strategy.write_stream(
                 &ctx,
-                SequenceWriter::new(Box::new(segments.clone())),
+                &segments,
                 SequentialStreamAdapter::new(
                     DType::Utf8(Nullability::Nullable),
-                    stream::once(
-                        async move { Ok((SequenceId::root().downgrade(), array_to_write)) },
-                    ),
+                    array_to_write.to_array_stream().sequenced(ptr),
                 )
                 .sendable(),
+                eof,
             ),
         )
         .unwrap();
