@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-"""This module permits reading Vortex files with a `Mosaic Data Streaming <https://github.com/mosaicml/streaming>`__ StreamingDataset.
+"""Support for Vortex within a `Mosaic Data Streaming <https://github.com/mosaicml/streaming>`__ StreamingDataset.
 
 This module depends on the optional `mosaicml-streaming` dependency. You must install that package
 and also explicitly import this module before use:
