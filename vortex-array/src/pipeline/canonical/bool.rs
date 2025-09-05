@@ -6,7 +6,7 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::arrays::BoolArray;
-use crate::pipeline::bits::BitView;
+use crate::pipeline::bits::{BitView};
 use crate::pipeline::vec::Vector;
 use crate::pipeline::{Kernel, KernelContext, N, N_WORDS};
 use crate::validity::Validity;
@@ -32,7 +32,7 @@ pub(super) fn export_bool_nonnull_masked(
     let complete_runs = len / N;
     for i in 0..complete_runs {
         let mask_chunk = unsafe {
-            &*(mask_buffer.values()[i * 8..][..N / 8].as_ptr() as *const [usize; N_WORDS])
+            &*(mask_buffer.values()[i * (N/8)..][..N / 8].as_ptr() as *const [usize; N_WORDS])
         };
         let mask_view = BitView::new(mask_chunk);
 
@@ -57,15 +57,16 @@ pub(super) fn export_bool_nonnull_masked(
 
     let remaining = len % N;
 
-    let mut mask = [0usize; N_WORDS];
+    let mut mask_1k_buffer = [0usize; N_WORDS];
     let mask_u8: &mut [u8] =
-        unsafe { std::slice::from_raw_parts_mut(mask.as_mut_ptr() as *mut u8, N_WORDS * 8) };
-    mask_u8.copy_from_slice(&mask_buffer.values()[complete_runs * 8..][..N / 8]);
+        unsafe { std::slice::from_raw_parts_mut(mask_1k_buffer.as_mut_ptr() as *mut u8, N_WORDS * 8) };
+    mask_u8[..remaining.div_ceil(8)].copy_from_slice(&mask_buffer.values()[complete_runs * (N/8)..][..remaining .div_ceil( 8)]);
+
 
     // Process any remaining values less than N (1024)
     if remaining > 0 {
         let dummy_ctx = KernelContext::default();
-        let view = BitView::from(&mask);
+        let view = BitView::from(&mask_1k_buffer);
         pipeline.step(&dummy_ctx, view, &mut elements_buffer_mut)?;
 
         // Collect remaining bools
