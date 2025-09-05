@@ -66,7 +66,7 @@ pub trait ArrayIteratorExt: ArrayIterator {
     where
         Self: Sized,
     {
-        ArrayStreamAdapter::new(self.dtype().clone(), futures_util::stream::iter(self))
+        ArrayStreamAdapter::new(self.dtype().clone(), futures::stream::iter(self))
     }
 
     /// Collect the iterator into a single `Array`.

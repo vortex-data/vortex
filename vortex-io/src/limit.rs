@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll, ready};
 
 use futures::Stream;
-use futures_util::stream::FuturesUnordered;
+use futures::stream::FuturesUnordered;
 use pin_project::pin_project;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError};
 use vortex_error::VortexUnwrap;
@@ -147,8 +147,8 @@ mod tests {
     use std::{future, io};
 
     use bytes::Bytes;
-    use futures_util::future::BoxFuture;
-    use futures_util::{FutureExt, StreamExt};
+    use futures::future::BoxFuture;
+    use futures::{FutureExt, StreamExt};
 
     use crate::limit::SizeLimitedStream;
 

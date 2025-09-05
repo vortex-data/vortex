@@ -43,8 +43,8 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use futures_util::FutureExt;
-    use smol::block_on;
+    use futures::FutureExt;
+    use futures::executor::block_on;
     use tokio::runtime::Runtime as TokioRt;
 
     use super::*;

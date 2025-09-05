@@ -3,14 +3,15 @@
 
 mod handle;
 pub use handle::*;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "smol")]
 pub mod current;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "smol")]
 pub mod multi;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "smol")]
 pub mod single;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "smol")]
 mod smol;
+// TODO(ngates): feature-flag this by Tokio once we add I/O support for runtimes.
 #[cfg(not(target_arch = "wasm32"))]
 pub mod tokio;
 #[cfg(target_arch = "wasm32")]

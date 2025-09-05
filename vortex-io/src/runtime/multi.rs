@@ -4,9 +4,8 @@
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
-use futures::Stream;
-use futures_util::StreamExt;
-use futures_util::stream::BoxStream;
+use futures::stream::BoxStream;
+use futures::{Stream, StreamExt};
 use smol::{Executor, block_on};
 use vortex_error::VortexExpect;
 
@@ -112,7 +111,7 @@ impl<T> Iterator for BlockingStream<T> {
 mod tests {
     use std::num::NonZeroUsize;
 
-    use super::*;
+    use super::MultiThreadRuntime;
 
     #[test]
     fn test_drive_simple_future() {

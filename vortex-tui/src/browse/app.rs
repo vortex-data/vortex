@@ -4,7 +4,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use futures_executor::block_on;
+use futures::executor::block_on;
 use ratatui::prelude::Size;
 use ratatui::widgets::ListState;
 use vortex::dtype::DType;

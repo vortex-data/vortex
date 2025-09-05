@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use futures_util::future::BoxFuture;
+use futures::future::BoxFuture;
 use wasm_bindgen_futures::spawn_local;
 
 use crate::runtime::{AbortHandle, AbortHandleRef, Handle, Runtime};
