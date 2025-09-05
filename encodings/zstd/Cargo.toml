@@ -20,7 +20,6 @@ workspace = true
 itertools = { workspace = true }
 prost = { workspace = true }
 vortex-array = { workspace = true }
-vortex-sparse = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
