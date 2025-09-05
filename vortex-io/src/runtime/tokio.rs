@@ -31,7 +31,7 @@ impl Runtime<'static> for TokioRuntime {
         Box::new(self.0.spawn(async move { cpu() }).abort_handle())
     }
 
-    fn spawn_io(&self, task: IoTask) {
+    fn spawn_io(&self, task: IoTask<'static>) {
         self.0.spawn(task.drive_send());
     }
 }

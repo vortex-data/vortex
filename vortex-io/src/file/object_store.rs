@@ -14,6 +14,7 @@ use vortex_buffer::ByteBufferMut;
 use vortex_error::{VortexError, VortexResult};
 
 use crate::file::{CoalesceWindow, IoRequest, IoSource};
+use crate::runtime::Handle;
 
 const COALESCING_WINDOW: CoalesceWindow = CoalesceWindow {
     distance: 1024 * 1024,      // 1 MB
@@ -82,7 +83,11 @@ impl IoSource for ObjectStoreIo {
         .boxed()
     }
 
-    fn drive_send(&self, requests: BoxStream<'static, IoRequest>) -> BoxFuture<'static, ()> {
+    fn drive_send<'rt>(
+        &self,
+        requests: BoxStream<'rt, IoRequest>,
+        handle: Handle<'rt>,
+    ) -> BoxFuture<'rt, ()> {
         let store = self.store.clone();
         let path = self.path.clone();
 
@@ -135,10 +140,10 @@ impl IoSource for ObjectStoreIo {
                     Ok(buffer.freeze())
                 };
 
-                async move {
+                handle.spawn(async move {
                     let result = Compat::new(read).await;
                     req.resolve(result);
-                }
+                })
             })
             .buffer_unordered(self.concurrency)
             .collect::<()>()

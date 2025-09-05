@@ -9,6 +9,7 @@ use futures::stream::BoxStream;
 use vortex_error::VortexResult;
 
 use crate::file::request::IoRequest;
+use crate::runtime::Handle;
 
 /// An object-safe trait representing an open file-like I/O object.
 pub trait IoSource: 'static + Send + Sync {
@@ -20,11 +21,19 @@ pub trait IoSource: 'static + Send + Sync {
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>>;
 
     /// Drive a stream of I/O requests to completion.
-    fn drive_send(&self, requests: BoxStream<'static, IoRequest>) -> BoxFuture<'static, ()>;
+    fn drive_send<'rt>(
+        &self,
+        requests: BoxStream<'rt, IoRequest>,
+        handle: Handle<'rt>,
+    ) -> BoxFuture<'rt, ()>;
 
     /// Drive a stream of I/O requests to completion on the local thread.
-    fn drive_local(&self, requests: BoxStream<'static, IoRequest>) -> LocalBoxFuture<'static, ()> {
-        self.drive_send(requests).boxed_local()
+    fn drive_local<'rt>(
+        &self,
+        requests: BoxStream<'rt, IoRequest>,
+        handle: Handle<'rt>,
+    ) -> LocalBoxFuture<'rt, ()> {
+        self.drive_send(requests, handle).boxed_local()
     }
 }
 

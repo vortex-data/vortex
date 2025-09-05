@@ -54,7 +54,7 @@ pub(crate) trait Runtime<'rt>: Send + Sync {
 
     /// Spawns an I/O task for execution on the runtime.
     /// The runtime can choose to invoke the task's `Send` or `!Send` versions.
-    fn spawn_io(&self, task: IoTask);
+    fn spawn_io(&self, task: IoTask<'rt>);
 }
 
 /// A handle that may be used to optimistically abort a spawned task.
@@ -68,24 +68,33 @@ pub(crate) trait AbortHandle<'rt>: Send + Sync {
 pub(crate) type AbortHandleRef<'rt> = Box<dyn AbortHandle<'rt> + 'rt>;
 
 /// A task for driving I/O requests against a source.
-pub(crate) struct IoTask {
+pub(crate) struct IoTask<'rt> {
     source: Arc<dyn IoSource>,
-    stream: BoxStream<'static, IoRequest>,
+    stream: BoxStream<'rt, IoRequest>,
+    handle: Handle<'rt>,
 }
 
-impl IoTask {
-    pub(crate) fn new(source: Arc<dyn IoSource>, stream: BoxStream<'static, IoRequest>) -> Self {
-        IoTask { source, stream }
+impl<'rt> IoTask<'rt> {
+    pub(crate) fn new(
+        source: Arc<dyn IoSource>,
+        stream: BoxStream<'rt, IoRequest>,
+        handle: Handle<'rt>,
+    ) -> Self {
+        IoTask {
+            source,
+            stream,
+            handle,
+        }
     }
 
     /// Create a new I/O task for the given source and request stream.
-    pub(crate) fn drive_send(self) -> BoxFuture<'static, ()> {
-        self.source.drive_send(self.stream)
+    pub(crate) fn drive_send(self) -> BoxFuture<'rt, ()> {
+        self.source.drive_send(self.stream, self.handle.clone())
     }
 
     /// Create a new I/O task for the given source and request stream that runs on the local thread.
     #[allow(dead_code)] // Used only with smol currently.
-    pub(crate) fn drive_local(self) -> LocalBoxFuture<'static, ()> {
-        self.source.drive_local(self.stream)
+    pub(crate) fn drive_local(self) -> LocalBoxFuture<'rt, ()> {
+        self.source.drive_local(self.stream, self.handle.clone())
     }
 }

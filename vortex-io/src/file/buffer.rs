@@ -10,6 +10,7 @@ use vortex_buffer::{ByteBuffer, ByteBufferMut};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 use crate::file::{CoalesceWindow, IntoIoSource, IoRequest, IoSource};
+use crate::runtime::Handle;
 
 impl IntoIoSource for ByteBuffer {
     fn into_io_source(self) -> VortexResult<Arc<dyn IoSource>> {
@@ -32,7 +33,11 @@ impl IoSource for ByteBuffer {
         async move { Ok(len) }.boxed()
     }
 
-    fn drive_send(&self, requests: BoxStream<'static, IoRequest>) -> BoxFuture<'static, ()> {
+    fn drive_send<'rt>(
+        &self,
+        requests: BoxStream<'rt, IoRequest>,
+        _handle: Handle<'rt>,
+    ) -> BoxFuture<'rt, ()> {
         let buffer = self.clone();
         async move {
             pin_mut!(requests);

@@ -83,7 +83,7 @@ impl<'rt> Handle<'rt> {
         )
         .boxed();
 
-        self.0.spawn_io(IoTask::new(source, stream));
+        self.0.spawn_io(IoTask::new(source, stream, self.clone()));
 
         Ok(read)
     }

@@ -20,7 +20,7 @@ use crate::runtime::{AbortHandle, AbortHandleRef, Handle, IoTask, Runtime};
 pub struct SingleThreadRuntime<'rt> {
     scheduling: kanal::Sender<SpawnFuture<'rt>>,
     cpu: kanal::Sender<SpawnCpu>,
-    io: kanal::Sender<IoTask>,
+    io: kanal::Sender<IoTask<'rt>>,
 }
 
 impl<'rt> SingleThreadRuntime<'rt> {
@@ -109,7 +109,7 @@ impl<'rt> SingleThreadRuntime<'rt> {
         let stream = f(Handle(Arc::new(rt)));
 
         // SAFETY: The stream contains references to `rt` with lifetime 'rt.
-        // We're transmuting this to 'static, which is sound because:
+        // We're transmuting this to static, which is sound because:
         // 1. Both `rt` and `stream` will be moved into BlockingStream
         // 2. BlockingStream will drop them in the correct order (stream first, then rt)
         // 3. The stream will never outlive the runtime it references
@@ -153,7 +153,7 @@ impl<'rt> Runtime<'rt> for SingleThreadRuntime<'rt> {
         Box::new(SmolAbortHandle { task })
     }
 
-    fn spawn_io(&self, task: IoTask) {
+    fn spawn_io(&self, task: IoTask<'rt>) {
         if let Err(e) = self.io.send(task) {
             vortex_panic!("Executor missing: {}", e);
         }

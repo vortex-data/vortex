@@ -16,7 +16,7 @@ impl<'rt> Runtime<'rt> for Executor<'rt> {
         SmolAbortHandle::new_handle(self.spawn(async move { task() }))
     }
 
-    fn spawn_io(&self, task: IoTask) {
+    fn spawn_io(&self, task: IoTask<'rt>) {
         self.spawn(task.drive_send()).detach();
     }
 }
