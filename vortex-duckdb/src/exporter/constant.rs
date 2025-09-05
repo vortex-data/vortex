@@ -22,6 +22,7 @@ pub fn new_exporter_with_mask(
         return Ok(Box::new(ConstantExporter { value: None }));
     }
 
+    // duckdb cannot have a nullable constant vector, so we create primitive vector with validity mask
     if !mask.all_true() {
         return Ok(validity::new_exporter(
             mask,
