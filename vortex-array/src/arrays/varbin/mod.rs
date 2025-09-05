@@ -18,7 +18,7 @@ use crate::validity::Validity;
 use crate::vtable::{
     ArrayVTable, NotSupported, VTable, ValidityHelper, ValidityVTableFromValidityHelper,
 };
-use crate::{Array, ArrayRef, EncodingId, EncodingRef, compute as compute_fn, vtable};
+use crate::{Array, ArrayRef, EncodingId, EncodingRef, vtable};
 
 mod accessor;
 pub mod builder;
@@ -173,7 +173,9 @@ impl VarBinArray {
         );
 
         // Check offsets are sorted
-        vortex_ensure!(!compute_fn::is_sorted(offsets)?, "offsets must be sorted");
+        if let Some(is_sorted) = offsets.statistics().compute_is_sorted() {
+            vortex_ensure!(is_sorted, "offsets must be sorted");
+        }
 
         // Check first offset is 0 and last offset doesn't exceed bytes length
         let first_offset = offsets
