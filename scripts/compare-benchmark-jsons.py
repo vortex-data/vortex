@@ -95,7 +95,7 @@ if len(vortex_valid_ratios) > 0:
         best_idx = improvements.idxmin()
         best_improvement = f"{vortex_df.loc[best_idx, 'name']} ({vortex_df.loc[best_idx, 'ratio']:.3f}x)"
     else:
-        best_improvement = "no improvements"
+        best_improvement = "No improvements"
 
     # Worst regression: largest ratio (> 1.0, slowest performance)
     regressions = vortex_valid_ratios[vortex_valid_ratios > 1.0]
@@ -103,10 +103,10 @@ if len(vortex_valid_ratios) > 0:
         worst_idx = regressions.idxmax()
         worst_regression = f"{vortex_df.loc[worst_idx, 'name']} ({vortex_df.loc[worst_idx, 'ratio']:.3f}x)"
     else:
-        worst_regression = "no regressions"
+        worst_regression = "No regressions"
 else:
-    best_improvement = "no valid vortex comparisons"
-    worst_regression = "no valid vortex comparisons"
+    best_improvement = "No valid vortex comparisons"
+    worst_regression = "No valid vortex comparisons"
 
 # Determine threshold based on benchmark name
 # Use 30% threshold for S3 benchmarks, 10% for others
@@ -143,14 +143,14 @@ datafusion_vortex_performance = format_performance(datafusion_vortex_geo_mean_ra
 summary_lines = [
     "## Summary",
     "",
-    f"- **overall**: {overall_performance}",
+    f"- **Overall**: {overall_performance}",
 ]
 
 # Only add vortex-specific sections if we have vortex data
 if len(vortex_df) > 0:
     summary_lines.extend(
         [
-            f"- **vortex**: {vortex_performance}",
+            f"- **Vortex**: {vortex_performance}",
         ]
     )
 
@@ -166,9 +166,9 @@ if len(datafusion_vortex_df) > 0:
 if len(vortex_df) > 0:
     summary_lines.extend(
         [
-            f"- **best**: {best_improvement}",
-            f"- **worst**: {worst_regression}",
-            f"- **significant (>{threshold_pct}%)**: {significant_improvements}↑ {significant_regressions}↓",
+            f"- **Best**: {best_improvement}",
+            f"- **Worst**: {worst_regression}",
+            f"- **Significant (>{threshold_pct}%)**: {significant_improvements}↑ {significant_regressions}↓",
         ]
     )
 
