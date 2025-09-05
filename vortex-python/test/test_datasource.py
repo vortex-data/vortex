@@ -47,7 +47,7 @@ def test_vortex_datasource(tmpdir_factory):  # pyright: ignore[reportUnknownPara
     # Without an explicit sort, Ray may reorder rows *even within a single record batch*.
     ds = ds.sort("index")
 
-    tbl = pa.concat_tables(pa.Table.from_pydict(x) for x in ds.iter_batches())  # pyright: ignore[reportArgumentType]
+    tbl = pa.concat_tables(pa.Table.from_pydict(x) for x in ds.iter_batches())  # pyright: ignore[reportArgumentType, reportUnknownMemberType, reportUnknownVariableType]
     expected = pa.Table.from_pylist([record(x) for x in range(0, 10)], schema=tbl.schema)
 
     assert tbl == expected
