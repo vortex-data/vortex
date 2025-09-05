@@ -15,14 +15,9 @@ use crate::{ArrayRef, register_kernel};
 /// structure.
 impl CastKernel for FixedSizeListVTable {
     fn cast(&self, array: &FixedSizeListArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        let Some(target_element_type) = dtype.as_list_element_opt() else {
+        let Some(target_element_type) = dtype.as_fixed_size_list_element_opt() else {
             return Ok(None);
         };
-
-        // The list elements could technically be from either `FixedSizeList` or `List`.
-        if dtype.is_list() {
-            return Ok(None);
-        }
 
         let elements = cast(array.elements(), target_element_type)?;
         let validity = array

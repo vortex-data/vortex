@@ -49,8 +49,14 @@ impl FilterKernel for ListVTable {
             )?
         });
 
-        // TODO(connor): Use `new_unchecked` here.
-        Ok(ListArray::try_new(new_elements, new_offsets.into_array(), new_validity)?.into_array())
+        // SAFETY: Filter operation maintains all ListArray invariants:
+        // - Offsets are monotonically increasing (built correctly above).
+        // - Elements are properly filtered to match the offsets.
+        // - Validity matches the original array's nullability.
+        Ok(unsafe {
+            ListArray::new_unchecked(new_elements, new_offsets.into_array(), new_validity)
+        }
+        .into_array())
     }
 }
 
@@ -135,6 +141,8 @@ fn compute_filtered_elements_and_offsets<O: NativePType + AsPrimitive<usize> + A
     // Allow the child array to filter themselves.
     // The `Mask` can determine the best representation based on the buffer's density in the future.
     let new_elements = filter(elements, &Mask::from_buffer(new_mask_builder.finish()))?;
+
+    // TODO(connor): Use `new_unchecked` here to avoid a branch?
     let new_offsets = PrimitiveArray::new(new_offsets, Validity::NonNullable);
 
     Ok((new_elements, new_offsets))
