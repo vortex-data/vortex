@@ -12,8 +12,9 @@ use arrow_array::types::{
     TimestampSecondType, UInt8Type, UInt16Type, UInt32Type, UInt64Type,
 };
 use arrow_array::{
-    Array as ArrowArray, ArrowPrimitiveType, BooleanArray as ArrowBooleanArray, GenericByteArray,
-    GenericByteViewArray, GenericListArray, NullArray as ArrowNullArray, OffsetSizeTrait,
+    Array as ArrowArray, ArrowPrimitiveType, BooleanArray as ArrowBooleanArray,
+    FixedSizeListArray as ArrowFixedSizeListArray, GenericByteArray, GenericByteViewArray,
+    GenericListArray, NullArray as ArrowNullArray, OffsetSizeTrait,
     PrimitiveArray as ArrowPrimitiveArray, RecordBatch, StructArray as ArrowStructArray,
     make_array,
 };
@@ -28,8 +29,8 @@ use vortex_error::{VortexExpect as _, vortex_panic};
 use vortex_scalar::i256;
 
 use crate::arrays::{
-    BoolArray, DecimalArray, ListArray, NullArray, PrimitiveArray, StructArray, TemporalArray,
-    VarBinArray, VarBinViewArray,
+    BoolArray, DecimalArray, FixedSizeListArray, ListArray, NullArray, PrimitiveArray, StructArray,
+    TemporalArray, VarBinArray, VarBinViewArray,
 };
 use crate::arrow::FromArrowArray;
 use crate::validity::Validity;
@@ -325,7 +326,24 @@ impl<O: OffsetSizeTrait + NativePType> FromArrowArray<&GenericListArray<O>> for 
             value.offsets().clone().into_array(),
             nulls(value.nulls(), nullable),
         )
-        .vortex_expect("Failed to convert Arrow StructArray to Vortex StructArray")
+        .vortex_expect("Failed to convert Arrow ListArray to Vortex ListArray")
+        .into_array()
+    }
+}
+
+impl FromArrowArray<&ArrowFixedSizeListArray> for ArrayRef {
+    fn from_arrow(array: &ArrowFixedSizeListArray, nullable: bool) -> Self {
+        let DataType::FixedSizeList(field, list_size) = array.data_type() else {
+            vortex_panic!("Invalid data type for ListArray: {}", array.data_type());
+        };
+
+        FixedSizeListArray::try_new(
+            Self::from_arrow(array.values().as_ref(), field.is_nullable()),
+            *list_size as u32,
+            nulls(array.nulls(), nullable),
+            array.len(),
+        )
+        .vortex_expect("Failed to convert Arrow FixedSizeListArray to Vortex FixedSizeListArray")
         .into_array()
     }
 }
@@ -378,6 +396,7 @@ impl FromArrowArray<&dyn ArrowArray> for ArrayRef {
             DataType::Struct(_) => Self::from_arrow(array.as_struct(), nullable),
             DataType::List(_) => Self::from_arrow(array.as_list::<i32>(), nullable),
             DataType::LargeList(_) => Self::from_arrow(array.as_list::<i64>(), nullable),
+            DataType::FixedSizeList(..) => Self::from_arrow(array.as_fixed_size_list(), nullable),
             DataType::Null => Self::from_arrow(as_null_array(array), nullable),
             DataType::Timestamp(u, _) => match u {
                 ArrowTimeUnit::Second => {

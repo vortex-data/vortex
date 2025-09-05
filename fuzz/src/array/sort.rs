@@ -61,7 +61,7 @@ pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
             opt_values.sort();
             Ok(VarBinViewArray::from_iter(opt_values, array.dtype().clone()).into_array())
         }
-        DType::Struct(..) => {
+        DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) => {
             let mut sort_indices = (0..array.len()).collect::<Vec<_>>();
             sort_indices.sort_by(|a, b| {
                 array
@@ -71,17 +71,6 @@ pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
             });
             take_canonical_array_non_nullable_indices(array, &sort_indices)
         }
-        DType::List(..) => {
-            let mut sort_indices = (0..array.len()).collect::<Vec<_>>();
-            sort_indices.sort_by(|a, b| {
-                array
-                    .scalar_at(*a)
-                    .partial_cmp(&array.scalar_at(*b))
-                    .vortex_expect("must be a valid comparison")
-            });
-            take_canonical_array_non_nullable_indices(array, &sort_indices)
-        }
-        DType::FixedSizeList(..) => unimplemented!("TODO(connor)[FixedSizeList]"),
         d @ (DType::Null | DType::Extension(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }
