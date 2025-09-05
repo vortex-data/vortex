@@ -143,14 +143,14 @@ where
                 }
             })?;
 
-            PrimitiveArray::new(codes.freeze(), Validity::NonNullable)
+            PrimitiveArray::new(codes, Validity::NonNullable)
         };
 
         Ok(codes.into_array())
     }
 
     fn values(&mut self) -> VortexResult<ArrayRef> {
-        Ok(PrimitiveArray::new(self.values.clone().freeze(), self.nullability.into()).into_array())
+        Ok(PrimitiveArray::new(self.values.clone(), self.nullability.into()).into_array())
     }
 }
 

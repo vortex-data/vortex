@@ -120,6 +120,7 @@ impl PrimitiveArray {
     ///
     /// Returns an error if the provided components do not satisfy the invariants documented in
     /// [`PrimitiveArray::new_unchecked`].
+    #[inline]
     pub fn try_new<T: NativePType>(buffer: Buffer<T>, validity: Validity) -> VortexResult<Self> {
         Self::validate(&buffer, &validity)?;
 
@@ -139,6 +140,7 @@ impl PrimitiveArray {
     /// ## Validity Requirements
     ///
     /// - If `validity` is [`Validity::Array`], its length must exactly equal `buffer.len()`.
+    #[inline]
     pub unsafe fn new_unchecked<T: NativePType>(buffer: Buffer<T>, validity: Validity) -> Self {
         Self {
             dtype: DType::Primitive(T::PTYPE, validity.nullability()),
@@ -151,6 +153,7 @@ impl PrimitiveArray {
     /// Validates the components that would be used to create a [`PrimitiveArray`].
     ///
     /// This function checks all the invariants required by [`PrimitiveArray::new_unchecked`].
+    #[inline]
     pub(crate) fn validate<T: NativePType>(
         buffer: &Buffer<T>,
         validity: &Validity,
