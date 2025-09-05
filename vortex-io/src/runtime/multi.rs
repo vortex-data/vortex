@@ -5,13 +5,12 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use futures::Stream;
-use futures::future::BoxFuture;
 use futures_util::StreamExt;
 use futures_util::stream::BoxStream;
 use smol::{Executor, block_on};
 use vortex_error::VortexExpect;
 
-use crate::runtime::{AbortHandle, AbortHandleRef, Handle, Runtime};
+use crate::runtime::Handle;
 
 /// A runtime that drives work in the background on a dedicated thread pool.
 pub struct MultiThreadRuntime<'rt> {
@@ -92,17 +91,6 @@ impl Default for MultiThreadRuntime<'_> {
     }
 }
 
-impl<'rt> Runtime<'rt> for Executor<'rt> {
-    fn spawn(&self, fut: BoxFuture<'rt, ()>) -> AbortHandleRef<'rt> {
-        SmolAbortHandle::new_handle(self.spawn(fut))
-    }
-
-    fn spawn_cpu(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef<'rt> {
-        // For now, we spawn CPU work back onto the same executor.
-        SmolAbortHandle::new_handle(self.spawn(async move { task() }))
-    }
-}
-
 /// A stream that wraps up the stream with the executor that drives it.
 ///
 /// This allows the resulting stream to have a static lifetime.
@@ -117,33 +105,6 @@ impl<T> Iterator for BlockingStream<T> {
     fn next(&mut self) -> Option<Self::Item> {
         let fut = self.stream.next();
         block_on(self.executor.run(fut))
-    }
-}
-
-/// An abort handle for a `smol::Task`.
-pub(crate) struct SmolAbortHandle<T> {
-    task: Option<smol::Task<T>>,
-}
-
-impl<'rt, T: 'rt + Send> SmolAbortHandle<T> {
-    pub(crate) fn new_handle(task: smol::Task<T>) -> AbortHandleRef<'rt> {
-        Box::new(Self { task: Some(task) })
-    }
-}
-
-impl<T: Send> AbortHandle<'_> for SmolAbortHandle<T> {
-    fn abort(mut self: Box<Self>) {
-        // Aborting a smol::Task is done by dropping it.
-        drop(self.task.take());
-    }
-}
-
-impl<T> Drop for SmolAbortHandle<T> {
-    fn drop(&mut self) {
-        // We prevent the task from being canceled by detaching it.
-        if let Some(task) = self.task.take() {
-            task.detach()
-        }
     }
 }
 

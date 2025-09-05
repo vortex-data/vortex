@@ -19,6 +19,11 @@ pub struct Handle<'rt>(pub(crate) Arc<dyn Runtime<'rt> + 'rt>);
 
 impl<'rt> Handle<'rt> {
     /// Spawn a new future onto the runtime.
+    ///
+    /// These futures are expected to not perform expensive CPU work and instead simply schedule
+    /// either CPU tasks or I/O tasks. See [`Handle::spawn_cpu`] for spawning CPU-bound work.
+    ///
+    /// See [`Task`] for details on cancelling or detaching the spawned task.
     pub fn spawn<Fut, R>(&self, f: Fut) -> Task<'rt, R>
     where
         Fut: Future<Output = R> + Send + 'rt,
@@ -39,6 +44,12 @@ impl<'rt> Handle<'rt> {
     }
 
     /// Spawn a CPU-bound task for execution on the runtime.
+    ///
+    /// Note that many runtimes will interleave this work on the same async runtime. See the
+    /// documentation for each runtime implementation for details.
+    ///
+    /// See [`Task`] for details on cancelling or detaching the spawned work, although note that
+    /// once started, CPU work cannot be cancelled.
     pub fn spawn_cpu<F, R>(&self, f: F) -> Task<'rt, R>
     where
         // Unlike scheduling futures, the CPU task should have a static lifetime because it
@@ -61,7 +72,8 @@ impl<'rt> Handle<'rt> {
 
 /// A handle to a spawned Task.
 ///
-/// If this handle is dropped, the task is cancelled where possible.
+/// If this handle is dropped, the task is cancelled where possible. In order to allow the task to
+/// continue running in the background, call [`Task::detach`].
 pub struct Task<'rt, T> {
     recv: oneshot::Receiver<T>,
     abort_handle: Option<Box<dyn AbortHandle<'rt> + 'rt>>,

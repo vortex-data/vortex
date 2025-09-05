@@ -10,6 +10,8 @@ pub mod multi;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod single;
 #[cfg(not(target_arch = "wasm32"))]
+mod smol;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod tokio;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;
@@ -45,6 +47,9 @@ pub(crate) trait Runtime<'rt>: Send + Sync {
 }
 
 /// A handle that may be used to optimistically abort a spawned task.
+///
+/// If dropped, the task should continue to completion.
+/// If explicitly aborted, the task should be cancelled if it has not yet started executing.
 pub(crate) trait AbortHandle<'rt>: Send + Sync {
     fn abort(self: Box<Self>);
 }
