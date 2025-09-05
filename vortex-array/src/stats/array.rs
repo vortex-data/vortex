@@ -145,8 +145,8 @@ impl StatsSetRef<'_> {
                     is_constant(self.dyn_array_ref)?.map(|v| v.into())
                 }
             }
-            Stat::IsSorted => Some(is_sorted(self.dyn_array_ref)?.into()),
-            Stat::IsStrictSorted => Some(is_strict_sorted(self.dyn_array_ref)?.into()),
+            Stat::IsSorted => is_sorted(self.dyn_array_ref)?.map(|v| v.into()),
+            Stat::IsStrictSorted => is_strict_sorted(self.dyn_array_ref)?.map(|v| v.into()),
             Stat::UncompressedSizeInBytes => {
                 let nbytes = self.dyn_array_ref.to_canonical().as_ref().nbytes();
                 self.set(stat, Precision::exact(nbytes));
