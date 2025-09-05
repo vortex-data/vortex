@@ -13,9 +13,9 @@ use std::fmt;
 use std::fmt::{Debug, Display};
 use std::marker::PhantomData;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::task::{ready, Context, Poll};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::task::{Context, Poll, ready};
 
 pub(crate) use driver::*;
 use futures::future::{BoxFuture, Shared};
@@ -23,7 +23,7 @@ use futures::{FutureExt, TryFutureExt};
 pub use request::*;
 pub use source::*;
 use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{vortex_err, SharedVortexResult, VortexError, VortexResult};
+use vortex_error::{SharedVortexResult, VortexError, VortexResult, vortex_err};
 
 /// A handle to an open file that can be read using a Vortex runtime.
 ///
@@ -136,41 +136,11 @@ impl FileRead<'_> {
     }
 }
 
-type RequestId = usize;
-
 #[derive(Debug)]
 pub(crate) enum ReadEvent {
     Request(ReadRequest),
     Polled(RequestId),
     Dropped(RequestId),
-}
-
-pub(crate) struct ReadRequest {
-    id: RequestId,
-    offset: u64,
-    length: usize,
-    alignment: Alignment,
-    callback: oneshot::Sender<VortexResult<ByteBuffer>>,
-}
-
-impl Debug for ReadRequest {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ReadRequest")
-            .field("id", &self.id)
-            .field("offset", &self.offset)
-            .field("length", &self.length)
-            .field("alignment", &self.alignment)
-            .field("is_closed", &self.callback.is_closed())
-            .finish()
-    }
-}
-
-impl ReadRequest {
-    pub(crate) fn resolve(self, result: VortexResult<ByteBuffer>) {
-        if let Err(e) = self.callback.send(result) {
-            log::debug!("ReadRequest {} dropped before resolving: {e}", self.id);
-        }
-    }
 }
 
 /// A future that resolves a read request from a [`FileRead`].

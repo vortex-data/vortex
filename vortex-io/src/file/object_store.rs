@@ -70,11 +70,11 @@ impl IoSource for ObjectStoreIo {
         let store = self.store.clone();
         let path = self.path.clone();
         Compat::new(async move {
-            Ok(store
+            store
                 .head(&path)
                 .await
                 .map(|h| h.size)
-                .map_err(VortexError::from)?)
+                .map_err(VortexError::from)
         })
         .boxed()
     }

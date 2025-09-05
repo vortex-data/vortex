@@ -8,8 +8,8 @@ use futures::Stream;
 use pin_project_lite::pin_project;
 use vortex_error::VortexExpect;
 
-use crate::file::request::{CoalescedRequest, IoRequest};
-use crate::file::{ReadEvent, ReadRequest, RequestId};
+use crate::file::ReadEvent;
+use crate::file::request::{CoalescedRequest, IoRequest, ReadRequest, RequestId};
 
 pin_project! {
     /// A stream that performs coalescing and prioritization of I/O requests.
@@ -160,7 +160,7 @@ impl State {
         let mut requests = vec![first_req];
         let mut current_start = requests[0].offset;
         let mut current_end = requests[0].offset + requests[0].length as u64;
-        let alignment = requests[0].alignment.clone();
+        let alignment = requests[0].alignment;
 
         // Find the range we should scan for coalescing
         let scan_start = current_start.saturating_sub(coalesce_distance);

@@ -4,10 +4,10 @@
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{ready, Context, Poll};
+use std::task::{Context, Poll, ready};
 
-use futures::stream::FuturesUnordered;
 use futures::Stream;
+use futures::stream::FuturesUnordered;
 use pin_project_lite::pin_project;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError};
 use vortex_error::VortexUnwrap;

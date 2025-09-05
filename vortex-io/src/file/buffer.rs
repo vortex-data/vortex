@@ -5,9 +5,9 @@ use std::sync::{Arc, LazyLock};
 
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
-use futures::{pin_mut, FutureExt, StreamExt};
+use futures::{FutureExt, StreamExt, pin_mut};
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 use crate::file::{IntoIoSource, IoRequest, IoSource};
 

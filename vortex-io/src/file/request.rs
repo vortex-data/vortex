@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{VortexError, VortexExpect, VortexResult};
-
-use crate::file::ReadRequest;
 
 /// An I/O request, either a single read or a coalesced set of reads.
 pub struct IoRequest(IoRequestInner);
@@ -26,6 +25,13 @@ impl IoRequest {
         match &self.0 {
             IoRequestInner::Single(r) => r.offset,
             IoRequestInner::Coalesced(r) => r.range.start,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        match &self.0 {
+            IoRequestInner::Single(r) => r.length == 0,
+            IoRequestInner::Coalesced(r) => r.range.start == r.range.end,
         }
     }
 
@@ -59,20 +65,50 @@ impl IoRequest {
     }
 }
 
-pub enum IoRequestInner {
+enum IoRequestInner {
     Single(ReadRequest),
     Coalesced(CoalescedRequest),
 }
 
+pub(crate) type RequestId = usize;
+
+pub(crate) struct ReadRequest {
+    pub(crate) id: RequestId,
+    pub(crate) offset: u64,
+    pub(crate) length: usize,
+    pub(crate) alignment: Alignment,
+    pub(crate) callback: oneshot::Sender<VortexResult<ByteBuffer>>,
+}
+
+impl Debug for ReadRequest {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ReadRequest")
+            .field("id", &self.id)
+            .field("offset", &self.offset)
+            .field("length", &self.length)
+            .field("alignment", &self.alignment)
+            .field("is_closed", &self.callback.is_closed())
+            .finish()
+    }
+}
+
+impl ReadRequest {
+    pub(crate) fn resolve(self, result: VortexResult<ByteBuffer>) {
+        if let Err(e) = self.callback.send(result) {
+            log::debug!("ReadRequest {} dropped before resolving: {e}", self.id);
+        }
+    }
+}
+
 /// A set of I/O requests that have been coalesced into a single larger request.
 pub(crate) struct CoalescedRequest {
-    pub range: Range<u64>,
-    pub alignment: Alignment, // The alignment of the first request in the coalesced range.
-    pub requests: Vec<ReadRequest>, // TODO(ngates): we could have enum of Single/Many to avoid Vec.
+    pub(crate) range: Range<u64>,
+    pub(crate) alignment: Alignment, // The alignment of the first request in the coalesced range.
+    pub(crate) requests: Vec<ReadRequest>, // TODO(ngates): we could have enum of Single/Many to avoid Vec.
 }
 
 impl Debug for CoalescedRequest {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("CoalescedRequest")
             .field("#", &self.requests.len())
             .field("length", &(self.range.end - self.range.start))
@@ -88,7 +124,8 @@ impl CoalescedRequest {
             Ok(buffer) => {
                 let buffer = buffer.aligned(Alignment::none());
                 for req in self.requests.into_iter() {
-                    let start = (req.offset - self.range.start) as usize;
+                    let start = usize::try_from(req.offset - self.range.start)
+                        .vortex_expect("invalid offset");
                     let end = start + req.length;
                     let slice = buffer.slice(start..end).aligned(req.alignment);
                     req.resolve(Ok(slice));
