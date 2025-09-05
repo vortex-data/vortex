@@ -24,6 +24,7 @@ pub fn new_exporter_with_mask(
 
     // duckdb cannot have a nullable constant vector, so we create primitive vector with validity mask
     if !mask.all_true() {
+        // TODO(joe): we can splat the constant in a specific exporter and save a copy.
         return Ok(validity::new_exporter(
             mask,
             new_array_exporter(array.to_canonical().as_ref(), cache)?,
