@@ -16,6 +16,8 @@ import torch
 from torch.utils.data import DataLoader
 import vortex.mds as vxmds
 
+vxmds.register_vortex_with_mds()
+
 log = logging.getLogger(__name__)
 
 

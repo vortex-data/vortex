@@ -45,6 +45,8 @@ intersphinx_mapping = {
     "pandas": ("https://pandas.pydata.org/docs", None),
     "numpy": ("https://numpy.org/doc/stable", None),
     "polars": ("https://docs.pola.rs/api/python/stable", "polars.objects.inv"),
+    "streaming": ("https://docs.mosaicml.com/projects/streaming/en/stable", None),
+    "torch": ("https://docs.pytorch.org/docs/stable", None),
 }
 
 git_root = Path(__file__).parent.parent
@@ -52,7 +54,7 @@ git_root = Path(__file__).parent.parent
 nitpicky = True  # ensures all :class:, :obj:, etc. links are valid
 nitpick_ignore = []
 
-doctest_global_setup = "import pyarrow; import vortex; import vortex as vx"
+doctest_global_setup = "import pyarrow; import vortex; import vortex as vx; import vortex.mds"
 doctest_default_flags = (
     doctest.ELLIPSIS | doctest.IGNORE_EXCEPTION_DETAIL | doctest.DONT_ACCEPT_TRUE_FOR_1 | doctest.NORMALIZE_WHITESPACE
 )

@@ -7,6 +7,7 @@ from typing import Any, TypedDict, final
 from typing_extensions import override
 
 import vortex as vx
+
 from streaming.base.format.base.reader import FileInfo, JointReader
 from streaming.base.format.base.writer import JointWriter
 
@@ -24,7 +25,27 @@ class MdsDatasetParameters(TypedDict):
     size_limit: int | str | None
 
 
+@final
 class VortexReader(JointReader):
+    """Teaches :class:`~streaming.StreamingDataset` how to read Vortex files.
+
+    Examples
+    --------
+
+    Given a folder of files, `/path/to/dataset/train`, written by :class:`.VortexWriter`, construct
+    a :class:`~torch.utils.data.DataLoader`:
+
+    .. code-block:: Python
+
+        import vortex.mds as vxmds
+
+        vxmds.register_vortex_with_mds()
+
+        ds = StreamingDataset(local="/path/to/dataset", split="train", batch_size=16)
+        dl = DataLoader(ds, batch_size=16)
+
+    """
+
     # TODO(DK): There is no good way to copy an args & kwargs signature:
     # https://github.com/python/typing/discussions/1079
     def __init__(
@@ -52,6 +73,8 @@ class VortexReader(JointReader):
 
     @classmethod
     def from_json(cls, dirname: str, split: str | None, obj: MdsDatasetParameters):
+        from streaming.base.format.base.reader import FileInfo
+
         args = deepcopy(obj)
 
         args_version = args["version"]
@@ -99,14 +122,41 @@ class VortexReader(JointReader):
 
 @final
 class VortexWriter(JointWriter):
+    """Write samples as a sequence of Vortex files.
+
+    Warnings
+    --------
+
+    Vortex does not support the `size_limit` parameter.
+
+    Parameters
+    ----------
+    out : str
+        Output dataset directory to save shard files.
+
+    max_shard_rows : int
+        Maximum number of samples per shard.
+
+    Examples
+    --------
+
+    Given a folder of files, `/path/to/dataset/train`, written by :class:`.VortexWriter`, construct
+    a :class:`~torch.utils.data.DataLoader`:
+
+    .. code-block:: Python
+
+        import vortex.mds as vxmds
+
+        with vxmds.VortexWriter(out="/path/to/dataset/train", max_shard_rows=128) as writer:
+            for i in range(1000):
+                sample = {"text": "Hello world!", "id": i, "other": "metadata"}
+                writer.write(sample)
+
+    """
+
     format = "vortex"
 
     def __init__(self, *, out: str | tuple[str, str], max_shard_rows: int) -> None:
-        """
-        :param out: Output dataset directory to save shard files.
-        :param max_shard_rows: Maximum number of samples per shard.
-            IMPORTANT Writer doesn't support `size_limit` in bytes.
-        """
         super().__init__(out=out, size_limit=None)
         self._max_shard_rows = max_shard_rows
 
