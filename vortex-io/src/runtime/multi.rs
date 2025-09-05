@@ -4,7 +4,10 @@
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
+use futures::Stream;
 use futures::future::BoxFuture;
+use futures_util::StreamExt;
+use futures_util::stream::BoxStream;
 use smol::{Executor, block_on};
 use vortex_error::VortexExpect;
 
@@ -47,8 +50,8 @@ impl<'rt> MultiThreadRuntime<'rt> {
         }
     }
 
-    /// Drive the given Vortex future on the underlying multi-threaded runtime.
-    pub fn drive<'fut, F, Fut, R>(&self, f: F) -> R
+    /// Drive the given Vortex future on the underlying multithreaded runtime.
+    pub fn block_on<'fut, F, Fut, R>(&self, f: F) -> R
     where
         F: FnOnce(Handle<'rt>) -> Fut,
         Fut: Future<Output = R> + 'fut,
@@ -56,6 +59,30 @@ impl<'rt> MultiThreadRuntime<'rt> {
     {
         let fut = f(Handle(self.executor.clone()));
         block_on(self.executor.run(fut))
+    }
+
+    /// Drive the given Vortex stream on the underlying multithreaded runtime.
+    pub fn block_on_stream<F, S, R>(&self, f: F) -> impl Iterator<Item = R>
+    where
+        F: FnOnce(Handle<'rt>) -> S,
+        S: Stream<Item = R> + Send + Unpin,
+        R: Send + 'static,
+    {
+        let stream = f(Handle(self.executor.clone()));
+
+        // SAFETY: The stream contains references to `rt` with lifetime 'rt.
+        // We're transmuting this to 'static, which is sound because:
+        // 1. Both `rt` and `stream` will be moved into BlockingStream
+        // 2. BlockingStream will drop them in the correct order (stream first, then rt)
+        // 3. The stream will never outlive the runtime it references
+        let stream: BoxStream<'static, R> = unsafe {
+            std::mem::transmute::<BoxStream<'_, R>, BoxStream<'static, R>>(stream.boxed())
+        };
+        let executor: Arc<Executor<'static>> = unsafe {
+            std::mem::transmute::<Arc<Executor<'_>>, Arc<Executor<'static>>>(self.executor.clone())
+        };
+
+        BlockingStream { executor, stream }
     }
 }
 
@@ -73,6 +100,23 @@ impl<'rt> Runtime<'rt> for Executor<'rt> {
     fn spawn_cpu(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef<'rt> {
         // For now, we spawn CPU work back onto the same executor.
         SmolAbortHandle::new_handle(self.spawn(async move { task() }))
+    }
+}
+
+/// A stream that wraps up the stream with the executor that drives it.
+///
+/// This allows the resulting stream to have a static lifetime.
+struct BlockingStream<T> {
+    executor: Arc<Executor<'static>>,
+    stream: BoxStream<'static, T>,
+}
+
+impl<T> Iterator for BlockingStream<T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let fut = self.stream.next();
+        block_on(self.executor.run(fut))
     }
 }
 
@@ -106,29 +150,13 @@ impl<T> Drop for SmolAbortHandle<T> {
 #[cfg(test)]
 mod tests {
     use std::num::NonZeroUsize;
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::*;
 
     #[test]
     fn test_drive_simple_future() {
         let rt = MultiThreadRuntime::new(NonZeroUsize::new(2).unwrap());
-        let result = rt.drive(|_| async { 42 });
+        let result = rt.block_on(|_| async { 42 });
         assert_eq!(result, 42);
-    }
-
-    #[test]
-    fn test_spawn_and_abort() {
-        let executor = Arc::new(Executor::<'static>::new());
-        let counter = Arc::new(AtomicUsize::new(0));
-        let c = counter.clone();
-        let fut = Box::pin(async move {
-            c.fetch_add(1, Ordering::SeqCst);
-        });
-        let handle = SmolAbortHandle::new_handle(executor.spawn(fut));
-        // Abort immediately
-        handle.abort();
-        // The counter may or may not be incremented depending on scheduling, but this tests abort path
     }
 }

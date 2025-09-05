@@ -1,16 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-pub use handle::*;
 mod handle;
+pub use handle::*;
 #[cfg(not(target_arch = "wasm32"))]
-pub mod multithread;
+pub mod current;
 #[cfg(not(target_arch = "wasm32"))]
-pub mod singlethread;
+pub mod multi;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod single;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod tokio;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod worker;
+#[cfg(target_arch = "wasm32")]
+pub mod wasm;
 
 use futures::future::BoxFuture;
 

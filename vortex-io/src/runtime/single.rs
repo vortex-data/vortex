@@ -14,15 +14,14 @@ use vortex_error::vortex_panic;
 use crate::runtime::{AbortHandle, AbortHandleRef, Handle, Runtime};
 
 /// A runtime that drives all work on the current thread.
+///
+/// This is subtly different from using a current-thread runtime to drive a future since it is
+/// capable of running `!Send` I/O futures.
 pub struct SingleThreadRuntime<'rt> {
     scheduling: kanal::Sender<SpawnFuture<'rt>>,
     cpu: kanal::Sender<SpawnCpu>,
 }
 
-/// Since the [`Handle`], and therefore [`Runtime`] implementation needs to be `Send` and `Sync`,
-/// we cannot just `impl Runtime for LocalExecutor`. Instead, we create channels that the handle
-/// can forward its work into, and we drive the resulting tasks on a [`LocalExecutor`] on the
-/// calling thread.
 impl<'rt> SingleThreadRuntime<'rt> {
     fn new<'ex>() -> (Self, Rc<LocalExecutor<'ex>>)
     where
@@ -72,7 +71,7 @@ impl<'rt> SingleThreadRuntime<'rt> {
     }
 
     /// Drive the given Vortex future on the underlying single-threaded runtime.
-    pub fn drive<'fut, F, Fut, R>(f: F) -> R
+    pub fn block_on<'fut, F, Fut, R>(f: F) -> R
     where
         F: FnOnce(Handle<'rt>) -> Fut,
         Fut: Future<Output = R> + 'fut,
@@ -84,9 +83,9 @@ impl<'rt> SingleThreadRuntime<'rt> {
     }
 
     /// Drive the given Vortex stream on the underlying single-threaded runtime.
-    pub fn drive_stream<F, S, R>(f: F) -> impl Iterator<Item = R>
+    pub fn block_on_stream<F, S, R>(f: F) -> impl Iterator<Item = R>
     where
-        F: FnOnce(Handle) -> S,
+        F: FnOnce(Handle<'rt>) -> S,
         S: Stream<Item = R> + Unpin,
         R: Send + 'static,
     {
@@ -104,14 +103,18 @@ impl<'rt> SingleThreadRuntime<'rt> {
                 stream.boxed_local(),
             )
         };
+        let executor: Rc<LocalExecutor<'static>> = unsafe {
+            std::mem::transmute::<Rc<LocalExecutor<'_>>, Rc<LocalExecutor<'static>>>(executor)
+        };
 
-        BlockingStream {
-            executor,
-            stream: stream.boxed_local(),
-        }
+        BlockingStream { executor, stream }
     }
 }
 
+/// Since the [`Handle`], and therefore runtime implementation needs to be `Send` and `Sync`,
+/// we cannot just `impl Runtime for LocalExecutor`. Instead, we create channels that the handle
+/// can forward its work into, and we drive the resulting tasks on a [`LocalExecutor`] on the
+/// calling thread.
 impl<'rt> Runtime<'rt> for SingleThreadRuntime<'rt> {
     fn spawn(&self, future: BoxFuture<'rt, ()>) -> AbortHandleRef<'rt> {
         let task = Arc::new(Mutex::new(None));
@@ -196,7 +199,7 @@ mod tests {
 
     #[test]
     fn test_drive_simple_future() {
-        let result = SingleThreadRuntime::drive(|_handle| async { 123 });
+        let result = SingleThreadRuntime::block_on(|_handle| async { 123 });
         assert_eq!(result, 123);
     }
 
@@ -205,7 +208,7 @@ mod tests {
         let counter = Arc::new(AtomicUsize::new(0));
         let c = counter.clone();
 
-        let result = SingleThreadRuntime::drive(|handle| async move {
+        let result = SingleThreadRuntime::block_on(|handle| async move {
             handle
                 .spawn_cpu(move || c.fetch_add(1, Ordering::SeqCst))
                 .await
