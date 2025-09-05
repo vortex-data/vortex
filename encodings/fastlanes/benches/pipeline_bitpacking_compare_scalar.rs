@@ -28,8 +28,12 @@ pub fn main() {
     divan::main();
 }
 
+// const TRUE_COUNT: &[f64] = &[
+//     0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99, 1.00,
+// ];
+
 const TRUE_COUNT: &[f64] = &[
-    0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99, 1.00,
+   1.0
 ];
 
 fn create_for_bitpacked_array<T: NativePType>(values: BufferMut<T>) -> VortexResult<ArrayRef> {
@@ -73,7 +77,7 @@ pub fn eval<T: NativePType + Into<Scalar>>(bencher: Bencher, fraction_kept: f64)
         });
 }
 
-#[divan::bench(types = [u8, u16, u32, u64], args = TRUE_COUNT)]
+// #[divan::bench(types = [u8, u16, u32, u64], args = TRUE_COUNT)]
 pub fn pipeline<T: Element + NativePType + Into<Scalar>>(bencher: Bencher, fraction_kept: f64) {
     let mut rng = StdRng::seed_from_u64(0);
     let values = (0..100_000)

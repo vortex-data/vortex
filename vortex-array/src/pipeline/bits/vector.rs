@@ -119,6 +119,7 @@ impl BitVector {
 
     pub fn as_view_mut(&mut self) -> BitViewMut<'_> {
         unsafe { BitViewMut::new_unchecked(Arc::make_mut(&mut self.bits), self.true_count) }
+        // unsafe { BitViewMut::new_unchecked(Arc::get_mut(&mut self.bits).unwrap(), self.true_count) }
     }
 }
 

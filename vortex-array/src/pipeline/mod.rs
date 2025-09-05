@@ -21,12 +21,14 @@
 //! It is a work-in-progress and is not yet used in production.
 
 pub mod bits;
-mod canonical;
 pub mod operators;
 pub mod query;
 mod types;
 pub mod vec;
 pub mod view;
+mod canonical;
+
+pub use canonical::*;
 
 /// The number of elements in each step of a Vortex evaluation pipeline.
 pub const N: usize = 1024;
@@ -36,7 +38,6 @@ pub const N_WORDS: usize = N / usize::BITS as usize;
 
 use std::cell::RefCell;
 
-pub use canonical::*;
 pub use operators::{Operator, OperatorRef};
 pub use types::*;
 use vec::{VectorId, VectorRef};
