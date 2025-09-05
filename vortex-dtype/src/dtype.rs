@@ -315,12 +315,35 @@ impl DType {
         }
     }
 
-    /// Get the inner element dtype if `self` is a [`DType::List`] or [`DType::FixedSizeList`],
-    /// otherwise returns `None`
+    /// Get the inner element dtype if `self` is a [`DType::List`], otherwise returns `None`.
+    ///
+    /// Note that this does _not_ return `Some` if `self` is a [`DType::FixedSizeList`].
     pub fn as_list_element_opt(&self) -> Option<&Arc<DType>> {
         if let List(edt, _) = self {
             Some(edt)
-        } else if let FixedSizeList(edt, ..) = self {
+        } else {
+            None
+        }
+    }
+
+    /// Get the inner element dtype if `self` is a [`DType::FixedSizeList`], otherwise returns
+    /// `None`.
+    ///
+    /// Note that this does _not_ return `Some` if `self` is a [`DType::List`].
+    pub fn as_fixed_size_list_element_opt(&self) -> Option<&Arc<DType>> {
+        if let FixedSizeList(edt, ..) = self {
+            Some(edt)
+        } else {
+            None
+        }
+    }
+
+    /// Get the inner element dtype if `self` is **either** a [`DType::List`] or a
+    /// [`DType::FixedSizeList`], otherwise returns `None`
+    pub fn as_any_size_list_element_opt(&self) -> Option<&Arc<DType>> {
+        if let FixedSizeList(edt, ..) = self {
+            Some(edt)
+        } else if let List(edt, ..) = self {
             Some(edt)
         } else {
             None

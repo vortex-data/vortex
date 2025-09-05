@@ -9,10 +9,10 @@ use num_traits::AsPrimitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::{FilterKernel, FilterKernelAdapter, filter};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, Canonical, IntoArray, ToCanonical, register_kernel};
+use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 use vortex_buffer::buffer_mut;
 use vortex_dtype::{NativePType, match_each_unsigned_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_panic};
 use vortex_mask::Mask;
 
 use crate::compute::take::take_indices_unchecked;
@@ -22,41 +22,39 @@ const FILTER_TAKE_THRESHOLD: f64 = 0.1;
 
 impl FilterKernel for RunEndVTable {
     fn filter(&self, array: &RunEndArray, mask: &Mask) -> VortexResult<ArrayRef> {
-        match mask {
-            Mask::AllTrue(_) => Ok(array.to_array()),
-            Mask::AllFalse(_) => Ok(Canonical::empty(array.dtype()).into()),
-            Mask::Values(mask_values) => {
-                let runs_ratio = mask_values.true_count() as f64 / array.ends().len() as f64;
+        let Mask::Values(mask_values) = mask else {
+            vortex_panic!("FilterKernel invariant was incorrect");
+        };
 
-                if runs_ratio < FILTER_TAKE_THRESHOLD || mask_values.true_count() < 25 {
-                    // This strategy is directly proportional to the number of indices.
-                    take_indices_unchecked(array, mask_values.indices(), &Validity::NonNullable)
-                } else {
-                    // This strategy ends up being close to fixed cost based on the number of runs,
-                    // rather than the number of indices.
-                    let primitive_run_ends = array.ends().to_primitive();
-                    let (run_ends, values_mask) =
-                        match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |P| {
-                            filter_run_end_primitive(
-                                primitive_run_ends.as_slice::<P>(),
-                                array.offset() as u64,
-                                array.len() as u64,
-                                mask_values.boolean_buffer(),
-                            )?
-                        });
-                    let values = filter(array.values(), &values_mask)?;
+        let runs_ratio = mask_values.true_count() as f64 / array.ends().len() as f64;
 
-                    // SAFETY: guaranteed by implementation of filter_run_end_primitive
-                    unsafe {
-                        Ok(RunEndArray::new_unchecked(
-                            run_ends.into_array(),
-                            values,
-                            0,
-                            mask_values.true_count(),
-                        )
-                        .into_array())
-                    }
-                }
+        if runs_ratio < FILTER_TAKE_THRESHOLD || mask_values.true_count() < 25 {
+            // This strategy is directly proportional to the number of indices.
+            take_indices_unchecked(array, mask_values.indices(), &Validity::NonNullable)
+        } else {
+            // This strategy ends up being close to fixed cost based on the number of runs, rather
+            // than the number of indices.
+            let primitive_run_ends = array.ends().to_primitive();
+            let (run_ends, values_mask) =
+                match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |P| {
+                    filter_run_end_primitive(
+                        primitive_run_ends.as_slice::<P>(),
+                        array.offset() as u64,
+                        array.len() as u64,
+                        mask_values.boolean_buffer(),
+                    )?
+                });
+            let values = filter(array.values(), &values_mask)?;
+
+            // SAFETY: guaranteed by implementation of filter_run_end_primitive
+            unsafe {
+                Ok(RunEndArray::new_unchecked(
+                    run_ends.into_array(),
+                    values,
+                    0,
+                    mask_values.true_count(),
+                )
+                .into_array())
             }
         }
     }

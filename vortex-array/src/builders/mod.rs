@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-// TODO(connor): Make the methods on all builders consistent (`_opt` methods).
-
 //! Builders for Vortex arrays.
 //!
 //! Every logical type in Vortex has a canonical (uncompressed) in-memory encoding. This module

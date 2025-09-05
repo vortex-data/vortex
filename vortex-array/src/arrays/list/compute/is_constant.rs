@@ -18,6 +18,8 @@ impl IsConstantKernel for ListVTable {
 
         let manual_check_until = std::cmp::min(SMALL_ARRAY_THRESHOLD, array.len());
 
+        // We can first quickly check if all of the list lengths are equal. If not, then we know the
+        // array cannot be constant.
         let first_list_len = array.offset_at(1) - array.offset_at(0);
         for i in 1..manual_check_until {
             let current_list_len = array.offset_at(i + 1) - array.offset_at(i);
@@ -26,10 +28,13 @@ impl IsConstantKernel for ListVTable {
             }
         }
 
+        // Since we were not able to determine that this list array was **not** constant, and the
+        // cost is negligible, then don't bother doing the rest of this expensive check.
         if opts.is_negligible_cost() {
             return Ok(None);
         }
 
+        // If the array is long, do an optimistic check on the remainder of the list lengths.
         if array.len() > SMALL_ARRAY_THRESHOLD {
             // check the rest of the element lengths
             let start_offsets = array.offsets.slice(SMALL_ARRAY_THRESHOLD..array.len());
@@ -43,8 +48,13 @@ impl IsConstantKernel for ListVTable {
             }
         }
 
-        // If all lists have the same length, compare the actual list contents
-        let first_scalar = array.scalar_at(0);
+        debug_assert!(
+            array.len() > 1,
+            "precondition for `is_constant` is incorrect"
+        );
+        let first_scalar = array.scalar_at(0); // We checked the array length above.
+
+        // All lists have the same length, so compare the actual list contents.
         for i in 1..array.len() {
             let current_scalar = array.scalar_at(i);
             if current_scalar != first_scalar {
