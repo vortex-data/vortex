@@ -40,6 +40,7 @@ pandas = ["pandas>=2.2.0"]
 numpy = ["numpy>=1.26.0"]
 duckdb = ["duckdb>=1.1.2"]
 ray = ["ray>=2.48"]
+mds = ["mosaicml-streaming>=0.13.0"]
 
 [project.urls]
 Documentation = "https://docs.vortex.dev"
@@ -68,9 +69,14 @@ include = [
 [dependency-groups]
 dev = [
     "basedpyright>=1.31",
-    "numpy>=2.2.2",
+    "numpy>=2.1.3",
     "pandas-stubs>=2.2.3.241126",
     "pcodec>=0.3.3",
     "pyarrow-stubs>=17.16",
     "pytest-benchmark>=5.1.0",
+    "mosaicml-streaming>=0.13.0",
+    "torch>=2.7.0",
+    "transformers>=4.52.4",
+    "datasets>=4.0.0",
+    "mosaicml-streaming>=0.10.0",
 ]

@@ -34,6 +34,11 @@ dev-dependencies = [
     "ruff>=0.7.1",
     "ray>=2.48",
     "pytest-benchmark>=5.1.0",
+    "mosaicml-streaming>=0.13.0",
+    "torch>=2.7.0",
+    "transformers>=4.52.4",
+    "datasets>=4.0.0",
+    "mosaicml-streaming>=0.10.0",
 ]
 
 [tool.uv.workspace]

@@ -256,7 +256,7 @@ def _Array_to_polars_series(self: _arrays.Array):  # -> 'polars.Series':  # brea
 setattr(Array, "to_polars_series", _Array_to_polars_series)
 
 
-def _Array_to_numpy(self: _arrays.Array, *, zero_copy_only: bool = True) -> numpy.ndarray:
+def _Array_to_numpy(self: _arrays.Array, *, zero_copy_only: bool = True) -> numpy.ndarray:  # pyright: ignore[reportUnknownParameterType, reportMissingTypeArgument]
     """Construct a NumPy array from this Vortex array.
 
     This is an alias for :code:`self.to_arrow_array().to_numpy(zero_copy_only)`
@@ -281,7 +281,7 @@ def _Array_to_numpy(self: _arrays.Array, *, zero_copy_only: bool = True) -> nump
     array([1, 0, 0, 1])
 
     """
-    return self.to_arrow_array().to_numpy(zero_copy_only=zero_copy_only)
+    return self.to_arrow_array().to_numpy(zero_copy_only=zero_copy_only)  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
 
 
 Array.to_numpy = _Array_to_numpy
