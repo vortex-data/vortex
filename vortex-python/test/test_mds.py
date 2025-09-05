@@ -2,304 +2,159 @@
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 from collections.abc import Iterator
-import os
-import random
-import string
+from typing_extensions import override
+from streaming import StreamingDataset
+from typing import Any, Iterable, final
 import logging
 import math
-import queue
-import threading
-import time
-from typing import Any, Callable
+import os
 import pytest
-import vortex as vx
-import vortex.mds
+import random
+import string
+import time
 import torch
-from datasets import IterableDataset, IterableDatasetDict  # pyright: ignore[reportMissingTypeStubs]
-from streaming import StreamingDataset
 from torch.utils.data import DataLoader
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
-from transformers.optimization import get_constant_schedule_with_warmup
-
+import vortex.mds as vxmds
 
 log = logging.getLogger(__name__)
 
 
-def mds_dataset(
-    train_data_dir: str, validation_data_dir: str, batch_size: int = 1000, shuffle_buffer: int = 10_000
-) -> IterableDatasetDict:
-    kwargs = {
-        "shuffle": True,
-        "batch_size": batch_size,
-        "num_canonical_nodes": 1,
-        "shuffle_block_size": shuffle_buffer,
-        "predownload": 2 * batch_size,
-        "cache_limit": "512mb",
+def _random_text(min_len: int = 50, max_len: int = 1000) -> str:
+    L = random.randint(min_len, max_len)
+    alphabet = string.ascii_letters + string.digits + " .,;:!?-()'\"/\\\n"
+    return "".join(random.choice(alphabet) for _ in range(L))
+
+
+def _finewebish_sample(i: int) -> dict[str, Any]:  # pyright: ignore[reportExplicitAny]
+    # A minimal FineWeb-like schema: https://huggingface.co/datasets/HuggingFaceFW/fineweb
+    return {
+        "id": i,
+        "url": f"https://example.com/page/{i}",
+        "language": "en",
+        "timestamp": 1_700_000_000 + i,  # fake epoch seconds
+        "text": _random_text(),
     }
 
-    assert train_data_dir.endswith("/"), "data_dir must end with /"
-    assert validation_data_dir.endswith("/"), "data_dir must end with /"
 
-    def create_train_generator() -> Iterator[dict[str, Any]]:  # pyright: ignore[reportExplicitAny]
-        dataset = StreamingDataset(local=train_data_dir, **kwargs)  # pyright: ignore[reportArgumentType]
-        yield from dataset
+def _write_split(path: str, n: int, max_shard_rows: int = 2048) -> None:
+    """Write `n` samples to an MDS directory using the VortexWriter."""
 
-    def create_validation_generator() -> Iterator[dict[str, Any]]:  # pyright: ignore[reportExplicitAny]
-        dataset = StreamingDataset(local=validation_data_dir, **kwargs)  # pyright: ignore[reportArgumentType]
-        yield from dataset
-
-    return IterableDatasetDict(
-        {
-            "train": IterableDataset.from_generator(create_train_generator),  # pyright: ignore[reportUnknownMemberType]
-            "validation": IterableDataset.from_generator(create_validation_generator),  # pyright: ignore[reportUnknownMemberType]
-        }
-    )
+    with vxmds.VortexWriter(out=path, max_shard_rows=max_shard_rows) as writer:
+        for i in range(n):
+            writer.write(_finewebish_sample(i))
 
 
-def prefetching_map(
-    dataset: IterableDataset,
-    function: Callable[..., Any],  # pyright: ignore[reportExplicitAny]
-    batched: bool = False,
-    batch_size: int = 1000,
-    prefetch_factor: int = 2,
-    remove_columns: list[str] | None = None,
-) -> IterableDataset:
-    q = queue.Queue(maxsize=prefetch_factor * batch_size)  # pyright: ignore[reportUnknownVariableType]
+def test_write_and_stream_train_val(tmpdir_factory: pytest.TempPathFactory):
+    # Small train/val datasets
+    root = tmpdir_factory.mktemp("data")
+    _write_split(str(root / "train"), n=500, max_shard_rows=128)
+    _write_split(str(root / "val"), n=120, max_shard_rows=64)
 
-    sentinel = object()
+    # Read back via StreamingDataset
+    train = StreamingDataset(local=str(root), split="train")
+    val = StreamingDataset(local=str(root), split="val")
 
-    def _producer():
-        mapped_dataset = dataset.map(  # pyright: ignore[reportUnknownMemberType]
-            function=function,
-            batched=batched,
-            batch_size=batch_size,
-            remove_columns=remove_columns,
-        )
-        try:
-            for item in mapped_dataset:  # pyright: ignore[reportUnknownVariableType]
-                q.put(item)  # pyright: ignore[reportUnknownMemberType]
-        finally:
-            q.put(sentinel)  # pyright: ignore[reportUnknownMemberType]
+    # Basic sanity checks
+    assert len(train) == 500
+    assert len(val) == 120
 
-    def _consumer_generator():  # pyright: ignore[reportUnknownParameterType]
-        while True:
-            item = q.get()  # pyright: ignore[reportUnknownVariableType]
-            if item is sentinel:
-                break
-            yield item
-
-    producer_thread = threading.Thread(target=_producer, daemon=True)
-    producer_thread.start()
-
-    return IterableDataset.from_generator(_consumer_generator)  # pyright: ignore[reportUnknownMemberType]
+    first = train[0]  # pyright: ignore[reportAny]
+    assert "text" in first and isinstance(first["text"], str)
+    assert "url" in first
+    assert "id" in first
 
 
-def calculate_perplexity(model, data_iter, device: str, max_batches: int = 5) -> tuple[float, float]:  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType, reportMissingParameterType]
-    total_loss: int = 0
-    total_tokens: int = 0
-    batches_processed: int = 0
+def test_toy_training_loop(tmpdir_factory: pytest.TempPathFactory):
+    root = tmpdir_factory.mktemp("data")
 
-    with torch.no_grad():
-        for batch in data_iter:  # pyright: ignore[reportUnknownVariableType]
-            if batches_processed >= max_batches:
-                break
+    # Create a modest training corpus
+    _write_split(str(root / "train"), n=1000, max_shard_rows=256)
+    train = StreamingDataset(local=str(root), split="train", batch_size=16)
 
-            input_ids = batch["input_ids"].to(device, non_blocking=True)  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
-            attention_mask = batch["attention_mask"].to(device, non_blocking=True)  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
+    # Tiny character-level classifier that predicts a bucket of text length (for demonstration)
+    buckets = [128, 256, 512, 1024]
 
-            outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=input_ids)  # pyright: ignore[reportUnknownVariableType]
+    def bucketize(L: int) -> int:
+        for i, b in enumerate(buckets):
+            if L <= b:
+                return i
+        return len(buckets) - 1
 
-            # Calculate loss only for non-padded tokens
-            shift_labels = input_ids[..., 1:].contiguous()  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
-            shift_logits = outputs.logits[..., :-1, :].contiguous()  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
-            shift_attention_mask = attention_mask[..., 1:].contiguous()  # pyright: ignore[reportUnknownVariableType, reportUnknownVariableType, reportUnknownMemberType]
+    vocab = {ch: i + 1 for i, ch in enumerate(string.printable)}  # 0 is padding
+    vocab_size = len(vocab) + 1
 
-            loss_fct = torch.nn.CrossEntropyLoss(reduction="none")
-            losses = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))  # pyright: ignore[reportAny, reportUnknownMemberType]
-            losses = losses.view(shift_labels.shape)  # pyright: ignore[reportAny, reportUnknownMemberType]
+    @final
+    class Model(torch.nn.Module):
+        def __init__(self, vocab_size: int, hidden: int, num_classes: int):
+            super().__init__()  # pyright: ignore[reportUnknownMemberType]
+            self.emb = torch.nn.Embedding(vocab_size, 16, padding_idx=0)
+            self.rnn = torch.nn.GRU(16, hidden, batch_first=True)
+            self.out = torch.nn.Linear(hidden, num_classes)
 
-            # Mask out padded tokens
-            losses = losses * shift_attention_mask  # pyright: ignore[reportUnknownVariableType]
-            total_loss += losses.sum().item()  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
-            total_tokens += shift_attention_mask.sum().item()  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
-            batches_processed += 1
+        @override
+        def forward(self, x: Any):  # pyright: ignore[reportAny, reportExplicitAny]
+            # x: [B, T]
+            e = self.emb(x)  # pyright: ignore[reportAny]
+            _, h = self.rnn(e)  # h: [1, B, H]  # pyright: ignore[reportAny]
+            return self.out(h.squeeze(0))  # pyright: ignore[reportAny]
 
-    if total_tokens == 0:
-        return float("inf"), float("inf")
+    def collate(batch: Iterable[dict[str, Any]]):  # pyright: ignore[reportExplicitAny]
+        # Convert strings to fixed-length integer tensors (very small max_len to keep test fast)
+        max_len = 256
+        xs: list[list[int]] = []
+        ys: list[int] = []
+        for ex in batch:
+            s: str = ex["text"]  # pyright: ignore[reportAny]
+            ids = [vocab.get(ch, 0) for ch in s[:max_len]]
+            if len(ids) < max_len:
+                ids.extend([0] * (max_len - len(ids)))
+            xs.append(ids)
+            ys.append(bucketize(len(s)))
+        x = torch.tensor(xs, dtype=torch.long)
+        y = torch.tensor(ys, dtype=torch.long)
+        return x, y
 
-    avg_loss: float = total_loss / total_tokens  # pyright: ignore[reportUnknownVariableType]
-    perplexity: float = math.exp(min(avg_loss, 50.0))  # pyright: ignore[reportUnknownArgumentType]
-    return perplexity, avg_loss  # pyright: ignore[reportUnknownVariableType]
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = Model(vocab_size=vocab_size, hidden=32, num_classes=len(buckets)).to(device)
+    opt = torch.optim.AdamW(model.parameters(), lr=1e-3)
+    loss_fn = torch.nn.CrossEntropyLoss()
+
+    # One tiny "epoch"
+    _ = model.train()
+    losses: list[float] = []
+
+    for x, y in DataLoader(train, batch_size=16, collate_fn=collate):  # pyright: ignore[reportAny]
+        x = x.to(device)  # pyright: ignore[reportAny]
+        y = y.to(device)  # pyright: ignore[reportAny]
+        logits = model(x)  # pyright: ignore[reportAny]
+        loss = loss_fn(logits, y)  # pyright: ignore[reportAny]
+        opt.zero_grad()
+        loss.backward()  # pyright: ignore[reportAny]
+        opt.step()  # pyright: ignore[reportUnknownMemberType, reportUnusedCallResult]
+        losses.append(loss.item())  # pyright: ignore[reportAny]
+
+    assert math.isfinite(sum(losses)) and len(losses) > 0
 
 
-_ALPHABET = string.ascii_letters + string.digits
+def test_throughput_benchmark(tmpdir_factory: pytest.TempPathFactory):
+    """A basic throughput benchmark for FineWeb-shaped samples."""
+    root = tmpdir_factory.mktemp("data") / "mds_vortex_bench"
+    os.makedirs(root, exist_ok=True)
 
+    _write_split(str(root / "train"), n=10_000)
 
-def rand_str() -> str:
-    return "".join(random.choices(_ALPHABET, k=1000))
+    ds = StreamingDataset(local=str(root), split="train", batch_size=16)
+    dl = DataLoader(ds, batch_size=16)  # pyright: ignore[reportUnknownVariableType]
 
+    assert len(ds) == 10_000
 
-def generate_vortex_mds_dataset(tmpdir_factory: pytest.TempPathFactory) -> str:
-    folder = tmpdir_factory.mktemp("data")
-    with vortex.mds.VortexWriter(out=str(folder), max_shard_rows=100) as out:
-        for x in range(1000):
-            out.write({"text": rand_str(), "id": x})
-    return str(folder) + "/"
+    start = time.perf_counter()
+    count = 0
+    for sample in dl:  # pyright: ignore[reportAny]
+        assert "text" in sample
+        count += len(sample["text"])  # pyright: ignore[reportAny]
+    elapsed = time.perf_counter() - start
+    sps = count / elapsed if elapsed > 0 else float("inf")
+    log.info(f"[Vortex/MDS] Loaded {count} samples in {elapsed:.3f}s → {sps:.0f} samples/sec")
 
-
-def test_mds(tmpdir_factory: pytest.TempPathFactory):
-    log.info("Generating train data.")
-    train_data_dir = generate_vortex_mds_dataset(tmpdir_factory)
-    log.info("Generating validation data.")
-    validation_data_dir = generate_vortex_mds_dataset(tmpdir_factory)
-    log.info("Finished generating data.")
-
-    max_length = 256
-    batch_size = 16
-    learning_rate = 2.5e-4
-    warmup_steps = 100
-
-    tokenizer = AutoTokenizer.from_pretrained("gpt2")  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
-    # Hack, but the data doesn't really matter anyway.
-    tokenizer.pad_token = tokenizer.eos_token  # pyright: ignore[reportUnknownMemberType]
-    config = AutoConfig.from_pretrained("gpt2")  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
-    config.n_layer = 2
-    config.n_head = 2
-    config.n_embd = 128
-
-    torch.backends.cudnn.benchmark = True
-    torch.set_float32_matmul_precision("high")
-    torch.backends.cudnn.allow_tf32 = True
-
-    model = AutoModelForCausalLM.from_config(config)  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
-    model = torch.compile(model, mode="max-autotune")  # pyright: ignore[reportUnknownMemberType, reportUnknownMemberType, reportUnknownArgumentType]
-
-    def init_weights(module):  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]
-        if isinstance(module, torch.nn.Linear):
-            torch.nn.init.normal_(module.weight, mean=0.0, std=0.01)  # pyright: ignore[reportUnusedCallResult]
-            if module.bias is not None:  # pyright: ignore[reportUnnecessaryComparison]
-                torch.nn.init.zeros_(module.bias)  # pyright: ignore[reportUnusedCallResult]
-        elif isinstance(module, torch.nn.Embedding):
-            torch.nn.init.normal_(module.weight, mean=0.0, std=0.01)  # pyright: ignore[reportUnusedCallResult]
-
-    model.apply(init_weights)  # pyright: ignore[reportAny, reportFunctionMemberAccess]
-
-    if torch.cuda.is_available():
-        device = "cuda"
-    elif torch.backends.mps.is_available():  # Mac M1/M2
-        device = "mps"
-    else:
-        device = "cpu"
-
-    model.to(device)  # pyright: ignore[reportAny, reportFunctionMemberAccess]
-
-    datasets = mds_dataset(train_data_dir, validation_data_dir)
-
-    def tokenize_fn(batch):  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]
-        return tokenizer(  # pyright: ignore[reportUnknownVariableType]
-            batch["text"],
-            truncation=True,
-            max_length=max_length,
-            padding=True,
-            return_tensors="pt",
-            return_overflowing_tokens=True,
-            stride=0,
-        )
-
-    train = DataLoader(  # pyright: ignore[reportUnknownVariableType]
-        prefetching_map(  # pyright: ignore[reportArgumentType]
-            datasets["train"],
-            tokenize_fn,  # pyright: ignore[reportUnknownArgumentType]
-            batched=True,
-            batch_size=batch_size,
-            remove_columns=datasets["train"].column_names,
-        ),
-        batch_size=batch_size,
-        pin_memory=True,
-    )
-
-    train_iter = iter(train)  # pyright: ignore[reportUnknownArgumentType]
-    next(train_iter)
-
-    validate = DataLoader(  # pyright: ignore[reportUnknownVariableType]
-        prefetching_map(  # pyright: ignore[reportArgumentType]
-            datasets["validation"],
-            tokenize_fn,  # pyright: ignore[reportUnknownArgumentType]
-            batched=True,
-            batch_size=batch_size,
-            remove_columns=datasets["validation"].column_names,
-        ),
-        batch_size=batch_size,
-        pin_memory=True,
-    )
-    # Warm up validation iterator
-    validate_iter = iter(validate)  # pyright: ignore[reportUnknownArgumentType]
-    next(validate_iter)
-
-    optimizer = torch.optim.AdamW(
-        model.parameters(),  # pyright: ignore[reportAny, reportFunctionMemberAccess]
-        lr=learning_rate,
-    )
-
-    scheduler = get_constant_schedule_with_warmup(optimizer, warmup_steps)
-    scaler = torch.GradScaler()
-
-    model.train()  # pyright: ignore[reportAny, reportFunctionMemberAccess]
-    total_tokens = 0
-    start = time.time()
-
-    for epoch in range(1):
-        log.info(f"Starting epoch {epoch}")
-
-        for batch_i, batch in enumerate(train_iter):  # pyright: ignore[reportAny]
-            input_ids = batch["input_ids"].to(device)  # pyright: ignore[reportAny]
-            attention_mask = batch["attention_mask"].to(device)  # pyright: ignore[reportAny]
-
-            with torch.autocast(device):
-                outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=input_ids)  # pyright: ignore[reportUnknownVariableType]
-                loss = outputs.loss  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
-
-            if torch.isnan(loss) or torch.isinf(loss):  # pyright: ignore[reportUnknownArgumentType, reportUnknownArgumentType]
-                raise ValueError(f"Invalid loss value: {loss.item()}")  # pyright: ignore[reportUnknownMemberType]
-
-            optimizer.zero_grad()
-            scaler.scale(loss).backward()  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
-
-            scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)  # pyright: ignore[reportUnusedCallResult, reportAny, reportFunctionMemberAccess]
-
-            scaler.step(optimizer)  # pyright: ignore[reportUnusedCallResult]
-            scaler.update()
-            scheduler.step()
-
-            total_tokens += input_ids.numel()  # pyright: ignore[reportAny]
-
-            if batch_i % 10 == 0:
-                elapsed = time.time() - start
-                current_lr = scheduler.get_last_lr()[0]
-
-                model.eval()  # pyright: ignore[reportAny, reportFunctionMemberAccess]
-                perplexity, avg_loss = calculate_perplexity(model, validate_iter, device, max_batches=5)
-                log.info(
-                    f"Step {batch_i}: lr={current_lr:.2e}, tokens/sec={total_tokens / elapsed:.0f}, "  # pyright: ignore[reportImplicitStringConcatenation]
-                    f"perplexity={perplexity:.2f}, val_loss={avg_loss:.4f}"
-                )
-                if log.isEnabledFor(logging.DEBUG):
-                    with torch.no_grad():
-                        input_text = "SpiralDB is a company that"
-                        inputs = tokenizer(input_text, return_tensors="pt")  # pyright: ignore[reportUnknownVariableType]
-                        input_ids = inputs.input_ids.to(device)  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
-                        attention_mask = inputs.attention_mask.to(device)  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
-                        outputs = model.generate(  # pyright: ignore[reportAny, reportFunctionMemberAccess]
-                            input_ids,
-                            attention_mask=attention_mask,
-                            max_length=50,
-                            do_sample=True,
-                            temperature=0.8,
-                            pad_token_id=tokenizer.pad_token_id,  # pyright: ignore[reportUnknownMemberType]
-                            eos_token_id=tokenizer.eos_token_id,  # pyright: ignore[reportUnknownMemberType]
-                        )
-                        log.debug(tokenizer.decode(outputs[0], skip_special_tokens=True))  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
-                model.train()  # pyright: ignore[reportAny, reportFunctionMemberAccess]
-                start = time.time()
-                total_tokens = 0
+    assert sps > 500, f"Throughput too low: {sps:.1f} samples/sec"
