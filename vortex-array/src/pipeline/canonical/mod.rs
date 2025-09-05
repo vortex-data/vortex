@@ -9,13 +9,13 @@ use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
 use crate::Canonical;
+use crate::pipeline::Kernel;
 use crate::pipeline::canonical::bool::export_bool_nonnull_masked;
 use crate::pipeline::canonical::primitive::{
     export_primitive_nonnull, export_primitive_nonnull_masked, export_primitive_null,
 };
 use crate::pipeline::operators::Operator;
 use crate::pipeline::query::QueryPlan;
-use crate::pipeline::Kernel;
 
 /// Export canonical data from a pipeline kernel with the given mask.
 pub fn export_canonical_pipeline(
