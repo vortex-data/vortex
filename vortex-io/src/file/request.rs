@@ -21,6 +21,7 @@ impl IoRequest {
         IoRequest(IoRequestInner::Coalesced(request))
     }
 
+    /// Returns the starting offset of this request within the file.
     pub fn offset(&self) -> u64 {
         match &self.0 {
             IoRequestInner::Single(r) => r.offset,
@@ -28,6 +29,7 @@ impl IoRequest {
         }
     }
 
+    /// Returns true if this request has zero length.
     pub fn is_empty(&self) -> bool {
         match &self.0 {
             IoRequestInner::Single(r) => r.length == 0,
@@ -35,6 +37,7 @@ impl IoRequest {
         }
     }
 
+    /// Returns the length of this request in bytes.
     pub fn len(&self) -> usize {
         match &self.0 {
             IoRequestInner::Single(r) => r.length,
@@ -43,6 +46,7 @@ impl IoRequest {
         }
     }
 
+    /// Returns the alignment requirement for this request.
     pub fn alignment(&self) -> Alignment {
         match &self.0 {
             IoRequestInner::Single(r) => r.alignment,
@@ -50,6 +54,8 @@ impl IoRequest {
         }
     }
 
+    /// Returns true if all callbacks associated with this request have been dropped.
+    /// In other words, there is no one waiting for the result of this request.
     pub fn is_canceled(&self) -> bool {
         match &self.0 {
             IoRequestInner::Single(req) => req.callback.is_closed(),
@@ -57,6 +63,7 @@ impl IoRequest {
         }
     }
 
+    /// Resolves the request with the given result.
     pub fn resolve(self, result: VortexResult<ByteBuffer>) {
         match self.0 {
             IoRequestInner::Single(req) => req.resolve(result),
