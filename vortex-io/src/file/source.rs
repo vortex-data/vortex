@@ -14,7 +14,7 @@ use crate::file::request::IoRequest;
 pub trait IoSource: 'static + Send + Sync {
     fn uri(&self) -> &Arc<str>;
 
-    fn coalescing_window(&self) -> Option<u64>;
+    fn coalesce_window(&self) -> Option<CoalesceWindow>;
 
     /// Returns a shared future that resolves to the byte size of the underlying data source.
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>>;
@@ -26,6 +26,14 @@ pub trait IoSource: 'static + Send + Sync {
     fn drive_local(&self, requests: BoxStream<'static, IoRequest>) -> LocalBoxFuture<'static, ()> {
         self.drive_send(requests).boxed_local()
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct CoalesceWindow {
+    /// The maximum "empty" distance between two requests to consider them for coalescing.
+    pub distance: u64,
+    /// The maximum total size spanned by a coalesced request.
+    pub max_size: u64,
 }
 
 /// A trait for types that can be opened as an `IoSource`.

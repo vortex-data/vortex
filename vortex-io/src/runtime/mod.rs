@@ -84,6 +84,7 @@ impl IoTask {
     }
 
     /// Create a new I/O task for the given source and request stream that runs on the local thread.
+    #[allow(dead_code)] // Used only with smol currently.
     pub(crate) fn drive_local(self) -> LocalBoxFuture<'static, ()> {
         self.source.drive_local(self.stream)
     }

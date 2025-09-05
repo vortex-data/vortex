@@ -13,9 +13,12 @@ use futures::{FutureExt, StreamExt};
 use vortex_buffer::ByteBufferMut;
 use vortex_error::{VortexError, VortexResult};
 
-use crate::file::{IoRequest, IoSource};
+use crate::file::{CoalesceWindow, IoRequest, IoSource};
 
-const COALESCING_WINDOW: u64 = 4 * 1024 * 1024; // 4 MB
+const COALESCING_WINDOW: CoalesceWindow = CoalesceWindow {
+    distance: 1024 * 1024,      // 1 MB
+    max_size: 16 * 1024 * 1024, // 16 MB
+};
 const CONCURRENCY: usize = 192; // Number of concurrent requests to allow.
 
 #[cfg(feature = "object_store")]
@@ -24,7 +27,7 @@ pub struct ObjectStoreIo {
     path: object_store::path::Path,
     uri: Arc<str>,
     concurrency: usize,
-    coalesce_window: Option<u64>,
+    coalesce_window: Option<CoalesceWindow>,
 }
 
 #[cfg(feature = "object_store")]
@@ -45,12 +48,12 @@ impl ObjectStoreIo {
         self
     }
 
-    pub fn with_coalesce_window(mut self, window: u64) -> Self {
+    pub fn with_coalesce_window(mut self, window: CoalesceWindow) -> Self {
         self.coalesce_window = Some(window);
         self
     }
 
-    pub fn with_some_coalesce_window(mut self, window: Option<u64>) -> Self {
+    pub fn with_some_coalesce_window(mut self, window: Option<CoalesceWindow>) -> Self {
         self.coalesce_window = window;
         self
     }
@@ -62,7 +65,7 @@ impl IoSource for ObjectStoreIo {
         &self.uri
     }
 
-    fn coalescing_window(&self) -> Option<u64> {
+    fn coalesce_window(&self) -> Option<CoalesceWindow> {
         self.coalesce_window
     }
 
@@ -89,7 +92,7 @@ impl IoSource for ObjectStoreIo {
                 let path = path.clone();
 
                 let len = req.len();
-                let offset = req.offset();
+                let range = req.range();
                 let alignment = req.alignment();
 
                 let read = async move {
@@ -102,9 +105,7 @@ impl IoSource for ObjectStoreIo {
                         .get_opts(
                             &path,
                             object_store::GetOptions {
-                                range: Some(object_store::GetRange::Bounded(
-                                    offset..offset + len as u64,
-                                )),
+                                range: Some(object_store::GetRange::Bounded(range.clone())),
                                 ..Default::default()
                             },
                         )
@@ -117,7 +118,7 @@ impl IoSource for ObjectStoreIo {
                             // ensuring no uninitialized memory is exposed.
                             unsafe { buffer.set_len(len) };
                             unblock(move || {
-                                file.read_exact_at(&mut buffer, offset)?;
+                                file.read_exact_at(&mut buffer, range.start)?;
                                 Ok::<_, io::Error>(buffer)
                             })
                             .await

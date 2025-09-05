@@ -21,11 +21,28 @@ impl IoRequest {
         IoRequest(IoRequestInner::Coalesced(request))
     }
 
+    // For debugging purposes.
+    #[cfg(test)]
+    pub(crate) fn inner(&self) -> &IoRequestInner {
+        &self.0
+    }
+
     /// Returns the starting offset of this request within the file.
     pub fn offset(&self) -> u64 {
         match &self.0 {
             IoRequestInner::Single(r) => r.offset,
             IoRequestInner::Coalesced(r) => r.range.start,
+        }
+    }
+
+    /// Returns the byte range this request within the file.
+    pub fn range(&self) -> Range<u64> {
+        match &self.0 {
+            IoRequestInner::Single(r) => {
+                r.offset
+                    ..(r.offset + u64::try_from(r.length).vortex_expect("length too big for u64"))
+            }
+            IoRequestInner::Coalesced(r) => r.range.clone(),
         }
     }
 
@@ -72,7 +89,7 @@ impl IoRequest {
     }
 }
 
-enum IoRequestInner {
+pub(crate) enum IoRequestInner {
     Single(ReadRequest),
     Coalesced(CoalescedRequest),
 }

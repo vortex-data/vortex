@@ -14,9 +14,9 @@ use std::fmt;
 use std::fmt::{Debug, Display};
 use std::marker::PhantomData;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::task::{ready, Context, Poll};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::task::{Context, Poll, ready};
 
 pub(crate) use driver::*;
 use futures::future::{BoxFuture, Shared};
@@ -24,7 +24,7 @@ use futures::{FutureExt, TryFutureExt};
 pub use request::*;
 pub use source::*;
 use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{vortex_err, SharedVortexResult, VortexError, VortexResult};
+use vortex_error::{SharedVortexResult, VortexError, VortexResult, vortex_err};
 
 /// A handle to an open file that can be read using a Vortex runtime.
 ///

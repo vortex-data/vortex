@@ -9,7 +9,7 @@ use futures::{FutureExt, StreamExt, pin_mut};
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
-use crate::file::{IntoIoSource, IoRequest, IoSource};
+use crate::file::{CoalesceWindow, IntoIoSource, IoRequest, IoSource};
 
 impl IntoIoSource for ByteBuffer {
     fn into_io_source(self) -> VortexResult<Arc<dyn IoSource>> {
@@ -23,7 +23,7 @@ impl IoSource for ByteBuffer {
         &URI
     }
 
-    fn coalescing_window(&self) -> Option<u64> {
+    fn coalesce_window(&self) -> Option<CoalesceWindow> {
         None
     }
 

@@ -13,9 +13,12 @@ use futures::{FutureExt, StreamExt};
 use vortex_buffer::ByteBufferMut;
 use vortex_error::{VortexError, VortexResult};
 
-use crate::file::{IntoIoSource, IoRequest, IoSource};
+use crate::file::{CoalesceWindow, IntoIoSource, IoRequest, IoSource};
 
-const COALESCING_WINDOW: u64 = 8192; // 8 KB
+const COALESCING_WINDOW: CoalesceWindow = CoalesceWindow {
+    distance: 4 * 1024, // 4 KB
+    max_size: 8 * 1024, // 8 KB
+};
 const CONCURRENCY: usize = 64;
 
 impl IntoIoSource for PathBuf {
@@ -42,7 +45,7 @@ impl IoSource for FileIoSource {
         &self.uri
     }
 
-    fn coalescing_window(&self) -> Option<u64> {
+    fn coalesce_window(&self) -> Option<CoalesceWindow> {
         Some(COALESCING_WINDOW)
     }
 

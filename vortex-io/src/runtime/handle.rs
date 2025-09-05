@@ -79,7 +79,7 @@ impl<'rt> Handle<'rt> {
 
         let stream = IoRequestStream::new(
             StreamExt::boxed(events.to_async().into_stream()),
-            source.coalescing_window(),
+            source.coalesce_window(),
         )
         .boxed();
 
