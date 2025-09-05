@@ -3,25 +3,25 @@
 
 use std::future;
 use std::sync::Arc;
+use std::task::Poll;
 
 use async_stream::try_stream;
 use futures::executor::block_on;
-use futures::future::try_join;
-use futures::{Stream, TryStreamExt};
-use vortex_array::stats::{Stat, PRUNING_STATS};
-use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
+use futures::{Stream, StreamExt, TryStreamExt, pin_mut, poll};
 use vortex_array::ArrayContext;
+use vortex_array::stats::{PRUNING_STATS, Stat};
+use vortex_array::stream::ArrayStream;
 use vortex_buffer::ByteBuffer;
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
 use vortex_io::VortexWrite;
 use vortex_layout::layouts::file_stats::accumulate_stats;
-use vortex_layout::segments::SequenceWriter;
-use vortex_layout::{LayoutContext, LayoutStrategy, LocalExecutor};
+use vortex_layout::sequence::{SequenceId, SequentialStreamAdapter, SequentialStreamExt};
+use vortex_layout::{LayoutContext, LayoutRef, LayoutStrategy, LocalExecutor};
 
 use crate::footer::{FileStatistics, FooterFlatBufferWriter, Postscript, PostscriptSegment};
-use crate::segments::writer::SerialSegmentWriter;
-use crate::{WriteStrategyBuilder, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
+use crate::segments::writer::BufferedSegmentSink;
+use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION, WriteStrategyBuilder};
 
 /// Configure a new writer, which can eventually be used to write an [`ArrayStream`] into a sink that implements [`VortexWrite`].
 ///
@@ -102,119 +102,156 @@ impl VortexWriteOptions {
     }
 
     /// Perform an async write of the provided stream of `Array`.
-    pub fn write<S: ArrayStream + Unpin + Send + 'static>(
+    pub async fn write<W: VortexWrite, S: ArrayStream + Unpin + Send + 'static>(
         self,
+        mut write: W,
         stream: S,
-    ) -> impl Stream<Item = VortexResult<Vec<ByteBuffer>>> {
-        // Set up a Context to capture the encodings used in the file.
-        let ctx = ArrayContext::empty();
+    ) -> VortexResult<W> {
+        let stream = self.write_stream(stream);
+        pin_mut!(stream);
 
-        let dtype = stream.dtype().clone();
-        let (segment_writer, flusher) = SerialSegmentWriter::create();
-        let sequence_writer = SequenceWriter::new(Box::new(segment_writer));
+        while let Some(buffer) = stream.next().await {
+            write.write_all(buffer?).await?;
+        }
+        write.flush().await?;
+        Ok(write)
+    }
 
-        let stream = stream.try_filter(|chunk| future::ready(!chunk.is_empty()));
-
-        let stream = sequence_writer.new_sequential(ArrayStreamExt::boxed(
-            ArrayStreamAdapter::new(dtype.clone(), stream),
-        ));
-
-        let (file_stats, stream) = accumulate_stats(
-            stream,
-            self.file_statistics.clone().into(),
-            self.max_variable_length_statistics_size,
-        );
-
-        // Now we emit the buffers in a stream, which will be driven by the caller
+    pub fn write_stream<S: ArrayStream + Unpin + Send + 'static>(
+        &self,
+        stream: S,
+    ) -> impl Stream<Item = VortexResult<ByteBuffer>> {
         try_stream! {
-            // Create a segment writer for collecting segment specs and buffers.
-            // We offset the position by the len of the magic bytes, since they are emitted first.
-            let segment_writer = Arc::new(FileSegmentWriter::new(MAGIC_BYTES.len() as u64));
+            // Set up a Context to capture the encodings used in the file.
+            let ctx = ArrayContext::empty();
 
-        // First we write the magic number
-        let mut write = futures::io::Cursor::new(write);
-        write.write_all(MAGIC_BYTES).await?;
+            let dtype = stream.dtype().clone();
 
-        let io_fut = flusher.flush(write);
-        let compute_fut = self.strategy.write_stream(&ctx, sequence_writer, stream);
-        let (layout, (mut write, segment_specs)) = try_join(compute_fut, io_fut).await?;
+            let (mut ptr, eof) = SequenceId::root().split();
+            let stream = SequentialStreamAdapter::new(
+                dtype.clone(),
+                stream
+                    .try_filter(|chunk| future::ready(!chunk.is_empty()))
+                    .map(move |result| result.map(|chunk| (ptr.advance(), chunk))),
+            )
+            .sendable();
 
-        // We write our footer components in order of least likely to be needed to most likely.
-        // DType is the least likely to be needed, as many readers may provide this from an
-        // external source.
-        let dtype_segment = if self.exclude_dtype {
-            None
-        } else {
-            Some(self.write_flatbuffer(&mut write, &dtype).await?)
-        };
+            let (file_stats, stream) = accumulate_stats(
+                stream,
+                self.file_statistics.clone().into(),
+                self.max_variable_length_statistics_size,
+            );
 
-        let layout_ctx = LayoutContext::empty();
-        let layout_segment = self
-            .write_flatbuffer(&mut write, &layout.flatbuffer_writer(&layout_ctx))
-            .await?;
+            // Create a segment writer with the initial MAGIC BYTES already written.
+            let segments = BufferedSegmentSink::new([ByteBuffer::copy_from(MAGIC_BYTES)]);
 
-        let statistics_segment = if self.file_statistics.is_empty() {
-            None
-        } else {
-            let file_statistics = FileStatistics(file_stats.stats_sets().into());
-            Some(self.write_flatbuffer(&mut write, &file_statistics).await?)
-        };
+            let layout = {
+                let layout_fut = self.strategy.write_stream(&ctx, &segments, stream, eof);
+                pin_mut!(layout_fut);
 
-        let footer_segment = self
-            .write_flatbuffer(
-                &mut write,
+                // Now, we sit in a loop polling the layout future and draining the segment writer.
+                let layout: LayoutRef;
+                loop {
+                    // On each iteration, attempt to drain the segment writer to send buffers.
+                    for buffer in segments.drain_to_vec() {
+                        yield buffer;
+                    }
+
+                    // Then we poll the layout future once.
+                    if let Poll::Ready(result) = poll!(&mut layout_fut) {
+                        layout = result?;
+                        // Drain the buffers one last time.
+                        for buffer in segments.drain_to_vec() {
+                            yield buffer;
+                        }
+                        break layout;
+                    }
+                }
+            };
+
+            // Once we finish writing our layout, we need to extract the segment specs.
+            let mut position = segments.byte_offset();
+            let segment_specs = segments.into_specs();
+
+            let dtype_segment = if self.exclude_dtype {
+                None
+            } else {
+                let (buffer, dtype_segment) = write_flatbuffer(&mut position, &dtype)?;
+                yield buffer;
+                Some(dtype_segment)
+            };
+
+            let layout_ctx = LayoutContext::empty();
+            let (buffer, layout_segment) = write_flatbuffer(
+                &mut position,
+                &layout.flatbuffer_writer(&layout_ctx),
+            )?;
+            yield buffer;
+
+            let statistics_segment = if self.file_statistics.is_empty() {
+                None
+            } else {
+                let file_statistics = FileStatistics(file_stats.stats_sets().into());
+                let (buffer, stats_segment) = write_flatbuffer(&mut position, &file_statistics)?;
+                yield buffer;
+                Some(stats_segment)
+            };
+
+            let (buffer, footer_segment) = write_flatbuffer(
+                &mut position,
                 &FooterFlatBufferWriter {
-                    ctx,
+                    ctx: ctx.clone(),
                     layout_ctx,
                     segment_specs: segment_specs.into(),
                 },
-            )
-            .await?;
+            )?;
+            yield buffer;
 
-        // Assemble the postscript, and write it manually to avoid any framing.
-        let postscript = Postscript {
-            dtype: dtype_segment,
-            layout: layout_segment,
-            statistics: statistics_segment,
-            footer: footer_segment,
-        };
-        let postscript_buffer = postscript.write_flatbuffer_bytes();
-        if postscript_buffer.len() > MAX_FOOTER_SIZE as usize {
-            vortex_bail!(
-                "Postscript is too large ({} bytes); max postscript size is {}",
-                postscript_buffer.len(),
-                MAX_FOOTER_SIZE
-            );
-        }
-        let postscript_len = u16::try_from(postscript_buffer.len())
-            .vortex_expect("Postscript already verified to fit into u16");
-        write.write_all(postscript_buffer).await?;
+            // Assemble the postscript, and write it manually to avoid any framing.
+            let postscript = Postscript {
+                dtype: dtype_segment,
+                layout: layout_segment,
+                statistics: statistics_segment,
+                footer: footer_segment,
+            };
+            let postscript_buffer = postscript.write_flatbuffer_bytes();
+            if postscript_buffer.len() > MAX_FOOTER_SIZE as usize {
+                Err(vortex_err!(
+                    "Postscript is too large ({} bytes); max postscript size is {}",
+                    postscript_buffer.len(),
+                    MAX_FOOTER_SIZE
+                ))?;
+            }
 
-        // And finally, the EOF 8-byte footer.
-        let mut eof = [0u8; EOF_SIZE];
-        eof[0..2].copy_from_slice(&VERSION.to_le_bytes());
-        eof[2..4].copy_from_slice(&postscript_len.to_le_bytes());
-        eof[4..8].copy_from_slice(&MAGIC_BYTES);
-        write.write_all(eof).await?;
+            let postscript_len = u16::try_from(postscript_buffer.len())
+                .vortex_expect("Postscript already verified to fit into u16");
+            yield postscript_buffer.into_inner();
 
-        write.flush().await?;
-
-        Ok(write.into_inner())
+            // And finally, the EOF 8-byte footer.
+            let mut eof = [0u8; EOF_SIZE];
+            eof[0..2].copy_from_slice(&VERSION.to_le_bytes());
+            eof[2..4].copy_from_slice(&postscript_len.to_le_bytes());
+            eof[4..8].copy_from_slice(&MAGIC_BYTES);
+            yield ByteBuffer::copy_from(eof);
         }
     }
+}
 
-    async fn write_flatbuffer<W: VortexWrite, F: FlatBufferRoot + WriteFlatBuffer>(
-        &self,
-        write: &mut futures::io::Cursor<W>,
-        flatbuffer: &F,
-    ) -> VortexResult<PostscriptSegment> {
-        let layout_offset = write.position();
-        write.write_all(flatbuffer.write_flatbuffer_bytes()).await?;
-        Ok(PostscriptSegment {
-            offset: layout_offset,
-            length: u32::try_from(write.position() - layout_offset)
-                .map_err(|_| vortex_err!("segment length exceeds maximum u32"))?,
-            alignment: FlatBuffer::alignment(),
-        })
-    }
+fn write_flatbuffer<F: FlatBufferRoot + WriteFlatBuffer>(
+    offset: &mut u64,
+    flatbuffer: &F,
+) -> VortexResult<(ByteBuffer, PostscriptSegment)> {
+    let buffer = flatbuffer.write_flatbuffer_bytes();
+    let length = u32::try_from(buffer.len())
+        .map_err(|_| vortex_err!("flatbuffer length exceeds maximum u32"))?;
+
+    let segment = PostscriptSegment {
+        offset: *offset,
+        length,
+        alignment: FlatBuffer::alignment(),
+    };
+
+    *offset += u64::from(length);
+
+    Ok((buffer.into_inner(), segment))
 }

@@ -3,19 +3,19 @@
 
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{ready, Context, Poll};
+use std::task::{Context, Poll, ready};
 
 use async_stream::try_stream;
 use async_trait::async_trait;
 use futures::channel::{mpsc, oneshot};
-use futures::stream::{once, BoxStream};
-use futures::{pin_mut, try_join, FutureExt, SinkExt, Stream, StreamExt};
+use futures::stream::{BoxStream, once};
+use futures::{FutureExt, SinkExt, Stream, StreamExt, pin_mut, try_join};
 use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_btrblocks::BtrBlocksCompressor;
-use vortex_dict::builders::{dict_encoder, DictConstraints, DictEncoder};
 use vortex_dict::DictEncoding;
+use vortex_dict::builders::{DictConstraints, DictEncoder, dict_encoder};
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult, VortexUnwrap};
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_err};
 
 use super::DictLayout;
 use crate::layouts::chunked::ChunkedLayout;

@@ -5,25 +5,25 @@ use std::collections::BTreeSet;
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
-use futures::future::BoxFuture;
 use futures::FutureExt;
+use futures::future::BoxFuture;
 use vortex_array::compute::filter;
 use vortex_array::pipeline::operators::MaskFuture;
 use vortex_array::pipeline::{
-    export_canonical_pipeline_expr, export_canonical_pipeline_expr_offset, N,
+    N, export_canonical_pipeline_expr, export_canonical_pipeline_expr_offset,
 };
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldMask, Nullability};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
-use vortex_expr::{is_root, ExprRef, Scope, VortexExprExt};
+use vortex_expr::{ExprRef, Scope, VortexExprExt, is_root};
 use vortex_mask::Mask;
 
-use crate::layouts::flat::FlatLayout;
-use crate::layouts::SharedArrayFuture;
-use crate::segments::SegmentSource;
 use crate::LayoutReader;
+use crate::layouts::SharedArrayFuture;
+use crate::layouts::flat::FlatLayout;
+use crate::segments::SegmentSource;
 
 /// The threshold of mask density below which we will evaluate the expression only over the
 /// selected rows, and above which we evaluate the expression over all rows and then select
@@ -282,10 +282,10 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_expr::{gt, lit, root};
 
+    use crate::LayoutStrategy as _;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::{SegmentSource, TestSegments};
     use crate::sequence::{SequenceId, SequentialArrayStreamExt};
-    use crate::LayoutStrategy as _;
 
     #[test]
     fn flat_identity() {

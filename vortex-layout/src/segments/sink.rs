@@ -14,9 +14,12 @@ pub trait SegmentSink: Send + Sync {
     ///
     /// Implementations of this trait should call [`SequenceId::collapse`] on the provided
     /// `sequence_id` if they need to ensure that the segment IDs are monotonically increasing.
+    /// While they hold onto the returned `SequenceId`, they can be sure that no other subsequent
+    /// calls to [`SequenceId::collapse`] will complete.
     ///
-    /// If they do not, for example if segments are stored in random-access key/values storage,
-    /// then it can be ignored and the segment written immediately.
+    /// If they do not require ordered segment IDs, for example if segments are stored in
+    /// random-access key/values storage, then the sequence ID can be dropped and the segment
+    /// written immediately.
     async fn write(
         &self,
         sequence_id: SequenceId,

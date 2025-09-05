@@ -4,19 +4,19 @@
 use std::collections::VecDeque;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{ready, Context, Poll, Waker};
+use std::task::{Context, Poll, Waker, ready};
 
 use async_trait::async_trait;
 use futures::future::try_join_all;
-use futures::task::{waker_ref, ArcWake};
+use futures::task::{ArcWake, waker_ref};
 use futures::{FutureExt, Stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use parking_lot::Mutex;
 use vortex_array::{Array, ArrayContext, ToCanonical};
-use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
+use vortex_utils::aliases::DefaultHashBuilder;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
-use vortex_utils::aliases::DefaultHashBuilder;
 
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSink;
@@ -247,11 +247,11 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, FieldNames, Nullability, PType};
 
+    use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::struct_::writer::StructStrategy;
     use crate::segments::TestSegments;
     use crate::sequence::{SequenceId, SequentialArrayStreamExt};
-    use crate::LayoutStrategy;
 
     #[test]
     #[should_panic]

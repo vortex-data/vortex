@@ -18,8 +18,6 @@ use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_utils::aliases::hash_map::HashMap;
 
-use crate::segments::SegmentId;
-
 /// A hierarchical sequence identifier that exists within a shared universe.
 ///
 /// SequenceIds form a collision-free universe where each ID is represented as a vector
@@ -113,7 +111,6 @@ impl SequenceId {
     /// Once `collapse()` returns, you can be certain that:
     /// - All sequences with smaller IDs have been dropped
     /// - No new sequences with smaller IDs can ever be created (due to collision prevention)
-    /// - The returned `SegmentId` is monotonically increasing within this universe
     ///
     /// # Use Cases
     ///
@@ -124,10 +121,10 @@ impl SequenceId {
     ///
     /// # Returns
     ///
-    /// A monotonically increasing `SegmentId` that can be used for ordered storage
-    /// or processing. Each successful collapse within a universe produces a larger
-    /// `SegmentId` than the previous one.
-    pub async fn collapse(self) -> SegmentId {
+    /// The [`SequenceId`] once all other segment IDs before it have been dropped. The caller can hold
+    /// onto the sequence ID essentially as a lock on future calls to [`SequenceId::collapse`]
+    /// in order to perform ordered operations.
+    pub async fn collapse(&mut self) {
         WaitSequenceFuture(self).await
     }
 
@@ -148,14 +145,6 @@ impl Drop for SequenceId {
         if let Some(w) = waker {
             w.wake();
         }
-    }
-}
-
-/// If the future itself is dropped, we don't want to orphan the waker
-impl Drop for WaitSequenceFuture {
-    fn drop(&mut self) {
-        let mut guard = self.0.universe.lock();
-        guard.wakers.remove(&self.0.id);
     }
 }
 
@@ -202,7 +191,6 @@ impl SequencePointer {
 struct SequenceUniverse {
     active: BTreeSet<Vec<usize>>,
     wakers: HashMap<Vec<usize>, Waker>,
-    next_segment_id: SegmentId,
 }
 
 impl SequenceUniverse {
@@ -219,18 +207,12 @@ impl SequenceUniverse {
         };
         self.wakers.remove(first)
     }
-
-    pub fn next_segment_id(&mut self) -> SegmentId {
-        let res = self.next_segment_id;
-        self.next_segment_id = SegmentId::from(*res + 1);
-        res
-    }
 }
 
-struct WaitSequenceFuture(SequenceId);
+struct WaitSequenceFuture<'a>(&'a mut SequenceId);
 
-impl Future for WaitSequenceFuture {
-    type Output = SegmentId;
+impl Future for WaitSequenceFuture<'_> {
+    type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut guard = self.0.universe.lock();
@@ -240,10 +222,18 @@ impl Future for WaitSequenceFuture {
             .cloned()
             .vortex_expect("if we have a future, we must have at least one active sequence");
         if self.0.id == current_first {
-            return Poll::Ready(guard.next_segment_id());
+            guard.wakers.remove(&self.0.id);
+            return Poll::Ready(());
         }
         guard.wakers.insert(self.0.id.clone(), cx.waker().clone());
         Poll::Pending
+    }
+}
+
+/// If the future itself is dropped, we don't want to orphan the waker
+impl Drop for WaitSequenceFuture<'_> {
+    fn drop(&mut self) {
+        self.0.universe.lock().wakers.remove(&self.0.id);
     }
 }
 

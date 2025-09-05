@@ -7,12 +7,12 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::{FutureExt, StreamExt as _};
 use parking_lot::Mutex;
-use vortex_array::stats::{Stat, PRUNING_STATS};
+use vortex_array::stats::{PRUNING_STATS, Stat};
 use vortex_array::{ArrayContext, ArrayRef};
 use vortex_error::VortexResult;
 
-use crate::layouts::zoned::zone_map::StatsAccumulator;
 use crate::layouts::zoned::ZonedLayout;
+use crate::layouts::zoned::zone_map::StatsAccumulator;
 use crate::segments::SegmentSink;
 use crate::sequence::{
     SendableSequentialStream, SequenceId, SequencePointer, SequentialArrayStreamExt,
@@ -122,7 +122,7 @@ where
 
         let data_layout = self
             .child
-            .write_stream(&ctx, segment_sink, stream, eof)
+            .write_stream(ctx, segment_sink, stream, eof)
             .await?;
 
         let Some(stats_table) = stats_accumulator.lock().as_stats_table() else {
