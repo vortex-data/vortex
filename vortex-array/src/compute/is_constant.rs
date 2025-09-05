@@ -46,16 +46,14 @@ pub fn is_constant(array: &dyn Array) -> VortexResult<Option<bool>> {
 ///
 /// Please see [`is_constant`] for a more detailed explanation of its behavior.
 pub fn is_constant_opts(array: &dyn Array, options: &IsConstantOpts) -> VortexResult<Option<bool>> {
-    let result = IS_CONSTANT_FN
+    Ok(IS_CONSTANT_FN
         .invoke(&InvocationArgs {
             inputs: &[array.into()],
             options,
         })?
         .unwrap_scalar()?
         .as_bool()
-        .value();
-
-    Ok(result)
+        .value())
 }
 
 struct IsConstant;
