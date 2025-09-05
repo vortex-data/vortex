@@ -99,7 +99,7 @@ pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResul
             )
             .map(|a| a.into_array())
         }
-        DType::List(..) => {
+        DType::List(..) | DType::FixedSizeList(..) => {
             let mut indices = Vec::new();
             for (idx, bool) in filter.iter().enumerate() {
                 if *bool {
@@ -108,7 +108,6 @@ pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResul
             }
             take_canonical_array_non_nullable_indices(array, indices.as_slice())
         }
-        DType::FixedSizeList(..) => unimplemented!("TODO(connor)[FixedSizeList]"),
         d @ (DType::Null | DType::Extension(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }
