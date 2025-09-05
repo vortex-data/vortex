@@ -4,7 +4,7 @@
 use std::pin::Pin;
 use std::task::Poll;
 
-use futures_util::Stream;
+use futures::Stream;
 use pin_project::pin_project;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -46,7 +46,7 @@ where
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
         let this = self.project();
-        let array = futures_util::ready!(this.inner.poll_next(cx));
+        let array = futures::ready!(this.inner.poll_next(cx));
         if let Some(Ok(array)) = array.as_ref() {
             debug_assert_eq!(array.dtype(), this.dtype);
         }

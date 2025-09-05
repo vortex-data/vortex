@@ -5,14 +5,13 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
 
-use async_trait::async_trait;
-use futures::FutureExt;
-use futures::future::{BoxFuture, Shared};
+use futures::future::BoxFuture;
 use once_cell::sync::OnceCell;
 use vortex_array::ArrayRef;
+use vortex_array::pipeline::operators::MaskFuture;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask};
-use vortex_error::{SharedVortexResult, VortexError, VortexResult, vortex_bail};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
@@ -43,79 +42,50 @@ pub trait LayoutReader: 'static + Send + Sync {
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()>;
 
-    /// Performs an approximate evaluation of the expression against the layout reader.
+    /// Returns a mask where all false values are proven to be false in the given expression.
+    ///
+    /// The returned mask **does not** need to have been intersected with the input mask.
     fn pruning_evaluation(
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn PruningEvaluation>>;
+        mask: Mask,
+    ) -> VortexResult<MaskFuture>;
 
-    /// Performs an exact evaluation of the expression against the layout reader.
+    /// Refines the given mask, returning a mask equal in length to the input mask.
+    ///
+    /// It is recommended to defer awaiting the input mask for as long as possible (ideally, after
+    /// all I/O is complete). This allows other conjuncts the opportunity to refine the mask as much
+    /// as possible before it is used.
+    ///
+    /// ## Post-conditions
+    ///
+    /// The returned mask **MUST** have been intersected with the input mask.
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn MaskEvaluation>>;
+        mask: MaskFuture,
+    ) -> VortexResult<MaskFuture>;
 
-    /// Evaluates the expression against the layout.
+    /// Evaluates an expression against an array.
+    ///
+    /// It is recommended to defer awaiting the input mask for as long as possible (ideally, after
+    /// all I/O is complete). This allows other conjuncts the opportunity to refine the mask as much
+    /// as possible before it is used.
+    ///
+    /// ## Post-conditions
+    ///
+    /// The returned array **MUST** have length equal to the true count of the input mask.
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
-    ) -> VortexResult<Box<dyn ArrayEvaluation>>;
+        mask: MaskFuture,
+    ) -> VortexResult<ArrayFuture>;
 }
 
-pub type MaskFuture = Shared<BoxFuture<'static, SharedVortexResult<Mask>>>;
-
-/// Create a resolved [`MaskFuture`] from a [`Mask`].
-pub fn mask_future_ready(mask: Mask) -> MaskFuture {
-    async move { Ok::<_, Arc<VortexError>>(mask) }
-        .boxed()
-        .shared()
-}
-
-/// Returns a mask where all false values are proven to be false in the given expression.
-///
-/// The returned mask **does not** need to have been intersected with the input mask.
-#[async_trait]
-pub trait PruningEvaluation: 'static + Send + Sync {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask>;
-}
-
-pub struct NoOpPruningEvaluation;
-
-#[async_trait]
-impl PruningEvaluation for NoOpPruningEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
-        Ok(mask)
-    }
-}
-
-/// Refines the given mask, returning a mask equal in length to the input mask.
-///
-/// ## Post-conditions
-///
-/// The returned mask **MUST** have been intersected with the input mask.
-#[async_trait]
-pub trait MaskEvaluation: 'static + Send + Sync {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask>;
-}
-
-pub struct NoOpMaskEvaluation;
-
-#[async_trait]
-impl MaskEvaluation for NoOpMaskEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
-        Ok(mask)
-    }
-}
-
-/// Evaluates an expression against an array, returning an array equal in length to the true count
-/// of the input mask.
-#[async_trait]
-pub trait ArrayEvaluation: 'static + Send + Sync {
-    async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef>;
-}
+pub type ArrayFuture = BoxFuture<'static, VortexResult<ArrayRef>>;
 
 pub struct LazyReaderChildren {
     children: Arc<dyn LayoutChildren>,

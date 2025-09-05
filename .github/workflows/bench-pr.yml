@@ -81,7 +81,7 @@ jobs:
           target/release_debug/${{ matrix.benchmark.id }} -d gh-json -o ${{ matrix.benchmark.id }}.json
 
       - name: Setup AWS CLI
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
           aws-region: us-east-1
@@ -109,13 +109,10 @@ jobs:
             | grep $base_commit_sha \
             > base.json
 
-          echo '# Benchmarks: ${{ matrix.benchmark.id }}' > comment.md
-          echo '<details>' >> comment.md
-          echo '<summary>Table of Results</summary>' >> comment.md
+          echo '# Benchmarks: ${{ matrix.benchmark.name }}' > comment.md
           echo '' >> comment.md
-          uv run --no-project scripts/compare-benchmark-jsons.py base.json ${{ matrix.benchmark.id }}.json \
+          uv run --no-project scripts/compare-benchmark-jsons.py base.json ${{ matrix.benchmark.id }}.json "${{ matrix.benchmark.name }}" \
             >> comment.md
-          echo '</details>' >> comment.md
 
       - name: Comment PR
         uses: thollander/actions-comment-pull-request@v3

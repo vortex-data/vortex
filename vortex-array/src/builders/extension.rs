@@ -11,7 +11,8 @@ use vortex_scalar::ExtScalar;
 
 use crate::arrays::ExtensionArray;
 use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, builder_with_capacity};
-use crate::{Array, ArrayRef, IntoArray, ToCanonical};
+use crate::canonical::{Canonical, ToCanonical};
+use crate::{Array, ArrayRef, IntoArray};
 
 /// The builder for building a [`ExtensionArray`].
 pub struct ExtensionBuilder {
@@ -112,5 +113,9 @@ impl ArrayBuilder for ExtensionBuilder {
 
     fn finish(&mut self) -> ArrayRef {
         self.finish_into_extension().into_array()
+    }
+
+    fn finish_into_canonical(&mut self) -> Canonical {
+        Canonical::Extension(self.finish_into_extension())
     }
 }

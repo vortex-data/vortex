@@ -6,7 +6,7 @@ use std::pin::Pin;
 use std::task::{Poll, ready};
 
 use bytes::{Bytes, BytesMut};
-use futures_util::{AsyncRead, AsyncWrite, AsyncWriteExt, Stream, StreamExt, TryStreamExt};
+use futures::{AsyncRead, AsyncWrite, AsyncWriteExt, Stream, StreamExt, TryStreamExt};
 use pin_project_lite::pin_project;
 use vortex_array::stream::ArrayStream;
 use vortex_array::{ArrayRef, ArrayRegistry};
@@ -187,7 +187,7 @@ impl Stream for ArrayStreamIPCBytes {
 
 #[cfg(test)]
 mod test {
-    use futures_util::io::Cursor;
+    use futures::io::Cursor;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::stream::{ArrayStream, ArrayStreamExt};

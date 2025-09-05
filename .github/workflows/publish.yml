@@ -40,7 +40,7 @@ jobs:
           cargo set-version --workspace ${{ github.event.release.tag_name || github.event.inputs.version }}
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         # Latest macOS doesn't allow maturin to install stuff into the global Python interpreter
         if: "${{ matrix.target.runs-on == 'macos-latest' }}"
         with:

@@ -39,7 +39,7 @@ impl CanonicalVTable<ChunkedVTable> for ChunkedVTable {
             _ => {
                 let mut builder = builder_with_capacity(array.dtype(), array.len());
                 array.append_to_builder(builder.as_mut());
-                builder.finish().to_canonical()
+                builder.finish_into_canonical()
             }
         }
     }

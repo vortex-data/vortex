@@ -13,7 +13,7 @@ use vortex::error::VortexExpect;
 use vortex::expr::root;
 use vortex::layout::layouts::flat::FlatVTable;
 use vortex::layout::layouts::zoned::ZonedVTable;
-use vortex::mask::Mask;
+use vortex::pipeline::operators::MaskFuture;
 use vortex::{Array, ArrayRef, ToCanonical};
 
 use crate::TOKIO_RUNTIME;
@@ -100,11 +100,14 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
     let array = TOKIO_RUNTIME
         .block_on(
             reader
-                .projection_evaluation(&(0..row_count), &root())
-                .vortex_expect("Failed to construct projection")
-                .invoke(Mask::new_true(
-                    usize::try_from(row_count).vortex_expect("row_count overflowed usize"),
-                )),
+                .projection_evaluation(
+                    &(0..row_count),
+                    &root(),
+                    MaskFuture::new_true(
+                        usize::try_from(row_count).vortex_expect("row_count overflowed usize"),
+                    ),
+                )
+                .vortex_expect("Failed to construct projection"),
         )
         .vortex_expect("Failed to read flat array");
 

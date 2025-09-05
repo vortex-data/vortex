@@ -13,7 +13,8 @@ use crate::arrays::StructArray;
 use crate::builders::{
     ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder, builder_with_capacity,
 };
-use crate::{Array, ArrayRef, IntoArray, ToCanonical};
+use crate::canonical::{Canonical, ToCanonical};
+use crate::{Array, ArrayRef, IntoArray};
 
 /// The builder for building a [`StructArray`].
 pub struct StructBuilder {
@@ -186,6 +187,10 @@ impl ArrayBuilder for StructBuilder {
 
     fn finish(&mut self) -> ArrayRef {
         self.finish_into_struct().into_array()
+    }
+
+    fn finish_into_canonical(&mut self) -> Canonical {
+        Canonical::Struct(self.finish_into_struct())
     }
 }
 

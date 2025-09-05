@@ -33,6 +33,7 @@ pub enum AllOr<T> {
 
 impl<T> AllOr<T> {
     /// Returns the `Some` variant of the enum, or a default value.
+    #[inline]
     pub fn unwrap_or_else<F, G>(self, all_true: F, all_false: G) -> T
     where
         F: FnOnce() -> T,
@@ -48,6 +49,7 @@ impl<T> AllOr<T> {
 
 impl<T> AllOr<&T> {
     /// Clone the inner value.
+    #[inline]
     pub fn cloned(self) -> AllOr<T>
     where
         T: Clone,
@@ -139,16 +141,19 @@ impl MaskValues {
     }
 
     /// Returns the true count of the mask.
+    #[inline]
     pub fn true_count(&self) -> usize {
         self.true_count
     }
 
     /// Returns the boolean buffer representation of the mask.
+    #[inline]
     pub fn boolean_buffer(&self) -> &BooleanBuffer {
         &self.buffer
     }
 
     /// Returns the boolean value at a given index.
+    #[inline]
     pub fn value(&self, index: usize) -> bool {
         self.buffer.value(index)
     }
@@ -182,6 +187,7 @@ impl MaskValues {
 
     /// Constructs a slices vector from one of the other representations.
     #[allow(clippy::cast_possible_truncation)]
+    #[inline]
     pub fn slices(&self) -> &[(usize, usize)] {
         self.slices.get_or_init(|| {
             if self.true_count == self.len() {
@@ -193,6 +199,7 @@ impl MaskValues {
     }
 
     /// Return an iterator over either indices or slices of the mask based on a density threshold.
+    #[inline]
     pub fn threshold_iter(&self, threshold: f64) -> MaskIter<'_> {
         if self.density >= threshold {
             MaskIter::Slices(self.slices())
@@ -204,11 +211,13 @@ impl MaskValues {
 
 impl Mask {
     /// Create a new Mask where all values are set.
+    #[inline]
     pub fn new_true(length: usize) -> Self {
         Self::AllTrue(length)
     }
 
     /// Create a new Mask where no values are set.
+    #[inline]
     pub fn new_false(length: usize) -> Self {
         Self::AllFalse(length)
     }
@@ -448,6 +457,7 @@ impl Mask {
     /// ## Panics
     ///
     /// Panics if the index is out of bounds.
+    #[inline]
     pub fn value(&self, idx: usize) -> bool {
         match self {
             Mask::AllTrue(_) => true,
@@ -474,6 +484,7 @@ impl Mask {
     }
 
     /// Slice the mask.
+    #[inline]
     pub fn slice(&self, range: Range<usize>) -> Self {
         assert!(range.end <= self.len());
         match &self {
@@ -486,6 +497,7 @@ impl Mask {
     }
 
     /// Return the boolean buffer representation of the mask.
+    #[inline]
     pub fn boolean_buffer(&self) -> AllOr<&BooleanBuffer> {
         match &self {
             Self::AllTrue(_) => AllOr::All,
@@ -496,6 +508,7 @@ impl Mask {
 
     /// Return a boolean buffer representation of the mask, allocating new buffers for all-true
     /// and all-false variants.
+    #[inline]
     pub fn to_boolean_buffer(&self) -> BooleanBuffer {
         match self {
             Self::AllTrue(l) => BooleanBuffer::new_set(*l),
@@ -505,6 +518,7 @@ impl Mask {
     }
 
     /// Returns an Arrow null buffer representation of the mask.
+    #[inline]
     pub fn to_null_buffer(&self) -> Option<NullBuffer> {
         match self {
             Mask::AllTrue(_) => None,
@@ -514,6 +528,7 @@ impl Mask {
     }
 
     /// Return the indices representation of the mask.
+    #[inline]
     pub fn indices(&self) -> AllOr<&[usize]> {
         match &self {
             Self::AllTrue(_) => AllOr::All,
@@ -523,6 +538,7 @@ impl Mask {
     }
 
     /// Return the slices representation of the mask.
+    #[inline]
     pub fn slices(&self) -> AllOr<&[(usize, usize)]> {
         match &self {
             Self::AllTrue(_) => AllOr::All,
@@ -532,6 +548,7 @@ impl Mask {
     }
 
     /// Return an iterator over either indices or slices of the mask based on a density threshold.
+    #[inline]
     pub fn threshold_iter(&self, threshold: f64) -> AllOr<MaskIter<'_>> {
         match &self {
             Self::AllTrue(_) => AllOr::All,
@@ -541,6 +558,7 @@ impl Mask {
     }
 
     /// Return [`MaskValues`] if the mask is not all true or all false.
+    #[inline]
     pub fn values(&self) -> Option<&MaskValues> {
         if let Self::Values(values) = self {
             Some(values)
@@ -647,12 +665,14 @@ pub enum MaskIter<'a> {
 }
 
 impl From<BooleanBuffer> for Mask {
+    #[inline]
     fn from(value: BooleanBuffer) -> Self {
         Self::from_buffer(value)
     }
 }
 
 impl FromIterator<bool> for Mask {
+    #[inline]
     fn from_iter<T: IntoIterator<Item = bool>>(iter: T) -> Self {
         Self::from_buffer(BooleanBuffer::from_iter(iter))
     }

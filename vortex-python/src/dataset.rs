@@ -40,6 +40,7 @@ pub fn read_array_from_reader(
     projection: ExprRef,
     filter: Option<ExprRef>,
     indices: Option<ArrayRef>,
+    row_range: Option<(u64, u64)>,
 ) -> VortexResult<ArrayRef> {
     let mut scan = vortex_file.scan()?.with_projection(projection);
 
@@ -50,6 +51,10 @@ pub fn read_array_from_reader(
     if let Some(indices) = indices {
         let indices = indices.to_primitive().into_buffer();
         scan = scan.with_row_indices(indices);
+    }
+
+    if let Some((l, r)) = row_range {
+        scan = scan.with_row_range(l..r);
     }
 
     scan.into_array_iter_multithread()?.read_all()
@@ -111,35 +116,41 @@ impl PyVortexDataset {
         self_.schema.clone().to_pyarrow(self_.py())
     }
 
-    #[pyo3(signature = (*, columns = None, row_filter = None, indices = None))]
+    #[pyo3(signature = (*, columns = None, row_filter = None, indices = None, row_range = None))]
     pub fn to_array<'py>(
         &self,
         columns: Option<Vec<Bound<'py, PyAny>>>,
         row_filter: Option<&Bound<'py, PyExpr>>,
         indices: Option<PyArrayRef>,
+        row_range: Option<(u64, u64)>,
     ) -> PyResult<PyArrayRef> {
         let array = read_array_from_reader(
             &self.vxf,
             projection_from_python(columns)?,
             filter_from_python(row_filter),
             indices.map(|i| i.into_inner()),
+            row_range,
         )?;
         Ok(PyArrayRef::from(array))
     }
 
-    #[pyo3(signature = (*, columns = None, row_filter = None, split_by = None))]
+    #[pyo3(signature = (*, columns = None, row_filter = None, split_by = None, row_range = None))]
     pub fn to_record_batch_reader(
         self_: PyRef<Self>,
         columns: Option<Vec<Bound<'_, PyAny>>>,
         row_filter: Option<&Bound<'_, PyExpr>>,
         split_by: Option<usize>,
+        row_range: Option<(u64, u64)>,
     ) -> PyResult<PyObject> {
-        let scan = self_
+        let mut scan = self_
             .vxf
             .scan()?
             .with_projection(projection_from_python(columns)?)
             .with_some_filter(filter_from_python(row_filter))
             .with_split_by(split_by.map(SplitBy::RowCount).unwrap_or(SplitBy::Layout));
+        if let Some((l, r)) = row_range {
+            scan = scan.with_row_range(l..r);
+        }
 
         // TODO(ngates): should we use multi-threaded read or not?
         let schema = Arc::new(scan.dtype()?.to_arrow_schema()?);
@@ -150,18 +161,22 @@ impl PyVortexDataset {
     }
 
     /// The number of rows matching the filter.
-    #[pyo3(signature = (*, row_filter = None, split_by = None))]
+    #[pyo3(signature = (*, row_filter = None, split_by = None, row_range = None))]
     pub fn count_rows(
         self_: PyRef<Self>,
         row_filter: Option<&Bound<'_, PyExpr>>,
         split_by: Option<usize>,
+        row_range: Option<(u64, u64)>,
     ) -> PyResult<usize> {
-        let scan = self_
+        let mut scan = self_
             .vxf
             .scan()?
             .with_projection(select(vec![], root()))
             .with_some_filter(filter_from_python(row_filter))
             .with_split_by(split_by.map(SplitBy::RowCount).unwrap_or(SplitBy::Layout));
+        if let Some((l, r)) = row_range {
+            scan = scan.with_row_range(l..r);
+        }
 
         // TODO(ngates): should we use multi-threaded read or not?
         let schema = Arc::new(scan.dtype()?.to_arrow_schema()?);
@@ -172,6 +187,17 @@ impl PyVortexDataset {
             .map_err(|err| PyValueError::new_err(format!("arrow error: {}", err)))?;
 
         Ok(n_rows)
+    }
+
+    /// The natural splits of this Dataset.
+    #[pyo3(signature = (*))]
+    pub fn splits(&self) -> VortexResult<Vec<(u64, u64)>> {
+        Ok(self
+            .vxf
+            .splits()?
+            .into_iter()
+            .map(|x| (x.start, x.end))
+            .collect())
     }
 }
 

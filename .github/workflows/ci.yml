@@ -80,6 +80,11 @@ jobs:
           uv run --all-packages pytest --benchmark-disable test/
         working-directory: vortex-python/
 
+      - name: Pytest Benchmarks - Vortex
+        run: |
+          uv run --all-packages pytest --benchmark-only benchmark/
+        working-directory: vortex-python/
+
       - name: Doctest - PyVortex
         run: |
           uv run --all-packages make doctest

@@ -251,20 +251,20 @@ impl PcoArray {
     #[allow(clippy::unwrap_in_result, clippy::unwrap_used)]
     fn decompress_values_typed<T: Number>(&self) -> ByteBuffer {
         // To start, we figure out what range of values we need to decompress.
-        let slice_n_rows = self.slice_stop - self.slice_start;
         let slice_value_indices = self
             .unsliced_validity
             .to_mask(self.unsliced_n_rows)
             .valid_counts_for_indices(&[self.slice_start, self.slice_stop]);
         let slice_value_start = slice_value_indices[0];
         let slice_value_stop = slice_value_indices[1];
+        let slice_n_values = slice_value_stop - slice_value_start;
 
         // Then we decompress those pages into a buffer. Note that these values
         // may exceed the bounds of the slice, so we need to slice later.
         let (fd, _) = FileDecompressor::new(self.metadata.header.as_slice())
             .map_err(vortex_err_from_pco)
             .vortex_unwrap();
-        let mut decompressed_values = BufferMut::<T>::with_capacity(slice_n_rows);
+        let mut decompressed_values = BufferMut::<T>::with_capacity(slice_n_values);
         let mut page_idx = 0;
         let mut page_value_start = 0;
         let mut n_skipped_values = 0;
@@ -317,7 +317,7 @@ impl PcoArray {
         let value_offset = slice_value_start - n_skipped_values;
         decompressed_values
             .freeze()
-            .slice(value_offset..value_offset + slice_n_rows)
+            .slice(value_offset..value_offset + slice_n_values)
             .into_byte_buffer()
     }
 

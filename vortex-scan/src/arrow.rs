@@ -74,6 +74,7 @@ where
 {
     type Item = Result<RecordBatch, ArrowError>;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         self.iter.next()
     }
@@ -83,6 +84,7 @@ impl<I> RecordBatchReader for RecordBatchIteratorAdapter<I>
 where
     I: Iterator<Item = Result<RecordBatch, ArrowError>>,
 {
+    #[inline]
     fn schema(&self) -> SchemaRef {
         self.schema.clone()
     }

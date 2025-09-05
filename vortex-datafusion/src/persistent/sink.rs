@@ -172,7 +172,8 @@ mod tests {
     async fn test_insert_into() {
         let dir = TempDir::new().unwrap();
 
-        let factory = VortexFormatFactory::default();
+        let factory = VortexFormatFactory::new();
+
         let mut session_state_builder = SessionStateBuilder::new().with_default_features();
         register_vortex_format_factory(factory, &mut session_state_builder);
         let session = SessionContext::new_with_state(session_state_builder.build());
@@ -181,7 +182,7 @@ mod tests {
             .sql(&format!(
                 "CREATE EXTERNAL TABLE my_tbl \
                     (c1 VARCHAR NOT NULL, c2 INT NOT NULL) \
-                STORED AS vortex 
+                STORED AS vortex \
                 LOCATION '{}/';",
                 dir.path().to_str().unwrap()
             ))
@@ -255,7 +256,8 @@ mod tests {
 
         let dir = TempDir::new()?;
 
-        let factory = VortexFormatFactory::default();
+        let factory = VortexFormatFactory::new();
+
         let mut session_state_builder = SessionStateBuilder::new().with_default_features();
         register_vortex_format_factory(factory, &mut session_state_builder);
         let session = SessionContext::new_with_state(session_state_builder.build());
@@ -268,7 +270,7 @@ mod tests {
         let logical_plan = LogicalPlanBuilder::copy_to(
             data.logical_plan().clone(),
             dir.path().to_str().unwrap().to_string(),
-            format_as_file_type(Arc::new(VortexFormatFactory::default())),
+            format_as_file_type(Arc::new(VortexFormatFactory::new())),
             Default::default(),
             vec![],
         )?
@@ -285,7 +287,7 @@ mod tests {
             .sql(&format!(
                 "CREATE EXTERNAL TABLE written_data \
                     (a TINYINT NOT NULL) \
-                STORED AS vortex 
+                STORED AS vortex \
                 LOCATION '{}/';",
                 dir.path().to_str().unwrap()
             ))

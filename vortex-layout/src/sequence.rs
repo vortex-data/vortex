@@ -146,6 +146,14 @@ impl Drop for SequenceId {
     }
 }
 
+/// If the future itself is dropped, we don't want to orphan the waker
+impl Drop for WaitSequenceFuture {
+    fn drop(&mut self) {
+        let mut guard = self.0.universe.lock();
+        guard.wakers.remove(&self.0.id);
+    }
+}
+
 /// A pointer that can advance through sibling sequence IDs.
 ///
 /// SequencePointer is the only mechanism for creating new SequenceIds within

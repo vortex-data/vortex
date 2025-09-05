@@ -11,6 +11,7 @@ use vortex_scalar::{BigCast, NativeDecimalType, i256, match_each_decimal_value_t
 
 use crate::arrays::DecimalArray;
 use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder};
+use crate::canonical::Canonical;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 /// The builder for building a [`DecimalArray`].
@@ -198,6 +199,10 @@ impl ArrayBuilder for DecimalBuilder {
 
     fn finish(&mut self) -> ArrayRef {
         self.finish_into_decimal().into_array()
+    }
+
+    fn finish_into_canonical(&mut self) -> Canonical {
+        Canonical::Decimal(self.finish_into_decimal())
     }
 }
 

@@ -140,6 +140,7 @@ mod tests {
     use futures::stream;
     use vortex_array::arrays::{BoolArray, PrimitiveArray, StructArray};
     use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
+    use vortex_array::pipeline::operators::MaskFuture;
     use vortex_array::stats::{Precision, Stat, StatsProviderExt};
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray, ToCanonical};
@@ -147,7 +148,7 @@ mod tests {
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
     use vortex_error::VortexUnwrap;
     use vortex_expr::root;
-    use vortex_mask::{AllOr, Mask};
+    use vortex_mask::AllOr;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
@@ -183,9 +184,12 @@ mod tests {
             let result = layout
                 .new_reader("".into(), segments)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &root())
+                .projection_evaluation(
+                    &(0..layout.row_count()),
+                    &root(),
+                    MaskFuture::new_true(layout.row_count().try_into().unwrap()),
+                )
                 .unwrap()
-                .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await
                 .unwrap();
 
@@ -224,9 +228,12 @@ mod tests {
             let result = layout
                 .new_reader("".into(), segments)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &root())
+                .projection_evaluation(
+                    &(0..layout.row_count()),
+                    &root(),
+                    MaskFuture::new_true(layout.row_count().try_into().unwrap()),
+                )
                 .unwrap()
-                .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await
                 .unwrap();
 
@@ -284,9 +291,12 @@ mod tests {
             let result: ArrayRef = layout
                 .new_reader("".into(), segments)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &root())
+                .projection_evaluation(
+                    &(0..layout.row_count()),
+                    &root(),
+                    MaskFuture::new_true(layout.row_count().try_into().unwrap()),
+                )
                 .unwrap()
-                .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await
                 .unwrap();
 

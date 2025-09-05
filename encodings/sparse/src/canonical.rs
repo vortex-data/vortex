@@ -229,7 +229,7 @@ fn canonicalize_sparse_lists_inner<I: NativePType, SmallestViableOffsetType: Off
         builder.extend_from_array(&fill_value_array);
     }
 
-    builder.finish().to_canonical()
+    builder.finish_into_canonical()
 }
 
 fn canonicalize_sparse_lists_inner_with_null_fill_value<I: NativePType, O: OffsetPType>(

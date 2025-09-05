@@ -11,8 +11,9 @@ use arrow_array::types::{
 use arrow_array::{
     Array, ArrayRef as ArrowArrayRef, ArrowPrimitiveType, BooleanArray as ArrowBoolArray,
     Decimal128Array as ArrowDecimal128Array, Decimal256Array as ArrowDecimal256Array,
-    GenericByteArray, GenericByteViewArray, GenericListArray, NullArray as ArrowNullArray,
-    OffsetSizeTrait, PrimitiveArray as ArrowPrimitiveArray, StructArray as ArrowStructArray,
+    FixedSizeListArray as ArrowFixedSizeListArray, GenericByteArray, GenericByteViewArray,
+    GenericListArray, NullArray as ArrowNullArray, OffsetSizeTrait,
+    PrimitiveArray as ArrowPrimitiveArray, StructArray as ArrowStructArray,
 };
 use arrow_buffer::{ScalarBuffer, i256};
 use arrow_schema::{DataType, Field, FieldRef, Fields};
@@ -24,7 +25,8 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::DecimalValueType;
 
 use crate::arrays::{
-    BoolArray, DecimalArray, ListArray, NullArray, PrimitiveArray, StructArray, VarBinViewArray,
+    BoolArray, DecimalArray, FixedSizeListArray, ListArray, NullArray, PrimitiveArray, StructArray,
+    VarBinViewArray,
 };
 use crate::arrow::IntoArrowArray;
 use crate::arrow::array::ArrowArray;
@@ -53,6 +55,10 @@ impl Kernel for ToArrowCanonical {
             .cloned()
             .map(Ok)
             .unwrap_or_else(|| array.dtype().to_arrow_dtype())?;
+
+        // When `arrow_type` is `None`, conversion should respect conversion to the encoding's
+        // preferred Arrow type if the array has child arrays (struct, list, and fixed-size list).
+        let to_preferred = arrow_type_opt.is_none();
 
         let arrow_array = match (array.to_canonical(), &arrow_type) {
             (Canonical::Null(array), DataType::Null) => to_arrow_null(array),
@@ -139,16 +145,16 @@ impl Kernel for ToArrowCanonical {
                 to_arrow_decimal256(array)
             }
             (Canonical::Struct(array), DataType::Struct(fields)) => {
-                to_arrow_struct(array, fields.as_ref(), arrow_type_opt.is_none())
+                to_arrow_struct(array, fields.as_ref(), to_preferred)
             }
             (Canonical::List(array), DataType::List(field)) => {
-                to_arrow_list::<i32>(array, field, arrow_type_opt.is_none())
+                to_arrow_list::<i32>(array, arrow_type_opt.map(|_| field))
             }
             (Canonical::List(array), DataType::LargeList(field)) => {
-                to_arrow_list::<i64>(array, field, arrow_type_opt.is_none())
+                to_arrow_list::<i64>(array, arrow_type_opt.map(|_| field))
             }
-            (Canonical::FixedSizeList(..), DataType::FixedSizeList(..)) => {
-                unimplemented!("TODO(connor)[FixedSizeList]")
+            (Canonical::FixedSizeList(array), DataType::FixedSizeList(field, list_size)) => {
+                to_arrow_fixed_size_list(array, arrow_type_opt.map(|_| field), *list_size)
             }
             (Canonical::VarBinView(array), DataType::BinaryView) if array.dtype().is_binary() => {
                 to_arrow_varbinview::<BinaryViewType>(array)
@@ -355,8 +361,7 @@ fn to_arrow_struct(
 
 fn to_arrow_list<O: NativePType + OffsetSizeTrait>(
     array: ListArray,
-    element: &FieldRef,
-    to_preferred: bool,
+    element: Option<&FieldRef>,
 ) -> VortexResult<ArrowArrayRef> {
     // First we cast the offsets into the correct width.
     let offsets_dtype = DType::Primitive(O::PTYPE, array.dtype().nullability());
@@ -364,16 +369,64 @@ fn to_arrow_list<O: NativePType + OffsetSizeTrait>(
         .map_err(|err| err.with_context(format!("Failed to cast offsets to {offsets_dtype}")))?
         .to_primitive();
 
-    let values = if to_preferred {
-        array.elements().clone().into_arrow_preferred()?
+    let (values, element_field) = if let Some(element) = element {
+        (
+            array.elements().clone().into_arrow(element.data_type())?,
+            element.clone(),
+        )
     } else {
-        array.elements().clone().into_arrow(element.data_type())?
+        let values = array.elements().clone().into_arrow_preferred()?;
+        let element_field = Arc::new(Field::new_list_field(
+            values.data_type().clone(),
+            array.elements().dtype().is_nullable(),
+        ));
+        (values, element_field)
     };
     let nulls = array.validity_mask().to_null_buffer();
 
     Ok(Arc::new(GenericListArray::new(
-        element.clone(),
+        element_field,
         arrow_offsets.buffer::<O>().into_arrow_offset_buffer(),
+        values,
+        nulls,
+    )))
+}
+
+fn to_arrow_fixed_size_list(
+    array: FixedSizeListArray,
+    element: Option<&FieldRef>,
+    list_size: i32,
+) -> VortexResult<ArrowArrayRef> {
+    assert!(
+        list_size >= 0,
+        "somehow had a negative list size for arrow fixed-size lists"
+    );
+
+    if list_size as u32 != array.list_size() {
+        vortex_bail!(
+            "Cannot convert a Vortex `FixedSizeListArray` with list size {} to an Arrow `FixedSizeListArray` with list size {list_size}",
+            array.list_size()
+        );
+    }
+
+    let (values, element_field) = if let Some(element) = element {
+        (
+            array.elements().clone().into_arrow(element.data_type())?,
+            element.clone(),
+        )
+    } else {
+        let values = array.elements().clone().into_arrow_preferred()?;
+        let element_field = Arc::new(Field::new_list_field(
+            values.data_type().clone(),
+            array.elements().dtype().is_nullable(),
+        ));
+        (values, element_field)
+    };
+    let nulls = array.validity_mask().to_null_buffer();
+
+    Ok(Arc::new(ArrowFixedSizeListArray::new(
+        element_field,
+        list_size,
         values,
         nulls,
     )))
@@ -423,7 +476,7 @@ mod tests {
     use vortex_scalar::NativeDecimalType;
 
     use crate::IntoArray;
-    use crate::arrays::{DecimalArray, PrimitiveArray, StructArray};
+    use crate::arrays::{DecimalArray, ListArray, PrimitiveArray, StructArray};
     use crate::arrow::IntoArrowArray;
     use crate::arrow::compute::to_arrow;
     use crate::builders::{ArrayBuilder, DecimalBuilder};
@@ -556,5 +609,19 @@ mod tests {
         assert_eq!(arrow_decimal.value(0), i256::from_i128(10));
         assert_eq!(arrow_decimal.value(1), i256::from_i128(11));
         assert_eq!(arrow_decimal.value(2), i256::from_i128(12));
+    }
+
+    #[test]
+    fn to_arrow_list_preferred() {
+        let elements = PrimitiveArray::new(buffer![1u8, 2, 3, 4, 5], Validity::NonNullable);
+        let offsets = PrimitiveArray::new(buffer![0i32, 3, 5], Validity::NonNullable);
+        let list_array = ListArray::try_new(
+            elements.into_array(),
+            offsets.into_array(),
+            Validity::AllValid,
+        )
+        .unwrap();
+
+        list_array.into_array().into_arrow_preferred().unwrap();
     }
 }

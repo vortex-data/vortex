@@ -430,7 +430,7 @@ macro_rules! vortex_bail {
 #[macro_export]
 macro_rules! vortex_ensure {
     ($cond:expr) => {
-        vortex_ensure!($cond, stringify!($cond));
+        vortex_ensure!($cond, AssertionFailed: "{}", stringify!($cond));
     };
     ($cond:expr, $($tt:tt)*) => {
         if !$cond {

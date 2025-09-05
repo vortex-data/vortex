@@ -8,6 +8,7 @@ use vortex_mask::Mask;
 
 use crate::arrays::NullArray;
 use crate::builders::ArrayBuilder;
+use crate::canonical::Canonical;
 use crate::{Array, ArrayRef, IntoArray};
 
 /// The builder for building a [`NullArray`].
@@ -64,5 +65,9 @@ impl ArrayBuilder for NullBuilder {
 
     fn finish(&mut self) -> ArrayRef {
         NullArray::new(self.length).into_array()
+    }
+
+    fn finish_into_canonical(&mut self) -> Canonical {
+        Canonical::Null(NullArray::new(self.length))
     }
 }

@@ -10,7 +10,8 @@ use vortex_mask::Mask;
 
 use crate::arrays::PrimitiveArray;
 use crate::builders::{ArrayBuilder, DEFAULT_BUILDER_CAPACITY, LazyNullBufferBuilder};
-use crate::{Array, ArrayRef, IntoArray, ToCanonical};
+use crate::canonical::{Canonical, ToCanonical};
+use crate::{Array, ArrayRef, IntoArray};
 
 /// The builder for building a [`PrimitiveArray`], parametrized by the `PType`.
 pub struct PrimitiveBuilder<T> {
@@ -177,6 +178,10 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
 
     fn finish(&mut self) -> ArrayRef {
         self.finish_into_primitive().into_array()
+    }
+
+    fn finish_into_canonical(&mut self) -> Canonical {
+        Canonical::Primitive(self.finish_into_primitive())
     }
 }
 

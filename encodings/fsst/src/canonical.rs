@@ -54,7 +54,7 @@ fn fsst_decode_views(fsst_array: &FSSTArray, buf_index: u32) -> (ByteBuffer, Buf
 
     let uncompressed_lens_array = fsst_array.uncompressed_lengths().to_primitive();
 
-    // Decompres the full dataset.
+    // Decompress the full dataset.
     #[allow(clippy::cast_possible_truncation)]
     let total_size: usize = match_each_integer_ptype!(uncompressed_lens_array.ptype(), |P| {
         uncompressed_lens_array
@@ -166,7 +166,7 @@ mod tests {
         chunked_arr.append_to_builder(&mut builder);
 
         {
-            let arr = builder.finish().to_varbinview();
+            let arr = builder.finish_into_canonical().into_varbinview();
             let res1 = arr
                 .with_iterator(|iter| iter.map(|b| b.map(|v| v.to_vec())).collect::<Vec<_>>())
                 .unwrap();

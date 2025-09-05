@@ -113,7 +113,7 @@ pub fn take_canonical_array(
             )
             .map(|a| a.into_array())
         }
-        DType::List(..) => {
+        DType::List(..) | DType::FixedSizeList(..) => {
             let mut builder = builder_with_capacity(array.dtype(), indices_slice_non_opt.len());
             for idx in indices {
                 if let Some(idx) = idx {
@@ -124,7 +124,6 @@ pub fn take_canonical_array(
             }
             Ok(builder.finish())
         }
-        DType::FixedSizeList(..) => unimplemented!("TODO(connor)[FixedSizeList]"),
         d @ (DType::Null | DType::Extension(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }

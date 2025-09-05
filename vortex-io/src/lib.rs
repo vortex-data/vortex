@@ -28,6 +28,7 @@ mod limit;
 #[cfg(feature = "object_store")]
 mod object_store;
 mod read;
+pub mod runtime;
 #[cfg(feature = "tokio")]
 mod tokio;
 mod write;

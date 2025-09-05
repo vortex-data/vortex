@@ -21,6 +21,7 @@ pub trait ArrayIterator: Iterator<Item = VortexResult<ArrayRef>> {
 }
 
 impl ArrayIterator for Box<dyn ArrayIterator + Send> {
+    #[inline]
     fn dtype(&self) -> &DType {
         self.as_ref().dtype()
     }
@@ -32,6 +33,7 @@ pub struct ArrayIteratorAdapter<I> {
 }
 
 impl<I> ArrayIteratorAdapter<I> {
+    #[inline]
     pub fn new(dtype: DType, inner: I) -> Self {
         Self { dtype, inner }
     }
@@ -43,6 +45,7 @@ where
 {
     type Item = VortexResult<ArrayRef>;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.next()
     }
@@ -52,6 +55,7 @@ impl<I> ArrayIterator for ArrayIteratorAdapter<I>
 where
     I: Iterator<Item = VortexResult<ArrayRef>>,
 {
+    #[inline]
     fn dtype(&self) -> &DType {
         &self.dtype
     }
@@ -62,7 +66,7 @@ pub trait ArrayIteratorExt: ArrayIterator {
     where
         Self: Sized,
     {
-        ArrayStreamAdapter::new(self.dtype().clone(), futures_util::stream::iter(self))
+        ArrayStreamAdapter::new(self.dtype().clone(), futures::stream::iter(self))
     }
 
     /// Collect the iterator into a single `Array`.
@@ -107,6 +111,7 @@ enum ArrayChunkIterator {
 impl Iterator for ArrayChunkIterator {
     type Item = VortexResult<ArrayRef>;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         match self {
             ArrayChunkIterator::Single(array) => array.take().map(Ok),

@@ -8,6 +8,7 @@ use arrow_buffer;
 use arrow_buffer::Buffer;
 use bitvec::macros::internal::funty::Fundamental;
 use bitvec::slice::BitSlice;
+use bitvec::view::BitView;
 use vortex::error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err};
 
 use crate::cpp::duckdb_vx_error;
@@ -142,7 +143,17 @@ impl Vector {
     /// # SAFETY
     ///
     /// The provided capacity *must* be the actual capacity of this vector.
-    pub unsafe fn ensure_validity_slice(&mut self, capacity: usize) -> &mut BitSlice<u64> {
+    pub unsafe fn ensure_validity_bitslice(&mut self, capacity: usize) -> &mut BitSlice<u64> {
+        unsafe { self.ensure_validity_slice(capacity) }.view_bits_mut()
+    }
+
+    #[allow(clippy::expect_used)]
+    /// Ensure the validity slice is writable.
+    ///
+    /// # SAFETY
+    ///
+    /// The provided capacity *must* be the actual capacity of this vector.
+    pub unsafe fn ensure_validity_slice(&mut self, capacity: usize) -> &mut [u64] {
         unsafe {
             cpp::duckdb_vector_ensure_validity_writable(self.as_ptr());
             self.validity_slice_mut(capacity)
@@ -155,13 +166,21 @@ impl Vector {
     /// # SAFETY
     ///
     /// The provided capacity *must* be the actual capacity of this vector.
-    pub unsafe fn validity_slice_mut(&mut self, capacity: usize) -> Option<&mut BitSlice<u64>> {
+    pub unsafe fn validity_slice_mut(&mut self, capacity: usize) -> Option<&mut [u64]> {
         let ptr = unsafe { cpp::duckdb_vector_get_validity(self.as_ptr()) };
         unsafe { ptr.as_mut() }.map(|ptr| {
             let len = capacity.div_ceil(64);
-            let slice = unsafe { std::slice::from_raw_parts_mut(ptr, len) };
-            BitSlice::from_slice_mut(slice)
+            unsafe { std::slice::from_raw_parts_mut(ptr, len) }
         })
+    }
+
+    /// Returns the validity slice of the vector, if it exists.
+    ///
+    /// # SAFETY
+    ///
+    /// The provided capacity *must* be the actual capacity of this vector.
+    pub unsafe fn validity_bitslice_mut(&mut self, capacity: usize) -> Option<&mut BitSlice<u64>> {
+        unsafe { self.validity_slice_mut(capacity) }.map(|slice| slice.view_bits_mut())
     }
 
     pub fn validity_ref(&self, len: usize) -> ValidityRef<'_> {
@@ -278,7 +297,7 @@ mod tests {
 
         // Set some positions as null
         // SAFETY: Vector was created with this length.
-        let validity_slice = unsafe { vector.ensure_validity_slice(len) };
+        let validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
         validity_slice.set(1, false); // null at position 1
         validity_slice.set(3, false); // null at position 3
         validity_slice.set(7, false); // null at position 7
@@ -314,7 +333,7 @@ mod tests {
         let mut vector = Vector::with_capacity(logical_type, len);
 
         // SAFETY: Vector was created with this length.
-        let validity_slice = unsafe { vector.ensure_validity_slice(len) };
+        let validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
         validity_slice.set(0, false); // null at position 0
 
         let validity = vector.validity_ref(len);
@@ -335,7 +354,7 @@ mod tests {
 
         // Ensure validity slice exists but don't set any nulls
         // SAFETY: Vector was created with this length.
-        let _validity_slice = unsafe { vector.ensure_validity_slice(len) };
+        let _validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
 
         let validity = vector.validity_ref(len);
         let null_buffer = validity.to_null_buffer();
@@ -367,7 +386,7 @@ mod tests {
         let mut vector = Vector::with_capacity(logical_type, len);
 
         // SAFETY: Vector was created with this length.
-        let validity_slice = unsafe { vector.ensure_validity_slice(len) };
+        let validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
         // Set all positions as null
         for i in 0..len {
             validity_slice.set(i, false);
@@ -410,7 +429,7 @@ mod tests {
 
         // Set some positions as null
         // SAFETY: Vector was created with this length.
-        let validity_slice = unsafe { vector.ensure_validity_slice(len) };
+        let validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
         validity_slice.set(1, false); // null at position 1
         validity_slice.set(3, false); // null at position 3
         validity_slice.set(7, false); // null at position 7
@@ -438,7 +457,7 @@ mod tests {
         let mut vector = Vector::with_capacity(logical_type, len);
 
         // SAFETY: Vector was created with this length.
-        let validity_slice = unsafe { vector.ensure_validity_slice(len) };
+        let validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
         // Set all positions as null
         for i in 0..len {
             validity_slice.set(i, false);
@@ -460,7 +479,7 @@ mod tests {
         let mut vector = Vector::with_capacity(logical_type, len);
 
         // SAFETY: Vector was created with this length.
-        let validity_slice = unsafe { vector.ensure_validity_slice(len) };
+        let validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
         validity_slice.set(0, false); // null at position 0
 
         let validity = vector.validity_ref(len);
@@ -477,7 +496,7 @@ mod tests {
 
         // Ensure validity slice exists but element is valid
         // SAFETY: Vector was created with this length.
-        let _validity_slice = unsafe { vector.ensure_validity_slice(len) };
+        let _validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
 
         let validity = vector.validity_ref(len);
 
@@ -492,7 +511,7 @@ mod tests {
         let mut vector = Vector::with_capacity(logical_type, len);
 
         // SAFETY: Vector was created with this length.
-        let validity_slice = unsafe { vector.ensure_validity_slice(len) };
+        let validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
 
         // Set specific positions as null to test bit manipulation
         validity_slice.set(0, false); // First bit of first u64

@@ -17,13 +17,15 @@ version = { workspace = true }
 bytes = { workspace = true }
 cfg-if = { workspace = true }
 compio = { workspace = true, features = ["bytes", "macros"], optional = true }
-futures = { workspace = true, features = ["std"] }
-futures-util = { workspace = true }
+futures = { workspace = true, features = ["std", "executor"] }
 # Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration
 getrandom_v03 = { workspace = true }
 kanal = { workspace = true }
 object_store = { workspace = true, optional = true, features = ["fs"] }
+oneshot = { workspace = true }
+parking_lot = { workspace = true }
 pin-project = { workspace = true }
+smol = { workspace = true, optional = true }
 # this is the maximum subset of fetaures that is safe for wasm32 targets
 tokio = { workspace = true, features = ["io-util", "rt", "sync"] }
 tracing = { workspace = true }
@@ -35,6 +37,8 @@ vortex-metrics = { workspace = true }
 wasm-bindgen-futures = { workspace = true }
 
 [dev-dependencies]
+anyhow = { workspace = true }
+itertools = { workspace = true }
 rstest = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
@@ -42,8 +46,8 @@ tracing-subscriber = { workspace = true }
 
 [features]
 compio = ["dep:compio", "vortex-buffer/compio"]
-futures = ["futures-util/io"]
 object_store = ["dep:object_store", "vortex-error/object_store"]
+smol = ["dep:smol"]
 tokio = ["tokio/fs"]
 
 [lints]
