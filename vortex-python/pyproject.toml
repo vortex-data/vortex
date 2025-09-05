@@ -78,5 +78,4 @@ dev = [
     "torch>=2.7.0",
     "transformers>=4.52.4",
     "datasets>=4.0.0",
-    "mosaicml-streaming>=0.10.0",
 ]
