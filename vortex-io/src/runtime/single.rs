@@ -8,10 +8,10 @@ use futures::future::BoxFuture;
 use futures::stream::LocalBoxStream;
 use futures::{Stream, StreamExt};
 use parking_lot::Mutex;
-use smol::{LocalExecutor, block_on};
+use smol::{block_on, LocalExecutor};
 use vortex_error::vortex_panic;
 
-use crate::runtime::{AbortHandle, AbortHandleRef, Handle, Runtime};
+use crate::runtime::{AbortHandle, AbortHandleRef, Handle, IoTask, Runtime};
 
 /// A runtime that drives all work on the current thread.
 ///
@@ -20,6 +20,7 @@ use crate::runtime::{AbortHandle, AbortHandleRef, Handle, Runtime};
 pub struct SingleThreadRuntime<'rt> {
     scheduling: kanal::Sender<SpawnFuture<'rt>>,
     cpu: kanal::Sender<SpawnCpu>,
+    io: kanal::Sender<IoTask>,
 }
 
 impl<'rt> SingleThreadRuntime<'rt> {
@@ -29,6 +30,7 @@ impl<'rt> SingleThreadRuntime<'rt> {
     {
         let (scheduling_send, scheduling_recv) = kanal::unbounded::<SpawnFuture<'rt>>();
         let (cpu_send, cpu_recv) = kanal::unbounded::<SpawnCpu>();
+        let (io_send, io_recv) = kanal::unbounded::<IoTask>();
 
         let local = Rc::new(LocalExecutor::new());
 
@@ -61,10 +63,23 @@ impl<'rt> SingleThreadRuntime<'rt> {
             })
             .detach();
 
+        // Drive I/O tasks.
+        let weak_local2 = weak_local;
+        local
+            .spawn(async move {
+                while let Ok(task) = io_recv.as_async().recv().await {
+                    if let Some(local) = weak_local2.upgrade() {
+                        local.spawn(task.drive_local()).detach();
+                    }
+                }
+            })
+            .detach();
+
         (
             Self {
                 scheduling: scheduling_send,
                 cpu: cpu_send,
+                io: io_send,
             },
             local,
         )
@@ -137,6 +152,12 @@ impl<'rt> Runtime<'rt> for SingleThreadRuntime<'rt> {
         }
         Box::new(SmolAbortHandle { task })
     }
+
+    fn spawn_io(&self, task: IoTask) {
+        if let Err(e) = self.io.send(task) {
+            vortex_panic!("Executor missing: {}", e);
+        }
+    }
 }
 
 // A spawn request for a future.
@@ -192,8 +213,8 @@ impl<T> Iterator for BlockingStream<T> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
     use super::*;
 

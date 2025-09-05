@@ -423,6 +423,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-compat"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1ba85bc55464dcbf728b56d97e119d673f4cf9062be330a9a26f3acf504a590"
+dependencies = [
+ "futures-core",
+ "futures-io",
+ "once_cell",
+ "pin-project-lite",
+ "tokio",
+]
+
+[[package]]
 name = "async-executor"
 version = "1.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7091,6 +7104,9 @@ name = "vortex-io"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-compat",
+ "async-stream",
+ "blocking",
  "bytes",
  "cfg-if",
  "compio",
@@ -7098,10 +7114,11 @@ dependencies = [
  "getrandom 0.3.3",
  "itertools 0.14.0",
  "kanal",
+ "log",
  "object_store",
  "oneshot",
  "parking_lot",
- "pin-project",
+ "pin-project-lite",
  "rstest",
  "smol",
  "tempfile",

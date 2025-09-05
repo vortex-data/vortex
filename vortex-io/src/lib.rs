@@ -25,6 +25,7 @@ mod compio;
 mod dispatcher;
 pub mod file;
 mod io_buf;
+mod kanal_ext;
 mod limit;
 #[cfg(feature = "object_store")]
 mod object_store;
@@ -33,6 +34,3 @@ pub mod runtime;
 #[cfg(feature = "tokio")]
 mod tokio;
 mod write;
-
-/// Required alignment for all custom buffer allocations.
-pub const ALIGNMENT: usize = 64;

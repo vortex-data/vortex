@@ -3,12 +3,14 @@
 
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll, ready};
+use std::task::{ready, Context, Poll};
 
-use futures::FutureExt;
-use vortex_error::vortex_panic;
+use futures::{FutureExt, StreamExt};
+use vortex_error::{vortex_panic, VortexResult};
 
-use crate::runtime::{AbortHandle, Runtime};
+use crate::file::{FileRead, IntoIoSource, IoRequestStream};
+use crate::kanal_ext::KanalExt;
+use crate::runtime::{AbortHandle, IoTask, Runtime};
 
 /// A handle to an active Vortex runtime.
 ///
@@ -67,6 +69,23 @@ impl<'rt> Handle<'rt> {
             recv,
             abort_handle: Some(abort_handle),
         }
+    }
+
+    /// Open a file for I/O on this runtime.
+    pub fn open_read<S: IntoIoSource>(&self, source: S) -> VortexResult<FileRead<'rt>> {
+        let source = source.into_io_source()?;
+
+        let (read, events) = FileRead::new(source.uri().clone(), source.size());
+
+        let stream = IoRequestStream::new(
+            StreamExt::boxed(events.to_async().into_stream()),
+            source.coalescing_window(),
+        )
+        .boxed();
+
+        self.0.spawn_io(IoTask::new(source, stream));
+
+        Ok(read)
     }
 }
 

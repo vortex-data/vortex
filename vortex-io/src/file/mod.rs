@@ -1,16 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod stream;
+mod buffer;
+mod driver;
+#[cfg(feature = "object_store")]
+pub mod object_store;
+mod request;
+mod source;
+mod std_file;
 
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt;
+use std::fmt::{Debug, Display};
+use std::marker::PhantomData;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::task::{ready, Context, Poll};
 
-use futures_util::future::{BoxFuture, Shared};
-use futures_util::{FutureExt, TryFutureExt};
+pub(crate) use driver::*;
+use futures::future::{BoxFuture, Shared};
+use futures::{FutureExt, TryFutureExt};
+pub use request::*;
+pub use source::*;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{vortex_err, SharedVortexResult, VortexError, VortexResult};
 
@@ -18,8 +29,8 @@ use vortex_error::{vortex_err, SharedVortexResult, VortexError, VortexResult};
 ///
 /// ## Coalescing and Pre-fetching
 ///
-/// It is important to understand the semantics of the read futures returned by a [`FileHandle`].
-/// Under the hood, each [`FileHandle`] is backed by a stream that services read requests by
+/// It is important to understand the semantics of the read futures returned by a [`FileRead`].
+/// Under the hood, each [`FileRead`] is backed by a stream that services read requests by
 /// applying coalescing and concurrency constraints.
 ///
 /// Each read future has four states:
@@ -37,7 +48,7 @@ use vortex_error::{vortex_err, SharedVortexResult, VortexError, VortexResult};
 /// I/O requests will be processed in the order they are `registered`, however coalescing may mean
 /// other registered requests are lumped together into a single I/O operation.
 #[derive(Clone)]
-pub struct FileHandle {
+pub struct FileRead<'rt> {
     /// Human-readable descriptor for the file, typically its URI.
     uri: Arc<str>,
     /// A shared future that resolves to the size of the file.
@@ -46,23 +57,42 @@ pub struct FileHandle {
     events: kanal::Sender<ReadEvent>,
     /// The next read request ID.
     next_id: Arc<AtomicUsize>,
+    /// Lifetime that ties the file handle to the runtime it was opened on.
+    _rt: PhantomData<&'rt ()>,
 }
 
-impl Debug for FileHandle {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl Debug for FileRead<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FileHandle")
             .field("uri", &self.uri)
             .finish()
     }
 }
 
-impl Display for FileHandle {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl Display for FileRead<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.uri)
     }
 }
 
-impl FileHandle {
+impl FileRead<'_> {
+    pub(crate) fn new(
+        uri: Arc<str>,
+        size: BoxFuture<'static, VortexResult<u64>>,
+    ) -> (Self, kanal::Receiver<ReadEvent>) {
+        let (send, recv) = kanal::unbounded::<ReadEvent>();
+        (
+            Self {
+                uri,
+                size: size.map_err(Arc::new).boxed().shared(),
+                events: send,
+                next_id: Arc::new(AtomicUsize::new(0)),
+                _rt: Default::default(),
+            },
+            recv,
+        )
+    }
+
     /// The URI of the file.
     pub fn uri(&self) -> &Arc<str> {
         &self.uri
@@ -77,13 +107,13 @@ impl FileHandle {
     pub fn read(&self, offset: u64, length: usize, alignment: Alignment) -> ReadFuture {
         let (send, recv) = oneshot::channel();
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let event = ReadEvent::Request {
+        let event = ReadEvent::Request(ReadRequest {
             id,
             offset,
             length,
             alignment,
             callback: send,
-        };
+        });
 
         // If we fail to submit the event, we create a ReadFuture that has already failed.
         if let Err(e) = self.events.send(event) {
@@ -108,21 +138,44 @@ impl FileHandle {
 
 type RequestId = usize;
 
-enum ReadEvent {
-    Request {
-        id: RequestId,
-        offset: u64,
-        length: usize,
-        alignment: Alignment,
-        callback: oneshot::Sender<VortexResult<ByteBuffer>>,
-    },
+#[derive(Debug)]
+pub(crate) enum ReadEvent {
+    Request(ReadRequest),
     Polled(RequestId),
     Dropped(RequestId),
 }
 
-/// A future that resolves a read request from a [`FileHandle`].
+pub(crate) struct ReadRequest {
+    id: RequestId,
+    offset: u64,
+    length: usize,
+    alignment: Alignment,
+    callback: oneshot::Sender<VortexResult<ByteBuffer>>,
+}
+
+impl Debug for ReadRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ReadRequest")
+            .field("id", &self.id)
+            .field("offset", &self.offset)
+            .field("length", &self.length)
+            .field("alignment", &self.alignment)
+            .field("is_closed", &self.callback.is_closed())
+            .finish()
+    }
+}
+
+impl ReadRequest {
+    pub(crate) fn resolve(self, result: VortexResult<ByteBuffer>) {
+        if let Err(e) = self.callback.send(result) {
+            log::debug!("ReadRequest {} dropped before resolving: {e}", self.id);
+        }
+    }
+}
+
+/// A future that resolves a read request from a [`FileRead`].
 ///
-/// See the documentation for [`FileHandle`] for details on coalescing and pre-fetching.
+/// See the documentation for [`FileRead`] for details on coalescing and pre-fetching.
 /// If dropped, the read request will be canceled where possible.
 pub struct ReadFuture {
     id: usize,
