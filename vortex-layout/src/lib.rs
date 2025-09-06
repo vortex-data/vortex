@@ -3,8 +3,6 @@
 
 mod registry;
 pub use registry::*;
-mod executor;
-pub use executor::*;
 pub mod layouts;
 
 pub use children::*;

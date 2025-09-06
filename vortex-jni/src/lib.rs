@@ -6,7 +6,6 @@ use std::sync::{Arc, LazyLock};
 use tokio::runtime::{Builder, Runtime};
 use tokio::task::JoinHandle;
 use vortex::error::VortexExpect;
-use vortex::layout::TaskExecutor;
 use vortex::session::VortexSession;
 
 macro_rules! throw_runtime {

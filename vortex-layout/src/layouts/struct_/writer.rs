@@ -108,26 +108,28 @@ where
             .unzip();
 
         // Spawn a task to fan out column chunks to their respective transposed streams
-        handle.spawn(async move {
-            pin_mut!(columns_vec_stream);
-            while let Some(result) = columns_vec_stream.next().await {
-                println!("Pushing struct columns {:?}", result);
-                match result {
-                    Ok(columns) => {
-                        for (tx, column) in column_streams_tx.iter().zip_eq(columns.into_iter()) {
-                            let _ = tx.send(Ok(column)).await;
+        handle
+            .spawn(async move {
+                pin_mut!(columns_vec_stream);
+                while let Some(result) = columns_vec_stream.next().await {
+                    match result {
+                        Ok(columns) => {
+                            for (tx, column) in column_streams_tx.iter().zip_eq(columns.into_iter())
+                            {
+                                let _ = tx.send(Ok(column)).await;
+                            }
                         }
-                    }
-                    Err(e) => {
-                        let e: Arc<VortexError> = Arc::new(e);
-                        for tx in column_streams_tx.iter() {
-                            let _ = tx.send(Err(VortexError::from(e.clone()))).await;
+                        Err(e) => {
+                            let e: Arc<VortexError> = Arc::new(e);
+                            for tx in column_streams_tx.iter() {
+                                let _ = tx.send(Err(VortexError::from(e.clone()))).await;
+                            }
+                            break;
                         }
-                        break;
                     }
                 }
-            }
-        });
+            })
+            .detach();
 
         let column_dtypes = (0..struct_dtype.nfields()).map(move |idx| {
             struct_dtype

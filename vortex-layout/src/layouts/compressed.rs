@@ -60,8 +60,7 @@ impl CompressorPlugin for crate::layouts::compact::CompactCompressor {
 pub struct CompressingStrategy<S> {
     child: S,
     compressor: Arc<dyn CompressorPlugin>,
-    executor: Arc<dyn TaskExecutor>,
-    parallelism: usize,
+    concurrency: usize,
 }
 
 impl<S: LayoutStrategy> CompressingStrategy<S> {
@@ -73,8 +72,7 @@ impl<S: LayoutStrategy> CompressingStrategy<S> {
     /// which is useful when compressing dictionary codes to avoid recursive dictionary encoding.
     pub fn new_btrblocks(
         child: S,
-        executor: Arc<dyn TaskExecutor>,
-        parallelism: usize,
+        concurrency: usize,
         exclude_int_dict_encoding: bool,
     ) -> Self {
         Self {
@@ -82,8 +80,7 @@ impl<S: LayoutStrategy> CompressingStrategy<S> {
             compressor: Arc::new(BtrBlocksCompressor {
                 exclude_int_dict_encoding,
             }),
-            executor,
-            parallelism,
+            concurrency,
         }
     }
 
@@ -98,14 +95,12 @@ impl<S: LayoutStrategy> CompressingStrategy<S> {
     pub fn new_compact(
         child: S,
         compressor: crate::layouts::compact::CompactCompressor,
-        executor: Arc<dyn TaskExecutor>,
-        parallelism: usize,
+        concurrency: usize,
     ) -> Self {
         Self {
             child,
             compressor: Arc::new(compressor),
-            executor,
-            parallelism,
+            concurrency,
         }
     }
 
@@ -113,14 +108,12 @@ impl<S: LayoutStrategy> CompressingStrategy<S> {
     pub fn new_opaque<C: CompressorPlugin>(
         child: S,
         compressor: C,
-        executor: Arc<dyn TaskExecutor>,
-        parallelism: usize,
+        concurrency: usize,
     ) -> Self {
         Self {
             child,
             compressor: Arc::new(compressor),
-            executor,
-            parallelism,
+            concurrency,
         }
     }
 }
@@ -157,7 +150,7 @@ where
                 }
             })
             .map(move |compress_future| handle2.spawn_cpu(compress_future))
-            .buffered(self.parallelism);
+            .buffered(self.concurrency);
 
         self.child
             .write_stream(

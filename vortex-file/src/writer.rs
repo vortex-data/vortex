@@ -164,7 +164,6 @@ impl VortexWriteOptions {
                 let layout = self.strategy
                     .write_stream(&ctx2, &segments, stream, eof, handle2)
                     .await?;
-                println!("Layout written: {layout:?}");
                 Ok::<_, VortexError>((layout, segments.to_specs()))
             });
 
@@ -173,14 +172,12 @@ impl VortexWriteOptions {
             pin_mut!(recv_stream);
             while let Some(buffer) = recv_stream.next().await {
                 let buffer = buffer?;
-                println!("Writing segment of {} bytes", buffer.len());
                 if buffer.is_empty() {
                     continue;
                 }
                 position += buffer.len() as u64;
                 yield buffer;
             }
-            println!("All segments written; final position is {}", position);
 
             let (layout, segment_specs) = layout_fut.await?;
 

@@ -3,10 +3,10 @@
 
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll, ready};
+use std::task::{ready, Context, Poll};
 
 use futures::{FutureExt, StreamExt};
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_error::{vortex_panic, VortexResult};
 
 use crate::file::{FileRead, IntoIoSource, IoRequestStream};
 use crate::kanal_ext::KanalExt;
@@ -93,6 +93,7 @@ impl<'rt> Handle<'rt> {
 ///
 /// If this handle is dropped, the task is cancelled where possible. In order to allow the task to
 /// continue running in the background, call [`Task::detach`].
+#[must_use = "When a Task is dropped without being awaited, it is cancelled"]
 pub struct Task<'rt, T> {
     recv: oneshot::Receiver<T>,
     abort_handle: Option<Box<dyn AbortHandle<'rt> + 'rt>>,

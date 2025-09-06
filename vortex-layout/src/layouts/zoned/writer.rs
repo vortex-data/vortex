@@ -29,7 +29,7 @@ pub struct ZonedLayoutOptions {
     /// Maximum length of a variable length statistics
     pub max_variable_length_statistics_size: usize,
     /// Number of chunks to compute in parallel.
-    pub parallelism: usize,
+    pub concurrency: usize,
 }
 
 impl Default for ZonedLayoutOptions {
@@ -38,7 +38,7 @@ impl Default for ZonedLayoutOptions {
             block_size: 8192,
             stats: PRUNING_STATS.into(),
             max_variable_length_statistics_size: 64,
-            parallelism: 16,
+            concurrency: 16,
         }
     }
 }
@@ -99,7 +99,7 @@ where
                     .boxed()
                 })
                 .map(move |stats_future| handle2.spawn(stats_future))
-                .buffered(self.options.parallelism),
+                .buffered(self.options.concurrency),
         )
         .sendable();
 
