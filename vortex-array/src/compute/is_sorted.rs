@@ -60,7 +60,7 @@ impl ComputeFnVTable for IsSorted {
             if let Some(Precision::Exact(value)) =
                 array.statistics().get_as::<bool>(Stat::IsStrictSorted)
             {
-                return Ok(Scalar::from(value).into());
+                return Ok(Scalar::from(Some(value)).into());
             }
 
             let is_strict_sorted = is_sorted_impl(array, kernels, true)?;
@@ -79,7 +79,7 @@ impl ComputeFnVTable for IsSorted {
         } else {
             if let Some(Precision::Exact(value)) = array.statistics().get_as::<bool>(Stat::IsSorted)
             {
-                return Ok(Scalar::from(value).into());
+                return Ok(Scalar::from(Some(value)).into());
             }
 
             let is_sorted = is_sorted_impl(array, kernels, false)?;
