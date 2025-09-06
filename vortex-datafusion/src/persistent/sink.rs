@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use arrow_schema::SchemaRef;
 use async_trait::async_trait;
@@ -16,16 +16,16 @@ use datafusion_execution::{SendableRecordBatchStream, TaskContext};
 use datafusion_physical_plan::metrics::MetricsSet;
 use datafusion_physical_plan::{DisplayAs, DisplayFormatType};
 use futures::StreamExt;
-use object_store::ObjectStore;
 use object_store::path::Path;
+use object_store::ObjectStore;
 use tokio_stream::wrappers::ReceiverStream;
-use vortex::ArrayRef;
 use vortex::arrow::FromArrowArray;
-use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
+use vortex::dtype::DType;
 use vortex::error::VortexResult;
 use vortex::file::VortexWriteOptions;
 use vortex::stream::ArrayStreamAdapter;
+use vortex::ArrayRef;
 
 pub struct VortexSink {
     config: FileSinkConfig,
@@ -109,6 +109,7 @@ impl FileSink for VortexSink {
             // the demux task might deadlock itself.
             file_write_tasks.spawn(async move {
                 let stream = ReceiverStream::new(rx).map(move |rb| {
+                    println!("Writing batch of {} rows to {}", rb.num_rows(), path);
                     row_counter.fetch_add(rb.num_rows() as u64, Ordering::Relaxed);
                     VortexResult::Ok(ArrayRef::from_arrow(rb, false))
                 });
@@ -166,7 +167,7 @@ mod tests {
     use rstest::rstest;
     use tempfile::TempDir;
 
-    use crate::persistent::{VortexFormatFactory, register_vortex_format_factory};
+    use crate::persistent::{register_vortex_format_factory, VortexFormatFactory};
 
     #[tokio::test]
     async fn test_insert_into() {
