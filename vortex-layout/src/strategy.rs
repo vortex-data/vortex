@@ -12,7 +12,7 @@ use crate::LayoutRef;
 
 // [layout writer]
 #[async_trait]
-pub trait LayoutStrategy: 'static + Send + Sync {
+pub trait LayoutStrategy: Send + Sync {
     /// Asynchronously process an ordered stream of array chunks, emitting them into a sink and
     /// returning the [`Layout`][crate::Layout] instance that can be parsed to retrieve the data
     /// from rest.
@@ -34,13 +34,13 @@ pub trait LayoutStrategy: 'static + Send + Sync {
     ///
     /// Consider accepting a [`TaskExecutor`][crate::TaskExecutor] as an input to your strategy
     /// to support spawning this work in the background.
-    async fn write_stream<'rt>(
+    async fn write_stream<'a>(
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
-        stream: SendableSequentialStream,
+        stream: SendableSequentialStream<'a>,
         eof: SequencePointer,
-        handle: Handle<'rt>,
+        handle: Handle<'a>,
     ) -> VortexResult<LayoutRef>;
 }
 // [layout writer]

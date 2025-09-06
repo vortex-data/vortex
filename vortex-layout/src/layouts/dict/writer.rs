@@ -15,7 +15,9 @@ use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dict::builders::{dict_encoder, DictConstraints, DictEncoder};
 use vortex_dict::DictEncoding;
 use vortex_dtype::{DType, PType};
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult, VortexUnwrap};
+use vortex_error::{
+    vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult, VortexUnwrap,
+};
 use vortex_io::runtime::Handle;
 
 use super::DictLayout;
@@ -25,9 +27,7 @@ use crate::sequence::{
     SendableSequentialStream, SequenceId, SequencePointer, SequentialStreamAdapter,
     SequentialStreamExt,
 };
-use crate::{
-    IntoLayout, LayoutRef, LayoutStrategy, OwnedLayoutChildren, TaskExecutor, TaskExecutorExt as _,
-};
+use crate::{IntoLayout, LayoutRef, LayoutStrategy, OwnedLayoutChildren, TaskExecutor};
 
 #[derive(Clone)]
 pub struct DictLayoutOptions {
@@ -92,13 +92,13 @@ where
     Values: LayoutStrategy,
     Fallback: LayoutStrategy,
 {
-    async fn write_stream<'rt>(
+    async fn write_stream<'a>(
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
-        stream: SendableSequentialStream,
+        stream: SendableSequentialStream<'a>,
         mut eof: SequencePointer,
-        handle: Handle<'rt>,
+        handle: Handle<'a>,
     ) -> VortexResult<LayoutRef> {
         if !dict_layout_supported(stream.dtype()) {
             return self
@@ -106,10 +106,9 @@ where
                 .write_stream(ctx, segment_sink, stream, eof, handle)
                 .await;
         }
-        let ctx = ctx.clone();
         let options = self.options.clone();
         let dtype = stream.dtype().clone();
-        let executor = self.executor.clone();
+
         // 0. decide if chunks are eligible for dict encoding
         let (stream, first_chunk) = peek_first_chunk(stream).await?;
         let stream = SequentialStreamAdapter::new(dtype.clone(), stream).sendable();
@@ -125,7 +124,7 @@ where
             // first chunk did not compress to dict, or did not exist. Skip dict layout
             return self
                 .fallback
-                .write_stream(&ctx, segment_sink, stream, eof, handle)
+                .write_stream(ctx, segment_sink, stream, eof, handle)
                 .await;
         }
 
@@ -136,7 +135,7 @@ where
 
         // 2.a spawn encoding codes
         let (mut encoded_tx, encoded_rx) = mpsc::channel(options.encoded_buffer_size);
-        let encode_handle = executor.spawn({
+        let encode_handle = handle.spawn({
             async move {
                 while let Some(item) = dict_stream.next().await {
                     encoded_tx
@@ -144,7 +143,7 @@ where
                         .await
                         .map_err(|e| vortex_err!("rx dropped: {}", e))?;
                 }
-                Ok(())
+                Ok::<_, VortexError>(())
             }
             .boxed()
         });
@@ -165,7 +164,7 @@ where
                 let codes_layout = self
                     .codes
                     .write_stream(
-                        &ctx,
+                        ctx,
                         segment_sink,
                         SequentialStreamAdapter::new(codes_dtype, codes_stream).sendable(),
                         eof.advance().descend(),
@@ -175,7 +174,7 @@ where
                 let values_layout = self
                     .values
                     .write_stream(
-                        &ctx,
+                        ctx,
                         segment_sink,
                         SequentialStreamAdapter::new(dtype_clone.clone(), once(values_future))
                             .sendable(),
@@ -210,7 +209,7 @@ enum DictionaryChunk {
     Values((SequenceId, ArrayRef)),
 }
 
-type DictionaryStream = BoxStream<'static, VortexResult<DictionaryChunk>>;
+type DictionaryStream<'a> = BoxStream<'a, VortexResult<DictionaryChunk>>;
 
 fn dict_encode_stream(
     input: SendableSequentialStream,
@@ -335,12 +334,12 @@ impl DictChunkLabeler {
 
 type SequencedChunk = VortexResult<(SequenceId, ArrayRef)>;
 
-struct DictEncodedRuns {
-    input: Option<oneshot::Receiver<Option<DictionaryStream>>>,
+struct DictEncodedRuns<'rt> {
+    input: Option<oneshot::Receiver<Option<DictionaryStream<'rt>>>>,
 }
 
-impl DictEncodedRuns {
-    fn new(input: DictionaryStream) -> Self {
+impl<'a> DictEncodedRuns<'a> {
+    fn new(input: DictionaryStream<'a>) -> Self {
         let (tx, rx) = oneshot::channel();
         tx.send(Some(input))
             .map_err(|_input| vortex_err!("just created rx"))
@@ -351,8 +350,8 @@ impl DictEncodedRuns {
     async fn next_run(
         &mut self,
     ) -> Option<(
-        DictEncodedRunStream,
-        impl Future<Output = SequencedChunk> + use<>,
+        DictEncodedRunStream<'a>,
+        impl Future<Output = SequencedChunk> + 'a,
     )> {
         // get input to send to the run stream.
         let Ok(Some(input)) = self.input.take()?.await else {
@@ -379,13 +378,13 @@ impl DictEncodedRuns {
     }
 }
 
-struct DictEncodedRunStream {
-    input: Option<DictionaryStream>,
-    input_tx: Option<oneshot::Sender<Option<DictionaryStream>>>,
+struct DictEncodedRunStream<'a> {
+    input: Option<DictionaryStream<'a>>,
+    input_tx: Option<oneshot::Sender<Option<DictionaryStream<'a>>>>,
     values_tx: Option<oneshot::Sender<SequencedChunk>>,
 }
 
-impl Stream for DictEncodedRunStream {
+impl Stream for DictEncodedRunStream<'_> {
     type Item = SequencedChunk;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -412,7 +411,7 @@ impl Stream for DictEncodedRunStream {
     }
 }
 
-impl DictEncodedRunStream {
+impl DictEncodedRunStream<'_> {
     fn send_values(&mut self, item: (SequenceId, ArrayRef)) {
         // ignore receiver drops
         let _ = self
@@ -432,7 +431,7 @@ impl DictEncodedRunStream {
     }
 }
 
-impl Drop for DictEncodedRunStream {
+impl Drop for DictEncodedRunStream<'_> {
     fn drop(&mut self) {
         if let Some(tx) = self.input_tx.take() {
             let _ = tx.send(self.input.take());
@@ -440,9 +439,9 @@ impl Drop for DictEncodedRunStream {
     }
 }
 
-async fn peek_first_chunk(
-    mut stream: BoxStream<'static, SequencedChunk>,
-) -> VortexResult<(BoxStream<'static, SequencedChunk>, Option<ArrayRef>)> {
+async fn peek_first_chunk<'a>(
+    mut stream: BoxStream<'a, SequencedChunk>,
+) -> VortexResult<(BoxStream<'a, SequencedChunk>, Option<ArrayRef>)> {
     match stream.next().await {
         None => Ok((stream.boxed(), None)),
         Some(Err(e)) => Err(e),

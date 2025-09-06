@@ -19,7 +19,7 @@ use crate::sequence::{
     SendableSequentialStream, SequenceId, SequencePointer, SequentialArrayStreamExt,
     SequentialStreamAdapter, SequentialStreamExt,
 };
-use crate::{IntoLayout, LayoutRef, LayoutStrategy, TaskExecutor, TaskExecutorExt};
+use crate::{IntoLayout, LayoutRef, LayoutStrategy, TaskExecutor};
 
 pub struct ZonedLayoutOptions {
     /// The size of a statistics block
@@ -76,16 +76,16 @@ where
     Child: LayoutStrategy,
     Stats: LayoutStrategy,
 {
-    async fn write_stream<'rt>(
+    async fn write_stream<'a>(
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
-        stream: SendableSequentialStream,
+        stream: SendableSequentialStream<'a>,
         eof: SequencePointer,
-        handle: Handle<'rt>,
+        handle: Handle<'a>,
     ) -> VortexResult<LayoutRef> {
-        let executor = self.executor.clone();
         let stats = self.options.stats.clone();
+        let handle2 = handle.clone();
         let precomputed_stream = SequentialStreamAdapter::new(
             stream.dtype().clone(),
             stream
@@ -98,7 +98,7 @@ where
                     }
                     .boxed()
                 })
-                .map(move |stats_future| executor.spawn(stats_future))
+                .map(move |stats_future| handle2.spawn(stats_future))
                 .buffered(self.options.parallelism),
         )
         .sendable();

@@ -7184,6 +7184,7 @@ dependencies = [
  "futures",
  "getrandom 0.3.3",
  "itertools 0.14.0",
+ "kanal",
  "log",
  "once_cell",
  "parking_lot",

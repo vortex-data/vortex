@@ -1,24 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::future;
 use std::sync::Arc;
-use std::task::Poll;
 
 use async_stream::try_stream;
-use futures::{pin_mut, poll, Stream, StreamExt, TryStreamExt};
+use futures::future::ready;
+use futures::{pin_mut, Stream, StreamExt, TryStreamExt};
 use vortex_array::stats::{Stat, PRUNING_STATS};
 use vortex_array::stream::ArrayStream;
 use vortex_array::ArrayContext;
 use vortex_buffer::ByteBuffer;
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{vortex_err, VortexError, VortexExpect, VortexResult};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
+use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::single::SingleThreadRuntime;
 use vortex_io::runtime::Handle;
 use vortex_io::VortexWrite;
 use vortex_layout::layouts::file_stats::accumulate_stats;
 use vortex_layout::sequence::{SequenceId, SequentialStreamAdapter, SequentialStreamExt};
-use vortex_layout::{LayoutContext, LayoutRef, LayoutStrategy, LocalExecutor};
+use vortex_layout::{LayoutContext, LayoutStrategy, LocalExecutor};
 
 use crate::footer::{FileStatistics, FooterFlatBufferWriter, Postscript, PostscriptSegment};
 use crate::segments::writer::BufferedSegmentSink;
@@ -121,62 +121,68 @@ impl VortexWriteOptions {
         Ok(write)
     }
 
-    pub fn write_stream<S: ArrayStream + Unpin + Send + 'static>(
-        &self,
+    pub fn write_stream<'rt, S: ArrayStream + Unpin + Send + 'rt>(
+        self,
         stream: S,
-        handle: Handle,
-    ) -> impl Stream<Item = VortexResult<ByteBuffer>> {
+        handle: Handle<'rt>,
+    ) -> impl Stream<Item = VortexResult<ByteBuffer>> + 'rt {
+        // Set up a Context to capture the encodings used in the file.
+        let ctx = ArrayContext::empty();
+
+        let dtype = stream.dtype().clone();
+
+        let (mut ptr, eof) = SequenceId::root().split();
+
+        let stream = SequentialStreamAdapter::new(
+            dtype.clone(),
+            stream
+                .try_filter(|chunk| ready(!chunk.is_empty()))
+                .map(move |result| result.map(|chunk| (ptr.advance(), chunk))),
+        )
+        .sendable();
+        let (file_stats, stream) = accumulate_stats(
+            stream,
+            self.file_statistics.clone().into(),
+            self.max_variable_length_statistics_size,
+        );
+
         try_stream! {
-            // Set up a Context to capture the encodings used in the file.
-            let ctx = ArrayContext::empty();
+            // First, write the magic bytes.
+            yield ByteBuffer::copy_from(MAGIC_BYTES);
+            let mut position = MAGIC_BYTES.len() as u64;
 
-            let dtype = stream.dtype().clone();
+            // Create a channel to send buffers from the segment sink to the output stream.
+            let (send, recv) = kanal::bounded_async(16);
 
-            let (mut ptr, eof) = SequenceId::root().split();
-            let stream = SequentialStreamAdapter::new(
-                dtype.clone(),
-                stream
-                    .try_filter(|chunk| future::ready(!chunk.is_empty()))
-                    .map(move |result| result.map(|chunk| (ptr.advance(), chunk))),
-            )
-            .sendable();
+            let segments = BufferedSegmentSink::new(send, position);
 
-            let (file_stats, stream) = accumulate_stats(
-                stream,
-                self.file_statistics.clone().into(),
-                self.max_variable_length_statistics_size,
-            );
+            // We spawn the layout future so it is driven in the background while we yield the
+            // buffer stream, so we don't need to poll it until all buffers have been drained.
+            let handle2 = handle.clone();
+            let ctx2 = ctx.clone();
+            let layout_fut = handle.spawn(async move {
+                let layout = self.strategy
+                    .write_stream(&ctx2, &segments, stream, eof, handle2)
+                    .await?;
+                println!("Layout written: {layout:?}");
+                Ok::<_, VortexError>((layout, segments.to_specs()))
+            });
 
-            // Create a segment writer with the initial MAGIC BYTES already written.
-            let segments = BufferedSegmentSink::new([ByteBuffer::copy_from(MAGIC_BYTES)]);
-
-            let layout = {
-                let layout_fut = self.strategy.write_stream(&ctx, &segments, stream, eof, handle);
-                pin_mut!(layout_fut);
-
-                // Now, we sit in a loop polling the layout future and draining the segment writer.
-                let layout: LayoutRef;
-                loop {
-                    // On each iteration, attempt to drain the segment writer to send buffers.
-                    for buffer in segments.drain_to_vec() {
-                        yield buffer;
-                    }
-
-                    // Then we poll the layout future once.
-                    if let Poll::Ready(result) = poll!(&mut layout_fut) {
-                        layout = result?;
-                        // Drain the buffers one last time.
-                        for buffer in segments.drain_to_vec() {
-                            yield buffer;
-                        }
-                        break layout;
-                    }
+            // Yield buffers as they arrive
+            let recv_stream = recv.into_stream();
+            pin_mut!(recv_stream);
+            while let Some(buffer) = recv_stream.next().await {
+                let buffer = buffer?;
+                println!("Writing segment of {} bytes", buffer.len());
+                if buffer.is_empty() {
+                    continue;
                 }
-            };
+                position += buffer.len() as u64;
+                yield buffer;
+            }
+            println!("All segments written; final position is {}", position);
 
-            // Once we finish writing our layout, we need to extract the segment specs.
-            let mut position = segments.byte_offset();
-            let segment_specs = segments.into_specs();
+            let (layout, segment_specs) = layout_fut.await?;
 
             let dtype_segment = if self.exclude_dtype {
                 None

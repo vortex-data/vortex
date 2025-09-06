@@ -36,13 +36,13 @@ impl Default for FlatLayoutStrategy {
 
 #[async_trait]
 impl LayoutStrategy for FlatLayoutStrategy {
-    async fn write_stream<'rt>(
+    async fn write_stream<'a>(
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
-        mut stream: SendableSequentialStream,
+        mut stream: SendableSequentialStream<'a>,
         _eof: SequencePointer,
-        _handle: Handle<'rt>,
+        _handle: Handle<'a>,
     ) -> VortexResult<LayoutRef> {
         let ctx = ctx.clone();
         let options = self.clone();

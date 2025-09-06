@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::{FutureExt as _, StreamExt as _};
+use futures::StreamExt as _;
 use vortex_array::stats::Stat;
 use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_btrblocks::BtrBlocksCompressor;
@@ -15,7 +15,7 @@ use crate::segments::SegmentSink;
 use crate::sequence::{
     SendableSequentialStream, SequencePointer, SequentialStreamAdapter, SequentialStreamExt as _,
 };
-use crate::{LayoutRef, LayoutStrategy, TaskExecutor, TaskExecutorExt as _};
+use crate::{LayoutRef, LayoutStrategy, TaskExecutor};
 
 /// A boxed compressor function from arrays into compressed arrays.
 ///
@@ -130,32 +130,33 @@ impl<S> LayoutStrategy for CompressingStrategy<S>
 where
     S: LayoutStrategy,
 {
-    async fn write_stream<'rt>(
+    async fn write_stream<'a>(
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
-        stream: SendableSequentialStream,
+        stream: SendableSequentialStream<'a>,
         eof: SequencePointer,
-        handle: Handle<'rt>,
+        handle: Handle<'a>,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         let compressor = self.compressor.clone();
-        let executor = self.executor.clone();
 
+        let handle2 = handle.clone();
         let stream = stream
             .map(move |chunk| {
                 let compressor = compressor.clone();
-                async move {
-                    let (sequence_id, chunk) = chunk?;
-                    // Compute the stats for the chunk prior to compression
-                    chunk
-                        .statistics()
-                        .compute_all(&Stat::all().collect::<Vec<_>>())?;
-                    Ok((sequence_id, compressor.compress_chunk(&chunk)?))
+                move || {
+                    {
+                        let (sequence_id, chunk) = chunk?;
+                        // Compute the stats for the chunk prior to compression
+                        chunk
+                            .statistics()
+                            .compute_all(&Stat::all().collect::<Vec<_>>())?;
+                        Ok((sequence_id, compressor.compress_chunk(&chunk)?))
+                    }
                 }
-                .boxed()
             })
-            .map(move |compress_future| executor.spawn(compress_future))
+            .map(move |compress_future| handle2.spawn_cpu(compress_future))
             .buffered(self.parallelism);
 
         self.child

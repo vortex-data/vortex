@@ -9,11 +9,12 @@ use std::task::{ready, Context, Poll, Waker};
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use futures::task::{waker_ref, ArcWake};
-use futures::{FutureExt, Stream, StreamExt, TryStreamExt};
+use futures::{pin_mut, FutureExt, Stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use parking_lot::Mutex;
 use vortex_array::{Array, ArrayContext, ToCanonical};
-use vortex_error::{vortex_bail, VortexExpect as _, VortexResult};
+use vortex_error::{vortex_bail, VortexError, VortexExpect as _, VortexResult};
+use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::Handle;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
@@ -45,13 +46,13 @@ impl<S> LayoutStrategy for StructStrategy<S>
 where
     S: LayoutStrategy,
 {
-    async fn write_stream<'rt>(
+    async fn write_stream<'a>(
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
-        stream: SendableSequentialStream,
+        stream: SendableSequentialStream<'a>,
         mut eof: SequencePointer,
-        handle: Handle<'rt>,
+        handle: Handle<'a>,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         let Some(struct_dtype) = stream.dtype().as_struct_fields_opt().cloned() else {
@@ -102,8 +103,31 @@ where
             Ok(columns)
         });
 
-        // stream<vec<column_chunk>> -> vec<stream<column_chunk>>
-        let column_streams = transpose_stream(columns_vec_stream, struct_dtype.nfields());
+        let (column_streams_tx, column_streams_rx): (Vec<_>, Vec<_>) = (0..struct_dtype.nfields())
+            .map(|_| kanal::unbounded_async())
+            .unzip();
+
+        // Spawn a task to fan out column chunks to their respective transposed streams
+        handle.spawn(async move {
+            pin_mut!(columns_vec_stream);
+            while let Some(result) = columns_vec_stream.next().await {
+                println!("Pushing struct columns {:?}", result);
+                match result {
+                    Ok(columns) => {
+                        for (tx, column) in column_streams_tx.iter().zip_eq(columns.into_iter()) {
+                            let _ = tx.send(Ok(column)).await;
+                        }
+                    }
+                    Err(e) => {
+                        let e: Arc<VortexError> = Arc::new(e);
+                        for tx in column_streams_tx.iter() {
+                            let _ = tx.send(Err(VortexError::from(e.clone()))).await;
+                        }
+                        break;
+                    }
+                }
+            }
+        });
 
         let column_dtypes = (0..struct_dtype.nfields()).map(move |idx| {
             struct_dtype
@@ -112,9 +136,10 @@ where
         });
 
         let layout_futures: Vec<_> = column_dtypes
-            .zip_eq(column_streams)
-            .map(move |(dtype, stream)| {
-                let column_stream = SequentialStreamAdapter::new(dtype, stream).sendable();
+            .zip_eq(column_streams_rx)
+            .map(move |(dtype, recv)| {
+                let column_stream =
+                    SequentialStreamAdapter::new(dtype, recv.into_stream().boxed()).sendable();
                 self.child
                     .write_stream(
                         ctx,
