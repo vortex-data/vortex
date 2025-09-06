@@ -22,7 +22,6 @@ use vortex_expr::transform::simplify_typed;
 use vortex_expr::{ExprRef, root};
 use vortex_layout::layouts::row_idx::RowIdxLayoutReader;
 use vortex_layout::{LayoutReader, LayoutReaderRef};
-pub use vortex_layout::{TaskExecutor, TaskExecutorExt};
 use vortex_metrics::VortexMetrics;
 
 use crate::filter::FilterExpr;

@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use vortex_array::stats::PRUNING_STATS;
+use vortex_layout::LayoutStrategy;
 use vortex_layout::layouts::buffered::BufferedStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::compressed::{CompressingStrategy, CompressorPlugin};
@@ -14,7 +15,6 @@ use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::repartition::{RepartitionStrategy, RepartitionWriterOptions};
 use vortex_layout::layouts::struct_::writer::StructStrategy;
 use vortex_layout::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
-use vortex_layout::LayoutStrategy;
 
 const ONE_MEG: u64 = 1 << 20;
 const ROW_BLOCK_SIZE: usize = 8192;

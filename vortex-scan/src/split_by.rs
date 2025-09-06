@@ -7,7 +7,7 @@ use std::ops::Range;
 use itertools::Itertools;
 use vortex_array::stats::StatBound;
 use vortex_dtype::FieldMask;
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::{VortexResult, vortex_err};
 
 use crate::LayoutReader;
 
@@ -70,10 +70,10 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_dtype::FieldPath;
     use vortex_io::runtime::single::SingleThreadRuntime;
+    use vortex_layout::LayoutStrategy;
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
     use vortex_layout::segments::{SegmentSource, TestSegments};
     use vortex_layout::sequence::{SequenceId, SequentialArrayStreamExt};
-    use vortex_layout::LayoutStrategy;
 
     use super::*;
 

@@ -2,32 +2,29 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::io;
-use std::sync::Arc;
 
 use futures::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
 use noodles_vcf::Record;
 use parquet::arrow::{AsyncArrowWriter, ParquetRecordBatchStreamBuilder};
 use reqwest::Client;
-use tokio::fs::{create_dir_all, File};
+use tokio::fs::{File, create_dir_all};
 use tokio::io::BufReader;
-use tokio::runtime::Handle;
 use tokio_util::io::StreamReader;
 use tracing::info;
+use vortex::ArrayRef;
 use vortex::arrow::FromArrowArray;
 use vortex::compressor::CompactCompressor;
-use vortex::dtype::arrow::FromArrowType;
 use vortex::dtype::DType;
-use vortex::error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex::dtype::arrow::FromArrowType;
+use vortex::error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex::file::{VortexWriteOptions, WriteStrategyBuilder};
-use vortex::io::runtime::tokio::TokioRuntime;
 use vortex::stream::ArrayStreamAdapter;
-use vortex::ArrayRef;
 
 use super::StatPopGenBenchmark;
 use crate::statpopgen::builder::GnomADBuilder;
 use crate::statpopgen::schema::schema_from_vcf_header;
-use crate::{idempotent_async, Format};
+use crate::{Format, idempotent_async};
 
 // DuckDB parallelizes parquet at row-group granularity. Each of our rows are quite big (~4000
 // genotypes each with tens of bytes of data).
@@ -129,7 +126,7 @@ impl StatPopGenBenchmark {
 
     pub async fn parquet_to_vortex(&self, format: Format) -> VortexResult<()> {
         let parquet_path = self.parquet_path()?;
-        let strategy = WriteStrategyBuilder::new().with_executor(Arc::new(Handle::current()));
+        let strategy = WriteStrategyBuilder::default();
         let (output_path, strategy) = match format {
             Format::OnDiskVortex => (self.vortex_path()?, strategy),
             Format::VortexCompact => (
@@ -176,10 +173,9 @@ impl StatPopGenBenchmark {
 
             VortexWriteOptions::default()
                 .with_strategy(strategy.build())
-                .write(
+                .write_tokio(
                     File::create(output_path).await?,
                     ArrayStreamAdapter::new(dtype, vortex_stream),
-                    TokioRuntime::handle(),
                 )
                 .await?;
 

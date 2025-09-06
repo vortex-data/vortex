@@ -16,14 +16,14 @@ use url::Url;
 use vortex::arrow::FromArrowArray;
 use vortex::dtype::DType;
 use vortex::error::{VortexResult, vortex_bail, vortex_err};
-use vortex::file::{VortexWriteOptions, WriteStrategyBuilder};
+use vortex::file::VortexWriteOptions;
 use vortex::stream::ArrayStreamAdapter;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex::{Array, ArrayRef};
 
 use crate::errors::{JNIError, try_or_throw};
 use crate::object_store::make_object_store;
-use crate::{block_on, get_process_task_executor, spawn};
+use crate::{block_on, spawn};
 
 /// Native writer around a file writer.
 pub struct NativeWriter {
@@ -162,11 +162,6 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriterMethods_create(
         let (store, _scheme) = make_object_store(&url, &properties)?;
         let write_handle = spawn(async move {
             VortexWriteOptions::default()
-                .with_strategy(
-                    WriteStrategyBuilder::new()
-                        .with_executor(get_process_task_executor())
-                        .build(),
-                )
                 .write_object_store(&store, &path, w)
                 .await
         });

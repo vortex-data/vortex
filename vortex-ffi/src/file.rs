@@ -3,7 +3,7 @@
 
 //! FFI interface for Vortex File I/O.
 
-use std::ffi::{c_char, c_int, c_uint, c_ulong, CStr};
+use std::ffi::{CStr, c_char, c_int, c_uint, c_ulong};
 use std::ops::Range;
 use std::slice;
 use std::str::FromStr;
@@ -17,11 +17,10 @@ use object_store::local::LocalFileSystem;
 use object_store::{ObjectStore, ObjectStoreScheme};
 use prost::Message;
 use url::Url;
-use vortex::error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex::error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::proto::deserialize_expr_proto;
 use vortex::expr::{ExprRef, ExprRegistryExt};
 use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
-use vortex::io::runtime::tokio::TokioRuntime;
 use vortex::proto::expr::Expr;
 use vortex::scan::{ScanBuilder, SplitBy};
 
@@ -29,7 +28,7 @@ use crate::array::vx_array;
 use crate::array_iterator::vx_array_iterator;
 use crate::dtype::vx_dtype;
 use crate::error::{try_or_default, vx_error};
-use crate::session::{vx_session, FileKey};
+use crate::session::{FileKey, vx_session};
 use crate::{arc_wrapper, get_runtime, to_string_vec};
 
 arc_wrapper!(
@@ -198,10 +197,9 @@ pub unsafe extern "C-unwind" fn vx_file_write_array(
 
         get_runtime().block_on(async {
             VortexWriteOptions::default()
-                .write(
+                .write_tokio(
                     &mut tokio::fs::File::create(path).await?,
                     array.to_array_stream(),
-                    TokioRuntime::handle(),
                 )
                 .await?;
             Ok(())

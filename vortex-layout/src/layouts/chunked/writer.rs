@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use async_trait::async_trait;
-use futures::stream::once;
 use futures::StreamExt;
+use futures::stream::once;
 use vortex_array::ArrayContext;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_io::runtime::Handle;

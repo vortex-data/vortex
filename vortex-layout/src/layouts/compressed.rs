@@ -15,7 +15,7 @@ use crate::segments::SegmentSink;
 use crate::sequence::{
     SendableSequentialStream, SequencePointer, SequentialStreamAdapter, SequentialStreamExt as _,
 };
-use crate::{LayoutRef, LayoutStrategy, TaskExecutor};
+use crate::{LayoutRef, LayoutStrategy};
 
 /// A boxed compressor function from arrays into compressed arrays.
 ///
@@ -70,11 +70,7 @@ impl<S: LayoutStrategy> CompressingStrategy<S> {
     ///
     /// Set `exclude_int_dict_encoding` to true to prevent dictionary encoding of integer arrays,
     /// which is useful when compressing dictionary codes to avoid recursive dictionary encoding.
-    pub fn new_btrblocks(
-        child: S,
-        concurrency: usize,
-        exclude_int_dict_encoding: bool,
-    ) -> Self {
+    pub fn new_btrblocks(child: S, concurrency: usize, exclude_int_dict_encoding: bool) -> Self {
         Self {
             child,
             compressor: Arc::new(BtrBlocksCompressor {
@@ -105,11 +101,7 @@ impl<S: LayoutStrategy> CompressingStrategy<S> {
     }
 
     /// Create a new compressor from a plugin interface.
-    pub fn new_opaque<C: CompressorPlugin>(
-        child: S,
-        compressor: C,
-        concurrency: usize,
-    ) -> Self {
+    pub fn new_opaque<C: CompressorPlugin>(child: S, compressor: C, concurrency: usize) -> Self {
         Self {
             child,
             compressor: Arc::new(compressor),

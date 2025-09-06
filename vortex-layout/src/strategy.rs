@@ -6,9 +6,9 @@ use vortex_array::ArrayContext;
 use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
 
+use crate::LayoutRef;
 use crate::segments::SegmentSink;
 use crate::sequence::{SendableSequentialStream, SequencePointer};
-use crate::LayoutRef;
 
 // [layout writer]
 #[async_trait]

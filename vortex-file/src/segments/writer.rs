@@ -1,16 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::task::{ready, Context, Poll};
 
 use async_trait::async_trait;
-use futures::stream::BoxStream;
-use futures::{Stream, StreamExt};
 use parking_lot::Mutex;
 use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::{VortexResult, vortex_err};
 use vortex_layout::segments::{SegmentId, SegmentSink};
 use vortex_layout::sequence::SequenceId;
 
@@ -95,32 +91,5 @@ impl SegmentSink for BufferedSegmentSink {
         }
 
         Ok(segment_id)
-    }
-}
-
-pub struct BufferStream {
-    inner: BoxStream<'static, VortexResult<ByteBuffer>>,
-    byte_offset: u64,
-}
-
-impl BufferStream {
-    pub fn byte_offset(&self) -> u64 {
-        self.byte_offset
-    }
-}
-
-impl Stream for BufferStream {
-    type Item = VortexResult<ByteBuffer>;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = self.get_mut();
-        match ready!(this.inner.poll_next_unpin(cx)) {
-            Some(Ok(buffer)) => {
-                this.byte_offset += buffer.len() as u64;
-                Poll::Ready(Some(Ok(buffer)))
-            }
-            Some(Err(e)) => Poll::Ready(Some(Err(e))),
-            None => Poll::Ready(None),
-        }
     }
 }

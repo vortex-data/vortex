@@ -41,13 +41,12 @@ mod tests {
     use rstest::rstest;
     use tempfile::tempdir;
     use tokio::fs::OpenOptions;
+    use vortex::IntoArray;
     use vortex::arrays::{ChunkedArray, StructArray, VarBinArray};
     use vortex::buffer::buffer;
     use vortex::error::vortex_err;
     use vortex::file::VortexWriteOptions;
-    use vortex::io::runtime::tokio::TokioRuntime;
     use vortex::validity::Validity;
-    use vortex::IntoArray;
 
     use crate::persistent::VortexFormat;
 
@@ -86,7 +85,7 @@ mod tests {
             .await?;
 
         VortexWriteOptions::default()
-            .write(f, st.to_array_stream(), TokioRuntime::handle())
+            .write_tokio(f, st.to_array_stream())
             .await?;
 
         let ctx = SessionContext::default();

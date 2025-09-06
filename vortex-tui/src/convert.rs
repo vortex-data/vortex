@@ -2,23 +2,20 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use clap::{Parser, ValueEnum};
 use futures::StreamExt;
 use indicatif::ProgressBar;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use tokio::fs::File;
-use tokio::runtime::Handle;
+use vortex::ArrayRef;
 use vortex::arrow::FromArrowArray;
 use vortex::compressor::CompactCompressor;
-use vortex::dtype::arrow::FromArrowType;
 use vortex::dtype::DType;
+use vortex::dtype::arrow::FromArrowType;
 use vortex::error::{VortexError, VortexExpect};
 use vortex::file::{VortexWriteOptions, WriteStrategyBuilder};
-use vortex::io::runtime::tokio::TokioRuntime;
 use vortex::stream::ArrayStreamAdapter;
-use vortex::ArrayRef;
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum Strategy {
@@ -77,7 +74,7 @@ pub async fn exec_convert(flags: Flags) -> anyhow::Result<()> {
             .boxed();
     }
 
-    let strategy = WriteStrategyBuilder::new().with_executor(Arc::new(Handle::current()));
+    let strategy = WriteStrategyBuilder::default();
     let strategy = match flags.strategy {
         Strategy::Btrblocks => strategy,
         Strategy::Compact => strategy.with_compressor(CompactCompressor::default()),
@@ -85,10 +82,9 @@ pub async fn exec_convert(flags: Flags) -> anyhow::Result<()> {
 
     VortexWriteOptions::default()
         .with_strategy(strategy.build())
-        .write(
+        .write_tokio(
             File::create(output_path).await?,
             ArrayStreamAdapter::new(dtype, vortex_stream),
-            TokioRuntime::handle(),
         )
         .await?;
 

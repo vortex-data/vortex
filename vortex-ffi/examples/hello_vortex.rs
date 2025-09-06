@@ -19,9 +19,8 @@ use tokio::fs::File as TokioFile;
 use tokio::runtime::Runtime;
 use vortex::arrays::{ChunkedArray, StructArray};
 use vortex::buffer::Buffer;
-use vortex::error::{vortex_err, VortexResult};
+use vortex::error::{VortexResult, vortex_err};
 use vortex::file::VortexWriteOptions;
-use vortex::io::runtime::tokio::TokioRuntime;
 use vortex::{Array, ArrayRef, IntoArray};
 
 static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| Runtime::new().unwrap());
@@ -144,7 +143,7 @@ async fn write_vortex_file(path: impl AsRef<Path>) -> VortexResult<()> {
     let test_data = ChunkedArray::try_new(vec![chunk1, chunk2, chunk3], dtype)?;
 
     VortexWriteOptions::default()
-        .write(file, test_data.to_array_stream(), TokioRuntime::handle())
+        .write_tokio(file, test_data.to_array_stream())
         .await?;
 
     Ok(())

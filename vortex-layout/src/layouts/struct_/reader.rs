@@ -7,16 +7,16 @@ use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use itertools::Itertools;
+use vortex_array::ArrayRef;
 use vortex_array::pipeline::operators::MaskFuture;
 use vortex_array::stats::Precision;
-use vortex_array::ArrayRef;
 use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::immediate_access::annotate_scope_access;
 use vortex_expr::transform::{
-    partition, replace, replace_root_fields, simplify_typed, PartitionedExpr,
+    PartitionedExpr, partition, replace, replace_root_fields, simplify_typed,
 };
-use vortex_expr::{col, root, ExactExpr, ExprRef};
+use vortex_expr::{ExactExpr, ExprRef, col, root};
 use vortex_mask::Mask;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::hash_map::HashMap;

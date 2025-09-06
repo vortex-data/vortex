@@ -1,24 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::collections::VecDeque;
-use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{ready, Context, Poll, Waker};
 
 use async_trait::async_trait;
 use futures::future::try_join_all;
-use futures::task::{waker_ref, ArcWake};
-use futures::{pin_mut, FutureExt, Stream, StreamExt, TryStreamExt};
+use futures::{FutureExt, StreamExt, TryStreamExt, pin_mut};
 use itertools::Itertools;
-use parking_lot::Mutex;
 use vortex_array::{Array, ArrayContext, ToCanonical};
-use vortex_error::{vortex_bail, VortexError, VortexExpect as _, VortexResult};
+use vortex_error::{VortexError, VortexExpect as _, VortexResult, vortex_bail};
 use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::Handle;
-use vortex_utils::aliases::hash_map::HashMap;
-use vortex_utils::aliases::hash_set::HashSet;
 use vortex_utils::aliases::DefaultHashBuilder;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSink;
@@ -162,117 +156,6 @@ where
     }
 }
 
-fn transpose_stream<T, S>(stream: S, elements: usize) -> Vec<impl Stream<Item = VortexResult<T>>>
-where
-    S: Stream<Item = VortexResult<Vec<T>>> + Unpin,
-    T: Unpin + 'static,
-{
-    let state = Arc::new(Mutex::new(TransposeState {
-        upstream: stream,
-        buffers: (0..elements).map(|_| VecDeque::new()).collect(),
-        exhausted: false,
-    }));
-
-    let shared_waker = Arc::new(SharedWaker {
-        wakers: Default::default(),
-    });
-
-    (0..elements)
-        .map(|index| TransposedStream {
-            index,
-            state: state.clone(),
-            shared_waker: shared_waker.clone(),
-        })
-        .collect()
-}
-
-struct TransposeState<T, S>
-where
-    S: Stream<Item = VortexResult<Vec<T>>> + Unpin,
-    T: Unpin,
-{
-    upstream: S,
-    // TODO(os): make these buffers bounded so transposed streams can not run ahead unbounded
-    buffers: Vec<VecDeque<VortexResult<T>>>,
-    exhausted: bool,
-}
-
-struct SharedWaker {
-    wakers: Arc<Mutex<HashMap<usize, Waker>>>,
-}
-
-impl SharedWaker {
-    pub fn add(self: Arc<Self>, index: usize, waker: Waker) {
-        self.wakers.lock().insert(index, waker);
-    }
-}
-
-impl ArcWake for SharedWaker {
-    fn wake_by_ref(arc_self: &Arc<Self>) {
-        for (_, waker) in arc_self.wakers.lock().drain() {
-            waker.wake();
-        }
-    }
-}
-
-struct TransposedStream<T, S>
-where
-    S: Stream<Item = VortexResult<Vec<T>>> + Unpin,
-    T: Unpin,
-{
-    index: usize,
-    state: Arc<Mutex<TransposeState<T, S>>>,
-    shared_waker: Arc<SharedWaker>,
-}
-
-impl<T, S> Stream for TransposedStream<T, S>
-where
-    S: Stream<Item = VortexResult<Vec<T>>> + Unpin,
-    T: Unpin,
-{
-    type Item = VortexResult<T>;
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let mut guard = self.state.lock();
-        if let Some(item) = guard.buffers[self.index].pop_front() {
-            return Poll::Ready(Some(item));
-        }
-
-        // if we know upstream is exhausted we can skip polling it again.
-        if guard.exhausted {
-            return Poll::Ready(None);
-        }
-
-        self.shared_waker
-            .clone()
-            .add(self.index, cx.waker().clone());
-
-        let shared_waker_ref = waker_ref(&self.shared_waker);
-        let mut upstream_cx = Context::from_waker(&shared_waker_ref);
-        match ready!(Pin::new(&mut guard.upstream).poll_next(&mut upstream_cx)) {
-            None => {
-                guard.exhausted = true;
-                Poll::Ready(None)
-            }
-            Some(Ok(vec_t)) => {
-                for (t, buffer) in vec_t.into_iter().zip_eq(guard.buffers.iter_mut()) {
-                    buffer.push_back(Ok(t));
-                }
-                let item = guard.buffers[self.index]
-                    .pop_front()
-                    .vortex_expect("just pushed");
-                Poll::Ready(Some(item))
-            }
-            Some(Err(err)) => {
-                let shared_err = Arc::new(err);
-                for buffer in guard.buffers.iter_mut() {
-                    buffer.push_back(Err(shared_err.clone().into()));
-                }
-                Poll::Ready(Some(Err(shared_err.into())))
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use vortex_array::arrays::{BoolArray, ChunkedArray, StructArray};
@@ -282,11 +165,11 @@ mod tests {
     use vortex_dtype::{DType, FieldNames, Nullability, PType};
     use vortex_io::runtime::single::SingleThreadRuntime;
 
+    use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::struct_::writer::StructStrategy;
     use crate::segments::TestSegments;
     use crate::sequence::{SequenceId, SequentialArrayStreamExt};
-    use crate::LayoutStrategy;
 
     #[test]
     #[should_panic]

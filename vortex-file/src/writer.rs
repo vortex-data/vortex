@@ -5,24 +5,24 @@ use std::sync::Arc;
 
 use async_stream::try_stream;
 use futures::future::ready;
-use futures::{pin_mut, Stream, StreamExt, TryStreamExt};
-use vortex_array::stats::{Stat, PRUNING_STATS};
-use vortex_array::stream::ArrayStream;
+use futures::{Stream, StreamExt, TryStreamExt, pin_mut};
 use vortex_array::ArrayContext;
+use vortex_array::stats::{PRUNING_STATS, Stat};
+use vortex_array::stream::ArrayStream;
 use vortex_buffer::ByteBuffer;
-use vortex_error::{vortex_err, VortexError, VortexExpect, VortexResult};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
-use vortex_io::kanal_ext::KanalExt;
-use vortex_io::runtime::single::SingleThreadRuntime;
-use vortex_io::runtime::Handle;
 use vortex_io::VortexWrite;
+use vortex_io::kanal_ext::KanalExt;
+use vortex_io::runtime::Handle;
+use vortex_io::runtime::single::SingleThreadRuntime;
 use vortex_layout::layouts::file_stats::accumulate_stats;
 use vortex_layout::sequence::{SequenceId, SequentialStreamAdapter, SequentialStreamExt};
-use vortex_layout::{LayoutContext, LayoutStrategy, LocalExecutor};
+use vortex_layout::{LayoutContext, LayoutStrategy};
 
 use crate::footer::{FileStatistics, FooterFlatBufferWriter, Postscript, PostscriptSegment};
 use crate::segments::writer::BufferedSegmentSink;
-use crate::{WriteStrategyBuilder, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
+use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION, WriteStrategyBuilder};
 
 /// Configure a new writer, which can eventually be used to write an [`ArrayStream`] into a sink that implements [`VortexWrite`].
 ///
@@ -38,9 +38,7 @@ pub struct VortexWriteOptions {
 impl Default for VortexWriteOptions {
     fn default() -> Self {
         Self {
-            strategy: WriteStrategyBuilder::new()
-                .with_executor(Arc::new(LocalExecutor))
-                .build(),
+            strategy: WriteStrategyBuilder::new().build(),
             exclude_dtype: false,
             file_statistics: PRUNING_STATS.to_vec(),
             max_variable_length_statistics_size: 64,
@@ -81,18 +79,30 @@ impl VortexWriteOptions {
     ) -> VortexResult<()> {
         use futures::future::FutureExt;
         use vortex_io::ObjectStoreWriter;
-        use vortex_io::runtime::tokio::TokioRuntime;
 
-        self.write(
+        self.write_tokio(
             ObjectStoreWriter::new(object_store.clone(), path).await?,
             stream,
-            TokioRuntime::handle(),
         )
         .boxed()
         .await?
         .shutdown()
         .await?;
         Ok(())
+    }
+
+    #[cfg(feature = "tokio")]
+    pub async fn write_tokio<W: VortexWrite, S: ArrayStream + Unpin + Send + 'static>(
+        self,
+        write: W,
+        stream: S,
+    ) -> VortexResult<W> {
+        self.write(
+            write,
+            stream,
+            vortex_io::runtime::tokio::TokioRuntime::handle(),
+        )
+        .await
     }
 
     /// Perform a blocking single-threaded write of the provided stream of `Array`.

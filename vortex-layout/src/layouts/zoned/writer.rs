@@ -7,19 +7,19 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::{FutureExt, StreamExt as _};
 use parking_lot::Mutex;
-use vortex_array::stats::{Stat, PRUNING_STATS};
+use vortex_array::stats::{PRUNING_STATS, Stat};
 use vortex_array::{ArrayContext, ArrayRef};
 use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
 
-use crate::layouts::zoned::zone_map::StatsAccumulator;
 use crate::layouts::zoned::ZonedLayout;
+use crate::layouts::zoned::zone_map::StatsAccumulator;
 use crate::segments::SegmentSink;
 use crate::sequence::{
     SendableSequentialStream, SequenceId, SequencePointer, SequentialArrayStreamExt,
     SequentialStreamAdapter, SequentialStreamExt,
 };
-use crate::{IntoLayout, LayoutRef, LayoutStrategy, TaskExecutor};
+use crate::{IntoLayout, LayoutRef, LayoutStrategy};
 
 pub struct ZonedLayoutOptions {
     /// The size of a statistics block
@@ -47,7 +47,6 @@ pub struct ZonedStrategy<Child, Stats> {
     child: Child,
     stats: Stats,
     options: ZonedLayoutOptions,
-    executor: Arc<dyn TaskExecutor>,
 }
 
 impl<Child, Stats> ZonedStrategy<Child, Stats>
@@ -55,17 +54,11 @@ where
     Child: LayoutStrategy,
     Stats: LayoutStrategy,
 {
-    pub fn new(
-        child: Child,
-        stats: Stats,
-        options: ZonedLayoutOptions,
-        executor: Arc<dyn TaskExecutor>,
-    ) -> Self {
+    pub fn new(child: Child, stats: Stats, options: ZonedLayoutOptions) -> Self {
         Self {
             child,
             stats,
             options,
-            executor,
         }
     }
 }

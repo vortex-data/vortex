@@ -17,14 +17,14 @@ use vortex_dtype::{DType, FieldMask, FieldPath, FieldPathSet};
 use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
 use vortex_expr::dynamic::DynamicExprUpdates;
 use vortex_expr::pruning::checked_pruning_expr;
-use vortex_expr::{root, ExprRef};
+use vortex_expr::{ExprRef, root};
 use vortex_mask::Mask;
 use vortex_utils::aliases::dash_map::DashMap;
 
-use crate::layouts::zoned::zone_map::ZoneMap;
-use crate::layouts::zoned::ZonedLayout;
-use crate::segments::SegmentSource;
 use crate::LayoutReader;
+use crate::layouts::zoned::ZonedLayout;
+use crate::layouts::zoned::zone_map::ZoneMap;
+use crate::segments::SegmentSource;
 
 type SharedZoneMap = Shared<BoxFuture<'static, SharedVortexResult<ZoneMap>>>;
 type SharedPruningResult = Shared<BoxFuture<'static, SharedVortexResult<Arc<PruningResult>>>>;
@@ -360,7 +360,7 @@ mod test {
     use crate::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
     use crate::segments::{SegmentSource, TestSegments};
     use crate::sequence::{SequenceId, SequentialArrayStreamExt};
-    use crate::{LayoutRef, LayoutStrategy, LocalExecutor};
+    use crate::{LayoutRef, LayoutStrategy};
 
     #[fixture]
     /// Create a stats layout with three chunks of primitive arrays.
@@ -375,7 +375,6 @@ mod test {
                 block_size: 3,
                 ..Default::default()
             },
-            Arc::new(LocalExecutor),
         );
         let array_stream = ChunkedArray::from_iter([
             buffer![1, 2, 3].into_array(),

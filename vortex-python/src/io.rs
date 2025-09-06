@@ -1,18 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_array::ffi_stream::ArrowArrayStreamReader;
 use arrow_array::RecordBatchReader;
+use arrow_array::ffi_stream::ArrowArrayStreamReader;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::pyfunction;
 use tokio::fs::File;
 use vortex::arrow::FromArrowArray;
-use vortex::dtype::arrow::FromArrowType;
 use vortex::dtype::DType;
+use vortex::dtype::arrow::FromArrowType;
 use vortex::error::{VortexError, VortexResult};
 use vortex::file::VortexWriteOptions;
-use vortex::io::runtime::tokio::TokioRuntime;
 use vortex::iter::{ArrayIterator, ArrayIteratorAdapter, ArrayIteratorExt};
 use vortex::{ArrayRef, Canonical, IntoArray};
 
@@ -21,7 +20,7 @@ use crate::arrow::FromPyArrow;
 use crate::dataset::PyVortexDataset;
 use crate::expr::PyExpr;
 use crate::iter::PyArrayIterator;
-use crate::{install_module, PyVortex, TOKIO_RUNTIME};
+use crate::{PyVortex, TOKIO_RUNTIME, install_module};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "io")?;
@@ -154,10 +153,9 @@ pub fn read_url<'py>(
 pub fn write(iter: PyIntoArrayIterator, path: &str) -> PyResult<()> {
     TOKIO_RUNTIME.block_on(async move {
         VortexWriteOptions::default()
-            .write(
+            .write_tokio(
                 File::create(path).await?,
                 iter.into_inner().into_array_stream(),
-                TokioRuntime::handle(),
             )
             .await
     })?;

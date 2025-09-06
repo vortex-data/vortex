@@ -10,15 +10,14 @@ use std::str::FromStr;
 
 use anyhow::Result;
 use jiff::tz::TimeZone;
-use jiff::{tz, Span, Timestamp, Zoned};
+use jiff::{Span, Timestamp, Zoned, tz};
 use num_traits::AsPrimitive;
 use tempfile::NamedTempFile;
+use vortex::IntoArray;
 use vortex::arrays::{BoolArray, ConstantArray, PrimitiveArray, StructArray, VarBinArray};
 use vortex::file::VortexWriteOptions;
-use vortex::io::runtime::tokio::TokioRuntime;
 use vortex::scalar::Scalar;
 use vortex::validity::Validity;
-use vortex::IntoArray;
 
 use crate::cpp;
 use crate::cpp::{duckdb_string_t, duckdb_timestamp};
@@ -47,7 +46,7 @@ async fn write_vortex_file(
     let struct_array = StructArray::try_from_iter(iter).unwrap();
     let file = tokio::fs::File::create(&temp_file_path).await.unwrap();
     VortexWriteOptions::default()
-        .write(file, struct_array.to_array_stream(), TokioRuntime::handle())
+        .write_tokio(file, struct_array.to_array_stream())
         .await
         .unwrap();
 
@@ -140,7 +139,7 @@ async fn write_vortex_file_to_dir(
 
     let file = tokio::fs::File::create(&temp_file_path).await.unwrap();
     VortexWriteOptions::default()
-        .write(file, struct_array.to_array_stream(), TokioRuntime::handle())
+        .write_tokio(file, struct_array.to_array_stream())
         .await
         .unwrap();
 

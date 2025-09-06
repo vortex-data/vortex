@@ -49,7 +49,6 @@ mod test {
     use vortex_error::VortexResult;
     use vortex_expr::{gt, lit, root};
     use vortex_file::{VortexOpenOptions, VortexWriteOptions, WriteStrategyBuilder};
-    use vortex_io::runtime::tokio::TokioRuntime;
     use vortex_layout::layouts::compact::CompactCompressor;
 
     use crate as vortex;
@@ -116,10 +115,9 @@ mod test {
 
         // Write a Vortex file with the default compression and layout strategy.
         VortexWriteOptions::default()
-            .write(
+            .write_tokio(
                 tokio::fs::File::create("example.vortex").await?,
                 array.to_array_stream(),
-                TokioRuntime::handle(),
             )
             .await?;
 
@@ -154,10 +152,9 @@ mod test {
                     .with_compressor(CompactCompressor::default())
                     .build(),
             )
-            .write(
+            .write_tokio(
                 tokio::fs::File::create("example_compact.vortex").await?,
                 array.to_array_stream(),
-                TokioRuntime::handle(),
             )
             .await?;
 
