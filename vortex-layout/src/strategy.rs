@@ -4,10 +4,11 @@
 use async_trait::async_trait;
 use vortex_array::ArrayContext;
 use vortex_error::VortexResult;
+use vortex_io::runtime::Handle;
 
-use crate::LayoutRef;
 use crate::segments::SegmentSink;
 use crate::sequence::{SendableSequentialStream, SequencePointer};
+use crate::LayoutRef;
 
 // [layout writer]
 #[async_trait]
@@ -33,12 +34,13 @@ pub trait LayoutStrategy: 'static + Send + Sync {
     ///
     /// Consider accepting a [`TaskExecutor`][crate::TaskExecutor] as an input to your strategy
     /// to support spawning this work in the background.
-    async fn write_stream(
+    async fn write_stream<'rt>(
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
         stream: SendableSequentialStream,
         eof: SequencePointer,
+        handle: Handle<'rt>,
     ) -> VortexResult<LayoutRef>;
 }
 // [layout writer]

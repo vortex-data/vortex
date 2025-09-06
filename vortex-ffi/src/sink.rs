@@ -1,17 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ffi::{CStr, c_char};
+use std::ffi::{c_char, CStr};
 
 use mpsc::Sender;
 use tokio::fs::File;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
-use vortex::ArrayRef;
-use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex::error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex::file::VortexWriteOptions;
+use vortex::io::runtime::tokio::TokioRuntime;
 use vortex::stream::ArrayStreamAdapter;
+use vortex::ArrayRef;
 
 use crate::array::vx_array;
 use crate::dtype::vx_dtype;
@@ -61,7 +62,7 @@ pub unsafe extern "C-unwind" fn vx_array_sink_open_file(
         let writer = get_runtime().spawn(async move {
             let file = File::create(path).await?;
             VortexWriteOptions::default()
-                .write(file, array_stream)
+                .write(file, array_stream, TokioRuntime::handle())
                 .await
         });
 
@@ -112,11 +113,11 @@ mod tests {
     use std::sync::Arc;
 
     use tempfile::NamedTempFile;
-    use vortex::IntoArray;
     use vortex::arrays::PrimitiveArray;
     use vortex::buffer::buffer;
     use vortex::dtype::DType;
     use vortex::validity::Validity;
+    use vortex::IntoArray;
 
     use super::*;
     use crate::array::{vx_array, vx_array_free};

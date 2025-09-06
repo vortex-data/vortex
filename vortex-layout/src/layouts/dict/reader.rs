@@ -6,15 +6,15 @@ use std::ops::{BitAnd, Range};
 use std::sync::{Arc, OnceLock};
 
 use futures::future::BoxFuture;
-use futures::{FutureExt, TryFutureExt, try_join};
-use vortex_array::ArrayRef;
-use vortex_array::compute::{MinMaxResult, min_max, take};
+use futures::{try_join, FutureExt, TryFutureExt};
+use vortex_array::compute::{min_max, take, MinMaxResult};
 use vortex_array::pipeline::operators::MaskFuture;
 use vortex_array::stats::Precision;
+use vortex_array::ArrayRef;
 use vortex_dict::DictArray;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexError, VortexExpect, VortexResult};
-use vortex_expr::{ExprRef, Scope, root};
+use vortex_expr::{root, ExprRef, Scope};
 use vortex_mask::Mask;
 use vortex_utils::aliases::dash_map::DashMap;
 
@@ -204,7 +204,6 @@ impl LayoutReader for DictReader {
 mod tests {
     use std::sync::Arc;
 
-    use futures::executor::block_on;
     use rstest::rstest;
     use vortex_array::arrays::{StructArray, VarBinArray};
     use vortex_array::arrow::IntoArrowArray;
@@ -213,6 +212,7 @@ mod tests {
     use vortex_array::{ArrayContext, IntoArray as _};
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
     use vortex_expr::{is_null, not, pack, root};
+    use vortex_io::runtime::tokio::TokioRuntime;
 
     use crate::layouts::dict::writer::{DictLayoutOptions, DictStrategy};
     use crate::layouts::flat::writer::FlatLayoutStrategy;
@@ -251,8 +251,8 @@ mod tests {
         let ctx = ArrayContext::empty();
         let segments = TestSegments::default();
         let (ptr, eof) = SequenceId::root().split();
-        let layout: LayoutRef = block_on(
-            strategy.write_stream(
+        let layout: LayoutRef = strategy
+            .write_stream(
                 &ctx,
                 &segments,
                 SequentialStreamAdapter::new(
@@ -261,9 +261,10 @@ mod tests {
                 )
                 .sendable(),
                 eof,
-            ),
-        )
-        .unwrap();
+                TokioRuntime::handle(),
+            )
+            .await
+            .unwrap();
 
         let expression = pack(
             [(
@@ -338,8 +339,8 @@ mod tests {
         let ctx = ArrayContext::empty();
         let segments = TestSegments::default();
         let (ptr, eof) = SequenceId::root().split();
-        let layout: LayoutRef = block_on(
-            strategy.write_stream(
+        let layout: LayoutRef = strategy
+            .write_stream(
                 &ctx,
                 &segments,
                 SequentialStreamAdapter::new(
@@ -348,9 +349,10 @@ mod tests {
                 )
                 .sendable(),
                 eof,
-            ),
-        )
-        .unwrap();
+                TokioRuntime::handle(),
+            )
+            .await
+            .unwrap();
 
         let filter = vortex_expr::eq(
             root(),
@@ -402,8 +404,8 @@ mod tests {
         let ctx = ArrayContext::empty();
         let segments = TestSegments::default();
         let (ptr, eof) = SequenceId::root().split();
-        let layout: LayoutRef = block_on(
-            strategy.write_stream(
+        let layout: LayoutRef = strategy
+            .write_stream(
                 &ctx,
                 &segments,
                 SequentialStreamAdapter::new(
@@ -412,9 +414,10 @@ mod tests {
                 )
                 .sendable(),
                 eof,
-            ),
-        )
-        .unwrap();
+                TokioRuntime::handle(),
+            )
+            .await
+            .unwrap();
 
         let expression = not(is_null(root())); // easier to test not_is_null b/c that's the validity array
         assert!(layout.encoding_id() == LayoutId::new_ref("vortex.dict"));

@@ -11,11 +11,12 @@ use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
-use vortex::ArrayRef;
 use vortex::dtype::Nullability::{NonNullable, Nullable};
 use vortex::dtype::{DType, StructFields};
-use vortex::error::{VortexExpect, VortexResult, vortex_err};
+use vortex::error::{vortex_err, VortexExpect, VortexResult};
+use vortex::io::runtime::tokio::TokioRuntime;
 use vortex::stream::ArrayStreamAdapter;
+use vortex::ArrayRef;
 use vortex_file::{VortexWriteOptions, WriteStrategyBuilder};
 
 use crate::convert::{data_chunk_to_arrow, from_duckdb_table};
@@ -124,7 +125,7 @@ impl CopyFunction for VortexCopyFunction {
                         .with_executor(Arc::new(Handle::current()))
                         .build(),
                 )
-                .write(file, array_stream)
+                .write(file, array_stream, TokioRuntime::handle())
                 .await
         });
 

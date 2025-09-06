@@ -8,7 +8,7 @@ use futures::future::BoxFuture;
 use futures::stream::LocalBoxStream;
 use futures::{Stream, StreamExt};
 use parking_lot::Mutex;
-use smol::{LocalExecutor, block_on};
+use smol::{block_on, LocalExecutor};
 use vortex_error::vortex_panic;
 
 use crate::runtime::{AbortHandle, AbortHandleRef, Handle, IoTask, Runtime};
@@ -90,7 +90,6 @@ impl<'rt> SingleThreadRuntime<'rt> {
     where
         F: FnOnce(Handle<'rt>) -> Fut,
         Fut: Future<Output = R> + 'fut,
-        R: Send + 'static,
     {
         let (rt, executor) = SingleThreadRuntime::new();
         let fut = f(Handle(Arc::new(rt)));
@@ -102,7 +101,6 @@ impl<'rt> SingleThreadRuntime<'rt> {
     where
         F: FnOnce(Handle<'rt>) -> S,
         S: Stream<Item = R> + Unpin,
-        R: Send + 'static,
     {
         // Create a new static executor.
         let (rt, executor) = SingleThreadRuntime::new();
@@ -213,8 +211,8 @@ impl<T> Iterator for BlockingStream<T> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
     use super::*;
 

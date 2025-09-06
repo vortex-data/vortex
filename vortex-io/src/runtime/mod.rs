@@ -6,13 +6,13 @@ mod handle;
 use std::sync::Arc;
 
 pub use handle::*;
-#[cfg(feature = "smol")]
+#[cfg(not(target_arch = "wasm32"))]
 pub mod current;
-#[cfg(feature = "smol")]
+#[cfg(not(target_arch = "wasm32"))]
 pub mod multi;
-#[cfg(feature = "smol")]
+#[cfg(not(target_arch = "wasm32"))]
 pub mod single;
-#[cfg(feature = "smol")]
+#[cfg(not(target_arch = "wasm32"))]
 mod smol;
 // TODO(ngates): feature-flag this by Tokio once we add I/O support for runtimes.
 #[cfg(not(target_arch = "wasm32"))]

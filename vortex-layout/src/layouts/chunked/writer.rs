@@ -2,10 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use async_trait::async_trait;
-use futures::StreamExt;
 use futures::stream::once;
+use futures::StreamExt;
 use vortex_array::ArrayContext;
 use vortex_error::{VortexExpect, VortexResult};
+use vortex_io::runtime::Handle;
 
 use crate::children::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
@@ -35,12 +36,13 @@ impl<S> LayoutStrategy for ChunkedLayoutStrategy<S>
 where
     S: LayoutStrategy,
 {
-    async fn write_stream(
+    async fn write_stream<'rt>(
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
         mut stream: SendableSequentialStream,
         mut eof: SequencePointer,
+        handle: Handle<'rt>,
     ) -> VortexResult<LayoutRef> {
         let ctx = ctx.clone();
         let mut child_layouts = Vec::new();
@@ -60,6 +62,7 @@ where
                     )
                     .sendable(),
                     eof.advance().descend(),
+                    handle.clone(),
                 )
                 .await?;
             child_layouts.push(layout);

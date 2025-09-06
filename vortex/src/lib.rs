@@ -11,7 +11,7 @@ pub use vortex_array::*;
 pub use vortex_file as file;
 pub use {
     vortex_buffer as buffer, vortex_dtype as dtype, vortex_error as error, vortex_expr as expr,
-    vortex_flatbuffers as flatbuffers, vortex_ipc as ipc, vortex_layout as layout,
+    vortex_flatbuffers as flatbuffers, vortex_io as io, vortex_ipc as ipc, vortex_layout as layout,
     vortex_mask as mask, vortex_metrics as metrics, vortex_proto as proto, vortex_scalar as scalar,
     vortex_scan as scan, vortex_utils as utils,
 };
@@ -49,6 +49,7 @@ mod test {
     use vortex_error::VortexResult;
     use vortex_expr::{gt, lit, root};
     use vortex_file::{VortexOpenOptions, VortexWriteOptions, WriteStrategyBuilder};
+    use vortex_io::runtime::tokio::TokioRuntime;
     use vortex_layout::layouts::compact::CompactCompressor;
 
     use crate as vortex;
@@ -118,6 +119,7 @@ mod test {
             .write(
                 tokio::fs::File::create("example.vortex").await?,
                 array.to_array_stream(),
+                TokioRuntime::handle(),
             )
             .await?;
 
@@ -155,6 +157,7 @@ mod test {
             .write(
                 tokio::fs::File::create("example_compact.vortex").await?,
                 array.to_array_stream(),
+                TokioRuntime::handle(),
             )
             .await?;
 

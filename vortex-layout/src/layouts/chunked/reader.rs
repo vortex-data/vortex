@@ -8,12 +8,12 @@ use std::sync::Arc;
 use futures::future::BoxFuture;
 use futures::stream::FuturesOrdered;
 use futures::{FutureExt, TryStreamExt};
-use vortex_array::ArrayRef;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::pipeline::operators::MaskFuture;
 use vortex_array::stats::Precision;
+use vortex_array::ArrayRef;
 use vortex_dtype::{DType, FieldMask};
-use vortex_error::{VortexExpect, VortexResult, vortex_panic};
+use vortex_error::{vortex_panic, VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
@@ -278,6 +278,7 @@ mod test {
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, PType};
     use vortex_expr::root;
+    use vortex_io::runtime::single::SingleThreadRuntime;
 
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
@@ -292,7 +293,7 @@ mod test {
         let segments = TestSegments::default();
         let strategy = ChunkedLayoutStrategy::new(FlatLayoutStrategy::default());
         let (mut sequence_id, eof) = SequenceId::root().split();
-        let layout = block_on(
+        let layout = SingleThreadRuntime::block_on(|handle| {
             strategy.write_stream(
                 &ctx,
                 &segments,
@@ -306,8 +307,9 @@ mod test {
                 )
                 .sendable(),
                 eof,
-            ),
-        )
+                handle,
+            )
+        })
         .unwrap();
 
         (Arc::new(segments), layout)

@@ -9,6 +9,7 @@ use vortex_array::stats::Stat;
 use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_error::VortexResult;
+use vortex_io::runtime::Handle;
 
 use crate::segments::SegmentSink;
 use crate::sequence::{
@@ -129,12 +130,13 @@ impl<S> LayoutStrategy for CompressingStrategy<S>
 where
     S: LayoutStrategy,
 {
-    async fn write_stream(
+    async fn write_stream<'rt>(
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
         stream: SendableSequentialStream,
         eof: SequencePointer,
+        handle: Handle<'rt>,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         let compressor = self.compressor.clone();
@@ -162,6 +164,7 @@ where
                 segment_sink,
                 SequentialStreamAdapter::new(dtype, stream).sendable(),
                 eof,
+                handle,
             )
             .await
     }

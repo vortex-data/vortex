@@ -9,12 +9,13 @@ use datafusion::datasource::listing::{
 use datafusion::prelude::SessionContext;
 use tempfile::tempdir;
 use tokio::fs::OpenOptions;
-use vortex::IntoArray;
 use vortex::arrays::{ChunkedArray, StructArray, VarBinArray};
 use vortex::buffer::buffer;
 use vortex::error::vortex_err;
 use vortex::file::VortexWriteOptions;
+use vortex::io::runtime::tokio::TokioRuntime;
 use vortex::validity::Validity;
+use vortex::IntoArray;
 use vortex_datafusion::VortexFormat;
 
 #[tokio::main]
@@ -49,7 +50,7 @@ async fn main() -> anyhow::Result<()> {
         .await?;
 
     VortexWriteOptions::default()
-        .write(f, st.to_array_stream())
+        .write(f, st.to_array_stream(), TokioRuntime::handle())
         .await?;
 
     let ctx = SessionContext::new();

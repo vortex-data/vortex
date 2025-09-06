@@ -7,7 +7,7 @@ use std::ops::Range;
 use itertools::Itertools;
 use vortex_array::stats::StatBound;
 use vortex_dtype::FieldMask;
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::{vortex_err, VortexResult};
 
 use crate::LayoutReader;
 
@@ -66,32 +66,36 @@ impl SplitBy {
 mod test {
     use std::sync::Arc;
 
-    use futures::executor::block_on;
     use vortex_array::{ArrayContext, IntoArray};
     use vortex_buffer::buffer;
     use vortex_dtype::FieldPath;
-    use vortex_layout::LayoutStrategy;
+    use vortex_io::runtime::single::SingleThreadRuntime;
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
     use vortex_layout::segments::{SegmentSource, TestSegments};
     use vortex_layout::sequence::{SequenceId, SequentialArrayStreamExt};
+    use vortex_layout::LayoutStrategy;
 
     use super::*;
 
     #[test]
     fn test_layout_splits_flat() {
+        let ctx = ArrayContext::empty();
         let segments = TestSegments::default();
         let (ptr, eof) = SequenceId::root().split();
-        let layout = block_on(
-            FlatLayoutStrategy::default().write_stream(
-                &ArrayContext::empty(),
-                &segments,
-                buffer![1_i32; 10]
-                    .into_array()
-                    .to_array_stream()
-                    .sequenced(ptr),
-                eof,
-            ),
-        )
+        let layout = SingleThreadRuntime::block_on(|handle| async {
+            FlatLayoutStrategy::default()
+                .write_stream(
+                    &ctx,
+                    &segments,
+                    buffer![1_i32; 10]
+                        .into_array()
+                        .to_array_stream()
+                        .sequenced(ptr),
+                    eof,
+                    handle,
+                )
+                .await
+        })
         .unwrap();
 
         let segments: Arc<dyn SegmentSource> = Arc::new(segments);
@@ -105,19 +109,23 @@ mod test {
 
     #[test]
     fn test_row_count_splits() {
+        let ctx = ArrayContext::empty();
         let segments = TestSegments::default();
         let (ptr, eof) = SequenceId::root().split();
-        let layout = block_on(
-            FlatLayoutStrategy::default().write_stream(
-                &ArrayContext::empty(),
-                &segments,
-                buffer![1_i32; 10]
-                    .into_array()
-                    .to_array_stream()
-                    .sequenced(ptr),
-                eof,
-            ),
-        )
+        let layout = SingleThreadRuntime::block_on(|handle| async {
+            FlatLayoutStrategy::default()
+                .write_stream(
+                    &ctx,
+                    &segments,
+                    buffer![1_i32; 10]
+                        .into_array()
+                        .to_array_stream()
+                        .sequenced(ptr),
+                    eof,
+                    handle,
+                )
+                .await
+        })
         .unwrap();
 
         let segments: Arc<dyn SegmentSource> = Arc::new(segments);

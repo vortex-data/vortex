@@ -5,10 +5,11 @@ use std::collections::VecDeque;
 
 use async_stream::try_stream;
 use async_trait::async_trait;
-use futures::{StreamExt as _, pin_mut};
+use futures::{pin_mut, StreamExt as _};
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
 use vortex_error::{VortexExpect, VortexResult};
+use vortex_io::runtime::Handle;
 
 use crate::segments::SegmentSink;
 use crate::sequence::{
@@ -48,12 +49,13 @@ impl<S> LayoutStrategy for RepartitionStrategy<S>
 where
     S: LayoutStrategy,
 {
-    async fn write_stream(
+    async fn write_stream<'rt>(
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
         stream: SendableSequentialStream,
         eof: SequencePointer,
+        handle: Handle<'rt>,
     ) -> VortexResult<LayoutRef> {
         // TODO(os): spawn stream below like:
         // canon_stream = stream.map(async {to_canonical}).map(spawn).buffered(parallelism)
@@ -117,6 +119,7 @@ where
                 segment_sink,
                 SequentialStreamAdapter::new(dtype, repartitioned_stream).sendable(),
                 eof,
+                handle,
             )
             .await
     }

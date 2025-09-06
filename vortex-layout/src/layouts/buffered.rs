@@ -5,9 +5,10 @@ use std::collections::VecDeque;
 
 use async_stream::try_stream;
 use async_trait::async_trait;
-use futures::{StreamExt as _, pin_mut};
+use futures::{pin_mut, StreamExt as _};
 use vortex_array::ArrayContext;
 use vortex_error::VortexResult;
+use vortex_io::runtime::Handle;
 
 use crate::segments::SegmentSink;
 use crate::sequence::{
@@ -32,12 +33,13 @@ impl<S> LayoutStrategy for BufferedStrategy<S>
 where
     S: LayoutStrategy,
 {
-    async fn write_stream(
+    async fn write_stream<'rt>(
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
         stream: SendableSequentialStream,
         eof: SequencePointer,
+        handle: Handle<'rt>,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         let buffer_size = self.buffer_size;
@@ -83,6 +85,7 @@ where
                 segment_sink,
                 SequentialStreamAdapter::new(dtype, buffered_stream).sendable(),
                 eof,
+                handle,
             )
             .await
     }

@@ -17,14 +17,14 @@ use vortex_dtype::{DType, FieldMask, FieldPath, FieldPathSet};
 use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
 use vortex_expr::dynamic::DynamicExprUpdates;
 use vortex_expr::pruning::checked_pruning_expr;
-use vortex_expr::{ExprRef, root};
+use vortex_expr::{root, ExprRef};
 use vortex_mask::Mask;
 use vortex_utils::aliases::dash_map::DashMap;
 
-use crate::LayoutReader;
-use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::ZoneMap;
+use crate::layouts::zoned::ZonedLayout;
 use crate::segments::SegmentSource;
+use crate::LayoutReader;
 
 type SharedZoneMap = Shared<BoxFuture<'static, SharedVortexResult<ZoneMap>>>;
 type SharedPruningResult = Shared<BoxFuture<'static, SharedVortexResult<Arc<PruningResult>>>>;
@@ -352,6 +352,7 @@ mod test {
     use vortex_array::{ArrayContext, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_expr::{gt, lit, root};
+    use vortex_io::runtime::single::SingleThreadRuntime;
     use vortex_mask::Mask;
 
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
@@ -384,7 +385,10 @@ mod test {
         .into_array()
         .to_array_stream()
         .sequenced(ptr);
-        let layout = block_on(strategy.write_stream(&ctx, &segments, array_stream, eof)).unwrap();
+        let layout = SingleThreadRuntime::block_on(|handle| {
+            strategy.write_stream(&ctx, &segments, array_stream, eof, handle)
+        })
+        .unwrap();
         (Arc::new(segments), layout)
     }
 

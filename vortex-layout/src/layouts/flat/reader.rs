@@ -5,25 +5,25 @@ use std::collections::BTreeSet;
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
-use futures::FutureExt;
 use futures::future::BoxFuture;
+use futures::FutureExt;
 use vortex_array::compute::filter;
 use vortex_array::pipeline::operators::MaskFuture;
 use vortex_array::pipeline::{
-    N, export_canonical_pipeline_expr, export_canonical_pipeline_expr_offset,
+    export_canonical_pipeline_expr, export_canonical_pipeline_expr_offset, N,
 };
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldMask, Nullability};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
-use vortex_expr::{ExprRef, Scope, VortexExprExt, is_root};
+use vortex_expr::{is_root, ExprRef, Scope, VortexExprExt};
 use vortex_mask::Mask;
 
-use crate::LayoutReader;
-use crate::layouts::SharedArrayFuture;
 use crate::layouts::flat::FlatLayout;
+use crate::layouts::SharedArrayFuture;
 use crate::segments::SegmentSource;
+use crate::LayoutReader;
 
 /// The threshold of mask density below which we will evaluate the expression only over the
 /// selected rows, and above which we evaluate the expression over all rows and then select
@@ -274,28 +274,34 @@ mod test {
     use std::sync::Arc;
 
     use arrow_buffer::BooleanBuffer;
-    use futures::executor::block_on;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::pipeline::operators::MaskFuture;
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayContext, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_expr::{gt, lit, root};
+    use vortex_io::runtime::single::SingleThreadRuntime;
 
-    use crate::LayoutStrategy as _;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::{SegmentSource, TestSegments};
     use crate::sequence::{SequenceId, SequentialArrayStreamExt};
+    use crate::LayoutStrategy as _;
 
     #[test]
     fn flat_identity() {
-        block_on(async {
+        SingleThreadRuntime::block_on(|handle| async {
             let ctx = ArrayContext::empty();
             let segments = TestSegments::default();
             let (ptr, eof) = SequenceId::root().split();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid).to_array();
             let layout = FlatLayoutStrategy::default()
-                .write_stream(&ctx, &segments, array.to_array_stream().sequenced(ptr), eof)
+                .write_stream(
+                    &ctx,
+                    &segments,
+                    array.to_array_stream().sequenced(ptr),
+                    eof,
+                    handle,
+                )
                 .await
                 .unwrap();
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
@@ -322,13 +328,19 @@ mod test {
 
     #[test]
     fn flat_expr() {
-        block_on(async {
+        SingleThreadRuntime::block_on(|handle| async {
             let ctx = ArrayContext::empty();
             let segments = TestSegments::default();
             let (ptr, eof) = SequenceId::root().split();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid).to_array();
             let layout = FlatLayoutStrategy::default()
-                .write_stream(&ctx, &segments, array.to_array_stream().sequenced(ptr), eof)
+                .write_stream(
+                    &ctx,
+                    &segments,
+                    array.to_array_stream().sequenced(ptr),
+                    eof,
+                    handle,
+                )
                 .await
                 .unwrap();
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
@@ -356,13 +368,19 @@ mod test {
 
     #[test]
     fn flat_unaligned_row_mask() {
-        block_on(async {
+        SingleThreadRuntime::block_on(|handle| async {
             let ctx = ArrayContext::empty();
             let segments = TestSegments::default();
             let (ptr, eof) = SequenceId::root().split();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid).to_array();
             let layout = FlatLayoutStrategy::default()
-                .write_stream(&ctx, &segments, array.to_array_stream().sequenced(ptr), eof)
+                .write_stream(
+                    &ctx,
+                    &segments,
+                    array.to_array_stream().sequenced(ptr),
+                    eof,
+                    handle,
+                )
                 .await
                 .unwrap();
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);

@@ -6,14 +6,15 @@ use std::sync::Arc;
 use std::task::Poll;
 
 use async_stream::try_stream;
-use futures::executor::block_on;
-use futures::{Stream, StreamExt, TryStreamExt, pin_mut, poll};
-use vortex_array::ArrayContext;
-use vortex_array::stats::{PRUNING_STATS, Stat};
+use futures::{pin_mut, poll, Stream, StreamExt, TryStreamExt};
+use vortex_array::stats::{Stat, PRUNING_STATS};
 use vortex_array::stream::ArrayStream;
+use vortex_array::ArrayContext;
 use vortex_buffer::ByteBuffer;
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
+use vortex_io::runtime::single::SingleThreadRuntime;
+use vortex_io::runtime::Handle;
 use vortex_io::VortexWrite;
 use vortex_layout::layouts::file_stats::accumulate_stats;
 use vortex_layout::sequence::{SequenceId, SequentialStreamAdapter, SequentialStreamExt};
@@ -21,7 +22,7 @@ use vortex_layout::{LayoutContext, LayoutRef, LayoutStrategy, LocalExecutor};
 
 use crate::footer::{FileStatistics, FooterFlatBufferWriter, Postscript, PostscriptSegment};
 use crate::segments::writer::BufferedSegmentSink;
-use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION, WriteStrategyBuilder};
+use crate::{WriteStrategyBuilder, EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
 
 /// Configure a new writer, which can eventually be used to write an [`ArrayStream`] into a sink that implements [`VortexWrite`].
 ///
@@ -80,10 +81,12 @@ impl VortexWriteOptions {
     ) -> VortexResult<()> {
         use futures::future::FutureExt;
         use vortex_io::ObjectStoreWriter;
+        use vortex_io::runtime::tokio::TokioRuntime;
 
         self.write(
             ObjectStoreWriter::new(object_store.clone(), path).await?,
             stream,
+            TokioRuntime::handle(),
         )
         .boxed()
         .await?
@@ -98,7 +101,7 @@ impl VortexWriteOptions {
         write: W,
         stream: S,
     ) -> VortexResult<W> {
-        block_on(self.write(write, stream))
+        SingleThreadRuntime::block_on(|handle| self.write(write, stream, handle))
     }
 
     /// Perform an async write of the provided stream of `Array`.
@@ -106,8 +109,9 @@ impl VortexWriteOptions {
         self,
         mut write: W,
         stream: S,
+        handle: Handle<'_>,
     ) -> VortexResult<W> {
-        let stream = self.write_stream(stream);
+        let stream = self.write_stream(stream, handle);
         pin_mut!(stream);
 
         while let Some(buffer) = stream.next().await {
@@ -120,6 +124,7 @@ impl VortexWriteOptions {
     pub fn write_stream<S: ArrayStream + Unpin + Send + 'static>(
         &self,
         stream: S,
+        handle: Handle,
     ) -> impl Stream<Item = VortexResult<ByteBuffer>> {
         try_stream! {
             // Set up a Context to capture the encodings used in the file.
@@ -146,7 +151,7 @@ impl VortexWriteOptions {
             let segments = BufferedSegmentSink::new([ByteBuffer::copy_from(MAGIC_BYTES)]);
 
             let layout = {
-                let layout_fut = self.strategy.write_stream(&ctx, &segments, stream, eof);
+                let layout_fut = self.strategy.write_stream(&ctx, &segments, stream, eof, handle);
                 pin_mut!(layout_fut);
 
                 // Now, we sit in a loop polling the layout future and draining the segment writer.

@@ -6,8 +6,9 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use tokio::runtime::Handle;
-use vortex::Array;
 use vortex::file::{VortexOpenOptions, VortexWriteOptions, WriteStrategyBuilder};
+use vortex::io::runtime::tokio::TokioRuntime;
+use vortex::Array;
 
 #[inline(never)]
 pub async fn vortex_compress_write(array: &dyn Array, buf: &mut Vec<u8>) -> anyhow::Result<u64> {
@@ -17,7 +18,11 @@ pub async fn vortex_compress_write(array: &dyn Array, buf: &mut Vec<u8>) -> anyh
                 .with_executor(Arc::new(Handle::current()))
                 .build(),
         )
-        .write(Cursor::new(buf), array.to_array_stream())
+        .write(
+            Cursor::new(buf),
+            array.to_array_stream(),
+            TokioRuntime::handle(),
+        )
         .await?
         .position())
 }

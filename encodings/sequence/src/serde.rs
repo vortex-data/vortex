@@ -7,7 +7,7 @@ use vortex_array::{Canonical, DeserializeMetadata, ProstMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_proto::scalar::ScalarValue;
 use vortex_scalar::Scalar;
 
@@ -91,12 +91,13 @@ impl SerdeVTable<SequenceVTable> for SequenceVTable {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::{PrimitiveArray, StructArray};
     use vortex_array::iter::ArrayIteratorExt;
+    use vortex_array::ToCanonical;
     use vortex_dtype::Nullability;
     use vortex_expr::{get_item, root};
     use vortex_file::{VortexOpenOptions, VortexWriteOptions};
+    use vortex_io::runtime::tokio::TokioRuntime;
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 
     use crate::SequenceArray;
@@ -109,7 +110,7 @@ mod tests {
         let file = tokio::fs::File::create("/tmp/abc.vx").await.unwrap();
         VortexWriteOptions::default()
             .with_strategy(Arc::new(FlatLayoutStrategy::default()))
-            .write(file, st.to_array_stream())
+            .write(file, st.to_array_stream(), TokioRuntime::handle())
             .await
             .unwrap();
 

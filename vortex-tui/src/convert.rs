@@ -10,14 +10,15 @@ use indicatif::ProgressBar;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use tokio::fs::File;
 use tokio::runtime::Handle;
-use vortex::ArrayRef;
 use vortex::arrow::FromArrowArray;
 use vortex::compressor::CompactCompressor;
-use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
+use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect};
 use vortex::file::{VortexWriteOptions, WriteStrategyBuilder};
+use vortex::io::runtime::tokio::TokioRuntime;
 use vortex::stream::ArrayStreamAdapter;
+use vortex::ArrayRef;
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum Strategy {
@@ -87,6 +88,7 @@ pub async fn exec_convert(flags: Flags) -> anyhow::Result<()> {
         .write(
             File::create(output_path).await?,
             ArrayStreamAdapter::new(dtype, vortex_stream),
+            TokioRuntime::handle(),
         )
         .await?;
 
