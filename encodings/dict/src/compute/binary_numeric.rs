@@ -2,10 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::{NumericKernel, NumericKernelAdapter, numeric};
+use vortex_array::compute::{NumericKernel, NumericKernelAdapter, min_max, numeric};
 use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
-use vortex_error::VortexResult;
-use vortex_scalar::NumericOperator;
+use vortex_error::{VortexExpect, VortexResult};
+use vortex_scalar::{NumericOperator, PValue, Scalar};
 
 use crate::{DictArray, DictVTable};
 
@@ -26,6 +26,32 @@ impl NumericKernel for DictVTable {
         };
         let rhs_const_array = ConstantArray::new(rhs_scalar, array.values().len()).into_array();
 
+        // TODO(robert): This could be relaxed if we converted from checked to wrapping arithmetic but that's a slightly different user facing behaviour
+        if array.values().dtype().is_unsigned_int() {
+            let Some(min_max) = min_max(array.codes())? else {
+                return Ok(None);
+            };
+
+            if min_max.min
+                > Scalar::primitive_value(
+                    PValue::U8(0),
+                    array.codes().dtype().as_ptype(),
+                    array.codes().dtype().nullability(),
+                )
+                || min_max.max
+                    < Scalar::primitive_value(
+                        PValue::U32(
+                            u32::try_from(array.values().len())
+                                .vortex_expect("dictionary length didn't fit in u32"),
+                        ),
+                        array.codes().dtype().as_ptype(),
+                        array.codes().dtype().nullability(),
+                    )
+            {
+                return Ok(None);
+            }
+        }
+
         // SAFETY: applying numeric fn to values does not change codes validity
         unsafe {
             Ok(Some(
@@ -44,9 +70,11 @@ register_kernel!(NumericKernelAdapter(DictVTable).lift());
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::ArrayRef;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
+    use vortex_array::compute::sub_scalar;
+    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+    use vortex_error::VortexUnwrap;
 
     use crate::builders::dict_encode;
 
@@ -69,8 +97,6 @@ mod tests {
         test_binary_numeric_array(array)
     }
 
-    use vortex_array::IntoArray;
-
     #[rstest]
     #[case::dict_i32_basic(dict_encode(PrimitiveArray::from_iter([10i32, 20, 10, 30, 20, 10]).as_ref()).unwrap().into_array())]
     #[case::dict_u32_basic(dict_encode(PrimitiveArray::from_iter([100u32, 200, 100, 300, 200]).as_ref()).unwrap().into_array())]
@@ -82,5 +108,21 @@ mod tests {
     #[case::dict_nullable(dict_encode(PrimitiveArray::from_option_iter([Some(42i32), None, Some(42), Some(1), None]).as_ref()).unwrap().into_array())]
     fn test_dict_binary_numeric_rstest(#[case] array: ArrayRef) {
         test_binary_numeric_array(array)
+    }
+
+    #[test]
+    fn test_sliced_dict_binary_numeric() {
+        let dict_arr = dict_encode(
+            PrimitiveArray::from_iter([1u32, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 5, 5, 5, 6])
+                .as_ref(),
+        )
+        .unwrap()
+        .into_array();
+        let sliced = dict_arr.slice(5..12);
+        let sub_result = sub_scalar(&sliced, sliced.scalar_at(0)).vortex_unwrap();
+        assert_eq!(
+            sub_result.to_primitive().as_slice::<u32>(),
+            [0, 0, 0, 0, 0, 0, 1]
+        );
     }
 }
