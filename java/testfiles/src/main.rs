@@ -72,7 +72,7 @@ fn main() {
     .expect("Could not create struct array");
 
     let writer = VortexWriteOptions::default();
-    let written = block_on(writer.write(ByteBufferMut::empty(), rows.to_array_stream()))
+    let written = writer.write_blocking(ByteBufferMut::empty(), rows.to_array_stream())
         .expect("writing Vortex file")
         .freeze();
 

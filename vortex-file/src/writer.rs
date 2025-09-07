@@ -15,7 +15,6 @@ use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatB
 use vortex_io::VortexWrite;
 use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::Handle;
-use vortex_io::runtime::single::SingleThreadRuntime;
 use vortex_layout::layouts::file_stats::accumulate_stats;
 use vortex_layout::sequence::{SequenceId, SequentialStreamAdapter, SequentialStreamExt};
 use vortex_layout::{LayoutContext, LayoutStrategy};
@@ -106,12 +105,16 @@ impl VortexWriteOptions {
     }
 
     /// Perform a blocking single-threaded write of the provided stream of `Array`.
+    // TODO(ngates): we may just want to not have these APIs to avoid all the feature flags.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn write_blocking<W: VortexWrite, S: ArrayStream + Unpin + Send + 'static>(
         self,
         write: W,
         stream: S,
     ) -> VortexResult<W> {
-        SingleThreadRuntime::block_on(|handle| self.write(write, stream, handle))
+        vortex_io::runtime::single::SingleThreadRuntime::block_on(|handle| {
+            self.write(write, stream, handle)
+        })
     }
 
     /// Perform an async write of the provided stream of `Array`.
