@@ -4,12 +4,11 @@
 use std::fmt::Debug;
 
 pub(crate) use compute::compute_min_max;
-use num_traits::PrimInt;
+use itertools::Itertools;
+use num_traits::{AsPrimitive, PrimInt};
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::{DType, NativePType, Nullability};
-use vortex_error::{
-    VortexExpect as _, VortexResult, VortexUnwrap as _, vortex_bail, vortex_ensure, vortex_err,
-};
+use vortex_dtype::{DType, NativePType, Nullability, match_each_integer_ptype};
+use vortex_error::{VortexExpect as _, VortexResult, VortexUnwrap as _, vortex_ensure, vortex_err};
 use vortex_scalar::Scalar;
 
 use crate::arrays::varbin::builder::VarBinBuilder;
@@ -18,7 +17,7 @@ use crate::validity::Validity;
 use crate::vtable::{
     ArrayVTable, NotSupported, VTable, ValidityHelper, ValidityVTableFromValidityHelper,
 };
-use crate::{Array, ArrayRef, EncodingId, EncodingRef, vtable};
+use crate::{Array, ArrayRef, EncodingId, EncodingRef, ToCanonical, vtable};
 
 mod accessor;
 pub mod builder;
@@ -177,18 +176,6 @@ impl VarBinArray {
             vortex_ensure!(is_sorted, "offsets must be sorted");
         }
 
-        // Check first offset is 0 and last offset doesn't exceed bytes length
-        let first_offset = offsets
-            .scalar_at(0)
-            .as_primitive()
-            .as_::<usize>()
-            .ok_or_else(|| vortex_err!("First offset must be convertible to usize"))?;
-        vortex_ensure!(
-            first_offset == 0,
-            "First offset must be 0, got {}",
-            first_offset
-        );
-
         let last_offset = offsets
             .scalar_at(offsets.len() - 1)
             .as_primitive()
@@ -213,30 +200,28 @@ impl VarBinArray {
 
         // Validate UTF-8 for Utf8 dtype
         if matches!(dtype, DType::Utf8(_)) {
-            let n_strings = offsets.len() - 1;
-            let sample_size = n_strings.min(100); // Check first 100 strings
+            let primitive_offsets = offsets.to_primitive();
+            match_each_integer_ptype!(primitive_offsets.dtype().as_ptype(), |O| {
+                let offsets_slice = primitive_offsets.as_slice::<O>();
+                for (i, (start, end)) in offsets_slice
+                    .iter()
+                    .map(|o| o.as_())
+                    .tuple_windows()
+                    .enumerate()
+                {
+                    if validity.is_null(i) {
+                        continue;
+                    }
 
-            for i in 0..sample_size {
-                if validity.is_null(i) {
-                    continue;
+                    let string_bytes = &bytes.as_ref()[start..end];
+                    simdutf8::basic::from_utf8(string_bytes).map_err(|_| {
+                        #[allow(clippy::unwrap_used)]
+                        // run validation using `compat` package to get more detailed error message
+                        let err = simdutf8::compat::from_utf8(string_bytes).unwrap_err();
+                        vortex_err!("invalid utf-8: {err} at index {i}")
+                    })?;
                 }
-
-                let start = offsets
-                    .scalar_at(i)
-                    .as_primitive()
-                    .as_::<usize>()
-                    .ok_or_else(|| vortex_err!("Offset must be convertible to usize"))?;
-                let end = offsets
-                    .scalar_at(i + 1)
-                    .as_primitive()
-                    .as_::<usize>()
-                    .ok_or_else(|| vortex_err!("Offset must be convertible to usize"))?;
-
-                let string_bytes = &bytes.as_ref()[start..end];
-                if std::str::from_utf8(string_bytes).is_err() {
-                    vortex_bail!("Invalid UTF-8 at index {}", i);
-                }
-            }
+            });
         }
 
         Ok(())
