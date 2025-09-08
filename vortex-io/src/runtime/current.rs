@@ -3,8 +3,10 @@
 
 use std::sync::Arc;
 
-use futures::{Stream, StreamExt};
-use smol::{Executor, block_on};
+use futures::future::BoxFuture;
+use futures::stream::BoxStream;
+use futures::StreamExt;
+use smol::{block_on, Executor};
 
 use crate::runtime::Handle;
 
@@ -15,10 +17,9 @@ pub struct CurrentThreadRuntime;
 
 impl CurrentThreadRuntime {
     /// Drive the given Vortex future on the underlying current thread runtime.
-    pub fn block_on<'rt, F, Fut, R>(f: F) -> R
+    pub fn block_on<F, R>(f: F) -> R
     where
-        F: FnOnce(Handle<'rt>) -> Fut,
-        Fut: Future<Output = R> + 'rt,
+        F: for<'rt> FnOnce(Handle<'rt>) -> BoxFuture<'rt, R>,
         R: Send + 'static,
     {
         let executor = Arc::new(Executor::new());
@@ -30,11 +31,10 @@ impl CurrentThreadRuntime {
     ///
     /// Note the resulting [`Iterator`] supports [`Clone`] in order to drive the stream from
     /// multiple threads.
-    pub fn block_on_stream<'rt, F, S, R>(f: F) -> impl Iterator<Item = R> + Clone
+    pub fn block_on_stream<F, S, R>(f: F) -> impl Iterator<Item = R> + Clone
     where
-        F: FnOnce(Handle<'rt>) -> S,
-        S: Stream<Item = R> + Send + Unpin + 'rt,
-        R: Send + 'rt,
+        F: for<'rt> FnOnce(Handle<'rt>) -> BoxStream<'rt, R>,
+        R: Send + 'static,
     {
         let executor = Arc::new(Executor::new());
         let stream = f(Handle(executor.clone()));
@@ -52,11 +52,6 @@ impl CurrentThreadRuntime {
                 }
             })
             .detach();
-
-        // SAFETY: the returned stream is self-referential and lives as long as the executor.
-        //  We therefore extend the lifetime of the executor to 'static.
-        let executor: Arc<Executor<'static>> =
-            unsafe { std::mem::transmute::<Arc<Executor<'_>>, Arc<Executor<'static>>>(executor) };
 
         BlockingStream {
             executor,
@@ -93,14 +88,14 @@ impl<T> Iterator for BlockingStream<T> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
     use super::*;
+    use futures::FutureExt;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
     #[test]
     fn test_drive_simple_future() {
-        let result = CurrentThreadRuntime::block_on(|_handle| async { 123 });
+        let result = CurrentThreadRuntime::block_on(|_handle| async { 123 }.boxed());
         assert_eq!(result, 123);
     }
 
@@ -109,10 +104,13 @@ mod tests {
         let counter = Arc::new(AtomicUsize::new(0));
         let c = counter.clone();
 
-        let result = CurrentThreadRuntime::block_on(|handle| async move {
-            handle
-                .spawn_cpu(move || c.fetch_add(1, Ordering::SeqCst))
-                .await
+        let result = CurrentThreadRuntime::block_on(|handle| {
+            async move {
+                handle
+                    .spawn_cpu(move || c.fetch_add(1, Ordering::SeqCst))
+                    .await
+            }
+            .boxed()
         });
 
         assert_eq!(result, 0);

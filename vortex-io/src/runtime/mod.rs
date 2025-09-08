@@ -6,13 +6,11 @@ mod handle;
 use std::sync::Arc;
 
 pub use handle::*;
-#[cfg(feature = "smol")]
+#[cfg(not(target_arch = "wasm32"))]
 pub mod current;
-#[cfg(feature = "smol")]
-pub mod multi;
-#[cfg(feature = "smol")]
+#[cfg(not(target_arch = "wasm32"))]
 pub mod single;
-#[cfg(feature = "smol")]
+#[cfg(not(target_arch = "wasm32"))]
 mod smol;
 // TODO(ngates): feature-flag this by Tokio once we add I/O support for runtimes.
 #[cfg(not(target_arch = "wasm32"))]
@@ -37,8 +35,6 @@ use crate::file::{IoRequest, IoSource};
 /// * Tokio: work is driven on a Tokio runtime provided by the caller.
 ///
 /// Note: users interact with the [`Handle`] API rather than the [`Runtime`] trait.
-///
-// TODO(ngates): I/O is coming in a future change.
 pub(crate) trait Runtime<'rt>: Send + Sync {
     /// Spawns a future to be executed on the runtime.
     ///
@@ -50,7 +46,7 @@ pub(crate) trait Runtime<'rt>: Send + Sync {
     ///
     /// The returned `AbortHandle` may be used to optimistically cancel the task if it has not
     /// yet started executing.
-    fn spawn_cpu(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef<'rt>;
+    fn spawn_cpu(&self, task: Box<dyn FnOnce() + Send + 'rt>) -> AbortHandleRef<'rt>;
 
     /// Spawns an I/O task for execution on the runtime.
     /// The runtime can choose to invoke the task's `Send` or `!Send` versions.

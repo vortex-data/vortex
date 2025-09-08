@@ -4,11 +4,11 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use futures::future::BoxFuture;
+use futures::future::{BoxFuture, LocalBoxFuture};
 use futures::stream::LocalBoxStream;
-use futures::{Stream, StreamExt};
+use futures::StreamExt;
 use parking_lot::Mutex;
-use smol::{LocalExecutor, block_on};
+use smol::{block_on, LocalExecutor};
 use vortex_error::vortex_panic;
 
 use crate::runtime::{AbortHandle, AbortHandleRef, Handle, IoTask, Runtime};
@@ -17,26 +17,21 @@ use crate::runtime::{AbortHandle, AbortHandleRef, Handle, IoTask, Runtime};
 ///
 /// This is subtly different from using a current-thread runtime to drive a future since it is
 /// capable of running `!Send` I/O futures.
-pub struct SingleThreadRuntime<'rt> {
-    scheduling: kanal::Sender<SpawnFuture<'rt>>,
-    cpu: kanal::Sender<SpawnCpu>,
-    io: kanal::Sender<IoTask<'rt>>,
+pub struct SingleThreadRuntime<'a> {
+    scheduling: kanal::Sender<SpawnFuture<'a>>,
+    cpu: kanal::Sender<SpawnCpu<'a>>,
+    io: kanal::Sender<IoTask<'a>>,
 }
 
-impl<'rt> SingleThreadRuntime<'rt> {
-    fn new<'ex>() -> (Self, Rc<LocalExecutor<'ex>>)
-    where
-        'rt: 'ex,
-    {
-        let (scheduling_send, scheduling_recv) = kanal::unbounded::<SpawnFuture<'rt>>();
+impl<'a> SingleThreadRuntime<'a> {
+    fn new(local: &Rc<LocalExecutor<'a>>) -> Self {
+        let (scheduling_send, scheduling_recv) = kanal::unbounded::<SpawnFuture>();
         let (cpu_send, cpu_recv) = kanal::unbounded::<SpawnCpu>();
         let (io_send, io_recv) = kanal::unbounded::<IoTask>();
 
-        let local = Rc::new(LocalExecutor::new());
-
         // We pass weak references to the local executor into the async tasks such that the task's
         // reference doesn't keep the executor alive after the runtime is dropped.
-        let weak_local = Rc::downgrade(&local);
+        let weak_local = Rc::downgrade(local);
 
         // Drive scheduling tasks.
         let weak_local2 = weak_local.clone();
@@ -75,53 +70,39 @@ impl<'rt> SingleThreadRuntime<'rt> {
             })
             .detach();
 
-        (
-            Self {
-                scheduling: scheduling_send,
-                cpu: cpu_send,
-                io: io_send,
-            },
-            local,
-        )
+        Self {
+            scheduling: scheduling_send,
+            cpu: cpu_send,
+            io: io_send,
+        }
     }
 
     /// Drive the given Vortex future on the underlying single-threaded runtime.
-    pub fn block_on<'fut, F, Fut, R>(f: F) -> R
+    pub fn block_on<F, R>(f: F) -> R
     where
-        F: FnOnce(Handle<'rt>) -> Fut,
-        Fut: Future<Output = R> + 'fut,
-        R: Send + 'static,
+        // NOTE(ngates): annoyingly, in order to introduce a higher-ranked lifetime for the
+        //  handle, and constrain the returned future, we need to return a concrete type.
+        //  Therefore, we cannot return impl Future here, and instead have to box it.
+        F: for<'rt> FnOnce(Handle<'rt>) -> LocalBoxFuture<'rt, R>,
+        R: Send + 'a,
     {
-        let (rt, executor) = SingleThreadRuntime::new();
-        let fut = f(Handle(Arc::new(rt)));
+        let executor = Rc::new(LocalExecutor::new());
+        let runtime = Arc::new(SingleThreadRuntime::new(&executor));
+        let handle = Handle(runtime);
+
+        let fut = f(handle);
         block_on(executor.run(fut))
     }
 
     /// Drive the given Vortex stream on the underlying single-threaded runtime.
-    pub fn block_on_stream<F, S, R>(f: F) -> impl Iterator<Item = R>
+    pub fn block_on_stream<F, R>(f: F) -> impl Iterator<Item = R> + 'a
     where
-        F: FnOnce(Handle<'rt>) -> S,
-        S: Stream<Item = R> + Unpin,
+        F: for<'rt> FnOnce(Handle<'rt>) -> LocalBoxStream<'rt, R>,
         R: Send + 'static,
     {
-        // Create a new static executor.
-        let (rt, executor) = SingleThreadRuntime::new();
-        let stream = f(Handle(Arc::new(rt)));
-
-        // SAFETY: The stream contains references to `rt` with lifetime 'rt.
-        // We're transmuting this to static, which is sound because:
-        // 1. Both `rt` and `stream` will be moved into BlockingStream
-        // 2. BlockingStream will drop them in the correct order (stream first, then rt)
-        // 3. The stream will never outlive the runtime it references
-        let stream: LocalBoxStream<'static, R> = unsafe {
-            std::mem::transmute::<LocalBoxStream<'_, R>, LocalBoxStream<'static, R>>(
-                stream.boxed_local(),
-            )
-        };
-        let executor: Rc<LocalExecutor<'static>> = unsafe {
-            std::mem::transmute::<Rc<LocalExecutor<'_>>, Rc<LocalExecutor<'static>>>(executor)
-        };
-
+        let executor = Rc::new(LocalExecutor::new());
+        let handle = Handle(Arc::new(Self::new(&executor)));
+        let stream: LocalBoxStream<'a, R> = f(handle).boxed_local();
         BlockingStream { executor, stream }
     }
 }
@@ -142,7 +123,7 @@ impl<'rt> Runtime<'rt> for SingleThreadRuntime<'rt> {
         Box::new(SmolAbortHandle { task })
     }
 
-    fn spawn_cpu(&self, cpu: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef<'rt> {
+    fn spawn_cpu(&self, cpu: Box<dyn FnOnce() + Send + 'rt>) -> AbortHandleRef<'rt> {
         let task = Arc::new(Mutex::new(None));
         if let Err(e) = self.cpu.send(SpawnCpu {
             cpu,
@@ -167,8 +148,8 @@ struct SpawnFuture<'rt> {
 }
 
 // A spawn request for a CPU job.
-struct SpawnCpu {
-    cpu: Box<dyn FnOnce() + Send + 'static>,
+struct SpawnCpu<'rt> {
+    cpu: Box<dyn FnOnce() + Send + 'rt>,
     task: Arc<Mutex<Option<smol::Task<()>>>>,
 }
 
@@ -195,14 +176,12 @@ impl Drop for SmolAbortHandle {
 }
 
 /// A stream that wraps up the stream with the executor that drives it.
-///
-/// This allows the resulting stream to have a static lifetime.
-struct BlockingStream<T> {
-    executor: Rc<LocalExecutor<'static>>,
-    stream: LocalBoxStream<'static, T>,
+struct BlockingStream<'a, T> {
+    executor: Rc<LocalExecutor<'a>>,
+    stream: LocalBoxStream<'a, T>,
 }
 
-impl<T> Iterator for BlockingStream<T> {
+impl<T> Iterator for BlockingStream<'_, T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -213,14 +192,14 @@ impl<T> Iterator for BlockingStream<T> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use crate::runtime::single::SingleThreadRuntime;
+    use futures::FutureExt;
     use std::sync::atomic::{AtomicUsize, Ordering};
-
-    use super::*;
+    use std::sync::Arc;
 
     #[test]
     fn test_drive_simple_future() {
-        let result = SingleThreadRuntime::block_on(|_handle| async { 123 });
+        let result = SingleThreadRuntime::block_on(|_handle| async { 123 }.boxed_local());
         assert_eq!(result, 123);
     }
 
@@ -229,13 +208,36 @@ mod tests {
         let counter = Arc::new(AtomicUsize::new(0));
         let c = counter.clone();
 
-        let result = SingleThreadRuntime::block_on(|handle| async move {
-            handle
-                .spawn_cpu(move || c.fetch_add(1, Ordering::SeqCst))
-                .await
+        SingleThreadRuntime::block_on(move |handle| {
+            async move {
+                handle
+                    .spawn_cpu(move || {
+                        c.fetch_add(1, Ordering::SeqCst);
+                    })
+                    .await
+            }
+            .boxed_local()
         });
 
-        assert_eq!(result, 0);
         assert_eq!(counter.load(Ordering::SeqCst), 1);
+    }
+
+    /// Returning a future that references the handle is not allowed, e.g.
+    ///
+    /// ```compile_fail
+    /// use vortex_io::runtime::single::SingleThreadRuntime;
+    /// use futures::FutureExt;
+    ///
+    /// SingleThreadRuntime::block_on(|handle| async move {
+    ///     handle.spawn_cpu(move || 123)
+    /// }.boxed_local())
+    /// ```
+    #[test]
+    fn test_handle_scope() {
+        // But returning a result that _doesn't_ reference the handle is allowed.
+        let result = SingleThreadRuntime::block_on(|handle| {
+            async move { handle.spawn_cpu(move || 123).await }.boxed_local()
+        });
+        assert_eq!(result, 123);
     }
 }

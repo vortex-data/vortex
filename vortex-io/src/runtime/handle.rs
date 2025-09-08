@@ -3,10 +3,10 @@
 
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll, ready};
+use std::task::{ready, Context, Poll};
 
 use futures::{FutureExt, StreamExt};
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_error::{vortex_panic, VortexResult};
 
 use crate::file::{FileRead, IntoIoSource, IoRequestStream};
 use crate::kanal_ext::KanalExt;
@@ -16,7 +16,7 @@ use crate::runtime::{AbortHandle, IoTask, Runtime};
 ///
 /// Users should obtain a handle from one of the runtime constructors and use it to spawn new
 /// async tasks or CPU-heavy worker.
-#[derive(Clone)]
+#[derive(Clone)] // FIXME(ngates): remove this...
 pub struct Handle<'rt>(pub(crate) Arc<dyn Runtime<'rt> + 'rt>);
 
 impl<'rt> Handle<'rt> {
@@ -75,10 +75,12 @@ impl<'rt> Handle<'rt> {
     pub fn open_read<S: IntoIoSource>(&self, source: S) -> VortexResult<FileRead<'rt>> {
         let source = source.into_io_source()?;
 
-        let (read, events) = FileRead::new(source.uri().clone(), source.size());
+        let (send, recv) = kanal::unbounded();
+
+        let read = FileRead::new(source.uri().clone(), source.size(), send);
 
         let stream = IoRequestStream::new(
-            StreamExt::boxed(events.to_async().into_stream()),
+            StreamExt::boxed(recv.to_async().into_stream()),
             source.coalesce_window(),
         )
         .boxed();

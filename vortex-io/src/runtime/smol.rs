@@ -11,7 +11,7 @@ impl<'rt> Runtime<'rt> for Executor<'rt> {
         SmolAbortHandle::new_handle(self.spawn(fut))
     }
 
-    fn spawn_cpu(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef<'rt> {
+    fn spawn_cpu(&self, task: Box<dyn FnOnce() + Send + 'rt>) -> AbortHandleRef<'rt> {
         // For now, we spawn CPU work back onto the same executor.
         SmolAbortHandle::new_handle(self.spawn(async move { task() }))
     }
