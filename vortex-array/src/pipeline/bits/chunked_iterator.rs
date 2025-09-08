@@ -21,9 +21,6 @@ impl <'a> From<&'a BooleanBuffer> for BitAlignedChunkedIterator<'a> {
 }
 
 impl<'a> BitAlignedChunkedIterator<'a> {
-    fn bits_processed(&self) -> usize {
-        self.byte_offset * 8
-    }
     pub fn new(data: &'a [u8], bit_offset: usize, len: usize) -> Self {
         // Calculate the exact byte range we need
         let start_byte = bit_offset / 8;
@@ -33,9 +30,6 @@ impl<'a> BitAlignedChunkedIterator<'a> {
         
         let sliced_data = &data[start_byte..][..byte_len.min(data.len() - start_byte)];
 
-
-        println!("bit offset {}, sb {}", bit_offset % 8, start_byte);
-        
         Self {
             data: sliced_data,
             bit_offset: bit_offset % 8,
@@ -54,11 +48,8 @@ impl<'a> BitAlignedChunkedIterator<'a> {
         let bits_to_produce = remaining_bits.min(N);
         
         // Convert bits to bytes, accounting for the bit offset
-        let complete_bytes_to_produce = (bits_to_produce)/8;
+        let complete_bytes_to_produce = (bits_to_produce-1)/8;
         let bytes_to_produce = bits_to_produce.div_ceil(8);
-
-
-        println!("bits_to_produce {}, bytes_to_produce: {}", bits_to_produce, bytes_to_produce);
 
         // Fill byte-by-byte into the buffer (viewed as bytes)
         let buffer_as_bytes: &mut [u8] = unsafe {
@@ -67,15 +58,13 @@ impl<'a> BitAlignedChunkedIterator<'a> {
 
         let complement = 8 - self.bit_offset;
         // Handle all complete bytes (8 bits each)
-        // let complete_bytes = (bits_to_produce / 8).min(producible_bytes);
         for i in 0..complete_bytes_to_produce {
             let src_idx = self.byte_offset + i;
             let high = self.data[src_idx] >> self.bit_offset;
             let low =  self.data[src_idx + 1] << complement;
             buffer_as_bytes[i] = high | low;
         }
-        // println!("complete_bytes: {}, producible_bytes: {}", complete_bytes, producible_bytes);
-
+        
         // Handle the final partial byte if needed
         let remaining_bits = bits_to_produce % 8;
         let mask = if remaining_bits != 0 {
@@ -83,27 +72,22 @@ impl<'a> BitAlignedChunkedIterator<'a> {
         } else {
             u8::MAX
         };
-        println!("bits_to_produce {}, remaining_bits: {}, mask: {:08b}", bits_to_produce, remaining_bits, mask);
-        if remaining_bits > 0 {
-            let src_idx = self.byte_offset + bytes_to_produce;
-            let high = self.data[src_idx] >> self.bit_offset;
-            let low = if src_idx + 1 < self.data.len() {
-                self.data[src_idx + 1] << complement
-            } else {
-                0
-            };
-            println!("high: {:08b}, low: {:08b}, mask: {:08b}", high, low, mask);
-            let result_byte = high | (low & mask);
-            
-            // Mask to keep only the needed bits
-            buffer_as_bytes[bytes_to_produce] = result_byte;
-        }
+        let src_idx = self.byte_offset + complete_bytes_to_produce;
+        let high = self.data[src_idx] >> self.bit_offset;
+        let low = if src_idx + 1 < self.data.len() {
+            self.data[src_idx + 1] << complement
+        } else {
+            0
+        };
+        let result_byte = high | low;
+        
+        // Mask to keep only the needed bits
+        buffer_as_bytes[bytes_to_produce-1] = result_byte & mask;
 
         // Zero any remaining bytes in the buffer
         if bytes_to_produce < N / 8 {
-            buffer_as_bytes[bytes_to_produce+1..].fill(0);
+            buffer_as_bytes[bytes_to_produce..].fill(0);
         }
-
 
         bytes_to_produce
     }
@@ -196,8 +180,6 @@ mod tests {
         let mut expected = vec![0b10101010u8; 128];
         expected[127] = 0b00101010u8;
 
-        // assert_eq!(chunk_u8[127], expected[127], "{:08b}, {:08b}", chunk_u8[127], expected[127]);
-
         // Should match original data exactly
         assert_eq!(&chunk_u8[..], &expected[..]);
 
@@ -289,7 +271,6 @@ mod tests {
         // 20 source bytes with 4-bit offset should produce about 19 bytes of data
         let expected_bytes = 19; // (20 * 8 - 4) / 8
 
-        println!("chunk_u8: {:?}", chunk_u8.iter().map(|b| format!("{:08b}", b)).collect::<Vec<_>>());
         
         for i in 0..expected_bytes {
             assert_eq!(chunk_u8[i], 0b10000111, "Byte {} should be 0xFF", i);
@@ -406,7 +387,7 @@ mod tests {
             std::slice::from_raw_parts(chunk.as_ptr() as *const u8, 128)
         };
 
-        let mut expected = vec![0b01010101u8; 128];
+        let expected = vec![0b01010101u8; 128];
         // expected[127] = 0b01010101u8;
 
         assert_eq!(chunk_u8[127], expected[127], "{:08b}, {:08b}", chunk_u8[127], expected[127]);
@@ -416,5 +397,63 @@ mod tests {
 
         // Should be no more chunks
         assert!(iter.next_chunk().is_none());
+    }
+    
+    #[test]
+    fn test_sliced_mask_non_byte_aligned_mod_7() {
+        // This test mimics test_export_bool_nonnull_masked_sliced_non_byte_aligned
+        // by creating the same mask pattern and testing the iterator directly
+        
+        let full_len = 2500;
+        
+        // Create a boolean buffer with pattern i % 7 == 0
+        let mut bytes = vec![0u8; (full_len + 7) / 8];
+        for i in 0..full_len {
+            if i % 7 == 0 {
+                let byte_idx = i / 8;
+                let bit_idx = i % 8;
+                bytes[byte_idx] |= 1 << bit_idx;
+            }
+        }
+        
+        // Create the sliced boolean buffer (bit 13, length 1100)
+        let slice_start = 13;
+        let slice_len = 1100;
+        
+        // The BooleanBuffer would handle the slicing
+        let bool_buffer = BooleanBuffer::new(bytes.into(), slice_start, slice_len);
+        
+        // Create iterator from the sliced buffer
+        let mut iter = BitAlignedChunkedIterator::from(&bool_buffer);
+        
+        // Process first chunk (should be 1024 bits)
+        let chunk1 = iter.next_chunk().expect("Should have first chunk");
+        
+        // Count true bits in first chunk using BitView
+        let view1 = crate::pipeline::bits::BitView::new(&chunk1);
+        let count1 = view1.true_count();
+        
+        // Expected: bits 13..1037 where (i % 7 == 0)
+        let expected_count1 = (slice_start..slice_start + N).filter(|i| i % 7 == 0).count();
+        assert_eq!(count1, expected_count1, "First chunk true count mismatch");
+        
+        // Process second chunk (should be 76 bits, padded to N)
+        let chunk2 = iter.next_chunk().expect("Should have second chunk");
+        
+        // Count true bits in second chunk
+        let view2 = crate::pipeline::bits::BitView::new(&chunk2);
+        let count2 = view2.true_count();
+        
+        // Expected: bits 1037..1113 where (i % 7 == 0)
+        let expected_count2 = (slice_start + N..slice_start + slice_len).filter(|i| i % 7 == 0).count();
+        assert_eq!(count2, expected_count2, "Second chunk true count mismatch");
+        
+        // Should be no more chunks
+        assert!(iter.next_chunk().is_none(), "Should have no more chunks");
+        
+        // Verify total
+        let total_count = count1 + count2;
+        let expected_total = (slice_start..slice_start + slice_len).filter(|i| i % 7 == 0).count();
+        assert_eq!(total_count, expected_total, "Total true count mismatch");
     }
 }

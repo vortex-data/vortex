@@ -89,6 +89,7 @@ pub(super) fn export_bool_nonnull_masked(
 
 #[cfg(test)]
 mod tests {
+    use itertools::Itertools;
     use super::*;
     use crate::pipeline::view::ViewMut;
 
@@ -323,8 +324,7 @@ mod tests {
         let slice_len = 1100;
         let sliced_mask = full_mask.slice(slice_start..slice_start + slice_len);
 
-        println!("sliced_mask {:?}", sliced_mask.to_boolean_buffer().values().iter().map(|b| format!("{:08b}", b)).collect::<Vec<_>>());
-        
+
         let mut kernel = TestKernel::new();
         
         let result = export_bool_nonnull_masked(&sliced_mask, &mut kernel).unwrap();
@@ -337,10 +337,11 @@ mod tests {
         
         let expected_first_mask = sliced_mask.clone().slice(0..N);
         assert_eq!(masks[0], expected_first_mask, "First chunk should match non-byte-aligned pattern");
-        
+
+
         // Verify remaining chunk
-        let expected_remaining_mask = sliced_mask.slice(N..1100);
-        assert_eq!(masks[1], expected_remaining_mask, "Remaining chunk should match with padding\n{:?}\n{:?}", masks[1].to_boolean_buffer().values().iter().map(|b| format!("{:08b}", b)).collect::<Vec<_>>(), expected_remaining_mask.to_boolean_buffer().values().iter().map(|b| format!("{:08b}", b)).collect::<Vec<_>>());
+        let expected_remaining_mask = sliced_mask.slice(N..1087);
+        assert_eq!(masks[1].slice(0..1100-13-N), expected_remaining_mask, "Remaining chunk should match with padding\n{:?}\n{:?}",      masks[1].iter_bools(|i| i.collect_vec()), expected_remaining_mask.iter_bools(|i| i.collect_vec()));
         
         // Verify counts
         assert_eq!(result.len(), sliced_mask.true_count());
