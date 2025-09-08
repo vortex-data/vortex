@@ -317,7 +317,8 @@ def array(
     | pyarrow.ChunkedArray[pyarrow.Scalar[Any]]  # pyright: ignore[reportExplicitAny]
     | pyarrow.Table
     | list[Any]  # pyright: ignore[reportExplicitAny]
-    | pandas.DataFrame,
+    | pandas.DataFrame
+    | range,
 ) -> Array:
     """The main entry point for creating Vortex arrays from other Python objects.
 
@@ -394,10 +395,37 @@ def array(
         ]
     ]
 
+    Initialize a Vortex array from a range:
+
+    >>> vortex.array(range(-3, 3)).to_arrow_array()
+    <pyarrow.lib.Int64Array object at ...>
+    [
+      -3,
+      -2,
+      -1,
+      0,
+      1,
+      2
+    ]
+
+    With a step:
+
+    >>> vortex.array(range(-1_000_000, 10_000_000, 2_000_000)).to_arrow_array()
+    <pyarrow.lib.Int64Array object at ...>
+    [
+      -1000000,
+      1000000,
+      3000000,
+      5000000,
+      7000000,
+      9000000
+    ]
     """
 
     if isinstance(obj, list):
         return Array.from_arrow(pyarrow.array(obj))
+    if isinstance(obj, range):
+        return Array.from_range(obj)
     try:
         import pandas
 
