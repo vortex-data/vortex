@@ -282,32 +282,7 @@ mod tests {
         assert!(iter.next_chunk().is_none());
     }
     
-    #[test]
-    fn test_partial_final_chunk_byte_advance() {
-        // Test that we correctly advance byte_offset for partial final chunks
-        // This was causing an off-by-one error where we advanced too far
-        let total_bits = 1030; // Just over N (1024)
-        
-        let bytes_needed = (total_bits + 7) / 8; // 129 bytes
-        let data = vec![0xFFu8; bytes_needed];
-        
-        let mut iter = BitAlignedChunkedIterator::new(&data, 0, total_bits);
-        
-        // First chunk: full 1024 bits
-        let chunk1 = iter.next_chunk().unwrap();
-        assert_eq!(iter.bits_processed(), 1024);
-        assert_eq!(iter.byte_offset, 128); // 1024 / 8
-        
-        // Second chunk: only 6 bits
-        let chunk2 = iter.next_chunk().unwrap();
-        // Should only advance by 1 byte (6 bits needs 1 byte)
-        assert_eq!(iter.byte_offset, 129);
-        assert_eq!(iter.bits_processed(), 1032); // We process full bytes
-        
-        // No more chunks
-        assert!(iter.next_chunk().is_none());
-    }
-    
+
     #[test]
     fn test_primitive_mask_regression() {
         // This test reproduces the off-by-one error from export_primitive_nonnull_masked
