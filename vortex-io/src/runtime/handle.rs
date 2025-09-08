@@ -19,7 +19,7 @@ use crate::runtime::{AbortHandleRef, IoTask, Runtime};
 /// async tasks or CPU-heavy worker.
 #[derive(Clone)]
 pub struct Handle<'rt> {
-    runtime: Arc<dyn Runtime + Send + Sync>,
+    runtime: Arc<dyn Runtime>,
     _runtime: PhantomData<*mut &'rt ()>, // *mut makes it invariant which means it cannot be coerced
 }
 
@@ -91,10 +91,17 @@ impl<'rt> Handle<'rt> {
 
     /// Open a file for I/O on this runtime.
     pub fn open_read<S: IntoIoSource>(&self, source: S) -> VortexResult<FileRead<'rt>> {
-        // Our handle lifetime is only fake... so we create a new handle with a 'static lifetime
-        // to pass into the I/O source.
+        // The handle's lifetime is fake! The underlying runtime is Arc<dyn Runtime> which is
+        // 'static. The reason we have a fake lifetime is to prevent users from passing back async
+        // tasks outside the async context (i.e. after the runtime has been dropped) since they
+        // may never be polled to completion, and it's a source of footgun bugs. However, there's
+        // nothing unsafe about passing a 'static runtime to an I/O source.
+        //
+        // When we open I/O sources, we spawn a task to process their requests onto the runtime.
+        // This task often needs to spawn _more_ tasks onto the runtime for parallelism. When a
+        // `FileRead<'rt>` is dropped, the request channel will be closed and cause the I/O task
+        // to eventually finish.
         let io_handle = Handle::new(self.runtime.clone());
-
         let source = source.into_io_source(io_handle)?;
 
         let (send, recv) = kanal::unbounded();

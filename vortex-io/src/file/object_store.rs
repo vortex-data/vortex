@@ -98,7 +98,10 @@ impl IoSource for ObjectStoreIoSource {
         .boxed()
     }
 
-    fn drive_send(self: Arc<Self>, requests: BoxStream<'static, IoRequest>) -> BoxFuture<'_, ()> {
+    fn drive_send(
+        self: Arc<Self>,
+        mut requests: BoxStream<'static, IoRequest>,
+    ) -> BoxFuture<'_, ()> {
         let handle = self.handle.clone();
         requests
             .map(move |req| {
@@ -151,7 +154,7 @@ impl IoSource for ObjectStoreIoSource {
 
                 async move { req.resolve(Compat::new(read).await) }
             })
-            .map(|f| handle.spawn(f))
+            .map(move |f| handle.spawn(f))
             .buffer_unordered(CONCURRENCY)
             .collect::<()>()
             .boxed()

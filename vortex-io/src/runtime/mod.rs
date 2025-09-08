@@ -21,6 +21,9 @@ use crate::file::{IoRequest, IoSourceRef};
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 
+#[cfg(test)]
+mod tests;
+
 /// A Vortex runtime provides an abstract way of scheduling mixed I/O and CPU workloads onto the
 /// various threading models supported by Vortex.
 ///

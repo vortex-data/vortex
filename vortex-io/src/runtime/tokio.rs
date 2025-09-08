@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use futures::future::BoxFuture;
 use tokio::runtime::Handle as TokioHandle;
@@ -18,7 +18,31 @@ impl TokioRuntime {
 
     /// Return the current Tokio runtime handle wrapped in a Vortex handle.
     pub fn handle() -> Handle<'static> {
-        Handle::new(Arc::new(TokioRuntime(TokioHandle::current())))
+        CURRENT.clone()
+    }
+}
+
+/// A Tokio runtime that uses the current Tokio runtime handle.
+static CURRENT: LazyLock<Handle<'static>> =
+    LazyLock::new(|| Handle::new(Arc::new(CurrentTokioRuntime)));
+
+struct CurrentTokioRuntime;
+
+impl Runtime for CurrentTokioRuntime {
+    fn spawn(&self, fut: BoxFuture<'static, ()>) -> AbortHandleRef {
+        Box::new(TokioHandle::current().spawn(fut).abort_handle())
+    }
+
+    fn spawn_cpu(&self, cpu: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
+        Box::new(
+            TokioHandle::current()
+                .spawn(async move { cpu() })
+                .abort_handle(),
+        )
+    }
+
+    fn spawn_io(&self, task: IoTask) {
+        TokioHandle::current().spawn(task.source.drive_send(task.stream));
     }
 }
 
