@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::marker::PhantomData;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{ready, Context, Poll};
@@ -18,15 +19,20 @@ use crate::runtime::{AbortHandleRef, IoTask, Runtime};
 /// async tasks or CPU-heavy worker.
 #[derive(Clone)]
 pub struct Handle<'rt> {
-    runtime: Arc<dyn Runtime>,
-    _runtime: std::marker::PhantomData<&'rt ()>,
+    runtime: Arc<dyn Runtime + Send + Sync>,
+    _runtime: PhantomData<*mut &'rt ()>, // *mut makes it invariant which means it cannot be coerced
 }
+
+// Manually implement Send/Sync since *mut breaks auto-derive
+// This is safe since runtime has `Send + Sync` bounds.
+unsafe impl<'rt> Send for Handle<'rt> {}
+unsafe impl<'rt> Sync for Handle<'rt> {}
 
 impl<'rt> Handle<'rt> {
     pub(crate) fn new(runtime: Arc<dyn Runtime>) -> Self {
         Self {
             runtime,
-            _runtime: std::marker::PhantomData,
+            _runtime: PhantomData,
         }
     }
 
@@ -52,7 +58,7 @@ impl<'rt> Handle<'rt> {
         Task {
             recv,
             abort_handle: Some(abort_handle),
-            _runtime: std::marker::PhantomData,
+            _runtime: PhantomData,
         }
     }
 
@@ -79,13 +85,17 @@ impl<'rt> Handle<'rt> {
         Task {
             recv,
             abort_handle: Some(abort_handle),
-            _runtime: std::marker::PhantomData,
+            _runtime: PhantomData,
         }
     }
 
     /// Open a file for I/O on this runtime.
     pub fn open_read<S: IntoIoSource>(&self, source: S) -> VortexResult<FileRead<'rt>> {
-        let source = source.into_io_source()?;
+        // Our handle lifetime is only fake... so we create a new handle with a 'static lifetime
+        // to pass into the I/O source.
+        let io_handle = Handle::new(self.runtime.clone());
+
+        let source = source.into_io_source(io_handle)?;
 
         let (send, recv) = kanal::unbounded();
 
@@ -110,7 +120,7 @@ impl<'rt> Handle<'rt> {
 pub struct Task<'rt, T> {
     recv: oneshot::Receiver<T>,
     abort_handle: Option<AbortHandleRef>,
-    _runtime: std::marker::PhantomData<&'rt ()>,
+    _runtime: PhantomData<&'rt ()>,
 }
 
 impl<T> Task<'static, T> {

@@ -31,8 +31,8 @@ impl Runtime for TokioRuntime {
         Box::new(self.0.spawn(async move { cpu() }).abort_handle())
     }
 
-    fn spawn_io(self: Arc<Self>, task: IoTask) {
-        // self.0.spawn(task.drive_send());
+    fn spawn_io(&self, task: IoTask) {
+        self.0.spawn(task.source.drive_send(task.stream));
     }
 }
 

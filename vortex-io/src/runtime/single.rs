@@ -4,7 +4,7 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use futures::future::BoxFuture;
+use futures::future::{BoxFuture, LocalBoxFuture};
 use futures::stream::LocalBoxStream;
 use futures::StreamExt;
 use parking_lot::Mutex;
@@ -64,8 +64,7 @@ impl SingleThreadRuntime {
             .spawn(async move {
                 while let Ok(task) = io_recv.as_async().recv().await {
                     if let Some(local) = weak_local2.upgrade() {
-                        // FIXME
-                        // local.spawn(task.drive_local()).detach();
+                        local.spawn(task.source.drive_local(task.stream)).detach();
                     }
                 }
             })
@@ -79,14 +78,10 @@ impl SingleThreadRuntime {
     }
 
     /// Drive the given Vortex future on the underlying single-threaded runtime.
-    pub fn block_on<'scope, 'rt, F, Fut, R>(f: F) -> R
+    pub fn block_on<F, R>(f: F) -> R
     where
-        // NOTE(ngates): annoyingly, in order to introduce a higher-ranked lifetime for the
-        //  handle, and constrain the returned future, we need to return a concrete type.
-        //  Therefore, we cannot return impl Future here, and instead have to box it.
-        F: FnOnce(Handle<'rt>) -> Fut,
-        Fut: Future<Output = R> + 'scope,
-        R: Send + 'scope,
+        F: for<'rt> FnOnce(Handle<'rt>) -> LocalBoxFuture<'rt, R>,
+        R: 'static, // Result must be static to avoid returning a value that references the handle.
     {
         let executor = Rc::new(LocalExecutor::new());
         let runtime = Arc::new(SingleThreadRuntime::new(&executor));
@@ -136,7 +131,7 @@ impl Runtime for SingleThreadRuntime {
         Box::new(SmolAbortHandle { task })
     }
 
-    fn spawn_io(self: Arc<Self>, task: IoTask) {
+    fn spawn_io(&self, task: IoTask) {
         if let Err(e) = self.io.send(task) {
             vortex_panic!("Executor missing: {}", e);
         }
@@ -207,10 +202,15 @@ mod tests {
 
     #[test]
     fn test_spawn_cpu_task() {
+        let result = SingleThreadRuntime::block_on(|handle| {
+            async move { handle.spawn(async { 42 }).await }.boxed_local()
+        });
+        assert_eq!(result, 42);
+
         let counter = Arc::new(AtomicUsize::new(0));
         let c = counter.clone();
 
-        SingleThreadRuntime::block_on(move |handle| {
+        SingleThreadRuntime::block_on(|handle| {
             async move {
                 handle
                     .spawn_cpu(move || {
@@ -232,7 +232,7 @@ mod tests {
     ///
     /// SingleThreadRuntime::block_on(|handle| async move {
     ///     handle.spawn_cpu(move || 123)
-    /// }.boxed_local())
+    /// })
     /// ```
     #[test]
     fn test_handle_scope() {
@@ -243,8 +243,7 @@ mod tests {
         assert_eq!(result, 123);
 
         // E.g. this should not compile:
-        let result = SingleThreadRuntime::block_on(|handle| {
-            async move { handle.spawn_cpu(move || 123) }.boxed_local()
-        });
+        // let result =
+        //     SingleThreadRuntime::block_on(|handle| async move { handle.spawn_cpu(move || 123) });
     }
 }

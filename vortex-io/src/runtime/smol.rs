@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::runtime::{AbortHandle, AbortHandleRef, IoTask, Runtime};
 use futures::future::BoxFuture;
 use smol::Executor;
-use std::sync::Arc;
-
-use crate::runtime::{AbortHandle, AbortHandleRef, Handle, IoTask, Runtime};
 
 impl Runtime for Executor<'static> {
     fn spawn(&self, fut: BoxFuture<'static, ()>) -> AbortHandleRef {
@@ -17,9 +15,8 @@ impl Runtime for Executor<'static> {
         SmolAbortHandle::new_handle(self.spawn(async move { task() }))
     }
 
-    fn spawn_io(self: Arc<Self>, task: IoTask) {
-        self.spawn(task.drive_send(Handle::new(self.clone())))
-            .detach();
+    fn spawn_io(&self, task: IoTask) {
+        self.spawn(task.source.drive_send(task.stream)).detach()
     }
 }
 

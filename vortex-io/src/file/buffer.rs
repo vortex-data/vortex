@@ -5,15 +5,15 @@ use std::sync::{Arc, LazyLock};
 
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
-use futures::{FutureExt, StreamExt, pin_mut};
+use futures::{FutureExt, StreamExt};
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 
-use crate::file::{CoalesceWindow, IntoIoSource, IoRequest, IoSource};
+use crate::file::{CoalesceWindow, IntoIoSource, IoRequest, IoSource, IoSourceRef};
 use crate::runtime::Handle;
 
 impl IntoIoSource for ByteBuffer {
-    fn into_io_source(self) -> VortexResult<Arc<dyn IoSource>> {
+    fn into_io_source(self, _handle: Handle) -> VortexResult<IoSourceRef> {
         Ok(Arc::new(self))
     }
 }
@@ -28,35 +28,42 @@ impl IoSource for ByteBuffer {
         None
     }
 
+    fn concurrency(&self) -> usize {
+        std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(8)
+    }
+
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
         let len = self.len() as u64;
         async move { Ok(len) }.boxed()
     }
 
-    fn drive_send<'rt>(
-        &self,
-        requests: BoxStream<'rt, IoRequest>,
-        _handle: Handle<'rt>,
-    ) -> BoxFuture<'rt, ()> {
-        let buffer = self.clone();
+    fn drive_send(
+        self: Arc<Self>,
+        mut requests: BoxStream<'static, IoRequest>,
+    ) -> BoxFuture<'static, ()> {
         async move {
-            pin_mut!(requests);
             while let Some(req) = requests.next().await {
-                let offset = usize::try_from(req.offset())
-                    .vortex_expect("In-memory buffer offset exceeds usize");
-                let len = req.len();
+                let buffer = self.clone();
+                async move {
+                    let offset = usize::try_from(req.offset())
+                        .vortex_expect("In-memory buffer offset exceeds usize");
+                    let len = req.len();
 
-                let result = if offset + len > buffer.len() {
-                    Err(vortex_err!("Read out of bounds"))
-                } else {
-                    let mut slice = ByteBufferMut::with_capacity_aligned(len, req.alignment());
-                    unsafe { slice.set_len(len) };
-                    slice
-                        .as_mut_slice()
-                        .copy_from_slice(&buffer.as_slice()[offset..offset + len]);
-                    Ok(slice.freeze())
-                };
-                req.resolve(result);
+                    let result = if offset + len > buffer.len() {
+                        Err(vortex_err!("Read out of bounds"))
+                    } else {
+                        let mut slice = ByteBufferMut::with_capacity_aligned(len, req.alignment());
+                        unsafe { slice.set_len(len) };
+                        slice
+                            .as_mut_slice()
+                            .copy_from_slice(&buffer.as_slice()[offset..offset + len]);
+                        Ok(slice.freeze())
+                    };
+                    req.resolve(result);
+                }
+                .await
             }
         }
         .boxed()

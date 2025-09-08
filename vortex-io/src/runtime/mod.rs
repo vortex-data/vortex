@@ -3,9 +3,8 @@
 
 mod handle;
 
-use std::sync::Arc;
-
 pub use handle::*;
+
 #[cfg(not(target_arch = "wasm32"))]
 pub mod current;
 #[cfg(not(target_arch = "wasm32"))]
@@ -18,10 +17,9 @@ pub mod tokio;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;
 
-use futures::future::{BoxFuture, LocalBoxFuture};
+use crate::file::{IoRequest, IoSourceRef};
+use futures::future::BoxFuture;
 use futures::stream::BoxStream;
-
-use crate::file::{IoRequest, IoSource};
 
 /// A Vortex runtime provides an abstract way of scheduling mixed I/O and CPU workloads onto the
 /// various threading models supported by Vortex.
@@ -50,7 +48,9 @@ pub(crate) trait Runtime: Send + Sync {
 
     /// Spawns an I/O task for execution on the runtime.
     /// The runtime can choose to invoke the task's `Send` or `!Send` versions.
-    fn spawn_io(self: Arc<Self>, task: IoTask);
+    ///
+    /// Cancellation is implied by termination of the request stream.
+    fn spawn_io(&self, task: IoTask);
 }
 
 /// A handle that may be used to optimistically abort a spawned task.
@@ -64,24 +64,20 @@ pub(crate) trait AbortHandle: Send + Sync {
 pub(crate) type AbortHandleRef = Box<dyn AbortHandle>;
 
 /// A task for driving I/O requests against a source.
+///
+/// Instead of just spawning a future to process requests, we allow each runtime to decide how
+/// spawn the driver for the request stream. This allows runtimes to shared, parallelize, further
+/// spawn, or otherwise manage the I/O task as they see fit.
+///
+// NOTE(ngates): We could in theory make IoSource support as_any if we wanted each runtime to implement the
+// actual read logic themselves? Not sure yet...
 pub(crate) struct IoTask {
-    source: Arc<dyn IoSource>,
-    stream: BoxStream<'static, IoRequest>,
+    pub(crate) source: IoSourceRef,
+    pub(crate) stream: BoxStream<'static, IoRequest>,
 }
 
 impl IoTask {
-    pub(crate) fn new(source: Arc<dyn IoSource>, stream: BoxStream<'static, IoRequest>) -> Self {
+    pub(crate) fn new(source: IoSourceRef, stream: BoxStream<'static, IoRequest>) -> Self {
         IoTask { source, stream }
-    }
-
-    /// Create a new I/O task for the given source and request stream.
-    pub(crate) fn drive_send(self, handle: Handle) -> BoxFuture<()> {
-        self.source.drive_send(self.stream, handle)
-    }
-
-    /// Create a new I/O task for the given source and request stream that runs on the local thread.
-    #[allow(dead_code)] // Used only with smol currently.
-    pub(crate) fn drive_local(self, handle: Handle) -> LocalBoxFuture<()> {
-        self.source.drive_local(self.stream, handle)
     }
 }

@@ -30,8 +30,8 @@ impl Runtime for WasmRuntime {
         Box::new(NoOpAbortHandle)
     }
 
-    fn spawn_io(&self, task: IoTask) {
-        // spawn_local(task.drive_local());
+    fn spawn_io(self: Arc<Self>, task: IoTask) {
+        spawn_local(task.drive_local(Handle::new(self)));
     }
 }
 
