@@ -10,16 +10,26 @@ use vortex_error::{vortex_panic, VortexResult};
 
 use crate::file::{FileRead, IntoIoSource, IoRequestStream};
 use crate::kanal_ext::KanalExt;
-use crate::runtime::{AbortHandle, IoTask, Runtime};
+use crate::runtime::{AbortHandleRef, IoTask, Runtime};
 
 /// A handle to an active Vortex runtime.
 ///
 /// Users should obtain a handle from one of the runtime constructors and use it to spawn new
 /// async tasks or CPU-heavy worker.
-#[derive(Clone)] // FIXME(ngates): remove this...
-pub struct Handle<'rt>(pub(crate) Arc<dyn Runtime<'rt> + 'rt>);
+#[derive(Clone)]
+pub struct Handle<'rt> {
+    runtime: Arc<dyn Runtime>,
+    _runtime: std::marker::PhantomData<&'rt ()>,
+}
 
 impl<'rt> Handle<'rt> {
+    pub(crate) fn new(runtime: Arc<dyn Runtime>) -> Self {
+        Self {
+            runtime,
+            _runtime: std::marker::PhantomData,
+        }
+    }
+
     /// Spawn a new future onto the runtime.
     ///
     /// These futures are expected to not perform expensive CPU work and instead simply schedule
@@ -28,11 +38,11 @@ impl<'rt> Handle<'rt> {
     /// See [`Task`] for details on cancelling or detaching the spawned task.
     pub fn spawn<Fut, R>(&self, f: Fut) -> Task<'rt, R>
     where
-        Fut: Future<Output = R> + Send + 'rt,
-        R: Send + 'rt,
+        Fut: Future<Output = R> + Send + 'static,
+        R: Send + 'static,
     {
         let (send, recv) = oneshot::channel();
-        let abort_handle = self.0.spawn(
+        let abort_handle = self.runtime.spawn(
             async move {
                 // Task::detach allows the receiver to be dropped, so we ignore send errors.
                 let _ = send.send(f.await);
@@ -42,6 +52,7 @@ impl<'rt> Handle<'rt> {
         Task {
             recv,
             abort_handle: Some(abort_handle),
+            _runtime: std::marker::PhantomData,
         }
     }
 
@@ -61,13 +72,14 @@ impl<'rt> Handle<'rt> {
     {
         // TODO(ngates): we want a droppable handle for this.
         let (send, recv) = oneshot::channel();
-        let abort_handle = self.0.spawn_cpu(Box::new(move || {
+        let abort_handle = self.runtime.spawn_cpu(Box::new(move || {
             // Task::detach allows the receiver to be dropped, so we ignore send errors.
             let _ = send.send(f());
         }));
         Task {
             recv,
             abort_handle: Some(abort_handle),
+            _runtime: std::marker::PhantomData,
         }
     }
 
@@ -85,7 +97,7 @@ impl<'rt> Handle<'rt> {
         )
         .boxed();
 
-        self.0.spawn_io(IoTask::new(source, stream, self.clone()));
+        self.runtime.clone().spawn_io(IoTask::new(source, stream));
 
         Ok(read)
     }
@@ -97,11 +109,13 @@ impl<'rt> Handle<'rt> {
 /// continue running in the background, call [`Task::detach`].
 pub struct Task<'rt, T> {
     recv: oneshot::Receiver<T>,
-    abort_handle: Option<Box<dyn AbortHandle<'rt> + 'rt>>,
+    abort_handle: Option<AbortHandleRef>,
+    _runtime: std::marker::PhantomData<&'rt ()>,
 }
 
-impl<'rt, T> Task<'rt, T> {
+impl<T> Task<'static, T> {
     /// Detach the task, allowing it to continue running in the background after being dropped.
+    /// This is only possible if the underlying runtime has a 'static lifetime.
     pub fn detach(mut self) {
         drop(self.abort_handle.take());
     }

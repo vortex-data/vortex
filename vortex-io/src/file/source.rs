@@ -3,9 +3,9 @@
 
 use std::sync::Arc;
 
-use futures::FutureExt;
 use futures::future::{BoxFuture, LocalBoxFuture};
 use futures::stream::BoxStream;
+use futures::FutureExt;
 use vortex_error::VortexResult;
 
 use crate::file::request::IoRequest;
@@ -23,14 +23,14 @@ pub trait IoSource: 'static + Send + Sync {
     /// Drive a stream of I/O requests to completion.
     fn drive_send<'rt>(
         &self,
-        requests: BoxStream<'rt, IoRequest>,
+        requests: BoxStream<'static, IoRequest>,
         handle: Handle<'rt>,
     ) -> BoxFuture<'rt, ()>;
 
     /// Drive a stream of I/O requests to completion on the local thread.
     fn drive_local<'rt>(
         &self,
-        requests: BoxStream<'rt, IoRequest>,
+        requests: BoxStream<'static, IoRequest>,
         handle: Handle<'rt>,
     ) -> LocalBoxFuture<'rt, ()> {
         self.drive_send(requests, handle).boxed_local()

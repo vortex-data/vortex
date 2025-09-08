@@ -53,7 +53,7 @@ pub struct FileRead<'rt> {
     /// Human-readable descriptor for the file, typically its URI.
     uri: Arc<str>,
     /// A shared future that resolves to the size of the file.
-    size: Shared<BoxFuture<'rt, SharedVortexResult<u64>>>,
+    size: Shared<BoxFuture<'static, SharedVortexResult<u64>>>,
     /// A queue for sending read request events to the I/O stream.
     events: kanal::Sender<ReadEvent>,
     /// The next read request ID.
@@ -79,7 +79,7 @@ impl Display for FileRead<'_> {
 impl<'rt> FileRead<'rt> {
     pub(crate) fn new(
         uri: Arc<str>,
-        size: BoxFuture<'rt, VortexResult<u64>>,
+        size: BoxFuture<'static, VortexResult<u64>>,
         send: kanal::Sender<ReadEvent>,
     ) -> Self {
         Self {

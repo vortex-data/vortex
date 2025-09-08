@@ -23,7 +23,7 @@ impl CurrentThreadRuntime {
         R: Send + 'static,
     {
         let executor = Arc::new(Executor::new());
-        let fut = f(Handle(executor.clone()));
+        let fut = f(Handle::new(executor.clone()));
         block_on(executor.run(fut))
     }
 
@@ -37,7 +37,7 @@ impl CurrentThreadRuntime {
         R: Send + 'static,
     {
         let executor = Arc::new(Executor::new());
-        let stream = f(Handle(executor.clone()));
+        let stream = f(Handle::new(executor.clone()));
 
         // We create an MPMC result channel and spawn a task to drive the stream and send results.
         // This allows multiple worker threads to drive the executor while all waiting for results

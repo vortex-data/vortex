@@ -13,30 +13,30 @@ pub struct TokioRuntime(TokioHandle);
 
 impl TokioRuntime {
     pub fn with(handle: TokioHandle) -> Handle<'static> {
-        Handle(Arc::new(Self(handle)))
+        Handle::new(Arc::new(Self(handle)))
     }
 
     /// Return the current Tokio runtime handle wrapped in a Vortex handle.
     pub fn handle() -> Handle<'static> {
-        Handle(Arc::new(TokioRuntime(TokioHandle::current())))
+        Handle::new(Arc::new(TokioRuntime(TokioHandle::current())))
     }
 }
 
-impl Runtime<'static> for TokioRuntime {
-    fn spawn(&self, fut: BoxFuture<'static, ()>) -> AbortHandleRef<'static> {
+impl Runtime for TokioRuntime {
+    fn spawn(&self, fut: BoxFuture<'static, ()>) -> AbortHandleRef {
         Box::new(self.0.spawn(fut).abort_handle())
     }
 
-    fn spawn_cpu(&self, cpu: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef<'static> {
+    fn spawn_cpu(&self, cpu: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
         Box::new(self.0.spawn(async move { cpu() }).abort_handle())
     }
 
-    fn spawn_io(&self, task: IoTask<'static>) {
-        self.0.spawn(task.drive_send());
+    fn spawn_io(self: Arc<Self>, task: IoTask) {
+        // self.0.spawn(task.drive_send());
     }
 }
 
-impl AbortHandle<'_> for tokio::task::AbortHandle {
+impl AbortHandle for tokio::task::AbortHandle {
     fn abort(self: Box<Self>) {
         tokio::task::AbortHandle::abort(&self)
     }
@@ -44,11 +44,11 @@ impl AbortHandle<'_> for tokio::task::AbortHandle {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
-    use futures::FutureExt;
     use futures::executor::block_on;
+    use futures::FutureExt;
     use tokio::runtime::Runtime as TokioRt;
 
     use super::*;

@@ -4,7 +4,7 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use futures::future::{BoxFuture, LocalBoxFuture};
+use futures::future::BoxFuture;
 use futures::stream::LocalBoxStream;
 use futures::StreamExt;
 use parking_lot::Mutex;
@@ -17,14 +17,14 @@ use crate::runtime::{AbortHandle, AbortHandleRef, Handle, IoTask, Runtime};
 ///
 /// This is subtly different from using a current-thread runtime to drive a future since it is
 /// capable of running `!Send` I/O futures.
-pub struct SingleThreadRuntime<'a> {
-    scheduling: kanal::Sender<SpawnFuture<'a>>,
-    cpu: kanal::Sender<SpawnCpu<'a>>,
-    io: kanal::Sender<IoTask<'a>>,
+pub struct SingleThreadRuntime {
+    scheduling: kanal::Sender<SpawnFuture<'static>>,
+    cpu: kanal::Sender<SpawnCpu<'static>>,
+    io: kanal::Sender<IoTask>,
 }
 
-impl<'a> SingleThreadRuntime<'a> {
-    fn new(local: &Rc<LocalExecutor<'a>>) -> Self {
+impl SingleThreadRuntime {
+    fn new(local: &Rc<LocalExecutor<'static>>) -> Self {
         let (scheduling_send, scheduling_recv) = kanal::unbounded::<SpawnFuture>();
         let (cpu_send, cpu_recv) = kanal::unbounded::<SpawnCpu>();
         let (io_send, io_recv) = kanal::unbounded::<IoTask>();
@@ -64,7 +64,8 @@ impl<'a> SingleThreadRuntime<'a> {
             .spawn(async move {
                 while let Ok(task) = io_recv.as_async().recv().await {
                     if let Some(local) = weak_local2.upgrade() {
-                        local.spawn(task.drive_local()).detach();
+                        // FIXME
+                        // local.spawn(task.drive_local()).detach();
                     }
                 }
             })
@@ -78,31 +79,32 @@ impl<'a> SingleThreadRuntime<'a> {
     }
 
     /// Drive the given Vortex future on the underlying single-threaded runtime.
-    pub fn block_on<F, R>(f: F) -> R
+    pub fn block_on<'scope, 'rt, F, Fut, R>(f: F) -> R
     where
         // NOTE(ngates): annoyingly, in order to introduce a higher-ranked lifetime for the
         //  handle, and constrain the returned future, we need to return a concrete type.
         //  Therefore, we cannot return impl Future here, and instead have to box it.
-        F: for<'rt> FnOnce(Handle<'rt>) -> LocalBoxFuture<'rt, R>,
-        R: Send + 'a,
+        F: FnOnce(Handle<'rt>) -> Fut,
+        Fut: Future<Output = R> + 'scope,
+        R: Send + 'scope,
     {
         let executor = Rc::new(LocalExecutor::new());
         let runtime = Arc::new(SingleThreadRuntime::new(&executor));
-        let handle = Handle(runtime);
+        let handle = Handle::new(runtime);
 
         let fut = f(handle);
         block_on(executor.run(fut))
     }
 
     /// Drive the given Vortex stream on the underlying single-threaded runtime.
-    pub fn block_on_stream<F, R>(f: F) -> impl Iterator<Item = R> + 'a
+    pub fn block_on_stream<F, R>(f: F) -> impl Iterator<Item = R>
     where
         F: for<'rt> FnOnce(Handle<'rt>) -> LocalBoxStream<'rt, R>,
         R: Send + 'static,
     {
         let executor = Rc::new(LocalExecutor::new());
-        let handle = Handle(Arc::new(Self::new(&executor)));
-        let stream: LocalBoxStream<'a, R> = f(handle).boxed_local();
+        let handle = Handle::new(Arc::new(Self::new(&executor)));
+        let stream = f(handle).boxed_local();
         BlockingStream { executor, stream }
     }
 }
@@ -111,8 +113,8 @@ impl<'a> SingleThreadRuntime<'a> {
 /// we cannot just `impl Runtime for LocalExecutor`. Instead, we create channels that the handle
 /// can forward its work into, and we drive the resulting tasks on a [`LocalExecutor`] on the
 /// calling thread.
-impl<'rt> Runtime<'rt> for SingleThreadRuntime<'rt> {
-    fn spawn(&self, future: BoxFuture<'rt, ()>) -> AbortHandleRef<'rt> {
+impl Runtime for SingleThreadRuntime {
+    fn spawn(&self, future: BoxFuture<'static, ()>) -> AbortHandleRef {
         let task = Arc::new(Mutex::new(None));
         if let Err(e) = self.scheduling.send(SpawnFuture {
             future,
@@ -123,7 +125,7 @@ impl<'rt> Runtime<'rt> for SingleThreadRuntime<'rt> {
         Box::new(SmolAbortHandle { task })
     }
 
-    fn spawn_cpu(&self, cpu: Box<dyn FnOnce() + Send + 'rt>) -> AbortHandleRef<'rt> {
+    fn spawn_cpu(&self, cpu: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
         let task = Arc::new(Mutex::new(None));
         if let Err(e) = self.cpu.send(SpawnCpu {
             cpu,
@@ -134,7 +136,7 @@ impl<'rt> Runtime<'rt> for SingleThreadRuntime<'rt> {
         Box::new(SmolAbortHandle { task })
     }
 
-    fn spawn_io(&self, task: IoTask<'rt>) {
+    fn spawn_io(self: Arc<Self>, task: IoTask) {
         if let Err(e) = self.io.send(task) {
             vortex_panic!("Executor missing: {}", e);
         }
@@ -157,7 +159,7 @@ struct SmolAbortHandle {
     task: Arc<Mutex<Option<smol::Task<()>>>>,
 }
 
-impl<'rt> AbortHandle<'rt> for SmolAbortHandle {
+impl AbortHandle for SmolAbortHandle {
     fn abort(self: Box<Self>) {
         // Aborting a smol::Task is done by dropping it.
         if let Some(task) = self.task.lock().take() {
@@ -239,5 +241,10 @@ mod tests {
             async move { handle.spawn_cpu(move || 123).await }.boxed_local()
         });
         assert_eq!(result, 123);
+
+        // E.g. this should not compile:
+        let result = SingleThreadRuntime::block_on(|handle| {
+            async move { handle.spawn_cpu(move || 123) }.boxed_local()
+        });
     }
 }
