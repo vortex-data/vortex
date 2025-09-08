@@ -9,7 +9,7 @@ use vortex_mask::Mask;
 use crate::arrays::BoolArray;
 use crate::pipeline::bits::{BitView, BitAlignedChunkedIterator};
 use crate::pipeline::vec::Vector;
-use crate::pipeline::{Kernel, KernelContext, N, N_WORDS};
+use crate::pipeline::{Kernel, KernelContext, N};
 use crate::validity::Validity;
 
 pub(super) fn export_bool_nonnull_masked(
@@ -24,12 +24,7 @@ pub(super) fn export_bool_nonnull_masked(
 
     let mask_buffer = mask.to_boolean_buffer();
 
-    let mut mask_iter = BitAlignedChunkedIterator::with_max_bits(
-        mask_buffer.values(), 
-        mask_buffer.offset(), 
-        len
-    );
-
+    let mut mask_iter = BitAlignedChunkedIterator::from(&mask_buffer);
 
     // Fast path: collect all bools first, then use collect_bool for optimal packing
     let mut all_bools: Vec<bool> = Vec::with_capacity(true_count);
@@ -61,30 +56,9 @@ pub(super) fn export_bool_nonnull_masked(
     }
 
     let remaining = len % N;
-    println!("DEBUG: remaining = {}, len = {}", remaining, len);
     if remaining > 0 {
-        // let mut mask_1k_buffer = [0usize; N_WORDS];
-        // let mask_u8: &mut [u8] = unsafe {
-        //     std::slice::from_raw_parts_mut(mask_1k_buffer.as_mut_ptr() as *mut u8, N_WORDS * 8)
-        // };
-        //
         let chunk = mask_iter.next_chunk().vortex_expect("mask chunk");
-        println!("DEBUG: got chunk for remaining = {}", remaining);
-        // // Iterator returns [usize; N_WORDS], copy it directly
-        // mask_1k_buffer.copy_from_slice(&chunk);
-
-
-        
-        // // Zero out bits beyond the remaining count
-        // for bit in remaining..N {
-        //     let word_idx = bit / (usize::BITS as usize);
-        //     let bit_idx = bit % (usize::BITS as usize);
-        //     mask_1k_buffer[word_idx] &= !(1 << bit_idx);
-        // }
-        //
-
         let view = BitView::new(&chunk);
-        println!("DEBUG: view.true_count() = {}", view.true_count());
 
         let dummy_ctx = KernelContext::default();
         pipeline.step(&dummy_ctx, view, &mut elements_buffer_mut)?;
@@ -93,7 +67,6 @@ pub(super) fn export_bool_nonnull_masked(
         // Collect remaining bools
         let bool_slice = elements_buffer_mut.as_slice::<bool>();
         let count = view.true_count();
-        println!("DEBUG: final count in remaining = {}", count);
 
         let old_len = all_bools.len();
         unsafe {
@@ -349,6 +322,8 @@ mod tests {
         let slice_start = 13;
         let slice_len = 1100;
         let sliced_mask = full_mask.slice(slice_start..slice_start + slice_len);
+
+        println!("sliced_mask {:?}", sliced_mask.to_boolean_buffer().values().iter().map(|b| format!("{:08b}", b)).collect::<Vec<_>>());
         
         let mut kernel = TestKernel::new();
         
@@ -365,7 +340,7 @@ mod tests {
         
         // Verify remaining chunk
         let expected_remaining_mask = sliced_mask.slice(N..1100);
-        assert_eq!(masks[1].slice(0..expected_remaining_mask.len()), expected_remaining_mask, "Remaining chunk should match with padding");
+        assert_eq!(masks[1], expected_remaining_mask, "Remaining chunk should match with padding\n{:?}\n{:?}", masks[1].to_boolean_buffer().values().iter().map(|b| format!("{:08b}", b)).collect::<Vec<_>>(), expected_remaining_mask.to_boolean_buffer().values().iter().map(|b| format!("{:08b}", b)).collect::<Vec<_>>());
         
         // Verify counts
         assert_eq!(result.len(), sliced_mask.true_count());

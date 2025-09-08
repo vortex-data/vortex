@@ -4,11 +4,11 @@
 use arrow_buffer::BooleanBuffer;
 use vortex_buffer::{Alignment, BufferMut};
 use vortex_dtype::{NativePType, Nullability};
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
 use crate::arrays::PrimitiveArray;
-use crate::pipeline::bits::{BitVector, BitView, BitViewMut};
+use crate::pipeline::bits::{BitAlignedChunkedIterator, BitVector, BitView, BitViewMut};
 use crate::pipeline::view::ViewMut;
 use crate::pipeline::{Element, Kernel, KernelContext, N, N_WORDS};
 use crate::validity::Validity;
@@ -54,9 +54,9 @@ pub(super) fn export_primitive_null<T: Element + NativePType>(
     let mut elements = BufferMut::<T>::with_capacity(capacity);
     unsafe { elements.set_len(capacity) };
 
-    // should we allocate in multiples of N_WORDS?
     let mut mask =
         BufferMut::<usize>::full(0, len.div_ceil(N_WORDS) * N_WORDS).aligned(Alignment::new(1024));
+
 
     let mut remaining = len;
 
@@ -110,25 +110,23 @@ pub(super) fn export_primitive_nonnull_masked<T: Element + NativePType>(
     unsafe { elements.set_len(capacity) };
 
     let mask_buffer = mask.to_boolean_buffer();
-    let mut mask_iter = mask_buffer.bit_chunks().iter_padded();
-
-    let mut mask = [0usize; N_WORDS];
-    let mut mask_view = BitViewMut::new(&mut mask);
+    let mut mask_iter = BitAlignedChunkedIterator::from(&mask_buffer);
 
     let mut offset = 0;
     let mut remaining = len;
     while remaining > 0 {
         let mut elements_view = ViewMut::new(&mut elements[offset..][..N], None);
 
-        mask_view.clear();
-        mask_view.fill_with_words(&mut mask_iter);
-
         let dummy_ctx = KernelContext::default();
-        pipeline.step(&dummy_ctx, mask_view.as_view(), &mut elements_view)?;
+        let mask_view = BitView::new(&mask_iter.next_chunk().vortex_expect("mask iterator"));
+        pipeline.step(&dummy_ctx, mask_view, &mut elements_view)?;
         offset += mask_view.true_count();
+
 
         remaining = remaining.saturating_sub(N);
     }
+
+    assert_eq!(mask.true_count(), offset);
 
     unsafe { elements.set_len(offset) };
 
