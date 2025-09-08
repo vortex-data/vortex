@@ -168,6 +168,14 @@ impl PyVortexDataset {
         split_by: Option<usize>,
         row_range: Option<(u64, u64)>,
     ) -> PyResult<usize> {
+        if row_filter.is_none() {
+            let row_count = match row_range {
+                Some(range) => range.1 - range.0,
+                None => self_.vxf.row_count(),
+            };
+            return row_count.try_into().map_err(PyValueError::new_err);
+        }
+
         let mut scan = self_
             .vxf
             .scan()?
