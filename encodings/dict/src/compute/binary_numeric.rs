@@ -26,7 +26,7 @@ impl NumericKernel for DictVTable {
         };
         let rhs_const_array = ConstantArray::new(rhs_scalar, array.values().len()).into_array();
 
-        // TODO(robert): this can't be pushed down due to overflow behaviour. 
+        // TODO(robert): this can't be pushed down due to overflow behaviour.
         // Values not referenced by the codes could overflow
         if array.values().dtype().is_unsigned_int() {
             return Ok(None);
