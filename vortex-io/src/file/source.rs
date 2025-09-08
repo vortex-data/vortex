@@ -17,13 +17,6 @@ pub trait IoSource: Send + Sync {
 
     fn coalesce_window(&self) -> Option<CoalesceWindow>;
 
-    /// Returns the number of concurrent I/O operations that can be in-flight at once.
-    ///
-    /// The driver streams returned from this trait will be buffered by this amount.
-    ///
-    // TODO(ngates): return an Arc<AtomicUsize> so we can adjust concurrency dynamically.
-    fn concurrency(&self) -> usize;
-
     /// Returns a shared future that resolves to the byte size of the underlying data source.
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>>;
 

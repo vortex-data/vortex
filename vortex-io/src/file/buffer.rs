@@ -28,12 +28,6 @@ impl IoSource for ByteBuffer {
         None
     }
 
-    fn concurrency(&self) -> usize {
-        std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(8)
-    }
-
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
         let len = self.len() as u64;
         async move { Ok(len) }.boxed()
@@ -43,27 +37,24 @@ impl IoSource for ByteBuffer {
         self: Arc<Self>,
         mut requests: BoxStream<'static, IoRequest>,
     ) -> BoxFuture<'static, ()> {
+        let buffer = self.clone();
         async move {
             while let Some(req) = requests.next().await {
-                let buffer = self.clone();
-                async move {
-                    let offset = usize::try_from(req.offset())
-                        .vortex_expect("In-memory buffer offset exceeds usize");
-                    let len = req.len();
+                let offset = usize::try_from(req.offset())
+                    .vortex_expect("In-memory buffer offset exceeds usize");
+                let len = req.len();
 
-                    let result = if offset + len > buffer.len() {
-                        Err(vortex_err!("Read out of bounds"))
-                    } else {
-                        let mut slice = ByteBufferMut::with_capacity_aligned(len, req.alignment());
-                        unsafe { slice.set_len(len) };
-                        slice
-                            .as_mut_slice()
-                            .copy_from_slice(&buffer.as_slice()[offset..offset + len]);
-                        Ok(slice.freeze())
-                    };
-                    req.resolve(result);
-                }
-                .await
+                let result = if offset + len > buffer.len() {
+                    Err(vortex_err!("Read out of bounds"))
+                } else {
+                    let mut slice = ByteBufferMut::with_capacity_aligned(len, req.alignment());
+                    unsafe { slice.set_len(len) };
+                    slice
+                        .as_mut_slice()
+                        .copy_from_slice(&buffer.as_slice()[offset..offset + len]);
+                    Ok(slice.freeze())
+                };
+                req.resolve(result);
             }
         }
         .boxed()

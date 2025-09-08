@@ -50,10 +50,6 @@ impl IoSource for FileIoSource {
         Some(COALESCING_WINDOW)
     }
 
-    fn concurrency(&self) -> usize {
-        CONCURRENCY
-    }
-
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
         let file = self.file.clone();
         async move {

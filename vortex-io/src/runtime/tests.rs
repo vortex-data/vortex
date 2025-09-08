@@ -232,10 +232,6 @@ mod tests {
             None
         }
 
-        fn concurrency(&self) -> usize {
-            4
-        }
-
         fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
             let len = self.data.len() as u64;
             async move { Ok(len) }.boxed()

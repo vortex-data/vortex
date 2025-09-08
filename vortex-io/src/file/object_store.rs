@@ -81,10 +81,6 @@ impl IoSource for ObjectStoreIoSource {
         self.io.coalesce_window
     }
 
-    fn concurrency(&self) -> usize {
-        CONCURRENCY
-    }
-
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
         let store = self.io.store.clone();
         let path = self.io.path.clone();
