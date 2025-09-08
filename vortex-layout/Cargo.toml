@@ -41,6 +41,9 @@ tokio = { workspace = true, features = ["rt"], optional = true }
 # Needed to pickup the "js" feature for wasm targets from the workspace configuration
 tracing = { workspace = true }
 uuid = { workspace = true }
+twox-hash = { workspace = true, default-features = false, features = [
+    "xxhash64",
+] }
 vortex-array = { workspace = true }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }

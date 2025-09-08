@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+pub mod bloom;
 mod reader;
 pub mod writer;
 
@@ -86,7 +87,7 @@ impl VTable for DictVTable {
         _encoding: &Self::Encoding,
         dtype: &DType,
         _row_count: u64,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        metadata: &DictLayoutMetadata,
         _segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
         _ctx: ArrayContext,
@@ -96,7 +97,12 @@ impl VTable for DictVTable {
             1,
             &DType::Primitive(metadata.codes_ptype(), dtype.nullability()),
         )?;
-        Ok(DictLayout { values, codes })
+
+        Ok(DictLayout {
+            values,
+            codes,
+            bloom_filter: metadata.bloom_filter_segment(),
+        })
     }
 }
 
@@ -107,11 +113,29 @@ pub struct DictLayoutEncoding;
 pub struct DictLayout {
     values: LayoutRef,
     codes: LayoutRef,
+    /// (optional) location where th bloom filter for this dictionary is saved.
+    bloom_filter: Option<SegmentId>,
 }
 
 impl DictLayout {
     pub(super) fn new(values: LayoutRef, codes: LayoutRef) -> Self {
-        Self { values, codes }
+        Self {
+            values,
+            codes,
+            bloom_filter: None,
+        }
+    }
+
+    pub(super) fn new_with_bloom_filter(
+        values: LayoutRef,
+        codes: LayoutRef,
+        bloom_filter: SegmentId,
+    ) -> Self {
+        Self {
+            values,
+            codes,
+            bloom_filter: Some(bloom_filter),
+        }
     }
 }
 
@@ -120,6 +144,9 @@ pub struct DictLayoutMetadata {
     #[prost(enumeration = "PType", tag = "1")]
     // i32 is required for proto, use the generated getter to read this field.
     codes_ptype: i32,
+
+    #[prost(optional, uint32, tag = "2")]
+    bloom_filter: Option<u32>,
 }
 
 impl DictLayoutMetadata {
@@ -127,5 +154,9 @@ impl DictLayoutMetadata {
         let mut metadata = Self::default();
         metadata.set_codes_ptype(codes_ptype);
         metadata
+    }
+
+    pub fn bloom_filter_segment(&self) -> Option<SegmentId> {
+        self.bloom_filter.map(|s| s.into())
     }
 }

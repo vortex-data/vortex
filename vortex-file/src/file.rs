@@ -9,15 +9,17 @@
 use std::ops::Range;
 use std::sync::Arc;
 
+use futures::future::BoxFuture;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::stats::StatsSet;
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldPath, FieldPathSet};
 use vortex_error::VortexResult;
 use vortex_expr::pruning::checked_pruning_expr;
 use vortex_expr::{ExprRef, Scope};
 use vortex_layout::LayoutReader;
-use vortex_layout::segments::SegmentSource;
+use vortex_layout::segments::{SegmentId, SegmentSource};
 use vortex_metrics::VortexMetrics;
 use vortex_scan::{ScanBuilder, SplitBy};
 use vortex_utils::aliases::hash_map::HashMap;
@@ -88,6 +90,14 @@ impl VortexFile {
     /// Initiate a scan of the file, returning a builder for configuring the scan.
     pub fn scan(&self) -> VortexResult<ScanBuilder<ArrayRef>> {
         Ok(ScanBuilder::new(self.layout_reader()?).with_metrics(self.metrics.clone()))
+    }
+
+    /// Request a single segment from the file.
+    pub fn read_segment(
+        &self,
+        segment_id: SegmentId,
+    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
+        self.segment_source.request(segment_id)
     }
 
     /// Returns true if the expression will never match any rows in the file.

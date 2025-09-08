@@ -3,7 +3,7 @@
 
 use std::hash::Hash;
 
-use vortex_array::compute::{LikeOptions, like};
+use vortex_array::compute::{LikeOptions, like as like_fn};
 use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
@@ -90,7 +90,7 @@ impl VTable for LikeVTable {
     fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
         let child = expr.child().unchecked_evaluate(scope)?;
         let pattern = expr.pattern().unchecked_evaluate(scope)?;
-        like(
+        like_fn(
             &child,
             &pattern,
             LikeOptions {
@@ -149,7 +149,13 @@ impl DisplayAs for LikeExpr {
     fn fmt_as(&self, df: DisplayFormat, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match df {
             DisplayFormat::Compact => {
-                write!(f, "{} LIKE {}", self.child(), self.pattern())
+                write!(
+                    f,
+                    "{} {}LIKE {}",
+                    self.child(),
+                    if self.negated() { "NOT " } else { "" },
+                    self.pattern()
+                )
             }
             DisplayFormat::Tree => {
                 write!(f, "Like")
@@ -163,6 +169,22 @@ impl DisplayAs for LikeExpr {
 }
 
 impl AnalysisExpr for LikeExpr {}
+
+pub fn like(lhs: ExprRef, pattern: ExprRef) -> ExprRef {
+    LikeExpr::new_expr(lhs, pattern, false, false)
+}
+
+pub fn ilike(lhs: ExprRef, pattern: ExprRef) -> ExprRef {
+    LikeExpr::new_expr(lhs, pattern, false, true)
+}
+
+pub fn not_like(lhs: ExprRef, pattern: ExprRef) -> ExprRef {
+    LikeExpr::new_expr(lhs, pattern, true, false)
+}
+
+pub fn not_ilike(lhs: ExprRef, pattern: ExprRef) -> ExprRef {
+    LikeExpr::new_expr(lhs, pattern, true, true)
+}
 
 #[cfg(test)]
 mod tests {
@@ -204,6 +226,6 @@ mod tests {
         assert_eq!(expr.to_string(), "$.name LIKE \"%john%\"");
 
         let expr2 = LikeExpr::new(root(), lit("test*"), true, true);
-        assert_eq!(expr2.to_string(), "$ LIKE \"test*\"");
+        assert_eq!(expr2.to_string(), "$ NOT LIKE \"test*\"");
     }
 }

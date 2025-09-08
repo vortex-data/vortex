@@ -53,20 +53,25 @@ pub fn stats_builder_with_capacity(
 }
 
 /// Arrays with their associated names, reduced version of a StructArray
-pub struct NamedArrays {
-    pub names: Vec<FieldName>,
-    pub arrays: Vec<ArrayRef>,
+pub(super) struct NamedArrays {
+    names: Vec<FieldName>,
+    arrays: Vec<ArrayRef>,
 }
 
 impl NamedArrays {
-    pub fn all_invalid(&self) -> bool {
-        // by convention we assume that the first array is the one we care about for logical validity
+    pub(super) fn all_invalid(&self) -> bool {
+        // by convention, we assume that the first array is the one we care about for logical validity
         self.arrays[0].all_invalid()
+    }
+
+    pub(super) fn into_parts(self) -> (Vec<FieldName>, Vec<ArrayRef>) {
+        (self.names, self.arrays)
     }
 }
 
-/// Minimal array builder interface for use by StatsTable for building stats arrays
-pub trait StatsArrayBuilder: Send {
+/// Build a ZoneMap where every row is populated with the `stat` calculated from a chunk which
+/// was appended.
+pub(super) trait StatsArrayBuilder: Send {
     fn stat(&self) -> Stat;
 
     fn append_scalar(&mut self, value: Scalar) -> VortexResult<()>;
@@ -76,13 +81,14 @@ pub trait StatsArrayBuilder: Send {
     fn finish(&mut self) -> NamedArrays;
 }
 
-pub struct StatNameArrayBuilder {
+/// A `StatsArrayBuilder` for a single stat type.
+struct StatNameArrayBuilder {
     stat: Stat,
     builder: Box<dyn ArrayBuilder>,
 }
 
 impl StatNameArrayBuilder {
-    pub fn new(stat: Stat, builder: Box<dyn ArrayBuilder>) -> Self {
+    fn new(stat: Stat, builder: Box<dyn ArrayBuilder>) -> Self {
         Self { stat, builder }
     }
 }

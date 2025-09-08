@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::future::ready;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -10,7 +11,9 @@ use async_trait::async_trait;
 use futures::future::BoxFuture;
 use futures::stream::{BoxStream, once};
 use futures::{FutureExt, Stream, StreamExt, TryStreamExt, pin_mut, try_join};
-use vortex_array::{Array, ArrayContext, ArrayRef};
+use vortex_array::arrays::VarBinViewArray;
+use vortex_array::stream::ArrayStreamExt;
+use vortex_array::{Array, ArrayContext, ArrayRef, Canonical};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dict::DictEncoding;
 use vortex_dict::builders::{DictConstraints, DictEncoder, dict_encoder};
@@ -22,6 +25,7 @@ use vortex_io::runtime::Handle;
 
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::dict::DictLayout;
+use crate::layouts::dict::bloom::BloomFilter;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::{
     SendableSequentialStream, SequenceId, SequencePointer, SequentialStream,
@@ -156,11 +160,27 @@ impl LayoutStrategy for DictStrategy {
                     ).await
                 });
 
+                let bloom_id = eof.split_off().downgrade();
+                let bloom_fut = handle.spawn_nested(move |h| async move {
+                    // stuff
+                });
+                // // Write bloom filters if available
+                // let (values_sequence_id, values_array) = values_fut.await?;
+                // let values_fut: BoxFuture<SequencedChunk> = ready(Ok((values_sequence_id, values_array.clone()))).boxed();
+                // let bloom_segment_id = if let Some(bloom_filter) = build_bloom_filter_from_dictionary_values(values_array.as_ref()) {
+                //     // Write the bloom filter as its own segment before the values
+                //     let bloom_sequence_id = eof.split_off().downgrade();
+                //     Ok(Some(segment_sink.write(bloom_sequence_id, vec![bloom_filter.serialize()]).await?))
+                // } else {
+                //     Ok(None)
+                // };
+
                 let values = self.values.clone();
                 let values_eof = eof.split_off();
                 let ctx2 = ctx.clone();
                 let segment_sink2 = segment_sink.clone();
                 let dtype2 = dtype2.clone();
+                // let values_fut = ready(Ok((values_sequence_id, values_array)));
                 let values_layout = handle.spawn_nested(move |h| async move {
                     values.write_stream(
                         ctx2,
@@ -173,6 +193,7 @@ impl LayoutStrategy for DictStrategy {
 
                 yield async move {
                     try_join!(codes_fut, values_layout)
+                    // try_join!(codes_fut, values_layout, ready(bloom_segment_id).boxed())
                 }.boxed();
             }
         };
@@ -180,8 +201,20 @@ impl LayoutStrategy for DictStrategy {
         let mut child_layouts = child_layouts
             .buffered(usize::MAX)
             .map(|result| {
+                // let (codes_layout, values_layout, bloom_segment_id) = result?;
                 let (codes_layout, values_layout) = result?;
+                // if let Some(bloom_filter_segment) = bloom_segment_id {
+                //     Ok::<_, VortexError>(
+                //         DictLayout::new_with_bloom_filter(
+                //             values_layout,
+                //             codes_layout,
+                //             bloom_filter_segment,
+                //         )
+                //         .into_layout(),
+                //     )
+                // } else {
                 Ok::<_, VortexError>(DictLayout::new(values_layout, codes_layout).into_layout())
+                // }
             })
             .try_collect::<Vec<_>>()
             .await?;
@@ -313,6 +346,61 @@ impl DictStreamState {
             None => Vec::new(),
             Some(encoder) => vec![encoder.values().map(|val| labeler.values(val))],
         }
+    }
+}
+
+/// Target false positivity rate for bloom filters
+const FP_TARGET: f64 = 0.01;
+
+/// Attempt to build a new bloom filter from the dictionary values, if it's
+/// one of the supported types.
+fn build_bloom_filter_from_dictionary_values(values: &dyn Array) -> Option<BloomFilter> {
+    let ndv = values.len() - values.invalid_count();
+    let mut bloom = BloomFilter::new_sbbf_ndv_fp(ndv, FP_TARGET);
+
+    fn insert_utf8(utf8: &VarBinViewArray, filter: &mut BloomFilter) {
+        assert!(
+            utf8.dtype().is_utf8(),
+            "insert_utf8 called with non-utf8 chunk"
+        );
+
+        for index in 0..utf8.len() {
+            if utf8.is_valid(index) {
+                // SAFETY: we enforce at the top that this is a UTF-8 chunk
+                let bytes = utf8.bytes_at(index);
+                let string = unsafe { std::str::from_utf8_unchecked(&bytes) };
+                filter.insert(string);
+            }
+        }
+    }
+
+    // Binary data can still be inserted in this way.
+    fn insert_binary(binary: &VarBinViewArray, filter: &mut BloomFilter) {
+        assert!(
+            binary.dtype().is_utf8(),
+            "insert_utf8 called with non-utf8 chunk"
+        );
+
+        for index in 0..binary.len() {
+            if binary.is_valid(index) {
+                // SAFETY: we enforce at the top that this is a UTF-8 chunk
+                let bytes = binary.bytes_at(index);
+                filter.insert_raw(bytes);
+            }
+        }
+    }
+
+    // Embed the canonical values into bloom filter.
+    if let Canonical::VarBinView(bytestrings) = values.to_canonical() {
+        if bytestrings.dtype().is_utf8() {
+            insert_utf8(&bytestrings, &mut bloom);
+        } else {
+            insert_binary(&bytestrings, &mut bloom);
+        }
+
+        Some(bloom)
+    } else {
+        None
     }
 }
 

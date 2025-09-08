@@ -25,6 +25,7 @@ const ONE_MEG: u64 = 1 << 20;
 pub struct WriteStrategyBuilder {
     compressor: Option<Arc<dyn CompressorPlugin>>,
     row_block_size: usize,
+    write_bloom_filters: bool,
 }
 
 impl Default for WriteStrategyBuilder {
@@ -40,6 +41,7 @@ impl WriteStrategyBuilder {
         Self {
             compressor: None,
             row_block_size: 8192,
+            write_bloom_filters: false,
         }
     }
 
@@ -55,6 +57,14 @@ impl WriteStrategyBuilder {
     /// Override the row block size used to determine the zone map sizes.
     pub fn with_row_block_size(mut self, row_block_size: usize) -> Self {
         self.row_block_size = row_block_size;
+        self
+    }
+
+    /// Enable or disable bloom filters being written to disk.
+    ///
+    /// This is experimental currently, viewer discretion is advised.
+    pub fn with_experimental_bloom_filters(mut self, write_bloom_filters: bool) -> Self {
+        self.write_bloom_filters = write_bloom_filters;
         self
     }
 

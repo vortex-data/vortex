@@ -116,7 +116,7 @@ impl SequenceId {
     ///
     /// This is particularly useful for ordering recursively created work:
     /// - Recursive algorithms that spawn child tasks
-    /// - Ensuring deterministic processing order across concurrent operations  
+    /// - Ensuring deterministic processing order across concurrent operations
     /// - Converting hierarchical sequence identifiers to linear segment identifiers
     ///
     /// # Returns
