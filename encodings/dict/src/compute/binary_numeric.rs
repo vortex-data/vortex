@@ -4,7 +4,7 @@
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{NumericKernel, NumericKernelAdapter, numeric};
 use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexResult;
 use vortex_scalar::NumericOperator;
 
 use crate::{DictArray, DictVTable};
